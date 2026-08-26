@@ -14,6 +14,8 @@ public enum GuiConfigFieldType {
     INT,
     /** 普通字符串输入。 */
     STRING,
+    /** 本地时间输入（HH:mm）。 */
+    TIME,
     /** 受控枚举选择。 */
     ENUM,
     /** 敏感密码输入。 */

@@ -100,18 +100,18 @@ public class ArtworksBackFill {
             ArtworksBackFillDatabase database,
             boolean requiresStoppedBackend
     ) throws Exception {
-        log.info(message(
+        log.info(logMessage(
                 "artworks-backfill.log.started",
                 options.dbPath(),
                 options.useProxy()
                         ? options.proxyHost() + ":" + options.proxyPort()
-                        : message("artworks-backfill.option.proxy.none"),
+                        : logMessage("artworks-backfill.option.proxy.none"),
                 options.delayMs(),
-                options.limit() > 0 ? options.limit() : message("artworks-backfill.option.limit.all"),
+                options.limit() > 0 ? options.limit() : logMessage("artworks-backfill.option.limit.all"),
                 options.dryRun()
         ));
         if (requiresStoppedBackend) {
-            log.info(message("artworks-backfill.log.stop-backend-hint"));
+            log.info(logMessage("artworks-backfill.log.stop-backend-hint"));
         }
 
         ObjectMapper mapper = new ObjectMapper();
@@ -120,7 +120,7 @@ public class ArtworksBackFill {
                 unreachablePath,
                 mapper
         );
-        log.info(message("artworks-backfill.unreachable.loaded", unreachablePath, unreachable.size()));
+        log.info(logMessage("artworks-backfill.unreachable.loaded", unreachablePath, unreachable.size()));
 
         try (ArtworksBackFillPixivClient pixivClient = ArtworksBackFillPixivClient.open(options, mapper)) {
 
@@ -131,9 +131,9 @@ public class ArtworksBackFill {
             List<ArtworksBackFillDatabase.Candidate> candidates = filtered.candidates();
             int previouslyUnreachable = filtered.skippedUnreachable();
             if (previouslyUnreachable > 0) {
-                log.info(message("artworks-backfill.unreachable.skipped-existing", previouslyUnreachable));
+                log.info(logMessage("artworks-backfill.unreachable.skipped-existing", previouslyUnreachable));
             }
-            log.info(message("artworks-backfill.log.candidates.count", candidates.size()));
+            log.info(logMessage("artworks-backfill.log.candidates.count", candidates.size()));
             if (candidates.isEmpty()) {
                 Summary summary = new Summary(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, previouslyUnreachable, 0, options.dryRun(), false);
                 logSummary(summary);
@@ -167,29 +167,29 @@ public class ArtworksBackFill {
 
                         List<String> changes = new ArrayList<>();
                         if (didAuthor) {
-                            changes.add(message("artworks-backfill.log.change.author", result.authorName, result.authorId));
+                            changes.add(logMessage("artworks-backfill.log.change.author", result.authorName, result.authorId));
                         }
                         if (didR18) {
-                            changes.add(message("artworks-backfill.log.change.r18", result.xRestrict));
+                            changes.add(logMessage("artworks-backfill.log.change.r18", result.xRestrict));
                         }
                         if (didAi) {
-                            changes.add(message("artworks-backfill.log.change.ai", result.isAi ? 1 : 0));
+                            changes.add(logMessage("artworks-backfill.log.change.ai", result.isAi ? 1 : 0));
                         }
                         if (didDesc) {
-                            changes.add(message("artworks-backfill.log.change.description", result.description.length()));
+                            changes.add(logMessage("artworks-backfill.log.change.description", result.description.length()));
                         }
                         if (didTags) {
-                            changes.add(message("artworks-backfill.log.change.tags", result.tags.size()));
+                            changes.add(logMessage("artworks-backfill.log.change.tags", result.tags.size()));
                         }
                         if (didSeries) {
-                            changes.add(message("artworks-backfill.log.change.series", result.seriesId, result.seriesOrder));
+                            changes.add(logMessage("artworks-backfill.log.change.series", result.seriesId, result.seriesOrder));
                         }
 
                         if (changes.isEmpty()) {
-                            log.info(message("artworks-backfill.log.no-fillable-data", prefix));
+                            log.info(logMessage("artworks-backfill.log.no-fillable-data", prefix));
                             skipped++;
                         } else {
-                            log.info(message("artworks-backfill.log.changes", prefix, String.join(", ", changes)));
+                            log.info(logMessage("artworks-backfill.log.changes", prefix, String.join(", ", changes)));
                             if (!options.dryRun()) {
                                 database.applyUpdates(
                                         candidate,
@@ -212,18 +212,18 @@ public class ArtworksBackFill {
                     }
                     case R18_ONLY -> {
                         if (candidate.r18Missing()) {
-                            log.info(message("artworks-backfill.log.r18-only", prefix, result.message));
+                            log.info(logMessage("artworks-backfill.log.r18-only", prefix, result.message));
                             filledR18++;
                             if (!options.dryRun()) {
                                 database.applyR18Only(candidate.artworkId());
                             }
                         } else {
-                            log.info(message("artworks-backfill.log.skip.r18-already-filled", prefix, result.message));
+                            log.info(logMessage("artworks-backfill.log.skip.r18-already-filled", prefix, result.message));
                             skipped++;
                         }
                     }
                     case DELETED -> {
-                        log.info(message("artworks-backfill.log.deleted-skip", prefix, result.message));
+                        log.info(logMessage("artworks-backfill.log.deleted-skip", prefix, result.message));
                         deletedCount++;
                         boolean alreadyKnown = unreachable.contains(candidate.artworkId());
                         unreachable.record(candidate.artworkId(), result.message);
@@ -233,17 +233,17 @@ public class ArtworksBackFill {
                         persistUnreachable(unreachable, unreachablePath);
                     }
                     case SKIP -> {
-                        log.info(message("artworks-backfill.log.skip", prefix, result.message));
+                        log.info(logMessage("artworks-backfill.log.skip", prefix, result.message));
                         skipped++;
                     }
                     case RATE_LIMITED -> {
-                        log.warn(message("artworks-backfill.log.rate-limited", prefix));
-                        log.info(message(
+                        log.warn(logMessage("artworks-backfill.log.rate-limited", prefix));
+                        log.info(logMessage(
                                 "artworks-backfill.log.progress",
                                 i, candidates.size(), filledAuthor, filledR18, filledAi, filledDescription, filledTags, filledSeries, deletedCount, skipped
                         ));
                         if (options.dryRun()) {
-                            log.info(message("artworks-backfill.log.dry-run"));
+                            log.info(logMessage("artworks-backfill.log.dry-run"));
                         }
                         persistUnreachable(unreachable, unreachablePath);
                         Summary summary = new Summary(
@@ -298,12 +298,12 @@ public class ArtworksBackFill {
         try {
             store.save();
         } catch (IOException e) {
-            log.warn(message("artworks-backfill.unreachable.save-failed", path, e.getMessage()));
+            log.warn(logMessage("artworks-backfill.unreachable.save-failed", path, e.getMessage()));
         }
     }
 
     private static void logSummary(Summary summary) {
-        log.info(message(
+        log.info(logMessage(
                 "artworks-backfill.log.summary",
                 summary.totalCandidates(),
                 summary.filledAuthor(),
@@ -318,7 +318,7 @@ public class ArtworksBackFill {
                 summary.newlyUnreachable()
         ));
         if (summary.dryRun()) {
-            log.info(message("artworks-backfill.log.dry-run"));
+            log.info(logMessage("artworks-backfill.log.dry-run"));
         }
     }
 
@@ -416,6 +416,10 @@ public class ArtworksBackFill {
 
     private static String message(String code, Object... args) {
         return MessageBundles.get(code, args);
+    }
+
+    private static String logMessage(String code, Object... args) {
+        return MessageBundles.getForLog(code, args);
     }
 
     public record DatabaseColumn(String tableName, String columnName) {

@@ -614,7 +614,7 @@ final class DesktopConfigurationLoader {
                     int port = Integer.parseInt(value);
                     yield port >= 1 && port <= 65_535;
                 }
-                case PATH_DIR, PATH_FILE, STRING, PASSWORD -> true;
+                case PATH_DIR, PATH_FILE, STRING, TIME, PASSWORD -> true;
             };
         } catch (Exception ignored) {
             return false;

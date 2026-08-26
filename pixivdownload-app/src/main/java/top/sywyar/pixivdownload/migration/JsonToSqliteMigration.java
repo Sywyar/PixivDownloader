@@ -104,11 +104,11 @@ public class JsonToSqliteMigration {
         File historyFile = Paths.get(options.rootFolder(), DOWNLOAD_HISTORY_FILE).toFile();
         File statisticsFile = Paths.get(options.rootFolder(), STATISTICS_FILE).toFile();
 
-        log.info(message("migration.log.started", historyFile.getAbsolutePath()));
+        log.info(logMessage("migration.log.started", historyFile.getAbsolutePath()));
 
         if (!historyFile.exists()) {
             String msg = message("migration.log.history-not-found");
-            log.info(msg);
+            log.info(logMessage("migration.log.history-not-found"));
             report(reporter, msg);
             return new Summary(0, 0, 0, true, msg);
         }
@@ -147,7 +147,7 @@ public class JsonToSqliteMigration {
                     try {
                         artworkId = Long.parseLong(entry.getKey());
                     } catch (NumberFormatException e) {
-                        log.warn(message("migration.log.invalid-artwork-id", entry.getKey()));
+                        log.warn(logMessage("migration.log.invalid-artwork-id", entry.getKey()));
                         skipped++;
                         continue;
                     }
@@ -204,18 +204,19 @@ public class JsonToSqliteMigration {
                     writeStats(conn, totalArtworks, totalImages, totalMoved);
                     String statsMsg = message(
                             "migration.log.statistics-migrated", totalArtworks, totalImages, totalMoved);
-                    log.info(statsMsg);
+                    log.info(logMessage(
+                            "migration.log.statistics-migrated", totalArtworks, totalImages, totalMoved));
                     report(reporter, statsMsg);
                 } else {
                     String statsMsg = message("migration.log.statistics-skipped");
-                    log.info(statsMsg);
+                    log.info(logMessage("migration.log.statistics-skipped"));
                     report(reporter, statsMsg);
                 }
             }
         }
 
         String msg = message("migration.log.completed", migrated, skipped);
-        log.info(msg);
+        log.info(logMessage("migration.log.completed", migrated, skipped));
         report(reporter, msg);
         return new Summary(total, migrated, skipped, false, msg);
     }
@@ -325,6 +326,10 @@ public class JsonToSqliteMigration {
 
     private static String message(String code, Object... args) {
         return MessageBundles.get(code, args);
+    }
+
+    private static String logMessage(String code, Object... args) {
+        return MessageBundles.getForLog(code, args);
     }
 
     public record Options(String dbPath, String rootFolder) {

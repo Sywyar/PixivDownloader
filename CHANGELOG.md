@@ -33,6 +33,10 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - 下载页预览结果支持折叠 / 展开，方便在加入队列后减少列表干扰。
 
 ### Changed
+- AI 配置现在可按当前未保存的地址、密钥与代理设置读取服务实际可见的模型；Gemini、xAI、Groq、Moonshot、Doubao、ERNIE 与 MiniMax 预设默认模型已按服务商当前文档更新。
+- 未绑定 Cookie 的公开 Pixiv 计划任务现在会按受限模式实际运行，即使任务保留了仅登录时生效的筛选或收藏选项也不会在启动前误报凭证不可用并挂起；账号专属来源仍要求凭证。
+- 计划任务在两个下载工作台页面中都会显示来源提供者给出的挂起原因；Pixiv 账号触发过度访问保护时，网页现在会展示与通知相同的安全原因摘要。
+- 应用自有日志文案现在固定使用英文，不再随请求、桌面界面或 JVM 系统语言变化；HTML 日志也固定声明英文文档语言。
 - FFmpeg 自动安装改用项目从官方最新稳定源码构建的固定 Release，并按 Windows x64、Linux x64/arm64 与 macOS x64/arm64 自动选择资产；不再依赖每日构建版。
 - 桌面 Swing 界面与主题实现已从主程序抽离并合并为官方外置 `gui-swing` 插件；宿主仅保留工具包无关的 `DesktopUiProvider` / `DesktopUiHost` 稳定契约与确定性选择流程，`app.gui-provider` 可显式选择界面提供者，显式提供者不可用时会给出诊断并退回唯一默认提供者，无法唯一选择时拒绝静默启动。
 - 默认桌面界面改为随标准包安装的 `gui-compose` Compose Multiplatform 插件，`gui-swing` 保留为自动后备；两者仍可在「配置 → 界面」中切换，若均缺席则由主程序引导用户打开插件市场恢复界面。
@@ -91,6 +95,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - AI、TTS 与推送插件的携密 HTTP 客户端不再保存 Cookie 或跟随重定向，配置页会提示自定义目标能够接收正文、凭据并访问内网；管理员仍可明确使用受信的本地、自建或 HTTP 服务。
 
 ### Bug Fixes
+- 修复桌面 GUI 重启后总是回到默认窗口大小的问题；Swing 与 Compose 现在都会恢复上次的普通窗口尺寸和最大化状态。
 - 修复韩语桌面 GUI 被已安装但不覆盖 Hangul 的中文字体覆盖后显示为方框的问题；字体选择现在按当前界面语言验证实际字形覆盖，语言热切换时也会重新应用匹配字体。
 - 图片分类器不再预置不可移植的目标目录；首次使用未配置分类目录时会提示先在设置中添加。
 - 修复下载工作台预览小说后，提交下载仍会重新抓取同一份 Pixiv 小说响应的问题；现在使用绑定当前 owner、作品与取得凭据的 120 秒一次性票据复用已验证响应，票据池最多 256 项且每个 token 使用 32 个随机字节。

@@ -149,6 +149,19 @@ assert.strictEqual(sandbox.isValidProxyHostPort('127.0.0.1:65536'), false);
 assert.strictEqual(sandbox.isValidProxyHostPort('http://127.0.0.1:7890'), false);
 assert.strictEqual(sandbox.scheduleTaskKind({presentation: {attributes: {kind: 'external'}}}), 'external');
 assert.strictEqual(sandbox.scheduleTaskKind({presentation: {}}), null);
+sandbox.window.PixivBatch.scheduleSources.credentialTaskPresentation = (_sourceType, task) =>
+    task.suspendCode === 'pixiv.schedule.overuse'
+        ? {statusLabel: '风控原因详情', lightTone: 'red', lightText: '风控原因详情'}
+        : null;
+const suspendedTask = {
+    enabled: true,
+    sourceType: 'user-new',
+    lastStatus: 'OVERUSE_PAUSED',
+    suspendReason: 'POLICY',
+    suspendCode: 'pixiv.schedule.overuse'
+};
+assert.strictEqual(sandbox.scheduleStatusLight(suspendedTask).text, '风控原因详情');
+assert.strictEqual(sandbox.scheduleStatusLabel(suspendedTask), '风控原因详情');
 
 (async () => {
     const feedbackCalls = [];

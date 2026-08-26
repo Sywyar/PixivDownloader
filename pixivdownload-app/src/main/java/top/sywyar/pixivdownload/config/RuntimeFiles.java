@@ -279,7 +279,7 @@ public final class RuntimeFiles {
                 }
             }
         } catch (IOException e) {
-            log.warn(message(
+            log.warn(logMessage(
                     "runtime.log.download-root.read-failed",
                     configPath.toAbsolutePath(),
                     e.getMessage()
@@ -389,22 +389,22 @@ public final class RuntimeFiles {
 
         if (!Files.exists(target)) {
             if (hasAnyCompanion(target, companionSuffixes)) {
-                log.warn(message("runtime.log.legacy-conflict.retained", normalizedLegacy, normalizedTarget));
+                log.warn(logMessage("runtime.log.legacy-conflict.retained", normalizedLegacy, normalizedTarget));
                 return;
             }
             copyFileUnit(legacy, target, companionSuffixes);
             deleteFileUnit(legacy, companionSuffixes);
-            log.info(message("runtime.log.file.migrated", normalizedLegacy, normalizedTarget));
+            log.info(logMessage("runtime.log.file.migrated", normalizedLegacy, normalizedTarget));
             return;
         }
 
         if (fileUnitsMatch(legacy, target, companionSuffixes)) {
             deleteFileUnit(legacy, companionSuffixes);
-            log.info(message("runtime.log.legacy-duplicate.deleted", normalizedLegacy));
+            log.info(logMessage("runtime.log.legacy-duplicate.deleted", normalizedLegacy));
             return;
         }
 
-        log.warn(message("runtime.log.legacy-conflict.retained", normalizedLegacy, normalizedTarget));
+        log.warn(logMessage("runtime.log.legacy-conflict.retained", normalizedLegacy, normalizedTarget));
     }
 
     private static void adoptLegacyDirectory(Path target, Path legacy) throws IOException {
@@ -418,7 +418,7 @@ public final class RuntimeFiles {
             return;
         }
         if (!Files.isDirectory(legacy)) {
-            log.warn(message("runtime.log.legacy-directory.not-directory", normalizedLegacy));
+            log.warn(logMessage("runtime.log.legacy-directory.not-directory", normalizedLegacy));
             return;
         }
 
@@ -437,9 +437,9 @@ public final class RuntimeFiles {
 
         deleteEmptyDirectories(legacy);
         if (Files.exists(legacy, LinkOption.NOFOLLOW_LINKS)) {
-            log.warn(message("runtime.log.legacy-conflict.retained", normalizedLegacy, normalizedTarget));
+            log.warn(logMessage("runtime.log.legacy-conflict.retained", normalizedLegacy, normalizedTarget));
         } else {
-            log.info(message("runtime.log.directory.migrated", normalizedLegacy, normalizedTarget));
+            log.info(logMessage("runtime.log.directory.migrated", normalizedLegacy, normalizedTarget));
         }
     }
 
@@ -592,5 +592,9 @@ public final class RuntimeFiles {
 
     private static String message(String code, Object... args) {
         return MessageBundles.get(code, args);
+    }
+
+    private static String logMessage(String code, Object... args) {
+        return MessageBundles.getForLog(code, args);
     }
 }

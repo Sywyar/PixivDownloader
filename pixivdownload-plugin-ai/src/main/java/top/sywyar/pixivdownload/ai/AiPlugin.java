@@ -8,6 +8,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionPayloadType;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultArgument;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultRule;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultSummary;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
@@ -72,6 +73,7 @@ public class AiPlugin implements PixivFeaturePlugin {
     public List<WebRouteContribution> routes() {
         return List.of(
                 WebRouteContribution.gui("/api/gui/ai-test"),
+                WebRouteContribution.gui("/api/gui/ai-models"),
                 WebRouteContribution.admin("/api/admin/ai/**"),
                 WebRouteContribution.visitorAndInvitedGuest("/pixiv-ai/**"));
     }
@@ -136,10 +138,62 @@ public class AiPlugin implements PixivFeaturePlugin {
                         .map(field -> new GuiConfigFieldLayoutContribution(
                                 field.key(), TEXT_CARD_ID, "gui.config.ai.modality.text", ID, field.order()))
                         .toList(),
-                List.of(aiTestAction()),
+                List.of(aiModelsAction(), aiTestAction()),
                 aiPresets(),
                 true,
                 true);
+    }
+
+    private static GuiConfigActionContribution aiModelsAction() {
+        return new GuiConfigActionContribution(
+                "ai.models",
+                "gui.config.ai.models-button.label",
+                "gui.config.ai.models-button.help",
+                ID,
+                TEXT_CARD_ID,
+                "ai-models",
+                60_000,
+                900,
+                List.of(
+                        new GuiConfigActionPayloadField("baseUrl", "ai.base-url"),
+                        new GuiConfigActionPayloadField("apiKey", "ai.api-key"),
+                        new GuiConfigActionPayloadField(
+                                "useProxy", "ai.use-proxy", GuiConfigActionPayloadType.BOOLEAN)),
+                "gui.config.ai.models.notice.sending",
+                List.of(
+                        new GuiConfigActionResultRule(
+                                "gui.config.ai.models.notice.unreachable",
+                                ID,
+                                10,
+                                List.of(GuiConfigActionResultCondition.reachable(false)),
+                                List.of()),
+                        new GuiConfigActionResultRule(
+                                "gui.config.ai.models.notice.success",
+                                ID,
+                                20,
+                                List.of(
+                                        GuiConfigActionResultCondition.reachable(true),
+                                        GuiConfigActionResultCondition.http2xx(true),
+                                        GuiConfigActionResultCondition.jsonTrue("success")),
+                                List.of(GuiConfigActionResultArgument.json("count"))),
+                        new GuiConfigActionResultRule(
+                                "gui.config.ai.models.notice.failed",
+                                ID,
+                                30,
+                                List.of(
+                                        GuiConfigActionResultCondition.reachable(true),
+                                        GuiConfigActionResultCondition.http2xx(true),
+                                        GuiConfigActionResultCondition.jsonFalse("success")),
+                                List.of(GuiConfigActionResultArgument.json("error"))),
+                        new GuiConfigActionResultRule(
+                                "gui.config.ai.models.notice.failed-http",
+                                ID,
+                                40,
+                                List.of(
+                                        GuiConfigActionResultCondition.reachable(true),
+                                        GuiConfigActionResultCondition.http2xx(false)),
+                                List.of())),
+                GuiConfigActionResultSummary.allItems("models", "id", "ownedBy"));
     }
 
     private static GuiConfigActionContribution aiTestAction() {

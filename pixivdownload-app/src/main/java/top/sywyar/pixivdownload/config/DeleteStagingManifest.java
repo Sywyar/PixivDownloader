@@ -128,7 +128,7 @@ public final class DeleteStagingManifest {
         try (Stream<Path> children = Files.list(stagingRoot)) {
             subdirectories = children.filter(PlainFilePathGuard::isPlainDirectory).toList();
         } catch (IOException e) {
-            log.warn(MessageBundles.get("runtime.log.delete-staging.scan-failed", stagingRoot));
+            log.warn(MessageBundles.getForLog("runtime.log.delete-staging.scan-failed", stagingRoot));
             return;
         }
         for (Path subdirectory : subdirectories) {
@@ -141,7 +141,7 @@ public final class DeleteStagingManifest {
         if (entries.isEmpty() || entries.get().stream()
                 .anyMatch(entry -> !isWithinAllowedRoot(entry.originalFile(), allowedRoots))) {
             // 清单缺失 / 损坏：无法确定哪些原文件已被删，保守保留整个子目录（含唯一备份）供人工恢复。
-            log.warn(MessageBundles.get("runtime.log.delete-staging.manifest-unreadable", subdirectory));
+            log.warn(MessageBundles.getForLog("runtime.log.delete-staging.manifest-unreadable", subdirectory));
             return;
         }
         boolean fullyRecovered = true;
@@ -151,13 +151,13 @@ public final class DeleteStagingManifest {
             }
         }
         if (!fullyRecovered) {
-            log.warn(MessageBundles.get("runtime.log.delete-staging.recovery-incomplete", subdirectory));
+            log.warn(MessageBundles.getForLog("runtime.log.delete-staging.recovery-incomplete", subdirectory));
             return;
         }
         if (cleanRecoveredSubdirectory(subdirectory, entries.get())) {
-            log.info(MessageBundles.get("runtime.log.delete-staging.recovered", subdirectory));
+            log.info(MessageBundles.getForLog("runtime.log.delete-staging.recovered", subdirectory));
         } else {
-            log.warn(MessageBundles.get("runtime.log.delete-staging.cleanup-failed", subdirectory));
+            log.warn(MessageBundles.getForLog("runtime.log.delete-staging.cleanup-failed", subdirectory));
         }
     }
 
@@ -196,7 +196,7 @@ public final class DeleteStagingManifest {
         }
         if (!PlainFilePathGuard.isPlainRegularFile(staged)) {
             // 原文件已删且暂存副本也不可用：这一份无法恢复，记 error 并据此保留子目录。
-            log.error(MessageBundles.get("runtime.log.delete-staging.staged-missing", original, staged));
+            log.error(MessageBundles.getForLog("runtime.log.delete-staging.staged-missing", original, staged));
             return false;
         }
         try {
@@ -206,10 +206,10 @@ public final class DeleteStagingManifest {
             }
             copyRestoredFile(staged, original);
             PlainFilePathGuard.requirePlainRegularFile(original);
-            log.info(MessageBundles.get("runtime.log.delete-staging.restored", original));
+            log.info(MessageBundles.getForLog("runtime.log.delete-staging.restored", original));
             return true;
         } catch (IOException e) {
-            log.error(MessageBundles.get("runtime.log.delete-staging.restore-failed", original, subdirectory));
+            log.error(MessageBundles.getForLog("runtime.log.delete-staging.restore-failed", original, subdirectory));
             return false;
         }
     }

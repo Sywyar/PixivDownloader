@@ -1,7 +1,16 @@
 package top.sywyar.pixivdownload.guicompose
 
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPlacement
+import androidx.compose.ui.window.application
+import androidx.compose.ui.window.rememberWindowState
+import cn.longzhengyi.windowsdecoration.BorderlessTitleBarScaffold
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty
 import org.jetbrains.skia.Image
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost
@@ -11,9 +20,11 @@ import top.sywyar.pixivdownload.guicompose.model.DesktopUiSnapshot
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiDocument
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode
 import java.awt.Dimension
+import java.awt.Frame
 import java.awt.Insets
 import java.awt.Point
 import java.awt.Rectangle
+import java.awt.event.WindowStateListener
 import java.lang.reflect.Proxy
 import java.nio.file.Files
 import java.nio.file.Path
@@ -21,8 +32,10 @@ import java.util.Base64
 import java.util.Locale
 import java.util.ResourceBundle
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import java.util.function.Consumer
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -138,6 +151,79 @@ class GuiComposePluginTest {
         assertFalse(windowVisibleForTrayState(true, true))
         assertTrue(windowVisibleForTrayState(true, false))
         assertTrue(windowVisibleForTrayState(false, true))
+    }
+
+    @Test
+    @DisplayName("恢复普通窗口尺寸并单独保留最大化状态")
+    fun restoresWindowSizeAndMaximizedState() {
+        assertEquals(DpSize(1120.dp, 760.dp), restoredWindowSize(null))
+        assertEquals(
+            DpSize(1280.dp, 800.dp),
+            restoredWindowSize(DesktopUiHost.WindowStateSnapshot(1280, 800, true)),
+        )
+        assertEquals(
+            DesktopUiHost.WindowStateSnapshot(1280, 800, true),
+            persistedWindowState(DpSize(1280.dp, 800.dp), true),
+        )
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = "os.name", matches = ".*[Ww]indows.*")
+    @DisplayName("窗口显示后真实恢复最大化状态")
+    fun restoresNativeMaximizedWindowAfterShowing() {
+        val ready = CountDownLatch(1)
+        val maximized = CountDownLatch(1)
+        val exit = AtomicReference<(() -> Unit)?>(null)
+        val failure = AtomicReference<Throwable?>(null)
+        val uiThread = Thread {
+            try {
+                application(exitProcessOnExit = false) {
+                    exit.set(::exitApplication)
+                    val windowState = rememberWindowState(size = DpSize(1280.dp, 800.dp))
+                    Window(onCloseRequest = ::exitApplication, state = windowState) {
+                        RestoreSavedWindowPlacement(
+                            window,
+                            DesktopUiHost.WindowStateSnapshot(1280, 800, true),
+                        )
+                        BorderlessTitleBarScaffold(windowState) {}
+                        DisposableEffect(window) {
+                            val listener = WindowStateListener {
+                                if (window.extendedState == Frame.MAXIMIZED_BOTH &&
+                                    windowState.placement == WindowPlacement.Maximized
+                                ) {
+                                    maximized.countDown()
+                                }
+                            }
+                            window.addWindowStateListener(listener)
+                            if (window.extendedState == Frame.MAXIMIZED_BOTH &&
+                                windowState.placement == WindowPlacement.Maximized
+                            ) {
+                                maximized.countDown()
+                            }
+                            ready.countDown()
+                            onDispose { window.removeWindowStateListener(listener) }
+                        }
+                    }
+                }
+            } catch (problem: Throwable) {
+                failure.set(problem)
+                ready.countDown()
+            }
+        }.apply {
+            name = "compose-window-maximized-test"
+            isDaemon = true
+            start()
+        }
+
+        try {
+            assertTrue(ready.await(10, TimeUnit.SECONDS))
+            failure.get()?.let { throw it }
+            assertTrue(maximized.await(5, TimeUnit.SECONDS))
+        } finally {
+            exit.get()?.invoke()
+            uiThread.join(10_000)
+        }
+        failure.get()?.let { throw it }
     }
 
     @Test

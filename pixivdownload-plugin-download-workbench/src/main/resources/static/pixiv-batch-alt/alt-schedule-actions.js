@@ -295,7 +295,7 @@ function openScheduleSnapshot(task) {
             ? bt('schedule.state.enabled', '已启用') : bt('schedule.state.disabled', '已停用')],
         [bt('schedule.snapshot.field.next-run', '下次运行'), fmtScheduleTime(task.nextRunTime)],
         [bt('schedule.snapshot.field.last-run', '上次运行'), fmtScheduleTime(task.lastRunTime)],
-        [bt('schedule.snapshot.field.last-status', '运行状态'), scheduleStatusLabel(task.lastStatus)]
+        [bt('schedule.snapshot.field.last-status', '运行状态'), scheduleStatusLabel(task)]
     ];
     if (kind) basicRows.splice(2, 0,
         [bt('schedule.snapshot.field.kind', '作品类型'), scheduleKindLabel(kind)]);

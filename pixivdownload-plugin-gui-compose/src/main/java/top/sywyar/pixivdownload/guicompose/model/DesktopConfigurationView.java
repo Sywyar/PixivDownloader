@@ -148,7 +148,10 @@ final class DesktopConfigurationView {
                                 2,
                                 16,
                                 16,
-                                List.of(column("settings.sidebar", categories, summary), content)
+                                List.of(
+                                        column("settings.sidebar", categories, summary),
+                                        column("settings.content.height", content)
+                                )
                         )
                 )
         );

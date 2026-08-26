@@ -103,7 +103,7 @@ public class HtmlLogLayout extends LayoutBase<ILoggingEvent> {
                 </head>
                 <body>
                 """.formatted(
-                java.util.Locale.getDefault().toLanguageTag(),
+                "en",
                 AppInfo.NAME,
                 COLOR_INFO, COLOR_WARN, COLOR_ERROR, COLOR_DEBUG, COLOR_TRACE);
     }

@@ -46,7 +46,7 @@ public interface MessageResolver {
     String get(Locale locale, String code, Object... args);
 
     /**
-     * 返回对应值。
+     * 返回固定英文的日志文案，不受请求或系统语言影响。
      *
      * @param code 代码
      * @param defaultMessage 默认值消息

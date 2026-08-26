@@ -711,6 +711,28 @@ public interface DesktopUiHost extends DesktopUiToolHost {
     }
 
     /**
+     * 读取由应用宿主进程拥有的桌面窗口状态。该状态不属于插件 publication；宿主不支持、文件缺失、
+     * 损坏或不可读取时返回空，provider 必须使用自己的默认窗口状态继续启动。
+     *
+     * @return 上次关闭桌面窗口时保存的普通窗口尺寸与最大化状态；没有可用状态时为空
+     */
+    default Optional<WindowStateSnapshot> loadWindowState() {
+        return Optional.empty();
+    }
+
+    /**
+     * 尽力保存由应用宿主进程拥有的工具包无关桌面窗口状态。最大化时的宽高仍表示最后一次普通窗口
+     * 尺寸；状态不含坐标、凭据或其它敏感信息。该持久化是非权威辅助效果，失败时返回 {@code false}，
+     * 不阻止窗口关闭，也不受插件 quiesce 或 publication 换代影响。
+     *
+     * @param state 窗口状态
+     * @return 状态是否已持久化
+     */
+    default boolean saveWindowState(WindowStateSnapshot state) {
+        return false;
+    }
+
+    /**
      * 返回宿主拥有的引导持久化快照。
      *
      * @param rootFolder 应用根目录
@@ -1171,6 +1193,21 @@ public interface DesktopUiHost extends DesktopUiToolHost {
          */
         public boolean complete() {
             return finished && setupComplete;
+        }
+    }
+
+    /**
+     * 工具包无关的桌面窗口状态，只包含非敏感布局事实，不包含屏幕坐标。
+     *
+     * @param width     最后一次普通窗口宽度
+     * @param height    最后一次普通窗口高度
+     * @param maximized 关闭窗口时是否最大化
+     */
+    record WindowStateSnapshot(int width, int height, boolean maximized) {
+        public WindowStateSnapshot {
+            if (width <= 0 || height <= 0 || width > 32_768 || height > 32_768) {
+                throw new IllegalArgumentException("window dimensions must be between 1 and 32768");
+            }
         }
     }
 

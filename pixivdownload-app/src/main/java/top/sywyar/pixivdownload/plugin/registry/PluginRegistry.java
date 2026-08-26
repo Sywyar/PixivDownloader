@@ -592,7 +592,7 @@ public class PluginRegistry implements SmartLifecycle {
                     break;
                 }
                 recordLifecycleFailure(registered, failure);
-                log.error(MessageBundles.get(
+                log.error(MessageBundles.getForLog(
                         "plugin.log.start-failed", registered.id(), failure.getMessage()), failure);
             }
         }
@@ -620,7 +620,7 @@ public class PluginRegistry implements SmartLifecycle {
         running = true;
         List<String> startedIds = plugins.stream().filter(this::featureStarted)
                 .map(RegisteredPlugin::id).toList();
-        log.info(MessageBundles.get("plugin.log.started", startedIds.size(), String.join(", ", startedIds)));
+        log.info(MessageBundles.getForLog("plugin.log.started", startedIds.size(), String.join(", ", startedIds)));
     }
 
     @Override
@@ -642,7 +642,7 @@ public class PluginRegistry implements SmartLifecycle {
                     if (fatal != null) {
                         addSuppressedSafely(fatal, failure);
                     }
-                    log.warn(MessageBundles.get(
+                    log.warn(MessageBundles.getForLog(
                             "plugin.log.stop-failed", registered.id(), failure.getMessage()), failure);
                 }
             }

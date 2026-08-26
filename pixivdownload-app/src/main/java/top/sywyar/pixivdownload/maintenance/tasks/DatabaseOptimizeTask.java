@@ -38,7 +38,7 @@ public class DatabaseOptimizeTask implements MaintenanceTask {
         try (Connection connection = dataSource.getConnection();
              Statement statement = connection.createStatement()) {
             statement.execute("PRAGMA optimize");
-            log.info(MessageBundles.get("maintenance.log.database-optimize.done"));
+            log.info(MessageBundles.getForLog("maintenance.log.database-optimize.done"));
         }
     }
 }

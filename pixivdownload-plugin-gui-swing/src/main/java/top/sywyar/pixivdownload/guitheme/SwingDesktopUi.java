@@ -67,7 +67,7 @@ final class SwingDesktopUi {
             };
             onEdt(() -> JOptionPane.showMessageDialog(frame, message, title, type));
         }
-        @Override public void close() { onEdt(frame::dispose); }
+        @Override public void close() { onEdt(() -> { frame.persistWindowState(); frame.dispose(); }); }
         private static void onEdt(Runnable action) {
             if (SwingUtilities.isEventDispatchThread()) action.run(); else SwingUtilities.invokeLater(action);
         }

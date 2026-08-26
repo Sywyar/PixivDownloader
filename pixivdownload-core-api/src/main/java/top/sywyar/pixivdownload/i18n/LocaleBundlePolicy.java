@@ -32,6 +32,15 @@ public interface LocaleBundlePolicy {
     }
 
     /**
+     * 返回用于缺省输出的全局回退语言。旧实现保持当前语言，host catalog 与 legacy 策略提供明确值。
+     *
+     * @return 全局回退语言
+     */
+    default Locale fallbackLocale() {
+        return normalize(Locale.getDefault());
+    }
+
+    /**
      * 把请求的 locale 归一化为策略支持的正式 locale。
      *
      * @param requested 请求值

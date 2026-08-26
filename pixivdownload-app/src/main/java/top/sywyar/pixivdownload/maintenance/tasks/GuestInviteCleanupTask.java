@@ -30,7 +30,7 @@ public class GuestInviteCleanupTask implements MaintenanceTask {
         long now = System.currentTimeMillis();
         int purged = guestInviteService.purgeExpiredAndRevoked(now);
         int trimmed = guestInviteService.trimOldAccessStats();
-        log.info(MessageBundles.get("maintenance.log.guest-invite-cleanup.result",
+        log.info(MessageBundles.getForLog("maintenance.log.guest-invite-cleanup.result",
                 purged, trimmed));
     }
 }

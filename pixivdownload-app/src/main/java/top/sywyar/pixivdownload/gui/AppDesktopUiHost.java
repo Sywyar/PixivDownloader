@@ -36,6 +36,7 @@ final class AppDesktopUiHost implements DesktopUiHost {
     private final Supplier<DataSource> backfillDataSource;
     private final DesktopUiOnboardingState onboardingState = new DesktopUiOnboardingState();
     private final DesktopToolHistory toolHistory = new DesktopToolHistory(RuntimeFiles.guiStateDirectory());
+    private final DesktopWindowStateStore windowState = new DesktopWindowStateStore(RuntimeFiles.guiStateDirectory());
 
     AppDesktopUiHost(int serverPort) {
         this(serverPort, yamlConfig(RuntimeFiles.resolveConfigYamlPath()));
@@ -148,6 +149,8 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override public String guiToken() { return GuiTokenHolder.get(); }
     @Override public String guiTokenHeader() { return GuiTokenHolder.HEADER_NAME; }
     @Override public Path dataDirectory() { return RuntimeFiles.dataDirectory(); }
+    @Override public Optional<WindowStateSnapshot> loadWindowState() { return windowState.load(); }
+    @Override public boolean saveWindowState(WindowStateSnapshot state) { return windowState.save(state); }
     @Override public List<ToolHistoryEntry> toolHistory() { return toolHistory.entries(); }
     @Override public void recordToolHistory(ToolId toolId, ToolOutcome outcome, long startedAtEpochMs,
             Integer processedCount, Integer changedCount, Integer failedCount, Path logPath) {

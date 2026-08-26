@@ -81,6 +81,42 @@ import static org.mockito.Mockito.when;
 class ScheduleExecutionEngineRoutingAndCredentialTest extends ScheduleExecutionEngineTestSupport {
 
     @Test
+    @DisplayName("可选凭证未绑定时直接执行且不调用凭证策略")
+    void optionalCredentialRunsWithoutBinding() throws Exception {
+        ScheduledTaskStore store = mock(ScheduledTaskStore.class);
+        when(store.listPendingWork(anyLong())).thenReturn(List.of());
+        AtomicBoolean discovered = new AtomicBoolean();
+        AtomicBoolean worked = new AtomicBoolean();
+        ScheduledExecutionPlan optionalPlan = new ScheduledExecutionPlan(
+                Set.of(WORK), POLICY, ScheduledCredentialRequirement.OPTIONAL, false,
+                List.of(), null, 0, 1, 0L, ScheduledNetworkRoute.inherit());
+        ScheduledSourceExecutor source = sourceWithPlan(optionalPlan, context -> {
+            discovered.set(true);
+            context.workSink().submit(work("anonymous"));
+            return ScheduledDiscoveryResult.withoutCheckpoint();
+        });
+        ScheduledCredentialPolicy policy = new ScheduledCredentialPolicy() {
+            @Override
+            public String policyId() {
+                return POLICY;
+            }
+
+            @Override
+            public ScheduledCredentialProbeResult probe(ScheduledCredentialContext context) {
+                throw new AssertionError("missing optional credential must not be probed");
+            }
+        };
+
+        engine(store, source, workExecutor(context -> {
+            worked.set(true);
+            return ScheduledWorkResult.completed();
+        }), policy, guard(context -> ScheduledGuardDecision.proceed())).execute(task());
+
+        assertThat(discovered).isTrue();
+        assertThat(worked).isTrue();
+    }
+
+    @Test
     @DisplayName("运行期共享计划 gate 保留既有分类和机器码并阻止任何执行副作用")
     void runtimeSharedPlanGatePreservesFailureCodes() throws Exception {
         ScheduledGuardBinding normalGuard = new ScheduledGuardBinding(

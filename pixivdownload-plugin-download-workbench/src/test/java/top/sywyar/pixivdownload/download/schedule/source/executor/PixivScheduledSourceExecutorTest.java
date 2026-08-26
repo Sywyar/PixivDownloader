@@ -259,6 +259,15 @@ class PixivScheduledSourceExecutorTest {
             assertThat(binding.workBatchSize()).isEqualTo(37);
         });
 
+        ScheduledExecutionPlan restrictedPublic = new PixivUserNewScheduledSourceExecutor(support).plan(
+                definition("user-new", """
+                        {"kind":"illust","source":{"userId":"8"},
+                         "filters":{"content":"all"}}
+                        """));
+        assertThat(restrictedPublic.credentialRequirement())
+                .isEqualTo(ScheduledCredentialRequirement.OPTIONAL);
+        assertThat(restrictedPublic.anonymousFallbackAllowed()).isFalse();
+
         ScheduledExecutionPlan privateBookmarks = new PixivMyBookmarksScheduledSourceExecutor(support).plan(
                 definition("my-bookmarks", """
                         {"kind":"illust","source":{"rest":"hide"},"download":{"concurrent":3}}

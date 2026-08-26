@@ -85,7 +85,7 @@ public class CoreWorkDeletionService implements WorkDeletionService {
         }
     }
 
-    /** 作品类型名词（JVM 系统 locale，供日志文案，与 {@code getForLog} 同 locale）。 */
+    /** 固定英文的日志作品类型名词。 */
     private String typeNounForLog(WorkType workType) {
         return messages.getForLog("work.type." + typeKey(workType));
     }

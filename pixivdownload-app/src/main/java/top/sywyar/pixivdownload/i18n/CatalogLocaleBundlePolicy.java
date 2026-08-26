@@ -29,6 +29,11 @@ public final class CatalogLocaleBundlePolicy implements LocaleBundlePolicy {
     }
 
     @Override
+    public Locale fallbackLocale() {
+        return catalog.fallbackLocale().toLocale();
+    }
+
+    @Override
     public Locale normalize(Locale requested) {
         return catalog.resolve(requested).toLocale();
     }

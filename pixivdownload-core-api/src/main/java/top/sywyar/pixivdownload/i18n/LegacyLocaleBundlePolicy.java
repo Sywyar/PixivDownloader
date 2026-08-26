@@ -34,6 +34,11 @@ public final class LegacyLocaleBundlePolicy implements LocaleBundlePolicy {
     }
 
     @Override
+    public Locale fallbackLocale() {
+        return Locale.forLanguageTag(FALLBACK_LANGUAGE);
+    }
+
+    @Override
     public List<String> resourceSuffixChain(Locale requested) {
         List<String> names = new ArrayList<>(3);
         if (requested != null) {

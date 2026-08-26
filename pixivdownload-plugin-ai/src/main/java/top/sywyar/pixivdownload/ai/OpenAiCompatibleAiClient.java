@@ -18,22 +18,28 @@ import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.ai.model.AiChatMessage;
 import top.sywyar.pixivdownload.ai.model.AiChatOptions;
 import top.sywyar.pixivdownload.ai.model.AiChatResult;
+import top.sywyar.pixivdownload.ai.model.AiModelInfo;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
  * 大语言模型（LLM）调用服务。统一走 <b>OpenAI Chat Completions 兼容协议</b>：
  * {@code POST {base-url}/chat/completions}，鉴权头 {@code Authorization: Bearer <api-key>}。
  * <p>
- * 两个入口：
+ * 三个入口：
  * <ul>
  *   <li>{@link #chat} —— 业务路径，使用当前 {@link AiConfig}；总开关关闭 / 缺关键配置 / 请求失败时抛
  *       {@link AiClientException}（调用方决定如何处理）</li>
  *   <li>{@link #chatTest} —— GUI 连通性测试路径，使用调用方传入的临时 {@link AiClientSettings}（不读取
  *       {@link AiConfig}，也不检查总开关），失败抛 {@link AiClientException}</li>
+ *   <li>{@link #listModels} —— GUI 模型查询路径，用同一组临时设置读取 OpenAI 兼容的模型列表</li>
  * </ul>
  * 是否走 HTTP 代理由 {@link AiClientSettings#useProxy()} 决定：为 {@code true} 时使用注入的
  * {@code aiProxyRestTemplate}（路由经 {@link top.sywyar.pixivdownload.config.OutboundProxySettings} 的 host:port），
@@ -47,6 +53,10 @@ public class OpenAiCompatibleAiClient implements AiChatClient {
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     private static final String CHAT_COMPLETIONS_PATH = "/chat/completions";
+    private static final String MODELS_PATH = "/models";
+    private static final int MAX_MODELS = 500;
+    private static final int MAX_MODEL_ID_LENGTH = 256;
+    private static final int MAX_MODEL_OWNER_LENGTH = 128;
 
     // 兜底脱敏正则：拦截响应正文 / 异常消息中可能回显的密钥碎片。即使来自部分 OpenAI 兼容服务在
     // "invalid API key" 错误体中把请求里的 key 原样回显，这里也能保证不写进日志 / AiException / GUI 文案。
@@ -101,6 +111,34 @@ public class OpenAiCompatibleAiClient implements AiChatClient {
     }
 
     /**
+     * 读取当前服务对该 API Key 可见的 OpenAI 兼容模型列表。模型字段不是查询前置条件；返回值会去重、排序并限制
+     * 外部响应的条目数与标量长度，供 GUI 作为纯文本摘要展示。
+     */
+    public List<AiModelInfo> listModels(AiClientSettings settings) throws AiClientException {
+        if (settings == null) {
+            throw new AiClientException(localized("ai.error.settings-missing"));
+        }
+        if (settings.baseUrl() == null || settings.baseUrl().isBlank()) {
+            throw new AiClientException(localized("ai.error.base-url-missing"));
+        }
+
+        String apiKey = settings.apiKey();
+        RestTemplate restTemplate = settings.useProxy() ? aiProxyRestTemplate : aiRestTemplate;
+        try {
+            ResponseEntity<byte[]> response = restTemplate.exchange(
+                    endpointUrl(settings.baseUrl(), MODELS_PATH),
+                    HttpMethod.GET,
+                    new HttpEntity<>(buildHeaders(apiKey)),
+                    byte[].class);
+            return parseModels(response.getBody());
+        } catch (RestClientResponseException e) {
+            throw new AiClientException(responseError(e, apiKey), e);
+        } catch (RestClientException e) {
+            throw new AiClientException(safeMessage(e, apiKey), e);
+        }
+    }
+
+    /**
      * 文本模型（LLM）是否已配置就绪：总开关开启且 base-url / model 均已填写。<b>纯配置检查、不触网、不读取密钥</b>，
      * 与 {@link #chat} 的前置校验（启用 + base-url + model）一致。供前端按可用性显隐依赖 LLM 的入口
      * （如「AI 翻译」按钮、「富感情朗读」选项），避免后端未配置时仍展示无法工作的入口。
@@ -126,7 +164,7 @@ public class OpenAiCompatibleAiClient implements AiChatClient {
         }
         AiChatOptions opts = options == null ? AiChatOptions.defaults() : options;
 
-        String url = chatCompletionsUrl(settings.baseUrl());
+        String url = endpointUrl(settings.baseUrl(), CHAT_COMPLETIONS_PATH);
         byte[] requestBody = serialize(buildRequest(settings.model(), chatMessages, opts));
         HttpEntity<byte[]> entity = new HttpEntity<>(requestBody, buildHeaders(settings.apiKey()));
         RestTemplate restTemplate = settings.useProxy() ? aiProxyRestTemplate : aiRestTemplate;
@@ -147,9 +185,7 @@ public class OpenAiCompatibleAiClient implements AiChatClient {
             // 已连通但返回非 2xx：附带状态码与（脱敏 / 截断后的）响应正文摘要。
             // 部分 OpenAI 兼容服务会把请求里的 API Key 原样回显在 "invalid api key" 类错误体中，
             // 这里必须先脱敏再写日志 / 抛 AiException / 回 GUI。
-            String body = e.getResponseBodyAsString(StandardCharsets.UTF_8);
-            String msg = "HTTP " + e.getRawStatusCode()
-                    + (body == null || body.isBlank() ? "" : ": " + redact(body, apiKey));
+            String msg = responseError(e, apiKey);
             log.warn(logMessage("ai.log.chat.failed", type, model, elapsedMs, msg));
             throw new AiClientException(msg, e);
         } catch (RestClientException e) {
@@ -207,13 +243,49 @@ public class OpenAiCompatibleAiClient implements AiChatClient {
                 usage == null ? null : usage.totalTokens());
     }
 
-    /** 在 base-url 后拼接 {@code /chat/completions}，自动处理结尾斜杠。 */
-    private static String chatCompletionsUrl(String baseUrl) {
+    private List<AiModelInfo> parseModels(byte[] body) throws AiClientException {
+        if (body == null || body.length == 0) {
+            throw new AiClientException(localized("ai.error.models-response-invalid"));
+        }
+        ModelListResponse response;
+        try {
+            response = MAPPER.readValue(body, ModelListResponse.class);
+        } catch (Exception e) {
+            throw new AiClientException(localized("ai.error.models-response-invalid"), e);
+        }
+        if (response == null || response.data() == null) {
+            throw new AiClientException(localized("ai.error.models-response-invalid"));
+        }
+
+        List<AiModelInfo> models = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (ModelEntry entry : response.data()) {
+            String id = scalar(entry == null ? null : entry.id());
+            if (id.isEmpty() || id.length() > MAX_MODEL_ID_LENGTH || !seen.add(id)) {
+                continue;
+            }
+            String ownedBy = scalar(entry.ownedBy());
+            if (ownedBy.length() > MAX_MODEL_OWNER_LENGTH) {
+                ownedBy = ownedBy.substring(0, MAX_MODEL_OWNER_LENGTH) + "…";
+            }
+            models.add(new AiModelInfo(id, ownedBy));
+            // ponytail: GUI 摘要有界即可；只有服务商实际超过 500 个可用模型时才增加分页。
+            if (models.size() == MAX_MODELS) {
+                break;
+            }
+        }
+        models.sort(Comparator.comparing(AiModelInfo::id, String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(AiModelInfo::id));
+        return List.copyOf(models);
+    }
+
+    /** 在 base-url 后拼接协议路径，自动处理结尾斜杠。 */
+    private static String endpointUrl(String baseUrl, String path) {
         String trimmed = baseUrl.trim();
         while (trimmed.endsWith("/")) {
             trimmed = trimmed.substring(0, trimmed.length() - 1);
         }
-        return trimmed + CHAT_COMPLETIONS_PATH;
+        return trimmed + path;
     }
 
     private byte[] serialize(ChatRequest request) throws AiClientException {
@@ -234,6 +306,16 @@ public class OpenAiCompatibleAiClient implements AiChatClient {
             msg = t.getClass().getSimpleName();
         }
         return redact(msg, apiKey);
+    }
+
+    private static String responseError(RestClientResponseException e, String apiKey) {
+        String body = e.getResponseBodyAsString(StandardCharsets.UTF_8);
+        return "HTTP " + e.getStatusCode().value()
+                + (body == null || body.isBlank() ? "" : ": " + redact(body, apiKey));
+    }
+
+    private static String scalar(String value) {
+        return value == null ? "" : value.replaceAll("\\s+", " ").trim();
     }
 
     /**
@@ -302,6 +384,12 @@ public class OpenAiCompatibleAiClient implements AiChatClient {
                 @JsonProperty("total_tokens") Integer totalTokens
         ) {
         }
+    }
+
+    private record ModelListResponse(List<ModelEntry> data) {
+    }
+
+    private record ModelEntry(String id, @JsonProperty("owned_by") String ownedBy) {
     }
 
 }

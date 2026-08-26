@@ -79,6 +79,7 @@ import androidx.compose.ui.window.DialogState
 import androidx.compose.ui.window.DialogWindow
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
@@ -89,6 +90,7 @@ import cn.longzhengyi.windowsdecoration.windowhelper.windowMaximizeButton
 import cn.longzhengyi.windowsdecoration.windowhelper.windowMinimizeButton
 import org.slf4j.LoggerFactory
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.WindowStateSnapshot
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSession
 import top.sywyar.pixivdownload.guicompose.model.DesktopUiSnapshot
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiDocument
@@ -96,6 +98,7 @@ import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode
 import top.sywyar.pixivdownload.guicompose.model.ComposeDesktopUiModel
 import java.awt.AWTException
 import java.awt.Dimension
+import java.awt.Frame
 import java.awt.GraphicsEnvironment
 import java.awt.Insets
 import java.awt.KeyEventDispatcher
@@ -120,11 +123,13 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import javax.swing.SwingUtilities
 import kotlin.concurrent.thread
+import kotlin.math.roundToInt
 
 internal object ComposeDesktopUi {
     private val log = LoggerFactory.getLogger(ComposeDesktopUi::class.java)
 
     fun launch(context: DesktopUiContext): DesktopUiSession {
+        val savedWindowState = context.host().loadWindowState().orElse(null)
         val model = ComposeDesktopUiModel(
             context.serverPort(),
             context.rootFolder(),
@@ -215,8 +220,30 @@ internal object ComposeDesktopUi {
                             )
                         }
                     }
-                    val mainWindowState = rememberWindowState(width = 1120.dp, height = 760.dp)
+                    val restoredWindowSize = restoredWindowSize(savedWindowState)
+                    val mainWindowState = rememberWindowState(size = restoredWindowSize)
+                    val normalWindowSize = remember { mutableStateOf(restoredWindowSize) }
+                    SideEffect {
+                        if (mainWindowState.placement == WindowPlacement.Floating) {
+                            normalWindowSize.value = mainWindowState.size
+                        }
+                    }
+                    val saveMainWindowState = {
+                        val size = if (mainWindowState.placement == WindowPlacement.Floating) {
+                            mainWindowState.size
+                        } else {
+                            normalWindowSize.value
+                        }
+                        context.host().saveWindowState(persistedWindowState(
+                            size,
+                            mainWindowState.placement != WindowPlacement.Floating,
+                        ))
+                    }
+                    DisposableEffect(mainWindowState) {
+                        onDispose { saveMainWindowState() }
+                    }
                     val closeMainWindow = {
+                        saveMainWindowState()
                         if (trayInstalled.value) visible.value = false
                         else context.requestApplicationExit()
                     }
@@ -227,6 +254,7 @@ internal object ComposeDesktopUi {
                         title = context.host().applicationName(),
                     ) {
                         val composeWindow = window
+                        RestoreSavedWindowPlacement(composeWindow, savedWindowState)
                         val shortcutDispatcher = remember(model) { ComposeShortcutDispatcher(model) }
                         DisposableEffect(composeWindow) {
                             windowRef.set(composeWindow)
@@ -862,6 +890,42 @@ internal fun dialogWindowSize(dialog: DesktopUiDocument.Dialog, parentWindowSize
     if (dialog.parentSized()) parentWindowSize else DpSize(
         (dialog.preferredWidth().takeIf { it > 0 } ?: 400).dp,
         (dialog.preferredHeight().takeIf { it > 0 } ?: 300).dp,
+    )
+
+internal fun restoredWindowSize(state: WindowStateSnapshot?): DpSize =
+    if (state == null) DpSize(1120.dp, 760.dp) else DpSize(state.width().dp, state.height().dp)
+
+@Composable
+internal fun RestoreSavedWindowPlacement(
+    window: ComposeWindow,
+    state: WindowStateSnapshot?,
+) {
+    DisposableEffect(window, state?.maximized()) {
+        if (state?.maximized() != true) return@DisposableEffect onDispose {}
+
+        var restored = false
+        val restore = {
+            if (!restored) {
+                restored = true
+                window.extendedState = Frame.MAXIMIZED_BOTH
+            }
+        }
+        val listener = object : WindowAdapter() {
+            override fun windowOpened(event: WindowEvent) {
+                SwingUtilities.invokeLater(restore)
+            }
+        }
+        window.addWindowListener(listener)
+        if (window.isShowing) SwingUtilities.invokeLater(restore)
+        onDispose { window.removeWindowListener(listener) }
+    }
+}
+
+internal fun persistedWindowState(size: DpSize, maximized: Boolean): WindowStateSnapshot =
+    WindowStateSnapshot(
+        size.width.value.roundToInt().coerceIn(1, 32_768),
+        size.height.value.roundToInt().coerceIn(1, 32_768),
+        maximized,
     )
 
 private val LightColors = lightColorScheme()

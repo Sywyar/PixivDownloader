@@ -730,11 +730,23 @@
         if (policy.statusCode === CREDENTIAL_STATUS_OVERUSE_PAUSED
                 || (task.suspendReason === OVERUSE_SUSPEND_REASON
                     && task.suspendCode === OVERUSE_SUSPEND_CODE)) {
+            let reason = '';
+            try {
+                const detail = JSON.parse(String(task.suspendDetailJson || ''));
+                reason = typeof detail.excerpt === 'string'
+                    ? detail.excerpt.trim().slice(0, 500) : '';
+            } catch (e) {
+                reason = '';
+            }
+            const reasonText = reason
+                ? bt('schedule.light.overuse-paused-reason',
+                    '已暂停：检测到过度访问警告（账号级）。原因：{reason}', {reason})
+                : null;
             return {
-                statusLabel: bt('schedule.run-status.overuse-paused',
+                statusLabel: reasonText || bt('schedule.run-status.overuse-paused',
                     '已暂停：检测到过度访问警告'),
                 lightTone: 'red',
-                lightText: bt('schedule.light.overuse-paused',
+                lightText: reasonText || bt('schedule.light.overuse-paused',
                     '已暂停：检测到过度访问警告（账号级）'),
                 suspended: true,
                 manualRecoveryRequired: true

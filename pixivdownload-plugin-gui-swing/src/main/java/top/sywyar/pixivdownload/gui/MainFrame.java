@@ -14,9 +14,12 @@ import top.sywyar.pixivdownload.gui.panel.StatusPanel;
 import top.sywyar.pixivdownload.gui.panel.ToolsPanel;
 import top.sywyar.pixivdownload.gui.panel.WelcomePanel;
 import top.sywyar.pixivdownload.guiswing.SwingHost;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.WindowStateSnapshot;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.nio.file.Path;
@@ -39,6 +42,7 @@ public class MainFrame extends JFrame {
     static final String STATE_KEY_PROPERTY = "pixivdownload.swing.stateKey";
     static final String PASSWORD_STATE_KEY_PROPERTY = "pixivdownload.swing.passwordStateKey";
     private volatile boolean trayAvailable;
+    private Dimension normalWindowSize;
 
     private final int serverPort;
     private final String rootFolder;
@@ -99,14 +103,24 @@ public class MainFrame extends JFrame {
                 ? GuiWebEntrySnapshot::empty
                 : guiWebEntrySupplier;
         this.guiOnboarding = guiOnboarding == null ? GuiOnboardingSnapshot.empty() : guiOnboarding;
-        setSize(DEFAULT_SIZE);
+        WindowStateSnapshot savedWindowState = SwingHost.host().loadWindowState().orElse(null);
         setMinimumSize(MINIMUM_SIZE);
+        setSize(restoredWindowSize(savedWindowState));
+        normalWindowSize = getSize();
         setLocationRelativeTo(null);
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+
+        addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                rememberNormalWindowSize();
+            }
+        });
 
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
+                persistWindowState();
                 if (closeBehavior(trayAvailable) == CloseBehavior.HIDE) {
                     setVisible(false);
                 } else {
@@ -141,6 +155,9 @@ public class MainFrame extends JFrame {
             onboardingState = SwingHost.host().onboardingState(rootFolder);
         }
         tabs.setSelectedIndex(0);
+        if (savedWindowState != null && savedWindowState.maximized()) {
+            setExtendedState(getExtendedState() | Frame.MAXIMIZED_BOTH);
+        }
     }
 
     private JTabbedPane buildTabs() {
@@ -283,12 +300,36 @@ public class MainFrame extends JFrame {
         trayAvailable = available;
     }
 
+    public void persistWindowState() {
+        rememberNormalWindowSize();
+        Dimension size = normalWindowSize == null ? new Dimension(DEFAULT_SIZE) : normalWindowSize;
+        SwingHost.host().saveWindowState(new WindowStateSnapshot(
+                size.width,
+                size.height,
+                (getExtendedState() & Frame.MAXIMIZED_BOTH) == Frame.MAXIMIZED_BOTH
+        ));
+    }
+
+    private void rememberNormalWindowSize() {
+        if ((getExtendedState() & (Frame.MAXIMIZED_BOTH | Frame.ICONIFIED)) == 0) {
+            normalWindowSize = getSize();
+        }
+    }
+
     static Dimension defaultWindowSize() {
         return new Dimension(DEFAULT_SIZE);
     }
 
     static Dimension minimumWindowSize() {
         return new Dimension(MINIMUM_SIZE);
+    }
+
+    static Dimension restoredWindowSize(WindowStateSnapshot state) {
+        if (state == null) return defaultWindowSize();
+        return new Dimension(
+                Math.max(MINIMUM_SIZE.width, state.width()),
+                Math.max(MINIMUM_SIZE.height, state.height())
+        );
     }
 
     static CloseBehavior closeBehavior(boolean trayAvailable) {

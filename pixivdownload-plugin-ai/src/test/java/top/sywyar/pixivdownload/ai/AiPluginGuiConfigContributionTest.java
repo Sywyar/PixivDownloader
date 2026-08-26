@@ -62,7 +62,7 @@ class AiPluginGuiConfigContributionTest {
     }
 
     @Test
-    @DisplayName("贡献文本模型卡片、预设与测试动作")
+    @DisplayName("贡献文本模型卡片、预设、模型查询与测试动作")
     void contributesAiCardPresetsAndAction() {
         GuiConfigSectionContribution section = section();
 
@@ -90,7 +90,20 @@ class AiPluginGuiConfigContributionTest {
             assertThat(layout.i18nNamespace()).isEqualTo(AiPlugin.ID);
         });
 
-        GuiConfigActionContribution action = section.actions().get(0);
+        assertThat(section.actions()).extracting(GuiConfigActionContribution::actionId)
+                .containsExactly("ai.models", "ai.test");
+
+        GuiConfigActionContribution modelsAction = section.actions().get(0);
+        assertThat(modelsAction.endpoint()).isEqualTo("ai-models");
+        assertThat(modelsAction.payloadFields()).extracting(GuiConfigActionPayloadField::fieldKey)
+                .containsExactly("ai.base-url", "ai.api-key", "ai.use-proxy");
+        assertThat(modelsAction.payloadFields().get(2).valueType()).isEqualTo(GuiConfigActionPayloadType.BOOLEAN);
+        assertThat(modelsAction.resultSummary()).isNotNull();
+        assertThat(modelsAction.resultSummary().arrayPath()).isEqualTo("models");
+        assertThat(modelsAction.resultSummary().labelPath()).isEqualTo("id");
+        assertThat(modelsAction.resultSummary().detailPath()).isEqualTo("ownedBy");
+
+        GuiConfigActionContribution action = section.actions().get(1);
         assertThat(action.actionId()).isEqualTo("ai.test");
         assertThat(action.endpoint()).isEqualTo("ai-test");
         assertThat(action.cardId()).isEqualTo("text");
@@ -142,6 +155,13 @@ class AiPluginGuiConfigContributionTest {
             assertThat(i18n.namespace()).isEqualTo(AiPlugin.ID);
             assertThat(i18n.baseName()).isEqualTo("i18n.web.ai");
         });
+    }
+
+    @Test
+    @DisplayName("模型查询只通过精确 GUI 路由开放")
+    void contributesExactGuiModelsRoute() {
+        assertThat(plugin.routes()).anySatisfy(route ->
+                assertThat(route.pathPattern()).isEqualTo("/api/gui/ai-models"));
     }
 
     private GuiConfigSectionContribution section() {

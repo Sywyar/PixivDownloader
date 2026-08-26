@@ -48,7 +48,23 @@ async function loadScheduleTasks(quiet) {
 /* ============================================================
    视图模型（逐字移植）
    ============================================================ */
-function scheduleStatusLabel(code) {
+function scheduleTaskCredentialPresentation(task) {
+    const runtime = altScheduleSources();
+    if (!runtime || !task || typeof runtime.credentialTaskPresentation !== 'function') return null;
+    try {
+        return runtime.credentialTaskPresentation(
+            task.sourceType || task.type, task, {task});
+    } catch (e) {
+        return null;
+    }
+}
+
+function scheduleStatusLabel(task) {
+    const credentialPresentation = scheduleTaskCredentialPresentation(task);
+    if (credentialPresentation && credentialPresentation.statusLabel) {
+        return credentialPresentation.statusLabel;
+    }
+    const code = typeof task === 'string' ? task : task && task.lastStatus;
     if (!code) return bt('schedule.run-status.none', '尚未运行');
     if (code === 'OK') return bt('schedule.run-status.ok', '正常');
     if (code === 'AUTH_EXPIRED') return bt('schedule.run-status.auth-expired',
@@ -68,18 +84,34 @@ function safeScheduleMachineCode(value) {
     return /^[a-z][a-z0-9._-]{1,159}$/.test(code) ? code : null;
 }
 
-function localizeScheduleMachineCode(value) {
+function localizeScheduleMachineCode(value, sourceType) {
     const code = safeScheduleMachineCode(value);
     if (!code) return null;
     if (code.startsWith('schedule.')) {
         const translated = bt(code, '');
         return translated && translated !== code ? translated : null;
     }
+    try {
+        const runtime = altScheduleSources();
+        const descriptor = runtime && runtime.descriptor(sourceType);
+        const presentation = descriptor && descriptor.presentation;
+        const namespace = presentation && presentation.displayNamespace;
+        if (typeof namespace === 'string'
+                && /^[a-z][a-z0-9._-]{0,63}$/.test(namespace)
+                && code.startsWith(`${namespace}.`)
+                && typeof pageI18n !== 'undefined' && pageI18n) {
+            const translated = pageI18n.t(
+                `${namespace}:${code.slice(namespace.length + 1)}`, '');
+            return translated && translated !== code ? translated : null;
+        }
+    } catch (e) {
+        return null;
+    }
     return null;
 }
 
 function scheduleFailureReason(t) {
-    return t ? localizeScheduleMachineCode(t.lastMessage) : null;
+    return t ? localizeScheduleMachineCode(t.lastMessage, t.sourceType || t.type) : null;
 }
 
 /**
@@ -109,23 +141,33 @@ function scheduleStatusLight(t) {
         return {tone: 'yellow', live: false, text: bt('schedule.light.quiesced', '插件正在安全停用，等待能力恢复')};
     }
     if (t.suspendReason === 'MIGRATION_ERROR') {
-        const reason = localizeScheduleMachineCode(t.suspendCode);
+        const reason = localizeScheduleMachineCode(t.suspendCode, t.sourceType || t.type);
         return {
             tone: 'red',
             live: false,
             text: reason || bt('schedule.light.migration-error', '任务数据需要修复，无法运行')
         };
     }
+    const credentialPresentation = scheduleTaskCredentialPresentation(t);
+    if (credentialPresentation && credentialPresentation.lightTone
+            && credentialPresentation.lightText) {
+        return {
+            tone: credentialPresentation.lightTone,
+            live: false,
+            text: credentialPresentation.lightText
+        };
+    }
     // 挂起态优先于中断结果：挂起任务不会被自动重排，不能显示「已重新排期补齐」。
-    if (t.lastStatus === 'OVERUSE_PAUSED') {
-        return {tone: 'red', live: false, text: bt('schedule.light.overuse-paused', '已暂停：检测到过度访问警告（账号级）')};
+    if (t.suspendReason && t.suspendReason !== 'MANUAL') {
+        const reason = localizeScheduleMachineCode(t.suspendCode, t.sourceType || t.type);
+        return {
+            tone: 'red',
+            live: false,
+            text: reason || bt('schedule.light.suspended', '任务已挂起，等待恢复')
+        };
     }
     if (t.lastStatus === 'PAUSED') {
         return {tone: 'gray', live: false, text: bt('schedule.light.paused', '已手动暂停')};
-    }
-    if (t.lastStatus === 'AUTH_EXPIRED') {
-        return {tone: 'red', live: false, text: bt('schedule.light.auth-expired',
-            '运行失败，来源登录凭证已失效，请重新绑定有效凭证')};
     }
     if (t.lastOutcome === 'INTERRUPTED' || t.lastStatus === 'INTERRUPTED') {
         return {tone: 'red', live: false, text: bt('schedule.light.interrupted', '运行失败，上次运行被中断，已重新排期补齐')};
