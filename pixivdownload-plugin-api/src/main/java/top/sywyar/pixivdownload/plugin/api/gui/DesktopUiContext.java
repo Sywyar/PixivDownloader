@@ -54,7 +54,16 @@ public final class DesktopUiContext {
     /**
      * 创建带当前实际提供者标识的桌面业务上下文。
      *
+     * @param startupLaunch 是否由应用启动流程打开桌面界面
+     * @param serverPort 本地服务端口
+     * @param rootFolder 下载根目录
+     * @param configPath 主配置文件路径
      * @param selectedProviderId 本次启动实际选中的桌面 UI 提供者 id
+     * @param host 工具包无关的宿主业务能力
+     * @param startupPlugins 启动时已经冻结的活动插件快照
+     * @param currentPlugins 当前活动插件快照读取器
+     * @param textResolver 本地化文本解析器
+     * @param themePreference 当前共享主题偏好读取器
      */
     public DesktopUiContext(
             boolean startupLaunch,
