@@ -38,7 +38,6 @@ final class DesktopStatusController {
     private volatile String statusMode = "--";
     private volatile String statusStartTime = "--";
     private volatile String statusProtocol = "--";
-    private volatile long statusLatencyMillis = -1L;
     private volatile DesktopUiHost.GuiValue controlCenterSnapshot = DesktopUiHost.GuiValue.of(Map.of());
     private volatile String connectivityDetails = "";
     private volatile boolean statusConnected;
@@ -65,8 +64,15 @@ final class DesktopStatusController {
         return controlCenterSnapshot;
     }
 
-    long latencyMillis() {
-        return statusLatencyMillis;
+    String connectivitySummary() {
+        return connectivityDetails.isBlank()
+                ? host.message("gui.status.pixiv-connectivity.action.check")
+                : connectivityDetails;
+    }
+
+    boolean canCheckConnectivity() {
+        return !owner.busy() && !connectivityChecking &&
+                owner.backendSnapshot().state() == DesktopUiHost.BackendState.RUNNING;
     }
 
     boolean connected() {
@@ -162,7 +168,7 @@ final class DesktopStatusController {
                                                 "status.connectivity.check",
                                                 "status.connectivity.check",
                                                 "gui.status.pixiv-connectivity.action.check",
-                                                !owner.busy() && !connectivityChecking && owner.backendSnapshot().state() == DesktopUiHost.BackendState.RUNNING,
+                                                canCheckConnectivity(),
                                                 nextActions,
                                                 this::checkConnectivity
                                         )
@@ -331,12 +337,7 @@ final class DesktopStatusController {
     }
 
     void refreshSnapshot() {
-        long startedAt = System.nanoTime();
         DesktopUiHost.GuiResponse response = host.guiGet("status", 2_000);
-        statusLatencyMillis = response.reachable() ? Math.max(
-                0L,
-                java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
-        ) : -1L;
         statusConnected = response.successful() && response.body() != null;
         if (statusConnected) {
             DesktopUiHost.GuiValue body = response.body();
@@ -361,9 +362,8 @@ final class DesktopStatusController {
         }
     }
 
-    private void checkConnectivity() {
-        if (connectivityChecking || owner.backendSnapshot().state() != DesktopUiHost.BackendState.RUNNING)
-            return;
+    void checkConnectivity() {
+        if (!canCheckConnectivity()) return;
         connectivityChecking = true;
         lastConnectivityCheckAt = System.currentTimeMillis();
         connectivityDetails = host.message("gui.status.pixiv-connectivity.checking");

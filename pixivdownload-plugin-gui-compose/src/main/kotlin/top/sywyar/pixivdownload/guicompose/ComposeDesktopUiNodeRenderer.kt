@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -44,6 +45,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -68,6 +70,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
@@ -107,6 +110,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.luminance
@@ -131,6 +135,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -142,6 +147,9 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode
 import javax.swing.JFileChooser
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -149,6 +157,7 @@ import kotlin.math.roundToInt
 @OptIn(ExperimentalComposeUiApi::class, ExperimentalLayoutApi::class)
 object ComposeDesktopUiNodeRenderer {
     private val LocalDocumentRevision = staticCompositionLocalOf { 0L }
+    private val scheduleTimeFormatter = DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault())
 
     @Composable
     fun Render(
@@ -207,6 +216,8 @@ object ComposeDesktopUiNodeRenderer {
             }
             is DesktopUiNode.Spacer -> Spacer(modifier.size(node.width().dp, node.height().dp))
             is DesktopUiNode.Progress -> Progress(node, text, modifier)
+            is DesktopUiNode.Timeline -> Timeline(node, text, modifier)
+            is DesktopUiNode.ScheduleTimeline -> ScheduleTimeline(node, text, modifier)
             is DesktopUiNode.TextInput -> TextInput(node, text, emit, modifier)
             is DesktopUiNode.Toggle -> Toggle(node, text, emit, modifier)
             is DesktopUiNode.Choice -> Choice(node, text, emit, modifier)
@@ -867,17 +878,223 @@ object ComposeDesktopUiNodeRenderer {
         text: (DesktopUiNode.TextToken) -> String,
         modifier: Modifier,
     ) {
-        Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (node.indeterminate()) LinearProgressIndicator(
-                Modifier.fillMaxWidth().height(5.dp),
-                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+        if (node.progressStyle() == DesktopUiNode.ProgressStyle.CIRCULAR) {
+            Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+                if (node.indeterminate()) CircularProgressIndicator(Modifier.size(44.dp))
+                else CircularProgressIndicator(
+                    { node.progress().toFloat() },
+                    Modifier.size(44.dp),
+                )
+                node.text()?.let {
+                    Text(
+                        resolve(it, text),
+                        Modifier.padding(start = 8.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        } else {
+            Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (node.indeterminate()) LinearProgressIndicator(
+                    Modifier.fillMaxWidth().height(5.dp),
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                )
+                else LinearProgressIndicator(
+                    { node.progress().toFloat() },
+                    Modifier.fillMaxWidth().height(5.dp),
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                )
+                node.text()?.let { Text(resolve(it, text), style = MaterialTheme.typography.bodySmall) }
+            }
+        }
+    }
+
+    @Composable
+    private fun Timeline(
+        node: DesktopUiNode.Timeline,
+        text: (DesktopUiNode.TextToken) -> String,
+        modifier: Modifier,
+    ) {
+        Box(modifier.fillMaxWidth()) {
+            Box(
+                Modifier.matchParentSize().padding(start = 14.dp, top = 16.dp, bottom = 16.dp),
+            ) {
+                Spacer(
+                    Modifier.fillMaxHeight().width(2.dp)
+                        .background(MaterialTheme.colorScheme.outlineVariant),
+                )
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                node.items().forEachIndexed { index, item ->
+                    val markerBackground = when (item.state()) {
+                        DesktopUiNode.TimelineState.COMPLETE -> MaterialTheme.colorScheme.tertiaryContainer
+                        DesktopUiNode.TimelineState.ACTIVE -> MaterialTheme.colorScheme.primaryContainer
+                        DesktopUiNode.TimelineState.IDLE -> MaterialTheme.colorScheme.surfaceContainerHighest
+                    }
+                    val markerForeground = when (item.state()) {
+                        DesktopUiNode.TimelineState.COMPLETE -> MaterialTheme.colorScheme.onTertiaryContainer
+                        DesktopUiNode.TimelineState.ACTIVE -> MaterialTheme.colorScheme.onPrimaryContainer
+                        DesktopUiNode.TimelineState.IDLE -> MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 54.dp)
+                            .semantics(mergeDescendants = true) {},
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier.size(30.dp).clip(RoundedCornerShape(9.dp))
+                                .background(markerBackground),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                (index + 1).toString(),
+                                color = markerForeground,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                        Column(
+                            Modifier.weight(1f).padding(start = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Text(
+                                resolve(item.title(), text),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                resolve(item.detail(), text),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        Text(
+                            resolve(item.status(), text),
+                            Modifier.padding(start = 8.dp),
+                            color = markerForeground,
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private data class SchedulePlacement(val left: Dp, val lane: Int)
+
+    @Composable
+    private fun ScheduleTimeline(
+        node: DesktopUiNode.ScheduleTimeline,
+        text: (DesktopUiNode.TextToken) -> String,
+        modifier: Modifier,
+    ) {
+        BoxWithConstraints(modifier.fillMaxWidth().height(204.dp)) {
+            val timelineWidth = maxWidth
+            val itemWidth = minOf(timelineWidth, maxOf(104.dp, minOf(150.dp, timelineWidth * .28f)))
+            val itemWidthFraction = if (timelineWidth.value == 0f) 1f else itemWidth.value / timelineWidth.value
+            val placements = remember(node, timelineWidth) {
+                val laneEnds = FloatArray(3) { -1f }
+                node.items().map { item ->
+                    val point = ((item.at() - node.startAt()).toDouble() /
+                        (node.endAt() - node.startAt()).toDouble()).toFloat().coerceIn(0f, 1f)
+                    val left = (point - itemWidthFraction / 2f).coerceIn(0f, 1f - itemWidthFraction)
+                    val lane = laneEnds.indices.firstOrNull { laneEnds[it] + .015f <= left }
+                        ?: laneEnds.indices.minBy { laneEnds[it] }
+                    laneEnds[lane] = left + itemWidthFraction
+                    SchedulePlacement(timelineWidth * left, lane)
+                }
+            }
+            val axisY = 28.dp
+            val tickCount = if (timelineWidth < 480.dp) 6 else 12
+            val tickLabelWidth = minOf(48.dp, timelineWidth / tickCount.toFloat())
+            repeat(tickCount) { index ->
+                val fraction = index.toFloat() / tickCount
+                val tickX = timelineWidth * fraction
+                val labelX = (tickX - tickLabelWidth / 2f)
+                    .coerceIn(0.dp, timelineWidth - tickLabelWidth)
+                Text(
+                    scheduleTimeFormatter.format(
+                        Instant.ofEpochMilli(node.startAt() + index * (24L * 60L * 60L * 1_000L / tickCount)),
+                    ),
+                    Modifier.offset(x = labelX).width(tickLabelWidth),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                )
+                Spacer(
+                    Modifier.offset(x = tickX.coerceAtMost(timelineWidth - 1.dp), y = axisY - 3.dp)
+                        .width(1.dp).height(7.dp).background(MaterialTheme.colorScheme.outlineVariant),
+                )
+            }
+            Spacer(
+                Modifier.offset(y = axisY).fillMaxWidth().height(1.dp)
+                    .background(MaterialTheme.colorScheme.outlineVariant),
             )
-            else LinearProgressIndicator(
-                { node.progress().toFloat() },
-                Modifier.fillMaxWidth().height(5.dp),
-                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+            val nowFraction = ((node.nowAt() - node.startAt()).toDouble() /
+                (node.endAt() - node.startAt()).toDouble()).toFloat().coerceIn(0f, 1f)
+            val nowX = (timelineWidth * nowFraction).coerceAtMost(timelineWidth - 2.dp)
+            Spacer(
+                Modifier.offset(x = nowX, y = axisY).width(2.dp).height(168.dp)
+                    .background(MaterialTheme.colorScheme.primary),
             )
-            node.text()?.let { Text(resolve(it, text), style = MaterialTheme.typography.bodySmall) }
+            Spacer(
+                Modifier.offset(
+                    x = (nowX - 3.dp).coerceIn(0.dp, timelineWidth - 7.dp),
+                    y = axisY - 3.dp,
+                ).size(7.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary),
+            )
+            node.items().forEachIndexed { index, item ->
+                val placement = placements[index]
+                val containerColor = when (placement.lane) {
+                    0 -> MaterialTheme.colorScheme.primaryContainer
+                    1 -> MaterialTheme.colorScheme.secondaryContainer
+                    else -> MaterialTheme.colorScheme.tertiaryContainer
+                }
+                val contentColor = when (placement.lane) {
+                    0 -> MaterialTheme.colorScheme.onPrimaryContainer
+                    1 -> MaterialTheme.colorScheme.onSecondaryContainer
+                    else -> MaterialTheme.colorScheme.onTertiaryContainer
+                }
+                Card(
+                    Modifier.offset(x = placement.left, y = 42.dp + 52.dp * placement.lane.toFloat())
+                        .width(itemWidth).semantics(mergeDescendants = true) {},
+                    colors = CardDefaults.cardColors(containerColor = containerColor),
+                ) {
+                    Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                resolve(item.time(), text),
+                                color = contentColor,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                            )
+                            Text(
+                                resolve(item.title(), text),
+                                Modifier.weight(1f),
+                                color = contentColor,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Text(
+                            resolve(item.detail(), text),
+                            color = contentColor.copy(alpha = .78f),
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -1107,28 +1324,31 @@ object ComposeDesktopUiNodeRenderer {
                     Text(value.toString(), Modifier.padding(start = 8.dp))
                 }
             } else {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    val canDecrease = node.enabled() && value > node.minimum()
-                    val lastAligned = alignedNumberValue(
-                        node.maximum().toLong(), node.minimum(), node.maximum(), node.step())
-                    val canIncrease = node.enabled() && value < lastAligned
-                    OutlinedButton(
-                        { update(value.toLong() - node.step()) },
-                        enabled = canDecrease,
-                        modifier = Modifier.hand(canDecrease),
-                    ) { Text("−") }
-                    Text(
-                        value.toString(),
-                        Modifier.padding(horizontal = 12.dp),
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    OutlinedButton(
-                        { update(value.toLong() + node.step()) },
-                        enabled = canIncrease,
-                        modifier = Modifier.hand(canIncrease),
-                    ) { Text("+") }
-                }
+                var draft by remember(node.id()) { mutableStateOf(node.value().toString()) }
+                LaunchedEffect(node.value()) { draft = node.value().toString() }
+                OutlinedTextField(
+                    draft,
+                    onValueChange = { next ->
+                        if (!isIntegerDraft(next, node.minimum())) return@OutlinedTextField
+                        draft = next
+                        numericInputValue(next, node.minimum(), node.maximum(), node.step())?.let {
+                            value = it
+                            emit(change(node.id(), node.bindingId(), DesktopUiNode.Value.number(it)))
+                        }
+                    },
+                    enabled = node.enabled(),
+                    isError = draft.isNotEmpty() &&
+                        numericInputValue(draft, node.minimum(), node.maximum(), node.step()) == null,
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier
+                        .widthIn(min = 120.dp, max = 220.dp)
+                        .onFocusChanged {
+                            if (!it.isFocused &&
+                                numericInputValue(draft, node.minimum(), node.maximum(), node.step()) == null
+                            ) draft = node.value().toString()
+                        },
+                )
             }
         }
         if (includeLabel) Labeled(resolve(node.label(), text), help(node.help(), text), modifier, content)
@@ -1334,6 +1554,23 @@ object ComposeDesktopUiNodeRenderer {
         val bounded = value.coerceIn(minimum.toLong(), maximum.toLong())
         val steps = (bounded - minimum) / step
         return (minimum.toLong() + steps * step).toInt()
+    }
+
+    internal fun isIntegerDraft(value: String, minimum: Int): Boolean {
+        if (value.isEmpty()) return true
+        val digits = if (minimum < 0 && value.startsWith('-')) value.drop(1) else value
+        return digits.isNotEmpty() && digits.all(Char::isDigit)
+    }
+
+    internal fun numericInputValue(
+        value: String,
+        minimum: Int,
+        maximum: Int,
+        step: Int,
+    ): Int? {
+        val parsed = value.toLongOrNull() ?: return null
+        if (parsed !in minimum.toLong()..maximum.toLong()) return null
+        return parsed.toInt().takeIf { (parsed - minimum) % step == 0L }
     }
 
     @Composable

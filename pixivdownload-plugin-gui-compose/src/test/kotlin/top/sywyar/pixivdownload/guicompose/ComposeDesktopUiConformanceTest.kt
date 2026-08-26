@@ -14,6 +14,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.v2.runComposeUiTest
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
@@ -100,7 +101,7 @@ class ComposeDesktopUiConformanceTest {
                 onNode(hasSetTextAction()).performTextInput(it)
             }
             "number-spinner" -> scenario.operations.forEach {
-                onNodeWithText(if (it == "+") "+" else "−").performClick()
+                onNode(hasSetTextAction()).performTextReplacement(it)
             }
             "number-slider" -> scenario.operations.forEach { value ->
                 onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.SetProgress))

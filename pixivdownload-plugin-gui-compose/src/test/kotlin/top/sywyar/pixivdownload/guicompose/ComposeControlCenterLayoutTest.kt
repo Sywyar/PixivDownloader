@@ -14,6 +14,7 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -21,6 +22,7 @@ import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.v2.runComposeUiTest
@@ -229,8 +231,129 @@ class ComposeControlCenterLayoutTest {
         )
     }
 
+    @Test
+    @DisplayName("数值微调字段支持直接键入完整数值")
+    fun typesCompleteSpinnerValue() = runComposeUiTest {
+        val events = mutableListOf<DesktopUiNode.Event>()
+        val input = DesktopUiNode.NumberInput(
+            "port", "port.value", DesktopUiNode.TextToken.raw("Port"), null,
+            DesktopUiNode.NumberStyle.SPINNER, 6999, 1, 65535, 1, true,
+        )
+        setContent {
+            MaterialTheme {
+                ComposeDesktopUiNodeRenderer.Render(input, { it.fallback() }, events::add)
+            }
+        }
+
+        onNode(hasSetTextAction()).performTextReplacement("8080")
+        waitForIdle()
+
+        assertEquals("8080", events.single().value().values().single())
+        onNodeWithText("+").assertDoesNotExist()
+        onNodeWithText("−").assertDoesNotExist()
+    }
+
+    @Test
+    @DisplayName("环形进度按等宽尺寸渲染")
+    fun rendersCircularProgress() = runComposeUiTest {
+        val progress = DesktopUiNode.Progress(
+            "storage", .25, false, null, DesktopUiNode.ProgressStyle.CIRCULAR,
+        )
+        setContent {
+            MaterialTheme {
+                Box(Modifier.width(200.dp)) {
+                    ComposeDesktopUiNodeRenderer.Render(progress, { it.fallback() }, {})
+                }
+            }
+        }
+
+        val bounds = onNode(
+            SemanticsMatcher.keyIsDefined(SemanticsProperties.ProgressBarRangeInfo),
+        ).fetchSemanticsNode().boundsInRoot
+        assertEquals(bounds.width, bounds.height)
+    }
+
+    @Test
+    @DisplayName("纵向时间线按步骤排列并把状态保持在尾侧")
+    fun laysOutVerticalTimeline() = runComposeUiTest {
+        val timeline = DesktopUiNode.Timeline(
+            "interlock",
+            listOf(
+                DesktopUiNode.TimelineItem(
+                    DesktopUiNode.TextToken.raw("Resource check"),
+                    DesktopUiNode.TextToken.raw("Backend and tool lock"),
+                    DesktopUiNode.TextToken.raw("Passed"),
+                    DesktopUiNode.TimelineState.COMPLETE,
+                ),
+                DesktopUiNode.TimelineItem(
+                    DesktopUiNode.TextToken.raw("Stop backend"),
+                    DesktopUiNode.TextToken.raw("Release SQLite"),
+                    DesktopUiNode.TextToken.raw("As needed"),
+                    DesktopUiNode.TimelineState.IDLE,
+                ),
+                DesktopUiNode.TimelineItem(
+                    DesktopUiNode.TextToken.raw("Execute"),
+                    DesktopUiNode.TextToken.raw("Run and record"),
+                    DesktopUiNode.TextToken.raw("Running"),
+                    DesktopUiNode.TimelineState.ACTIVE,
+                ),
+            ),
+        )
+        setContent {
+            MaterialTheme {
+                Box(Modifier.width(420.dp)) {
+                    ComposeDesktopUiNodeRenderer.Render(timeline, { it.fallback() }, {})
+                }
+            }
+        }
+
+        assertTrue(top("Stop backend") > top("Resource check"))
+        assertTrue(top("Execute") > top("Stop backend"))
+        assertTrue(left("Passed") > left("Resource check"))
+        assertTrue(left("Running") > left("Execute"))
+    }
+
+    @Test
+    @DisplayName("自动化时间线按未来时刻横向定位并错开相邻任务")
+    fun laysOutAutomationScheduleTimeline() = runComposeUiTest {
+        val hour = 60L * 60L * 1_000L
+        val timeline = DesktopUiNode.ScheduleTimeline(
+            "schedule", 0L, hour, 24L * hour,
+            listOf(
+                DesktopUiNode.ScheduleTimelineItem(
+                    2L * hour, DesktopUiNode.TextToken.raw("02:00"),
+                    DesktopUiNode.TextToken.raw("Early job"), DesktopUiNode.TextToken.raw("Every hour"),
+                ),
+                DesktopUiNode.ScheduleTimelineItem(
+                    2L * hour + 60_000L, DesktopUiNode.TextToken.raw("02:01"),
+                    DesktopUiNode.TextToken.raw("Nearby job"), DesktopUiNode.TextToken.raw("Every hour"),
+                ),
+                DesktopUiNode.ScheduleTimelineItem(
+                    18L * hour, DesktopUiNode.TextToken.raw("18:00"),
+                    DesktopUiNode.TextToken.raw("Later job"), DesktopUiNode.TextToken.raw("Every day"),
+                ),
+            ),
+        )
+        setContent {
+            MaterialTheme {
+                Box(Modifier.width(600.dp)) {
+                    ComposeDesktopUiNodeRenderer.Render(timeline, { it.fallback() }, {})
+                }
+            }
+        }
+
+        assertTrue(left("Later job") > left("Early job"))
+        assertTrue(topUnmerged("Nearby job") > topUnmerged("Early job"))
+    }
+
     private fun androidx.compose.ui.test.ComposeUiTest.top(label: String): Float =
         onNodeWithText(label).fetchSemanticsNode().boundsInRoot.top
+
+    private fun androidx.compose.ui.test.ComposeUiTest.left(label: String): Float =
+        onNodeWithText(label, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.left
+
+    private fun androidx.compose.ui.test.ComposeUiTest.topUnmerged(label: String): Float =
+        onNodeWithText(label, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.top
 
     private fun androidx.compose.ui.test.ComposeUiTest.page(description: String) = onNode(
         SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, description),

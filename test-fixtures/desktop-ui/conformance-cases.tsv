@@ -1,6 +1,6 @@
 id	operations	expected
 burst-text	a|b|c|d	a>ab>abc>abcd
-number-spinner	+|+|-	2>3>2
+number-spinner	2|3|2	2>3>2
 number-slider	1|2|3|4|5	1>2>3>4>5
 toggle-burst	click|click|click	true>false>true
 choice-single	two	two

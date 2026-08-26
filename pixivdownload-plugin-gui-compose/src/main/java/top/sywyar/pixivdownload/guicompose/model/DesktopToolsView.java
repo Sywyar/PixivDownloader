@@ -501,7 +501,7 @@ final class DesktopToolsView {
                         )
                 )
         ));
-        cards.add(toolHistoryCard());
+        cards.add(maintenanceSummaryCard());
         cards.add(group(
                 "tools.image-classifier",
                 "gui.tools.card.image-classifier.title",
@@ -577,70 +577,57 @@ final class DesktopToolsView {
                                                 null
                                         ),
                                         new DesktopUiNode.FormRow(
-                                                "tools.backfill.proxy.row",
-                                                key("gui.tools.form.proxy"),
+                                                "tools.backfill.proxy-enabled.row",
+                                                key("gui.tools.form.use-proxy"),
                                                 null,
-                                                new DesktopUiNode.Dock(
-                                                        "tools.backfill.proxy.controls",
-                                                        8,
+                                                toggle(
+                                                        "tools.backfill.proxy",
+                                                        "tools.backfill.proxy",
+                                                        "gui.tools.form.use-proxy",
+                                                        model.boolForm("tools.backfill.proxy", true),
+                                                        !model.owner.busy()
+                                                ),
+                                                null
+                                        ),
+                                        new DesktopUiNode.FormRow(
+                                                "tools.backfill.proxy-host.row",
+                                                key("gui.tools.form.proxy-host"),
+                                                null,
+                                                input(
+                                                        "tools.backfill.proxy-host",
+                                                        "tools.backfill.proxy-host",
+                                                        "gui.tools.form.proxy-host",
                                                         null,
-                                                        input(
+                                                        InputKind.TEXT,
+                                                        model.form(
                                                                 "tools.backfill.proxy-host",
-                                                                "tools.backfill.proxy-host",
-                                                                "gui.tools.form.proxy-host",
-                                                                null,
-                                                                InputKind.TEXT,
-                                                                model.form(
-                                                                        "tools.backfill.proxy-host",
-                                                                        model.host.defaultProxyHost()
-                                                                ),
-                                                                !model.owner.busy() && model.boolForm(
-                                                                        "tools.backfill.proxy",
-                                                                        true
-                                                                )
+                                                                model.host.defaultProxyHost()
                                                         ),
+                                                        !model.owner.busy() && model.boolForm(
+                                                                "tools.backfill.proxy",
+                                                                true
+                                                        )
+                                                ),
+                                                null
+                                        ),
+                                        new DesktopUiNode.FormRow(
+                                                "tools.backfill.proxy-port.row",
+                                                key("gui.tools.form.proxy-port"),
+                                                null,
+                                                number(
+                                                        "tools.backfill.proxy-port",
+                                                        "tools.backfill.proxy-port",
+                                                        "gui.tools.form.proxy-port",
                                                         null,
-                                                        row(
-                                                                "tools.backfill.proxy.start",
-                                                                toggle(
-                                                                        "tools.backfill.proxy",
-                                                                        "tools.backfill.proxy",
-                                                                        "gui.tools.form.use-proxy",
-                                                                        model.boolForm(
-                                                                                "tools.backfill.proxy",
-                                                                                true
-                                                                        ),
-                                                                        !model.owner.busy()
-                                                                ),
-                                                                text(
-                                                                        "tools.backfill.proxy-host.label",
-                                                                        "gui.tools.form.proxy-host",
-                                                                        TextStyle.BODY
-                                                                )
+                                                        model.intForm(
+                                                                "tools.backfill.proxy-port",
+                                                                model.host.defaultProxyPort()
                                                         ),
-                                                        row(
-                                                                "tools.backfill.proxy.end",
-                                                                text(
-                                                                        "tools.backfill.proxy-port.label",
-                                                                        "gui.tools.form.proxy-port",
-                                                                        TextStyle.BODY
-                                                                ),
-                                                                number(
-                                                                        "tools.backfill.proxy-port",
-                                                                        "tools.backfill.proxy-port",
-                                                                        "gui.tools.form.proxy-port",
-                                                                        null,
-                                                                        model.intForm(
-                                                                                "tools.backfill.proxy-port",
-                                                                                model.host.defaultProxyPort()
-                                                                        ),
-                                                                        1,
-                                                                        65_535,
-                                                                        !model.owner.busy() && model.boolForm(
-                                                                                "tools.backfill.proxy",
-                                                                                true
-                                                                        )
-                                                                )
+                                                        1,
+                                                        65_535,
+                                                        !model.owner.busy() && model.boolForm(
+                                                                "tools.backfill.proxy",
+                                                                true
                                                         )
                                                 ),
                                                 null
@@ -659,18 +646,12 @@ final class DesktopToolsView {
                                                         Integer.MAX_VALUE,
                                                         !model.owner.busy()
                                                 ),
-                                                new DesktopUiNode.Text(
-                                                        "tools.backfill.limit-hint",
-                                                        key("gui.tools.form.limit-hint"),
-                                                        TextStyle.CAPTION,
-                                                        false,
-                                                        false
-                                                )
+                                                null
                                         ),
                                         new DesktopUiNode.FormRow(
                                                 "tools.backfill.limit.row",
                                                 key("gui.tools.form.limit"),
-                                                null,
+                                                key("gui.tools.form.limit-hint"),
                                                 number(
                                                         "tools.backfill.limit",
                                                         "tools.backfill.limit",
@@ -681,13 +662,20 @@ final class DesktopToolsView {
                                                         Integer.MAX_VALUE,
                                                         !model.owner.busy()
                                                 ),
+                                                null
+                                        ),
+                                        new DesktopUiNode.FormRow(
+                                                "tools.backfill.dry.row",
+                                                key("gui.tools.form.dry-run"),
+                                                null,
                                                 toggle(
                                                         "tools.backfill.dry",
                                                         "tools.backfill.dry",
                                                         "gui.tools.form.dry-run",
                                                         model.boolForm("tools.backfill.dry", false),
                                                         !model.owner.busy()
-                                                )
+                                                ),
+                                                null
                                         )
                                 )
                         ),
@@ -726,6 +714,11 @@ final class DesktopToolsView {
                 "gui.tools.card.migration.title",
                 column(
                         "tools.migration.content",
+                        text(
+                                "tools.migration.description",
+                                "gui.tools.card.migration.description",
+                                TextStyle.CAPTION
+                        ),
                         new DesktopUiNode.Form(
                                 "tools.migration.form",
                                 DesktopUiNode.FormStyle.COMPACT,
@@ -769,11 +762,6 @@ final class DesktopToolsView {
                                         )
                                 )
                         ),
-                        text(
-                                "tools.migration.description",
-                                "gui.tools.card.migration.description",
-                                TextStyle.CAPTION
-                        ),
                         status(
                                 "tools.migration.notice",
                                 model.migrationNotice.isBlank() ? model.host.message(
@@ -807,14 +795,95 @@ final class DesktopToolsView {
         return List.copyOf(cards);
     }
 
-    private DesktopUiNode toolHistoryCard() {
+    private DesktopUiNode maintenanceSummaryCard() {
+        return group(
+                "tools.maintenance.summary",
+                "gui.tools.interlock.title",
+                column(
+                        "tools.maintenance.summary.content",
+                        text(
+                                "tools.interlock.description",
+                                "gui.tools.interlock.description",
+                                TextStyle.CAPTION
+                        ),
+                        interlockTimeline(),
+                        new DesktopUiNode.Separator(
+                                "tools.interlock.history.separator",
+                                DesktopUiNode.Axis.HORIZONTAL
+                        ),
+                        text(
+                                "tools.history.title",
+                                "gui.tools.history.title",
+                                TextStyle.HEADING
+                        ),
+                        toolHistoryContent()
+                )
+        );
+    }
+
+    private DesktopUiNode interlockTimeline() {
+        boolean toolActive = !model.exclusiveToolName.isBlank();
+        DesktopUiHost.BackendState backendState = model.owner.backendSnapshot().state();
+        DesktopUiNode.TimelineState resourceState = toolActive
+                || backendState == DesktopUiHost.BackendState.RUNNING
+                || backendState == DesktopUiHost.BackendState.STOPPED
+                ? DesktopUiNode.TimelineState.COMPLETE
+                : DesktopUiNode.TimelineState.IDLE;
+        DesktopUiNode.TimelineState stopState = !toolActive
+                ? DesktopUiNode.TimelineState.IDLE
+                : switch (backendState) {
+                    case STOPPING -> DesktopUiNode.TimelineState.ACTIVE;
+                    case STOPPED -> DesktopUiNode.TimelineState.COMPLETE;
+                    default -> DesktopUiNode.TimelineState.IDLE;
+                };
+        DesktopUiNode.TimelineState runState = toolActive
+                && (backendState == DesktopUiHost.BackendState.RUNNING
+                || backendState == DesktopUiHost.BackendState.STOPPED)
+                ? DesktopUiNode.TimelineState.ACTIVE
+                : DesktopUiNode.TimelineState.IDLE;
+        return new DesktopUiNode.Timeline(
+                "tools.interlock.timeline",
+                List.of(
+                        new DesktopUiNode.TimelineItem(
+                                key("gui.tools.interlock.step.check.title"),
+                                key("gui.tools.interlock.step.check.description"),
+                                key(resourceState == DesktopUiNode.TimelineState.COMPLETE
+                                        ? "gui.tools.interlock.status.passed"
+                                        : "desktop.ui.automation.status.idle"),
+                                resourceState
+                        ),
+                        new DesktopUiNode.TimelineItem(
+                                key("gui.tools.interlock.step.stop.title"),
+                                key("gui.tools.interlock.step.stop.description"),
+                                key(stopState == DesktopUiNode.TimelineState.ACTIVE
+                                        ? "gui.backend.state.stopping"
+                                        : stopState == DesktopUiNode.TimelineState.COMPLETE
+                                                ? "gui.backend.state.stopped"
+                                                : "gui.tools.interlock.status.as-needed"),
+                                stopState
+                        ),
+                        new DesktopUiNode.TimelineItem(
+                                key("gui.tools.interlock.step.run.title"),
+                                key("gui.tools.interlock.step.run.description"),
+                                key(runState == DesktopUiNode.TimelineState.ACTIVE
+                                        ? "desktop.ui.home.task.status.running"
+                                        : "desktop.ui.automation.status.idle"),
+                                runState
+                        ),
+                        new DesktopUiNode.TimelineItem(
+                                key("gui.tools.interlock.step.restore.title"),
+                                key("gui.tools.interlock.step.restore.description"),
+                                key("gui.tools.interlock.status.automatic"),
+                                DesktopUiNode.TimelineState.IDLE
+                        )
+                )
+        );
+    }
+
+    private DesktopUiNode toolHistoryContent() {
         List<DesktopUiToolHost.ToolHistoryEntry> entries = model.host.toolHistory();
         if (entries.isEmpty()) {
-            return group(
-                    "tools.history",
-                    "gui.tools.history.title",
-                    text("tools.history.empty", "gui.tools.history.empty", TextStyle.CAPTION)
-            );
+            return text("tools.history.empty", "gui.tools.history.empty", TextStyle.CAPTION);
         }
         List<DesktopUiNode.TableRow> rows = new ArrayList<>(entries.size());
         for (int index = 0; index < entries.size(); index++) {
@@ -833,59 +902,55 @@ final class DesktopToolsView {
                     )
             ));
         }
-        return group(
-                "tools.history",
-                "gui.tools.history.title",
-                new DesktopUiNode.Table(
-                        "tools.history.table",
-                        "tools.history.selection",
-                        List.of(
-                                new DesktopUiNode.TableColumn(
-                                        "tool",
-                                        key("gui.tools.history.column.tool"),
-                                        160
-                                ),
-                                new DesktopUiNode.TableColumn(
-                                        "outcome",
-                                        key("gui.tools.history.column.outcome"),
-                                        90
-                                ),
-                                new DesktopUiNode.TableColumn(
-                                        "started",
-                                        key("gui.tools.history.column.started"),
-                                        150
-                                ),
-                                new DesktopUiNode.TableColumn(
-                                        "finished",
-                                        key("gui.tools.history.column.finished"),
-                                        150
-                                ),
-                                new DesktopUiNode.TableColumn(
-                                        "processed",
-                                        key("gui.tools.history.column.processed"),
-                                        75
-                                ),
-                                new DesktopUiNode.TableColumn(
-                                        "changed",
-                                        key("gui.tools.history.column.changed"),
-                                        75
-                                ),
-                                new DesktopUiNode.TableColumn(
-                                        "failed",
-                                        key("gui.tools.history.column.failed"),
-                                        75
-                                ),
-                                new DesktopUiNode.TableColumn(
-                                        "log",
-                                        key("gui.tools.history.column.log"),
-                                        210
-                                )
+        return new DesktopUiNode.Table(
+                "tools.history.table",
+                "tools.history.selection",
+                List.of(
+                        new DesktopUiNode.TableColumn(
+                                "tool",
+                                key("gui.tools.history.column.tool"),
+                                160
                         ),
-                        rows,
-                        SelectionMode.SINGLE,
-                        List.of(),
-                        false
-                )
+                        new DesktopUiNode.TableColumn(
+                                "outcome",
+                                key("gui.tools.history.column.outcome"),
+                                90
+                        ),
+                        new DesktopUiNode.TableColumn(
+                                "started",
+                                key("gui.tools.history.column.started"),
+                                150
+                        ),
+                        new DesktopUiNode.TableColumn(
+                                "finished",
+                                key("gui.tools.history.column.finished"),
+                                150
+                        ),
+                        new DesktopUiNode.TableColumn(
+                                "processed",
+                                key("gui.tools.history.column.processed"),
+                                75
+                        ),
+                        new DesktopUiNode.TableColumn(
+                                "changed",
+                                key("gui.tools.history.column.changed"),
+                                75
+                        ),
+                        new DesktopUiNode.TableColumn(
+                                "failed",
+                                key("gui.tools.history.column.failed"),
+                                75
+                        ),
+                        new DesktopUiNode.TableColumn(
+                                "log",
+                                key("gui.tools.history.column.log"),
+                                210
+                        )
+                ),
+                rows,
+                SelectionMode.SINGLE,
+                List.of(),
+                false
         );
     }
 

@@ -160,6 +160,17 @@ class GuiComposePluginTest {
     }
 
     @Test
+    @DisplayName("数值文本只在语法、范围与步长全部有效时提交")
+    fun validatesDirectNumericInput() {
+        assertTrue(ComposeDesktopUiNodeRenderer.isIntegerDraft("", 0))
+        assertTrue(ComposeDesktopUiNodeRenderer.isIntegerDraft("8080", 0))
+        assertFalse(ComposeDesktopUiNodeRenderer.isIntegerDraft("80ms", 0))
+        assertEquals(8080, ComposeDesktopUiNodeRenderer.numericInputValue("8080", 1, 65535, 1))
+        assertEquals(null, ComposeDesktopUiNodeRenderer.numericInputValue("70000", 1, 65535, 1))
+        assertEquals(null, ComposeDesktopUiNodeRenderer.numericInputValue("4", 0, 10, 3))
+    }
+
+    @Test
     @DisplayName("密码短暂状态只随宿主状态代际换代")
     fun scopesPasswordStateToHostGeneration() {
         val first = input("password", DesktopUiNode.InputKind.PASSWORD, 4)
@@ -215,6 +226,23 @@ class GuiComposePluginTest {
             DesktopUiNode.Separator("separator", DesktopUiNode.Axis.HORIZONTAL),
             DesktopUiNode.Spacer("spacer", 4, 4),
             DesktopUiNode.Progress("progress", .5, false, raw("Half")),
+            DesktopUiNode.Timeline(
+                "timeline",
+                listOf(
+                    DesktopUiNode.TimelineItem(
+                        raw("Check"), raw("Check resources"), raw("Passed"),
+                        DesktopUiNode.TimelineState.COMPLETE,
+                    ),
+                ),
+            ),
+            DesktopUiNode.ScheduleTimeline(
+                "schedule.timeline", 0L, 50L, 100L,
+                listOf(
+                    DesktopUiNode.ScheduleTimelineItem(
+                        75L, raw("00:00"), raw("Scheduled"), raw("Hourly"),
+                    ),
+                ),
+            ),
             input("input.text", DesktopUiNode.InputKind.TEXT),
             input("input.password", DesktopUiNode.InputKind.PASSWORD),
             DesktopUiNode.Toggle("toggle", "toggle.value", raw("Toggle"), null, DesktopUiNode.ToggleStyle.SWITCH, true, true),

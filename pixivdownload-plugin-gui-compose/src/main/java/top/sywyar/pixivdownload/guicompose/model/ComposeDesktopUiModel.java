@@ -818,8 +818,16 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         return statusController.controlCenterSnapshot();
     }
 
-    long statusLatencyMillis() {
-        return statusController.latencyMillis();
+    String pixivConnectivityDetails() {
+        return statusController.connectivitySummary();
+    }
+
+    boolean canCheckPixivConnectivity() {
+        return statusController.canCheckConnectivity();
+    }
+
+    void checkPixivConnectivity() {
+        statusController.checkConnectivity();
     }
 
     TextStyle backendTextStyle() {

@@ -21,6 +21,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         DesktopUiNode.Surface, DesktopUiNode.Group, DesktopUiNode.Form, DesktopUiNode.Tabs, DesktopUiNode.Scroll,
         DesktopUiNode.Split, DesktopUiNode.Text, DesktopUiNode.Icon,
         DesktopUiNode.Image, DesktopUiNode.Separator, DesktopUiNode.Spacer, DesktopUiNode.Progress,
+        DesktopUiNode.Timeline, DesktopUiNode.ScheduleTimeline,
         DesktopUiNode.TextInput, DesktopUiNode.Toggle, DesktopUiNode.Choice,
         DesktopUiNode.NumberInput, DesktopUiNode.Table, DesktopUiNode.Tree,
         DesktopUiNode.Button, DesktopUiNode.Link {
@@ -459,22 +460,111 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     }
 
     /** 确定或不确定模式的进度显示。 */
-    record Progress(String id, double progress, boolean indeterminate,
-                    TextToken text) implements DesktopUiNode {
+    record Progress(
+            String id,
+            double progress,
+            boolean indeterminate,
+            TextToken text,
+            ProgressStyle progressStyle
+    ) implements DesktopUiNode {
         /**
          * @param id 稳定节点标识
          * @param progress 从零到一的确定进度
          * @param indeterminate 是否使用不确定进度
          * @param text 可选的本地化进度文本
+         * @param progressStyle 进度呈现样式
          */
         public Progress {
             id = requireId(id, "id");
+            progressStyle = progressStyle == null ? ProgressStyle.LINEAR : progressStyle;
             if (!indeterminate && (!Double.isFinite(progress) || progress < 0d || progress > 1d)) {
                 throw new IllegalArgumentException("progress must be between 0 and 1");
             }
         }
 
+        public Progress(
+                String id,
+                double progress,
+                boolean indeterminate,
+                TextToken text
+        ) {
+            this(id, progress, indeterminate, text, ProgressStyle.LINEAR);
+        }
+
         @Override public Kind kind() { return Kind.PROGRESS; }
+    }
+
+    /** 带编号节点和语义状态的纵向时间线。 */
+    record Timeline(String id, List<TimelineItem> items) implements DesktopUiNode {
+        /**
+         * @param id 稳定节点标识
+         * @param items 按显示顺序排列的时间线项目
+         */
+        public Timeline {
+            id = requireId(id, "id");
+            items = copyBounded(items, "items");
+            if (items.isEmpty()) throw new IllegalArgumentException("timeline requires at least one item");
+        }
+
+        @Override public Kind kind() { return Kind.TIMELINE; }
+    }
+
+    /** 纵向时间线中的一项。 */
+    record TimelineItem(TextToken title, TextToken detail, TextToken status,
+                        TimelineState state) {
+        /**
+         * @param title 项目标题
+         * @param detail 项目说明
+         * @param status 当前状态文案
+         * @param state 当前语义状态
+         */
+        public TimelineItem {
+            title = Objects.requireNonNull(title, "title");
+            detail = Objects.requireNonNull(detail, "detail");
+            status = Objects.requireNonNull(status, "status");
+            state = Objects.requireNonNull(state, "state");
+        }
+    }
+
+    /** 在固定时间窗口内按发生时刻定位项目的横向计划时间线。 */
+    record ScheduleTimeline(String id, long startAt, long nowAt, long endAt,
+                            List<ScheduleTimelineItem> items) implements DesktopUiNode {
+        /**
+         * @param id 稳定节点标识
+         * @param startAt 时间窗口起点（epoch millis）
+         * @param nowAt 当前时刻标记（epoch millis）
+         * @param endAt 时间窗口终点（epoch millis）
+         * @param items 按发生时刻排列的计划项目
+         */
+        public ScheduleTimeline {
+            id = requireId(id, "id");
+            if (endAt <= startAt) throw new IllegalArgumentException("endAt must be after startAt");
+            if (nowAt < startAt || nowAt > endAt) {
+                throw new IllegalArgumentException("nowAt must be inside the schedule window");
+            }
+            items = copyBounded(items, "items");
+            if (items.isEmpty()) throw new IllegalArgumentException("schedule timeline requires at least one item");
+            if (items.stream().anyMatch(item -> item.at() < startAt || item.at() > endAt)) {
+                throw new IllegalArgumentException("schedule item must be inside the schedule window");
+            }
+        }
+
+        @Override public Kind kind() { return Kind.SCHEDULE_TIMELINE; }
+    }
+
+    /** 横向计划时间线中的一项。 */
+    record ScheduleTimelineItem(long at, TextToken time, TextToken title, TextToken detail) {
+        /**
+         * @param at 发生时刻（epoch millis）
+         * @param time 已格式化的时刻文本
+         * @param title 项目标题
+         * @param detail 触发规则摘要
+         */
+        public ScheduleTimelineItem {
+            time = Objects.requireNonNull(time, "time");
+            title = Objects.requireNonNull(title, "title");
+            detail = Objects.requireNonNull(detail, "detail");
+        }
     }
 
     /** 文本型输入，包括密码、多行、搜索、时间、文件和目录变体。 */
@@ -1056,6 +1146,8 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         /** 分隔线。 */ SEPARATOR,
         /** 固定间隔。 */ SPACER,
         /** 进度显示。 */ PROGRESS,
+        /** 纵向时间线。 */ TIMELINE,
+        /** 固定窗口内的横向计划时间线。 */ SCHEDULE_TIMELINE,
         /** 文本型输入。 */ TEXT_INPUT,
         /** 布尔输入。 */ TOGGLE,
         /** 选择输入。 */ CHOICE,
@@ -1165,6 +1257,17 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     enum NumberStyle {
         /** 微调框控件。 */ SPINNER,
         /** 滑块控件。 */ SLIDER
+    }
+    /** 进度呈现样式。 */
+    enum ProgressStyle {
+        /** 线性进度条。 */ LINEAR,
+        /** 环形进度条。 */ CIRCULAR
+    }
+    /** 时间线项目的语义状态。 */
+    enum TimelineState {
+        /** 已完成。 */ COMPLETE,
+        /** 正在执行。 */ ACTIVE,
+        /** 尚未执行或当前无法确认。 */ IDLE
     }
     /** 命令强调样式。 */
     enum ButtonStyle {

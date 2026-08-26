@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.Alignment;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.ButtonStyle;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.ContainerLayout;
+import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.ProgressStyle;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.TextStyle;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.TextToken;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
@@ -28,6 +29,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -86,6 +89,8 @@ final class DesktopControlCenterView {
         String version = applicationVersion.isBlank()
                 ? host.message("app.version.unknown")
                 : applicationVersion;
+        String connectivityAction = "home.system.connectivity.check";
+        nextActions.put(connectivityAction, owner::checkPixivConnectivity);
         DesktopUiNode system = new DesktopUiNode.Surface(
                 "home.system",
                 DesktopUiNode.SurfaceStyle.CARD,
@@ -126,16 +131,28 @@ final class DesktopControlCenterView {
                                 owner.backendMessage(),
                                 owner.backendTextStyle()
                         ),
-                        new DesktopUiNode.Text(
-                                "home.system.latency",
-                                owner.statusLatencyMillis() < 0L ? key(
-                                        "desktop.ui.home.system.latency.unavailable") : appToken(
-                                                "desktop.ui.home.system.latency",
-                                                owner.statusLatencyMillis()
+                        new DesktopUiNode.Container(
+                                "home.system.connectivity",
+                                ContainerLayout.ROW,
+                                1,
+                                8,
+                                Alignment.CENTER,
+                                List.of(
+                                        new DesktopUiNode.Text(
+                                                "home.system.connectivity.label",
+                                                key("gui.status.label.pixiv-connectivity"),
+                                                TextStyle.CAPTION,
+                                                true,
+                                                false
                                         ),
-                                TextStyle.CAPTION,
-                                true,
-                                false
+                                        new DesktopUiNode.Link(
+                                                "home.system.connectivity.value",
+                                                connectivityAction,
+                                                TextToken.raw(owner.pixivConnectivityDetails()),
+                                                key("gui.status.pixiv-connectivity.tooltip"),
+                                                owner.canCheckPixivConnectivity()
+                                        )
+                                )
                         ),
                         new DesktopUiNode.Text(
                                 "home.system.plugins",
@@ -303,10 +320,11 @@ final class DesktopControlCenterView {
     }
 
     DesktopUiNode automationPage() {
+        DesktopUiHost.GuiValue controlCenter = owner.controlCenterSnapshot();
         List<DesktopUiNode> sources = new ArrayList<>();
         List<DesktopUiNode> tasks = new ArrayList<>();
         List<AutomationRun> runs = new ArrayList<>();
-        for (DesktopUiHost.GuiValue owned : owner.controlCenterSnapshot().path("automations")) {
+        for (DesktopUiHost.GuiValue owned : controlCenter.path("automations")) {
             String owner = safeId(owned.path("owner").path("pluginId").asText("unknown"));
             DesktopUiHost.GuiValue automation = owned.path("snapshot");
             DesktopControlCenterAvailability availability = availability(automation.path(
@@ -340,39 +358,7 @@ final class DesktopControlCenterView {
         runs.sort(Comparator.comparing(AutomationRun::at).thenComparing(AutomationRun::owner).thenComparing(
                 AutomationRun::taskId));
 
-        List<DesktopUiNode> timeline = new ArrayList<>();
-        for (AutomationRun run : runs) {
-            String base = "automation.timeline." + run.owner() + "." + run.taskId() + "." + run.at().toEpochMilli();
-            timeline.add(new DesktopUiNode.Surface(
-                    base,
-                    DesktopUiNode.SurfaceStyle.CARD,
-                    new DesktopUiNode.Insets(
-                            10,
-                            12,
-                            10,
-                            12
-                    ),
-                    true,
-                    column(
-                            base + ".content",
-                            raw(base + ".time", formatTimestamp(run.at()), TextStyle.EMPHASIS),
-                            new DesktopUiNode.Text(
-                                    base + ".title",
-                                    guiToken(run.task().path("title")),
-                                    TextStyle.BODY,
-                                    true,
-                                    false
-                            ),
-                            new DesktopUiNode.Text(
-                                    base + ".trigger",
-                                    guiToken(run.task().path("triggerSummary")),
-                                    TextStyle.CAPTION,
-                                    true,
-                                    false
-                            )
-                    )
-            ));
-        }
+        DesktopUiNode timeline = automationTimeline(controlCenter, runs);
 
         return scroll(
                 "automation.scroll",
@@ -399,11 +385,7 @@ final class DesktopControlCenterView {
                         group(
                                 "automation.timeline",
                                 "desktop.ui.automation.timeline.title",
-                                timeline.isEmpty() ? text(
-                                        "automation.timeline.empty",
-                                        "desktop.ui.automation.timeline.empty",
-                                        TextStyle.CAPTION
-                                ) : column("automation.timeline.list", timeline)
+                                timeline
                         ),
                         group(
                                 "automation.tasks",
@@ -415,6 +397,38 @@ final class DesktopControlCenterView {
                                 ) : column("automation.tasks.list", tasks)
                         )
                 )
+        );
+    }
+
+    private DesktopUiNode automationTimeline(
+            DesktopUiHost.GuiValue controlCenter,
+            List<AutomationRun> runs
+    ) {
+        Optional<Instant> startValue = parseInstant(controlCenter.path("observedAt").asText(""));
+        if (startValue.isEmpty() || runs.isEmpty()) {
+            return text("automation.timeline.empty", "desktop.ui.automation.timeline.empty", TextStyle.CAPTION);
+        }
+        Instant start = startValue.orElseThrow();
+        Instant end = start.plusSeconds(24L * 60L * 60L);
+        List<DesktopUiNode.ScheduleTimelineItem> items = runs.stream()
+                .filter(run -> !run.at().isBefore(start) && !run.at().isAfter(end))
+                .map(run -> new DesktopUiNode.ScheduleTimelineItem(
+                        run.at().toEpochMilli(),
+                        TextToken.raw(formatScheduleTime(run.at())),
+                        guiToken(run.task().path("title")),
+                        guiToken(run.task().path("triggerSummary"))
+                ))
+                .toList();
+        if (items.isEmpty()) {
+            return text("automation.timeline.empty", "desktop.ui.automation.timeline.empty", TextStyle.CAPTION);
+        }
+        long now = Math.max(start.toEpochMilli(), Math.min(Instant.now().toEpochMilli(), end.toEpochMilli()));
+        return new DesktopUiNode.ScheduleTimeline(
+                "automation.timeline.schedule",
+                start.toEpochMilli(),
+                now,
+                end.toEpochMilli(),
+                items
         );
     }
 
@@ -514,6 +528,27 @@ final class DesktopControlCenterView {
         return DesktopUiNodes.formatTimestamp(value);
     }
 
+    private static String formatScheduleTime(Instant value) {
+        return DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()).format(value);
+    }
+
+    static String formatCompactBinarySize(long bytes) {
+        if (bytes < 0L) throw new IllegalArgumentException("bytes must not be negative");
+        double value = bytes;
+        String[] units = {"B", "KB", "MB", "GB", "TB", "PB", "EB"};
+        int unit = 0;
+        while (value >= 1024d && unit < units.length - 1) {
+            value /= 1024d;
+            unit++;
+        }
+        String number = value == Math.rint(value) ? String.format(Locale.ROOT, "%.0f", value) : String.format(
+                Locale.ROOT,
+                "%.1f",
+                value
+        );
+        return number + units[unit];
+    }
+
     private DesktopUiNode dashboardCard(
             String base,
             TextToken title,
@@ -522,6 +557,28 @@ final class DesktopControlCenterView {
             DesktopUiIcon icon,
             DesktopUiTone tone,
             DesktopControlCenterAvailability availability
+    ) {
+        return dashboardCard(
+                base,
+                title,
+                primary,
+                supporting,
+                icon,
+                tone,
+                availability,
+                null
+        );
+    }
+
+    private DesktopUiNode dashboardCard(
+            String base,
+            TextToken title,
+            TextToken primary,
+            TextToken supporting,
+            DesktopUiIcon icon,
+            DesktopUiTone tone,
+            DesktopControlCenterAvailability availability,
+            DesktopUiNode summaryGraphic
     ) {
         DesktopUiNode.SurfaceStyle style = switch (availability) {
             case UNAVAILABLE -> DesktopUiNode.SurfaceStyle.MUTED;
@@ -534,6 +591,23 @@ final class DesktopControlCenterView {
                 case DEFAULT -> DesktopUiNode.SurfaceStyle.CARD;
             };
         };
+        DesktopUiNode primaryContent = new DesktopUiNode.Text(
+                base + ".primary",
+                primary,
+                TextStyle.TITLE,
+                true,
+                false
+        );
+        if (summaryGraphic != null) {
+            primaryContent = new DesktopUiNode.Container(
+                    base + ".summary",
+                    ContainerLayout.ROW,
+                    1,
+                    12,
+                    Alignment.CENTER,
+                    List.of(summaryGraphic, primaryContent)
+            );
+        }
         return new DesktopUiNode.Surface(
                 base,
                 style,
@@ -566,13 +640,7 @@ final class DesktopControlCenterView {
                                         title
                                 )
                         ),
-                        new DesktopUiNode.Text(
-                                base + ".primary",
-                                primary,
-                                TextStyle.TITLE,
-                                true,
-                                false
-                        ),
+                        primaryContent,
                         new DesktopUiNode.Text(
                                 base + ".supporting",
                                 supporting,
@@ -594,18 +662,26 @@ final class DesktopControlCenterView {
             long available = store.getUsableSpace();
             if (total <= 0L || available < 0L || available > total)
                 throw new IOException("invalid file store");
+            long used = total - available;
             return dashboardCard(
                     "home.storage",
                     key("desktop.ui.home.storage.title"),
                     appToken(
                             "desktop.ui.home.storage.value",
-                            formatSize(total - available),
-                            formatSize(available)
+                            formatCompactBinarySize(used),
+                            formatCompactBinarySize(total)
                     ),
                     key("desktop.ui.home.storage.supporting"),
                     DesktopUiIcon.STORAGE,
                     DesktopUiTone.INFO,
-                    DesktopControlCenterAvailability.AVAILABLE
+                    DesktopControlCenterAvailability.AVAILABLE,
+                    new DesktopUiNode.Progress(
+                            "home.storage.usage",
+                            (double) used / total,
+                            false,
+                            null,
+                            ProgressStyle.CIRCULAR
+                    )
             );
         } catch (Exception ignored) {
             return dashboardCard(
