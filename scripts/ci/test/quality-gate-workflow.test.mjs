@@ -67,6 +67,13 @@ test('发布链：所有凭据与写权限只在 release Environment 的门禁�
     assert.equal(publishAction.inputs.nightly_build_version.default, '');
     assert.equal(publishAction.outputs.manifest_commit.value,
         '${{ steps.commit-manifest.outputs.manifest_commit }}');
+    const manifestCommit = publishAction.runs.steps.find((step) => step.id === 'commit-manifest');
+    assert.ok(manifestCommit);
+    assert.match(manifestCommit.run, /\$nightlyTag = "\$pluginId-nightly"/);
+    assert.match(manifestCommit.run, /git tag -f \$nightlyTag HEAD/);
+    assert.match(manifestCommit.run,
+        /\+refs\/tags\/\$\{nightlyTag\}:refs\/tags\/\$\{nightlyTag\}/);
+    assert.match(manifestCommit.run, /git push --atomic origin @nightlyTagRefspecs/);
     assert.equal(publishAction.inputs.plugins_repo_token, undefined);
     assert.deepEqual(secretNames(publishAction), []);
     for (const action of [javaAction, windowsAction, updateSigningAction]) {

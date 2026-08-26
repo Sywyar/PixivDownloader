@@ -117,7 +117,7 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("Nightly 插件按各自版本发布 prerelease、改写包版本并生成独立清单")
+    @DisplayName("Nightly 插件按各自版本刷新固定 prerelease、改写包版本并生成独立清单")
     void nightlyPublicationUsesMatchingPluginVersionsAndManifest() throws Exception {
         String common = script("plugin-distribution-common.ps1");
         String publisher = script("publish-plugin-releases.ps1");
@@ -129,16 +129,21 @@ class PluginReleaseScriptsTest {
         assertThat(publisher).contains(
                 "[string]$NightlyBuildVersion",
                 "$version = Get-NightlyPluginVersion $sourceVersion $nightlySuffix",
-                "$tag = \"$($plugin.Id)-v$version\"",
+                "$tag = \"$($plugin.Id)-nightly\"",
+                "$title = \"Nightly Build $($plugin.Id)-v$version\"",
                 "Set-StagedPluginVersion -StagedArtifact $stagedArtifact -Plugin $Plugin -Version $Version",
                 "\"--update\" \"--file\" $StagedArtifact \"plugin.properties\"",
-                "--title \"Nightly Build $version ($($plugin.Id))\"",
+                "Remove-ExistingReleaseAssets -Tag $tag -AssetNames $assetNames",
+                "gh release edit $tag --repo $Repo --title $title",
+                "gh release create $tag $uploadPaths --repo $Repo --title $title",
                 "--prerelease");
+        assertThat(publisher).doesNotContain("Nightly release $tag already exists");
         assertThat(generator).contains(
                 "$manifestName = if ($isNightly) { \"nightly-manifest.json\" } else { \"manifest.json\" }",
                 "$version = if ($isNightly) {",
                 "Get-NightlyPluginVersion $sourceVersion $nightlySuffix",
-                "$tag = \"$id-v$version\"",
+                "$tag = if ($isNightly) { \"$id-nightly\" } else { \"$id-v$version\" }",
+                "$releasedTime = if ($isNightly) { $nowUtc } else { $rel.publishedAt }",
                 "$channel = if ($isNightly) { \"nightly\" } else { \"stable\" }",
                 "channel           = $channel");
     }

@@ -4,10 +4,9 @@
     ALREADY-PUBLISHED GitHub Releases of the distribution repo + a curation source.
 
 .DESCRIPTION
-    The manifest is derived from the published release assets, NOT from a local build - so it is correct
-    whether or not anything was rebuilt this run (version-gated publishing keeps unchanged plugins' assets
-    untouched, and a rebuilt artifact of the same version can differ byte-wise). For each official required
-    or optional plugin:
+    The manifest is derived from the published release assets, NOT from a local build. Stable publication may
+    reuse complete versioned releases; Nightly publication refreshes every plugin's fixed rolling release from
+    current source. For each official required or optional plugin:
 
       - id / requires                : read from the module's source plugin.properties (literal, no build).
       - version                      : source plugin.version for stable, or that version plus the Nightly build suffix.
@@ -215,10 +214,11 @@ try {
         $colorToken = Require-DescriptorValue $d "pixiv.color-token" $plugin.Module
         $displayName = Resolve-LocalizedTextMap $plugin.Module $displayNamespace $displayNameKey
         $summary = Resolve-LocalizedTextMap $plugin.Module $displayNamespace $descriptionKey
-        $tag = "$id-v$version"
+        $tag = if ($isNightly) { "$id-nightly" } else { "$id-v$version" }
         $assetName = Get-OfficialPluginArtifactName $plugin $version
 
-        # Release metadata (must already exist): asset download_count + release publishedAt.
+        # Release metadata (must already exist): asset download_count + stable release publishedAt.
+        # A rolling Nightly Release keeps its original publishedAt, so use this manifest generation time instead.
         $relRaw = & gh release view $tag --repo $Repo --json assets,publishedAt
         if ($LASTEXITCODE -ne 0 -or -not $relRaw) {
             throw "Release $tag not found in $Repo. Publish it before generating the manifest."
@@ -227,7 +227,7 @@ try {
         $asset = $rel.assets | Where-Object { $_.name -eq $assetName } | Select-Object -First 1
         if (-not $asset) { throw "Asset $assetName not found on release $tag." }
         $downloadCount = [int]$asset.downloadCount
-        $releasedTime = $rel.publishedAt
+        $releasedTime = if ($isNightly) { $nowUtc } else { $rel.publishedAt }
         if (-not $releasedTime) { $releasedTime = $nowUtc }
 
         # Cumulative download count: when the plugin version changes, fold the previous version's
