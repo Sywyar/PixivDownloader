@@ -281,6 +281,7 @@ class PluginApiOwnershipGuardTest {
             API_PREFIX + "gui.DesktopUiHost$RepositoryProxyPolicy",
             API_PREFIX + "gui.DesktopUiHost$UiLocale",
             API_PREFIX + "gui.DesktopUiHost$UiLocaleResolution",
+            API_PREFIX + "gui.DesktopUiHost$WindowStateSnapshot",
             API_PREFIX + "gui.DesktopUiPluginSnapshot$Fingerprint",
             API_PREFIX + "gui.DesktopUiSession$MessageLevel",
             API_PREFIX + "gui.DesktopUiToolHost$BackfillOptions",

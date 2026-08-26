@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.gui;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.WindowStateSnapshot;
+
 import javax.swing.JPanel;
 import javax.swing.JPasswordField;
 import javax.swing.JScrollPane;
@@ -25,6 +27,11 @@ class MainFrameRegressionTest {
     void keepsWindowMetricsAndClosePolicy() {
         assertThat(MainFrame.defaultWindowSize()).isEqualTo(new Dimension(960, 720));
         assertThat(MainFrame.minimumWindowSize()).isEqualTo(new Dimension(760, 560));
+        assertThat(MainFrame.restoredWindowSize(null)).isEqualTo(new Dimension(960, 720));
+        assertThat(MainFrame.restoredWindowSize(new WindowStateSnapshot(1280, 800, true)))
+                .isEqualTo(new Dimension(1280, 800));
+        assertThat(MainFrame.restoredWindowSize(new WindowStateSnapshot(640, 480, false)))
+                .isEqualTo(new Dimension(760, 560));
         assertThat(MainFrame.closeBehavior(true)).isEqualTo(MainFrame.CloseBehavior.HIDE);
         assertThat(MainFrame.closeBehavior(false)).isEqualTo(MainFrame.CloseBehavior.EXIT);
     }
