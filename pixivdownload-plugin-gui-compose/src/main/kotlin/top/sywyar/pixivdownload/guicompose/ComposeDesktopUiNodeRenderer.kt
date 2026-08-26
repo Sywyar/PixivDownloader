@@ -993,13 +993,14 @@ object ComposeDesktopUiNodeRenderer {
         BoxWithConstraints(modifier.fillMaxWidth().height(204.dp)) {
             val timelineWidth = maxWidth
             val itemWidth = minOf(timelineWidth, maxOf(104.dp, minOf(150.dp, timelineWidth * .28f)))
+            val axisWidth = maxOf(0.dp, timelineWidth - itemWidth)
             val itemWidthFraction = if (timelineWidth.value == 0f) 1f else itemWidth.value / timelineWidth.value
             val placements = remember(node, timelineWidth) {
                 val laneEnds = FloatArray(3) { -1f }
                 node.items().map { item ->
                     val point = ((item.at() - node.startAt()).toDouble() /
                         (node.endAt() - node.startAt()).toDouble()).toFloat().coerceIn(0f, 1f)
-                    val left = (point - itemWidthFraction / 2f).coerceIn(0f, 1f - itemWidthFraction)
+                    val left = point * (1f - itemWidthFraction)
                     val lane = laneEnds.indices.firstOrNull { laneEnds[it] + .015f <= left }
                         ?: laneEnds.indices.minBy { laneEnds[it] }
                     laneEnds[lane] = left + itemWidthFraction
@@ -1007,11 +1008,11 @@ object ComposeDesktopUiNodeRenderer {
                 }
             }
             val axisY = 28.dp
-            val tickCount = if (timelineWidth < 480.dp) 6 else 12
-            val tickLabelWidth = minOf(48.dp, timelineWidth / tickCount.toFloat())
+            val tickCount = if (axisWidth < 480.dp) 6 else 12
+            val tickLabelWidth = minOf(48.dp, axisWidth / tickCount.toFloat())
             repeat(tickCount) { index ->
                 val fraction = index.toFloat() / tickCount
-                val tickX = timelineWidth * fraction
+                val tickX = axisWidth * fraction
                 val labelX = (tickX - tickLabelWidth / 2f)
                     .coerceIn(0.dp, timelineWidth - tickLabelWidth)
                 Text(
@@ -1030,12 +1031,12 @@ object ComposeDesktopUiNodeRenderer {
                 )
             }
             Spacer(
-                Modifier.offset(y = axisY).fillMaxWidth().height(1.dp)
+                Modifier.offset(y = axisY).width(axisWidth).height(1.dp)
                     .background(MaterialTheme.colorScheme.outlineVariant),
             )
             val nowFraction = ((node.nowAt() - node.startAt()).toDouble() /
                 (node.endAt() - node.startAt()).toDouble()).toFloat().coerceIn(0f, 1f)
-            val nowX = (timelineWidth * nowFraction).coerceAtMost(timelineWidth - 2.dp)
+            val nowX = axisWidth * nowFraction
             Spacer(
                 Modifier.offset(x = nowX, y = axisY).width(2.dp).height(168.dp)
                     .background(MaterialTheme.colorScheme.primary),

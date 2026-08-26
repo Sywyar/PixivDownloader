@@ -10,12 +10,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
@@ -329,7 +331,7 @@ class ComposeControlCenterLayoutTest {
                     DesktopUiNode.TextToken.raw("Nearby job"), DesktopUiNode.TextToken.raw("Every hour"),
                 ),
                 DesktopUiNode.ScheduleTimelineItem(
-                    18L * hour, DesktopUiNode.TextToken.raw("18:00"),
+                    22L * hour + 48L * 60_000L, DesktopUiNode.TextToken.raw("22:48"),
                     DesktopUiNode.TextToken.raw("Later job"), DesktopUiNode.TextToken.raw("Every day"),
                 ),
             ),
@@ -337,11 +339,22 @@ class ComposeControlCenterLayoutTest {
         setContent {
             MaterialTheme {
                 Box(Modifier.width(600.dp)) {
-                    ComposeDesktopUiNodeRenderer.Render(timeline, { it.fallback() }, {})
+                    ComposeDesktopUiNodeRenderer.Render(
+                        timeline,
+                        { it.fallback() },
+                        {},
+                        Modifier.testTag("schedule-timeline"),
+                    )
                 }
             }
         }
 
+        val timelineBounds = onNodeWithTag("schedule-timeline").fetchSemanticsNode().boundsInRoot
+        val earlyBounds = onNodeWithText("Early job").fetchSemanticsNode().boundsInRoot
+        val laterBounds = onNodeWithText("Later job").fetchSemanticsNode().boundsInRoot
+        val axisWidth = timelineBounds.width - earlyBounds.width
+        assertEquals(timelineBounds.left + axisWidth * (2f / 24f), earlyBounds.left, 1f)
+        assertEquals(timelineBounds.left + axisWidth * (22.8f / 24f), laterBounds.left, 1f)
         assertTrue(left("Later job") > left("Early job"))
         assertTrue(topUnmerged("Nearby job") > topUnmerged("Early job"))
     }
