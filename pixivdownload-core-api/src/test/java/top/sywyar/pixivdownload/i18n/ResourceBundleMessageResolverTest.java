@@ -97,6 +97,22 @@ class ResourceBundleMessageResolverTest {
         assertThat(resolver.get("shared.message", "arg")).isEqualTo("host:shared.message:arg");
     }
 
+    @Test
+    @DisplayName("日志始终使用英文资源包")
+    void logMessagesAlwaysUseEnglishBundle() {
+        Locale original = Locale.getDefault();
+        try {
+            Locale.setDefault(Locale.SIMPLIFIED_CHINESE);
+            MessageResolver resolver = ResourceBundleMessageResolver.of(
+                    new FixedLocaleFallback(Locale.SIMPLIFIED_CHINESE),
+                    getClass().getClassLoader(), "i18n.test.messages");
+
+            assertThat(resolver.getForLog("owner.message")).isEqualTo("English");
+        } finally {
+            Locale.setDefault(original);
+        }
+    }
+
     /** 固定 suffix 链的最小策略 fixture。 */
     private record FixedPolicy(List<String> suffixes) implements LocaleBundlePolicy {
 

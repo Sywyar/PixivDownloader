@@ -43,7 +43,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(LocalizedException.class)
     public ResponseEntity<ApiErrorResponse> handleLocalized(LocalizedException e, Locale locale) {
         String message = messages.getOrDefault(locale, e.getMessageCode(), e.getDefaultMessage(), e.getMessageArgs());
-        String logDetail = messages.getOrDefault(Locale.getDefault(), e.getMessageCode(), e.getDefaultMessage(), e.getMessageArgs());
+        String logDetail = messages.getForLog(e.getMessageCode(), e.getMessageArgs());
         log.warn(logMessage("error.log.request.failed", logDetail));
         return ResponseEntity.status(e.getStatus()).body(error(e.getMessageCode(), message));
     }
@@ -58,7 +58,7 @@ public class GlobalExceptionHandler {
                 ? "该小说不在你的可见范围内"
                 : "该作品不在你的可见范围内";
         String message = messages.getOrDefault(locale, code, fallback);
-        String logDetail = messages.getOrDefault(Locale.getDefault(), code, fallback);
+        String logDetail = messages.getForLog(code);
         log.warn(logMessage("error.log.request.failed",
                 logDetail + " [workType=" + e.workType() + ", workId=" + e.workId() + "]"));
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error(code, message));
@@ -68,7 +68,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleWorkDeletion(
             WorkDeletionException e, Locale locale) {
         String typeName = workTypeName(locale, e.workType());
-        String logTypeName = workTypeName(Locale.getDefault(), e.workType());
+        String logTypeName = messages.getForLog("work.type." + e.workType().name().toLowerCase(Locale.ROOT));
         String message = switch (e.reason()) {
             case LOCAL_FILE_DELETE_FAILED -> messages.getOrDefault(
                     locale,
@@ -78,12 +78,8 @@ public class GlobalExceptionHandler {
                     e.workId());
         };
         String logDetail = switch (e.reason()) {
-            case LOCAL_FILE_DELETE_FAILED -> messages.getOrDefault(
-                    Locale.getDefault(),
-                    "work.delete.file-failed",
-                    "{0} {1} 的磁盘文件未能全部删除，已中止数据库清理",
-                    logTypeName,
-                    e.workId());
+            case LOCAL_FILE_DELETE_FAILED -> messages.getForLog(
+                    "work.delete.file-failed", logTypeName, e.workId());
         };
         log.warn(logMessage("error.log.request.failed", logDetail));
         return ResponseEntity.status(HttpStatus.CONFLICT).body(error("work.delete.file-failed", message));
@@ -97,11 +93,7 @@ public class GlobalExceptionHandler {
                 "work.delete.path-unsafe",
                 "删除目标路径不安全，已中止文件与数据库清理: {0}",
                 e.path());
-        String logDetail = messages.getOrDefault(
-                Locale.getDefault(),
-                "work.delete.path-unsafe",
-                "删除目标路径不安全，已中止文件与数据库清理: {0}",
-                e.path());
+        String logDetail = messages.getForLog("work.delete.path-unsafe", e.path());
         log.warn(logMessage("error.log.request.failed", logDetail));
         return ResponseEntity.status(HttpStatus.CONFLICT).body(error("work.delete.path-unsafe", message));
     }
@@ -111,8 +103,7 @@ public class GlobalExceptionHandler {
             QueueNotAcceptingException e, Locale locale) {
         String message = messages.getOrDefault(locale, "plugin.unavailable.quiesced",
                 "插件正在停用中，暂时不可用，请稍后重试");
-        String logDetail = messages.getOrDefault(Locale.getDefault(), "plugin.unavailable.quiesced",
-                "插件正在停用中，暂时不可用，请稍后重试");
+        String logDetail = messages.getForLog("plugin.unavailable.quiesced");
         log.warn(logMessage("error.log.request.failed", logDetail + " [queueType=" + e.queueType() + "]"));
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(error("plugin.unavailable.quiesced", message));
@@ -123,8 +114,7 @@ public class GlobalExceptionHandler {
             TaskRejectedException e, Locale locale) {
         String message = messages.getOrDefault(locale, "task.queue.full",
                 "任务排队已满，请稍后重试");
-        String logDetail = messages.getOrDefault(Locale.getDefault(), "task.queue.full",
-                "任务排队已满，请稍后重试");
+        String logDetail = messages.getForLog("task.queue.full");
         log.warn(logMessage("error.log.request.failed", logDetail));
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(error("task.queue.full", message));
     }
@@ -154,7 +144,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiErrorResponse> handleValidation(MethodArgumentNotValidException e, Locale locale) {
         String message = buildValidationMessage(e, locale, false);
-        String logDetail = buildValidationMessage(e, Locale.getDefault(), true);
+        String logDetail = buildValidationMessage(e, messages.currentLocale(), true);
         log.warn(logMessage("error.log.request.param.validation-failed", logDetail));
         return ResponseEntity.badRequest().body(error("error.request.validation", message));
     }

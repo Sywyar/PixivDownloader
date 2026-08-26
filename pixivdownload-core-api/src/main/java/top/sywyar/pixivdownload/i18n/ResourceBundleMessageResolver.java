@@ -138,7 +138,7 @@ public final class ResourceBundleMessageResolver implements MessageResolver {
 
     @Override
     public String getForLog(String code, Object... args) {
-        return getOrDefault(normalizeLocale(Locale.getDefault()), code, code, args);
+        return getOrDefault(policy.fallbackLocale(), code, code, args);
     }
 
     /** 物理文件：suffix 为空 → {@code baseName.properties}，否则 {@code baseName_<suffix>.properties}。 */

@@ -33,6 +33,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - 下载页预览结果支持折叠 / 展开，方便在加入队列后减少列表干扰。
 
 ### Changed
+- 应用自有日志文案现在固定使用英文，不再随请求、桌面界面或 JVM 系统语言变化；HTML 日志也固定声明英文文档语言。
 - FFmpeg 自动安装改用项目从官方最新稳定源码构建的固定 Release，并按 Windows x64、Linux x64/arm64 与 macOS x64/arm64 自动选择资产；不再依赖每日构建版。
 - 桌面 Swing 界面与主题实现已从主程序抽离并合并为官方外置 `gui-swing` 插件；宿主仅保留工具包无关的 `DesktopUiProvider` / `DesktopUiHost` 稳定契约与确定性选择流程，`app.gui-provider` 可显式选择界面提供者，显式提供者不可用时会给出诊断并退回唯一默认提供者，无法唯一选择时拒绝静默启动。
 - 默认桌面界面改为随标准包安装的 `gui-compose` Compose Multiplatform 插件，`gui-swing` 保留为自动后备；两者仍可在「配置 → 界面」中切换，若均缺席则由主程序引导用户打开插件市场恢复界面。

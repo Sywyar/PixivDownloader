@@ -13,6 +13,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 class HtmlLogLayoutTest {
 
     @Test
+    @DisplayName("HTML 日志固定声明英文")
+    void declaresEnglishDocumentLanguage() {
+        assertThat(new HtmlLogLayout().getPresentationHeader()).contains("<html lang=\"en\">");
+    }
+
+    @Test
     @DisplayName("HTML 日志沿用文本日志的 logger 和异常格式")
     void matchesTextLogLoggerAndThrowableFormatting() {
         IllegalArgumentException cause = new IllegalArgumentException("root cause");

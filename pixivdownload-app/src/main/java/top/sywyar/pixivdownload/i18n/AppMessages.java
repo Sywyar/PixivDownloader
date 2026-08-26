@@ -64,15 +64,13 @@ public class AppMessages implements MessageResolver {
     }
 
     /**
-     * 解析日志专用文案,固定使用 JVM 系统语言({@link Locale#getDefault()})。
-     * 日志语句可能在后台线程上执行(无请求上下文),也不应随请求 locale 漂移,
-     * 因此跟随 JVM 系统语言。运维通过启动参数 {@code -Duser.language=en} 切换全部日志语言。
+     * 解析固定英文的日志文案，不随请求或系统 locale 漂移。
      */
     public String getForLog(String code, Object... args) {
-        return getOrDefault(Locale.getDefault(), code, code, args);
+        return getOrDefault(catalog.fallbackLocale().toLocale(), code, code, args);
     }
 
     public String getForLog(MessageSourceResolvable resolvable) {
-        return get(Locale.getDefault(), resolvable);
+        return get(catalog.fallbackLocale().toLocale(), resolvable);
     }
 }

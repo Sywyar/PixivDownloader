@@ -61,6 +61,12 @@ class CatalogLocaleBundlePolicyTest {
     }
 
     @Test
+    @DisplayName("回退语言来自 catalog")
+    void fallbackLocaleComesFromCatalog() {
+        assertThat(new CatalogLocaleBundlePolicy(fixture()).fallbackLocale()).isEqualTo(Locale.US);
+    }
+
+    @Test
     @DisplayName("resolver 按 catalog 策略加载：candidate 缺失时先 fallback 再 source")
     void resolverUsesCatalogPolicyChain() {
         LocaleBundlePolicy policy = new CatalogLocaleBundlePolicy(fixture());

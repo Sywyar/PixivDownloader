@@ -241,7 +241,7 @@ public abstract class AbstractHttpNarrationEngine {
         return messages.get(code, args);
     }
 
-    /** 日志专用文案：跟随 JVM 系统语言（{@link MessageResolver#getForLog}），不随请求 locale 漂移。 */
+    /** 固定英文的日志文案，不随请求或系统 locale 漂移。 */
     protected String forLog(String code, Object... args) {
         return messages.getForLog(code, args);
     }
