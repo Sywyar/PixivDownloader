@@ -6,6 +6,7 @@ import top.sywyar.pixivdownload.common.AppInfo;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.plugin.signature.ManifestVerificationRequest;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
+import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.VerificationPolicy;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
@@ -108,7 +109,7 @@ public final class FfmpegInstaller {
             byte[] signature = downloadMetadata(
                     URI.create(RELEASE_BASE_URL + RELEASE_MANIFEST_NAME + ".sig"), settings);
             AssetMetadata expected = verifyRelease(manifest, signature, assetName,
-                    new PluginSupplyChainVerifier());
+                    ffmpegManifestVerifier());
             downloadArchive(archiveUri, settings, archive, progress);
             verifyArchive(archive, expected);
 
@@ -234,6 +235,10 @@ public final class FfmpegInstaller {
             throw integrityFailure("ASSET_METADATA_INVALID");
         }
         return new AssetMetadata(assetName, expectedSize, sha256.toLowerCase(Locale.ROOT));
+    }
+
+    static PluginSupplyChainVerifier ffmpegManifestVerifier() {
+        return new PluginSupplyChainVerifier(PluginTrustStores.builtInOfficialFfmpeg());
     }
 
     static void verifyArchive(Path archive, AssetMetadata expected) throws IOException {

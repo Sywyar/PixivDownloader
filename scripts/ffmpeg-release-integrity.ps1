@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     Dot-source this file from packaging and installer scripts. The manifest signature uses the
-    built-in official trust root in pixivdownload-plugin-signature and repository id ffmpeg-stable.
+    built-in FFmpeg trust root in pixivdownload-plugin-signature and repository id ffmpeg-stable.
     This file is ASCII-only for Windows PowerShell 5.1.
 #>
 
@@ -35,6 +35,7 @@ function Get-VerifiedFfmpegReleaseAsset {
         "--manifest" $ManifestPath `
         "--signature" $SignaturePath `
         "--repository-id" "ffmpeg-stable" `
+        "--official-purpose" "ffmpeg" `
         "--policy" "official" 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw "FFmpeg release manifest signature verification failed: $($verifyOutput -join ' ')"

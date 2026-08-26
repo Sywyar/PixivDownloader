@@ -192,10 +192,11 @@ test('FFmpeg：手动流程从官方稳定源码构建并在门禁后发布五�
     const publishRelease = ffmpeg.jobs.publish.steps
         .find((step) => step.name === 'Publish Remote Content release');
     assert.match(generateManifest.run, /expectedSizeBytes: fs\.statSync\(file\)\.size/);
-    assert.equal(signManifest.env.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64,
-        '${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}');
+    assert.equal(signManifest.env.FFMPEG_SIGNING_PRIVATE_KEY_PEM_BASE64,
+        '${{ secrets.FFMPEG_SIGNING_PRIVATE_KEY_PEM_BASE64 }}');
     assert.match(signManifest.run, /manifest --manifest assets\/ffmpeg-release\.json --repository-id ffmpeg-stable/);
-    assert.match(signManifest.run, /pixivdownloader-official-root-2026-07/);
+    assert.match(signManifest.run, /pixivdownloader-ffmpeg-root-2026-08/);
+    assert.doesNotMatch(JSON.stringify(signManifest), /PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64/);
     assert.match(publishRelease.run, /assets\/ffmpeg-release\.json\.sig/);
     assert.equal(ffmpeg.env.REMOTE_CONTENT_REPO, 'Sywyar/PixivDownloader-Remote-Content');
     assert.equal(ffmpeg.env.RELEASE_TAG, 'ffmpeg-stable');
@@ -299,6 +300,9 @@ test('发布链：仅接受 Base64 私钥且不存在失败绕过', () => {
         const text = fs.readFileSync(path.join(ROOT, ...rel.split('/')), 'utf8');
         assert.match(text, /UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64/);
     }
+    const ffmpeg = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'build-stable-ffmpeg.yml'), 'utf8');
+    assert.match(ffmpeg, /FFMPEG_SIGNING_PRIVATE_KEY_PEM_BASE64/);
+    assert.doesNotMatch(ffmpeg, /PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64/);
     assert.match(fs.readFileSync(path.join(ROOT, '.github', 'actions', 'sign-update-manifest', 'action.yml'),
         'utf8'), /pixivdownloader-update-root-2026-08/);
 });

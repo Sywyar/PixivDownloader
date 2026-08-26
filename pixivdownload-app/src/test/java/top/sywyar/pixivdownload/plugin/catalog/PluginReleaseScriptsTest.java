@@ -493,6 +493,7 @@ class PluginReleaseScriptsTest {
         assertThat(ffmpegIntegrity).contains(
                 "verify-manifest",
                 "--repository-id", "ffmpeg-stable",
+                "--official-purpose", "ffmpeg",
                 "expectedSizeBytes",
                 "Get-FileHash -Algorithm SHA256",
                 "does not contain the exact asset name");

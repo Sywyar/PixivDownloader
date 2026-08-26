@@ -76,7 +76,7 @@ final class AppDesktopUiHost implements DesktopUiHost {
         new top.sywyar.pixivdownload.gui.config.PluginRepositoryConfigEditor(configFile).write(entries);
     }
     @Override public TrustedKeyConfigEntry officialPluginRepositoryKey() {
-        var key = PluginTrustStores.builtInOfficialRoot();
+        var key = PluginTrustStores.builtInOfficialPluginRoot();
         return TrustedKeyConfigEntry.create(key.keyId(), key.algorithm(), key.publicKeySpkiBase64(),
                 key.state().name(), key.publisher(), key.trustLabel());
     }

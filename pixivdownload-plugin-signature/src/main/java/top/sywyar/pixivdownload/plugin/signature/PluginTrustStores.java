@@ -7,28 +7,36 @@ import java.util.Collection;
 import java.util.List;
 
 /**
- * 不可变插件信任根存储的工厂方法。
+ * 不可变签名信任根存储的工厂方法。
  */
 public final class PluginTrustStores {
 
     private PluginTrustStores() {
     }
 
-    public static TrustedPluginKey builtInOfficialRoot() {
-        return OfficialPluginTrustRoots.activeRoot();
+    public static TrustedPluginKey builtInOfficialPluginRoot() {
+        return OfficialArtifactTrustRoots.activePluginRoot();
     }
 
-    public static PluginTrustStore builtInOfficial() {
-        return new StaticPluginTrustStore(OfficialPluginTrustRoots.all());
+    public static PluginTrustStore builtInOfficialPlugins() {
+        return new StaticPluginTrustStore(OfficialArtifactTrustRoots.pluginRoots());
+    }
+
+    public static PluginTrustStore builtInOfficialUpdates() {
+        return new StaticPluginTrustStore(OfficialArtifactTrustRoots.updateRoots());
+    }
+
+    public static PluginTrustStore builtInOfficialFfmpeg() {
+        return new StaticPluginTrustStore(OfficialArtifactTrustRoots.ffmpegRoots());
     }
 
     public static PluginTrustStore of(Collection<TrustedPluginKey> keys) {
         return new StaticPluginTrustStore(keys);
     }
 
-    public static PluginTrustStore withBuiltInOfficial(Collection<TrustedPluginKey> additionalKeys) {
+    public static PluginTrustStore withBuiltInOfficialPlugins(Collection<TrustedPluginKey> additionalKeys) {
         List<TrustedPluginKey> keys = new ArrayList<>();
-        keys.addAll(OfficialPluginTrustRoots.all());
+        keys.addAll(OfficialArtifactTrustRoots.pluginRoots());
         if (additionalKeys != null) {
             keys.addAll(additionalKeys);
         }

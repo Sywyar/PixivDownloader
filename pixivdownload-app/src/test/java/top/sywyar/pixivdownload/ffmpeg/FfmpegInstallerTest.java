@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.plugin.signature.OfficialArtifactTrustRoots;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
@@ -117,6 +118,30 @@ class FfmpegInstallerTest {
     }
 
     @Test
+    @DisplayName("生产 FFmpeg 验签只信任 FFmpeg 用途公钥")
+    void productionVerifierOnlyTrustsFfmpegRoot() throws Exception {
+        byte[] manifest = "{}".getBytes(StandardCharsets.UTF_8);
+        String invalidSignature = Base64.getEncoder().encodeToString(new byte[64]);
+
+        assertThatThrownBy(() -> FfmpegInstaller.verifyRelease(
+                manifest,
+                signature(OfficialArtifactTrustRoots.FFMPEG_KEY_ID, invalidSignature),
+                "ffmpeg-windows-x64.zip",
+                FfmpegInstaller.ffmpegManifestVerifier()))
+                .hasMessageContaining("INVALID_SIGNATURE");
+        for (String otherPurposeKey : List.of(
+                OfficialArtifactTrustRoots.PLUGIN_KEY_ID,
+                OfficialArtifactTrustRoots.UPDATE_KEY_ID)) {
+            assertThatThrownBy(() -> FfmpegInstaller.verifyRelease(
+                    manifest,
+                    signature(otherPurposeKey, invalidSignature),
+                    "ffmpeg-windows-x64.zip",
+                    FfmpegInstaller.ffmpegManifestVerifier()))
+                    .hasMessageContaining("UNKNOWN_KEY");
+        }
+    }
+
+    @Test
     @DisplayName("长度或摘要不匹配时在解压和替换既有工具前失败")
     void rejectsTamperedArchiveWithoutReplacingExistingFiles(@TempDir Path tempDir) throws Exception {
         Path existing = tempDir.resolve("installed-ffmpeg");
@@ -166,6 +191,14 @@ class FfmpegInstallerTest {
 
     private static String sha256(byte[] value) throws Exception {
         return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value));
+    }
+
+    private static byte[] signature(String keyId, String value) throws Exception {
+        return MAPPER.writeValueAsBytes(new SignatureMetadata(
+                SignatureMetadata.FORMAT_VERSION,
+                SignatureMetadata.ED25519,
+                keyId,
+                value));
     }
 
     private static final class SigningSupport {

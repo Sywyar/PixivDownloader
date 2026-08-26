@@ -25,12 +25,12 @@ public final class PluginCatalogTrustStores {
      * 或 {@link #verifierResolver(PluginRepositoryRegistry)} 按来源解析，不能从这里继承其它仓库 key。
      */
     public static PluginTrustStore fromRegistry(PluginRepositoryRegistry registry) {
-        return PluginTrustStores.builtInOfficial();
+        return PluginTrustStores.builtInOfficialPlugins();
     }
 
     public static PluginTrustStore forRepository(PluginRepository repository) {
         if (repository != null && repository.official()) {
-            return PluginTrustStores.builtInOfficial();
+            return PluginTrustStores.builtInOfficialPlugins();
         }
         return PluginTrustStores.of(repository != null ? repository.trustedKeys() : List.of());
     }
@@ -48,10 +48,10 @@ public final class PluginCatalogTrustStores {
 
     private static PluginTrustStore forOrigin(PluginRepositoryRegistry registry, PluginPackageOrigin origin) {
         if (origin == null || origin.source() == PluginPackageSource.LOCAL_UPLOAD) {
-            return PluginTrustStores.builtInOfficial();
+            return PluginTrustStores.builtInOfficialPlugins();
         }
         if (origin.officialRepository()) {
-            return PluginTrustStores.builtInOfficial();
+            return PluginTrustStores.builtInOfficialPlugins();
         }
         return registry.find(origin.repositoryId())
                 .filter(repository -> !repository.official())

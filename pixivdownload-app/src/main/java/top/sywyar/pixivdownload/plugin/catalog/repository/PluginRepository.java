@@ -88,7 +88,7 @@ public record PluginRepository(
                 enabled, true, true, RepositoryProxyPolicy.PROXY_TRUSTED, RepositoryProxyPolicy.PROXY_TRUSTED.configId(),
                 false, true, false, false,
                 connectTimeoutMs, readTimeoutMs, maxManifestBytes, maxPackageBytes,
-                List.of(PluginTrustStores.builtInOfficialRoot()));
+                List.of(PluginTrustStores.builtInOfficialPluginRoot()));
     }
 
     static String officialManifestUrl(String appVersion) {

@@ -341,18 +341,18 @@ jobs:
       - name: Sign FFmpeg release manifest
         shell: bash
         env:
-          PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
+          FFMPEG_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.FFMPEG_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
         run: |
           set -euo pipefail
-          if [ -z "$PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64" ]; then
-            echo "missing release Environment secret PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64" >&2
+          if [ -z "$FFMPEG_SIGNING_PRIVATE_KEY_PEM_BASE64" ]; then
+            echo "missing release Environment secret FFMPEG_SIGNING_PRIVATE_KEY_PEM_BASE64" >&2
             exit 1
           fi
           signing_dir="$RUNNER_TEMP/pixivdownload-ffmpeg-signing"
           mkdir -p "$signing_dir"
-          private_key="$signing_dir/official-ed25519-private-key.pem"
+          private_key="$signing_dir/ffmpeg-ed25519-private-key.pem"
           trap 'rm -f "$private_key"' EXIT
-          printf '%s' "$PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64" | tr -d '[:space:]' | base64 --decode > "$private_key"
+          printf '%s' "$FFMPEG_SIGNING_PRIVATE_KEY_PEM_BASE64" | tr -d '[:space:]' | base64 --decode > "$private_key"
           if grep -q '?' "$private_key"; then
             echo "prepared FFmpeg signing key contains '?' characters" >&2
             exit 1
@@ -362,7 +362,7 @@ jobs:
           test "${#tools[@]}" -eq 1
           java -cp "${tools[0]}" top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool \
             manifest --manifest assets/ffmpeg-release.json --repository-id ffmpeg-stable \
-            --key-id pixivdownloader-official-root-2026-07 --private-key "$private_key" \
+            --key-id pixivdownloader-ffmpeg-root-2026-08 --private-key "$private_key" \
             --out assets/ffmpeg-release.json.sig
 
       - name: Publish Remote Content release

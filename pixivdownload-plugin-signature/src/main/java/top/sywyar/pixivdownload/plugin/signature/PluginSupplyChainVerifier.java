@@ -19,7 +19,7 @@ public final class PluginSupplyChainVerifier {
     private final PluginTrustStore trustStore;
 
     public PluginSupplyChainVerifier() {
-        this(PluginTrustStores.builtInOfficial());
+        this(PluginTrustStores.builtInOfficialPlugins());
     }
 
     public PluginSupplyChainVerifier(PluginTrustStore trustStore) {
