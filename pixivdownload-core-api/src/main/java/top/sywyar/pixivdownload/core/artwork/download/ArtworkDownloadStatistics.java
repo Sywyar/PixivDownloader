@@ -31,6 +31,12 @@ public interface ArtworkDownloadStatistics {
      * @param failed 未完整成功且未取消的任务数
      */
     record DailyOutcomes(int completed, int failed) {
+        /**
+         * 创建并校验一个本地日期内的插画下载终态计数。
+         *
+         * @param completed 完整成功的任务数
+         * @param failed 未完整成功且未取消的任务数
+         */
         public DailyOutcomes {
             if (completed < 0 || failed < 0) {
                 throw new IllegalArgumentException("download outcome counts must not be negative");
