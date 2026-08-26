@@ -21,6 +21,8 @@ import java.util.Base64
 import java.util.Locale
 import java.util.ResourceBundle
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.function.Consumer
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -40,21 +42,43 @@ class GuiComposePluginTest {
     }
 
     @Test
-    @DisplayName("桌面文档只观察较新的发布快照并在 dispose 后停止观察")
-    fun observesPublishedSnapshotsUntilDisposed() {
-        val source = SnapshotSource(snapshot(1))
+    @DisplayName("订阅即时重放渲染器尚未显示的新快照并在 dispose 后停止观察")
+    fun replaysNewerSnapshotUntilDisposed() {
+        val source = SnapshotSource(snapshot(2))
         val observed = mutableListOf<Long>()
-        val subscription = DesktopSnapshotObserver(source.current, source::subscribe) {
+        val subscription = DesktopSnapshotObserver(snapshot(1), source::subscribe) {
             observed += it.revision()
         }
 
+        assertEquals(listOf(2L), observed)
         source.publish(snapshot(2))
         source.publish(snapshot(1))
         assertEquals(listOf(2L), observed)
 
-        subscription.close()
         source.publish(snapshot(3))
-        assertEquals(listOf(2L), observed)
+        assertEquals(listOf(2L, 3L), observed)
+        subscription.close()
+        source.publish(snapshot(4))
+        assertEquals(listOf(2L, 3L), observed)
+    }
+
+    @Test
+    @DisplayName("并发发布后观察器不会永久停留在旧 revision")
+    fun observesLatestRevisionAfterConcurrentPublishing() {
+        val source = SnapshotSource(snapshot(1))
+        val observed = mutableListOf<Long>()
+        DesktopSnapshotObserver(source.current, source::subscribe) {
+            observed += it.revision()
+        }.use { subscription ->
+            val executor = Executors.newFixedThreadPool(4)
+            (2L..100L).forEach { revision ->
+                executor.submit { source.publish(snapshot(revision)) }
+            }
+            executor.shutdown()
+
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS))
+            assertEquals(100L, observed.last())
+        }
     }
 
     @Test
@@ -270,15 +294,19 @@ class GuiComposePluginTest {
     )
 
     private class SnapshotSource(initial: DesktopUiSnapshot) {
+        @Volatile
         var current: DesktopUiSnapshot = initial
             private set
         private val listeners = CopyOnWriteArrayList<Consumer<DesktopUiSnapshot>>()
 
+        @Synchronized
         fun subscribe(listener: Consumer<DesktopUiSnapshot>): AutoCloseable {
             listeners += listener
+            listener.accept(current)
             return AutoCloseable { listeners -= listener }
         }
 
+        @Synchronized
         fun publish(snapshot: DesktopUiSnapshot) {
             current = snapshot
             listeners.forEach { it.accept(snapshot) }
