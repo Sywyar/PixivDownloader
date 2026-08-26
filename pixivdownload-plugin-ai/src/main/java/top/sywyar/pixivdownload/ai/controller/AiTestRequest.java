@@ -3,9 +3,9 @@ package top.sywyar.pixivdownload.ai.controller;
 import top.sywyar.pixivdownload.ai.AiClientSettings;
 
 /**
- * GUI 配置页"测试 AI 连接"按钮的请求 DTO。
+ * GUI 配置页 AI 连接测试与模型查询动作共用的请求 DTO。
  * <p>
- * 由 {@link AiTestController#test} 接收；字段对应 GUI AI 分组的当前表单值。包含 API Key（用户尚未保存配置，
+ * 字段对应 GUI AI 分组的当前表单值。包含 API Key（用户尚未保存配置，
  * 需通过本地端点传给后端），仅在
  * {@link top.sywyar.pixivdownload.web.LocalRequestTrust#isTrustedLocalRequest} + GUI token 双校验后通过同进程
  * localhost 流转。

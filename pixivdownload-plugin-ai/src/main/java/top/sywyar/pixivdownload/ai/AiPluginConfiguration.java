@@ -9,6 +9,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.core.env.Environment;
 import org.springframework.web.client.RestTemplate;
+import top.sywyar.pixivdownload.ai.controller.AiModelsController;
 import top.sywyar.pixivdownload.ai.controller.AiStatusController;
 import top.sywyar.pixivdownload.ai.controller.AiTestController;
 import top.sywyar.pixivdownload.ai.http.AiHttpClientConfiguration;
@@ -71,6 +72,12 @@ public class AiPluginConfiguration {
     @ConditionalOnPluginEnabled(AiPlugin.ID)
     public AiTestController aiTestController(AiChatClient aiClient) {
         return new AiTestController(aiClient);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled(AiPlugin.ID)
+    public AiModelsController aiModelsController(OpenAiCompatibleAiClient aiClient) {
+        return new AiModelsController(aiClient);
     }
 
     @Bean

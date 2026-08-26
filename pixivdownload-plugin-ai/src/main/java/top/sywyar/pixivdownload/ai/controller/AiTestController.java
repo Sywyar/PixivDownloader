@@ -71,7 +71,7 @@ public class AiTestController {
         return oneLine.length() > MAX_REPLY_LENGTH ? oneLine.substring(0, MAX_REPLY_LENGTH) + "…" : oneLine;
     }
 
-    private static boolean trustedLocalRequest(HttpServletRequest request) {
+    static boolean trustedLocalRequest(HttpServletRequest request) {
         return request != null && LocalRequestTrust.isTrustedLocalRequest(
                 request.getRemoteAddr(),
                 request.getHeader("Host"),
