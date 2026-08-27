@@ -23,6 +23,8 @@ import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogTrustStores;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
+import top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationAdmissionPolicy;
+import top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogTrustStateStore;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -71,15 +73,19 @@ public class PluginRuntimeConfiguration {
     public PluginBootstrapSession pluginBootstrapSession(
             ObjectProvider<PluginBootstrapSessionHandoff> handoff,
             PluginToggleProperties toggles,
-            PluginRepositoryRegistry repositoryRegistry) {
+            PluginRepositoryRegistry repositoryRegistry,
+            PluginCatalogTrustStateStore trustStateStore) {
         PluginBootstrapSessionHandoff existing = handoff.getIfAvailable();
         var verifierResolver = PluginCatalogTrustStores.verifierResolver(repositoryRegistry);
         if (existing != null) {
             existing.session().updateVerifierResolver(verifierResolver);
+            existing.session().updateAdmissionPolicy(
+                    new PluginCatalogRevocationAdmissionPolicy(repositoryRegistry, trustStateStore));
             return existing.session();
         }
         PluginBootstrapSession session = PluginBootstrapSession.createContext(
                 RuntimeFiles.pluginsDirectory(), headlessEnabledSnapshot(toggles), verifierResolver);
+        session.updateAdmissionPolicy(new PluginCatalogRevocationAdmissionPolicy(repositoryRegistry, trustStateStore));
         session.start();
         // 启动期快照持有插件实例 / classloader 引用，仅启动前短生命周期消费。headless 无主题消费者，接线完成后释放。
         session.releaseStartupSnapshot();

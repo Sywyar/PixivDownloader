@@ -45,6 +45,25 @@
     <button class="app-nav-logout" id="logout-btn" data-pixiv-click="pmkLogout()" data-i18n="logout">退出</button>
 </nav>
 
+<section class="pmk-import" id="repository-import" aria-labelledby="pmk-import-title">
+    <h2 id="pmk-import-title" data-i18n="import.title">添加第三方仓库</h2>
+    <p data-i18n="import.description">填写 repository.json 的公网 HTTPS 地址。软件会先展示发布者、联网主机、完整密钥指纹和更新边界，确认前不会修改配置。</p>
+    <form id="pmk-repository-import-form" class="pmk-import-form">
+        <label for="pmk-repository-url" data-i18n="import.url">仓库描述符地址</label>
+        <div class="pmk-import-row">
+            <input id="pmk-repository-url" type="url" required inputmode="url" autocomplete="url"
+                   placeholder="https://example.org/repository.json">
+            <button class="pmk-btn pmk-btn--gray" type="submit" data-i18n="import.preview">预览信任事实</button>
+        </div>
+    </form>
+    <dl id="pmk-repository-preview" class="pmk-import-preview" aria-live="polite" hidden></dl>
+    <label class="pmk-import-confirm">
+        <input id="pmk-repository-confirm" type="checkbox" disabled>
+        <span data-i18n="import.confirm">我已核对发布者、全部联网主机和完整密钥指纹，并信任该仓库分发可执行代码。</span>
+    </label>
+    <button id="pmk-repository-trust" class="pmk-btn pmk-btn--teal" type="button" disabled data-i18n="import.trust">信任并保存</button>
+</section>
+
 <!-- 市场页内容挂载点：主路径由 plugin-market-vue.js 用 Vue reactive 渲染；Vue 不可用时由 plugin-market-fallback.js
      命令式渲染（可诊断降级）。初始为加载占位，挂载后被替换。 -->
 <div id="pmk-app-root">

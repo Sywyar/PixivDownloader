@@ -33,7 +33,7 @@
     };
     D.entryOfficial = function (entry) {
         var m = market(entry);
-        return !!(m && m.sourceType === 'official');
+        return entry && entry.assuranceLevel === 'OFFICIAL' || !!(m && m.sourceType === 'official');
     };
     D.entryRecommended = function (entry) {
         var m = market(entry);
@@ -125,6 +125,7 @@
             categoryLabel: PMK.categoryLabel(category),
             categoryIcon: PMK.iconClass(PMK.CATEGORY_ICON[category] || 'screwdriver-wrench'),
             official: D.entryOfficial(entry),
+            assuranceLevel: entry.assuranceLevel || 'PUBLISHER_SIGNED',
             recommended: D.entryRecommended(entry),
             ratingStars: ratingVal != null ? PMK.stars(ratingVal) : null,
             ratingNum: ratingVal != null ? ratingVal.toFixed(1) : null,

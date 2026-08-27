@@ -29,6 +29,8 @@ import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogProperties;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogTrustStores;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
+import top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationAdmissionPolicy;
+import top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogTrustStateStore;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginEnabledSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
@@ -261,9 +263,12 @@ public class GuiLauncher {
         // ── 2a. 进程级插件 bootstrap 会话（PROCESS 拥有，复用于后端 restart，进程退出时关闭）────────
         //    必须早于首个 Swing 窗口 / 主题安装：外置主题插件的发现要先于主题管理完成。会话 start 收敛插件目录
         //    缺失 / 空 / 坏包 / 安装事务恢复失败为诊断，不抛、不阻断 GUI 进入系统 LookAndFeel。
+        final PluginRepositoryRegistry startupRepositoryRegistry = readPluginRepositoryRegistry(configPath);
         final PluginBootstrapSession pluginSession = PluginBootstrapSession.createProcess(
                 RuntimeFiles.pluginsDirectory(), readPluginEnabledSnapshot(configPath),
-                readPluginVerifierResolver(configPath));
+                PluginCatalogTrustStores.verifierResolver(startupRepositoryRegistry));
+        pluginSession.updateAdmissionPolicy(new PluginCatalogRevocationAdmissionPolicy(
+                startupRepositoryRegistry, new PluginCatalogTrustStateStore()));
         pluginSession.start();
         // 启动期 inventory / discovery 快照持有插件实例 / classloader 引用，仅存在于启动前的短生命周期窗口。
         // 首窗前 startup-only 消费者先取出需要的固定快照；GUI 动态贡献在面板 / 菜单重建时从运行期 manager 重新发现，
@@ -1045,12 +1050,16 @@ public class GuiLauncher {
      * custom 来源没有显式仓库 key 时仍 fail-closed，且不会阻断 Swing / 系统 LookAndFeel 进入。
      */
     static Function<PluginPackageOrigin, PluginSupplyChainVerifier> readPluginVerifierResolver(Path configPath) {
+        return PluginCatalogTrustStores.verifierResolver(readPluginRepositoryRegistry(configPath));
+    }
+
+    private static PluginRepositoryRegistry readPluginRepositoryRegistry(Path configPath) {
         try {
             PluginCatalogProperties properties = readPluginCatalogProperties(configPath);
-            return PluginCatalogTrustStores.verifierResolver(new PluginRepositoryRegistry(properties));
+            return new PluginRepositoryRegistry(properties);
         } catch (RuntimeException | IOException e) {
             log.warn(logMessage("gui.launcher.log.config.read-failed", e.getMessage()));
-            return PluginCatalogTrustStores.verifierResolver(new PluginRepositoryRegistry(new PluginCatalogProperties()));
+            return new PluginRepositoryRegistry(new PluginCatalogProperties());
         }
     }
 
@@ -1123,6 +1132,20 @@ public class GuiLauncher {
         repository.setMaxManifestBytes(longValue(map.get("max-manifest-bytes"), repository.getMaxManifestBytes()));
         repository.setMaxPackageBytes(longValue(map.get("max-package-bytes"), repository.getMaxPackageBytes()));
         repository.setTrustedKeys(trustedKeys(map.get("trusted-keys")));
+        repository.setDescriptorUrl(stringValue(map.get("descriptor-url"), null));
+        repository.setDescriptorSha256(stringValue(map.get("descriptor-sha256"), null));
+        repository.setDisplayName(stringValue(map.get("display-name"), null));
+        repository.setPublisherId(stringValue(map.get("publisher-id"), null));
+        repository.setPublisherDisplayName(stringValue(map.get("publisher-display-name"), null));
+        repository.setCatalogProtocol(stringValue(map.get("catalog-protocol"), "manifest-v1"));
+        repository.setCatalogEndpoint(stringValue(map.get("catalog-endpoint"), repository.getManifestUrl()));
+        repository.setRevocationsUrl(stringValue(map.get("revocations-url"), null));
+        repository.setUpdateProofUrl(stringValue(map.get("update-proof-url"), null));
+        repository.setTrustSource(stringValue(map.get("trust-source"), "SELF_TRUSTED"));
+        if (map.containsKey("directory-sequence")) {
+            repository.setDirectorySequence(longValue(map.get("directory-sequence"), 0L));
+        }
+        repository.setDirectoryEntrySha256(stringValue(map.get("directory-entry-sha256"), null));
         return repository;
     }
 

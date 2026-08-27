@@ -8,8 +8,10 @@ import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -60,6 +62,42 @@ public final class PluginRepositoryConfigEditor {
 
     public PluginRepositoryConfigEditor(DesktopUiHost.ConfigFile configFile) {
         this.configFile = configFile;
+    }
+
+    /** 后端仓库导入流程使用的同一外科手术式 YAML 编辑器入口。 */
+    public PluginRepositoryConfigEditor(Path configPath) {
+        this(pathConfig(configPath));
+    }
+
+    private static DesktopUiHost.ConfigFile pathConfig(Path configPath) {
+        ConfigFileEditor editor = new ConfigFileEditor(configPath);
+        return new DesktopUiHost.ConfigFile() {
+            @Override
+            public Map<String, String> readAll(Collection<String> keys) throws IOException {
+                return editor.readAll(keys);
+            }
+
+            @Override
+            public void writeAll(Map<String, String> values) throws IOException {
+                editor.writeAll(values);
+            }
+
+            @Override
+            public void removeAll(Collection<String> keys) throws IOException {
+                editor.removeAll(keys);
+            }
+
+            @Override
+            public DesktopUiHost.ConfigSnapshot snapshot() throws IOException {
+                ConfigFileEditor.FileSnapshot snapshot = editor.snapshot();
+                return new DesktopUiHost.ConfigSnapshot(snapshot.existed(), snapshot.lines());
+            }
+
+            @Override
+            public void restore(DesktopUiHost.ConfigSnapshot snapshot) throws IOException {
+                editor.restore(new ConfigFileEditor.FileSnapshot(snapshot.existed(), snapshot.lines()));
+            }
+        };
     }
 
     // ── 读 ──────────────────────────────────────────────────────────────────────

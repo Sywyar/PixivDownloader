@@ -29,6 +29,9 @@ import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenan
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
+import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
+import top.sywyar.pixivdownload.plugin.signature.ArtifactVerificationRequest;
+import top.sywyar.pixivdownload.plugin.runtime.admission.PluginArtifactAdmissionResult;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 
 import java.io.ByteArrayOutputStream;
@@ -73,6 +76,33 @@ import top.sywyar.pixivdownload.plugin.runtime.status.PluginRuntimeVerificationS
 class PluginRuntimeManagerTest {
 
     private static final String PROBE_ID = "bootstrap-probe";
+
+    @Test
+    @DisplayName("撤销策略在 PF4J 加载前拒绝已验签的目录制品")
+    void admissionPolicyRejectsVerifiedCatalogArtifactBeforePf4jLoad() throws IOException {
+        Path plugins = tempDir.resolve("admission-rejected");
+        Path artifact = plugins.resolve("bootstrap-probe-1.0.0.jar");
+        writeDependencyOrderProbeJarWithMarker(artifact, PROBE_ID, "revoked-bytes");
+        writeCatalogProvenance(plugins, artifact, PROBE_ID, PROBE_VERSION);
+        PluginSupplyChainVerifier verifier = mock(PluginSupplyChainVerifier.class);
+        when(verifier.verifyArtifact(any())).thenAnswer(invocation -> {
+            ArtifactVerificationRequest request = invocation.getArgument(0);
+            return new VerificationResult(VerificationStatus.VERIFIED, request.pluginId(), request.version(),
+                    "test-key", SignatureMetadata.ED25519, "Test Publisher", "Test Trust", Instant.now(),
+                    Files.size(request.artifactPath()), PluginPackageIntegrity.sha256Hex(request.artifactPath()),
+                    "VERIFIED");
+        });
+        PluginRuntimeManager manager = new PluginRuntimeManager(plugins, ignored -> verifier);
+        manager.updateAdmissionPolicy(ignored -> PluginArtifactAdmissionResult.reject(
+                "PLUGIN_REVOKED", "verified revocation match"));
+
+        PluginRuntimeStatus status = manager.start();
+
+        assertThat(status.loadedPluginIds()).isEmpty();
+        assertThat(status.failures()).singleElement().satisfies(failure ->
+                assertThat(failure.reason()).contains("PLUGIN_REVOKED"));
+        manager.shutdown();
+    }
     private static final String PROBE_VERSION = "1.0.0";
 
     @TempDir

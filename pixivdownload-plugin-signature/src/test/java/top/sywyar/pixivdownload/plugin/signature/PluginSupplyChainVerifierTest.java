@@ -248,6 +248,26 @@ class PluginSupplyChainVerifierTest {
                 VerificationStatus.INVALID_SIGNATURE);
     }
 
+    @Test
+    @DisplayName("repository update / revocations：使用相互独立的签名域并绑定 repositoryId、sequence 与原始字节")
+    void verifiesIndependentRepositoryDocumentDomains() throws Exception {
+        Fixture fixture = Fixture.create(TrustedPluginKey.State.ACTIVE);
+        byte[] document = "{\"repositoryId\":\"repo\",\"sequence\":2}".getBytes(StandardCharsets.UTF_8);
+        SignatureMetadata updateSignature = fixture.documentSignature("repo", 2L, document, true);
+        SignatureMetadata revocationSignature = fixture.documentSignature("repo", 2L, document, false);
+
+        assertThat(fixture.verifier.verifyRepositoryUpdate(new RepositoryUpdateVerificationRequest(
+                document, "repo", 2L, updateSignature, VerificationPolicy.installedCustom())).accepted()).isTrue();
+        assertThat(fixture.verifier.verifyPluginRevocations(new PluginRevocationsVerificationRequest(
+                document, "repo", 2L, revocationSignature, VerificationPolicy.installedCustom())).accepted()).isTrue();
+        assertThat(fixture.verifier.verifyPluginRevocations(new PluginRevocationsVerificationRequest(
+                document, "repo", 2L, updateSignature, VerificationPolicy.installedCustom())).status())
+                .isEqualTo(VerificationStatus.INVALID_SIGNATURE);
+        assertThat(fixture.verifier.verifyRepositoryUpdate(new RepositoryUpdateVerificationRequest(
+                document, "repo", 3L, updateSignature, VerificationPolicy.installedCustom())).status())
+                .isEqualTo(VerificationStatus.INVALID_SIGNATURE);
+    }
+
     private Path artifact(String text) throws Exception {
         Path path = tempDir.resolve("plugin.jar");
         Files.writeString(path, text);
@@ -286,6 +306,15 @@ class PluginSupplyChainVerifierTest {
         SignatureMetadata manifestSignature(String repositoryId, byte[] manifest) throws Exception {
             byte[] sha256 = Hashing.sha256(manifest);
             byte[] message = EnvelopeV1Codec.manifestMessage(repositoryId, manifest.length, sha256);
+            return metadata(sign(message));
+        }
+
+        SignatureMetadata documentSignature(String repositoryId, long sequence, byte[] document,
+                                            boolean repositoryUpdate) throws Exception {
+            byte[] sha256 = Hashing.sha256(document);
+            byte[] message = repositoryUpdate
+                    ? EnvelopeV1Codec.repositoryUpdateMessage(repositoryId, sequence, document.length, sha256)
+                    : EnvelopeV1Codec.pluginRevocationsMessage(repositoryId, sequence, document.length, sha256);
             return metadata(sign(message));
         }
 

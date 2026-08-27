@@ -10,6 +10,9 @@ import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogService;
 import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogEntry;
 import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogManifest;
 import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogPackage;
+import top.sywyar.pixivdownload.plugin.catalog.page.PluginCatalogDetailPage;
+import top.sywyar.pixivdownload.plugin.catalog.page.PluginCatalogPage;
+import top.sywyar.pixivdownload.plugin.catalog.page.PluginCatalogPageQuery;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
@@ -19,8 +22,12 @@ import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusReport;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -70,7 +77,16 @@ class PluginMarketInstallStatusTest {
     private PluginMarketService service(PluginDiagnostic... installed) {
         PluginCatalogProperties props = new PluginCatalogProperties();
         props.setEnabled(true);
-        when(catalogService.load(PluginRepository.OFFICIAL_ID)).thenReturn(catalog());
+        PluginCatalogManifest catalog = catalog();
+        when(catalogService.loadPage(eq(PluginRepository.OFFICIAL_ID), any(PluginCatalogPageQuery.class)))
+                .thenReturn(new PluginCatalogPage(
+                        "manifest-v1", catalog.entries(), null, (long) catalog.entries().size(), Map.of(), false));
+        PluginCatalogEntry detail = catalog.entries().stream()
+                .filter(entry -> entry.pluginId().equals("b"))
+                .findFirst().orElseThrow();
+        when(catalogService.loadEntryPage(eq(PluginRepository.OFFICIAL_ID), eq("b"), isNull(), eq(24)))
+                .thenReturn(new PluginCatalogDetailPage(
+                        detail, "manifest-v1", null, (long) detail.packages().size(), false));
         when(statusService.report()).thenReturn(new PluginStatusReport(List.of(installed)));
         return new PluginMarketService(new PluginRepositoryRegistry(props), catalogService, acquisitionService,
                 statusService);

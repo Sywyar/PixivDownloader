@@ -29,12 +29,56 @@
         return getJson('/api/plugins/status');
     };
 
-    // GET /api/plugin-market/catalog?repositoryId= → 指定仓库（空取默认）的 catalog 摘要 + 分类计数 + 已安装数 + 安装状态。
-    // catalog 条目已携带完整版本历史 / 依赖 / 兼容信息，故详情弹窗直接用内存中的条目，无需再单独拉 /plugins/{repo}/{id}。
-    API.fetchCatalog = function (repositoryId) {
+    // GET /api/plugin-market/catalog?repositoryId= → 指定仓库（空取默认）的分页摘要 + 分类计数 + 已安装数 + 安装状态。
+    API.fetchCatalog = function (repositoryId, options) {
         var url = '/api/plugin-market/catalog';
-        if (repositoryId) url += '?repositoryId=' + enc(repositoryId);
+        var params = [];
+        if (repositoryId) params.push('repositoryId=' + enc(repositoryId));
+        options = options || {};
+        ['cursor', 'query', 'category', 'publisher', 'channel'].forEach(function (key) {
+            if (options[key]) params.push(key + '=' + enc(options[key]));
+        });
+        if (options.limit) params.push('limit=' + enc(options.limit));
+        if (params.length) url += '?' + params.join('&');
         return getJson(url);
+    };
+
+    API.fetchPluginDetail = function (repositoryId, pluginId, options) {
+        var url = '/api/plugin-market/plugins/' + enc(repositoryId) + '/' + enc(pluginId);
+        var params = [];
+        options = options || {};
+        if (options.cursor) params.push('cursor=' + enc(options.cursor));
+        if (options.limit) params.push('limit=' + enc(options.limit));
+        if (params.length) url += '?' + params.join('&');
+        return getJson(url);
+    };
+
+    function postJson(url, body) {
+        return fetch(url, {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        }).then(function (res) {
+            return res.json().catch(function () { return null; }).then(function (data) {
+                if (!res.ok) {
+                    var error = new Error(data && data.message ? data.message : 'HTTP ' + res.status);
+                    error.body = data; error.httpStatus = res.status; throw error;
+                }
+                return data;
+            });
+        });
+    }
+
+    API.previewRepository = function (descriptorUrl) {
+        return postJson('/api/plugin-market/repositories/import/preview', { descriptorUrl: descriptorUrl });
+    };
+
+    API.trustRepository = function (preview) {
+        return postJson('/api/plugin-market/repositories/import/trust', {
+            descriptorUrl: preview.descriptorUrl,
+            expectedDescriptorSha256: preview.descriptorSha256,
+            trustConfirmed: true
+        });
     };
 
     // POST /api/plugin-market/{repositoryId}/{pluginId}/{version}/install（请求体不含 URL）。

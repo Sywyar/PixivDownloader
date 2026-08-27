@@ -64,6 +64,7 @@
     async function init() {
         PixivActions.bind(document, { click: { pmkLogout: global.pmkLogout } });
         await ensureI18n();   // 初始 i18n（plugin-market + common）+ 挂载语言 / 主题切换
+        mountRepositoryImport();
         var root = document.getElementById('pmk-app-root');
         var mounted = false;
         try {
@@ -74,6 +75,70 @@
         if (!mounted) {
             PMK.fallback.render(root);                // 回退：命令式渲染（可诊断降级、浏览 / 安装仍可用）
         }
+    }
+
+    function mountRepositoryImport() {
+        var form = document.getElementById('pmk-repository-import-form');
+        var input = document.getElementById('pmk-repository-url');
+        var result = document.getElementById('pmk-repository-preview');
+        var confirm = document.getElementById('pmk-repository-confirm');
+        var trust = document.getElementById('pmk-repository-trust');
+        if (!form || !input || !result || !confirm || !trust) return;
+        var preview = null;
+
+        function row(label, value) {
+            var dt = document.createElement('dt'); dt.textContent = label;
+            var dd = document.createElement('dd'); dd.textContent = value == null || value === '' ? '—' : String(value);
+            result.appendChild(dt); result.appendChild(dd);
+        }
+
+        function render(data) {
+            result.textContent = '';
+            row(PMK.t('import.field.repository', '仓库'), data.displayName + ' (' + data.repositoryId + ')');
+            row(PMK.t('import.field.publisher', '发布者'), data.publisherDisplayName + ' (' + data.publisherId + ')');
+            row(PMK.t('import.field.descriptor', '描述符'), data.descriptorUrl);
+            row(PMK.t('import.field.digest', '描述符 SHA-256'), data.descriptorSha256);
+            row(PMK.t('import.field.catalog', '目录协议 / 地址'), data.catalogProtocol + ' · ' + data.catalogEndpoint);
+            row(PMK.t('import.field.network', '联网边界'), (data.networkHosts || []).join(', ') + ' · ' + data.redirectBoundary);
+            row(PMK.t('import.field.revocations', '吊销清单'), data.revocationsUrl);
+            row(PMK.t('import.field.update-proof', '更新连续性证明'), data.updateProofStatus);
+            row(PMK.t('import.field.directory', '社区目录认证'), data.communityDirectoryStatus);
+            (data.trustedKeys || []).forEach(function (key) {
+                row(PMK.t('import.field.key', '完整密钥指纹') + ' · ' + key.keyId, key.fingerprintDisplay);
+            });
+            row(PMK.t('import.field.warning', '安全提示'), PMK.t(
+                data.executableCodeWarningKey || 'import.executable-warning',
+                '第三方插件与主程序运行在同一 JVM，当前没有代码沙箱；安装后可获得进程权限。'));
+            if (data.repositoryIdConflict) row(PMK.t('import.field.conflict', '冲突'),
+                PMK.t('import.conflict', '仓库 ID 与已有或内嵌仓库冲突，不能信任。'));
+            result.hidden = false;
+            confirm.checked = false;
+            confirm.disabled = !!data.repositoryIdConflict;
+            trust.disabled = true;
+        }
+
+        form.addEventListener('submit', function (event) {
+            event.preventDefault(); preview = null; trust.disabled = true; confirm.disabled = true;
+            PMK.api.previewRepository(input.value).then(function (data) {
+                preview = data; render(data);
+            }).catch(function (error) {
+                result.textContent = error.message; result.hidden = false;
+                PMK.toast(error.message, 'error');
+            });
+        });
+        confirm.addEventListener('change', function () {
+            trust.disabled = !preview || !confirm.checked || preview.repositoryIdConflict;
+        });
+        trust.addEventListener('click', function () {
+            if (!preview || !confirm.checked) return;
+            trust.disabled = true;
+            PMK.api.trustRepository(preview).then(function () {
+                PMK.toast(PMK.t('import.saved', '仓库信任快照已保存；重启后生效。'), 'ok');
+                confirm.checked = false;
+            }).catch(function (error) {
+                PMK.toast(error.message, 'error'); trust.disabled = false;
+            });
+        });
     }
 
     if (document.readyState === 'loading') {

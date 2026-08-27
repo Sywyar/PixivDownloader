@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogMarketMeta;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
+import top.sywyar.pixivdownload.plugin.catalog.page.PluginCatalogPageQuery;
 import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
 import top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector;
 
@@ -20,7 +21,15 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * {@link PluginCatalogService} 单测：未启用 → 空 / 拒绝，UTF-8 + Jackson 解析（成功 / 空 / 坏 JSON / 忽略未知字段），以及
@@ -63,6 +72,182 @@ class PluginCatalogServiceTest {
     void enabledWithOfficialDefault() {
         PluginCatalogService service = service(true, "");
         assertThat(service.isEnabled()).isTrue();
+    }
+
+    @Test
+    @DisplayName("paged-v2 列表按请求上限返回有界页面")
+    void loadsBoundedPagedV2Catalog() {
+        server = CatalogTestSupport.startServer();
+        String body = """
+                {"generation":"g1","items":[{"pluginId":"demo","packages":[{"version":"1.0.0","packageUrl":"https://downloads.example/demo.jar","expectedSizeBytes":12,"sha256":"%s","signature":{"formatVersion":1,"algorithm":"Ed25519","keyId":"test","value":"AA=="}}]}],"nextCursor":"next","totalApproximate":42}
+                """.formatted("a".repeat(64));
+        CatalogTestSupport.serveBytes(server, "/v2/plugins", body.getBytes(StandardCharsets.UTF_8));
+        PluginCatalogProperties properties = new PluginCatalogProperties();
+        PluginCatalogProperties.RepositoryConfig repository = new PluginCatalogProperties.RepositoryConfig();
+        repository.setId("paged");
+        repository.setManifestUrl(CatalogTestSupport.loopbackUrl(server, "/v2"));
+        repository.setCatalogEndpoint(CatalogTestSupport.loopbackUrl(server, "/v2"));
+        repository.setCatalogProtocol("paged-v2");
+        properties.setRepositories(List.of(repository));
+        PluginCatalogService service = new PluginCatalogService(new PluginRepositoryRegistry(properties),
+                ignored -> relaxed);
+
+        var page = service.loadPage("paged", new PluginCatalogPageQuery(null, 1, null, null, null, null));
+
+        assertThat(page.generation()).isEqualTo("g1");
+        assertThat(page.items()).extracting(PluginCatalogEntry::pluginId).containsExactly("demo");
+        assertThat(page.nextCursor()).isEqualTo("next");
+        assertThat(page.totalApproximate()).isEqualTo(42L);
+    }
+
+    @Test
+    @DisplayName("paged-v2 详情按请求上限返回有界版本摘要")
+    void loadsBoundedPagedV2VersionSummaries() {
+        server = CatalogTestSupport.startServer();
+        String body = """
+                {"generation":"g1","item":{"pluginId":"demo","packages":[
+                {"version":"1.0.0","packageUrl":"https://downloads.example/demo.jar",
+                "expectedSizeBytes":12,"sha256":"%s","signature":{"formatVersion":1,"algorithm":"Ed25519","keyId":"test","value":"AA=="}}]},"nextCursor":"older","totalApproximate":7}
+                """.formatted("a".repeat(64));
+        CatalogTestSupport.serveBytes(server, "/v2/plugins/demo", body.getBytes(StandardCharsets.UTF_8));
+        PluginCatalogProperties properties = new PluginCatalogProperties();
+        PluginCatalogProperties.RepositoryConfig repository = new PluginCatalogProperties.RepositoryConfig();
+        repository.setId("paged");
+        repository.setManifestUrl(CatalogTestSupport.loopbackUrl(server, "/v2"));
+        repository.setCatalogEndpoint(CatalogTestSupport.loopbackUrl(server, "/v2"));
+        repository.setCatalogProtocol("paged-v2");
+        properties.setRepositories(List.of(repository));
+        PluginCatalogService service = new PluginCatalogService(new PluginRepositoryRegistry(properties),
+                ignored -> relaxed);
+
+        var page = service.loadEntryPage("paged", "demo", null, 1);
+
+        assertThat(page.item().packages()).extracting(PluginCatalogPackage::version).containsExactly("1.0.0");
+        assertThat(page.nextCursor()).isEqualTo("older");
+        assertThat(page.totalApproximate()).isEqualTo(7L);
+    }
+
+    @Test
+    @DisplayName("paged-v2 依赖解析遍历后续版本页")
+    void loadsPagedEntryAcrossVersionPages() {
+        PluginCatalogHttpClient client = mock(PluginCatalogHttpClient.class);
+        String first = """
+                {"generation":"g1","item":{"pluginId":"demo","packages":[
+                {"version":"2.0.0","packageUrl":"https://downloads.example/demo.jar",
+                "expectedSizeBytes":12,"sha256":"%s","signature":{"formatVersion":1,"algorithm":"Ed25519","keyId":"test","value":"AA=="}}]},"nextCursor":"older"}
+                """.formatted("a".repeat(64));
+        String second = """
+                {"generation":"g1","item":{"pluginId":"demo","packages":[
+                {"version":"1.0.0","packageUrl":"https://downloads.example/demo.jar",
+                "expectedSizeBytes":12,"sha256":"%s","signature":{"formatVersion":1,"algorithm":"Ed25519","keyId":"test","value":"AA=="}}]}}
+                """.formatted("b".repeat(64));
+        when(client.fetch(contains("/plugins/demo?limit=100"), eq(256L * 1024L), isNull()))
+                .thenReturn(new PluginCatalogHttpClient.FetchResult(200,
+                        first.getBytes(StandardCharsets.UTF_8), null, "https://repo.example/v2/plugins/demo"));
+        when(client.fetch(contains("cursor=older"), eq(256L * 1024L), isNull()))
+                .thenReturn(new PluginCatalogHttpClient.FetchResult(200,
+                        second.getBytes(StandardCharsets.UTF_8), null,
+                        "https://repo.example/v2/plugins/demo?cursor=older"));
+        PluginCatalogService service = pagedService(client);
+
+        PluginCatalogEntry entry = service.loadEntry("paged", "demo");
+
+        assertThat(entry.packages()).extracting(PluginCatalogPackage::version)
+                .containsExactly("2.0.0", "1.0.0");
+    }
+
+    @Test
+    @DisplayName("paged-v2 网络失败时只回退到同 generation 的最后成功页")
+    void fallsBackToCurrentGenerationPageCache() {
+        PluginCatalogHttpClient client = mock(PluginCatalogHttpClient.class);
+        byte[] body = pagedList("g1", "demo", null);
+        when(client.fetch(anyString(), eq(512L * 1024L), isNull()))
+                .thenReturn(new PluginCatalogHttpClient.FetchResult(
+                        200, body, "\"v1\"", "https://repo.example/v2/plugins"));
+        when(client.fetch(anyString(), eq(512L * 1024L), eq("\"v1\"")))
+                .thenThrow(new PluginCatalogException(PluginCatalogErrorCode.DOWNLOAD_FAILED, "offline"));
+        PluginCatalogService service = pagedService(client);
+
+        var first = service.loadPage("paged", PluginCatalogPageQuery.first());
+        var stale = service.loadPage("paged", PluginCatalogPageQuery.first());
+
+        assertThat(first.stale()).isFalse();
+        assertThat(stale.stale()).isTrue();
+        assertThat(stale.items()).extracting(PluginCatalogEntry::pluginId).containsExactly("demo");
+    }
+
+    @Test
+    @DisplayName("paged-v2 generation 变化时丢弃旧 cursor 并重取第一页")
+    void restartsAtFirstPageWhenGenerationChanges() {
+        PluginCatalogHttpClient client = mock(PluginCatalogHttpClient.class);
+        when(client.fetch(argThat(url -> !url.contains("cursor=")), eq(512L * 1024L), isNull()))
+                .thenReturn(new PluginCatalogHttpClient.FetchResult(200, pagedList("g1", "old", "next"),
+                                null, "https://repo.example/v2/plugins"),
+                        new PluginCatalogHttpClient.FetchResult(200, pagedList("g2", "fresh", null),
+                                null, "https://repo.example/v2/plugins"));
+        when(client.fetch(contains("cursor=next"), eq(512L * 1024L), isNull()))
+                .thenReturn(new PluginCatalogHttpClient.FetchResult(200, pagedList("g2", "discarded", null),
+                        null, "https://repo.example/v2/plugins?cursor=next"));
+        PluginCatalogService service = pagedService(client);
+
+        service.loadPage("paged", PluginCatalogPageQuery.first());
+        var refreshed = service.loadPage("paged",
+                new PluginCatalogPageQuery("next", 24, null, null, null, null));
+
+        assertThat(refreshed.generation()).isEqualTo("g2");
+        assertThat(refreshed.items()).extracting(PluginCatalogEntry::pluginId).containsExactly("fresh");
+    }
+
+    @Test
+    @DisplayName("paged-v2 拒绝未携带发布者签名的版本摘要")
+    void rejectsUnsignedPagedPackage() {
+        PluginCatalogHttpClient client = mock(PluginCatalogHttpClient.class);
+        byte[] body = ("""
+                {"generation":"g1","items":[{"pluginId":"demo","packages":[
+                {"version":"1.0.0","packageUrl":"https://downloads.example/demo.jar",
+                "expectedSizeBytes":12,"sha256":"%s"}]}]}
+                """).formatted("a".repeat(64)).getBytes(StandardCharsets.UTF_8);
+        when(client.fetch(anyString(), eq(512L * 1024L), isNull()))
+                .thenReturn(new PluginCatalogHttpClient.FetchResult(
+                        200, body, null, "https://repo.example/v2/plugins"));
+        PluginCatalogService service = pagedService(client);
+
+        PluginCatalogException failure = catchThrowableOfType(
+                () -> service.loadPage("paged", PluginCatalogPageQuery.first()), PluginCatalogException.class);
+
+        assertThat(failure).isNotNull();
+        assertThat(failure.code()).isEqualTo(PluginCatalogErrorCode.CATALOG_UNAVAILABLE);
+    }
+
+    @Test
+    @DisplayName("paged-v2 精确版本响应缺 generation 时按目录损坏拒绝")
+    void rejectsExactVersionWithoutGeneration() {
+        PluginCatalogHttpClient client = mock(PluginCatalogHttpClient.class);
+        byte[] body = ("""
+                {"version":{"version":"1.0.0","packageUrl":"https://downloads.example/demo.jar",
+                "expectedSizeBytes":12,"sha256":"%s","signature":{"formatVersion":1,
+                "algorithm":"Ed25519","keyId":"test","value":"AA=="}}}
+                """).formatted("a".repeat(64)).getBytes(StandardCharsets.UTF_8);
+        when(client.fetch(contains("/plugins/demo/versions/1.0.0"), eq(256L * 1024L), isNull()))
+                .thenReturn(new PluginCatalogHttpClient.FetchResult(200, body, null,
+                        "https://repo.example/v2/plugins/demo/versions/1.0.0"));
+        PluginCatalogService service = pagedService(client);
+
+        PluginCatalogException failure = catchThrowableOfType(
+                () -> service.resolvePackage("paged", "demo", "1.0.0"), PluginCatalogException.class);
+
+        assertThat(failure).isNotNull();
+        assertThat(failure.code()).isEqualTo(PluginCatalogErrorCode.CATALOG_UNAVAILABLE);
+    }
+
+    @Test
+    @DisplayName("分页查询限制 limit、cursor 与搜索字符串长度")
+    void boundsPagedQuery() {
+        assertThat(new PluginCatalogPageQuery(null, 1_000, null, null, null, null).limit()).isEqualTo(100);
+        assertThatThrownBy(() -> new PluginCatalogPageQuery("x".repeat(513), 24, null, null, null, null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new PluginCatalogPageQuery(null, 24, "x".repeat(129), null, null, null))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -585,5 +770,26 @@ class PluginCatalogServiceTest {
         PluginCatalogException ex = catchThrowableOfType(service::load, PluginCatalogException.class);
         assertThat(ex).as("应抛出 PluginCatalogException").isNotNull();
         assertThat(ex.code()).isEqualTo(expected);
+    }
+
+    private static PluginCatalogService pagedService(PluginCatalogHttpClient client) {
+        PluginCatalogProperties properties = new PluginCatalogProperties();
+        PluginCatalogProperties.RepositoryConfig repository = new PluginCatalogProperties.RepositoryConfig();
+        repository.setId("paged");
+        repository.setManifestUrl("https://repo.example/v2");
+        repository.setCatalogEndpoint("https://repo.example/v2");
+        repository.setCatalogProtocol("paged-v2");
+        properties.setRepositories(List.of(repository));
+        return new PluginCatalogService(new PluginRepositoryRegistry(properties), ignored -> client);
+    }
+
+    private static byte[] pagedList(String generation, String pluginId, String nextCursor) {
+        String next = nextCursor == null ? "" : ",\"nextCursor\":\"" + nextCursor + "\"";
+        return ("""
+                {"generation":"%s","items":[{"pluginId":"%s","packages":[
+                {"version":"1.0.0","packageUrl":"https://downloads.example/demo.jar",
+                "expectedSizeBytes":12,"sha256":"%s","signature":{"formatVersion":1,
+                "algorithm":"Ed25519","keyId":"test","value":"AA=="}}]}]%s}
+                """).formatted(generation, pluginId, "a".repeat(64), next).getBytes(StandardCharsets.UTF_8);
     }
 }

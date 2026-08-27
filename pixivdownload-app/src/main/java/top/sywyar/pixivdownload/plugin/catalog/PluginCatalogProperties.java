@@ -117,6 +117,28 @@ public class PluginCatalogProperties {
 
         /** 该仓库允许的发布者信任根。 */
         private List<TrustedKeyConfig> trustedKeys = new ArrayList<>();
+
+        /** 用户确认过的 repository.json 地址与原始字节摘要；旧手工配置均为空。 */
+        private String descriptorUrl;
+        private String descriptorSha256;
+
+        /** 外部仓库纯文本展示与发布者自声明。 */
+        private String displayName;
+        private String publisherId;
+        private String publisherDisplayName;
+
+        /** 目录协议与端点；旧配置缺失时继续使用 manifest-v1 + manifest-url。 */
+        private String catalogProtocol = "manifest-v1";
+        private String catalogEndpoint;
+
+        /** 可选撤销与连续性证明端点。 */
+        private String revocationsUrl;
+        private String updateProofUrl;
+
+        /** OFFICIAL / SELF_TRUSTED / COMMUNITY_LISTED；当前导入流程只产生 SELF_TRUSTED。 */
+        private String trustSource;
+        private Long directorySequence;
+        private String directoryEntrySha256;
     }
 
     /**

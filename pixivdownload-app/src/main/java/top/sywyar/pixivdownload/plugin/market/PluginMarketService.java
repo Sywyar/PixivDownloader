@@ -9,9 +9,14 @@ import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode;
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException;
 import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogEntry;
 import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogManifest;
+import top.sywyar.pixivdownload.plugin.catalog.page.PluginCatalogPage;
+import top.sywyar.pixivdownload.plugin.catalog.page.PluginCatalogPageQuery;
+import top.sywyar.pixivdownload.plugin.catalog.page.PluginCatalogDetailPage;
 import top.sywyar.pixivdownload.plugin.market.presentation.PluginCatalogCategory;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
+import top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationService;
+import org.springframework.beans.factory.annotation.Autowired;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginDiagnostic;
 
 import java.util.ArrayList;
@@ -46,15 +51,26 @@ public class PluginMarketService {
     private final PluginCatalogService catalogService;
     private final PluginCatalogAcquisitionService acquisitionService;
     private final PluginStatusService pluginStatusService;
+    private final PluginCatalogRevocationService revocations;
+
+    @Autowired
+    public PluginMarketService(PluginRepositoryRegistry repositoryRegistry,
+                               PluginCatalogService catalogService,
+                               PluginCatalogAcquisitionService acquisitionService,
+                               PluginStatusService pluginStatusService,
+                               PluginCatalogRevocationService revocations) {
+        this.repositoryRegistry = repositoryRegistry;
+        this.catalogService = catalogService;
+        this.acquisitionService = acquisitionService;
+        this.pluginStatusService = pluginStatusService;
+        this.revocations = revocations;
+    }
 
     public PluginMarketService(PluginRepositoryRegistry repositoryRegistry,
                                PluginCatalogService catalogService,
                                PluginCatalogAcquisitionService acquisitionService,
                                PluginStatusService pluginStatusService) {
-        this.repositoryRegistry = repositoryRegistry;
-        this.catalogService = catalogService;
-        this.acquisitionService = acquisitionService;
-        this.pluginStatusService = pluginStatusService;
+        this(repositoryRegistry, catalogService, acquisitionService, pluginStatusService, null);
     }
 
     /**
@@ -77,13 +93,20 @@ public class PluginMarketService {
      * （200 正常「功能未开」）；未知 / 禁用仓库、清单拉取 / 解析失败 → {@link PluginCatalogException}（控制器映射为稳定错误）。
      */
     public PluginMarketView catalog(String repositoryId) {
+        return catalog(repositoryId, PluginCatalogPageQuery.first());
+    }
+
+    public PluginMarketView catalog(String repositoryId, PluginCatalogPageQuery query) {
         if (!repositoryRegistry.featureEnabled()) {
             return PluginMarketView.disabled();
         }
         PluginRepository repository = resolveRepository(repositoryId);
-        PluginCatalogManifest manifest = catalogService.load(repository.repositoryId());
+        PluginCatalogPage page = catalogService.loadPage(repository.repositoryId(), query);
         Map<String, String> installed = installedVersionsById();
-        List<PluginMarketEntryView> entries = manifest.entries().stream()
+        List<PluginCatalogEntry> visible = page.items().stream()
+                .filter(entry -> !isYanked(repository, entry))
+                .toList();
+        List<PluginMarketEntryView> entries = visible.stream()
                 .map(entry -> projectEntry(repository, entry, installed))
                 .toList();
         int installedCount = (int) entries.stream()
@@ -91,20 +114,24 @@ public class PluginMarketService {
                         || entry.installStatus() == MarketInstallStatus.UPDATE_AVAILABLE)
                 .count();
         return new PluginMarketView(repository.repositoryId(), true, SdkVersion.VERSION,
-                installedCount, categoryCounts(manifest), entries);
+                installedCount, categoryCounts(visible), entries, page.generation(), page.nextCursor(),
+                page.totalApproximate(), page.facets(), page.stale());
     }
 
     /**
-     * 指定仓库 + 插件 id 的条目详情（含全部版本历史）。主开关关闭 → {@link PluginCatalogErrorCode#CATALOG_DISABLED}；
+     * 指定仓库 + 插件 id 的条目详情（含一页有界版本摘要）。主开关关闭 → {@link PluginCatalogErrorCode#CATALOG_DISABLED}；
      * 未知 / 禁用仓库、清单失败、未知插件 id → 对应稳定错误码。
      */
     public PluginMarketEntryView pluginDetail(String repositoryId, String pluginId) {
+        return pluginDetail(repositoryId, pluginId, null, 24);
+    }
+
+    public PluginMarketEntryView pluginDetail(String repositoryId, String pluginId, String cursor, int limit) {
         PluginRepository repository = resolveRepository(repositoryId);
-        PluginCatalogManifest manifest = catalogService.load(repository.repositoryId());
-        PluginCatalogEntry entry = manifest.findEntry(pluginId).orElseThrow(() ->
-                new PluginCatalogException(PluginCatalogErrorCode.UNKNOWN_PLUGIN, pluginId, null,
-                        "plugin not found in catalog: " + pluginId));
-        return projectEntry(repository, entry, installedVersionsById());
+        PluginCatalogDetailPage page = catalogService.loadEntryPage(
+                repository.repositoryId(), pluginId, cursor, limit);
+        return projectEntry(repository, page.item(), installedVersionsById())
+                .withVersionPage(page.generation(), page.nextCursor(), page.totalApproximate(), page.stale());
     }
 
     /** 据已安装快照把一个 catalog 条目投影为市场视图条目（含安装状态机推导）。 */
@@ -162,12 +189,16 @@ public class PluginMarketService {
      * （未知 / 空 → 实用工具回退）。
      */
     private static List<PluginMarketCategoryCount> categoryCounts(PluginCatalogManifest manifest) {
+        return categoryCounts(manifest.entries());
+    }
+
+    private static List<PluginMarketCategoryCount> categoryCounts(List<PluginCatalogEntry> entries) {
         Map<PluginCatalogCategory, Integer> counts = new LinkedHashMap<>();
         for (PluginCatalogCategory category : PluginCatalogCategory.values()) {
             counts.put(category, 0);
         }
         int total = 0;
-        for (PluginCatalogEntry entry : manifest.entries()) {
+        for (PluginCatalogEntry entry : entries) {
             String rawCategory = entry.market() != null ? entry.market().category() : null;
             PluginCatalogCategory category = PluginCatalogCategory.resolve(rawCategory);
             counts.merge(category, 1, Integer::sum);
@@ -182,6 +213,13 @@ public class PluginMarketService {
     /** 受信 catalog / 市场主开关是否开启（供 GUI / 诊断查询，与 {@link #repositories()} 同源）。 */
     public boolean featureEnabled() {
         return repositoryRegistry.featureEnabled();
+    }
+
+    private boolean isYanked(PluginRepository repository, PluginCatalogEntry entry) {
+        if (revocations == null || entry.packages().isEmpty()) return false;
+        var latest = entry.market() != null ? entry.market().latestVersion() : null;
+        var pkg = latest != null ? entry.findPackage(latest).orElse(entry.packages().get(0)) : entry.packages().get(0);
+        return revocations.isYanked(repository, entry.pluginId(), pkg);
     }
 
     /** 默认仓库 id（无可用默认仓库时为空）。 */

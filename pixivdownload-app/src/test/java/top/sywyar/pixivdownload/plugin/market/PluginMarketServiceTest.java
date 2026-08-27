@@ -14,6 +14,7 @@ import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogEntry;
 import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogManifest;
 import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogMarketMeta;
 import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogPackage;
+import top.sywyar.pixivdownload.plugin.catalog.page.PluginCatalogPage;
 import top.sywyar.pixivdownload.plugin.market.presentation.CatalogPresentationToken;
 import top.sywyar.pixivdownload.plugin.market.presentation.PluginCatalogCategory;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
@@ -27,6 +28,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -55,7 +57,7 @@ class PluginMarketServiceTest {
         props.setEnabled(true);
         props.setManifestUrl("https://legacy.example/manifest.json"); // 折成 configured 兼容仓库（默认仓库）
         PluginCatalogProperties.RepositoryConfig custom = new PluginCatalogProperties.RepositoryConfig();
-        custom.setId("community");
+        custom.setId("community-demo");
         custom.setManifestUrl("https://community.example/manifest.json");
         custom.setEnabled(false); // 禁用项仍在列表中用于状态展示
         props.getRepositories().add(custom);
@@ -71,7 +73,8 @@ class PluginMarketServiceTest {
         assertThat(view.sdkVersion()).isEqualTo(SdkVersion.VERSION);
         assertThat(view.defaultRepositoryId()).isEqualTo(PluginRepository.LEGACY_CONFIGURED_ID);
         assertThat(view.repositories()).extracting(PluginMarketRepositoryView::repositoryId)
-                .containsExactly(PluginRepository.OFFICIAL_ID, PluginRepository.LEGACY_CONFIGURED_ID, "community");
+                .containsExactly(PluginRepository.OFFICIAL_ID, PluginRepository.LEGACY_CONFIGURED_ID,
+                        "community-demo");
 
         PluginMarketRepositoryView official = view.repositories().get(0);
         assertThat(official.official()).isTrue();
@@ -124,7 +127,9 @@ class PluginMarketServiceTest {
                 new PluginCatalogEntry("b", "b", "plugin.name", null, downloadTypeMeta, List.of()),
                 new PluginCatalogEntry("c", "c", "plugin.name", null, dependencyMeta, List.of()),
                 new PluginCatalogEntry("d", "d", "plugin.name", null, null, List.of()))); // null market → utility 回退
-        when(catalogService.load(PluginRepository.OFFICIAL_ID)).thenReturn(manifest);
+        when(catalogService.loadPage(org.mockito.ArgumentMatchers.eq(PluginRepository.OFFICIAL_ID), any()))
+                .thenReturn(new PluginCatalogPage("manifest-v1", manifest.entries(), null,
+                        (long) manifest.entries().size(), Map.of(), false));
 
         PluginCatalogProperties props = new PluginCatalogProperties();
         props.setEnabled(true);
@@ -188,7 +193,7 @@ class PluginMarketServiceTest {
         PluginMarketService service = service(enabledWithCustom());
 
         PluginCatalogException ex = catchThrowableOfType(
-                () -> service.catalog("community"), PluginCatalogException.class);
+                () -> service.catalog("community-demo"), PluginCatalogException.class);
         assertThat(ex.code()).isEqualTo(PluginCatalogErrorCode.REPOSITORY_DISABLED);
         verifyNoInteractions(catalogService);
     }
@@ -196,8 +201,9 @@ class PluginMarketServiceTest {
     @Test
     @DisplayName("pluginDetail：未知插件 id → UNKNOWN_PLUGIN")
     void pluginDetailUnknown() {
-        when(catalogService.load(PluginRepository.OFFICIAL_ID))
-                .thenReturn(new PluginCatalogManifest("1", null, List.of()));
+        when(catalogService.loadEntryPage(PluginRepository.OFFICIAL_ID, "ghost", null, 24))
+                .thenThrow(new PluginCatalogException(PluginCatalogErrorCode.UNKNOWN_PLUGIN, "ghost", null,
+                        "plugin not found"));
         PluginCatalogProperties props = new PluginCatalogProperties();
         props.setEnabled(true);
 

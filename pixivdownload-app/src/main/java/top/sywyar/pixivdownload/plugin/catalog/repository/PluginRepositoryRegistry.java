@@ -93,7 +93,9 @@ public class PluginRepositoryRegistry {
             throw new IllegalStateException("plugin-catalog.repositories[*].id must not be blank");
         }
         String normalizedId = id.toLowerCase(Locale.ROOT);
-        if (PluginRepository.OFFICIAL_ID.equals(normalizedId) || PluginRepository.LEGACY_CONFIGURED_ID.equals(normalizedId)) {
+        if (PluginRepository.OFFICIAL_ID.equals(normalizedId)
+                || PluginRepository.LEGACY_CONFIGURED_ID.equals(normalizedId)
+                || PluginRepository.COMMUNITY_ID.equals(normalizedId)) {
             throw new IllegalStateException("plugin-catalog.repositories[*].id '" + id
                     + "' is reserved for a built-in repository");
         }
@@ -115,7 +117,13 @@ public class PluginRepositoryRegistry {
                 positiveOr(config.getReadTimeoutMs(), defaultRead),
                 positiveOr(config.getMaxManifestBytes(), defaultManifest),
                 positiveOr(config.getMaxPackageBytes(), defaultPackage),
-                trustedKeys(config.getTrustedKeys()));
+                trustedKeys(config.getTrustedKeys()),
+                text(config.getDescriptorUrl()), text(config.getDescriptorSha256()), text(config.getDisplayName()),
+                text(config.getPublisherId()), text(config.getPublisherDisplayName()),
+                text(config.getCatalogProtocol()) != null ? text(config.getCatalogProtocol()) : "manifest-v1",
+                text(config.getCatalogEndpoint()) != null ? text(config.getCatalogEndpoint()) : manifestUrl,
+                text(config.getRevocationsUrl()), text(config.getUpdateProofUrl()),
+                "SELF_TRUSTED", null, null);
     }
 
     private static String displayNameKey(PluginCatalogProperties.RepositoryConfig config, String id) {
