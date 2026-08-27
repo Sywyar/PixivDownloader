@@ -884,7 +884,7 @@ plugin-revocations --document revocations.json --repository-id example.plugins -
 - 改进签名、安装事务、生命周期和能力缺席降级；
 - 修正文档与当前实现的偏移。
 
-如果现有 SDK 缺少能力，不要先依赖 app 私有类。先提出一个不认识具体站点或插件 id 的中性契约，并同时说明真实消费者、所有权、生命周期、错误/缺席语义和测试。公共契约变更需要同步更新 SDK 版本与 revision、BOM、Javadoc、模板、Douyin 示例和本文。
+如果现有 SDK 缺少能力，不要先依赖 app 私有类。先提出一个不认识具体站点或插件 id 的中性契约，并同时说明真实消费者、所有权、生命周期、错误/缺席语义和测试。公共契约变更需要同步提升 SDK 身份，并更新 BOM、Javadoc、模板、Douyin 示例和本文；已发布候选不可覆盖。
 
 基本流程：
 

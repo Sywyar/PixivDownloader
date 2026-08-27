@@ -885,7 +885,7 @@ Private or community plugins normally require no host changes. Good contribution
 - improvements to signing, installation transactions, lifecycle, and absent-capability degradation;
 - corrections where documentation has drifted from the current implementation.
 
-If the SDK lacks a capability, do not depend on an app-private class first. Propose a neutral contract that does not recognize a specific site or plugin id, and describe its real consumers, owner, lifecycle, error/absence semantics, and tests. A public-contract change must update the SDK version and revision, BOM, Javadocs, templates, the Douyin example, and this guide together.
+If the SDK lacks a capability, do not depend on an app-private class first. Propose a neutral contract that does not recognize a specific site or plugin id, and describe its real consumers, owner, lifecycle, error/absence semantics, and tests. A public-contract change must advance the SDK identity and update the BOM, Javadocs, templates, the Douyin example, and this guide together; a published candidate must never be overwritten.
 
 Basic flow:
 
