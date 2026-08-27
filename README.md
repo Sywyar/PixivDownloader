@@ -131,6 +131,7 @@ sh run.sh
 - [⚙️ 配置参考](https://sywyar.github.io/PixivDownloader/#/zh-cn/configuration)
 - [🔌 插件管理](https://sywyar.github.io/PixivDownloader/#/zh-cn/plugin-management)
 - [🧩 第三方插件 SDK](https://sywyar.github.io/PixivDownloader/#/zh-cn/plugin-development)
+- [📦 插件 SDK 下载与版本记录](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases)（列表为空表示尚未公开发布）
 - [💾 存储原理](https://sywyar.github.io/PixivDownloader/#/zh-cn/storage)
 - [❓ 常见问题](https://sywyar.github.io/PixivDownloader/#/zh-cn/faq)
 - [🛠️ 开发指南](https://sywyar.github.io/PixivDownloader/#/zh-cn/development)
