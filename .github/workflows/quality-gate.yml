@@ -89,7 +89,7 @@ jobs:
           mvn -B -ntp -f "$BASE_DIR/pom.xml" -pl pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api,pixivdownload-sdk-bom -am package -Dmaven.test.skip=true -Dmaven.javadoc.skip=true -Dmaven.source.skip=true -Dexec.skip=true
           node scripts/ci/sdk-api-surface.mjs --module "sdk-info=$BASE_DIR/pixivdownload-sdk-info/target" --module "plugin-api=$BASE_DIR/pixivdownload-plugin-api/target" --module "core-api=$BASE_DIR/pixivdownload-core-api/target" --output "$RUNNER_TEMP/sdk-base-surface.txt"
           node scripts/ci/sdk-api-surface.mjs --module sdk-info=pixivdownload-sdk-info/target --module plugin-api=pixivdownload-plugin-api/target --module core-api=pixivdownload-core-api/target --output "$RUNNER_TEMP/sdk-candidate-surface.txt"
-          node scripts/ci/sdk-contract.mjs --repo-root . --base-ref "$SDK_BASE_SHA" --candidate-ref "$GITHUB_SHA" --base-surface "$RUNNER_TEMP/sdk-base-surface.txt" --candidate-surface "$RUNNER_TEMP/sdk-candidate-surface.txt" --report "$RUNNER_TEMP/sdk-contract-report.json"
+          node scripts/ci/sdk-contract.mjs --repo-root . --base-ref "$SDK_BASE_SHA" --candidate-ref "$GITHUB_SHA" --base-surface "$RUNNER_TEMP/sdk-base-surface.txt" --candidate-surface "$RUNNER_TEMP/sdk-candidate-surface.txt" --base-sdk-root "$BASE_DIR" --candidate-sdk-root . --report "$RUNNER_TEMP/sdk-contract-report.json"
           cat "$RUNNER_TEMP/sdk-contract-report.json"
 
   javascript-tests:

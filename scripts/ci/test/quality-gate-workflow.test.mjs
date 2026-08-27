@@ -45,6 +45,7 @@ test('Quality Gate：五个 required context 与完整触发面保持稳定', ()
     assert.match(sdkContract.run, /git archive "\$SDK_BASE_SHA"/u);
     assert.match(sdkContract.run, /sdk-api-surface\.mjs/u);
     assert.match(sdkContract.run, /sdk-contract\.mjs/u);
+    assert.match(sdkContract.run, /--base-sdk-root "\$BASE_DIR" --candidate-sdk-root \./u);
     assert.doesNotMatch(sdkContract.run, /continue-on-error|always\(\)|failure\(\)|cancelled\(\)/u);
     for (const id of ['signature-guard', 'trusted-gate-contract']) {
         const resolve = doc.jobs[id].steps.find((step) => step.name === 'Resolve protected predecessor');
@@ -185,6 +186,42 @@ test('发布链：所有凭据与写权限只在 release Environment 的门禁�
         assert.equal(sign.with.update_signing_private_key_pem_base64,
             '${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64 }}');
     }
+});
+
+test('SDK 发布链只在身份变化或显式恢复时通过同 SHA 门禁写入公共仓库', () => {
+    const sdk = load('.github/workflows/publish-sdk.yml');
+    const policy = JSON.parse(fs.readFileSync(path.join(ROOT, 'scripts', 'ci',
+        'release-gate-policy.json'), 'utf8'));
+    assert.equal(sdk.name, 'Publish plugin SDK');
+    assert.deepEqual(triggers(sdk), ['push', 'workflow_dispatch']);
+    assert.deepEqual(sdk.permissions, { contents: 'read' });
+    assert.deepEqual(sdk.on.push.branches, ['master']);
+    assert.deepEqual(sdk.on.workflow_dispatch.inputs.mode.options, ['publish', 'recover-release']);
+    assert.equal(sdk.jobs['quality-gate'].uses, './.github/workflows/quality-gate.yml');
+    assert.equal(sdk.jobs['quality-gate'].with.trusted_base_sha,
+        '${{ needs.release-plan.outputs.trusted_base_sha }}');
+    assert.deepEqual(sdk.jobs.publish.needs, ['release-plan', 'quality-gate']);
+    assert.equal(sdk.jobs.publish.environment, 'release');
+    assert.equal(sdk.jobs.publish.steps.find((step) => step.name === 'Checkout release source').with.ref,
+        '${{ github.sha }}');
+    assert.deepEqual(secretNames(sdk.jobs.publish).sort(), [
+        'CENTRAL_PASSWORD', 'CENTRAL_USERNAME', 'CROSS_REPO_RELEASE_TOKEN',
+        'MAVEN_GPG_PASSPHRASE', 'MAVEN_GPG_PRIVATE_KEY',
+    ]);
+    const serialized = JSON.stringify(sdk.jobs.publish);
+    assert.doesNotMatch(serialized, /continue-on-error|always\(\)|failure\(\)|cancelled\(\)/u);
+    const state = sdk.jobs.publish.steps.find((step) => step.name === 'Check immutable publication state');
+    const central = sdk.jobs.publish.steps.find((step) => step.name === 'Publish SDK artifacts to Maven Central');
+    const remote = sdk.jobs.publish.steps.find((step) => step.name === 'Verify public SDK Release and clean consumer');
+    assert.match(state.run, /central_count.*tag_exists.*release_exists/su);
+    assert.equal(central.if, "${{ needs.release-plan.outputs.mode == 'publish' }}");
+    assert.match(remote.run, /gh release download/u);
+    assert.match(remote.run, /sdk-consumer\.mjs/u);
+    assert.deepEqual(policy.workflows['.github/workflows/publish-sdk.yml'], {
+        workflowName: 'Publish plugin SDK',
+        requiredJobs: ['release-plan', 'quality-gate', 'publish'],
+        requiredTriggers: ['push', 'workflow_dispatch'],
+    });
 });
 
 test('FFmpeg：手动流程从官方稳定源码构建并在门禁后发布五个平台资产', () => {

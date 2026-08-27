@@ -26,6 +26,25 @@ test('公开表面变化必须同时更新 SDK 身份', () => {
     }).outcome, 'PUBLISH');
 });
 
+test('模板、POM 或发行包装变化必须同时更新 SDK 身份', () => {
+    const identity = parseSdkVersion('1.2.3');
+    assert.throws(() => evaluateContract({
+        baseIdentity: identity,
+        candidateIdentity: identity,
+        baseSurface: 'type A',
+        candidateSurface: 'type A',
+        releaseInputChanges: ['plugin-templates/download-type-plugin/pom.xml'],
+    }), /release inputs changed without a new SDK release identity/u);
+    const result = evaluateContract({
+        baseIdentity: identity,
+        candidateIdentity: parseSdkVersion('1.2.4'),
+        baseSurface: 'type A',
+        candidateSurface: 'type A',
+        releaseInputChanges: ['plugin-templates/download-type-plugin/pom.xml'],
+    });
+    assert.deepEqual(result.releaseInputChanges, ['plugin-templates/download-type-plugin/pom.xml']);
+});
+
 test('预发布版本必须单调递增且首次结构化身份可从旧元数据迁移', () => {
     assert.throws(() => evaluateContract({
         baseIdentity: identity('1.0.0-rc2'),

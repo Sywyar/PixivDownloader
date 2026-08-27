@@ -86,7 +86,7 @@ function requireFile(file) {
     }
 }
 
-function assertConsumerPom(file, artifactId, version) {
+function assertConsumerPom(file, artifactId, version, sourceSha) {
     requireFile(file);
     const pom = fs.readFileSync(file, 'utf8');
     for (const marker of ['<parent>', '<repositories>', '<pluginRepositories>']) {
@@ -112,6 +112,9 @@ function assertConsumerPom(file, artifactId, version) {
     if (pom.includes('<properties>') || pom.includes('<build>')) {
         fail(`${artifactId} consumer POM contains build-only configuration`);
     }
+    if (!pom.includes(`<tag>${sourceSha}</tag>`)) {
+        fail(`${artifactId} consumer POM must identify source commit ${sourceSha}`);
+    }
     if (artifactId === 'pixivdownload-sdk-bom') {
         const managed = [...pom.matchAll(/<dependency>[\s\S]*?<\/dependency>/gu)]
                 .map(match => match[0])
@@ -128,10 +131,11 @@ function assertConsumerPom(file, artifactId, version) {
     }
 }
 
-function validateReleaseInputs(root, identity) {
+function validateReleaseInputs(root, identity, sourceSha) {
     for (const [artifactId, packaging] of MODULES) {
         const moduleRoot = path.join(root, artifactId);
-        assertConsumerPom(path.join(moduleRoot, 'target', 'flattened-pom.xml'), artifactId, identity.version);
+        assertConsumerPom(path.join(moduleRoot, 'target', 'flattened-pom.xml'), artifactId, identity.version,
+                sourceSha);
         if (packaging === 'jar') {
             for (const suffix of ['.jar', '-sources.jar', '-javadoc.jar']) {
                 requireFile(path.join(moduleRoot, 'target', `${artifactId}-${identity.version}${suffix}`));
@@ -248,7 +252,7 @@ export function assembleRelease(options) {
     const root = path.resolve(options.repoRoot);
     const output = safeOutput(root, options.output);
     const identity = inspectSdkVersion(root);
-    validateReleaseInputs(root, identity);
+    validateReleaseInputs(root, identity, options.sourceSha);
     fs.rmSync(output, { recursive: true, force: true });
     fs.mkdirSync(output, { recursive: true });
 

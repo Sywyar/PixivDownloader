@@ -82,7 +82,7 @@
          child.scm.url.inherit.append.path="false">
         <connection>scm:git:https://github.com/Sywyar/PixivDownloader.git</connection>
         <developerConnection>scm:git:ssh://git@github.com/Sywyar/PixivDownloader.git</developerConnection>
-        <tag>HEAD</tag>
+        <tag>${pixivdownload.source.sha}</tag>
         <url>https://github.com/Sywyar/PixivDownloader</url>
     </scm>
     <issueManagement>
@@ -95,6 +95,7 @@
         <!-- sdk-info 资源是 SDK 身份事实源；revision 只是 Maven CI-friendly 版本投影名。 -->
         <revision>1.0.0-rc1</revision>
         <pixivdownload.sdk.version>${revision}</pixivdownload.sdk.version>
+        <pixivdownload.source.sha>HEAD</pixivdownload.source.sha>
         <flatten.maven.version>1.7.3</flatten.maven.version>
         <maven.gpg.version>3.2.8</maven.gpg.version>
         <central.publishing.version>0.11.0</central.publishing.version>

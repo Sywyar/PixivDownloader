@@ -1,0 +1,327 @@
+name: Publish plugin SDK
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '发布新版本，或在 Central 已完成后恢复 SDK Release'
+        required: true
+        type: choice
+        default: publish
+        options:
+          - publish
+          - recover-release
+
+permissions:
+  contents: read
+
+env:
+  SDK_REPOSITORY: Sywyar/PixivDownloader-Plugin-SDK
+  CENTRAL_BASE_URL: https://repo1.maven.org/maven2
+
+jobs:
+  release-plan:
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.plan.outputs.publish }}
+      mode: ${{ steps.plan.outputs.mode }}
+      trusted_base_sha: ${{ steps.plan.outputs.trusted_base_sha }}
+      sdk_version: ${{ steps.plan.outputs.sdk_version }}
+      release_id: ${{ steps.plan.outputs.release_id }}
+      prerelease: ${{ steps.plan.outputs.prerelease }}
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Resolve SDK release plan
+        id: plan
+        shell: bash
+        env:
+          EVENT_BEFORE: ${{ github.event.before }}
+          REQUESTED_MODE: ${{ inputs.mode || 'publish' }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          current_json="$(node scripts/ci/sdk-version.mjs --repo-root . --json)"
+          mode="$REQUESTED_MODE"
+          publish=true
+
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            if ! [[ "$EVENT_BEFORE" =~ ^[0-9a-f]{40}$ ]] || [ "$EVENT_BEFORE" = "0000000000000000000000000000000000000000" ]; then
+              echo "master push does not contain a usable protected predecessor" >&2
+              exit 1
+            fi
+            git merge-base --is-ancestor "$EVENT_BEFORE" "$GITHUB_SHA"
+            previous_json="$(node --input-type=module -e '
+              import { readSdkIdentity } from "./scripts/ci/sdk-version.mjs";
+              process.stdout.write(JSON.stringify(readSdkIdentity(".", process.argv[1], true)));
+            ' "$EVENT_BEFORE")"
+            previous_release="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).releaseId)' "$previous_json")"
+            current_release="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).releaseId)' "$current_json")"
+            if [ "$previous_release" = "$current_release" ]; then
+              publish=false
+            fi
+            mode=publish
+            trusted_base_sha="$EVENT_BEFORE"
+          else
+            git fetch --no-tags origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
+            protected_tip="$(git rev-parse "refs/remotes/origin/$DEFAULT_BRANCH")"
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" "$protected_tip"; then
+              echo "manual SDK publication must select a commit already contained in protected master" >&2
+              exit 1
+            fi
+            trusted_base_sha="$(git rev-parse "$GITHUB_SHA^")"
+          fi
+
+          sdk_version="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).version)' "$current_json")"
+          release_id="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).releaseId)' "$current_json")"
+          prerelease="$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).prerelease))' "$current_json")"
+          {
+            echo "publish=$publish"
+            echo "mode=$mode"
+            echo "trusted_base_sha=$trusted_base_sha"
+            echo "sdk_version=$sdk_version"
+            echo "release_id=$release_id"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+
+  quality-gate:
+    needs: release-plan
+    if: ${{ needs.release-plan.outputs.publish == 'true' }}
+    uses: ./.github/workflows/quality-gate.yml
+    with:
+      trusted_base_sha: ${{ needs.release-plan.outputs.trusted_base_sha }}
+
+  publish:
+    needs: [release-plan, quality-gate]
+    if: ${{ needs.release-plan.outputs.publish == 'true' && github.repository == 'Sywyar/PixivDownloader' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    environment: release
+    env:
+      GH_TOKEN: ${{ secrets.CROSS_REPO_RELEASE_TOKEN }}
+      CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+      CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+      MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+      SDK_VERSION: ${{ needs.release-plan.outputs.sdk_version }}
+      RELEASE_ID: ${{ needs.release-plan.outputs.release_id }}
+      PRERELEASE: ${{ needs.release-plan.outputs.prerelease }}
+      PUBLICATION_MODE: ${{ needs.release-plan.outputs.mode }}
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Set up JDK 17 and Maven Central signing
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          server-id: central
+          server-username: CENTRAL_USERNAME
+          server-password: CENTRAL_PASSWORD
+          gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Check immutable publication state
+        id: state
+        shell: bash
+        run: |
+          set -euo pipefail
+          group_path="io/github/sywyar/pixivdownloader"
+          artifacts=(pixivdownload-sdk-info pixivdownload-plugin-api pixivdownload-core-api pixivdownload-sdk-bom)
+          central_count=0
+          for artifact in "${artifacts[@]}"; do
+            url="$CENTRAL_BASE_URL/$group_path/$artifact/$SDK_VERSION/$artifact-$SDK_VERSION.pom"
+            status="$(curl --retry 3 --retry-all-errors -sS -o /dev/null -w '%{http_code}' "$url")"
+            case "$status" in
+              200) central_count=$((central_count + 1)) ;;
+              404) ;;
+              *) echo "cannot prove Maven Central state for $artifact: HTTP $status" >&2; exit 1 ;;
+            esac
+          done
+          if [ "$central_count" -ne 0 ] && [ "$central_count" -ne "${#artifacts[@]}" ]; then
+            echo "Maven Central contains only part of SDK $SDK_VERSION; refusing to mutate publication history" >&2
+            exit 1
+          fi
+
+          tag_exists=false
+          release_exists=false
+          github_exists() {
+            local response
+            if response="$(gh api "$1" 2>&1)"; then return 0; fi
+            if [[ "$response" == *"HTTP 404"* ]]; then return 1; fi
+            echo "$response" >&2
+            exit 1
+          }
+          if github_exists "repos/$SDK_REPOSITORY/git/ref/tags/$RELEASE_ID"; then tag_exists=true; fi
+          if github_exists "repos/$SDK_REPOSITORY/releases/tags/$RELEASE_ID"; then release_exists=true; fi
+
+          if [ "$PUBLICATION_MODE" = "publish" ]; then
+            if [ "$central_count" -ne 0 ] || [ "$tag_exists" = true ] || [ "$release_exists" = true ]; then
+              echo "SDK $RELEASE_ID already has a public artifact, tag, or release; use a new SDK version" >&2
+              exit 1
+            fi
+          elif [ "$PUBLICATION_MODE" = "recover-release" ]; then
+            if [ "$central_count" -ne "${#artifacts[@]}" ] || [ "$release_exists" = true ]; then
+              echo "release recovery requires complete Central artifacts and no existing SDK Release" >&2
+              exit 1
+            fi
+          else
+            echo "unsupported publication mode: $PUBLICATION_MODE" >&2
+            exit 1
+          fi
+          echo "tag_exists=$tag_exists" >> "$GITHUB_OUTPUT"
+
+      - name: Install Node.js dependencies
+        run: npm ci
+
+      - name: Build SDK modules and templates
+        run: |
+          mvn -B -ntp -pl pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api,pixivdownload-sdk-bom clean verify -Dexec.skip=true
+          mvn -B -ntp -f plugin-templates/pom.xml clean verify
+
+      - name: Generate complete SDK Javadocs
+        run: |
+          mvn -B -ntp -pl pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api org.apache.maven.plugins:maven-javadoc-plugin:javadoc -DskipTests -Dexec.skip=true
+          node scripts/ci/sdk-javadocs.mjs --repo-root .
+
+      - name: Stage SDK Maven repository and release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          staging="$GITHUB_WORKSPACE/target/sdk-staging"
+          rm -rf "$staging"
+          staging_url="$(node --input-type=module -e 'import { pathToFileURL } from "node:url"; console.log(pathToFileURL(process.argv[1]).href)' "$staging")"
+          mvn -B -ntp -pl pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api,pixivdownload-sdk-bom deploy \
+            -DskipTests -Dexec.skip=true -Dpixivdownload.source.sha="$GITHUB_SHA" \
+            -DaltDeploymentRepository="sdk-staging::$staging_url"
+          node scripts/ci/sdk-release.mjs --repo-root . --output target/sdk-release --source-sha "$GITHUB_SHA"
+          node scripts/ci/sdk-consumer.mjs --repo-root . \
+            --sdk-zip "target/sdk-release/PixivDownloader-Plugin-SDK-$SDK_VERSION.zip" \
+            --sdk-repository "$staging" --work-dir target/sdk-staged-consumer
+
+      - name: Publish SDK artifacts to Maven Central
+        if: ${{ needs.release-plan.outputs.mode == 'publish' }}
+        run: |
+          mvn -B -ntp -P sdk-central -pl pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api,pixivdownload-sdk-bom deploy \
+            -DskipTests -Dexec.skip=true -Dpixivdownload.source.sha="$GITHUB_SHA"
+
+      - name: Download and verify public Maven artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          repository="$GITHUB_WORKSPACE/target/sdk-public-central"
+          rm -rf "$repository"
+          group_path="io/github/sywyar/pixivdownloader"
+          artifacts=(pixivdownload-sdk-info pixivdownload-plugin-api pixivdownload-core-api pixivdownload-sdk-bom)
+          for attempt in $(seq 1 30); do
+            available=true
+            for artifact in "${artifacts[@]}"; do
+              url="$CENTRAL_BASE_URL/$group_path/$artifact/$SDK_VERSION/$artifact-$SDK_VERSION.pom"
+              if ! curl --retry 2 --retry-all-errors -fsS -o /dev/null "$url"; then available=false; break; fi
+            done
+            if [ "$available" = true ]; then break; fi
+            if [ "$attempt" -eq 30 ]; then echo "SDK coordinates are not publicly readable from Maven Central" >&2; exit 1; fi
+            sleep 20
+          done
+
+          for artifact in "${artifacts[@]}"; do
+            target="$repository/$group_path/$artifact/$SDK_VERSION"
+            mkdir -p "$target"
+            suffixes=(.pom)
+            if [ "$artifact" != "pixivdownload-sdk-bom" ]; then
+              suffixes+=(.jar -sources.jar -javadoc.jar)
+            fi
+            for suffix in "${suffixes[@]}"; do
+              name="$artifact-$SDK_VERSION$suffix"
+              base="$CENTRAL_BASE_URL/$group_path/$artifact/$SDK_VERSION/$name"
+              curl --retry 5 --retry-all-errors -fsSLo "$target/$name" "$base"
+              curl --retry 5 --retry-all-errors -fsSLo "$target/$name.asc" "$base.asc"
+              curl --retry 5 --retry-all-errors -fsSLo "$target/$name.sha256" "$base.sha256"
+              expected="$(awk '{print $1}' "$target/$name.sha256")"
+              actual="$(sha256sum "$target/$name" | awk '{print $1}')"
+              [ "$expected" = "$actual" ] || { echo "Central checksum mismatch: $name" >&2; exit 1; }
+              gpg --batch --verify "$target/$name.asc" "$target/$name"
+            done
+            node -e '
+              const fs = require("node:fs");
+              const pom = fs.readFileSync(process.argv[1], "utf8");
+              const expected = `<tag>${process.argv[2]}</tag>`;
+              if (!pom.includes(expected)) throw new Error(`Central POM does not identify ${process.argv[2]}`);
+            ' "$target/$artifact-$SDK_VERSION.pom" "$GITHUB_SHA"
+          done
+
+      - name: Sign SDK Release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd target/sdk-release
+          for file in "PixivDownloader-Plugin-SDK-$SDK_VERSION.zip" \
+                      "PixivDownloader-Plugin-SDK-Javadocs-$SDK_VERSION.zip" \
+                      sdk-release.json SHA256SUMS; do
+            printf '%s' "$MAVEN_GPG_PASSPHRASE" | \
+              gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 --armor --detach-sign "$file"
+          done
+
+      - name: Create immutable SDK Release
+        shell: bash
+        env:
+          TAG_EXISTS: ${{ steps.state.outputs.tag_exists }}
+        run: |
+          set -euo pipefail
+          notes="target/sdk-release/RELEASE_NOTES.md"
+          cat > "$notes" <<EOF
+          PixivDownloader Plugin SDK $SDK_VERSION
+
+          Source: https://github.com/Sywyar/PixivDownloader/commit/$GITHUB_SHA
+          Maven BOM: io.github.sywyar.pixivdownloader:pixivdownload-sdk-bom:$SDK_VERSION
+          EOF
+          args=(--repo "$SDK_REPOSITORY" --title "$RELEASE_ID" --notes-file "$notes")
+          if [ "$PRERELEASE" = true ]; then args+=(--prerelease); fi
+          if [ "$TAG_EXISTS" = true ]; then
+            args+=(--verify-tag)
+          else
+            args+=(--target master)
+          fi
+          gh release create "$RELEASE_ID" "${args[@]}" \
+            "target/sdk-release/PixivDownloader-Plugin-SDK-$SDK_VERSION.zip" \
+            "target/sdk-release/PixivDownloader-Plugin-SDK-$SDK_VERSION.zip.asc" \
+            "target/sdk-release/PixivDownloader-Plugin-SDK-Javadocs-$SDK_VERSION.zip" \
+            "target/sdk-release/PixivDownloader-Plugin-SDK-Javadocs-$SDK_VERSION.zip.asc" \
+            target/sdk-release/sdk-release.json target/sdk-release/sdk-release.json.asc \
+            target/sdk-release/SHA256SUMS target/sdk-release/SHA256SUMS.asc
+
+      - name: Verify public SDK Release and clean consumer
+        shell: bash
+        run: |
+          set -euo pipefail
+          public_release="$GITHUB_WORKSPACE/target/sdk-public-release"
+          rm -rf "$public_release"
+          mkdir -p "$public_release"
+          gh release download "$RELEASE_ID" --repo "$SDK_REPOSITORY" --dir "$public_release"
+          cd "$public_release"
+          sha256sum -c SHA256SUMS
+          for file in "PixivDownloader-Plugin-SDK-$SDK_VERSION.zip" \
+                      "PixivDownloader-Plugin-SDK-Javadocs-$SDK_VERSION.zip" \
+                      sdk-release.json SHA256SUMS; do
+            gpg --batch --verify "$file.asc" "$file"
+          done
+          cd "$GITHUB_WORKSPACE"
+          node scripts/ci/sdk-consumer.mjs --repo-root . \
+            --sdk-zip "$public_release/PixivDownloader-Plugin-SDK-$SDK_VERSION.zip" \
+            --sdk-repository target/sdk-public-central --work-dir target/sdk-public-consumer

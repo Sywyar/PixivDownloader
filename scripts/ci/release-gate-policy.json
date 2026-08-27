@@ -97,6 +97,18 @@
       "requiredTriggers": [
         "workflow_dispatch"
       ]
+    },
+    ".github/workflows/publish-sdk.yml": {
+      "workflowName": "Publish plugin SDK",
+      "requiredJobs": [
+        "release-plan",
+        "quality-gate",
+        "publish"
+      ],
+      "requiredTriggers": [
+        "push",
+        "workflow_dispatch"
+      ]
     }
   },
   "releaseEnvironment": "release",

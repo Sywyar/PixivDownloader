@@ -8,6 +8,31 @@ import { fileURLToPath } from 'node:url';
 
 import { inspectSdkVersion, parseSdkVersion, readSdkIdentity } from './sdk-version.mjs';
 
+const RELEASE_INPUT_PATHS = [
+    '.mvn/wrapper/maven-wrapper.properties',
+    'LICENSE',
+    'mvnw',
+    'mvnw.cmd',
+    'pixivdownload-sdk-info/pom.xml',
+    'pixivdownload-sdk-info/src/main',
+    'pixivdownload-plugin-api/pom.xml',
+    'pixivdownload-plugin-api/src/main',
+    'pixivdownload-core-api/pom.xml',
+    'pixivdownload-core-api/src/main',
+    'pixivdownload-sdk-bom/pom.xml',
+    'plugin-templates/minimal-feature-plugin',
+    'plugin-templates/download-type-plugin',
+    'plugin-templates/sdk-package',
+    'scripts/ci/sdk-javadocs.mjs',
+    'scripts/ci/sdk-release.mjs'
+];
+const CONSUMER_POM_MODULES = [
+    'pixivdownload-sdk-info',
+    'pixivdownload-plugin-api',
+    'pixivdownload-core-api',
+    'pixivdownload-sdk-bom'
+];
+
 function lines(text) {
     return new Set(text.split(/\r?\n/u).filter(Boolean));
 }
@@ -42,6 +67,7 @@ export function evaluateContract({
     candidateIdentity,
     baseSurface,
     candidateSurface,
+    releaseInputChanges = [],
     stableBaseline = null
 }) {
     const predecessorDiff = compareSurfaces(baseSurface, candidateSurface);
@@ -49,6 +75,9 @@ export function evaluateContract({
     const identityChanged = baseIdentity.releaseId !== candidateIdentity.releaseId;
     if (surfaceChanged && !identityChanged) {
         throw new Error('Public SDK surface changed without a new SDK release identity');
+    }
+    if (releaseInputChanges.length > 0 && !identityChanged) {
+        throw new Error(`SDK release inputs changed without a new SDK release identity: ${releaseInputChanges.join(', ')}`);
     }
     if (identityChanged && !baseIdentity.legacyRevision && compareVersions(candidateIdentity, baseIdentity) <= 0) {
         throw new Error(`SDK version must increase from ${baseIdentity.version} to a newer identity`);
@@ -72,9 +101,25 @@ export function evaluateContract({
         outcome: identityChanged ? 'PUBLISH' : 'NO_PUBLISH',
         identityChanged,
         surfaceChanged,
+        releaseInputChanges,
         predecessorDiff,
         stableDiff
     });
+}
+
+function changedReleaseInputs(repoRoot, baseRef, candidateRef, baseSdkRoot, candidateSdkRoot) {
+    const changes = execFileSync('git', ['-C', repoRoot, 'diff', '--name-only', baseRef, candidateRef || 'HEAD', '--',
+        ...RELEASE_INPUT_PATHS], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe']
+    }).split(/\r?\n/u).filter(Boolean);
+    for (const module of CONSUMER_POM_MODULES) {
+        const relative = path.join(module, 'target', 'flattened-pom.xml');
+        const base = fs.readFileSync(path.join(baseSdkRoot, relative), 'utf8');
+        const candidate = fs.readFileSync(path.join(candidateSdkRoot, relative), 'utf8');
+        if (base !== candidate) changes.push(`${module}/consumer-pom.xml`);
+    }
+    return changes;
 }
 
 function readAtRef(repoRoot, relativePath, ref) {
@@ -131,7 +176,8 @@ function stableBaseline(repoRoot, candidateIdentity, baseRef, candidateRef, cand
 }
 
 function parseArguments(argv) {
-    const options = { repoRoot: '.', baseRef: '', candidateRef: '', baseSurface: '', candidateSurface: '', report: '' };
+    const options = { repoRoot: '.', baseRef: '', candidateRef: '', baseSurface: '', candidateSurface: '',
+        baseSdkRoot: '', candidateSdkRoot: '', report: '' };
     for (let index = 0; index < argv.length; index += 1) {
         const argument = argv[index];
         const key = {
@@ -140,13 +186,16 @@ function parseArguments(argv) {
             '--candidate-ref': 'candidateRef',
             '--base-surface': 'baseSurface',
             '--candidate-surface': 'candidateSurface',
+            '--base-sdk-root': 'baseSdkRoot',
+            '--candidate-sdk-root': 'candidateSdkRoot',
             '--report': 'report'
         }[argument];
         if (!key) throw new Error(`Unknown argument: ${argument}`);
         options[key] = argv[++index] ?? '';
     }
-    if (!options.baseRef || !options.baseSurface || !options.candidateSurface || !options.report) {
-        throw new Error('--base-ref, --base-surface, --candidate-surface and --report are required');
+    if (!options.baseRef || !options.baseSurface || !options.candidateSurface || !options.baseSdkRoot
+            || !options.candidateSdkRoot || !options.report) {
+        throw new Error('--base-ref, both surfaces, both SDK roots and --report are required');
     }
     return options;
 }
@@ -166,6 +215,8 @@ function main() {
             candidateSurface
     );
     const result = evaluateContract({ baseIdentity, candidateIdentity, baseSurface, candidateSurface,
+        releaseInputChanges: changedReleaseInputs(repoRoot, options.baseRef, options.candidateRef,
+                path.resolve(options.baseSdkRoot), path.resolve(options.candidateSdkRoot)),
         stableBaseline: baseline });
     const report = {
         schemaVersion: 1,
