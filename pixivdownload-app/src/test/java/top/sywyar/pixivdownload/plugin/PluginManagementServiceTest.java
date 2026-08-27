@@ -189,7 +189,7 @@ class PluginManagementServiceTest {
                 official("gallery", "gallery", "gallery", "green"),
                 official("novel", "novel", "book", "amber"),
                 official("gui-swing", "gui-swing", "palette", "blue"),
-                official("stats", "stats", "chart-line", "green"),
+                official("gallery-tools", "gallery-tools", "screwdriver-wrench", "purple"),
                 official("notification", "notification", "bell", "teal"),
                 official("push", "push", "bell", "blue"),
                 official("mail", "mail", "mail", "green"),

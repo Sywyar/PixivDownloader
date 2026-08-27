@@ -46,9 +46,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <ol>
  *   <li><b>boot jar 不含外置插件类与资源</b>——经「运行期类路径不可加载」实证：app 模块测试运行期的类路径即 boot jar
  *       的 {@code BOOT-INF/classes} + {@code BOOT-INF/lib}（去掉 test 作用域），故外置插件 {@code download-workbench} /
- *       {@code gallery} / {@code novel} / {@code stats} / {@code duplicate} / {@code recovery-sentinel} 的类不可加载，即可证明它们不在 boot jar 内；同时正向断言
+ *       {@code gallery} / {@code novel} / {@code gallery-tools} / {@code recovery-sentinel} 的类不可加载，即可证明它们不在 boot jar 内；同时正向断言
  *       宿主 PF4J 运行时可加载、核心静态资源在位（非空泛断言）；外置插件的静态资源 / i18n 经核心壳 classloader 解析不到。</li>
- *   <li><b>{@code stats} 以 thin 外置插件形态打包</b>——其构建产物根部含 {@code plugin.properties} + 外置主类，
+ *   <li><b>{@code gallery-tools} 以 thin 外置插件形态打包</b>——其构建产物根部含 {@code plugin.properties} + 外置主类，
  *       且不泄漏共享契约 / 宿主类；若 Maven 已产出真实插件 jar，再断言 jar 内无 {@code BOOT-INF/}、无打入的
  *       {@code org/pf4j/}、{@code org/springframework/} 框架类（依赖均 provided）。</li>
  *   <li><b>{@code recovery-sentinel} 同样以 thin 外置插件形态打包</b>。</li>
@@ -60,8 +60,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       真实初始化当前平台原生库。</li>
  * </ol>
  *
- * <p>插件构建产物目录经 surefire 系统属性 {@code gallery.plugin.classes} / {@code novel.plugin.classes} / {@code stats.plugin.classes} /
- * {@code duplicate.plugin.classes} / {@code recovery-sentinel.plugin.classes} / {@code gui-swing.plugin.classes} 传入（指向各插件模块
+ * <p>插件构建产物目录经 surefire 系统属性 {@code gallery.plugin.classes} / {@code novel.plugin.classes} /
+ * {@code gallery-tools.plugin.classes} / {@code recovery-sentinel.plugin.classes} / {@code gui-swing.plugin.classes} 传入（指向各插件模块
  * {@code target/classes}，reactor 中先于 app 构建）；未就绪时（如 IDE 未触发 reactor 构建）对应用例
  * {@link Assumptions assume} 跳过。真实插件 jar（{@code target/<artifactId>-*.jar}，gui-swing 可由
  * {@code gui-swing.plugin.jar} 指定）仅在 {@code package} 阶段后存在——存在即追加更强的 artifact 不变量断言，
@@ -84,8 +84,7 @@ class DistributionPackagingBoundaryTest {
     private static final String DOUYIN_CLASSES_PROPERTY = "douyin.plugin.classes";
     private static final String GALLERY_CLASSES_PROPERTY = "gallery.plugin.classes";
     private static final String NOVEL_CLASSES_PROPERTY = "novel.plugin.classes";
-    private static final String STATS_CLASSES_PROPERTY = "stats.plugin.classes";
-    private static final String DUPLICATE_CLASSES_PROPERTY = "duplicate.plugin.classes";
+    private static final String GALLERY_TOOLS_CLASSES_PROPERTY = "gallery-tools.plugin.classes";
     private static final String NOTIFICATION_CLASSES_PROPERTY = "notification.plugin.classes";
     private static final String PUSH_CLASSES_PROPERTY = "push.plugin.classes";
     private static final String MAIL_CLASSES_PROPERTY = "mail.plugin.classes";
@@ -200,14 +199,14 @@ class DistributionPackagingBoundaryTest {
                 .as("外置 douyin 插件主类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.douyin.DouyinPlugin"))
                 .as("外置 douyin 插件类不应在 boot jar 内").isFalse();
-        assertThat(canLoad(host, "top.sywyar.pixivdownload.stats.StatsPf4jPlugin"))
-                .as("外置 stats 插件类不应在 boot jar 内").isFalse();
-        assertThat(canLoad(host, "top.sywyar.pixivdownload.stats.StatsPlugin"))
-                .as("外置 stats 插件类不应在 boot jar 内").isFalse();
-        assertThat(canLoad(host, "top.sywyar.pixivdownload.duplicate.DuplicatePf4jPlugin"))
-                .as("外置 duplicate 插件主类不应在 boot jar 内").isFalse();
-        assertThat(canLoad(host, "top.sywyar.pixivdownload.duplicate.DuplicatePlugin"))
-                .as("外置 duplicate 插件类不应在 boot jar 内").isFalse();
+        assertThat(canLoad(host, "top.sywyar.pixivdownload.gallerytools.GalleryToolsPf4jPlugin"))
+                .as("外置 gallery-tools 插件主类不应在 boot jar 内").isFalse();
+        assertThat(canLoad(host, "top.sywyar.pixivdownload.gallerytools.GalleryToolsPlugin"))
+                .as("外置 gallery-tools 插件描述类不应在 boot jar 内").isFalse();
+        assertThat(canLoad(host, "top.sywyar.pixivdownload.stats.StatsService"))
+                .as("外置统计业务类不应在 boot jar 内").isFalse();
+        assertThat(canLoad(host, "top.sywyar.pixivdownload.duplicate.DuplicateService"))
+                .as("外置疑似重复业务类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.gallery.GalleryPf4jPlugin"))
                 .as("外置 gallery 插件主类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.gallery.GalleryPlugin"))
@@ -369,6 +368,7 @@ class DistributionPackagingBoundaryTest {
                 "BOOT-INF/classes/top/sywyar/pixivdownload/push/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/tts/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/mail/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/gallerytools/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/stats/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/duplicate/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/gallery/",
@@ -520,17 +520,10 @@ class DistributionPackagingBoundaryTest {
     }
 
     @Test
-    @DisplayName("stats 以 thin 外置插件形态打包：根部 plugin.properties + 外置主类，无契约 / 宿主 / 框架类泄漏")
-    void statsPackagesAsThinExternalPlugin() {
-        assertThinExternalPlugin(STATS_CLASSES_PROPERTY, "pixivdownload-plugin-stats",
-                "top/sywyar/pixivdownload/stats/StatsPf4jPlugin.class");
-    }
-
-    @Test
-    @DisplayName("duplicate 以 thin 外置插件形态打包：根部 plugin.properties + 外置主类，无契约 / 宿主 / 框架类泄漏")
-    void duplicatePackagesAsThinExternalPlugin() {
-        assertThinExternalPlugin(DUPLICATE_CLASSES_PROPERTY, "pixivdownload-plugin-duplicate",
-                "top/sywyar/pixivdownload/duplicate/DuplicatePf4jPlugin.class");
+    @DisplayName("gallery-tools 以单一 thin 外置插件形态打包")
+    void galleryToolsPackagesAsThinExternalPlugin() {
+        assertThinExternalPlugin(GALLERY_TOOLS_CLASSES_PROPERTY, "pixivdownload-plugin-gallery-tools",
+                "top/sywyar/pixivdownload/gallerytools/GalleryToolsPf4jPlugin.class");
     }
 
     @Test

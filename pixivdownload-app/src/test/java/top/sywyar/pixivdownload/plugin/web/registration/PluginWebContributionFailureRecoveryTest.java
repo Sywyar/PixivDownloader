@@ -78,7 +78,7 @@ import static org.mockito.Mockito.when;
  *   <li>静态资源 / i18n / userscript 解析用 classloader 是插件来源 classloader（classloader-aware）；</li>
  *   <li>对外置插件的注册 / 注销不改动内置插件已接入的贡献。</li>
  * </ul>
- * 真实外置 stats 插件经完整上下文的端到端注销不可达验证见 {@code StatsExternalPluginBootContextTest}。
+ * 真实外置 gallery-tools 插件经完整上下文的端到端注销不可达验证见 {@code GalleryToolsStatsBootContextTest}。
  */
 
 @DisplayName("插件 Web 贡献：失败回滚与清理重试")

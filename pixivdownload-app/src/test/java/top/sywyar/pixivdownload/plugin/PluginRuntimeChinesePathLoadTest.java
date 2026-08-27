@@ -40,8 +40,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>发现桥接把 {@code stats} 识别为可接入的功能插件。</li>
  * </ol>
  *
- * <p>这是对 {@link StatsExternalPluginIntegrationTest}（ASCII 临时目录）的补充——后者证明加载链路本身，本用例证明
- * 同一链路在中文 + 空格路径下不退化。stats 构建产物目录经 surefire 系统属性 {@code stats.plugin.classes} 传入
+ * <p>这是对 {@link GalleryToolsExternalPluginIntegrationTest}（ASCII 临时目录）的补充——后者证明加载链路本身，本用例证明
+ * 同一链路在中文 + 空格路径下不退化。构建产物目录经 surefire 系统属性 {@code gallery-tools.plugin.classes} 传入
  *（reactor 中先于 app 构建）；未就绪时整类 {@link Assumptions assume} 跳过。Windows 下 PF4J 加载 jar 会持有文件锁，
  * 故 {@link #unloadAndCleanup()} 先停止 / 卸载插件释放 classloader 再删除目录。
  */
@@ -49,7 +49,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("外置插件目录含中文与空格时 PF4J 仍能加载 / 启动 / 解析资源")
 class PluginRuntimeChinesePathLoadTest {
 
-    private static final String STATS_CLASSES_PROPERTY = "stats.plugin.classes";
+    private static final String STATS_CLASSES_PROPERTY = "gallery-tools.plugin.classes";
     /** 目录名刻意含中文字符与空格，复现真实安装路径（相对 app 模块工作目录，mvn clean 时随 target 清理）。 */
     private static final Path PLUGINS_DIR = Path.of("target/test-runtime/插件 加载 中文 test/plugins");
 
@@ -60,7 +60,7 @@ class PluginRuntimeChinesePathLoadTest {
     void loadExternalStatsJarFromChineseSpacePath() throws IOException {
         Path statsClasses = locateStatsClasses();
         Assumptions.assumeTrue(statsClasses != null && Files.isDirectory(statsClasses),
-                "stats 插件构建产物未就绪（需 reactor 先构建 pixivdownload-plugin-stats），跳过中文路径加载验证");
+                "gallery-tools 插件构建产物未就绪，跳过中文路径加载验证");
 
         // 前提自检：测试路径必须真含空格与非 ASCII（中文），否则本回归形同虚设。
         String absolutePath = PLUGINS_DIR.toAbsolutePath().toString();
@@ -71,9 +71,9 @@ class PluginRuntimeChinesePathLoadTest {
 
         deleteRecursivelyQuietly(PLUGINS_DIR);
         Files.createDirectories(PLUGINS_DIR);
-        Path jar = PLUGINS_DIR.resolve("pixivdownload-plugin-stats.jar");
+        Path jar = PLUGINS_DIR.resolve("pixivdownload-plugin-gallery-tools.jar");
         zipDirectoryAsJar(statsClasses, jar);
-        PluginTestProvenance.writeLocalUpload(PLUGINS_DIR, jar, "stats", "1.0.0");
+        PluginTestProvenance.writeLocalUpload(PLUGINS_DIR, jar, "gallery-tools", "1.0.0");
 
         manager = new PluginRuntimeManager(PLUGINS_DIR);
         status = manager.start();
@@ -104,8 +104,8 @@ class PluginRuntimeChinesePathLoadTest {
     @DisplayName("中文 + 空格路径：start() 返回 POPULATED、loaded / started 含 stats、无失败")
     void loadsAndStartsStatsFromChineseSpacePath() {
         assertThat(status.state()).isEqualTo(PluginDirectoryState.POPULATED);
-        assertThat(status.loadedPluginIds()).contains("stats");
-        assertThat(status.startedPluginIds()).contains("stats");
+        assertThat(status.loadedPluginIds()).contains("gallery-tools");
+        assertThat(status.startedPluginIds()).contains("gallery-tools");
         assertThat(status.failures()).isEmpty();
     }
 
@@ -116,7 +116,7 @@ class PluginRuntimeChinesePathLoadTest {
         assertThat(inventory.failures()).isEmpty();
 
         PluginInstallation stats = inventory.installations().stream()
-                .filter(installation -> installation.id().equals("stats"))
+                .filter(installation -> installation.id().equals("gallery-tools"))
                 .findFirst().orElseThrow();
         assertThat(stats.status()).isEqualTo(PluginStatus.STARTED);
 
@@ -133,11 +133,11 @@ class PluginRuntimeChinesePathLoadTest {
         PluginDiscoveryResult discovery = manager.discoverFeaturePlugins();
         assertThat(discovery.hasFailures()).isFalse();
         assertThat(discovery.discovered())
-                .extracting(DiscoveredFeaturePlugin::featurePluginId).contains("stats");
+                .extracting(DiscoveredFeaturePlugin::featurePluginId).contains("gallery-tools");
         PixivFeaturePlugin stats = discovery.discovered().stream()
-                .filter(d -> d.featurePluginId().equals("stats"))
+                .filter(d -> d.featurePluginId().equals("gallery-tools"))
                 .findFirst().orElseThrow().plugin();
-        assertThat(stats.id()).isEqualTo("stats");
+        assertThat(stats.id()).isEqualTo("gallery-tools");
     }
 
     // --- helpers ---

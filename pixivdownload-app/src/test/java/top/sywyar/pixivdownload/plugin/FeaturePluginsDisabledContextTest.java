@@ -25,11 +25,11 @@ import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
  * <ul>
  *   <li>核心 Hash 写入服务（{@link ArtworkHashService}，核心 root 扫描、非插件托管）<b>仍在场</b>——
  *       下载后即时算 Hash 不随 duplicate 外置插件缺席；</li>
- *   <li>gallery / novel / duplicate 缺失时其路由、静态资源、i18n、导航与维护任务不注入，核心维护任务仍在场；</li>
+ *   <li>gallery / novel / gallery-tools 缺失时其路由、静态资源、i18n、导航与维护任务不注入，核心维护任务仍在场；</li>
  *   <li>{@code plugins.core.enabled=false} 被忽略——核心插件不可禁用，核心 Bean 始终在场；</li>
  *   <li>novel 下载 Bean 随外置插件缺席；外置 download-workbench 不属于 core 壳内置上下文。</li>
  * </ul>
- * （统计 stats、gallery 与 duplicate 都是外置 PF4J 插件、不在内置清单内：其安装后接入语义由外置加载测试覆盖。）
+ * （gallery-tools 与 gallery 都是外置 PF4J 插件、不在内置清单内：其安装后接入语义由外置加载测试覆盖。）
  */
 @SpringBootTest(properties = {
         "pixivdownload.config-dir=target/test-runtime/config",
@@ -77,9 +77,9 @@ class FeaturePluginsDisabledContextTest {
     void disabledFeaturesLeaveSnapshotCoreStays() {
         assertThat(pluginRegistry.plugins()).extracting(PixivFeaturePlugin::id)
                 .contains("core")
-                .doesNotContain("gallery", "novel", "novel-gallery", "duplicate");
+                .doesNotContain("gallery", "novel", "novel-gallery", "gallery-tools");
         assertThat(pluginRegistry.disabledPlugins()).extracting(PixivFeaturePlugin::id)
-                .doesNotContain("gallery", "novel", "novel-gallery", "duplicate");
+                .doesNotContain("gallery", "novel", "novel-gallery", "gallery-tools");
         // core 永不可禁用：plugins.core.enabled=false 被忽略，核心插件仍活动、descriptor Bean 在场。
         assertThat(pluginRegistry.find("core")).isPresent();
         assertThat(context.getBeanNamesForType(CorePlugin.class)).hasSize(1);
@@ -90,7 +90,7 @@ class FeaturePluginsDisabledContextTest {
     void missingExternalFeatureContributionsAbsent() {
         assertThat(routeAccessRegistry.routes())
                 .extracting(RouteAccessRegistry.RegisteredRoute::pluginId)
-                .doesNotContain("gallery", "novel", "novel-gallery", "duplicate");
+                .doesNotContain("gallery", "novel", "novel-gallery", "gallery-tools");
         assertThat(routeAccessRegistry.isDeclared("/pixiv-gallery.html")).isFalse();
         assertThat(routeAccessRegistry.isDeclared("/api/gallery/artworks")).isFalse();
         assertThat(routeAccessRegistry.isDeclared("/pixiv-novel-gallery.html")).isFalse();
@@ -99,7 +99,7 @@ class FeaturePluginsDisabledContextTest {
         assertThat(routeAccessRegistry.isDeclared("/api/gallery/novel/7")).isFalse();
         assertThat(staticResourceRegistry.resources())
                 .extracting(StaticResourceRegistry.RegisteredStaticResource::pluginId)
-                .doesNotContain("gallery", "novel-gallery", "duplicate");
+                .doesNotContain("gallery", "novel-gallery", "gallery-tools");
         assertThat(webI18nBundleRegistry.resolve("gallery")).isNull();
         assertThat(webI18nBundleRegistry.resolve("artwork")).isNull();
         assertThat(webI18nBundleRegistry.resolve("novel-gallery")).isNull();
@@ -107,7 +107,7 @@ class FeaturePluginsDisabledContextTest {
         assertThat(webI18nBundleRegistry.resolve("narration")).isNull();
         assertThat(navigationRegistry.navigation())
                 .extracting(NavigationRegistry.RegisteredNavigation::pluginId)
-                .doesNotContain("gallery", "novel", "novel-gallery", "duplicate");
+                .doesNotContain("gallery", "novel", "novel-gallery", "gallery-tools");
         assertThat(context.getBeanDefinitionNames())
                 .noneMatch(name -> name.toLowerCase(java.util.Locale.ROOT).contains("duplicate"));
     }

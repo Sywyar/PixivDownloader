@@ -237,14 +237,14 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("app 生产代码与 POM 不得依赖 duplicate 外置插件模块")
-    void appDoesNotDependOnDuplicatePluginModule() throws IOException {
+    @DisplayName("app 生产代码与 POM 不得依赖 gallery-tools 外置插件模块")
+    void appDoesNotDependOnGalleryToolsPluginModule() throws IOException {
         Path pom = Path.of("pixivdownload-app/pom.xml");
         if (!Files.exists(pom)) {
             pom = Path.of("pom.xml");
         }
         assertThat(Files.readString(pom, StandardCharsets.UTF_8))
-                .doesNotContain("<artifactId>pixivdownload-plugin-duplicate</artifactId>");
+                .doesNotContain("<artifactId>pixivdownload-plugin-gallery-tools</artifactId>");
 
         Path sourceRoot = Path.of("pixivdownload-app/src/main/java");
         if (!Files.exists(sourceRoot)) {
@@ -253,7 +253,9 @@ class PluginApiDependencyGuardTest {
         try (var paths = Files.walk(sourceRoot)) {
             assertThat(paths
                     .filter(path -> path.toString().endsWith(".java"))
-                    .filter(path -> contains(path, "top.sywyar.pixivdownload.duplicate"))
+                    .filter(path -> contains(path, "top.sywyar.pixivdownload.gallerytools")
+                            || contains(path, "top.sywyar.pixivdownload.stats")
+                            || contains(path, "top.sywyar.pixivdownload.duplicate"))
                     .map(Path::toString)
                     .toList())
                     .isEmpty();

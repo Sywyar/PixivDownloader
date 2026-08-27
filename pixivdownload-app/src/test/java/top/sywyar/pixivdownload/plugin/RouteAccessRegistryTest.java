@@ -36,7 +36,7 @@ class RouteAccessRegistryTest {
         // 可选能力已改为外置 PF4J 插件：其路由经外置插件 contribution 注册，绝不出现在内置快照里。
         assertThat(registry.routes())
                 .noneMatch(registered -> Set.of(
-                                "gallery", "novel", "stats", "duplicate", "push", "mail", "tts", "ai")
+                                "gallery", "novel", "gallery-tools", "push", "mail", "tts", "ai")
                         .contains(registered.pluginId()));
 
         RouteAccessRegistry withGallery = new RouteAccessRegistry(

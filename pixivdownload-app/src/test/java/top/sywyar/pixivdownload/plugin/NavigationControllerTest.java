@@ -154,14 +154,14 @@ class NavigationControllerTest {
     // ========== 来源层级 + placement 内 priority 排序 ==========
 
     @Test
-    @DisplayName("gallery/novel 已安装时管理员的 app.top placement 顺序：内置入口在前，外置插件追加")
+    @DisplayName("管理员的 app.top placement 只包含一级页面")
     void adminAppTopPlacementOrder() {
         NavigationController controller = controllerFor(
                 new NavigationRegistry(new PluginRegistry(builtInWithGalleryAndNovelGallery())));
 
-        // gallery/novel 已是外置插件，不再按内置来源排序；同一 placement 下追加在内置入口之后。
+        // 小说是画廊的下一级类型页面，只保留画廊这一一级入口。
         assertThat(idsInPlacement(controller, adminRequest(), "app.top"))
-                .containsExactly("plugin-manage", "gallery", "novel-gallery");
+                .containsExactly("plugin-manage", "gallery");
     }
 
     @Test
@@ -199,7 +199,7 @@ class NavigationControllerTest {
         NavigationController controller = controllerFor(new NavigationRegistry(new PluginRegistry(plugins)));
 
         assertThat(idsInPlacement(controller, adminRequest(), "app.top"))
-                .containsExactly("plugin-manage", "third-party-demo", "gallery", "novel-gallery");
+                .containsExactly("plugin-manage", "third-party-demo", "gallery");
     }
 
     // ========== placement 随插件禁用消失 ==========
@@ -218,7 +218,7 @@ class NavigationControllerTest {
                 .containsExactly("novel-type-switch");
         // 统计页画廊视图 placement 空。
         assertThat(idsInPlacement(controller, admin, "stats.gallery-links")).isEmpty();
-        // 疑似重复页图标区为空：画廊图标已随画廊禁用消失，统计图标因 stats 已外置、未安装而不在内置集合。
+        // 疑似重复页图标区为空：画廊图标已随画廊禁用消失，统计图标因 gallery-tools 未安装而不在内置集合。
         assertThat(idsInPlacement(controller, admin, "duplicates.header-icons")).isEmpty();
     }
 
@@ -237,12 +237,12 @@ class NavigationControllerTest {
     }
 
     @Test
-    @DisplayName("stats/duplicate 已外置、未安装：疑似重复页图标区只保留画廊插件贡献的图标")
+    @DisplayName("gallery-tools 未安装：疑似重复页图标区只保留画廊插件贡献的图标")
     void builtInDuplicatesHeaderHasNoStatsIcon() {
         NavigationController controller = controllerFor(new NavigationRegistry(
                 new PluginRegistry(builtInWithGalleryAndNovelGallery())));
 
-        // 统计入口由外置 stats 插件经 duplicates.header-icons placement 贡献；未安装时该 slot 只剩画廊图标。
+        // 统计入口由外置 gallery-tools 插件经 duplicates.header-icons placement 贡献；未安装时该 slot 只剩画廊图标。
         assertThat(idsInPlacement(controller, adminRequest(), "duplicates.header-icons"))
                 .containsExactly("gallery");
     }

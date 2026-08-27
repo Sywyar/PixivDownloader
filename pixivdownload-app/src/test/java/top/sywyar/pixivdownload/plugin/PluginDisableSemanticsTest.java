@@ -178,7 +178,7 @@ class PluginDisableSemanticsTest {
     @DisplayName("禁用单个功能插件不影响其它插件导航（跨插件独立）")
     void disablingOnePluginKeepsOtherNavigation() {
         List<String> ids = navIds(registryDisabling("gallery"));
-        // 仅 gallery 入口消失；小说画廊 / 邀请码管理 / 插件入口仍在（download-workbench/stats/duplicate 已外置、不在内置导航）。
+        // 仅 gallery 入口消失；小说画廊 / 邀请码管理 / 插件入口仍在（download-workbench/gallery-tools 已外置）。
         assertThat(ids).contains(
                 "novel-gallery", "invite-manage", "plugin-manage");
     }
@@ -190,14 +190,14 @@ class PluginDisableSemanticsTest {
     }
 
     @Test
-    @DisplayName("duplicate 已外置：内置插件开关不会把它伪造成 built-in 活动插件")
-    void duplicateIsExternalToBuiltInSnapshot() {
-        PluginRegistry registry = registryDisabling("duplicate");
+    @DisplayName("gallery-tools 已外置：内置插件开关不会把它伪造成 built-in 活动插件")
+    void galleryToolsIsExternalToBuiltInSnapshot() {
+        PluginRegistry registry = registryDisabling("gallery-tools");
 
-        assertThat(registry.plugins()).extracting(PixivFeaturePlugin::id).doesNotContain("duplicate");
-        assertThat(registry.allPlugins()).extracting(PixivFeaturePlugin::id).doesNotContain("duplicate");
-        assertThat(registry.disabledPlugins()).extracting(PixivFeaturePlugin::id).doesNotContain("duplicate");
-        assertThat(routeOwners(registry)).doesNotContain("duplicate");
+        assertThat(registry.plugins()).extracting(PixivFeaturePlugin::id).doesNotContain("gallery-tools");
+        assertThat(registry.allPlugins()).extracting(PixivFeaturePlugin::id).doesNotContain("gallery-tools");
+        assertThat(registry.disabledPlugins()).extracting(PixivFeaturePlugin::id).doesNotContain("gallery-tools");
+        assertThat(routeOwners(registry)).doesNotContain("gallery-tools");
         assertThat(navIds(registry)).doesNotContain("duplicate");
     }
 

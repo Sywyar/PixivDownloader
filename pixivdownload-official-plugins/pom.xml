@@ -46,7 +46,7 @@
         </dependency>
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
-            <artifactId>pixivdownload-plugin-duplicate</artifactId>
+            <artifactId>pixivdownload-plugin-gallery-tools</artifactId>
             <version>${project.version}</version>
             <scope>test</scope>
         </dependency>
@@ -95,12 +95,6 @@
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-plugin-recovery-sentinel</artifactId>
-            <version>${project.version}</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>top.sywyar.lovepopup</groupId>
-            <artifactId>pixivdownload-plugin-stats</artifactId>
             <version>${project.version}</version>
             <scope>test</scope>
         </dependency>
