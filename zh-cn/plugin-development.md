@@ -10,6 +10,8 @@
 - [Core API](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-core-api)
 - [Douyin 官方示例插件](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-douyin)
 - [插件签名工具](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-signature)
+- [SDK 下载与版本记录](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases)
+- [版本化 SDK Javadoc](https://sywyar.github.io/PixivDownloader-Plugin-SDK/)
 
 > Douyin 是完整官方实现的 SDK 示例，展示下载、配置、代理、队列、计划任务、私有持久化和插件自有画廊如何组合。它只依赖公开 SDK 契约，可用于核对完整实现。新项目仍应先复制 `plugin-templates`，避免带入与目标站点绑定的业务代码。
 
@@ -23,7 +25,7 @@ Ed25519 签名只证明 artifact 来自某个受信密钥且字节未被篡改�
 
 ## SDK 边界
 
-SDK 由 `pixivdownload-sdk-info`、`pixivdownload-plugin-api` 和 `pixivdownload-core-api` 组成，`pixivdownload-sdk-bom` 统一管理三个构件的版本。`sdk-info` 是 SDK 版本、revision 和兼容规则的唯一事实源；SDK 版本与应用发行版本独立。`plugin-api` 提供插件入口、contribution、宿主控制面和 owner-scoped 存储能力；`core-api` 提供稳定的业务语义端口、值模型和中性算法。依赖方向必须保持为：
+SDK 由 `pixivdownload-sdk-info`、`pixivdownload-plugin-api` 和 `pixivdownload-core-api` 组成，`pixivdownload-sdk-bom` 统一管理三个构件的版本。`sdk-info` 是完整 SDK 版本、预发布身份和兼容规则的唯一事实源；SDK 版本与应用发行版本独立。`plugin-api` 提供插件入口、contribution、宿主控制面和 owner-scoped 存储能力；`core-api` 提供稳定的业务语义端口、值模型和中性算法。依赖方向必须保持为：
 
 ```text
 第三方插件
@@ -63,11 +65,11 @@ SDK 由 `pixivdownload-sdk-info`、`pixivdownload-plugin-api` 和 `pixivdownload
 
 Spring Bean 不从 `PixivFeaturePlugin` 返回。外置入口通过 `PixivPluginProvider.configurationClasses()` 声明配置类，宿主为活动插件创建独立的子 `ApplicationContext`。
 
-### 声明式桌面 UI 边界
+### 桌面 UI 边界
 
-桌面页面不是由 Swing 和 Compose 各维护一份。应用壳生成完整、工具包无关的 `DesktopUiDocument`，并拥有页面结构、状态、配置保存、后端交互和类型化事件处理；`gui-swing` 与 `gui-compose` 只是读取同一文档的通用 `DesktopUiProvider`，负责各自的渲染、窗口、托盘、主题和平台适配。provider 不得按页面 id、插件 id、字段 key 或 i18n key 编写专用布局。
+应用壳只通过稳定、工具包无关的宿主契约提供业务状态、配置语义和动作；`gui-swing` 与 `gui-compose` 分别完整拥有自己的页面树、布局、组件、交互状态、窗口、托盘、主题和平台适配。稳定 SDK 不提供 `DesktopUiDocument`、`DesktopUiNode` 或其它跨工具包视图 AST，也不要求两个 provider 共享页面实现。
 
-功能插件只通过 `GuiConfigContribution` 及其 field、group、section、layout、action、preset 纯数据记录，声明自己配置 section 的完整领域结构。宿主按可信 owner 合并、校验和保存；插件不得返回 Swing / Compose 组件，也不得拥有顶层窗口或复制宿主页面。新增稳定节点类型时应扩展中性 `DesktopUiNode` 契约，并让所有 provider 通用实现，而不是只在某个 provider 中补特例。
+功能插件只通过 `GuiConfigContribution` 等纯数据契约贡献配置字段、分组、section、动作、预设及其它明确业务语义，由宿主按可信 owner 合并、校验和保存，再由各 GUI provider 按自己的界面实现呈现。功能插件不得返回 Swing / Compose 组件或直接拥有宿主顶层窗口；宿主也不得按 provider id 选择页面结构。
 
 官方 `gui-swing` 默认安装并作为默认 provider；`gui-compose` 按需安装。两者均为 `process-restart` 插件，切换、安装、升级、禁用或卸载后必须完整重启。Compose 插件的 Kotlin / Compose 编译和 JAR-with-lib 产物由 Gradle Wrapper 实际生成，Maven reactor 只负责调用 Gradle 并接入官方构建、签名和分发流程。
 
@@ -102,9 +104,9 @@ mvn clean verify
 <dependencyManagement>
     <dependencies>
         <dependency>
-            <groupId>top.sywyar.lovepopup</groupId>
+            <groupId>io.github.sywyar.pixivdownloader</groupId>
             <artifactId>pixivdownload-sdk-bom</artifactId>
-            <version>1.0.0</version>
+            <version>SDK_VERSION</version>
             <type>pom</type>
             <scope>import</scope>
         </dependency>
@@ -112,18 +114,20 @@ mvn clean verify
 </dependencyManagement>
 
 <dependency>
-    <groupId>top.sywyar.lovepopup</groupId>
+    <groupId>io.github.sywyar.pixivdownloader</groupId>
     <artifactId>pixivdownload-sdk-info</artifactId>
     <scope>provided</scope>
 </dependency>
 <dependency>
-    <groupId>top.sywyar.lovepopup</groupId>
+    <groupId>io.github.sywyar.pixivdownloader</groupId>
     <artifactId>pixivdownload-plugin-api</artifactId>
     <scope>provided</scope>
 </dependency>
 ```
 
-主仓库发布链已经能够从受信的精确源码 SHA 构建 BOM、三个构件、source JAR、模块 Javadoc 和覆盖全部 SDK 类型的聚合 Javadoc 站点。约定的独立 `PixivDownloader-Plugin-SDK` 仓库及接收 workflow 尚未建立，因此仓库变量 `SDK_PUBLISH_ENABLED` 当前保持关闭，也没有可下载的独立 SDK release。目标就绪后，接收端只按 dispatch payload 中的精确源码 SHA 构建和发布；除四个公开 SDK 坐标外，还需发布它们当前继承的 `pixivdownload-parent:1.0.0` 支撑 POM，供 Maven 解析。该父 POM 不属于插件运行时 SDK，也不应加入插件依赖。现阶段从本仓源码开发时先在根目录安装 SDK：
+将 `SDK_VERSION` 替换为 [SDK Releases](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) 中真实存在的版本；列表为空表示尚未公开发布 SDK，不要自行猜测版本。每个已发布版本同时提供开箱即用的插件工程 ZIP、完整 Javadoc ZIP、`sdk-release.json`、`SHA256SUMS` 和 detached signatures。解压工程 ZIP 后可直接用 IntelliJ IDEA、VS Code 或 Eclipse 打开根目录，命令行使用 `./mvnw clean verify`，Windows 使用 `mvnw.cmd clean verify`。
+
+同一版本的四个坐标发布到 Maven Central。主仓库可信 workflow 从通过同一源码 SHA Quality Gate 的内容构建、签名并发布 Maven 构件，再在独立 SDK 仓库创建不可变 Tag / Release；SDK 仓库不重新编译或签发 API。若 Releases 列表仍为空或需要验证尚未发布的源码，可在 PixivDownloader 主仓库根目录安装当前 SDK 到本地 Maven 仓库：
 
 ```powershell
 ./mvnw.cmd -pl pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api,pixivdownload-sdk-bom -am install -DskipTests
@@ -133,13 +137,13 @@ mvn clean verify
 
 ```xml
 <dependency>
-    <groupId>top.sywyar.lovepopup</groupId>
+    <groupId>io.github.sywyar.pixivdownloader</groupId>
     <artifactId>pixivdownload-core-api</artifactId>
     <scope>provided</scope>
 </dependency>
 ```
 
-`plugin.requires` 只声明 SDK `major.minor`。同 major 且宿主 minor 不低于插件要求时兼容，patch 和 revision 不参与运行时兼容判定。公开契约变更必须提升 SDK 语义版本；仅模板、文档或发布包修正可在语义版本不变时提升 revision。质量门禁会拒绝未同步提升发布标识的 SDK 表面变更；只有 SDK 元数据改变才触发独立仓库发布，应用发行不会自动制造新 SDK。
+`plugin.requires` 只声明 SDK `major.minor`。同 major 且宿主 minor 不低于插件要求时兼容，patch 和预发布序号不参与运行时准入。公开契约或发行产物变化必须提升 SDK 身份；目标主版本尚无稳定基线时，后续 RC 可以调整公共表面，但已发布 RC 不可覆盖，必须增加预发布序号。质量门禁会拒绝未同步提升 Release ID 的 SDK 表面变化；只有 SDK 元数据改变才触发 SDK 发布，应用发行不会自动制造新 SDK。
 
 PF4J、Spring、Jackson、Servlet API 等由宿主父 classloader 提供的依赖也必须是 `provided`。不要把共享契约或框架类复制进插件 JAR，否则同名类会因 classloader 不同而无法转换。
 
@@ -194,7 +198,7 @@ pixiv.lifecycle-policy=hot-reload
 | `pixiv.replaces` | 可选的被替换插件身份 |
 | `pixiv.lifecycle-policy` | `hot-reload`、`backend-restart` 或 `process-restart`；区分大小写，缺省为 `hot-reload` |
 
-SDK 当前以 `1.0.0` 为初始契约基线。兼容判断使用 `requiredMajor == hostMajor && requiredMinor <= hostMinor`，PATCH 不参与准入判断。首次公开发布后，破坏性契约变更升 MAJOR，向后兼容新增升 MINOR，兼容修复升 PATCH。
+`1.0.0-rcN` 是首个稳定基线建立前的候选版本；稳定 `1.0.0` 只有在应用 `v1.14.0` 正式发布后才会建立主版本 1 的首个冻结基线。兼容判断使用 `requiredMajor == hostMajor && requiredMinor <= hostMinor`，PATCH 和预发布序号不参与准入判断。稳定基线建立后，破坏性契约变更升 MAJOR，向后兼容新增升 MINOR，兼容修复升 PATCH。
 
 ### 复用 PostHog 浏览器客户端
 

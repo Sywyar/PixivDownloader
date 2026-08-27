@@ -10,6 +10,8 @@ Relevant source code:
 - [Core API](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-core-api)
 - [Official Douyin example plugin](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-douyin)
 - [Plugin signature tool](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-signature)
+- [SDK downloads and release history](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases)
+- [Versioned SDK Javadocs](https://sywyar.github.io/PixivDownloader-Plugin-SDK/)
 
 > Douyin is the complete official SDK example. It shows how downloads, configuration, proxies, queues, scheduled tasks, private persistence, and a plugin-owned gallery fit together. It depends only on public SDK contracts and can be used to review a complete implementation. Start new projects by copying `plugin-templates` so that site-specific business code is not carried into an unrelated plugin.
 
@@ -23,7 +25,7 @@ The host still validates structure, size, paths, versions, dependencies, SHA-256
 
 ## SDK boundaries
 
-The SDK consists of `pixivdownload-sdk-info`, `pixivdownload-plugin-api`, and `pixivdownload-core-api`; `pixivdownload-sdk-bom` aligns all three artifact versions. `sdk-info` is the single source of truth for the SDK version, revision, and compatibility rules, independently of the application release version. `plugin-api` provides entry points, contributions, host control surfaces, and owner-scoped storage capabilities. `core-api` provides stable business-semantic ports, value models, and neutral algorithms. Keep dependencies pointing in this direction:
+The SDK consists of `pixivdownload-sdk-info`, `pixivdownload-plugin-api`, and `pixivdownload-core-api`; `pixivdownload-sdk-bom` aligns all three artifact versions. `sdk-info` is the single source of truth for the complete SDK version, prerelease identity, and compatibility rules, independently of the application release version. `plugin-api` provides entry points, contributions, host control surfaces, and owner-scoped storage capabilities. `core-api` provides stable business-semantic ports, value models, and neutral algorithms. Keep dependencies pointing in this direction:
 
 ```text
 Third-party plugin
@@ -64,11 +66,11 @@ Plugins declare capabilities through descriptors and contributions. The host reg
 
 Spring Beans are not returned from `PixivFeaturePlugin`. An external entry point declares configuration classes through `PixivPluginProvider.configurationClasses()`, and the host creates a separate child `ApplicationContext` for each active plugin.
 
-### Declarative desktop UI boundary
+### Desktop UI boundary
 
-Swing and Compose do not maintain separate copies of each desktop page. The application shell produces the complete toolkit-neutral `DesktopUiDocument` and owns page structure, state, configuration persistence, backend interaction, and typed event handling. `gui-swing` and `gui-compose` are generic `DesktopUiProvider` implementations that render the same document and own only their renderer, windows, tray, theme, and platform integration. A provider must not special-case a page id, plugin id, field key, or i18n key.
+The application shell exposes business state, configuration semantics, and actions through stable toolkit-neutral host contracts. `gui-swing` and `gui-compose` each own their complete page tree, layout, components, interaction state, windows, tray, theme, and platform integration. The stable SDK does not define `DesktopUiDocument`, `DesktopUiNode`, or another cross-toolkit view AST, and it does not require both providers to share page implementations.
 
-A feature plugin declares the complete domain structure of its own configuration section using the pure-data `GuiConfigContribution` field, group, section, layout, action, and preset records. The host merges, validates, and persists contributions under the trusted owner. Plugins must not return Swing or Compose components, own top-level windows, or copy host pages. If a new reusable widget is needed, extend the neutral `DesktopUiNode` contract and implement it generically in every provider instead of adding a provider-only exception.
+Feature plugins contribute configuration fields, groups, sections, actions, presets, and other explicit business semantics through pure-data contracts such as `GuiConfigContribution`. The host merges, validates, and persists them under the trusted owner, and each GUI provider presents them using its own UI implementation. Feature plugins must not return Swing or Compose components or directly own host top-level windows; the host must not choose page structure by provider id.
 
 The official `gui-swing` provider is default-installed and is the default. `gui-compose` is installed on demand. Both use `process-restart`, so switching, installing, upgrading, disabling, or removing one requires a full application restart. Gradle Wrapper performs the Compose plugin's Kotlin / Compose compilation and JAR-with-lib production; the Maven reactor invokes Gradle and connects its artifact to the normal official build, signing, and distribution pipeline.
 
@@ -103,9 +105,9 @@ The templates import the SDK BOM and then declare the SDK artifacts supplied by 
 <dependencyManagement>
     <dependencies>
         <dependency>
-            <groupId>top.sywyar.lovepopup</groupId>
+            <groupId>io.github.sywyar.pixivdownloader</groupId>
             <artifactId>pixivdownload-sdk-bom</artifactId>
-            <version>1.0.0</version>
+            <version>SDK_VERSION</version>
             <type>pom</type>
             <scope>import</scope>
         </dependency>
@@ -113,18 +115,20 @@ The templates import the SDK BOM and then declare the SDK artifacts supplied by 
 </dependencyManagement>
 
 <dependency>
-    <groupId>top.sywyar.lovepopup</groupId>
+    <groupId>io.github.sywyar.pixivdownloader</groupId>
     <artifactId>pixivdownload-sdk-info</artifactId>
     <scope>provided</scope>
 </dependency>
 <dependency>
-    <groupId>top.sywyar.lovepopup</groupId>
+    <groupId>io.github.sywyar.pixivdownloader</groupId>
     <artifactId>pixivdownload-plugin-api</artifactId>
     <scope>provided</scope>
 </dependency>
 ```
 
-The main-repository publication path can build the BOM, all three artifacts, source JARs, module Javadocs, and an aggregate Javadoc site covering every SDK type from an exact trusted source SHA. The designated `PixivDownloader-Plugin-SDK` repository and its receiver workflow do not exist yet, so the `SDK_PUBLISH_ENABLED` repository variable remains disabled and no standalone SDK release is currently available. Once the target is ready, its receiver must build and publish only from the exact source SHA in the dispatch payload. In addition to the four public SDK coordinates, it must publish the supporting `pixivdownload-parent:1.0.0` POM currently inherited by those artifacts so Maven can resolve them. That parent POM is not a plugin runtime SDK dependency and must not be added to plugin projects. For source development, install the SDK from the PixivDownloader repository root:
+Replace `SDK_VERSION` with a version that actually exists on the [SDK Releases](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) page. An empty list means that no SDK has been published; do not invent a version. Each published version includes a ready-to-open plugin project ZIP, the complete Javadoc ZIP, `sdk-release.json`, `SHA256SUMS`, and detached signatures. Extract the project ZIP and open its root in IntelliJ IDEA, VS Code, or Eclipse. Run `./mvnw clean verify` from a terminal, or `mvnw.cmd clean verify` on Windows.
+
+The same four coordinates are published to Maven Central. The trusted workflow in the main repository builds and signs Maven artifacts from source that passed the Quality Gate at the same commit SHA, then creates an immutable tag and release in the SDK repository. The SDK repository does not rebuild or reissue the APIs. If the Releases list is still empty or you need to validate unpublished source, install the current SDK from the PixivDownloader repository root into your local Maven repository:
 
 ```powershell
 ./mvnw.cmd -pl pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api,pixivdownload-sdk-bom -am install -DskipTests
@@ -134,13 +138,13 @@ Add Core API only when you actually need a stable host semantic port, and keep i
 
 ```xml
 <dependency>
-    <groupId>top.sywyar.lovepopup</groupId>
+    <groupId>io.github.sywyar.pixivdownloader</groupId>
     <artifactId>pixivdownload-core-api</artifactId>
     <scope>provided</scope>
 </dependency>
 ```
 
-`plugin.requires` declares only the SDK `major.minor`. Compatibility requires the same major and a host minor no lower than the plugin requirement; patch and revision do not participate in runtime compatibility checks. A public-contract change must increase the semantic SDK version. Template, documentation, or packaging corrections may increase the revision while retaining the semantic version. The quality gate rejects SDK-surface changes without a corresponding release-identity increase. Only an SDK metadata change triggers publication to the separate repository; an application release does not manufacture a new SDK.
+`plugin.requires` declares only the SDK `major.minor`. Compatibility requires the same major and a host minor no lower than the plugin requirement; patch and prerelease sequence do not participate in runtime admission. A public-contract or release-payload change requires a new SDK identity. Before a target major has a stable baseline, a later RC may adjust the public surface, but an existing RC remains immutable and the prerelease sequence must increase. The quality gate rejects SDK-surface changes without a matching Release ID increase. Only an SDK metadata change triggers SDK publication; an application release does not manufacture a new SDK.
 
 PF4J, Spring, Jackson, Servlet API, and other dependencies supplied by the host parent classloader must also use `provided`. Do not copy shared contracts or framework classes into the plugin JAR; classes with the same name from different classloaders are not assignment-compatible.
 
@@ -195,7 +199,7 @@ Field rules:
 | `pixiv.replaces` | Optional identity of a replaced plugin |
 | `pixiv.lifecycle-policy` | Case-sensitive `hot-reload`, `backend-restart`, or `process-restart`; defaults to `hot-reload` |
 
-The SDK currently uses `1.0.0` as its initial contract baseline. Compatibility is `requiredMajor == hostMajor && requiredMinor <= hostMinor`; PATCH does not affect admission. After the first public release, raise MAJOR for breaking contract changes, MINOR for backward-compatible additions, and PATCH for compatible fixes.
+`1.0.0-rcN` versions are candidates produced before the first stable baseline. Stable `1.0.0` establishes the first frozen major-1 baseline only after application release `v1.14.0`. Compatibility is `requiredMajor == hostMajor && requiredMinor <= hostMinor`; PATCH and prerelease sequence do not affect admission. After that stable baseline, raise MAJOR for breaking contract changes, MINOR for backward-compatible additions, and PATCH for compatible fixes.
 
 ### Reusing the PostHog browser client
 
