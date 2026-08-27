@@ -109,6 +109,24 @@
         "push",
         "workflow_dispatch"
       ]
+    },
+    ".github/workflows/sdk-repository-ci.yml": {
+      "workflowName": "SDK repository CI",
+      "requiredJobs": [
+        "verify"
+      ],
+      "requiredTriggers": [
+        "workflow_call"
+      ]
+    },
+    ".github/workflows/sdk-pages.yml": {
+      "workflowName": "Build SDK Pages",
+      "requiredJobs": [
+        "build"
+      ],
+      "requiredTriggers": [
+        "workflow_call"
+      ]
     }
   },
   "releaseEnvironment": "release",
