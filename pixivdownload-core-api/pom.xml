@@ -9,7 +9,7 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
     <artifactId>pixivdownload-core-api</artifactId>
-    <version>1.0.0</version>
+    <version>${revision}</version>
     <name>PixivDownloader Core API</name>
     <description>核心 owned、面向插件的稳定语义端口、纯值模型与中性纯算法：Spring-free 纯 JDK，供主程序与各功能插件共享。</description>
 

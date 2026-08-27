@@ -9,7 +9,7 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
     <artifactId>pixivdownload-plugin-api</artifactId>
-    <version>1.0.0</version>
+    <version>${revision}</version>
     <name>PixivDownloader Plugin API</name>
     <description>跨插件稳定契约包 plugin.api：零业务依赖（编译期强制），供主程序与各功能插件共享。</description>
 

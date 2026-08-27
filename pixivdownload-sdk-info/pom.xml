@@ -10,7 +10,7 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
     <artifactId>pixivdownload-sdk-info</artifactId>
-    <version>1.0.0</version>
+    <version>${revision}</version>
     <name>PixivDownloader SDK Info</name>
     <description>PixivDownloader public SDK version metadata and compatibility rules.</description>
 
