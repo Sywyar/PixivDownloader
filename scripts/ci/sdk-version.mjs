@@ -38,6 +38,30 @@ export function parseSdkVersion(version) {
     });
 }
 
+export function readSdkIdentity(repoRoot, ref = '', allowLegacyRevision = false) {
+    const metadata = parseProperties(readText(repoRoot, METADATA_PATH, ref));
+    const version = metadata.get('version');
+    if (!version) {
+        throw new Error('SDK metadata must declare version');
+    }
+    const identity = parseSdkVersion(version);
+    const legacyRevision = metadata.get('revision') ?? '';
+    if (legacyRevision && !allowLegacyRevision) {
+        throw new Error('SDK metadata must not declare the removed revision axis');
+    }
+    if (!legacyRevision) {
+        return identity;
+    }
+    if (!/^[1-9]\d*$/u.test(legacyRevision)) {
+        throw new Error(`Invalid legacy SDK revision: ${legacyRevision}`);
+    }
+    return Object.freeze({
+        ...identity,
+        legacyRevision: Number(legacyRevision),
+        releaseId: `sdk-api-v${version}-r${legacyRevision}`
+    });
+}
+
 function parseProperties(text) {
     const properties = new Map();
     for (const rawLine of text.split(/\r?\n/u)) {
@@ -79,15 +103,8 @@ function assertEqual(actual, expected, label) {
 }
 
 export function inspectSdkVersion(repoRoot, ref = '') {
-    const metadata = parseProperties(readText(repoRoot, METADATA_PATH, ref));
-    if (metadata.has('revision')) {
-        throw new Error('SDK metadata must not declare the removed revision axis');
-    }
-    const version = metadata.get('version');
-    if (!version) {
-        throw new Error('SDK metadata must declare version');
-    }
-    const identity = parseSdkVersion(version);
+    const identity = readSdkIdentity(repoRoot, ref);
+    const version = identity.version;
     const rootPom = readText(repoRoot, 'pom.xml', ref);
     const mavenProjection = oneMatch(rootPom, /<revision>\s*([^<]+?)\s*<\/revision>/gu, 'Maven SDK revision projection');
     assertEqual(mavenProjection, version, 'Maven SDK version projection');

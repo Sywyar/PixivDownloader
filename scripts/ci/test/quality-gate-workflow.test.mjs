@@ -35,6 +35,17 @@ test('Quality Gate：五个 required context 与完整触发面保持稳定', ()
         'push', 'pull_request', 'merge_group', 'workflow_dispatch', 'workflow_call',
     ]);
     assert.deepEqual(doc.on.push['branches-ignore'], ['gh-pages']);
+    const javaSteps = doc.jobs['java-tests'].steps;
+    const sdkResolve = javaSteps.find((step) => step.name === 'Resolve SDK contract predecessor');
+    const sdkPackage = javaSteps.find((step) => step.name === 'Package SDK contract artifacts');
+    const sdkContract = javaSteps.find((step) => step.name === 'Compare SDK public contract');
+    assert.equal(sdkResolve.env.INPUT_TRUSTED_BASE_SHA, '${{ inputs.trusted_base_sha }}');
+    assert.match(sdkResolve.run, /resolve-trusted-base\.mjs/u);
+    assert.match(sdkPackage.run, /pixivdownload-sdk-bom package -DskipTests/u);
+    assert.match(sdkContract.run, /git archive "\$SDK_BASE_SHA"/u);
+    assert.match(sdkContract.run, /sdk-api-surface\.mjs/u);
+    assert.match(sdkContract.run, /sdk-contract\.mjs/u);
+    assert.doesNotMatch(sdkContract.run, /continue-on-error|always\(\)|failure\(\)|cancelled\(\)/u);
     for (const id of ['signature-guard', 'trusted-gate-contract']) {
         const resolve = doc.jobs[id].steps.find((step) => step.name === 'Resolve protected predecessor');
         const scripts = doc.jobs[id].steps.map((step) => step.run || '').join('\n');

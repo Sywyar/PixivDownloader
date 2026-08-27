@@ -5,6 +5,7 @@
     "test:js": "node --test \"pixivdownload-*/src/test/js/*.test.js\" \"plugin-templates/*/src/test/js/*.test.js\" \"scripts/ci/test/*.test.mjs\"",
     "test:web-standards": "node scripts/check-web-standards.mjs",
     "sdk:version": "node scripts/ci/sdk-version.mjs --repo-root .",
+    "sdk:surface": "node scripts/ci/sdk-api-surface.mjs",
     "test:i18n": "node --test \"scripts/i18n/test/*.test.mjs\"",
     "i18n:check": "node scripts/i18n/check.mjs --strict",
     "i18n:report": "node scripts/i18n/check.mjs --report-only",
