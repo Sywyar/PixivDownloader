@@ -1,13 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         child.project.url.inherit.append.path="false"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-    <repositories>
-        <repository>
-            <id>central</id>
-            <url>https://repo.maven.apache.org/maven2</url>
-        </repository>
-    </repositories>
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
@@ -20,12 +15,21 @@
     <packaging>pom</packaging>
     <name>PixivDownloader Parent</name>
     <description>PixivDownloader 多模块聚合父工程（核心壳、共享运行时与官方外置插件）</description>
-    <url/>
+    <url>https://github.com/Sywyar/PixivDownloader</url>
     <licenses>
-        <license/>
+        <license>
+            <name>GNU Affero General Public License v3.0</name>
+            <url>https://www.gnu.org/licenses/agpl-3.0.html</url>
+            <distribution>repo</distribution>
+        </license>
     </licenses>
     <developers>
-        <developer/>
+        <developer>
+            <id>Sywyar</id>
+            <name>Sywyar</name>
+            <email>sywyari@163.com</email>
+            <url>https://github.com/Sywyar</url>
+        </developer>
     </developers>
     <modules>
         <!-- SDK 版本与兼容规则的唯一事实源；纯 JDK，独立于应用发行版本。 -->
@@ -73,18 +77,27 @@
         <!-- 官方外置插件开发构建聚合入口。IDE 可用 -pl pixivdownload-official-plugins -am compile 一次性编译全部外置插件。 -->
         <module>pixivdownload-official-plugins</module>
     </modules>
-    <scm>
-        <connection/>
-        <developerConnection/>
-        <tag/>
-        <url/>
+    <scm child.scm.connection.inherit.append.path="false"
+         child.scm.developerConnection.inherit.append.path="false"
+         child.scm.url.inherit.append.path="false">
+        <connection>scm:git:https://github.com/Sywyar/PixivDownloader.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/Sywyar/PixivDownloader.git</developerConnection>
+        <tag>HEAD</tag>
+        <url>https://github.com/Sywyar/PixivDownloader</url>
     </scm>
+    <issueManagement>
+        <system>GitHub</system>
+        <url>https://github.com/Sywyar/PixivDownloader/issues</url>
+    </issueManagement>
     <properties>
         <java.version>17</java.version>
         <app.release.version>${project.version}</app.release.version>
         <!-- sdk-info 资源是 SDK 身份事实源；revision 只是 Maven CI-friendly 版本投影名。 -->
         <revision>1.0.0-rc1</revision>
         <pixivdownload.sdk.version>${revision}</pixivdownload.sdk.version>
+        <flatten.maven.version>1.7.3</flatten.maven.version>
+        <maven.gpg.version>3.2.8</maven.gpg.version>
+        <central.publishing.version>0.11.0</central.publishing.version>
         <!-- 源码与 fork 构建默认不启用官方调查；官方发布 profile 只翻转这些激活位。 -->
         <layout-survey.official-release-enabled>false</layout-survey.official-release-enabled>
         <multi-mode-decision-survey.official-release-enabled>false</multi-mode-decision-survey.official-release-enabled>
@@ -104,17 +117,17 @@
     <dependencyManagement>
         <dependencies>
             <dependency>
-                <groupId>top.sywyar.lovepopup</groupId>
+                <groupId>io.github.sywyar.pixivdownloader</groupId>
                 <artifactId>pixivdownload-sdk-info</artifactId>
                 <version>${pixivdownload.sdk.version}</version>
             </dependency>
             <dependency>
-                <groupId>top.sywyar.lovepopup</groupId>
+                <groupId>io.github.sywyar.pixivdownloader</groupId>
                 <artifactId>pixivdownload-plugin-api</artifactId>
                 <version>${pixivdownload.sdk.version}</version>
             </dependency>
             <dependency>
-                <groupId>top.sywyar.lovepopup</groupId>
+                <groupId>io.github.sywyar.pixivdownloader</groupId>
                 <artifactId>pixivdownload-core-api</artifactId>
                 <version>${pixivdownload.sdk.version}</version>
             </dependency>
@@ -127,6 +140,18 @@
     </dependencyManagement>
 
     <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>flatten-maven-plugin</artifactId>
+                    <version>${flatten.maven.version}</version>
+                    <configuration>
+                        <flattenedPomFilename>${project.build.directory}/flattened-pom.xml</flattenedPomFilename>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
         <plugins>
             <!-- JDK 23+ 默认禁用隐式注解处理（Lombok 等处理器不再经 classpath 自动发现），
                 显式声明 Lombok 处理器路径，使任意 JDK（17/21/23/26…）下 @RequiredArgsConstructor
@@ -157,6 +182,44 @@
     </build>
 
     <profiles>
+        <profile>
+            <id>sdk-central</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <version>${maven.gpg.version}</version>
+                        <configuration>
+                            <bestPractices>true</bestPractices>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>sign-sdk-artifacts</id>
+                                <phase>verify</phase>
+                                <goals><goal>sign</goal></goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.sonatype.central</groupId>
+                        <artifactId>central-publishing-maven-plugin</artifactId>
+                        <version>${central.publishing.version}</version>
+                        <extensions>true</extensions>
+                        <configuration>
+                            <publishingServerId>central</publishingServerId>
+                            <autoPublish>true</autoPublish>
+                            <waitUntil>PUBLISHED</waitUntil>
+                            <checksums>all</checksums>
+                            <deploymentName>PixivDownloader Plugin SDK ${pixivdownload.sdk.version}</deploymentName>
+                            <excludeArtifacts>
+                                <excludeArtifact>pixivdownload-parent</excludeArtifact>
+                            </excludeArtifacts>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
         <profile>
             <id>official-surveys</id>
             <properties>

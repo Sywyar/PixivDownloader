@@ -23,7 +23,7 @@
 
     mvn -f plugin-templates/pom.xml verify
 
-这个验证 reactor 会先构建同仓的 SDK Info、Plugin API、Core API 与 SDK BOM。复制到仓库外时，两个子项目仍是无相对 parent 的独立 POM，但构建环境必须能从 SDK 仓库解析 <code>top.sywyar.lovepopup:pixivdownload-sdk-bom:1.0.0-rc1</code> 及 BOM 管理的公共构件；不要改成引用宿主源码目录或应用模块。
+这个验证 reactor 会先构建同仓的 SDK Info、Plugin API、Core API 与 SDK BOM。复制到仓库外时，两个子项目仍是无相对 parent 的独立 POM，但构建环境必须能从 Maven 仓库解析 <code>io.github.sywyar.pixivdownloader:pixivdownload-sdk-bom:1.0.0-rc1</code> 及 BOM 管理的公共构件；不要改成引用宿主源码目录或应用模块。
 
 产物位于 <code>plugin-templates/minimal-feature-plugin/target/example-minimal-plugin-0.1.0.jar</code>。将复制并改名后的插件 JAR 通过插件管理页安装，或放入宿主的运行期 <code>plugins/</code> 目录；两种方式都受宿主的包验证与本地未签名策略约束，模板不包含签名、信任根或 installer 内部实现。插件启用后可由管理员直接访问 <code>/example-minimal.html</code>。
 

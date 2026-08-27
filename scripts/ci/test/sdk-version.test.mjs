@@ -26,16 +26,24 @@ function createFixture() {
     write(root, 'pom.xml', '<properties><revision>1.0.0-rc1</revision>'
             + '<pixivdownload.sdk.version>${revision}</pixivdownload.sdk.version></properties>');
     for (const module of MODULES) {
-        write(root, `${module}/pom.xml`, `<project><artifactId>${module}</artifactId>`
+        write(root, `${module}/pom.xml`, '<project><parent></parent>'
+                + `<groupId>io.github.sywyar.pixivdownloader</groupId><artifactId>${module}</artifactId>`
                 + '<version>${revision}</version>'
                 + (module === 'pixivdownload-sdk-bom'
-                    ? '<version>${pixivdownload.sdk.version}</version>'.repeat(3)
+                    ? '<groupId>io.github.sywyar.pixivdownloader</groupId><artifactId>pixivdownload-sdk-info</artifactId>'
+                        + '<version>${pixivdownload.sdk.version}</version>'
+                        + '<groupId>io.github.sywyar.pixivdownloader</groupId><artifactId>pixivdownload-plugin-api</artifactId>'
+                        + '<version>${pixivdownload.sdk.version}</version>'
+                        + '<groupId>io.github.sywyar.pixivdownloader</groupId><artifactId>pixivdownload-core-api</artifactId>'
+                        + '<version>${pixivdownload.sdk.version}</version>'
                     : '')
                 + '</project>');
     }
     for (const template of ['minimal-feature-plugin', 'download-type-plugin']) {
         write(root, `plugin-templates/${template}/pom.xml`,
-                '<properties><pixivdownload.sdk.version>1.0.0-rc1</pixivdownload.sdk.version></properties>');
+                '<groupId>io.github.sywyar.pixivdownloader</groupId>'
+                + '<artifactId>pixivdownload-sdk-bom</artifactId>'
+                + '<properties><pixivdownload.sdk.version>1.0.0-rc1</pixivdownload.sdk.version></properties>');
     }
     return root;
 }
@@ -65,7 +73,9 @@ test('SDK 身份事实源与 Maven、BOM 及模板投影必须一致', () => {
     try {
         assert.equal(inspectSdkVersion(root).releaseId, 'sdk-api-v1.0.0-rc1');
         fs.writeFileSync(path.join(root, 'plugin-templates', 'minimal-feature-plugin', 'pom.xml'),
-                '<pixivdownload.sdk.version>1.0.0-rc2</pixivdownload.sdk.version>', 'utf8');
+                '<groupId>io.github.sywyar.pixivdownloader</groupId>'
+                + '<artifactId>pixivdownload-sdk-bom</artifactId>'
+                + '<pixivdownload.sdk.version>1.0.0-rc2</pixivdownload.sdk.version>', 'utf8');
         assert.throws(() => inspectSdkVersion(root), /minimal-feature-plugin.*must be 1\.0\.0-rc1/u);
     } finally {
         fs.rmSync(root, { recursive: true, force: true });

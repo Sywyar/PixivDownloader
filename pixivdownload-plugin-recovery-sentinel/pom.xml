@@ -32,9 +32,9 @@
         <!-- 跨插件契约：PixivFeaturePlugin / PixivPluginProvider / PluginKind
              （provided：由宿主父 classloader 提供，必须与宿主共享同一份 Class，桥接 instanceof 才成立——不可打入插件 jar） -->
         <dependency>
-            <groupId>top.sywyar.lovepopup</groupId>
+            <groupId>io.github.sywyar.pixivdownloader</groupId>
             <artifactId>pixivdownload-plugin-api</artifactId>
-            <version>${project.version}</version>
+            <version>${pixivdownload.sdk.version}</version>
             <scope>provided</scope>
         </dependency>
         <!-- PF4J：外置插件主类 RecoverySentinelPf4jPlugin 继承 org.pf4j.Plugin（provided：宿主随 boot jar 装入 PF4J，插件不打入） -->

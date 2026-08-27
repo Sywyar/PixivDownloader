@@ -23,7 +23,7 @@
     <dependencyManagement>
         <dependencies>
             <dependency>
-                <groupId>top.sywyar.lovepopup</groupId>
+                <groupId>io.github.sywyar.pixivdownloader</groupId>
                 <artifactId>pixivdownload-sdk-bom</artifactId>
                 <version>${pixivdownload.sdk.version}</version>
                 <type>pom</type>
@@ -42,12 +42,12 @@
     <dependencies>
         <!-- Shared contracts: the host parent classloader must provide the only copy. -->
         <dependency>
-            <groupId>top.sywyar.lovepopup</groupId>
+            <groupId>io.github.sywyar.pixivdownloader</groupId>
             <artifactId>pixivdownload-sdk-info</artifactId>
             <scope>provided</scope>
         </dependency>
         <dependency>
-            <groupId>top.sywyar.lovepopup</groupId>
+            <groupId>io.github.sywyar.pixivdownloader</groupId>
             <artifactId>pixivdownload-plugin-api</artifactId>
             <scope>provided</scope>
         </dependency>

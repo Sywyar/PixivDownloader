@@ -18,23 +18,23 @@
 
     <dependencies>
         <dependency>
-            <groupId>top.sywyar.lovepopup</groupId>
+            <groupId>io.github.sywyar.pixivdownloader</groupId>
             <artifactId>pixivdownload-sdk-info</artifactId>
             <version>${pixivdownload.sdk.version}</version>
         </dependency>
         <!-- 跨插件契约模块：主程序与各功能插件共享的稳定契约（零业务依赖，编译期强制） -->
         <dependency>
-            <groupId>top.sywyar.lovepopup</groupId>
+            <groupId>io.github.sywyar.pixivdownloader</groupId>
             <artifactId>pixivdownload-plugin-api</artifactId>
-            <version>${project.version}</version>
+            <version>${pixivdownload.sdk.version}</version>
         </dependency>
 
         <!-- 核心语义端口模块：core.stats.StatsQueryStore + StatsAggregates（Spring-free 纯 JDK）；
              实现层 core.stats.db.StatsQueryStoreImpl 留本模块 -->
         <dependency>
-            <groupId>top.sywyar.lovepopup</groupId>
+            <groupId>io.github.sywyar.pixivdownloader</groupId>
             <artifactId>pixivdownload-core-api</artifactId>
-            <version>${project.version}</version>
+            <version>${pixivdownload.sdk.version}</version>
         </dependency>
 
         <dependency>

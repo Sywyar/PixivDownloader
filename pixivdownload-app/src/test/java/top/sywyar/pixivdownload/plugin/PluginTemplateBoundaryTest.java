@@ -30,20 +30,20 @@ class PluginTemplateBoundaryTest {
             "minimal-feature-plugin", "download-type-plugin");
     private static final Map<String, Set<String>> EXPECTED_DEPENDENCIES = Map.of(
             "minimal-feature-plugin", Set.of(
-                    "top.sywyar.lovepopup:pixivdownload-sdk-bom:import",
+                    "io.github.sywyar.pixivdownloader:pixivdownload-sdk-bom:import",
                     "org.springframework.boot:spring-boot-dependencies:import",
-                    "top.sywyar.lovepopup:pixivdownload-sdk-info:provided",
-                    "top.sywyar.lovepopup:pixivdownload-plugin-api:provided",
+                    "io.github.sywyar.pixivdownloader:pixivdownload-sdk-info:provided",
+                    "io.github.sywyar.pixivdownloader:pixivdownload-plugin-api:provided",
                     "org.pf4j:pf4j:provided",
                     "org.springframework:spring-context:provided",
                     "org.springframework:spring-web:provided",
                     "org.springframework:spring-webmvc:provided",
                     "org.junit.jupiter:junit-jupiter:test"),
             "download-type-plugin", Set.of(
-                    "top.sywyar.lovepopup:pixivdownload-sdk-bom:import",
+                    "io.github.sywyar.pixivdownloader:pixivdownload-sdk-bom:import",
                     "org.springframework.boot:spring-boot-dependencies:import",
-                    "top.sywyar.lovepopup:pixivdownload-sdk-info:provided",
-                    "top.sywyar.lovepopup:pixivdownload-plugin-api:provided",
+                    "io.github.sywyar.pixivdownloader:pixivdownload-sdk-info:provided",
+                    "io.github.sywyar.pixivdownloader:pixivdownload-plugin-api:provided",
                     "org.pf4j:pf4j:provided",
                     "org.springframework:spring-context:provided",
                     "org.springframework:spring-web:provided",

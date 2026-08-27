@@ -14,9 +14,9 @@
 
     <dependencies>
         <dependency>
-            <groupId>top.sywyar.lovepopup</groupId>
+            <groupId>io.github.sywyar.pixivdownloader</groupId>
             <artifactId>pixivdownload-plugin-api</artifactId>
-            <version>${project.version}</version>
+            <version>${pixivdownload.sdk.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>

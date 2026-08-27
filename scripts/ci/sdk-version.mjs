@@ -17,6 +17,7 @@ const TEMPLATE_POMS = [
     'plugin-templates/minimal-feature-plugin/pom.xml',
     'plugin-templates/download-type-plugin/pom.xml'
 ];
+export const SDK_GROUP_ID = 'io.github.sywyar.pixivdownloader';
 const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(alpha|beta|rc)([1-9]\d*))?$/;
 
 export function parseSdkVersion(version) {
@@ -114,9 +115,14 @@ export function inspectSdkVersion(repoRoot, ref = '') {
             '${revision}',
             'Root SDK version property'
     );
-
     for (const module of SDK_MODULES) {
         const pom = readText(repoRoot, `${module}/pom.xml`, ref);
+        const artifactGroupId = oneMatch(
+                pom,
+                new RegExp(`<\\/parent>\\s*<groupId>\\s*([^<]+?)\\s*<\\/groupId>\\s*<artifactId>${module}<\\/artifactId>`, 'gu'),
+                `${module} artifact group id`
+        );
+        assertEqual(artifactGroupId, SDK_GROUP_ID, `${module} artifact group id`);
         const artifactVersion = oneMatch(
                 pom,
                 new RegExp(`<artifactId>${module}<\\/artifactId>\\s*<version>\\s*([^<]+?)\\s*<\\/version>`, 'gu'),
@@ -126,6 +132,10 @@ export function inspectSdkVersion(repoRoot, ref = '') {
     }
 
     const bom = readText(repoRoot, 'pixivdownload-sdk-bom/pom.xml', ref);
+    const managedGroups = [...bom.matchAll(/<groupId>\s*(io\.github\.sywyar\.pixivdownloader)\s*<\/groupId>\s*<artifactId>pixivdownload-(?:sdk-info|plugin-api|core-api)<\/artifactId>/gu)];
+    if (managedGroups.length !== 3) {
+        throw new Error(`SDK BOM must manage exactly three artifacts from ${SDK_GROUP_ID}, found ${managedGroups.length}`);
+    }
     const managedVersions = [...bom.matchAll(/<version>\s*(\$\{pixivdownload\.sdk\.version\})\s*<\/version>/g)];
     if (managedVersions.length !== 3) {
         throw new Error(`SDK BOM must manage exactly three SDK artifacts, found ${managedVersions.length}`);
@@ -133,6 +143,12 @@ export function inspectSdkVersion(repoRoot, ref = '') {
 
     for (const templatePom of TEMPLATE_POMS) {
         const pom = readText(repoRoot, templatePom, ref);
+        const importedBomGroup = oneMatch(
+                pom,
+                /<groupId>\s*([^<]+?)\s*<\/groupId>\s*<artifactId>pixivdownload-sdk-bom<\/artifactId>/gu,
+                `${templatePom} SDK BOM group id`
+        );
+        assertEqual(importedBomGroup, SDK_GROUP_ID, `${templatePom} SDK BOM group id`);
         const templateVersion = oneMatch(
                 pom,
                 /<pixivdownload\.sdk\.version>\s*([^<]+?)\s*<\/pixivdownload\.sdk\.version>/gu,
