@@ -107,18 +107,35 @@ export function evaluateContract({
     });
 }
 
-function changedReleaseInputs(repoRoot, baseRef, candidateRef, baseSdkRoot, candidateSdkRoot) {
+export function changedConsumerPoms(baseSdkRoot, candidateSdkRoot, allowMissingBase = false) {
+    const changes = [];
+    for (const module of CONSUMER_POM_MODULES) {
+        const relative = path.join(module, 'target', 'flattened-pom.xml');
+        const basePath = path.join(baseSdkRoot, relative);
+        const candidatePath = path.join(candidateSdkRoot, relative);
+        if (!fs.existsSync(candidatePath)) {
+            throw new Error(`Missing candidate consumer POM: ${relative}`);
+        }
+        if (!fs.existsSync(basePath)) {
+            if (!allowMissingBase) throw new Error(`Missing base consumer POM: ${relative}`);
+            changes.push(`${module}/consumer-pom.xml`);
+            continue;
+        }
+        if (fs.readFileSync(basePath, 'utf8') !== fs.readFileSync(candidatePath, 'utf8')) {
+            changes.push(`${module}/consumer-pom.xml`);
+        }
+    }
+    return changes;
+}
+
+function changedReleaseInputs(repoRoot, baseRef, candidateRef, baseSdkRoot, candidateSdkRoot,
+        allowMissingBaseConsumerPoms) {
     const changes = execFileSync('git', ['-C', repoRoot, 'diff', '--name-only', baseRef, candidateRef || 'HEAD', '--',
         ...RELEASE_INPUT_PATHS], {
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'pipe']
     }).split(/\r?\n/u).filter(Boolean);
-    for (const module of CONSUMER_POM_MODULES) {
-        const relative = path.join(module, 'target', 'flattened-pom.xml');
-        const base = fs.readFileSync(path.join(baseSdkRoot, relative), 'utf8');
-        const candidate = fs.readFileSync(path.join(candidateSdkRoot, relative), 'utf8');
-        if (base !== candidate) changes.push(`${module}/consumer-pom.xml`);
-    }
+    changes.push(...changedConsumerPoms(baseSdkRoot, candidateSdkRoot, allowMissingBaseConsumerPoms));
     return changes;
 }
 
@@ -216,7 +233,8 @@ function main() {
     );
     const result = evaluateContract({ baseIdentity, candidateIdentity, baseSurface, candidateSurface,
         releaseInputChanges: changedReleaseInputs(repoRoot, options.baseRef, options.candidateRef,
-                path.resolve(options.baseSdkRoot), path.resolve(options.candidateSdkRoot)),
+                path.resolve(options.baseSdkRoot), path.resolve(options.candidateSdkRoot),
+                Boolean(baseIdentity.legacyRevision)),
         stableBaseline: baseline });
     const report = {
         schemaVersion: 1,

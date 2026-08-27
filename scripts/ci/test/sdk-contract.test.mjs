@@ -1,8 +1,18 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
-import { evaluateBaselineState, evaluateContract } from '../sdk-contract.mjs';
+import { changedConsumerPoms, evaluateBaselineState, evaluateContract } from '../sdk-contract.mjs';
 import { parseSdkVersion } from '../sdk-version.mjs';
+
+const CONSUMER_POM_MODULES = [
+    'pixivdownload-sdk-info',
+    'pixivdownload-plugin-api',
+    'pixivdownload-core-api',
+    'pixivdownload-sdk-bom'
+];
 
 function identity(version, legacyRevision = 0) {
     const parsed = parseSdkVersion(version);
@@ -58,6 +68,26 @@ test('预发布版本必须单调递增且首次结构化身份可从旧元数�
         baseSurface: 'A\n',
         candidateSurface: 'A\n'
     }).outcome, 'PUBLISH');
+});
+
+test('首次结构化身份把旧基线缺少的 consumer POM 视为发行输入变化', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pixivdownload-sdk-consumer-poms-'));
+    const base = path.join(root, 'base');
+    const candidate = path.join(root, 'candidate');
+    try {
+        for (const module of CONSUMER_POM_MODULES) {
+            const target = path.join(candidate, module, 'target');
+            fs.mkdirSync(target, { recursive: true });
+            fs.writeFileSync(path.join(target, 'flattened-pom.xml'), `<project>${module}</project>\n`, 'utf8');
+        }
+        assert.deepEqual(changedConsumerPoms(base, candidate, true),
+                CONSUMER_POM_MODULES.map((module) => `${module}/consumer-pom.xml`));
+        assert.throws(() => changedConsumerPoms(base, candidate), /Missing base consumer POM/u);
+        fs.rmSync(path.join(candidate, CONSUMER_POM_MODULES[0], 'target', 'flattened-pom.xml'));
+        assert.throws(() => changedConsumerPoms(base, candidate, true), /Missing candidate consumer POM/u);
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
 });
 
 test('同主版本稳定基线禁止删除并要求兼容新增提升次版本', () => {
