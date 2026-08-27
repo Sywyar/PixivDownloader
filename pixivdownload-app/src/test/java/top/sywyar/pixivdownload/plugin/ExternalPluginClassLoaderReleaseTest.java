@@ -34,7 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@link PluginInstallation}（含插件实例 + 描述符 + classloader）等强引用都是该方法局部，返回后随帧出栈、只留弱引用，
  * 调用方不残留任何 pin 住 classloader 的局部。
  *
- * <p>stats 构建产物目录经 surefire 系统属性 {@code stats.plugin.classes} 传入（reactor 中先于 app 构建）；未就绪时
+ * <p>gallery-tools 构建产物目录经 surefire 系统属性 {@code gallery-tools.plugin.classes} 传入；未就绪时
  *（如 IDE 未触发 reactor 构建）整条用例 {@link Assumptions assume} 跳过。允许弱引用 GC 在 Windows / JVM 下不稳定：
  * 物理卸载后若本环境未回收，则判为环境 inconclusive（{@link Assumptions#abort}）而非业务失败——是否真有强引用残留由
  * {@link PluginClassLoaderLeakProbeTest} 的确定性引用链检查与生命周期 teardown 用例守住。
@@ -43,7 +43,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("真实外置 stats 插件 classloader 物理卸载后可被 GC 回收")
 class ExternalPluginClassLoaderReleaseTest {
 
-    private static final String STATS_CLASSES_PROPERTY = "stats.plugin.classes";
+    private static final String STATS_CLASSES_PROPERTY = "gallery-tools.plugin.classes";
 
     private Path tempPluginsDir;
 
@@ -58,20 +58,20 @@ class ExternalPluginClassLoaderReleaseTest {
     void realStatsClassLoaderIsCollectableAfterPhysicalUnload() throws IOException {
         Path statsClasses = locateStatsClasses();
         Assumptions.assumeTrue(statsClasses != null && Files.isDirectory(statsClasses),
-                "stats 插件构建产物未就绪（需 reactor 先构建 pixivdownload-plugin-stats），跳过真实 classloader 回收验证");
+                "gallery-tools 插件构建产物未就绪，跳过真实 classloader 回收验证");
         // 前提：外置 jar 不含共享契约（plugin-api），否则桥接 instanceof 因同名异 loader 失败。
         assertThat(statsClasses.resolve("top/sywyar/pixivdownload/plugin/api")).doesNotExist();
 
         Files.createDirectories(Path.of("target", "test-runtime"));
         tempPluginsDir = Files.createTempDirectory(Path.of("target", "test-runtime"), "pixiv-plugins-leak");
-        Path jar = tempPluginsDir.resolve("stats-plugin.jar");
+        Path jar = tempPluginsDir.resolve("gallery-tools-plugin.jar");
         zipDirectoryAsJar(statsClasses, jar);
-        PluginTestProvenance.writeLocalUpload(tempPluginsDir, jar, "stats", "1.0.0");
+        PluginTestProvenance.writeLocalUpload(tempPluginsDir, jar, "gallery-tools", "1.0.0");
 
         WeakReference<ClassLoader> weakCl = loadCaptureAndUnload(tempPluginsDir);
         assertThat(weakCl).as("加载时应已捕获到真实 stats classloader 的弱引用").isNotNull();
 
-        Path moved = tempPluginsDir.resolve("stats-plugin-moved.jar");
+        Path moved = tempPluginsDir.resolve("gallery-tools-plugin-moved.jar");
         Files.move(jar, moved);
         Files.delete(moved);
         assertThat(moved).as("公共 unload 返回后 JAR 应可立即移动并删除").doesNotExist();
@@ -93,14 +93,14 @@ class ExternalPluginClassLoaderReleaseTest {
         PluginRuntimeManager manager = new PluginRuntimeManager(pluginsDir);
         manager.start();
         PluginInstallation stats = manager.inspectPlugins().installations().stream()
-                .filter(installation -> installation.id().equals("stats"))
+                .filter(installation -> installation.id().equals("gallery-tools"))
                 .findFirst().orElseThrow();
         WeakReference<ClassLoader> weakCl = new WeakReference<>(stats.classLoader());
-        manager.unloadPlugin("stats");
+        manager.unloadPlugin("gallery-tools");
         return weakCl; // manager / stats / inventory 在此出帧 → 强引用图可回收
     }
 
-    // --- helpers（与 StatsExternalPluginIntegrationTest 同口径）---
+    // --- helpers（与 GalleryToolsExternalPluginIntegrationTest 同口径）---
 
     private static Path locateStatsClasses() {
         String configured = System.getProperty(STATS_CLASSES_PROPERTY);

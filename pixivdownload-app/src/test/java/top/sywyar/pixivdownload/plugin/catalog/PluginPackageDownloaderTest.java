@@ -190,9 +190,9 @@ class PluginPackageDownloaderTest {
         server = CatalogTestSupport.startServer();
         byte[] body = "thin-plugin-jar-bytes".getBytes(java.nio.charset.StandardCharsets.UTF_8);
         // 模拟 GitHub：/<owner>/<repo>/releases/download/<tag>/<jar>（稳定入口）→ 302 → /cdn/<jar>（资产 CDN）。
-        String releasePath = "/Sywyar/PixivDownloader-plugins/releases/download/stats-v1.0.0/"
-                + "pixivdownload-plugin-stats-1.0.0.jar";
-        String cdnPath = "/cdn/pixivdownload-plugin-stats-1.0.0.jar";
+        String releasePath = "/Sywyar/PixivDownloader-plugins/releases/download/gallery-tools-v1.0.0/"
+                + "pixivdownload-plugin-gallery-tools-1.0.0.jar";
+        String cdnPath = "/cdn/pixivdownload-plugin-gallery-tools-1.0.0.jar";
         CatalogTestSupport.serveBytes(server, cdnPath, body);
         CatalogTestSupport.serveRedirect(server, releasePath, CatalogTestSupport.loopbackUrl(server, cdnPath));
         PluginPackageDownloader downloader = downloader(policyFaithful());

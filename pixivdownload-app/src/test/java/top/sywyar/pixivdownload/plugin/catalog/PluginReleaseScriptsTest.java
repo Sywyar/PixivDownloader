@@ -286,7 +286,7 @@ class PluginReleaseScriptsTest {
     void distributionSeparatesDefaultInstalledAndOnDemandPlugins() throws Exception {
         assertThat(officialPluginIds("Get-OfficialDefaultInstalledPlugins"))
                 .containsExactly(
-                        "download-workbench", "gui-compose", "gui-swing", "stats", "posthog", "duplicate", "gallery",
+                        "download-workbench", "gui-compose", "gui-swing", "gallery-tools", "posthog", "gallery",
                         "novel", "notification", "multi-mode-decision-survey", "push", "mail", "tts", "ai");
         assertThat(officialPluginIds("Get-OfficialOptionalPlugins"))
                 .containsExactly("douyin");
@@ -1208,7 +1208,7 @@ class PluginReleaseScriptsTest {
                     "Id = \"download-workbench\"",
                     "Id = \"gui-swing\"",
                     "Id = \"douyin\"",
-                    "Id = \"stats\"");
+                    "Id = \"gallery-tools\"");
         }
     }
 

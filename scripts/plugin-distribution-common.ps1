@@ -78,9 +78,8 @@ function Get-OfficialDefaultInstalledPlugins {
                 "^jna-platform-[0-9].*\.jar$"
             )
         },
-        [pscustomobject]@{ Id = "stats"; Module = "pixivdownload-plugin-stats"; Format = "jar"; PrivateLibs = $false },
+        [pscustomobject]@{ Id = "gallery-tools"; Module = "pixivdownload-plugin-gallery-tools"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{ Id = "posthog"; Module = "pixivdownload-plugin-posthog"; Format = "jar"; PrivateLibs = $false },
-        [pscustomobject]@{ Id = "duplicate"; Module = "pixivdownload-plugin-duplicate"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{ Id = "gallery"; Module = "pixivdownload-plugin-gallery"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{ Id = "novel"; Module = "pixivdownload-plugin-novel"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{ Id = "notification"; Module = "pixivdownload-plugin-notification"; Format = "jar"; PrivateLibs = $false },

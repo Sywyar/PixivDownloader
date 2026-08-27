@@ -26,7 +26,7 @@ class FirstPartyPolicyUsageGuardTest {
     private static final List<String> FIRST_PARTY_CONFIGS = List.of(
             "pixivdownload-plugin-ai/src/main/java/top/sywyar/pixivdownload/ai/AiPluginConfiguration.java",
             "pixivdownload-plugin-download-workbench/src/main/java/top/sywyar/pixivdownload/download/DownloadWorkbenchPluginConfiguration.java",
-            "pixivdownload-plugin-duplicate/src/main/java/top/sywyar/pixivdownload/duplicate/DuplicatePluginConfiguration.java",
+            "pixivdownload-plugin-gallery-tools/src/main/java/top/sywyar/pixivdownload/duplicate/DuplicatePluginConfiguration.java",
             "pixivdownload-plugin-mail/src/main/java/top/sywyar/pixivdownload/mail/MailPluginConfiguration.java",
             "pixivdownload-plugin-novel/src/main/java/top/sywyar/pixivdownload/novel/NovelPluginConfiguration.java",
             "pixivdownload-plugin-push/src/main/java/top/sywyar/pixivdownload/push/PushPluginConfiguration.java",

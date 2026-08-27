@@ -305,18 +305,18 @@ class WebI18nBundleRegistryTest {
     }
 
     @Test
-    @DisplayName("duplicates namespace 可由外置 duplicate 插件注册，不属于内置快照")
+    @DisplayName("duplicates namespace 可由外置 gallery-tools 插件注册，不属于内置快照")
     void duplicateNamespaceCanBeProvidedByExternalPlugin() {
         WebI18nBundleRegistry registry = builtInRegistry();
         assertThat(registry.resolve("duplicates")).isNull();
 
-        registry.register("duplicate", LOADER,
+        registry.register("gallery-tools", LOADER,
                 List.of(new I18nContribution("duplicates", "i18n.web.duplicates")));
 
         assertThat(registry.resolve("duplicates"))
                 .isNotNull()
                 .satisfies(bundle -> {
-                    assertThat(bundle.pluginId()).isEqualTo("duplicate");
+                    assertThat(bundle.pluginId()).isEqualTo("gallery-tools");
                     assertThat(bundle.contribution().baseName()).isEqualTo("i18n.web.duplicates");
                 });
     }

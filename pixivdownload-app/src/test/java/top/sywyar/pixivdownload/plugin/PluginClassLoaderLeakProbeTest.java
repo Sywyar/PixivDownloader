@@ -85,7 +85,7 @@ import top.sywyar.pixivdownload.plugin.web.registration.PluginWebContributionReg
  * 不再 pin probe loader、可安全留作诊断重查。
  *
  * <p>controller 映射注销后不再持有子 context handler 的回归由真实 PF4J 子 context 的
- * {@code StatsExternalPluginBootContextTest} 覆盖；本探针聚焦不依赖子 context 的 classLoader 字段链 / Bean 实例链。
+ * {@code GalleryToolsStatsBootContextTest} 覆盖；本探针聚焦不依赖子 context 的 classLoader 字段链 / Bean 实例链。
  */
 @DisplayName("外置插件 classloader 泄漏探针：注销后注册中心释放插件 classloader、可被 GC 回收")
 class PluginClassLoaderLeakProbeTest {

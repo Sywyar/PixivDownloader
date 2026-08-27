@@ -213,10 +213,12 @@ public class NovelPlugin implements PixivFeaturePlugin {
 
     @Override
     public List<NavigationContribution> navigation() {
+        // 小说画廊属于画廊下一级类型页面：Web 通过类型切换与小说侧栏抵达，不重复进入 app.top；
+        // 桌面快速开始是独立宿主入口，继续保留。
         return List.of(
                 new NavigationContribution(
                         "novel-gallery",
-                        Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.NOVEL_SIDEBAR,
+                        Set.of(NavigationPlacements.NOVEL_SIDEBAR,
                                 NavigationPlacements.DESKTOP_QUICK_START),
                         "novel-gallery", "nav.label", "/pixiv-novel-gallery.html?view=all", "book",
                         AccessPolicy.INVITED_GUEST, 40),
