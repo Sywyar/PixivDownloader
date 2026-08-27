@@ -192,7 +192,11 @@ mvn clean verify
 
 ## 署名と公開
 
-アーティファクトは署名ツールで Ed25519 署名を作成し、カタログマニフェストには plugin ID、版、SDK 要件、サイズ、SHA-256、署名、ダウンロード URL、変更履歴を記載します。秘密鍵はリポジトリ、ログ、ビルド出力に置きません。利用者がカスタムリポジトリを追加する場合は、そのリポジトリ自身の HTTPS マニフェストと公開鍵を信頼設定に登録します。
+アーティファクトは署名ツールで Ed25519 署名を作成し、カタログには plugin ID、版、SDK 要件、サイズ、SHA-256、署名、ダウンロード URL、変更履歴を記載します。秘密鍵はリポジトリ、ログ、ビルド出力に置きません。
+
+第三者リポジトリは、最大 64 KiB の厳格な UTF-8 JSON `repository.json` を公開します。必須情報は `schemaVersion: 1`、予約値ではない `repositoryId`、表示名、発行者、`catalog.protocol`（`manifest-v1` または `paged-v2`）、公開 HTTPS endpoint、`networkProfile`（`DIRECT_STRICT` または `GITHUB_RELEASES`）、1～4 個の Ed25519 SPKI 公開鍵です。任意で `revocationsUrl` と `updateProofUrl` を指定できます。初回取り込みでは `repository.json.sig` を使いません。利用者が発行者、全接続先ホスト、公開鍵の完全な `SHA-256(SPKI DER)` 指紋を確認し、確認時の再取得で descriptor のダイジェストが一致した場合だけ、再起動後に有効になります。
+
+`paged-v2` は `{endpoint}/plugins`、`{endpoint}/plugins/{pluginId}`、`{endpoint}/plugins/{pluginId}/versions/{version}` を提供し、既定 24・最大 100 件、`generation` と不透明 cursor を使います。インストール時は版 endpoint を再取得し、凍結したパッケージのサイズ、SHA-256、署名、内部 descriptor と照合します。鍵の更新には旧信頼鍵で署名した単調 `repository-update-v1`、撤回には `revocations-v1` を使います。署名 CLI のコマンドは `repository-update` と `plugin-revocations` です。`YANKED` は新規インストール/更新を止め、`REVOKED` は既存バイトのロードも止めます。プラグインは同一 JVM で実行され、コードサンドボックスはありません。
 
 ## コントリビューションと公開前チェック
 

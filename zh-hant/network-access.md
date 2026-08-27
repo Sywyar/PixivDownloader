@@ -136,7 +136,8 @@ Mail 插件通過 SMTP 發送配置測試郵件和業務通知。連接會攜帶
 | 請求所有者 | 目標地址 | 用途 | 觸發場景與默認狀態 |
 | --- | --- | --- | --- |
 | 應用宿主的插件市場 | `https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json`；包地址通常爲 GitHub Release，並可能重定向到 `*.githubusercontent.com` | 獲取官方插件清單、下載用戶選擇的插件包並做簽名、SHA-256 和大小校驗 | `plugin-catalog.enabled` 與內嵌官方倉庫默認啓用；管理員打開或刷新市場時拉取清單，明確安裝插件時下載包；應用啓動本身不訪問倉庫；最多跟隨五跳重定向且每一跳都重新校驗，關閉主開關可完全停用該鏈路 |
-| 應用宿主的插件市場 | 管理員配置的自定義 HTTPS manifest 和其中聲明的包 URL | 使用第三方/自建插件倉庫 | 只有配置並啓用對應倉庫後觸發；直連嚴格策略可能明確不使用全局代理；最多跟隨五跳重定向且每一跳都重新校驗，具體以倉庫策略爲準 |
+| 應用宿主的外掛程式市集 | 管理員輸入的公網 HTTPS `repository.json` | 預覽儲存庫聲明的發佈者、目錄、撤銷/更新證明端點、實際連線主機和完整公開金鑰指紋；不攜帶 Cookie、帳號、作品、本機路徑或其它應用程式憑據，也不請求 `repository.json.sig` | 僅在管理員提交預覽或確認信任時觸發；確認會重新取得並要求描述符 SHA-256 不變。回應最大 64 KiB，全部位址都執行公網 HTTPS 與 SSRF 檢查；`DIRECT_STRICT` 不跟隨重新導向，`GITHUB_RELEASES` 只允許 GitHub 固定主機邊界內一跳。未確認不會保存或啟用儲存庫 |
+| 應用宿主的外掛程式市集 | 已信任描述符中的 HTTPS catalog endpoint、可選的撤銷/更新證明 JSON 與相鄰 `.sig`，以及目錄指定的 JAR/ZIP URL | `manifest-v1` 取得已簽章清單；`paged-v2` 分頁取得列表、詳細資訊和指定版本。安裝前會刷新必要撤銷狀態、重新解析版本並驗證大小、SHA-256、發佈者簽章和套件內 descriptor；重新匯入時可能取得連續性證明 | 瀏覽、搜尋、翻頁、查看詳細資訊、明確安裝/更新或重新匯入時觸發；啟動只讀取本機最後有效撤銷快照，不會自動連線第三方儲存庫。禁用/刪除儲存庫或關閉 `plugin-catalog.enabled` 可停用後續請求 |
 | 應用宿主 FFmpeg 安裝器 | `https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip`，以及其 Release CDN 重定向 | 下載 Windows FFmpeg LGPL 構建 | 僅在 GUI 中明確選擇自動安裝 FFmpeg 時觸發；應用啓動本身不會下載 |
 | 油猴腳本管理器，不屬於插件 | `https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/*.user.js` | 檢查和下載六個獨立油猴腳本更新 | 由 Tampermonkey 等腳本管理器按其更新策略觸發；禁用腳本自動更新或卸載腳本即可停止 |
 | All-in-One 油猴腳本管理器，不屬於插件 | `https://github.com/Sywyar/PixivDownloader/releases/latest/download/Pixiv%20All-in-One.user.js` | 檢查或下載構建生成的合併腳本 | 僅安裝該發行腳本後由腳本管理器觸發 |

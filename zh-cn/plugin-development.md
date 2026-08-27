@@ -816,26 +816,58 @@ verify-artifact --artifact <jar> --signature <sig.json> --plugin-id <id> --versi
 
 ### 让用户添加自定义仓库
 
-推荐用户在 GUI 的插件市场配置中添加仓库。等价的 `config.yaml`：
+发布一个最大 64 KiB、严格 UTF-8 JSON 的 `repository.json`，用户只需在插件市场填写它的公网 HTTPS 地址：
 
-```yaml
-plugin-catalog.enabled: true
-plugin-catalog.repositories:
-  - id: example
-    display-name-key: plugin.market.repository.example.name
-    manifest-url: https://plugins.example.com/manifest.json
-    enabled: true
-    proxy-policy: direct-strict
-    trusted-keys:
-      - key-id: example-2026
-        algorithm: Ed25519
-        public-key: BASE64_X509_SUBJECT_PUBLIC_KEY_INFO
-        state: ACTIVE
-        publisher: Example Publisher
-        trust-label: Example repository release key
+```json
+{
+  "schemaVersion": 1,
+  "repositoryId": "example.plugins",
+  "displayName": "Example Plugins",
+  "publisher": {
+    "id": "example",
+    "displayName": "Example Publisher",
+    "homepageUrl": "https://example.com/plugins"
+  },
+  "catalog": {
+    "protocol": "manifest-v1",
+    "endpoint": "https://plugins.example.com/manifest.json"
+  },
+  "networkProfile": "DIRECT_STRICT",
+  "revocationsUrl": "https://plugins.example.com/revocations.json",
+  "updateProofUrl": "https://plugins.example.com/repository-update.json",
+  "trustedKeys": [{
+    "keyId": "example-2026",
+    "algorithm": "Ed25519",
+    "publicKeySpkiBase64": "BASE64_X509_SUBJECT_PUBLIC_KEY_INFO",
+    "state": "ACTIVE",
+    "publisher": "Example Publisher",
+    "trustLabel": "Example release key"
+  }]
+}
 ```
 
-自定义仓库不继承官方 trust root。仓库 id 不能使用保留值 `official` 或 `configured`。发布者轮换密钥时应先发布新 ACTIVE root，再按明确的 RETIRED/REVOKED 策略处理旧 key，不能只替换公钥却复用相同 key id。
+首次导入不发布也不校验 `repository.json.sig`：用描述符里的新公钥给描述符自身签名只能形成自证循环。软件会展示描述符摘要、发布者文本、全部联网主机和每把公钥的完整 `SHA-256(SPKI DER)` 指纹；用户确认时会重新下载并要求摘要逐字节一致，保存的配置在重启后生效。自定义仓库不继承官方 trust root，`official`、`configured`、`community` 是保留仓库 ID。
+
+`networkProfile` 只允许 `DIRECT_STRICT` 和 `GITHUB_RELEASES`。前者只访问描述符声明的公网 HTTPS 主机且不跟随重定向；后者只允许 GitHub 固定主机边界内的一次重定向。描述符不能关闭 SSRF 检查、允许私网或提供任意代理/重定向白名单。
+
+小仓库继续使用上文的 `manifest-v1` 和 `manifest.json.sig`。大型仓库可把 `catalog.protocol` 改为 `paged-v2`，并把 endpoint 指向 API 基地址，实现：
+
+```text
+GET {endpoint}/plugins?cursor=&limit=&query=&category=&publisher=&channel=
+GET {endpoint}/plugins/{pluginId}?cursor=&limit=
+GET {endpoint}/plugins/{pluginId}/versions/{version}
+```
+
+列表默认每页 24、最多 100 项，响应必须包含 `generation`，cursor 不透明；列表和详情响应分别不得超过 512 KiB 与 256 KiB。安装请求仍只提交 repository ID、plugin ID 和 version，宿主会重新读取版本端点，并把远端元数据与冻结后的包内 descriptor、大小、SHA-256 和发布者签名逐项核对。
+
+已信任仓库轮换描述符或密钥时，可用旧受信 key 签署 `repository-update-v1`；安全撤销使用更高 sequence 的 `revocations-v1`。两个文件的签名都放在原 URL 后追加 `.sig`，并用现有 CLI 的独立签名域生成：
+
+```text
+repository-update --document repository-update.json --repository-id example.plugins --sequence 2 --key-id example-2026 --private-key <pem> --out repository-update.json.sig
+plugin-revocations --document revocations.json --repository-id example.plugins --sequence 1 --key-id example-2026 --private-key <pem> --out revocations.json.sig
+```
+
+撤销范围支持 `PACKAGE_SHA256`、`PLUGIN_VERSION`、`SIGNING_KEY`、`PUBLISHER`；`YANKED` 只阻止新安装/更新，`REVOKED` 还会在下次启动加载前阻断已安装的匹配字节。插件仍与主程序运行在同一 JVM，没有代码沙箱；签名和撤销不能证明代码无恶意。
 
 ## 向项目贡献
 

@@ -817,26 +817,58 @@ When verifying a custom root, also pass `--trusted-key-id` and `--trusted-public
 
 ### Let users add a custom repository
 
-Recommend that users add a repository in the GUI plugin-market configuration. Equivalent `config.yaml`:
+Publish a strict UTF-8 JSON `repository.json` no larger than 64 KiB. A user only needs its public HTTPS URL in the plugin market:
 
-```yaml
-plugin-catalog.enabled: true
-plugin-catalog.repositories:
-  - id: example
-    display-name-key: plugin.market.repository.example.name
-    manifest-url: https://plugins.example.com/manifest.json
-    enabled: true
-    proxy-policy: direct-strict
-    trusted-keys:
-      - key-id: example-2026
-        algorithm: Ed25519
-        public-key: BASE64_X509_SUBJECT_PUBLIC_KEY_INFO
-        state: ACTIVE
-        publisher: Example Publisher
-        trust-label: Example repository release key
+```json
+{
+  "schemaVersion": 1,
+  "repositoryId": "example.plugins",
+  "displayName": "Example Plugins",
+  "publisher": {
+    "id": "example",
+    "displayName": "Example Publisher",
+    "homepageUrl": "https://example.com/plugins"
+  },
+  "catalog": {
+    "protocol": "manifest-v1",
+    "endpoint": "https://plugins.example.com/manifest.json"
+  },
+  "networkProfile": "DIRECT_STRICT",
+  "revocationsUrl": "https://plugins.example.com/revocations.json",
+  "updateProofUrl": "https://plugins.example.com/repository-update.json",
+  "trustedKeys": [{
+    "keyId": "example-2026",
+    "algorithm": "Ed25519",
+    "publicKeySpkiBase64": "BASE64_X509_SUBJECT_PUBLIC_KEY_INFO",
+    "state": "ACTIVE",
+    "publisher": "Example Publisher",
+    "trustLabel": "Example release key"
+  }]
+}
 ```
 
-A custom repository does not inherit the official trust root. Repository ids must not use the reserved values `official` or `configured`. When rotating keys, publish a new ACTIVE root first, then handle the old key through an explicit RETIRED/REVOKED policy. Never replace the public key while reusing the same key id.
+Do not publish or rely on `repository.json.sig` for first import: a new key signing the descriptor that introduces that same key is only self-attestation. The application displays the descriptor digest, publisher text, every network host, and each full `SHA-256(SPKI DER)` fingerprint. Confirmation re-fetches the descriptor and requires byte-for-byte digest equality; the saved configuration becomes active after restart. A custom repository does not inherit the official trust root. `official`, `configured`, and `community` are reserved repository IDs.
+
+`networkProfile` accepts only `DIRECT_STRICT` and `GITHUB_RELEASES`. The first uses only declared public HTTPS hosts and no redirects. The second permits one redirect inside the fixed GitHub host boundary. A descriptor cannot disable SSRF checks, admit private addresses, or supply an arbitrary proxy or redirect allowlist.
+
+Small repositories can keep the signed `manifest-v1` format above. A large repository can set `catalog.protocol` to `paged-v2`, point the endpoint at an API base URL, and implement:
+
+```text
+GET {endpoint}/plugins?cursor=&limit=&query=&category=&publisher=&channel=
+GET {endpoint}/plugins/{pluginId}?cursor=&limit=
+GET {endpoint}/plugins/{pluginId}/versions/{version}
+```
+
+The default page size is 24 and the maximum is 100. Responses carry a `generation`; cursors are opaque. List and detail responses are limited to 512 KiB and 256 KiB. Installation still submits only repository ID, plugin ID, and version. The host resolves the version endpoint again and compares remote metadata with the frozen package descriptor, size, SHA-256, and publisher signature.
+
+After first trust, an old trusted key may sign a monotonic `repository-update-v1` proof for descriptor or key rotation. Security revocations use a higher-sequence `revocations-v1` document. Append `.sig` to each JSON URL and use the existing CLI's separate signing domains:
+
+```text
+repository-update --document repository-update.json --repository-id example.plugins --sequence 2 --key-id example-2026 --private-key <pem> --out repository-update.json.sig
+plugin-revocations --document revocations.json --repository-id example.plugins --sequence 1 --key-id example-2026 --private-key <pem> --out revocations.json.sig
+```
+
+Revocation scopes include `PACKAGE_SHA256`, `PLUGIN_VERSION`, `SIGNING_KEY`, and `PUBLISHER`. `YANKED` blocks new installation and update; `REVOKED` also blocks matching installed bytes before the next load. Plugins still run in the same JVM as the host without a code sandbox. Signatures and revocations do not prove that code is safe.
 
 ## Contributing to the project
 

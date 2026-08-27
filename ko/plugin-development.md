@@ -77,7 +77,9 @@ PostHog 기능은 vendor 전용 foundation과 플러그인 소유 consumer를 �
 
 ## 사용자 지정 저장소
 
-사용자는 신뢰하는 저장소 URL과 공개 키를 설정할 수 있습니다. 로컬 업로드를 임의의 신뢰 루트로 사용하게 만들지 말고, 호스트의 서명·크기·해시 검증을 유지하세요.
+타사 저장소는 최대 64 KiB의 엄격한 UTF-8 JSON `repository.json`을 공개합니다. 필수 정보는 `schemaVersion: 1`, 예약되지 않은 `repositoryId`, 표시 이름, 게시자, `catalog.protocol`(`manifest-v1` 또는 `paged-v2`), 공개 HTTPS endpoint, `networkProfile`(`DIRECT_STRICT` 또는 `GITHUB_RELEASES`), Ed25519 SPKI 공개 키 1~4개입니다. `revocationsUrl`과 `updateProofUrl`은 선택 사항입니다. 최초 가져오기에서는 `repository.json.sig`를 사용하지 않습니다. 사용자가 게시자, 모든 연결 호스트와 공개 키의 전체 `SHA-256(SPKI DER)` 지문을 확인하고, 확인 시 다시 받은 descriptor digest가 같을 때만 저장되며 재시작 후 활성화됩니다.
+
+`paged-v2`는 `{endpoint}/plugins`, `{endpoint}/plugins/{pluginId}`, `{endpoint}/plugins/{pluginId}/versions/{version}`을 제공하고 기본 24개·최대 100개 항목, `generation`과 불투명 cursor를 사용합니다. 설치 시 버전 endpoint를 다시 조회하여 동결한 패키지의 크기, SHA-256, 서명과 내부 descriptor를 비교합니다. 키 교체에는 이전 신뢰 키로 서명한 단조 증가 `repository-update-v1`, 보안 철회에는 `revocations-v1`을 사용하며 기존 CLI의 `repository-update`와 `plugin-revocations` 명령으로 서명합니다. `YANKED`는 신규 설치/업데이트를 막고 `REVOKED`는 기존 바이트 로드도 막습니다. 플러그인은 호스트와 같은 JVM에서 실행되며 코드 sandbox는 없습니다.
 
 ## 기여 전 checklist
 

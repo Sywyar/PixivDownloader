@@ -816,26 +816,34 @@ verify-artifact --artifact <jar> --signature <sig.json> --plugin-id <id> --versi
 
 ### 讓用戶添加自定義倉庫
 
-推薦用戶在 GUI 的插件市場配置中添加倉庫。等價的 `config.yaml`：
+發佈一個最大 64 KiB、嚴格 UTF-8 JSON 的 `repository.json`，使用者只需在外掛程式市集填寫它的公網 HTTPS 位址：
 
-```yaml
-plugin-catalog.enabled: true
-plugin-catalog.repositories:
-  - id: example
-    display-name-key: plugin.market.repository.example.name
-    manifest-url: https://plugins.example.com/manifest.json
-    enabled: true
-    proxy-policy: direct-strict
-    trusted-keys:
-      - key-id: example-2026
-        algorithm: Ed25519
-        public-key: BASE64_X509_SUBJECT_PUBLIC_KEY_INFO
-        state: ACTIVE
-        publisher: Example Publisher
-        trust-label: Example repository release key
+```json
+{
+  "schemaVersion": 1,
+  "repositoryId": "example.plugins",
+  "displayName": "Example Plugins",
+  "publisher": {"id": "example", "displayName": "Example Publisher", "homepageUrl": "https://example.com/plugins"},
+  "catalog": {"protocol": "manifest-v1", "endpoint": "https://plugins.example.com/manifest.json"},
+  "networkProfile": "DIRECT_STRICT",
+  "revocationsUrl": "https://plugins.example.com/revocations.json",
+  "updateProofUrl": "https://plugins.example.com/repository-update.json",
+  "trustedKeys": [{
+    "keyId": "example-2026",
+    "algorithm": "Ed25519",
+    "publicKeySpkiBase64": "BASE64_X509_SUBJECT_PUBLIC_KEY_INFO",
+    "state": "ACTIVE",
+    "publisher": "Example Publisher",
+    "trustLabel": "Example release key"
+  }]
+}
 ```
 
-自定義倉庫不繼承官方 trust root。倉庫 id 不能使用保留值 `official` 或 `configured`。發佈者輪換密鑰時應先發布新 ACTIVE root，再按明確的 RETIRED/REVOKED 策略處理舊 key，不能只替換公鑰卻複用相同 key id。
+首次匯入不發佈也不驗證 `repository.json.sig`：用描述符裡的新公開金鑰簽署描述符本身只是自我證明。軟體會顯示描述符摘要、發佈者文字、全部連線主機和每把公開金鑰完整的 `SHA-256(SPKI DER)` 指紋；確認時會重新下載並要求摘要逐位元組一致，保存的設定在重新啟動後生效。自訂儲存庫不繼承官方 trust root；`official`、`configured`、`community` 是保留 ID。
+
+`networkProfile` 只接受 `DIRECT_STRICT` 與 `GITHUB_RELEASES`。小型儲存庫可繼續使用上文已簽章的 `manifest-v1`；大型儲存庫可改用 `paged-v2` 並實作 `{endpoint}/plugins`、`{endpoint}/plugins/{pluginId}` 和 `{endpoint}/plugins/{pluginId}/versions/{version}`。每頁預設 24、最多 100 項，回應帶有 `generation`，安裝前宿主仍會重新解析版本並核對凍結套件的大小、SHA-256、簽章和套件內 descriptor。
+
+已信任儲存庫可讓舊受信 key 簽署單調序號的 `repository-update-v1`；安全撤銷使用 `revocations-v1`。兩者的簽章檔都在 JSON URL 後追加 `.sig`，並使用現有 CLI 的 `repository-update` 或 `plugin-revocations` 命令生成。撤銷範圍支援 `PACKAGE_SHA256`、`PLUGIN_VERSION`、`SIGNING_KEY`、`PUBLISHER`；`YANKED` 只阻止新安裝/更新，`REVOKED` 還會在載入前阻斷已安裝的相符位元組。外掛程式仍與主程式在同一 JVM 執行，沒有程式碼沙箱。
 
 ## 向項目貢獻
 
