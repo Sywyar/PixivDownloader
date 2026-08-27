@@ -1,0 +1,30 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Verify Plugin",
+      "type": "process",
+      "command": "sh",
+      "args": ["${workspaceFolder}/mvnw", "clean", "verify"],
+      "windows": {
+        "command": "${workspaceFolder}\\mvnw.cmd",
+        "args": ["clean", "verify"]
+      },
+      "options": {"cwd": "${workspaceFolder}"},
+      "group": {"kind": "build", "isDefault": true},
+      "problemMatcher": ["$javac"]
+    },
+    {
+      "label": "Package Plugin",
+      "type": "process",
+      "command": "sh",
+      "args": ["${workspaceFolder}/mvnw", "package", "-DskipTests"],
+      "windows": {
+        "command": "${workspaceFolder}\\mvnw.cmd",
+        "args": ["package", "-DskipTests"]
+      },
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": ["$javac"]
+    }
+  ]
+}

@@ -6,6 +6,7 @@
     "test:web-standards": "node scripts/check-web-standards.mjs",
     "sdk:version": "node scripts/ci/sdk-version.mjs --repo-root .",
     "sdk:surface": "node scripts/ci/sdk-api-surface.mjs",
+    "sdk:release": "node scripts/ci/sdk-release.mjs",
     "test:i18n": "node --test \"scripts/i18n/test/*.test.mjs\"",
     "i18n:check": "node scripts/i18n/check.mjs --strict",
     "i18n:report": "node scripts/i18n/check.mjs --report-only",
