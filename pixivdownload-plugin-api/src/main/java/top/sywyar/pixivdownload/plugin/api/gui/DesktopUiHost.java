@@ -1204,6 +1204,14 @@ public interface DesktopUiHost extends DesktopUiToolHost {
      * @param maximized 关闭窗口时是否最大化
      */
     record WindowStateSnapshot(int width, int height, boolean maximized) {
+        /**
+         * 创建并校验可持久化的窗口状态。
+         *
+         * @param width     最后一次普通窗口宽度
+         * @param height    最后一次普通窗口高度
+         * @param maximized 关闭窗口时是否最大化
+         * @throws IllegalArgumentException 窗口宽度或高度不在 {@code 1..32768} 范围内时抛出
+         */
         public WindowStateSnapshot {
             if (width <= 0 || height <= 0 || width > 32_768 || height > 32_768) {
                 throw new IllegalArgumentException("window dimensions must be between 1 and 32768");
