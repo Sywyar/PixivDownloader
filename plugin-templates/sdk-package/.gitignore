@@ -1,0 +1,5 @@
+/target/
+/plugin/target/
+/examples/minimal-feature-plugin/target/
+/.idea/
+*.iml

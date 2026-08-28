@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.sdk;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.Objects;
 import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -17,19 +16,22 @@ import java.util.regex.Pattern;
 public final class SdkVersion {
 
     private static final String RESOURCE = "/META-INF/pixivdownload-sdk.properties";
-    private static final Pattern SEMVER = Pattern.compile("(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)");
+    private static final Pattern SEMVER = Pattern.compile(
+            "(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-(alpha|beta|rc)([1-9]\\d*))?");
     private static final Metadata METADATA = load();
 
     /** 当前 SDK 的语义化版本。 */
     public static final String VERSION = METADATA.version();
-    /** {@link #VERSION} 内当前 SDK 套件的修订号。 */
-    public static final int REVISION = METADATA.revision();
     /** 兼容性主版本。 */
     public static final int MAJOR = METADATA.major();
     /** 兼容性次版本。 */
     public static final int MINOR = METADATA.minor();
     /** 补丁版本，不参与兼容性判断。 */
     public static final int PATCH = METADATA.patch();
+    /** 预发布通道；稳定版为空字符串。 */
+    public static final String PRERELEASE_CHANNEL = METADATA.prereleaseChannel();
+    /** 预发布序号；稳定版为 {@code 0}。 */
+    public static final int PRERELEASE_SEQUENCE = METADATA.prereleaseSequence();
 
     private SdkVersion() {
     }
@@ -46,10 +48,19 @@ public final class SdkVersion {
     /**
      * 返回不可变的 SDK 发布标识。
      *
-     * @return 形如 {@code sdk-api-v1.0.0-r1} 的发布标识
+     * @return 形如 {@code sdk-api-v1.0.0-rc1} 的发布标识
      */
     public static String releaseId() {
-        return "sdk-api-v" + VERSION + "-r" + REVISION;
+        return "sdk-api-v" + VERSION;
+    }
+
+    /**
+     * 判断当前 SDK 是否为预发布版本。
+     *
+     * @return 带有 {@code alphaN}、{@code betaN} 或 {@code rcN} 后缀时返回 {@code true}
+     */
+    public static boolean isPrerelease() {
+        return !PRERELEASE_CHANNEL.isEmpty();
     }
 
     /**
@@ -87,27 +98,39 @@ public final class SdkVersion {
         } catch (IOException e) {
             throw new IllegalStateException("Failed to read SDK metadata: " + RESOURCE, e);
         }
-        String version = Objects.requireNonNull(properties.getProperty("version"), "SDK version").trim();
+        if (properties.containsKey("revision")) {
+            throw new IllegalStateException("Unsupported SDK revision metadata");
+        }
+        String version = properties.getProperty("version");
+        if (version == null) {
+            throw new IllegalStateException("Missing SDK version metadata");
+        }
+        return parse(version.trim());
+    }
+
+    static Metadata parse(String version) {
         Matcher matcher = SEMVER.matcher(version);
         if (!matcher.matches()) {
             throw new IllegalStateException("Invalid SDK semantic version: " + version);
         }
-        int revision;
-        try {
-            revision = Integer.parseInt(Objects.requireNonNull(
-                    properties.getProperty("revision"), "SDK revision").trim());
-        } catch (NumberFormatException e) {
-            throw new IllegalStateException("Invalid SDK revision", e);
-        }
-        if (revision <= 0) {
-            throw new IllegalStateException("SDK revision must be positive");
-        }
-        return new Metadata(version, revision,
+        String prereleaseChannel = matcher.group(4);
+        return new Metadata(
+                version,
                 Integer.parseInt(matcher.group(1)),
                 Integer.parseInt(matcher.group(2)),
-                Integer.parseInt(matcher.group(3)));
+                Integer.parseInt(matcher.group(3)),
+                prereleaseChannel == null ? "" : prereleaseChannel,
+                prereleaseChannel == null ? 0 : Integer.parseInt(matcher.group(5))
+        );
     }
 
-    private record Metadata(String version, int revision, int major, int minor, int patch) {
+    record Metadata(
+            String version,
+            int major,
+            int minor,
+            int patch,
+            String prereleaseChannel,
+            int prereleaseSequence
+    ) {
     }
 }

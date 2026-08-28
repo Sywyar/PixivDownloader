@@ -65,8 +65,8 @@ class PluginRuntimeDependencyGuardTest {
     private static final Pattern PRIVATE_HTTP_ARTIFACT = Pattern.compile(
             "(?i)(?:httpclient|httpcore|httpasyncclient).*");
     private static final Set<DependencyCoordinate> EXPECTED_POM_DEPENDENCIES = Set.of(
-            dependency("top.sywyar.lovepopup", "pixivdownload-sdk-info", "compile"),
-            dependency("top.sywyar.lovepopup", "pixivdownload-plugin-api", "compile"),
+            dependency("io.github.sywyar.pixivdownloader", "pixivdownload-sdk-info", "compile"),
+            dependency("io.github.sywyar.pixivdownloader", "pixivdownload-plugin-api", "compile"),
             dependency("top.sywyar.lovepopup", "pixivdownload-plugin-signature", "compile"),
             dependency("org.springframework", "spring-context", "compile"),
             dependency("org.springframework", "spring-web", "compile"),

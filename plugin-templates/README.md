@@ -23,7 +23,7 @@
 
     mvn -f plugin-templates/pom.xml verify
 
-这个验证 reactor 会先构建同仓的 SDK Info、Plugin API、Core API 与 SDK BOM。复制到仓库外时，两个子项目仍是无相对 parent 的独立 POM，但构建环境必须能从 SDK 仓库解析 <code>top.sywyar.lovepopup:pixivdownload-sdk-bom:1.0.0</code> 及 BOM 管理的公共构件；不要改成引用宿主源码目录或应用模块。
+这个验证 reactor 会先构建同仓的 SDK Info、Plugin API、Core API 与 SDK BOM。复制到仓库外时，两个子项目仍是无相对 parent 的独立 POM，但构建环境必须能从 Maven 仓库解析 <code>io.github.sywyar.pixivdownloader:pixivdownload-sdk-bom:1.0.0-rc1</code> 及 BOM 管理的公共构件；不要改成引用宿主源码目录或应用模块。
 
 产物位于 <code>plugin-templates/minimal-feature-plugin/target/example-minimal-plugin-0.1.0.jar</code>。将复制并改名后的插件 JAR 通过插件管理页安装，或放入宿主的运行期 <code>plugins/</code> 目录；两种方式都受宿主的包验证与本地未签名策略约束，模板不包含签名、信任根或 installer 内部实现。插件启用后可由管理员直接访问 <code>/example-minimal.html</code>。
 
@@ -43,7 +43,7 @@
 | <code>ExampleMinimal</code> | 你的 Java 类型名前缀 |
 | <code>0.1.0</code> | 插件项目版本与 <code>plugin.version</code> |
 | <code>plugin.requires=1.0</code> | 目标宿主的 major.minor 契约版本；只替换这一整行，不要误改 <code>1.0.0</code> |
-| <code>&lt;pixivdownload.sdk.version&gt;1.0.0&lt;/pixivdownload.sdk.version&gt;</code> | 构建环境提供的统一 SDK/BOM 版本 |
+| <code>&lt;pixivdownload.sdk.version&gt;1.0.0-rc1&lt;/pixivdownload.sdk.version&gt;</code> | 构建环境提供的统一 SDK/BOM 版本 |
 | <code>plugin.provider=Example Developer</code> | 你的 provider 名称 |
 
 最后修改两份 i18n 文件中的展示文案，并再次运行 <code>mvn verify</code>。不要只改 <code>plugin.properties</code>：feature id、route、static、namespace、插件自有表名前缀和测试中的对应值必须同步替换。

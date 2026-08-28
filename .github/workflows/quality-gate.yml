@@ -45,10 +45,52 @@ jobs:
           java-version: '17'
           distribution: temurin
           cache: maven
+      - name: Set up Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - name: Resolve SDK contract predecessor
+        env:
+          EVENT_BEFORE: ${{ github.event.before }}
+          EVENT_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT_MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          INPUT_TRUSTED_BASE_SHA: ${{ inputs.trusted_base_sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          INPUT_ROOT_ADMISSION: ${{ inputs.root_admission }}
+          INPUT_ROOT_CANDIDATE_SHA: ${{ inputs.root_candidate_sha }}
+        run: |
+          TRUSTED_BASE_SHA="$INPUT_TRUSTED_BASE_SHA"
+          if [ -z "$TRUSTED_BASE_SHA" ] && [ "$INPUT_ROOT_ADMISSION" != "true" ]; then
+            if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] || { [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ "$EVENT_PR_BASE_REF" != "$DEFAULT_BRANCH" ]; }; then
+              git fetch --no-tags origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
+              PROTECTED_TIP="$(git rev-parse "refs/remotes/origin/$DEFAULT_BRANCH")"
+              if [ "$GITHUB_SHA" = "$PROTECTED_TIP" ]; then
+                TRUSTED_BASE_SHA="$(git rev-parse "$GITHUB_SHA^")"
+              else
+                TRUSTED_BASE_SHA="$(git merge-base "$GITHUB_SHA" "$PROTECTED_TIP")"
+              fi
+            fi
+          fi
+          node scripts/ci/resolve-trusted-base.mjs --repo-root . --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --before "$EVENT_BEFORE" --ref "$GITHUB_REF" --pr-head "$EVENT_PR_HEAD_SHA" --pr-base "$EVENT_PR_BASE_SHA" --merge-group-base "$EVENT_MERGE_GROUP_BASE_SHA" --input-base "$TRUSTED_BASE_SHA" --default-branch "$DEFAULT_BRANCH" --root-admission "$INPUT_ROOT_ADMISSION" --root-candidate-sha "$INPUT_ROOT_CANDIDATE_SHA" --mode > "$RUNNER_TEMP/sdk-gate-base.json"
+          node -e 'const j=require(process.argv[1]); console.log(`SDK_BASE_SHA=${j.base}`)' "$RUNNER_TEMP/sdk-gate-base.json" >> "$GITHUB_ENV"
       - name: Compile external plugin test fixtures
         run: mvn -B -ntp -pl pixivdownload-official-plugins -am compile -Dexec.skip=true
       - name: Run Java tests
         run: mvn -B -ntp test -Dexec.skip=true -Duser.language=en -Duser.country=US
+      - name: Package SDK contract artifacts
+        run: mvn -B -ntp -pl pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api,pixivdownload-sdk-bom package -DskipTests -Dexec.skip=true
+      - name: Compare SDK public contract
+        run: |
+          BASE_DIR="$RUNNER_TEMP/sdk-base-source"
+          mkdir -p "$BASE_DIR"
+          git archive "$SDK_BASE_SHA" | tar -x -C "$BASE_DIR"
+          mvn -B -ntp -f "$BASE_DIR/pom.xml" -pl pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api,pixivdownload-sdk-bom -am package -Dmaven.test.skip=true -Dmaven.javadoc.skip=true -Dmaven.source.skip=true -Dexec.skip=true
+          node scripts/ci/sdk-api-surface.mjs --module "sdk-info=$BASE_DIR/pixivdownload-sdk-info/target" --module "plugin-api=$BASE_DIR/pixivdownload-plugin-api/target" --module "core-api=$BASE_DIR/pixivdownload-core-api/target" --output "$RUNNER_TEMP/sdk-base-surface.txt"
+          node scripts/ci/sdk-api-surface.mjs --module sdk-info=pixivdownload-sdk-info/target --module plugin-api=pixivdownload-plugin-api/target --module core-api=pixivdownload-core-api/target --output "$RUNNER_TEMP/sdk-candidate-surface.txt"
+          node scripts/ci/sdk-contract.mjs --repo-root . --base-ref "$SDK_BASE_SHA" --candidate-ref "$GITHUB_SHA" --base-surface "$RUNNER_TEMP/sdk-base-surface.txt" --candidate-surface "$RUNNER_TEMP/sdk-candidate-surface.txt" --base-sdk-root "$BASE_DIR" --candidate-sdk-root . --report "$RUNNER_TEMP/sdk-contract-report.json"
+          cat "$RUNNER_TEMP/sdk-contract-report.json"
 
   javascript-tests:
     runs-on: ubuntu-latest

@@ -1,0 +1,77 @@
+name: Build SDK Pages
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout protected SDK site source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: refs/heads/master
+          fetch-depth: 1
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Test Pages builder
+        run: npm test
+
+      - name: Download every immutable SDK Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p target/releases
+          tags_file="target/releases/tags.txt"
+          : > "$tags_file"
+          page=1
+          while true; do
+            response="target/releases/releases-$page.json"
+            curl --retry 5 --retry-all-errors -fsSLo "$response" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/releases?per_page=100&page=$page"
+            count="$(jq 'length' "$response")"
+            jq -r '.[] | select(.draft == false) | select(.tag_name | startswith("sdk-api-v")) | .tag_name' \
+              "$response" >> "$tags_file"
+            rm "$response"
+            if [ "$count" -lt 100 ]; then break; fi
+            page=$((page + 1))
+          done
+          mapfile -t tags < "$tags_file"
+          rm "$tags_file"
+          for tag in "${tags[@]}"; do
+            if ! [[ "$tag" =~ ^sdk-api-v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)[1-9][0-9]*)?$ ]]; then
+              echo "invalid SDK Release tag: $tag" >&2
+              exit 1
+            fi
+            directory="target/releases/$tag"
+            mkdir "$directory"
+            version="${tag#sdk-api-v}"
+            base="https://github.com/$GITHUB_REPOSITORY/releases/download/$tag"
+            for asset in "PixivDownloader-Plugin-SDK-$version.zip" \
+                         "PixivDownloader-Plugin-SDK-Javadocs-$version.zip" \
+                         sdk-release.json SHA256SUMS; do
+              curl --retry 5 --retry-all-errors -fsSLo "$directory/$asset" "$base/$asset"
+            done
+          done
+
+      - name: Verify Releases and build versioned Javadocs
+        run: node scripts/build-pages.mjs --releases-dir target/releases --output target/pages
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
+        with:
+          path: target/pages

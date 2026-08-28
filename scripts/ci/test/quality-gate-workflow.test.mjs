@@ -35,6 +35,18 @@ test('Quality Gate：五个 required context 与完整触发面保持稳定', ()
         'push', 'pull_request', 'merge_group', 'workflow_dispatch', 'workflow_call',
     ]);
     assert.deepEqual(doc.on.push['branches-ignore'], ['gh-pages']);
+    const javaSteps = doc.jobs['java-tests'].steps;
+    const sdkResolve = javaSteps.find((step) => step.name === 'Resolve SDK contract predecessor');
+    const sdkPackage = javaSteps.find((step) => step.name === 'Package SDK contract artifacts');
+    const sdkContract = javaSteps.find((step) => step.name === 'Compare SDK public contract');
+    assert.equal(sdkResolve.env.INPUT_TRUSTED_BASE_SHA, '${{ inputs.trusted_base_sha }}');
+    assert.match(sdkResolve.run, /resolve-trusted-base\.mjs/u);
+    assert.match(sdkPackage.run, /pixivdownload-sdk-bom package -DskipTests/u);
+    assert.match(sdkContract.run, /git archive "\$SDK_BASE_SHA"/u);
+    assert.match(sdkContract.run, /sdk-api-surface\.mjs/u);
+    assert.match(sdkContract.run, /sdk-contract\.mjs/u);
+    assert.match(sdkContract.run, /--base-sdk-root "\$BASE_DIR" --candidate-sdk-root \./u);
+    assert.doesNotMatch(sdkContract.run, /continue-on-error|always\(\)|failure\(\)|cancelled\(\)/u);
     for (const id of ['signature-guard', 'trusted-gate-contract']) {
         const resolve = doc.jobs[id].steps.find((step) => step.name === 'Resolve protected predecessor');
         const scripts = doc.jobs[id].steps.map((step) => step.run || '').join('\n');
@@ -174,6 +186,84 @@ test('发布链：所有凭据与写权限只在 release Environment 的门禁�
         assert.equal(sign.with.update_signing_private_key_pem_base64,
             '${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64 }}');
     }
+});
+
+test('SDK 发布链只在身份变化或显式恢复时通过同 SHA 门禁写入公共仓库', () => {
+    const sdk = load('.github/workflows/publish-sdk.yml');
+    const policy = JSON.parse(fs.readFileSync(path.join(ROOT, 'scripts', 'ci',
+        'release-gate-policy.json'), 'utf8'));
+    assert.equal(sdk.name, 'Publish plugin SDK');
+    assert.deepEqual(triggers(sdk), ['push', 'workflow_dispatch']);
+    assert.deepEqual(sdk.permissions, { contents: 'read' });
+    assert.deepEqual(sdk.on.push.branches, ['master']);
+    assert.deepEqual(sdk.on.workflow_dispatch.inputs.mode.options, ['publish', 'recover-release']);
+    assert.equal(sdk.jobs['quality-gate'].uses, './.github/workflows/quality-gate.yml');
+    assert.equal(sdk.jobs['quality-gate'].with.trusted_base_sha,
+        '${{ needs.release-plan.outputs.trusted_base_sha }}');
+    assert.deepEqual(sdk.jobs.publish.needs, ['release-plan', 'quality-gate']);
+    assert.equal(sdk.jobs.publish.environment, 'release');
+    assert.equal(sdk.jobs.publish.steps.find((step) => step.name === 'Checkout release source').with.ref,
+        '${{ github.sha }}');
+    assert.deepEqual(secretNames(sdk.jobs.publish).sort(), [
+        'CENTRAL_PASSWORD', 'CENTRAL_USERNAME', 'CROSS_REPO_RELEASE_TOKEN',
+        'MAVEN_GPG_PASSPHRASE', 'MAVEN_GPG_PRIVATE_KEY',
+    ]);
+    const serialized = JSON.stringify(sdk.jobs.publish);
+    assert.doesNotMatch(serialized, /continue-on-error|always\(\)|failure\(\)|cancelled\(\)/u);
+    const state = sdk.jobs.publish.steps.find((step) => step.name === 'Check immutable publication state');
+    const central = sdk.jobs.publish.steps.find((step) => step.name === 'Publish SDK artifacts to Maven Central');
+    const remote = sdk.jobs.publish.steps.find((step) => step.name === 'Verify public SDK Release and clean consumer');
+    assert.match(state.run, /central_count.*tag_exists.*release_exists/su);
+    assert.equal(central.if, "${{ needs.release-plan.outputs.mode == 'publish' }}");
+    assert.match(remote.run, /gh release download/u);
+    assert.match(remote.run, /sdk-consumer\.mjs/u);
+    assert.deepEqual(policy.workflows['.github/workflows/publish-sdk.yml'], {
+        workflowName: 'Publish plugin SDK',
+        requiredJobs: ['release-plan', 'quality-gate', 'publish'],
+        requiredTriggers: ['push', 'workflow_dispatch'],
+    });
+});
+
+test('SDK 接收仓库 workflow 由主仓库只读编排且不持有跨仓库凭据', () => {
+    const ci = load('.github/workflows/sdk-repository-ci.yml');
+    const pages = load('.github/workflows/sdk-pages.yml');
+    const policy = JSON.parse(fs.readFileSync(path.join(ROOT, 'scripts', 'ci',
+        'release-gate-policy.json'), 'utf8'));
+
+    assert.equal(ci.name, 'SDK repository CI');
+    assert.deepEqual(triggers(ci), ['workflow_call']);
+    assert.deepEqual(ci.permissions, { contents: 'read' });
+    assert.deepEqual(Object.keys(ci.jobs), ['verify']);
+    assert.equal(ci.jobs.verify.steps.find((step) => step.name === 'Checkout SDK repository candidate')
+        .with.ref, '${{ github.sha }}');
+    assert.equal(ci.jobs.verify.steps.find((step) => step.name === 'Verify SDK repository source').run,
+        'npm test');
+
+    assert.equal(pages.name, 'Build SDK Pages');
+    assert.deepEqual(triggers(pages), ['workflow_call']);
+    assert.deepEqual(pages.permissions, { contents: 'read' });
+    assert.deepEqual(Object.keys(pages.jobs), ['build']);
+    const download = pages.jobs.build.steps
+        .find((step) => step.name === 'Download every immutable SDK Release');
+    const upload = pages.jobs.build.steps.find((step) => step.name === 'Upload Pages artifact');
+    assert.equal(download.env, undefined);
+    assert.match(download.run, /https:\/\/api\.github\.com\/repos\/\$GITHUB_REPOSITORY\/releases/u);
+    assert.match(download.run, /https:\/\/github\.com\/\$GITHUB_REPOSITORY\/releases\/download/u);
+    assert.equal(upload.uses, 'actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9');
+    assert.doesNotMatch(JSON.stringify([ci, pages]),
+        /secrets\.|github\.token|CROSS_REPO_RELEASE_TOKEN|"pages":"write"|"id-token":"write"/u);
+    assert.doesNotMatch(JSON.stringify(pages), /actions\/deploy-pages/u);
+
+    assert.deepEqual(policy.workflows['.github/workflows/sdk-repository-ci.yml'], {
+        workflowName: 'SDK repository CI',
+        requiredJobs: ['verify'],
+        requiredTriggers: ['workflow_call'],
+    });
+    assert.deepEqual(policy.workflows['.github/workflows/sdk-pages.yml'], {
+        workflowName: 'Build SDK Pages',
+        requiredJobs: ['build'],
+        requiredTriggers: ['workflow_call'],
+    });
 });
 
 test('FFmpeg：手动流程从官方稳定源码构建并在门禁后发布五个平台资产', () => {

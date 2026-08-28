@@ -149,6 +149,7 @@ For detailed installation steps, usage guides, configuration reference, and deve
 - [⚙️ Configuration](https://sywyar.github.io/PixivDownloader/#/en/configuration)
 - [🔌 Plugin Management](https://sywyar.github.io/PixivDownloader/#/en/plugin-management)
 - [🧩 Third-party Plugin SDK](https://sywyar.github.io/PixivDownloader/#/en/plugin-development)
+- [📦 Plugin SDK downloads and release history](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) (an empty list means no SDK has been published)
 - [💾 Storage Principles](https://sywyar.github.io/PixivDownloader/#/en/storage)
 - [❓ FAQ](https://sywyar.github.io/PixivDownloader/#/en/faq)
 - [🛠️ Development](https://sywyar.github.io/PixivDownloader/#/en/development)

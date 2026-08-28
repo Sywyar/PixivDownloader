@@ -14,13 +14,13 @@
 
     <dependencies>
         <dependency>
-            <groupId>top.sywyar.lovepopup</groupId>
+            <groupId>io.github.sywyar.pixivdownloader</groupId>
             <artifactId>pixivdownload-core-api</artifactId>
             <version>${pixivdownload.sdk.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
-            <groupId>top.sywyar.lovepopup</groupId>
+            <groupId>io.github.sywyar.pixivdownloader</groupId>
             <artifactId>pixivdownload-plugin-api</artifactId>
             <version>${pixivdownload.sdk.version}</version>
             <scope>provided</scope>
