@@ -14,6 +14,10 @@ function command(tool, args) {
     });
 }
 
+function compareText(left, right) {
+    return left < right ? -1 : left > right ? 1 : 0;
+}
+
 export function normalizeJavap(moduleName, output) {
     const entries = [];
     let type = '';
@@ -49,7 +53,7 @@ export function normalizeJavap(moduleName, output) {
             declaration = line;
         }
     }
-    return entries.sort((left, right) => left.localeCompare(right, 'en'));
+    return entries.sort(compareText);
 }
 
 function classNames(jarPath) {
@@ -61,7 +65,7 @@ function classNames(jarPath) {
                     && !entry.endsWith('/package-info.class')
                     && entry !== 'module-info.class')
             .map((entry) => entry.slice(0, -6).replaceAll('/', '.'))
-            .sort((left, right) => left.localeCompare(right, 'en'));
+            .sort(compareText);
 }
 
 function moduleArtifact(name, directory) {
@@ -86,7 +90,7 @@ export function collectApiSurface(artifacts) {
         const output = command('javap', ['-classpath', artifact.path, '-protected', '-s', '-constants', ...classes]);
         surface.push(...normalizeJavap(artifact.name, output));
     }
-    return `${surface.sort((left, right) => left.localeCompare(right, 'en')).join('\n')}\n`;
+    return `${surface.sort(compareText).join('\n')}\n`;
 }
 
 function parseArguments(argv) {
