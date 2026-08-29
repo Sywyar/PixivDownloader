@@ -5,6 +5,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 
 import java.io.BufferedInputStream;
@@ -82,6 +83,7 @@ public final class PluginPackageReader {
     static final String KEY_PIXIV_COLOR_TOKEN = "pixiv.color-token";
     static final String KEY_PIXIV_REPLACES = "pixiv.replaces";
     static final String KEY_PIXIV_LIFECYCLE_POLICY = "pixiv.lifecycle-policy";
+    static final String KEY_PIXIV_EXECUTION_MODE = "pixiv.execution-mode";
 
     private PluginPackageReader() {
     }
@@ -344,8 +346,10 @@ public final class PluginPackageReader {
         String colorToken = trimToNull(properties.getProperty(KEY_PIXIV_COLOR_TOKEN));
         List<String> replaces = parsePluginIds(properties.getProperty(KEY_PIXIV_REPLACES));
         PluginLifecyclePolicy lifecyclePolicy;
+        PluginExecutionMode executionMode;
         try {
             lifecyclePolicy = PluginLifecyclePolicy.parse(properties.getProperty(KEY_PIXIV_LIFECYCLE_POLICY));
+            executionMode = PluginExecutionMode.parse(properties.getProperty(KEY_PIXIV_EXECUTION_MODE));
         } catch (IllegalArgumentException e) {
             throw new PluginPackageException(PluginPackageException.Reason.MALFORMED, e.getMessage(), e);
         }
@@ -353,7 +357,8 @@ public final class PluginPackageReader {
             displayName = (pf4jDescription != null) ? pf4jDescription : id;
         }
         return new PluginDescriptor(id, id, version, requires, dependencies, pluginClass, displayNamespace,
-                displayName, description, iconKey, colorToken, PluginKind.FEATURE, replaces, lifecyclePolicy);
+                displayName, description, iconKey, colorToken, PluginKind.FEATURE, replaces, lifecyclePolicy,
+                executionMode);
     }
 
     private static List<PluginDependencyRef> parseDependencies(String raw) {

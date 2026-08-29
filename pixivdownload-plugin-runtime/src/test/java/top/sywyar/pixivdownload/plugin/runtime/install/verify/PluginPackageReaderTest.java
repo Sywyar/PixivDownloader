@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 
 import java.io.IOException;
@@ -45,6 +46,7 @@ class PluginPackageReaderTest {
         assertThat(descriptor.version()).isEqualTo("1.2.0");
         assertThat(descriptor.pluginClass()).isEqualTo("com.example.ExtStatsPlugin");
         assertThat(descriptor.kind()).isEqualTo(PluginKind.FEATURE);
+        assertThat(descriptor.executionMode()).isEqualTo(PluginExecutionMode.ISOLATED_PROCESS);
         assertThat(descriptor.externalValidationErrors()).isEmpty();
         assertThat(descriptor.isSdkCompatible()).isTrue();
     }
@@ -149,7 +151,8 @@ class PluginPackageReaderTest {
                 + PluginPackageReader.KEY_PIXIV_DESCRIPTION_KEY + "=plugin.summary\n"
                 + PluginPackageReader.KEY_PIXIV_ICON_KEY + "=mail\n"
                 + PluginPackageReader.KEY_PIXIV_COLOR_TOKEN + "=green\n"
-                + PluginPackageReader.KEY_PIXIV_LIFECYCLE_POLICY + "=backend-restart\n";
+                + PluginPackageReader.KEY_PIXIV_LIFECYCLE_POLICY + "=process-restart\n"
+                + PluginPackageReader.KEY_PIXIV_EXECUTION_MODE + "=trusted-in-process\n";
         Map<String, byte[]> entries = new LinkedHashMap<>();
         entries.put(PluginPackageReader.PLUGIN_PROPERTIES, properties.getBytes(StandardCharsets.UTF_8));
         entries.put("classes/Marker.class", PluginPackageFixtures.bytes("x"));
@@ -163,7 +166,8 @@ class PluginPackageReaderTest {
         assertThat(descriptor.description()).isEqualTo("plugin.summary");
         assertThat(descriptor.iconKey()).isEqualTo("mail");
         assertThat(descriptor.colorToken()).isEqualTo("green");
-        assertThat(descriptor.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.BACKEND_RESTART);
+        assertThat(descriptor.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.PROCESS_RESTART);
+        assertThat(descriptor.executionMode()).isEqualTo(PluginExecutionMode.TRUSTED_IN_PROCESS);
         assertThat(descriptor.externalValidationErrors()).isEmpty();
     }
 
@@ -207,6 +211,25 @@ class PluginPackageReaderTest {
                 .isInstanceOfSatisfying(PluginPackageException.class, failure -> {
                     assertThat(failure.reason()).isEqualTo(PluginPackageException.Reason.MALFORMED);
                     assertThat(failure).hasMessageContaining("unsupported plugin lifecycle policy");
+                });
+    }
+
+    @Test
+    @DisplayName("显式未知执行模式 token 作为错误清单被拒绝")
+    void rejectsUnknownExecutionMode() {
+        String properties = PluginPackageFixtures.pluginProperties(
+                "bad-mode", "1.0.0", "1.0", "com.example.BadModePlugin")
+                + PluginPackageReader.KEY_PIXIV_EXECUTION_MODE + "=sometimes-isolated\n";
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        entries.put(PluginPackageReader.PLUGIN_PROPERTIES, properties.getBytes(StandardCharsets.UTF_8));
+        entries.put("classes/Marker.class", PluginPackageFixtures.bytes("x"));
+        Path zip = tempDir.resolve("bad-mode.zip");
+        PluginPackageFixtures.writeZip(zip, entries);
+
+        assertThatThrownBy(() -> PluginPackageReader.inspect(zip))
+                .isInstanceOfSatisfying(PluginPackageException.class, failure -> {
+                    assertThat(failure.reason()).isEqualTo(PluginPackageException.Reason.MALFORMED);
+                    assertThat(failure).hasMessageContaining("unsupported plugin execution mode");
                 });
     }
 

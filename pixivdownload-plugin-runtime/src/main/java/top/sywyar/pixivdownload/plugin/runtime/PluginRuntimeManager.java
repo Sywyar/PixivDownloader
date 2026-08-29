@@ -18,9 +18,12 @@ import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginStartupResourceBud
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PreparedPluginArtifact;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageInspection;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageException;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageVerifier;
@@ -29,6 +32,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenan
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
+import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
 import top.sywyar.pixivdownload.plugin.runtime.admission.PluginArtifactAdmissionPolicy;
 import top.sywyar.pixivdownload.plugin.runtime.admission.PluginArtifactAdmissionRequest;
 import top.sywyar.pixivdownload.plugin.runtime.admission.PluginArtifactAdmissionResult;
@@ -1015,6 +1019,7 @@ public class PluginRuntimeManager {
                             inspection.descriptor().id(), admission.code(), admission.detail());
                 }
             }
+            requireExecutionAdmission(inspection.descriptor(), provenance, result);
             return new PreparedPluginArtifact(snapshot, inspection, result.sha256());
         } catch (Throwable failure) {
             snapshot.close();
@@ -1024,6 +1029,32 @@ public class PluginRuntimeManager {
             }
             throw new PluginRuntimeOperationException(
                     "failed to prepare plugin artifact " + snapshot.originalArtifact(), failure);
+        }
+    }
+
+    private void requireExecutionAdmission(
+            PluginDescriptor descriptor,
+            PluginProvenanceRecord provenance,
+            VerificationResult result) {
+        if (descriptor.executionMode() == PluginExecutionMode.ISOLATED_PROCESS) {
+            throw new PluginRuntimeOperationException(
+                    "isolated-process plugin execution is unavailable until the bounded worker protocol is active: "
+                            + descriptor.id());
+        }
+        if (descriptor.lifecyclePolicy() != PluginLifecyclePolicy.PROCESS_RESTART) {
+            throw new PluginRuntimeOperationException(
+                    "trusted in-process plugin must use process-restart lifecycle: " + descriptor.id());
+        }
+        boolean explicitDevelopmentAdmission = provenance != null
+                && provenance.developmentOnly()
+                && developmentModeEnabled.getAsBoolean();
+        boolean officialAdmission = provenance != null
+                && result.status() == VerificationStatus.VERIFIED
+                && (provenance.officialRepository()
+                || provenance.source() == PluginPackageSource.LOCAL_UPLOAD && provenance.signature() != null);
+        if (!explicitDevelopmentAdmission && !officialAdmission) {
+            throw new PluginRuntimeOperationException(
+                    "trusted in-process execution requires an official verified signature: " + descriptor.id());
         }
     }
 

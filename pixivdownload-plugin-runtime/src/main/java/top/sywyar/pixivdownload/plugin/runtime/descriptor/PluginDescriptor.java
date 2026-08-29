@@ -37,6 +37,7 @@ import java.util.regex.Pattern;
  * @param kind             插件类别
  * @param replaces         安装新包后精确替代的旧插件包 id；仅外置包描述符声明，内置插件为空
  * @param lifecyclePolicy  插件包声明的运行期生效策略；旧包未声明时默认为热重载
+ * @param executionMode    插件代码执行隔离级别；外置包未声明时默认为隔离进程
  */
 public record PluginDescriptor(
         String id,
@@ -52,7 +53,8 @@ public record PluginDescriptor(
         String colorToken,
         PluginKind kind,
         List<String> replaces,
-        PluginLifecyclePolicy lifecyclePolicy) {
+        PluginLifecyclePolicy lifecyclePolicy,
+        PluginExecutionMode executionMode) {
 
     /** 插件 id 规范：小写短横线，如 {@code download-workbench}（与核心注册中心一致）。 */
     public static final Pattern ID_PATTERN = Pattern.compile("[a-z][a-z0-9]*(-[a-z0-9]+)*");
@@ -77,6 +79,16 @@ public record PluginDescriptor(
         dependencies = dependencies != null ? List.copyOf(dependencies) : List.of();
         replaces = replaces != null ? List.copyOf(replaces) : List.of();
         lifecyclePolicy = lifecyclePolicy != null ? lifecyclePolicy : PluginLifecyclePolicy.HOT_RELOAD;
+        executionMode = executionMode != null ? executionMode : PluginExecutionMode.ISOLATED_PROCESS;
+    }
+
+    public PluginDescriptor(String id, String sourcePluginId, String version, VersionRequirement requires,
+                            List<PluginDependencyRef> dependencies, String pluginClass, String displayNamespace,
+                            String displayName, String description, String iconKey, String colorToken,
+                            PluginKind kind, List<String> replaces, PluginLifecyclePolicy lifecyclePolicy) {
+        this(id, sourcePluginId, version, requires, dependencies, pluginClass, displayNamespace, displayName,
+                description, iconKey, colorToken, kind, replaces, lifecyclePolicy,
+                PluginExecutionMode.ISOLATED_PROCESS);
     }
 
     public PluginDescriptor(String id, String sourcePluginId, String version, VersionRequirement requires,
@@ -124,7 +136,8 @@ public record PluginDescriptor(
                 plugin.colorToken(),
                 plugin.kind(),
                 List.of(),
-                PluginLifecyclePolicy.HOT_RELOAD);
+                PluginLifecyclePolicy.PROCESS_RESTART,
+                PluginExecutionMode.TRUSTED_IN_PROCESS);
     }
 
     /**
@@ -139,7 +152,7 @@ public record PluginDescriptor(
         }
         return new PluginDescriptor(id, sourcePluginId, version, requires, dependencies, pluginClass,
                 displayNamespace, displayName, description, iconKey, colorToken, kind,
-                packageDescriptor.replaces(), packageDescriptor.lifecyclePolicy());
+                packageDescriptor.replaces(), packageDescriptor.lifecyclePolicy(), packageDescriptor.executionMode());
     }
 
     /** 该描述符声明的 SDK 版本要求是否被当前宿主 SDK 满足（{@code requires} 兼容性）。 */
@@ -187,6 +200,10 @@ public record PluginDescriptor(
         }
         if (replaces.stream().distinct().count() != replaces.size()) {
             errors.add("replaced plugin ids must be unique");
+        }
+        if (executionMode == PluginExecutionMode.TRUSTED_IN_PROCESS
+                && lifecyclePolicy != PluginLifecyclePolicy.PROCESS_RESTART) {
+            errors.add("trusted in-process plugins must use process-restart lifecycle");
         }
         return errors;
     }

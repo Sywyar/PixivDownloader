@@ -213,7 +213,9 @@ abstract class PluginBootstrapSessionTestSupport {
         Path jar = pluginsDir.resolve("bootstrap-probe-1.0.0.jar");
         String props = "plugin.id=bootstrap-probe\nplugin.version=1.0.0\nplugin.requires=1.0\n"
                 + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n"
-                + "plugin.provider=test\nplugin.description=bootstrap probe\n";
+                + "plugin.provider=test\nplugin.description=bootstrap probe\n"
+                + "pixiv.lifecycle-policy=process-restart\n"
+                + "pixiv.execution-mode=trusted-in-process\n";
         try (OutputStream out = Files.newOutputStream(jar); ZipOutputStream zos = new ZipOutputStream(out)) {
             zos.putNextEntry(new ZipEntry("plugin.properties"));
             zos.write(props.getBytes(StandardCharsets.UTF_8));
@@ -310,7 +312,7 @@ abstract class PluginBootstrapSessionTestSupport {
                         TrustedPluginKey.State.ACTIVE,
                         "Bootstrap Test Publisher",
                         "Bootstrap Test Trust",
-                        false);
+                        true);
                 return new SigningFixture(keyId, keyPair.getPrivate(), trustedKey);
             } catch (GeneralSecurityException e) {
                 throw new IllegalStateException("无法生成启动探针签名密钥", e);
@@ -322,7 +324,7 @@ abstract class PluginBootstrapSessionTestSupport {
         }
 
         PluginPackageOrigin originFor(Path artifact, String pluginId, String version) throws IOException {
-            return PluginPackageOrigin.forTrustedCatalog("test-repository", false, Files.size(artifact),
+            return PluginPackageOrigin.forTrustedCatalog("test-repository", true, Files.size(artifact),
                     PluginPackageIntegrity.sha256Hex(artifact), artifactSignature(artifact, pluginId, version));
         }
 

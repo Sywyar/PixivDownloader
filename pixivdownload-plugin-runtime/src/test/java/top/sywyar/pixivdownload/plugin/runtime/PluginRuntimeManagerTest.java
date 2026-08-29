@@ -110,6 +110,22 @@ class PluginRuntimeManagerTest {
     Path tempDir;
 
     @Test
+    @DisplayName("未声明执行模式的生产包在进入 PF4J 前按隔离进程失败关闭")
+    void rejectsDefaultIsolatedPackageBeforePf4jLoad() throws IOException {
+        Path plugins = tempDir.resolve("plugins-isolated-default");
+        Path jar = plugins.resolve("bootstrap-probe-1.0.0.jar");
+        writeDefaultIsolatedProbeJar(jar);
+        writeLocalProvenance(plugins, jar);
+        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+
+        assertThatThrownBy(() -> manager.loadPlugin(jar))
+                .isInstanceOf(PluginRuntimeOperationException.class)
+                .hasMessageContaining("isolated-process plugin execution is unavailable");
+        assertThat(manager.pluginManagerForTest()).isEmpty();
+        assertThat(manager.generation(PROBE_ID)).isEmpty();
+    }
+
+    @Test
     @DisplayName("包清单生命周期策略在 load、start 和动态清点后保持不丢失")
     void preservesManifestLifecyclePolicyAcrossRuntimeDiscovery() throws IOException {
         Path plugins = tempDir.resolve("plugins");
@@ -1580,6 +1596,16 @@ class PluginRuntimeManagerTest {
         }
     }
 
+    private static void writeDefaultIsolatedProbeJar(Path jar) throws IOException {
+        Files.createDirectories(jar.getParent());
+        try (OutputStream out = Files.newOutputStream(jar);
+             ZipOutputStream zos = new ZipOutputStream(out)) {
+            addDescriptor(zos, "hot-reload", null);
+            addClassEntry(zos, BootstrapProbePlugin.class, "");
+            addClassEntry(zos, BootstrapProbeFeaturePlugin.class, "");
+        }
+    }
+
     private static void writeProbeExplodedZip(Path zip) throws IOException {
         Files.createDirectories(zip.getParent());
         try (OutputStream out = Files.newOutputStream(zip);
@@ -1710,10 +1736,18 @@ class PluginRuntimeManagerTest {
     }
 
     private static void addDescriptor(ZipOutputStream zos, String lifecyclePolicy) throws IOException {
+        addDescriptor(zos, lifecyclePolicy != null ? lifecyclePolicy : "process-restart", "trusted-in-process");
+    }
+
+    private static void addDescriptor(
+            ZipOutputStream zos,
+            String lifecyclePolicy,
+            String executionMode) throws IOException {
         String props = "plugin.id=" + PROBE_ID + "\nplugin.version=" + PROBE_VERSION + "\nplugin.requires=1.0\n"
                 + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n"
                 + "plugin.provider=test\nplugin.description=bootstrap probe\n"
-                + (lifecyclePolicy != null ? "pixiv.lifecycle-policy=" + lifecyclePolicy + "\n" : "");
+                + (lifecyclePolicy != null ? "pixiv.lifecycle-policy=" + lifecyclePolicy + "\n" : "")
+                + (executionMode != null ? "pixiv.execution-mode=" + executionMode + "\n" : "");
         zos.putNextEntry(new ZipEntry("plugin.properties"));
         zos.write(props.getBytes(StandardCharsets.UTF_8));
         zos.closeEntry();
@@ -1727,7 +1761,9 @@ class PluginRuntimeManagerTest {
                 .append("plugin.requires=1.0\n")
                 .append("plugin.class=").append(DependencyOrderProbePlugin.class.getName()).append('\n')
                 .append("plugin.provider=test\n")
-                .append("plugin.description=").append(pluginId).append(" probe\n");
+                .append("plugin.description=").append(pluginId).append(" probe\n")
+                .append("pixiv.lifecycle-policy=process-restart\n")
+                .append("pixiv.execution-mode=trusted-in-process\n");
         if (!dependencies.isEmpty()) {
             props.append("plugin.dependencies=");
             for (int i = 0; i < dependencies.size(); i++) {

@@ -26,7 +26,7 @@ class PluginDescriptorTest {
         assertThat(descriptor.pluginClass()).isEqualTo(TestFeaturePlugin.class.getName());
         assertThat(descriptor.displayName()).isEqualTo("stats.label");
         assertThat(descriptor.kind()).isEqualTo(PluginKind.FEATURE);
-        assertThat(descriptor.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.HOT_RELOAD);
+        assertThat(descriptor.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.PROCESS_RESTART);
         assertThat(descriptor.isSdkCompatible()).isTrue();
         assertThat(descriptor.validationErrors()).isEmpty();
         assertThat(descriptor.externalValidationErrors()).isEmpty();

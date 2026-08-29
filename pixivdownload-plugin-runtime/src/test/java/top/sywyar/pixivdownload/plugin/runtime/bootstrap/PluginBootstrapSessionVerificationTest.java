@@ -110,6 +110,36 @@ class PluginBootstrapSessionVerificationTest extends PluginBootstrapSessionTestS
     }
 
     @Test
+    @DisplayName("自定义仓库签名不能取得进程内完全受信执行权限")
+    void customRepositorySignatureCannotAuthorizeTrustedInProcessExecution() throws Exception {
+        Path pluginsDir = tempDir.resolve("custom-trusted-plugins");
+        Path jar = stageProbeJar(pluginsDir);
+        Path marker = tempDir.resolve("custom-trusted-events.log");
+        Files.createFile(marker);
+        System.setProperty("bootstrap.probe.marker", marker.toString());
+        SigningFixture signing = SigningFixture.create();
+        PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog(
+                "custom-repository",
+                false,
+                Files.size(jar),
+                PluginPackageIntegrity.sha256Hex(jar),
+                signing.artifactSignature(jar, "bootstrap-probe", "1.0.0"));
+        new PluginProvenanceStore(pluginsDir).write(jar, origin, signing.verifiedResult(jar));
+
+        PluginBootstrapSession session = createContext(
+                pluginsDir, PluginEnabledSnapshot.empty(), signing.verifier());
+        session.start();
+
+        assertThat(session.status().startedPluginIds()).doesNotContain("bootstrap-probe");
+        assertThat(session.status().failures()).anySatisfy(failure ->
+                assertThat(failure.reason()).contains("requires an official verified signature"));
+        assertThat(Files.readString(marker, StandardCharsets.UTF_8))
+                .as("进程内信任拒绝必须发生在 PF4J 构造插件实例前")
+                .isEmpty();
+        session.close();
+    }
+
+    @Test
     @DisplayName("坏签名 sidecar：PF4J 前拒绝，探针构造器与 start 均不执行")
     void invalidSignaturePreventsAnyProbeCodeExecution() throws Exception {
         Path pluginsDir = tempDir.resolve("bad-signature-plugins");
