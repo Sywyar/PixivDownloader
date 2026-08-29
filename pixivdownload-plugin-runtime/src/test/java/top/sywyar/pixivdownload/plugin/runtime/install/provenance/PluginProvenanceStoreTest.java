@@ -71,6 +71,7 @@ class PluginProvenanceStoreTest {
                 PluginPackageSource.LOCAL_UPLOAD,
                 null,
                 false,
+                true,
                 null,
                 null,
                 4L,
@@ -118,6 +119,24 @@ class PluginProvenanceStoreTest {
 
         assertThat(measured.byteCount()).isEqualTo(bytes.length);
         assertThat(measured.record().source()).isEqualTo(PluginPackageSource.LOCAL_UPLOAD);
+        assertThat(measured.record().developmentOnly()).isTrue();
+    }
+
+    @Test
+    @DisplayName("旧版未签名来源证明失败关闭而已签名目录来源保持可读")
+    void rejectsLegacyUnsignedRecordAndKeepsSignedCatalogCompatibility() throws Exception {
+        Path plugins = Files.createDirectories(temporaryDirectory.resolve("plugins-legacy"));
+        PluginProvenanceStore store = new PluginProvenanceStore(plugins);
+        Path unsignedArtifact = plugins.resolve("unsigned.jar");
+        Path signedArtifact = plugins.resolve("signed.jar");
+        Files.createDirectories(store.sidecarPath(unsignedArtifact).getParent());
+        Files.writeString(store.sidecarPath(unsignedArtifact), legacyUnsignedRecord(), StandardCharsets.UTF_8);
+        Files.writeString(store.sidecarPath(signedArtifact), legacyCatalogRecord(), StandardCharsets.UTF_8);
+
+        assertThatThrownBy(() -> store.readRequiredForRecovery(unsignedArtifact))
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("invalid");
+        assertThat(store.readRequiredForRecovery(signedArtifact).developmentOnly()).isFalse();
     }
 
     @Test
@@ -130,7 +149,7 @@ class PluginProvenanceStoreTest {
         SignatureMetadata signature = new SignatureMetadata(
                 SignatureMetadata.FORMAT_VERSION, SignatureMetadata.ED25519, "test-key", "c2ln");
         PluginProvenanceRecord record = new PluginProvenanceRecord(
-                PluginPackageSource.MARKET_CATALOG, "official", true,
+                PluginPackageSource.MARKET_CATALOG, "official", true, false,
                 4L, SHA256, 4L, SHA256, signature, VerificationStatus.VERIFIED,
                 "test-key", "p".repeat(1_100_000), "Test Trust",
                 Instant.parse("2026-07-01T00:00:00Z"), null, null, "VERIFIED");
@@ -188,9 +207,10 @@ class PluginProvenanceStoreTest {
     }
 
     private static String validLocalRecord() {
-        return "formatVersion=1\n"
+        return "formatVersion=2\n"
                 + "source=LOCAL_UPLOAD\n"
                 + "officialRepository=false\n"
+                + "developmentOnly=true\n"
                 + "artifactSizeBytes=4\n"
                 + "artifactSha256=" + SHA256 + "\n"
                 + "status=UNSIGNED_ALLOWED\n"
@@ -199,10 +219,11 @@ class PluginProvenanceStoreTest {
     }
 
     private static String validCatalogRecord() {
-        return "formatVersion=1\n"
+        return "formatVersion=2\n"
                 + "source=MARKET_CATALOG\n"
                 + "repositoryId=official\n"
                 + "officialRepository=true\n"
+                + "developmentOnly=false\n"
                 + "expectedSizeBytes=4\n"
                 + "expectedSha256=" + SHA256 + "\n"
                 + "artifactSizeBytes=4\n"
@@ -217,5 +238,17 @@ class PluginProvenanceStoreTest {
                 + "trustLabel=Test Trust\n"
                 + "verifiedAt=2026-07-01T00:00:00Z\n"
                 + "diagnosticCode=VERIFIED\n";
+    }
+
+    private static String legacyUnsignedRecord() {
+        return validLocalRecord()
+                .replace("formatVersion=2\n", "formatVersion=1\n")
+                .replace("developmentOnly=true\n", "");
+    }
+
+    private static String legacyCatalogRecord() {
+        return validCatalogRecord()
+                .replace("formatVersion=2\n", "formatVersion=1\n")
+                .replace("developmentOnly=false\n", "");
     }
 }

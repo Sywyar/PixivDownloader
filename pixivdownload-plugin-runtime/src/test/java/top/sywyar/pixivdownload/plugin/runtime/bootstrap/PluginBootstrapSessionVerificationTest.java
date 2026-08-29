@@ -69,7 +69,7 @@ class PluginBootstrapSessionVerificationTest extends PluginBootstrapSessionTestS
     @Test
     @DisplayName("诊断路径：缺失目录→ABSENT、坏包→failure、不抛、不阻断")
     void missingAndBadDirectoryConvergeToDiagnostics() throws Exception {
-        PluginBootstrapSession absent = PluginBootstrapSession.createContext(
+        PluginBootstrapSession absent = createContext(
                 tempDir.resolve("does-not-exist"), PluginEnabledSnapshot.empty());
         absent.start();
         assertThat(absent.status().state()).isEqualTo(PluginDirectoryState.ABSENT);
@@ -78,7 +78,7 @@ class PluginBootstrapSessionVerificationTest extends PluginBootstrapSessionTestS
         Path pluginsDir = tempDir.resolve("bad-plugins");
         Files.createDirectories(pluginsDir);
         Files.write(pluginsDir.resolve("broken.jar"), new byte[]{1, 2, 3, 4}); // 非 zip
-        PluginBootstrapSession bad = PluginBootstrapSession.createContext(pluginsDir, PluginEnabledSnapshot.empty());
+        PluginBootstrapSession bad = createContext(pluginsDir, PluginEnabledSnapshot.empty());
         bad.start();
         // 坏包被隔离捕获成诊断 / failure，不致命
         assertThat(bad.status().hasFailures()).isTrue();
@@ -98,7 +98,7 @@ class PluginBootstrapSessionVerificationTest extends PluginBootstrapSessionTestS
         PluginPackageOrigin origin = signing.originFor(jar, "bootstrap-probe", "1.0.0");
         new PluginProvenanceStore(pluginsDir).write(jar, origin, signing.verifiedResult(jar));
 
-        PluginBootstrapSession session = PluginBootstrapSession.createContext(
+        PluginBootstrapSession session = createContext(
                 pluginsDir, PluginEnabledSnapshot.empty(), signing.verifier());
         session.start();
 
@@ -126,7 +126,7 @@ class PluginBootstrapSessionVerificationTest extends PluginBootstrapSessionTestS
                 null, null, Instant.now(), Files.size(jar), PluginPackageIntegrity.sha256Hex(jar), "VERIFIED");
         new PluginProvenanceStore(pluginsDir).write(jar, origin, result);
 
-        PluginBootstrapSession session = PluginBootstrapSession.createContext(pluginsDir, PluginEnabledSnapshot.empty());
+        PluginBootstrapSession session = createContext(pluginsDir, PluginEnabledSnapshot.empty());
         session.start();
 
         assertThat(session.status().startedPluginIds()).doesNotContain("bootstrap-probe");
@@ -146,7 +146,7 @@ class PluginBootstrapSessionVerificationTest extends PluginBootstrapSessionTestS
         Files.createFile(marker);
         System.setProperty("bootstrap.probe.marker", marker.toString());
 
-        PluginBootstrapSession session = PluginBootstrapSession.createContext(pluginsDir, PluginEnabledSnapshot.empty());
+        PluginBootstrapSession session = createContext(pluginsDir, PluginEnabledSnapshot.empty());
         session.start();
 
         assertThat(session.status().startedPluginIds()).doesNotContain("bootstrap-probe");
@@ -162,7 +162,7 @@ class PluginBootstrapSessionVerificationTest extends PluginBootstrapSessionTestS
     void processCloseForContextIsNoOp() throws Exception {
         Path pluginsDir = tempDir.resolve("plugins");
         stageProbeJar(pluginsDir);
-        PluginBootstrapSession session = PluginBootstrapSession.createProcess(pluginsDir, PluginEnabledSnapshot.empty());
+        PluginBootstrapSession session = createProcess(pluginsDir, PluginEnabledSnapshot.empty());
         session.start();
         assertThat(session.manager().isPhysicalRuntimeInitialized()).isTrue();
 
@@ -178,7 +178,7 @@ class PluginBootstrapSessionVerificationTest extends PluginBootstrapSessionTestS
     void contextCloseForContextCloses() throws Exception {
         Path pluginsDir = tempDir.resolve("plugins");
         stageProbeJar(pluginsDir);
-        PluginBootstrapSession session = PluginBootstrapSession.createContext(pluginsDir, PluginEnabledSnapshot.empty());
+        PluginBootstrapSession session = createContext(pluginsDir, PluginEnabledSnapshot.empty());
         session.start();
         assertThat(session.manager().isPhysicalRuntimeInitialized()).isTrue();
 
@@ -191,7 +191,7 @@ class PluginBootstrapSessionVerificationTest extends PluginBootstrapSessionTestS
     void closeIsIdempotent() throws Exception {
         Path pluginsDir = tempDir.resolve("plugins");
         stageProbeJar(pluginsDir);
-        PluginBootstrapSession session = PluginBootstrapSession.createContext(pluginsDir, PluginEnabledSnapshot.empty());
+        PluginBootstrapSession session = createContext(pluginsDir, PluginEnabledSnapshot.empty());
         session.start();
         session.close();
         session.close();

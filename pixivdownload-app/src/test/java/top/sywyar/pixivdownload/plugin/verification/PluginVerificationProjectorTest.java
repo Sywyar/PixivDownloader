@@ -227,7 +227,7 @@ class PluginVerificationProjectorTest {
     @DisplayName("provenance：本地官方签名包保留 local 来源并投影为官方已验证")
     void signedLocalUploadProjectsAsVerifiedOfficial() {
         PluginProvenanceRecord record = new PluginProvenanceRecord(
-                PluginPackageSource.LOCAL_UPLOAD, null, false, null, null,
+                PluginPackageSource.LOCAL_UPLOAD, null, false, false, null, null,
                 123L, ARTIFACT_SHA256, signature("official-key"), VerificationStatus.VERIFIED,
                 "official-key", "PixivDownloader", "Official Root",
                 Instant.parse("2026-07-01T00:00:00Z"), VerificationStatus.VERIFIED,
@@ -303,6 +303,7 @@ class PluginVerificationProjectorTest {
                 source,
                 catalog ? "test-repository" : null,
                 official,
+                !catalog,
                 catalog ? 123L : null,
                 catalog ? ARTIFACT_SHA256 : null,
                 123L,

@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.runtime.install.provenance;
 
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.signature.ArtifactVerificationRequest;
@@ -9,6 +10,7 @@ import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 
 import java.nio.file.Path;
 import java.util.Objects;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 
 /**
@@ -17,14 +19,22 @@ import java.util.function.Function;
 public final class PluginArtifactVerificationService {
 
     private final Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver;
+    private final BooleanSupplier developmentModeEnabled;
 
     public PluginArtifactVerificationService(PluginSupplyChainVerifier verifier) {
-        this(origin -> Objects.requireNonNull(verifier, "verifier"));
+        this(origin -> Objects.requireNonNull(verifier, "verifier"), PluginDevelopmentArtifacts::enabled);
     }
 
     public PluginArtifactVerificationService(
             Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver) {
+        this(verifierResolver, PluginDevelopmentArtifacts::enabled);
+    }
+
+    public PluginArtifactVerificationService(
+            Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
+            BooleanSupplier developmentModeEnabled) {
         this.verifierResolver = Objects.requireNonNull(verifierResolver, "verifierResolver");
+        this.developmentModeEnabled = Objects.requireNonNull(developmentModeEnabled, "developmentModeEnabled");
     }
 
     public VerificationResult verifyForInstall(Path artifact, PluginDescriptor descriptor, PluginPackageOrigin origin) {
@@ -36,7 +46,7 @@ public final class PluginArtifactVerificationService {
                 effectiveOrigin.expectedSizeBytes(),
                 effectiveOrigin.expectedSha256(),
                 effectiveOrigin.signature(),
-                effectiveOrigin.verificationPolicy()));
+                effectiveOrigin.verificationPolicy(developmentModeEnabled.getAsBoolean())));
     }
 
     public VerificationResult verifyInstalled(Path artifact, PluginDescriptor descriptor,
@@ -59,7 +69,7 @@ public final class PluginArtifactVerificationService {
                 provenance.artifactSizeBytes(),
                 provenance.artifactSha256(),
                 origin.signature(),
-                origin.installedVerificationPolicy()));
+                origin.installedVerificationPolicy(developmentModeEnabled.getAsBoolean())));
     }
 
     private PluginSupplyChainVerifier verifierFor(PluginPackageOrigin origin) {

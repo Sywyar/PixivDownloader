@@ -14,6 +14,7 @@ import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifac
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackagePhase;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallResult;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.CommittedPluginTransaction;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PreparedPluginTransaction;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginRecoveryGateState;
@@ -76,7 +77,9 @@ class PluginBootstrapSessionRecoveryGateTest extends PluginBootstrapSessionTestS
         Path newPackage = PluginPackageFixtures.explodedZip(tempDir.resolve("recovery-new.zip"),
                 "recovery-demo", "2.0.0", "1.0", "demo.Plugin");
         PreparedPluginTransaction prepared;
-        try (ExternalPluginInstaller installer = new ExternalPluginInstaller(pluginsDir)) {
+        try (ExternalPluginInstaller installer = new ExternalPluginInstaller(
+                pluginsDir, PluginPackageLimits.defaults(),
+                ignored -> new PluginSupplyChainVerifier(), new PluginDirectorySessionLock(pluginsDir), () -> true)) {
             assertThat(installer.recoverPendingTransactions().safeToScan()).isTrue();
             installFully(installer, oldPackage);
             prepared = installer.prepareTransaction(
@@ -84,7 +87,7 @@ class PluginBootstrapSessionRecoveryGateTest extends PluginBootstrapSessionTestS
             installer.commitTransaction(prepared); // NEW_PLACED：启动恢复必须回滚到旧版本
         }
 
-        PluginBootstrapSession session = PluginBootstrapSession.createContext(pluginsDir, PluginEnabledSnapshot.empty());
+        PluginBootstrapSession session = createContext(pluginsDir, PluginEnabledSnapshot.empty());
         session.start();
 
         assertThat(pluginsDir.resolve("recovery-demo-2.0.0.zip")).doesNotExist();
@@ -108,7 +111,7 @@ class PluginBootstrapSessionRecoveryGateTest extends PluginBootstrapSessionTestS
         Files.createDirectories(retained.getParent());
         Files.writeString(retained, "only-copy", StandardCharsets.UTF_8);
 
-        PluginBootstrapSession session = PluginBootstrapSession.createContext(
+        PluginBootstrapSession session = createContext(
                 pluginsDir, PluginEnabledSnapshot.empty());
         session.start();
 
@@ -149,7 +152,7 @@ class PluginBootstrapSessionRecoveryGateTest extends PluginBootstrapSessionTestS
     @DisplayName("启动时目录缺失后晚到的不安全事务必须在显式加载前补恢复并拒绝")
     void lateUnsafeTransactionAfterAbsentStartupBlocksExplicitLoad() throws Exception {
         Path pluginsDir = tempDir.resolve("late-created-plugins");
-        PluginBootstrapSession session = PluginBootstrapSession.createContext(
+        PluginBootstrapSession session = createContext(
                 pluginsDir, PluginEnabledSnapshot.empty());
         try {
             session.start();
@@ -188,7 +191,7 @@ class PluginBootstrapSessionRecoveryGateTest extends PluginBootstrapSessionTestS
     void lateUnsafeTransactionAfterAbsentStartupBlocksDevelopmentLoad() throws Exception {
         Path repositoryRoot = tempDir.resolve("late-created-dev-repository");
         Path pluginsDir = repositoryRoot.resolve("plugins");
-        PluginBootstrapSession session = PluginBootstrapSession.createContext(
+        PluginBootstrapSession session = createContext(
                 pluginsDir, PluginEnabledSnapshot.empty());
         String previousEnabled = System.getProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY);
         String previousRoot = System.getProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY);
@@ -227,7 +230,7 @@ class PluginBootstrapSessionRecoveryGateTest extends PluginBootstrapSessionTestS
     void lateUnsafeTransactionAfterDevelopmentLoadBlocksExplicitStart() throws Exception {
         Path repositoryRoot = tempDir.resolve("late-created-dev-start-repository");
         Path pluginsDir = repositoryRoot.resolve("plugins");
-        PluginBootstrapSession session = PluginBootstrapSession.createContext(
+        PluginBootstrapSession session = createContext(
                 pluginsDir, PluginEnabledSnapshot.empty());
         String previousEnabled = System.getProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY);
         String previousRoot = System.getProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY);

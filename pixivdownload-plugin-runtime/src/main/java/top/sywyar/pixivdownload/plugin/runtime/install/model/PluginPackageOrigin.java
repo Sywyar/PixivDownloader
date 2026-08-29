@@ -20,6 +20,7 @@ import java.util.List;
  * @param expectedSha256    受信清单声明的期望 SHA-256（十六进制，无则 {@code null}）
  * @param repositoryId      来源仓库 id（本地上传为 {@code null}）
  * @param officialRepository 是否官方仓库来源
+ * @param developmentOnly   是否只允许在当前显式开发模式中准入
  * @param signature          受信清单声明的结构化签名元数据
  * @param expectedPluginId   受信目录声明的插件 id（旧来源记录可空）
  * @param expectedVersion    受信目录声明的插件版本（旧来源记录可空）
@@ -30,6 +31,7 @@ public record PluginPackageOrigin(
         PluginPackageSource source,
         String repositoryId,
         boolean officialRepository,
+        boolean developmentOnly,
         Long expectedSizeBytes,
         String expectedSha256,
         SignatureMetadata signature,
@@ -46,6 +48,14 @@ public record PluginPackageOrigin(
                 || hasText(expectedVersion) || hasText(expectedRequiredSdk) || expectedDependencies != null)) {
             throw new IllegalArgumentException("LOCAL_UPLOAD must not carry catalog source bindings");
         }
+        if (source == PluginPackageSource.LOCAL_UPLOAD) {
+            if ((signature == null) != developmentOnly) {
+                throw new IllegalArgumentException(
+                        "unsigned local uploads must be development-only and signed uploads must not be");
+            }
+        } else if (developmentOnly) {
+            throw new IllegalArgumentException("catalog packages must not be development-only");
+        }
         repositoryId = trimToNull(repositoryId);
         expectedSha256 = trimToNull(expectedSha256);
         expectedPluginId = trimToNull(expectedPluginId);
@@ -56,19 +66,21 @@ public record PluginPackageOrigin(
 
     public PluginPackageOrigin(PluginPackageSource source, String repositoryId, boolean officialRepository,
                                Long expectedSizeBytes, String expectedSha256, SignatureMetadata signature) {
-        this(source, repositoryId, officialRepository, expectedSizeBytes, expectedSha256, signature,
+        this(source, repositoryId, officialRepository,
+                source == PluginPackageSource.LOCAL_UPLOAD && signature == null,
+                expectedSizeBytes, expectedSha256, signature,
                 null, null, null, null);
     }
 
     /** 开发模式允许的未签名本地上传来源。 */
     public static PluginPackageOrigin localUpload() {
-        return new PluginPackageOrigin(PluginPackageSource.LOCAL_UPLOAD, null, false, null, null, null,
-                null, null, null, null);
+        return new PluginPackageOrigin(PluginPackageSource.LOCAL_UPLOAD, null, false, true,
+                null, null, null, null, null, null, null);
     }
 
     /** 带 detached 签名的本地上传来源；验签策略只接受宿主官方信任根。 */
     public static PluginPackageOrigin localUpload(SignatureMetadata signature) {
-        return new PluginPackageOrigin(PluginPackageSource.LOCAL_UPLOAD, null, false, null, null,
+        return new PluginPackageOrigin(PluginPackageSource.LOCAL_UPLOAD, null, false, false, null, null,
                 Objects.requireNonNull(signature, "signature"), null, null, null, null);
     }
 
@@ -79,7 +91,7 @@ public record PluginPackageOrigin(
     public static PluginPackageOrigin forTrustedCatalog(String repositoryId, boolean officialRepository,
                                                         Long expectedSizeBytes, String expectedSha256,
                                                         SignatureMetadata signature) {
-        return new PluginPackageOrigin(PluginPackageSource.MARKET_CATALOG, repositoryId, officialRepository,
+        return new PluginPackageOrigin(PluginPackageSource.MARKET_CATALOG, repositoryId, officialRepository, false,
                 expectedSizeBytes, expectedSha256, signature, null, null, null, null);
     }
 
@@ -88,7 +100,7 @@ public record PluginPackageOrigin(
                                                         SignatureMetadata signature, String expectedPluginId,
                                                         String expectedVersion, String expectedRequiredSdk,
                                                         List<String> expectedDependencies) {
-        return new PluginPackageOrigin(PluginPackageSource.MARKET_CATALOG, repositoryId, officialRepository,
+        return new PluginPackageOrigin(PluginPackageSource.MARKET_CATALOG, repositoryId, officialRepository, false,
                 expectedSizeBytes, expectedSha256, signature, expectedPluginId, expectedVersion,
                 expectedRequiredSdk, expectedDependencies);
     }
@@ -98,18 +110,24 @@ public record PluginPackageOrigin(
         return expectedSizeBytes != null || expectedSha256 != null || signature != null;
     }
 
-    public VerificationPolicy verificationPolicy() {
+    public VerificationPolicy verificationPolicy(boolean developmentModeEnabled) {
         if (source == PluginPackageSource.LOCAL_UPLOAD) {
-            return signature != null
-                    ? VerificationPolicy.officialRepository() : VerificationPolicy.localUnsignedAllowed();
+            if (signature != null) {
+                return VerificationPolicy.officialRepository();
+            }
+            return developmentOnly && developmentModeEnabled
+                    ? VerificationPolicy.localUnsignedAllowed() : VerificationPolicy.customRepository();
         }
         return officialRepository ? VerificationPolicy.officialRepository() : VerificationPolicy.customRepository();
     }
 
-    public VerificationPolicy installedVerificationPolicy() {
+    public VerificationPolicy installedVerificationPolicy(boolean developmentModeEnabled) {
         if (source == PluginPackageSource.LOCAL_UPLOAD) {
-            return signature != null
-                    ? VerificationPolicy.installedOfficial() : VerificationPolicy.localUnsignedAllowed();
+            if (signature != null) {
+                return VerificationPolicy.installedOfficial();
+            }
+            return developmentOnly && developmentModeEnabled
+                    ? VerificationPolicy.localUnsignedAllowed() : VerificationPolicy.installedCustom();
         }
         return officialRepository ? VerificationPolicy.installedOfficial() : VerificationPolicy.installedCustom();
     }

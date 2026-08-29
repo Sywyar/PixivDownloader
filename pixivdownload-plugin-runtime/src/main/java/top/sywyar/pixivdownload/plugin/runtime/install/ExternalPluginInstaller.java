@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.plugin.runtime.install;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactScanner;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
@@ -31,6 +32,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
@@ -146,6 +148,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
     private final PluginPackageLimits limits;
     private Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver;
     private PluginArtifactVerificationService verificationService;
+    private final BooleanSupplier developmentModeEnabled;
     private final PluginProvenanceStore provenanceStore;
     private final InstalledPluginInventorySnapshotter inventorySnapshotter;
     private final PluginRecoveryManifestValidator recoveryManifestValidator;
@@ -185,7 +188,8 @@ public class ExternalPluginInstaller implements AutoCloseable {
     public ExternalPluginInstaller(Path pluginsDir, PluginPackageLimits limits,
                                    Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver) {
         this(pluginsDir, limits, verifierResolver,
-                new PluginDirectorySessionLock(Objects.requireNonNull(pluginsDir, "pluginsDir")), false);
+                new PluginDirectorySessionLock(Objects.requireNonNull(pluginsDir, "pluginsDir")), false,
+                PluginDevelopmentArtifacts::enabled);
     }
 
     /** bootstrap 会话使用的构造入口；目录锁由同一会话持有到进程 / context 生命周期结束。 */
@@ -193,13 +197,25 @@ public class ExternalPluginInstaller implements AutoCloseable {
                                    Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
                                    PluginDirectorySessionLock directorySessionLock) {
         this(pluginsDir, limits, verifierResolver,
-                Objects.requireNonNull(directorySessionLock, "directorySessionLock"), false);
+                Objects.requireNonNull(directorySessionLock, "directorySessionLock"), false,
+                PluginDevelopmentArtifacts::enabled);
+    }
+
+    /** bootstrap 会话使用的构造入口；开发态准入开关由同一会话显式提供。 */
+    public ExternalPluginInstaller(Path pluginsDir, PluginPackageLimits limits,
+                                   Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
+                                   PluginDirectorySessionLock directorySessionLock,
+                                   BooleanSupplier developmentModeEnabled) {
+        this(pluginsDir, limits, verifierResolver,
+                Objects.requireNonNull(directorySessionLock, "directorySessionLock"), false,
+                developmentModeEnabled);
     }
 
     private ExternalPluginInstaller(Path pluginsDir, PluginPackageLimits limits,
                                     Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
                                     PluginDirectorySessionLock directorySessionLock,
-                                    boolean isolatedWithoutDirectoryLock) {
+                                    boolean isolatedWithoutDirectoryLock,
+                                    BooleanSupplier developmentModeEnabled) {
         if (pluginsDir == null) {
             throw new IllegalArgumentException("pluginsDir must not be null");
         }
@@ -216,7 +232,9 @@ public class ExternalPluginInstaller implements AutoCloseable {
         this.pluginsDir = normalizedPluginsDir;
         this.limits = Objects.requireNonNull(limits, "limits");
         this.verifierResolver = Objects.requireNonNull(verifierResolver, "verifierResolver");
-        this.verificationService = new PluginArtifactVerificationService(this.verifierResolver);
+        this.developmentModeEnabled = Objects.requireNonNull(developmentModeEnabled, "developmentModeEnabled");
+        this.verificationService = new PluginArtifactVerificationService(
+                this.verifierResolver, this.developmentModeEnabled);
         this.provenanceStore = new PluginProvenanceStore(this.pluginsDir);
         this.inventorySnapshotter = new InstalledPluginInventorySnapshotter(provenanceStore);
         this.recoveryManifestValidator = new PluginRecoveryManifestValidator(
@@ -257,7 +275,8 @@ public class ExternalPluginInstaller implements AutoCloseable {
         installLock.lock();
         try {
             this.verifierResolver = Objects.requireNonNull(verifierResolver, "verifierResolver");
-            this.verificationService = new PluginArtifactVerificationService(this.verifierResolver);
+            this.verificationService = new PluginArtifactVerificationService(
+                    this.verifierResolver, this.developmentModeEnabled);
         } finally {
             installLock.unlock();
         }
@@ -421,7 +440,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
             unpublishedTransaction = createUnpublishedTransaction(pluginsRoot, transactionId);
             Path validationDir = unpublishedTransaction.resolve("validation");
             ExternalPluginInstaller validator = new ExternalPluginInstaller(
-                    validationDir, limits, verifierResolver, null, true);
+                    validationDir, limits, verifierResolver, null, true, developmentModeEnabled);
             PluginTransactionRecoveryReport validationRecovery = validator.recoverPendingTransactions();
             if (!validationRecovery.safeToScan()) {
                 throw new IOException("isolated validation directory did not pass recovery safety checks");

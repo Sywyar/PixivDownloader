@@ -341,10 +341,11 @@ public final class PluginProvenanceStore {
 
     public void write(Path artifact, PluginProvenanceRecord record) throws IOException {
         Properties props = new Properties();
-        props.setProperty("formatVersion", "1");
+        props.setProperty("formatVersion", "2");
         props.setProperty("source", record.source().name());
         put(props, "repositoryId", record.repositoryId());
         props.setProperty("officialRepository", Boolean.toString(record.officialRepository()));
+        props.setProperty("developmentOnly", Boolean.toString(record.developmentOnly()));
         put(props, "expectedSizeBytes", record.expectedSizeBytes() != null
                 ? record.expectedSizeBytes().toString() : null);
         put(props, "expectedSha256", record.expectedSha256());
@@ -606,7 +607,7 @@ public final class PluginProvenanceStore {
 
     private static PluginProvenanceRecord toRecordStrict(Properties props) {
         java.util.Set<String> allowedKeys = java.util.Set.of(
-                "formatVersion", "source", "repositoryId", "officialRepository",
+                "formatVersion", "source", "repositoryId", "officialRepository", "developmentOnly",
                 "expectedSizeBytes", "expectedSha256", "artifactSizeBytes", "artifactSha256",
                 "signature.formatVersion", "signature.algorithm", "signature.keyId", "signature.value",
                 "status", "keyId", "publisher", "trustLabel", "verifiedAt",
@@ -616,7 +617,8 @@ public final class PluginProvenanceStore {
                 throw new IllegalArgumentException("unknown provenance property: " + key);
             }
         }
-        if (!"1".equals(requiredText(props, "formatVersion"))) {
+        String formatVersion = requiredText(props, "formatVersion");
+        if (!"1".equals(formatVersion) && !"2".equals(formatVersion)) {
             throw new IllegalArgumentException("unsupported provenance formatVersion");
         }
         PluginPackageSource source = PluginPackageSource.valueOf(requiredText(props, "source"));
@@ -625,6 +627,16 @@ public final class PluginProvenanceStore {
             throw new IllegalArgumentException("officialRepository must be true or false");
         }
         boolean officialRepository = Boolean.parseBoolean(officialValue);
+        boolean developmentOnly;
+        if ("2".equals(formatVersion)) {
+            String developmentValue = requiredText(props, "developmentOnly");
+            if (!"true".equals(developmentValue) && !"false".equals(developmentValue)) {
+                throw new IllegalArgumentException("developmentOnly must be true or false");
+            }
+            developmentOnly = Boolean.parseBoolean(developmentValue);
+        } else {
+            developmentOnly = false;
+        }
         Long expectedSize = strictLongOrNull(props.getProperty("expectedSizeBytes"));
         if (expectedSize != null && expectedSize <= 0L) {
             throw new IllegalArgumentException("expectedSizeBytes must be positive");
@@ -652,6 +664,11 @@ public final class PluginProvenanceStore {
                     requiredText(props, "signature.keyId"),
                     requiredText(props, "signature.value"));
         }
+        if ("1".equals(formatVersion)
+                && source == PluginPackageSource.LOCAL_UPLOAD
+                && signature == null) {
+            throw new IllegalArgumentException("legacy unsigned provenance is not trusted");
+        }
 
         String repositoryId = text(props, "repositoryId");
         if (source == PluginPackageSource.MARKET_CATALOG) {
@@ -675,6 +692,7 @@ public final class PluginProvenanceStore {
                 source,
                 repositoryId,
                 officialRepository,
+                developmentOnly,
                 expectedSize,
                 expectedSha256 != null ? expectedSha256.toLowerCase(java.util.Locale.ROOT) : null,
                 artifactSize,

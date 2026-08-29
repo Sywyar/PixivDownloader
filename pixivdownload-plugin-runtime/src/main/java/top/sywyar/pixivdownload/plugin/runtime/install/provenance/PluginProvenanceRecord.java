@@ -18,6 +18,7 @@ public record PluginProvenanceRecord(
         PluginPackageSource source,
         String repositoryId,
         boolean officialRepository,
+        boolean developmentOnly,
         Long expectedSizeBytes,
         String expectedSha256,
         long artifactSizeBytes,
@@ -65,6 +66,9 @@ public record PluginProvenanceRecord(
                 throw new IllegalArgumentException("local provenance must not claim catalog source bindings");
             }
             if (signature == null) {
+                if (!developmentOnly) {
+                    throw new IllegalArgumentException("unsigned local provenance must be development-only");
+                }
                 if (status != VerificationStatus.UNSIGNED_ALLOWED) {
                     throw new IllegalArgumentException("unsigned local provenance must be UNSIGNED_ALLOWED");
                 }
@@ -75,6 +79,9 @@ public record PluginProvenanceRecord(
                     throw new IllegalArgumentException("unsigned local provenance must not claim signer metadata");
                 }
             } else {
+                if (developmentOnly) {
+                    throw new IllegalArgumentException("signed local provenance must not be development-only");
+                }
                 validateSignatureEnvelope(signature);
                 if (status != VerificationStatus.VERIFIED) {
                     throw new IllegalArgumentException("signed local provenance initial status must be VERIFIED");
@@ -87,6 +94,9 @@ public record PluginProvenanceRecord(
                 }
             }
         } else if (source == PluginPackageSource.MARKET_CATALOG) {
+            if (developmentOnly) {
+                throw new IllegalArgumentException("catalog provenance must not be development-only");
+            }
             if (repositoryId == null || expectedSizeBytes == null || expectedSizeBytes <= 0L
                     || expectedSha256 == null || signature == null) {
                 throw new IllegalArgumentException("catalog provenance is missing its signed source binding");
@@ -122,6 +132,7 @@ public record PluginProvenanceRecord(
                 origin.source(),
                 origin.repositoryId(),
                 origin.officialRepository(),
+                origin.developmentOnly(),
                 origin.expectedSizeBytes(),
                 origin.expectedSha256(),
                 result.sizeBytes(),
@@ -152,7 +163,8 @@ public record PluginProvenanceRecord(
                 || !artifactSha256.equals(normalizedSha256(result.sha256(), "result.sha256")))) {
             throw new IllegalArgumentException("offline verification result does not bind the installed artifact");
         }
-        return new PluginProvenanceRecord(source, repositoryId, officialRepository, expectedSizeBytes, expectedSha256,
+        return new PluginProvenanceRecord(source, repositoryId, officialRepository, developmentOnly,
+                expectedSizeBytes, expectedSha256,
                 artifactSizeBytes, artifactSha256, signature, status,
                 result.keyId() != null ? result.keyId() : keyId,
                 result.publisher() != null ? result.publisher() : publisher,

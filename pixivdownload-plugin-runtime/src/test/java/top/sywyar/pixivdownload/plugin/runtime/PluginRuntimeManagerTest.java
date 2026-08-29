@@ -92,7 +92,7 @@ class PluginRuntimeManagerTest {
                     Files.size(request.artifactPath()), PluginPackageIntegrity.sha256Hex(request.artifactPath()),
                     "VERIFIED");
         });
-        PluginRuntimeManager manager = new PluginRuntimeManager(plugins, ignored -> verifier);
+        var manager = new top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager(plugins, ignored -> verifier);
         manager.updateAdmissionPolicy(ignored -> PluginArtifactAdmissionResult.reject(
                 "PLUGIN_REVOKED", "verified revocation match"));
 
@@ -179,6 +179,24 @@ class PluginRuntimeManagerTest {
         assertThat(manager.generation(PROBE_ID).orElseThrow()).isGreaterThan(firstGeneration);
         assertThat(invokeInt(secondProvider, "featurePluginCalls")).isEqualTo(1);
         assertThat(invokeInt(secondProvider, "configurationClassesCalls")).isEqualTo(1);
+        manager.shutdown();
+    }
+
+    @Test
+    @DisplayName("生产模式拒绝带开发态来源证明的未签名插件")
+    void productionModeRejectsDevelopmentOnlyProvenance() throws IOException {
+        Path plugins = tempDir.resolve("production-plugins");
+        Path jar = plugins.resolve("bootstrap-probe-1.0.0.jar");
+        writeProbeJar(jar, false);
+        writeLocalProvenance(plugins, jar);
+        top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager manager =
+                new top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager(plugins);
+
+        PluginRuntimeStatus status = manager.start();
+
+        assertThat(status.loadedPluginIds()).isEmpty();
+        assertThat(status.failures()).singleElement()
+                .satisfies(failure -> assertThat(failure.reason()).contains("SIGNATURE_REQUIRED"));
         manager.shutdown();
     }
 
@@ -1635,14 +1653,16 @@ class PluginRuntimeManagerTest {
 
     private static void replacePluginManager(
             PluginRuntimeManager runtimeManager, PluginManager pluginManager) throws ReflectiveOperationException {
-        Field field = PluginRuntimeManager.class.getDeclaredField("pluginManager");
+        Field field = top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager.class
+                .getDeclaredField("pluginManager");
         field.setAccessible(true);
         field.set(runtimeManager, pluginManager);
     }
 
     private static PluginArtifactVerificationService verificationService(PluginRuntimeManager runtimeManager)
             throws ReflectiveOperationException {
-        Field field = PluginRuntimeManager.class.getDeclaredField("verificationService");
+        Field field = top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager.class
+                .getDeclaredField("verificationService");
         field.setAccessible(true);
         return (PluginArtifactVerificationService) field.get(runtimeManager);
     }
@@ -1650,7 +1670,8 @@ class PluginRuntimeManagerTest {
     private static void replaceVerificationService(
             PluginRuntimeManager runtimeManager, PluginArtifactVerificationService verificationService)
             throws ReflectiveOperationException {
-        Field field = PluginRuntimeManager.class.getDeclaredField("verificationService");
+        Field field = top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager.class
+                .getDeclaredField("verificationService");
         field.setAccessible(true);
         field.set(runtimeManager, verificationService);
     }
@@ -1662,7 +1683,8 @@ class PluginRuntimeManagerTest {
     private static void replaceDevelopmentCacheSession(
             PluginRuntimeManager runtimeManager,
             PluginDevelopmentArtifacts.DevelopmentCacheSession session) throws ReflectiveOperationException {
-        Field field = PluginRuntimeManager.class.getDeclaredField("developmentCacheSession");
+        Field field = top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager.class
+                .getDeclaredField("developmentCacheSession");
         field.setAccessible(true);
         field.set(runtimeManager, session);
     }
@@ -1815,6 +1837,7 @@ class PluginRuntimeManagerTest {
                 PluginPackageSource.MARKET_CATALOG,
                 "test-repository",
                 false,
+                false,
                 size,
                 sha256,
                 size,
@@ -1845,6 +1868,23 @@ class PluginRuntimeManagerTest {
             System.clearProperty(name);
         } else {
             System.setProperty(name, previousValue);
+        }
+    }
+
+    private static class PluginRuntimeManager
+            extends top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager {
+
+        private PluginRuntimeManager(Path pluginsRoot) {
+            super(pluginsRoot, () -> true);
+        }
+
+        private PluginRuntimeManager(Path pluginsRoot,
+                                     int maximumStartupVerificationEntries,
+                                     long maximumStartupVerificationUncompressedBytes,
+                                     long maximumStartupProvenanceBytes) {
+            super(pluginsRoot, maximumStartupVerificationEntries,
+                    maximumStartupVerificationUncompressedBytes, maximumStartupProvenanceBytes,
+                    () -> true);
         }
     }
 

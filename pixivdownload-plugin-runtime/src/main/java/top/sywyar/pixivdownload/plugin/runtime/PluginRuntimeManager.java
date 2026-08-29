@@ -48,6 +48,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PixivPluginDiscoveryBridge;
@@ -86,6 +87,7 @@ public class PluginRuntimeManager {
     private PluginArtifactVerificationService verificationService;
     private Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver;
     private PluginArtifactAdmissionPolicy admissionPolicy = PluginArtifactAdmissionPolicy.allowAll();
+    private final BooleanSupplier developmentModeEnabled;
     private final PluginProvenanceStore provenanceStore;
     private final int maximumStartupVerificationEntries;
     private final long maximumStartupVerificationUncompressedBytes;
@@ -114,7 +116,23 @@ public class PluginRuntimeManager {
                          long maximumStartupProvenanceBytes) {
         this(pluginsRoot, fixedVerifier(new PluginSupplyChainVerifier()),
                 maximumStartupVerificationEntries, maximumStartupVerificationUncompressedBytes,
-                maximumStartupProvenanceBytes);
+                maximumStartupProvenanceBytes, PluginDevelopmentArtifacts::enabled);
+    }
+
+    protected PluginRuntimeManager(Path pluginsRoot, BooleanSupplier developmentModeEnabled) {
+        this(pluginsRoot, fixedVerifier(new PluginSupplyChainVerifier()),
+                MAX_STARTUP_VERIFICATION_ENTRIES, MAX_STARTUP_VERIFICATION_UNCOMPRESSED_BYTES,
+                MAX_STARTUP_PROVENANCE_BYTES, developmentModeEnabled);
+    }
+
+    protected PluginRuntimeManager(Path pluginsRoot,
+                                   int maximumStartupVerificationEntries,
+                                   long maximumStartupVerificationUncompressedBytes,
+                                   long maximumStartupProvenanceBytes,
+                                   BooleanSupplier developmentModeEnabled) {
+        this(pluginsRoot, fixedVerifier(new PluginSupplyChainVerifier()),
+                maximumStartupVerificationEntries, maximumStartupVerificationUncompressedBytes,
+                maximumStartupProvenanceBytes, developmentModeEnabled);
     }
 
     public PluginRuntimeManager(Path pluginsRoot, PluginSupplyChainVerifier verifier) {
@@ -125,6 +143,15 @@ public class PluginRuntimeManager {
                                 Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver) {
         this(pluginsRoot, verifierResolver, MAX_STARTUP_VERIFICATION_ENTRIES,
                 MAX_STARTUP_VERIFICATION_UNCOMPRESSED_BYTES, MAX_STARTUP_PROVENANCE_BYTES);
+    }
+
+    protected PluginRuntimeManager(
+            Path pluginsRoot,
+            Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
+            BooleanSupplier developmentModeEnabled) {
+        this(pluginsRoot, verifierResolver, MAX_STARTUP_VERIFICATION_ENTRIES,
+                MAX_STARTUP_VERIFICATION_UNCOMPRESSED_BYTES, MAX_STARTUP_PROVENANCE_BYTES,
+                developmentModeEnabled);
     }
 
     PluginRuntimeManager(Path pluginsRoot,
@@ -140,6 +167,17 @@ public class PluginRuntimeManager {
                          int maximumStartupVerificationEntries,
                          long maximumStartupVerificationUncompressedBytes,
                          long maximumStartupProvenanceBytes) {
+        this(pluginsRoot, verifierResolver, maximumStartupVerificationEntries,
+                maximumStartupVerificationUncompressedBytes, maximumStartupProvenanceBytes,
+                PluginDevelopmentArtifacts::enabled);
+    }
+
+    private PluginRuntimeManager(Path pluginsRoot,
+                                 Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
+                                 int maximumStartupVerificationEntries,
+                                 long maximumStartupVerificationUncompressedBytes,
+                                 long maximumStartupProvenanceBytes,
+                                 BooleanSupplier developmentModeEnabled) {
         if (pluginsRoot == null) {
             throw new IllegalArgumentException("pluginsRoot must not be null");
         }
@@ -152,7 +190,9 @@ public class PluginRuntimeManager {
         this.workspaceOwner = new PluginArtifactWorkspaceOwner(layout);
         this.materializer = new PluginArtifactMaterializer(layout);
         this.verifierResolver = Objects.requireNonNull(verifierResolver, "verifierResolver");
-        this.verificationService = new PluginArtifactVerificationService(this.verifierResolver);
+        this.developmentModeEnabled = Objects.requireNonNull(developmentModeEnabled, "developmentModeEnabled");
+        this.verificationService = new PluginArtifactVerificationService(
+                this.verifierResolver, this.developmentModeEnabled);
         this.provenanceStore = new PluginProvenanceStore(layout);
         this.maximumStartupVerificationEntries = maximumStartupVerificationEntries;
         this.maximumStartupVerificationUncompressedBytes = maximumStartupVerificationUncompressedBytes;
@@ -168,7 +208,8 @@ public class PluginRuntimeManager {
     public synchronized void updateVerifierResolver(
             Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver) {
         this.verifierResolver = Objects.requireNonNull(verifierResolver, "verifierResolver");
-        this.verificationService = new PluginArtifactVerificationService(this.verifierResolver);
+        this.verificationService = new PluginArtifactVerificationService(
+                this.verifierResolver, this.developmentModeEnabled);
     }
 
     public synchronized void updateAdmissionPolicy(PluginArtifactAdmissionPolicy admissionPolicy) {

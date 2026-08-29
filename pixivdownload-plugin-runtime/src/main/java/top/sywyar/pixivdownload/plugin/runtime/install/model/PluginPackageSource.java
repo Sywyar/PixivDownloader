@@ -7,7 +7,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageInteg
  *
  * <ul>
  *   <li>{@link #LOCAL_UPLOAD}：管理员从本地选择并上传的 {@code .jar} / {@code .zip} 包。<b>当前唯一接入的来源。</b>
- *       本地包没有可信清单背书，故不带期望大小 / 哈希 / 签名，安装器只做结构与资源安全校验。</li>
+ *       未签名本地包只允许在当前显式开发模式中准入；非开发模式要求受宿主信任根认可的 detached 签名。</li>
  *   <li>{@link #MARKET_CATALOG}：由<b>受信插件目录元数据</b>驱动的来源（产品形态：用户在管理界面从官方插件目录按需
  *       获取插件）。其期望大小 / 哈希 / 签名一律来自受信目录清单，<b>绝不</b>接受用户输入的任意下载地址；下载、校验、
  *       落盘的本地框架边界见 {@link PluginPackageOrigin} 与 {@link PluginPackageIntegrity}。<b>当前未接入</b>——保留为

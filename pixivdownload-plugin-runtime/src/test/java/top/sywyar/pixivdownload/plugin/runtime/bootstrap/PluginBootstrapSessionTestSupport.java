@@ -74,6 +74,25 @@ abstract class PluginBootstrapSessionTestSupport {
         System.clearProperty("bootstrap.probe.marker");
     }
 
+    protected static PluginBootstrapSession createContext(
+            Path pluginsRoot, PluginEnabledSnapshot enabledSnapshot) {
+        return createContext(pluginsRoot, enabledSnapshot, new PluginSupplyChainVerifier());
+    }
+
+    protected static PluginBootstrapSession createContext(
+            Path pluginsRoot, PluginEnabledSnapshot enabledSnapshot, PluginSupplyChainVerifier verifier) {
+        return new PluginBootstrapSession(
+                pluginsRoot, PluginBootstrapSession.Ownership.CONTEXT, enabledSnapshot,
+                ignored -> verifier, () -> true);
+    }
+
+    protected static PluginBootstrapSession createProcess(
+            Path pluginsRoot, PluginEnabledSnapshot enabledSnapshot) {
+        return new PluginBootstrapSession(
+                pluginsRoot, PluginBootstrapSession.Ownership.PROCESS, enabledSnapshot,
+                ignored -> new PluginSupplyChainVerifier(), () -> true);
+    }
+
     // ── startup snapshot 短生命周期 + classloader 释放 ──────────────────────────
 
     protected static PluginInstallResult installFully(ExternalPluginInstaller installer, Path packagePath) {

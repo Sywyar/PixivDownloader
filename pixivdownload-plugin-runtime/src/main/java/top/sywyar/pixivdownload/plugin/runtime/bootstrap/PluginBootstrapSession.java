@@ -8,6 +8,7 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
@@ -23,6 +24,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 
 /**
@@ -97,6 +99,25 @@ public final class PluginBootstrapSession implements AutoCloseable {
                            Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
                            RuntimeManagerFactory runtimeManagerFactory,
                            RecoveryOperation recoveryOperation) {
+        this(pluginsRoot, ownership, enabledSnapshot, verifierResolver, runtimeManagerFactory,
+                recoveryOperation, PluginDevelopmentArtifacts::enabled);
+    }
+
+    PluginBootstrapSession(Path pluginsRoot, Ownership ownership, PluginEnabledSnapshot enabledSnapshot,
+                           Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
+                           BooleanSupplier developmentModeEnabled) {
+        this(pluginsRoot, ownership, enabledSnapshot, verifierResolver,
+                (root, resolver, installer) -> new RecoveryGatedPluginRuntimeManager(
+                        root, resolver, installer, developmentModeEnabled),
+                ExternalPluginInstaller::recoverPendingTransactions,
+                developmentModeEnabled);
+    }
+
+    private PluginBootstrapSession(Path pluginsRoot, Ownership ownership, PluginEnabledSnapshot enabledSnapshot,
+                                   Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
+                                   RuntimeManagerFactory runtimeManagerFactory,
+                                   RecoveryOperation recoveryOperation,
+                                   BooleanSupplier developmentModeEnabled) {
         this.pluginsRoot = Objects.requireNonNull(pluginsRoot, "pluginsRoot").toAbsolutePath().normalize();
         this.ownership = Objects.requireNonNull(ownership, "ownership");
         this.enabledSnapshot = Objects.requireNonNull(enabledSnapshot, "enabledSnapshot");
@@ -108,7 +129,7 @@ public final class PluginBootstrapSession implements AutoCloseable {
         PluginDirectorySessionLock directoryLock = new PluginDirectorySessionLock(this.pluginsRoot);
         this.installer = new ExternalPluginInstaller(this.pluginsRoot,
                 PluginPackageLimits.defaults(),
-                effectiveResolver, directoryLock);
+                effectiveResolver, directoryLock, developmentModeEnabled);
     }
 
     /** GUI 进程拥有的会话（Spring 关闭不释放、进程退出时关闭）。 */
@@ -507,6 +528,15 @@ public final class PluginBootstrapSession implements AutoCloseable {
                 Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
                 ExternalPluginInstaller installer) {
             super(pluginsRoot, verifierResolver);
+            this.installer = Objects.requireNonNull(installer, "installer");
+        }
+
+        private RecoveryGatedPluginRuntimeManager(
+                Path pluginsRoot,
+                Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
+                ExternalPluginInstaller installer,
+                BooleanSupplier developmentModeEnabled) {
+            super(pluginsRoot, verifierResolver, developmentModeEnabled);
             this.installer = Objects.requireNonNull(installer, "installer");
         }
 

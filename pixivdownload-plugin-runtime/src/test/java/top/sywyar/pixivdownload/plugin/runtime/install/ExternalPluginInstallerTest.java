@@ -6,6 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.sdk.SdkVersion;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
@@ -54,9 +55,12 @@ class ExternalPluginInstallerTest {
     Path home;
     private Path pluginsDir;
     private ExternalPluginInstaller installer;
+    private String previousDevelopmentMode;
 
     @BeforeEach
     void setUp() {
+        previousDevelopmentMode = System.getProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY);
+        System.setProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, "true");
         pluginsDir = home.resolve("plugins");
         installer = new ExternalPluginInstaller(pluginsDir);
         assertThat(installer.recoverPendingTransactions().safeToScan()).isTrue();
@@ -64,7 +68,19 @@ class ExternalPluginInstallerTest {
 
     @AfterEach
     void closeInstaller() {
-        installer.close();
+        try {
+            installer.close();
+        } finally {
+            restoreDevelopmentMode();
+        }
+    }
+
+    private void restoreDevelopmentMode() {
+        if (previousDevelopmentMode == null) {
+            System.clearProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY);
+        } else {
+            System.setProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, previousDevelopmentMode);
+        }
     }
 
     // ---------- 基本安装 ----------

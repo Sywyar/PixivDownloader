@@ -448,7 +448,7 @@ class PluginManagementServiceTest {
         Path artifact = Path.of("plugins", pluginId + "-1.0.0.jar").toAbsolutePath().normalize();
         PluginProvenanceRecord oldBinding = new PluginProvenanceRecord(
                 top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource.LOCAL_UPLOAD,
-                null, false, null, null, 1L, "a".repeat(64), null,
+                null, false, true, null, null, 1L, "a".repeat(64), null,
                 VerificationStatus.UNSIGNED_ALLOWED, null, null, null,
                 Instant.parse("2026-07-22T00:00:00Z"), null, null, "UNSIGNED_ALLOWED");
         VerificationResult currentResult = new VerificationResult(
@@ -514,6 +514,7 @@ class PluginManagementServiceTest {
                 PluginPackageSource.MARKET_CATALOG,
                 "old-repository",
                 false,
+                false,
                 size,
                 sha256,
                 size,
@@ -531,6 +532,7 @@ class PluginManagementServiceTest {
                 PluginPackageSource.MARKET_CATALOG,
                 "forged-repository",
                 true,
+                false,
                 size,
                 sha256,
                 size,
@@ -622,7 +624,7 @@ class PluginManagementServiceTest {
         Path artifact = Path.of("plugins", "demo-ext-1.0.0.jar").toAbsolutePath().normalize();
         PluginProvenanceRecord provenance = new PluginProvenanceRecord(
                 top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource.LOCAL_UPLOAD,
-                null, false, null, null, 1L, "a".repeat(64), null,
+                null, false, true, null, null, 1L, "a".repeat(64), null,
                 VerificationStatus.UNSIGNED_ALLOWED, null, null, null,
                 Instant.parse("2026-07-22T00:00:00Z"), null, null, "UNSIGNED_ALLOWED");
         PluginStatusService status = mock(PluginStatusService.class);
@@ -730,7 +732,7 @@ class PluginManagementServiceTest {
         Path missingPath = Path.of("plugins", missingPathId + "-1.0.0.jar").toAbsolutePath().normalize();
         PluginProvenanceRecord oldBinding = new PluginProvenanceRecord(
                 top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource.LOCAL_UPLOAD,
-                null, false, null, null, 1L, "a".repeat(64), null,
+                null, false, true, null, null, 1L, "a".repeat(64), null,
                 VerificationStatus.UNSIGNED_ALLOWED, null, null, null,
                 Instant.parse("2026-07-22T00:00:00Z"), null, null, "UNSIGNED_ALLOWED");
         VerificationResult staleResult = new VerificationResult(

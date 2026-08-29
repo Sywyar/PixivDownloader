@@ -199,12 +199,12 @@ class PluginRequiredVerificationRecoveryTest {
     }
 
     @Test
-    @DisplayName("local unsigned optional：有显式本地 sidecar 时允许加载，并投影为 UNSIGNED_ALLOWED / 本地来源")
+    @DisplayName("local unsigned optional：显式开发态准入时允许加载并投影为本地来源")
     void localUnsignedOptionalAllowedWithExplicitSidecar() throws Exception {
         Scenario scenario = scenario("local-unsigned");
         PluginTestProvenance.writeLocalUpload(scenario.pluginsDir(), scenario.jar(), PLUGIN_ID, VERSION);
 
-        PluginRuntimeManager manager = start(scenario, new PluginSupplyChainVerifier());
+        PluginRuntimeManager manager = startDevelopmentTrust(scenario, new PluginSupplyChainVerifier());
         try {
             assertThat(manager.status().orElseThrow().startedPluginIds()).contains(PLUGIN_ID);
             PluginProvenanceRecord provenance =
@@ -212,6 +212,26 @@ class PluginRequiredVerificationRecoveryTest {
             assertThat(provenance.offlineStatus()).isEqualTo(VerificationStatus.UNSIGNED_ALLOWED);
             assertThat(PluginVerificationProjector.fromProvenance(provenance).status())
                     .isEqualTo(PluginVerificationProjector.UNSIGNED_ALLOWED);
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("local unsigned optional：生产模式即使有旧 sidecar 也在 PF4J 前拒绝")
+    void localUnsignedOptionalRejectedOutsideDevelopmentMode() throws Exception {
+        Scenario scenario = scenario("local-unsigned-production");
+        PluginTestProvenance.writeLocalUpload(scenario.pluginsDir(), scenario.jar(), PLUGIN_ID, VERSION);
+
+        PluginRuntimeManager manager = start(scenario, new PluginSupplyChainVerifier());
+        try {
+            assertThat(manager.status().orElseThrow().startedPluginIds()).doesNotContain(PLUGIN_ID);
+            assertThat(manager.status().orElseThrow().failures()).singleElement()
+                    .satisfies(failure -> assertThat(failure.reason()).contains("SIGNATURE_REQUIRED"));
+            assertThat(Files.readString(scenario.marker(), StandardCharsets.UTF_8)).isEmpty();
+            PluginProvenanceRecord provenance =
+                    new PluginProvenanceStore(scenario.pluginsDir()).read(scenario.jar()).orElseThrow();
+            assertThat(provenance.offlineStatus()).isEqualTo(VerificationStatus.SIGNATURE_REQUIRED);
         } finally {
             manager.shutdown();
         }
@@ -236,6 +256,13 @@ class PluginRequiredVerificationRecoveryTest {
 
     private static PluginRuntimeManager start(Scenario scenario, PluginSupplyChainVerifier verifier) {
         PluginRuntimeManager manager = new PluginRuntimeManager(scenario.pluginsDir(), verifier);
+        manager.start();
+        return manager;
+    }
+
+    private static PluginRuntimeManager startDevelopmentTrust(
+            Scenario scenario, PluginSupplyChainVerifier verifier) {
+        PluginRuntimeManager manager = new DevelopmentTrustPluginRuntimeManager(scenario.pluginsDir(), verifier);
         manager.start();
         return manager;
     }
@@ -323,6 +350,13 @@ class PluginRequiredVerificationRecoveryTest {
     }
 
     private record Scenario(Path pluginsDir, Path jar, Path marker) {
+    }
+
+    private static final class DevelopmentTrustPluginRuntimeManager extends PluginRuntimeManager {
+
+        private DevelopmentTrustPluginRuntimeManager(Path pluginsRoot, PluginSupplyChainVerifier verifier) {
+            super(pluginsRoot, ignored -> verifier, () -> true);
+        }
     }
 
     private record SigningFixture(String keyId, PrivateKey privateKey, TrustedPluginKey trustedKey) {
