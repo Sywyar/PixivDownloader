@@ -217,13 +217,27 @@ class PluginMarketServiceTest {
     void installDelegatesByRepositoryId() {
         PluginInstallReport report = new PluginInstallReport(PluginInstallOutcome.INSTALLED, true, true,
                 "demo", "1.0.0", null, List.of(), List.of(), List.of());
-        when(acquisitionService.install("official", "demo", "1.0.0")).thenReturn(report);
+        when(acquisitionService.install("official", "demo", "1.0.0", false)).thenReturn(report);
         PluginCatalogProperties props = new PluginCatalogProperties();
         props.setEnabled(true);
 
         PluginInstallReport result = service(props).install("official", "demo", "1.0.0");
 
         assertThat(result.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
-        verify(acquisitionService).install("official", "demo", "1.0.0");
+        verify(acquisitionService).install("official", "demo", "1.0.0", false);
+    }
+
+    @Test
+    @DisplayName("install：显式身份迁移确认只透传给当前受控安装请求")
+    void installDelegatesIdentityMigrationConfirmation() {
+        PluginInstallReport report = new PluginInstallReport(PluginInstallOutcome.INSTALLED, true, true,
+                "demo", "1.0.0", null, List.of(), List.of(), List.of());
+        when(acquisitionService.install("official", "demo", "1.0.0", true)).thenReturn(report);
+
+        PluginInstallReport result = service(new PluginCatalogProperties())
+                .install("official", "demo", "1.0.0", true);
+
+        assertThat(result).isSameAs(report);
+        verify(acquisitionService).install("official", "demo", "1.0.0", true);
     }
 }

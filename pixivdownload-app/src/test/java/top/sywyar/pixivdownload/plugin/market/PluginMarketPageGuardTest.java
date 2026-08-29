@@ -191,6 +191,8 @@ class PluginMarketPageGuardTest {
                 "install.action.install", "install.action.update", "install.state.installed",
                 "install.state.incompatible", "install.state.unavailable",
                 "install.state.installing", "install.state.pending-restart",
+                "install.identity-migration.title", "install.identity-migration.message",
+                "install.identity-migration.confirm", "install.identity-migration.cancel",
                 "install.restart-hint", "install.goto-manage", "compat.needs", "fallback.notice",
                 "detail.changelog", "detail.requires", "detail.sha256", "detail.verification",
                 "master.disabled.title", "recovery.banner.title", "recovery.banner.desc",
@@ -308,6 +310,22 @@ class PluginMarketPageGuardTest {
                 .doesNotContain("installPlugin(this.activeRepositoryId");
         assertThat(fallback).as("回退安装不读全局 activeRepositoryId")
                 .doesNotContain("installPlugin(state.activeRepositoryId");
+    }
+
+    @Test
+    @DisplayName("身份迁移确认复用共享反馈框，并由 Vue / 基础回退共同走同一精确请求重试")
+    void identityMigrationConfirmationUsesSharedGuard() throws IOException {
+        String core = read(CORE);
+        String api = read(API);
+        String vue = read(VUE);
+        String fallback = read(FALLBACK);
+
+        assertThat(core).contains("REJECTED_IDENTITY_CONFIRMATION_REQUIRED",
+                "PixivFeedback.confirm", "installPluginWithConfirmation");
+        assertThat(api).contains("confirmIdentityMigration=true");
+        assertThat(vue).contains("PMK.installPluginWithConfirmation(repositoryId, pluginId, version)");
+        assertThat(fallback).contains("PMK.installPluginWithConfirmation(repositoryId, pluginId, version)");
+        assertThat(core + vue + fallback).doesNotContain("window.confirm(", "global.confirm(");
     }
 
     @Test

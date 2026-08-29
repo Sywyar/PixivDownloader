@@ -578,7 +578,7 @@
                     if (this.installing[key]) return;
                     this.installing[key] = true;
                     delete this.installResults[key];
-                    PMK.api.installPlugin(repositoryId, pluginId, version).then(function (res) {
+                    PMK.installPluginWithConfirmation(repositoryId, pluginId, version).then(function (res) {
                         var model = res.kind === 'install'
                             ? PMK.data.installResult(res.body)
                             : PMK.data.catalogError(res.body, res.httpStatus);

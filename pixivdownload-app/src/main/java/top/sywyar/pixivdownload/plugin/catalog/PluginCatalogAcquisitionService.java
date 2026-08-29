@@ -92,7 +92,7 @@ public class PluginCatalogAcquisitionService {
         PluginCatalogService.ResolvedPackage resolved = catalogService.resolveDefaultPackage(pluginId, version);
         PluginCatalogManifest manifest = resolved.repository().pagedCatalog()
                 ? null : catalogService.load(resolved.repository().repositoryId());
-        return installFrom(resolved.repository(), manifest, pluginId, version);
+        return installFrom(resolved.repository(), manifest, pluginId, version, false);
     }
 
     /**
@@ -102,10 +102,15 @@ public class PluginCatalogAcquisitionService {
      * 版本缺失 / URL 不安全 / 阻断地址 / 超限 / 下载失败 → 对应稳定码；下载成功后的安装结局由 {@link PluginInstallReport} 承载。
      */
     public PluginInstallReport install(String repositoryId, String pluginId, String version) {
+        return install(repositoryId, pluginId, version, false);
+    }
+
+    public PluginInstallReport install(String repositoryId, String pluginId, String version,
+                                       boolean identityMigrationConfirmed) {
         PluginCatalogService.ResolvedPackage resolved = catalogService.resolvePackage(repositoryId, pluginId, version);
         PluginCatalogManifest manifest = resolved.repository().pagedCatalog()
                 ? null : catalogService.load(repositoryId);
-        return installFrom(resolved.repository(), manifest, pluginId, version);
+        return installFrom(resolved.repository(), manifest, pluginId, version, identityMigrationConfirmed);
     }
 
     /**
@@ -113,11 +118,11 @@ public class PluginCatalogAcquisitionService {
      * 结构 / 兼容校验落盘 → 删临时文件。下载始终用 {@code repository}（清单的来源仓库），不退回默认 / 全局客户端。
      */
     private PluginInstallReport installFrom(PluginRepository repository, PluginCatalogManifest manifest,
-                                            String pluginId, String version) {
+                                            String pluginId, String version, boolean identityMigrationConfirmed) {
         List<PluginDependencyInstallResult> dependencyInstallResults = new ArrayList<>();
         try {
             PluginInstallReport report = installFrom(repository, manifest, pluginId, version,
-                    new ArrayDeque<>(), dependencyInstallResults);
+                    new ArrayDeque<>(), dependencyInstallResults, identityMigrationConfirmed);
             return report.withDependencyInstallResults(dependencyInstallResults);
         } catch (PluginCatalogException ex) {
             throw ex.withDependencyInstallResults(dependencyInstallResults);
@@ -126,7 +131,8 @@ public class PluginCatalogAcquisitionService {
 
     private PluginInstallReport installFrom(PluginRepository repository, PluginCatalogManifest manifest,
                                             String pluginId, String version, ArrayDeque<String> stack,
-                                            List<PluginDependencyInstallResult> dependencyInstallResults) {
+                                            List<PluginDependencyInstallResult> dependencyInstallResults,
+                                            boolean identityMigrationConfirmed) {
         if (stack.contains(pluginId)) {
             PluginDependencyRef dependency = new PluginDependencyRef(pluginId, version, false);
             return dependencyRejected(pluginId, version, List.of(dependency),
@@ -147,7 +153,8 @@ public class PluginCatalogAcquisitionService {
 
             Set<String> descriptorAttempts = new HashSet<>();
             while (true) {
-                PluginInstallReport installed = downloadAndInstall(repository, pluginId, version);
+                PluginInstallReport installed = downloadAndInstall(
+                        repository, pluginId, version, identityMigrationConfirmed);
                 if (installed.outcome() != PluginInstallOutcome.REJECTED_DEPENDENCY
                         || installed.dependencyProblems().isEmpty()) {
                     return installed;
@@ -209,7 +216,7 @@ public class PluginCatalogAcquisitionService {
                 continue;
             }
             PluginInstallReport dependencyReport = installFrom(repository, manifest,
-                    dependency.pluginId(), dependencyPackage.get().version(), stack, dependencyInstallResults);
+                    dependency.pluginId(), dependencyPackage.get().version(), stack, dependencyInstallResults, false);
             if (dependencyReport.recoveryBlocked()) {
                 if (dependencyReport.accepted()) {
                     dependencyInstallResults.add(PluginDependencyInstallResult.from(dependencyReport));
@@ -244,7 +251,8 @@ public class PluginCatalogAcquisitionService {
         return dependencyRejected(pluginId, version, dependencies, problems, diagnostics);
     }
 
-    private PluginInstallReport downloadAndInstall(PluginRepository repository, String pluginId, String version) {
+    private PluginInstallReport downloadAndInstall(PluginRepository repository, String pluginId, String version,
+                                                   boolean identityMigrationConfirmed) {
 
         PluginCatalogPackage pkg = catalogService.resolvePackage(repository.repositoryId(), pluginId, version).pkg();
         if (revocations != null) revocations.requireInstallAllowed(repository, pluginId, pkg);
@@ -257,7 +265,8 @@ public class PluginCatalogAcquisitionService {
                     pkg.signature(), pluginId, version,
                     repository.pagedCatalog() ? (pkg.requiredSdk() != null ? pkg.requiredSdk() : "*") : null,
                     repository.pagedCatalog() ? pkg.dependencies() : null,
-                    pkg.identityMigrationSignatures());
+                    pkg.identityMigrationSignatures(),
+                    pkg.repositoryIdentityMigrationAuthorizations(), identityMigrationConfirmed);
             return installService.installTrustedFile(temp, false, origin);
         } finally {
             deleteQuietly(temp);

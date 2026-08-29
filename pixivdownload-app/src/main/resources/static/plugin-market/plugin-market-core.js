@@ -33,6 +33,30 @@
         return interpolate(fallback != null ? fallback : key, vars);
     };
 
+    PMK.IDENTITY_MIGRATION_CONFIRMATION_REQUIRED = 'REJECTED_IDENTITY_CONFIRMATION_REQUIRED';
+    PMK.installPluginWithConfirmation = function (repositoryId, pluginId, version) {
+        return PMK.api.installPlugin(repositoryId, pluginId, version, false).then(function (response) {
+            if (response.kind !== 'install'
+                    || !response.body
+                    || response.body.outcome !== PMK.IDENTITY_MIGRATION_CONFIRMATION_REQUIRED
+                    || !global.PixivFeedback
+                    || typeof global.PixivFeedback.confirm !== 'function') {
+                return response;
+            }
+            return global.PixivFeedback.confirm({
+                title: PMK.t('install.identity-migration.title', '确认插件发布者身份迁移'),
+                message: PMK.t('install.identity-migration.message',
+                    '受信仓库声明该插件的旧签名 key 已撤销或不可用，并请求迁移到新的发布者身份。继续前请确认你信任该仓库与新的插件发布者；确认后仍会重新校验当前精确制品。'),
+                confirmLabel: PMK.t('install.identity-migration.confirm', '确认并继续'),
+                cancelLabel: PMK.t('install.identity-migration.cancel', '取消安装')
+            }).then(function (confirmed) {
+                return confirmed
+                    ? PMK.api.installPlugin(repositoryId, pluginId, version, true)
+                    : response;
+            });
+        });
+    };
+
     PMK.currentLang = function () {
         var client = PMK.state.i18n.client;
         // 语言一律来自 meta：优先当前语言，缺省用 meta 的 defaultLang，不写死语言

@@ -161,7 +161,12 @@ public class PluginMarketService {
      * catalog 层失败（未知仓库 / 禁用 / 不可用 / 未知插件 / 版本缺失 / 不安全地址等）抛 {@link PluginCatalogException}。
      */
     public PluginInstallReport install(String repositoryId, String pluginId, String version) {
-        return acquisitionService.install(repositoryId, pluginId, version);
+        return install(repositoryId, pluginId, version, false);
+    }
+
+    public PluginInstallReport install(String repositoryId, String pluginId, String version,
+                                       boolean identityMigrationConfirmed) {
+        return acquisitionService.install(repositoryId, pluginId, version, identityMigrationConfirmed);
     }
 
     /**

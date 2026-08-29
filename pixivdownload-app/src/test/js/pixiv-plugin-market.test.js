@@ -23,9 +23,10 @@ const sandbox = { console: { log() {}, warn() {}, error() {} } };
 sandbox.window = sandbox;
 const fetchCalls = [];
 let nextFetchResponse = { status: 200, body: {} };
+const queuedFetchResponses = [];
 sandbox.fetch = function (url, opts) {
     fetchCalls.push({ url, opts });
-    const response = nextFetchResponse;
+    const response = queuedFetchResponses.length ? queuedFetchResponses.shift() : nextFetchResponse;
     return Promise.resolve({
         status: response.status,
         ok: response.status >= 200 && response.status < 300,
@@ -240,6 +241,34 @@ eq('市场 recoveryBlocked toast 保留后端 message', blockedFeedback.message,
     eq('市场 API 503 保留后端 message', response.body.message, blockedMessage);
     eq('市场 API 安装路径仅含受控标识', fetchCalls[0].url,
         '/api/plugin-market/official%20repo/demo%20plugin/1.0.0/install');
+
+    fetchCalls.length = 0;
+    nextFetchResponse = {status: 200, body: {outcome: 'INSTALLED'}};
+    await PMK.api.installPlugin('official repo', 'demo plugin', '1.0.0', true);
+    eq('市场 API 显式确认只追加固定布尔 query 参数', fetchCalls[0].url,
+        '/api/plugin-market/official%20repo/demo%20plugin/1.0.0/install?confirmIdentityMigration=true');
+
+    fetchCalls.length = 0;
+    queuedFetchResponses.push(
+        {status: 409, body: {outcome: 'REJECTED_IDENTITY_CONFIRMATION_REQUIRED'}},
+        {status: 200, body: {outcome: 'INSTALLED', accepted: true}}
+    );
+    let confirmationOptions = null;
+    sandbox.PixivFeedback = {
+        confirm: function (options) {
+            confirmationOptions = options;
+            return Promise.resolve(true);
+        }
+    };
+    const confirmed = await PMK.installPluginWithConfirmation('official repo', 'demo plugin', '1.0.0');
+    eq('身份迁移确认后返回第二次安装结果', confirmed.body.outcome, 'INSTALLED');
+    ok('身份迁移使用共享 PixivFeedback 确认框', confirmationOptions
+        && confirmationOptions.title && confirmationOptions.message
+        && confirmationOptions.confirmLabel && confirmationOptions.cancelLabel);
+    eq('身份迁移第一次请求不携带确认', fetchCalls[0].url,
+        '/api/plugin-market/official%20repo/demo%20plugin/1.0.0/install');
+    eq('身份迁移确认只重试同一受控制品', fetchCalls[1].url,
+        '/api/plugin-market/official%20repo/demo%20plugin/1.0.0/install?confirmIdentityMigration=true');
     console.log('pixiv-plugin-market.test.js: ' + passed + ' assertions passed');
 })().catch(err => {
     console.error('TEST FAILED:', err && err.message ? err.message : err);

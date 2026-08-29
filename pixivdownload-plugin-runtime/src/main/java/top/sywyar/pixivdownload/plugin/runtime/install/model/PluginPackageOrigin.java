@@ -169,6 +169,21 @@ public record PluginPackageOrigin(
     }
 
     public static PluginPackageOrigin forTrustedCatalog(
+            String repositoryId, boolean officialRepository,
+            Long expectedSizeBytes, String expectedSha256,
+            SignatureMetadata signature, String expectedPluginId,
+            String expectedVersion, String expectedRequiredSdk,
+            List<String> expectedDependencies,
+            Map<String, SignatureMetadata> identityMigrationSignatures,
+            Map<String, RepositoryIdentityMigrationAuthorization> repositoryIdentityMigrationAuthorizations,
+            boolean identityMigrationConfirmed) {
+        return new PluginPackageOrigin(PluginPackageSource.MARKET_CATALOG, repositoryId, officialRepository, false,
+                expectedSizeBytes, expectedSha256, signature, expectedPluginId, expectedVersion,
+                expectedRequiredSdk, expectedDependencies, identityMigrationSignatures,
+                repositoryIdentityMigrationAuthorizations, identityMigrationConfirmed);
+    }
+
+    public static PluginPackageOrigin forTrustedCatalog(
             String repositoryId,
             boolean officialRepository,
             Long expectedSizeBytes,

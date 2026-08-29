@@ -31,6 +31,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackagePhase;
+import top.sywyar.pixivdownload.plugin.signature.RepositoryIdentityMigrationAuthorization;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 
 import java.io.IOException;
@@ -151,8 +152,8 @@ class PluginCatalogAcquisitionServiceTest {
     }
 
     @Test
-    @DisplayName("受信清单中的身份迁移签名原样进入安装信任门")
-    void passesIdentityMigrationSignatureToInstaller() {
+    @DisplayName("受信清单中的身份迁移授权与显式确认原样进入安装信任门")
+    void passesIdentityMigrationAuthorizationsAndConfirmationToInstaller() {
         server = CatalogTestSupport.startServer();
         CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture();
         byte[] body = CatalogTestSupport.explodedPluginZip("ext", "2.0.0", null);
@@ -167,7 +168,10 @@ class PluginCatalogAcquisitionServiceTest {
                 + "\"sha256\":\"" + CatalogTestSupport.sha256Hex(body) + "\","
                 + "\"signature\":" + signing.signatureJson(artifactSignature) + ","
                 + "\"identityMigrationSignatures\":{\"ext\":"
-                + signing.signatureJson(migrationSignature) + "}}]}]}";
+                + signing.signatureJson(migrationSignature) + "},"
+                + "\"repositoryIdentityMigrationAuthorizations\":{\"ext\":{"
+                + "\"reason\":\"KEY_UNAVAILABLE\",\"signature\":"
+                + signing.signatureJson(migrationSignature) + "}}}]}]}";
         byte[] manifestBytes = manifest.getBytes(StandardCharsets.UTF_8);
         CatalogTestSupport.serveBytes(server, "/migration-catalog.json", manifestBytes);
         CatalogTestSupport.serveBytes(server, "/migration-catalog.json.sig",
@@ -184,12 +188,52 @@ class PluginCatalogAcquisitionServiceTest {
         PluginCatalogAcquisitionService service = acquisition(
                 props, installService, mock(PluginDependencyResolver.class));
 
-        service.install("ext", "2.0.0");
+        service.install("configured", "ext", "2.0.0", true);
 
         ArgumentCaptor<PluginPackageOrigin> origin = ArgumentCaptor.forClass(PluginPackageOrigin.class);
         verify(installService).installTrustedFile(any(Path.class), eq(false), origin.capture());
         assertThat(origin.getValue().identityMigrationSignatures())
                 .containsEntry("ext", migrationSignature);
+        assertThat(origin.getValue().repositoryIdentityMigrationAuthorizations())
+                .containsEntry("ext", new RepositoryIdentityMigrationAuthorization(
+                        RepositoryIdentityMigrationAuthorization.KEY_UNAVAILABLE, migrationSignature));
+        assertThat(origin.getValue().identityMigrationConfirmed()).isTrue();
+    }
+
+    @Test
+    @DisplayName("顶层身份迁移确认不会被自动安装的依赖继承")
+    void identityMigrationConfirmationIsNotInheritedByDependencies() {
+        server = CatalogTestSupport.startServer();
+        CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture();
+        byte[] beta = CatalogTestSupport.explodedPluginZip("beta", "1.0.0", null);
+        byte[] alpha = CatalogTestSupport.explodedPluginZip("alpha", "1.0.0", null, "beta@1.0");
+        String betaUrl = servePackage("/confirmation-beta.zip", beta);
+        String alphaUrl = servePackage("/confirmation-alpha.zip", alpha);
+        byte[] manifestBytes = ("{\"entries\":["
+                + entryJson("beta", "1.0.0", betaUrl, beta, signing, List.of()) + ","
+                + entryJson("alpha", "1.0.0", alphaUrl, alpha, signing, List.of("beta@1.0"))
+                + "]}").getBytes(StandardCharsets.UTF_8);
+        CatalogTestSupport.serveBytes(server, "/confirmation-catalog.json", manifestBytes);
+        CatalogTestSupport.serveBytes(server, "/confirmation-catalog.json.sig",
+                signing.manifestSignatureBytes("configured", manifestBytes));
+        PluginCatalogProperties props = new PluginCatalogProperties();
+        props.setEnabled(true);
+        props.setManifestUrl(CatalogTestSupport.loopbackUrl(server, "/confirmation-catalog.json"));
+        props.setTrustedKeys(List.of(signing.trustedKeyConfig()));
+        PluginInstallService installService = mock(PluginInstallService.class);
+        when(installService.installTrustedFile(any(Path.class), eq(false), any(PluginPackageOrigin.class)))
+                .thenReturn(new PluginInstallReport(PluginInstallOutcome.INSTALLED, true, true,
+                        "installed", "1.0.0", null, List.of(), List.of(), List.of()));
+        PluginCatalogAcquisitionService service = acquisition(
+                props, installService, mock(PluginDependencyResolver.class));
+
+        service.install("configured", "alpha", "1.0.0", true);
+
+        ArgumentCaptor<PluginPackageOrigin> origins = ArgumentCaptor.forClass(PluginPackageOrigin.class);
+        verify(installService, times(2)).installTrustedFile(any(Path.class), eq(false), origins.capture());
+        assertThat(origins.getAllValues())
+                .extracting(PluginPackageOrigin::identityMigrationConfirmed)
+                .containsExactly(false, true);
     }
 
     @Test
