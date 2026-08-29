@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationE
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.DirectoryStream;
@@ -17,12 +18,17 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
+import java.nio.file.attribute.UserPrincipal;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.Properties;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * 生产插件加载使用的私有 artifact 快照。原始安装路径只在这里以 NOFOLLOW channel 读取一次；后续结构校验、
@@ -39,12 +45,17 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
     private final Path originalArtifact;
     private final Path workspace;
     private final Path snapshotArtifact;
+    private final UserPrincipal owner;
+    private Path loadDirectory;
+    private LoadTreeManifest loadManifest;
     private boolean closed;
 
-    private PluginArtifactSnapshot(Path originalArtifact, Path workspace, Path snapshotArtifact) {
+    private PluginArtifactSnapshot(Path originalArtifact, Path workspace, Path snapshotArtifact,
+                                   UserPrincipal owner) {
         this.originalArtifact = originalArtifact;
         this.workspace = workspace;
         this.snapshotArtifact = snapshotArtifact;
+        this.owner = owner;
     }
 
     public static PluginArtifactSnapshot create(PluginRuntimeLayout layout, Path artifact, long maximumBytes) {
@@ -57,15 +68,17 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
         Path snapshot = null;
         try {
             requirePlainRegularFile(original, "plugin artifact");
-            Path runtimeRoot = requireRuntimeRoot(layout);
-            workspace = Files.createTempDirectory(runtimeRoot, WORKSPACE_PREFIX)
-                    .toAbsolutePath().normalize();
+            UserPrincipal owner = PluginRuntimeFileSecurity.secureLoadingRoots(layout);
+            PluginRuntimeFileSecurity.secureWritableFile(original, owner);
+            Path runtimeRoot = requireRuntimeRoot(layout, owner);
+            workspace = PluginRuntimeFileSecurity.createPrivateDirectory(
+                    runtimeRoot, WORKSPACE_PREFIX + UUID.randomUUID(), owner);
             requirePlainDirectory(workspace, "plugin artifact snapshot workspace");
-            writeOwnerMarker(workspace);
+            writeOwnerMarker(workspace, owner);
             snapshot = workspace.resolve(original.getFileName().toString());
-            copyBoundedNoFollow(original, snapshot, maximumBytes);
+            copyBoundedNoFollow(original, snapshot, maximumBytes, owner);
             requirePlainRegularFile(snapshot, "plugin artifact snapshot");
-            return new PluginArtifactSnapshot(original, workspace, snapshot);
+            return new PluginArtifactSnapshot(original, workspace, snapshot, owner);
         } catch (IOException | RuntimeException e) {
             deleteWorkspaceQuietly(workspace);
             throw new PluginRuntimeOperationException("failed to freeze plugin artifact " + original, e);
@@ -134,13 +147,86 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
     Path createLoadDirectory() throws IOException {
         requireOpen();
         requirePlainDirectory(workspace, "plugin artifact snapshot workspace");
-        Path loadDirectory = workspace.resolve("load");
-        if (attributesIfPresent(loadDirectory) != null) {
+        if (loadDirectory != null) {
             throw new IOException("plugin artifact load directory already exists: " + loadDirectory);
         }
-        Files.createDirectory(loadDirectory);
-        requirePlainDirectory(loadDirectory, "plugin artifact load directory");
+        Path candidate = workspace.resolve("load");
+        if (attributesIfPresent(candidate) != null) {
+            throw new IOException("plugin artifact load directory already exists: " + candidate);
+        }
+        loadDirectory = PluginRuntimeFileSecurity.createPrivateDirectory(workspace, "load", owner);
         return loadDirectory;
+    }
+
+    void createMaterializedDirectory(Path directory) throws IOException {
+        requireOpen();
+        Path normalized = requireMaterializedPath(directory);
+        Path current = loadDirectory;
+        for (Path component : loadDirectory.relativize(normalized)) {
+            Path child = current.resolve(component.toString());
+            BasicFileAttributes attributes = attributesIfPresent(child);
+            if (attributes == null) {
+                PluginRuntimeFileSecurity.createPrivateDirectory(current, component.toString(), owner);
+            } else {
+                requirePlainDirectory(child, "plugin artifact materialization directory");
+                PluginRuntimeFileSecurity.secureWritableDirectory(child, owner);
+            }
+            current = child;
+        }
+    }
+
+    void copyMaterializedEntry(InputStream input, Path output) throws IOException {
+        requireOpen();
+        Objects.requireNonNull(input, "input");
+        Path normalized = requireMaterializedPath(output);
+        createMaterializedDirectory(normalized.getParent());
+        Set<OpenOption> options = Set.of(
+                StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
+        try (FileChannel channel = FileChannel.open(normalized, options);
+             var target = Channels.newOutputStream(channel)) {
+            input.transferTo(target);
+            channel.force(true);
+        }
+        requirePlainRegularFile(normalized, "plugin artifact materialized file");
+        PluginRuntimeFileSecurity.secureWritableFile(normalized, owner);
+    }
+
+    void sealLoadPath(Path loadPath) throws IOException {
+        requireOpen();
+        if (loadManifest != null) {
+            throw new IOException("plugin artifact load path is already sealed");
+        }
+        Path normalized = Objects.requireNonNull(loadPath, "loadPath").toAbsolutePath().normalize();
+        if (!normalized.startsWith(workspace)) {
+            throw new IOException("plugin artifact load path escaped its workspace: " + normalized);
+        }
+        LoadTreeManifest manifest = LoadTreeManifest.capture(normalized, owner, false);
+        for (LoadTreeEntry entry : manifest.entries().stream()
+                .sorted(Comparator.comparingInt((LoadTreeEntry entry) -> entry.path().getNameCount()).reversed())
+                .toList()) {
+            if (entry.directory()) {
+                PluginRuntimeFileSecurity.secureReadOnlyDirectory(entry.path(), owner);
+            } else {
+                PluginRuntimeFileSecurity.secureReadOnlyFile(entry.path(), owner);
+            }
+        }
+        manifest.verify(owner);
+        loadManifest = manifest;
+    }
+
+    /** PF4J 打开路径前，证明本代已封存的完整加载树没有变化。 */
+    public void verifyLoadPath(Path loadPath) {
+        requireOpen();
+        Path normalized = Objects.requireNonNull(loadPath, "loadPath").toAbsolutePath().normalize();
+        try {
+            if (loadManifest == null || !loadManifest.root().equals(normalized)) {
+                throw new IOException("plugin artifact load path was not sealed: " + normalized);
+            }
+            loadManifest.verify(owner);
+        } catch (IOException e) {
+            throw new PluginRuntimeOperationException(
+                    "plugin artifact load tree changed before PF4J admission: " + normalized, e);
+        }
     }
 
     @Override
@@ -152,7 +238,18 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
         deleteWorkspaceQuietly(workspace);
     }
 
-    private static Path requireRuntimeRoot(PluginRuntimeLayout layout) throws IOException {
+    private Path requireMaterializedPath(Path path) throws IOException {
+        if (loadDirectory == null) {
+            throw new IOException("plugin artifact load directory is not initialized");
+        }
+        Path normalized = Objects.requireNonNull(path, "path").toAbsolutePath().normalize();
+        if (!normalized.startsWith(loadDirectory)) {
+            throw new IOException("plugin artifact materialization escaped its load directory: " + normalized);
+        }
+        return normalized;
+    }
+
+    private static Path requireRuntimeRoot(PluginRuntimeLayout layout, UserPrincipal owner) throws IOException {
         Path pluginsRoot = layout.pluginsRoot().toAbsolutePath().normalize();
         requirePlainDirectory(pluginsRoot, "plugins root");
         Path runtimeRoot = layout.runtimeDirectory().toAbsolutePath().normalize();
@@ -161,13 +258,14 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
         }
         BasicFileAttributes attributes = attributesIfPresent(runtimeRoot);
         if (attributes == null) {
-            Files.createDirectory(runtimeRoot);
+            PluginRuntimeFileSecurity.createPrivateDirectory(pluginsRoot, runtimeRoot.getFileName().toString(), owner);
         }
         requirePlainDirectory(runtimeRoot, "plugin runtime directory");
+        PluginRuntimeFileSecurity.secureWritableDirectory(runtimeRoot, owner);
         return runtimeRoot;
     }
 
-    private static void writeOwnerMarker(Path workspace) throws IOException {
+    private static void writeOwnerMarker(Path workspace, UserPrincipal owner) throws IOException {
         Properties properties = new Properties();
         properties.setProperty("formatVersion", "1");
         properties.setProperty("workspace.name", workspace.getFileName().toString());
@@ -176,6 +274,7 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
                 StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)) {
             properties.store(out, "PixivDownloader private plugin runtime workspace");
         }
+        PluginRuntimeFileSecurity.secureWritableFile(marker, owner);
     }
 
     private static boolean hasOwnedMarker(Path workspace) throws IOException {
@@ -193,7 +292,8 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
                 && workspace.getFileName().toString().equals(properties.getProperty("workspace.name"));
     }
 
-    private static void copyBoundedNoFollow(Path source, Path target, long maximumBytes) throws IOException {
+    private static void copyBoundedNoFollow(Path source, Path target, long maximumBytes,
+                                            UserPrincipal owner) throws IOException {
         BasicFileAttributes sourceAttributes = attributesIfPresent(source);
         if (sourceAttributes == null || sourceAttributes.isSymbolicLink() || sourceAttributes.isOther()
                 || !sourceAttributes.isRegularFile()) {
@@ -226,6 +326,7 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
             }
             output.force(true);
         }
+        PluginRuntimeFileSecurity.secureWritableFile(target, owner);
     }
 
     private void requireOpen() {
@@ -270,6 +371,7 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
             if (rootAttributes.isSymbolicLink() || rootAttributes.isOther() || !rootAttributes.isDirectory()) {
                 throw new IOException("plugin artifact workspace is not a plain directory: " + root);
             }
+            PluginRuntimeFileSecurity.makeTreeWritable(root, PluginRuntimeFileSecurity.owner(root));
             List<WorkspaceEntry> entries = new ArrayList<>();
             try (var walk = Files.walk(root)) {
                 var iterator = walk.iterator();
@@ -313,5 +415,97 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
     }
 
     private record WorkspaceEntry(Path path, Object fileKey, FileTime creationTime, boolean directory) {
+    }
+
+    private record LoadTreeManifest(Path root, List<LoadTreeEntry> entries) {
+
+        private static LoadTreeManifest capture(Path root, UserPrincipal owner,
+                                                boolean requireReadOnly) throws IOException {
+            Path normalizedRoot = root.toAbsolutePath().normalize();
+            BasicFileAttributes rootAttributes = Files.readAttributes(
+                    normalizedRoot, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+            if (rootAttributes.isSymbolicLink() || rootAttributes.isOther()
+                    || !rootAttributes.isDirectory() && !rootAttributes.isRegularFile()) {
+                throw new IOException("plugin artifact load path is not plain: " + normalizedRoot);
+            }
+            List<Path> paths;
+            if (rootAttributes.isDirectory()) {
+                try (var walk = Files.walk(normalizedRoot)) {
+                    paths = walk.sorted().toList();
+                }
+            } else {
+                paths = List.of(normalizedRoot);
+            }
+            if (paths.size() > MAX_WORKSPACE_ENTRIES) {
+                throw new IOException("plugin artifact load tree exceeds the supported entry count");
+            }
+            List<LoadTreeEntry> entries = new ArrayList<>(paths.size());
+            for (Path path : paths) {
+                Path normalized = path.toAbsolutePath().normalize();
+                if (!normalized.equals(normalizedRoot) && !normalized.startsWith(normalizedRoot)) {
+                    throw new IOException("plugin artifact load tree escaped its root: " + normalized);
+                }
+                BasicFileAttributes attributes = Files.readAttributes(
+                        normalized, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+                if (attributes.isSymbolicLink() || attributes.isOther()
+                        || !attributes.isDirectory() && !attributes.isRegularFile()) {
+                    throw new IOException("plugin artifact load tree contains an unsafe entry: " + normalized);
+                }
+                String relativePath = normalized.equals(normalizedRoot)
+                        ? "." : normalizedRoot.relativize(normalized).toString().replace('\\', '/');
+                boolean directory = attributes.isDirectory();
+                entries.add(new LoadTreeEntry(normalized, relativePath, directory,
+                        directory ? 0L : attributes.size(),
+                        directory ? "" : sha256NoFollow(normalized, attributes),
+                        attributes.fileKey(), attributes.creationTime()));
+                if (requireReadOnly) {
+                    PluginRuntimeFileSecurity.verifyReadOnly(normalized, directory, owner);
+                }
+            }
+            return new LoadTreeManifest(normalizedRoot, List.copyOf(entries));
+        }
+
+        private void verify(UserPrincipal owner) throws IOException {
+            LoadTreeManifest current = capture(root, owner, true);
+            if (!entries.equals(current.entries)) {
+                throw new IOException("plugin artifact load tree manifest changed: " + root);
+            }
+        }
+    }
+
+    private record LoadTreeEntry(Path path,
+                                 String relativePath,
+                                 boolean directory,
+                                 long size,
+                                 String sha256,
+                                 Object fileKey,
+                                 FileTime creationTime) {
+    }
+
+    private static String sha256NoFollow(Path file, BasicFileAttributes expected) throws IOException {
+        MessageDigest digest;
+        try {
+            digest = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 not available", e);
+        }
+        ByteBuffer buffer = ByteBuffer.allocate(8192);
+        Set<OpenOption> options = Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS);
+        try (FileChannel channel = FileChannel.open(file, options)) {
+            while (channel.read(buffer) >= 0) {
+                buffer.flip();
+                digest.update(buffer);
+                buffer.clear();
+            }
+        }
+        BasicFileAttributes current = Files.readAttributes(
+                file, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+        if (!current.isRegularFile() || current.isSymbolicLink() || current.isOther()
+                || expected.size() != current.size()
+                || !Objects.equals(expected.fileKey(), current.fileKey())
+                || !expected.creationTime().equals(current.creationTime())) {
+            throw new IOException("plugin artifact load file changed while hashing: " + file);
+        }
+        return HexFormat.of().formatHex(digest.digest());
     }
 }

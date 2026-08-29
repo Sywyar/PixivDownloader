@@ -10,6 +10,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageExcep
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageFixtures;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationException;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -86,6 +87,41 @@ class PluginArtifactMaterializerTest {
                     .isInstanceOfSatisfying(PluginPackageException.class,
                             failure -> assertThat(failure.reason())
                                     .isEqualTo(PluginPackageException.Reason.UNSAFE));
+        } finally {
+            snapshot.close();
+        }
+    }
+
+    @Test
+    @DisplayName("PF4J 准入前拒绝物化树中新增的文件")
+    void rejectsMaterializedTreeMutationBeforePf4jAdmission() throws IOException {
+        Path plugins = tempDir.resolve("manifest-plugins");
+        Files.createDirectory(plugins);
+        Path artifact = plugins.resolve("probe.jar");
+        Files.write(artifact, PluginPackageFixtures.pluginJarBytes(
+                "probe", "1.0.0", "1.0", "com.example.Probe",
+                Map.of("lib/private-lib.jar", PluginPackageFixtures.zipBytes(
+                        Map.of("private/Marker.txt", "first".getBytes(StandardCharsets.UTF_8))))));
+        PluginRuntimeLayout layout = new PluginRuntimeLayout(plugins);
+        PluginArtifactSnapshot snapshot = PluginArtifactSnapshot.create(
+                layout, artifact, PluginPackageLimits.DEFAULT_MAX_ARCHIVE_BYTES);
+        Path workspace = snapshot.snapshotArtifact().getParent();
+        try {
+            PluginPackageInspection inspection = PluginPackageReader.inspect(
+                    snapshot.snapshotArtifact(), PluginPackageLimits.defaults());
+            PluginArtifactMaterializer.MaterializedPluginArtifact materialized =
+                    new PluginArtifactMaterializer(layout).materialize(snapshot, inspection,
+                            PluginPackageIntegrity.sha256Hex(snapshot.snapshotArtifact()));
+            snapshot.verifyLoadPath(materialized.pf4jLoadPath());
+
+            PluginRuntimeFileSecurity.makeTreeWritable(
+                    workspace, PluginRuntimeFileSecurity.owner(workspace));
+            Files.writeString(materialized.pf4jLoadPath().resolve("injected.class"),
+                    "unverified", StandardCharsets.UTF_8);
+
+            assertThatThrownBy(() -> snapshot.verifyLoadPath(materialized.pf4jLoadPath()))
+                    .isInstanceOf(PluginRuntimeOperationException.class)
+                    .hasMessageContaining("load tree changed");
         } finally {
             snapshot.close();
         }

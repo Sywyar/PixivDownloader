@@ -246,7 +246,7 @@ public class PluginRuntimeManager {
             if (rootAttributes.isSymbolicLink() || rootAttributes.isOther()) {
                 throw new IOException("plugins root must be a plain directory: " + directory);
             }
-            beforeProductionScan(directory);
+            prepareProductionScan(directory);
             workspaceOwner.cleanupAbandoned(packageIndex.isEmpty());
             scan = PluginArtifactScanner.scan(directory);
         } catch (IOException | RuntimeException e) {
@@ -380,8 +380,9 @@ public class PluginRuntimeManager {
             return loadDevelopmentPlugin(artifactPath);
         }
         try {
+            workspaceOwner.secureLoadingRoots();
             workspaceOwner.cleanupAbandoned(packageIndex.isEmpty());
-        } catch (RuntimeException e) {
+        } catch (IOException | RuntimeException e) {
             throw new PluginRuntimeOperationException(
                     "plugin directory is not safe for a production artifact load", e);
         }
@@ -497,6 +498,9 @@ public class PluginRuntimeManager {
         }
         String packageId;
         try {
+            if (productionSnapshot != null) {
+                productionSnapshot.verifyLoadPath(pf4jLoadPath);
+            }
             packageId = pluginManager.loadPlugin(pf4jLoadPath);
         } catch (Throwable failure) {
             cleanupNewWrappers(wrappersBeforeLoad, failure,
@@ -852,6 +856,11 @@ public class PluginRuntimeManager {
     /** bootstrap 子类可在扫描或任意单包加载（含开发目录）触碰 entry 前取得并复核跨进程目录租约。 */
     protected void beforeProductionScan(Path directory) throws IOException {
         // 默认 manager 没有 bootstrap 会话所有权；生产会话子类覆写。
+    }
+
+    private void prepareProductionScan(Path directory) throws IOException {
+        beforeProductionScan(directory);
+        workspaceOwner.secureLoadingRoots();
     }
 
     /**

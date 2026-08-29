@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.plugin.runtime.artifact;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -26,6 +27,10 @@ public final class PluginArtifactWorkspaceOwner {
 
     public boolean hasUnconfirmedSnapshots() {
         return !unconfirmedSnapshots.isEmpty();
+    }
+
+    public void secureLoadingRoots() throws IOException {
+        PluginRuntimeFileSecurity.secureLoadingRoots(layout);
     }
 
     public void cleanupAbandoned(boolean runtimeEntriesEmpty) {

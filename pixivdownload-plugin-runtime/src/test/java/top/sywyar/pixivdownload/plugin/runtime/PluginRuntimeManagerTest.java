@@ -8,6 +8,7 @@ import org.pf4j.PluginState;
 import org.pf4j.PluginWrapper;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeLayout;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactSnapshot;
 import top.sywyar.pixivdownload.runtimeprobe.BootstrapProbeFeaturePlugin;
 import top.sywyar.pixivdownload.runtimeprobe.BootstrapProbePlugin;
 import top.sywyar.pixivdownload.runtimeprobe.DependencyOrderProbeFeaturePlugin;
@@ -253,6 +254,7 @@ class PluginRuntimeManagerTest {
         assertThat(manager.generation(PROBE_ID)).isEmpty();
         manager.shutdown();
         assertThat(retainedWorkspace).exists();
+        PluginArtifactSnapshot.cleanupAbandonedWorkspaces(new PluginRuntimeLayout(plugins));
     }
 
     @Test
@@ -292,6 +294,7 @@ class PluginRuntimeManagerTest {
         assertThat(retainedWorkspace).exists();
         manager.shutdown();
         assertThat(retainedWorkspace).exists();
+        PluginArtifactSnapshot.cleanupAbandonedWorkspaces(new PluginRuntimeLayout(plugins));
     }
 
     @Test
@@ -320,6 +323,7 @@ class PluginRuntimeManagerTest {
         assertThat(retainedWorkspace).exists();
         manager.shutdown();
         assertThat(retainedWorkspace).exists();
+        PluginArtifactSnapshot.cleanupAbandonedWorkspaces(new PluginRuntimeLayout(plugins));
     }
 
     @Test
@@ -405,6 +409,7 @@ class PluginRuntimeManagerTest {
 
         assertThat(status.state()).isEqualTo(PluginDirectoryState.EMPTY);
         assertThat(retainedWorkspace).exists();
+        PluginArtifactSnapshot.cleanupAbandonedWorkspaces(new PluginRuntimeLayout(plugins));
     }
 
     @Test
