@@ -2,6 +2,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -269,6 +270,10 @@ test('SDK 接收仓库 workflow 由主仓库只读编排且不持有跨仓库凭
 test('FFmpeg：手动流程从官方稳定源码构建并在门禁后发布五个平台资产', () => {
     const ffmpeg = load('.github/workflows/build-stable-ffmpeg.yml');
     const policy = JSON.parse(fs.readFileSync(path.join(ROOT, 'scripts', 'ci', 'release-gate-policy.json'), 'utf8'));
+    assert.match(execFileSync('git', ['ls-files', '--stage', '--', 'mvnw'], {
+        cwd: ROOT,
+        encoding: 'utf8',
+    }), /^100755 /);
     assert.equal(ffmpeg.name, 'Build stable FFmpeg');
     assert.deepEqual(triggers(ffmpeg), ['workflow_dispatch']);
     assert.deepEqual(ffmpeg.permissions, { contents: 'read' });
