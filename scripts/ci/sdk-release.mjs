@@ -53,6 +53,7 @@ export function createProjectManifest(identity, sourceSha, minimumVerifiedHostRe
 export function createReleaseManifest(projectManifest, assets) {
     return {
         ...projectManifest,
+        schemaVersion: 2,
         artifacts: assets.map(asset => ({
             file: path.basename(asset.file),
             sha256: asset.sha256,
@@ -258,7 +259,6 @@ export function assembleRelease(options) {
 
     const work = path.join(output, '.work');
     const workspace = path.join(work, 'workspace');
-    const docs = path.join(work, 'javadocs');
     fs.mkdirSync(path.dirname(workspace), { recursive: true });
     copyTree(path.join(root, 'plugin-templates', 'download-type-plugin'), path.join(workspace, 'plugin'));
     const pluginReadme = path.join(workspace, 'plugin', 'README.md');
@@ -279,13 +279,11 @@ export function assembleRelease(options) {
 
     const projectManifest = createProjectManifest(identity, options.sourceSha, options.minimumHostRelease);
     writeJson(path.join(workspace, 'sdk-project.json'), projectManifest);
-    copyTree(path.join(root, 'target', 'sdk-javadocs'), docs);
+    copyTree(path.join(root, 'target', 'sdk-javadocs'), path.join(workspace, 'docs', 'javadocs'));
 
     const sdkZip = path.join(output, `PixivDownloader-Plugin-SDK-${identity.version}.zip`);
-    const docsZip = path.join(output, `PixivDownloader-Plugin-SDK-Javadocs-${identity.version}.zip`);
     const assets = [
         { file: sdkZip, sha256: createArchive(workspace, sdkZip) },
-        { file: docsZip, sha256: createArchive(docs, docsZip) },
     ];
     const releaseMetadata = path.join(output, 'sdk-release.json');
     writeJson(releaseMetadata, createReleaseManifest(projectManifest, assets));

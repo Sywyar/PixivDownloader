@@ -272,7 +272,6 @@ jobs:
           set -euo pipefail
           cd target/sdk-release
           for file in "PixivDownloader-Plugin-SDK-$SDK_VERSION.zip" \
-                      "PixivDownloader-Plugin-SDK-Javadocs-$SDK_VERSION.zip" \
                       sdk-release.json SHA256SUMS; do
             printf '%s' "$MAVEN_GPG_PASSPHRASE" | \
               gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 --armor --detach-sign "$file"
@@ -290,6 +289,7 @@ jobs:
 
           Source: https://github.com/Sywyar/PixivDownloader/commit/$GITHUB_SHA
           Maven BOM: io.github.sywyar.pixivdownloader:pixivdownload-sdk-bom:$SDK_VERSION
+          Javadocs: docs/javadocs/index.html in the SDK archive
           EOF
           args=(--repo "$SDK_REPOSITORY" --title "$RELEASE_ID" --notes-file "$notes")
           if [ "$PRERELEASE" = true ]; then args+=(--prerelease); fi
@@ -301,8 +301,6 @@ jobs:
           gh release create "$RELEASE_ID" "${args[@]}" \
             "target/sdk-release/PixivDownloader-Plugin-SDK-$SDK_VERSION.zip" \
             "target/sdk-release/PixivDownloader-Plugin-SDK-$SDK_VERSION.zip.asc" \
-            "target/sdk-release/PixivDownloader-Plugin-SDK-Javadocs-$SDK_VERSION.zip" \
-            "target/sdk-release/PixivDownloader-Plugin-SDK-Javadocs-$SDK_VERSION.zip.asc" \
             target/sdk-release/sdk-release.json target/sdk-release/sdk-release.json.asc \
             target/sdk-release/SHA256SUMS target/sdk-release/SHA256SUMS.asc
 
@@ -317,7 +315,6 @@ jobs:
           cd "$public_release"
           sha256sum -c SHA256SUMS
           for file in "PixivDownloader-Plugin-SDK-$SDK_VERSION.zip" \
-                      "PixivDownloader-Plugin-SDK-Javadocs-$SDK_VERSION.zip" \
                       sdk-release.json SHA256SUMS; do
             gpg --batch --verify "$file.asc" "$file"
           done

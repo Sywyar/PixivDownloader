@@ -49,4 +49,4 @@ The host discovers `plugin/target/classes` and materializes it into an isolated 
 
 Follow the replacement table in `plugin/README_en.md` to change the artifact id, plugin id, Java package, routes, i18n namespace, version, and provider. The official Douyin plugin is a complete reference implementation only; it is not an SDK dependency or a special contract.
 
-`sdk-project.json` records the SDK coordinates and exact source identity. The release-side `sdk-release.json` and `SHA256SUMS` record attachment hashes.
+`sdk-project.json` records the SDK coordinates and exact source identity. Open `docs/javadocs/index.html` for the complete API documentation. The release-side `sdk-release.json` and `SHA256SUMS` record attachment hashes.
