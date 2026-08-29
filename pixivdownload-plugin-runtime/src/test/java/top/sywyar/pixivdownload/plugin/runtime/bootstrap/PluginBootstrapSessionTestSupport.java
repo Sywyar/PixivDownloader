@@ -229,7 +229,10 @@ abstract class PluginBootstrapSessionTestSupport {
     protected static Path stageProbeDevelopmentClasses(Path repositoryRoot) throws IOException {
         Path moduleRoot = repositoryRoot.resolve("pixivdownload-plugin-bootstrap-probe");
         String properties = "plugin.id=bootstrap-probe\nplugin.version=1.0.0\nplugin.requires=1.0\n"
-                + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n";
+                + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n"
+                + "pixiv.kind=feature\n"
+                + "pixiv.lifecycle-policy=process-restart\n"
+                + "pixiv.execution-mode=trusted-in-process\n";
         Path sourceResources = moduleRoot.resolve("src/main/resources");
         Files.createDirectories(sourceResources);
         Files.writeString(sourceResources.resolve("plugin.properties"), properties, StandardCharsets.UTF_8);

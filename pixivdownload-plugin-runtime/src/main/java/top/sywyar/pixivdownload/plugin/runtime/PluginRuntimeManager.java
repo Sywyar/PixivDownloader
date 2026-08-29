@@ -499,6 +499,9 @@ public class PluginRuntimeManager {
     private LoadedPluginPackage loadPreparedPlugin(Path artifactPath, Path pf4jLoadPath, Path pluginManagerRoot,
                                                     PluginDescriptor packageDescriptor,
                                                     PluginArtifactSnapshot productionSnapshot) {
+        if (productionSnapshot == null) {
+            requireDevelopmentExecutionAdmission(packageDescriptor);
+        }
         if (packageIndex.contains(packageDescriptor.id())) {
             workspaceOwner.discard(productionSnapshot);
             throw new PluginRuntimeOperationException("plugin package already loaded: " + packageDescriptor.id());
@@ -1083,6 +1086,23 @@ public class PluginRuntimeManager {
         if (!explicitDevelopmentAdmission && !officialAdmission) {
             throw new PluginRuntimeOperationException(
                     "trusted in-process execution requires an official verified signature: " + descriptor.id());
+        }
+    }
+
+    private void requireDevelopmentExecutionAdmission(PluginDescriptor descriptor) {
+        if (!developmentModeEnabled.getAsBoolean()) {
+            throw new PluginRuntimeOperationException(
+                    "development plugin execution requires active development mode: " + descriptor.id());
+        }
+        if (descriptor.executionMode() == PluginExecutionMode.ISOLATED_PROCESS) {
+            throw new PluginRuntimeOperationException(
+                    "isolated-process development plugin execution is unavailable until the bounded worker "
+                            + "protocol is active: " + descriptor.id());
+        }
+        if (descriptor.lifecyclePolicy() != PluginLifecyclePolicy.PROCESS_RESTART) {
+            throw new PluginRuntimeOperationException(
+                    "trusted in-process development plugin must use process-restart lifecycle: "
+                            + descriptor.id());
         }
     }
 

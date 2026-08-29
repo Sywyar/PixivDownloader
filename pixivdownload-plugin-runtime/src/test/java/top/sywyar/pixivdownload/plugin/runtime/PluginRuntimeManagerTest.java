@@ -132,6 +132,38 @@ class PluginRuntimeManagerTest {
     }
 
     @Test
+    @DisplayName("未声明执行模式的开发插件在进入 PF4J 前按隔离进程失败关闭")
+    void rejectsDefaultIsolatedDevelopmentPluginBeforePf4jLoad() throws IOException {
+        Path repositoryRoot = tempDir.resolve("repo-isolated-development");
+        Path pluginsRoot = repositoryRoot.resolve("plugins");
+        Files.createDirectories(pluginsRoot);
+        Path moduleRoot = repositoryRoot.resolve("pixivdownload-plugin-bootstrap-probe");
+        writeDefaultIsolatedProbeSourceDescriptor(moduleRoot);
+        Path classesDirectory = moduleRoot.resolve("target/classes");
+        writeDefaultIsolatedProbeClassesDirectory(classesDirectory);
+        PluginRuntimeManager manager = new PluginRuntimeManager(pluginsRoot);
+        String previousEnabled = System.getProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY);
+        String previousRoot = System.getProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY);
+        Path marker = tempDir.resolve("isolated-development-marker.log");
+        System.setProperty("bootstrap.probe.marker", marker.toString());
+        try {
+            System.setProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, "true");
+            System.setProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY, repositoryRoot.toString());
+
+            assertThatThrownBy(() -> manager.loadPlugin(classesDirectory))
+                    .isInstanceOf(PluginRuntimeOperationException.class)
+                    .hasMessageContaining("isolated-process development plugin execution is unavailable");
+            assertThat(manager.pluginManagerForTest()).isEmpty();
+            assertThat(manager.generation(PROBE_ID)).isEmpty();
+            assertThat(marker).doesNotExist();
+        } finally {
+            manager.shutdown();
+            restoreProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, previousEnabled);
+            restoreProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY, previousRoot);
+        }
+    }
+
+    @Test
     @DisplayName("物理 load 不执行插件代码，显式初始化后沿用包清单生命周期策略")
     void preservesManifestLifecyclePolicyAcrossRuntimeDiscovery() throws IOException {
         Path plugins = tempDir.resolve("plugins");
@@ -1674,7 +1706,10 @@ class PluginRuntimeManagerTest {
         Files.createDirectories(classesDirectory);
         String props = "plugin.id=" + PROBE_ID + "\nplugin.version=" + PROBE_VERSION + "\nplugin.requires=1.0\n"
                 + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n"
-                + "plugin.provider=test\nplugin.description=bootstrap probe\n";
+                + "plugin.provider=test\nplugin.description=bootstrap probe\n"
+                + "pixiv.kind=feature\n"
+                + "pixiv.lifecycle-policy=process-restart\n"
+                + "pixiv.execution-mode=trusted-in-process\n";
         Files.writeString(classesDirectory.resolve("plugin.properties"), props, StandardCharsets.UTF_8);
         copyClassFile(classesDirectory, BootstrapProbePlugin.class);
         copyClassFile(classesDirectory, BootstrapProbeFeaturePlugin.class);
@@ -1915,8 +1950,30 @@ class PluginRuntimeManagerTest {
         Files.createDirectories(sourceResources);
         Files.writeString(sourceResources.resolve("plugin.properties"),
                 "plugin.id=" + PROBE_ID + "\nplugin.version=" + PROBE_VERSION + "\nplugin.requires=1.0\n"
+                        + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n"
+                        + "pixiv.kind=feature\n"
+                        + "pixiv.lifecycle-policy=process-restart\n"
+                        + "pixiv.execution-mode=trusted-in-process\n",
+                StandardCharsets.UTF_8);
+    }
+
+    private static void writeDefaultIsolatedProbeSourceDescriptor(Path moduleRoot) throws IOException {
+        Path sourceResources = moduleRoot.resolve("src/main/resources");
+        Files.createDirectories(sourceResources);
+        Files.writeString(sourceResources.resolve("plugin.properties"),
+                "plugin.id=" + PROBE_ID + "\nplugin.version=" + PROBE_VERSION + "\nplugin.requires=1.0\n"
                         + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n",
                 StandardCharsets.UTF_8);
+    }
+
+    private static void writeDefaultIsolatedProbeClassesDirectory(Path classesDirectory) throws IOException {
+        Files.createDirectories(classesDirectory);
+        Files.writeString(classesDirectory.resolve("plugin.properties"),
+                "plugin.id=" + PROBE_ID + "\nplugin.version=" + PROBE_VERSION + "\nplugin.requires=1.0\n"
+                        + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n",
+                StandardCharsets.UTF_8);
+        copyClassFile(classesDirectory, BootstrapProbePlugin.class);
+        copyClassFile(classesDirectory, BootstrapProbeFeaturePlugin.class);
     }
 
     private static void restoreProperty(String name, String previousValue) {
