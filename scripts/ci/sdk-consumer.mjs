@@ -129,6 +129,9 @@ export function verifyConsumer(options) {
     const mavenHome = path.join(work, 'maven-home');
     fs.mkdirSync(project, { recursive: true });
     run('jar', ['--extract', '--file', sdkZip], { cwd: project });
+    if (!fs.statSync(path.join(project, 'docs', 'javadocs', 'index.html'), { throwIfNoEntry: false })?.isFile()) {
+        fail('integrated SDK Javadocs are missing');
+    }
     const settings = path.join(work, 'settings.xml');
     fs.writeFileSync(settings, settingsXml(sdkRepository), 'utf8');
     fs.mkdirSync(localRepository, { recursive: true });

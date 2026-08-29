@@ -49,4 +49,4 @@ sh ./mvnw clean verify
 
 按 `plugin/README.md` 的替换表修改 artifact id、插件 id、Java 包名、路由、i18n namespace、版本与 provider。Douyin 官方插件仅是完整参考实现，不是 SDK 依赖或特殊契约。
 
-本工作区内的 `sdk-project.json` 记录 SDK 坐标与精确源码身份；Release 旁的 `sdk-release.json` 和 `SHA256SUMS` 记录发行附件摘要。
+本工作区内的 `sdk-project.json` 记录 SDK 坐标与精确源码身份，完整 API 文档从 `docs/javadocs/index.html` 打开；Release 旁的 `sdk-release.json` 和 `SHA256SUMS` 记录发行附件摘要。

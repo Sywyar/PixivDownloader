@@ -218,6 +218,7 @@ test('SDK 发布链只在身份变化或显式恢复时通过同 SHA 门禁写�
     assert.equal(central.if, "${{ needs.release-plan.outputs.mode == 'publish' }}");
     assert.match(remote.run, /gh release download/u);
     assert.match(remote.run, /sdk-consumer\.mjs/u);
+    assert.doesNotMatch(serialized, /PixivDownloader-Plugin-SDK-Javadocs/u);
     assert.deepEqual(policy.workflows['.github/workflows/publish-sdk.yml'], {
         workflowName: 'Publish plugin SDK',
         requiredJobs: ['release-plan', 'quality-gate', 'publish'],
@@ -250,6 +251,7 @@ test('SDK 接收仓库 workflow 由主仓库只读编排且不持有跨仓库凭
     assert.equal(download.env, undefined);
     assert.match(download.run, /https:\/\/api\.github\.com\/repos\/\$GITHUB_REPOSITORY\/releases/u);
     assert.match(download.run, /https:\/\/github\.com\/\$GITHUB_REPOSITORY\/releases\/download/u);
+    assert.match(download.run, /\.artifacts\[\]\.file/u);
     assert.equal(upload.uses, 'actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9');
     assert.doesNotMatch(JSON.stringify([ci, pages]),
         /secrets\.|github\.token|CROSS_REPO_RELEASE_TOKEN|"pages":"write"|"id-token":"write"/u);

@@ -61,11 +61,16 @@ jobs:
             mkdir "$directory"
             version="${tag#sdk-api-v}"
             base="https://github.com/$GITHUB_REPOSITORY/releases/download/$tag"
-            for asset in "PixivDownloader-Plugin-SDK-$version.zip" \
-                         "PixivDownloader-Plugin-SDK-Javadocs-$version.zip" \
-                         sdk-release.json SHA256SUMS; do
+            for asset in sdk-release.json SHA256SUMS; do
               curl --retry 5 --retry-all-errors -fsSLo "$directory/$asset" "$base/$asset"
             done
+            while IFS= read -r asset; do
+              case "$asset" in
+                "PixivDownloader-Plugin-SDK-$version.zip"|"PixivDownloader-Plugin-SDK-Javadocs-$version.zip") ;;
+                *) echo "invalid SDK Release artifact: $asset" >&2; exit 1 ;;
+              esac
+              curl --retry 5 --retry-all-errors -fsSLo "$directory/$asset" "$base/$asset"
+            done < <(jq -er '.artifacts[].file' "$directory/sdk-release.json")
           done
 
       - name: Verify Releases and build versioned Javadocs

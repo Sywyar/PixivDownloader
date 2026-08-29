@@ -26,6 +26,7 @@ test('SDK 发布元数据使用结构化版本、精确源码与附件摘要', (
     assert.equal(hostVerified.minimumVerifiedHostRelease, 'v1.14.0');
     assert.equal(hostVerified.verifiedHostSourceSha, 'a'.repeat(40));
     const release = createReleaseManifest(project, [{ file: '/tmp/sdk.zip', sha256: 'f'.repeat(64) }]);
+    assert.equal(release.schemaVersion, 2);
     assert.deepEqual(release.artifacts, [{ file: 'sdk.zip', sha256: 'f'.repeat(64) }]);
 });
 
