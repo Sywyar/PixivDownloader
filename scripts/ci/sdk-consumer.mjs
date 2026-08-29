@@ -70,25 +70,47 @@ function parseArguments(argv) {
     return options;
 }
 
-function assertSdkResolution(localRepository, version) {
+const SDK_ARTIFACTS = [
+    ['pixivdownload-sdk-bom', ['pom']],
+    ['pixivdownload-sdk-info', ['pom', 'jar']],
+    ['pixivdownload-plugin-api', ['pom', 'jar']],
+    ['pixivdownload-core-api', ['pom', 'jar']],
+];
+
+function sdkArtifactFiles(repository, version) {
     const group = SDK_GROUP_ID.split('.');
-    for (const artifact of [
-        ['pixivdownload-sdk-bom', 'pom'],
-        ['pixivdownload-sdk-info', 'jar'],
-        ['pixivdownload-plugin-api', 'jar'],
-        ['pixivdownload-core-api', 'jar'],
-    ]) {
-        const directory = path.join(localRepository, ...group, artifact[0], version);
-        const expected = path.join(directory, `${artifact[0]}-${version}.${artifact[1]}`);
-        if (!fs.statSync(expected, { throwIfNoEntry: false })?.isFile()) {
-            fail(`isolated consumer did not resolve ${artifact[0]}:${version}`);
+    return SDK_ARTIFACTS.flatMap(([artifact, extensions]) => extensions.map((extension) => ({
+        artifact,
+        file: path.join(repository, ...group, artifact, version, `${artifact}-${version}.${extension}`),
+    })));
+}
+
+export function assertSdkResolution(localRepository, sdkRepository, version) {
+    const sources = sdkArtifactFiles(sdkRepository, version);
+    const resolved = sdkArtifactFiles(localRepository, version);
+    for (let index = 0; index < sources.length; index += 1) {
+        if (!fs.statSync(resolved[index].file, { throwIfNoEntry: false })?.isFile()) {
+            fail(`isolated consumer did not resolve ${resolved[index].artifact}:${version}`);
         }
-        const marker = path.join(directory, '_remote.repositories');
-        const markerText = fs.readFileSync(marker, 'utf8');
-        if (!markerText.includes('>sdk-staging=')) {
-            fail(`${artifact[0]} was not resolved from sdk-staging`);
+        if (!fs.readFileSync(resolved[index].file).equals(fs.readFileSync(sources[index].file))) {
+            fail(`${resolved[index].artifact}:${version} does not match the supplied SDK repository`);
         }
     }
+}
+
+export function stageSdkArtifacts(localRepository, sdkRepository, version) {
+    const group = SDK_GROUP_ID.split('.');
+    fs.rmSync(path.join(localRepository, ...group), { recursive: true, force: true });
+    for (const artifact of sdkArtifactFiles(sdkRepository, version)) {
+        if (!fs.statSync(artifact.file, { throwIfNoEntry: false })?.isFile()) {
+            fail(`SDK repository is missing ${artifact.artifact}:${version}`);
+        }
+        const relative = path.relative(sdkRepository, artifact.file);
+        const target = path.join(localRepository, relative);
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.copyFileSync(artifact.file, target);
+    }
+    assertSdkResolution(localRepository, sdkRepository, version);
 }
 
 export function verifyConsumer(options) {
@@ -128,7 +150,22 @@ export function verifyConsumer(options) {
         cwd: project,
         env: { ...process.env, MAVEN_USER_HOME: mavenHome },
     });
-    assertSdkResolution(localRepository, identity.version);
+    stageSdkArtifacts(localRepository, sdkRepository, identity.version);
+    run(command, [...prefix,
+        '-B', '-ntp', '-o', '-s', settings, `-Dmaven.repo.local=${localRepository}`, 'clean', 'verify',
+    ], {
+        cwd: project,
+        env: { ...process.env, MAVEN_USER_HOME: mavenHome },
+    });
+    run(command, [...prefix,
+        '-B', '-ntp', '-o', '-s', settings, `-Dmaven.repo.local=${localRepository}`,
+        'org.apache.maven.plugins:maven-dependency-plugin:3.8.1:get',
+        `-Dartifact=${SDK_GROUP_ID}:pixivdownload-core-api:${identity.version}`,
+    ], {
+        cwd: project,
+        env: { ...process.env, MAVEN_USER_HOME: mavenHome },
+    });
+    assertSdkResolution(localRepository, sdkRepository, identity.version);
     const pluginJar = path.join(project, 'plugin', 'target', 'example-download-plugin-0.1.0.jar');
     if (!fs.statSync(pluginJar, { throwIfNoEntry: false })?.isFile()) fail('isolated consumer plugin JAR is missing');
     const listing = spawnSync('jar', ['--list', '--file', pluginJar], { encoding: 'utf8' });
