@@ -227,6 +227,47 @@ class PixivPluginDiscoveryBridgeTest {
     }
 
     @Test
+    @DisplayName("已验证描述符是身份与展示元数据事实源，不调用功能插件元数据 getter")
+    void verifiedDescriptorAvoidsFeatureMetadataGetters() {
+        PluginWrapper wrapper = startedWrapper(
+                "ext-declarative",
+                new GoodProviderPlugin(new ThrowingMetadataFeaturePlugin("ext-other")),
+                getClass().getClassLoader());
+        PluginManager manager = managerWith(wrapper);
+        when(manager.getPlugin("ext-declarative")).thenReturn(wrapper);
+        var descriptor = verifiedDescriptor("ext-declarative", List.of());
+
+        PluginInventory inventory = bridge.inspectLoadedPackage(manager, descriptor);
+
+        assertThat(inventory.failures()).isEmpty();
+        assertThat(inventory.installations()).singleElement().satisfies(installation -> {
+            assertThat(installation.descriptor()).isSameAs(descriptor);
+            assertThat(installation.id()).isEqualTo("ext-declarative");
+            assertThat(installation.descriptor().displayName()).isEqualTo("plugin.name");
+        });
+    }
+
+    @Test
+    @DisplayName("已验证描述符加载配置类，不调用 provider configurationClasses getter")
+    void verifiedDescriptorOwnsConfigurationClassList() {
+        ClassLoader pluginClassLoader = getClass().getClassLoader();
+        PluginWrapper wrapper = startedWrapper(
+                "ext-declarative",
+                new ThrowingConfigurationProviderPlugin("ext-declarative"),
+                pluginClassLoader);
+        PluginManager manager = managerWith(wrapper);
+        when(manager.getPlugin("ext-declarative")).thenReturn(wrapper);
+        var descriptor = verifiedDescriptor(
+                "ext-declarative", List.of(SamplePluginConfig.class.getName()));
+
+        PluginInventory inventory = bridge.inspectLoadedPackage(manager, descriptor);
+
+        assertThat(inventory.failures()).isEmpty();
+        assertThat(inventory.contextModules()).singleElement().satisfies(module ->
+                assertThat(module.configurationClasses()).containsExactly(SamplePluginConfig.class));
+    }
+
+    @Test
     @DisplayName("未启动的插件被跳过：既不发现也不计为失败")
     void notStartedPluginsAreSkipped() {
         PluginWrapper created = mock(PluginWrapper.class);
@@ -483,6 +524,29 @@ class PixivPluginDiscoveryBridgeTest {
         PluginWrapper wrapper = startedWrapper(pluginId, plugin, classLoader);
         when(wrapper.getDescriptor()).thenReturn(descriptor);
         return wrapper;
+    }
+
+    private static top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor verifiedDescriptor(
+            String pluginId,
+            List<String> configurationClassNames) {
+        return new top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor(
+                pluginId,
+                pluginId,
+                "1.0.0",
+                top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement.parse(
+                        SdkVersion.MAJOR + "." + SdkVersion.MINOR),
+                List.of(),
+                "com.example.Plugin",
+                pluginId,
+                "plugin.name",
+                "plugin.summary",
+                "puzzle",
+                "neutral",
+                PluginKind.FEATURE,
+                List.of(),
+                top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy.PROCESS_RESTART,
+                top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode.TRUSTED_IN_PROCESS,
+                configurationClassNames);
     }
 
     /** 外置插件主类：同时是 PF4J Plugin 与入口契约 PixivPluginProvider（运行期由插件 classloader 创建）。 */

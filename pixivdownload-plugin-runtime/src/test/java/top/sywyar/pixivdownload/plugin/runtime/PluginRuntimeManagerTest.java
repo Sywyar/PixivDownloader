@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.runtime;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -109,6 +110,11 @@ class PluginRuntimeManagerTest {
     @TempDir
     Path tempDir;
 
+    @AfterEach
+    void clearProbeMarker() {
+        System.clearProperty("bootstrap.probe.marker");
+    }
+
     @Test
     @DisplayName("未声明执行模式的生产包在进入 PF4J 前按隔离进程失败关闭")
     void rejectsDefaultIsolatedPackageBeforePf4jLoad() throws IOException {
@@ -126,17 +132,24 @@ class PluginRuntimeManagerTest {
     }
 
     @Test
-    @DisplayName("包清单生命周期策略在 load、start 和动态清点后保持不丢失")
+    @DisplayName("物理 load 不执行插件代码，显式初始化后沿用包清单生命周期策略")
     void preservesManifestLifecyclePolicyAcrossRuntimeDiscovery() throws IOException {
         Path plugins = tempDir.resolve("plugins");
         Path jar = plugins.resolve("bootstrap-probe-1.0.0.jar");
         writeProbeJar(jar, true, "process-restart");
         writeLocalProvenance(plugins, jar);
         PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+        Path marker = tempDir.resolve("load-boundary.log");
+        System.setProperty("bootstrap.probe.marker", marker.toString());
 
         LoadedPluginPackage loaded = manager.loadPlugin(jar);
         assertThat(manager.isDevelopmentArtifact(PROBE_ID)).isFalse();
-        assertThat(loaded.inventory().installations()).singleElement()
+        assertThat(loaded.inventory().installations()).isEmpty();
+        assertThat(marker).doesNotExist();
+
+        LoadedPluginPackage initialized = manager.initializePlugin(PROBE_ID);
+        assertThat(Files.readAllLines(marker, StandardCharsets.UTF_8)).containsExactly("load");
+        assertThat(initialized.inventory().installations()).singleElement()
                 .satisfies(installation -> assertThat(installation.descriptor().lifecyclePolicy())
                         .isEqualTo(PluginLifecyclePolicy.PROCESS_RESTART));
         assertThat(manager.loadedDescriptor(PROBE_ID)).hasValueSatisfying(descriptor ->
@@ -173,7 +186,7 @@ class PluginRuntimeManagerTest {
         Object firstProvider = manager.pluginManagerForTest().orElseThrow().getPlugin(PROBE_ID).getPlugin();
         long firstGeneration = manager.generation(PROBE_ID).orElseThrow();
         assertThat(invokeInt(firstProvider, "featurePluginCalls")).isEqualTo(1);
-        assertThat(invokeInt(firstProvider, "configurationClassesCalls")).isEqualTo(1);
+        assertThat(invokeInt(firstProvider, "configurationClassesCalls")).isZero();
 
         manager.stopPlugin(PROBE_ID);
         manager.startPlugin(PROBE_ID);
@@ -181,7 +194,7 @@ class PluginRuntimeManagerTest {
                 .toAbsolutePath().normalize()).isEqualTo(firstPf4jPath);
         manager.inspectPlugins();
         assertThat(invokeInt(firstProvider, "featurePluginCalls")).isEqualTo(1);
-        assertThat(invokeInt(firstProvider, "configurationClassesCalls")).isEqualTo(1);
+        assertThat(invokeInt(firstProvider, "configurationClassesCalls")).isZero();
 
         manager.stopPlugin(PROBE_ID);
         manager.unloadPlugin(PROBE_ID);
@@ -195,7 +208,7 @@ class PluginRuntimeManagerTest {
         assertThat(secondPf4jPath).isNotEqualTo(firstPf4jPath);
         assertThat(manager.generation(PROBE_ID).orElseThrow()).isGreaterThan(firstGeneration);
         assertThat(invokeInt(secondProvider, "featurePluginCalls")).isEqualTo(1);
-        assertThat(invokeInt(secondProvider, "configurationClassesCalls")).isEqualTo(1);
+        assertThat(invokeInt(secondProvider, "configurationClassesCalls")).isZero();
         manager.shutdown();
     }
 
@@ -1746,6 +1759,7 @@ class PluginRuntimeManagerTest {
         String props = "plugin.id=" + PROBE_ID + "\nplugin.version=" + PROBE_VERSION + "\nplugin.requires=1.0\n"
                 + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n"
                 + "plugin.provider=test\nplugin.description=bootstrap probe\n"
+                + "pixiv.kind=feature\n"
                 + (lifecyclePolicy != null ? "pixiv.lifecycle-policy=" + lifecyclePolicy + "\n" : "")
                 + (executionMode != null ? "pixiv.execution-mode=" + executionMode + "\n" : "");
         zos.putNextEntry(new ZipEntry("plugin.properties"));
@@ -1762,6 +1776,7 @@ class PluginRuntimeManagerTest {
                 .append("plugin.class=").append(DependencyOrderProbePlugin.class.getName()).append('\n')
                 .append("plugin.provider=test\n")
                 .append("plugin.description=").append(pluginId).append(" probe\n")
+                .append("pixiv.kind=feature\n")
                 .append("pixiv.lifecycle-policy=process-restart\n")
                 .append("pixiv.execution-mode=trusted-in-process\n");
         if (!dependencies.isEmpty()) {

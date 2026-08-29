@@ -49,6 +49,10 @@ class ExampleMinimalPluginTest {
         assertEquals("plugin.summary", descriptor.getProperty("pixiv.description-key"));
         assertEquals("puzzle", descriptor.getProperty("pixiv.icon-key"));
         assertEquals("blue", descriptor.getProperty("pixiv.color-token"));
+        assertEquals("feature", descriptor.getProperty("pixiv.kind"));
+        assertEquals(ExampleMinimalConfiguration.class.getName(),
+                descriptor.getProperty("pixiv.configuration-classes"));
+        assertEquals("isolated-process", descriptor.getProperty("pixiv.execution-mode"));
 
         Class<?> entrypoint = Class.forName(descriptor.getProperty("plugin.class"));
         assertTrue(Plugin.class.isAssignableFrom(entrypoint));

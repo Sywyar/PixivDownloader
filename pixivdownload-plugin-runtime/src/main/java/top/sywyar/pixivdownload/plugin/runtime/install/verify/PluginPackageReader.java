@@ -84,6 +84,8 @@ public final class PluginPackageReader {
     static final String KEY_PIXIV_REPLACES = "pixiv.replaces";
     static final String KEY_PIXIV_LIFECYCLE_POLICY = "pixiv.lifecycle-policy";
     static final String KEY_PIXIV_EXECUTION_MODE = "pixiv.execution-mode";
+    static final String KEY_PIXIV_KIND = "pixiv.kind";
+    static final String KEY_PIXIV_CONFIGURATION_CLASSES = "pixiv.configuration-classes";
 
     private PluginPackageReader() {
     }
@@ -326,8 +328,8 @@ public final class PluginPackageReader {
     }
 
     /**
-     * 把 PF4J {@value #PLUGIN_PROPERTIES} 映射为包级 {@link PluginDescriptor}（{@code id == sourcePluginId}、
-     * {@code kind = FEATURE}）。缺失 / 空字段保留为 {@code null} 交由
+     * 把 PF4J {@value #PLUGIN_PROPERTIES} 映射为包级 {@link PluginDescriptor}（{@code id == sourcePluginId}）。
+     * 缺失 / 空字段保留为 {@code null} 交由
      * {@link PluginDescriptor#externalValidationErrors()} 判定，本方法不在此处兜底校验。安装期尚未加载功能插件实例，
      * 故展示身份优先取包描述符里声明的 {@code pixiv.*} canonical 元数据；旧第三方插件缺这些字段时，展示名 key 仍回退到
      * PF4J {@code plugin.description} 或 id。
@@ -345,11 +347,15 @@ public final class PluginPackageReader {
         String iconKey = trimToNull(properties.getProperty(KEY_PIXIV_ICON_KEY));
         String colorToken = trimToNull(properties.getProperty(KEY_PIXIV_COLOR_TOKEN));
         List<String> replaces = parsePluginIds(properties.getProperty(KEY_PIXIV_REPLACES));
+        List<String> configurationClassNames = parseCommaSeparated(
+                properties.getProperty(KEY_PIXIV_CONFIGURATION_CLASSES));
         PluginLifecyclePolicy lifecyclePolicy;
         PluginExecutionMode executionMode;
+        PluginKind kind;
         try {
             lifecyclePolicy = PluginLifecyclePolicy.parse(properties.getProperty(KEY_PIXIV_LIFECYCLE_POLICY));
             executionMode = PluginExecutionMode.parse(properties.getProperty(KEY_PIXIV_EXECUTION_MODE));
+            kind = parseKind(properties.getProperty(KEY_PIXIV_KIND));
         } catch (IllegalArgumentException e) {
             throw new PluginPackageException(PluginPackageException.Reason.MALFORMED, e.getMessage(), e);
         }
@@ -357,8 +363,8 @@ public final class PluginPackageReader {
             displayName = (pf4jDescription != null) ? pf4jDescription : id;
         }
         return new PluginDescriptor(id, id, version, requires, dependencies, pluginClass, displayNamespace,
-                displayName, description, iconKey, colorToken, PluginKind.FEATURE, replaces, lifecyclePolicy,
-                executionMode);
+                displayName, description, iconKey, colorToken, kind, replaces, lifecyclePolicy,
+                executionMode, configurationClassNames);
     }
 
     private static List<PluginDependencyRef> parseDependencies(String raw) {
@@ -366,10 +372,25 @@ public final class PluginPackageReader {
     }
 
     private static List<String> parsePluginIds(String raw) {
+        return parseCommaSeparated(raw);
+    }
+
+    private static List<String> parseCommaSeparated(String raw) {
         if (raw == null || raw.isBlank()) {
             return List.of();
         }
         return List.of(raw.split(",")).stream().map(String::trim).toList();
+    }
+
+    private static PluginKind parseKind(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return PluginKind.FEATURE;
+        }
+        try {
+            return PluginKind.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException failure) {
+            throw new IllegalArgumentException("unsupported plugin kind: " + raw, failure);
+        }
     }
 
     private static String trimToNull(String value) {

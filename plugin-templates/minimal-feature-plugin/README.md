@@ -17,3 +17,5 @@ Replace these values consistently before using the template:
 | `plugin.provider=Example Developer` | Your provider name |
 
 After replacement, update both i18n bundles and run `mvn clean verify` again. Keep feature id, routes, static paths, namespace, and tests aligned. Use the owner-scoped `PluginDataSource` when the plugin needs private persistence; never contribute tables to or connect directly to the host database. Do not add dependencies on the host app/core/runtime, signature internals, installer code, official-plugin services, or root-context component scanning.
+
+The verified `pixiv.kind` and `pixiv.configuration-classes` entries in `plugin.properties` are authoritative at runtime. Keep the compatibility `configurationClasses()` result aligned with the descriptor for older hosts and SDK tooling.

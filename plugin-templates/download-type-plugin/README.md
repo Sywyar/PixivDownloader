@@ -18,6 +18,8 @@ Before publishing a real plugin, replace these identities consistently:
 
 Build from this directory with `mvn clean verify`, or build both repository templates with `mvn -f ../pom.xml clean verify`. The output is a thin PF4J JAR. PixivDownloader supplies Plugin API, PF4J, Spring, and Jackson from its parent classloader, so every such dependency remains `provided` and must not be copied into the JAR.
 
+The verified `pixiv.kind` and `pixiv.configuration-classes` entries in `plugin.properties` are authoritative at runtime. Keep the compatibility `configurationClasses()` result aligned with the descriptor for older hosts and SDK tooling.
+
 ## Stable examples included
 
 - PF4J entry point, `PixivPluginProvider`, `PixivFeaturePlugin`, and explicit Spring child-context configuration.

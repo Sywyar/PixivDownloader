@@ -164,20 +164,37 @@ class PluginDescriptorTest {
     }
 
     @Test
-    @DisplayName("运行期功能描述符合并清单专属替代关系和生命周期策略")
+    @DisplayName("运行期功能描述符合并清单专属替代关系、执行策略和配置类")
     void attachesPackageOnlyMetadata() {
         PluginDescriptor runtimeDescriptor = external("gui-swing", "1.0.0", "1.0",
                 "com.example.ThemePlugin", "theme.label", PluginKind.FEATURE, List.of());
         PluginDescriptor packageDescriptor = new PluginDescriptor("gui-swing-pack", "gui-swing-pack", "1.0.0",
                 VersionRequirement.parse("1.0"), List.of(), "com.example.ThemePlugin", null,
                 "package.label", null, null, null, PluginKind.FEATURE, List.of("legacy-theme"),
-                PluginLifecyclePolicy.PROCESS_RESTART);
+                PluginLifecyclePolicy.PROCESS_RESTART, PluginExecutionMode.TRUSTED_IN_PROCESS,
+                List.of("com.example.ThemeConfiguration"));
 
         PluginDescriptor attached = runtimeDescriptor.withPackageMetadataFrom(packageDescriptor);
 
         assertThat(attached.displayName()).isEqualTo("theme.label");
         assertThat(attached.replaces()).containsExactly("legacy-theme");
         assertThat(attached.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.PROCESS_RESTART);
+        assertThat(attached.executionMode()).isEqualTo(PluginExecutionMode.TRUSTED_IN_PROCESS);
+        assertThat(attached.configurationClassNames()).containsExactly("com.example.ThemeConfiguration");
+    }
+
+    @Test
+    @DisplayName("配置类清单拒绝非法类名和重复项")
+    void rejectsInvalidConfigurationClassNames() {
+        PluginDescriptor descriptor = new PluginDescriptor(
+                "ext", "ext", "1.0.0", VersionRequirement.parse("1.0"), List.of(),
+                "com.example.Plugin", null, "plugin.name", null, null, null, PluginKind.FEATURE,
+                List.of(), PluginLifecyclePolicy.PROCESS_RESTART, PluginExecutionMode.TRUSTED_IN_PROCESS,
+                List.of("bad-class-name", "com.example.Valid", "com.example.Valid"));
+
+        assertThat(descriptor.validationErrors())
+                .anyMatch(error -> error.contains("invalid configuration class"))
+                .anyMatch(error -> error.contains("configuration classes must be unique"));
     }
 
     private static PluginDescriptor external(String id, String version, String requires, String pluginClass,

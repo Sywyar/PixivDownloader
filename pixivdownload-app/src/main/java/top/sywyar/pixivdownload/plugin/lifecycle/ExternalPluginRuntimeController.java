@@ -156,7 +156,7 @@ final class ExternalPluginRuntimeController {
             throw failures.propagate("failed to clean up mismatched plugin package");
         }
         try {
-            lifecycleService.adoptLoadedPackage(loaded);
+            lifecycleService.adoptLoadedPackage(runtimeManager.initializePlugin(packageId));
         } catch (Throwable failure) {
             PluginLifecycleFailureAccumulator failures = new PluginLifecycleFailureAccumulator(failure);
             try {

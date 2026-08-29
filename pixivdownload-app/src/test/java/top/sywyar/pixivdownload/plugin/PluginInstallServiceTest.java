@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
 import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
@@ -56,9 +57,12 @@ class PluginInstallServiceTest {
     private Path pluginsDir;
     private ExternalPluginInstaller installer;
     private PluginInstallService service;
+    private String previousDevelopmentMode;
 
     @BeforeEach
     void setUp() {
+        previousDevelopmentMode = System.getProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY);
+        System.setProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, "true");
         pluginsDir = home.resolve("plugins");
         installer = new ExternalPluginInstaller(pluginsDir);
         installer.recoverPendingTransactions();
@@ -67,7 +71,15 @@ class PluginInstallServiceTest {
 
     @AfterEach
     void closeInstaller() {
-        installer.close();
+        try {
+            installer.close();
+        } finally {
+            if (previousDevelopmentMode == null) {
+                System.clearProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY);
+            } else {
+                System.setProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, previousDevelopmentMode);
+            }
+        }
     }
 
     @Test
@@ -75,7 +87,8 @@ class PluginInstallServiceTest {
     void installsExplodedZip() {
         PluginInstallReport report = service.install(explodedUpload("upload.zip", "ext-demo", "1.0.0", null, null), false);
 
-        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
+        assertThat(report.outcome()).as("install report: %s", report)
+                .isEqualTo(PluginInstallOutcome.INSTALLED);
         assertThat(report.accepted()).isTrue();
         assertThat(report.effectiveAfterRestart()).isFalse();
         assertThat(report.activated()).isTrue();
@@ -273,6 +286,12 @@ class PluginInstallServiceTest {
         when(lifecycleService.phase(anyString())).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
         when(runtimeManager.loadPlugin(any(Path.class))).thenAnswer(invocation ->
                 loadedPackage(installer, invocation.getArgument(0)));
+        when(runtimeManager.initializePlugin(anyString())).thenAnswer(invocation ->
+                loadedPackage(installer, installer.listInstalled().stream()
+                        .filter(candidate -> candidate.id().equals(invocation.getArgument(0)))
+                        .findFirst()
+                        .orElseThrow()
+                        .path()));
         ExternalPluginLifecycleCoordinator coordinator = new ExternalPluginLifecycleCoordinator(
                 runtimeManager, lifecycleService, installer, recoveryModeService, dependencyResolver);
         return new PluginInstallService(coordinator, dependencyResolver, true);

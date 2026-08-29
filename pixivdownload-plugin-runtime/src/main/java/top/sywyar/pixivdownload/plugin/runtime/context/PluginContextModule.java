@@ -17,8 +17,8 @@ import java.util.Objects;
  *
  * @param sourcePluginId       外置插件包 id（PF4J pluginId），用于子 context 标识与诊断
  * @param classLoader          解析配置类与其类路径资源的插件 classloader（子 context 的 classloader）
- * @param configurationClasses 该插件包声明的 Spring {@code @Configuration} 配置类（来自入口契约
- *                             {@code PixivPluginProvider.configurationClasses()}，由插件 classloader 加载）
+ * @param configurationClasses 该插件包在已验证描述符中声明的 Spring {@code @Configuration} 配置类，
+ *                             由插件 classloader 加载但不触发类初始化
  */
 public record PluginContextModule(String sourcePluginId, ClassLoader classLoader,
                                   List<Class<?>> configurationClasses) {

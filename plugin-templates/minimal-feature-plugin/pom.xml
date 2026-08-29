@@ -58,7 +58,7 @@
             <version>${pf4j.version}</version>
             <scope>provided</scope>
         </dependency>
-        <!-- The host creates a child ApplicationContext for configurationClasses(). -->
+        <!-- The host creates a child ApplicationContext from the verified descriptor class list. -->
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-context</artifactId>

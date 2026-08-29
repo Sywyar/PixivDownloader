@@ -349,8 +349,10 @@ public class PluginRuntimeManager {
                             + candidate.artifactPath());
                 }
                 try {
-                    loadPreparedProductionArtifact(prepared);
+                    LoadedPluginPackage loaded = loadPreparedProductionArtifact(prepared);
+                    initializePlugin(loaded.packageId());
                 } catch (RuntimeException e) {
+                    discardFailedInitialization(candidate.pluginId(), e);
                     failedPluginIds.add(candidate.pluginId());
                     failures.add(new PluginLoadFailure(
                             candidate.artifactPath().getFileName().toString(), describe(e)));
@@ -461,9 +463,11 @@ public class PluginRuntimeManager {
         for (PluginDevelopmentArtifacts.MaterializedDevelopmentPlugin materialized
                 : PluginDevelopmentArtifacts.dependencyOrder(materializedPlugins)) {
             try {
-                loadPreparedPlugin(materialized.classesDirectory(), materialized.pf4jLoadPath(),
-                        session.sessionRoot(), materialized.descriptor(), null);
+                LoadedPluginPackage loaded = loadPreparedPlugin(materialized.classesDirectory(),
+                        materialized.pf4jLoadPath(), session.sessionRoot(), materialized.descriptor(), null);
+                initializePlugin(loaded.packageId());
             } catch (RuntimeException e) {
+                discardFailedInitialization(materialized.descriptor().id(), e);
                 failures.add(new PluginLoadFailure(materialized.descriptor().id(), describe(e)));
                 log.error("Failed to load development plugin module {}",
                         materialized.moduleRoot().getFileName(), e);
@@ -478,6 +482,18 @@ public class PluginRuntimeManager {
             }
         }
         return cache(PluginRuntimeStatus.populated(developmentRoot, phaseSnapshot(), failures));
+    }
+
+    private void discardFailedInitialization(String packageId, RuntimeException failure) {
+        if (!packageIndex.contains(packageId)) {
+            return;
+        }
+        try {
+            unloadPlugin(packageId);
+        } catch (Throwable cleanupFailure) {
+            rethrowFatal(cleanupFailure);
+            addSuppressedSafely(failure, cleanupFailure);
+        }
     }
 
     private LoadedPluginPackage loadPreparedPlugin(Path artifactPath, Path pf4jLoadPath, Path pluginManagerRoot,
@@ -518,6 +534,14 @@ public class PluginRuntimeManager {
                     artifactPath, pf4jLoadPath, packageDescriptor, productionSnapshot);
             throw failure;
         }
+        if (!packageDescriptor.id().equals(packageId)) {
+            PluginRuntimeOperationException failure = new PluginRuntimeOperationException(
+                    "PF4J package id does not match the verified descriptor: expected "
+                            + packageDescriptor.id() + ", got " + packageId);
+            cleanupNewWrappers(wrappersBeforeLoad, failure,
+                    artifactPath, pf4jLoadPath, packageDescriptor, productionSnapshot);
+            throw failure;
+        }
         if (packageIndex.contains(packageId)) {
             // 不得在重复加载分支调用 unloadPlugin：PF4J 返回的 id 可能指向原有 wrapper，
             // 此时卸载会错误释放仍在服务的旧 generation。
@@ -542,28 +566,34 @@ public class PluginRuntimeManager {
                     artifactPath, pf4jLoadPath, packageDescriptor, productionSnapshot);
             throw failure;
         }
-        String version;
+        String pf4jVersion;
         try {
-            version = wrapper.getDescriptor().getVersion();
+            pf4jVersion = wrapper.getDescriptor().getVersion();
         } catch (Throwable failure) {
             cleanupNewWrappers(wrappersBeforeLoad, failure,
                     artifactPath, pf4jLoadPath, packageDescriptor, productionSnapshot);
             throw operationFailure("failed to inspect loaded plugin descriptor " + packageId, failure);
         }
+        if (!Objects.equals(packageDescriptor.version(), pf4jVersion)) {
+            PluginRuntimeOperationException failure = new PluginRuntimeOperationException(
+                    "PF4J package version does not match the verified descriptor: expected "
+                            + packageDescriptor.version() + ", got " + pf4jVersion);
+            cleanupNewWrappers(wrappersBeforeLoad, failure,
+                    artifactPath, pf4jLoadPath, packageDescriptor, productionSnapshot);
+            throw failure;
+        }
         Entry entry = packageIndex.add(
                 packageId,
                 artifactPath,
                 pf4jLoadPath,
-                version,
+                packageDescriptor.version(),
                 PluginRuntimePackagePhase.LOADED,
                 packageDescriptor,
                 productionSnapshot
         );
         try {
-            LoadedPluginPackage loaded = snapshot(entry, true);
-            entry.updateDescriptor(validateReleaseShape(loaded));
             refreshStatus();
-            return loaded;
+            return snapshot(entry, false);
         } catch (Throwable failure) {
             boolean released = false;
             try {
@@ -585,6 +615,21 @@ public class PluginRuntimeManager {
             }
             refreshStatusSafely(failure);
             throw operationFailure("failed to validate loaded plugin package " + packageId, failure);
+        }
+    }
+
+    /**
+     * 在物理 load 已完成后显式实例化受信进程内插件并固化贡献快照。调用方必须先建立自己的 registrar / 回滚边界；
+     * 单独调用 {@link #loadPlugin(Path)} 不执行插件构造器、provider 或贡献 getter。
+     */
+    public synchronized LoadedPluginPackage initializePlugin(String packageId) {
+        Entry entry = requireEntry(packageId);
+        try {
+            LoadedPluginPackage initialized = snapshot(entry, true);
+            entry.updateDescriptor(validateReleaseShape(initialized));
+            return initialized;
+        } catch (Throwable failure) {
+            throw operationFailure("failed to initialize loaded plugin package " + packageId, failure);
         }
     }
 
@@ -617,7 +662,9 @@ public class PluginRuntimeManager {
         entry.updatePhase(PluginRuntimePackagePhase.STARTED);
         refreshStatus();
         try {
-            return snapshot(entry, true);
+            LoadedPluginPackage started = snapshot(entry, true);
+            entry.updateDescriptor(validateReleaseShape(started));
+            return started;
         } catch (Throwable failure) {
             throw operationFailure("failed to inspect started plugin package " + packageId, failure);
         }
@@ -868,36 +915,17 @@ public class PluginRuntimeManager {
     }
 
     /**
-     * 每个物理 generation 恰好读取一次 provider 的 feature/configuration 声明并固化为宿主快照。
-     * load、start、Spring 接入与状态查询只复用该快照，禁止状态化 getter 改变已验证身份或制造半份装配。
+     * 每个物理 generation 恰好读取一次 provider 的 feature 声明并固化为宿主快照。
+     * 身份、展示、配置类与执行策略只取已验证 descriptor；load 不调用插件代码，显式 initialize、start、Spring 接入与
+     * 状态查询复用同一快照。
      */
     private PluginInventory contributionSnapshot(Entry entry) {
         if (entry.contributionSnapshot() == null) {
             PixivPluginDiscoveryBridge bridge = new PixivPluginDiscoveryBridge();
-            entry.updateContributionSnapshot(attachPackageMetadata(
-                    bridge.inspectLoadedPackage(pluginManager, entry.packageId())));
+            entry.updateContributionSnapshot(
+                    bridge.inspectLoadedPackage(pluginManager, entry.descriptor()));
         }
         return entry.contributionSnapshot();
-    }
-
-    /**
-     * 发现桥接从运行期插件实例重建功能元数据；包级替代关系与生命周期策略只存在于清单，
-     * 因此按当前 runtime entry 重新附着，确保 load/start 后仍保留已验签的包元数据。
-     */
-    private PluginInventory attachPackageMetadata(PluginInventory inventory) {
-        List<PluginInstallation> installations = inventory.installations().stream()
-                .map(installation -> {
-                    Entry entry = packageIndex.get(installation.descriptor().sourcePluginId());
-                    if (entry == null) {
-                        return installation;
-                    }
-                    PluginDescriptor descriptor = installation.descriptor()
-                            .withPackageMetadataFrom(entry.descriptor());
-                    return new PluginInstallation(descriptor, installation.status(), installation.classLoader(),
-                            installation.plugin());
-                })
-                .toList();
-        return new PluginInventory(installations, inventory.contextModules(), inventory.failures());
     }
 
     /** 当前发布格式要求物理包与唯一功能插件同 id，并至多声明一个 Spring 模块。 */

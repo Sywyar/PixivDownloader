@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader;
 
@@ -162,6 +163,8 @@ class PluginTemplateBoundaryTest {
             assertThat(runtimeDescriptor.isSdkCompatible()).isTrue();
             assertThat(runtimeDescriptor.id()).isEqualTo(descriptor.getProperty("plugin.id"));
             assertThat(runtimeDescriptor.executionMode()).isEqualTo(PluginExecutionMode.ISOLATED_PROCESS);
+            assertThat(runtimeDescriptor.kind()).isEqualTo(PluginKind.FEATURE);
+            assertThat(runtimeDescriptor.configurationClassNames()).hasSize(1);
         }
 
         assertThat(read(root.resolve("pom.xml")))

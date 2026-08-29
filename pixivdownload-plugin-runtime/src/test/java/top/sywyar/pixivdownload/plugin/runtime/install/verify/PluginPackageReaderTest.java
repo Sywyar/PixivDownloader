@@ -151,6 +151,9 @@ class PluginPackageReaderTest {
                 + PluginPackageReader.KEY_PIXIV_DESCRIPTION_KEY + "=plugin.summary\n"
                 + PluginPackageReader.KEY_PIXIV_ICON_KEY + "=mail\n"
                 + PluginPackageReader.KEY_PIXIV_COLOR_TOKEN + "=green\n"
+                + PluginPackageReader.KEY_PIXIV_KIND + "=feature\n"
+                + PluginPackageReader.KEY_PIXIV_CONFIGURATION_CLASSES
+                + "=com.example.MailConfiguration,com.example.MailWebConfiguration\n"
                 + PluginPackageReader.KEY_PIXIV_LIFECYCLE_POLICY + "=process-restart\n"
                 + PluginPackageReader.KEY_PIXIV_EXECUTION_MODE + "=trusted-in-process\n";
         Map<String, byte[]> entries = new LinkedHashMap<>();
@@ -168,6 +171,9 @@ class PluginPackageReaderTest {
         assertThat(descriptor.colorToken()).isEqualTo("green");
         assertThat(descriptor.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.PROCESS_RESTART);
         assertThat(descriptor.executionMode()).isEqualTo(PluginExecutionMode.TRUSTED_IN_PROCESS);
+        assertThat(descriptor.kind()).isEqualTo(PluginKind.FEATURE);
+        assertThat(descriptor.configurationClassNames())
+                .containsExactly("com.example.MailConfiguration", "com.example.MailWebConfiguration");
         assertThat(descriptor.externalValidationErrors()).isEmpty();
     }
 
@@ -230,6 +236,25 @@ class PluginPackageReaderTest {
                 .isInstanceOfSatisfying(PluginPackageException.class, failure -> {
                     assertThat(failure.reason()).isEqualTo(PluginPackageException.Reason.MALFORMED);
                     assertThat(failure).hasMessageContaining("unsupported plugin execution mode");
+                });
+    }
+
+    @Test
+    @DisplayName("显式未知插件类型作为错误清单被拒绝")
+    void rejectsUnknownPluginKind() {
+        String properties = PluginPackageFixtures.pluginProperties(
+                "bad-kind", "1.0.0", "1.0", "com.example.BadKindPlugin")
+                + PluginPackageReader.KEY_PIXIV_KIND + "=system\n";
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        entries.put(PluginPackageReader.PLUGIN_PROPERTIES, properties.getBytes(StandardCharsets.UTF_8));
+        entries.put("classes/Marker.class", PluginPackageFixtures.bytes("x"));
+        Path zip = tempDir.resolve("bad-kind.zip");
+        PluginPackageFixtures.writeZip(zip, entries);
+
+        assertThatThrownBy(() -> PluginPackageReader.inspect(zip))
+                .isInstanceOfSatisfying(PluginPackageException.class, failure -> {
+                    assertThat(failure.reason()).isEqualTo(PluginPackageException.Reason.MALFORMED);
+                    assertThat(failure).hasMessageContaining("unsupported plugin kind");
                 });
     }
 

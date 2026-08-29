@@ -11,8 +11,8 @@ import java.util.regex.Pattern;
 
 /**
  * 统一插件描述符：把外置插件框架描述符（PF4J {@code plugin.properties} 的 {@code id} / {@code version} /
- * {@code requires} / {@code dependencies} / {@code plugin-class}）与 {@link PixivFeaturePlugin} 元数据
- * （{@code displayName} / {@code kind}）映射到同一个中性、不可变的描述模型，供兼容性校验与状态模型统一消费。
+ * {@code requires} / {@code dependencies} / {@code plugin-class}）及 {@code pixiv.*} 扩展元数据映射到同一个
+ * 中性、不可变的描述模型，供兼容性校验与状态模型统一消费。
  *
  * <p>本 record 是核心壳内部模型，<b>不</b>跨插件边界传递，因此允许引用 {@code plugin.api}（{@link PluginKind} /
  * {@link PixivFeaturePlugin}）与 JDK；但<b>不</b>引用任何插件加载框架（PF4J）类型——PF4J 描述符到本模型的映射收口在
@@ -38,6 +38,7 @@ import java.util.regex.Pattern;
  * @param replaces         安装新包后精确替代的旧插件包 id；仅外置包描述符声明，内置插件为空
  * @param lifecyclePolicy  插件包声明的运行期生效策略；旧包未声明时默认为热重载
  * @param executionMode    插件代码执行隔离级别；外置包未声明时默认为隔离进程
+ * @param configurationClassNames 由已验证包描述符声明的 Spring 配置类全限定名；不调用插件入口 getter 获取
  */
 public record PluginDescriptor(
         String id,
@@ -54,7 +55,8 @@ public record PluginDescriptor(
         PluginKind kind,
         List<String> replaces,
         PluginLifecyclePolicy lifecyclePolicy,
-        PluginExecutionMode executionMode) {
+        PluginExecutionMode executionMode,
+        List<String> configurationClassNames) {
 
     /** 插件 id 规范：小写短横线，如 {@code download-workbench}（与核心注册中心一致）。 */
     public static final Pattern ID_PATTERN = Pattern.compile("[a-z][a-z0-9]*(-[a-z0-9]+)*");
@@ -80,6 +82,17 @@ public record PluginDescriptor(
         replaces = replaces != null ? List.copyOf(replaces) : List.of();
         lifecyclePolicy = lifecyclePolicy != null ? lifecyclePolicy : PluginLifecyclePolicy.HOT_RELOAD;
         executionMode = executionMode != null ? executionMode : PluginExecutionMode.ISOLATED_PROCESS;
+        configurationClassNames = configurationClassNames != null
+                ? List.copyOf(configurationClassNames) : List.of();
+    }
+
+    public PluginDescriptor(String id, String sourcePluginId, String version, VersionRequirement requires,
+                            List<PluginDependencyRef> dependencies, String pluginClass, String displayNamespace,
+                            String displayName, String description, String iconKey, String colorToken,
+                            PluginKind kind, List<String> replaces, PluginLifecyclePolicy lifecyclePolicy,
+                            PluginExecutionMode executionMode) {
+        this(id, sourcePluginId, version, requires, dependencies, pluginClass, displayNamespace, displayName,
+                description, iconKey, colorToken, kind, replaces, lifecyclePolicy, executionMode, List.of());
     }
 
     public PluginDescriptor(String id, String sourcePluginId, String version, VersionRequirement requires,
@@ -137,12 +150,12 @@ public record PluginDescriptor(
                 plugin.kind(),
                 List.of(),
                 PluginLifecyclePolicy.PROCESS_RESTART,
-                PluginExecutionMode.TRUSTED_IN_PROCESS);
+                PluginExecutionMode.TRUSTED_IN_PROCESS,
+                List.of());
     }
 
     /**
-     * 把仅存在于已签名包清单中的元数据合并到运行期功能描述符。插件实例仍拥有展示与功能身份，
-     * 但替代关系和生命周期策略只以包清单为事实来源，避免加载后被 PF4J / 插件实例重建的描述符覆盖。
+     * 把仅存在于已签名包清单中的元数据合并到运行期功能描述符。
      */
     public PluginDescriptor withPackageMetadataFrom(PluginDescriptor packageDescriptor) {
         Objects.requireNonNull(packageDescriptor, "packageDescriptor");
@@ -152,7 +165,8 @@ public record PluginDescriptor(
         }
         return new PluginDescriptor(id, sourcePluginId, version, requires, dependencies, pluginClass,
                 displayNamespace, displayName, description, iconKey, colorToken, kind,
-                packageDescriptor.replaces(), packageDescriptor.lifecyclePolicy(), packageDescriptor.executionMode());
+                packageDescriptor.replaces(), packageDescriptor.lifecyclePolicy(), packageDescriptor.executionMode(),
+                packageDescriptor.configurationClassNames());
     }
 
     /** 该描述符声明的 SDK 版本要求是否被当前宿主 SDK 满足（{@code requires} 兼容性）。 */
@@ -180,6 +194,14 @@ public record PluginDescriptor(
         }
         if (pluginClass != null && !pluginClass.isBlank() && !CLASS_NAME_PATTERN.matcher(pluginClass).matches()) {
             errors.add("invalid plugin-class: " + pluginClass);
+        }
+        for (String configurationClassName : configurationClassNames) {
+            if (configurationClassName == null || !CLASS_NAME_PATTERN.matcher(configurationClassName).matches()) {
+                errors.add("invalid configuration class: " + configurationClassName);
+            }
+        }
+        if (configurationClassNames.stream().distinct().count() != configurationClassNames.size()) {
+            errors.add("configuration classes must be unique");
         }
         for (PluginDependencyRef dependency : dependencies) {
             if (dependency.pluginId() == null || !ID_PATTERN.matcher(dependency.pluginId()).matches()) {

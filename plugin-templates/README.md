@@ -52,7 +52,7 @@
 
 模板 POM 不继承本仓库根 parent，也不依赖 <code>pixivdownload-app</code> 或 <code>pixivdownload-plugin-runtime</code>。SDK BOM 统一管理 SDK Info、Plugin API 与 Core API 版本；模板实际使用的 SDK JAR、PF4J 与 Spring 均为 <code>provided</code>，由宿主父 classloader 提供，不能复制进插件 JAR，否则跨 classloader 的契约类型将不再相同。
 
-<code>configurationClasses()</code> 返回的配置类由宿主放入该插件专属的子 <code>ApplicationContext</code>。插件 Bean 必须在配置类中用 <code>@Bean</code> 显式创建；不要依赖宿主根包扫描。模板没有使用运行时内部的 <code>@ConditionalOnPluginEnabled</code>：外置插件只有在启用并建立子上下文后，这些 Bean 才会存在。
+已验证 <code>plugin.properties</code> 中的 <code>pixiv.kind</code> 和 <code>pixiv.configuration-classes</code> 是功能类型与 Spring 配置类清单的权威来源。宿主只在完成包准入后按该清单建立插件专属的子 <code>ApplicationContext</code>；<code>configurationClasses()</code> 仅为旧版宿主与 SDK 工具兼容而保留，当前运行时不读取其返回值，两处声明仍应保持一致。插件 Bean 必须在配置类中用 <code>@Bean</code> 显式创建；不要依赖宿主根包扫描。模板没有使用运行时内部的 <code>@ConditionalOnPluginEnabled</code>：外置插件只有在启用并建立子上下文后，这些 Bean 才会存在。
 
 可用的稳定接缝限于 SDK Info、Plugin API、Core API 的公开契约、宿主提供的受控前端 context，以及宿主明确提供的规范依赖。以下内容不是本模板可用的第三方接缝：宿主 app/core 实现类、plugin-runtime/installer/signature 内部类、宿主 mapper、官方插件私有 service，以及依赖根上下文组件扫描的 Bean。插件私有持久化使用 owner-scoped <code>PluginDataSource</code>；不要连接宿主主库、给核心表加列或自行执行宿主 schema DDL。
 

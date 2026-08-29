@@ -260,7 +260,7 @@ class PluginBootstrapSessionRecoveryGateTest extends PluginBootstrapSessionTestS
                     .isEqualTo(PluginRecoveryGateState.BLOCKED);
             assertThat(session.manager().packagePhases().get("bootstrap-probe"))
                     .isEqualTo(PluginRuntimePackagePhase.LOADED);
-            assertThat(Files.readString(marker, StandardCharsets.UTF_8)).isEqualTo("load\n");
+            assertThat(Files.readString(marker, StandardCharsets.UTF_8)).isEmpty();
             assertThat(Files.readString(retained, StandardCharsets.UTF_8)).isEqualTo("only-copy");
         } finally {
             restoreProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, previousEnabled);
