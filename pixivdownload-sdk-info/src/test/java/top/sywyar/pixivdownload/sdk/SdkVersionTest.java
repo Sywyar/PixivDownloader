@@ -11,14 +11,14 @@ class SdkVersionTest {
     @Test
     @DisplayName("SDK 元数据派生统一的预发布身份和兼容版本")
     void metadataAndCompatibilityUseOneSdkVersion() {
-        assertThat(SdkVersion.VERSION).isEqualTo("1.0.0-rc1");
+        assertThat(SdkVersion.VERSION).isEqualTo("1.0.0-rc2");
         assertThat(SdkVersion.MAJOR).isEqualTo(1);
         assertThat(SdkVersion.MINOR).isZero();
         assertThat(SdkVersion.PATCH).isZero();
         assertThat(SdkVersion.PRERELEASE_CHANNEL).isEqualTo("rc");
-        assertThat(SdkVersion.PRERELEASE_SEQUENCE).isEqualTo(1);
+        assertThat(SdkVersion.PRERELEASE_SEQUENCE).isEqualTo(2);
         assertThat(SdkVersion.isPrerelease()).isTrue();
-        assertThat(SdkVersion.releaseId()).isEqualTo("sdk-api-v1.0.0-rc1");
+        assertThat(SdkVersion.releaseId()).isEqualTo("sdk-api-v1.0.0-rc2");
         assertThat(SdkVersion.isCompatibleWith(1, 0)).isTrue();
         assertThat(SdkVersion.isCompatible(1, 2, 1, 1)).isTrue();
         assertThat(SdkVersion.isCompatible(1, 0, 1, 1)).isFalse();

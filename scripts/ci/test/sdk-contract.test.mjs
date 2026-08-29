@@ -145,7 +145,7 @@ test('Wrapper 纯权限变化不属于 SDK 语义合同', () => {
             '--report', report
         ], { cwd: root, encoding: 'utf8' });
         assert.equal(result.status, 0, result.stderr || result.stdout);
-        assert.equal(result.stdout, 'NO_PUBLISH: sdk-api-v1.0.0-rc1\n');
+        assert.equal(result.stdout, 'NO_PUBLISH: sdk-api-v1.0.0-rc2\n');
         assert.deepEqual(JSON.parse(fs.readFileSync(report, 'utf8')).mavenContractChanges, []);
     } finally {
         fs.rmSync(root, { recursive: true, force: true });

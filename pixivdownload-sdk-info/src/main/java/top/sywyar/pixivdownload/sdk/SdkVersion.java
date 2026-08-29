@@ -48,7 +48,7 @@ public final class SdkVersion {
     /**
      * 返回不可变的 SDK 发布标识。
      *
-     * @return 形如 {@code sdk-api-v1.0.0-rc1} 的发布标识
+     * @return 形如 {@code sdk-api-v1.0.0-rc2} 的发布标识
      */
     public static String releaseId() {
         return "sdk-api-v" + VERSION;
