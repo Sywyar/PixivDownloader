@@ -35,6 +35,9 @@ import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransac
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PreparedPluginTransaction;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageFixtures;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
+import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
+import top.sywyar.pixivdownload.plugin.signature.RepositoryIdentityMigrationAuthorization;
+import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
 
 @DisplayName("外置插件事务：旧制品与来源记录")
 class ExternalPluginTransactionProvenanceTest extends ExternalPluginTransactionTestSupport {
@@ -209,6 +212,140 @@ class ExternalPluginTransactionProvenanceTest extends ExternalPluginTransactionT
         assertThat(provenance.repositoryId()).isEqualTo("new-repository");
         assertThat(provenance.keyId()).isEqualTo("new-key");
         assertThat(provenance.publisher()).isEqualTo("New Publisher");
+    }
+
+    @Test
+    @DisplayName("旧 key 不可用时仓库根迁移声明必须经管理员显式确认")
+    void repositoryRootMigrationRequiresExplicitConfirmation() throws IOException {
+        Path plugins = temp.resolve("plugins-repository-root-identity-migration");
+        PluginSigningTestSupport oldSigner = PluginSigningTestSupport.create(
+                "old-key", "Old Publisher", false);
+        PluginSigningTestSupport newSigner = PluginSigningTestSupport.create(
+                "new-key", "New Publisher", false);
+        PluginSigningTestSupport repositoryRoot = PluginSigningTestSupport.create(
+                "repository-root", "Repository Operator", false);
+        ExternalPluginInstaller installer = signedInstaller(
+                plugins, PluginSigningTestSupport.verifierFor(oldSigner, newSigner, repositoryRoot));
+        Path oldPackage = packageFile("repository-migration-old.zip", "1.0.0");
+        installFully(installer, oldPackage,
+                oldSigner.originFor("old-repository", oldPackage, "demo", "1.0.0"));
+        installer.updateVerifier(new PluginSupplyChainVerifier(PluginTrustStores.of(List.of(
+                oldSigner.trustedKey(TrustedPluginKey.State.RETIRED),
+                newSigner.trustedKey(TrustedPluginKey.State.ACTIVE),
+                repositoryRoot.trustedKey(TrustedPluginKey.State.ACTIVE)))));
+        Path candidate = packageFile("repository-migration-new.zip", "2.0.0");
+        RepositoryIdentityMigrationAuthorization authorization =
+                repositoryRoot.repositoryIdentityMigrationAuthorization(
+                        RepositoryIdentityMigrationAuthorization.KEY_UNAVAILABLE,
+                        "demo",
+                        "old-repository",
+                        oldSigner,
+                        "demo",
+                        "new-repository",
+                        newSigner,
+                        candidate,
+                        "2.0.0");
+
+        PreparedPluginTransaction confirmationRequired = installer.prepareTransaction(
+                candidate,
+                false,
+                newSigner.originFor(
+                        "new-repository",
+                        candidate,
+                        "demo",
+                        "2.0.0",
+                        Map.of(),
+                        Map.of("demo", authorization),
+                        false));
+
+        assertThat(confirmationRequired.readyToCommit()).isFalse();
+        assertThat(confirmationRequired.result().outcome())
+                .isEqualTo(PluginInstallOutcome.REJECTED_IDENTITY_CONFIRMATION_REQUIRED);
+        assertThat(plugins.resolve("demo-1.0.0.zip")).exists();
+        assertThat(plugins.resolve("demo-2.0.0.zip")).doesNotExist();
+
+        PluginInstallResult upgraded = installFully(
+                installer,
+                candidate,
+                newSigner.originFor(
+                        "new-repository",
+                        candidate,
+                        "demo",
+                        "2.0.0",
+                        Map.of(),
+                        Map.of("demo", authorization),
+                        true));
+
+        assertThat(upgraded.outcome()).isEqualTo(PluginInstallOutcome.UPGRADED);
+        assertThat(plugins.resolve("demo-1.0.0.zip")).doesNotExist();
+        assertThat(plugins.resolve("demo-2.0.0.zip")).exists();
+    }
+
+    @Test
+    @DisplayName("仓库根迁移声明篡改候选制品或使用退役根时拒绝")
+    void repositoryRootMigrationRejectsTamperingAndRetiredRoot() throws IOException {
+        Path plugins = temp.resolve("plugins-invalid-repository-root-migration");
+        PluginSigningTestSupport oldSigner = PluginSigningTestSupport.create(
+                "old-key", "Old Publisher", false);
+        PluginSigningTestSupport newSigner = PluginSigningTestSupport.create(
+                "new-key", "New Publisher", false);
+        PluginSigningTestSupport repositoryRoot = PluginSigningTestSupport.create(
+                "repository-root", "Repository Operator", false);
+        ExternalPluginInstaller installer = signedInstaller(
+                plugins, PluginSigningTestSupport.verifierFor(oldSigner, newSigner, repositoryRoot));
+        Path oldPackage = packageFile("invalid-repository-migration-old.zip", "1.0.0");
+        installFully(installer, oldPackage,
+                oldSigner.originFor("old-repository", oldPackage, "demo", "1.0.0"));
+        Path signedCandidate = packageFile("invalid-repository-migration-signed.zip", "2.0.0");
+        RepositoryIdentityMigrationAuthorization authorization =
+                repositoryRoot.repositoryIdentityMigrationAuthorization(
+                        RepositoryIdentityMigrationAuthorization.KEY_UNAVAILABLE,
+                        "demo",
+                        "old-repository",
+                        oldSigner,
+                        "demo",
+                        "new-repository",
+                        newSigner,
+                        signedCandidate,
+                        "2.0.0");
+        Path tamperedCandidate = packageFile(
+                "invalid-repository-migration-tampered.zip", "demo", "2.0.0", "other");
+        installer.updateVerifier(new PluginSupplyChainVerifier(PluginTrustStores.of(List.of(
+                oldSigner.trustedKey(TrustedPluginKey.State.RETIRED),
+                newSigner.trustedKey(TrustedPluginKey.State.ACTIVE),
+                repositoryRoot.trustedKey(TrustedPluginKey.State.ACTIVE)))));
+
+        PreparedPluginTransaction tampered = installer.prepareTransaction(
+                tamperedCandidate,
+                false,
+                newSigner.originFor(
+                        "new-repository",
+                        tamperedCandidate,
+                        "demo",
+                        "2.0.0",
+                        Map.of(),
+                        Map.of("demo", authorization),
+                        true));
+        assertThat(tampered.result().outcome()).isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
+
+        installer.updateVerifier(new PluginSupplyChainVerifier(PluginTrustStores.of(List.of(
+                oldSigner.trustedKey(TrustedPluginKey.State.RETIRED),
+                newSigner.trustedKey(TrustedPluginKey.State.ACTIVE),
+                repositoryRoot.trustedKey(TrustedPluginKey.State.RETIRED)))));
+        PreparedPluginTransaction retiredRoot = installer.prepareTransaction(
+                signedCandidate,
+                false,
+                newSigner.originFor(
+                        "new-repository",
+                        signedCandidate,
+                        "demo",
+                        "2.0.0",
+                        Map.of(),
+                        Map.of("demo", authorization),
+                        true));
+        assertThat(retiredRoot.result().outcome()).isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
+        assertThat(plugins.resolve("demo-1.0.0.zip")).exists();
+        assertThat(plugins.resolve("demo-2.0.0.zip")).doesNotExist();
     }
 
     @Test

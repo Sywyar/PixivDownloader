@@ -168,6 +168,53 @@ public final class PluginSupplyChainVerifier {
         return result;
     }
 
+    /**
+     * 复用当前已安装来源的 trust store，验证活动仓库根签发的旧 key 撤销或不可用迁移声明。
+     */
+    public VerificationResult verifyRepositoryIdentityMigration(
+            RepositoryIdentityMigrationVerificationRequest request) {
+        Objects.requireNonNull(request, "request");
+        IdentityMigrationVerificationRequest.Identity from = request.from();
+        IdentityMigrationVerificationRequest.Identity to = request.to();
+        RepositoryIdentityMigrationAuthorization authorization = request.authorization();
+        if (!validIdentity(from) || !validIdentity(to) || !hasText(request.version())
+                || request.artifactSizeBytes() <= 0L || !validSha256(request.artifactSha256())
+                || authorization == null || !validRepositoryMigrationReason(authorization.reason())) {
+            return repositoryMigrationFail(VerificationStatus.IDENTITY_MISMATCH, request, null,
+                    "REPOSITORY_MIGRATION_BINDING_MALFORMED");
+        }
+        SignatureMetadata signature = authorization.signature();
+        byte[] sha256 = HexFormat.of().parseHex(request.artifactSha256().trim());
+        return verifySignedEnvelope(
+                signature,
+                policy(request.policy()),
+                to.pluginId(),
+                request.version(),
+                request.artifactSizeBytes(),
+                sha256,
+                request.artifactSha256().toLowerCase(Locale.ROOT),
+                key -> EnvelopeV1Codec.repositoryIdentityMigrationMessage(
+                        signature.algorithm(),
+                        signature.keyId(),
+                        authorization.reason(),
+                        from.pluginId(),
+                        from.source(),
+                        from.repositoryId(),
+                        from.officialRepository(),
+                        from.publisher(),
+                        from.keyId(),
+                        to.pluginId(),
+                        to.source(),
+                        to.repositoryId(),
+                        to.officialRepository(),
+                        to.publisher(),
+                        to.keyId(),
+                        request.version(),
+                        request.artifactSizeBytes(),
+                        sha256),
+                null);
+    }
+
     private VerificationResult verifySignedEnvelope(SignatureMetadata metadata, VerificationPolicy policy,
                                                     String pluginId, String version, long size, byte[] sha256Bytes,
                                                     String sha256Hex, MessageFactory messageFactory,
@@ -258,9 +305,33 @@ public final class PluginSupplyChainVerifier {
         return value != null && value.matches("[0-9A-Fa-f]{64}");
     }
 
+    private static boolean validRepositoryMigrationReason(String reason) {
+        return RepositoryIdentityMigrationAuthorization.KEY_UNAVAILABLE.equals(reason)
+                || RepositoryIdentityMigrationAuthorization.KEY_REVOKED.equals(reason);
+    }
+
     private static VerificationResult migrationFail(
             VerificationStatus status,
             IdentityMigrationVerificationRequest request,
+            SignatureMetadata metadata,
+            String diagnosticCode) {
+        return new VerificationResult(
+                status,
+                request.to() != null ? request.to().pluginId() : null,
+                request.version(),
+                metadata != null ? metadata.keyId() : null,
+                metadata != null ? metadata.algorithm() : null,
+                null,
+                null,
+                Instant.now(),
+                request.artifactSizeBytes(),
+                request.artifactSha256(),
+                diagnosticCode);
+    }
+
+    private static VerificationResult repositoryMigrationFail(
+            VerificationStatus status,
+            RepositoryIdentityMigrationVerificationRequest request,
             SignatureMetadata metadata,
             String diagnosticCode) {
         return new VerificationResult(

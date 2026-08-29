@@ -577,48 +577,74 @@ public class ExternalPluginInstaller implements AutoCloseable {
             List<InstalledPlugin> replaced,
             String previousVersion,
             PluginPackageOrigin origin) {
+        InstalledPlugin confirmationRequired = null;
         for (InstalledPlugin current : sameId) {
             PluginProvenanceRecord installed = readIdentityProvenance(current, descriptor);
-            if (installed == null || (!sameTrustOwner(installed, candidate)
-                    && !identityMigrationAuthorized(current, installed, descriptor, candidate, origin))) {
+            IdentityMigrationDecision decision = installed == null || sameTrustOwner(installed, candidate)
+                    ? IdentityMigrationDecision.AUTHORIZED
+                    : identityMigrationDecision(current, installed, descriptor, candidate, origin);
+            if (installed == null || decision == IdentityMigrationDecision.REJECTED) {
                 return identityRejected(descriptor, previousVersion, current,
                         installed == null ? "installed provenance is missing or invalid"
                                 : "trust owner changed");
             }
+            if (decision == IdentityMigrationDecision.CONFIRMATION_REQUIRED) {
+                confirmationRequired = current;
+            }
         }
         for (InstalledPlugin current : replaced) {
             PluginProvenanceRecord installed = readIdentityProvenance(current, descriptor);
-            if (installed == null || installed.signature() == null || candidate.signature() == null
-                    || (!sameTrustOwner(installed, candidate)
-                    && !identityMigrationAuthorized(current, installed, descriptor, candidate, origin))) {
+            IdentityMigrationDecision decision = installed == null || installed.signature() == null
+                    || candidate.signature() == null
+                    ? IdentityMigrationDecision.REJECTED
+                    : sameTrustOwner(installed, candidate)
+                            ? IdentityMigrationDecision.AUTHORIZED
+                            : identityMigrationDecision(current, installed, descriptor, candidate, origin);
+            if (decision == IdentityMigrationDecision.REJECTED) {
                 return identityRejected(descriptor, previousVersion, current,
                         installed == null ? "installed provenance is missing or invalid"
                                 : "replacement is not authorized by the installed trust owner");
             }
+            if (decision == IdentityMigrationDecision.CONFIRMATION_REQUIRED) {
+                confirmationRequired = current;
+            }
         }
-        return null;
+        return confirmationRequired == null ? null
+                : identityConfirmationRequired(descriptor, previousVersion, confirmationRequired);
     }
 
-    private boolean identityMigrationAuthorized(
+    private IdentityMigrationDecision identityMigrationDecision(
             InstalledPlugin current,
             PluginProvenanceRecord installed,
             PluginDescriptor descriptor,
             PluginProvenanceRecord candidate,
             PluginPackageOrigin origin) {
         if (installed.signature() == null || candidate.signature() == null) {
-            return false;
+            return IdentityMigrationDecision.REJECTED;
         }
         var authorization = origin.identityMigrationSignatures().get(current.id());
-        if (authorization == null) {
-            return false;
-        }
-        VerificationResult result = verificationService.verifyIdentityMigration(
-                current.id(), installed, descriptor.id(), descriptor.version(), candidate, authorization);
-        if (!result.accepted()) {
-            log.warn("Rejecting plugin identity migration {} -> {}: {} ({})",
+        if (authorization != null) {
+            VerificationResult result = verificationService.verifyIdentityMigration(
+                    current.id(), installed, descriptor.id(), descriptor.version(), candidate, authorization);
+            if (result.accepted()) {
+                return IdentityMigrationDecision.AUTHORIZED;
+            }
+            log.warn("Plugin key identity migration authorization did not validate {} -> {}: {} ({})",
                     current.id(), descriptor.id(), result.status(), result.diagnosticCode());
         }
-        return result.accepted();
+        var repositoryAuthorization = origin.repositoryIdentityMigrationAuthorizations().get(current.id());
+        if (repositoryAuthorization == null) {
+            return IdentityMigrationDecision.REJECTED;
+        }
+        VerificationResult result = verificationService.verifyRepositoryIdentityMigration(
+                current.id(), installed, descriptor.id(), descriptor.version(), candidate, repositoryAuthorization);
+        if (!result.accepted()) {
+            log.warn("Rejecting repository-root plugin identity migration {} -> {}: {} ({})",
+                    current.id(), descriptor.id(), result.status(), result.diagnosticCode());
+            return IdentityMigrationDecision.REJECTED;
+        }
+        return origin.identityMigrationConfirmed()
+                ? IdentityMigrationDecision.AUTHORIZED : IdentityMigrationDecision.CONFIRMATION_REQUIRED;
     }
 
     private PluginProvenanceRecord readIdentityProvenance(
@@ -653,6 +679,25 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 previousVersion,
                 List.of("plugin identity continuity rejected for " + descriptor.id()
                         + " against installed " + current.id() + ": " + reason));
+    }
+
+    private static PluginInstallResult identityConfirmationRequired(
+            PluginDescriptor descriptor,
+            String previousVersion,
+            InstalledPlugin current) {
+        return new PluginInstallResult(
+                PluginInstallOutcome.REJECTED_IDENTITY_CONFIRMATION_REQUIRED,
+                descriptor,
+                null,
+                previousVersion,
+                List.of("repository-root identity migration confirmation required for " + descriptor.id()
+                        + " against installed " + current.id()));
+    }
+
+    private enum IdentityMigrationDecision {
+        AUTHORIZED,
+        CONFIRMATION_REQUIRED,
+        REJECTED
     }
 
     /**

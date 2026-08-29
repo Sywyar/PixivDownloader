@@ -57,6 +57,9 @@ public enum PluginInstallOutcome {
      */
     REJECTED_INTEGRITY(false),
 
+    /** 仓库根迁移声明有效，但尚未取得管理员对当前精确迁移的显式确认。 */
+    REJECTED_IDENTITY_CONFIRMATION_REQUIRED(false),
+
     /** 安装过程发生 IO 失败；安装器已清理暂存、不留半成品。 */
     FAILED(false);
 

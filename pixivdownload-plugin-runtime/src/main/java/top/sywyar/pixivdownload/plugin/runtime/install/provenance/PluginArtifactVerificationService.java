@@ -6,6 +6,8 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin
 import top.sywyar.pixivdownload.plugin.signature.ArtifactVerificationRequest;
 import top.sywyar.pixivdownload.plugin.signature.IdentityMigrationVerificationRequest;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
+import top.sywyar.pixivdownload.plugin.signature.RepositoryIdentityMigrationAuthorization;
+import top.sywyar.pixivdownload.plugin.signature.RepositoryIdentityMigrationVerificationRequest;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.VerificationPolicy;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
@@ -90,6 +92,25 @@ public final class PluginArtifactVerificationService {
                 candidate.artifactSha256(),
                 authorization,
                 installedOrigin.installedVerificationPolicy(developmentModeEnabled.getAsBoolean())));
+    }
+
+    public VerificationResult verifyRepositoryIdentityMigration(
+            String installedPluginId,
+            PluginProvenanceRecord installed,
+            String candidatePluginId,
+            String candidateVersion,
+            PluginProvenanceRecord candidate,
+            RepositoryIdentityMigrationAuthorization authorization) {
+        PluginPackageOrigin installedOrigin = installed.originForOfflineVerification();
+        return verifierFor(installedOrigin).verifyRepositoryIdentityMigration(
+                new RepositoryIdentityMigrationVerificationRequest(
+                        identity(installedPluginId, installed),
+                        identity(candidatePluginId, candidate),
+                        candidateVersion,
+                        candidate.artifactSizeBytes(),
+                        candidate.artifactSha256(),
+                        authorization,
+                        installedOrigin.verificationPolicy(false)));
     }
 
     private static IdentityMigrationVerificationRequest.Identity identity(

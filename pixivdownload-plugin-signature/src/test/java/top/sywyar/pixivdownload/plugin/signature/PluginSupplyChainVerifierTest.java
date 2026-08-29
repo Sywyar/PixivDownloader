@@ -339,6 +339,72 @@ class PluginSupplyChainVerifierTest {
         assertThat(publisherMismatch.diagnosticCode()).isEqualTo("MIGRATION_PUBLISHER_MISMATCH");
     }
 
+    @Test
+    @DisplayName("repository identity migration：活动仓库根只授权精确迁移，退役或撤销根拒绝")
+    void verifiesRepositoryRootIdentityMigrationWithActiveRootOnly() throws Exception {
+        Fixture root = Fixture.create(TrustedPluginKey.State.ACTIVE);
+        IdentityMigrationVerificationRequest.Identity from = new IdentityMigrationVerificationRequest.Identity(
+                "demo", "MARKET_CATALOG", "old-repository", false,
+                "Old Publisher", "missing-old-key");
+        IdentityMigrationVerificationRequest.Identity to = new IdentityMigrationVerificationRequest.Identity(
+                "demo", "MARKET_CATALOG", "new-repository", false,
+                "New Publisher", "new-key");
+        String sha256 = "ab".repeat(32);
+        RepositoryIdentityMigrationAuthorization authorization = root.repositoryIdentityMigrationAuthorization(
+                RepositoryIdentityMigrationAuthorization.KEY_UNAVAILABLE,
+                from,
+                to,
+                "2.0.0",
+                123L,
+                sha256);
+        RepositoryIdentityMigrationVerificationRequest request =
+                new RepositoryIdentityMigrationVerificationRequest(
+                        from,
+                        to,
+                        "2.0.0",
+                        123L,
+                        sha256,
+                        authorization,
+                        VerificationPolicy.customRepository());
+
+        assertThat(root.verifier.verifyRepositoryIdentityMigration(request).status())
+                .isEqualTo(VerificationStatus.VERIFIED);
+
+        IdentityMigrationVerificationRequest.Identity tamperedDestination =
+                new IdentityMigrationVerificationRequest.Identity(
+                        "demo", "MARKET_CATALOG", "attacker-repository", false,
+                        "New Publisher", "new-key");
+        assertStatus(root.verifier.verifyRepositoryIdentityMigration(
+                        new RepositoryIdentityMigrationVerificationRequest(
+                                from,
+                                tamperedDestination,
+                                "2.0.0",
+                                123L,
+                                sha256,
+                                authorization,
+                                VerificationPolicy.customRepository())),
+                VerificationStatus.INVALID_SIGNATURE);
+
+        RepositoryIdentityMigrationAuthorization unknownReason =
+                new RepositoryIdentityMigrationAuthorization("UNKNOWN", authorization.signature());
+        VerificationResult malformed = root.verifier.verifyRepositoryIdentityMigration(
+                new RepositoryIdentityMigrationVerificationRequest(
+                        from,
+                        to,
+                        "2.0.0",
+                        123L,
+                        sha256,
+                        unknownReason,
+                        VerificationPolicy.customRepository()));
+        assertThat(malformed.status()).isEqualTo(VerificationStatus.IDENTITY_MISMATCH);
+        assertThat(malformed.diagnosticCode()).isEqualTo("REPOSITORY_MIGRATION_BINDING_MALFORMED");
+
+        assertStatus(root.withState(TrustedPluginKey.State.RETIRED).verifier
+                        .verifyRepositoryIdentityMigration(request), VerificationStatus.RETIRED_KEY);
+        assertStatus(root.withState(TrustedPluginKey.State.REVOKED).verifier
+                        .verifyRepositoryIdentityMigration(request), VerificationStatus.REVOKED_KEY);
+    }
+
     private Path artifact(String text) throws Exception {
         Path path = tempDir.resolve("plugin.jar");
         Files.writeString(path, text);
@@ -414,6 +480,50 @@ class PluginSupplyChainVerifierTest {
                      size,
                      java.util.HexFormat.of().parseHex(sha256));
             return metadata(sign(message));
+        }
+
+        RepositoryIdentityMigrationAuthorization repositoryIdentityMigrationAuthorization(
+                String reason,
+                IdentityMigrationVerificationRequest.Identity from,
+                IdentityMigrationVerificationRequest.Identity to,
+                String version,
+                long size,
+                String sha256) throws Exception {
+            byte[] message = EnvelopeV1Codec.repositoryIdentityMigrationMessage(
+                    SignatureMetadata.ED25519,
+                    key.keyId(),
+                    reason,
+                    from.pluginId(),
+                    from.source(),
+                    from.repositoryId(),
+                    from.officialRepository(),
+                    from.publisher(),
+                    from.keyId(),
+                    to.pluginId(),
+                    to.source(),
+                    to.repositoryId(),
+                    to.officialRepository(),
+                    to.publisher(),
+                    to.keyId(),
+                    version,
+                    size,
+                    java.util.HexFormat.of().parseHex(sha256));
+            return new RepositoryIdentityMigrationAuthorization(reason, metadata(sign(message)));
+        }
+
+        Fixture withState(TrustedPluginKey.State state) {
+            TrustedPluginKey statefulKey = new TrustedPluginKey(
+                    key.keyId(),
+                    key.algorithm(),
+                    key.publicKeySpkiBase64(),
+                    state,
+                    key.publisher(),
+                    key.trustLabel(),
+                    key.official());
+            return new Fixture(
+                    pair,
+                    statefulKey,
+                    new PluginSupplyChainVerifier(PluginTrustStores.of(List.of(statefulKey))));
         }
 
         private SignatureMetadata metadata(byte[] signature) {
