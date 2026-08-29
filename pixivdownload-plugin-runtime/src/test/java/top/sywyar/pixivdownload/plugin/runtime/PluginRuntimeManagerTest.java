@@ -8,10 +8,10 @@ import org.pf4j.PluginState;
 import org.pf4j.PluginWrapper;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeLayout;
-import top.sywyar.pixivdownload.plugin.runtime.bootstrap.BootstrapProbeFeaturePlugin;
-import top.sywyar.pixivdownload.plugin.runtime.bootstrap.BootstrapProbePlugin;
-import top.sywyar.pixivdownload.plugin.runtime.bootstrap.DependencyOrderProbeFeaturePlugin;
-import top.sywyar.pixivdownload.plugin.runtime.bootstrap.DependencyOrderProbePlugin;
+import top.sywyar.pixivdownload.runtimeprobe.BootstrapProbeFeaturePlugin;
+import top.sywyar.pixivdownload.runtimeprobe.BootstrapProbePlugin;
+import top.sywyar.pixivdownload.runtimeprobe.DependencyOrderProbeFeaturePlugin;
+import top.sywyar.pixivdownload.runtimeprobe.DependencyOrderProbePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
@@ -146,21 +146,21 @@ class PluginRuntimeManagerTest {
 
         manager.loadPlugin(jar);
         manager.startPlugin(PROBE_ID);
-        Path firstPf4jPath = manager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
+        Path firstPf4jPath = manager.pluginManagerForTest().orElseThrow().getPlugin(PROBE_ID)
                 .getPluginPath().toAbsolutePath().normalize();
         Path firstWorkspace = firstPf4jPath.getParent();
         manager.inspectPlugins();
         manager.inspectContextModules();
         manager.discoverFeaturePlugins();
 
-        Object firstProvider = manager.pluginManager().orElseThrow().getPlugin(PROBE_ID).getPlugin();
+        Object firstProvider = manager.pluginManagerForTest().orElseThrow().getPlugin(PROBE_ID).getPlugin();
         long firstGeneration = manager.generation(PROBE_ID).orElseThrow();
         assertThat(invokeInt(firstProvider, "featurePluginCalls")).isEqualTo(1);
         assertThat(invokeInt(firstProvider, "configurationClassesCalls")).isEqualTo(1);
 
         manager.stopPlugin(PROBE_ID);
         manager.startPlugin(PROBE_ID);
-        assertThat(manager.pluginManager().orElseThrow().getPlugin(PROBE_ID).getPluginPath()
+        assertThat(manager.pluginManagerForTest().orElseThrow().getPlugin(PROBE_ID).getPluginPath()
                 .toAbsolutePath().normalize()).isEqualTo(firstPf4jPath);
         manager.inspectPlugins();
         assertThat(invokeInt(firstProvider, "featurePluginCalls")).isEqualTo(1);
@@ -171,9 +171,9 @@ class PluginRuntimeManagerTest {
         assertThat(firstWorkspace).doesNotExist();
         manager.loadPlugin(jar);
         manager.startPlugin(PROBE_ID);
-        Path secondPf4jPath = manager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
+        Path secondPf4jPath = manager.pluginManagerForTest().orElseThrow().getPlugin(PROBE_ID)
                 .getPluginPath().toAbsolutePath().normalize();
-        Object secondProvider = manager.pluginManager().orElseThrow().getPlugin(PROBE_ID).getPlugin();
+        Object secondProvider = manager.pluginManagerForTest().orElseThrow().getPlugin(PROBE_ID).getPlugin();
         assertThat(secondProvider).isNotSameAs(firstProvider);
         assertThat(secondPf4jPath).isNotEqualTo(firstPf4jPath);
         assertThat(manager.generation(PROBE_ID).orElseThrow()).isGreaterThan(firstGeneration);
@@ -191,7 +191,7 @@ class PluginRuntimeManagerTest {
         writeLocalProvenance(plugins, jar);
         PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
         manager.loadPlugin(jar);
-        PluginManager delegate = manager.pluginManager().orElseThrow();
+        PluginManager delegate = manager.pluginManagerForTest().orElseThrow();
         PluginManager faulting = spy(delegate);
         doAnswer(invocation -> {
             delegate.startPlugin(PROBE_ID);
@@ -217,7 +217,7 @@ class PluginRuntimeManagerTest {
         writeLocalProvenance(plugins, jar);
         PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
         manager.loadPlugin(jar);
-        PluginManager delegate = manager.pluginManager().orElseThrow();
+        PluginManager delegate = manager.pluginManagerForTest().orElseThrow();
         Path retainedWorkspace = delegate.getPlugin(PROBE_ID).getPluginPath()
                 .toAbsolutePath().normalize().getParent();
         PluginManager faulting = spy(delegate);
@@ -402,7 +402,7 @@ class PluginRuntimeManagerTest {
         manager.shutdown();
 
         verify(faulting).unloadPlugins();
-        assertThat(manager.pluginManager()).isEmpty();
+        assertThat(manager.pluginManagerForTest()).isEmpty();
     }
 
     @Test
@@ -421,7 +421,7 @@ class PluginRuntimeManagerTest {
         assertThat(status.directory()).isEqualTo(missing.toAbsolutePath().normalize());
         // 缺失目录的常态路径不创建目录、不触碰 PF4J
         assertThat(Files.exists(missing)).isFalse();
-        assertThat(manager.pluginManager()).isEmpty();
+        assertThat(manager.pluginManagerForTest()).isEmpty();
         assertThat(manager.status()).contains(status);
     }
 
@@ -437,7 +437,7 @@ class PluginRuntimeManagerTest {
         assertThat(status.state()).isEqualTo(PluginDirectoryState.ABSENT);
         assertThat(status.loadedPluginIds()).isEmpty();
         assertThat(status.failures()).isEmpty();
-        assertThat(manager.pluginManager()).isEmpty();
+        assertThat(manager.pluginManagerForTest()).isEmpty();
     }
 
     @Test
@@ -453,7 +453,7 @@ class PluginRuntimeManagerTest {
         assertThat(status.loadedPluginIds()).isEmpty();
         assertThat(status.failures()).isEmpty();
         // 空目录路径不构造 PF4J 实例
-        assertThat(manager.pluginManager()).isEmpty();
+        assertThat(manager.pluginManagerForTest()).isEmpty();
     }
 
     @Test
@@ -489,7 +489,7 @@ class PluginRuntimeManagerTest {
         assertThat(status.failures().get(0).source()).isEqualTo("broken-plugin.jar");
         assertThat(status.failures().get(0).reason()).isNotBlank();
         // 坏包在完整准入前被隔离，不应为它构造 PF4J 实例。
-        assertThat(manager.pluginManager()).isEmpty();
+        assertThat(manager.pluginManagerForTest()).isEmpty();
     }
 
     @Test
@@ -514,9 +514,9 @@ class PluginRuntimeManagerTest {
 
             PluginRuntimeStatus status = manager.start();
 
-            Path pf4jPath = manager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
+            Path pf4jPath = manager.pluginManagerForTest().orElseThrow().getPlugin(PROBE_ID)
                     .getPluginPath().toAbsolutePath().normalize();
-            ClassLoader firstClassLoader = manager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
+            ClassLoader firstClassLoader = manager.pluginManagerForTest().orElseThrow().getPlugin(PROBE_ID)
                     .getPluginClassLoader();
             assertThat(status.state()).isEqualTo(PluginDirectoryState.POPULATED);
             assertThat(status.directory()).isEqualTo(repositoryRoot.toAbsolutePath().normalize());
@@ -530,7 +530,7 @@ class PluginRuntimeManagerTest {
             developmentSessionRoot = pf4jPath.getParent();
             assertThat(developmentSessionRoot.getFileName().toString()).startsWith(".session-");
             assertThat(pf4jPath.getFileName().toString()).startsWith(PROBE_ID + "-" + PROBE_VERSION + "-");
-            assertThat(pf4jPath.resolve("classes/top/sywyar/pixivdownload/plugin/runtime/bootstrap/"
+            assertThat(pf4jPath.resolve("classes/top/sywyar/pixivdownload/runtimeprobe/"
                     + "BootstrapProbePlugin.class")).exists();
             assertThat(pf4jPath.resolve("lib/private-lib.jar")).exists();
             assertThat(manager.loadedDescriptor(PROBE_ID)).get()
@@ -554,9 +554,9 @@ class PluginRuntimeManagerTest {
             LoadedPluginPackage reloaded = manager.loadPlugin(classesDirectory);
             assertThat(manager.isDevelopmentArtifact(PROBE_ID)).isTrue();
             manager.startPlugin(PROBE_ID);
-            ClassLoader reloadedClassLoader = manager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
+            ClassLoader reloadedClassLoader = manager.pluginManagerForTest().orElseThrow().getPlugin(PROBE_ID)
                     .getPluginClassLoader();
-            Path reloadedPf4jPath = manager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
+            Path reloadedPf4jPath = manager.pluginManagerForTest().orElseThrow().getPlugin(PROBE_ID)
                     .getPluginPath().toAbsolutePath().normalize();
 
             assertThat(reloaded.artifactPath()).isEqualTo(classesDirectory.toAbsolutePath().normalize());
@@ -596,9 +596,9 @@ class PluginRuntimeManagerTest {
 
             assertThat(firstManager.start().failures()).isEmpty();
             assertThat(secondManager.start().failures()).isEmpty();
-            Path firstPf4jPath = firstManager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
+            Path firstPf4jPath = firstManager.pluginManagerForTest().orElseThrow().getPlugin(PROBE_ID)
                     .getPluginPath().toAbsolutePath().normalize();
-            Path secondPf4jPath = secondManager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
+            Path secondPf4jPath = secondManager.pluginManagerForTest().orElseThrow().getPlugin(PROBE_ID)
                     .getPluginPath().toAbsolutePath().normalize();
             firstSessionRoot = firstPf4jPath.getParent();
             secondSessionRoot = secondPf4jPath.getParent();
@@ -795,7 +795,7 @@ class PluginRuntimeManagerTest {
             assertThat(failure.source()).isEqualTo("mail-1.0.0.jar");
             assertThat(failure.reason()).contains("missing required dependency: notification");
         });
-        assertThat(manager.pluginManager()).isEmpty();
+        assertThat(manager.pluginManagerForTest()).isEmpty();
         manager.shutdown();
     }
 
@@ -809,7 +809,7 @@ class PluginRuntimeManagerTest {
 
         PluginRuntimeStatus first = manager.start();
         assertThat(first.state()).isEqualTo(PluginDirectoryState.POPULATED);
-        assertThat(manager.pluginManager()).isPresent();
+        assertThat(manager.pluginManagerForTest()).isPresent();
 
         // 移除候选包后重新扫描：目录转为空
         Files.delete(artifact);
@@ -817,7 +817,7 @@ class PluginRuntimeManagerTest {
 
         assertThat(second.state()).isEqualTo(PluginDirectoryState.EMPTY);
         // 关键：不得读到上一轮的陈旧 PF4J 实例
-        assertThat(manager.pluginManager()).isEmpty();
+        assertThat(manager.pluginManagerForTest()).isEmpty();
         assertThat(manager.discoverFeaturePlugins().discovered()).isEmpty();
         assertThat(manager.discoverFeaturePlugins().failures()).isEmpty();
         assertThat(manager.status()).contains(second);
@@ -836,7 +836,7 @@ class PluginRuntimeManagerTest {
 
         PluginRuntimeStatus first = manager.start();
         assertThat(first.state()).isEqualTo(PluginDirectoryState.POPULATED);
-        assertThat(manager.pluginManager()).isPresent();
+        assertThat(manager.pluginManagerForTest()).isPresent();
 
         // 删除整个插件目录后重新扫描：目录转为缺失
         manager.unloadPlugin(PROBE_ID);
@@ -848,7 +848,7 @@ class PluginRuntimeManagerTest {
         PluginRuntimeStatus second = manager.start();
 
         assertThat(second.state()).isEqualTo(PluginDirectoryState.ABSENT);
-        assertThat(manager.pluginManager()).isEmpty();
+        assertThat(manager.pluginManagerForTest()).isEmpty();
         assertThat(manager.discoverFeaturePlugins().discovered()).isEmpty();
     }
 
@@ -989,14 +989,14 @@ class PluginRuntimeManagerTest {
         LoadedPluginPackage loaded = manager.loadPlugin(jar);
         manager.startPlugin(PROBE_ID);
 
-        Path pf4jPath = manager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
+        Path pf4jPath = manager.pluginManagerForTest().orElseThrow().getPlugin(PROBE_ID)
                 .getPluginPath().toAbsolutePath().normalize();
         assertThat(loaded.artifactPath()).isEqualTo(jar.toAbsolutePath().normalize());
         assertThat(manager.artifactPath(PROBE_ID)).contains(jar.toAbsolutePath().normalize());
         assertThat(pf4jPath).startsWith(plugins.resolve(PluginRuntimeLayout.RUNTIME_DIR).toAbsolutePath().normalize());
         assertThat(pf4jPath).isNotEqualTo(jar.toAbsolutePath().normalize());
         assertThat(pf4jPath.resolve("plugin.properties")).exists();
-        assertThat(pf4jPath.resolve("classes/top/sywyar/pixivdownload/plugin/runtime/bootstrap/BootstrapProbePlugin.class"))
+        assertThat(pf4jPath.resolve("classes/top/sywyar/pixivdownload/runtimeprobe/BootstrapProbePlugin.class"))
                 .exists();
         assertThat(pf4jPath.resolve("lib/private-lib.jar")).exists();
         assertThat(plugins.resolve(PROBE_ID + "-" + PROBE_VERSION)).doesNotExist();
@@ -1026,7 +1026,7 @@ class PluginRuntimeManagerTest {
         PluginRuntimeManager firstManager = new PluginRuntimeManager(plugins);
         LoadedPluginPackage firstLoaded = firstManager.loadPlugin(firstJar);
         firstManager.startPlugin(PROBE_ID);
-        Path firstPf4jPath = firstManager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
+        Path firstPf4jPath = firstManager.pluginManagerForTest().orElseThrow().getPlugin(PROBE_ID)
                 .getPluginPath().toAbsolutePath().normalize();
         Path firstWorkspace = firstPf4jPath.getParent();
         assertThat(firstLoaded.artifactPath()).isEqualTo(firstJar.toAbsolutePath().normalize());
@@ -1037,7 +1037,7 @@ class PluginRuntimeManagerTest {
         PluginRuntimeManager secondManager = new PluginRuntimeManager(plugins);
         LoadedPluginPackage secondLoaded = secondManager.loadPlugin(secondJar);
         secondManager.startPlugin(PROBE_ID);
-        Path secondPf4jPath = secondManager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
+        Path secondPf4jPath = secondManager.pluginManagerForTest().orElseThrow().getPlugin(PROBE_ID)
                 .getPluginPath().toAbsolutePath().normalize();
         Path secondWorkspace = secondPf4jPath.getParent();
 
@@ -1061,7 +1061,7 @@ class PluginRuntimeManagerTest {
 
         LoadedPluginPackage loaded = manager.loadPlugin(zip);
 
-        Path pf4jPath = manager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
+        Path pf4jPath = manager.pluginManagerForTest().orElseThrow().getPlugin(PROBE_ID)
                 .getPluginPath().toAbsolutePath().normalize();
         assertThat(loaded.artifactPath()).isEqualTo(zip.toAbsolutePath().normalize());
         assertThat(pf4jPath).startsWith(plugins.resolve(PluginRuntimeLayout.RUNTIME_DIR).toAbsolutePath().normalize());
@@ -1094,7 +1094,7 @@ class PluginRuntimeManagerTest {
 
         LoadedPluginPackage loaded = manager.loadPlugin(jar);
 
-        Path pf4jPath = manager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
+        Path pf4jPath = manager.pluginManagerForTest().orElseThrow().getPlugin(PROBE_ID)
                 .getPluginPath().toAbsolutePath().normalize();
         assertThat(loaded.artifactPath()).isEqualTo(jar.toAbsolutePath().normalize());
         assertThat(verifiedPath.get()).isNotEqualTo(jar.toAbsolutePath().normalize());
@@ -1149,7 +1149,7 @@ class PluginRuntimeManagerTest {
                 .isInstanceOf(top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationException.class)
                 .hasMessageContaining("canonical")
                 .hasMessageContaining("inner plugin jar");
-        assertThat(manager.pluginManager()).isEmpty();
+        assertThat(manager.pluginManagerForTest()).isEmpty();
         assertThat(manager.packagePhases()).isEmpty();
     }
 
@@ -1457,7 +1457,7 @@ class PluginRuntimeManagerTest {
         assertThat(status.startedPluginIds()).isEmpty();
         assertThat(status.failures()).hasSize(2)
                 .allSatisfy(failure -> assertThat(failure.reason()).contains("duplicate plugin id base"));
-        assertThat(manager.pluginManager()).isEmpty();
+        assertThat(manager.pluginManagerForTest()).isEmpty();
         manager.shutdown();
     }
 

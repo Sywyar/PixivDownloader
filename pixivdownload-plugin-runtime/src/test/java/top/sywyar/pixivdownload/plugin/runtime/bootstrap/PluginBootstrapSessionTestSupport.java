@@ -26,6 +26,8 @@ import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenan
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
+import top.sywyar.pixivdownload.runtimeprobe.BootstrapProbeFeaturePlugin;
+import top.sywyar.pixivdownload.runtimeprobe.BootstrapProbePlugin;
 import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;

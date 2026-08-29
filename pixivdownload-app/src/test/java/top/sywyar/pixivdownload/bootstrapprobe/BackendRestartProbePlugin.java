@@ -21,8 +21,7 @@ import java.nio.file.StandardOpenOption;
  */
 public class BackendRestartProbePlugin extends org.pf4j.Plugin implements PixivPluginProvider {
 
-    public BackendRestartProbePlugin(org.pf4j.PluginWrapper wrapper) {
-        super(wrapper);
+    public BackendRestartProbePlugin() {
         record("load");
     }
 

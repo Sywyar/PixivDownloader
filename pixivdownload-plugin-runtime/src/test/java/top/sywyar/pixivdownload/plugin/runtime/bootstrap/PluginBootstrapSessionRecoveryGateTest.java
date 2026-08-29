@@ -124,9 +124,9 @@ class PluginBootstrapSessionRecoveryGateTest extends PluginBootstrapSessionTestS
         assertThat(session.startupDiscovery().discovered()).isEmpty();
         PluginRuntimeManager runtimeManager = session.manager();
         assertThat(runtimeManager).isSameAs(session.manager());
-        assertThat(runtimeManager.pluginManager())
+        assertThat(runtimeManager.isPhysicalRuntimeInitialized())
                 .as("BLOCKED 恢复报告下 manager 必须保持 inert，不得创建 PF4J manager 或扫描")
-                .isEmpty();
+                .isFalse();
         assertThat(runtimeManager.inspectPlugins().installations()).isEmpty();
         assertThatThrownBy(runtimeManager::start)
                 .isInstanceOf(IllegalStateException.class)
@@ -175,7 +175,7 @@ class PluginBootstrapSessionRecoveryGateTest extends PluginBootstrapSessionTestS
             assertThat(session.installer().recoveryGateSnapshot().report().failures())
                     .extracting(failure -> failure.kind().name())
                     .containsExactly("MISSING_MANIFEST");
-            assertThat(session.manager().pluginManager()).isEmpty();
+            assertThat(session.manager().isPhysicalRuntimeInitialized()).isFalse();
             assertThat(Files.readString(marker, StandardCharsets.UTF_8)).isEmpty();
             assertThat(Files.readString(retained, StandardCharsets.UTF_8)).isEqualTo("only-copy");
         } finally {
@@ -212,7 +212,7 @@ class PluginBootstrapSessionRecoveryGateTest extends PluginBootstrapSessionTestS
                     .hasStackTraceContaining("recovery is unsafe");
 
             assertThat(session.installer().recoverySafeForRuntime()).isFalse();
-            assertThat(session.manager().pluginManager()).isEmpty();
+            assertThat(session.manager().isPhysicalRuntimeInitialized()).isFalse();
             assertThat(Files.readString(marker, StandardCharsets.UTF_8)).isEmpty();
             assertThat(Files.readString(retained, StandardCharsets.UTF_8)).isEqualTo("only-copy");
         } finally {
@@ -309,7 +309,7 @@ class PluginBootstrapSessionRecoveryGateTest extends PluginBootstrapSessionTestS
             assertThat(session.installer().recoveryGateSnapshot().state())
                     .isEqualTo(PluginRecoveryGateState.BLOCKED);
             assertThat(session.status().hasFailures()).isTrue();
-            assertThat(session.manager().pluginManager()).isEmpty();
+            assertThat(session.manager().isPhysicalRuntimeInitialized()).isFalse();
             assertThat(Files.readString(marker, StandardCharsets.UTF_8)).isEmpty();
             assertThat(Files.readString(retained, StandardCharsets.UTF_8)).isEqualTo("only-copy");
         } finally {

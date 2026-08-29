@@ -69,7 +69,7 @@ import top.sywyar.pixivdownload.download.state.LayoutFeedbackStateStore;
 import top.sywyar.pixivdownload.i18n.LocaleBundlePolicy;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
-import top.sywyar.pixivdownload.plugin.web.DownloadExtensionController;
+import top.sywyar.pixivdownload.download.web.DownloadExtensionController;
 import top.sywyar.pixivdownload.scripts.ScriptController;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 import top.sywyar.pixivdownload.setup.InstallIdentityProvider;

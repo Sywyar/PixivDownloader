@@ -12,7 +12,7 @@ import top.sywyar.pixivdownload.plugin.api.download.control.DownloadUiSlotPublic
 import top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode;
 import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
-import top.sywyar.pixivdownload.plugin.web.DownloadExtensionController;
+import top.sywyar.pixivdownload.download.web.DownloadExtensionController;
 
 import java.util.List;
 import java.util.Map;

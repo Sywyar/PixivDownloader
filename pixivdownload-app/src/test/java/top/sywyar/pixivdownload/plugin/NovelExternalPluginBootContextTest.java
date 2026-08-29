@@ -109,18 +109,7 @@ class NovelExternalPluginBootContextTest {
     @AfterAll
     void releasePluginsAndCleanup() {
         if (pluginRuntimeManager != null) {
-            pluginRuntimeManager.pluginManager().ifPresent(pm -> {
-                try {
-                    pm.stopPlugins();
-                } catch (Exception ignored) {
-                    // best-effort
-                }
-                try {
-                    pm.unloadPlugins();
-                } catch (Exception ignored) {
-                    // best-effort
-                }
-            });
+            pluginRuntimeManager.shutdown();
         }
         deleteRecursivelyQuietly(PLUGINS_DIR);
         System.clearProperty(RuntimeFiles.CONFIG_DIR_PROPERTY);

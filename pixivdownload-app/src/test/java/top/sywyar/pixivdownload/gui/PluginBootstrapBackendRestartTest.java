@@ -113,7 +113,7 @@ class PluginBootstrapBackendRestartTest {
         session.start();
         PluginRuntimeManager originalManager = session.manager();
         assertMarkerCounts(1, 1, 0);
-        assertThat(originalManager.pluginManager()).as("PF4J manager 已就绪").isPresent();
+        assertThat(originalManager.isPhysicalRuntimeInitialized()).as("PF4J manager 已就绪").isTrue();
         assertThat(originalManager.generation("bootstrap-probe")).hasValue(1L);
 
         // 2. 配置真实 BackendStarter：直连 PixivDownloadApplication.start(args, session)，捕获 context 供 Bean 校验
@@ -177,7 +177,7 @@ class PluginBootstrapBackendRestartTest {
         assertThat(session.manager()).isSameAs(originalManager);
         assertThat(session.manager().generation("bootstrap-probe")).hasValue(1L);
         assertThat(probeClassLoader(session.manager())).isSameAs(classLoaderBefore);
-        assertThat(session.manager().pluginManager()).isPresent();
+        assertThat(session.manager().isPhysicalRuntimeInitialized()).isTrue();
         // 新 context 仍注入同一 PROCESS 会话 / manager
         ConfigurableApplicationContext secondCtx = ctxRef.get();
         assertThat(secondCtx).isNotSameAs(firstCtx);
@@ -198,7 +198,7 @@ class PluginBootstrapBackendRestartTest {
         // 9. 关 PROCESS 会话：探针 stop 一次、PF4J manager 释放、探针 JAR 可删（Windows classloader 已释放）
         session.close();
         assertMarkerCounts(1, 1, 1);
-        assertThat(session.manager().pluginManager()).isEmpty();
+        assertThat(session.manager().isPhysicalRuntimeInitialized()).isFalse();
         assertThat(Files.deleteIfExists(probeJar)).as("探针 JAR 在会话关闭、classloader 释放后应可删").isTrue();
         session = null;
     }

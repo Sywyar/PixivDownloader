@@ -96,18 +96,7 @@ class GalleryToolsExternalPluginIntegrationTest {
     void unloadAndCleanup() {
         if (manager != null) {
             // 先停止 / 卸载，释放 PF4J 插件 classloader 对 jar 的文件锁（Windows 下否则删不掉临时目录）。
-            manager.pluginManager().ifPresent(pm -> {
-                try {
-                    pm.stopPlugins();
-                } catch (Exception ignored) {
-                    // best-effort
-                }
-                try {
-                    pm.unloadPlugins();
-                } catch (Exception ignored) {
-                    // best-effort
-                }
-            });
+            manager.shutdown();
         }
         deleteRecursivelyQuietly(tempPluginsDir);
     }

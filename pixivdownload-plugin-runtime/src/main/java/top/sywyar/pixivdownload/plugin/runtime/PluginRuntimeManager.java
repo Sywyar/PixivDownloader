@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.plugin.runtime;
 
-import org.pf4j.DefaultPluginManager;
 import org.pf4j.PluginDependency;
 import org.pf4j.PluginManager;
 import org.pf4j.PluginState;
@@ -63,6 +62,7 @@ import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackageInd
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackageIndex.Entry;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackagePhase;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.UnloadedPluginPackage;
+import top.sywyar.pixivdownload.plugin.runtime.pf4j.HostControlledPluginManager;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginRuntimeVerificationSnapshot;
 
 /**
@@ -705,9 +705,14 @@ public class PluginRuntimeManager {
         return Optional.ofNullable(status);
     }
 
-    /** 仅供 runtime 内发现桥接和既有测试观测；app 不应消费 PF4J 类型。 */
-    public Optional<PluginManager> pluginManager() {
+    /** 仅供运行时包内测试做故障注入；生产调用方不得取得物理 manager。 */
+    Optional<PluginManager> pluginManagerForTest() {
         return Optional.ofNullable(pluginManager);
+    }
+
+    /** 是否已初始化物理插件运行时。只暴露宿主诊断状态，不暴露 PF4J 控制面。 */
+    public synchronized boolean isPhysicalRuntimeInitialized() {
+        return pluginManager != null;
     }
 
     /** 汇总当前 STARTED generation 在 load 准入时固化的 provider 快照，不重新调用插件 getter。 */
@@ -766,7 +771,7 @@ public class PluginRuntimeManager {
      * 进程级关闭：停止全部已启动插件、卸载全部插件、释放 PF4J classloader / 文件句柄、清空内部 entry / status / generation
      * 引用。多次调用安全（幂等）；批量 stop / unload 各自 best-effort——任一抛错只记日志、不影响另一批清退，不致核心退出失败。
      * 供唯一 bootstrap session 在进程最终退出（PROCESS）或 context 销毁（CONTEXT）时统一关闭运行时；禁止 app 侧经
-     * {@link #pluginManager()} 直接操作 PF4J。不抛异常、不吞掉 JVM 致命 Error。
+     * 直接操作 PF4J。不抛异常、不吞掉 JVM 致命 Error。
      */
     public synchronized void shutdown() {
         PluginManager previous = pluginManager;
@@ -873,7 +878,7 @@ public class PluginRuntimeManager {
 
     private void ensureManager(Path root) {
         if (pluginManager == null) {
-            pluginManager = new DefaultPluginManager(root);
+            pluginManager = new HostControlledPluginManager(root);
         }
     }
 

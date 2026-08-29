@@ -150,18 +150,7 @@ class GalleryToolsStatsBootContextTest {
     void releasePluginsAndCleanup() {
         if (pluginRuntimeManager != null) {
             // 先停止 / 卸载，释放 PF4J 插件 classloader 对 jar 的文件锁（Windows 下否则删不掉临时目录）。
-            pluginRuntimeManager.pluginManager().ifPresent(pm -> {
-                try {
-                    pm.stopPlugins();
-                } catch (Exception ignored) {
-                    // best-effort
-                }
-                try {
-                    pm.unloadPlugins();
-                } catch (Exception ignored) {
-                    // best-effort
-                }
-            });
+            pluginRuntimeManager.shutdown();
         }
         deleteRecursivelyQuietly(PLUGINS_DIR);
         System.clearProperty(RuntimeFiles.CONFIG_DIR_PROPERTY);

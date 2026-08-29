@@ -157,6 +157,35 @@ class PluginPackageVerifierTest {
     }
 
     @Test
+    @DisplayName("根插件 JAR 不得夹带宿主共享命名空间")
+    void rejectsHostControlledClassInRootPluginJar() {
+        Path jar = dir.resolve("shared-class.jar");
+        PluginPackageFixtures.writeZip(jar, Map.of(
+                "plugin.properties", PluginPackageFixtures.bytes("plugin.id=ext\n"),
+                "top/sywyar/pixivdownload/plugin/api/plugin/PixivFeaturePlugin.class",
+                PluginPackageFixtures.bytes("shadow")
+        ));
+
+        assertUnsafe(jar);
+    }
+
+    @Test
+    @DisplayName("私有依赖与 multi-release entry 也不得夹带 PF4J 类")
+    void rejectsHostControlledClassInPrivateMultiReleaseJar() {
+        byte[] privateJar = PluginPackageFixtures.zipBytes(Map.of(
+                "META-INF/versions/17/org/pf4j/PluginManager.class",
+                PluginPackageFixtures.bytes("shadow")
+        ));
+        Path jar = dir.resolve("shared-private-lib.jar");
+        PluginPackageFixtures.writeZip(jar, Map.of(
+                "plugin.properties", PluginPackageFixtures.bytes("plugin.id=ext\n"),
+                "lib/private.jar", privateJar
+        ));
+
+        assertUnsafe(jar);
+    }
+
+    @Test
     @DisplayName("根 inner JAR 的内部 entry 数也计入统一上限")
     void countsEntriesInsideRootInnerJar() {
         Map<String, byte[]> innerEntries = new LinkedHashMap<>();

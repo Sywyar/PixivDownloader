@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.runtime.bootstrap;
+package top.sywyar.pixivdownload.runtimeprobe;
 
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;

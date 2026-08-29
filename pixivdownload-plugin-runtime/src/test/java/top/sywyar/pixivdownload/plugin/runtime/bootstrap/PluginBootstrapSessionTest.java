@@ -294,7 +294,7 @@ class PluginBootstrapSessionTest extends PluginBootstrapSessionTestSupport {
         // close 停止 + 卸载探针，jar 文件锁释放（Windows 下可删）
         session.close();
         assertThat(countOccurrences(Files.readString(marker, StandardCharsets.UTF_8), "stop")).isEqualTo(1);
-        assertThat(session.manager().pluginManager()).isEmpty();
+        assertThat(session.manager().isPhysicalRuntimeInitialized()).isFalse();
         assertThat(Files.deleteIfExists(jar)).isTrue();
     }
 }

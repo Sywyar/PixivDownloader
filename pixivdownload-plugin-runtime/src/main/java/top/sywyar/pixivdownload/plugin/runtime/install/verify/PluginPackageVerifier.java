@@ -8,6 +8,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.zip.ZipEntry;
@@ -45,6 +46,14 @@ public final class PluginPackageVerifier {
 
     /** 压缩比检查的地板阈值：只对解压后达到该字节数的 entry 应用压缩比上限，避免误伤压缩开销占比高的小文件。 */
     private static final long COMPRESSION_RATIO_FLOOR_BYTES = 64L * 1024;
+
+    /** 插件必须从宿主父 classloader 使用这些边界，不得在自身包或私有依赖中复制。 */
+    private static final List<String> HOST_CONTROLLED_CLASS_PREFIXES = List.of(
+            "org/pf4j/",
+            "top/sywyar/pixivdownload/plugin/",
+            "top/sywyar/pixivdownload/core/",
+            "top/sywyar/pixivdownload/sdk/"
+    );
 
     private PluginPackageVerifier() {
     }
@@ -109,6 +118,7 @@ public final class PluginPackageVerifier {
                             + limits.maxEntries() + ")");
                 }
                 String entryName = ZipSafety.requireUniqueEntryName(entry.getName(), entryNames);
+                requireNoHostControlledClass(entryName);
                 NestedArchiveKind nestedKind = nestedArchiveKind(
                         entryName, scanRootPluginJar, scanPrivateLibraries);
                 ByteArrayOutputStream nestedBytes = nestedKind == null ? null : new ByteArrayOutputStream();
@@ -141,6 +151,27 @@ public final class PluginPackageVerifier {
                             false, nestedKind == NestedArchiveKind.ROOT_PLUGIN,
                             archiveLabel + "!/" + entryName);
                 }
+            }
+        }
+    }
+
+    private static void requireNoHostControlledClass(String entryName) {
+        if (entryName == null || !entryName.endsWith(".class")) {
+            return;
+        }
+        String normalized = entryName.replace('\\', '/');
+        String multiReleasePrefix = "META-INF/versions/";
+        if (normalized.startsWith(multiReleasePrefix)) {
+            int classNameStart = normalized.indexOf('/', multiReleasePrefix.length());
+            if (classNameStart > multiReleasePrefix.length()) {
+                normalized = normalized.substring(classNameStart + 1);
+            }
+        }
+        for (String prefix : HOST_CONTROLLED_CLASS_PREFIXES) {
+            if (normalized.startsWith(prefix)) {
+                throw new PluginPackageException(
+                        PluginPackageException.Reason.UNSAFE,
+                        "plugin package must not bundle host-controlled class namespace: " + prefix);
             }
         }
     }

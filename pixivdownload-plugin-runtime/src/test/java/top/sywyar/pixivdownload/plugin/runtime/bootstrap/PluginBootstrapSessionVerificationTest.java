@@ -164,13 +164,13 @@ class PluginBootstrapSessionVerificationTest extends PluginBootstrapSessionTestS
         stageProbeJar(pluginsDir);
         PluginBootstrapSession session = PluginBootstrapSession.createProcess(pluginsDir, PluginEnabledSnapshot.empty());
         session.start();
-        assertThat(session.manager().pluginManager()).isPresent();
+        assertThat(session.manager().isPhysicalRuntimeInitialized()).isTrue();
 
         session.closeForContext(); // PROCESS → no-op
-        assertThat(session.manager().pluginManager()).isPresent();
+        assertThat(session.manager().isPhysicalRuntimeInitialized()).isTrue();
 
         session.close(); // 真正关闭
-        assertThat(session.manager().pluginManager()).isEmpty();
+        assertThat(session.manager().isPhysicalRuntimeInitialized()).isFalse();
     }
 
     @Test
@@ -180,10 +180,10 @@ class PluginBootstrapSessionVerificationTest extends PluginBootstrapSessionTestS
         stageProbeJar(pluginsDir);
         PluginBootstrapSession session = PluginBootstrapSession.createContext(pluginsDir, PluginEnabledSnapshot.empty());
         session.start();
-        assertThat(session.manager().pluginManager()).isPresent();
+        assertThat(session.manager().isPhysicalRuntimeInitialized()).isTrue();
 
         session.closeForContext(); // CONTEXT → 关闭
-        assertThat(session.manager().pluginManager()).isEmpty();
+        assertThat(session.manager().isPhysicalRuntimeInitialized()).isFalse();
     }
 
     @Test
@@ -196,6 +196,6 @@ class PluginBootstrapSessionVerificationTest extends PluginBootstrapSessionTestS
         session.close();
         session.close();
         session.closeForContext();
-        assertThat(session.manager().pluginManager()).isEmpty();
+        assertThat(session.manager().isPhysicalRuntimeInitialized()).isFalse();
     }
 }
