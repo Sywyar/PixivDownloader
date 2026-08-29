@@ -6,26 +6,8 @@ import process from 'node:process';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { inspectSdkVersion, parseSdkVersion, readSdkIdentity } from './sdk-version.mjs';
+import { inspectSdkVersion, parseSdkVersion, readSdkIdentity, SDK_GROUP_ID } from './sdk-version.mjs';
 
-const RELEASE_INPUT_PATHS = [
-    '.mvn/wrapper/maven-wrapper.properties',
-    'LICENSE',
-    'mvnw',
-    'mvnw.cmd',
-    'pixivdownload-sdk-info/pom.xml',
-    'pixivdownload-sdk-info/src/main',
-    'pixivdownload-plugin-api/pom.xml',
-    'pixivdownload-plugin-api/src/main',
-    'pixivdownload-core-api/pom.xml',
-    'pixivdownload-core-api/src/main',
-    'pixivdownload-sdk-bom/pom.xml',
-    'plugin-templates/minimal-feature-plugin',
-    'plugin-templates/download-type-plugin',
-    'plugin-templates/sdk-package',
-    'scripts/ci/sdk-javadocs.mjs',
-    'scripts/ci/sdk-release.mjs'
-];
 const CONSUMER_POM_MODULES = [
     'pixivdownload-sdk-info',
     'pixivdownload-plugin-api',
@@ -44,6 +26,66 @@ export function compareSurfaces(baseSurface, candidateSurface) {
         additions: [...candidate].filter((entry) => !base.has(entry)).sort(),
         removals: [...base].filter((entry) => !candidate.has(entry)).sort()
     });
+}
+
+function element(xml, name, fallback = '') {
+    const match = new RegExp(`<${name}(?:\\s[^>]*)?>\\s*([^<]*?)\\s*</${name}>`, 'u').exec(xml);
+    return match ? match[1].trim() : fallback;
+}
+
+function requiredElement(xml, name, owner) {
+    const value = element(xml, name);
+    if (!value) throw new Error(`${owner} must declare ${name}`);
+    return value;
+}
+
+function section(xml, name) {
+    const match = new RegExp(`<${name}(?:\\s[^>]*)?>([\\s\\S]*?)</${name}>`, 'u').exec(xml);
+    return match ? { source: match[0], body: match[1] } : null;
+}
+
+function dependencySurface(xml, kind, sdkVersion) {
+    const dependencies = section(xml, 'dependencies')?.body ?? '';
+    return [...dependencies.matchAll(/<dependency(?:\s[^>]*)?>([\s\S]*?)<\/dependency>/gu)]
+            .map((match) => {
+                const body = match[1];
+                const groupId = requiredElement(body, 'groupId', `${kind} dependency`);
+                const artifactId = requiredElement(body, 'artifactId', `${kind} dependency`);
+                let version = element(body, 'version');
+                if (groupId === SDK_GROUP_ID && version === sdkVersion) version = '@SDK_VERSION@';
+                const exclusions = [...body.matchAll(/<exclusion(?:\s[^>]*)?>([\s\S]*?)<\/exclusion>/gu)]
+                        .map((exclusion) => `${requiredElement(exclusion[1], 'groupId', 'dependency exclusion')}`
+                                + `:${requiredElement(exclusion[1], 'artifactId', 'dependency exclusion')}`)
+                        .sort();
+                return [
+                    kind,
+                    groupId,
+                    artifactId,
+                    version,
+                    element(body, 'type', 'jar'),
+                    element(body, 'classifier'),
+                    element(body, 'scope', 'compile'),
+                    element(body, 'optional', 'false'),
+                    element(body, 'systemPath'),
+                    exclusions.join(',')
+                ].join('\t');
+            })
+            .sort();
+}
+
+export function consumerPomSurface(pom, sdkVersion) {
+    const management = section(pom, 'dependencyManagement');
+    const directPom = management ? pom.replace(management.source, '') : pom;
+    return [
+        [
+            'PROJECT',
+            requiredElement(pom, 'groupId', 'consumer POM'),
+            requiredElement(pom, 'artifactId', 'consumer POM'),
+            element(pom, 'packaging', 'jar')
+        ].join('\t'),
+        ...dependencySurface(directPom, 'DEPENDENCY', sdkVersion),
+        ...dependencySurface(management?.body ?? '', 'MANAGED_DEPENDENCY', sdkVersion)
+    ].sort().join('\n');
 }
 
 function compareVersions(left, right) {
@@ -67,7 +109,7 @@ export function evaluateContract({
     candidateIdentity,
     baseSurface,
     candidateSurface,
-    releaseInputChanges = [],
+    mavenContractChanges = [],
     stableBaseline = null
 }) {
     const predecessorDiff = compareSurfaces(baseSurface, candidateSurface);
@@ -76,8 +118,8 @@ export function evaluateContract({
     if (surfaceChanged && !identityChanged) {
         throw new Error('Public SDK surface changed without a new SDK release identity');
     }
-    if (releaseInputChanges.length > 0 && !identityChanged) {
-        throw new Error(`SDK release inputs changed without a new SDK release identity: ${releaseInputChanges.join(', ')}`);
+    if (mavenContractChanges.length > 0 && !identityChanged) {
+        throw new Error(`Maven SDK consumer contract changed without a new SDK release identity: ${mavenContractChanges.join(', ')}`);
     }
     if (identityChanged && !baseIdentity.legacyRevision && compareVersions(candidateIdentity, baseIdentity) <= 0) {
         throw new Error(`SDK version must increase from ${baseIdentity.version} to a newer identity`);
@@ -101,13 +143,14 @@ export function evaluateContract({
         outcome: identityChanged ? 'PUBLISH' : 'NO_PUBLISH',
         identityChanged,
         surfaceChanged,
-        releaseInputChanges,
+        mavenContractChanges,
         predecessorDiff,
         stableDiff
     });
 }
 
-export function changedConsumerPoms(baseSdkRoot, candidateSdkRoot, allowMissingBase = false) {
+export function changedMavenContracts(baseSdkRoot, candidateSdkRoot, baseSdkVersion, candidateSdkVersion,
+        allowMissingBase = false) {
     const changes = [];
     for (const module of CONSUMER_POM_MODULES) {
         const relative = path.join(module, 'target', 'flattened-pom.xml');
@@ -118,24 +161,15 @@ export function changedConsumerPoms(baseSdkRoot, candidateSdkRoot, allowMissingB
         }
         if (!fs.existsSync(basePath)) {
             if (!allowMissingBase) throw new Error(`Missing base consumer POM: ${relative}`);
-            changes.push(`${module}/consumer-pom.xml`);
+            changes.push(`${module}/maven-consumer-contract`);
             continue;
         }
-        if (fs.readFileSync(basePath, 'utf8') !== fs.readFileSync(candidatePath, 'utf8')) {
-            changes.push(`${module}/consumer-pom.xml`);
+        const baseSurface = consumerPomSurface(fs.readFileSync(basePath, 'utf8'), baseSdkVersion);
+        const candidateSurface = consumerPomSurface(fs.readFileSync(candidatePath, 'utf8'), candidateSdkVersion);
+        if (baseSurface !== candidateSurface) {
+            changes.push(`${module}/maven-consumer-contract`);
         }
     }
-    return changes;
-}
-
-function changedReleaseInputs(repoRoot, baseRef, candidateRef, baseSdkRoot, candidateSdkRoot,
-        allowMissingBaseConsumerPoms) {
-    const changes = execFileSync('git', ['-C', repoRoot, 'diff', '--name-only', baseRef, candidateRef || 'HEAD', '--',
-        ...RELEASE_INPUT_PATHS], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe']
-    }).split(/\r?\n/u).filter(Boolean);
-    changes.push(...changedConsumerPoms(baseSdkRoot, candidateSdkRoot, allowMissingBaseConsumerPoms));
     return changes;
 }
 
@@ -232,12 +266,15 @@ function main() {
             candidateSurface
     );
     const result = evaluateContract({ baseIdentity, candidateIdentity, baseSurface, candidateSurface,
-        releaseInputChanges: changedReleaseInputs(repoRoot, options.baseRef, options.candidateRef,
-                path.resolve(options.baseSdkRoot), path.resolve(options.candidateSdkRoot),
+        mavenContractChanges: changedMavenContracts(
+                path.resolve(options.baseSdkRoot),
+                path.resolve(options.candidateSdkRoot),
+                baseIdentity.version,
+                candidateIdentity.version,
                 Boolean(baseIdentity.legacyRevision)),
         stableBaseline: baseline });
     const report = {
-        schemaVersion: 1,
+        schemaVersion: 2,
         baseReleaseId: baseIdentity.releaseId,
         candidateReleaseId: candidateIdentity.releaseId,
         ...result
