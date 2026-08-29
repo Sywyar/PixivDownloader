@@ -25,6 +25,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallResult;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.CommittedPluginTransaction;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginRemovalAttempt;
@@ -71,18 +72,25 @@ class ExternalPluginTransactionTest extends ExternalPluginTransactionTestSupport
     }
 
     @Test
-    @DisplayName("新包验证后仅隔离精确替代身份并随回滚恢复其 artifact 与 provenance")
-    void replacementTransactionTargetsExactRetiredIdentity() {
+    @DisplayName("同一签名所有者授权的新包仅隔离精确替代身份并随回滚恢复")
+    void replacementTransactionTargetsExactRetiredIdentity() throws IOException {
         Path plugins = temp.resolve("plugins-replacement");
-        ExternalPluginInstaller installer = newInstaller(plugins);
-        installFully(installer, packageFile("retired.zip", "novel-gallery", "1.0.0", null));
+        PluginSigningTestSupport signing = PluginSigningTestSupport.createOfficial();
+        ExternalPluginInstaller installer = new ExternalPluginInstaller(
+                plugins, PluginPackageLimits.defaults(), signing.verifier());
+        installers.add(installer);
+        assertThat(installer.recoverPendingTransactions().safeToScan()).isTrue();
+        Path retiredPackage = packageFile("retired.zip", "novel-gallery", "1.0.0", null);
+        installFully(installer, retiredPackage,
+                PluginPackageOrigin.localUpload(signing.artifactSignature(
+                        retiredPackage, "novel-gallery", "1.0.0")));
         installFully(installer, packageFile("third-party.zip", "novel-gallery-plus", "1.0.0", null));
         Path retired = plugins.resolve("novel-gallery-1.0.0.zip");
         Path unrelated = plugins.resolve("novel-gallery-plus-1.0.0.zip");
-
+        Path replacement = packageFile("novel.zip", "novel", "1.0.0", "novel-gallery");
         PreparedPluginTransaction prepared = installer.prepareTransaction(
-                packageFile("novel.zip", "novel", "1.0.0", "novel-gallery"), false,
-                PluginPackageOrigin.localUpload());
+                replacement, false, PluginPackageOrigin.localUpload(
+                        signing.artifactSignature(replacement, "novel", "1.0.0")));
 
         assertThat(prepared.readyToCommit()).isTrue();
         assertThat(retired).exists();

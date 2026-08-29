@@ -142,8 +142,13 @@ abstract class ExternalPluginTransactionTestSupport {
     }
 
     protected static PluginInstallResult installFully(ExternalPluginInstaller installer, Path packagePath) {
+        return installFully(installer, packagePath, PluginPackageOrigin.localUpload());
+    }
+
+    protected static PluginInstallResult installFully(
+            ExternalPluginInstaller installer, Path packagePath, PluginPackageOrigin origin) {
         PreparedPluginTransaction prepared = installer.prepareTransaction(
-                packagePath, false, PluginPackageOrigin.localUpload());
+                packagePath, false, origin);
         if (!prepared.readyToCommit()) {
             return prepared.result();
         }

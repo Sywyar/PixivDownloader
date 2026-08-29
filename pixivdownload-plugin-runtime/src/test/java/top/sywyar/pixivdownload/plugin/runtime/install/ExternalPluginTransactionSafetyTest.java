@@ -140,12 +140,15 @@ class ExternalPluginTransactionSafetyTest extends ExternalPluginTransactionTestS
     @DisplayName("超过恢复上限的旧 artifact 集在发布前拒绝")
     void excessiveBackupCountIsRejectedBeforePublication() throws IOException {
         Path plugins = temp.resolve("plugins-excessive-backups");
-        Files.createDirectories(plugins);
-        Path template = packageFile("backup-template.zip", "1.0.0");
-        for (int index = 0; index < 257; index++) {
-            Files.copy(template, plugins.resolve("old-copy-" + index + ".zip"));
-        }
         ExternalPluginInstaller installer = newInstaller(plugins);
+        Path source = packageFile("backup-template.zip", "1.0.0");
+        installFully(installer, source);
+        Path template = plugins.resolve("demo-1.0.0.zip");
+        for (int index = 0; index < 256; index++) {
+            Path copy = plugins.resolve("old-copy-" + index + ".zip");
+            Files.copy(template, copy);
+            Files.copy(sidecar(plugins, template), sidecar(plugins, copy));
+        }
 
         PreparedPluginTransaction prepared = installer.prepareTransaction(
                 packageFile("backup-replacement.zip", "2.0.0"),

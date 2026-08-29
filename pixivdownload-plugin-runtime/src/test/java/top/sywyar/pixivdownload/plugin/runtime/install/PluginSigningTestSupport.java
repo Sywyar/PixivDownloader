@@ -15,6 +15,7 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.PrivateKey;
 import java.security.Signature;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
@@ -32,30 +33,34 @@ final class PluginSigningTestSupport {
     }
 
     static PluginSigningTestSupport create() {
-        return create(false);
+        return create("test-key", "Test Publisher", false);
     }
 
     static PluginSigningTestSupport createOfficial() {
-        return create(true);
+        return create("test-key", "Test Publisher", true);
     }
 
-    private static PluginSigningTestSupport create(boolean official) {
+    static PluginSigningTestSupport create(String keyId, String publisher, boolean official) {
         try {
             KeyPairGenerator generator = KeyPairGenerator.getInstance(SignatureMetadata.ED25519);
             KeyPair keyPair = generator.generateKeyPair();
-            String keyId = "test-key";
             TrustedPluginKey trustedKey = new TrustedPluginKey(
                     keyId,
                     SignatureMetadata.ED25519,
                     Base64.getEncoder().encodeToString(keyPair.getPublic().getEncoded()),
                     TrustedPluginKey.State.ACTIVE,
-                    "Test Publisher",
+                    publisher,
                     "Test Trust",
                     official);
             return new PluginSigningTestSupport(keyId, keyPair.getPrivate(), trustedKey);
         } catch (GeneralSecurityException e) {
             throw new IllegalStateException("无法生成测试签名密钥", e);
         }
+    }
+
+    static PluginSupplyChainVerifier verifierFor(PluginSigningTestSupport... signers) {
+        return new PluginSupplyChainVerifier(PluginTrustStores.of(
+                Arrays.stream(signers).map(signer -> signer.trustedKey).toList()));
     }
 
     PluginSupplyChainVerifier verifier() {

@@ -453,6 +453,8 @@ public class ExternalPluginInstaller implements AutoCloseable {
             }
 
             PluginDescriptor descriptor = validated.descriptor();
+            PluginProvenanceRecord validatedProvenance = validator.provenanceStore
+                    .readRequiredForRecovery(validated.installedPath());
             List<InstalledPlugin> installed = listInstalledExclusive();
             List<InstalledPlugin> sameId = installed.stream()
                     .filter(plugin -> descriptor.id().equals(plugin.id())).toList();
@@ -488,12 +490,17 @@ public class ExternalPluginInstaller implements AutoCloseable {
                             sameId.stream().map(InstalledPlugin::path).toList());
                 }
             }
+            PluginInstallResult identityRejection = rejectIdentityDiscontinuity(
+                    descriptor, validatedProvenance, sameId, replaced, previousVersion);
+            if (identityRejection != null) {
+                deleteRecursivelyQuietly(unpublishedTransaction);
+                return new PreparedPluginTransaction(transactionId, identityRejection,
+                        null, null, null, List.of());
+            }
 
             Files.createDirectories(unpublishedTransaction.resolve("new"));
             Path unpublishedArtifact = unpublishedTransaction.resolve("new")
                     .resolve(validated.installedPath().getFileName());
-            PluginProvenanceRecord validatedProvenance = validator.provenanceStore
-                    .readRequiredForRecovery(validated.installedPath());
             moveIntoPlace(validated.installedPath(), unpublishedArtifact);
             provenanceStore.write(unpublishedArtifact, validatedProvenance);
             validator.provenanceStore.delete(validated.installedPath());
@@ -560,6 +567,66 @@ public class ExternalPluginInstaller implements AutoCloseable {
         } finally {
             installLock.unlock();
         }
+    }
+
+    private PluginInstallResult rejectIdentityDiscontinuity(
+            PluginDescriptor descriptor,
+            PluginProvenanceRecord candidate,
+            List<InstalledPlugin> sameId,
+            List<InstalledPlugin> replaced,
+            String previousVersion) {
+        for (InstalledPlugin current : sameId) {
+            PluginProvenanceRecord installed = readIdentityProvenance(current, descriptor);
+            if (installed == null || !sameTrustOwner(installed, candidate)) {
+                return identityRejected(descriptor, previousVersion, current,
+                        installed == null ? "installed provenance is missing or invalid"
+                                : "trust owner changed");
+            }
+        }
+        for (InstalledPlugin current : replaced) {
+            PluginProvenanceRecord installed = readIdentityProvenance(current, descriptor);
+            if (installed == null || installed.signature() == null || candidate.signature() == null
+                    || !sameTrustOwner(installed, candidate)) {
+                return identityRejected(descriptor, previousVersion, current,
+                        installed == null ? "installed provenance is missing or invalid"
+                                : "replacement is not signed by the installed trust owner");
+            }
+        }
+        return null;
+    }
+
+    private PluginProvenanceRecord readIdentityProvenance(
+            InstalledPlugin installed, PluginDescriptor descriptor) {
+        try {
+            return provenanceStore.readRequiredForRecovery(installed.path());
+        } catch (IOException | RuntimeException e) {
+            log.warn("Rejecting plugin {} because installed identity provenance for {} is unavailable: {}",
+                    descriptor.id(), installed.id(), e.toString());
+            return null;
+        }
+    }
+
+    private static boolean sameTrustOwner(PluginProvenanceRecord installed, PluginProvenanceRecord candidate) {
+        return installed.source() == candidate.source()
+                && Objects.equals(installed.repositoryId(), candidate.repositoryId())
+                && installed.officialRepository() == candidate.officialRepository()
+                && installed.developmentOnly() == candidate.developmentOnly()
+                && Objects.equals(installed.publisher(), candidate.publisher())
+                && Objects.equals(installed.keyId(), candidate.keyId());
+    }
+
+    private static PluginInstallResult identityRejected(
+            PluginDescriptor descriptor,
+            String previousVersion,
+            InstalledPlugin current,
+            String reason) {
+        return new PluginInstallResult(
+                PluginInstallOutcome.REJECTED_INTEGRITY,
+                descriptor,
+                null,
+                previousVersion,
+                List.of("plugin identity continuity rejected for " + descriptor.id()
+                        + " against installed " + current.id() + ": " + reason));
     }
 
     /**

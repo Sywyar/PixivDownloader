@@ -25,6 +25,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallResult;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.CommittedPluginTransaction;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginRemovalAttempt;
@@ -32,6 +33,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginRecover
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransactionRecoveryReport;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PreparedPluginTransaction;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageFixtures;
+import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 
 @DisplayName("外置插件事务：旧制品与来源记录")
 class ExternalPluginTransactionProvenanceTest extends ExternalPluginTransactionTestSupport {
@@ -109,8 +111,8 @@ class ExternalPluginTransactionProvenanceTest extends ExternalPluginTransactionT
     }
 
     @Test
-    @DisplayName("损坏的旧 provenance 可被新包替换且回滚时原样恢复")
-    void malformedOldProvenanceCanBeReplacedAndRestoredOpaqueOnRollback() throws IOException {
+    @DisplayName("损坏的旧 provenance 无法证明所有权时拒绝替换")
+    void malformedOldProvenanceRejectsReplacement() throws IOException {
         Path plugins = temp.resolve("plugins-repair-malformed-provenance");
         ExternalPluginInstaller installer = newInstaller(plugins);
         installFully(installer, packageFile("repair-old.zip", "1.0.0"));
@@ -121,13 +123,77 @@ class ExternalPluginTransactionProvenanceTest extends ExternalPluginTransactionT
 
         PreparedPluginTransaction prepared = installer.prepareTransaction(
                 packageFile("repair-new.zip", "2.0.0"), false, PluginPackageOrigin.localUpload());
-        assertThat(prepared.readyToCommit()).isTrue();
-        CommittedPluginTransaction committed = installer.commitTransaction(prepared);
 
-        assertThat(installer.rollbackTransaction(committed)).isTrue();
+        assertThat(prepared.readyToCommit()).isFalse();
+        assertThat(prepared.result().outcome()).isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
         assertThat(oldArtifact).exists();
         assertThat(Files.readString(oldSidecar, StandardCharsets.UTF_8)).isEqualTo(malformed);
-        assertThat(prepared.target()).doesNotExist();
+        assertThat(plugins.resolve("demo-2.0.0.zip")).doesNotExist();
+        assertThat(plugins.resolve(".staging")).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("同一签名发布者与仓库可升级，仓库切换则 fail-closed")
+    void catalogIdentityFreezesRepository() throws IOException {
+        Path plugins = temp.resolve("plugins-catalog-owner");
+        PluginSigningTestSupport signing = PluginSigningTestSupport.create();
+        ExternalPluginInstaller installer = signedInstaller(plugins, signing.verifier());
+        Path oldPackage = packageFile("catalog-owner-old.zip", "1.0.0");
+        installFully(installer, oldPackage, signing.originFor("repository-a", oldPackage, "demo", "1.0.0"));
+        Path candidate = packageFile("catalog-owner-new.zip", "2.0.0");
+
+        PreparedPluginTransaction rejected = installer.prepareTransaction(candidate, false,
+                signing.originFor("repository-b", candidate, "demo", "2.0.0"));
+
+        assertThat(rejected.readyToCommit()).isFalse();
+        assertThat(rejected.result().outcome()).isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
+        assertThat(plugins.resolve("demo-1.0.0.zip")).exists();
+        assertThat(plugins.resolve(".staging")).doesNotExist();
+
+        PluginInstallResult upgraded = installFully(installer, candidate,
+                signing.originFor("repository-a", candidate, "demo", "2.0.0"));
+        assertThat(upgraded.outcome()).isEqualTo(PluginInstallOutcome.UPGRADED);
+    }
+
+    @Test
+    @DisplayName("已信任的新密钥也不能静默接管既有插件身份")
+    void catalogIdentityRejectsUnapprovedKeyRotation() throws IOException {
+        Path plugins = temp.resolve("plugins-key-rotation");
+        PluginSigningTestSupport oldSigner = PluginSigningTestSupport.create(
+                "old-key", "Test Publisher", false);
+        PluginSigningTestSupport newSigner = PluginSigningTestSupport.create(
+                "new-key", "Test Publisher", false);
+        ExternalPluginInstaller installer = signedInstaller(
+                plugins, PluginSigningTestSupport.verifierFor(oldSigner, newSigner));
+        Path oldPackage = packageFile("key-old.zip", "1.0.0");
+        installFully(installer, oldPackage,
+                oldSigner.originFor("repository", oldPackage, "demo", "1.0.0"));
+        Path candidate = packageFile("key-new.zip", "2.0.0");
+
+        PreparedPluginTransaction rejected = installer.prepareTransaction(candidate, false,
+                newSigner.originFor("repository", candidate, "demo", "2.0.0"));
+
+        assertThat(rejected.readyToCommit()).isFalse();
+        assertThat(rejected.result().outcome()).isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
+        assertThat(plugins.resolve("demo-1.0.0.zip")).exists();
+        assertThat(plugins.resolve("demo-2.0.0.zip")).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("未签名开发包不能用 replaces 跨插件身份接管")
+    void unsignedDevelopmentPackageCannotReplaceAnotherIdentity() {
+        Path plugins = temp.resolve("plugins-unsigned-replacement");
+        ExternalPluginInstaller installer = newInstaller(plugins);
+        installFully(installer, packageFile("retired.zip", "retired", "1.0.0", null));
+
+        PreparedPluginTransaction rejected = installer.prepareTransaction(
+                packageFile("replacement.zip", "replacement", "1.0.0", "retired"),
+                false, PluginPackageOrigin.localUpload());
+
+        assertThat(rejected.readyToCommit()).isFalse();
+        assertThat(rejected.result().outcome()).isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
+        assertThat(plugins.resolve("retired-1.0.0.zip")).exists();
+        assertThat(plugins.resolve("replacement-1.0.0.zip")).doesNotExist();
     }
 
     @Test
@@ -167,5 +233,14 @@ class ExternalPluginTransactionProvenanceTest extends ExternalPluginTransactionT
 
         assertThat(central).exists();
         assertThat(legacy).doesNotExist();
+    }
+
+    private ExternalPluginInstaller signedInstaller(
+            Path plugins, PluginSupplyChainVerifier verifier) {
+        ExternalPluginInstaller installer = new ExternalPluginInstaller(
+                plugins, PluginPackageLimits.defaults(), verifier);
+        installers.add(installer);
+        assertThat(installer.recoverPendingTransactions().safeToScan()).isTrue();
+        return installer;
     }
 }
