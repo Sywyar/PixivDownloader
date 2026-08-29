@@ -14,6 +14,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -177,6 +178,37 @@ class ExternalPluginTransactionProvenanceTest extends ExternalPluginTransactionT
         assertThat(rejected.result().outcome()).isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
         assertThat(plugins.resolve("demo-1.0.0.zip")).exists();
         assertThat(plugins.resolve("demo-2.0.0.zip")).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("旧 key 对精确新身份与制品签名后允许密钥及仓库迁移")
+    void catalogIdentityAcceptsAuthorizedMigration() throws IOException {
+        Path plugins = temp.resolve("plugins-authorized-identity-migration");
+        PluginSigningTestSupport oldSigner = PluginSigningTestSupport.create(
+                "old-key", "Old Publisher", false);
+        PluginSigningTestSupport newSigner = PluginSigningTestSupport.create(
+                "new-key", "New Publisher", false);
+        ExternalPluginInstaller installer = signedInstaller(
+                plugins, PluginSigningTestSupport.verifierFor(oldSigner, newSigner));
+        Path oldPackage = packageFile("migration-old.zip", "1.0.0");
+        installFully(installer, oldPackage,
+                oldSigner.originFor("old-repository", oldPackage, "demo", "1.0.0"));
+        Path candidate = packageFile("migration-new.zip", "2.0.0");
+        var authorization = oldSigner.identityMigrationSignature(
+                "demo", "old-repository", "demo", "new-repository", newSigner, candidate, "2.0.0");
+
+        PluginInstallResult upgraded = installFully(installer, candidate,
+                newSigner.originFor("new-repository", candidate, "demo", "2.0.0",
+                        Map.of("demo", authorization)));
+
+        assertThat(upgraded.outcome()).isEqualTo(PluginInstallOutcome.UPGRADED);
+        assertThat(plugins.resolve("demo-1.0.0.zip")).doesNotExist();
+        assertThat(plugins.resolve("demo-2.0.0.zip")).exists();
+        var provenance = new PluginProvenanceStore(plugins)
+                .read(plugins.resolve("demo-2.0.0.zip")).orElseThrow();
+        assertThat(provenance.repositoryId()).isEqualTo("new-repository");
+        assertThat(provenance.keyId()).isEqualTo("new-key");
+        assertThat(provenance.publisher()).isEqualTo("New Publisher");
     }
 
     @Test

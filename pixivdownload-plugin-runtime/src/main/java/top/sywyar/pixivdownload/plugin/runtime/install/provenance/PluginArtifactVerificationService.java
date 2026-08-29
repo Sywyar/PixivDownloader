@@ -4,7 +4,9 @@ import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifac
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.signature.ArtifactVerificationRequest;
+import top.sywyar.pixivdownload.plugin.signature.IdentityMigrationVerificationRequest;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
+import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.VerificationPolicy;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 
@@ -70,6 +72,35 @@ public final class PluginArtifactVerificationService {
                 provenance.artifactSha256(),
                 origin.signature(),
                 origin.installedVerificationPolicy(developmentModeEnabled.getAsBoolean())));
+    }
+
+    public VerificationResult verifyIdentityMigration(
+            String installedPluginId,
+            PluginProvenanceRecord installed,
+            String candidatePluginId,
+            String candidateVersion,
+            PluginProvenanceRecord candidate,
+            SignatureMetadata authorization) {
+        PluginPackageOrigin installedOrigin = installed.originForOfflineVerification();
+        return verifierFor(installedOrigin).verifyIdentityMigration(new IdentityMigrationVerificationRequest(
+                identity(installedPluginId, installed),
+                identity(candidatePluginId, candidate),
+                candidateVersion,
+                candidate.artifactSizeBytes(),
+                candidate.artifactSha256(),
+                authorization,
+                installedOrigin.installedVerificationPolicy(developmentModeEnabled.getAsBoolean())));
+    }
+
+    private static IdentityMigrationVerificationRequest.Identity identity(
+            String pluginId, PluginProvenanceRecord provenance) {
+        return new IdentityMigrationVerificationRequest.Identity(
+                pluginId,
+                provenance.source().name(),
+                provenance.repositoryId(),
+                provenance.officialRepository(),
+                provenance.publisher(),
+                provenance.keyId());
     }
 
     private PluginSupplyChainVerifier verifierFor(PluginPackageOrigin origin) {

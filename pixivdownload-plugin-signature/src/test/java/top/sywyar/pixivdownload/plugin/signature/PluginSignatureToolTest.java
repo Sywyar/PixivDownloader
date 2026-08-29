@@ -70,6 +70,39 @@ class PluginSignatureToolTest {
                 "--trusted-official", "false"
         });
 
+        Path migrationSig = tempDir.resolve("identity-migration.sig");
+        PluginSignatureTool.main(new String[]{
+                "identity-migration",
+                "--artifact", artifact.toString(),
+                "--version", "2.0.0",
+                "--from-plugin-id", "demo",
+                "--from-source", "MARKET_CATALOG",
+                "--from-repository-id", "old-repository",
+                "--from-publisher", "CLI Test Publisher",
+                "--key-id", keyId,
+                "--to-plugin-id", "demo",
+                "--to-source", "MARKET_CATALOG",
+                "--to-repository-id", "new-repository",
+                "--to-publisher", "New Publisher",
+                "--to-key-id", "new-key",
+                "--private-key", privateKey.toString(),
+                "--out", migrationSig.toString()
+        });
+        VerificationResult migrationResult = verifier.verifyIdentityMigration(
+                new IdentityMigrationVerificationRequest(
+                        new IdentityMigrationVerificationRequest.Identity(
+                                "demo", "MARKET_CATALOG", "old-repository", false,
+                                "CLI Test Publisher", keyId),
+                        new IdentityMigrationVerificationRequest.Identity(
+                                "demo", "MARKET_CATALOG", "new-repository", false,
+                                "New Publisher", "new-key"),
+                        "2.0.0",
+                        Files.size(artifact),
+                        Hashing.hex(Hashing.sha256(artifact)),
+                        readMetadata(migrationSig),
+                        VerificationPolicy.installedCustom()));
+        assertThat(migrationResult.status()).isEqualTo(VerificationStatus.VERIFIED);
+
         Path manifest = tempDir.resolve("manifest.json");
         Files.writeString(manifest, "{\"schemaVersion\":\"1\",\"entries\":[]}");
         Path manifestSig = tempDir.resolve("manifest.json.sig");

@@ -491,7 +491,8 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 }
             }
             PluginInstallResult identityRejection = rejectIdentityDiscontinuity(
-                    descriptor, validatedProvenance, sameId, replaced, previousVersion);
+                    descriptor, validatedProvenance, sameId, replaced, previousVersion,
+                    origin != null ? origin : PluginPackageOrigin.localUpload());
             if (identityRejection != null) {
                 deleteRecursivelyQuietly(unpublishedTransaction);
                 return new PreparedPluginTransaction(transactionId, identityRejection,
@@ -574,10 +575,12 @@ public class ExternalPluginInstaller implements AutoCloseable {
             PluginProvenanceRecord candidate,
             List<InstalledPlugin> sameId,
             List<InstalledPlugin> replaced,
-            String previousVersion) {
+            String previousVersion,
+            PluginPackageOrigin origin) {
         for (InstalledPlugin current : sameId) {
             PluginProvenanceRecord installed = readIdentityProvenance(current, descriptor);
-            if (installed == null || !sameTrustOwner(installed, candidate)) {
+            if (installed == null || (!sameTrustOwner(installed, candidate)
+                    && !identityMigrationAuthorized(current, installed, descriptor, candidate, origin))) {
                 return identityRejected(descriptor, previousVersion, current,
                         installed == null ? "installed provenance is missing or invalid"
                                 : "trust owner changed");
@@ -586,13 +589,36 @@ public class ExternalPluginInstaller implements AutoCloseable {
         for (InstalledPlugin current : replaced) {
             PluginProvenanceRecord installed = readIdentityProvenance(current, descriptor);
             if (installed == null || installed.signature() == null || candidate.signature() == null
-                    || !sameTrustOwner(installed, candidate)) {
+                    || (!sameTrustOwner(installed, candidate)
+                    && !identityMigrationAuthorized(current, installed, descriptor, candidate, origin))) {
                 return identityRejected(descriptor, previousVersion, current,
                         installed == null ? "installed provenance is missing or invalid"
-                                : "replacement is not signed by the installed trust owner");
+                                : "replacement is not authorized by the installed trust owner");
             }
         }
         return null;
+    }
+
+    private boolean identityMigrationAuthorized(
+            InstalledPlugin current,
+            PluginProvenanceRecord installed,
+            PluginDescriptor descriptor,
+            PluginProvenanceRecord candidate,
+            PluginPackageOrigin origin) {
+        if (installed.signature() == null || candidate.signature() == null) {
+            return false;
+        }
+        var authorization = origin.identityMigrationSignatures().get(current.id());
+        if (authorization == null) {
+            return false;
+        }
+        VerificationResult result = verificationService.verifyIdentityMigration(
+                current.id(), installed, descriptor.id(), descriptor.version(), candidate, authorization);
+        if (!result.accepted()) {
+            log.warn("Rejecting plugin identity migration {} -> {}: {} ({})",
+                    current.id(), descriptor.id(), result.status(), result.diagnosticCode());
+        }
+        return result.accepted();
     }
 
     private PluginProvenanceRecord readIdentityProvenance(

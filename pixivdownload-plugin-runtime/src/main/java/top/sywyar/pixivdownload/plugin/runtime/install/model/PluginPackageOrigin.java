@@ -3,8 +3,9 @@ package top.sywyar.pixivdownload.plugin.runtime.install.model;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.VerificationPolicy;
 
-import java.util.Objects;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 /**
  * 一个待安装插件包的来源描述：来源类别 + 该来源声明的可选完整性期望（期望大小 / SHA-256 / 结构化签名）。安装器据来源决定
@@ -26,6 +27,7 @@ import java.util.List;
  * @param expectedVersion    受信目录声明的插件版本（旧来源记录可空）
  * @param expectedRequiredSdk 受信目录声明的 SDK 约束（未提供展示字段时可空）
  * @param expectedDependencies 受信目录声明的依赖（旧来源记录可空，空列表表示明确无依赖）
+ * @param identityMigrationSignatures 旧插件 id 到旧 key 迁移授权签名的映射
  */
 public record PluginPackageOrigin(
         PluginPackageSource source,
@@ -38,14 +40,18 @@ public record PluginPackageOrigin(
         String expectedPluginId,
         String expectedVersion,
         String expectedRequiredSdk,
-        List<String> expectedDependencies) {
+        List<String> expectedDependencies,
+        Map<String, SignatureMetadata> identityMigrationSignatures) {
 
     public PluginPackageOrigin {
         Objects.requireNonNull(source, "source");
+        Map<String, SignatureMetadata> migrations = identityMigrationSignatures == null
+                ? Map.of() : identityMigrationSignatures;
         if (source == PluginPackageSource.LOCAL_UPLOAD
                 && (expectedSizeBytes != null || hasText(expectedSha256)
                 || hasText(repositoryId) || officialRepository || hasText(expectedPluginId)
-                || hasText(expectedVersion) || hasText(expectedRequiredSdk) || expectedDependencies != null)) {
+                || hasText(expectedVersion) || hasText(expectedRequiredSdk) || expectedDependencies != null
+                || !migrations.isEmpty())) {
             throw new IllegalArgumentException("LOCAL_UPLOAD must not carry catalog source bindings");
         }
         if (source == PluginPackageSource.LOCAL_UPLOAD) {
@@ -62,26 +68,47 @@ public record PluginPackageOrigin(
         expectedVersion = trimToNull(expectedVersion);
         expectedRequiredSdk = trimToNull(expectedRequiredSdk);
         expectedDependencies = expectedDependencies != null ? List.copyOf(expectedDependencies) : null;
+        if (migrations.entrySet().stream().anyMatch(entry -> entry.getKey() == null
+                || !entry.getKey().equals(entry.getKey().trim())
+                || !hasText(entry.getKey())
+                || entry.getValue() == null)) {
+            throw new IllegalArgumentException("identity migration signatures must bind a plugin id and signature");
+        }
+        if (!migrations.isEmpty() && signature == null) {
+            throw new IllegalArgumentException("identity migration signatures require a signed candidate artifact");
+        }
+        identityMigrationSignatures = Map.copyOf(migrations);
+    }
+
+    public PluginPackageOrigin(
+            PluginPackageSource source,
+            String repositoryId,
+            boolean officialRepository,
+            boolean developmentOnly,
+            Long expectedSizeBytes,
+             String expectedSha256,
+             SignatureMetadata signature) {
+         this(source, repositoryId, officialRepository, developmentOnly,
+                expectedSizeBytes, expectedSha256, signature, null, null, null, null, Map.of());
     }
 
     public PluginPackageOrigin(PluginPackageSource source, String repositoryId, boolean officialRepository,
                                Long expectedSizeBytes, String expectedSha256, SignatureMetadata signature) {
         this(source, repositoryId, officialRepository,
                 source == PluginPackageSource.LOCAL_UPLOAD && signature == null,
-                expectedSizeBytes, expectedSha256, signature,
-                null, null, null, null);
+                expectedSizeBytes, expectedSha256, signature, null, null, null, null, Map.of());
     }
 
     /** 开发模式允许的未签名本地上传来源。 */
     public static PluginPackageOrigin localUpload() {
         return new PluginPackageOrigin(PluginPackageSource.LOCAL_UPLOAD, null, false, true,
-                null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, Map.of());
     }
 
     /** 带 detached 签名的本地上传来源；验签策略只接受宿主官方信任根。 */
     public static PluginPackageOrigin localUpload(SignatureMetadata signature) {
         return new PluginPackageOrigin(PluginPackageSource.LOCAL_UPLOAD, null, false, false, null, null,
-                Objects.requireNonNull(signature, "signature"), null, null, null, null);
+                Objects.requireNonNull(signature, "signature"), null, null, null, null, Map.of());
     }
 
     /**
@@ -92,7 +119,7 @@ public record PluginPackageOrigin(
                                                         Long expectedSizeBytes, String expectedSha256,
                                                         SignatureMetadata signature) {
         return new PluginPackageOrigin(PluginPackageSource.MARKET_CATALOG, repositoryId, officialRepository, false,
-                expectedSizeBytes, expectedSha256, signature, null, null, null, null);
+                expectedSizeBytes, expectedSha256, signature, null, null, null, null, Map.of());
     }
 
     public static PluginPackageOrigin forTrustedCatalog(String repositoryId, boolean officialRepository,
@@ -102,7 +129,28 @@ public record PluginPackageOrigin(
                                                         List<String> expectedDependencies) {
         return new PluginPackageOrigin(PluginPackageSource.MARKET_CATALOG, repositoryId, officialRepository, false,
                 expectedSizeBytes, expectedSha256, signature, expectedPluginId, expectedVersion,
-                expectedRequiredSdk, expectedDependencies);
+                expectedRequiredSdk, expectedDependencies, Map.of());
+    }
+
+    public static PluginPackageOrigin forTrustedCatalog(String repositoryId, boolean officialRepository,
+                                                        Long expectedSizeBytes, String expectedSha256,
+                                                        SignatureMetadata signature,
+                                                        Map<String, SignatureMetadata> identityMigrationSignatures) {
+        return new PluginPackageOrigin(PluginPackageSource.MARKET_CATALOG, repositoryId, officialRepository, false,
+                expectedSizeBytes, expectedSha256, signature, null, null, null, null,
+                identityMigrationSignatures);
+    }
+
+    public static PluginPackageOrigin forTrustedCatalog(
+            String repositoryId, boolean officialRepository,
+            Long expectedSizeBytes, String expectedSha256,
+            SignatureMetadata signature, String expectedPluginId,
+            String expectedVersion, String expectedRequiredSdk,
+            List<String> expectedDependencies,
+            Map<String, SignatureMetadata> identityMigrationSignatures) {
+        return new PluginPackageOrigin(PluginPackageSource.MARKET_CATALOG, repositoryId, officialRepository, false,
+                expectedSizeBytes, expectedSha256, signature, expectedPluginId, expectedVersion,
+                expectedRequiredSdk, expectedDependencies, identityMigrationSignatures);
     }
 
     /** 是否带至少一项完整性期望。 */

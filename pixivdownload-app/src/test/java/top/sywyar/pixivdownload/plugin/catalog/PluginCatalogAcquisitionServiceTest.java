@@ -9,6 +9,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.ArgumentCaptor;
 import top.sywyar.pixivdownload.plugin.install.PluginDependencyInstallResult;
 import top.sywyar.pixivdownload.plugin.install.PluginInstallReport;
 import top.sywyar.pixivdownload.plugin.install.PluginInstallService;
@@ -147,6 +148,48 @@ class PluginCatalogAcquisitionServiceTest {
         assertThat(report.pluginId()).isEqualTo("ext");
         assertThat(installedFiles()).containsExactly("ext-1.0.0.zip");
         assertThat(downloadLeftovers()).as("下载临时文件应被清理").isEmpty();
+    }
+
+    @Test
+    @DisplayName("受信清单中的身份迁移签名原样进入安装信任门")
+    void passesIdentityMigrationSignatureToInstaller() {
+        server = CatalogTestSupport.startServer();
+        CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture();
+        byte[] body = CatalogTestSupport.explodedPluginZip("ext", "2.0.0", null);
+        String packageUrl = servePackage("/migration.zip", body);
+        SignatureMetadata artifactSignature = signing.artifactSignature("ext", "2.0.0", body);
+        SignatureMetadata migrationSignature = new SignatureMetadata(
+                SignatureMetadata.FORMAT_VERSION, SignatureMetadata.ED25519, "old-key", "c2ln");
+        String manifest = "{\"entries\":[{\"pluginId\":\"ext\",\"packages\":[{"
+                + "\"version\":\"2.0.0\","
+                + "\"packageUrl\":\"" + packageUrl + "\","
+                + "\"expectedSizeBytes\":" + body.length + ","
+                + "\"sha256\":\"" + CatalogTestSupport.sha256Hex(body) + "\","
+                + "\"signature\":" + signing.signatureJson(artifactSignature) + ","
+                + "\"identityMigrationSignatures\":{\"ext\":"
+                + signing.signatureJson(migrationSignature) + "}}]}]}";
+        byte[] manifestBytes = manifest.getBytes(StandardCharsets.UTF_8);
+        CatalogTestSupport.serveBytes(server, "/migration-catalog.json", manifestBytes);
+        CatalogTestSupport.serveBytes(server, "/migration-catalog.json.sig",
+                signing.manifestSignatureBytes("configured", manifestBytes));
+        PluginCatalogProperties props = new PluginCatalogProperties();
+        props.setEnabled(true);
+        props.setManifestUrl(CatalogTestSupport.loopbackUrl(server, "/migration-catalog.json"));
+        props.setTrustedKeys(List.of(signing.trustedKeyConfig()));
+        PluginInstallService installService = mock(PluginInstallService.class);
+        when(installService.installTrustedFile(
+                any(Path.class), eq(false), any(PluginPackageOrigin.class)))
+                .thenReturn(new PluginInstallReport(PluginInstallOutcome.INSTALLED, true, false,
+                        "ext", "2.0.0", "1.0.0", List.of(), List.of(), List.of()));
+        PluginCatalogAcquisitionService service = acquisition(
+                props, installService, mock(PluginDependencyResolver.class));
+
+        service.install("ext", "2.0.0");
+
+        ArgumentCaptor<PluginPackageOrigin> origin = ArgumentCaptor.forClass(PluginPackageOrigin.class);
+        verify(installService).installTrustedFile(any(Path.class), eq(false), origin.capture());
+        assertThat(origin.getValue().identityMigrationSignatures())
+                .containsEntry("ext", migrationSignature);
     }
 
     @Test

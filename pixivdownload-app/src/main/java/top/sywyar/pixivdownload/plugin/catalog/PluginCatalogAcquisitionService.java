@@ -256,7 +256,8 @@ public class PluginCatalogAcquisitionService {
                     repository.repositoryId(), repository.official(), pkg.expectedSizeBytes(), pkg.sha256(),
                     pkg.signature(), pluginId, version,
                     repository.pagedCatalog() ? (pkg.requiredSdk() != null ? pkg.requiredSdk() : "*") : null,
-                    repository.pagedCatalog() ? pkg.dependencies() : null);
+                    repository.pagedCatalog() ? pkg.dependencies() : null,
+                    pkg.identityMigrationSignatures());
             return installService.installTrustedFile(temp, false, origin);
         } finally {
             deleteQuietly(temp);

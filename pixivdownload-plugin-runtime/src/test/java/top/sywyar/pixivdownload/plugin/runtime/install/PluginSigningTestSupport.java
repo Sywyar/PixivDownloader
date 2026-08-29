@@ -18,6 +18,7 @@ import java.security.Signature;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 
 final class PluginSigningTestSupport {
@@ -69,16 +70,59 @@ final class PluginSigningTestSupport {
 
     PluginPackageOrigin originFor(String repositoryId, Path artifact, String pluginId, String version)
             throws IOException {
+        return originFor(repositoryId, artifact, pluginId, version, Map.of());
+    }
+
+    PluginPackageOrigin originFor(
+            String repositoryId,
+            Path artifact,
+            String pluginId,
+            String version,
+            Map<String, SignatureMetadata> identityMigrationSignatures) throws IOException {
         long size = Files.size(artifact);
         String sha256 = Hashing.hex(Hashing.sha256(artifact));
         return PluginPackageOrigin.forTrustedCatalog(repositoryId, false, size, sha256,
-                artifactSignature(artifact, pluginId, version));
+                artifactSignature(artifact, pluginId, version), identityMigrationSignatures);
     }
 
     SignatureMetadata artifactSignature(Path artifact, String pluginId, String version) throws IOException {
         byte[] sha256 = Hashing.sha256(artifact);
         byte[] message = EnvelopeV1Codec.artifactMessage(
                 SignatureMetadata.ED25519, keyId, pluginId, version, Files.size(artifact), sha256);
+        return new SignatureMetadata(
+                SignatureMetadata.FORMAT_VERSION,
+                SignatureMetadata.ED25519,
+                keyId,
+                Base64.getEncoder().encodeToString(sign(message)));
+    }
+
+    SignatureMetadata identityMigrationSignature(
+            String fromPluginId,
+            String fromRepositoryId,
+            String toPluginId,
+            String toRepositoryId,
+            PluginSigningTestSupport toSigner,
+            Path artifact,
+            String version) throws IOException {
+        byte[] sha256 = Hashing.sha256(artifact);
+        byte[] message = EnvelopeV1Codec.identityMigrationMessage(
+                SignatureMetadata.ED25519,
+                keyId,
+                fromPluginId,
+                "MARKET_CATALOG",
+                fromRepositoryId,
+                false,
+                trustedKey.publisher(),
+                keyId,
+                toPluginId,
+                "MARKET_CATALOG",
+                toRepositoryId,
+                false,
+                toSigner.trustedKey.publisher(),
+                toSigner.keyId,
+                version,
+                Files.size(artifact),
+                sha256);
         return new SignatureMetadata(
                 SignatureMetadata.FORMAT_VERSION,
                 SignatureMetadata.ED25519,
