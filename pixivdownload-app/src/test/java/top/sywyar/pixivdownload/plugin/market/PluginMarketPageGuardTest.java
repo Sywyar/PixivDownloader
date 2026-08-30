@@ -313,18 +313,18 @@ class PluginMarketPageGuardTest {
     }
 
     @Test
-    @DisplayName("身份迁移确认复用共享反馈框，并由 Vue / 基础回退共同走同一精确请求重试")
+    @DisplayName("首次信任与身份迁移确认复用共享反馈框，并由 Vue / 基础回退共同走同一精确请求重试")
     void identityMigrationConfirmationUsesSharedGuard() throws IOException {
         String core = read(CORE);
         String api = read(API);
         String vue = read(VUE);
         String fallback = read(FALLBACK);
 
-        assertThat(core).contains("REJECTED_IDENTITY_CONFIRMATION_REQUIRED",
+        assertThat(core).contains("FIRST_TRUST_CONFIRMATION_REQUIRED", "REJECTED_IDENTITY_CONFIRMATION_REQUIRED",
                 "PixivFeedback.confirm", "installPluginWithConfirmation");
-        assertThat(api).contains("confirmIdentityMigration=true");
-        assertThat(vue).contains("PMK.installPluginWithConfirmation(repositoryId, pluginId, version)");
-        assertThat(fallback).contains("PMK.installPluginWithConfirmation(repositoryId, pluginId, version)");
+        assertThat(api).contains("confirmFirstTrust=true", "confirmIdentityMigration=true");
+        assertThat(vue).contains("PMK.installPluginWithConfirmation(repositoryId, pluginId, version, publisher)");
+        assertThat(fallback).contains("PMK.installPluginWithConfirmation(repositoryId, pluginId, version, publisher)");
         assertThat(core + vue + fallback).doesNotContain("window.confirm(", "global.confirm(");
     }
 

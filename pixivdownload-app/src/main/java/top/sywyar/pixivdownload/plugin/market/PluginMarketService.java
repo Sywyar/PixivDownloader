@@ -166,7 +166,13 @@ public class PluginMarketService {
 
     public PluginInstallReport install(String repositoryId, String pluginId, String version,
                                        boolean identityMigrationConfirmed) {
-        return acquisitionService.install(repositoryId, pluginId, version, identityMigrationConfirmed);
+        return install(repositoryId, pluginId, version, false, identityMigrationConfirmed);
+    }
+
+    public PluginInstallReport install(String repositoryId, String pluginId, String version,
+                                       boolean firstTrustConfirmed, boolean identityMigrationConfirmed) {
+        return acquisitionService.install(repositoryId, pluginId, version,
+                firstTrustConfirmed, identityMigrationConfirmed);
     }
 
     /**

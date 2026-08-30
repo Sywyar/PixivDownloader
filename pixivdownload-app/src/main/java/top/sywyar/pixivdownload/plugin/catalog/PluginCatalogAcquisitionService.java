@@ -92,7 +92,7 @@ public class PluginCatalogAcquisitionService {
         PluginCatalogService.ResolvedPackage resolved = catalogService.resolveDefaultPackage(pluginId, version);
         PluginCatalogManifest manifest = resolved.repository().pagedCatalog()
                 ? null : catalogService.load(resolved.repository().repositoryId());
-        return installFrom(resolved.repository(), manifest, pluginId, version, false);
+        return installFrom(resolved.repository(), manifest, pluginId, version, false, false);
     }
 
     /**
@@ -107,10 +107,16 @@ public class PluginCatalogAcquisitionService {
 
     public PluginInstallReport install(String repositoryId, String pluginId, String version,
                                        boolean identityMigrationConfirmed) {
+        return install(repositoryId, pluginId, version, false, identityMigrationConfirmed);
+    }
+
+    public PluginInstallReport install(String repositoryId, String pluginId, String version,
+                                       boolean firstTrustConfirmed, boolean identityMigrationConfirmed) {
         PluginCatalogService.ResolvedPackage resolved = catalogService.resolvePackage(repositoryId, pluginId, version);
         PluginCatalogManifest manifest = resolved.repository().pagedCatalog()
                 ? null : catalogService.load(repositoryId);
-        return installFrom(resolved.repository(), manifest, pluginId, version, identityMigrationConfirmed);
+        return installFrom(resolved.repository(), manifest, pluginId, version,
+                firstTrustConfirmed, identityMigrationConfirmed);
     }
 
     /**
@@ -118,7 +124,15 @@ public class PluginCatalogAcquisitionService {
      * 结构 / 兼容校验落盘 → 删临时文件。下载始终用 {@code repository}（清单的来源仓库），不退回默认 / 全局客户端。
      */
     private PluginInstallReport installFrom(PluginRepository repository, PluginCatalogManifest manifest,
-                                            String pluginId, String version, boolean identityMigrationConfirmed) {
+                                            String pluginId, String version, boolean firstTrustConfirmed,
+                                            boolean identityMigrationConfirmed) {
+        catalogService.resolvePackage(repository.repositoryId(), pluginId, version);
+        if (!repository.official()
+                && dependencyResolver.installedDescriptor(pluginId).isEmpty()
+                && !firstTrustConfirmed) {
+            throw new PluginCatalogException(PluginCatalogErrorCode.FIRST_TRUST_CONFIRMATION_REQUIRED,
+                    pluginId, version, "custom repository first trust confirmation required");
+        }
         List<PluginDependencyInstallResult> dependencyInstallResults = new ArrayList<>();
         try {
             PluginInstallReport report = installFrom(repository, manifest, pluginId, version,

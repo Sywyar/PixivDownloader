@@ -59,6 +59,10 @@ public enum PluginCatalogErrorCode {
     /** 仓库代理策略不受支持（无法识别的未知策略串；{@code direct-strict} 与 {@code proxy-trusted} 均已接线）。 */
     PROXY_POLICY_UNSUPPORTED(HttpStatus.UNPROCESSABLE_ENTITY, "plugin.catalog.error.proxy-policy-unsupported"),
 
+    /** 首次从自定义仓库安装插件前，尚未取得管理员对仓库、发布者与运行权限风险的明确确认。 */
+    FIRST_TRUST_CONFIRMATION_REQUIRED(HttpStatus.CONFLICT,
+            "plugin.catalog.error.first-trust-confirmation-required"),
+
     /** catalog 中没有该插件 id。 */
     UNKNOWN_PLUGIN(HttpStatus.NOT_FOUND, "plugin.catalog.error.unknown-plugin"),
 

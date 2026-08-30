@@ -33,28 +33,60 @@
         return interpolate(fallback != null ? fallback : key, vars);
     };
 
+    PMK.FIRST_TRUST_CONFIRMATION_REQUIRED = 'FIRST_TRUST_CONFIRMATION_REQUIRED';
     PMK.IDENTITY_MIGRATION_CONFIRMATION_REQUIRED = 'REJECTED_IDENTITY_CONFIRMATION_REQUIRED';
-    PMK.installPluginWithConfirmation = function (repositoryId, pluginId, version) {
-        return PMK.api.installPlugin(repositoryId, pluginId, version, false).then(function (response) {
-            if (response.kind !== 'install'
-                    || !response.body
-                    || response.body.outcome !== PMK.IDENTITY_MIGRATION_CONFIRMATION_REQUIRED
-                    || !global.PixivFeedback
-                    || typeof global.PixivFeedback.confirm !== 'function') {
-                return response;
-            }
-            return global.PixivFeedback.confirm({
-                title: PMK.t('install.identity-migration.title', '确认插件发布者身份迁移'),
-                message: PMK.t('install.identity-migration.message',
-                    '受信仓库声明该插件的旧签名 key 已撤销或不可用，并请求迁移到新的发布者身份。继续前请确认你信任该仓库与新的插件发布者；确认后仍会重新校验当前精确制品。'),
-                confirmLabel: PMK.t('install.identity-migration.confirm', '确认并继续'),
-                cancelLabel: PMK.t('install.identity-migration.cancel', '取消安装')
-            }).then(function (confirmed) {
-                return confirmed
-                    ? PMK.api.installPlugin(repositoryId, pluginId, version, true)
-                    : response;
+    PMK.installPluginWithConfirmation = function (repositoryId, pluginId, version, publisher) {
+        function canConfirm() {
+            return global.PixivFeedback && typeof global.PixivFeedback.confirm === 'function';
+        }
+        function attempt(confirmations) {
+            return PMK.api.installPlugin(repositoryId, pluginId, version, confirmations).then(function (response) {
+                if (response.kind === 'error'
+                        && response.body
+                        && response.body.code === PMK.FIRST_TRUST_CONFIRMATION_REQUIRED
+                        && !confirmations.firstTrust
+                        && canConfirm()) {
+                    return global.PixivFeedback.confirm({
+                        title: PMK.t('install.first-trust.title', '确认首次信任自定义插件'),
+                        message: PMK.t('install.first-trust.message',
+                            '即将首次从自定义仓库 {repositoryId} 安装 {pluginId}（目录声明的发布者：{publisher}），并可能自动安装同仓库的必需依赖。插件将在独立 JVM 中运行，但仍使用当前操作系统账户，可能访问该账户可读写的文件和网络；这不是完整的系统沙箱。仅在信任该仓库与发布者时继续。', {
+                                repositoryId: repositoryId,
+                                pluginId: pluginId,
+                                publisher: publisher || pluginId
+                            }),
+                        confirmLabel: PMK.t('install.first-trust.confirm', '信任并继续'),
+                        cancelLabel: PMK.t('install.first-trust.cancel', '取消安装')
+                    }).then(function (confirmed) {
+                        if (!confirmed) return response;
+                        return attempt({
+                            firstTrust: true,
+                            identityMigration: confirmations.identityMigration
+                        });
+                    });
+                }
+                if (response.kind !== 'install'
+                        || !response.body
+                        || response.body.outcome !== PMK.IDENTITY_MIGRATION_CONFIRMATION_REQUIRED
+                        || confirmations.identityMigration
+                        || !canConfirm()) {
+                    return response;
+                }
+                return global.PixivFeedback.confirm({
+                    title: PMK.t('install.identity-migration.title', '确认插件发布者身份迁移'),
+                    message: PMK.t('install.identity-migration.message',
+                        '受信仓库声明该插件的旧签名 key 已撤销或不可用，并请求迁移到新的发布者身份。继续前请确认你信任该仓库与新的插件发布者；确认后仍会重新校验当前精确制品。'),
+                    confirmLabel: PMK.t('install.identity-migration.confirm', '确认并继续'),
+                    cancelLabel: PMK.t('install.identity-migration.cancel', '取消安装')
+                }).then(function (confirmed) {
+                    if (!confirmed) return response;
+                    return attempt({
+                        firstTrust: confirmations.firstTrust,
+                        identityMigration: true
+                    });
+                });
             });
-        });
+        }
+        return attempt({ firstTrust: false, identityMigration: false });
     };
 
     PMK.currentLang = function () {

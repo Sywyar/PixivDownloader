@@ -138,9 +138,12 @@ public class PluginMarketController {
                                                          @RequestParam(name = "confirmIdentityMigration",
                                                                  defaultValue = "false")
                                                          boolean confirmIdentityMigration,
+                                                         @RequestParam(name = "confirmFirstTrust",
+                                                                 defaultValue = "false")
+                                                         boolean confirmFirstTrust,
                                                          HttpServletRequest request) {
         PluginInstallReport report = marketService.install(
-                repositoryId, pluginId, version, confirmIdentityMigration);
+                repositoryId, pluginId, version, confirmFirstTrust, confirmIdentityMigration);
         return installResponseMapper.toResponse(report, request);
     }
 

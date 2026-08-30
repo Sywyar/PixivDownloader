@@ -562,23 +562,25 @@
                     return this.installLabelText(status);
                 },
                 install: function (card) {
-                    this.doInstall(card.repositoryId, card.pluginId, card.latestVersion);
+                    this.doInstall(card.repositoryId, card.pluginId, card.latestVersion, card.publisher);
                 },
                 installModal: function () {
                     if (this.selectedPluginId) {
-                        this.doInstall(this.activeCatalogRepositoryId, this.selectedPluginId, this.selectedVersion);
+                        var card = PMK.data.cardModel(this.selectedEntry);
+                        this.doInstall(this.activeCatalogRepositoryId, this.selectedPluginId,
+                            this.selectedVersion, card.publisher);
                     }
                 },
                 // 安装请求只用展示条目同源的 repositoryId（来自卡片 / 当前 catalog），不读易变的全局 activeRepositoryId；
                 // 在途与结果按 (repositoryId, pluginId) 复合键存储——切到其它仓库时本仓库的安装态不会污染同名插件。
-                doInstall: function (repositoryId, pluginId, version) {
+                doInstall: function (repositoryId, pluginId, version, publisher) {
                     var self = this;
                     if (!repositoryId || !pluginId || !version) return;
                     var key = this.installKey(repositoryId, pluginId);
                     if (this.installing[key]) return;
                     this.installing[key] = true;
                     delete this.installResults[key];
-                    PMK.installPluginWithConfirmation(repositoryId, pluginId, version).then(function (res) {
+                    PMK.installPluginWithConfirmation(repositoryId, pluginId, version, publisher).then(function (res) {
                         var model = res.kind === 'install'
                             ? PMK.data.installResult(res.body)
                             : PMK.data.catalogError(res.body, res.httpStatus);
