@@ -79,6 +79,8 @@ public class PluginRuntimeManager {
 
     private static final Logger log = LoggerFactory.getLogger(PluginRuntimeManager.class);
     private static final PluginPackageLimits PRODUCTION_PACKAGE_LIMITS = PluginPackageLimits.defaults();
+    static final String REQUIRE_OS_SANDBOX_PROPERTY =
+            "pixivdownload.plugin-worker.require-os-sandbox";
     static final int MAX_STARTUP_VERIFICATION_ENTRIES = 32_000;
     static final long MAX_STARTUP_VERIFICATION_UNCOMPRESSED_BYTES = 384L * 1024L * 1024L;
     static final long MAX_STARTUP_PROVENANCE_BYTES = 64L * 1024L * 1024L;
@@ -91,6 +93,7 @@ public class PluginRuntimeManager {
     private Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver;
     private PluginArtifactAdmissionPolicy admissionPolicy = PluginArtifactAdmissionPolicy.allowAll();
     private final BooleanSupplier developmentModeEnabled;
+    private final boolean osSandboxRequired;
     private final PluginProvenanceStore provenanceStore;
     private final int maximumStartupVerificationEntries;
     private final long maximumStartupVerificationUncompressedBytes;
@@ -195,6 +198,7 @@ public class PluginRuntimeManager {
         this.materializer = new PluginArtifactMaterializer(layout);
         this.verifierResolver = Objects.requireNonNull(verifierResolver, "verifierResolver");
         this.developmentModeEnabled = Objects.requireNonNull(developmentModeEnabled, "developmentModeEnabled");
+        this.osSandboxRequired = Boolean.getBoolean(REQUIRE_OS_SANDBOX_PROPERTY);
         this.verificationService = new PluginArtifactVerificationService(
                 this.verifierResolver, this.developmentModeEnabled);
         this.provenanceStore = new PluginProvenanceStore(layout);
@@ -1123,6 +1127,11 @@ public class PluginRuntimeManager {
             PluginProvenanceRecord provenance,
             VerificationResult result) {
         if (descriptor.executionMode() == PluginExecutionMode.ISOLATED_PROCESS) {
+            if (osSandboxRequired) {
+                throw new PluginRuntimeOperationException(
+                        "strict plugin isolation requires a verified OS sandbox, which is unavailable: "
+                                + descriptor.id());
+            }
             if (!descriptor.configurationClassNames().isEmpty()) {
                 throw new PluginRuntimeOperationException(
                         "isolated-process plugins cannot declare Spring configuration classes: "

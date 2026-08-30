@@ -116,6 +116,8 @@ class PluginRuntimeManagerTest {
     @AfterEach
     void clearProbeMarker() {
         System.clearProperty("bootstrap.probe.marker");
+        System.clearProperty(
+                top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager.REQUIRE_OS_SANDBOX_PROPERTY);
     }
 
     @Test
@@ -156,6 +158,30 @@ class PluginRuntimeManagerTest {
             manager.unloadPlugin(PROBE_ID);
             assertThat(manager.generation(PROBE_ID)).isEmpty();
             assertThat(manager.isPhysicalRuntimeInitialized()).isFalse();
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("严格隔离模式在没有 OS 沙箱时于启动 worker 前拒绝隔离插件")
+    void strictIsolationRejectsIsolatedPluginBeforeStartingWorker() throws IOException {
+        Path plugins = tempDir.resolve("plugins-strict-isolation");
+        Path jar = plugins.resolve("bootstrap-probe-1.0.0.jar");
+        writeDefaultIsolatedProbeJar(jar);
+        writeLocalProvenance(plugins, jar);
+        System.setProperty(
+                top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager.REQUIRE_OS_SANDBOX_PROPERTY,
+                "true");
+        top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager manager =
+                new top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager(plugins, () -> true);
+        try {
+            assertThatThrownBy(() -> manager.loadPlugin(jar))
+                    .isInstanceOf(PluginRuntimeOperationException.class)
+                    .hasMessageContaining("verified OS sandbox")
+                    .hasMessageContaining(PROBE_ID);
+            assertThat(manager.isolatedWorkerAliveForTest(PROBE_ID)).isFalse();
+            assertThat(manager.packagePhases()).isEmpty();
         } finally {
             manager.shutdown();
         }
