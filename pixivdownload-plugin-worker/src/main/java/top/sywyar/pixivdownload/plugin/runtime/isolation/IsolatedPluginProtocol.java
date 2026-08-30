@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.runtime;
+package top.sywyar.pixivdownload.plugin.runtime.isolation;
 
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;

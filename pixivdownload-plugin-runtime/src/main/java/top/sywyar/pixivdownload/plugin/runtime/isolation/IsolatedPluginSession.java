@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.runtime;
+package top.sywyar.pixivdownload.plugin.runtime.isolation;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,7 +42,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 /** 宿主拥有的单 generation 隔离 worker、资源 loader 与纯值插件代理。 */
-final class IsolatedPluginSession {
+public final class IsolatedPluginSession {
 
     private static final Logger log = LoggerFactory.getLogger(IsolatedPluginSession.class);
     private static final Duration INITIALIZE_TIMEOUT = Duration.ofSeconds(10);
@@ -67,17 +67,17 @@ final class IsolatedPluginSession {
     private IsolatedFeaturePlugin featureProxy;
     private boolean closed;
 
-    IsolatedPluginSession(PluginDescriptor descriptor,
-                          Path artifact,
-                          String verifiedSha256,
-                          PluginArtifactSnapshot artifactSnapshot) {
+    public IsolatedPluginSession(PluginDescriptor descriptor,
+                                 Path artifact,
+                                 String verifiedSha256,
+                                 PluginArtifactSnapshot artifactSnapshot) {
         this.descriptor = descriptor;
         this.artifact = artifact.toAbsolutePath().normalize();
         this.verifiedSha256 = verifiedSha256;
         this.artifactSnapshot = artifactSnapshot;
     }
 
-    synchronized PluginInventory initialize() {
+    public synchronized PluginInventory initialize() {
         requireOpen();
         ensureWorker();
         if (resourceClassLoader == null) {
@@ -98,7 +98,7 @@ final class IsolatedPluginSession {
         return new PluginInventory(List.of(installation), List.of(), List.of());
     }
 
-    synchronized void startPackage() {
+    public synchronized void startPackage() {
         requireOpen();
         ensureWorker();
         command(IsolatedPluginProtocol.START_PACKAGE, COMMAND_TIMEOUT);
@@ -116,7 +116,7 @@ final class IsolatedPluginSession {
         }
     }
 
-    synchronized boolean stopAndTerminate() {
+    public synchronized boolean stopAndTerminate() {
         if (!isWorkerAlive()) {
             terminateWorker();
             return true;
@@ -132,7 +132,7 @@ final class IsolatedPluginSession {
         return terminateWorker();
     }
 
-    synchronized boolean close() {
+    public synchronized boolean close() {
         if (closed) {
             return !isWorkerAlive();
         }
@@ -157,11 +157,11 @@ final class IsolatedPluginSession {
         return terminated;
     }
 
-    synchronized boolean isWorkerAlive() {
+    public synchronized boolean isWorkerAlive() {
         return process != null && process.isAlive();
     }
 
-    synchronized long workerPid() {
+    public synchronized long workerPid() {
         return isWorkerAlive() ? process.pid() : 0L;
     }
 

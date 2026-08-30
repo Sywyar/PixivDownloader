@@ -476,9 +476,9 @@ class DistributionPackagingBoundaryTest {
         try (JarFile worker = new JarFile(workerJar.toFile())) {
             List<String> entries = worker.stream().map(JarEntry::getName).toList();
             assertThat(worker.getManifest().getMainAttributes().getValue("Start-Class"))
-                    .isEqualTo("top.sywyar.pixivdownload.plugin.runtime.IsolatedPluginWorkerMain");
+                    .isEqualTo("top.sywyar.pixivdownload.plugin.runtime.isolation.IsolatedPluginWorkerMain");
             assertThat(entries)
-                    .contains("BOOT-INF/classes/top/sywyar/pixivdownload/plugin/runtime/IsolatedPluginWorkerMain.class")
+                    .contains("BOOT-INF/classes/top/sywyar/pixivdownload/plugin/runtime/isolation/IsolatedPluginWorkerMain.class")
                     .noneMatch(name -> name.contains("PluginRuntimeManager.class")
                             || name.startsWith("BOOT-INF/classes/top/sywyar/pixivdownload/config/")
                             || name.startsWith("BOOT-INF/lib/pixivdownload-plugin-runtime-")

@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.runtime;
+package top.sywyar.pixivdownload.plugin.runtime.isolation;
 
 import org.pf4j.Plugin;
 import org.pf4j.PluginManager;

@@ -38,7 +38,7 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
-                    <mainClass>top.sywyar.pixivdownload.plugin.runtime.IsolatedPluginWorkerMain</mainClass>
+                    <mainClass>top.sywyar.pixivdownload.plugin.runtime.isolation.IsolatedPluginWorkerMain</mainClass>
                     <classifier>worker</classifier>
                 </configuration>
             </plugin>
