@@ -10,6 +10,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.ContextConfiguration;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
@@ -64,6 +65,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "pixivdownload.plugins-dir=target/test-runtime/plugins-external-download-workbench",
         "setup.browser.auto-open=false"
 })
+@ContextConfiguration(initializers = PluginTestProvenance.VerifiedLocalPluginBootstrapInitializer.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @EnabledIf("externalDownloadWorkbenchJarStaged")
@@ -568,7 +570,7 @@ class DownloadWorkbenchExternalPluginBootContextTest {
             Files.createDirectories(PLUGINS_DIR);
             Path jar = PLUGINS_DIR.resolve("download-workbench-plugin.jar");
             zipDirectoryAsJar(workbenchClasses, jar);
-            PluginTestProvenance.writeLocalUpload(
+            PluginTestProvenance.writeVerifiedLocalUpload(
                     PLUGINS_DIR, jar, PLUGIN_ID, "1.0.0");
             return true;
         } catch (IOException failure) {

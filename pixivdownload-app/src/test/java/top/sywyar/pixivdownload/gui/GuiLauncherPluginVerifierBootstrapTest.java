@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.gui;
 
 import top.sywyar.pixivdownload.gui.config.TestDesktopConfigFile;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -48,11 +47,6 @@ class GuiLauncherPluginVerifierBootstrapTest {
     @TempDir
     Path tempDir;
 
-    @AfterEach
-    void clearMarkerProperty() {
-        System.clearProperty("bootstrap.probe.marker");
-    }
-
     @Test
     @DisplayName("配置 custom trusted key：custom-signed installed plugin 可在 PROCESS bootstrap 启动")
     void processBootstrapUsesCustomTrustedKeyFromConfig() throws Exception {
@@ -61,17 +55,20 @@ class GuiLauncherPluginVerifierBootstrapTest {
         SigningFixture signing = SigningFixture.create("gui-custom-key");
         writeSignedProvenance(pluginsDir, jar, signing);
         Path config = writeConfig(true, signing.publicKeyBase64());
-        Path marker = tempDir.resolve("with-key-events.log");
-        Files.createFile(marker);
-        System.setProperty("bootstrap.probe.marker", marker.toString());
-
         PluginBootstrapSession session = PluginBootstrapSession.createProcess(pluginsDir,
                 PluginEnabledSnapshot.empty(), GuiLauncher.readPluginVerifierResolver(config));
-        session.start();
+        try {
+            session.start();
 
-        assertThat(session.status().startedPluginIds()).contains("bootstrap-probe");
-        assertThat(Files.readString(marker, StandardCharsets.UTF_8)).contains("load").contains("start");
-        session.close();
+            assertThat(session.status().startedPluginIds()).contains("bootstrap-probe");
+            assertThat(session.status().verifications())
+                    .singleElement()
+                    .satisfies(snapshot -> assertThat(snapshot.result().status())
+                            .isEqualTo(VerificationStatus.VERIFIED));
+            assertThat(session.manager().generation("bootstrap-probe")).hasValue(1L);
+        } finally {
+            session.close();
+        }
     }
 
     @Test
@@ -82,20 +79,23 @@ class GuiLauncherPluginVerifierBootstrapTest {
         SigningFixture signing = SigningFixture.create("gui-custom-key");
         writeSignedProvenance(pluginsDir, jar, signing);
         Path config = writeConfig(false, signing.publicKeyBase64());
-        Path marker = tempDir.resolve("without-key-events.log");
-        Files.createFile(marker);
-        System.setProperty("bootstrap.probe.marker", marker.toString());
-
         PluginBootstrapSession session = PluginBootstrapSession.createProcess(pluginsDir,
                 PluginEnabledSnapshot.empty(), GuiLauncher.readPluginVerifierResolver(config));
-        session.start();
+        try {
+            session.start();
 
-        assertThat(session.status().startedPluginIds()).doesNotContain("bootstrap-probe");
-        assertThat(session.status().hasFailures()).isTrue();
-        assertThat(Files.readString(marker, StandardCharsets.UTF_8))
-                .as("缺少 custom trusted key 时必须在 PF4J 创建 classloader / 构造插件实例前阻断")
-                .isEmpty();
-        session.close();
+            assertThat(session.status().startedPluginIds()).doesNotContain("bootstrap-probe");
+            assertThat(session.status().hasFailures()).isTrue();
+            assertThat(session.status().verifications())
+                    .singleElement()
+                    .satisfies(snapshot -> assertThat(snapshot.result().status())
+                            .isEqualTo(VerificationStatus.UNKNOWN_KEY));
+            assertThat(session.manager().generation("bootstrap-probe"))
+                    .as("缺少 custom trusted key 时必须在物理 generation / classloader 创建前阻断")
+                    .isEmpty();
+        } finally {
+            session.close();
+        }
     }
 
     private Path writeConfig(boolean includeTrustedKey, String publicKey) throws IOException {

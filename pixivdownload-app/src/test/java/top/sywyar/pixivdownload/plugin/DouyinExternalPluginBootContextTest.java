@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.ContextConfiguration;
 import org.springframework.web.context.WebApplicationContext;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
@@ -50,6 +51,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "pixivdownload.plugins-dir=target/test-runtime/plugins-external-douyin",
         "setup.browser.auto-open=false"
 })
+@ContextConfiguration(initializers = PluginTestProvenance.VerifiedLocalPluginBootstrapInitializer.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @EnabledIf("externalDouyinJarStaged")
@@ -277,7 +279,7 @@ class DouyinExternalPluginBootContextTest {
             Files.createDirectories(PLUGINS_DIR);
             Path jar = PLUGINS_DIR.resolve("douyin-plugin.jar");
             zipDirectoryAsJar(classes, jar);
-            PluginTestProvenance.writeLocalUpload(PLUGINS_DIR, jar, "douyin", "1.0.0");
+            PluginTestProvenance.writeVerifiedLocalUpload(PLUGINS_DIR, jar, "douyin", "1.0.0");
             return true;
         } catch (IOException | RuntimeException ex) {
             return false;

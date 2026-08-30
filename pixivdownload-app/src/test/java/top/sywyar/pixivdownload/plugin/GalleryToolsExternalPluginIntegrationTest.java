@@ -86,9 +86,9 @@ class GalleryToolsExternalPluginIntegrationTest {
         tempPluginsDir = Files.createTempDirectory("pixiv-plugins-it");
         Path jar = tempPluginsDir.resolve("gallery-tools-plugin-0.0.1.jar");
         zipDirectoryAsJar(statsClasses, jar);
-        PluginTestProvenance.writeLocalUpload(tempPluginsDir, jar, "gallery-tools", "1.0.0");
+        PluginTestProvenance.writeVerifiedLocalUpload(tempPluginsDir, jar, "gallery-tools", "1.0.0");
 
-        manager = new PluginRuntimeManager(tempPluginsDir);
+        manager = new PluginRuntimeManager(tempPluginsDir, PluginTestProvenance.verifier());
         status = manager.start();
     }
 

@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
@@ -88,6 +89,7 @@ import top.sywyar.pixivdownload.plugin.web.registration.PluginWebContributionReg
         "pixivdownload.plugins-dir=target/test-runtime/plugins-external-gallery-tools-stats",
         "setup.browser.auto-open=false"
 })
+@ContextConfiguration(initializers = PluginTestProvenance.VerifiedLocalPluginBootstrapInitializer.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @EnabledIf("externalStatsJarStaged")
@@ -449,7 +451,7 @@ class GalleryToolsStatsBootContextTest {
             Files.createDirectories(PLUGINS_DIR);
             Path jar = PLUGINS_DIR.resolve("gallery-tools-plugin.jar");
             zipDirectoryAsJar(statsClasses, jar);
-            PluginTestProvenance.writeLocalUpload(PLUGINS_DIR, jar, "gallery-tools", "1.0.0");
+            PluginTestProvenance.writeVerifiedLocalUpload(PLUGINS_DIR, jar, "gallery-tools", "1.0.0");
             return true;
         } catch (IOException | RuntimeException ex) {
             return false;

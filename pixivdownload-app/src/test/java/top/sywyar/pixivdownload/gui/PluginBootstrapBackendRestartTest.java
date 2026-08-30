@@ -109,7 +109,10 @@ class PluginBootstrapBackendRestartTest {
     @DisplayName("start→RUNNING→restart→RUNNING→stop：探针 load/start 各一次、manager/实例/generation 不变、context 关闭不关会话")
     void realBootstrapSpringRestartReusesProcessSession() throws Exception {
         // 1. 进程级 PROCESS 会话 + 真实 PF4J load/start（探针记录 load=1, start=1）
-        session = PluginBootstrapSession.createProcess(pluginsDir, PluginEnabledSnapshot.empty());
+        session = PluginBootstrapSession.createProcess(
+                pluginsDir,
+                PluginEnabledSnapshot.empty(),
+                PluginTestProvenance.verifier());
         session.start();
         PluginRuntimeManager originalManager = session.manager();
         assertMarkerCounts(1, 1, 0);
@@ -298,7 +301,9 @@ class PluginBootstrapBackendRestartTest {
         Path jar = pluginsDir.resolve("bootstrap-probe-1.0.0.jar");
         String props = "plugin.id=bootstrap-probe\nplugin.version=1.0.0\nplugin.requires=1.0\n"
                 + "plugin.class=" + BackendRestartProbePlugin.class.getName() + "\n"
-                + "plugin.provider=test\nplugin.description=bootstrap probe\n";
+                + "plugin.provider=test\nplugin.description=bootstrap probe\n"
+                + "pixiv.execution-mode=trusted-in-process\n"
+                + "pixiv.lifecycle-policy=process-restart\n";
         try (OutputStream out = Files.newOutputStream(jar); ZipOutputStream zos = new ZipOutputStream(out)) {
             zos.putNextEntry(new ZipEntry("plugin.properties"));
             zos.write(props.getBytes(StandardCharsets.UTF_8));
@@ -306,7 +311,7 @@ class PluginBootstrapBackendRestartTest {
             addClassEntry(zos, BackendRestartProbePlugin.class);
             addClassEntry(zos, BackendRestartProbeFeaturePlugin.class);
         }
-        PluginTestProvenance.writeLocalUpload(pluginsDir, jar, "bootstrap-probe", "1.0.0");
+        PluginTestProvenance.writeVerifiedLocalUpload(pluginsDir, jar, "bootstrap-probe", "1.0.0");
         return jar;
     }
 

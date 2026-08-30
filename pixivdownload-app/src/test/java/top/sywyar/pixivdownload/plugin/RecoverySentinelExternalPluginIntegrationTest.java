@@ -77,9 +77,9 @@ class RecoverySentinelExternalPluginIntegrationTest {
         tempPluginsDir = Files.createTempDirectory("pixiv-recovery-sentinel-it");
         Path jar = tempPluginsDir.resolve("recovery-sentinel-plugin-0.0.1.jar");
         zipDirectoryAsJar(sentinelClasses, jar);
-        PluginTestProvenance.writeLocalUpload(tempPluginsDir, jar, "recovery-sentinel", "1.0.0");
+        PluginTestProvenance.writeVerifiedLocalUpload(tempPluginsDir, jar, "recovery-sentinel", "1.0.0");
 
-        manager = new PluginRuntimeManager(tempPluginsDir);
+        manager = new PluginRuntimeManager(tempPluginsDir, PluginTestProvenance.verifier());
         status = manager.start();
     }
 
