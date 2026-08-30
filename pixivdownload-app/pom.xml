@@ -192,6 +192,35 @@
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.8.1</version>
+                <executions>
+                    <execution>
+                        <id>embed-isolated-plugin-worker</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>copy</goal>
+                        </goals>
+                        <configuration>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>top.sywyar.lovepopup</groupId>
+                                    <artifactId>pixivdownload-plugin-worker</artifactId>
+                                    <version>${project.version}</version>
+                                    <classifier>worker</classifier>
+                                    <type>jar</type>
+                                    <outputDirectory>${project.build.outputDirectory}/top/sywyar/pixivdownload/plugin/runtime</outputDirectory>
+                                    <destFileName>isolated-plugin-worker.jar</destFileName>
+                                </artifactItem>
+                            </artifactItems>
+                            <overWriteReleases>true</overWriteReleases>
+                            <overWriteSnapshots>true</overWriteSnapshots>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-antrun-plugin</artifactId>
                 <version>3.1.0</version>
                 <executions>

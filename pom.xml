@@ -42,6 +42,8 @@
         <module>pixivdownload-sdk-bom</module>
         <!-- 宿主 owned 插件供应链验签模块，Spring-free / PF4J-free / app-free / plugin-runtime-free，纯 JDK 17 -->
         <module>pixivdownload-plugin-signature</module>
+        <!-- 最小 PF4J 执行内核与隔离 worker；独立可执行产物只携带协议、稳定契约和 PF4J，不继承 app classpath。 -->
+        <module>pixivdownload-plugin-worker</module>
         <!-- 插件框架的 Spring 耦合启用运行时（三件套），各功能插件模块编译期依赖之；产物打进 boot jar -->
         <module>pixivdownload-plugin-runtime</module>
         <!-- 官方 GUI 主题外置插件（startup-only），打成 PF4J 插件 jar：根 plugin.properties + 插件类 / 资源 +

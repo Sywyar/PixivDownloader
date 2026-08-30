@@ -14,6 +14,8 @@ import top.sywyar.pixivdownload.runtimeprobe.BootstrapProbeFeaturePlugin;
 import top.sywyar.pixivdownload.runtimeprobe.BootstrapProbePlugin;
 import top.sywyar.pixivdownload.runtimeprobe.DependencyOrderProbeFeaturePlugin;
 import top.sywyar.pixivdownload.runtimeprobe.DependencyOrderProbePlugin;
+import top.sywyar.pixivdownload.runtimeprobe.IsolatedStaticProbeFeaturePlugin;
+import top.sywyar.pixivdownload.runtimeprobe.IsolatedStaticProbePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
@@ -64,6 +66,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationException;
@@ -116,19 +119,95 @@ class PluginRuntimeManagerTest {
     }
 
     @Test
-    @DisplayName("未声明执行模式的生产包在进入 PF4J 前按隔离进程失败关闭")
-    void rejectsDefaultIsolatedPackageBeforePf4jLoad() throws IOException {
+    @DisplayName("未声明执行模式的生产包只在独立 worker 中实例化并以进程退出完成清退")
+    void runsDefaultIsolatedPackageInWorkerAndTerminatesItOnStop() throws IOException {
         Path plugins = tempDir.resolve("plugins-isolated-default");
         Path jar = plugins.resolve("bootstrap-probe-1.0.0.jar");
         writeDefaultIsolatedProbeJar(jar);
         writeLocalProvenance(plugins, jar);
-        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+        top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager manager =
+                new top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager(plugins, () -> true);
+        Path hostMarker = tempDir.resolve("isolated-host-marker.log");
+        System.setProperty("bootstrap.probe.marker", hostMarker.toString());
+        try {
+            LoadedPluginPackage loaded = manager.loadPlugin(jar);
+            assertThat(loaded.phase()).isEqualTo(PluginRuntimePackagePhase.LOADED);
+            assertThat(manager.pluginManagerForTest()).isEmpty();
+            assertThat(manager.isolatedWorkerAliveForTest(PROBE_ID)).isFalse();
+            assertThat(hostMarker).doesNotExist();
 
-        assertThatThrownBy(() -> manager.loadPlugin(jar))
-                .isInstanceOf(PluginRuntimeOperationException.class)
-                .hasMessageContaining("isolated-process plugin execution is unavailable");
-        assertThat(manager.pluginManagerForTest()).isEmpty();
-        assertThat(manager.generation(PROBE_ID)).isEmpty();
+            LoadedPluginPackage initialized = manager.initializePlugin(PROBE_ID);
+            assertThat(initialized.inventory().installations()).hasSize(1);
+            assertThat(manager.isolatedWorkerAliveForTest(PROBE_ID)).isTrue();
+            assertThat(manager.isolatedWorkerPidForTest(PROBE_ID))
+                    .isPositive()
+                    .isNotEqualTo(ProcessHandle.current().pid());
+            assertThat(manager.pluginManagerForTest()).isEmpty();
+            assertThat(hostMarker).doesNotExist();
+
+            manager.startPlugin(PROBE_ID);
+            assertThat(manager.packagePhases().get(PROBE_ID))
+                    .isEqualTo(PluginRuntimePackagePhase.STARTED);
+            manager.stopPlugin(PROBE_ID);
+            assertThat(manager.isolatedWorkerAliveForTest(PROBE_ID)).isFalse();
+            assertThat(manager.packagePhases().get(PROBE_ID))
+                    .isEqualTo(PluginRuntimePackagePhase.STOPPED);
+
+            manager.unloadPlugin(PROBE_ID);
+            assertThat(manager.generation(PROBE_ID)).isEmpty();
+            assertThat(manager.isPhysicalRuntimeInitialized()).isFalse();
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("隔离 worker 只把有界静态纯值和插件自有资源代理回宿主")
+    void projectsOnlyBoundedStaticContributionsFromIsolatedWorker() throws IOException {
+        Path plugins = tempDir.resolve("plugins-isolated-static");
+        Path jar = plugins.resolve("isolated-static-probe-1.0.0.jar");
+        writeIsolatedStaticProbeJar(jar);
+        writeLocalProvenance(plugins, jar, "isolated-static-probe", PROBE_VERSION);
+        top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager manager =
+                new top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager(plugins, () -> true);
+        try {
+            manager.loadPlugin(jar);
+            PluginInstallation installation = manager.initializePlugin("isolated-static-probe")
+                    .inventory().installations().get(0);
+
+            assertThat(installation.plugin().routes())
+                    .extracting(route -> route.pathPattern())
+                    .containsExactly("/isolated-static/**");
+            assertThat(installation.plugin().staticResources())
+                    .extracting(resource -> resource.publicPathPrefix())
+                    .containsExactly("/isolated-static/");
+            assertThat(installation.plugin().i18n())
+                    .extracting(contribution -> contribution.namespace())
+                    .containsExactly("isolated-static");
+            assertThat(installation.plugin().navigation())
+                    .extracting(item -> item.href())
+                    .containsExactly("/isolated-static/index.html");
+            assertThat(installation.classLoader().getResource("static/isolated-static/index.html"))
+                    .isNotNull();
+            assertThat(installation.classLoader().getResource(
+                    "top/sywyar/pixivdownload/plugin/runtime/PluginRuntimeManager.class"))
+                    .isNull();
+
+            manager.startPlugin("isolated-static-probe");
+            installation.plugin().start();
+            installation.plugin().stop();
+            long workerPid = manager.isolatedWorkerPidForTest("isolated-static-probe");
+
+            manager.shutdown();
+
+            assertThat(manager.isolatedWorkerAliveForTest("isolated-static-probe")).isFalse();
+            assertThat(ProcessHandle.of(workerPid).map(ProcessHandle::isAlive).orElse(false)).isFalse();
+            try (var workspaces = Files.list(plugins.resolve("runtime"))) {
+                assertThat(workspaces).isEmpty();
+            }
+        } finally {
+            manager.shutdown();
+        }
     }
 
     @Test
@@ -1648,6 +1727,35 @@ class PluginRuntimeManagerTest {
             addDescriptor(zos, "hot-reload", null);
             addClassEntry(zos, BootstrapProbePlugin.class, "");
             addClassEntry(zos, BootstrapProbeFeaturePlugin.class, "");
+        }
+    }
+
+    private static void writeIsolatedStaticProbeJar(Path jar) throws IOException {
+        Files.createDirectories(jar.getParent());
+        try (OutputStream out = Files.newOutputStream(jar);
+             ZipOutputStream zos = new ZipOutputStream(out)) {
+            String descriptor = "plugin.id=isolated-static-probe\n"
+                    + "plugin.version=" + PROBE_VERSION + "\n"
+                    + "plugin.requires=1.0\n"
+                    + "plugin.class=" + IsolatedStaticProbePlugin.class.getName() + "\n"
+                    + "plugin.provider=test\n"
+                    + "plugin.description=isolated static probe\n"
+                    + "pixiv.kind=feature\n"
+                    + "pixiv.display-namespace=isolated-static\n"
+                    + "pixiv.display-name-key=plugin.name\n"
+                    + "pixiv.description-key=plugin.summary\n";
+            zos.putNextEntry(new ZipEntry("plugin.properties"));
+            zos.write(descriptor.getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
+            addClassEntry(zos, IsolatedStaticProbePlugin.class, "");
+            addClassEntry(zos, IsolatedStaticProbeFeaturePlugin.class, "");
+            zos.putNextEntry(new ZipEntry("static/isolated-static/index.html"));
+            zos.write("<!doctype html><title>isolated</title>".getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
+            zos.putNextEntry(new ZipEntry("i18n/web/isolatedstatic.properties"));
+            zos.write("plugin.name=Isolated\nplugin.summary=Static\nnav.home=Home\n"
+                    .getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
         }
     }
 

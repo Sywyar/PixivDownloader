@@ -76,6 +76,8 @@ class DistributionPackagingBoundaryTest {
             Boolean.getBoolean("distribution.packaging.require-production-credential-key");
     private static final String PLUGIN_CREDENTIAL_KEY_RESOURCE =
             "BOOT-INF/classes/plugin-credential-key.properties";
+    private static final String ISOLATED_WORKER_RESOURCE =
+            "BOOT-INF/classes/top/sywyar/pixivdownload/plugin/runtime/isolated-plugin-worker.jar";
 
     private static final String DOWNLOAD_WORKBENCH_CLASSES_PROPERTY = "download-workbench.plugin.classes";
     private static final String POSTHOG_CLASSES_PROPERTY = "posthog.plugin.classes";
@@ -451,6 +453,44 @@ class DistributionPackagingBoundaryTest {
             assertThat(entries)
                     .as("boot jar must not contain external plugin private dependency " + pattern)
                     .noneMatch(name -> name.matches(pattern));
+        }
+    }
+
+    @Test
+    @DisplayName("boot jar 内嵌的隔离 worker 可执行产物不携带宿主实现 classpath")
+    void bootJarEmbedsMinimalExecutableIsolatedWorker(@TempDir Path tempDir) throws IOException {
+        Path bootJar = locateBootJar();
+        requireAvailable(bootJar != null,
+                "boot jar 尚未生成（需 package 阶段），无法验证隔离 worker 产物边界");
+
+        Path workerJar = tempDir.resolve("isolated-plugin-worker.jar");
+        try (JarFile archive = new JarFile(bootJar.toFile())) {
+            JarEntry entry = archive.getJarEntry(ISOLATED_WORKER_RESOURCE);
+            assertThat(entry).as("boot jar 应内嵌隔离 worker 可执行产物").isNotNull();
+            assertThat(entry.getSize()).isPositive().isLessThanOrEqualTo(16L * 1024L * 1024L);
+            try (InputStream input = archive.getInputStream(entry)) {
+                Files.copy(input, workerJar);
+            }
+        }
+
+        try (JarFile worker = new JarFile(workerJar.toFile())) {
+            List<String> entries = worker.stream().map(JarEntry::getName).toList();
+            assertThat(worker.getManifest().getMainAttributes().getValue("Start-Class"))
+                    .isEqualTo("top.sywyar.pixivdownload.plugin.runtime.IsolatedPluginWorkerMain");
+            assertThat(entries)
+                    .contains("BOOT-INF/classes/top/sywyar/pixivdownload/plugin/runtime/IsolatedPluginWorkerMain.class")
+                    .noneMatch(name -> name.contains("PluginRuntimeManager.class")
+                            || name.startsWith("BOOT-INF/classes/top/sywyar/pixivdownload/config/")
+                            || name.startsWith("BOOT-INF/lib/pixivdownload-plugin-runtime-")
+                            || name.startsWith("BOOT-INF/lib/PixivDownload-"));
+            assertThat(entries.stream()
+                    .filter(name -> name.startsWith("BOOT-INF/lib/") && name.endsWith(".jar"))
+                    .toList())
+                    .anyMatch(name -> name.matches("BOOT-INF/lib/pixivdownload-plugin-api-[^/]+\\.jar"))
+                    .anyMatch(name -> name.matches("BOOT-INF/lib/pf4j-[^/]+\\.jar"))
+                    .anyMatch(name -> name.matches("BOOT-INF/lib/java-semver-[^/]+\\.jar"))
+                    .anyMatch(name -> name.matches("BOOT-INF/lib/slf4j-api-[^/]+\\.jar"))
+                    .noneMatch(name -> name.matches("BOOT-INF/lib/(?:spring-context|spring-beans|spring-web)-[^/]+\\.jar"));
         }
     }
 

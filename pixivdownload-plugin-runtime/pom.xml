@@ -38,6 +38,12 @@
             <artifactId>pixivdownload-plugin-api</artifactId>
             <version>${pixivdownload.sdk.version}</version>
         </dependency>
+        <!-- 最小 PF4J 控制面与隔离 worker 协议；生产子进程使用独立可执行产物，不继承宿主 classpath。 -->
+        <dependency>
+            <groupId>top.sywyar.lovepopup</groupId>
+            <artifactId>pixivdownload-plugin-worker</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-plugin-signature</artifactId>
