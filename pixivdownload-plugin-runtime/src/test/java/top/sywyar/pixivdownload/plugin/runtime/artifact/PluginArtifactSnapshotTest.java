@@ -103,5 +103,8 @@ class PluginArtifactSnapshotTest {
         assertThat(Files.readString(canary, StandardCharsets.UTF_8)).isEqualTo("keep");
         snapshot.close();
         assertThat(workspace).exists();
+        Files.delete(workspace.resolve("escape.jar"));
+        snapshot.close();
+        assertThat(workspace).doesNotExist();
     }
 }

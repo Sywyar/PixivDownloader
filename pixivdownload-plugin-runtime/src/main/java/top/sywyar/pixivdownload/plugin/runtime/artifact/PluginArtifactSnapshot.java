@@ -248,8 +248,7 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
         if (closed) {
             return;
         }
-        closed = true;
-        deleteWorkspaceQuietly(workspace);
+        closed = deleteWorkspaceQuietly(workspace);
     }
 
     private Path requireMaterializedPath(Path path) throws IOException {
@@ -373,14 +372,14 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
         }
     }
 
-    private static void deleteWorkspaceQuietly(Path root) {
+    private static boolean deleteWorkspaceQuietly(Path root) {
         if (root == null) {
-            return;
+            return true;
         }
         try {
             BasicFileAttributes rootAttributes = attributesIfPresent(root);
             if (rootAttributes == null) {
-                return;
+                return true;
             }
             if (rootAttributes.isSymbolicLink() || rootAttributes.isOther() || !rootAttributes.isDirectory()) {
                 throw new IOException("plugin artifact workspace is not a plain directory: " + root);
@@ -423,8 +422,10 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
                 }
                 Files.delete(entry.path());
             }
+            return true;
         } catch (IOException | RuntimeException e) {
             log.warn("Failed to clean plugin artifact workspace {}: {}", root, e.toString());
+            return false;
         }
     }
 
