@@ -40,7 +40,8 @@ class ExampleDownloadPluginTest {
         assertEquals("feature", properties.getProperty("pixiv.kind"));
         assertEquals(ExampleDownloadConfiguration.class.getName(),
                 properties.getProperty("pixiv.configuration-classes"));
-        assertEquals("isolated-process", properties.getProperty("pixiv.execution-mode"));
+        assertEquals("process-restart", properties.getProperty("pixiv.lifecycle-policy"));
+        assertEquals("trusted-in-process", properties.getProperty("pixiv.execution-mode"));
     }
 
     @Test

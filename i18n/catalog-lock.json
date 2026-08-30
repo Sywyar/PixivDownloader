@@ -59294,14 +59294,6 @@
       "locale": "en-US",
       "module": "plugin-templates/minimal-feature-plugin",
       "baseName": "web/example-minimal",
-      "key": "button.refresh",
-      "acceptedSourceHash": "df7392cc96bedc5170808f9398340926acdf342c9c6d9c120235540d7d024a31",
-      "acceptedTranslationHash": "0e91610117029a62a478b7fa7df0b8598bebe3ab1e192d4b1882e310719c9671"
-    },
-    {
-      "locale": "en-US",
-      "module": "plugin-templates/minimal-feature-plugin",
-      "baseName": "web/example-minimal",
       "key": "page.heading",
       "acceptedSourceHash": "d669b3f1fc9580252287af57b986f1df6dcdc35e694916ad7e97956966936404",
       "acceptedTranslationHash": "8caf06bf91fc61865f0ada19a0efff348cf807635fa46cee8a534f60305df8fe"
@@ -59319,8 +59311,8 @@
       "module": "plugin-templates/minimal-feature-plugin",
       "baseName": "web/example-minimal",
       "key": "page.summary",
-      "acceptedSourceHash": "741459e24bc4016f764f55f4891372854086f3755fb33b3031088c0b19d8ccde",
-      "acceptedTranslationHash": "7761a22cbc4bc155f3315a39a632e9cad9f6968ce6d384171b4229074136bef3"
+      "acceptedSourceHash": "c003207ed9abbf672aff3cfd7a740e8dd4f68f1bce0759f7438387b296dcdb24",
+      "acceptedTranslationHash": "f09777acd2d81f67eeb99da4b13aa0ca61c5c0b56bf13e8d4bf0514b9148976e"
     },
     {
       "locale": "en-US",
@@ -59343,40 +59335,24 @@
       "module": "plugin-templates/minimal-feature-plugin",
       "baseName": "web/example-minimal",
       "key": "plugin.summary",
-      "acceptedSourceHash": "b5590a7af21c3983d26ccc431089137ed526f9235ed7191755190acd8d23e4b0",
-      "acceptedTranslationHash": "fc014b3ed41a3075ab8d78214084c3568b5015639a7fc9a85ebe30cdfc8184b3"
-    },
-    {
-      "locale": "en-US",
-      "module": "plugin-templates/minimal-feature-plugin",
-      "baseName": "web/example-minimal",
-      "key": "status.error",
-      "acceptedSourceHash": "e19ad3927c28eba02a0f92631105cb7667b6e05869951d73ed7e256985d45d65",
-      "acceptedTranslationHash": "f6c82b56a2421f58ac6d54eab6e920812274b070d71c491cf0047af82781dcc6"
+      "acceptedSourceHash": "bebf4d4e1702acd2d4a9ba78926d4e0733cc3b55b8faca90d500b46d12629a0a",
+      "acceptedTranslationHash": "fdddc63b9a11b40a78e89d949a56308a1a782d24f46376a39630d5208af468e9"
     },
     {
       "locale": "en-US",
       "module": "plugin-templates/minimal-feature-plugin",
       "baseName": "web/example-minimal",
       "key": "status.heading",
-      "acceptedSourceHash": "9ca9c208a9139d48b7c008acbc3bad4fe82a359fad16138514933574f112db6e",
-      "acceptedTranslationHash": "6e36baeff734735c5db6fc5cbc8cef8819e28fa4e82c8b761844be967743c193"
-    },
-    {
-      "locale": "en-US",
-      "module": "plugin-templates/minimal-feature-plugin",
-      "baseName": "web/example-minimal",
-      "key": "status.loading",
-      "acceptedSourceHash": "4ad4d63474ae00c4b2d2e39612985021fe60e8ca40b10302d682678f9f884e50",
-      "acceptedTranslationHash": "028649bdfc9f45ed46f1b1e34f59e854aa8afdb14647bcd7e723475ac8bc431c"
+      "acceptedSourceHash": "1f4d84252d19a1295fe84228ac4a2940a5985355db9aeb6944efbbe2cff7f10b",
+      "acceptedTranslationHash": "c829a66e99ff83dfc023ba3c0d467101c29bf849998acaf2fd4ab36ffe3a35ef"
     },
     {
       "locale": "en-US",
       "module": "plugin-templates/minimal-feature-plugin",
       "baseName": "web/example-minimal",
       "key": "status.ready",
-      "acceptedSourceHash": "d3dfb1857fbf62fb0ba831fdce2753cb9aeef487202229c4c282d82b63330d1a",
-      "acceptedTranslationHash": "5462d02ee93a093284a0a42d36bd23c6c4acbb3069bc46fd89fe700932e7f3b6"
+      "acceptedSourceHash": "afcb64e6d26b53bd8eb15682b182567ccbaf72e0677a6cacaffb112672a6dbd7",
+      "acceptedTranslationHash": "2a71d6370b2c77111814b555b06e4bf058b812ecb5ad9fa395534ef29fe9043f"
     },
     {
       "locale": "ja-JP",
@@ -118670,14 +118646,6 @@
       "locale": "ja-JP",
       "module": "plugin-templates/minimal-feature-plugin",
       "baseName": "web/example-minimal",
-      "key": "button.refresh",
-      "acceptedSourceHash": "df7392cc96bedc5170808f9398340926acdf342c9c6d9c120235540d7d024a31",
-      "acceptedTranslationHash": "2322ab25033631770ba1955e96cb5e9c6ff1d8375acf701f8e9062b4edd05362"
-    },
-    {
-      "locale": "ja-JP",
-      "module": "plugin-templates/minimal-feature-plugin",
-      "baseName": "web/example-minimal",
       "key": "page.heading",
       "acceptedSourceHash": "d669b3f1fc9580252287af57b986f1df6dcdc35e694916ad7e97956966936404",
       "acceptedTranslationHash": "14d28bae1da230c845ef886bf5b68424a3c36f501d107b2ef21107db45975285"
@@ -118695,8 +118663,8 @@
       "module": "plugin-templates/minimal-feature-plugin",
       "baseName": "web/example-minimal",
       "key": "page.summary",
-      "acceptedSourceHash": "741459e24bc4016f764f55f4891372854086f3755fb33b3031088c0b19d8ccde",
-      "acceptedTranslationHash": "d1e1e5eea2c6c2957d70dc4fb7ebdc51f5ddb8b9aa38ba711ebf5874d537a80d"
+      "acceptedSourceHash": "c003207ed9abbf672aff3cfd7a740e8dd4f68f1bce0759f7438387b296dcdb24",
+      "acceptedTranslationHash": "c9c3e68f8b626997bd9b6f15717e4d3f00198023ee7bf1cb45db6f868eba8c1b"
     },
     {
       "locale": "ja-JP",
@@ -118719,40 +118687,24 @@
       "module": "plugin-templates/minimal-feature-plugin",
       "baseName": "web/example-minimal",
       "key": "plugin.summary",
-      "acceptedSourceHash": "b5590a7af21c3983d26ccc431089137ed526f9235ed7191755190acd8d23e4b0",
-      "acceptedTranslationHash": "69dfd1cbb97335fe019848248cd7be9173cff1dad772e2ba4c9b35d79e94a015"
-    },
-    {
-      "locale": "ja-JP",
-      "module": "plugin-templates/minimal-feature-plugin",
-      "baseName": "web/example-minimal",
-      "key": "status.error",
-      "acceptedSourceHash": "e19ad3927c28eba02a0f92631105cb7667b6e05869951d73ed7e256985d45d65",
-      "acceptedTranslationHash": "5fb3d4fde2e792ba52a3a19a66057a74b367e7daa2d01e40f5b44ecfe647466a"
+      "acceptedSourceHash": "bebf4d4e1702acd2d4a9ba78926d4e0733cc3b55b8faca90d500b46d12629a0a",
+      "acceptedTranslationHash": "5dd37a50aee050db4bf0b998b20843a7515c9030d007e12a5302bf84bb23ff82"
     },
     {
       "locale": "ja-JP",
       "module": "plugin-templates/minimal-feature-plugin",
       "baseName": "web/example-minimal",
       "key": "status.heading",
-      "acceptedSourceHash": "9ca9c208a9139d48b7c008acbc3bad4fe82a359fad16138514933574f112db6e",
-      "acceptedTranslationHash": "afae971b5e2f7ffb190f641e2cd732601f4c999cc9623536032db52bf3e7227d"
-    },
-    {
-      "locale": "ja-JP",
-      "module": "plugin-templates/minimal-feature-plugin",
-      "baseName": "web/example-minimal",
-      "key": "status.loading",
-      "acceptedSourceHash": "4ad4d63474ae00c4b2d2e39612985021fe60e8ca40b10302d682678f9f884e50",
-      "acceptedTranslationHash": "c7c6425e50cb9433c5576b34bf31b69b039cffb678f6d00e296fdc513b8b8064"
+      "acceptedSourceHash": "1f4d84252d19a1295fe84228ac4a2940a5985355db9aeb6944efbbe2cff7f10b",
+      "acceptedTranslationHash": "a62261ff38ac213aada1e11e219ab1b03ff2c7d64cbb1b2e63bbed7cc947d00c"
     },
     {
       "locale": "ja-JP",
       "module": "plugin-templates/minimal-feature-plugin",
       "baseName": "web/example-minimal",
       "key": "status.ready",
-      "acceptedSourceHash": "d3dfb1857fbf62fb0ba831fdce2753cb9aeef487202229c4c282d82b63330d1a",
-      "acceptedTranslationHash": "6bf666d6f3a96bc48fb2710d774ea2f2180636e1cfb83b568d63d8ac95fbb726"
+      "acceptedSourceHash": "afcb64e6d26b53bd8eb15682b182567ccbaf72e0677a6cacaffb112672a6dbd7",
+      "acceptedTranslationHash": "5d5b8a8c6c32f36ac6459aa65eaa18e454bd0795c88c76b35570213cf4b1ff74"
     },
     {
       "locale": "ko-KR",
@@ -178046,14 +177998,6 @@
       "locale": "ko-KR",
       "module": "plugin-templates/minimal-feature-plugin",
       "baseName": "web/example-minimal",
-      "key": "button.refresh",
-      "acceptedSourceHash": "df7392cc96bedc5170808f9398340926acdf342c9c6d9c120235540d7d024a31",
-      "acceptedTranslationHash": "e887c4e73651a963ced6e05eced21b0bcb6cee4961c80fed8c63e8fc95dd2a19"
-    },
-    {
-      "locale": "ko-KR",
-      "module": "plugin-templates/minimal-feature-plugin",
-      "baseName": "web/example-minimal",
       "key": "page.heading",
       "acceptedSourceHash": "d669b3f1fc9580252287af57b986f1df6dcdc35e694916ad7e97956966936404",
       "acceptedTranslationHash": "d28c5ff5a9c94d8c6f964be17d6efd19dee8a56a31c134aa4bd69adb4ff47507"
@@ -178071,8 +178015,8 @@
       "module": "plugin-templates/minimal-feature-plugin",
       "baseName": "web/example-minimal",
       "key": "page.summary",
-      "acceptedSourceHash": "741459e24bc4016f764f55f4891372854086f3755fb33b3031088c0b19d8ccde",
-      "acceptedTranslationHash": "a2ffad11570dfa30010d2d7e8ab9c2b946ac91491d0d55aa116adb5ccedd40e5"
+      "acceptedSourceHash": "c003207ed9abbf672aff3cfd7a740e8dd4f68f1bce0759f7438387b296dcdb24",
+      "acceptedTranslationHash": "7928eb4fa69c84fec76c76424020c71e4a81478b7aebfe9f34962a32b6c51292"
     },
     {
       "locale": "ko-KR",
@@ -178095,40 +178039,24 @@
       "module": "plugin-templates/minimal-feature-plugin",
       "baseName": "web/example-minimal",
       "key": "plugin.summary",
-      "acceptedSourceHash": "b5590a7af21c3983d26ccc431089137ed526f9235ed7191755190acd8d23e4b0",
-      "acceptedTranslationHash": "4ef5b7e541638fc6c981db1616aac0beffca55a0046a949c0caed7b0a8ed42e3"
-    },
-    {
-      "locale": "ko-KR",
-      "module": "plugin-templates/minimal-feature-plugin",
-      "baseName": "web/example-minimal",
-      "key": "status.error",
-      "acceptedSourceHash": "e19ad3927c28eba02a0f92631105cb7667b6e05869951d73ed7e256985d45d65",
-      "acceptedTranslationHash": "ae288f6aacf9865aaccb96121f15c9f46c18dea6a567e7139ea839f975827558"
+      "acceptedSourceHash": "bebf4d4e1702acd2d4a9ba78926d4e0733cc3b55b8faca90d500b46d12629a0a",
+      "acceptedTranslationHash": "189b8aa2474085d6e357b24782f6ae8043d0143eaa16b59e81d627bc68e0560b"
     },
     {
       "locale": "ko-KR",
       "module": "plugin-templates/minimal-feature-plugin",
       "baseName": "web/example-minimal",
       "key": "status.heading",
-      "acceptedSourceHash": "9ca9c208a9139d48b7c008acbc3bad4fe82a359fad16138514933574f112db6e",
-      "acceptedTranslationHash": "acbdf9e539b467b6fbeb3f06438c045cdd1ec17a44ea50c9a56a5ddbe83576f4"
-    },
-    {
-      "locale": "ko-KR",
-      "module": "plugin-templates/minimal-feature-plugin",
-      "baseName": "web/example-minimal",
-      "key": "status.loading",
-      "acceptedSourceHash": "4ad4d63474ae00c4b2d2e39612985021fe60e8ca40b10302d682678f9f884e50",
-      "acceptedTranslationHash": "14d31ca307fcc56dea3ba9d5f01f3412e64268c1bcf08c6f7c9733f17e857924"
+      "acceptedSourceHash": "1f4d84252d19a1295fe84228ac4a2940a5985355db9aeb6944efbbe2cff7f10b",
+      "acceptedTranslationHash": "6993b9c4b144a5a21e24501cb46513c2bfd65676e7e483ff61518c979d6ed5a0"
     },
     {
       "locale": "ko-KR",
       "module": "plugin-templates/minimal-feature-plugin",
       "baseName": "web/example-minimal",
       "key": "status.ready",
-      "acceptedSourceHash": "d3dfb1857fbf62fb0ba831fdce2753cb9aeef487202229c4c282d82b63330d1a",
-      "acceptedTranslationHash": "a3e7ac5a256c49312747986a6427a049c1451ebff86d5b20db49664710d1123a"
+      "acceptedSourceHash": "afcb64e6d26b53bd8eb15682b182567ccbaf72e0677a6cacaffb112672a6dbd7",
+      "acceptedTranslationHash": "5253800b31f9600c6a9bfc9987d5abfcb5ddfdbdf1881b67e3820605366c0ea4"
     },
     {
       "locale": "zh-Hant",
@@ -237422,14 +237350,6 @@
       "locale": "zh-Hant",
       "module": "plugin-templates/minimal-feature-plugin",
       "baseName": "web/example-minimal",
-      "key": "button.refresh",
-      "acceptedSourceHash": "df7392cc96bedc5170808f9398340926acdf342c9c6d9c120235540d7d024a31",
-      "acceptedTranslationHash": "358a13c304aa56e75a99e899a1c8322bba9c3fcd62066aedbfd1bde534ab13c9"
-    },
-    {
-      "locale": "zh-Hant",
-      "module": "plugin-templates/minimal-feature-plugin",
-      "baseName": "web/example-minimal",
       "key": "page.heading",
       "acceptedSourceHash": "d669b3f1fc9580252287af57b986f1df6dcdc35e694916ad7e97956966936404",
       "acceptedTranslationHash": "f96d2dcb1b41b6a5f4dabc72ba768f5179ce4d2730a842bbeda144bba7f65ff9"
@@ -237447,8 +237367,8 @@
       "module": "plugin-templates/minimal-feature-plugin",
       "baseName": "web/example-minimal",
       "key": "page.summary",
-      "acceptedSourceHash": "741459e24bc4016f764f55f4891372854086f3755fb33b3031088c0b19d8ccde",
-      "acceptedTranslationHash": "bc81db073ea39e5f9fa29188629b3413911c13f2a08a8405c13c5ee3945952ab"
+      "acceptedSourceHash": "c003207ed9abbf672aff3cfd7a740e8dd4f68f1bce0759f7438387b296dcdb24",
+      "acceptedTranslationHash": "5a5d0b99a5fb77504e4cd9ea3c8e391d6ccd237a0ec7e9d61cd1c3ad780919e4"
     },
     {
       "locale": "zh-Hant",
@@ -237471,40 +237391,24 @@
       "module": "plugin-templates/minimal-feature-plugin",
       "baseName": "web/example-minimal",
       "key": "plugin.summary",
-      "acceptedSourceHash": "b5590a7af21c3983d26ccc431089137ed526f9235ed7191755190acd8d23e4b0",
-      "acceptedTranslationHash": "85f2d583cd270a302571718a9bb81f6abff9ec37da6518338c6449d683b144b2"
-    },
-    {
-      "locale": "zh-Hant",
-      "module": "plugin-templates/minimal-feature-plugin",
-      "baseName": "web/example-minimal",
-      "key": "status.error",
-      "acceptedSourceHash": "e19ad3927c28eba02a0f92631105cb7667b6e05869951d73ed7e256985d45d65",
-      "acceptedTranslationHash": "d7f637176f4cf2d45f05e272cd1728f22dc326ed51c25e0eaa585b5fbab1971d"
+      "acceptedSourceHash": "bebf4d4e1702acd2d4a9ba78926d4e0733cc3b55b8faca90d500b46d12629a0a",
+      "acceptedTranslationHash": "411451ee1374a5ca9878c5756a16815c945574d84744f30782fd48cda9b6f52f"
     },
     {
       "locale": "zh-Hant",
       "module": "plugin-templates/minimal-feature-plugin",
       "baseName": "web/example-minimal",
       "key": "status.heading",
-      "acceptedSourceHash": "9ca9c208a9139d48b7c008acbc3bad4fe82a359fad16138514933574f112db6e",
-      "acceptedTranslationHash": "952060d57d181520df54bbbbc235f7127373c8a820645e49e47818e641949557"
-    },
-    {
-      "locale": "zh-Hant",
-      "module": "plugin-templates/minimal-feature-plugin",
-      "baseName": "web/example-minimal",
-      "key": "status.loading",
-      "acceptedSourceHash": "4ad4d63474ae00c4b2d2e39612985021fe60e8ca40b10302d682678f9f884e50",
-      "acceptedTranslationHash": "b76dc998abb4da8d2bf8c57612d09416eee1b1ab186c84c99ce059631319fa6c"
+      "acceptedSourceHash": "1f4d84252d19a1295fe84228ac4a2940a5985355db9aeb6944efbbe2cff7f10b",
+      "acceptedTranslationHash": "ab37a35910ee85c2b62d012eaee82735b7840d51f2b5d0b93108891e85b8e202"
     },
     {
       "locale": "zh-Hant",
       "module": "plugin-templates/minimal-feature-plugin",
       "baseName": "web/example-minimal",
       "key": "status.ready",
-      "acceptedSourceHash": "d3dfb1857fbf62fb0ba831fdce2753cb9aeef487202229c4c282d82b63330d1a",
-      "acceptedTranslationHash": "6ecb3ee0781144cd58e3b2d2b59a4dd76daaa161e6f9a82c36e737e6dc298032"
+      "acceptedSourceHash": "afcb64e6d26b53bd8eb15682b182567ccbaf72e0677a6cacaffb112672a6dbd7",
+      "acceptedTranslationHash": "98ad6946961e99c71515395199ca3a9466fd08f945852a10c7ead7be7c5aa41c"
     }
   ]
 }

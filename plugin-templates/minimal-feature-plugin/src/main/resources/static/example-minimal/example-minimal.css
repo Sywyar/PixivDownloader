@@ -6,9 +6,7 @@
     --example-muted: #5d687b;
     --example-border: #dce3ee;
     --example-accent: #2563eb;
-    --example-accent-hover: #1d4ed8;
     --example-success: #15803d;
-    --example-danger: #b91c1c;
     --example-shadow: rgba(15, 23, 42, 0.12);
 }
 
@@ -20,9 +18,7 @@ html[data-theme="dark"] {
     --example-muted: #aab5c8;
     --example-border: #33405a;
     --example-accent: #7aa2ff;
-    --example-accent-hover: #9ab9ff;
     --example-success: #69d58b;
-    --example-danger: #ff9292;
     --example-shadow: rgba(0, 0, 0, 0.32);
 }
 
@@ -100,34 +96,4 @@ h1 {
 
 #example-status-message[data-state="ready"] {
     color: var(--example-success);
-}
-
-#example-status-message[data-state="error"] {
-    color: var(--example-danger);
-}
-
-button {
-    min-height: 2.75rem;
-    padding: 0.65rem 1rem;
-    border: 0;
-    border-radius: 0.7rem;
-    background: var(--example-accent);
-    color: var(--example-surface);
-    cursor: pointer;
-    font: inherit;
-    font-weight: 700;
-}
-
-button:hover:not(:disabled) {
-    background: var(--example-accent-hover);
-}
-
-button:focus-visible {
-    outline: 3px solid var(--example-accent);
-    outline-offset: 3px;
-}
-
-button:disabled {
-    cursor: wait;
-    opacity: 0.65;
 }
