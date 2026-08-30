@@ -129,14 +129,16 @@ class PluginManagePageGuardTest {
     }
 
     @Test
-    @DisplayName("生命周期策略完全由 DTO 驱动：三类标签、持久化开关与反馈弹窗均接线且不使用原生对话框")
-    void lifecyclePolicyDrivesLabelsTogglesAndRestartGuidance() throws IOException {
+    @DisplayName("执行模式与生命周期策略完全由 DTO 驱动，且反馈弹窗不使用原生对话框")
+    void executionModeAndLifecyclePolicyDriveLabelsTogglesAndRestartGuidance() throws IOException {
         String core = read(CORE);
-        assertThat(core).contains("entry.lifecyclePolicy", "entry.configuredEnabled", "entry.toggleable");
+        assertThat(core).contains("entry.executionMode", "entry.lifecyclePolicy", "entry.configuredEnabled", "entry.toggleable");
+        assertThat(core).contains("ISOLATED_PROCESS", "TRUSTED_IN_PROCESS");
         assertThat(core).contains("HOT_RELOAD", "BACKEND_RESTART", "PROCESS_RESTART");
 
         String views = read(VIEWS);
-        assertThat(views).contains("vm.showLifecycleTag", "vm.lifecycleLabel", "vm.enabled");
+        assertThat(views).contains("vm.showExecutionTag", "vm.executionLabel",
+                "vm.showLifecycleTag", "vm.lifecycleLabel", "vm.enabled");
 
         String init = read(INIT);
         assertThat(init).as("需重启策略持久化启停配置").contains("PM.setEnabled");
@@ -148,13 +150,14 @@ class PluginManagePageGuardTest {
     }
 
     @Test
-    @DisplayName("生命周期与重启提示文案中英键集合一致且关键文案非空")
-    void lifecycleI18nKeysMatchAcrossLocales() throws IOException {
+    @DisplayName("执行信任、生命周期与重启提示文案中英键集合一致且关键文案非空")
+    void executionAndLifecycleI18nKeysMatchAcrossLocales() throws IOException {
         Properties zh = readProperties(I18N_ZH);
         Properties en = readProperties(I18N_EN);
         assertThat(zh.stringPropertyNames()).as("plugins 中英文案键集合一致")
                 .isEqualTo(en.stringPropertyNames());
         for (String key : new String[]{
+                "execution.isolated-process", "execution.trusted-in-process",
                 "lifecycle.hot-reload", "lifecycle.backend-restart", "lifecycle.process-restart",
                 "toggle.saved.enabled", "toggle.saved.disabled", "toggle.failed",
                 "restart.backend.message", "restart.backend.confirm", "restart.backend.later",

@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.plugin.runtime.status.PluginRuntimeVerificationS
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginInventorySnapshot;
@@ -224,6 +225,7 @@ public class PluginManagementService {
                 operation != null ? operation.operation() : ExternalPluginOperation.IDLE,
                 operation != null ? operation.transactionId() : null,
                 operation != null ? operation.diagnostic() : null,
+                descriptor != null ? descriptor.executionMode() : null,
                 lifecyclePolicy,
                 pluginToggles.isEnabled(id),
                 toggleable);
@@ -662,6 +664,7 @@ public class PluginManagementService {
      * @param availableActions 当前建议可用的运行期动词（建议性）
      * @param messages         诊断说明
      * @param verification     验签状态投影（前端只消费本字段，不自行推断可信来源）
+     * @param executionMode    插件代码执行隔离级别（无描述符时为 {@code null}）
      * @param lifecyclePolicy  描述符声明的生命周期策略（无描述符时为 {@code null}）
      * @param configuredEnabled 当前配置中的期望启用态（缺项默认 {@code true}）
      * @param toggleable       是否允许管理入口修改期望启用态（内置 / 必选 / 无描述符均为 {@code false}）
@@ -690,6 +693,7 @@ public class PluginManagementService {
             ExternalPluginOperation operation,
             String transactionId,
             String operationDiagnostic,
+            PluginExecutionMode executionMode,
             PluginLifecyclePolicy lifecyclePolicy,
             boolean configuredEnabled,
             boolean toggleable) {
@@ -718,6 +722,7 @@ public class PluginManagementService {
                     sdkRequirement, dependencies, source, status, runtimePhase, managed, requiredByPolicy,
                     allowDisable, availableActions, messages, PluginVerificationProjector.unverifiedLocal(),
                     null, ExternalPluginOperation.IDLE, null, null,
+                    PluginExecutionMode.TRUSTED_IN_PROCESS,
                     PluginLifecyclePolicy.HOT_RELOAD, true, false);
         }
 
@@ -748,6 +753,7 @@ public class PluginManagementService {
                     sdkRequirement, dependencies, source, status, runtimePhase, managed, requiredByPolicy,
                     allowDisable, availableActions, messages, PluginVerificationProjector.unverifiedLocal(),
                     null, ExternalPluginOperation.IDLE, null, null,
+                    PluginExecutionMode.TRUSTED_IN_PROCESS,
                     lifecyclePolicy, configuredEnabled, toggleable);
         }
     }

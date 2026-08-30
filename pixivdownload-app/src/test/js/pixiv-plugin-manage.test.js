@@ -6,7 +6,7 @@
  * 本测试只调用纯函数与 api 层，故无需 DOM），用最小 i18n / fetch / FormData 桩验证两组契约：
  *
  * 一、展示元数据——卡片视图模型对后端 descriptionKey / iconKey / colorToken 的解析与受控白名单回退，
- *    并把 lifecyclePolicy / configuredEnabled / toggleable 映射为三类生命周期标签与开关语义。
+ *    并把 executionMode / lifecyclePolicy / configuredEnabled / toggleable 映射为执行信任、生命周期标签与开关语义。
  *
  * 二、启停 API——HOT_RELOAD 继续保留运行期动词；需重启策略通过 PUT /enabled 持久化，后端重启走独立 POST。
  *
@@ -68,6 +68,7 @@ const PM = sandbox.window.PixivPluginManage;
 ok('PixivPluginManage 已挂载（core+api+views）', PM
     && typeof PM.allViewModels === 'function'
     && typeof PM.applyReport === 'function'
+    && typeof PM.executionModeMeta === 'function'
     && typeof PM.lifecyclePolicyMeta === 'function'
     && typeof PM.setEnabled === 'function'
     && typeof PM.restartBackend === 'function'
@@ -151,6 +152,25 @@ function vmOf(entry) {
 const DESC_BUILT_IN = '内置插件，随主程序编译。';
 const DESC_EXTERNAL = '外置插件；启停后的生效方式以生命周期标签为准。';
 const DESC_NOT_INSTALLED = '该插件尚未安装。';
+
+(function () {
+    const isolated = vmOf({
+        id: 'isolated', source: 'external', status: 'STARTED', executionMode: 'ISOLATED_PROCESS'
+    });
+    eq('隔离进程标签', isolated.executionLabel, '独立 JVM（有限隔离）');
+    eq('隔离进程色调', isolated.executionTone, 'info');
+    ok('外置插件显示执行信任标签', isolated.showExecutionTag === true);
+
+    const trusted = vmOf({
+        id: 'trusted', source: 'external', status: 'STARTED', executionMode: 'TRUSTED_IN_PROCESS'
+    });
+    eq('同进程完全受信标签', trusted.executionLabel, '同进程完全受信');
+    eq('同进程完全受信色调', trusted.executionTone, 'warn');
+    eq('未知执行模式安全收敛为同进程完全受信', PM.executionModeOf('future-mode'), 'TRUSTED_IN_PROCESS');
+
+    const builtIn = vmOf({ id: 'core', source: 'built-in', status: 'STARTED', executionMode: 'TRUSTED_IN_PROCESS' });
+    ok('内置插件不重复显示执行信任标签', builtIn.showExecutionTag === false);
+})();
 
 // —— 1) descriptionKey 命中：经 tns(displayNamespace, descriptionKey, fallback) 解析 ——
 (function () {
@@ -240,7 +260,8 @@ const DESC_NOT_INSTALLED = '该插件尚未安装。';
 (function () {
     const vmm = vmOf({
         id: 'compact-demo', source: 'external', status: 'STARTED', managed: true, runtimePhase: 'STARTED',
-        version: '1.2.3', lifecyclePolicy: 'HOT_RELOAD', configuredEnabled: true, toggleable: true,
+        version: '1.2.3', executionMode: 'ISOLATED_PROCESS', lifecyclePolicy: 'HOT_RELOAD',
+        configuredEnabled: true, toggleable: true,
         availableActions: ['restart', 'remove'], descriptionKey: null, tags: ['demo']
     });
     const html = PM.renderCardHtml(vmm);
@@ -249,6 +270,7 @@ const DESC_NOT_INSTALLED = '该插件尚未安装。';
     ok('卡片首行显示状态与开关',
         html.indexOf('pm-card-status') !== -1 && html.indexOf('data-pm-toggle="compact-demo"') !== -1);
     ok('完整描述始终可见', html.indexOf(DESC_EXTERNAL) !== -1);
+    ok('卡片显示执行信任级别', html.indexOf('独立 JVM（有限隔离）') !== -1);
     ok('不使用展开控件', html.indexOf('data-pm-expand') === -1 && html.indexOf('is-expanded') === -1);
     ok('浮层菜单只渲染后端可用动词',
         html.indexOf('data-pm-action-menu-toggle') !== -1

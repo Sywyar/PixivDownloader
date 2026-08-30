@@ -80,6 +80,16 @@
         }
     }
 
+    // 执行隔离级别 → 底栏元信息图标与色调类。
+    var EXECUTION_ITEM_META = {
+        ISOLATED_PROCESS:   { icon: 'fa-box', tone: 'info' },
+        TRUSTED_IN_PROCESS: { icon: 'fa-triangle-exclamation', tone: 'warn' }
+    };
+
+    function executionItemMeta(mode) {
+        return EXECUTION_ITEM_META[mode] || EXECUTION_ITEM_META.TRUSTED_IN_PROCESS;
+    }
+
     // 生命周期策略 → 底栏元信息图标与色调类（替代原标签区：同类信息以更轻的图标项表达）。
     var LIFECYCLE_ITEM_META = {
         HOT_RELOAD:      { icon: 'fa-bolt',         tone: 'ok' },
@@ -182,9 +192,14 @@
             }).join('') + '</div>');
         }
 
-        // 底栏：轻量元信息（生命周期 / SDK / 依赖数 / 验签）+ 浮层操作菜单。
+        // 底栏：轻量元信息（执行信任级别 / 生命周期 / SDK / 依赖数 / 验签）+ 浮层操作菜单。
         parts.push('<div class="pm-card-foot">');
         parts.push('<div class="pm-meta">');
+        if (vm.showExecutionTag) {
+            var em = executionItemMeta(vm.executionMode);
+            parts.push('<span class="pm-meta-item pm-meta-item--' + em.tone + '"><i class="fa-solid '
+                + em.icon + '"></i>' + E(vm.executionLabel) + '</span>');
+        }
         if (vm.showLifecycleTag) {
             var lm = lifecycleItemMeta(vm.lifecyclePolicy);
             parts.push('<span class="pm-meta-item pm-meta-item--' + lm.tone + '"><i class="fa-solid '

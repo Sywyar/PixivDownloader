@@ -6,7 +6,7 @@
  * 数据来源：后端管理 API（admin-only，已接线）。后端响应见 PluginManagementService.PluginManagementReport：
  *   { recoveryMode, plugins: [ { id, displayNamespace, displayNameKey, descriptionKey, iconKey, colorToken,
  *     version, kind, sdkRequirement, dependencies, source, status, runtimePhase, managed, requiredByPolicy,
- *     allowDisable, lifecyclePolicy, configuredEnabled, toggleable, availableActions, messages } ] }
+ *     allowDisable, executionMode, lifecyclePolicy, configuredEnabled, toggleable, availableActions, messages } ] }
  * 其中 descriptionKey 是纯 i18n key（在 displayNamespace 内解析）；iconKey / colorToken 是<b>受控展示 token</b>
  * （非 URL / CSS / 远程资源），经共享 PixivPluginPresentationTokens 映射为图标 class / 颜色 class，未知值回退默认。设计稿里后端仍未
  * 提供的字段（更新机制 / 体积 / 下载量 / 作者）在此处优雅留空（见各 vm.hasUpdate 等占位字段），待后端补齐后再点亮。
@@ -157,6 +157,21 @@
         return VERIFICATION_META[status] || { key: 'verification.unverified-local', tone: 'idle' };
     }
 
+    // 插件代码执行隔离级别。未知 token 按同进程完全受信收敛，避免向用户误报隔离保护。
+    var EXECUTION_MODE_META = {
+        ISOLATED_PROCESS:   { key: 'execution.isolated-process', tone: 'info', fallback: '独立 JVM（有限隔离）' },
+        TRUSTED_IN_PROCESS: { key: 'execution.trusted-in-process', tone: 'warn', fallback: '同进程完全受信' }
+    };
+
+    function executionModeOf(value) {
+        var token = value == null ? '' : String(value).trim().toUpperCase();
+        return token === 'ISOLATED_PROCESS' ? token : 'TRUSTED_IN_PROCESS';
+    }
+
+    function executionModeMeta(mode) {
+        return EXECUTION_MODE_META[executionModeOf(mode)];
+    }
+
     // 插件声明的启停生效策略。未知 token 按完整进程重启收敛，避免误走热启停。
     var LIFECYCLE_POLICY_META = {
         HOT_RELOAD:      { key: 'lifecycle.hot-reload', tone: 'hot', fallback: '热重载' },
@@ -219,6 +234,8 @@
         var verification = entry.verification || {};
         var verificationStatus = verification.status || null;
         var verificationInfo = verificationMeta(verificationStatus);
+        var executionMode = executionModeOf(entry.executionMode);
+        var executionInfo = executionModeMeta(executionMode);
         var lifecyclePolicy = lifecyclePolicyOf(entry.lifecyclePolicy);
         var lifecycleInfo = lifecyclePolicyMeta(lifecyclePolicy);
         var configuredEnabled = entry.configuredEnabled !== false;
@@ -250,6 +267,10 @@
             running: running,
             enabled: enabled,
             configuredEnabled: configuredEnabled,
+            executionMode: executionMode,
+            executionLabel: t(executionInfo.key, executionInfo.fallback),
+            executionTone: executionInfo.tone,
+            showExecutionTag: source === 'external',
             lifecyclePolicy: lifecyclePolicy,
             lifecycleLabel: t(lifecycleInfo.key, lifecycleInfo.fallback),
             lifecycleTone: lifecycleInfo.tone,
@@ -469,6 +490,8 @@
         statusMeta: statusMeta,
         verbMeta: verbMeta,
         verificationMeta: verificationMeta,
+        executionModeOf: executionModeOf,
+        executionModeMeta: executionModeMeta,
         lifecyclePolicyOf: lifecyclePolicyOf,
         lifecyclePolicyMeta: lifecyclePolicyMeta,
         applyReport: applyReport,

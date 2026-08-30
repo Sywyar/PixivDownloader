@@ -11,6 +11,7 @@ import top.sywyar.pixivdownload.plugin.runtime.status.PluginRuntimeVerificationS
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
@@ -149,6 +150,7 @@ class PluginManagementServiceTest {
         assertThat(external.managed()).isTrue();
         assertThat(external.runtimePhase()).isEqualTo(PluginRuntimePhase.STARTED);
         assertThat(external.allowDisable()).isTrue();
+        assertThat(external.executionMode()).isEqualTo(PluginExecutionMode.ISOLATED_PROCESS);
         assertThat(external.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.HOT_RELOAD);
         assertThat(external.configuredEnabled()).isTrue();
         assertThat(external.toggleable()).isTrue();
@@ -168,6 +170,7 @@ class PluginManagementServiceTest {
         assertThat(missing.source()).isEqualTo("not-installed");
         assertThat(missing.requiredByPolicy()).isTrue();
         assertThat(missing.displayNameKey()).isNull();
+        assertThat(missing.executionMode()).isNull();
         assertThat(missing.managed()).isFalse();
         // 未安装的必选项无描述符 → sdkRequirement 为 null、dependencies 为空列表（不抛、不臆造）。
         assertThat(missing.sdkRequirement()).isNull();
