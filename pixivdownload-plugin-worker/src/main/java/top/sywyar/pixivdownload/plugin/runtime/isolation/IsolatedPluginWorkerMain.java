@@ -1,12 +1,12 @@
 package top.sywyar.pixivdownload.plugin.runtime.isolation;
 
+import org.pf4j.DefaultPluginManager;
 import org.pf4j.Plugin;
 import org.pf4j.PluginManager;
 import org.pf4j.PluginState;
 import org.pf4j.PluginWrapper;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivPluginProvider;
-import top.sywyar.pixivdownload.plugin.runtime.pf4j.HostControlledPluginManager;
 
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
@@ -105,7 +105,7 @@ public final class IsolatedPluginWorkerMain {
             throw new IOException("isolated plugin artifact digest changed before worker admission");
         }
 
-        HostControlledPluginManager opened = new HostControlledPluginManager(artifact.getParent());
+        DefaultPluginManager opened = new DefaultPluginManager(artifact.getParent());
         String loadedId = opened.loadPlugin(artifact);
         if (!expectedId.equals(loadedId)) {
             throw new IOException("isolated plugin id does not match the verified descriptor");

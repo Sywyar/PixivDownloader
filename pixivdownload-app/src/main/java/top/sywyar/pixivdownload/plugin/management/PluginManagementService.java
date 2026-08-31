@@ -722,7 +722,7 @@ public class PluginManagementService {
                     sdkRequirement, dependencies, source, status, runtimePhase, managed, requiredByPolicy,
                     allowDisable, availableActions, messages, PluginVerificationProjector.unverifiedLocal(),
                     null, ExternalPluginOperation.IDLE, null, null,
-                    PluginExecutionMode.TRUSTED_IN_PROCESS,
+                    PluginExecutionMode.HOST_PROCESS_FULL_TRUST,
                     PluginLifecyclePolicy.HOT_RELOAD, true, false);
         }
 
@@ -753,7 +753,7 @@ public class PluginManagementService {
                     sdkRequirement, dependencies, source, status, runtimePhase, managed, requiredByPolicy,
                     allowDisable, availableActions, messages, PluginVerificationProjector.unverifiedLocal(),
                     null, ExternalPluginOperation.IDLE, null, null,
-                    PluginExecutionMode.TRUSTED_IN_PROCESS,
+                    PluginExecutionMode.HOST_PROCESS_FULL_TRUST,
                     lifecyclePolicy, configuredEnabled, toggleable);
         }
     }

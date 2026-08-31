@@ -171,7 +171,7 @@ class PluginDescriptorTest {
         PluginDescriptor packageDescriptor = new PluginDescriptor("gui-swing-pack", "gui-swing-pack", "1.0.0",
                 VersionRequirement.parse("1.0"), List.of(), "com.example.ThemePlugin", null,
                 "package.label", null, null, null, PluginKind.FEATURE, List.of("legacy-theme"),
-                PluginLifecyclePolicy.PROCESS_RESTART, PluginExecutionMode.TRUSTED_IN_PROCESS,
+                PluginLifecyclePolicy.PROCESS_RESTART, PluginExecutionMode.HOST_PROCESS_FULL_TRUST,
                 List.of("com.example.ThemeConfiguration"));
 
         PluginDescriptor attached = runtimeDescriptor.withPackageMetadataFrom(packageDescriptor);
@@ -179,7 +179,7 @@ class PluginDescriptorTest {
         assertThat(attached.displayName()).isEqualTo("theme.label");
         assertThat(attached.replaces()).containsExactly("legacy-theme");
         assertThat(attached.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.PROCESS_RESTART);
-        assertThat(attached.executionMode()).isEqualTo(PluginExecutionMode.TRUSTED_IN_PROCESS);
+        assertThat(attached.executionMode()).isEqualTo(PluginExecutionMode.HOST_PROCESS_FULL_TRUST);
         assertThat(attached.configurationClassNames()).containsExactly("com.example.ThemeConfiguration");
     }
 
@@ -189,12 +189,32 @@ class PluginDescriptorTest {
         PluginDescriptor descriptor = new PluginDescriptor(
                 "ext", "ext", "1.0.0", VersionRequirement.parse("1.0"), List.of(),
                 "com.example.Plugin", null, "plugin.name", null, null, null, PluginKind.FEATURE,
-                List.of(), PluginLifecyclePolicy.PROCESS_RESTART, PluginExecutionMode.TRUSTED_IN_PROCESS,
+                List.of(), PluginLifecyclePolicy.PROCESS_RESTART, PluginExecutionMode.HOST_PROCESS_FULL_TRUST,
                 List.of("bad-class-name", "com.example.Valid", "com.example.Valid"));
 
         assertThat(descriptor.validationErrors())
                 .anyMatch(error -> error.contains("invalid configuration class"))
                 .anyMatch(error -> error.contains("configuration classes must be unique"));
+    }
+
+    @Test
+    @DisplayName("旧包缺执行模式时保持宿主完全信任和热重载兼容")
+    void legacyDescriptorDefaultsToHostFullTrustWithoutLifecycleRestriction() {
+        PluginDescriptor descriptor = external("legacy", "1.0.0", "1.0",
+                "com.example.LegacyPlugin", "legacy.label", PluginKind.FEATURE, List.of());
+
+        assertThat(descriptor.executionMode()).isEqualTo(PluginExecutionMode.HOST_PROCESS_FULL_TRUST);
+        assertThat(descriptor.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.HOT_RELOAD);
+        assertThat(descriptor.externalValidationErrors()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("旧执行模式 token 保持原有运行位置兼容")
+    void legacyExecutionModeTokensRemainCompatible() {
+        assertThat(PluginExecutionMode.parse("trusted-in-process"))
+                .isEqualTo(PluginExecutionMode.HOST_PROCESS_FULL_TRUST);
+        assertThat(PluginExecutionMode.parse("isolated-process"))
+                .isEqualTo(PluginExecutionMode.DECLARATIVE_PROCESS);
     }
 
     private static PluginDescriptor external(String id, String version, String requires, String pluginClass,

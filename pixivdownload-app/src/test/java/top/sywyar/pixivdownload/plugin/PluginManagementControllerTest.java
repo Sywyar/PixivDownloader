@@ -124,7 +124,7 @@ class PluginManagementControllerTest {
                 .andExpect(jsonPath("$.plugins[0].source").value("external"))
                 .andExpect(jsonPath("$.plugins[0].runtimePhase").value("STARTED"))
                 .andExpect(jsonPath("$.plugins[0].managed").value(true))
-                .andExpect(jsonPath("$.plugins[0].executionMode").value("TRUSTED_IN_PROCESS"))
+                .andExpect(jsonPath("$.plugins[0].executionMode").value("HOST_PROCESS_FULL_TRUST"))
                 .andExpect(jsonPath("$.plugins[0].lifecyclePolicy").value("HOT_RELOAD"))
                 .andExpect(jsonPath("$.plugins[0].configuredEnabled").value(true))
                 .andExpect(jsonPath("$.plugins[0].toggleable").value(true))

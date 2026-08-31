@@ -545,7 +545,7 @@ class PixivPluginDiscoveryBridgeTest {
                 PluginKind.FEATURE,
                 List.of(),
                 top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy.PROCESS_RESTART,
-                top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode.TRUSTED_IN_PROCESS,
+                top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode.HOST_PROCESS_FULL_TRUST,
                 configurationClassNames);
     }
 

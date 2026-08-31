@@ -157,15 +157,15 @@
         return VERIFICATION_META[status] || { key: 'verification.unverified-local', tone: 'idle' };
     }
 
-    // 插件代码执行隔离级别。未知 token 按同进程完全受信收敛，避免向用户误报隔离保护。
+    // 插件代码执行位置。未知 token 按宿主进程完全信任收敛，避免向用户误报隔离保护。
     var EXECUTION_MODE_META = {
-        ISOLATED_PROCESS:   { key: 'execution.isolated-process', tone: 'info', fallback: '独立 JVM（有限隔离）' },
-        TRUSTED_IN_PROCESS: { key: 'execution.trusted-in-process', tone: 'warn', fallback: '同进程完全受信' }
+        DECLARATIVE_PROCESS:     { key: 'execution.declarative-process', tone: 'info', fallback: '声明式独立 JVM（有限隔离）' },
+        HOST_PROCESS_FULL_TRUST: { key: 'execution.host-process-full-trust', tone: 'warn', fallback: '宿主进程完全信任' }
     };
 
     function executionModeOf(value) {
         var token = value == null ? '' : String(value).trim().toUpperCase();
-        return token === 'ISOLATED_PROCESS' ? token : 'TRUSTED_IN_PROCESS';
+        return token === 'DECLARATIVE_PROCESS' ? token : 'HOST_PROCESS_FULL_TRUST';
     }
 
     function executionModeMeta(mode) {

@@ -19,6 +19,7 @@ import top.sywyar.pixivdownload.runtimeprobe.IsolatedStaticProbePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageException;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
@@ -121,11 +122,11 @@ class PluginRuntimeManagerTest {
     }
 
     @Test
-    @DisplayName("未声明执行模式的生产包只在独立 worker 中实例化并以进程退出完成清退")
-    void runsDefaultIsolatedPackageInWorkerAndTerminatesItOnStop() throws IOException {
+    @DisplayName("显式声明式生产包只在独立 worker 中实例化并以进程退出完成清退")
+    void runsDeclarativePackageInWorkerAndTerminatesItOnStop() throws IOException {
         Path plugins = tempDir.resolve("plugins-isolated-default");
         Path jar = plugins.resolve("bootstrap-probe-1.0.0.jar");
-        writeDefaultIsolatedProbeJar(jar);
+        writeDeclarativeProbeJar(jar);
         writeLocalProvenance(plugins, jar);
         top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager manager =
                 new top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager(plugins, () -> true);
@@ -168,7 +169,7 @@ class PluginRuntimeManagerTest {
     void strictIsolationRejectsIsolatedPluginBeforeStartingWorker() throws IOException {
         Path plugins = tempDir.resolve("plugins-strict-isolation");
         Path jar = plugins.resolve("bootstrap-probe-1.0.0.jar");
-        writeDefaultIsolatedProbeJar(jar);
+        writeDeclarativeProbeJar(jar);
         writeLocalProvenance(plugins, jar);
         System.setProperty(
                 top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager.REQUIRE_OS_SANDBOX_PROPERTY,
@@ -237,15 +238,15 @@ class PluginRuntimeManagerTest {
     }
 
     @Test
-    @DisplayName("未声明执行模式的开发插件在进入 PF4J 前按隔离进程失败关闭")
-    void rejectsDefaultIsolatedDevelopmentPluginBeforePf4jLoad() throws IOException {
+    @DisplayName("显式声明式开发插件在进入 PF4J 前失败关闭")
+    void rejectsDeclarativeDevelopmentPluginBeforePf4jLoad() throws IOException {
         Path repositoryRoot = tempDir.resolve("repo-isolated-development");
         Path pluginsRoot = repositoryRoot.resolve("plugins");
         Files.createDirectories(pluginsRoot);
         Path moduleRoot = repositoryRoot.resolve("pixivdownload-plugin-bootstrap-probe");
-        writeDefaultIsolatedProbeSourceDescriptor(moduleRoot);
+        writeDeclarativeProbeSourceDescriptor(moduleRoot);
         Path classesDirectory = moduleRoot.resolve("target/classes");
-        writeDefaultIsolatedProbeClassesDirectory(classesDirectory);
+        writeDeclarativeProbeClassesDirectory(classesDirectory);
         PluginRuntimeManager manager = new PluginRuntimeManager(pluginsRoot);
         String previousEnabled = System.getProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY);
         String previousRoot = System.getProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY);
@@ -257,7 +258,7 @@ class PluginRuntimeManagerTest {
 
             assertThatThrownBy(() -> manager.loadPlugin(classesDirectory))
                     .isInstanceOf(PluginRuntimeOperationException.class)
-                    .hasMessageContaining("isolated-process development plugin execution is unavailable");
+                    .hasMessageContaining("declarative-process development plugin execution is unavailable");
             assertThat(manager.pluginManagerForTest()).isEmpty();
             assertThat(manager.generation(PROBE_ID)).isEmpty();
             assertThat(marker).doesNotExist();
@@ -269,7 +270,7 @@ class PluginRuntimeManagerTest {
     }
 
     @Test
-    @DisplayName("物理 load 不执行插件代码，显式初始化后沿用包清单生命周期策略")
+    @DisplayName("旧包缺执行模式时使用宿主完全信任并支持标准 PluginWrapper 构造器")
     void preservesManifestLifecyclePolicyAcrossRuntimeDiscovery() throws IOException {
         Path plugins = tempDir.resolve("plugins");
         Path jar = plugins.resolve("bootstrap-probe-1.0.0.jar");
@@ -287,8 +288,12 @@ class PluginRuntimeManagerTest {
         LoadedPluginPackage initialized = manager.initializePlugin(PROBE_ID);
         assertThat(Files.readAllLines(marker, StandardCharsets.UTF_8)).containsExactly("load");
         assertThat(initialized.inventory().installations()).singleElement()
-                .satisfies(installation -> assertThat(installation.descriptor().lifecyclePolicy())
-                        .isEqualTo(PluginLifecyclePolicy.PROCESS_RESTART));
+                .satisfies(installation -> {
+                    assertThat(installation.descriptor().lifecyclePolicy())
+                            .isEqualTo(PluginLifecyclePolicy.PROCESS_RESTART);
+                    assertThat(installation.descriptor().executionMode())
+                            .isEqualTo(PluginExecutionMode.HOST_PROCESS_FULL_TRUST);
+                });
         assertThat(manager.loadedDescriptor(PROBE_ID)).hasValueSatisfying(descriptor ->
                 assertThat(descriptor.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.PROCESS_RESTART));
 
@@ -1746,11 +1751,11 @@ class PluginRuntimeManagerTest {
         }
     }
 
-    private static void writeDefaultIsolatedProbeJar(Path jar) throws IOException {
+    private static void writeDeclarativeProbeJar(Path jar) throws IOException {
         Files.createDirectories(jar.getParent());
         try (OutputStream out = Files.newOutputStream(jar);
              ZipOutputStream zos = new ZipOutputStream(out)) {
-            addDescriptor(zos, "hot-reload", null);
+            addDescriptor(zos, "hot-reload", "declarative-process");
             addClassEntry(zos, BootstrapProbePlugin.class, "");
             addClassEntry(zos, BootstrapProbeFeaturePlugin.class, "");
         }
@@ -1769,7 +1774,8 @@ class PluginRuntimeManagerTest {
                     + "pixiv.kind=feature\n"
                     + "pixiv.display-namespace=isolated-static\n"
                     + "pixiv.display-name-key=plugin.name\n"
-                    + "pixiv.description-key=plugin.summary\n";
+                    + "pixiv.description-key=plugin.summary\n"
+                    + "pixiv.execution-mode=declarative-process\n";
             zos.putNextEntry(new ZipEntry("plugin.properties"));
             zos.write(descriptor.getBytes(StandardCharsets.UTF_8));
             zos.closeEntry();
@@ -1843,7 +1849,7 @@ class PluginRuntimeManagerTest {
                 + "plugin.provider=test\nplugin.description=bootstrap probe\n"
                 + "pixiv.kind=feature\n"
                 + "pixiv.lifecycle-policy=process-restart\n"
-                + "pixiv.execution-mode=trusted-in-process\n";
+                + "pixiv.execution-mode=host-process-full-trust\n";
         Files.writeString(classesDirectory.resolve("plugin.properties"), props, StandardCharsets.UTF_8);
         copyClassFile(classesDirectory, BootstrapProbePlugin.class);
         copyClassFile(classesDirectory, BootstrapProbeFeaturePlugin.class);
@@ -1918,7 +1924,7 @@ class PluginRuntimeManagerTest {
     }
 
     private static void addDescriptor(ZipOutputStream zos, String lifecyclePolicy) throws IOException {
-        addDescriptor(zos, lifecyclePolicy != null ? lifecyclePolicy : "process-restart", "trusted-in-process");
+        addDescriptor(zos, lifecyclePolicy != null ? lifecyclePolicy : "process-restart", null);
     }
 
     private static void addDescriptor(
@@ -1947,7 +1953,7 @@ class PluginRuntimeManagerTest {
                 .append("plugin.description=").append(pluginId).append(" probe\n")
                 .append("pixiv.kind=feature\n")
                 .append("pixiv.lifecycle-policy=process-restart\n")
-                .append("pixiv.execution-mode=trusted-in-process\n");
+                .append("pixiv.execution-mode=host-process-full-trust\n");
         if (!dependencies.isEmpty()) {
             props.append("plugin.dependencies=");
             for (int i = 0; i < dependencies.size(); i++) {
@@ -2087,24 +2093,26 @@ class PluginRuntimeManagerTest {
                         + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n"
                         + "pixiv.kind=feature\n"
                         + "pixiv.lifecycle-policy=process-restart\n"
-                        + "pixiv.execution-mode=trusted-in-process\n",
+                        + "pixiv.execution-mode=host-process-full-trust\n",
                 StandardCharsets.UTF_8);
     }
 
-    private static void writeDefaultIsolatedProbeSourceDescriptor(Path moduleRoot) throws IOException {
+    private static void writeDeclarativeProbeSourceDescriptor(Path moduleRoot) throws IOException {
         Path sourceResources = moduleRoot.resolve("src/main/resources");
         Files.createDirectories(sourceResources);
         Files.writeString(sourceResources.resolve("plugin.properties"),
                 "plugin.id=" + PROBE_ID + "\nplugin.version=" + PROBE_VERSION + "\nplugin.requires=1.0\n"
-                        + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n",
+                        + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n"
+                        + "pixiv.execution-mode=declarative-process\n",
                 StandardCharsets.UTF_8);
     }
 
-    private static void writeDefaultIsolatedProbeClassesDirectory(Path classesDirectory) throws IOException {
+    private static void writeDeclarativeProbeClassesDirectory(Path classesDirectory) throws IOException {
         Files.createDirectories(classesDirectory);
         Files.writeString(classesDirectory.resolve("plugin.properties"),
                 "plugin.id=" + PROBE_ID + "\nplugin.version=" + PROBE_VERSION + "\nplugin.requires=1.0\n"
-                        + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n",
+                        + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n"
+                        + "pixiv.execution-mode=declarative-process\n",
                 StandardCharsets.UTF_8);
         copyClassFile(classesDirectory, BootstrapProbePlugin.class);
         copyClassFile(classesDirectory, BootstrapProbeFeaturePlugin.class);

@@ -82,12 +82,12 @@
 
     // 执行隔离级别 → 底栏元信息图标与色调类。
     var EXECUTION_ITEM_META = {
-        ISOLATED_PROCESS:   { icon: 'fa-box', tone: 'info' },
-        TRUSTED_IN_PROCESS: { icon: 'fa-triangle-exclamation', tone: 'warn' }
+        DECLARATIVE_PROCESS:   { icon: 'fa-box', tone: 'info' },
+        HOST_PROCESS_FULL_TRUST: { icon: 'fa-triangle-exclamation', tone: 'warn' }
     };
 
     function executionItemMeta(mode) {
-        return EXECUTION_ITEM_META[mode] || EXECUTION_ITEM_META.TRUSTED_IN_PROCESS;
+        return EXECUTION_ITEM_META[mode] || EXECUTION_ITEM_META.HOST_PROCESS_FULL_TRUST;
     }
 
     // 生命周期策略 → 底栏元信息图标与色调类（替代原标签区：同类信息以更轻的图标项表达）。

@@ -155,20 +155,20 @@ const DESC_NOT_INSTALLED = '该插件尚未安装。';
 
 (function () {
     const isolated = vmOf({
-        id: 'isolated', source: 'external', status: 'STARTED', executionMode: 'ISOLATED_PROCESS'
+        id: 'isolated', source: 'external', status: 'STARTED', executionMode: 'DECLARATIVE_PROCESS'
     });
-    eq('隔离进程标签', isolated.executionLabel, '独立 JVM（有限隔离）');
-    eq('隔离进程色调', isolated.executionTone, 'info');
+    eq('声明式隔离进程标签', isolated.executionLabel, '声明式独立 JVM（有限隔离）');
+    eq('声明式隔离进程色调', isolated.executionTone, 'info');
     ok('外置插件显示执行信任标签', isolated.showExecutionTag === true);
 
     const trusted = vmOf({
-        id: 'trusted', source: 'external', status: 'STARTED', executionMode: 'TRUSTED_IN_PROCESS'
+        id: 'trusted', source: 'external', status: 'STARTED', executionMode: 'HOST_PROCESS_FULL_TRUST'
     });
-    eq('同进程完全受信标签', trusted.executionLabel, '同进程完全受信');
-    eq('同进程完全受信色调', trusted.executionTone, 'warn');
-    eq('未知执行模式安全收敛为同进程完全受信', PM.executionModeOf('future-mode'), 'TRUSTED_IN_PROCESS');
+    eq('宿主进程完全信任标签', trusted.executionLabel, '宿主进程完全信任');
+    eq('宿主进程完全信任色调', trusted.executionTone, 'warn');
+    eq('未知执行模式安全收敛为宿主进程完全信任', PM.executionModeOf('future-mode'), 'HOST_PROCESS_FULL_TRUST');
 
-    const builtIn = vmOf({ id: 'core', source: 'built-in', status: 'STARTED', executionMode: 'TRUSTED_IN_PROCESS' });
+    const builtIn = vmOf({ id: 'core', source: 'built-in', status: 'STARTED', executionMode: 'HOST_PROCESS_FULL_TRUST' });
     ok('内置插件不重复显示执行信任标签', builtIn.showExecutionTag === false);
 })();
 
@@ -260,7 +260,7 @@ const DESC_NOT_INSTALLED = '该插件尚未安装。';
 (function () {
     const vmm = vmOf({
         id: 'compact-demo', source: 'external', status: 'STARTED', managed: true, runtimePhase: 'STARTED',
-        version: '1.2.3', executionMode: 'ISOLATED_PROCESS', lifecyclePolicy: 'HOT_RELOAD',
+        version: '1.2.3', executionMode: 'DECLARATIVE_PROCESS', lifecyclePolicy: 'HOT_RELOAD',
         configuredEnabled: true, toggleable: true,
         availableActions: ['restart', 'remove'], descriptionKey: null, tags: ['demo']
     });

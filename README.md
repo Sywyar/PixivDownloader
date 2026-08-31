@@ -73,10 +73,11 @@
 Java 标准包和离线全量包必须**完整解压**后使用，不要只提取其中的 JAR：启动脚本与 `plugins/` 目录
 缺一不可，程序启动时会从工作目录的 `plugins/` 加载官方外置插件。
 
-第三方 `isolated-process` 插件默认运行在独立 JVM 中，但 worker 与主程序仍共享当前操作系统账户，
-因此只属于有限进程隔离，并非完整 OS 沙箱。需要失败关闭时，可在启动 JVM 前设置
-`-Dpixivdownload.plugin-worker.require-os-sandbox=true`；当前版本尚未集成已验证 OS 沙箱，启用后会拒绝
-所有 `isolated-process` 插件。现有已验证官方插件使用 `trusted-in-process`，不受该开关影响。
+未声明执行模式的现有插件和第三方插件默认使用 `host-process-full-trust`，在主程序 JVM 内运行并继承
+应用当前用户的操作系统权限。只有显式声明 `declarative-process` 的插件才进入独立 worker；worker 与
+主程序仍共享当前操作系统账户，因此只属于有限进程隔离，并非完整 OS 沙箱。需要失败关闭时，可在启动
+JVM 前设置 `-Dpixivdownload.plugin-worker.require-os-sandbox=true`；当前版本尚未集成已验证 OS 沙箱，
+启用后会拒绝所有 `declarative-process` 插件。签名和官方身份不授予额外运行能力。
 
 GUI 自动安装 FFmpeg 时，会从项目维护的 `ffmpeg-stable` Release 下载由 FFmpeg 官方最新稳定源码构建的
 Windows x64、Linux x64/arm64 或 macOS x64/arm64 资产；其它平台仍可手动安装系统 FFmpeg。

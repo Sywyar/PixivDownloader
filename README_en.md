@@ -80,11 +80,13 @@ The Java standard package and the full-offline package must be **fully extracted
 the JAR: the launcher scripts and the `plugins/` directory are both required, because external official plugins are
 loaded from the working directory's `plugins/` folder at startup.
 
-Third-party `isolated-process` plugins run in a separate JVM by default, but the worker still shares the current OS
-account with the main application. This is limited process isolation, not a complete OS sandbox. To fail closed, set
+Existing and third-party plugins that omit an execution mode use `host-process-full-trust` by default, run in the main
+JVM, and inherit the operating-system permissions of the current user. Only plugins that explicitly declare
+`declarative-process` enter the separate worker. The worker still shares the current OS account with the main
+application, so this is limited process isolation, not a complete OS sandbox. To fail closed, set
 `-Dpixivdownload.plugin-worker.require-os-sandbox=true` before starting the JVM. The current release has no verified
-OS sandbox integration, so enabling this option rejects every `isolated-process` plugin. Existing verified official
-plugins use `trusted-in-process` and are unaffected.
+OS sandbox integration, so enabling this option rejects every `declarative-process` plugin. A signature or official
+identity does not grant additional runtime capabilities.
 
 GUI-managed FFmpeg installation downloads a project-maintained `ffmpeg-stable` Release built from the latest official
 stable FFmpeg source for Windows x64, Linux x64/arm64, or macOS x64/arm64. Other platforms can still use a manually

@@ -215,7 +215,7 @@ abstract class PluginBootstrapSessionTestSupport {
                 + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n"
                 + "plugin.provider=test\nplugin.description=bootstrap probe\n"
                 + "pixiv.lifecycle-policy=process-restart\n"
-                + "pixiv.execution-mode=trusted-in-process\n";
+                + "pixiv.execution-mode=host-process-full-trust\n";
         try (OutputStream out = Files.newOutputStream(jar); ZipOutputStream zos = new ZipOutputStream(out)) {
             zos.putNextEntry(new ZipEntry("plugin.properties"));
             zos.write(props.getBytes(StandardCharsets.UTF_8));
@@ -232,7 +232,7 @@ abstract class PluginBootstrapSessionTestSupport {
                 + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n"
                 + "pixiv.kind=feature\n"
                 + "pixiv.lifecycle-policy=process-restart\n"
-                + "pixiv.execution-mode=trusted-in-process\n";
+                + "pixiv.execution-mode=host-process-full-trust\n";
         Path sourceResources = moduleRoot.resolve("src/main/resources");
         Files.createDirectories(sourceResources);
         Files.writeString(sourceResources.resolve("plugin.properties"), properties, StandardCharsets.UTF_8);

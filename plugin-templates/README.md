@@ -5,7 +5,7 @@
 目录包含两个独立子项目：
 
 - <a href="minimal-feature-plugin/README.md"><code>minimal-feature-plugin</code></a>：可在独立 worker 中运行的 route/static/i18n 声明式插件；
-- <code>download-type-plugin</code>：仅供显式插件开发模式使用的同进程完全受信示例，覆盖下载工作台 contract version 1、队列操作、计划来源、Vue 槽位与独立画廊。
+- <code>download-type-plugin</code>：经包验证与管理员信任确认后可用的宿主进程完全信任示例，覆盖下载工作台 contract version 1、队列操作、计划来源、Vue 槽位与独立画廊。
 
 模板目标是提供一套稳定、高可用、易上手的 SDK 起点：稳定来自版本化公共契约和 owner/publication 边界，高可用来自失败隔离、fail-closed 与真实生命周期清退，易上手来自可复制工程、命名工厂和确定性守卫。目录名中的 `minimal` 只表示示例不携带站点业务逻辑，不表示删减安全、生命周期或降级路径来追求文件更少。
 
@@ -25,9 +25,9 @@
 
 这个验证 reactor 会先构建同仓的 SDK Info、Plugin API、Core API 与 SDK BOM。复制到仓库外时，两个子项目仍是无相对 parent 的独立 POM，但构建环境必须能从 Maven 仓库解析 <code>io.github.sywyar.pixivdownloader:pixivdownload-sdk-bom:1.0.0-rc2</code> 及 BOM 管理的公共构件；不要改成引用宿主源码目录或应用模块。
 
-产物位于 <code>plugin-templates/minimal-feature-plugin/target/example-minimal-plugin-0.1.0.jar</code>。将复制并改名后的插件 JAR 通过插件管理页安装，或放入宿主的运行期 <code>plugins/</code> 目录；两种方式都受宿主的包验证与签名策略约束，模板不包含签名、信任根或 installer 内部实现。其 <code>isolated-process</code> 描述符与零配置类边界允许宿主在独立 worker 中接纳声明式贡献，启用后管理员可访问 <code>/example-minimal.html</code>。
+产物位于 <code>plugin-templates/minimal-feature-plugin/target/example-minimal-plugin-0.1.0.jar</code>。将复制并改名后的插件 JAR 通过插件管理页安装，或放入宿主的运行期 <code>plugins/</code> 目录；两种方式都受宿主的包验证与签名策略约束，模板不包含签名、信任根或 installer 内部实现。其 <code>declarative-process</code> 描述符与零配置类边界允许宿主在独立 worker 中接纳声明式贡献，启用后管理员可访问 <code>/example-minimal.html</code>。
 
-下载类型模板有自己的 [README](download-type-plugin/README.md) 和精确替换表，产物位于 <code>plugin-templates/download-type-plugin/target/example-download-plugin-0.1.0.jar</code>。它演示宿主可信用户 owner 解析、宿主桥接以 JSON 承载 <code>queueType + opaque workKey + descriptor publication identity</code> 的定向取消、受控队列状态提交、quick 结果发布、owner-scoped UI action，以及不触碰宿主 DOM 的计划来源输入 / 回灌 context；站点数据、队列和画廊仍是确定性内存示例。该模板需要 Spring 子 context 与行为能力，因此明确声明 <code>trusted-in-process + process-restart</code>；当前生产准入不允许第三方包以此模式执行，只能在显式插件开发模式中验证。复制时必须用真实、合法且同步完成后才报告成功的领域实现替换，不得把模拟响应当作生产下载器，也不得在保留配置类和行为能力时把描述符改写成 <code>isolated-process</code>。
+下载类型模板有自己的 [README](download-type-plugin/README.md) 和精确替换表，产物位于 <code>plugin-templates/download-type-plugin/target/example-download-plugin-0.1.0.jar</code>。它演示宿主可信用户 owner 解析、宿主桥接以 JSON 承载 <code>queueType + opaque workKey + descriptor publication identity</code> 的定向取消、受控队列状态提交、quick 结果发布、owner-scoped UI action，以及不触碰宿主 DOM 的计划来源输入 / 回灌 context；站点数据、队列和画廊仍是确定性内存示例。该模板需要 Spring 子 context 与行为能力，因此明确声明 <code>host-process-full-trust + process-restart</code>；第三方包经过包验证与管理员信任确认后可以在生产环境使用该完整能力路径，签名只证明发布者身份与内容完整性。复制时必须用真实、合法且同步完成后才报告成功的领域实现替换，不得把模拟响应当作生产下载器，也不得在保留配置类和行为能力时把描述符改写成 <code>declarative-process</code>。
 
 ## 复制后的精确替换表
 

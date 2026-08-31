@@ -2,10 +2,10 @@ package top.sywyar.pixivdownload.plugin.runtime.descriptor;
 
 import java.util.Locale;
 
-/** 插件代码的进程隔离级别；未声明的外置包按隔离进程处理。 */
+/** 插件代码的执行位置与能力边界；未声明的外置包保持宿主进程完全信任兼容。 */
 public enum PluginExecutionMode {
-    ISOLATED_PROCESS("isolated-process"),
-    TRUSTED_IN_PROCESS("trusted-in-process");
+    HOST_PROCESS_FULL_TRUST("host-process-full-trust"),
+    DECLARATIVE_PROCESS("declarative-process");
 
     private final String descriptorValue;
 
@@ -19,9 +19,15 @@ public enum PluginExecutionMode {
 
     public static PluginExecutionMode parse(String raw) {
         if (raw == null || raw.isBlank()) {
-            return ISOLATED_PROCESS;
+            return HOST_PROCESS_FULL_TRUST;
         }
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        if ("trusted-in-process".equals(normalized)) {
+            return HOST_PROCESS_FULL_TRUST;
+        }
+        if ("isolated-process".equals(normalized)) {
+            return DECLARATIVE_PROCESS;
+        }
         for (PluginExecutionMode mode : values()) {
             if (mode.descriptorValue.equals(normalized)) {
                 return mode;

@@ -52,9 +52,9 @@ class PluginTemplateBoundaryTest {
                     "org.junit.jupiter:junit-jupiter:test"));
     private static final Map<String, ExpectedRuntimeBoundary> EXPECTED_RUNTIME_BOUNDARIES = Map.of(
             "minimal-feature-plugin", new ExpectedRuntimeBoundary(
-                    PluginExecutionMode.ISOLATED_PROCESS, PluginLifecyclePolicy.HOT_RELOAD, 0),
+                    PluginExecutionMode.DECLARATIVE_PROCESS, PluginLifecyclePolicy.HOT_RELOAD, 0),
             "download-type-plugin", new ExpectedRuntimeBoundary(
-                    PluginExecutionMode.TRUSTED_IN_PROCESS, PluginLifecyclePolicy.PROCESS_RESTART, 1));
+                    PluginExecutionMode.HOST_PROCESS_FULL_TRUST, PluginLifecyclePolicy.PROCESS_RESTART, 1));
     private static final Pattern HOST_IMPORT = Pattern.compile(
             "^import\\s+(top\\.sywyar\\.pixivdownload\\.[^;]+);",
             Pattern.MULTILINE);

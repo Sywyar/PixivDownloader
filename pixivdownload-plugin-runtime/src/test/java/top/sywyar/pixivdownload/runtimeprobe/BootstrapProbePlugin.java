@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.runtimeprobe;
 
 import org.pf4j.Plugin;
+import org.pf4j.PluginWrapper;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivPluginProvider;
 
@@ -24,7 +25,8 @@ public class BootstrapProbePlugin extends Plugin implements PixivPluginProvider 
     private int featurePluginCalls;
     private int configurationClassesCalls;
 
-    public BootstrapProbePlugin() {
+    public BootstrapProbePlugin(PluginWrapper wrapper) {
+        super(wrapper);
         record("load");
     }
 

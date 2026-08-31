@@ -110,8 +110,8 @@ class PluginBootstrapSessionVerificationTest extends PluginBootstrapSessionTestS
     }
 
     @Test
-    @DisplayName("自定义仓库签名不能取得进程内完全受信执行权限")
-    void customRepositorySignatureCannotAuthorizeTrustedInProcessExecution() throws Exception {
+    @DisplayName("自定义仓库签名验证后可以取得宿主进程完全信任执行权限")
+    void customRepositorySignatureAuthorizesHostProcessFullTrustExecution() throws Exception {
         Path pluginsDir = tempDir.resolve("custom-trusted-plugins");
         Path jar = stageProbeJar(pluginsDir);
         Path marker = tempDir.resolve("custom-trusted-events.log");
@@ -130,12 +130,9 @@ class PluginBootstrapSessionVerificationTest extends PluginBootstrapSessionTestS
                 pluginsDir, PluginEnabledSnapshot.empty(), signing.verifier());
         session.start();
 
-        assertThat(session.status().startedPluginIds()).doesNotContain("bootstrap-probe");
-        assertThat(session.status().failures()).anySatisfy(failure ->
-                assertThat(failure.reason()).contains("requires an official verified signature"));
-        assertThat(Files.readString(marker, StandardCharsets.UTF_8))
-                .as("进程内信任拒绝必须发生在 PF4J 构造插件实例前")
-                .isEmpty();
+        assertThat(session.status().startedPluginIds()).contains("bootstrap-probe");
+        assertThat(session.status().failures()).isEmpty();
+        assertThat(Files.readString(marker, StandardCharsets.UTF_8)).contains("load").contains("start");
         session.close();
     }
 

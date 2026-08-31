@@ -37,7 +37,7 @@ import java.util.regex.Pattern;
  * @param kind             插件类别
  * @param replaces         安装新包后精确替代的旧插件包 id；仅外置包描述符声明，内置插件为空
  * @param lifecyclePolicy  插件包声明的运行期生效策略；旧包未声明时默认为热重载
- * @param executionMode    插件代码执行隔离级别；外置包未声明时默认为隔离进程
+ * @param executionMode    插件代码执行位置与能力边界；外置包未声明时默认为宿主进程完全信任
  * @param configurationClassNames 由已验证包描述符声明的 Spring 配置类全限定名；不调用插件入口 getter 获取
  */
 public record PluginDescriptor(
@@ -81,7 +81,7 @@ public record PluginDescriptor(
         dependencies = dependencies != null ? List.copyOf(dependencies) : List.of();
         replaces = replaces != null ? List.copyOf(replaces) : List.of();
         lifecyclePolicy = lifecyclePolicy != null ? lifecyclePolicy : PluginLifecyclePolicy.HOT_RELOAD;
-        executionMode = executionMode != null ? executionMode : PluginExecutionMode.ISOLATED_PROCESS;
+        executionMode = executionMode != null ? executionMode : PluginExecutionMode.HOST_PROCESS_FULL_TRUST;
         configurationClassNames = configurationClassNames != null
                 ? List.copyOf(configurationClassNames) : List.of();
     }
@@ -101,7 +101,7 @@ public record PluginDescriptor(
                             PluginKind kind, List<String> replaces, PluginLifecyclePolicy lifecyclePolicy) {
         this(id, sourcePluginId, version, requires, dependencies, pluginClass, displayNamespace, displayName,
                 description, iconKey, colorToken, kind, replaces, lifecyclePolicy,
-                PluginExecutionMode.ISOLATED_PROCESS);
+                PluginExecutionMode.HOST_PROCESS_FULL_TRUST);
     }
 
     public PluginDescriptor(String id, String sourcePluginId, String version, VersionRequirement requires,
@@ -150,7 +150,7 @@ public record PluginDescriptor(
                 plugin.kind(),
                 List.of(),
                 PluginLifecyclePolicy.PROCESS_RESTART,
-                PluginExecutionMode.TRUSTED_IN_PROCESS,
+                PluginExecutionMode.HOST_PROCESS_FULL_TRUST,
                 List.of());
     }
 
@@ -222,10 +222,6 @@ public record PluginDescriptor(
         }
         if (replaces.stream().distinct().count() != replaces.size()) {
             errors.add("replaced plugin ids must be unique");
-        }
-        if (executionMode == PluginExecutionMode.TRUSTED_IN_PROCESS
-                && lifecyclePolicy != PluginLifecyclePolicy.PROCESS_RESTART) {
-            errors.add("trusted in-process plugins must use process-restart lifecycle");
         }
         return errors;
     }

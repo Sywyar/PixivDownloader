@@ -133,7 +133,7 @@ class PluginManagePageGuardTest {
     void executionModeAndLifecyclePolicyDriveLabelsTogglesAndRestartGuidance() throws IOException {
         String core = read(CORE);
         assertThat(core).contains("entry.executionMode", "entry.lifecyclePolicy", "entry.configuredEnabled", "entry.toggleable");
-        assertThat(core).contains("ISOLATED_PROCESS", "TRUSTED_IN_PROCESS");
+        assertThat(core).contains("DECLARATIVE_PROCESS", "HOST_PROCESS_FULL_TRUST");
         assertThat(core).contains("HOT_RELOAD", "BACKEND_RESTART", "PROCESS_RESTART");
 
         String views = read(VIEWS);
@@ -157,7 +157,7 @@ class PluginManagePageGuardTest {
         assertThat(zh.stringPropertyNames()).as("plugins 中英文案键集合一致")
                 .isEqualTo(en.stringPropertyNames());
         for (String key : new String[]{
-                "execution.isolated-process", "execution.trusted-in-process",
+                "execution.declarative-process", "execution.host-process-full-trust",
                 "lifecycle.hot-reload", "lifecycle.backend-restart", "lifecycle.process-restart",
                 "toggle.saved.enabled", "toggle.saved.disabled", "toggle.failed",
                 "restart.backend.message", "restart.backend.confirm", "restart.backend.later",

@@ -30,7 +30,7 @@ class PluginPackageReaderTest {
     Path tempDir;
 
     @Test
-    @DisplayName("解压目录形态（根 plugin.properties + classes/）：识别为 EXPLODED_DIRECTORY 并映射包级描述符")
+    @DisplayName("旧包缺执行模式时默认宿主进程完全信任")
     void readsExplodedDirectoryLayout() {
         Path zip = PluginPackageFixtures.explodedZip(tempDir.resolve("p.zip"),
                 "ext-stats", "1.2.0", "1.0", "com.example.ExtStatsPlugin");
@@ -46,7 +46,7 @@ class PluginPackageReaderTest {
         assertThat(descriptor.version()).isEqualTo("1.2.0");
         assertThat(descriptor.pluginClass()).isEqualTo("com.example.ExtStatsPlugin");
         assertThat(descriptor.kind()).isEqualTo(PluginKind.FEATURE);
-        assertThat(descriptor.executionMode()).isEqualTo(PluginExecutionMode.ISOLATED_PROCESS);
+        assertThat(descriptor.executionMode()).isEqualTo(PluginExecutionMode.HOST_PROCESS_FULL_TRUST);
         assertThat(descriptor.externalValidationErrors()).isEmpty();
         assertThat(descriptor.isSdkCompatible()).isTrue();
     }
@@ -155,7 +155,7 @@ class PluginPackageReaderTest {
                 + PluginPackageReader.KEY_PIXIV_CONFIGURATION_CLASSES
                 + "=com.example.MailConfiguration,com.example.MailWebConfiguration\n"
                 + PluginPackageReader.KEY_PIXIV_LIFECYCLE_POLICY + "=process-restart\n"
-                + PluginPackageReader.KEY_PIXIV_EXECUTION_MODE + "=trusted-in-process\n";
+                + PluginPackageReader.KEY_PIXIV_EXECUTION_MODE + "=host-process-full-trust\n";
         Map<String, byte[]> entries = new LinkedHashMap<>();
         entries.put(PluginPackageReader.PLUGIN_PROPERTIES, properties.getBytes(StandardCharsets.UTF_8));
         entries.put("classes/Marker.class", PluginPackageFixtures.bytes("x"));
@@ -170,7 +170,7 @@ class PluginPackageReaderTest {
         assertThat(descriptor.iconKey()).isEqualTo("mail");
         assertThat(descriptor.colorToken()).isEqualTo("green");
         assertThat(descriptor.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.PROCESS_RESTART);
-        assertThat(descriptor.executionMode()).isEqualTo(PluginExecutionMode.TRUSTED_IN_PROCESS);
+        assertThat(descriptor.executionMode()).isEqualTo(PluginExecutionMode.HOST_PROCESS_FULL_TRUST);
         assertThat(descriptor.kind()).isEqualTo(PluginKind.FEATURE);
         assertThat(descriptor.configurationClassNames())
                 .containsExactly("com.example.MailConfiguration", "com.example.MailWebConfiguration");

@@ -50,7 +50,7 @@ class ExampleMinimalPluginTest {
         assertEquals("feature", descriptor.getProperty("pixiv.kind"));
         assertFalse(descriptor.containsKey("pixiv.configuration-classes"));
         assertEquals("hot-reload", descriptor.getProperty("pixiv.lifecycle-policy"));
-        assertEquals("isolated-process", descriptor.getProperty("pixiv.execution-mode"));
+        assertEquals("declarative-process", descriptor.getProperty("pixiv.execution-mode"));
 
         Class<?> entrypoint = Class.forName(descriptor.getProperty("plugin.class"));
         assertTrue(Plugin.class.isAssignableFrom(entrypoint));

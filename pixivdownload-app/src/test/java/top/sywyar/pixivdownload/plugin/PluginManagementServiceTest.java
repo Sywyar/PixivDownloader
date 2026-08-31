@@ -150,7 +150,7 @@ class PluginManagementServiceTest {
         assertThat(external.managed()).isTrue();
         assertThat(external.runtimePhase()).isEqualTo(PluginRuntimePhase.STARTED);
         assertThat(external.allowDisable()).isTrue();
-        assertThat(external.executionMode()).isEqualTo(PluginExecutionMode.ISOLATED_PROCESS);
+        assertThat(external.executionMode()).isEqualTo(PluginExecutionMode.HOST_PROCESS_FULL_TRUST);
         assertThat(external.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.HOT_RELOAD);
         assertThat(external.configuredEnabled()).isTrue();
         assertThat(external.toggleable()).isTrue();

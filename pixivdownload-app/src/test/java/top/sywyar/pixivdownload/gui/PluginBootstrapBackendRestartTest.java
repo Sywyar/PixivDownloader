@@ -302,7 +302,7 @@ class PluginBootstrapBackendRestartTest {
         String props = "plugin.id=bootstrap-probe\nplugin.version=1.0.0\nplugin.requires=1.0\n"
                 + "plugin.class=" + BackendRestartProbePlugin.class.getName() + "\n"
                 + "plugin.provider=test\nplugin.description=bootstrap probe\n"
-                + "pixiv.execution-mode=trusted-in-process\n"
+                + "pixiv.execution-mode=host-process-full-trust\n"
                 + "pixiv.lifecycle-policy=process-restart\n";
         try (OutputStream out = Files.newOutputStream(jar); ZipOutputStream zos = new ZipOutputStream(out)) {
             zos.putNextEntry(new ZipEntry("plugin.properties"));
