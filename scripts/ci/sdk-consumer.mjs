@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
@@ -27,6 +28,74 @@ function thinJarEntries(pluginJar) {
     const entries = listing.stdout.split(/\r?\n/u).filter(Boolean);
     assertThinJarEntries(entries);
     return entries;
+}
+
+function signatureToolJar(repoRoot) {
+    const target = path.join(repoRoot, 'pixivdownload-plugin-signature', 'target');
+    const candidates = fs.statSync(target, { throwIfNoEntry: false })?.isDirectory()
+        ? fs.readdirSync(target)
+                .filter(name => /^pixivdownload-plugin-signature-.+\.jar$/u.test(name))
+                .filter(name => !name.endsWith('-sources.jar') && !name.endsWith('-javadoc.jar'))
+        : [];
+    if (candidates.length !== 1) {
+        fail(`expected exactly one plugin signature tool JAR under ${target}`);
+    }
+    return path.join(target, candidates[0]);
+}
+
+function deriveDouyinPackages(repoRoot, work, pluginJar) {
+    const pluginId = 'douyin';
+    const pluginVersion = '1.0.0';
+    const packages = path.join(work, 'douyin-packages');
+    const fileName = path.basename(pluginJar);
+    const unsignedPluginJar = path.join(packages, 'unsigned', fileName);
+    const signedPluginJar = path.join(packages, 'signed', fileName);
+    fs.rmSync(packages, { recursive: true, force: true });
+    fs.mkdirSync(path.dirname(unsignedPluginJar), { recursive: true });
+    fs.mkdirSync(path.dirname(signedPluginJar), { recursive: true });
+    fs.copyFileSync(pluginJar, unsignedPluginJar);
+    fs.copyFileSync(pluginJar, signedPluginJar);
+    const sourceBytes = fs.readFileSync(pluginJar);
+    if (!sourceBytes.equals(fs.readFileSync(unsignedPluginJar))
+            || !sourceBytes.equals(fs.readFileSync(signedPluginJar))) {
+        fail('derived Douyin packages do not preserve the candidate JAR bytes');
+    }
+
+    const keyId = 'douyin-third-party-ci';
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+    const privateKeyFile = path.join(packages, 'third-party-private-key.pem');
+    fs.writeFileSync(privateKeyFile, privateKey.export({ format: 'pem', type: 'pkcs8' }), 'utf8');
+    const publicKeySpkiBase64 = publicKey.export({ format: 'der', type: 'spki' }).toString('base64');
+    const signatureFile = `${signedPluginJar}.sig.json`;
+    const tool = signatureToolJar(repoRoot);
+    const toolClass = 'top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool';
+    run('java', ['-cp', tool, toolClass, 'artifact',
+        '--artifact', signedPluginJar,
+        '--plugin-id', pluginId,
+        '--version', pluginVersion,
+        '--key-id', keyId,
+        '--private-key', privateKeyFile,
+        '--out', signatureFile,
+    ]);
+    fs.rmSync(privateKeyFile, { force: true });
+    run('java', ['-cp', tool, toolClass, 'verify-artifact',
+        '--artifact', signedPluginJar,
+        '--signature', signatureFile,
+        '--plugin-id', pluginId,
+        '--version', pluginVersion,
+        '--expected-size', String(sourceBytes.length),
+        '--sha256', createHash('sha256').update(sourceBytes).digest('hex'),
+        '--policy', 'custom',
+        '--trusted-key-id', keyId,
+        '--trusted-public-key', publicKeySpkiBase64,
+        '--trusted-publisher', 'Douyin Third-Party CI',
+        '--trusted-label', 'Douyin third-party compatibility canary',
+        '--trusted-official', 'false',
+    ]);
+    if (fs.existsSync(`${unsignedPluginJar}.sig`) || fs.existsSync(`${unsignedPluginJar}.sig.json`)) {
+        fail('unsigned Douyin package unexpectedly has a signature sidecar');
+    }
+    return { signedPluginJar, signatureFile, unsignedPluginJar };
 }
 
 function safeWorkDirectory(repoRoot, requested) {
@@ -197,7 +266,13 @@ export function verifyConsumer(options) {
     ]) {
         if (!douyinEntries.includes(required)) fail(`Douyin third-party JAR is missing ${required}`);
     }
-    return { project, pluginJar, douyinPluginJar, localRepository };
+    return {
+        project,
+        pluginJar,
+        douyinPluginJar,
+        ...deriveDouyinPackages(repoRoot, work, douyinPluginJar),
+        localRepository,
+    };
 }
 
 function main() {

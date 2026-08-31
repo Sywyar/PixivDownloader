@@ -190,9 +190,9 @@ jobs:
       - name: Install Node.js dependencies
         run: npm ci
 
-      - name: Build SDK modules and templates
+      - name: Build SDK modules, signature tool, and templates
         run: |
-          mvn -B -ntp -pl pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api,pixivdownload-sdk-bom clean verify -Dexec.skip=true
+          mvn -B -ntp -pl pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api,pixivdownload-sdk-bom,pixivdownload-plugin-signature clean verify -Dexec.skip=true
           mvn -B -ntp -f plugin-templates/pom.xml clean verify
 
       - name: Generate complete SDK Javadocs
