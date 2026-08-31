@@ -395,7 +395,7 @@ try {
     }
 
     # Stage all default-installed external plugins into the online app-image before packaging. They remain
-    # separate PF4J artifacts; only Douyin is left for on-demand installation / the full-offline image.
+    # separate PF4J artifacts; the full-offline image additionally stages the canonical optional official set.
     if (-not $SkipPlugins) {
         Write-Step "Staging official default-installed external plugins into app-image plugins/"
         $defaultInstalledPlugins = @(Get-OfficialDefaultInstalledPlugins)
@@ -492,7 +492,7 @@ try {
     if ($AllowUnsignedLocalPlugins) {
         Write-Host "Plugins       : LOCAL TEST ONLY; current-source defaults, unsigned LOCAL_UPLOAD provenance" -ForegroundColor Red
     } elseif (-not $SkipPlugins) {
-        Write-Host "Plugins       : all user-facing official plugins except Douyin in default package; Douyin added by full-offline"
+        Write-Host "Plugins       : canonical default-installed official set; full-offline adds the canonical optional official set"
     } else {
         Write-Host "Plugins       : none bundled (-SkipPlugins; core shell recovery package)"
     }

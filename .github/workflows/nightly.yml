@@ -334,16 +334,16 @@ jobs:
           ## 使用说明 / Usage
 
           ### Windows 安装包
-          下载 `PixivDownload-*-win-x64-setup.exe` 并运行。安装包的“附加功能”页可选安装 FFmpeg；除 Douyin 外的面向用户的官方插件已在构建期预置，安装器中的插件选择页当前暂时跳过，Douyin 可在启动后从 Web 插件市场按需安装。
+          下载 `PixivDownload-*-win-x64-setup.exe` 并运行。安装包的“附加功能”页可选安装 FFmpeg；默认安装的签名官方插件已在构建期预置，安装器中的插件选择页当前暂时跳过。Douyin 不再由官方仓库或安装包分发，需要从自定义仓库或本地包安装并确认第三方信任。
 
           ### Java 标准包（跨平台）
           下载 `PixivDownload-*-java.zip` 并完整解压到任意目录，不要只提取其中的 JAR。需要自行安装 Java 17。
           Windows 上执行 `run.bat`；Linux / macOS 在解压目录内执行 `sh run.sh`。
-          该包包含核心壳与除 Douyin 外的全部面向用户的签名官方插件，与 Windows 安装包默认插件集合一致；Douyin 可在启动后从 Web 插件市场按需安装。包内不包含 JRE，也不包含 FFmpeg。
+          该包包含核心壳与默认安装的签名官方插件，与 Windows 安装包默认插件集合一致；Douyin 不再由官方仓库或此发行包分发，需要从自定义仓库或本地包安装并确认第三方信任。包内不包含 JRE，也不包含 FFmpeg。
 
           ### 离线全量包（跨平台）
           下载 `PixivDownload-*-full-offline.zip` 并完整解压，Windows 上执行 `run.bat`，Linux / macOS 执行 `sh run.sh`。
-          该包包含核心壳、全部面向用户的签名官方插件（含 Douyin）、`.sha256`、`.sig`、provenance sidecar 和 `plugins-manifest.json`。需要自行安装 Java 17；包内不包含 JRE，也不包含 FFmpeg。
+          该包包含核心壳、完整的签名官方插件分发集合、`.sha256`、`.sig`、provenance sidecar 和 `plugins-manifest.json`，不包含 Douyin。需要自行安装 Java 17；包内不包含 JRE，也不包含 FFmpeg。
           EOF
 
           if [ "$HAS_CHANGELOG_NOTES" = "true" ]; then

@@ -184,8 +184,6 @@ class PluginReleaseScriptsTest {
                 "function Get-OfficialOptionalPlugins",
                 "Id = \"download-workbench\"",
                 "Module = \"pixivdownload-plugin-download-workbench\"",
-                "Id = \"douyin\"",
-                "Module = \"pixivdownload-plugin-douyin\"",
                 "Id = \"gui-compose\"",
                 "Module = \"pixivdownload-plugin-gui-compose\"",
                 "function Get-OfficialDistributionPlugins",
@@ -223,7 +221,6 @@ class PluginReleaseScriptsTest {
         assertThat(officialPluginIds).contains("posthog");
         assertThat(officialPluginIds).contains("multi-mode-decision-survey");
         assertThat(officialPluginIds).contains("notification");
-        assertThat(officialPluginIds).contains("douyin");
         assertThat(officialPluginIds).contains("gui-compose");
         assertThat(generator).contains(
                 "pixiv.display-namespace",
@@ -295,30 +292,53 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("市场策展将通知与 PostHog 插件归为依赖、Douyin 归为下载类型扩展")
-    void marketCurationClassifiesDependencyAndDownloadTypeExtension() throws Exception {
+    @DisplayName("市场策展将通知与 PostHog 插件归为依赖、Compose 归为界面")
+    void marketCurationClassifiesDependenciesAndUi() throws Exception {
         JsonNode curation = new ObjectMapper().readTree(
                 repoRoot().resolve("scripts").resolve("market-curation.json").toFile());
 
         assertThat(curation.path("notification").path("category").asText()).isEqualTo("dependency");
         assertThat(curation.path("posthog").path("category").asText()).isEqualTo("dependency");
-        assertThat(curation.path("douyin").path("category").asText()).isEqualTo("download-type");
         assertThat(curation.path("gui-compose").path("category").asText()).isEqualTo("ui");
     }
 
     @Test
-    @DisplayName("默认安装集合同时携带 Compose 与 Swing，Douyin 保持按需安装")
-    void distributionSeparatesDefaultInstalledAndOnDemandPlugins() throws Exception {
+    @DisplayName("默认安装集合同时携带 Compose 与 Swing，官方可选集合只保留显式夹具")
+    void distributionSeparatesDefaultInstalledAndValidationFixtures() throws Exception {
         assertThat(officialPluginIds("Get-OfficialDefaultInstalledPlugins"))
                 .containsExactly(
                         "download-workbench", "gui-compose", "gui-swing", "gallery-tools", "posthog", "gallery",
                         "novel", "notification", "multi-mode-decision-survey", "push", "mail", "tts", "ai");
-        assertThat(officialPluginIds("Get-OfficialOptionalPlugins"))
-                .containsExactly("douyin");
+        assertThat(runPowerShell(
+                "$ErrorActionPreference='Stop'; "
+                        + ". './scripts/plugin-distribution-common.ps1'; "
+                        + "@(Get-OfficialOptionalPlugins).Count"))
+                .isEqualTo("0");
         assertThat(officialPluginIds())
                 .doesNotContain("recovery-sentinel")
-                .containsAll(officialPluginIds("Get-OfficialDefaultInstalledPlugins"))
-                .containsAll(officialPluginIds("Get-OfficialOptionalPlugins"));
+                .containsAll(officialPluginIds("Get-OfficialDefaultInstalledPlugins"));
+    }
+
+    @Test
+    @DisplayName("Douyin 保留同一源码模块和插件身份但退出官方聚合与发布清单")
+    void douyinRetainsIdentityOutsideOfficialReleaseAggregation() throws Exception {
+        String rootPom = Files.readString(repoRoot().resolve("pom.xml"), StandardCharsets.UTF_8);
+        String officialPom = Files.readString(
+                repoRoot().resolve("pixivdownload-official-plugins/pom.xml"), StandardCharsets.UTF_8);
+        String common = script("plugin-distribution-common.ps1");
+        JsonNode curation = new ObjectMapper().readTree(
+                repoRoot().resolve("scripts/market-curation.json").toFile());
+
+        assertThat(rootPom).contains("<module>pixivdownload-plugin-douyin</module>");
+        assertThat(officialPom).doesNotContain("<artifactId>pixivdownload-plugin-douyin</artifactId>");
+        assertThat(common).doesNotContain(
+                "Id = \"douyin\"",
+                "Module = \"pixivdownload-plugin-douyin\"");
+        assertThat(curation.has("douyin")).isFalse();
+        assertThat(pluginDescriptor("pixivdownload-plugin-douyin")).contains(
+                "plugin.id=douyin",
+                "plugin.version=1.0.0",
+                "plugin.requires=1.0");
     }
 
     @Test
@@ -832,21 +852,18 @@ class PluginReleaseScriptsTest {
     @Test
     @DisplayName("所有未发布官方插件统一使用初始版本 1.0.0 和首个SDK 1.0")
     void officialPluginVersionsStartAtInitialVersion() throws Exception {
-        String common = script("plugin-distribution-common.ps1");
         for (OfficialPlugin plugin : officialDistributionPlugins()) {
             assertThat(pluginDescriptor(plugin.module())).as(plugin.id())
                     .contains("plugin.version=1.0.0", "plugin.requires=1.0");
         }
         assertThat(pluginDescriptor("pixivdownload-plugin-recovery-sentinel"))
                 .contains("plugin.version=1.0.0", "plugin.requires=1.0");
-        assertThat(common)
-                .contains("Id = \"douyin\"", "Module = \"pixivdownload-plugin-douyin\"");
     }
 
     @Test
     @DisplayName("市场清单从 descriptor 投影 SDK 要求并保留旧 wire alias")
     void marketManifestProjectsInitialSdkAndLegacyAlias() throws Exception {
-        String descriptor = pluginDescriptor("pixivdownload-plugin-douyin");
+        String descriptor = pluginDescriptor("pixivdownload-plugin-download-workbench");
 
         assertThat(descriptor)
                 .contains("plugin.requires=1.0")
@@ -1243,28 +1260,21 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("Java 标准包与 full-offline 的 Douyin 语义由共享集合与开关派生")
-    void javaDistributionsDouyinSemantics() throws Exception {
+    @DisplayName("Java 标准包与 full-offline 只消费共享官方集合并核对实际 artifact")
+    void javaDistributionsUseCanonicalOfficialSets() throws Exception {
         String common = script("plugin-distribution-common.ps1");
         String orchestrator = script("package-java-distributions.ps1");
         String distribution = script("assemble-plugin-distribution.ps1");
 
-        Matcher defaultInstalled = Pattern.compile(
-                "function Get-OfficialDefaultInstalledPlugins(?<body>.*?)function Get-OfficialOptionalPlugins",
-                Pattern.DOTALL).matcher(common);
-        assertThat(defaultInstalled.find()).isTrue();
-        assertThat(defaultInstalled.group("body")).doesNotContain("Id = \"douyin\"");
-        assertThat(common).contains("Id = \"douyin\"");
+        assertThat(common).contains("function Get-OfficialOptionalPlugins");
         assertThat(orchestrator).contains(
                 "-DefaultDownloader",
                 "Get-OfficialDistributionPlugins -IncludeOptional",
-                "ExpectDouyin $false",
-                "ExpectDouyin $true",
-                "douyin artifact must not be staged",
-                "must include the douyin plugin");
+                "staged plugin artifacts do not match plugins-manifest.json");
         assertThat(distribution).contains(
                 "[switch]$DefaultDownloader",
                 "Get-OfficialDistributionPlugins -IncludeOptional:(!$DefaultDownloader)");
+        assertThat(orchestrator).doesNotContain("douyin", "ExpectDouyin");
     }
 
     @Test

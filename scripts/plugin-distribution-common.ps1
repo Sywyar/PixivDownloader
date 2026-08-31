@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
     Shared plugin-distribution primitives reused by the distribution assembler and the Windows
-    portable / installer packager, so both consume one source of "official optional plugin" truth
+    portable / installer packager, so both consume one source of official plugin-set truth
     and one set of plugin-jar / checksum helpers (no duplicated release semantics).
 
 .DESCRIPTION
@@ -44,8 +44,7 @@ function Get-OfficialRequiredPlugins {
 }
 
 # Official plugins installed into the default build artifacts. They remain separate PF4J artifacts and retain
-# their runtime required/optional semantics; this list only controls build-time staging. Douyin is intentionally
-# excluded and remains available on demand from the plugin market / full-offline distribution.
+# their runtime required/optional semantics; this list only controls build-time staging.
 function Get-OfficialDefaultInstalledPlugins {
     [CmdletBinding()]
     param()
@@ -101,14 +100,12 @@ function Get-OfficialDefaultInstalledPlugins {
     return $plugins
 }
 
-# Official plugins not installed by the default build. recovery-sentinel is a recovery-mode validation fixture,
-# not a user-facing official plugin, so it is only ever included on demand (assembler -IncludeSentinel).
+# recovery-sentinel is a recovery-mode validation fixture, not a user-facing official plugin, so it is only
+# included on demand (assembler -IncludeSentinel). There are currently no user-facing optional official packages.
 function Get-OfficialOptionalPlugins {
     [CmdletBinding()]
     param([switch]$IncludeSentinel)
-    $plugins = @(
-        [pscustomobject]@{ Id = "douyin"; Module = "pixivdownload-plugin-douyin"; Format = "jar"; PrivateLibs = $false }
-    )
+    $plugins = @()
     if ($IncludeSentinel) {
         $plugins += [pscustomobject]@{ Id = "recovery-sentinel"; Module = "pixivdownload-plugin-recovery-sentinel"; Format = "jar"; PrivateLibs = $false }
     }
