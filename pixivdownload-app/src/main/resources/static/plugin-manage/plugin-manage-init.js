@@ -159,6 +159,57 @@
         if (global.PixivNav) PixivNav.refresh();
     }
 
+    async function onTrustAction(id, action) {
+        if (PM.state.busyId) return;
+        var vm = PM.allViewModels().find(function (candidate) { return candidate.id === id; });
+        if (!vm) return;
+        if (action === 'approve') {
+            if (!vm.trustApprovable || !vm.trustArtifactSha256) return;
+            var approved = await global.PixivFeedback.confirm(PM.trustConfirmationOptions({
+                id: vm.id,
+                version: vm.version,
+                source: vm.trustSource,
+                publisher: vm.trustPublisher,
+                publisherKeyFingerprint: vm.trustPublisherKeyFingerprint,
+                artifactSha256: vm.trustArtifactSha256,
+                executionMode: vm.executionMode,
+                executionLabel: vm.executionLabel
+            }));
+            if (!approved) return;
+        } else if (action === 'revoke') {
+            if (!vm.trustRevocable) return;
+            var revoked = await global.PixivFeedback.confirm({
+                title: PM.t('trust.revoke.title', '撤销插件执行信任'),
+                message: PM.t('trust.revoke.message',
+                    '撤销“{plugin}”的执行信任后，当前已经运行的实例不会被强制终止，但下次加载、重载或启动时会被阻止，直到你重新批准当前精确制品。',
+                    { plugin: vm.name }),
+                confirmLabel: PM.t('trust.revoke.confirm', '撤销执行信任'),
+                cancelLabel: PM.t('trust.revoke.cancel', '取消')
+            });
+            if (!revoked) return;
+        } else {
+            return;
+        }
+
+        PM.state.busyId = id;
+        PM.renderAll();
+        try {
+            if (action === 'approve') {
+                await PM.approveTrust(id, vm.trustArtifactSha256);
+                PM.toast(PM.t('trust.toast.approved', '已批准当前精确制品的执行信任。'), 'ok');
+            } else {
+                await PM.revokeTrust(id);
+                PM.toast(PM.t('trust.toast.revoked', '执行信任已撤销；下次执行前必须重新确认。'), 'ok');
+            }
+        } catch (e) {
+            var message = (e && e.message) || PM.t('trust.error.generic', '更新插件执行信任失败');
+            PM.toast(PM.t('trust.error.failed', '更新插件执行信任失败：{message}', { message: message }), 'error');
+        } finally {
+            PM.state.busyId = null;
+            await load();
+        }
+    }
+
     // 本地包安装：提交当前选中的 .jar / .zip，后端统一完成校验、事务替换、激活与失败回滚。
     async function submitInstall() {
         if (PM.state.installBusy) return;
@@ -190,7 +241,7 @@
         PM.setInstallSubmitting(true);
         PM.clearInstallResult();
         try {
-            var response = await PM.installPackage(file, signature, allowDowngrade);
+            var response = await PM.installPackageWithConfirmation(file, signature, allowDowngrade);
             var model = PM.buildInstallResult(response);
             PM.showInstallResult(model);
             var feedback = PM.installFeedback(model);
@@ -293,6 +344,13 @@
             if (action && !action.disabled) {
                 closeActionMenus();
                 onAction(action.getAttribute('data-pm-id'), action.getAttribute('data-pm-action'));
+                return;
+            }
+            var trustAction = e.target.closest('[data-pm-trust-action]');
+            if (trustAction && !trustAction.disabled) {
+                closeActionMenus();
+                onTrustAction(trustAction.getAttribute('data-pm-id'),
+                    trustAction.getAttribute('data-pm-trust-action'));
                 return;
             }
             var menuToggle = e.target.closest('[data-pm-action-menu-toggle]');

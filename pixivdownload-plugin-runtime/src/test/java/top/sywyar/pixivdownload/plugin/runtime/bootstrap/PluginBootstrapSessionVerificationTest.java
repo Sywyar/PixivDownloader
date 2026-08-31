@@ -23,6 +23,9 @@ import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageFixtu
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
+import top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustPolicy;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
@@ -110,7 +113,7 @@ class PluginBootstrapSessionVerificationTest extends PluginBootstrapSessionTestS
     }
 
     @Test
-    @DisplayName("自定义仓库签名验证后可以取得宿主进程完全信任执行权限")
+    @DisplayName("自定义仓库签名还必须有持久化发布者信任才能取得宿主进程执行权限")
     void customRepositorySignatureAuthorizesHostProcessFullTrustExecution() throws Exception {
         Path pluginsDir = tempDir.resolve("custom-trusted-plugins");
         Path jar = stageProbeJar(pluginsDir);
@@ -124,7 +127,12 @@ class PluginBootstrapSessionVerificationTest extends PluginBootstrapSessionTestS
                 Files.size(jar),
                 PluginPackageIntegrity.sha256Hex(jar),
                 signing.artifactSignature(jar, "bootstrap-probe", "1.0.0"));
-        new PluginProvenanceStore(pluginsDir).write(jar, origin, signing.verifiedResult(jar));
+        PluginProvenanceRecord verified = PluginProvenanceRecord.from(origin, signing.verifiedResult(jar));
+        PluginProvenanceRecord approved = verified.withTrustDecision(PluginTrustPolicy.approve(
+                PluginPackageReader.inspect(jar, PluginPackageLimits.defaults()).descriptor(),
+                verified,
+                Instant.now()));
+        new PluginProvenanceStore(pluginsDir).write(jar, approved);
 
         PluginBootstrapSession session = createContext(
                 pluginsDir, PluginEnabledSnapshot.empty(), signing.verifier());
@@ -133,6 +141,65 @@ class PluginBootstrapSessionVerificationTest extends PluginBootstrapSessionTestS
         assertThat(session.status().startedPluginIds()).contains("bootstrap-probe");
         assertThat(session.status().failures()).isEmpty();
         assertThat(Files.readString(marker, StandardCharsets.UTF_8)).contains("load").contains("start");
+        session.close();
+    }
+
+    @Test
+    @DisplayName("撤销已加载插件的执行信任后，再次 start 必须在插件代码前拒绝")
+    void revokedTrustPreventsRestartingLoadedPlugin() throws Exception {
+        Path pluginsDir = tempDir.resolve("revoked-trust-plugins");
+        Path jar = stageProbeJar(pluginsDir);
+        Path marker = tempDir.resolve("revoked-trust-events.log");
+        Files.createFile(marker);
+        System.setProperty("bootstrap.probe.marker", marker.toString());
+        SigningFixture signing = SigningFixture.create();
+        PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog(
+                "custom-repository", false, Files.size(jar), PluginPackageIntegrity.sha256Hex(jar),
+                signing.artifactSignature(jar, "bootstrap-probe", "1.0.0"));
+        PluginProvenanceRecord verified = PluginProvenanceRecord.from(origin, signing.verifiedResult(jar));
+        PluginProvenanceRecord approved = verified.withTrustDecision(PluginTrustPolicy.approve(
+                PluginPackageReader.inspect(jar, PluginPackageLimits.defaults()).descriptor(),
+                verified,
+                Instant.now()));
+        PluginProvenanceStore store = new PluginProvenanceStore(pluginsDir);
+        store.write(jar, approved);
+
+        PluginBootstrapSession session = createContext(
+                pluginsDir, PluginEnabledSnapshot.empty(), signing.verifier());
+        session.start();
+        session.manager().stopPlugin("bootstrap-probe");
+        store.write(jar, store.read(jar).orElseThrow().withTrustRevokedAt(Instant.now()));
+        String eventsBeforeRestart = Files.readString(marker, StandardCharsets.UTF_8);
+
+        assertThatThrownBy(() -> session.manager().startPlugin("bootstrap-probe"))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("trust was revoked");
+        assertThat(Files.readString(marker, StandardCharsets.UTF_8)).isEqualTo(eventsBeforeRestart);
+        session.close();
+    }
+
+    @Test
+    @DisplayName("自定义仓库仅有合法签名但未确认时在 PF4J 前拒绝且不执行探针代码")
+    void customRepositoryWithoutExecutionTrustDoesNotRunPluginCode() throws Exception {
+        Path pluginsDir = tempDir.resolve("custom-unconfirmed-plugins");
+        Path jar = stageProbeJar(pluginsDir);
+        Path marker = tempDir.resolve("custom-unconfirmed-events.log");
+        Files.createFile(marker);
+        System.setProperty("bootstrap.probe.marker", marker.toString());
+        SigningFixture signing = SigningFixture.create();
+        PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog(
+                "custom-repository", false, Files.size(jar), PluginPackageIntegrity.sha256Hex(jar),
+                signing.artifactSignature(jar, "bootstrap-probe", "1.0.0"));
+        new PluginProvenanceStore(pluginsDir).write(jar, origin, signing.verifiedResult(jar));
+
+        PluginBootstrapSession session = createContext(
+                pluginsDir, PluginEnabledSnapshot.empty(), signing.verifier());
+        session.start();
+
+        assertThat(session.status().startedPluginIds()).doesNotContain("bootstrap-probe");
+        assertThat(session.status().failures())
+                .anyMatch(failure -> failure.reason().contains("trust confirmation is missing"));
+        assertThat(Files.readString(marker, StandardCharsets.UTF_8)).isEmpty();
         session.close();
     }
 

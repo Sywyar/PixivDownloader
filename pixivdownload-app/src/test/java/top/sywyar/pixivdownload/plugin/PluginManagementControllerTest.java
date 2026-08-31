@@ -23,6 +23,7 @@ import top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector;
 
 import java.util.List;
 import java.util.Locale;
+import java.time.Instant;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.params.provider.Arguments.arguments;
@@ -36,6 +37,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -202,6 +204,55 @@ class PluginManagementControllerTest {
     }
 
     @Test
+    @DisplayName("PUT /api/plugins/{id}/trust 以精确制品哈希批准执行信任")
+    void approveTrustDelegatesExactArtifactSha256() throws Exception {
+        String sha256 = "a".repeat(64);
+        when(service.approveTrust("demo-ext", sha256)).thenReturn(
+                new PluginManagementService.PluginTrustView(
+                        PluginManagementService.PluginTrustState.APPROVED,
+                        sha256,
+                        null,
+                        top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustDecision.ApprovalType.EXACT_ARTIFACT,
+                        Instant.parse("2026-08-31T00:00:00Z"),
+                        null,
+                        false,
+                        true));
+
+        mockMvc.perform(put("/api/plugins/demo-ext/trust")
+                        .param("confirmArtifactSha256", sha256))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.state").value("APPROVED"))
+                .andExpect(jsonPath("$.artifactSha256").value(sha256))
+                .andExpect(jsonPath("$.approvalType").value("EXACT_ARTIFACT"))
+                .andExpect(jsonPath("$.revocable").value(true));
+
+        verify(service).approveTrust("demo-ext", sha256);
+    }
+
+    @Test
+    @DisplayName("DELETE /api/plugins/{id}/trust 撤销持久化执行信任")
+    void revokeTrustDelegatesToManagementService() throws Exception {
+        when(service.revokeTrust("demo-ext")).thenReturn(
+                new PluginManagementService.PluginTrustView(
+                        PluginManagementService.PluginTrustState.REVOKED,
+                        "a".repeat(64),
+                        null,
+                        null,
+                        null,
+                        Instant.parse("2026-08-31T00:00:00Z"),
+                        true,
+                        false));
+
+        mockMvc.perform(delete("/api/plugins/demo-ext/trust"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.state").value("REVOKED"))
+                .andExpect(jsonPath("$.approvable").value(true))
+                .andExpect(jsonPath("$.revocable").value(false));
+
+        verify(service).revokeTrust("demo-ext");
+    }
+
+    @Test
     @DisplayName("POST /api/plugins/backend-restart 接受后端上下文重启请求")
     void backendRestartDelegatesToRestartService() throws Exception {
         when(backendRestartService.requestRestart())
@@ -249,7 +300,7 @@ class PluginManagementControllerTest {
     @Test
     @DisplayName("POST /api/plugins/install 返回事务、包身份与运行阶段")
     void installAcceptedReturns200() throws Exception {
-        when(installService.install(any(), any(), anyBoolean())).thenReturn(new PluginInstallReport(
+        when(installService.install(any(), any(), anyBoolean(), isNull())).thenReturn(new PluginInstallReport(
                 PluginInstallOutcome.INSTALLED, true, false, "ext-demo", "1.0.0", null,
                 List.of(), List.of(), List.of(), List.of("INSTALLED ext-demo 1.0.0"),
                 "tx-install", true, false, null,
@@ -275,13 +326,13 @@ class PluginManagementControllerTest {
                 .andExpect(jsonPath("$.updated").value(false))
                 .andExpect(jsonPath("$.message").value("localized:plugin.install.outcome.installed"));
 
-        verify(installService).install(any(), any(), eq(false));
+        verify(installService).install(any(), any(), eq(false), isNull());
     }
 
     @Test
     @DisplayName("POST /api/plugins/install 留下恢复事务时强制返回 503 阻断机器态")
     void installRecoveryBlockedReturns503() throws Exception {
-        when(installService.install(any(), isNull(), anyBoolean())).thenReturn(new PluginInstallReport(
+        when(installService.install(any(), isNull(), anyBoolean(), isNull())).thenReturn(new PluginInstallReport(
                 PluginInstallOutcome.INSTALLED, true, false, "ext-demo", "1.0.0", null,
                 List.of(), List.of(), List.of(), List.of("transaction recovery required"),
                 "tx-blocked", true, false, null,
@@ -303,7 +354,7 @@ class PluginManagementControllerTest {
     @Test
     @DisplayName("POST /api/plugins/install 不兼容 → 409 + 稳定 outcome（REJECTED_INCOMPATIBLE）+ 本地化 message，not accepted")
     void installIncompatibleReturns409() throws Exception {
-        when(installService.install(any(), isNull(), anyBoolean())).thenReturn(new PluginInstallReport(
+        when(installService.install(any(), isNull(), anyBoolean(), isNull())).thenReturn(new PluginInstallReport(
                 PluginInstallOutcome.REJECTED_INCOMPATIBLE, false, false, "ext-demo", "1.0.0", null,
                 List.of(), List.of(), List.of("requires SDK 2.0")));
 
@@ -320,7 +371,7 @@ class PluginManagementControllerTest {
     @Test
     @DisplayName("POST /api/plugins/install 资源超限 → 413 + 稳定 outcome（REJECTED_TOO_LARGE）+ 本地化 message，not accepted")
     void installTooLargeReturns413() throws Exception {
-        when(installService.install(any(), isNull(), anyBoolean())).thenReturn(new PluginInstallReport(
+        when(installService.install(any(), isNull(), anyBoolean(), isNull())).thenReturn(new PluginInstallReport(
                 PluginInstallOutcome.REJECTED_TOO_LARGE, false, false, null, null, null,
                 List.of(), List.of(), List.of("too many zip entries")));
 
@@ -336,7 +387,7 @@ class PluginManagementControllerTest {
     @Test
     @DisplayName("POST /api/plugins/install 缺失 file 部分 → 委托 install(null, false) → 400 + 稳定 outcome（REJECTED_EMPTY），not accepted")
     void installMissingFileReturns400() throws Exception {
-        when(installService.install(isNull(), isNull(), anyBoolean())).thenReturn(new PluginInstallReport(
+        when(installService.install(isNull(), isNull(), anyBoolean(), isNull())).thenReturn(new PluginInstallReport(
                 PluginInstallOutcome.REJECTED_EMPTY, false, false, null, null, null,
                 List.of(), List.of(), List.of("no plugin package uploaded")));
 
@@ -348,6 +399,6 @@ class PluginManagementControllerTest {
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.message").value("localized:plugin.install.outcome.rejected-empty"));
 
-        verify(installService).install(isNull(), isNull(), eq(false));
+        verify(installService).install(isNull(), isNull(), eq(false), isNull());
     }
 }

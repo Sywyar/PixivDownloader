@@ -47,8 +47,7 @@
             : t(meta.labelKey, meta.status);
         var attrs = meta.disabled ? ' disabled'
             : ' data-pmk-repo="' + esc(card.repositoryId || '') + '" data-pmk-install="' + esc(card.pluginId) +
-              '" data-pmk-version="' + esc(card.latestVersion || '') + '" data-pmk-publisher="' +
-              esc(card.publisher || '') + '"';
+              '" data-pmk-version="' + esc(card.latestVersion || '') + '"';
         return '<button class="pmk-btn pmk-install pmk-btn--' + meta.variant + '"' + attrs + '>' +
             '<i class="fa-solid fa-' + esc(meta.icon) + '"></i><span>' + esc(label) + '</span></button>';
     }
@@ -292,14 +291,14 @@
 
     // 安装请求只用展示条目同源的 repositoryId（来自卡片 data-pmk-repo），不读易变的全局 activeRepositoryId；
     // 在途与结果按 (repositoryId, pluginId) 复合键存储——切到其它仓库时本仓库的安装态不会污染同名插件。
-    function doInstall(repositoryId, pluginId, version, publisher) {
+    function doInstall(repositoryId, pluginId, version) {
         if (!repositoryId || !pluginId || !version) return;
         var key = installKey(repositoryId, pluginId);
         if (state.installing[key]) return;
         state.installing[key] = true;
         delete state.installResults[key];
         updateGrid();
-        PMK.installPluginWithConfirmation(repositoryId, pluginId, version, publisher).then(function (res) {
+        PMK.installPluginWithConfirmation(repositoryId, pluginId, version).then(function (res) {
             var model = res.kind === 'install'
                 ? PMK.data.installResult(res.body)
                 : PMK.data.catalogError(res.body, res.httpStatus);
@@ -346,7 +345,7 @@
             var install = e.target.closest('[data-pmk-install]');
             if (install && !install.disabled) {
                 doInstall(install.getAttribute('data-pmk-repo'), install.getAttribute('data-pmk-install'),
-                    install.getAttribute('data-pmk-version'), install.getAttribute('data-pmk-publisher'));
+                    install.getAttribute('data-pmk-version'));
                 return;
             }
             if (e.target.closest('[data-pmk-refresh]')) { load(); }

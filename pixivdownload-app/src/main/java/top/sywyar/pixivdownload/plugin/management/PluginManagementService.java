@@ -14,6 +14,9 @@ import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginInventorySnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginSnapshot;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.ProvenanceSnapshotState;
+import top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustDecision;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginRecoveryGateSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginDiagnostic;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
@@ -23,6 +26,7 @@ import top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector;
 import top.sywyar.pixivdownload.plugin.verification.PluginVerificationView;
 
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -221,6 +225,7 @@ public class PluginManagementService {
                 List.copyOf(diagnostic.messages()),
                 verificationOf(id, descriptor, phase, installedArtifacts, runtimeVerifications,
                         expectedGate, allowProvenanceReads, allowLifecycleReads),
+                trustOf(id, descriptor, installedArtifacts, allowProvenanceReads, allowLifecycleReads),
                 allowLifecycleReads ? pluginLifecycleService.generation(id).orElse(null) : null,
                 operation != null ? operation.operation() : ExternalPluginOperation.IDLE,
                 operation != null ? operation.transactionId() : null,
@@ -229,6 +234,64 @@ public class PluginManagementService {
                 lifecyclePolicy,
                 pluginToggles.isEnabled(id),
                 toggleable);
+    }
+
+    public PluginTrustView approveTrust(String pluginId, String confirmedArtifactSha256) {
+        if (installer == null) {
+            throw trustFailure(pluginId, "approve-trust", "plugin trust store is unavailable");
+        }
+        try {
+            return PluginTrustView.from(installer.approveTrust(pluginId, confirmedArtifactSha256));
+        } catch (IllegalArgumentException | IllegalStateException failure) {
+            throw trustFailure(pluginId, "approve-trust", failure.getMessage());
+        }
+    }
+
+    public PluginTrustView revokeTrust(String pluginId) {
+        if (installer == null) {
+            throw trustFailure(pluginId, "revoke-trust", "plugin trust store is unavailable");
+        }
+        try {
+            return PluginTrustView.from(installer.revokeTrust(pluginId));
+        } catch (IllegalArgumentException | IllegalStateException failure) {
+            throw trustFailure(pluginId, "revoke-trust", failure.getMessage());
+        }
+    }
+
+    private static PluginManagementException trustFailure(String pluginId, String action, String detail) {
+        return new PluginManagementException(
+                PluginManagementErrorCode.TRUST_UPDATE_REJECTED, pluginId, action, null, detail);
+    }
+
+    private PluginTrustView trustOf(
+            String id,
+            PluginDescriptor descriptor,
+            Map<String, List<InstalledPluginSnapshot>> installedArtifacts,
+            boolean allowProvenanceReads,
+            boolean allowLifecycleReads) {
+        if (descriptor == null) {
+            return PluginTrustView.state(PluginTrustState.NOT_INSTALLED);
+        }
+        if (BuiltInPlugins.isBuiltIn(id)) {
+            return PluginTrustView.state(PluginTrustState.BUILT_IN);
+        }
+        if (!allowLifecycleReads || !allowProvenanceReads || installer == null) {
+            return PluginTrustView.state(PluginTrustState.INVALID);
+        }
+        if (pluginLifecycleService.isDevelopmentArtifact(id)) {
+            return PluginTrustView.state(PluginTrustState.DEVELOPMENT);
+        }
+        List<InstalledPluginSnapshot> installed = installedArtifacts.getOrDefault(id, List.of());
+        if (installed.size() != 1) {
+            return PluginTrustView.state(PluginTrustState.INVALID);
+        }
+        InstalledPluginSnapshot snapshot = installed.get(0);
+        if (snapshot.provenanceState() != ProvenanceSnapshotState.PRESENT
+                || snapshot.provenance() == null
+                || !snapshot.artifactSha256().equals(snapshot.provenance().artifactSha256())) {
+            return PluginTrustView.state(PluginTrustState.INVALID);
+        }
+        return PluginTrustView.from(snapshot.provenance());
     }
 
     /** 描述符的插件间依赖声明投影（未安装的必选项无描述符 → 空列表）。 */
@@ -689,6 +752,7 @@ public class PluginManagementService {
             List<String> availableActions,
             List<String> messages,
             PluginVerificationView verification,
+            PluginTrustView trust,
             Long generation,
             ExternalPluginOperation operation,
             String transactionId,
@@ -721,7 +785,8 @@ public class PluginManagementService {
             this(id, displayNamespace, displayNameKey, descriptionKey, iconKey, colorToken, version, kind,
                     sdkRequirement, dependencies, source, status, runtimePhase, managed, requiredByPolicy,
                     allowDisable, availableActions, messages, PluginVerificationProjector.unverifiedLocal(),
-                    null, ExternalPluginOperation.IDLE, null, null,
+                    PluginTrustView.state(PluginTrustState.INVALID), null,
+                    ExternalPluginOperation.IDLE, null, null,
                     PluginExecutionMode.HOST_PROCESS_FULL_TRUST,
                     PluginLifecyclePolicy.HOT_RELOAD, true, false);
         }
@@ -752,9 +817,63 @@ public class PluginManagementService {
             this(id, displayNamespace, displayNameKey, descriptionKey, iconKey, colorToken, version, kind,
                     sdkRequirement, dependencies, source, status, runtimePhase, managed, requiredByPolicy,
                     allowDisable, availableActions, messages, PluginVerificationProjector.unverifiedLocal(),
-                    null, ExternalPluginOperation.IDLE, null, null,
+                    PluginTrustView.state(PluginTrustState.INVALID), null,
+                    ExternalPluginOperation.IDLE, null, null,
                     PluginExecutionMode.HOST_PROCESS_FULL_TRUST,
                     lifecyclePolicy, configuredEnabled, toggleable);
+        }
+    }
+
+    public enum PluginTrustState {
+        NOT_INSTALLED,
+        BUILT_IN,
+        DEVELOPMENT,
+        OFFICIAL,
+        APPROVED,
+        CONFIRMATION_REQUIRED,
+        REVOKED,
+        INVALID
+    }
+
+    public record PluginTrustView(
+            PluginTrustState state,
+            String artifactSha256,
+            String publisherKeyFingerprint,
+            PluginTrustDecision.ApprovalType approvalType,
+            Instant approvedAt,
+            Instant revokedAt,
+            boolean approvable,
+            boolean revocable) {
+
+        private static PluginTrustView state(PluginTrustState state) {
+            return new PluginTrustView(state, null, null, null, null, null, false, false);
+        }
+
+        private static PluginTrustView from(PluginProvenanceRecord provenance) {
+            PluginTrustDecision decision = provenance.trustDecision();
+            PluginTrustState state;
+            if (provenance.developmentOnly()) {
+                state = PluginTrustState.DEVELOPMENT;
+            } else if (provenance.trustRevokedAt() != null) {
+                state = PluginTrustState.REVOKED;
+            } else if (decision != null) {
+                state = decision.approvalType() == PluginTrustDecision.ApprovalType.OFFICIAL
+                        ? PluginTrustState.OFFICIAL : PluginTrustState.APPROVED;
+            } else {
+                state = provenance.officialRepository()
+                        ? PluginTrustState.OFFICIAL : PluginTrustState.CONFIRMATION_REQUIRED;
+            }
+            boolean production = !provenance.developmentOnly();
+            return new PluginTrustView(
+                    state,
+                    provenance.artifactSha256(),
+                    provenance.publisherKeyFingerprint(),
+                    decision != null ? decision.approvalType() : null,
+                    decision != null ? decision.approvedAt() : null,
+                    provenance.trustRevokedAt(),
+                    production && (state == PluginTrustState.REVOKED
+                            || state == PluginTrustState.CONFIRMATION_REQUIRED),
+                    production && (decision != null || provenance.officialRepository()));
         }
     }
 

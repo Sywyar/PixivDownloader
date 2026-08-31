@@ -334,7 +334,8 @@ abstract class PluginBootstrapSessionTestSupport {
         VerificationResult verifiedResult(Path artifact) throws IOException {
             return new VerificationResult(VerificationStatus.VERIFIED, "bootstrap-probe", "1.0.0",
                     keyId, SignatureMetadata.ED25519, trustedKey.publisher(), trustedKey.trustLabel(),
-                    Instant.now(), Files.size(artifact), PluginPackageIntegrity.sha256Hex(artifact), "VERIFIED");
+                    trustedKey.publicKeyFingerprint(), Instant.now(), Files.size(artifact),
+                    PluginPackageIntegrity.sha256Hex(artifact), "VERIFIED");
         }
 
         protected SignatureMetadata artifactSignature(Path artifact, String pluginId, String version)

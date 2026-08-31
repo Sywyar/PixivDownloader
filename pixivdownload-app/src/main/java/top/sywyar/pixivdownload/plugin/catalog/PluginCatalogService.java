@@ -216,7 +216,7 @@ public class PluginCatalogService {
                 throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE,
                         "paged catalog detail exceeded its bounds");
             }
-            validateEntrySignatures(document.item());
+            validateEntrySignatures(repository, document.item());
             String previousGeneration = generations.putIfAbsent(repository.repositoryId(), document.generation());
             if (query.cursor() != null && previousGeneration != null
                     && !previousGeneration.equals(document.generation())) {
@@ -258,7 +258,7 @@ public class PluginCatalogService {
                     "paged exact-version response generation is missing");
         }
         if (pkg == null || !version.equals(pkg.version())) throw versionMissing(pluginId, version);
-        validatePackageSignature(pkg, pluginId);
+        validatePackageSignature(repository, pkg, pluginId);
         rememberGeneration(repository, document.generation());
         return new ResolvedPackage(repository, null, pkg);
     }
@@ -340,7 +340,7 @@ public class PluginCatalogService {
                     "catalog manifest signature verification failed: " + result.status());
         }
         PluginCatalogManifest manifest = parseManifest(bytes);
-        validatePackageSignatures(manifest);
+        validatePackageSignatures(repository, manifest);
         return manifest;
     }
 
@@ -380,7 +380,7 @@ public class PluginCatalogService {
             }
             Set<String> pluginIds = new HashSet<>();
             for (PluginCatalogEntry entry : document.items()) {
-                validateEntrySignatures(entry);
+                validateEntrySignatures(repository, entry);
                 if (!pluginIds.add(entry.pluginId())) {
                     throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE,
                             "paged catalog response contains duplicate plugin ids");
@@ -575,19 +575,15 @@ public class PluginCatalogService {
         return repository.official() ? VerificationPolicy.officialRepository() : VerificationPolicy.customRepository();
     }
 
-    private static void validatePackageSignatures(PluginCatalogManifest manifest) {
+    private static void validatePackageSignatures(PluginRepository repository, PluginCatalogManifest manifest) {
         for (PluginCatalogEntry entry : manifest.entries()) {
             for (PluginCatalogPackage pkg : entry.packages()) {
-                if (!pkg.hasSignature()) {
-                    throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE,
-                            "catalog package is missing publisher signature: "
-                                    + entry.pluginId() + " " + pkg.version());
-                }
+                validatePackageSignature(repository, pkg, entry.pluginId());
             }
         }
     }
 
-    private static void validateEntrySignatures(PluginCatalogEntry entry) {
+    private static void validateEntrySignatures(PluginRepository repository, PluginCatalogEntry entry) {
         if (entry == null || entry.pluginId() == null || entry.pluginId().isBlank()) {
             throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE,
                     "paged catalog item identity is missing");
@@ -595,7 +591,7 @@ public class PluginCatalogService {
         requirePathToken(entry.pluginId(), "pluginId");
         Set<String> versions = new HashSet<>();
         for (PluginCatalogPackage pkg : entry.packages()) {
-            validatePackageSignature(pkg, entry.pluginId());
+            validatePackageSignature(repository, pkg, entry.pluginId());
             if (!versions.add(pkg.version())) {
                 throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE,
                         "paged catalog item contains duplicate versions: " + entry.pluginId());
@@ -603,8 +599,10 @@ public class PluginCatalogService {
         }
     }
 
-    private static void validatePackageSignature(PluginCatalogPackage pkg, String pluginId) {
-        if (pkg == null || pkg.version() == null || pkg.version().isBlank() || !pkg.hasSignature()) {
+    private static void validatePackageSignature(
+            PluginRepository repository, PluginCatalogPackage pkg, String pluginId) {
+        if (pkg == null || pkg.version() == null || pkg.version().isBlank()
+                || repository.official() && !pkg.hasSignature()) {
             throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE,
                     "catalog package identity or publisher signature is missing: " + pluginId);
         }

@@ -3,6 +3,8 @@ package top.sywyar.pixivdownload.plugin.runtime.install.provenance;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeLayout;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode;
+import top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustDecision;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
@@ -341,7 +343,7 @@ public final class PluginProvenanceStore {
 
     public void write(Path artifact, PluginProvenanceRecord record) throws IOException {
         Properties props = new Properties();
-        props.setProperty("formatVersion", "2");
+        props.setProperty("formatVersion", "3");
         props.setProperty("source", record.source().name());
         put(props, "repositoryId", record.repositoryId());
         props.setProperty("officialRepository", Boolean.toString(record.officialRepository()));
@@ -361,11 +363,27 @@ public final class PluginProvenanceStore {
         put(props, "keyId", record.keyId());
         put(props, "publisher", record.publisher());
         put(props, "trustLabel", record.trustLabel());
+        put(props, "publisherKeyFingerprint", record.publisherKeyFingerprint());
         put(props, "verifiedAt", record.verifiedAt() != null ? record.verifiedAt().toString() : null);
         put(props, "offlineStatus", record.offlineStatus() != null ? record.offlineStatus().name() : null);
         put(props, "offlineVerifiedAt", record.offlineVerifiedAt() != null
                 ? record.offlineVerifiedAt().toString() : null);
         put(props, "diagnosticCode", record.diagnosticCode());
+        PluginTrustDecision trust = record.trustDecision();
+        if (trust != null) {
+            put(props, "trust.pluginId", trust.pluginId());
+            put(props, "trust.publisherKeyFingerprint", trust.publisherKeyFingerprint());
+            put(props, "trust.repositoryId", trust.repositoryId());
+            props.setProperty("trust.repositoryOfficial", Boolean.toString(trust.repositoryOfficial()));
+            put(props, "trust.artifactSha256", trust.artifactSha256());
+            props.setProperty("trust.executionMode", trust.executionMode().name());
+            put(props, "trust.declaredPermissionDigest", trust.declaredPermissionDigest());
+            props.setProperty("trust.approvedAt", trust.approvedAt().toString());
+            props.setProperty("trust.approvedAppSdkMajor", Integer.toString(trust.approvedAppSdkMajor()));
+            props.setProperty("trust.approvalType", trust.approvalType().name());
+        }
+        put(props, "trustRevokedAt", record.trustRevokedAt() != null
+                ? record.trustRevokedAt().toString() : null);
 
         Path sidecar = sidecarPath(artifact);
         normalizeLegacyBeforeWrite(artifact);
@@ -610,16 +628,25 @@ public final class PluginProvenanceStore {
                 "formatVersion", "source", "repositoryId", "officialRepository", "developmentOnly",
                 "expectedSizeBytes", "expectedSha256", "artifactSizeBytes", "artifactSha256",
                 "signature.formatVersion", "signature.algorithm", "signature.keyId", "signature.value",
-                "status", "keyId", "publisher", "trustLabel", "verifiedAt",
-                "offlineStatus", "offlineVerifiedAt", "diagnosticCode");
+                "status", "keyId", "publisher", "trustLabel", "publisherKeyFingerprint", "verifiedAt",
+                "offlineStatus", "offlineVerifiedAt", "diagnosticCode", "trust.pluginId",
+                "trust.publisherKeyFingerprint", "trust.repositoryId", "trust.repositoryOfficial",
+                "trust.artifactSha256", "trust.executionMode", "trust.declaredPermissionDigest",
+                "trust.approvedAt", "trust.approvedAppSdkMajor", "trust.approvalType", "trustRevokedAt");
         for (String key : props.stringPropertyNames()) {
             if (!allowedKeys.contains(key)) {
                 throw new IllegalArgumentException("unknown provenance property: " + key);
             }
         }
         String formatVersion = requiredText(props, "formatVersion");
-        if (!"1".equals(formatVersion) && !"2".equals(formatVersion)) {
+        if (!"1".equals(formatVersion) && !"2".equals(formatVersion) && !"3".equals(formatVersion)) {
             throw new IllegalArgumentException("unsupported provenance formatVersion");
+        }
+        if (!"3".equals(formatVersion) && props.stringPropertyNames().stream().anyMatch(key ->
+                "publisherKeyFingerprint".equals(key)
+                        || key.startsWith("trust.")
+                        || "trustRevokedAt".equals(key))) {
+            throw new IllegalArgumentException("legacy provenance must not contain v3 trust properties");
         }
         PluginPackageSource source = PluginPackageSource.valueOf(requiredText(props, "source"));
         String officialValue = requiredText(props, "officialRepository");
@@ -628,7 +655,7 @@ public final class PluginProvenanceStore {
         }
         boolean officialRepository = Boolean.parseBoolean(officialValue);
         boolean developmentOnly;
-        if ("2".equals(formatVersion)) {
+        if (!"1".equals(formatVersion)) {
             String developmentValue = requiredText(props, "developmentOnly");
             if (!"true".equals(developmentValue) && !"false".equals(developmentValue)) {
                 throw new IllegalArgumentException("developmentOnly must be true or false");
@@ -672,8 +699,9 @@ public final class PluginProvenanceStore {
 
         String repositoryId = text(props, "repositoryId");
         if (source == PluginPackageSource.MARKET_CATALOG) {
-            if (repositoryId == null || expectedSize == null || expectedSha256 == null || signature == null) {
-                throw new IllegalArgumentException("catalog provenance is missing its signed source binding");
+            if (repositoryId == null || expectedSize == null || expectedSha256 == null
+                    || !"3".equals(formatVersion) && signature == null) {
+                throw new IllegalArgumentException("catalog provenance is missing its source binding");
             }
             if (expectedSize != artifactSize || !expectedSha256.equalsIgnoreCase(artifactSha256)) {
                 throw new IllegalArgumentException("catalog provenance observed artifact binding changed");
@@ -687,6 +715,26 @@ public final class PluginProvenanceStore {
         Instant offlineVerifiedAt = strictInstantOrNull(props.getProperty("offlineVerifiedAt"));
         if ((offlineStatus == null) != (offlineVerifiedAt == null)) {
             throw new IllegalArgumentException("offline verification status and timestamp must be recorded together");
+        }
+        boolean hasTrustProperties = props.stringPropertyNames().stream()
+                .anyMatch(name -> name.startsWith("trust."));
+        PluginTrustDecision trustDecision = null;
+        if (hasTrustProperties) {
+            String trustOfficial = requiredText(props, "trust.repositoryOfficial");
+            if (!"true".equals(trustOfficial) && !"false".equals(trustOfficial)) {
+                throw new IllegalArgumentException("trust.repositoryOfficial must be true or false");
+            }
+            trustDecision = new PluginTrustDecision(
+                    requiredText(props, "trust.pluginId"),
+                    text(props, "trust.publisherKeyFingerprint"),
+                    text(props, "trust.repositoryId"),
+                    Boolean.parseBoolean(trustOfficial),
+                    requiredText(props, "trust.artifactSha256"),
+                    PluginExecutionMode.valueOf(requiredText(props, "trust.executionMode")),
+                    requiredText(props, "trust.declaredPermissionDigest"),
+                    Instant.parse(requiredText(props, "trust.approvedAt")),
+                    Integer.parseInt(requiredText(props, "trust.approvedAppSdkMajor")),
+                    PluginTrustDecision.ApprovalType.valueOf(requiredText(props, "trust.approvalType")));
         }
         return new PluginProvenanceRecord(
                 source,
@@ -702,10 +750,13 @@ public final class PluginProvenanceStore {
                 text(props, "keyId"),
                 text(props, "publisher"),
                 text(props, "trustLabel"),
+                text(props, "publisherKeyFingerprint"),
                 strictInstantOrNull(props.getProperty("verifiedAt")),
                 offlineStatus,
                 offlineVerifiedAt,
-                text(props, "diagnosticCode"));
+                text(props, "diagnosticCode"),
+                trustDecision,
+                strictInstantOrNull(props.getProperty("trustRevokedAt")));
     }
 
     private static String requiredText(Properties props, String key) {

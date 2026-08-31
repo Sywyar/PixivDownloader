@@ -33,33 +33,63 @@
         return interpolate(fallback != null ? fallback : key, vars);
     };
 
-    PMK.FIRST_TRUST_CONFIRMATION_REQUIRED = 'FIRST_TRUST_CONFIRMATION_REQUIRED';
+    PMK.TRUST_CONFIRMATION_REQUIRED = 'TRUST_CONFIRMATION_REQUIRED';
     PMK.IDENTITY_MIGRATION_CONFIRMATION_REQUIRED = 'REJECTED_IDENTITY_CONFIRMATION_REQUIRED';
-    PMK.installPluginWithConfirmation = function (repositoryId, pluginId, version, publisher) {
+    PMK.trustConfirmationOptions = function (requirement) {
+        var r = requirement || {};
+        var executionMode = String(r.executionMode || 'HOST_PROCESS_FULL_TRUST');
+        var executionLabel = PMK.t('install.trust.execution.' + executionMode.toLowerCase(), executionMode);
+        var source = r.repositoryId || r.source || PMK.t('install.trust.source.local', '本地上传');
+        var publisher = r.publisher || PMK.t('install.trust.publisher.unknown', '无法确认');
+        var signature = r.signed === true
+            ? PMK.t('install.trust.signature.signed', '已签名')
+            : PMK.t('install.trust.signature.unsigned', '未签名');
+        var fingerprint = r.publisherKeyFingerprint
+            || PMK.t('install.trust.fingerprint.unavailable', '不适用');
+        var message = PMK.t('install.trust.risk',
+            '此插件将在 PixivDownloader 进程中运行，拥有与 PixivDownloader 相同的本机权限。它可以访问当前用户可访问的文件和网络、运行后台任务、注册本地接口，并可能在 PixivDownloader 页面中执行脚本。安装插件相当于运行一个本地应用。请只安装你信任的来源。');
+        if (r.signed !== true) {
+            message += '\n\n' + PMK.t('install.trust.unsigned-risk',
+                '此插件没有发布者签名。PixivDownloader 无法证明它来自谁，也无法确认后续更新是否仍由同一作者发布。');
+        }
+        message += '\n\n' + PMK.t('install.trust.details',
+            '插件 ID：{pluginId}\n版本：{version}\n来源：{source}\n发布者：{publisher}\n签名状态：{signature}\n发布者指纹：{fingerprint}\n制品 SHA-256：{sha256}\n执行模式：{executionMode}', {
+                pluginId: r.pluginId || '',
+                version: r.version || '',
+                source: source,
+                publisher: publisher,
+                signature: signature,
+                fingerprint: fingerprint,
+                sha256: r.artifactSha256 || '',
+                executionMode: executionLabel
+            });
+        return {
+            title: PMK.t('install.trust.title', '确认插件执行信任'),
+            message: message,
+            confirmLabel: PMK.t('install.trust.confirm', '我信任此插件并允许运行'),
+            cancelLabel: PMK.t('install.trust.cancel', '取消安装')
+        };
+    };
+
+    PMK.installPluginWithConfirmation = function (repositoryId, pluginId, version) {
         function canConfirm() {
             return global.PixivFeedback && typeof global.PixivFeedback.confirm === 'function';
         }
+        var confirmedArtifacts = Object.create(null);
         function attempt(confirmations) {
             return PMK.api.installPlugin(repositoryId, pluginId, version, confirmations).then(function (response) {
-                if (response.kind === 'error'
-                        && response.body
-                        && response.body.code === PMK.FIRST_TRUST_CONFIRMATION_REQUIRED
-                        && !confirmations.firstTrust
-                        && canConfirm()) {
-                    return global.PixivFeedback.confirm({
-                        title: PMK.t('install.first-trust.title', '确认首次信任自定义插件'),
-                        message: PMK.t('install.first-trust.message',
-                            '即将首次从自定义仓库 {repositoryId} 安装 {pluginId}（目录声明的发布者：{publisher}），并可能自动安装同仓库的必需依赖。插件将在独立 JVM 中运行，但仍使用当前操作系统账户，可能访问该账户可读写的文件和网络；这不是完整的系统沙箱。仅在信任该仓库与发布者时继续。', {
-                                repositoryId: repositoryId,
-                                pluginId: pluginId,
-                                publisher: publisher || pluginId
-                            }),
-                        confirmLabel: PMK.t('install.first-trust.confirm', '信任并继续'),
-                        cancelLabel: PMK.t('install.first-trust.cancel', '取消安装')
-                    }).then(function (confirmed) {
+                var body = response.body || {};
+                var trustRequired = body.outcome === PMK.TRUST_CONFIRMATION_REQUIRED
+                    || body.code === PMK.TRUST_CONFIRMATION_REQUIRED;
+                if (trustRequired && body.trustRequirement && canConfirm()) {
+                    var sha256 = String(body.trustRequirement.artifactSha256 || '').toLowerCase();
+                    if (!/^[0-9a-f]{64}$/.test(sha256) || confirmedArtifacts[sha256]) return response;
+                    return global.PixivFeedback.confirm(PMK.trustConfirmationOptions(body.trustRequirement))
+                        .then(function (confirmed) {
                         if (!confirmed) return response;
+                        confirmedArtifacts[sha256] = true;
                         return attempt({
-                            firstTrust: true,
+                            trustSha256: sha256,
                             identityMigration: confirmations.identityMigration
                         });
                     });
@@ -80,13 +110,13 @@
                 }).then(function (confirmed) {
                     if (!confirmed) return response;
                     return attempt({
-                        firstTrust: confirmations.firstTrust,
+                        trustSha256: confirmations.trustSha256,
                         identityMigration: true
                     });
                 });
             });
         }
-        return attempt({ firstTrust: false, identityMigration: false });
+        return attempt({ trustSha256: null, identityMigration: false });
     };
 
     PMK.currentLang = function () {

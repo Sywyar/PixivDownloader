@@ -166,13 +166,13 @@ public class PluginMarketService {
 
     public PluginInstallReport install(String repositoryId, String pluginId, String version,
                                        boolean identityMigrationConfirmed) {
-        return install(repositoryId, pluginId, version, false, identityMigrationConfirmed);
+        return install(repositoryId, pluginId, version, null, identityMigrationConfirmed);
     }
 
     public PluginInstallReport install(String repositoryId, String pluginId, String version,
-                                       boolean firstTrustConfirmed, boolean identityMigrationConfirmed) {
+                                       String confirmedTrustSha256, boolean identityMigrationConfirmed) {
         return acquisitionService.install(repositoryId, pluginId, version,
-                firstTrustConfirmed, identityMigrationConfirmed);
+                confirmedTrustSha256, identityMigrationConfirmed);
     }
 
     /**

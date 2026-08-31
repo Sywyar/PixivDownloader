@@ -28,6 +28,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageVerif
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginArtifactVerificationService;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
+import top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustPolicy;
 import top.sywyar.pixivdownload.plugin.runtime.isolation.IsolatedPluginSession;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
@@ -631,6 +632,7 @@ public class PluginRuntimeManager {
     public synchronized LoadedPluginPackage initializePlugin(String packageId) {
         Entry entry = requireEntry(packageId);
         try {
+            requireCurrentExecutionAdmission(entry);
             if (entry.descriptor().executionMode() == PluginExecutionMode.DECLARATIVE_PROCESS) {
                 entry.updateContributionSnapshot(requireIsolatedSession(packageId).initialize());
             }
@@ -652,6 +654,7 @@ public class PluginRuntimeManager {
                 throw operationFailure("failed to inspect started plugin package " + packageId, failure);
             }
         }
+        requireCurrentExecutionAdmission(entry);
         PluginRuntimePackagePhase previousPhase = entry.phase();
         if (entry.descriptor().executionMode() == PluginExecutionMode.DECLARATIVE_PROCESS) {
             try {
@@ -1082,10 +1085,12 @@ public class PluginRuntimeManager {
                         provenance,
                         result));
             }
+            PluginProvenanceRecord admissionProvenance = provenance;
             try {
                 if (provenance != null) {
-                    persistOfflineVerification(snapshot.originalArtifact(), provenance.withOfflineResult(
-                            result, inspection.descriptor().id(), inspection.descriptor().version()));
+                    admissionProvenance = provenance.withOfflineResult(
+                            result, inspection.descriptor().id(), inspection.descriptor().version());
+                    persistOfflineVerification(snapshot.originalArtifact(), admissionProvenance);
                 }
             } catch (IOException e) {
                 log.warn("Failed to persist plugin verification provenance for {}: {}",
@@ -1095,9 +1100,9 @@ public class PluginRuntimeManager {
                 throw new PluginRuntimeOperationException(
                         "plugin verification failed before load: " + result.status());
             }
-            if (provenance != null && provenance.repositoryId() != null) {
+            if (admissionProvenance != null && admissionProvenance.repositoryId() != null) {
                 PluginArtifactAdmissionResult admission = admissionPolicy.evaluate(
-                        new PluginArtifactAdmissionRequest(provenance.repositoryId(), inspection.descriptor().id(),
+                        new PluginArtifactAdmissionRequest(admissionProvenance.repositoryId(), inspection.descriptor().id(),
                                 inspection.descriptor().version(), result.sha256(), result.keyId(), result.publisher()));
                 if (admission == null || !admission.allowed()) {
                     throw new PluginRuntimeOperationException("plugin admission rejected before load: "
@@ -1108,7 +1113,7 @@ public class PluginRuntimeManager {
                             inspection.descriptor().id(), admission.code(), admission.detail());
                 }
             }
-            requireExecutionAdmission(inspection.descriptor(), provenance, result);
+            requireExecutionAdmission(inspection.descriptor(), admissionProvenance, result);
             return new PreparedPluginArtifact(snapshot, inspection, result.sha256());
         } catch (Throwable failure) {
             snapshot.close();
@@ -1125,6 +1130,11 @@ public class PluginRuntimeManager {
             PluginDescriptor descriptor,
             PluginProvenanceRecord provenance,
             VerificationResult result) {
+        String trustDenial = PluginTrustPolicy.executionDenial(
+                descriptor, provenance, developmentModeEnabled.getAsBoolean());
+        if (trustDenial != null) {
+            throw new PluginRuntimeOperationException(trustDenial + ": " + descriptor.id());
+        }
         if (descriptor.executionMode() == PluginExecutionMode.DECLARATIVE_PROCESS) {
             if (osSandboxRequired) {
                 throw new PluginRuntimeOperationException(
@@ -1143,10 +1153,31 @@ public class PluginRuntimeManager {
             }
             return;
         }
-        if (provenance == null || !result.accepted()) {
+        if (!result.accepted()) {
             throw new PluginRuntimeOperationException(
                     "host full-trust execution requires an accepted verification result: " + descriptor.id());
         }
+    }
+
+    private void requireCurrentExecutionAdmission(Entry entry) {
+        if (entry.productionSnapshot() == null) {
+            requireDevelopmentExecutionAdmission(entry.descriptor());
+            return;
+        }
+        PluginProvenanceRecord provenance;
+        try {
+            provenance = provenanceStore.readRequiredForRecovery(entry.artifactPath());
+        } catch (IOException e) {
+            throw new PluginRuntimeOperationException(
+                    "failed to read plugin execution trust before running " + entry.packageId(), e);
+        }
+        VerificationResult result = verificationService.verifyInstalled(
+                entry.productionSnapshot().snapshotArtifact(), entry.descriptor(), provenance);
+        if (!result.accepted()) {
+            throw new PluginRuntimeOperationException(
+                    "plugin verification failed before execution: " + result.status());
+        }
+        requireExecutionAdmission(entry.descriptor(), provenance, result);
     }
 
     private void requireDevelopmentExecutionAdmission(PluginDescriptor descriptor) {

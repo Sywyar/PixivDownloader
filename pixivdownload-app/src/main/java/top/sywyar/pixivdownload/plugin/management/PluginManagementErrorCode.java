@@ -38,6 +38,9 @@ public enum PluginManagementErrorCode {
 
     DEPENDENCY_UNSATISFIED(HttpStatus.CONFLICT, "plugin.manage.error.dependency-unsatisfied"),
 
+    /** 信任确认未绑定当前精确制品，或旁车状态无法安全更新。 */
+    TRUST_UPDATE_REJECTED(HttpStatus.CONFLICT, "plugin.manage.error.trust-update-rejected"),
+
     /** 插件期望启用态无法安全写入宿主配置。 */
     TOGGLE_PERSIST_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "plugin.manage.error.toggle-persist-failed"),
 

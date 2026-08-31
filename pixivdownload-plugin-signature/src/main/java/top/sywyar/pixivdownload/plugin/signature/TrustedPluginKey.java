@@ -1,5 +1,10 @@
 package top.sywyar.pixivdownload.plugin.signature;
 
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Base64;
+import java.util.HexFormat;
+
 /**
  * 已配置的插件发布者信任根。
  *
@@ -19,6 +24,16 @@ public record TrustedPluginKey(
         String publisher,
         String trustLabel,
         boolean official) {
+
+    /** 与可变 keyId 无关的公钥身份；用于把第三方插件信任绑定到实际发布密钥。 */
+    public String publicKeyFingerprint() {
+        try {
+            byte[] spki = Base64.getDecoder().decode(publicKeySpkiBase64);
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(spki));
+        } catch (IllegalArgumentException | NoSuchAlgorithmException e) {
+            throw new IllegalStateException("cannot fingerprint trusted plugin key " + keyId, e);
+        }
+    }
 
     public enum State {
         ACTIVE,

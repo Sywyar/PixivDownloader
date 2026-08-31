@@ -12,6 +12,7 @@ import java.time.Instant;
  * @param algorithm      签名算法
  * @param publisher      已知的可信发布者标签
  * @param trustLabel     已知的信任根标签
+ * @param publisherKeyFingerprint 已验证发布公钥的 SHA-256 指纹
  * @param verifiedAt     结果创建时间
  * @param sizeBytes      已验证字节数
  * @param sha256         已验证 SHA-256 十六进制
@@ -25,10 +26,28 @@ public record VerificationResult(
         String algorithm,
         String publisher,
         String trustLabel,
+        String publisherKeyFingerprint,
         Instant verifiedAt,
         long sizeBytes,
         String sha256,
         String diagnosticCode) {
+
+    /** 兼容不需要发布密钥指纹的失败结果与既有测试夹具。 */
+    public VerificationResult(
+            VerificationStatus status,
+            String pluginId,
+            String version,
+            String keyId,
+            String algorithm,
+            String publisher,
+            String trustLabel,
+            Instant verifiedAt,
+            long sizeBytes,
+            String sha256,
+            String diagnosticCode) {
+        this(status, pluginId, version, keyId, algorithm, publisher, trustLabel, null,
+                verifiedAt, sizeBytes, sha256, diagnosticCode);
+    }
 
     public boolean accepted() {
         return status == VerificationStatus.VERIFIED || status == VerificationStatus.UNSIGNED_ALLOWED;

@@ -112,6 +112,33 @@ class PluginInstallServiceTest {
     }
 
     @Test
+    @DisplayName("正式模式未签名本地包先返回精确哈希确认要求，确认前不落盘")
+    void productionUnsignedUploadRequiresExactArtifactConfirmation() {
+        PluginInstallService production = serviceFor(installer, false);
+        byte[] body = explodedZipBytes("ext-unsigned", "1.0.0", null, null);
+
+        PluginInstallReport confirmationRequired = production.install(
+                new MockMultipartFile("file", "unsigned.zip", "application/zip", body),
+                null,
+                false,
+                null);
+
+        assertThat(confirmationRequired.outcome()).isEqualTo(PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED);
+        assertThat(confirmationRequired.trustRequirement()).isNotNull();
+        assertThat(confirmationRequired.trustRequirement().pluginId()).isEqualTo("ext-unsigned");
+        assertThat(pluginFiles()).isEmpty();
+
+        PluginInstallReport installed = production.install(
+                new MockMultipartFile("file", "unsigned.zip", "application/zip", body),
+                null,
+                false,
+                confirmationRequired.trustRequirement().artifactSha256());
+
+        assertThat(installed.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
+        assertThat(pluginFiles()).containsExactly("ext-unsigned-1.0.0.zip");
+    }
+
+    @Test
     @DisplayName("同 id 同版本重复上传：DUPLICATE，幂等不产生第二个副本")
     void duplicateIsIdempotent() {
         service.install(explodedUpload("a.zip", "ext", "1.0.0", null, null), false);
@@ -278,6 +305,12 @@ class PluginInstallServiceTest {
     // ---------- helpers（内联构造插件包字节，不依赖 plugin-runtime 测试夹具）----------
 
     private static PluginInstallService serviceFor(ExternalPluginInstaller installer) {
+        return serviceFor(installer, true);
+    }
+
+    private static PluginInstallService serviceFor(
+            ExternalPluginInstaller installer,
+            boolean developmentModeEnabled) {
         PluginRuntimeManager runtimeManager = mock(PluginRuntimeManager.class);
         PluginLifecycleService lifecycleService = mock(PluginLifecycleService.class);
         RecoveryModeService recoveryModeService = mock(RecoveryModeService.class);
@@ -294,7 +327,7 @@ class PluginInstallServiceTest {
                         .path()));
         ExternalPluginLifecycleCoordinator coordinator = new ExternalPluginLifecycleCoordinator(
                 runtimeManager, lifecycleService, installer, recoveryModeService, dependencyResolver);
-        return new PluginInstallService(coordinator, dependencyResolver, true);
+        return new PluginInstallService(coordinator, dependencyResolver, developmentModeEnabled);
     }
 
     private static LoadedPluginPackage loadedPackage(ExternalPluginInstaller installer, Path artifact) {

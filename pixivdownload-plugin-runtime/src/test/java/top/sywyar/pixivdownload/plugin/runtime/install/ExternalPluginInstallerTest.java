@@ -141,8 +141,9 @@ class ExternalPluginInstallerTest {
     @Test
     @DisplayName("同 id 同版本重复安装：DUPLICATE，幂等，不产生第二个副本")
     void duplicateSameVersionIsIdempotent() {
-        installFully(exploded("ext", "1.0.0"));
-        PluginInstallResult again = installFully(exploded("ext", "1.0.0"));
+        Path artifact = exploded("ext", "1.0.0");
+        installFully(artifact);
+        PluginInstallResult again = installFully(artifact);
 
         assertThat(again.outcome()).isEqualTo(PluginInstallOutcome.DUPLICATE);
         assertThat(pluginFiles()).containsExactly("ext-1.0.0.zip");
@@ -183,7 +184,7 @@ class ExternalPluginInstallerTest {
     }
 
     @Test
-    @DisplayName("DUPLICATE 不静默删除安装目录中的非规范副本")
+    @DisplayName("同 id/version 存在多个副本时失败关闭且不静默删除")
     void duplicateDoesNotMutateNonCanonicalCopies() throws IOException {
         installFully(exploded("ext", "1.0.0")); // 规范 ext-1.0.0.zip
         // 安装目录里塞入一个 id/version 相同、但命名非规范的副本
@@ -192,9 +193,8 @@ class ExternalPluginInstallerTest {
 
         PluginInstallResult duplicate = installFully(exploded("ext", "1.0.0"));
 
-        assertThat(duplicate.outcome()).isEqualTo(PluginInstallOutcome.DUPLICATE);
-        assertThat(duplicate.accepted()).isTrue();
-        // DUPLICATE 是无写终态；安装器不在没有事务的情况下删除现有文件。
+        assertThat(duplicate.outcome()).isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
+        assertThat(duplicate.accepted()).isFalse();
         assertThat(pluginFiles()).containsExactly("ext-1.0.0.zip", "ext-copy.zip");
         assertThat(installer.listInstalled()).extracting(InstalledPlugin::id).containsExactly("ext", "ext");
     }
@@ -386,7 +386,7 @@ class ExternalPluginInstallerTest {
     // ---------- 完整性校验（受信目录与带签名本地来源） ----------
 
     @Test
-    @DisplayName("受信目录来源 + 正确 SHA-256/大小：正常安装为 INSTALLED")
+    @DisplayName("自定义目录正确验签后仍以精确 SHA-256 确认执行信任")
     void trustedCatalogMatchingShaInstalls() throws IOException {
         Path src = exploded("ext", "1.0.0");
         PluginSigningTestSupport signing = PluginSigningTestSupport.create();
@@ -396,7 +396,18 @@ class ExternalPluginInstallerTest {
             assertThat(signedInstaller.recoverPendingTransactions().safeToScan()).isTrue();
             PluginPackageOrigin origin = signing.originFor("test-repository", src, "ext", "1.0.0");
 
-            PluginInstallResult result = installFully(signedInstaller, src, false, origin);
+            PluginInstallResult pending = installFully(signedInstaller, src, false, origin);
+
+            assertThat(pending.outcome()).isEqualTo(PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED);
+            assertThat(pending.trustRequirement()).isNotNull();
+            assertThat(signedInstaller.listInstalled()).isEmpty();
+
+            PluginPackageOrigin confirmed = PluginPackageOrigin.forTrustedCatalog(
+                    origin.repositoryId(), origin.officialRepository(), origin.expectedSizeBytes(),
+                    origin.expectedSha256(), origin.signature(), origin.identityMigrationSignatures(),
+                    origin.repositoryIdentityMigrationAuthorizations(), false,
+                    pending.trustRequirement().artifactSha256());
+            PluginInstallResult result = installFully(signedInstaller, src, false, confirmed);
 
             assertThat(result.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
             assertThat(signedInstaller.listInstalled())
@@ -406,7 +417,7 @@ class ExternalPluginInstallerTest {
     }
 
     @Test
-    @DisplayName("带可信 detached 签名的本地包验签后安装并持久化签名来源")
+    @DisplayName("带可信 detached 签名的本地包以精确 SHA-256 确认后持久化发布者信任")
     void signedLocalUploadInstallsAndPersistsSignature() throws IOException {
         Path src = exploded("signed-local", "1.0.0");
         PluginSigningTestSupport signing = PluginSigningTestSupport.createOfficial();
@@ -416,8 +427,15 @@ class ExternalPluginInstallerTest {
                 pluginsDir, PluginPackageLimits.defaults(), signing.verifier())) {
             assertThat(signedInstaller.recoverPendingTransactions().safeToScan()).isTrue();
 
-            PluginInstallResult result = installFully(
+            PluginInstallResult pending = installFully(
                     signedInstaller, src, false, PluginPackageOrigin.localUpload(signature));
+
+            assertThat(pending.outcome()).isEqualTo(PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED);
+            assertThat(signedInstaller.listInstalled()).isEmpty();
+
+            PluginInstallResult result = installFully(
+                    signedInstaller, src, false, PluginPackageOrigin.localUpload(
+                            signature, pending.trustRequirement().artifactSha256()));
 
             assertThat(result.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
             var provenance = new PluginProvenanceStore(pluginsDir).read(result.installedPath()).orElseThrow();
@@ -425,6 +443,7 @@ class ExternalPluginInstallerTest {
                     top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource.LOCAL_UPLOAD);
             assertThat(provenance.signature()).isEqualTo(signature);
             assertThat(provenance.status()).isEqualTo(VerificationStatus.VERIFIED);
+            assertThat(provenance.trustDecision()).isNotNull();
             assertThat(provenance.originForOfflineVerification()).isEqualTo(
                     PluginPackageOrigin.localUpload(signature));
         }

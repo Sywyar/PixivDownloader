@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin.runtime.install.model;
 
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustRequirement;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -21,11 +22,21 @@ public record PluginInstallResult(
         PluginDescriptor descriptor,
         Path installedPath,
         String previousVersion,
-        List<String> messages) {
+        List<String> messages,
+        PluginTrustRequirement trustRequirement) {
 
     public PluginInstallResult {
         Objects.requireNonNull(outcome, "outcome");
         messages = messages != null ? List.copyOf(messages) : List.of();
+    }
+
+    public PluginInstallResult(
+            PluginInstallOutcome outcome,
+            PluginDescriptor descriptor,
+            Path installedPath,
+            String previousVersion,
+            List<String> messages) {
+        this(outcome, descriptor, installedPath, previousVersion, messages, null);
     }
 
     /** 插件是否最终落盘存在（委托 {@link PluginInstallOutcome#accepted()}）。 */

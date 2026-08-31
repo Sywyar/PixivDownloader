@@ -12,9 +12,13 @@ import top.sywyar.pixivdownload.plugin.api.gui.RepositoryConfigEntry;
 import top.sywyar.pixivdownload.plugin.api.gui.TrustedKeyConfigEntry;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginEnabledSnapshot;
-import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
+import top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustPolicy;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
@@ -136,9 +140,16 @@ class GuiLauncherPluginVerifierBootstrapTest {
                 PluginPackageIntegrity.sha256Hex(artifact), metadata);
         VerificationResult result = new VerificationResult(VerificationStatus.VERIFIED,
                 "bootstrap-probe", "1.0.0", signing.keyId(), SignatureMetadata.ED25519,
-                "GUI Test Publisher", "GUI Test Trust", Instant.now(), Files.size(artifact),
+                "GUI Test Publisher", "GUI Test Trust",
+                Hashing.hex(Hashing.sha256(Base64.getDecoder().decode(signing.publicKeyBase64()))),
+                Instant.now(), Files.size(artifact),
                 PluginPackageIntegrity.sha256Hex(artifact), "VERIFIED");
-        new PluginProvenanceStore(pluginsDir).write(artifact, origin, result);
+        PluginProvenanceRecord verified = PluginProvenanceRecord.from(origin, result);
+        PluginProvenanceRecord approved = verified.withTrustDecision(PluginTrustPolicy.approve(
+                PluginPackageReader.inspect(artifact, PluginPackageLimits.defaults()).descriptor(),
+                verified,
+                Instant.now()));
+        new PluginProvenanceStore(pluginsDir).write(artifact, approved);
     }
 
     private static void addClassEntry(ZipOutputStream zos, Class<?> type) throws IOException {

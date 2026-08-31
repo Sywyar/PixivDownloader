@@ -111,8 +111,7 @@ class PluginManagePageGuardTest {
         assertThat(core).as("验签状态映射覆盖关键稳定状态")
                 .contains("VERIFIED_OFFICIAL", "VERIFIED_CUSTOM", "UNVERIFIED_LOCAL",
                         "INVALID_SIGNATURE", "UNKNOWN_KEY", "IO_ERROR", "PROVENANCE_INVALID");
-        assertThat(core).as("插件管理页不得按 sha256/keyId/repositoryId 自行推断可信状态")
-                .doesNotContain("sha256")
+        assertThat(core).as("插件管理页不得按 keyId/repositoryId 自行推断可信状态")
                 .doesNotContain("keyId")
                 .doesNotContain("repositoryId === 'official'");
         String api = read(API);
@@ -138,12 +137,19 @@ class PluginManagePageGuardTest {
 
         String views = read(VIEWS);
         assertThat(views).contains("vm.showExecutionTag", "vm.executionLabel",
-                "vm.showLifecycleTag", "vm.lifecycleLabel", "vm.enabled");
+                "vm.showLifecycleTag", "vm.lifecycleLabel", "vm.enabled",
+                "vm.trustLabel", "data-pm-trust-action");
 
         String init = read(INIT);
         assertThat(init).as("需重启策略持久化启停配置").contains("PM.setEnabled");
         assertThat(init).as("后端重启需先走共享确认框").contains("PixivFeedback.confirm", "PM.restartBackend");
         assertThat(init).as("完整进程重启只走共享提醒框").contains("PixivFeedback.alert");
+        assertThat(core + init).as("本地上传与已安装插件信任都绑定后端精确摘要")
+                .contains("TRUST_CONFIRMATION_REQUIRED", "trustRequirement", "artifactSha256",
+                        "installPackageWithConfirmation", "PM.approveTrust", "PM.revokeTrust",
+                        "PM.trustConfirmationOptions");
+        assertThat(read(API)).as("信任 API 使用受控插件 id 与精确 SHA 参数")
+                .contains("confirmTrust", "confirmArtifactSha256", "'/trust'", "'PUT'", "'DELETE'");
         assertThat(init).as("禁止原生 confirm / alert")
                 .doesNotContain("window.confirm(", "window.alert(", "global.confirm(", "global.alert(");
         assertThat(init).as("前端不得调用完整进程重启端点").doesNotContain("/api/gui/restart");
@@ -164,6 +170,10 @@ class PluginManagePageGuardTest {
                 "restart.process.message", "restart.process.done",
                 "action.menu", "action.menu.aria",
                 "verification.io-error", "verification.provenance-invalid",
+                "trust.state.approved", "trust.state.confirmation-required", "trust.state.revoked",
+                "trust.confirm.risk", "trust.confirm.unsigned-risk", "trust.confirm.details",
+                "trust.confirm.allow", "trust.action.approve", "trust.action.revoke",
+                "trust.revoke.message", "trust.toast.approved", "trust.toast.revoked",
                 "security.notice.title", "security.notice.desc",
                 "install.signature.pick", "install.signature.no-file", "install.signature.help",
                 "install.invalid-signature-extension"}) {

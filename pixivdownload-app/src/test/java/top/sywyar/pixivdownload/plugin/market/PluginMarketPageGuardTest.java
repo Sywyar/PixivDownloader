@@ -313,18 +313,18 @@ class PluginMarketPageGuardTest {
     }
 
     @Test
-    @DisplayName("首次信任与身份迁移确认复用共享反馈框，并由 Vue / 基础回退共同走同一精确请求重试")
+    @DisplayName("精确制品信任与身份迁移确认复用共享反馈框，并由 Vue / 基础回退共同走同一请求状态机")
     void identityMigrationConfirmationUsesSharedGuard() throws IOException {
         String core = read(CORE);
         String api = read(API);
         String vue = read(VUE);
         String fallback = read(FALLBACK);
 
-        assertThat(core).contains("FIRST_TRUST_CONFIRMATION_REQUIRED", "REJECTED_IDENTITY_CONFIRMATION_REQUIRED",
-                "PixivFeedback.confirm", "installPluginWithConfirmation");
-        assertThat(api).contains("confirmFirstTrust=true", "confirmIdentityMigration=true");
-        assertThat(vue).contains("PMK.installPluginWithConfirmation(repositoryId, pluginId, version, publisher)");
-        assertThat(fallback).contains("PMK.installPluginWithConfirmation(repositoryId, pluginId, version, publisher)");
+        assertThat(core).contains("TRUST_CONFIRMATION_REQUIRED", "REJECTED_IDENTITY_CONFIRMATION_REQUIRED",
+                "trustRequirement", "artifactSha256", "PixivFeedback.confirm", "installPluginWithConfirmation");
+        assertThat(api).contains("confirmTrust=", "confirmIdentityMigration=true");
+        assertThat(vue).contains("PMK.installPluginWithConfirmation(repositoryId, pluginId, version)");
+        assertThat(fallback).contains("PMK.installPluginWithConfirmation(repositoryId, pluginId, version)");
         assertThat(core + vue + fallback).doesNotContain("window.confirm(", "global.confirm(");
     }
 
@@ -365,7 +365,7 @@ class PluginMarketPageGuardTest {
     }
 
     @Test
-    @DisplayName("验签状态只消费后端投影：市场卡片 / 详情 / 安装态不按 sha256、HTTPS、仓库名或 keyId 推断可信")
+    @DisplayName("验签状态只消费后端投影：市场卡片 / 详情 / 安装态不按摘要、仓库名或 keyId 推断可信")
     void verificationRenderingUsesBackendProjectionOnly() throws IOException {
         String data = read(DATA);
         String vue = read(VUE);
@@ -387,8 +387,9 @@ class PluginMarketPageGuardTest {
                         ".pmk-verification-badge--danger", ".pmk-detail-verification--danger");
         assertThat(core).as("安装按钮状态覆盖验签失败状态")
                 .contains("SIGNATURE_REQUIRED", "UNKNOWN_KEY", "INVALID_SIGNATURE", "HASH_MISMATCH");
-        assertThat(data + core).as("可信状态不得由摘要 / key 名称 / 仓库名硬推断")
-                .doesNotContain("sha256")
+        assertThat(data).as("卡片数据模型不得由摘要硬推断可信状态")
+                .doesNotContain("sha256");
+        assertThat(data + core).as("可信状态不得由 key 名称 / 仓库名硬推断")
                 .doesNotContain("keyId")
                 .doesNotContain("repositoryId === 'official'");
     }

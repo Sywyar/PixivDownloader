@@ -103,7 +103,7 @@
 
     // 运行期操作收进卡片右下角的浮层菜单：入口是幽灵图标按钮，菜单项带动词图标；无可用动作时整体不渲染。
     function actionMenuHtml(vm, busy) {
-        if (!vm.availableActions.length) return '';
+        if (!vm.availableActions.length && !vm.trustApprovable && !vm.trustRevocable) return '';
         var aria = PM.t('action.menu.aria', '{plugin} 的可用操作', { plugin: vm.name });
         var title = PM.t('action.menu', '操作');
         var menuId = 'pm-action-menu-' + vm.id;
@@ -121,6 +121,18 @@
                 + (busy ? ' disabled' : '') + '><i class="fa-solid ' + E(meta.icon) + '" aria-hidden="true"></i>'
                 + E(PM.t('action.' + verb, verb)) + '</button>';
         }).join(''));
+        if (vm.trustApprovable) {
+            parts.push('<button type="button" role="menuitem" data-pm-trust-action="approve" data-pm-id="'
+                + E(vm.id) + '"' + (busy ? ' disabled' : '')
+                + '><i class="fa-solid fa-shield-halved" aria-hidden="true"></i>'
+                + E(PM.t('trust.action.approve', '重新批准执行信任')) + '</button>');
+        }
+        if (vm.trustRevocable) {
+            parts.push('<button type="button" role="menuitem" class="danger" data-pm-trust-action="revoke" data-pm-id="'
+                + E(vm.id) + '"' + (busy ? ' disabled' : '')
+                + '><i class="fa-solid fa-shield-circle-xmark" aria-hidden="true"></i>'
+                + E(PM.t('trust.action.revoke', '撤销执行信任')) + '</button>');
+        }
         parts.push('</div></div>');
         return parts.join('');
     }
@@ -224,6 +236,11 @@
             var verificationTitle = vm.verificationTrustLabel || vm.verificationStatus || '';
             parts.push('<span class="pm-meta-item" title="' + E(verificationTitle) + '"><i class="fa-solid fa-shield-halved" style="color:'
                 + toneColor(vm.verificationTone) + ';"></i>' + E(vm.verificationLabel) + '</span>');
+        }
+        if (vm.trustLabel) {
+            var trustTitle = [vm.trustPublisher, vm.trustArtifactSha256].filter(Boolean).join(' · ');
+            parts.push('<span class="pm-meta-item pm-meta-item--' + E(vm.trustTone) + '" title="'
+                + E(trustTitle) + '"><i class="fa-solid fa-user-shield"></i>' + E(vm.trustLabel) + '</span>');
         }
         parts.push('</div>'); // meta
         parts.push(actionMenuHtml(vm, busy));

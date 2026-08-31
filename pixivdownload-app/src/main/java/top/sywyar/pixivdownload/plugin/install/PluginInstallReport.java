@@ -5,6 +5,7 @@ import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementController;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService.PluginDependencyView;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
+import top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustRequirement;
 
 import java.util.List;
 
@@ -46,7 +47,8 @@ public record PluginInstallReport(
         PluginRuntimePhase runtimePhase,
         boolean recoveryBlocked,
         boolean updated,
-        List<PluginDependencyInstallResult> dependencyInstallResults) {
+        List<PluginDependencyInstallResult> dependencyInstallResults,
+        PluginTrustRequirement trustRequirement) {
 
     public PluginInstallReport {
         dependencies = dependencies != null ? List.copyOf(dependencies) : List.of();
@@ -57,13 +59,40 @@ public record PluginInstallReport(
                 ? List.copyOf(dependencyInstallResults) : List.of();
     }
 
+    /** 兼容尚未投影执行信任要求的调用方。 */
+    public PluginInstallReport(
+            PluginInstallOutcome outcome,
+            boolean accepted,
+            boolean effectiveAfterRestart,
+            String pluginId,
+            String version,
+            String previousVersion,
+            List<PluginDependencyView> dependencies,
+            List<String> unsatisfiedDependencies,
+            List<PluginDependencyProblem> dependencyProblems,
+            List<String> diagnostics,
+            String transactionId,
+            boolean activated,
+            boolean rolledBack,
+            String rollbackVersion,
+            ExternalPluginOperation operation,
+            PluginRuntimePhase runtimePhase,
+            boolean recoveryBlocked,
+            boolean updated,
+            List<PluginDependencyInstallResult> dependencyInstallResults) {
+        this(outcome, accepted, effectiveAfterRestart, pluginId, version, previousVersion,
+                dependencies, unsatisfiedDependencies, dependencyProblems, diagnostics, transactionId,
+                activated, rolledBack, rollbackVersion, operation, runtimePhase, recoveryBlocked,
+                updated, dependencyInstallResults, null);
+    }
+
     public PluginInstallReport(PluginInstallOutcome outcome, boolean accepted, boolean effectiveAfterRestart,
                                String pluginId, String version, String previousVersion,
                                List<PluginDependencyView> dependencies, List<String> unsatisfiedDependencies,
                                List<String> diagnostics) {
         this(outcome, accepted, effectiveAfterRestart, pluginId, version, previousVersion, dependencies,
                 unsatisfiedDependencies, List.of(), diagnostics, null, false, false, null,
-                ExternalPluginOperation.IDLE, null, false, false, List.of());
+                ExternalPluginOperation.IDLE, null, false, false, List.of(), null);
     }
 
     public PluginInstallReport(PluginInstallOutcome outcome, boolean accepted, boolean effectiveAfterRestart,
@@ -72,7 +101,7 @@ public record PluginInstallReport(
                                List<PluginDependencyProblem> dependencyProblems, List<String> diagnostics) {
         this(outcome, accepted, effectiveAfterRestart, pluginId, version, previousVersion, dependencies,
                 unsatisfiedDependencies, dependencyProblems, diagnostics, null, false, false, null,
-                ExternalPluginOperation.IDLE, null, false, false, List.of());
+                ExternalPluginOperation.IDLE, null, false, false, List.of(), null);
     }
 
     public PluginInstallReport(PluginInstallOutcome outcome, boolean accepted, boolean effectiveAfterRestart,
@@ -83,7 +112,7 @@ public record PluginInstallReport(
                                ExternalPluginOperation operation, PluginRuntimePhase runtimePhase, boolean updated) {
         this(outcome, accepted, effectiveAfterRestart, pluginId, version, previousVersion, dependencies,
                 unsatisfiedDependencies, List.of(), diagnostics, transactionId, activated, rolledBack,
-                rollbackVersion, operation, runtimePhase, false, updated, List.of());
+                rollbackVersion, operation, runtimePhase, false, updated, List.of(), null);
     }
 
     public PluginInstallReport(PluginInstallOutcome outcome, boolean accepted, boolean effectiveAfterRestart,
@@ -94,7 +123,7 @@ public record PluginInstallReport(
                                ExternalPluginOperation operation, PluginRuntimePhase runtimePhase, boolean updated) {
         this(outcome, accepted, effectiveAfterRestart, pluginId, version, previousVersion, dependencies,
                 unsatisfiedDependencies, dependencyProblems, diagnostics, transactionId, activated, rolledBack,
-                rollbackVersion, operation, runtimePhase, false, updated, List.of());
+                rollbackVersion, operation, runtimePhase, false, updated, List.of(), null);
     }
 
     public PluginInstallReport(PluginInstallOutcome outcome, boolean accepted, boolean effectiveAfterRestart,
@@ -106,7 +135,7 @@ public record PluginInstallReport(
                                boolean recoveryBlocked, boolean updated) {
         this(outcome, accepted, effectiveAfterRestart, pluginId, version, previousVersion, dependencies,
                 unsatisfiedDependencies, dependencyProblems, diagnostics, transactionId, activated, rolledBack,
-                rollbackVersion, operation, runtimePhase, recoveryBlocked, updated, List.of());
+                rollbackVersion, operation, runtimePhase, recoveryBlocked, updated, List.of(), null);
     }
 
     public PluginInstallReport withDependencyInstallResults(
@@ -116,7 +145,7 @@ public record PluginInstallReport(
         return new PluginInstallReport(outcome, accepted, effectiveAfterRestart,
                 pluginId, version, previousVersion, dependencies, unsatisfiedDependencies,
                 dependencyProblems, diagnostics, transactionId, activated, rolledBack, rollbackVersion,
-                operation, runtimePhase, blocked, updated, dependencyInstallResults);
+                operation, runtimePhase, blocked, updated, dependencyInstallResults, trustRequirement);
     }
 
     public PluginInstallReport withRecoveryBlocked() {
@@ -126,6 +155,6 @@ public record PluginInstallReport(
         return new PluginInstallReport(outcome, accepted, effectiveAfterRestart,
                 pluginId, version, previousVersion, dependencies, unsatisfiedDependencies,
                 dependencyProblems, diagnostics, transactionId, activated, rolledBack, rollbackVersion,
-                operation, runtimePhase, true, updated, dependencyInstallResults);
+                operation, runtimePhase, true, updated, dependencyInstallResults, trustRequirement);
     }
 }

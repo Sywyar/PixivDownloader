@@ -4,6 +4,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode;
+import top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustDecision;
+import top.sywyar.pixivdownload.sdk.SdkVersion;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
 
@@ -42,6 +45,7 @@ class PluginProvenanceStoreTest {
                 validLocalRecord() + "offlineStatus=VERIFIED\nofflineVerifiedAt=2026-07-01T00:01:00Z\n",
                 validLocalRecord().replace("verifiedAt=2026-07-01T00:00:00Z\n", ""),
                 validLocalRecord() + "keyId=forged-key\n",
+                validLocalRecord() + "trustRevokedAt=2026-07-01T00:01:00Z\n",
                 validCatalogRecord().replace("status=VERIFIED", "status=UNSIGNED_ALLOWED"),
                 validCatalogRecord() + "offlineStatus=UNSIGNED_ALLOWED\nofflineVerifiedAt=2026-07-01T00:01:00Z\n",
                 validCatalogRecord().replace("\nkeyId=test-key\n", "\nkeyId=other-key\n"),
@@ -87,6 +91,31 @@ class PluginProvenanceStoreTest {
                 "VERIFIED"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("UNSIGNED_ALLOWED");
+    }
+
+    @Test
+    @DisplayName("v3 旁车往返保留未签名精确制品信任与撤销事实")
+    void roundTripsExactArtifactTrustAndRevocation() throws Exception {
+        Path plugins = Files.createDirectories(temporaryDirectory.resolve("plugins-v3"));
+        Path artifact = plugins.resolve("unsigned.jar");
+        Files.write(artifact, new byte[]{1, 2, 3, 4});
+        Instant approvedAt = Instant.parse("2026-07-01T00:00:00Z");
+        Instant revokedAt = approvedAt.plusSeconds(60);
+        PluginTrustDecision decision = new PluginTrustDecision(
+                "unsigned", null, null, false, SHA256,
+                PluginExecutionMode.HOST_PROCESS_FULL_TRUST,
+                PluginTrustDecision.EMPTY_PERMISSION_DIGEST,
+                approvedAt, SdkVersion.MAJOR, PluginTrustDecision.ApprovalType.EXACT_ARTIFACT);
+        PluginProvenanceRecord record = new PluginProvenanceRecord(
+                PluginPackageSource.LOCAL_UPLOAD, null, false, false,
+                null, null, 4L, SHA256, null, VerificationStatus.UNSIGNED_ALLOWED,
+                null, null, null, null, approvedAt, null, null,
+                "UNSIGNED_ALLOWED", decision, revokedAt);
+        PluginProvenanceStore store = new PluginProvenanceStore(plugins);
+
+        store.write(artifact, record);
+
+        assertThat(store.readRequiredForRecovery(artifact)).isEqualTo(record);
     }
 
     @Test

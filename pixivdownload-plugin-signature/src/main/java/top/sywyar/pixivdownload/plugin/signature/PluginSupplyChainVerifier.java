@@ -256,21 +256,23 @@ public final class PluginSupplyChainVerifier {
         }
         if (key.state() == TrustedPluginKey.State.REVOKED) {
             return new VerificationResult(VerificationStatus.REVOKED_KEY, pluginId, version, metadata.keyId(),
-                    algorithm, key.publisher(), key.trustLabel(), Instant.now(), size, sha256Hex, "REVOKED_KEY");
+                    algorithm, key.publisher(), key.trustLabel(), key.publicKeyFingerprint(), Instant.now(),
+                    size, sha256Hex, "REVOKED_KEY");
         }
         if (key.state() == TrustedPluginKey.State.RETIRED && !policy.retiredKeysAllowed()) {
             return new VerificationResult(VerificationStatus.RETIRED_KEY, pluginId, version, metadata.keyId(),
-                    algorithm, key.publisher(), key.trustLabel(), Instant.now(), size, sha256Hex,
+                    algorithm, key.publisher(), key.trustLabel(), key.publicKeyFingerprint(), Instant.now(), size, sha256Hex,
                     "RETIRED_KEY_NOT_ALLOWED");
         }
         boolean valid = Ed25519Verifier.verify(key.publicKeySpkiBase64(), messageFactory.message(key), signature);
         if (!valid) {
             return new VerificationResult(VerificationStatus.INVALID_SIGNATURE, pluginId, version, metadata.keyId(),
-                    algorithm, key.publisher(), key.trustLabel(), Instant.now(), size, sha256Hex,
+                    algorithm, key.publisher(), key.trustLabel(), key.publicKeyFingerprint(), Instant.now(), size, sha256Hex,
                     "INVALID_SIGNATURE");
         }
         return new VerificationResult(VerificationStatus.VERIFIED, pluginId, version, metadata.keyId(), algorithm,
-                key.publisher(), key.trustLabel(), Instant.now(), size, sha256Hex, "VERIFIED");
+                key.publisher(), key.trustLabel(), key.publicKeyFingerprint(), Instant.now(), size, sha256Hex,
+                "VERIFIED");
     }
 
     private static VerificationPolicy policy(VerificationPolicy policy) {

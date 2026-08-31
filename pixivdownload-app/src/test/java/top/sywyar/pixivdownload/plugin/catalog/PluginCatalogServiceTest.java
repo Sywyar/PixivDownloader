@@ -199,8 +199,8 @@ class PluginCatalogServiceTest {
     }
 
     @Test
-    @DisplayName("paged-v2 拒绝未携带发布者签名的版本摘要")
-    void rejectsUnsignedPagedPackage() {
+    @DisplayName("paged-v2 自定义仓库允许未签名版本摘要进入精确制品确认流程")
+    void acceptsUnsignedPagedPackageFromCustomRepository() {
         PluginCatalogHttpClient client = mock(PluginCatalogHttpClient.class);
         byte[] body = ("""
                 {"generation":"g1","items":[{"pluginId":"demo","packages":[
@@ -212,11 +212,9 @@ class PluginCatalogServiceTest {
                         200, body, null, "https://repo.example/v2/plugins"));
         PluginCatalogService service = pagedService(client);
 
-        PluginCatalogException failure = catchThrowableOfType(
-                () -> service.loadPage("paged", PluginCatalogPageQuery.first()), PluginCatalogException.class);
+        var page = service.loadPage("paged", PluginCatalogPageQuery.first());
 
-        assertThat(failure).isNotNull();
-        assertThat(failure.code()).isEqualTo(PluginCatalogErrorCode.CATALOG_UNAVAILABLE);
+        assertThat(page.items()).extracting(PluginCatalogEntry::pluginId).containsExactly("demo");
     }
 
     @Test

@@ -40,6 +40,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -132,8 +133,8 @@ class PluginCatalogAcquisitionServiceTest {
     }
 
     @Test
-    @DisplayName("自定义仓库首次安装在下载前要求管理员确认，确认后允许继续")
-    void customRepositoryRequiresFirstTrustConfirmationBeforeDownload() {
+    @DisplayName("自定义仓库完成下载和校验后返回精确制品信任要求，确认后允许安装")
+    void customRepositoryRequiresExactArtifactTrustAfterVerification() {
         server = CatalogTestSupport.startServer();
         CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture();
         byte[] body = CatalogTestSupport.explodedPluginZip("ext", "1.0.0", null);
@@ -142,17 +143,21 @@ class PluginCatalogAcquisitionServiceTest {
         PluginCatalogAcquisitionService service = setUpManifest(signing,
                 entryJson("ext", "1.0.0", packageUrl, body, signing, List.of()));
 
-        PluginCatalogException ex = catchThrowableOfType(
-                () -> service.install("ext", "1.0.0"), PluginCatalogException.class);
+        PluginInstallReport confirmationRequired = service.install("ext", "1.0.0");
 
-        assertThat(ex.code()).isEqualTo(PluginCatalogErrorCode.FIRST_TRUST_CONFIRMATION_REQUIRED);
-        assertThat(downloads).hasValue(0);
+        assertThat(confirmationRequired.outcome()).isEqualTo(PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED);
+        assertThat(confirmationRequired.trustRequirement()).isNotNull();
+        assertThat(confirmationRequired.trustRequirement().artifactSha256())
+                .isEqualTo(CatalogTestSupport.sha256Hex(body));
+        assertThat(downloads).hasValue(1);
         assertThat(installedFiles()).isEmpty();
         assertThat(downloadLeftovers()).isEmpty();
 
-        PluginInstallReport report = installConfirmed(service, "ext", "1.0.0");
+        PluginInstallReport report = service.install(
+                "configured", "ext", "1.0.0",
+                confirmationRequired.trustRequirement().artifactSha256(), false);
         assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
-        assertThat(downloads).hasValue(1);
+        assertThat(downloads).hasValue(2);
     }
 
     @Test
@@ -212,7 +217,8 @@ class PluginCatalogAcquisitionServiceTest {
         PluginCatalogAcquisitionService service = acquisition(
                 props, installService, mock(PluginDependencyResolver.class));
 
-        service.install("configured", "ext", "2.0.0", true, true);
+        String confirmedSha256 = CatalogTestSupport.sha256Hex(body);
+        service.install("configured", "ext", "2.0.0", confirmedSha256, true);
 
         ArgumentCaptor<PluginPackageOrigin> origin = ArgumentCaptor.forClass(PluginPackageOrigin.class);
         verify(installService).installTrustedFile(any(Path.class), eq(false), origin.capture());
@@ -222,6 +228,7 @@ class PluginCatalogAcquisitionServiceTest {
                 .containsEntry("ext", new RepositoryIdentityMigrationAuthorization(
                         RepositoryIdentityMigrationAuthorization.KEY_UNAVAILABLE, migrationSignature));
         assertThat(origin.getValue().identityMigrationConfirmed()).isTrue();
+        assertThat(origin.getValue().trustConfirmationSha256()).isEqualTo(confirmedSha256);
     }
 
     @Test
@@ -251,13 +258,36 @@ class PluginCatalogAcquisitionServiceTest {
         PluginCatalogAcquisitionService service = acquisition(
                 props, installService, mock(PluginDependencyResolver.class));
 
-        service.install("configured", "alpha", "1.0.0", true, true);
+        String confirmedSha256 = CatalogTestSupport.sha256Hex(alpha);
+        service.install("configured", "alpha", "1.0.0", confirmedSha256, true);
 
         ArgumentCaptor<PluginPackageOrigin> origins = ArgumentCaptor.forClass(PluginPackageOrigin.class);
         verify(installService, times(2)).installTrustedFile(any(Path.class), eq(false), origins.capture());
         assertThat(origins.getAllValues())
                 .extracting(PluginPackageOrigin::identityMigrationConfirmed)
                 .containsExactly(false, true);
+    }
+
+    @Test
+    @DisplayName("顶层制品的精确哈希不能批准不同的自动依赖包")
+    void exactArtifactConfirmationCannotApproveDifferentDependency() {
+        server = CatalogTestSupport.startServer();
+        CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture();
+        byte[] beta = CatalogTestSupport.explodedPluginZip("beta", "1.0.0", null);
+        byte[] alpha = CatalogTestSupport.explodedPluginZip("alpha", "1.0.0", null, "beta@1.0");
+        String betaUrl = servePackage("/exact-beta.zip", beta);
+        String alphaUrl = servePackage("/exact-alpha.zip", alpha);
+        PluginCatalogAcquisitionService service = setUpManifest(signing,
+                entryJson("beta", "1.0.0", betaUrl, beta, signing, List.of()),
+                entryJson("alpha", "1.0.0", alphaUrl, alpha, signing, List.of("beta@1.0")));
+
+        PluginInstallReport report = service.install(
+                "configured", "alpha", "1.0.0", CatalogTestSupport.sha256Hex(alpha), false);
+
+        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED);
+        assertThat(report.trustRequirement().pluginId()).isEqualTo("beta");
+        assertThat(report.trustRequirement().artifactSha256()).isEqualTo(CatalogTestSupport.sha256Hex(beta));
+        assertThat(installedFiles()).isEmpty();
     }
 
     @Test
@@ -421,11 +451,12 @@ class PluginCatalogAcquisitionServiceTest {
                 entryJson("beta", "1.0.0", betaUrl, beta, signing, List.of()),
                 entryJson("alpha", "1.0.0", alphaUrl, alpha, signing, List.of("beta@1.0")));
         installConfirmed(service, "beta", "1.0.0");
+        assertThat(betaDownloads).hasValue(2);
 
         PluginInstallReport report = installConfirmed(service, "alpha", "1.0.0");
 
         assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
-        assertThat(betaDownloads).hasValue(1);
+        assertThat(betaDownloads).hasValue(2);
         assertThat(report.dependencyInstallResults()).isEmpty();
         assertThat(installedFiles()).containsExactly("alpha-1.0.0.zip", "beta-1.0.0.zip");
     }
@@ -545,19 +576,23 @@ class PluginCatalogAcquisitionServiceTest {
     }
 
     @Test
-    @DisplayName("受信目录包缺少结构化签名：目录读取即 fail-closed")
-    void signatureFailsClosed() {
+    @DisplayName("自定义仓库未签名包经精确制品确认后允许完整安装")
+    void unsignedCustomRepositoryPackageUsesExactArtifactTrust() {
         byte[] body = CatalogTestSupport.explodedPluginZip("ext", "1.0.0", null);
         PluginCatalogAcquisitionService service = setUpInstall(body,
                 (url, signing) -> manifest("ext", "1.0.0", url, body.length,
                         CatalogTestSupport.sha256Hex(body), null, signing));
 
-        PluginCatalogException failure = catchThrowableOfType(
-                () -> service.install("ext", "1.0.0"), PluginCatalogException.class);
+        PluginInstallReport confirmationRequired = service.install("ext", "1.0.0");
+        assertThat(confirmationRequired.outcome()).isEqualTo(PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED);
+        assertThat(confirmationRequired.trustRequirement().signed()).isFalse();
 
-        assertThat(failure).isNotNull();
-        assertThat(failure.code()).isEqualTo(PluginCatalogErrorCode.CATALOG_UNAVAILABLE);
-        assertThat(installedFiles()).isEmpty();
+        PluginInstallReport report = service.install(
+                "configured", "ext", "1.0.0",
+                confirmationRequired.trustRequirement().artifactSha256(), false);
+
+        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
+        assertThat(installedFiles()).containsExactly("ext-1.0.0.zip");
     }
 
     @Test
@@ -588,7 +623,7 @@ class PluginCatalogAcquisitionServiceTest {
         PluginCatalogAcquisitionService service = acquisition(props);
 
         // 经 trusted 仓库安装：proxy-trusted 跟随白名单一跳 → 成功落盘（若退回默认 strict 客户端会因拒重定向失败）。
-        PluginInstallReport report = service.install("trusted", "ext", "1.0.0", true, false);
+        PluginInstallReport report = installConfirmed(service, "trusted", "ext", "1.0.0");
         assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
         assertThat(installedFiles()).containsExactly("ext-1.0.0.zip");
         assertThat(downloadLeftovers()).isEmpty();
@@ -623,7 +658,7 @@ class PluginCatalogAcquisitionServiceTest {
                 repoConfig("repo-b", CatalogTestSupport.loopbackUrl(server, "/b.json"), "direct-strict", repoB)));
         PluginCatalogAcquisitionService service = acquisition(props);
 
-        PluginInstallReport report = service.install("repo-b", "ext", "1.0.0", true, false);
+        PluginInstallReport report = service.install("repo-b", "ext", "1.0.0", (String) null, false);
 
         assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
         assertThat(report.accepted()).isFalse();
@@ -803,7 +838,52 @@ class PluginCatalogAcquisitionServiceTest {
 
     private static PluginInstallReport installConfirmed(
             PluginCatalogAcquisitionService service, String pluginId, String version) {
-        return service.install("configured", pluginId, version, true, false);
+        return installConfirmed(service, "configured", pluginId, version);
+    }
+
+    private static PluginInstallReport installConfirmed(
+            PluginCatalogAcquisitionService service,
+            String repositoryId,
+            String pluginId,
+            String version) {
+        List<PluginDependencyInstallResult> dependencyInstallResults = new ArrayList<>();
+        Set<String> confirmedArtifacts = new HashSet<>();
+        PluginInstallReport report = service.install(repositoryId, pluginId, version, (String) null, false);
+        while (report.outcome() == PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED) {
+            var requirement = report.trustRequirement();
+            dependencyInstallResults.addAll(report.dependencyInstallResults());
+            String confirmationKey = requirement.pluginId() + '\n'
+                    + requirement.version() + '\n'
+                    + requirement.artifactSha256();
+            if (!confirmedArtifacts.add(confirmationKey)) {
+                throw new AssertionError("同一制品重复要求信任确认: " + requirement.pluginId());
+            }
+            try {
+                report = service.install(
+                        repositoryId,
+                        requirement.pluginId(),
+                        requirement.version(),
+                        requirement.artifactSha256(),
+                        false);
+            } catch (PluginCatalogException ex) {
+                dependencyInstallResults.addAll(ex.dependencyInstallResults());
+                throw ex.withDependencyInstallResults(dependencyInstallResults);
+            }
+            dependencyInstallResults.addAll(report.dependencyInstallResults());
+            if (!requirement.pluginId().equals(pluginId) || !requirement.version().equals(version)) {
+                if (report.accepted()) {
+                    dependencyInstallResults.add(PluginDependencyInstallResult.from(report));
+                }
+                try {
+                    report = service.install(repositoryId, pluginId, version, (String) null, false);
+                } catch (PluginCatalogException ex) {
+                    dependencyInstallResults.addAll(ex.dependencyInstallResults());
+                    throw ex.withDependencyInstallResults(dependencyInstallResults);
+                }
+            }
+        }
+        dependencyInstallResults.addAll(report.dependencyInstallResults());
+        return report.withDependencyInstallResults(dependencyInstallResults);
     }
 
     @FunctionalInterface
