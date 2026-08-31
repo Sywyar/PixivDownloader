@@ -8,13 +8,18 @@ import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSessionHandoff;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginEnabledSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
+import top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustPolicy;
+import top.sywyar.pixivdownload.plugin.signature.ArtifactVerificationRequest;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
+import top.sywyar.pixivdownload.plugin.signature.VerificationPolicy;
 import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
 import top.sywyar.pixivdownload.plugin.signature.internal.envelope.EnvelopeV1Codec;
 
@@ -66,22 +71,14 @@ public final class PluginTestProvenance {
                         version,
                         Files.size(artifact),
                         HexFormat.of().parseHex(sha256)))));
-        VerificationResult result = new VerificationResult(
-                VerificationStatus.VERIFIED,
-                pluginId,
-                version,
-                KEY_ID,
-                SignatureMetadata.ED25519,
-                PUBLISHER,
-                TRUST_LABEL,
-                Instant.now(),
-                Files.size(artifact),
-                sha256,
-                "VERIFIED");
-        new PluginProvenanceStore(pluginsDir).write(
-                artifact,
-                PluginPackageOrigin.localUpload(metadata),
-                result);
+        PluginPackageOrigin origin = PluginPackageOrigin.localUpload(metadata);
+        VerificationResult result = VERIFIER.verifyArtifact(new ArtifactVerificationRequest(
+                artifact, pluginId, version, Files.size(artifact), sha256, metadata,
+                VerificationPolicy.customRepository()));
+        PluginProvenanceRecord provenance = PluginProvenanceRecord.from(origin, result);
+        new PluginProvenanceStore(pluginsDir).write(artifact, provenance.withTrustDecision(
+                PluginTrustPolicy.approve(
+                        PluginPackageReader.inspect(artifact).descriptor(), provenance, Instant.now())));
     }
 
     public static PluginSupplyChainVerifier verifier() {
@@ -109,10 +106,17 @@ public final class PluginTestProvenance {
     private static void registerBootstrapSession(
             ConfigurableApplicationContext context,
             PluginEnabledSnapshot enabledSnapshot) {
+        registerBootstrapSession(context, enabledSnapshot, VERIFIER);
+    }
+
+    static void registerBootstrapSession(
+            ConfigurableApplicationContext context,
+            PluginEnabledSnapshot enabledSnapshot,
+            PluginSupplyChainVerifier verifier) {
         PluginBootstrapSession session = PluginBootstrapSession.createContext(
                 RuntimeFiles.pluginsDirectory(),
                 enabledSnapshot,
-                ignored -> VERIFIER);
+                ignored -> verifier);
         session.start();
         session.releaseStartupSnapshot();
         context.getBeanFactory().registerSingleton(
@@ -121,7 +125,7 @@ public final class PluginTestProvenance {
         context.addApplicationListener(event -> {
             if (event instanceof ContextRefreshedEvent refreshed
                     && refreshed.getApplicationContext() == context) {
-                session.updateVerifierResolver(ignored -> VERIFIER);
+                session.updateVerifierResolver(ignored -> verifier);
             }
         });
     }

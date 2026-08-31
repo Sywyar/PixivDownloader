@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -27,9 +28,28 @@ import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
+import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginEnabledSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
+import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallResult;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
+import top.sywyar.pixivdownload.plugin.runtime.install.transaction.CommittedPluginTransaction;
+import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PreparedPluginTransaction;
+import top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustDecision;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
+import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
+import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
+import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
+import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
+import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -38,11 +58,13 @@ import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 @SpringBootTest(properties = {
         "pixivdownload.config-dir=target/test-runtime/config",
@@ -51,7 +73,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "pixivdownload.plugins-dir=target/test-runtime/plugins-external-douyin",
         "setup.browser.auto-open=false"
 })
-@ContextConfiguration(initializers = PluginTestProvenance.VerifiedLocalPluginBootstrapInitializer.class)
+@ContextConfiguration(initializers = DouyinExternalPluginBootContextTest.DouyinPluginBootstrapInitializer.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @EnabledIf("externalDouyinJarStaged")
@@ -59,6 +81,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DouyinExternalPluginBootContextTest {
 
     private static final String DOUYIN_CLASSES_PROPERTY = "douyin.plugin.classes";
+    private static final String THIRD_PARTY_PACKAGE_PROPERTY = "douyin.third-party.package";
+    private static final String THIRD_PARTY_MODE_PROPERTY = "douyin.third-party.mode";
+    private static final String THIRD_PARTY_SIGNATURE_PROPERTY = "douyin.third-party.signature";
+    private static final String THIRD_PARTY_PUBLIC_KEY_PROPERTY = "douyin.third-party.public-key";
+    private static final String THIRD_PARTY_KEY_ID = "douyin-third-party-ci";
+    private static final String THIRD_PARTY_REPOSITORY_ID = "douyin-third-party-ci";
     private static final Path PLUGINS_DIR = Path.of("target/test-runtime/plugins-external-douyin");
     private static final Set<String> DOUYIN_SCHEDULE_SOURCE_TYPES = Set.of(
             "douyin.user",
@@ -70,7 +98,8 @@ class DouyinExternalPluginBootContextTest {
             "douyin.account.favorite-works",
             "douyin.account.favorite-folder",
             "douyin.account.favorite-collection");
-    private static final boolean STAGED = stageExternalDouyinJar();
+    private static final StageResult STAGE = stageExternalDouyinJar();
+    private static final boolean STAGED = STAGE.staged();
 
     static {
         if (STAGED) {
@@ -133,6 +162,29 @@ class DouyinExternalPluginBootContextTest {
         assertThat(pluginRuntimeManager.loadedDescriptor("douyin"))
                 .get()
                 .satisfies(descriptor -> assertThat(descriptor.version()).isEqualTo("1.0.0"));
+    }
+
+    @Test
+    @DisplayName("第三方验收包经生产风险确认边界安装并持久化对应信任")
+    void thirdPartyPackageUsesExpectedTrustBoundary() throws IOException {
+        assumeTrue(STAGE.mode() != null);
+        assertThat(PluginDevelopmentArtifacts.enabled()).isFalse();
+        assertThat(STAGE.initialOutcome()).isEqualTo(PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED);
+        PluginProvenanceRecord provenance = new PluginProvenanceStore(PLUGINS_DIR)
+                .read(STAGE.installedArtifact()).orElseThrow();
+
+        if ("signed".equals(STAGE.mode())) {
+            assertThat(provenance.source()).isEqualTo(PluginPackageSource.MARKET_CATALOG);
+            assertThat(provenance.officialRepository()).isFalse();
+            assertThat(provenance.status()).isEqualTo(VerificationStatus.VERIFIED);
+            assertThat(provenance.trustDecision().approvalType())
+                    .isEqualTo(PluginTrustDecision.ApprovalType.PUBLISHER);
+        } else {
+            assertThat(provenance.source()).isEqualTo(PluginPackageSource.LOCAL_UPLOAD);
+            assertThat(provenance.status()).isEqualTo(VerificationStatus.UNSIGNED_ALLOWED);
+            assertThat(provenance.trustDecision().approvalType())
+                    .isEqualTo(PluginTrustDecision.ApprovalType.EXACT_ARTIFACT);
+        }
     }
 
     @Test
@@ -265,24 +317,129 @@ class DouyinExternalPluginBootContextTest {
                 .filter(rp -> rp.id().equals("douyin")).findFirst().orElseThrow().classLoader();
     }
 
-    private static boolean stageExternalDouyinJar() {
+    private static StageResult stageExternalDouyinJar() {
+        String thirdPartyPackage = System.getProperty(THIRD_PARTY_PACKAGE_PROPERTY);
+        if (thirdPartyPackage != null && !thirdPartyPackage.isBlank()) {
+            try {
+                return installThirdPartyPackage(Path.of(thirdPartyPackage));
+            } catch (IOException | RuntimeException ex) {
+                throw new IllegalStateException("无法安装第三方 Douyin 验收包", ex);
+            }
+        }
         try {
             String configured = System.getProperty(DOUYIN_CLASSES_PROPERTY);
             if (configured == null || configured.isBlank()) {
-                return false;
+                return StageResult.skipped();
             }
             Path classes = Path.of(configured);
             if (!Files.isDirectory(classes) || !Files.exists(classes.resolve("plugin.properties"))) {
-                return false;
+                return StageResult.skipped();
             }
             deleteRecursivelyQuietly(PLUGINS_DIR);
             Files.createDirectories(PLUGINS_DIR);
             Path jar = PLUGINS_DIR.resolve("douyin-plugin.jar");
             zipDirectoryAsJar(classes, jar);
             PluginTestProvenance.writeVerifiedLocalUpload(PLUGINS_DIR, jar, "douyin", "1.0.0");
-            return true;
+            return new StageResult(true, PluginTestProvenance.verifier(), null, null, jar);
         } catch (IOException | RuntimeException ex) {
-            return false;
+            return StageResult.skipped();
+        }
+    }
+
+    private static StageResult installThirdPartyPackage(Path source) throws IOException {
+        if (PluginDevelopmentArtifacts.enabled()) {
+            throw new IllegalStateException("third-party package verification requires production mode");
+        }
+        String mode = System.getProperty(THIRD_PARTY_MODE_PROPERTY, "").trim();
+        if (!mode.equals("signed") && !mode.equals("unsigned")) {
+            throw new IllegalArgumentException("unsupported third-party package mode: " + mode);
+        }
+        if (!Files.isRegularFile(source)) {
+            throw new IOException("third-party Douyin package is missing: " + source);
+        }
+        deleteRecursivelyQuietly(PLUGINS_DIR);
+        Files.createDirectories(PLUGINS_DIR);
+
+        SignatureMetadata signature = null;
+        PluginSupplyChainVerifier verifier = new PluginSupplyChainVerifier();
+        if (mode.equals("signed")) {
+            Path signatureFile = Path.of(System.getProperty(THIRD_PARTY_SIGNATURE_PROPERTY, ""));
+            signature = new ObjectMapper().readValue(signatureFile.toFile(), SignatureMetadata.class);
+            String publicKey = System.getProperty(THIRD_PARTY_PUBLIC_KEY_PROPERTY, "");
+            TrustedPluginKey key = new TrustedPluginKey(
+                    THIRD_PARTY_KEY_ID,
+                    SignatureMetadata.ED25519,
+                    publicKey,
+                    TrustedPluginKey.State.ACTIVE,
+                    "Douyin Third-Party CI",
+                    "Douyin third-party compatibility canary",
+                    false);
+            verifier = new PluginSupplyChainVerifier(PluginTrustStores.of(List.of(key)));
+        }
+
+        String sha256 = PluginPackageIntegrity.sha256Hex(source);
+        PluginPackageOrigin origin = mode.equals("signed")
+                ? PluginPackageOrigin.forTrustedCatalog(
+                        THIRD_PARTY_REPOSITORY_ID,
+                        false,
+                        Files.size(source),
+                        sha256,
+                        signature)
+                : PluginPackageOrigin.localUnsignedUpload(null);
+        try (ExternalPluginInstaller installer = new ExternalPluginInstaller(
+                PLUGINS_DIR, PluginPackageLimits.defaults(), verifier)) {
+            if (!installer.recoverPendingTransactions().safeToScan()) {
+                throw new IllegalStateException("third-party package recovery gate is blocked");
+            }
+            PluginInstallResult pending = installFully(installer, source, origin);
+            if (pending.outcome() != PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED
+                    || pending.trustRequirement() == null) {
+                throw new IllegalStateException("third-party package did not require trust confirmation: "
+                        + pending.outcome());
+            }
+            PluginPackageOrigin confirmed = mode.equals("signed")
+                    ? PluginPackageOrigin.forTrustedCatalog(
+                            THIRD_PARTY_REPOSITORY_ID,
+                            false,
+                            Files.size(source),
+                            sha256,
+                            signature,
+                            Map.of(),
+                            Map.of(),
+                            false,
+                            pending.trustRequirement().artifactSha256())
+                    : PluginPackageOrigin.localUnsignedUpload(pending.trustRequirement().artifactSha256());
+            PluginInstallResult installed = installFully(installer, source, confirmed);
+            if (installed.outcome() != PluginInstallOutcome.INSTALLED || installed.installedPath() == null) {
+                throw new IllegalStateException("third-party package installation failed: " + installed.outcome());
+            }
+            return new StageResult(
+                    true, verifier, mode, pending.outcome(), installed.installedPath());
+        }
+    }
+
+    private static PluginInstallResult installFully(
+            ExternalPluginInstaller installer,
+            Path source,
+            PluginPackageOrigin origin) {
+        PreparedPluginTransaction prepared = installer.prepareTransaction(source, false, origin);
+        if (!prepared.readyToCommit()) {
+            return prepared.result();
+        }
+        CommittedPluginTransaction committed = installer.commitTransaction(prepared);
+        installer.verifyCommittedTarget(committed);
+        installer.markActivated(committed);
+        installer.completeTransaction(committed);
+        return prepared.result();
+    }
+
+    public static final class DouyinPluginBootstrapInitializer
+            implements org.springframework.context.ApplicationContextInitializer<ConfigurableApplicationContext> {
+
+        @Override
+        public void initialize(ConfigurableApplicationContext context) {
+            PluginTestProvenance.registerBootstrapSession(
+                    context, PluginEnabledSnapshot.empty(), STAGE.verifier());
         }
     }
 
@@ -316,6 +473,18 @@ class DouyinExternalPluginBootContextTest {
             });
         } catch (IOException ignored) {
             // best-effort
+        }
+    }
+
+    private record StageResult(
+            boolean staged,
+            PluginSupplyChainVerifier verifier,
+            String mode,
+            PluginInstallOutcome initialOutcome,
+            Path installedArtifact) {
+
+        private static StageResult skipped() {
+            return new StageResult(false, PluginTestProvenance.verifier(), null, null, null);
         }
     }
 }

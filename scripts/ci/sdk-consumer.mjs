@@ -95,7 +95,34 @@ function deriveDouyinPackages(repoRoot, work, pluginJar) {
     if (fs.existsSync(`${unsignedPluginJar}.sig`) || fs.existsSync(`${unsignedPluginJar}.sig.json`)) {
         fail('unsigned Douyin package unexpectedly has a signature sidecar');
     }
-    return { signedPluginJar, signatureFile, unsignedPluginJar };
+    return { signedPluginJar, signatureFile, unsignedPluginJar, publicKeySpkiBase64 };
+}
+
+function verifyDouyinRuntime(runMaven, repoRoot, settings, localRepository, packages) {
+    const common = [
+        '-s', settings,
+        `-Dmaven.repo.local=${localRepository}`,
+        '-f', path.join(repoRoot, 'pom.xml'),
+        '-pl', 'pixivdownload-app',
+        '-am',
+        '-Dtest=DouyinExternalPluginBootContextTest',
+        '-Dsurefire.failIfNoSpecifiedTests=false',
+        '-Dexec.skip=true',
+        '-Dpixivdownload.plugin-dev.enabled=false',
+        'test',
+    ];
+    runMaven([
+        `-Ddouyin.third-party.package=${packages.signedPluginJar}`,
+        '-Ddouyin.third-party.mode=signed',
+        `-Ddouyin.third-party.signature=${packages.signatureFile}`,
+        `-Ddouyin.third-party.public-key=${packages.publicKeySpkiBase64}`,
+        ...common,
+    ], repoRoot);
+    runMaven([
+        `-Ddouyin.third-party.package=${packages.unsignedPluginJar}`,
+        '-Ddouyin.third-party.mode=unsigned',
+        ...common,
+    ], repoRoot);
 }
 
 function safeWorkDirectory(repoRoot, requested) {
@@ -266,11 +293,14 @@ export function verifyConsumer(options) {
     ]) {
         if (!douyinEntries.includes(required)) fail(`Douyin third-party JAR is missing ${required}`);
     }
+    const douyinPackages = deriveDouyinPackages(repoRoot, work, douyinPluginJar);
+    verifyDouyinRuntime(runMaven, repoRoot, settings, localRepository, douyinPackages);
+    const { publicKeySpkiBase64, ...packagePaths } = douyinPackages;
     return {
         project,
         pluginJar,
         douyinPluginJar,
-        ...deriveDouyinPackages(repoRoot, work, douyinPluginJar),
+        ...packagePaths,
         localRepository,
     };
 }
