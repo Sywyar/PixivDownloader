@@ -18,6 +18,17 @@ function run(command, args, options = {}) {
     if (result.status !== 0) fail(`${path.basename(command)} exited with ${result.status ?? 'no status'}`);
 }
 
+function thinJarEntries(pluginJar) {
+    if (!fs.statSync(pluginJar, { throwIfNoEntry: false })?.isFile()) {
+        fail(`isolated consumer plugin JAR is missing: ${pluginJar}`);
+    }
+    const listing = spawnSync('jar', ['--list', '--file', pluginJar], { encoding: 'utf8' });
+    if (listing.status !== 0) fail(`cannot inspect isolated consumer plugin JAR: ${pluginJar}`);
+    const entries = listing.stdout.split(/\r?\n/u).filter(Boolean);
+    assertThinJarEntries(entries);
+    return entries;
+}
+
 function safeWorkDirectory(repoRoot, requested) {
     const target = path.resolve(repoRoot, 'target');
     const resolved = path.resolve(requested);
@@ -139,42 +150,54 @@ export function verifyConsumer(options) {
     const wrapper = path.join(project, process.platform === 'win32' ? 'mvnw.cmd' : 'mvnw');
     const command = process.platform === 'win32' ? (process.env.ComSpec || 'cmd.exe') : 'sh';
     const prefix = process.platform === 'win32' ? ['/d', '/s', '/c', wrapper] : [wrapper];
-    run(command, [...prefix,
-        '-B', '-ntp', '-s', settings, `-Dmaven.repo.local=${localRepository}`, 'clean', 'verify',
-    ], {
-        cwd: project,
-        env: { ...process.env, MAVEN_USER_HOME: mavenHome },
+    const mavenEnvironment = { ...process.env, MAVEN_USER_HOME: mavenHome };
+    const runMaven = (args, cwd = project) => run(command, [...prefix, '-B', '-ntp', ...args], {
+        cwd,
+        env: mavenEnvironment,
     });
-    run(command, [...prefix,
-        '-B', '-ntp', '-s', settings, `-Dmaven.repo.local=${localRepository}`,
+    const douyinPom = path.join(repoRoot, 'pixivdownload-plugin-douyin', 'third-party-pom.xml');
+    const douyinBuildDirectory = path.join(work, 'douyin-target');
+    if (!fs.statSync(douyinPom, { throwIfNoEntry: false })?.isFile()) {
+        fail(`missing Douyin third-party POM: ${douyinPom}`);
+    }
+    const buildDouyin = offline => runMaven([
+        ...(offline ? ['-o'] : []), '-s', settings, `-Dmaven.repo.local=${localRepository}`,
+        `-Dpixivdownload.sdk.version=${identity.version}`,
+        `-Ddouyin.build.directory=${douyinBuildDirectory}`,
+        '-Dmaven.test.skip=true', '-f', douyinPom, 'clean', 'package',
+    ], repoRoot);
+
+    runMaven(['-s', settings, `-Dmaven.repo.local=${localRepository}`, 'clean', 'verify']);
+    runMaven(['-s', settings, `-Dmaven.repo.local=${localRepository}`,
         'org.apache.maven.plugins:maven-dependency-plugin:3.8.1:get',
         `-Dartifact=${SDK_GROUP_ID}:pixivdownload-core-api:${identity.version}`,
-    ], {
-        cwd: project,
-        env: { ...process.env, MAVEN_USER_HOME: mavenHome },
-    });
+    ]);
+    buildDouyin(false);
     stageSdkArtifacts(localRepository, sdkRepository, identity.version);
-    run(command, [...prefix,
-        '-B', '-ntp', '-o', '-s', settings, `-Dmaven.repo.local=${localRepository}`, 'clean', 'verify',
-    ], {
-        cwd: project,
-        env: { ...process.env, MAVEN_USER_HOME: mavenHome },
-    });
-    run(command, [...prefix,
-        '-B', '-ntp', '-o', '-s', settings, `-Dmaven.repo.local=${localRepository}`,
+    runMaven(['-o', '-s', settings, `-Dmaven.repo.local=${localRepository}`, 'clean', 'verify']);
+    runMaven(['-o', '-s', settings, `-Dmaven.repo.local=${localRepository}`,
         'org.apache.maven.plugins:maven-dependency-plugin:3.8.1:get',
         `-Dartifact=${SDK_GROUP_ID}:pixivdownload-core-api:${identity.version}`,
-    ], {
-        cwd: project,
-        env: { ...process.env, MAVEN_USER_HOME: mavenHome },
-    });
+    ]);
+    buildDouyin(true);
     assertSdkResolution(localRepository, sdkRepository, identity.version);
     const pluginJar = path.join(project, 'plugin', 'target', 'example-download-plugin-0.1.0.jar');
-    if (!fs.statSync(pluginJar, { throwIfNoEntry: false })?.isFile()) fail('isolated consumer plugin JAR is missing');
-    const listing = spawnSync('jar', ['--list', '--file', pluginJar], { encoding: 'utf8' });
-    if (listing.status !== 0) fail('cannot inspect isolated consumer plugin JAR');
-    assertThinJarEntries(listing.stdout.split(/\r?\n/u).filter(Boolean));
-    return { project, pluginJar, localRepository };
+    thinJarEntries(pluginJar);
+    const douyinPluginJar = path.join(douyinBuildDirectory, 'pixivdownload-plugin-douyin-1.0.0.jar');
+    const douyinEntries = thinJarEntries(douyinPluginJar);
+    for (const required of [
+        'top/sywyar/pixivdownload/douyin/DouyinPf4jPlugin.class',
+        'top/sywyar/pixivdownload/douyin/controller/DouyinController.class',
+        'top/sywyar/pixivdownload/douyin/download/DouyinQueueOperations.class',
+        'top/sywyar/pixivdownload/douyin/schedule/source/DouyinScheduledSourceExecutor.class',
+        'static/pixiv-douyin.html',
+        'static/pixiv-douyin-gallery.html',
+        'static/pixiv-douyin-download/douyin-download.js',
+        'i18n/web/douyin.properties',
+    ]) {
+        if (!douyinEntries.includes(required)) fail(`Douyin third-party JAR is missing ${required}`);
+    }
+    return { project, pluginJar, douyinPluginJar, localRepository };
 }
 
 function main() {

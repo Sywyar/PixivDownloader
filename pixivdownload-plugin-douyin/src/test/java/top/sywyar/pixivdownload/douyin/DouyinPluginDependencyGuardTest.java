@@ -10,6 +10,7 @@ import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.stream.Stream;
@@ -76,7 +77,7 @@ class DouyinPluginDependencyGuardTest {
     @DisplayName("POM 与生产源码不得恢复 PixivDownload artifact 或已移除宿主类型")
     void moduleDoesNotRestoreAppArtifactOrConcreteHostImports() throws IOException {
         Path moduleRoot = moduleRoot();
-        String pom = Files.readString(moduleRoot.resolve("pom.xml"));
+        String pom = Files.readString(moduleRoot.resolve("pom.xml"), StandardCharsets.UTF_8);
         assertThat(pom).doesNotContain(
                 "<artifactId>PixivDownload</artifactId>",
                 "<artifactId>httpclient5</artifactId>",
@@ -111,6 +112,25 @@ class DouyinPluginDependencyGuardTest {
     }
 
     @Test
+    @DisplayName("第三方独立构建只消费 SDK BOM 与 provided API")
+    void standaloneBuildConsumesOnlyPublishedSdkAndProvidedApis() throws IOException {
+        String pom = Files.readString(moduleRoot().resolve("third-party-pom.xml"), StandardCharsets.UTF_8);
+
+        assertThat(pom).contains(
+                "<artifactId>pixivdownload-sdk-bom</artifactId>",
+                "<artifactId>pixivdownload-core-api</artifactId>",
+                "<artifactId>pixivdownload-plugin-api</artifactId>",
+                "<scope>provided</scope>");
+        assertThat(pom).doesNotContain(
+                "<parent>",
+                "<relativePath>",
+                "<repositories>",
+                "<pluginRepositories>",
+                "<artifactId>PixivDownload</artifactId>",
+                "<artifactId>pixivdownload-plugin-runtime</artifactId>");
+    }
+
+    @Test
     @DisplayName("Douyin 队列操作实现非空且由插件生命周期托管")
     void queueOperationsArePluginManaged() {
         assertThat(CLASSES.contain(DouyinQueueOperations.class.getName())).isTrue();
@@ -129,7 +149,7 @@ class DouyinPluginDependencyGuardTest {
 
     private static String read(Path path) {
         try {
-            return Files.readString(path);
+            return Files.readString(path, StandardCharsets.UTF_8);
         } catch (IOException failure) {
             throw new IllegalStateException("Failed to read " + path, failure);
         }
