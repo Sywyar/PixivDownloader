@@ -21,6 +21,9 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecut
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager;
+import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginLifecycleCoordinator;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
 import top.sywyar.pixivdownload.plugin.registry.web.NavigationRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginSource;
@@ -131,6 +134,10 @@ class DouyinExternalPluginBootContextTest {
     private NavigationRegistry navigationRegistry;
     @Autowired
     private ExternalPluginContextManager externalPluginContextManager;
+    @Autowired
+    private ExternalPluginLifecycleCoordinator lifecycleCoordinator;
+    @Autowired
+    private PluginLifecycleService pluginLifecycleService;
     @Autowired
     private WebApplicationContext applicationContext;
     @Autowired
@@ -244,6 +251,36 @@ class DouyinExternalPluginBootContextTest {
     }
 
     @Test
+    @DisplayName("第三方 douyin 停启保留代际，物理重载换代并恢复完整能力足迹")
+    void thirdPartyDouyinTrustSurvivesLifecycleReplacement() {
+        long initialGeneration = pluginLifecycleService.generation("douyin").orElseThrow();
+        ClassLoader initialClassLoader = externalDouyinClassLoader();
+        ConfigurableApplicationContext initialContext =
+                externalPluginContextManager.contextFor("douyin").orElseThrow();
+
+        lifecycleCoordinator.stop("douyin");
+        assertThat(pluginLifecycleService.phase("douyin")).contains(PluginRuntimePhase.STOPPED);
+        assertThat(externalPluginContextManager.contextFor("douyin")).isEmpty();
+        assertThat(initialContext.isActive()).isFalse();
+        assertDouyinServiceFootprint(false);
+
+        lifecycleCoordinator.start("douyin");
+        assertThat(pluginLifecycleService.phase("douyin")).contains(PluginRuntimePhase.STARTED);
+        assertThat(pluginLifecycleService.generation("douyin")).contains(initialGeneration);
+        assertThat(externalDouyinClassLoader()).isSameAs(initialClassLoader);
+        assertDouyinServiceFootprint(true);
+
+        ConfigurableApplicationContext restartedContext =
+                externalPluginContextManager.contextFor("douyin").orElseThrow();
+        lifecycleCoordinator.reload("douyin");
+        assertThat(pluginLifecycleService.phase("douyin")).contains(PluginRuntimePhase.STARTED);
+        assertThat(pluginLifecycleService.generation("douyin").orElseThrow()).isGreaterThan(initialGeneration);
+        assertThat(externalDouyinClassLoader()).isNotSameAs(initialClassLoader);
+        assertThat(restartedContext.isActive()).isFalse();
+        assertDouyinServiceFootprint(true);
+    }
+
+    @Test
     @DisplayName("douyin provider 由外置子 ApplicationContext 托管")
     void externalDouyinChildContextHostsProviderBean() throws Exception {
         ConfigurableApplicationContext child = externalPluginContextManager.contextFor("douyin").orElseThrow();
@@ -315,6 +352,17 @@ class DouyinExternalPluginBootContextTest {
     private ClassLoader externalDouyinClassLoader() {
         return pluginRegistry.registeredPlugins().stream()
                 .filter(rp -> rp.id().equals("douyin")).findFirst().orElseThrow().classLoader();
+    }
+
+    private void assertDouyinServiceFootprint(boolean present) {
+        assertThat(routeAccessRegistry.routes().stream().anyMatch(route -> route.pluginId().equals("douyin")))
+                .isEqualTo(present);
+        assertThat(staticResourceRegistry.resources().stream()
+                .anyMatch(resource -> resource.pluginId().equals("douyin")))
+                .isEqualTo(present);
+        assertThat(scheduleCapabilityRegistry.snapshotView().owners().stream()
+                .anyMatch(owner -> owner.owner().featurePluginId().equals("douyin")))
+                .isEqualTo(present);
     }
 
     private static StageResult stageExternalDouyinJar() {
