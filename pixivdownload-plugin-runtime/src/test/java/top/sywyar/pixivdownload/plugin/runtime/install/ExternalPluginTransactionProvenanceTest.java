@@ -143,7 +143,8 @@ class ExternalPluginTransactionProvenanceTest extends ExternalPluginTransactionT
         PluginSigningTestSupport signing = PluginSigningTestSupport.create();
         ExternalPluginInstaller installer = signedInstaller(plugins, signing.verifier());
         Path oldPackage = packageFile("catalog-owner-old.zip", "1.0.0");
-        installFully(installer, oldPackage, signing.originFor("repository-a", oldPackage, "demo", "1.0.0"));
+        installFully(installer, oldPackage,
+                signing.confirmed(signing.originFor("repository-a", oldPackage, "demo", "1.0.0")));
         Path candidate = packageFile("catalog-owner-new.zip", "2.0.0");
 
         PreparedPluginTransaction rejected = installer.prepareTransaction(candidate, false,
@@ -171,7 +172,7 @@ class ExternalPluginTransactionProvenanceTest extends ExternalPluginTransactionT
                 plugins, PluginSigningTestSupport.verifierFor(oldSigner, newSigner));
         Path oldPackage = packageFile("key-old.zip", "1.0.0");
         installFully(installer, oldPackage,
-                oldSigner.originFor("repository", oldPackage, "demo", "1.0.0"));
+                oldSigner.confirmed(oldSigner.originFor("repository", oldPackage, "demo", "1.0.0")));
         Path candidate = packageFile("key-new.zip", "2.0.0");
 
         PreparedPluginTransaction rejected = installer.prepareTransaction(candidate, false,
@@ -184,7 +185,7 @@ class ExternalPluginTransactionProvenanceTest extends ExternalPluginTransactionT
     }
 
     @Test
-    @DisplayName("旧 key 对精确新身份与制品签名后允许密钥及仓库迁移")
+    @DisplayName("旧 key 授权身份迁移后仍需确认新发布者")
     void catalogIdentityAcceptsAuthorizedMigration() throws IOException {
         Path plugins = temp.resolve("plugins-authorized-identity-migration");
         PluginSigningTestSupport oldSigner = PluginSigningTestSupport.create(
@@ -195,14 +196,20 @@ class ExternalPluginTransactionProvenanceTest extends ExternalPluginTransactionT
                 plugins, PluginSigningTestSupport.verifierFor(oldSigner, newSigner));
         Path oldPackage = packageFile("migration-old.zip", "1.0.0");
         installFully(installer, oldPackage,
-                oldSigner.originFor("old-repository", oldPackage, "demo", "1.0.0"));
+                oldSigner.confirmed(oldSigner.originFor(
+                        "old-repository", oldPackage, "demo", "1.0.0")));
         Path candidate = packageFile("migration-new.zip", "2.0.0");
         var authorization = oldSigner.identityMigrationSignature(
                 "demo", "old-repository", "demo", "new-repository", newSigner, candidate, "2.0.0");
+        PluginPackageOrigin migrationOrigin = newSigner.originFor(
+                "new-repository", candidate, "demo", "2.0.0", Map.of("demo", authorization));
 
-        PluginInstallResult upgraded = installFully(installer, candidate,
-                newSigner.originFor("new-repository", candidate, "demo", "2.0.0",
-                        Map.of("demo", authorization)));
+        PluginInstallResult pending = installFully(installer, candidate, migrationOrigin);
+        assertThat(pending.outcome()).isEqualTo(PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED);
+        assertThat(plugins.resolve("demo-1.0.0.zip")).exists();
+
+        PluginInstallResult upgraded = installFully(
+                installer, candidate, newSigner.confirmed(migrationOrigin));
 
         assertThat(upgraded.outcome()).isEqualTo(PluginInstallOutcome.UPGRADED);
         assertThat(plugins.resolve("demo-1.0.0.zip")).doesNotExist();
@@ -228,7 +235,8 @@ class ExternalPluginTransactionProvenanceTest extends ExternalPluginTransactionT
                 plugins, PluginSigningTestSupport.verifierFor(oldSigner, newSigner, repositoryRoot));
         Path oldPackage = packageFile("repository-migration-old.zip", "1.0.0");
         installFully(installer, oldPackage,
-                oldSigner.originFor("old-repository", oldPackage, "demo", "1.0.0"));
+                oldSigner.confirmed(oldSigner.originFor(
+                        "old-repository", oldPackage, "demo", "1.0.0")));
         installer.updateVerifier(new PluginSupplyChainVerifier(PluginTrustStores.of(List.of(
                 oldSigner.trustedKey(TrustedPluginKey.State.RETIRED),
                 newSigner.trustedKey(TrustedPluginKey.State.ACTIVE),
@@ -264,17 +272,23 @@ class ExternalPluginTransactionProvenanceTest extends ExternalPluginTransactionT
         assertThat(plugins.resolve("demo-1.0.0.zip")).exists();
         assertThat(plugins.resolve("demo-2.0.0.zip")).doesNotExist();
 
-        PluginInstallResult upgraded = installFully(
-                installer,
+        PluginPackageOrigin identityConfirmedMigration = newSigner.originFor(
+                "new-repository",
                 candidate,
-                newSigner.originFor(
-                        "new-repository",
-                        candidate,
-                        "demo",
-                        "2.0.0",
-                        Map.of(),
-                        Map.of("demo", authorization),
-                        true));
+                "demo",
+                "2.0.0",
+                Map.of(),
+                Map.of("demo", authorization),
+                true);
+        PluginInstallResult trustConfirmationRequired = installFully(
+                installer, candidate, identityConfirmedMigration);
+
+        assertThat(trustConfirmationRequired.outcome())
+                .isEqualTo(PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED);
+        assertThat(plugins.resolve("demo-1.0.0.zip")).exists();
+
+        PluginInstallResult upgraded = installFully(
+                installer, candidate, newSigner.confirmed(identityConfirmedMigration));
 
         assertThat(upgraded.outcome()).isEqualTo(PluginInstallOutcome.UPGRADED);
         assertThat(plugins.resolve("demo-1.0.0.zip")).doesNotExist();
@@ -295,7 +309,8 @@ class ExternalPluginTransactionProvenanceTest extends ExternalPluginTransactionT
                 plugins, PluginSigningTestSupport.verifierFor(oldSigner, newSigner, repositoryRoot));
         Path oldPackage = packageFile("invalid-repository-migration-old.zip", "1.0.0");
         installFully(installer, oldPackage,
-                oldSigner.originFor("old-repository", oldPackage, "demo", "1.0.0"));
+                oldSigner.confirmed(oldSigner.originFor(
+                        "old-repository", oldPackage, "demo", "1.0.0")));
         Path signedCandidate = packageFile("invalid-repository-migration-signed.zip", "2.0.0");
         RepositoryIdentityMigrationAuthorization authorization =
                 repositoryRoot.repositoryIdentityMigrationAuthorization(

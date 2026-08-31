@@ -118,6 +118,19 @@ final class PluginSigningTestSupport {
                 identityMigrationConfirmed);
     }
 
+    PluginPackageOrigin confirmed(PluginPackageOrigin origin) {
+        return PluginPackageOrigin.forTrustedCatalog(
+                origin.repositoryId(),
+                origin.officialRepository(),
+                origin.expectedSizeBytes(),
+                origin.expectedSha256(),
+                origin.signature(),
+                origin.identityMigrationSignatures(),
+                origin.repositoryIdentityMigrationAuthorizations(),
+                origin.identityMigrationConfirmed(),
+                origin.expectedSha256());
+    }
+
     SignatureMetadata artifactSignature(Path artifact, String pluginId, String version) throws IOException {
         byte[] sha256 = Hashing.sha256(artifact);
         byte[] message = EnvelopeV1Codec.artifactMessage(

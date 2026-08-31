@@ -45,6 +45,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.transaction.CommittedPlug
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginDirectorySessionLock;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PreparedPluginTransaction;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
+import top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustDecision;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageFixtures;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader;
 
@@ -447,6 +448,39 @@ class ExternalPluginInstallerTest {
             assertThat(provenance.originForOfflineVerification()).isEqualTo(
                     PluginPackageOrigin.localUpload(signature));
         }
+    }
+
+    @Test
+    @DisplayName("未签名本地包更新制品哈希后必须重新确认")
+    void unsignedLocalUploadRequiresConfirmationForEachArtifact() throws IOException {
+        Path firstPackage = exploded("unsigned-local", "1.0.0");
+        PluginInstallResult firstPending = installFully(
+                firstPackage, false, PluginPackageOrigin.localUnsignedUpload(null));
+        assertThat(firstPending.outcome()).isEqualTo(PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED);
+
+        PluginInstallResult installed = installFully(
+                firstPackage,
+                false,
+                PluginPackageOrigin.localUnsignedUpload(firstPending.trustRequirement().artifactSha256()));
+        assertThat(installed.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
+        assertThat(new PluginProvenanceStore(pluginsDir).read(installed.installedPath()).orElseThrow()
+                .trustDecision().approvalType()).isEqualTo(PluginTrustDecision.ApprovalType.EXACT_ARTIFACT);
+
+        Path updatedPackage = exploded("unsigned-local", "2.0.0");
+        PluginInstallResult updatePending = installFully(
+                updatedPackage, false, PluginPackageOrigin.localUnsignedUpload(null));
+        assertThat(updatePending.outcome()).isEqualTo(PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED);
+        assertThat(updatePending.trustRequirement().artifactSha256())
+                .isNotEqualTo(firstPending.trustRequirement().artifactSha256());
+        assertThat(pluginsDir.resolve("unsigned-local-1.0.0.zip")).exists();
+
+        PluginInstallResult upgraded = installFully(
+                updatedPackage,
+                false,
+                PluginPackageOrigin.localUnsignedUpload(updatePending.trustRequirement().artifactSha256()));
+        assertThat(upgraded.outcome()).isEqualTo(PluginInstallOutcome.UPGRADED);
+        assertThat(pluginsDir.resolve("unsigned-local-1.0.0.zip")).doesNotExist();
+        assertThat(pluginsDir.resolve("unsigned-local-2.0.0.zip")).exists();
     }
 
     @Test
