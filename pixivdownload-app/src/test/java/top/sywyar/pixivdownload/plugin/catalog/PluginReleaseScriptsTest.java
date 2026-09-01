@@ -398,6 +398,27 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
+    @DisplayName("Windows 主程序沿用调用者权限，仅安装器 loader 请求提权")
+    void windowsLauncherUsesCallerPrivilegesAndInstallerOwnsElevation() throws Exception {
+        String windows = script("package-local.ps1");
+        String executionLevel = script("set-windows-exe-requested-execution-level.ps1");
+        String adminLoader = script("prepare-inno-admin-loader.ps1");
+        String inno = innoScript();
+
+        assertThat(windows).contains(
+                "Patching launcher to run with caller privileges",
+                "-Level \"asInvoker\"");
+        assertThat(windows).doesNotContain(
+                "Patching launcher to request administrator rights",
+                "-Level \"requireAdministrator\"");
+        assertThat(executionLevel).contains("[string]$Level = \"asInvoker\"");
+        assertThat(adminLoader).contains("-Level \"requireAdministrator\"");
+        assertThat(inno).contains(
+                "PrivilegesRequired=admin",
+                "runascurrentuser");
+    }
+
+    @Test
     @DisplayName("离线分发与 Windows 打包脚本同时携带 artifact 签名和 provenance sidecar")
     void offlinePackagingScriptsCarrySignatureAndProvenanceSidecar() throws Exception {
         String common = script("plugin-distribution-common.ps1");

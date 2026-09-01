@@ -386,8 +386,8 @@ try {
         "--dest", $OnlineAppImageRoot
     )
 
-    Write-Step "Patching launcher to request administrator rights"
-    & $SetExeExecutionLevelScript -Path (Join-Path $OnlineAppDir "$AppName.exe") -Level "requireAdministrator"
+    Write-Step "Patching launcher to run with caller privileges"
+    & $SetExeExecutionLevelScript -Path (Join-Path $OnlineAppDir "$AppName.exe") -Level "asInvoker"
 
     if ((-not $SkipPlugins -and -not $AllowUnsignedLocalPlugins) -or
         -not $SkipOfflinePortable -or -not $SkipInstaller) {

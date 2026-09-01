@@ -80,6 +80,10 @@ The Java standard package and the full-offline package must be **fully extracted
 the JAR: the launcher scripts and the `plugins/` directory are both required, because external official plugins are
 loaded from the working directory's `plugins/` folder at startup.
 
+The Windows installer requests UAC only while writing the application directory. The installed application and
+portable launcher both use the caller's privileges. If you manually run the application as administrator,
+`host-process-full-trust` plugins share that administrator token.
+
 Existing and third-party plugins that omit an execution mode use `host-process-full-trust` by default, run in the main
 JVM, and inherit the operating-system permissions of the current user. Only plugins that explicitly declare
 `declarative-process` enter the separate worker. The worker still shares the current OS account with the main
