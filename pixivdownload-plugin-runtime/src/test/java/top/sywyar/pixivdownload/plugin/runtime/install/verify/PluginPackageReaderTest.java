@@ -141,6 +141,31 @@ class PluginPackageReaderTest {
     }
 
     @Test
+    @DisplayName("权限声明：缺失按完全访问处理，显式清单规范化为稳定集合")
+    void parsesPermissionDeclaration() {
+        String properties = PluginPackageFixtures.pluginProperties(
+                "permission-demo", "1.0.0", "1.0", "com.example.PermissionPlugin")
+                + PluginPackageReader.KEY_PIXIV_PERMISSIONS + "=NETWORK, filesystem-write, network\n";
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        entries.put(PluginPackageReader.PLUGIN_PROPERTIES, properties.getBytes(StandardCharsets.UTF_8));
+        entries.put("classes/Marker.class", PluginPackageFixtures.bytes("x"));
+        Path zip = tempDir.resolve("permissions.zip");
+        PluginPackageFixtures.writeZip(zip, entries);
+
+        PluginDescriptor declared = PluginPackageReader.inspect(zip).descriptor();
+        PluginDescriptor legacy = PluginPackageReader.inspect(
+                PluginPackageFixtures.explodedZip(tempDir.resolve("legacy-permissions.zip"),
+                        "legacy-permissions", "1.0.0", "1.0", "com.example.LegacyPlugin"))
+                .descriptor();
+
+        assertThat(declared.permissionDeclaration().declared()).isTrue();
+        assertThat(declared.permissionDeclaration().permissions())
+                .containsExactly("filesystem-write", "network");
+        assertThat(legacy.permissionDeclaration().declared()).isFalse();
+        assertThat(legacy.permissionDeclaration().permissions()).isEmpty();
+    }
+
+    @Test
     @DisplayName("展示元数据：pixiv.* canonical 字段映射为包级描述符，供已安装未启动状态使用")
     void mapsCanonicalDisplayMetadata() {
         String properties = PluginPackageReader.KEY_ID + "=mail\n"

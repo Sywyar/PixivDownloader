@@ -1,9 +1,11 @@
 package top.sywyar.pixivdownload.plugin.runtime.install.trust;
 
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginPermissionDeclaration;
 
 import java.time.Instant;
 import java.util.Locale;
+import java.util.List;
 import java.util.Objects;
 
 /** 宿主对一个已验证插件制品作出的持久化执行信任决定。 */
@@ -17,11 +19,13 @@ public record PluginTrustDecision(
         String declaredPermissionDigest,
         Instant approvedAt,
         int approvedAppSdkMajor,
-        ApprovalType approvalType) {
+        ApprovalType approvalType,
+        boolean permissionsDeclared,
+        List<String> declaredPermissions) {
 
-    /** 当前描述符尚无权限清单；用稳定空集摘要保留未来“权限增加需重确认”的比较位。 */
+    /** 历史信任决定未记录声明状态；保留其摘要并按“未声明、完全访问”解释。 */
     public static final String EMPTY_PERMISSION_DIGEST =
-            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945";
+            PluginPermissionDeclaration.UNDECLARED_PERMISSION_DIGEST;
 
     public PluginTrustDecision {
         pluginId = requiredText(pluginId, "pluginId");
@@ -32,6 +36,12 @@ public record PluginTrustDecision(
         declaredPermissionDigest = requiredSha256(declaredPermissionDigest, "declaredPermissionDigest");
         approvedAt = Objects.requireNonNull(approvedAt, "approvedAt");
         approvalType = Objects.requireNonNull(approvalType, "approvalType");
+        PluginPermissionDeclaration permissions = new PluginPermissionDeclaration(
+                permissionsDeclared, declaredPermissions);
+        declaredPermissions = permissions.permissions();
+        if (!permissions.digest().equals(declaredPermissionDigest)) {
+            throw new IllegalArgumentException("declaredPermissionDigest does not match declared permissions");
+        }
         if (approvedAppSdkMajor < 0) {
             throw new IllegalArgumentException("approvedAppSdkMajor must not be negative");
         }
@@ -44,6 +54,27 @@ public record PluginTrustDecision(
         if (approvalType == ApprovalType.REPOSITORY && repositoryId == null) {
             throw new IllegalArgumentException("repository approval requires a repository id");
         }
+    }
+
+    /** 兼容历史调用方：旧信任决定没有权限清单，按完全访问处理。 */
+    public PluginTrustDecision(
+            String pluginId,
+            String publisherKeyFingerprint,
+            String repositoryId,
+            boolean repositoryOfficial,
+            String artifactSha256,
+            PluginExecutionMode executionMode,
+            String declaredPermissionDigest,
+            Instant approvedAt,
+            int approvedAppSdkMajor,
+            ApprovalType approvalType) {
+        this(pluginId, publisherKeyFingerprint, repositoryId, repositoryOfficial, artifactSha256,
+                executionMode, declaredPermissionDigest, approvedAt, approvedAppSdkMajor, approvalType,
+                false, List.of());
+    }
+
+    public PluginPermissionDeclaration permissionDeclaration() {
+        return new PluginPermissionDeclaration(permissionsDeclared, declaredPermissions);
     }
 
     public enum ApprovalType {

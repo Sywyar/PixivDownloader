@@ -233,7 +233,8 @@ public class PluginManagementService {
                 descriptor != null ? descriptor.executionMode() : null,
                 lifecyclePolicy,
                 pluginToggles.isEnabled(id),
-                toggleable);
+                toggleable,
+                PluginPermissionView.from(descriptor));
     }
 
     public PluginTrustView approveTrust(String pluginId, String confirmedArtifactSha256) {
@@ -760,7 +761,8 @@ public class PluginManagementService {
             PluginExecutionMode executionMode,
             PluginLifecyclePolicy lifecyclePolicy,
             boolean configuredEnabled,
-            boolean toggleable) {
+            boolean toggleable,
+            PluginPermissionView permissions) {
 
         /** 兼容不关心运行操作元数据的调用方与测试夹具。 */
         public PluginManagementEntry(
@@ -788,7 +790,8 @@ public class PluginManagementService {
                     PluginTrustView.state(PluginTrustState.INVALID), null,
                     ExternalPluginOperation.IDLE, null, null,
                     PluginExecutionMode.HOST_PROCESS_FULL_TRUST,
-                    PluginLifecyclePolicy.HOT_RELOAD, true, false);
+                    PluginLifecyclePolicy.HOT_RELOAD, true, false,
+                    PluginPermissionView.undeclared());
         }
 
         /** 兼容需要显式断言启用配置与生命周期策略、但不关心运行操作元数据的调用方。 */
@@ -820,7 +823,26 @@ public class PluginManagementService {
                     PluginTrustView.state(PluginTrustState.INVALID), null,
                     ExternalPluginOperation.IDLE, null, null,
                     PluginExecutionMode.HOST_PROCESS_FULL_TRUST,
-                    lifecyclePolicy, configuredEnabled, toggleable);
+                    lifecyclePolicy, configuredEnabled, toggleable,
+                    PluginPermissionView.undeclared());
+        }
+    }
+
+    /** 描述符权限声明的管理面投影；full-trust 下只解释风险，不声称已强制隔离。 */
+    public record PluginPermissionView(
+            boolean declared,
+            List<String> values) {
+
+        private static PluginPermissionView from(PluginDescriptor descriptor) {
+            if (descriptor == null) {
+                return undeclared();
+            }
+            var declaration = descriptor.permissionDeclaration();
+            return new PluginPermissionView(declaration.declared(), declaration.permissions());
+        }
+
+        private static PluginPermissionView undeclared() {
+            return new PluginPermissionView(false, List.of());
         }
     }
 

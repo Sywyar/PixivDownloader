@@ -79,6 +79,11 @@ Java 标准包和离线全量包必须**完整解压**后使用，不要只提�
 JVM 前设置 `-Dpixivdownload.plugin-worker.require-os-sandbox=true`；当前版本尚未集成已验证 OS 沙箱，
 启用后会拒绝所有 `declarative-process` 插件。签名和官方身份不授予额外运行能力。
 
+插件可在 `plugin.properties` 中用 `pixiv.permissions` 声明逗号分隔的权限风险，例如
+`network,filesystem-write,schedule`。该清单用于安装确认和信任连续性说明，不是在
+`host-process-full-trust` 模式中虚构的权限沙箱；旧插件缺少该字段时按“未声明权限、完全访问”展示。
+同一发布密钥的更新只有在权限不增加且执行模式不升级时才继承既有信任，新增权限需重新确认。
+
 GUI 自动安装 FFmpeg 时，会从项目维护的 `ffmpeg-stable` Release 下载由 FFmpeg 官方最新稳定源码构建的
 Windows x64、Linux x64/arm64 或 macOS x64/arm64 资产；其它平台仍可手动安装系统 FFmpeg。
 

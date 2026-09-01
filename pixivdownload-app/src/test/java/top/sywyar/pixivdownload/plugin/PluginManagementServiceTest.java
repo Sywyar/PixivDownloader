@@ -165,6 +165,8 @@ class PluginManagementServiceTest {
         assertThat(external.descriptionKey()).isEqualTo(EXTERNAL_ID + ".summary");
         assertThat(external.iconKey()).isEqualTo("book");
         assertThat(external.colorToken()).isEqualTo("amber");
+        assertThat(external.permissions().declared()).isFalse();
+        assertThat(external.permissions().values()).isEmpty();
 
         PluginManagementService.PluginManagementEntry missing = entry(report, MISSING_ID);
         assertThat(missing.source()).isEqualTo("not-installed");

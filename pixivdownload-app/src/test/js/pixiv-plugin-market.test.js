@@ -262,7 +262,8 @@ eq('市场 recoveryBlocked toast 保留后端 message', blockedFeedback.message,
                 pluginId: 'demo plugin', version: '1.0.0', source: 'MARKET_CATALOG',
                 repositoryId: 'custom repo', signed: true, publisher: 'Demo Publisher',
                 publisherKeyFingerprint: 'c'.repeat(64), artifactSha256: firstSha,
-                executionMode: 'HOST_PROCESS_FULL_TRUST'
+                executionMode: 'HOST_PROCESS_FULL_TRUST', permissionsDeclared: true,
+                declaredPermissions: ['network', 'filesystem-write']
             }
         }},
         {status: 409, body: {outcome: 'REJECTED_IDENTITY_CONFIRMATION_REQUIRED'}},
@@ -290,6 +291,8 @@ eq('市场 recoveryBlocked toast 保留后端 message', blockedFeedback.message,
     ok('执行信任提示只使用后端核验的发布者事实', confirmationOptions[0].message.includes('Demo Publisher'));
     ok('执行信任提示显示精确制品摘要和完全访问模式', confirmationOptions[0].message.includes(firstSha)
         && confirmationOptions[0].message.includes('HOST_PROCESS_FULL_TRUST'));
+    ok('执行信任提示显示后端解析的权限声明', confirmationOptions[0].message.includes('network')
+        && confirmationOptions[0].message.includes('filesystem-write'));
     ok('身份迁移确认框包含完整按钮文案', confirmationOptions[1].title
         && confirmationOptions[1].message && confirmationOptions[1].confirmLabel
         && confirmationOptions[1].cancelLabel);

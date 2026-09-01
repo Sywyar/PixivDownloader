@@ -19,7 +19,9 @@ public final class PluginTrustPolicy {
         return new PluginTrustRequirement(
                 descriptor.id(), descriptor.version(), provenance.source(), provenance.repositoryId(),
                 provenance.officialRepository(), provenance.signature() != null, provenance.publisher(),
-                provenance.publisherKeyFingerprint(), provenance.artifactSha256(), descriptor.executionMode());
+                provenance.publisherKeyFingerprint(), provenance.artifactSha256(), descriptor.executionMode(),
+                descriptor.permissionDeclaration().declared(), descriptor.permissionDeclaration().permissions(),
+                descriptor.permissionDeclaration().digest());
     }
 
     public static PluginTrustDecision approve(
@@ -52,7 +54,7 @@ public final class PluginTrustPolicy {
                 || !descriptor.id().equals(previous.pluginId())
                 || !candidate.publisherKeyFingerprint().equals(previous.publisherKeyFingerprint())
                 || previous.approvedAppSdkMajor() != SdkVersion.MAJOR
-                || !PluginTrustDecision.EMPTY_PERMISSION_DIGEST.equals(previous.declaredPermissionDigest())
+                || !descriptor.permissionDeclaration().isNoMorePrivilegedThan(previous.permissionDeclaration())
                 || executionPrivilegeIncreased(previous.executionMode(), descriptor.executionMode())) {
             return null;
         }
@@ -83,7 +85,8 @@ public final class PluginTrustPolicy {
                 || !Objects.equals(provenance.repositoryId(), decision.repositoryId())
                 || provenance.officialRepository() != decision.repositoryOfficial()
                 || descriptor.executionMode() != decision.executionMode()
-                || !PluginTrustDecision.EMPTY_PERMISSION_DIGEST.equals(decision.declaredPermissionDigest())
+                || !descriptor.permissionDeclaration().equals(decision.permissionDeclaration())
+                || !descriptor.permissionDeclaration().digest().equals(decision.declaredPermissionDigest())
                 || decision.approvedAppSdkMajor() != SdkVersion.MAJOR) {
             return "plugin execution trust decision does not bind the current candidate";
         }
@@ -98,7 +101,8 @@ public final class PluginTrustPolicy {
         return new PluginTrustDecision(
                 descriptor.id(), provenance.publisherKeyFingerprint(), provenance.repositoryId(),
                 provenance.officialRepository(), provenance.artifactSha256(), descriptor.executionMode(),
-                PluginTrustDecision.EMPTY_PERMISSION_DIGEST, approvedAt, SdkVersion.MAJOR, type);
+                descriptor.permissionDeclaration().digest(), approvedAt, SdkVersion.MAJOR, type,
+                descriptor.permissionDeclaration().declared(), descriptor.permissionDeclaration().permissions());
     }
 
     private static boolean executionPrivilegeIncreased(

@@ -46,6 +46,14 @@
             : PMK.t('install.trust.signature.unsigned', '未签名');
         var fingerprint = r.publisherKeyFingerprint
             || PMK.t('install.trust.fingerprint.unavailable', '不适用');
+        var permissionValues = Array.isArray(r.declaredPermissions) ? r.declaredPermissions : [];
+        var permissions = r.permissionsDeclared !== true
+            ? PMK.t('install.trust.permissions.undeclared', '未声明权限，按完全访问处理')
+            : permissionValues.length
+                ? PMK.t('install.trust.permissions.declared', '声明权限：{values}', {
+                    values: permissionValues.join(', ')
+                })
+                : PMK.t('install.trust.permissions.none', '已声明不需要额外权限');
         var message = PMK.t('install.trust.risk',
             '此插件将在 PixivDownloader 进程中运行，拥有与 PixivDownloader 相同的本机权限。它可以访问当前用户可访问的文件和网络、运行后台任务、注册本地接口，并可能在 PixivDownloader 页面中执行脚本。安装插件相当于运行一个本地应用。请只安装你信任的来源。');
         if (r.signed !== true) {
@@ -63,6 +71,7 @@
                 sha256: r.artifactSha256 || '',
                 executionMode: executionLabel
             });
+        message += '\n' + permissions;
         return {
             title: PMK.t('install.trust.title', '确认插件执行信任'),
             message: message,

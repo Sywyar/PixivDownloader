@@ -211,6 +211,8 @@
             var em = executionItemMeta(vm.executionMode);
             parts.push('<span class="pm-meta-item pm-meta-item--' + em.tone + '"><i class="fa-solid '
                 + em.icon + '"></i>' + E(vm.executionLabel) + '</span>');
+            parts.push('<span class="pm-meta-item pm-meta-item--' + (vm.permissionDeclared ? 'info' : 'warn')
+                + '"><i class="fa-solid fa-list-check"></i>' + E(vm.permissionLabel) + '</span>');
         }
         if (vm.showLifecycleTag) {
             var lm = lifecycleItemMeta(vm.lifecyclePolicy);
