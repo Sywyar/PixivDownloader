@@ -69,7 +69,6 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
         try {
             requirePlainRegularFile(original, "plugin artifact");
             UserPrincipal owner = PluginRuntimeFileSecurity.secureLoadingRoots(layout);
-            PluginRuntimeFileSecurity.secureWritableFile(original, owner);
             Path runtimeRoot = requireRuntimeRoot(layout, owner);
             workspace = PluginRuntimeFileSecurity.createPrivateDirectory(
                     runtimeRoot, WORKSPACE_PREFIX + UUID.randomUUID(), owner);

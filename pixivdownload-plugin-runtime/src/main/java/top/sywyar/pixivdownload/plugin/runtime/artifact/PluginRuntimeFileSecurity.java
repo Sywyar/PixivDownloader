@@ -60,7 +60,6 @@ final class PluginRuntimeFileSecurity {
         Path pluginsRoot = layout.pluginsRoot().toAbsolutePath().normalize();
         requirePlainDirectory(pluginsRoot, "plugins root");
         UserPrincipal owner = proveCurrentOwner(pluginsRoot);
-        secureWritableDirectory(pluginsRoot, owner);
         Path provenance = secureManagedDirectory(
                 pluginsRoot, layout.provenanceDirectory(), owner, "plugin provenance directory");
         secureWritableTree(provenance, owner);

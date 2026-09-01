@@ -8,8 +8,14 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.attribute.AclFileAttributeView;
+import java.nio.file.attribute.PosixFileAttributeView;
+import java.nio.file.attribute.PosixFilePermission;
+import java.util.EnumSet;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -65,6 +71,24 @@ class PluginArtifactSnapshotTest {
 
         snapshot.close();
         assertThat(workspace).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("冻结插件时不改写 plugins 根目录或原始 artifact 权限")
+    void snapshotLeavesInstalledPathPermissionsUntouched() throws IOException {
+        Path plugins = Files.createDirectory(tempDir.resolve("plugins-permissions"));
+        Path artifact = plugins.resolve("probe.jar");
+        Files.writeString(artifact, "probe", StandardCharsets.UTF_8);
+        useObservablePosixPermissions(plugins, artifact);
+        Object pluginsPermissions = permissionsOf(plugins);
+        Object artifactPermissions = permissionsOf(artifact);
+
+        PluginArtifactSnapshot snapshot = PluginArtifactSnapshot.create(
+                new PluginRuntimeLayout(plugins), artifact, 1024L);
+
+        assertThat(permissionsOf(plugins)).isEqualTo(pluginsPermissions);
+        assertThat(permissionsOf(artifact)).isEqualTo(artifactPermissions);
+        snapshot.close();
     }
 
     @Test
@@ -129,5 +153,40 @@ class PluginArtifactSnapshotTest {
         Files.delete(workspace.resolve("escape.jar"));
         snapshot.close();
         assertThat(workspace).doesNotExist();
+    }
+
+    private static void useObservablePosixPermissions(Path plugins, Path artifact) throws IOException {
+        PosixFileAttributeView pluginsView = Files.getFileAttributeView(
+                plugins, PosixFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
+        PosixFileAttributeView artifactView = Files.getFileAttributeView(
+                artifact, PosixFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
+        if (pluginsView == null || artifactView == null) {
+            return;
+        }
+        Files.setPosixFilePermissions(plugins, EnumSet.of(
+                PosixFilePermission.OWNER_READ,
+                PosixFilePermission.OWNER_WRITE,
+                PosixFilePermission.OWNER_EXECUTE,
+                PosixFilePermission.GROUP_READ,
+                PosixFilePermission.GROUP_EXECUTE));
+        Files.setPosixFilePermissions(artifact, EnumSet.of(
+                PosixFilePermission.OWNER_READ,
+                PosixFilePermission.OWNER_WRITE,
+                PosixFilePermission.GROUP_READ));
+    }
+
+    private static Object permissionsOf(Path path) throws IOException {
+        PosixFileAttributeView posix = Files.getFileAttributeView(
+                path, PosixFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
+        if (posix != null) {
+            return Set.copyOf(posix.readAttributes().permissions());
+        }
+        AclFileAttributeView acl = Files.getFileAttributeView(
+                path, AclFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
+        if (acl != null) {
+            return List.copyOf(acl.getAcl());
+        }
+        Assumptions.abort("当前文件系统不能观测 POSIX 权限或 ACL");
+        return null;
     }
 }
