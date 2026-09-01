@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeLayout;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
@@ -118,7 +119,8 @@ public final class PluginBootstrapSession implements AutoCloseable {
                                    RuntimeManagerFactory runtimeManagerFactory,
                                    RecoveryOperation recoveryOperation,
                                    BooleanSupplier developmentModeEnabled) {
-        this.pluginsRoot = Objects.requireNonNull(pluginsRoot, "pluginsRoot").toAbsolutePath().normalize();
+        this.pluginsRoot = PluginRuntimeLayout.resolveExistingPluginsRoot(
+                Objects.requireNonNull(pluginsRoot, "pluginsRoot"));
         this.ownership = Objects.requireNonNull(ownership, "ownership");
         this.enabledSnapshot = Objects.requireNonNull(enabledSnapshot, "enabledSnapshot");
         Function<PluginPackageOrigin, PluginSupplyChainVerifier> effectiveResolver =

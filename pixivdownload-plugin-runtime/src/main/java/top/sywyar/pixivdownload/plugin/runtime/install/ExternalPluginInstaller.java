@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.plugin.runtime.install;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactScanner;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeLayout;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
@@ -223,11 +224,12 @@ public class ExternalPluginInstaller implements AutoCloseable {
         if (pluginsDir == null) {
             throw new IllegalArgumentException("pluginsDir must not be null");
         }
-        Path normalizedPluginsDir = pluginsDir.toAbsolutePath().normalize();
+        Path normalizedPluginsDir = PluginRuntimeLayout.resolveExistingPluginsRoot(pluginsDir);
         if (!isolatedWithoutDirectoryLock) {
             PluginDirectorySessionLock suppliedLock = Objects.requireNonNull(
                     directorySessionLock, "directorySessionLock");
-            Path lockedRoot = suppliedLock.lockPath().toAbsolutePath().normalize().getParent();
+            Path lockedRoot = PluginRuntimeLayout.resolveExistingPluginsRoot(
+                    suppliedLock.lockPath().toAbsolutePath().normalize().getParent());
             if (!normalizedPluginsDir.equals(lockedRoot)) {
                 throw new IllegalArgumentException("plugin directory lock protects a different root: "
                         + lockedRoot);

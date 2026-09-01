@@ -91,6 +91,11 @@ JVM 前设置 `-Dpixivdownload.plugin-worker.require-os-sandbox=true`；当前�
 `max-entry-uncompressed-bytes`、`max-descriptor-bytes`、`max-compression-ratio`、
 `max-entry-name-length` 和 `max-entry-depth`。非法值会拒绝启动插件运行时，而不会静默退回默认值。
 
+Portable 目录可以把 `plugins/` 本身设为符号链接或 Windows junction；运行时先解析并固定真实目录，
+根内的插件候选链接仍逐个拒绝。宿主管理的 `plugins/runtime/` 与 `plugins/provenance/` 会在文件系统
+支持时尽力收紧 POSIX 权限或 Windows ACL；FAT32、exFAT、SMB 等不提供这些能力时记录诊断并继续使用
+普通文件形态、`NOFOLLOW`、冻结快照和哈希校验，不会关闭整个插件系统。
+
 GUI 自动安装 FFmpeg 时，会从项目维护的 `ffmpeg-stable` Release 下载由 FFmpeg 官方最新稳定源码构建的
 Windows x64、Linux x64/arm64 或 macOS x64/arm64 资产；其它平台仍可手动安装系统 FFmpeg。
 

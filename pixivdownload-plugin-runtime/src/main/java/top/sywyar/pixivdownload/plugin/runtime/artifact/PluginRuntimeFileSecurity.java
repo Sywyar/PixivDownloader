@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.plugin.runtime.artifact;
 
 import java.io.IOException;
-import java.nio.channels.FileChannel;
+import java.nio.channels.SeekableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
@@ -21,10 +21,13 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-/** 证明运行时托管的插件文件属于当前进程身份，并把访问权限收紧到该身份。 */
+/** 尽力证明运行时托管文件的 owner 并收紧权限；不支持 ACL/POSIX 的文件系统仍依赖形态、NOFOLLOW 与哈希边界。 */
 final class PluginRuntimeFileSecurity {
 
+    private static final Logger log = LoggerFactory.getLogger(PluginRuntimeFileSecurity.class);
     private static final int MAX_MANAGED_ENTRIES = 25_000;
     private static final Set<PosixFilePermission> WRITABLE_DIRECTORY_PERMISSIONS = EnumSet.of(
             PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE,
@@ -59,10 +62,11 @@ final class PluginRuntimeFileSecurity {
         Objects.requireNonNull(layout, "layout");
         Path pluginsRoot = layout.pluginsRoot().toAbsolutePath().normalize();
         requirePlainDirectory(pluginsRoot, "plugins root");
+        warnIfPermissionViewsUnavailable(pluginsRoot);
         UserPrincipal owner = proveCurrentOwner(pluginsRoot);
         Path provenance = secureManagedDirectory(
                 pluginsRoot, layout.provenanceDirectory(), owner, "plugin provenance directory");
-        secureWritableTree(provenance, owner);
+        secureWritableEntriesBestEffort(provenance, owner);
         secureManagedDirectory(pluginsRoot, layout.runtimeDirectory(), owner, "plugin runtime directory");
         return owner;
     }
@@ -114,22 +118,25 @@ final class PluginRuntimeFileSecurity {
             requirePlainRegularFile(path, "plugin runtime file");
         }
         requireOwner(path, owner, "plugin runtime entry");
-        PosixFileAttributeView posix = Files.getFileAttributeView(
-                path, PosixFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
-        if (posix != null) {
-            Set<PosixFilePermission> expected = directory
-                    ? READ_ONLY_DIRECTORY_PERMISSIONS : READ_ONLY_FILE_PERMISSIONS;
-            if (!posix.readAttributes().permissions().equals(expected)) {
-                throw new IOException("plugin runtime entry is not read-only: " + path);
+        try {
+            PosixFileAttributeView posix = Files.getFileAttributeView(
+                    path, PosixFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
+            if (posix != null) {
+                Set<PosixFilePermission> expected = directory
+                        ? READ_ONLY_DIRECTORY_PERMISSIONS : READ_ONLY_FILE_PERMISSIONS;
+                if (!posix.readAttributes().permissions().equals(expected)) {
+                    log.warn("Plugin runtime entry permissions could not be sealed read-only: {}", path);
+                }
+                return;
             }
-            return;
+            AclFileAttributeView acl = Files.getFileAttributeView(
+                    path, AclFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
+            if (acl != null && owner != null) {
+                verifyAcl(path, owner, acl.getAcl(), false);
+            }
+        } catch (IOException | RuntimeException failure) {
+            warnHardeningFailure("verify read-only permissions", path, failure);
         }
-        AclFileAttributeView acl = Files.getFileAttributeView(
-                path, AclFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
-        if (acl == null) {
-            throw new IOException("filesystem cannot prove plugin runtime permissions: " + path);
-        }
-        verifyAcl(path, owner, acl.getAcl(), false);
     }
 
     static void makeTreeWritable(Path root, UserPrincipal owner) throws IOException {
@@ -157,19 +164,27 @@ final class PluginRuntimeFileSecurity {
     }
 
     static UserPrincipal owner(Path path) throws IOException {
-        return Files.getOwner(path, LinkOption.NOFOLLOW_LINKS);
+        try {
+            return Files.getOwner(path, LinkOption.NOFOLLOW_LINKS);
+        } catch (IOException | RuntimeException failure) {
+            warnHardeningFailure("read filesystem owner", path, failure);
+            return null;
+        }
     }
 
     private static UserPrincipal proveCurrentOwner(Path pluginsRoot) throws IOException {
         UserPrincipal rootOwner = owner(pluginsRoot);
+        if (rootOwner == null) {
+            return null;
+        }
         Path probe = pluginsRoot.resolve(".runtime-owner-probe-" + UUID.randomUUID());
         Set<OpenOption> options = Set.of(
                 StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
-        try (FileChannel ignored = FileChannel.open(probe, options)) {
+        try (SeekableByteChannel ignored = Files.newByteChannel(probe, options)) {
             UserPrincipal processOwner = owner(probe);
-            if (!samePrincipal(rootOwner, processOwner)) {
-                throw new IOException("plugins root is not owned by the current application identity: "
-                        + pluginsRoot);
+            if (rootOwner != null && processOwner != null && !samePrincipal(rootOwner, processOwner)) {
+                log.warn("Plugins root owner differs from the current application identity; "
+                        + "continuing with portable best-effort hardening: {}", pluginsRoot);
             }
             return processOwner;
         } finally {
@@ -193,25 +208,41 @@ final class PluginRuntimeFileSecurity {
         return directory;
     }
 
-    private static void secureWritableTree(Path root, UserPrincipal owner) throws IOException {
-        try (var walk = Files.walk(root)) {
-            List<Path> entries = walk.toList();
-            if (entries.size() > MAX_MANAGED_ENTRIES) {
-                throw new IOException("plugin provenance directory exceeds the supported entry count");
-            }
-            for (Path entry : entries) {
-                BasicFileAttributes attributes = Files.readAttributes(
-                        entry, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+    private static void secureWritableEntriesBestEffort(Path root, UserPrincipal owner) {
+        try (var children = Files.list(root)) {
+            int entryCount = 0;
+            var iterator = children.iterator();
+            while (iterator.hasNext()) {
+                if (++entryCount > MAX_MANAGED_ENTRIES) {
+                    log.warn("Plugin provenance directory exceeds the permission-hardening entry limit: {}", root);
+                    return;
+                }
+                Path entry = iterator.next();
+                BasicFileAttributes attributes;
+                try {
+                    attributes = Files.readAttributes(
+                            entry, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+                } catch (IOException | RuntimeException failure) {
+                    warnHardeningFailure("inspect managed provenance entry", entry, failure);
+                    continue;
+                }
                 if (attributes.isSymbolicLink() || attributes.isOther()
                         || !attributes.isDirectory() && !attributes.isRegularFile()) {
-                    throw new IOException("plugin provenance contains an unsafe entry: " + entry);
+                    log.warn("Skipping permission hardening for unsafe plugin provenance entry: {}", entry);
+                    continue;
                 }
-                if (attributes.isDirectory()) {
-                    secureWritableDirectory(entry, owner);
-                } else {
-                    secureWritableFile(entry, owner);
+                try {
+                    if (attributes.isDirectory()) {
+                        secureWritableDirectory(entry, owner);
+                    } else {
+                        secureWritableFile(entry, owner);
+                    }
+                } catch (IOException | RuntimeException failure) {
+                    warnHardeningFailure("harden managed provenance entry", entry, failure);
                 }
             }
+        } catch (IOException | RuntimeException failure) {
+            warnHardeningFailure("enumerate managed provenance entries", root, failure);
         }
     }
 
@@ -220,27 +251,31 @@ final class PluginRuntimeFileSecurity {
                                          Set<PosixFilePermission> posixPermissions,
                                          Set<AclEntryPermission> aclPermissions,
                                          boolean writable) throws IOException {
-        PosixFileAttributeView posix = Files.getFileAttributeView(
-                path, PosixFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
-        if (posix != null) {
-            Files.setPosixFilePermissions(path, posixPermissions);
-            if (!posix.readAttributes().permissions().equals(posixPermissions)) {
-                throw new IOException("failed to prove plugin runtime POSIX permissions: " + path);
+        try {
+            PosixFileAttributeView posix = Files.getFileAttributeView(
+                    path, PosixFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
+            if (posix != null) {
+                Files.setPosixFilePermissions(path, posixPermissions);
+                if (!posix.readAttributes().permissions().equals(posixPermissions)) {
+                    throw new IOException("failed to prove plugin runtime POSIX permissions: " + path);
+                }
+                return;
             }
-            return;
+            AclFileAttributeView acl = Files.getFileAttributeView(
+                    path, AclFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
+            if (acl == null || owner == null) {
+                return;
+            }
+            AclEntry ownerEntry = AclEntry.newBuilder()
+                    .setType(AclEntryType.ALLOW)
+                    .setPrincipal(owner)
+                    .setPermissions(aclPermissions)
+                    .build();
+            acl.setAcl(List.of(ownerEntry));
+            verifyAcl(path, owner, acl.getAcl(), writable);
+        } catch (IOException | RuntimeException failure) {
+            warnHardeningFailure("apply filesystem permissions", path, failure);
         }
-        AclFileAttributeView acl = Files.getFileAttributeView(
-                path, AclFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
-        if (acl == null) {
-            throw new IOException("filesystem cannot prove plugin runtime permissions: " + path);
-        }
-        AclEntry ownerEntry = AclEntry.newBuilder()
-                .setType(AclEntryType.ALLOW)
-                .setPrincipal(owner)
-                .setPermissions(aclPermissions)
-                .build();
-        acl.setAcl(List.of(ownerEntry));
-        verifyAcl(path, owner, acl.getAcl(), writable);
     }
 
     private static void verifyAcl(Path path, UserPrincipal owner,
@@ -270,13 +305,35 @@ final class PluginRuntimeFileSecurity {
 
     private static void requireOwner(Path path, UserPrincipal expected, String role) throws IOException {
         UserPrincipal actual = owner(path);
-        if (!samePrincipal(expected, actual)) {
-            throw new IOException(role + " is owned by another identity: " + path);
+        if (expected != null && actual != null && !samePrincipal(expected, actual)) {
+            log.warn("{} is owned by another identity; continuing with portable best-effort hardening: {}",
+                    role, path);
         }
     }
 
     private static boolean samePrincipal(UserPrincipal left, UserPrincipal right) {
-        return left.equals(right) || left.getName().equalsIgnoreCase(right.getName());
+        return left != null && right != null
+                && (left.equals(right) || left.getName().equalsIgnoreCase(right.getName()));
+    }
+
+    private static void warnIfPermissionViewsUnavailable(Path pluginsRoot) {
+        try {
+            PosixFileAttributeView posix = Files.getFileAttributeView(
+                    pluginsRoot, PosixFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
+            AclFileAttributeView acl = Files.getFileAttributeView(
+                    pluginsRoot, AclFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
+            if (posix == null && acl == null) {
+                log.warn("Filesystem exposes neither POSIX permissions nor Windows ACLs; "
+                        + "plugin runtime permission hardening is unavailable for {}", pluginsRoot);
+            }
+        } catch (RuntimeException failure) {
+            warnHardeningFailure("inspect filesystem permission capabilities", pluginsRoot, failure);
+        }
+    }
+
+    private static void warnHardeningFailure(String operation, Path path, Throwable failure) {
+        log.warn("Could not {} for {}; continuing with portable best-effort hardening: {}",
+                operation, path, failure.toString());
     }
 
     private static void requirePlainDirectory(Path path, String role) throws IOException {

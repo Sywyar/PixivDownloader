@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.runtime.artifact;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
 
@@ -14,7 +16,20 @@ public final class PluginRuntimeLayout {
     private final Path pluginsRoot;
 
     public PluginRuntimeLayout(Path pluginsRoot) {
-        this.pluginsRoot = Objects.requireNonNull(pluginsRoot, "pluginsRoot");
+        this.pluginsRoot = resolveExistingPluginsRoot(pluginsRoot);
+    }
+
+    /** 已存在目录解析为稳定真实路径，从而安全支持 portable 根目录本身是 symlink / junction。 */
+    public static Path resolveExistingPluginsRoot(Path pluginsRoot) {
+        Path normalized = Objects.requireNonNull(pluginsRoot, "pluginsRoot").toAbsolutePath().normalize();
+        if (!Files.isDirectory(normalized)) {
+            return normalized;
+        }
+        try {
+            return normalized.toRealPath();
+        } catch (IOException | SecurityException failure) {
+            return normalized;
+        }
     }
 
     public Path pluginsRoot() {

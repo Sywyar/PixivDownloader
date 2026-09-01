@@ -192,8 +192,8 @@ public class PluginRuntimeManager {
                 || maximumStartupProvenanceBytes <= 0L) {
             throw new IllegalArgumentException("startup verification budgets must be positive");
         }
-        this.pluginsRoot = pluginsRoot;
         this.layout = new PluginRuntimeLayout(pluginsRoot);
+        this.pluginsRoot = layout.pluginsRoot();
         this.workspaceOwner = new PluginArtifactWorkspaceOwner(layout);
         this.materializer = new PluginArtifactMaterializer(layout);
         this.verifierResolver = Objects.requireNonNull(verifierResolver, "verifierResolver");
@@ -262,13 +262,19 @@ public class PluginRuntimeManager {
                     List.of(), List.of(), List.of(new PluginLoadFailure(directory.toString(), describe(e)))));
         }
         List<Path> candidates = scan.candidates();
+        List<PluginLoadFailure> failures = new ArrayList<>(scan.rejectedCandidates().size());
+        for (PluginArtifactScanner.RejectedCandidate rejected : scan.rejectedCandidates()) {
+            PluginLoadFailure failure = new PluginLoadFailure(
+                    rejected.path().getFileName().toString(), rejected.reason());
+            failures.add(failure);
+            log.error("Rejected plugin package candidate {}: {}", failure.source(), failure.reason());
+        }
         if (candidates.isEmpty()) {
             return cache(new PluginRuntimeStatus(directory, PluginDirectoryState.EMPTY,
-                    List.of(), List.of(), List.of()));
+                    List.of(), List.of(), failures));
         }
 
         List<PreparedPluginArtifact> preparedCandidates = new ArrayList<>(candidates.size());
-        List<PluginLoadFailure> failures = new ArrayList<>();
         List<PluginRuntimeVerificationSnapshot> verifications = new ArrayList<>(candidates.size());
         PluginStartupResourceBudget startupBudget = new PluginStartupResourceBudget(
                 maximumStartupVerificationEntries,

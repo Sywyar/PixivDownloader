@@ -17,6 +17,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeLayout;
 
 /**
  * 进程级插件安装根租约。从启动恢复开始持有到 bootstrap session 关闭，防止另一实例在本进程的
@@ -44,7 +45,8 @@ public final class PluginDirectorySessionLock implements AutoCloseable {
     }
 
     PluginDirectorySessionLock(Path pluginsRoot, Runnable acquiredLocksProbe) {
-        this.pluginsRoot = Objects.requireNonNull(pluginsRoot, "pluginsRoot").toAbsolutePath().normalize();
+        this.pluginsRoot = PluginRuntimeLayout.resolveExistingPluginsRoot(
+                Objects.requireNonNull(pluginsRoot, "pluginsRoot"));
         this.lockPath = this.pluginsRoot.resolve(LOCK_FILE_NAME);
         this.acquiredLocksProbe = Objects.requireNonNull(acquiredLocksProbe, "acquiredLocksProbe");
     }

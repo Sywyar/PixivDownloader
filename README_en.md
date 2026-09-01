@@ -101,6 +101,13 @@ startup. The names are `max-archive-bytes`, `max-entries`, `max-total-uncompress
 `max-entry-uncompressed-bytes`, `max-descriptor-bytes`, `max-compression-ratio`, `max-entry-name-length`, and
 `max-entry-depth`. Invalid values fail plugin-runtime initialization instead of silently falling back.
 
+A portable installation may make the `plugins/` root itself a symbolic link or Windows junction; the runtime resolves
+and pins the real directory first, while linked artifact candidates inside that root are still rejected individually.
+The host tightens POSIX permissions or Windows ACLs on managed `plugins/runtime/` and `plugins/provenance/` paths when
+the filesystem supports them. FAT32, exFAT, SMB, and similar filesystems that expose neither capability produce a
+diagnostic and continue under the regular-file, `NOFOLLOW`, frozen-snapshot, and hash checks instead of disabling all
+plugins.
+
 GUI-managed FFmpeg installation downloads a project-maintained `ffmpeg-stable` Release built from the latest official
 stable FFmpeg source for Windows x64, Linux x64/arm64, or macOS x64/arm64. Other platforms can still use a manually
 installed system FFmpeg.
