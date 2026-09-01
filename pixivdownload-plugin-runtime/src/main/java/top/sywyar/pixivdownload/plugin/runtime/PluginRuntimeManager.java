@@ -38,11 +38,14 @@ import top.sywyar.pixivdownload.plugin.runtime.admission.PluginArtifactAdmission
 import top.sywyar.pixivdownload.plugin.runtime.admission.PluginArtifactAdmissionResult;
 
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -52,7 +55,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PixivPluginDiscoveryBridge;
@@ -84,6 +91,7 @@ public class PluginRuntimeManager {
     static final int MAX_STARTUP_VERIFICATION_ENTRIES = 32_000;
     static final long MAX_STARTUP_VERIFICATION_UNCOMPRESSED_BYTES = 384L * 1024L * 1024L;
     static final long MAX_STARTUP_PROVENANCE_BYTES = 64L * 1024L * 1024L;
+    private static final int MAX_RUNTIME_FAILURES = 64;
 
     private final Path pluginsRoot;
     private final PluginRuntimeLayout layout;
@@ -100,6 +108,10 @@ public class PluginRuntimeManager {
     private final long maximumStartupProvenanceBytes;
     private final PluginRuntimePackageIndex packageIndex = new PluginRuntimePackageIndex();
     private final Map<String, IsolatedPluginSession> isolatedSessions = new LinkedHashMap<>();
+    private final Map<String, Integer> isolatedCrashCounts = new LinkedHashMap<>();
+    private final Map<String, Long> isolatedRecoveryTokens = new LinkedHashMap<>();
+    private final Map<String, WorkerEvent> currentWorkerEvents = new LinkedHashMap<>();
+    private final CopyOnWriteArrayList<Consumer<WorkerEvent>> workerListeners = new CopyOnWriteArrayList<>();
 
     private volatile PluginManager pluginManager;
     private volatile PluginRuntimeStatus status;
@@ -654,20 +666,28 @@ public class PluginRuntimeManager {
     public synchronized LoadedPluginPackage startPlugin(String packageId) {
         Entry entry = requireEntry(packageId);
         if (entry.phase() == PluginRuntimePackagePhase.STARTED) {
-            try {
-                return snapshot(entry, true);
-            } catch (Throwable failure) {
-                throw operationFailure("failed to inspect started plugin package " + packageId, failure);
+            if (entry.descriptor().executionMode() == PluginExecutionMode.DECLARATIVE_PROCESS
+                    && !requireIsolatedSession(packageId).isWorkerAlive()) {
+                entry.updatePhase(PluginRuntimePackagePhase.CRASHED);
+                refreshStatus();
+            } else {
+                try {
+                    return snapshot(entry, true);
+                } catch (Throwable failure) {
+                    throw operationFailure("failed to inspect started plugin package " + packageId, failure);
+                }
             }
         }
         requireCurrentExecutionAdmission(entry);
         PluginRuntimePackagePhase previousPhase = entry.phase();
         if (entry.descriptor().executionMode() == PluginExecutionMode.DECLARATIVE_PROCESS) {
+            cancelIsolatedRecovery(packageId);
             try {
                 IsolatedPluginSession session = requireIsolatedSession(packageId);
                 entry.updateContributionSnapshot(session.initialize());
                 session.startPackage();
                 entry.updatePhase(PluginRuntimePackagePhase.STARTED);
+                currentWorkerEvents.remove(packageId);
                 refreshStatus();
                 LoadedPluginPackage started = snapshot(entry, true);
                 entry.updateDescriptor(validateReleaseShape(started));
@@ -711,7 +731,8 @@ public class PluginRuntimeManager {
     /** 停止 PF4J 插件入口但保留 wrapper/classloader。 */
     public synchronized LoadedPluginPackage stopPlugin(String packageId) {
         Entry entry = requireEntry(packageId);
-        if (entry.phase() != PluginRuntimePackagePhase.STARTED) {
+        if (entry.phase() != PluginRuntimePackagePhase.STARTED
+                && entry.phase() != PluginRuntimePackagePhase.CRASHED) {
             try {
                 return snapshot(entry, false);
             } catch (Throwable failure) {
@@ -719,6 +740,7 @@ public class PluginRuntimeManager {
             }
         }
         if (entry.descriptor().executionMode() == PluginExecutionMode.DECLARATIVE_PROCESS) {
+            cancelIsolatedRecovery(packageId);
             boolean terminated = requireIsolatedSession(packageId).stopAndTerminate();
             entry.updatePhase(PluginRuntimePackagePhase.STOPPED);
             refreshStatus();
@@ -758,7 +780,8 @@ public class PluginRuntimeManager {
             throw new PluginRuntimeOperationException("plugin package " + packageId
                     + " is required by loaded package(s): " + String.join(", ", dependents));
         }
-        if (entry.phase() == PluginRuntimePackagePhase.STARTED) {
+        if (entry.phase() == PluginRuntimePackagePhase.STARTED
+                || entry.phase() == PluginRuntimePackagePhase.CRASHED) {
             stopPlugin(packageId);
         }
         if (entry.descriptor().executionMode() == PluginExecutionMode.DECLARATIVE_PROCESS) {
@@ -768,6 +791,9 @@ public class PluginRuntimeManager {
                         "isolated plugin worker release is unconfirmed: " + packageId);
             }
             isolatedSessions.remove(packageId);
+            isolatedCrashCounts.remove(packageId);
+            cancelIsolatedRecovery(packageId);
+            isolatedRecoveryTokens.remove(packageId);
             Entry removed = packageIndex.remove(packageId);
             releaseProductionSnapshot(removed);
             refreshStatus();
@@ -809,6 +835,23 @@ public class PluginRuntimeManager {
     /** 当前已加载包的纯值阶段快照。 */
     public synchronized Map<String, PluginRuntimePackagePhase> packagePhases() {
         return packageIndex.packagePhases();
+    }
+
+    /** 订阅隔离 worker 的崩溃 / 恢复事实；注册后立即回放当前仍处于 CRASHED 的 generation。 */
+    public void addWorkerListener(Consumer<WorkerEvent> listener) {
+        Objects.requireNonNull(listener, "worker listener");
+        workerListeners.addIfAbsent(listener);
+        List<WorkerEvent> replay;
+        synchronized (this) {
+            replay = List.copyOf(currentWorkerEvents.values());
+        }
+        replay.forEach(event -> notifyWorkerListener(listener, event));
+    }
+
+    public void removeWorkerListener(Consumer<WorkerEvent> listener) {
+        if (listener != null) {
+            workerListeners.remove(listener);
+        }
     }
 
     private Map<String, PluginRuntimePackagePhase> phaseSnapshot() {
@@ -941,6 +984,7 @@ public class PluginRuntimeManager {
                 && isolatedSessions.isEmpty() && !workspaceOwner.hasUnconfirmedSnapshots()) {
             // 已关闭（或从未扫描）：清空残余引用即返回，幂等。
             packageIndex.clearGenerations();
+            clearIsolatedWorkerState();
             status = null;
             return;
         }
@@ -949,6 +993,7 @@ public class PluginRuntimeManager {
         developmentCacheSession = null;
         status = null;
         boolean released = closeIsolatedSessions("shutdown");
+        clearIsolatedWorkerState();
         released &= previous == null || bestEffortStopAndUnload(previous, "shutdown");
         workspaceOwner.closeAll(productionSnapshots(previousEntries), released, "shutdown");
         closeDevelopmentCacheSession(previousDevelopmentSession, released, "shutdown");
@@ -1249,15 +1294,21 @@ public class PluginRuntimeManager {
         }
         try {
             productionSnapshot.verifyLoadPath(loadPath);
-            IsolatedPluginSession session = new IsolatedPluginSession(
-                    descriptor, loadPath, verifiedSha256, productionSnapshot);
             Entry entry = packageIndex.add(descriptor.id(), artifactPath, loadPath, descriptor.version(),
                     PluginRuntimePackagePhase.LOADED, descriptor, productionSnapshot);
+            IsolatedPluginSession session = new IsolatedPluginSession(
+                    descriptor, loadPath, verifiedSha256, productionSnapshot,
+                    exit -> handleIsolatedWorkerExit(descriptor.id(), entry.generation(), exit));
             isolatedSessions.put(descriptor.id(), session);
+            isolatedCrashCounts.put(descriptor.id(), 0);
+            cancelIsolatedRecovery(descriptor.id());
             refreshStatus();
             return snapshot(entry, false);
         } catch (Throwable failure) {
             isolatedSessions.remove(descriptor.id());
+            isolatedCrashCounts.remove(descriptor.id());
+            isolatedRecoveryTokens.remove(descriptor.id());
+            currentWorkerEvents.remove(descriptor.id());
             packageIndex.remove(descriptor.id());
             workspaceOwner.discard(productionSnapshot);
             throw operationFailure("failed to admit isolated plugin package " + descriptor.id(), failure);
@@ -1315,6 +1366,151 @@ public class PluginRuntimeManager {
         status = current.refreshed(phaseSnapshot());
     }
 
+    private void handleIsolatedWorkerExit(
+            String packageId, long generation, IsolatedPluginSession.WorkerExit exit) {
+        WorkerEvent event;
+        long recoveryToken;
+        int attempts;
+        synchronized (this) {
+            Entry entry = packageIndex.get(packageId);
+            if (entry == null || entry.generation() != generation
+                    || entry.phase() != PluginRuntimePackagePhase.STARTED
+                    || isolatedSessions.get(packageId) == null) {
+                return;
+            }
+            int crashCount = isolatedCrashCounts.merge(packageId, 1, Math::addExact);
+            entry.updatePhase(PluginRuntimePackagePhase.CRASHED);
+            event = new WorkerEvent(
+                    WorkerEventType.CRASHED,
+                    packageId,
+                    generation,
+                    entry.version(),
+                    entry.artifactPath(),
+                    crashCount,
+                    0,
+                    exit.reason(),
+                    exit.logPath());
+            currentWorkerEvents.put(packageId, event);
+            refreshStatus();
+            status = status.withFailure(new PluginLoadFailure(
+                    packageId,
+                    exit.reason(),
+                    top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus.CRASHED,
+                    "worker-exit",
+                    generation,
+                    entry.version(),
+                    crashCount,
+                    exit.logPath() == null ? null : exit.logPath().toString()), MAX_RUNTIME_FAILURES);
+            recoveryToken = isolatedRecoveryTokens.merge(packageId, 1L, Math::addExact);
+            attempts = isolatedSessions.get(packageId).restartAttempts();
+        }
+        log.error("Isolated plugin worker crashed: pluginId={}, generation={}, crashCount={}, exitCode={}",
+                packageId, generation, event.crashCount(), exit.exitCode());
+        notifyWorkerListeners(event);
+        if (attempts > 0) {
+            scheduleIsolatedRecovery(packageId, generation, recoveryToken, 1);
+        }
+    }
+
+    private void scheduleIsolatedRecovery(
+            String packageId, long generation, long recoveryToken, int attempt) {
+        IsolatedPluginSession session;
+        synchronized (this) {
+            session = isolatedSessions.get(packageId);
+            if (session == null || !Objects.equals(isolatedRecoveryTokens.get(packageId), recoveryToken)) {
+                return;
+            }
+        }
+        Duration delay = session.restartDelay(attempt);
+        CompletableFuture.delayedExecutor(delay.toMillis(), TimeUnit.MILLISECONDS)
+                .execute(() -> recoverIsolatedWorker(packageId, generation, recoveryToken, attempt));
+    }
+
+    private void recoverIsolatedWorker(
+            String packageId, long generation, long recoveryToken, int attempt) {
+        WorkerEvent recovered = null;
+        boolean retry = false;
+        synchronized (this) {
+            Entry entry = packageIndex.get(packageId);
+            IsolatedPluginSession session = isolatedSessions.get(packageId);
+            if (entry == null || session == null || entry.generation() != generation
+                    || entry.phase() != PluginRuntimePackagePhase.CRASHED
+                    || !Objects.equals(isolatedRecoveryTokens.get(packageId), recoveryToken)) {
+                return;
+            }
+            try {
+                requireCurrentExecutionAdmission(entry);
+                entry.updateContributionSnapshot(session.initialize());
+                session.startPackage();
+                entry.updatePhase(PluginRuntimePackagePhase.STARTED);
+                currentWorkerEvents.remove(packageId);
+                isolatedRecoveryTokens.put(packageId, Math.addExact(recoveryToken, 1L));
+                refreshStatus();
+                recovered = new WorkerEvent(
+                        WorkerEventType.RECOVERED,
+                        packageId,
+                        generation,
+                        entry.version(),
+                        entry.artifactPath(),
+                        isolatedCrashCounts.getOrDefault(packageId, 0),
+                        attempt,
+                        "isolated plugin worker restarted",
+                        null);
+            } catch (Throwable failure) {
+                rethrowFatal(failure);
+                session.stopAndTerminate();
+                String diagnostic = stackTrace(failure);
+                refreshStatus();
+                status = status.withFailure(new PluginLoadFailure(
+                        packageId,
+                        diagnostic,
+                        top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus.CRASHED,
+                        "worker-restart",
+                        generation,
+                        entry.version(),
+                        isolatedCrashCounts.getOrDefault(packageId, 1),
+                        null), MAX_RUNTIME_FAILURES);
+                retry = attempt < session.restartAttempts();
+                log.error("Failed to restart isolated plugin worker: pluginId={}, generation={}, attempt={}",
+                        packageId, generation, attempt, failure);
+            }
+        }
+        if (recovered != null) {
+            notifyWorkerListeners(recovered);
+        } else if (retry) {
+            scheduleIsolatedRecovery(packageId, generation, recoveryToken, attempt + 1);
+        }
+    }
+
+    private void cancelIsolatedRecovery(String packageId) {
+        isolatedRecoveryTokens.merge(packageId, 1L, Math::addExact);
+        currentWorkerEvents.remove(packageId);
+    }
+
+    private void notifyWorkerListeners(WorkerEvent event) {
+        for (Consumer<WorkerEvent> listener : workerListeners) {
+            notifyWorkerListener(listener, event);
+        }
+    }
+
+    private static void notifyWorkerListener(Consumer<WorkerEvent> listener, WorkerEvent event) {
+        try {
+            listener.accept(event);
+        } catch (RuntimeException failure) {
+            log.warn("Plugin worker lifecycle listener failed: pluginId={}, generation={}, event={}",
+                    event.pluginId(), event.generation(), event.type(), failure);
+        }
+    }
+
+    private static String stackTrace(Throwable failure) {
+        StringWriter stack = new StringWriter();
+        failure.printStackTrace(new PrintWriter(stack));
+        String diagnostic = stack.toString();
+        return diagnostic.length() <= 30_000
+                ? diagnostic
+                : diagnostic.substring(0, 30_000) + System.lineSeparator() + "... stack trace truncated";
+    }
+
     private synchronized void resetPluginManager() {
         PluginManager previous = pluginManager;
         PluginDevelopmentArtifacts.DevelopmentCacheSession previousDevelopmentSession = developmentCacheSession;
@@ -1322,6 +1518,7 @@ public class PluginRuntimeManager {
         pluginManager = null;
         developmentCacheSession = null;
         boolean released = closeIsolatedSessions("reset");
+        clearIsolatedWorkerState();
         released &= previous == null || bestEffortStopAndUnload(previous, "reset");
         workspaceOwner.closeAll(productionSnapshots(previousEntries), released, "reset");
         closeDevelopmentCacheSession(previousDevelopmentSession, released, "reset");
@@ -1395,6 +1592,12 @@ public class PluginRuntimeManager {
             }
         }
         return released;
+    }
+
+    private void clearIsolatedWorkerState() {
+        isolatedCrashCounts.clear();
+        isolatedRecoveryTokens.clear();
+        currentWorkerEvents.clear();
     }
 
     private PluginDevelopmentArtifacts.DevelopmentCacheSession ensureDevelopmentCacheSession(Path cacheRoot) {
@@ -1632,6 +1835,37 @@ public class PluginRuntimeManager {
             PluginSupplyChainVerifier verifier) {
         PluginSupplyChainVerifier fixed = Objects.requireNonNull(verifier, "verifier");
         return origin -> fixed;
+    }
+
+    public enum WorkerEventType {
+        CRASHED,
+        RECOVERED
+    }
+
+    public record WorkerEvent(WorkerEventType type,
+                              String pluginId,
+                              long generation,
+                              String version,
+                              Path artifactPath,
+                              int crashCount,
+                              int restartAttempt,
+                              String reason,
+                              Path logPath) {
+
+        public WorkerEvent {
+            Objects.requireNonNull(type, "type");
+            Objects.requireNonNull(pluginId, "pluginId");
+            Objects.requireNonNull(version, "version");
+            Objects.requireNonNull(artifactPath, "artifactPath");
+            Objects.requireNonNull(reason, "reason");
+            artifactPath = artifactPath.toAbsolutePath().normalize();
+            if (logPath != null) {
+                logPath = logPath.toAbsolutePath().normalize();
+            }
+            if (generation <= 0L || crashCount <= 0 || restartAttempt < 0) {
+                throw new IllegalArgumentException("invalid isolated worker event counters");
+            }
+        }
     }
 
 }

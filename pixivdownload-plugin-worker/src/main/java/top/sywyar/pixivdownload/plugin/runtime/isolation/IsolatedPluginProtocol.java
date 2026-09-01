@@ -14,6 +14,8 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -34,7 +36,8 @@ final class IsolatedPluginProtocol {
     static final byte FAILURE = 1;
 
     static final int MAX_FRAME_BYTES = 1024 * 1024;
-    private static final int MAX_STRING_BYTES = 32 * 1024;
+    private static final int MAX_STRING_BYTES = 128 * 1024;
+    private static final int MAX_FAILURE_CHARACTERS = 30_000;
     private static final int MAX_ITEMS = 256;
     private static final int MAX_SET_ITEMS = 64;
 
@@ -95,10 +98,20 @@ final class IsolatedPluginProtocol {
     }
 
     static byte[] failure(Throwable failure) throws IOException {
-        String message = failure == null ? "unknown worker failure"
-                : failure.getClass().getSimpleName() + ": "
-                + (failure.getMessage() == null ? "no detail" : failure.getMessage());
-        return message(FAILURE, output -> writeString(output, message));
+        String message;
+        if (failure == null) {
+            message = "unknown worker failure";
+        } else {
+            StringWriter stack = new StringWriter();
+            failure.printStackTrace(new PrintWriter(stack));
+            message = stack.toString();
+            if (message.length() > MAX_FAILURE_CHARACTERS) {
+                message = message.substring(0, MAX_FAILURE_CHARACTERS)
+                        + System.lineSeparator() + "... worker stack trace truncated";
+            }
+        }
+        String diagnostic = message;
+        return message(FAILURE, output -> writeString(output, diagnostic));
     }
 
     static void writeString(DataOutputStream output, String value) throws IOException {

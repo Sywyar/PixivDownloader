@@ -31,6 +31,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginArtifactVerificationService;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
+import top.sywyar.pixivdownload.plugin.runtime.isolation.IsolatedPluginSession;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
@@ -52,6 +53,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.zip.CRC32;
@@ -119,6 +122,15 @@ class PluginRuntimeManagerTest {
         System.clearProperty("bootstrap.probe.marker");
         System.clearProperty(
                 top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager.REQUIRE_OS_SANDBOX_PROPERTY);
+        List.of(
+                IsolatedPluginSession.INITIALIZE_TIMEOUT_PROPERTY,
+                IsolatedPluginSession.COMMAND_TIMEOUT_PROPERTY,
+                IsolatedPluginSession.SHUTDOWN_TIMEOUT_PROPERTY,
+                IsolatedPluginSession.RESTART_ATTEMPTS_PROPERTY,
+                IsolatedPluginSession.RESTART_INITIAL_DELAY_PROPERTY,
+                IsolatedPluginSession.RESTART_MAX_DELAY_PROPERTY,
+                IsolatedPluginSession.STDERR_MAX_BYTES_PROPERTY
+        ).forEach(System::clearProperty);
     }
 
     @Test
@@ -159,6 +171,64 @@ class PluginRuntimeManagerTest {
             manager.unloadPlugin(PROBE_ID);
             assertThat(manager.generation(PROBE_ID)).isEmpty();
             assertThat(manager.isPhysicalRuntimeInitialized()).isFalse();
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("声明式 worker 崩溃后报告 CRASHED 并按有界退避恢复同一 generation")
+    void reportsAndRecoversCrashedDeclarativeWorker() throws Exception {
+        Path plugins = tempDir.resolve("plugins-isolated-recovery");
+        Path jar = plugins.resolve("bootstrap-probe-1.0.0.jar");
+        writeDeclarativeProbeJar(jar);
+        writeLocalProvenance(plugins, jar);
+        System.setProperty(IsolatedPluginSession.RESTART_ATTEMPTS_PROPERTY, "2");
+        System.setProperty(IsolatedPluginSession.RESTART_INITIAL_DELAY_PROPERTY, "250");
+        System.setProperty(IsolatedPluginSession.RESTART_MAX_DELAY_PROPERTY, "500");
+        top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager manager =
+                new top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager(plugins, () -> true);
+        LinkedBlockingQueue<top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager.WorkerEvent> events =
+                new LinkedBlockingQueue<>();
+        manager.addWorkerListener(events::add);
+        try {
+            manager.loadPlugin(jar);
+            manager.startPlugin(PROBE_ID);
+            long firstPid = manager.isolatedWorkerPidForTest(PROBE_ID);
+
+            ProcessHandle.of(firstPid).orElseThrow().destroyForcibly();
+
+            top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager.WorkerEvent crashed =
+                    events.poll(10, TimeUnit.SECONDS);
+            assertThat(crashed).isNotNull();
+            assertThat(crashed.type()).isEqualTo(
+                    top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager.WorkerEventType.CRASHED);
+            assertThat(crashed.pluginId()).isEqualTo(PROBE_ID);
+            assertThat(crashed.generation()).isEqualTo(manager.generation(PROBE_ID).orElseThrow());
+            assertThat(crashed.crashCount()).isEqualTo(1);
+            assertThat(manager.packagePhases().get(PROBE_ID))
+                    .isEqualTo(PluginRuntimePackagePhase.CRASHED);
+            assertThat(manager.status().orElseThrow().failures()).last().satisfies(failure -> {
+                assertThat(failure.status())
+                        .isEqualTo(top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus.CRASHED);
+                assertThat(failure.phase()).isEqualTo("worker-exit");
+                assertThat(failure.generation()).isEqualTo(crashed.generation());
+                assertThat(failure.version()).isEqualTo(PROBE_VERSION);
+                assertThat(failure.occurrenceCount()).isEqualTo(1);
+            });
+
+            top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager.WorkerEvent recovered =
+                    events.poll(10, TimeUnit.SECONDS);
+            assertThat(recovered).isNotNull();
+            assertThat(recovered.type()).isEqualTo(
+                    top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager.WorkerEventType.RECOVERED);
+            assertThat(recovered.restartAttempt()).isEqualTo(1);
+            assertThat(manager.packagePhases().get(PROBE_ID))
+                    .isEqualTo(PluginRuntimePackagePhase.STARTED);
+            assertThat(manager.isolatedWorkerPidForTest(PROBE_ID))
+                    .isPositive()
+                    .isNotEqualTo(firstPid);
+            assertThat(manager.status().orElseThrow().failures()).isNotEmpty();
         } finally {
             manager.shutdown();
         }

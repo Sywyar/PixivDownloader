@@ -25,6 +25,7 @@ import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -39,14 +40,28 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.locks.LockSupport;
+import java.util.function.Consumer;
 
 /** 宿主拥有的单 generation 隔离 worker、资源 loader 与纯值插件代理。 */
 public final class IsolatedPluginSession {
 
     private static final Logger log = LoggerFactory.getLogger(IsolatedPluginSession.class);
-    private static final Duration INITIALIZE_TIMEOUT = Duration.ofSeconds(10);
-    private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(5);
-    private static final Duration EXIT_TIMEOUT = Duration.ofSeconds(2);
+    public static final String INITIALIZE_TIMEOUT_PROPERTY =
+            "pixivdownload.plugin-worker.initialize-timeout-ms";
+    public static final String COMMAND_TIMEOUT_PROPERTY =
+            "pixivdownload.plugin-worker.command-timeout-ms";
+    public static final String SHUTDOWN_TIMEOUT_PROPERTY =
+            "pixivdownload.plugin-worker.shutdown-timeout-ms";
+    public static final String RESTART_ATTEMPTS_PROPERTY =
+            "pixivdownload.plugin-worker.restart-attempts";
+    public static final String RESTART_INITIAL_DELAY_PROPERTY =
+            "pixivdownload.plugin-worker.restart-initial-delay-ms";
+    public static final String RESTART_MAX_DELAY_PROPERTY =
+            "pixivdownload.plugin-worker.restart-max-delay-ms";
+    public static final String STDERR_MAX_BYTES_PROPERTY =
+            "pixivdownload.plugin-worker.stderr-max-bytes";
+    private static final int STDERR_TAIL_BYTES = 16 * 1024;
     private static final String WORKER_MAIN = IsolatedPluginWorkerMain.class.getName();
     private static final String WORKER_RESOURCE =
             "top/sywyar/pixivdownload/plugin/runtime/isolated-plugin-worker.jar";
@@ -56,6 +71,8 @@ public final class IsolatedPluginSession {
     private final Path artifact;
     private final String verifiedSha256;
     private final PluginArtifactSnapshot artifactSnapshot;
+    private final Consumer<WorkerExit> exitListener;
+    private final Settings settings;
 
     private Process process;
     private DataInputStream input;
@@ -70,10 +87,22 @@ public final class IsolatedPluginSession {
                                  Path artifact,
                                  String verifiedSha256,
                                  PluginArtifactSnapshot artifactSnapshot) {
+        this(descriptor, artifact, verifiedSha256, artifactSnapshot, ignored -> {
+        });
+    }
+
+    public IsolatedPluginSession(PluginDescriptor descriptor,
+                                 Path artifact,
+                                 String verifiedSha256,
+                                 PluginArtifactSnapshot artifactSnapshot,
+                                 Consumer<WorkerExit> exitListener) {
         this.descriptor = descriptor;
         this.artifact = artifact.toAbsolutePath().normalize();
         this.verifiedSha256 = verifiedSha256;
         this.artifactSnapshot = artifactSnapshot;
+        this.exitListener = exitListener == null ? ignored -> {
+        } : exitListener;
+        this.settings = Settings.fromSystemProperties();
     }
 
     public synchronized PluginInventory initialize() {
@@ -84,7 +113,7 @@ public final class IsolatedPluginSession {
                 resourceClassLoader = new ResourceOnlyClassLoader(
                         artifact.toUri().toURL(), PixivFeaturePlugin.class.getClassLoader());
             } catch (IOException failure) {
-                terminateWorker();
+                terminateWorker(true);
                 throw new PluginRuntimeOperationException(
                         "failed to open isolated plugin resource loader: " + descriptor.id(), failure);
             }
@@ -100,35 +129,35 @@ public final class IsolatedPluginSession {
     public synchronized void startPackage() {
         requireOpen();
         ensureWorker();
-        command(IsolatedPluginProtocol.START_PACKAGE, COMMAND_TIMEOUT);
+        command(IsolatedPluginProtocol.START_PACKAGE, settings.commandTimeout());
     }
 
     synchronized void startFeature() {
         requireOpen();
         requireLiveWorker();
-        command(IsolatedPluginProtocol.START_FEATURE, COMMAND_TIMEOUT);
+        command(IsolatedPluginProtocol.START_FEATURE, settings.commandTimeout());
     }
 
     synchronized void stopFeature() {
         if (!closed && isWorkerAlive()) {
-            command(IsolatedPluginProtocol.STOP_FEATURE, COMMAND_TIMEOUT);
+            command(IsolatedPluginProtocol.STOP_FEATURE, settings.commandTimeout());
         }
     }
 
     public synchronized boolean stopAndTerminate() {
         if (!isWorkerAlive()) {
-            terminateWorker();
+            terminateWorker(true);
             return true;
         }
         try {
-            command(IsolatedPluginProtocol.STOP_FEATURE, COMMAND_TIMEOUT);
-            command(IsolatedPluginProtocol.STOP_PACKAGE, COMMAND_TIMEOUT);
-            command(IsolatedPluginProtocol.SHUTDOWN, COMMAND_TIMEOUT);
+            command(IsolatedPluginProtocol.STOP_FEATURE, settings.commandTimeout());
+            command(IsolatedPluginProtocol.STOP_PACKAGE, settings.commandTimeout());
+            command(IsolatedPluginProtocol.SHUTDOWN, settings.commandTimeout());
         } catch (RuntimeException failure) {
             log.warn("Isolated plugin worker {} did not stop cooperatively: {}",
                     descriptor.id(), failure.getMessage());
         }
-        return terminateWorker();
+        return terminateWorker(true);
     }
 
     public synchronized boolean close() {
@@ -164,6 +193,14 @@ public final class IsolatedPluginSession {
         return isWorkerAlive() ? process.pid() : 0L;
     }
 
+    public int restartAttempts() {
+        return settings.restartAttempts();
+    }
+
+    public Duration restartDelay(int attempt) {
+        return settings.restartDelay(attempt);
+    }
+
     private void ensureWorker() {
         if (isWorkerAlive()) {
             return;
@@ -174,9 +211,20 @@ public final class IsolatedPluginSession {
             workerDirectory = artifactSnapshot.createWorkerDirectory();
             ProcessBuilder builder = new ProcessBuilder(workerCommand(workerDirectory));
             builder.directory(workerDirectory.toFile());
-            builder.redirectError(ProcessBuilder.Redirect.DISCARD);
             configureEnvironment(builder, workerDirectory);
-            process = builder.start();
+            Path workerLog = prepareWorkerLog(workerDirectory.getParent());
+            OutputStream workerLogOutput = Files.newOutputStream(
+                    workerLog, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+            try {
+                process = builder.start();
+            } catch (IOException | RuntimeException failure) {
+                closeQuietly(workerLogOutput);
+                throw failure;
+            }
+            Process startedProcess = process;
+            BoundedStderrCapture stderrCapture = new BoundedStderrCapture(STDERR_TAIL_BYTES);
+            Thread stderrPump = startStderrPump(
+                    startedProcess, workerLogOutput, stderrCapture, settings.stderrMaximumBytes());
             input = new DataInputStream(process.getInputStream());
             output = new DataOutputStream(process.getOutputStream());
             ioExecutor = new ThreadPoolExecutor(
@@ -187,13 +235,15 @@ public final class IsolatedPluginSession {
                         thread.setDaemon(true);
                         return thread;
                     }, new ThreadPoolExecutor.AbortPolicy());
+            startedProcess.onExit().thenAccept(exited ->
+                    handleProcessExit(exited, workerLog, stderrCapture, stderrPump));
             byte[] response = exchange(IsolatedPluginProtocol.message(
                     IsolatedPluginProtocol.INITIALIZE, payload -> {
                         IsolatedPluginProtocol.writeString(payload, descriptor.id());
                         IsolatedPluginProtocol.writeString(payload, descriptor.version());
                         IsolatedPluginProtocol.writeString(payload, verifiedSha256);
                         IsolatedPluginProtocol.writeString(payload, artifact.toString());
-                    }), INITIALIZE_TIMEOUT);
+                    }), settings.initializeTimeout());
             IsolatedPluginProtocol.Snapshot observed;
             try (DataInputStream payload = IsolatedPluginProtocol.requireSuccess(response)) {
                 observed = IsolatedPluginProtocol.Snapshot.readFrom(payload);
@@ -203,7 +253,7 @@ public final class IsolatedPluginSession {
             }
             admittedSnapshot = observed;
         } catch (IOException | RuntimeException failure) {
-            terminateWorker();
+            terminateWorker(true);
             if (failure instanceof PluginRuntimeOperationException operationFailure) {
                 throw operationFailure;
             }
@@ -221,7 +271,7 @@ public final class IsolatedPluginSession {
                 }
             }
         } catch (IOException failure) {
-            terminateWorker();
+            terminateWorker(false);
             throw new PluginRuntimeOperationException(
                     "isolated plugin worker command failed: " + descriptor.id(), failure);
         }
@@ -251,34 +301,56 @@ public final class IsolatedPluginSession {
         }
     }
 
-    private boolean terminateWorker() {
+    private boolean terminateWorker(boolean expected) {
         Process previous = process;
-        process = null;
+        if (expected) {
+            process = null;
+        }
         closeQuietly(output);
         closeQuietly(input);
         output = null;
         input = null;
-        if (previous != null && previous.isAlive()) {
-            previous.destroy();
-            if (!waitFor(previous, EXIT_TIMEOUT)) {
-                previous.destroyForcibly();
-                waitFor(previous, EXIT_TIMEOUT);
-            }
-        }
+        boolean terminated = terminateProcessTree(previous, settings.shutdownTimeout());
         ThreadPoolExecutor previousExecutor = ioExecutor;
         ioExecutor = null;
         if (previousExecutor != null) {
             previousExecutor.shutdownNow();
         }
-        return previous == null || !previous.isAlive();
+        return terminated;
     }
 
-    private static boolean waitFor(Process process, Duration timeout) {
-        try {
-            return process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
-        } catch (InterruptedException failure) {
-            Thread.currentThread().interrupt();
-            return false;
+    static boolean terminateProcessTree(Process process, Duration timeout) {
+        if (process == null) {
+            return true;
+        }
+        LinkedHashSet<ProcessHandle> handles = new LinkedHashSet<>();
+        process.descendants().forEach(handles::add);
+        handles.add(process.toHandle());
+        destroy(handles, false);
+        waitForExit(handles, timeout);
+        process.descendants().forEach(handles::add);
+        destroy(handles, true);
+        waitForExit(handles, timeout);
+        return handles.stream().noneMatch(ProcessHandle::isAlive);
+    }
+
+    private static void destroy(Set<ProcessHandle> handles, boolean forcibly) {
+        for (ProcessHandle handle : handles) {
+            if (!handle.isAlive()) {
+                continue;
+            }
+            if (forcibly) {
+                handle.destroyForcibly();
+            } else {
+                handle.destroy();
+            }
+        }
+    }
+
+    private static void waitForExit(Set<ProcessHandle> handles, Duration timeout) {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (handles.stream().anyMatch(ProcessHandle::isAlive) && System.nanoTime() < deadline) {
+            LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(10));
         }
     }
 
@@ -305,6 +377,121 @@ public final class IsolatedPluginSession {
             throw new PluginRuntimeOperationException(
                     "isolated plugin worker is not running: " + descriptor.id());
         }
+    }
+
+    private void handleProcessExit(Process exited,
+                                   Path workerLog,
+                                   BoundedStderrCapture stderrCapture,
+                                   Thread stderrPump) {
+        joinQuietly(stderrPump, settings.shutdownTimeout());
+        WorkerExit event;
+        synchronized (this) {
+            if (process != exited) {
+                return;
+            }
+            process = null;
+            closeQuietly(output);
+            closeQuietly(input);
+            output = null;
+            input = null;
+            ThreadPoolExecutor previousExecutor = ioExecutor;
+            ioExecutor = null;
+            if (previousExecutor != null) {
+                previousExecutor.shutdownNow();
+            }
+            String tail = stderrCapture.tail();
+            String reason = "isolated plugin worker exited with code " + exited.exitValue();
+            if (!tail.isBlank()) {
+                reason += System.lineSeparator() + tail;
+            }
+            event = new WorkerExit(exited.exitValue(), reason, workerLog,
+                    stderrCapture.truncated());
+        }
+        try {
+            exitListener.accept(event);
+        } catch (RuntimeException failure) {
+            log.warn("Isolated plugin worker exit listener failed for {}", descriptor.id(), failure);
+        }
+    }
+
+    private static void joinQuietly(Thread thread, Duration timeout) {
+        if (thread == null) {
+            return;
+        }
+        try {
+            thread.join(timeout.toMillis());
+        } catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private static Path prepareWorkerLog(Path workspace) throws IOException {
+        Path current = workspace.resolve("worker-stderr.log");
+        Path previous = workspace.resolve("worker-stderr.previous.log");
+        requireSafeLogEntry(current);
+        requireSafeLogEntry(previous);
+        Files.deleteIfExists(previous);
+        if (Files.exists(current, LinkOption.NOFOLLOW_LINKS)) {
+            try {
+                Files.move(current, previous, StandardCopyOption.ATOMIC_MOVE);
+            } catch (java.nio.file.AtomicMoveNotSupportedException ignored) {
+                Files.move(current, previous);
+            }
+        }
+        return current;
+    }
+
+    private static void requireSafeLogEntry(Path path) throws IOException {
+        if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) {
+            return;
+        }
+        if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(path)) {
+            throw new IOException("isolated plugin worker log is not a plain regular file: " + path);
+        }
+    }
+
+    private Thread startStderrPump(Process startedProcess,
+                                   OutputStream workerLog,
+                                   BoundedStderrCapture capture,
+                                   long maximumBytes) {
+        Thread thread = new Thread(() -> {
+            OutputStream sink = workerLog;
+            long written = 0L;
+            try (InputStream stderr = startedProcess.getErrorStream()) {
+                byte[] buffer = new byte[8192];
+                for (int read; (read = stderr.read(buffer)) >= 0; ) {
+                    capture.append(buffer, read);
+                    if (sink == null || written >= maximumBytes) {
+                        capture.markTruncated();
+                        continue;
+                    }
+                    int allowed = (int) Math.min(read, maximumBytes - written);
+                    try {
+                        sink.write(buffer, 0, allowed);
+                        sink.flush();
+                        written += allowed;
+                        if (allowed < read) {
+                            capture.markTruncated();
+                        }
+                    } catch (IOException failure) {
+                        log.warn("Failed to write isolated plugin worker stderr log {}: {}",
+                                descriptor.id(), failure.toString());
+                        closeQuietly(sink);
+                        sink = null;
+                    }
+                }
+            } catch (IOException failure) {
+                if (startedProcess.isAlive()) {
+                    log.warn("Failed to read isolated plugin worker stderr {}: {}",
+                            descriptor.id(), failure.toString());
+                }
+            } finally {
+                closeQuietly(sink);
+            }
+        }, "plugin-worker-stderr-" + descriptor.id());
+        thread.setDaemon(true);
+        thread.start();
+        return thread;
     }
 
     private static List<String> workerCommand(Path workerDirectory) throws IOException {
@@ -412,6 +599,115 @@ public final class IsolatedPluginSession {
 
     private static boolean isWindows() {
         return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+    }
+
+    public record WorkerExit(int exitCode, String reason, Path logPath, boolean logTruncated) {
+    }
+
+    record Settings(Duration initializeTimeout,
+                    Duration commandTimeout,
+                    Duration shutdownTimeout,
+                    int restartAttempts,
+                    Duration restartInitialDelay,
+                    Duration restartMaximumDelay,
+                    long stderrMaximumBytes) {
+
+        static Settings fromSystemProperties() {
+            Duration initialDelay = durationProperty(RESTART_INITIAL_DELAY_PROPERTY, 500L, 1L, 300_000L);
+            Duration maximumDelay = durationProperty(RESTART_MAX_DELAY_PROPERTY, 10_000L, 1L, 300_000L);
+            if (maximumDelay.compareTo(initialDelay) < 0) {
+                throw new IllegalArgumentException(RESTART_MAX_DELAY_PROPERTY
+                        + " must be greater than or equal to " + RESTART_INITIAL_DELAY_PROPERTY);
+            }
+            return new Settings(
+                    durationProperty(INITIALIZE_TIMEOUT_PROPERTY, 10_000L, 1L, 300_000L),
+                    durationProperty(COMMAND_TIMEOUT_PROPERTY, 5_000L, 1L, 300_000L),
+                    durationProperty(SHUTDOWN_TIMEOUT_PROPERTY, 2_000L, 1L, 300_000L),
+                    integerProperty(RESTART_ATTEMPTS_PROPERTY, 3, 0, 20),
+                    initialDelay,
+                    maximumDelay,
+                    longProperty(STDERR_MAX_BYTES_PROPERTY, 1024L * 1024L, 1024L, 16L * 1024L * 1024L));
+        }
+
+        Duration restartDelay(int attempt) {
+            if (attempt <= 0) {
+                throw new IllegalArgumentException("restart attempt must be positive");
+            }
+            long multiplier = 1L << Math.min(attempt - 1, 30);
+            long delay;
+            try {
+                delay = Math.multiplyExact(restartInitialDelay.toMillis(), multiplier);
+            } catch (ArithmeticException ignored) {
+                delay = restartMaximumDelay.toMillis();
+            }
+            return Duration.ofMillis(Math.min(delay, restartMaximumDelay.toMillis()));
+        }
+
+        private static Duration durationProperty(
+                String name, long fallback, long minimum, long maximum) {
+            return Duration.ofMillis(longProperty(name, fallback, minimum, maximum));
+        }
+
+        private static int integerProperty(String name, int fallback, int minimum, int maximum) {
+            return Math.toIntExact(longProperty(name, fallback, minimum, maximum));
+        }
+
+        private static long longProperty(
+                String name, long fallback, long minimum, long maximum) {
+            String configured = System.getProperty(name);
+            if (configured == null || configured.isBlank()) {
+                return fallback;
+            }
+            try {
+                long parsed = Long.parseLong(configured.trim());
+                if (parsed < minimum || parsed > maximum) {
+                    throw new IllegalArgumentException(name + " must be between " + minimum + " and " + maximum);
+                }
+                return parsed;
+            } catch (NumberFormatException failure) {
+                throw new IllegalArgumentException(name + " must be an integer", failure);
+            }
+        }
+    }
+
+    private static final class BoundedStderrCapture {
+
+        private final byte[] tail;
+        private int start;
+        private int size;
+        private boolean truncated;
+
+        private BoundedStderrCapture(int maximumBytes) {
+            this.tail = new byte[maximumBytes];
+        }
+
+        private synchronized void append(byte[] bytes, int length) {
+            for (int index = 0; index < length; index++) {
+                if (size == tail.length) {
+                    start = (start + 1) % tail.length;
+                    truncated = true;
+                } else {
+                    size++;
+                }
+                tail[(start + size - 1) % tail.length] = bytes[index];
+            }
+        }
+
+        private synchronized void markTruncated() {
+            truncated = true;
+        }
+
+        private synchronized boolean truncated() {
+            return truncated;
+        }
+
+        private synchronized String tail() {
+            byte[] bytes = new byte[size];
+            for (int index = 0; index < size; index++) {
+                bytes[index] = tail[(start + index) % tail.length];
+            }
+            return new String(bytes, java.nio.charset.StandardCharsets.UTF_8).trim();
+        }
     }
 
     private static final class ResourceOnlyClassLoader extends URLClassLoader {

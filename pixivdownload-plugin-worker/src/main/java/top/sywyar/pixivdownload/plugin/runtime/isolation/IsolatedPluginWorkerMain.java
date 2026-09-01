@@ -45,14 +45,15 @@ public final class IsolatedPluginWorkerMain {
             installUtf8ConsoleStreams();
             System.setIn(InputStream.nullInputStream());
             new IsolatedPluginWorkerMain().run(protocolInput, protocolOutput);
-        } catch (Throwable ignored) {
-            // 宿主以协议 EOF / 进程退出码判定 worker 失败并清退，不向继承环境泄漏诊断。
+        } catch (Throwable failure) {
+            failure.printStackTrace(System.err);
         }
     }
 
     private static void installUtf8ConsoleStreams() {
         System.setOut(new PrintStream(OutputStream.nullOutputStream(), true, StandardCharsets.UTF_8));
-        System.setErr(new PrintStream(OutputStream.nullOutputStream(), true, StandardCharsets.UTF_8));
+        System.setErr(new PrintStream(
+                new FileOutputStream(FileDescriptor.err), true, StandardCharsets.UTF_8));
     }
 
     private void run(InputStream rawInput, OutputStream rawOutput) throws IOException {
