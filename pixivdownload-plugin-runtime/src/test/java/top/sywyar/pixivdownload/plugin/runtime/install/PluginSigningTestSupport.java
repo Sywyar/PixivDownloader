@@ -82,7 +82,16 @@ final class PluginSigningTestSupport {
 
     PluginPackageOrigin originFor(String repositoryId, Path artifact, String pluginId, String version)
             throws IOException {
-        return originFor(repositoryId, artifact, pluginId, version, Map.of());
+        return originFor(repositoryId, false, artifact, pluginId, version, Map.of());
+    }
+
+    PluginPackageOrigin originFor(
+            String repositoryId,
+            boolean officialRepository,
+            Path artifact,
+            String pluginId,
+            String version) throws IOException {
+        return originFor(repositoryId, officialRepository, artifact, pluginId, version, Map.of());
     }
 
     PluginPackageOrigin originFor(
@@ -91,9 +100,19 @@ final class PluginSigningTestSupport {
             String pluginId,
             String version,
             Map<String, SignatureMetadata> identityMigrationSignatures) throws IOException {
+        return originFor(repositoryId, false, artifact, pluginId, version, identityMigrationSignatures);
+    }
+
+    PluginPackageOrigin originFor(
+            String repositoryId,
+            boolean officialRepository,
+            Path artifact,
+            String pluginId,
+            String version,
+            Map<String, SignatureMetadata> identityMigrationSignatures) throws IOException {
         long size = Files.size(artifact);
         String sha256 = Hashing.hex(Hashing.sha256(artifact));
-        return PluginPackageOrigin.forTrustedCatalog(repositoryId, false, size, sha256,
+        return PluginPackageOrigin.forTrustedCatalog(repositoryId, officialRepository, size, sha256,
                 artifactSignature(artifact, pluginId, version), identityMigrationSignatures);
     }
 
@@ -150,6 +169,22 @@ final class PluginSigningTestSupport {
             PluginSigningTestSupport toSigner,
             Path artifact,
             String version) throws IOException {
+        return identityMigrationSignature(
+                fromPluginId, fromRepositoryId, false,
+                toPluginId, toRepositoryId, false,
+                toSigner, artifact, version);
+    }
+
+    SignatureMetadata identityMigrationSignature(
+            String fromPluginId,
+            String fromRepositoryId,
+            boolean fromOfficialRepository,
+            String toPluginId,
+            String toRepositoryId,
+            boolean toOfficialRepository,
+            PluginSigningTestSupport toSigner,
+            Path artifact,
+            String version) throws IOException {
         byte[] sha256 = Hashing.sha256(artifact);
         byte[] message = EnvelopeV1Codec.identityMigrationMessage(
                 SignatureMetadata.ED25519,
@@ -157,13 +192,13 @@ final class PluginSigningTestSupport {
                 fromPluginId,
                 "MARKET_CATALOG",
                 fromRepositoryId,
-                false,
+                fromOfficialRepository,
                 trustedKey.publisher(),
                 keyId,
                 toPluginId,
                 "MARKET_CATALOG",
                 toRepositoryId,
-                false,
+                toOfficialRepository,
                 toSigner.trustedKey.publisher(),
                 toSigner.keyId,
                 version,

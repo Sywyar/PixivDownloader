@@ -185,38 +185,41 @@ class ExternalPluginTransactionProvenanceTest extends ExternalPluginTransactionT
     }
 
     @Test
-    @DisplayName("旧 key 授权身份迁移后仍需确认新发布者")
+    @DisplayName("Douyin 从官方仓库身份迁移到第三方发布者后仍需显式确认")
     void catalogIdentityAcceptsAuthorizedMigration() throws IOException {
         Path plugins = temp.resolve("plugins-authorized-identity-migration");
         PluginSigningTestSupport oldSigner = PluginSigningTestSupport.create(
-                "old-key", "Old Publisher", false);
+                "old-key", "Old Publisher", true);
         PluginSigningTestSupport newSigner = PluginSigningTestSupport.create(
                 "new-key", "New Publisher", false);
         ExternalPluginInstaller installer = signedInstaller(
                 plugins, PluginSigningTestSupport.verifierFor(oldSigner, newSigner));
-        Path oldPackage = packageFile("migration-old.zip", "1.0.0");
+        Path oldPackage = packageFile("migration-old.zip", "douyin", "1.0.0", null);
         installFully(installer, oldPackage,
                 oldSigner.confirmed(oldSigner.originFor(
-                        "old-repository", oldPackage, "demo", "1.0.0")));
-        Path candidate = packageFile("migration-new.zip", "2.0.0");
+                        "official", true, oldPackage, "douyin", "1.0.0")));
+        Path candidate = packageFile("migration-new.zip", "douyin", "2.0.0", null);
         var authorization = oldSigner.identityMigrationSignature(
-                "demo", "old-repository", "demo", "new-repository", newSigner, candidate, "2.0.0");
+                "douyin", "official", true,
+                "douyin", "custom", false,
+                newSigner, candidate, "2.0.0");
         PluginPackageOrigin migrationOrigin = newSigner.originFor(
-                "new-repository", candidate, "demo", "2.0.0", Map.of("demo", authorization));
+                "custom", candidate, "douyin", "2.0.0", Map.of("douyin", authorization));
 
         PluginInstallResult pending = installFully(installer, candidate, migrationOrigin);
         assertThat(pending.outcome()).isEqualTo(PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED);
-        assertThat(plugins.resolve("demo-1.0.0.zip")).exists();
+        assertThat(plugins.resolve("douyin-1.0.0.zip")).exists();
 
         PluginInstallResult upgraded = installFully(
                 installer, candidate, newSigner.confirmed(migrationOrigin));
 
         assertThat(upgraded.outcome()).isEqualTo(PluginInstallOutcome.UPGRADED);
-        assertThat(plugins.resolve("demo-1.0.0.zip")).doesNotExist();
-        assertThat(plugins.resolve("demo-2.0.0.zip")).exists();
+        assertThat(plugins.resolve("douyin-1.0.0.zip")).doesNotExist();
+        assertThat(plugins.resolve("douyin-2.0.0.zip")).exists();
         var provenance = new PluginProvenanceStore(plugins)
-                .read(plugins.resolve("demo-2.0.0.zip")).orElseThrow();
-        assertThat(provenance.repositoryId()).isEqualTo("new-repository");
+                .read(plugins.resolve("douyin-2.0.0.zip")).orElseThrow();
+        assertThat(provenance.repositoryId()).isEqualTo("custom");
+        assertThat(provenance.officialRepository()).isFalse();
         assertThat(provenance.keyId()).isEqualTo("new-key");
         assertThat(provenance.publisher()).isEqualTo("New Publisher");
     }

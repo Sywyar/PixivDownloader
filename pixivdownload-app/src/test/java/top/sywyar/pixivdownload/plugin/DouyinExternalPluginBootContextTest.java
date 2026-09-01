@@ -13,11 +13,16 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.web.context.WebApplicationContext;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCreate;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.core.schedule.capability.SchedulePlanningLease;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
+import top.sywyar.pixivdownload.plugin.api.storage.PluginDataSource;
+import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager;
@@ -56,8 +61,12 @@ import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -86,10 +95,15 @@ class DouyinExternalPluginBootContextTest {
     private static final String DOUYIN_CLASSES_PROPERTY = "douyin.plugin.classes";
     private static final String THIRD_PARTY_PACKAGE_PROPERTY = "douyin.third-party.package";
     private static final String THIRD_PARTY_MODE_PROPERTY = "douyin.third-party.mode";
+    private static final String THIRD_PARTY_STATE_TRANSITION_PROPERTY =
+            "douyin.third-party.state-transition";
     private static final String THIRD_PARTY_SIGNATURE_PROPERTY = "douyin.third-party.signature";
     private static final String THIRD_PARTY_PUBLIC_KEY_PROPERTY = "douyin.third-party.public-key";
     private static final String THIRD_PARTY_KEY_ID = "douyin-third-party-ci";
     private static final String THIRD_PARTY_REPOSITORY_ID = "douyin-third-party-ci";
+    private static final String PERSISTENCE_CANARY_NAME = "douyin-third-party-persistence-canary";
+    private static final String PERSISTENCE_CONFIG = "douyin.proxy.mode=direct\n";
+    private static final long PERSISTENCE_TIME = 4_102_444_799_999L;
     private static final Path PLUGINS_DIR = Path.of("target/test-runtime/plugins-external-douyin");
     private static final Set<String> DOUYIN_SCHEDULE_SOURCE_TYPES = Set.of(
             "douyin.user",
@@ -144,6 +158,8 @@ class DouyinExternalPluginBootContextTest {
     private WebI18nBundleRegistry webI18nBundleRegistry;
     @Autowired
     private ScheduleCapabilityRegistry scheduleCapabilityRegistry;
+    @Autowired
+    private ScheduledTaskStore scheduledTaskStore;
 
     @AfterAll
     void releasePluginsAndCleanup() {
@@ -251,33 +267,48 @@ class DouyinExternalPluginBootContextTest {
     }
 
     @Test
-    @DisplayName("第三方 douyin 停启保留代际，物理重载换代并恢复完整能力足迹")
-    void thirdPartyDouyinTrustSurvivesLifecycleReplacement() {
+    @DisplayName("第三方 douyin 经应用重启、停启与物理重载后保留配置、私库历史和计划任务")
+    void thirdPartyDouyinStateSurvivesLifecycleReplacement() throws Exception {
+        String transition = System.getProperty(THIRD_PARTY_STATE_TRANSITION_PROPERTY, "standalone");
+        assertThat(transition).isIn("standalone", "seed", "verify");
+        if ("verify".equals(transition)) {
+            assertDouyinPersistentState();
+        } else {
+            seedDouyinPersistentState();
+        }
         long initialGeneration = pluginLifecycleService.generation("douyin").orElseThrow();
         ClassLoader initialClassLoader = externalDouyinClassLoader();
         ConfigurableApplicationContext initialContext =
                 externalPluginContextManager.contextFor("douyin").orElseThrow();
+        try {
+            lifecycleCoordinator.stop("douyin");
+            assertThat(pluginLifecycleService.phase("douyin")).contains(PluginRuntimePhase.STOPPED);
+            assertThat(externalPluginContextManager.contextFor("douyin")).isEmpty();
+            assertThat(initialContext.isActive()).isFalse();
+            assertDouyinServiceFootprint(false);
 
-        lifecycleCoordinator.stop("douyin");
-        assertThat(pluginLifecycleService.phase("douyin")).contains(PluginRuntimePhase.STOPPED);
-        assertThat(externalPluginContextManager.contextFor("douyin")).isEmpty();
-        assertThat(initialContext.isActive()).isFalse();
-        assertDouyinServiceFootprint(false);
+            lifecycleCoordinator.start("douyin");
+            assertThat(pluginLifecycleService.phase("douyin")).contains(PluginRuntimePhase.STARTED);
+            assertThat(pluginLifecycleService.generation("douyin")).contains(initialGeneration);
+            assertThat(externalDouyinClassLoader()).isSameAs(initialClassLoader);
+            assertDouyinServiceFootprint(true);
+            assertDouyinPersistentState();
 
-        lifecycleCoordinator.start("douyin");
-        assertThat(pluginLifecycleService.phase("douyin")).contains(PluginRuntimePhase.STARTED);
-        assertThat(pluginLifecycleService.generation("douyin")).contains(initialGeneration);
-        assertThat(externalDouyinClassLoader()).isSameAs(initialClassLoader);
-        assertDouyinServiceFootprint(true);
-
-        ConfigurableApplicationContext restartedContext =
-                externalPluginContextManager.contextFor("douyin").orElseThrow();
-        lifecycleCoordinator.reload("douyin");
-        assertThat(pluginLifecycleService.phase("douyin")).contains(PluginRuntimePhase.STARTED);
-        assertThat(pluginLifecycleService.generation("douyin").orElseThrow()).isGreaterThan(initialGeneration);
-        assertThat(externalDouyinClassLoader()).isNotSameAs(initialClassLoader);
-        assertThat(restartedContext.isActive()).isFalse();
-        assertDouyinServiceFootprint(true);
+            ConfigurableApplicationContext restartedContext =
+                    externalPluginContextManager.contextFor("douyin").orElseThrow();
+            lifecycleCoordinator.reload("douyin");
+            assertThat(pluginLifecycleService.phase("douyin")).contains(PluginRuntimePhase.STARTED);
+            assertThat(pluginLifecycleService.generation("douyin").orElseThrow())
+                    .isGreaterThan(initialGeneration);
+            assertThat(externalDouyinClassLoader()).isNotSameAs(initialClassLoader);
+            assertThat(restartedContext.isActive()).isFalse();
+            assertDouyinServiceFootprint(true);
+            assertDouyinPersistentState();
+        } finally {
+            if (!"seed".equals(transition)) {
+                clearDouyinPersistentState();
+            }
+        }
     }
 
     @Test
@@ -363,6 +394,95 @@ class DouyinExternalPluginBootContextTest {
         assertThat(scheduleCapabilityRegistry.snapshotView().owners().stream()
                 .anyMatch(owner -> owner.owner().featurePluginId().equals("douyin")))
                 .isEqualTo(present);
+    }
+
+    private void seedDouyinPersistentState() throws Exception {
+        clearDouyinPersistentState();
+        Path configFile = douyinChildContext().getBean(RuntimePathProvider.class).configFile("properties");
+        Files.createDirectories(configFile.getParent());
+        Files.writeString(configFile, PERSISTENCE_CONFIG, StandardCharsets.UTF_8);
+
+        try (Connection connection = douyinChildContext().getBean(PluginDataSource.class).getConnection();
+             PreparedStatement statement = connection.prepareStatement(
+                     "INSERT INTO douyin_works"
+                             + " (work_id, title, folder, count, extensions, time, deleted, kind)"
+                             + " VALUES (?, ?, ?, ?, ?, ?, ?, ?)")) {
+            statement.setString(1, PERSISTENCE_CANARY_NAME);
+            statement.setString(2, "Third-party persistence canary");
+            statement.setString(3, "douyin/third-party-persistence-canary");
+            statement.setInt(4, 1);
+            statement.setString(5, "mp4");
+            statement.setLong(6, PERSISTENCE_TIME);
+            statement.setInt(7, 0);
+            statement.setString(8, "VIDEO");
+            assertThat(statement.executeUpdate()).isEqualTo(1);
+        }
+        scheduledTaskStore.create(new ScheduledTaskCreate(
+                PERSISTENCE_CANARY_NAME,
+                "douyin.user",
+                "douyin",
+                "douyin.schedule.definition",
+                1,
+                "{\"source\":{\"userId\":\"third-party-canary\"},\"fetchLimit\":1}",
+                "{}",
+                ScheduledTask.TRIGGER_INTERVAL,
+                60,
+                null,
+                PERSISTENCE_TIME,
+                PERSISTENCE_TIME));
+        assertDouyinPersistentState();
+    }
+
+    private void assertDouyinPersistentState() throws Exception {
+        ConfigurableApplicationContext child = douyinChildContext();
+        Path configFile = child.getBean(RuntimePathProvider.class).configFile("properties");
+        assertThat(Files.readString(configFile, StandardCharsets.UTF_8)).isEqualTo(PERSISTENCE_CONFIG);
+
+        try (Connection connection = child.getBean(PluginDataSource.class).getConnection();
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT title, folder, time, kind FROM douyin_works WHERE work_id = ?")) {
+            statement.setString(1, PERSISTENCE_CANARY_NAME);
+            try (ResultSet result = statement.executeQuery()) {
+                assertThat(result.next()).isTrue();
+                assertThat(result.getString("title")).isEqualTo("Third-party persistence canary");
+                assertThat(result.getString("folder")).isEqualTo("douyin/third-party-persistence-canary");
+                assertThat(result.getLong("time")).isEqualTo(PERSISTENCE_TIME);
+                assertThat(result.getString("kind")).isEqualTo("VIDEO");
+                assertThat(result.next()).isFalse();
+            }
+        }
+        assertThat(persistenceCanaryTasks())
+                .singleElement()
+                .satisfies(task -> {
+                    assertThat(task.sourceType()).isEqualTo("douyin.user");
+                    assertThat(task.sourceOwnerPluginId()).isEqualTo("douyin");
+                    assertThat(task.definitionSchema()).isEqualTo("douyin.schedule.definition");
+                    assertThat(task.definitionJson()).contains("third-party-canary");
+                });
+    }
+
+    private void clearDouyinPersistentState() throws Exception {
+        for (ScheduledTask task : persistenceCanaryTasks()) {
+            assertThat(scheduledTaskStore.deleteAggregate(task.id(), task.stateVersion())).isTrue();
+        }
+        ConfigurableApplicationContext child = douyinChildContext();
+        try (Connection connection = child.getBean(PluginDataSource.class).getConnection();
+             PreparedStatement statement = connection.prepareStatement(
+                     "DELETE FROM douyin_works WHERE work_id = ?")) {
+            statement.setString(1, PERSISTENCE_CANARY_NAME);
+            statement.executeUpdate();
+        }
+        Files.deleteIfExists(child.getBean(RuntimePathProvider.class).configFile("properties"));
+    }
+
+    private List<ScheduledTask> persistenceCanaryTasks() {
+        return scheduledTaskStore.findAll().stream()
+                .filter(task -> PERSISTENCE_CANARY_NAME.equals(task.name()))
+                .toList();
+    }
+
+    private ConfigurableApplicationContext douyinChildContext() {
+        return externalPluginContextManager.contextFor("douyin").orElseThrow();
     }
 
     private static StageResult stageExternalDouyinJar() {

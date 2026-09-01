@@ -114,6 +114,7 @@ function verifyDouyinRuntime(runMaven, repoRoot, settings, localRepository, pack
     runMaven([
         `-Ddouyin.third-party.package=${packages.signedPluginJar}`,
         '-Ddouyin.third-party.mode=signed',
+        '-Ddouyin.third-party.state-transition=seed',
         `-Ddouyin.third-party.signature=${packages.signatureFile}`,
         `-Ddouyin.third-party.public-key=${packages.publicKeySpkiBase64}`,
         ...common,
@@ -121,6 +122,7 @@ function verifyDouyinRuntime(runMaven, repoRoot, settings, localRepository, pack
     runMaven([
         `-Ddouyin.third-party.package=${packages.unsignedPluginJar}`,
         '-Ddouyin.third-party.mode=unsigned',
+        '-Ddouyin.third-party.state-transition=verify',
         ...common,
     ], repoRoot);
 }
