@@ -434,16 +434,18 @@ class PluginCatalogAcquisitionServiceTest {
     }
 
     @Test
-    @DisplayName("受信目录包缺少结构化签名：fail-closed → REJECTED_INTEGRITY（大小 / 哈希正确也拒绝）")
+    @DisplayName("受信目录包缺少结构化签名：目录读取即 fail-closed")
     void signatureFailsClosed() {
         byte[] body = CatalogTestSupport.explodedPluginZip("ext", "1.0.0", null);
         PluginCatalogAcquisitionService service = setUpInstall(body,
                 (url, signing) -> manifest("ext", "1.0.0", url, body.length,
                         CatalogTestSupport.sha256Hex(body), null, signing));
 
-        PluginInstallReport report = service.install("ext", "1.0.0");
+        PluginCatalogException failure = catchThrowableOfType(
+                () -> service.install("ext", "1.0.0"), PluginCatalogException.class);
 
-        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
+        assertThat(failure).isNotNull();
+        assertThat(failure.code()).isEqualTo(PluginCatalogErrorCode.CATALOG_UNAVAILABLE);
         assertThat(installedFiles()).isEmpty();
     }
 

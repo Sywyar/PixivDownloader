@@ -30,6 +30,9 @@ import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenan
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
+import top.sywyar.pixivdownload.plugin.runtime.admission.PluginArtifactAdmissionPolicy;
+import top.sywyar.pixivdownload.plugin.runtime.admission.PluginArtifactAdmissionRequest;
+import top.sywyar.pixivdownload.plugin.runtime.admission.PluginArtifactAdmissionResult;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -82,6 +85,7 @@ public class PluginRuntimeManager {
     private final PluginArtifactMaterializer materializer;
     private PluginArtifactVerificationService verificationService;
     private Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver;
+    private PluginArtifactAdmissionPolicy admissionPolicy = PluginArtifactAdmissionPolicy.allowAll();
     private final PluginProvenanceStore provenanceStore;
     private final int maximumStartupVerificationEntries;
     private final long maximumStartupVerificationUncompressedBytes;
@@ -165,6 +169,10 @@ public class PluginRuntimeManager {
             Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver) {
         this.verifierResolver = Objects.requireNonNull(verifierResolver, "verifierResolver");
         this.verificationService = new PluginArtifactVerificationService(this.verifierResolver);
+    }
+
+    public synchronized void updateAdmissionPolicy(PluginArtifactAdmissionPolicy admissionPolicy) {
+        this.admissionPolicy = Objects.requireNonNull(admissionPolicy, "admissionPolicy");
     }
 
     /** 启动扫描。每个候选包分别 load/start，单包失败不会阻止其它包。 */
@@ -938,6 +946,19 @@ public class PluginRuntimeManager {
             if (!result.accepted()) {
                 throw new PluginRuntimeOperationException(
                         "plugin verification failed before load: " + result.status());
+            }
+            if (provenance != null && provenance.repositoryId() != null) {
+                PluginArtifactAdmissionResult admission = admissionPolicy.evaluate(
+                        new PluginArtifactAdmissionRequest(provenance.repositoryId(), inspection.descriptor().id(),
+                                inspection.descriptor().version(), result.sha256(), result.keyId(), result.publisher()));
+                if (admission == null || !admission.allowed()) {
+                    throw new PluginRuntimeOperationException("plugin admission rejected before load: "
+                            + (admission != null ? admission.code() + ": " + admission.detail() : "null result"));
+                }
+                if (admission.warning()) {
+                    log.warn("Plugin admission warning before load for {}: {}: {}",
+                            inspection.descriptor().id(), admission.code(), admission.detail());
+                }
             }
             return new PreparedPluginArtifact(snapshot, inspection, result.sha256());
         } catch (Throwable failure) {

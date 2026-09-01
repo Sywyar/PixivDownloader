@@ -17,6 +17,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransac
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransactionRecoveryReport.FailureKind;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
+import top.sywyar.pixivdownload.plugin.runtime.admission.PluginArtifactAdmissionPolicy;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -66,6 +67,7 @@ public final class PluginBootstrapSession implements AutoCloseable {
     private final List<String> diagnostics = new ArrayList<>();
 
     private volatile Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver;
+    private volatile PluginArtifactAdmissionPolicy admissionPolicy = PluginArtifactAdmissionPolicy.allowAll();
     private volatile PluginRuntimeManager manager;
     private volatile PluginRuntimeStatus status;
     private volatile PluginInventory startupInventory = PluginInventory.empty();
@@ -311,6 +313,14 @@ public final class PluginBootstrapSession implements AutoCloseable {
         }
     }
 
+    /** 启动扫描前设置，或同步刷新后续单包 load 的宿主准入门。 */
+    public synchronized void updateAdmissionPolicy(PluginArtifactAdmissionPolicy admissionPolicy) {
+        PluginArtifactAdmissionPolicy effective = Objects.requireNonNull(admissionPolicy, "admissionPolicy");
+        this.admissionPolicy = effective;
+        PluginRuntimeManager current = manager;
+        if (current != null) current.updateAdmissionPolicy(effective);
+    }
+
     public PluginEnabledSnapshot enabledSnapshot() {
         return enabledSnapshot;
     }
@@ -427,6 +437,7 @@ public final class PluginBootstrapSession implements AutoCloseable {
         PluginRuntimeManager current = manager;
         if (current == null) {
             current = runtimeManagerFactory.create(pluginsRoot, verifierResolver, installer);
+            current.updateAdmissionPolicy(admissionPolicy);
             manager = current;
         }
         return current;

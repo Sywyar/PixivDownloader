@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 ## [Unreleased]
 
 ### Features
+- 插件市场支持通过公网 HTTPS `repository.json` 预览并导入第三方仓库，确认时会重新核对描述符摘要并保存重启生效的安全快照；仓库目录同时支持既有 `manifest-v1` 与带搜索、列表和版本详情分页的 `paged-v2`。
 - 新增繁體中文（zh-Hant）与日语（ja-JP）界面、在线文档与公告内容支持。
 - 新增韩语（ko-KR）界面、在线文档与公告内容支持。
 - 建立独立版本的第三方插件 SDK：SDK BOM 对齐 `sdk-info`、`plugin-api` 与 `core-api`，候选版本通过同一源码提交的质量门禁后发布到 Maven Central 和独立 SDK 仓库；单一发行包提供可直接用 IntelliJ IDEA、VS Code 或 Eclipse 打开的下载类型插件工程、完整 Javadoc、源码追溯、摘要与签名，SDK 版本与应用发行版本保持独立。
@@ -64,6 +65,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - 各 Web 页面加入统一的过渡与动画体系：页面与导航入场、按钮 / 输入 / 卡片交互、深浅主题切换过渡，以及下载页的来源 / 类型切换、设置显隐联动、计划任务折叠和画廊筛选开合、弹窗、卡片阶梯入场等场景都有平滑动画，并跟随系统「减少动态效果」偏好自动降级。
 
 ### Security
+- 第三方仓库新增独立签名域的连续性更新证明和撤销文档、单调序号与最后有效快照；安装前按仓库协议重新解析指定版本，并将下载字节的大小、SHA-256、发布者签名、包内插件 ID、版本、SDK 要求和依赖逐项绑定，撤销命中会在安装或 PF4J 加载前阻断。
 - FFmpeg 自动安装、Windows 安装器与离线包构建现在会先验证内置官方信任根签发的发行清单，再严格核对目标资产名、长度和 SHA-256；清单缺失、签名无效或资产被篡改时会在解压及替换既有工具前失败。
 - 反向代理转发头只在来源命中 `server.trusted-proxy-cidrs` 的显式 CIDR 时生效（默认受信 CIDR 数为 0）；受信代理必须完整提供 RFC `Forwarded`，或 `X-Forwarded-For` / `X-Forwarded-Proto` / `X-Forwarded-Host`（`X-Forwarded-Port` 可选），两套头混用、链错位、缺失、畸形、端口不在 1–65535 或全链均为受信代理时返回 400，并在鉴权和同源校验前统一规范化客户端地址、外部协议、主机与端口。
 - 本地图片缩略图、相似度与分类工具会在解码前把源文件限制为 100 MiB、宽和高分别不超过 25,000 像素且总像素不超过 25,000,000；画廊图片接口改为直接流式返回文件，避免 Base64 JSON 放大内存。

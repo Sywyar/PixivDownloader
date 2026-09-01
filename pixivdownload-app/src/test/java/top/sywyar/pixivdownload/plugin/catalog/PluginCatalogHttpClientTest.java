@@ -18,6 +18,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -156,6 +157,35 @@ class PluginCatalogHttpClientTest {
             byte[] got = relaxed.fetchBytes(CatalogTestSupport.loopbackUrl(server, "/manifest.json"), 1024);
 
             assertThat(got).isEqualTo(body);
+        }
+
+        @Test
+        @DisplayName("条件请求在 ETag 未变化时返回无正文的 304")
+        void conditionalFetchReturns304WithoutBody() throws Exception {
+            server = CatalogTestSupport.startServer();
+            AtomicReference<String> seen = new AtomicReference<>();
+            server.createContext("/page", exchange -> {
+                seen.set(exchange.getRequestHeaders().getFirst("If-None-Match"));
+                if ("\"v1\"".equals(seen.get())) {
+                    exchange.getResponseHeaders().add("ETag", "\"v1\"");
+                    exchange.sendResponseHeaders(304, -1);
+                } else {
+                    byte[] body = "page".getBytes(StandardCharsets.UTF_8);
+                    exchange.getResponseHeaders().add("ETag", "\"v1\"");
+                    exchange.sendResponseHeaders(200, body.length);
+                    exchange.getResponseBody().write(body);
+                }
+                exchange.close();
+            });
+
+            String url = CatalogTestSupport.loopbackUrl(server, "/page");
+            PluginCatalogHttpClient.FetchResult first = relaxed.fetch(url, 1024, null);
+            PluginCatalogHttpClient.FetchResult second = relaxed.fetch(url, 1024, first.etag());
+
+            assertThat(first.bytes()).isEqualTo("page".getBytes(StandardCharsets.UTF_8));
+            assertThat(second.statusCode()).isEqualTo(304);
+            assertThat(second.bytes()).isEmpty();
+            assertThat(seen.get()).isEqualTo("\"v1\"");
         }
 
         @Test

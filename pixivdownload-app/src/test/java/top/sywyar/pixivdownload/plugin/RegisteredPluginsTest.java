@@ -89,6 +89,12 @@ class RegisteredPluginsTest {
             // locale 解析在本切片里一律 mock 兜底。
             .withBean(top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry.class))
+            .withBean(top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogTrustStateStore.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogTrustStateStore.class))
+            .withBean(top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationService.class))
+            .withBean(top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryImportService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryImportService.class))
             .withBean(top.sywyar.pixivdownload.plugin.catalog.PluginCatalogService.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.catalog.PluginCatalogService.class))
             .withBean(top.sywyar.pixivdownload.plugin.catalog.PluginCatalogAcquisitionService.class,

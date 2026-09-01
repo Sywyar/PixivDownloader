@@ -24,6 +24,9 @@ public enum RepositoryProxyPolicy {
     /** 经应用全局代理拉取 + 按内置主机白名单跟随至多五跳重定向，仅对用户显式信任的仓库开放（如内嵌官方仓库）。 */
     PROXY_TRUSTED("proxy-trusted"),
 
+    /** 描述符 GITHUB_RELEASES：仅 GitHub-owned 主机，经全局代理，最多一跳受限重定向。 */
+    GITHUB_RELEASES("github-releases"),
+
     /** 自定义网络约束；具体开关取自仓库条目。 */
     CUSTOM("custom");
 

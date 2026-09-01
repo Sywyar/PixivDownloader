@@ -8,6 +8,7 @@ import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogPackage;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.plugin.install.PluginDependencyProblem;
 import top.sywyar.pixivdownload.plugin.install.PluginDependencyInstallResult;
@@ -15,6 +16,7 @@ import top.sywyar.pixivdownload.plugin.install.PluginDependencyResolver;
 import top.sywyar.pixivdownload.plugin.install.PluginInstallReport;
 import top.sywyar.pixivdownload.plugin.install.PluginInstallService;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
+import top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationService;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService.PluginDependencyView;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
@@ -49,15 +51,26 @@ public class PluginCatalogAcquisitionService {
     private final PluginPackageDownloader downloader;
     private final PluginInstallService installService;
     private final PluginDependencyResolver dependencyResolver;
+    private final PluginCatalogRevocationService revocations;
+
+    @Autowired
+    public PluginCatalogAcquisitionService(PluginCatalogService catalogService,
+                                           PluginPackageDownloader downloader,
+                                           PluginInstallService installService,
+                                           PluginDependencyResolver dependencyResolver,
+                                           PluginCatalogRevocationService revocations) {
+        this.catalogService = catalogService;
+        this.downloader = downloader;
+        this.installService = installService;
+        this.dependencyResolver = dependencyResolver;
+        this.revocations = revocations;
+    }
 
     public PluginCatalogAcquisitionService(PluginCatalogService catalogService,
                                            PluginPackageDownloader downloader,
                                            PluginInstallService installService,
                                            PluginDependencyResolver dependencyResolver) {
-        this.catalogService = catalogService;
-        this.downloader = downloader;
-        this.installService = installService;
-        this.dependencyResolver = dependencyResolver;
+        this(catalogService, downloader, installService, dependencyResolver, null);
     }
 
     /** catalog 是否启用（供 GET 端点未启用短路、返回 disabled 视图而非错误）。 */
@@ -76,8 +89,10 @@ public class PluginCatalogAcquisitionService {
      * 不兼容、Zip Slip 等）由 {@link PluginInstallReport} 承载（复用本地安装的结果模型）。
      */
     public PluginInstallReport install(String pluginId, String version) {
-        PluginCatalogService.ResolvedCatalog catalog = catalogService.loadResolvedDefault();
-        return installFrom(catalog.repository(), catalog.manifest(), pluginId, version);
+        PluginCatalogService.ResolvedPackage resolved = catalogService.resolveDefaultPackage(pluginId, version);
+        PluginCatalogManifest manifest = resolved.repository().pagedCatalog()
+                ? null : catalogService.load(resolved.repository().repositoryId());
+        return installFrom(resolved.repository(), manifest, pluginId, version);
     }
 
     /**
@@ -87,8 +102,10 @@ public class PluginCatalogAcquisitionService {
      * 版本缺失 / URL 不安全 / 阻断地址 / 超限 / 下载失败 → 对应稳定码；下载成功后的安装结局由 {@link PluginInstallReport} 承载。
      */
     public PluginInstallReport install(String repositoryId, String pluginId, String version) {
-        PluginCatalogService.ResolvedCatalog catalog = catalogService.loadResolved(repositoryId);
-        return installFrom(catalog.repository(), catalog.manifest(), pluginId, version);
+        PluginCatalogService.ResolvedPackage resolved = catalogService.resolvePackage(repositoryId, pluginId, version);
+        PluginCatalogManifest manifest = resolved.repository().pagedCatalog()
+                ? null : catalogService.load(repositoryId);
+        return installFrom(resolved.repository(), manifest, pluginId, version);
     }
 
     /**
@@ -115,12 +132,9 @@ public class PluginCatalogAcquisitionService {
             return dependencyRejected(pluginId, version, List.of(dependency),
                     List.of(PluginDependencyProblem.cycle(dependency, cyclePath(stack, pluginId))), List.of());
         }
-        PluginCatalogEntry entry = manifest.findEntry(pluginId).orElseThrow(() ->
-                new PluginCatalogException(PluginCatalogErrorCode.UNKNOWN_PLUGIN, pluginId, version,
-                        "plugin not found in catalog: " + pluginId));
-        PluginCatalogPackage pkg = entry.findPackage(version).orElseThrow(() ->
-                new PluginCatalogException(PluginCatalogErrorCode.VERSION_NOT_FOUND, pluginId, version,
-                        "version not found in catalog: " + pluginId + " " + version));
+        PluginCatalogService.ResolvedPackage selected = catalogService.resolvePackage(
+                repository.repositoryId(), pluginId, version);
+        PluginCatalogPackage pkg = selected.pkg();
 
         stack.addLast(pluginId);
         try {
@@ -133,7 +147,7 @@ public class PluginCatalogAcquisitionService {
 
             Set<String> descriptorAttempts = new HashSet<>();
             while (true) {
-                PluginInstallReport installed = downloadAndInstall(repository, pkg);
+                PluginInstallReport installed = downloadAndInstall(repository, pluginId, version);
                 if (installed.outcome() != PluginInstallOutcome.REJECTED_DEPENDENCY
                         || installed.dependencyProblems().isEmpty()) {
                     return installed;
@@ -177,7 +191,9 @@ public class PluginCatalogAcquisitionService {
                 }
                 continue;
             }
-            Optional<PluginCatalogEntry> dependencyEntry = manifest.findEntry(dependency.pluginId());
+            Optional<PluginCatalogEntry> dependencyEntry = manifest != null
+                    ? manifest.findEntry(dependency.pluginId())
+                    : optionalEntry(repository.repositoryId(), dependency.pluginId());
             if (dependencyEntry.isEmpty()) {
                 if (authoritative) {
                     problems.add(PluginDependencyProblem.catalogMissing(dependency));
@@ -228,17 +244,31 @@ public class PluginCatalogAcquisitionService {
         return dependencyRejected(pluginId, version, dependencies, problems, diagnostics);
     }
 
-    private PluginInstallReport downloadAndInstall(PluginRepository repository, PluginCatalogPackage pkg) {
+    private PluginInstallReport downloadAndInstall(PluginRepository repository, String pluginId, String version) {
+
+        PluginCatalogPackage pkg = catalogService.resolvePackage(repository.repositoryId(), pluginId, version).pkg();
+        if (revocations != null) revocations.requireInstallAllowed(repository, pluginId, pkg);
 
         // throws PROXY_POLICY_UNSUPPORTED / INSECURE_URL / BLOCKED_ADDRESS / TOO_LARGE / FAILED / INVALID
         Path temp = downloader.downloadToTemp(repository, pkg);
         try {
             PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog(
                     repository.repositoryId(), repository.official(), pkg.expectedSizeBytes(), pkg.sha256(),
-                    pkg.signature());
+                    pkg.signature(), pluginId, version,
+                    repository.pagedCatalog() ? (pkg.requiredSdk() != null ? pkg.requiredSdk() : "*") : null,
+                    repository.pagedCatalog() ? pkg.dependencies() : null);
             return installService.installTrustedFile(temp, false, origin);
         } finally {
             deleteQuietly(temp);
+        }
+    }
+
+    private Optional<PluginCatalogEntry> optionalEntry(String repositoryId, String pluginId) {
+        try {
+            return Optional.of(catalogService.loadEntry(repositoryId, pluginId));
+        } catch (PluginCatalogException failure) {
+            if (failure.code() == PluginCatalogErrorCode.UNKNOWN_PLUGIN) return Optional.empty();
+            throw failure;
         }
     }
 

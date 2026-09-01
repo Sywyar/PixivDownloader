@@ -3,7 +3,9 @@ package top.sywyar.pixivdownload.plugin.runtime.install;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactScanner;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginArtifactVerificationService;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
@@ -20,6 +22,7 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -1503,6 +1506,12 @@ public class ExternalPluginInstaller implements AutoCloseable {
         }
         PluginDescriptor descriptor = inspection.descriptor();
 
+        List<String> catalogMismatches = catalogDescriptorMismatches(origin, descriptor);
+        if (!catalogMismatches.isEmpty()) {
+            return new PluginInstallResult(PluginInstallOutcome.REJECTED_INTEGRITY, descriptor, null, null,
+                    catalogMismatches);
+        }
+
         if (origin.signature() != null && inspection.innerJarEntry() != null) {
             return rejected(PluginInstallOutcome.REJECTED_INTEGRITY,
                     "signed package must be the artifact loaded by the runtime");
@@ -2702,6 +2711,48 @@ public class ExternalPluginInstaller implements AutoCloseable {
     }
 
     private record CleanupEntry(Path path, CleanupIdentity identity, boolean directory) {
+    }
+
+    private static List<String> catalogDescriptorMismatches(PluginPackageOrigin origin,
+                                                            PluginDescriptor descriptor) {
+        if (origin == null || origin.source() != PluginPackageSource.MARKET_CATALOG) return List.of();
+        List<String> errors = new ArrayList<>();
+        if (origin.expectedPluginId() != null && !origin.expectedPluginId().equals(descriptor.id())) {
+            errors.add("catalog plugin id does not match the frozen package descriptor");
+        }
+        if (origin.expectedVersion() != null && !origin.expectedVersion().equals(descriptor.version())) {
+            errors.add("catalog version does not match the frozen package descriptor");
+        }
+        if (origin.expectedRequiredSdk() != null && !requirementBinding(
+                VersionRequirement.parse(origin.expectedRequiredSdk())).equals(requirementBinding(descriptor.requires()))) {
+            errors.add("catalog SDK requirement does not match the frozen package descriptor");
+        }
+        if (origin.expectedDependencies() != null
+                && !dependencyBindings(origin.expectedDependencies()).equals(
+                descriptorDependencyBindings(descriptor.dependencies()))) {
+            errors.add("catalog dependencies do not match the frozen package descriptor");
+        }
+        return List.copyOf(errors);
+    }
+
+    private static Set<String> dependencyBindings(List<String> dependencies) {
+        List<PluginDependencyRef> parsed = new ArrayList<>();
+        dependencies.forEach(raw -> parsed.addAll(PluginDependencyRef.parseList(raw)));
+        return descriptorDependencyBindings(parsed);
+    }
+
+    private static Set<String> descriptorDependencyBindings(List<PluginDependencyRef> dependencies) {
+        Set<String> bindings = new HashSet<>();
+        for (PluginDependencyRef dependency : dependencies) {
+            bindings.add(dependency.pluginId() + '|' + requirementBinding(dependency.requirement())
+                    + '|' + dependency.optional());
+        }
+        return bindings;
+    }
+
+    private static String requirementBinding(VersionRequirement requirement) {
+        return requirement.present() + ":" + requirement.valid() + ":"
+                + requirement.major() + ":" + requirement.minor();
     }
 
     private static PluginInstallOutcome mapReason(PluginPackageException.Reason reason) {

@@ -103,7 +103,8 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override public boolean validMaintenanceTime(String value){return top.sywyar.pixivdownload.maintenance.MaintenanceProperties.parseTime(value).isPresent();}
     @Override public java.util.Set<String> reservedPluginRepositoryIds(){
         return java.util.Set.of(top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository.OFFICIAL_ID,
-                top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository.LEGACY_CONFIGURED_ID);
+                top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository.LEGACY_CONFIGURED_ID,
+                top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository.COMMUNITY_ID);
     }
     @Override public java.util.Set<String> validatedConfigKeys(java.util.Collection<String> keys)throws java.io.IOException{
         return top.sywyar.pixivdownload.gui.config.ConfigFileEditor.validatedKeySet(keys);

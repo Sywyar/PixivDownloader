@@ -4,6 +4,7 @@ import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.VerificationPolicy;
 
 import java.util.Objects;
+import java.util.List;
 
 /**
  * 一个待安装插件包的来源描述：来源类别 + 该来源声明的可选完整性期望（期望大小 / SHA-256 / 结构化签名）。安装器据来源决定
@@ -20,6 +21,10 @@ import java.util.Objects;
  * @param repositoryId      来源仓库 id（本地上传为 {@code null}）
  * @param officialRepository 是否官方仓库来源
  * @param signature          受信清单声明的结构化签名元数据
+ * @param expectedPluginId   受信目录声明的插件 id（旧来源记录可空）
+ * @param expectedVersion    受信目录声明的插件版本（旧来源记录可空）
+ * @param expectedRequiredSdk 受信目录声明的 SDK 约束（未提供展示字段时可空）
+ * @param expectedDependencies 受信目录声明的依赖（旧来源记录可空，空列表表示明确无依赖）
  */
 public record PluginPackageOrigin(
         PluginPackageSource source,
@@ -27,28 +32,44 @@ public record PluginPackageOrigin(
         boolean officialRepository,
         Long expectedSizeBytes,
         String expectedSha256,
-        SignatureMetadata signature) {
+        SignatureMetadata signature,
+        String expectedPluginId,
+        String expectedVersion,
+        String expectedRequiredSdk,
+        List<String> expectedDependencies) {
 
     public PluginPackageOrigin {
         Objects.requireNonNull(source, "source");
         if (source == PluginPackageSource.LOCAL_UPLOAD
                 && (expectedSizeBytes != null || hasText(expectedSha256)
-                || hasText(repositoryId) || officialRepository)) {
+                || hasText(repositoryId) || officialRepository || hasText(expectedPluginId)
+                || hasText(expectedVersion) || hasText(expectedRequiredSdk) || expectedDependencies != null)) {
             throw new IllegalArgumentException("LOCAL_UPLOAD must not carry catalog source bindings");
         }
         repositoryId = trimToNull(repositoryId);
         expectedSha256 = trimToNull(expectedSha256);
+        expectedPluginId = trimToNull(expectedPluginId);
+        expectedVersion = trimToNull(expectedVersion);
+        expectedRequiredSdk = trimToNull(expectedRequiredSdk);
+        expectedDependencies = expectedDependencies != null ? List.copyOf(expectedDependencies) : null;
+    }
+
+    public PluginPackageOrigin(PluginPackageSource source, String repositoryId, boolean officialRepository,
+                               Long expectedSizeBytes, String expectedSha256, SignatureMetadata signature) {
+        this(source, repositoryId, officialRepository, expectedSizeBytes, expectedSha256, signature,
+                null, null, null, null);
     }
 
     /** 开发模式允许的未签名本地上传来源。 */
     public static PluginPackageOrigin localUpload() {
-        return new PluginPackageOrigin(PluginPackageSource.LOCAL_UPLOAD, null, false, null, null, null);
+        return new PluginPackageOrigin(PluginPackageSource.LOCAL_UPLOAD, null, false, null, null, null,
+                null, null, null, null);
     }
 
     /** 带 detached 签名的本地上传来源；验签策略只接受宿主官方信任根。 */
     public static PluginPackageOrigin localUpload(SignatureMetadata signature) {
         return new PluginPackageOrigin(PluginPackageSource.LOCAL_UPLOAD, null, false, null, null,
-                Objects.requireNonNull(signature, "signature"));
+                Objects.requireNonNull(signature, "signature"), null, null, null, null);
     }
 
     /**
@@ -59,7 +80,17 @@ public record PluginPackageOrigin(
                                                         Long expectedSizeBytes, String expectedSha256,
                                                         SignatureMetadata signature) {
         return new PluginPackageOrigin(PluginPackageSource.MARKET_CATALOG, repositoryId, officialRepository,
-                expectedSizeBytes, expectedSha256, signature);
+                expectedSizeBytes, expectedSha256, signature, null, null, null, null);
+    }
+
+    public static PluginPackageOrigin forTrustedCatalog(String repositoryId, boolean officialRepository,
+                                                        Long expectedSizeBytes, String expectedSha256,
+                                                        SignatureMetadata signature, String expectedPluginId,
+                                                        String expectedVersion, String expectedRequiredSdk,
+                                                        List<String> expectedDependencies) {
+        return new PluginPackageOrigin(PluginPackageSource.MARKET_CATALOG, repositoryId, officialRepository,
+                expectedSizeBytes, expectedSha256, signature, expectedPluginId, expectedVersion,
+                expectedRequiredSdk, expectedDependencies);
     }
 
     /** 是否带至少一项完整性期望。 */

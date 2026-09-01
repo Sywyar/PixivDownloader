@@ -15,6 +15,8 @@ import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
 import top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector;
 import top.sywyar.pixivdownload.plugin.verification.PluginVerificationView;
+import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryImportService;
+import top.sywyar.pixivdownload.plugin.catalog.repository.RepositoryTrustResult;
 
 import java.util.List;
 import java.util.Locale;
@@ -39,6 +41,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class PluginMarketControllerTest {
 
     private PluginMarketService marketService;
+    private PluginRepositoryImportService repositoryImportService;
     private MockMvc mockMvc;
 
     @BeforeEach
@@ -50,9 +53,30 @@ class PluginMarketControllerTest {
         when(messages.getOrDefault(any(Locale.class), anyString(), anyString()))
                 .thenAnswer(inv -> "localized:" + inv.getArgument(1));
         PluginInstallResponseMapper mapper = new PluginInstallResponseMapper(messages, localeResolver);
+        repositoryImportService = mock(PluginRepositoryImportService.class);
         mockMvc = MockMvcBuilders
-                .standaloneSetup(new PluginMarketController(marketService, mapper, messages, localeResolver))
+                .standaloneSetup(new PluginMarketController(
+                        marketService, mapper, messages, localeResolver, repositoryImportService))
                 .build();
+    }
+
+    @Test
+    @DisplayName("信任仓库接口只接受描述符地址、摘要与显式确认")
+    void trustRepositoryUsesOnlyDescriptorUrlDigestAndExplicitConfirmation() throws Exception {
+        when(repositoryImportService.trust("https://repo.example/repository.json", "a".repeat(64), true))
+                .thenReturn(new RepositoryTrustResult("sample.repo", "a".repeat(64), true, true, "SELF_TRUSTED"));
+
+        mockMvc.perform(post("/api/plugin-market/repositories/import/trust")
+                        .contentType("application/json")
+                        .content("""
+                                {"descriptorUrl":"https://repo.example/repository.json","expectedDescriptorSha256":"%s","trustConfirmed":true,"manifestUrl":"https://evil.example/x"}
+                                """.formatted("a".repeat(64))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.repositoryId").value("sample.repo"))
+                .andExpect(jsonPath("$.restartRequired").value(true));
+
+        verify(repositoryImportService).trust(
+                "https://repo.example/repository.json", "a".repeat(64), true);
     }
 
     @Test

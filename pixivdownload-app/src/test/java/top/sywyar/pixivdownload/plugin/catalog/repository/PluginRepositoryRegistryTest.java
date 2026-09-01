@@ -109,6 +109,23 @@ class PluginRepositoryRegistryTest {
     }
 
     @Test
+    @DisplayName("普通配置不能自行声明社区认证来源")
+    void configuredRepositoryCannotClaimCommunityTrust() {
+        PluginCatalogProperties.RepositoryConfig config =
+                repo("external", "https://external.example/m.json", true, null, 0, 0);
+        config.setTrustSource("COMMUNITY_LISTED");
+        config.setDirectorySequence(12L);
+        config.setDirectoryEntrySha256("a".repeat(64));
+
+        PluginRepository repository = new PluginRepositoryRegistry(propsWith(config))
+                .find("external").orElseThrow();
+
+        assertThat(repository.trustSource()).isEqualTo("SELF_TRUSTED");
+        assertThat(repository.directorySequence()).isNull();
+        assertThat(repository.directoryEntrySha256()).isNull();
+    }
+
+    @Test
     @DisplayName("自定义代理策略：四个网络开关映射到不可变仓库模型")
     void customNetworkPolicyOptions() {
         PluginCatalogProperties.RepositoryConfig config =
@@ -170,6 +187,8 @@ class PluginRepositoryRegistryTest {
         assertThatThrownBy(() -> new PluginRepositoryRegistry(propsWith(repo("official", "https://x/m.json", true, null, 0, 0))))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("reserved");
         assertThatThrownBy(() -> new PluginRepositoryRegistry(propsWith(repo("configured", "https://x/m.json", true, null, 0, 0))))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("reserved");
+        assertThatThrownBy(() -> new PluginRepositoryRegistry(propsWith(repo("community", "https://x/m.json", true, null, 0, 0))))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("reserved");
         assertThatThrownBy(() -> new PluginRepositoryRegistry(propsWith(
                 repo("dup", "https://x/m.json", true, null, 0, 0),

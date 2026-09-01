@@ -294,6 +294,13 @@ class RuntimeFilesTest {
     }
 
     @Test
+    @DisplayName("插件目录信任状态文件应落在 state 目录")
+    void shouldResolvePluginCatalogTrustStateUnderStateDirectory() {
+        assertThat(RuntimeFiles.resolvePluginCatalogTrustStatePath())
+                .isEqualTo(stateDir.resolve(RuntimeFiles.PLUGIN_CATALOG_TRUST_STATE_FILE));
+    }
+
+    @Test
     @DisplayName("插件自有配置路径应落在 config/plugins 下并创建目录")
     void shouldResolvePluginConfigPathUnderConfigPlugins() {
         Path resolved = RuntimeFiles.resolvePluginConfigPath("douyin", "properties");

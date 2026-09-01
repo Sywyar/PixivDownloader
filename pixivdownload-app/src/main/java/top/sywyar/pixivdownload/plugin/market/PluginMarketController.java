@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
@@ -16,7 +17,12 @@ import top.sywyar.pixivdownload.plugin.install.PluginInstallResponse;
 import top.sywyar.pixivdownload.plugin.install.PluginInstallResponseMapper;
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorResponse;
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException;
+import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
+import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryImportService;
+import top.sywyar.pixivdownload.plugin.catalog.repository.RepositoryImportPreview;
+import top.sywyar.pixivdownload.plugin.catalog.repository.RepositoryTrustResult;
+import top.sywyar.pixivdownload.plugin.catalog.page.PluginCatalogPageQuery;
 
 /**
  * 插件市场后端 API（admin-only）：浏览服务端配置的受信仓库列表与其 catalog，并按 {@code repositoryId} + {@code pluginId}
@@ -46,14 +52,17 @@ public class PluginMarketController {
     private final PluginInstallResponseMapper installResponseMapper;
     private final AppMessages messages;
     private final AppLocaleResolver localeResolver;
+    private final PluginRepositoryImportService repositoryImportService;
 
     public PluginMarketController(PluginMarketService marketService,
                                   PluginInstallResponseMapper installResponseMapper,
-                                  AppMessages messages, AppLocaleResolver localeResolver) {
+                                  AppMessages messages, AppLocaleResolver localeResolver,
+                                  PluginRepositoryImportService repositoryImportService) {
         this.marketService = marketService;
         this.installResponseMapper = installResponseMapper;
         this.messages = messages;
         this.localeResolver = localeResolver;
+        this.repositoryImportService = repositoryImportService;
     }
 
     /** 仓库列表 + 主开关状态 + SDK 版本 + 默认仓库 id（主开关关闭也返回仓库列表）。 */
@@ -62,20 +71,58 @@ public class PluginMarketController {
         return marketService.repositories();
     }
 
+    /** 只读拉取并展示 repository.json 的全部信任事实，不修改配置。 */
+    @PostMapping("/repositories/import/preview")
+    public RepositoryImportPreview previewRepository(@RequestBody RepositoryPreviewRequest request) {
+        return repositoryImportService.preview(request != null ? request.descriptorUrl() : null);
+    }
+
+    /** 二次拉取相同 URL、比较预览摘要后，才把描述符事实写入配置。 */
+    @PostMapping("/repositories/import/trust")
+    public RepositoryTrustResult trustRepository(@RequestBody RepositoryTrustRequest request) {
+        if (request == null) {
+            return repositoryImportService.trust(null, null, false);
+        }
+        return repositoryImportService.trust(request.descriptorUrl(), request.expectedDescriptorSha256(),
+                request.trustConfirmed());
+    }
+
     /**
      * 指定仓库（{@code repositoryId} 缺省取默认）的 catalog 摘要 + 分类计数。<b>{@code repositoryId} 只能引用服务端已配置
      * 仓库</b>（未知 → {@code UNKNOWN_REPOSITORY}），绝不接受任意 URL。主开关关闭 → 200 + {@code enabled=false} + 空。
      */
     @GetMapping("/catalog")
-    public PluginMarketView catalog(@RequestParam(name = "repositoryId", required = false) String repositoryId) {
-        return marketService.catalog(repositoryId);
+    public PluginMarketView catalog(@RequestParam(name = "repositoryId", required = false) String repositoryId,
+                                    @RequestParam(name = "cursor", required = false) String cursor,
+                                    @RequestParam(name = "limit", defaultValue = "24") int limit,
+                                    @RequestParam(name = "query", required = false) String query,
+                                    @RequestParam(name = "category", required = false) String category,
+                                    @RequestParam(name = "publisher", required = false) String publisher,
+                                    @RequestParam(name = "channel", required = false) String channel) {
+        try {
+            if (cursor == null && limit == 24 && query == null && category == null
+                    && publisher == null && channel == null) {
+                return marketService.catalog(repositoryId);
+            }
+            return marketService.catalog(repositoryId,
+                    new PluginCatalogPageQuery(cursor, limit, query, category, publisher, channel));
+        } catch (IllegalArgumentException failure) {
+            throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE, failure.getMessage());
+        }
     }
 
     /** 指定仓库 + 插件 id 的详情 + 版本历史。{@code repositoryId} 只能引用已配置仓库；未知插件 → {@code UNKNOWN_PLUGIN}。 */
     @GetMapping("/plugins/{repositoryId}/{pluginId}")
     public PluginMarketEntryView pluginDetail(@PathVariable String repositoryId,
-                                              @PathVariable String pluginId) {
-        return marketService.pluginDetail(repositoryId, pluginId);
+                                              @PathVariable String pluginId,
+                                              @RequestParam(name = "cursor", required = false) String cursor,
+                                              @RequestParam(name = "limit", defaultValue = "24") int limit) {
+        try {
+            if (cursor == null && limit == 24) return marketService.pluginDetail(repositoryId, pluginId);
+            return marketService.pluginDetail(repositoryId, pluginId, cursor, limit);
+        } catch (IllegalArgumentException failure) {
+            throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE, failure.getMessage());
+        }
     }
 
     /**
@@ -106,4 +153,9 @@ public class PluginMarketController {
                 ex.dependencyInstallResults());
         return ResponseEntity.status(ex.status()).body(body);
     }
+
+    public record RepositoryPreviewRequest(String descriptorUrl) { }
+
+    public record RepositoryTrustRequest(String descriptorUrl, String expectedDescriptorSha256,
+                                         boolean trustConfirmed) { }
 }

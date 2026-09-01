@@ -11,6 +11,7 @@ import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.config.credential.PluginCredentialPropertySourceService;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogProperties;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
+import top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogTrustStateStore;
 import top.sywyar.pixivdownload.plugin.PluginRuntimeConfiguration;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
@@ -215,7 +216,8 @@ class PluginBootstrapHandoffTest {
     /** 注册聚焦 handoff 测试所需的最小运行时配置 Bean。 */
     private static void registerRuntimeConfig(AnnotationConfigApplicationContext ctx) {
         ctx.register(PluginRuntimeConfiguration.class, PluginToggleProperties.class,
-                PluginCatalogProperties.class, PluginRepositoryRegistry.class);
+                PluginCatalogProperties.class, PluginRepositoryRegistry.class,
+                PluginCatalogTrustStateStore.class);
         ctx.registerBean(
                 PluginCredentialPropertySourceService.class,
                 () -> mock(PluginCredentialPropertySourceService.class));

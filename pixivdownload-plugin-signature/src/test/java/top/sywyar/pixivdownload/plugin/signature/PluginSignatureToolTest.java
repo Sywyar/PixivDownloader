@@ -97,6 +97,45 @@ class PluginSignatureToolTest {
                 "--trusted-label", "CLI Test Root",
                 "--trusted-official", "false"
         });
+
+        verifySignedDocument(pair, keyId, privateKey, verifier,
+                "repository-update", "verify-repository-update", true);
+        verifySignedDocument(pair, keyId, privateKey, verifier,
+                "plugin-revocations", "verify-plugin-revocations", false);
+    }
+
+    private void verifySignedDocument(KeyPair pair, String keyId, Path privateKey,
+                                      PluginSupplyChainVerifier verifier, String signCommand,
+                                      String verifyCommand, boolean repositoryUpdate) throws Exception {
+        Path document = tempDir.resolve(signCommand + ".json");
+        Files.writeString(document, "{\"schemaVersion\":1,\"repositoryId\":\"repo\",\"sequence\":2}");
+        Path signature = tempDir.resolve(signCommand + ".json.sig");
+        PluginSignatureTool.main(new String[]{
+                signCommand,
+                "--document", document.toString(),
+                "--repository-id", "repo",
+                "--sequence", "2",
+                "--key-id", keyId,
+                "--private-key", privateKey.toString(),
+                "--out", signature.toString()
+        });
+        SignatureMetadata metadata = readMetadata(signature);
+        VerificationResult result = repositoryUpdate
+                ? verifier.verifyRepositoryUpdate(new RepositoryUpdateVerificationRequest(
+                Files.readAllBytes(document), "repo", 2L, metadata, VerificationPolicy.customRepository()))
+                : verifier.verifyPluginRevocations(new PluginRevocationsVerificationRequest(
+                Files.readAllBytes(document), "repo", 2L, metadata, VerificationPolicy.customRepository()));
+        assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+        PluginSignatureTool.main(new String[]{
+                verifyCommand,
+                "--document", document.toString(),
+                "--signature", signature.toString(),
+                "--repository-id", "repo",
+                "--sequence", "2",
+                "--policy", "custom",
+                "--trusted-key-id", keyId,
+                "--trusted-public-key", Base64.getEncoder().encodeToString(pair.getPublic().getEncoded())
+        });
     }
 
     @Test

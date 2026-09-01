@@ -48,10 +48,42 @@ public record PluginRepository(
         long readTimeoutMs,
         long maxManifestBytes,
         long maxPackageBytes,
-        List<TrustedPluginKey> trustedKeys) {
+        List<TrustedPluginKey> trustedKeys,
+        String descriptorUrl,
+        String descriptorSha256,
+        String displayName,
+        String publisherId,
+        String publisherDisplayName,
+        String catalogProtocol,
+        String catalogEndpoint,
+        String revocationsUrl,
+        String updateProofUrl,
+        String trustSource,
+        Long directorySequence,
+        String directoryEntrySha256) {
 
     public PluginRepository {
         trustedKeys = trustedKeys != null ? List.copyOf(trustedKeys) : List.of();
+        catalogProtocol = catalogProtocol == null || catalogProtocol.isBlank()
+                ? "manifest-v1" : catalogProtocol.trim();
+        catalogEndpoint = catalogEndpoint == null || catalogEndpoint.isBlank()
+                ? manifestUrl : catalogEndpoint.trim();
+        trustSource = trustSource == null || trustSource.isBlank()
+                ? (official ? "OFFICIAL" : "SELF_TRUSTED") : trustSource.trim();
+    }
+
+    /** 旧手工仓库构造兼容面；缺少描述符快照时保持 manifest-v1。 */
+    public PluginRepository(
+            String repositoryId, String displayNameKey, String manifestUrl, boolean enabled,
+            boolean official, boolean builtIn, RepositoryProxyPolicy proxyPolicy, String rawProxyPolicy,
+            boolean allowRedirects, boolean strictHttps, boolean allowNonPublicAddresses, boolean useProxy,
+            long connectTimeoutMs, long readTimeoutMs, long maxManifestBytes, long maxPackageBytes,
+            List<TrustedPluginKey> trustedKeys) {
+        this(repositoryId, displayNameKey, manifestUrl, enabled, official, builtIn, proxyPolicy, rawProxyPolicy,
+                allowRedirects, strictHttps, allowNonPublicAddresses, useProxy, connectTimeoutMs, readTimeoutMs,
+                maxManifestBytes, maxPackageBytes, trustedKeys, null, null, null, null, null,
+                "manifest-v1", manifestUrl, null, null, official ? "OFFICIAL" : "SELF_TRUSTED",
+                null, null);
     }
 
     /** 内嵌官方默认仓库的稳定 id。 */
@@ -71,6 +103,9 @@ public record PluginRepository(
     /** 由旧版单一 {@code manifest-url} 折出的兼容仓库 id（见 {@link PluginRepositoryRegistry}）。 */
     public static final String LEGACY_CONFIGURED_ID = "configured";
 
+    /** 官方社区目录保留 id；认证目录实现前不得由普通配置占用。 */
+    public static final String COMMUNITY_ID = "community";
+
     /** 兼容仓库展示名 i18n key。 */
     public static final String LEGACY_DISPLAY_NAME_KEY = "plugin.market.repository.configured.name";
 
@@ -88,7 +123,10 @@ public record PluginRepository(
                 enabled, true, true, RepositoryProxyPolicy.PROXY_TRUSTED, RepositoryProxyPolicy.PROXY_TRUSTED.configId(),
                 false, true, false, false,
                 connectTimeoutMs, readTimeoutMs, maxManifestBytes, maxPackageBytes,
-                List.of(PluginTrustStores.builtInOfficialPluginRoot()));
+                List.of(PluginTrustStores.builtInOfficialPluginRoot()),
+                null, null, null, "pixivdownloader", "PixivDownloader",
+                "manifest-v1", officialManifestUrl(AppVersion.getDisplayVersionOrNull()),
+                null, null, "OFFICIAL", null, null);
     }
 
     static String officialManifestUrl(String appVersion) {
@@ -105,6 +143,15 @@ public record PluginRepository(
     public boolean isProxyPolicySupported() {
         return proxyPolicy == RepositoryProxyPolicy.DIRECT_STRICT
                 || proxyPolicy == RepositoryProxyPolicy.PROXY_TRUSTED
+                || proxyPolicy == RepositoryProxyPolicy.GITHUB_RELEASES
                 || proxyPolicy == RepositoryProxyPolicy.CUSTOM;
+    }
+
+    public boolean pagedCatalog() {
+        return "paged-v2".equals(catalogProtocol);
+    }
+
+    public boolean revocationsRequired() {
+        return revocationsUrl != null && !revocationsUrl.isBlank();
     }
 }

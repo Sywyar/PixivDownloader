@@ -82,6 +82,38 @@ public final class PluginSupplyChainVerifier {
                 null);
     }
 
+    public VerificationResult verifyRepositoryUpdate(RepositoryUpdateVerificationRequest request) {
+        Objects.requireNonNull(request, "request");
+        return verifySignedDocument(request.documentBytes(), request.repositoryId(), request.sequence(),
+                request.signature(), request.policy(), true);
+    }
+
+    public VerificationResult verifyPluginRevocations(PluginRevocationsVerificationRequest request) {
+        Objects.requireNonNull(request, "request");
+        return verifySignedDocument(request.documentBytes(), request.repositoryId(), request.sequence(),
+                request.signature(), request.policy(), false);
+    }
+
+    private VerificationResult verifySignedDocument(byte[] bytes, String repositoryId, long sequence,
+                                                    SignatureMetadata signature, VerificationPolicy requestedPolicy,
+                                                    boolean repositoryUpdate) {
+        VerificationPolicy effectivePolicy = policy(requestedPolicy);
+        if (bytes == null) {
+            return fail(VerificationStatus.IO_ERROR, null, null, 0L, null, "DOCUMENT_MISSING");
+        }
+        byte[] sha256Bytes = Hashing.sha256(bytes);
+        String sha256Hex = Hashing.hex(sha256Bytes);
+        if (!hasText(repositoryId) || sequence <= 0L) {
+            return fail(VerificationStatus.IDENTITY_MISMATCH, null, signature, bytes.length, sha256Hex,
+                    "DOCUMENT_IDENTITY_INVALID");
+        }
+        return verifySignedEnvelope(signature, effectivePolicy, null, null, bytes.length, sha256Bytes, sha256Hex,
+                key -> repositoryUpdate
+                        ? EnvelopeV1Codec.repositoryUpdateMessage(repositoryId, sequence, bytes.length, sha256Bytes)
+                        : EnvelopeV1Codec.pluginRevocationsMessage(repositoryId, sequence, bytes.length, sha256Bytes),
+                null);
+    }
+
     private VerificationResult verifySignedEnvelope(SignatureMetadata metadata, VerificationPolicy policy,
                                                     String pluginId, String version, long size, byte[] sha256Bytes,
                                                     String sha256Hex, MessageFactory messageFactory,

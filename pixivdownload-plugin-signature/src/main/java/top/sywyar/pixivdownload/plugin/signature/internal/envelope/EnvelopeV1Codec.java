@@ -12,6 +12,8 @@ public final class EnvelopeV1Codec {
 
     private static final String ARTIFACT_DOMAIN = "PixivDownloader plugin artifact signature v1";
     private static final String MANIFEST_DOMAIN = "PixivDownloader plugin manifest signature v1";
+    private static final String REPOSITORY_UPDATE_DOMAIN = "pixivdownloader-repository-update-v1";
+    private static final String PLUGIN_REVOCATIONS_DOMAIN = "pixivdownloader-plugin-revocations-v1";
     private static final int FORMAT_VERSION = 1;
 
     private EnvelopeV1Codec() {
@@ -38,6 +40,29 @@ public final class EnvelopeV1Codec {
             writeString(out, MANIFEST_DOMAIN);
             out.writeInt(FORMAT_VERSION);
             writeString(out, repositoryId);
+            out.writeLong(rawLength);
+            out.write(sha256);
+        });
+    }
+
+    public static byte[] repositoryUpdateMessage(String repositoryId, long sequence,
+                                                 long rawLength, byte[] sha256) {
+        return signedDocumentMessage(REPOSITORY_UPDATE_DOMAIN, repositoryId, sequence, rawLength, sha256);
+    }
+
+    public static byte[] pluginRevocationsMessage(String repositoryId, long sequence,
+                                                  long rawLength, byte[] sha256) {
+        return signedDocumentMessage(PLUGIN_REVOCATIONS_DOMAIN, repositoryId, sequence, rawLength, sha256);
+    }
+
+    private static byte[] signedDocumentMessage(String domain, String repositoryId, long sequence,
+                                                long rawLength, byte[] sha256) {
+        requireSha256(sha256);
+        return write(out -> {
+            writeString(out, domain);
+            out.writeInt(FORMAT_VERSION);
+            writeString(out, repositoryId);
+            out.writeLong(sequence);
             out.writeLong(rawLength);
             out.write(sha256);
         });

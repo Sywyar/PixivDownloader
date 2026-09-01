@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.plugin.market;
 import top.sywyar.pixivdownload.sdk.SdkVersion;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * {@code GET /api/plugin-market/catalog} 响应：某个仓库的可安装条目摘要 + 派生的分类计数 + 当前SDK 版本。主开关关闭
@@ -23,15 +24,28 @@ public record PluginMarketView(
         String sdkVersion,
         int installedCount,
         List<PluginMarketCategoryCount> categories,
-        List<PluginMarketEntryView> entries) {
+        List<PluginMarketEntryView> entries,
+        String generation,
+        String nextCursor,
+        Long totalApproximate,
+        Map<String, Long> facets,
+        boolean stale) {
 
     public PluginMarketView {
         categories = categories != null ? List.copyOf(categories) : List.of();
         entries = entries != null ? List.copyOf(entries) : List.of();
+        facets = facets != null ? Map.copyOf(facets) : Map.of();
+    }
+
+    public PluginMarketView(String repositoryId, boolean enabled, String sdkVersion, int installedCount,
+                            List<PluginMarketCategoryCount> categories, List<PluginMarketEntryView> entries) {
+        this(repositoryId, enabled, sdkVersion, installedCount, categories, entries,
+                null, null, null, Map.of(), false);
     }
 
     /** 主开关关闭视图：enabled=false + 空分类 / 条目（仍带当前SDK 版本，供页面渲染兼容提示）。 */
     public static PluginMarketView disabled() {
-        return new PluginMarketView(null, false, SdkVersion.VERSION, 0, List.of(), List.of());
+        return new PluginMarketView(null, false, SdkVersion.VERSION, 0, List.of(), List.of(),
+                null, null, null, Map.of(), false);
     }
 }

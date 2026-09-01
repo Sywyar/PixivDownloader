@@ -461,6 +461,32 @@ class ExternalPluginInstallerTest {
         assertThat(pluginFiles()).isEmpty();
     }
 
+    @Test
+    @DisplayName("分页目录元数据与冻结包描述符不一致时拒绝且零落盘")
+    void trustedCatalogDescriptorBindingMismatchIsRejected() throws IOException {
+        Path src = exploded("ext", "1.0.0");
+        PluginSigningTestSupport signing = PluginSigningTestSupport.create();
+        PluginPackageOrigin signed = signing.originFor("test-repository", src, "ext", "1.0.0");
+        PluginPackageOrigin bound = PluginPackageOrigin.forTrustedCatalog(
+                signed.repositoryId(), false, signed.expectedSizeBytes(), signed.expectedSha256(), signed.signature(),
+                "different", "2.0.0", "99.0", List.of("missing@1.0"));
+        installer.close();
+        try (ExternalPluginInstaller signedInstaller = new ExternalPluginInstaller(
+                pluginsDir, PluginPackageLimits.defaults(), signing.verifier())) {
+            assertThat(signedInstaller.recoverPendingTransactions().safeToScan()).isTrue();
+
+            PluginInstallResult result = installFully(signedInstaller, src, false, bound);
+
+            assertThat(result.outcome()).isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
+            assertThat(result.messages()).containsExactly(
+                    "catalog plugin id does not match the frozen package descriptor",
+                    "catalog version does not match the frozen package descriptor",
+                    "catalog SDK requirement does not match the frozen package descriptor",
+                    "catalog dependencies do not match the frozen package descriptor");
+            assertThat(signedInstaller.listInstalled()).isEmpty();
+        }
+    }
+
     // ---------- 管理快照原子性与 provenance 累计预算 ----------
 
     @Test

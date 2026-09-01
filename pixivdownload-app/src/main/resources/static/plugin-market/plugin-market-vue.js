@@ -60,7 +60,7 @@
 '              :class="{active: repo.repositoryId === activeRepositoryId}" :disabled="!repo.enabled"',
 '              :title="repoTitle(repo)" @click="switchRepository(repo)">',
 '        <i class="fa-solid" :class="repo.official ? \'fa-circle-check\' : \'fa-folder\'"></i>',
-'        <span class="pmk-repo-chip-name">{{ repo.repositoryId }}</span>',
+'        <span class="pmk-repo-chip-name">{{ repo.displayName || repo.repositoryId }}</span>',
 '        <span v-if="repo.repositoryId === activeRepositoryId" class="pmk-repo-chip-meta">{{ t(\'repo.active\', \'当前\') }}</span>',
 '        <span v-else-if="!repo.enabled" class="pmk-repo-chip-meta">{{ t(\'repo.disabled\', \'已禁用\') }}</span>',
 '        <span v-else-if="!repo.proxyPolicySupported" class="pmk-repo-chip-meta">{{ t(\'repo.proxy.unsupported\', \'代理不支持\') }}</span>',
@@ -146,7 +146,7 @@
 '                  <div class="pmk-card-name-row">',
 '                    <span class="pmk-card-name" @click="openDetail(card.pluginId)">{{ card.name }}</span>',
 '                    <span v-if="card.official" class="pmk-badge pmk-badge--official">{{ t(\'badge.official\', \'官方\') }}</span>',
-'                    <span v-else class="pmk-badge pmk-badge--community">{{ t(\'badge.community\', \'社区\') }}</span>',
+'                    <span v-else class="pmk-badge pmk-badge--community">{{ t(\'badge.publisher-signed\', \'发布者签名\') }}</span>',
 '                    <span v-if="card.recommended" class="pmk-badge pmk-badge--recommended">{{ t(\'badge.recommended\', \'推荐\') }}</span>',
 '                    <span v-if="showCardVerification(card)" class="pmk-verification-badge" :class="\'pmk-verification-badge--\' + card.verificationBadge.tone" :title="card.verificationBadge.title || null"><i class="fa-solid" :class="card.verificationBadge.icon"></i><span>{{ t(card.verificationBadge.labelKey, card.verificationBadge.status) }}</span></span>',
 '                  </div>',
@@ -186,7 +186,8 @@
 '            </div>',
 '          </article>',
 '        </div>',
-'        <div v-else class="pmk-empty">',
+'        <div v-if="catalog && catalog.nextCursor" class="pmk-load-more"><button class="pmk-btn pmk-btn--gray" :disabled="loadingMore" @click="loadMore"><i class="fa-solid" :class="loadingMore ? \'fa-spinner fa-spin\' : \'fa-chevron-down\'"></i><span>{{ t(\'pagination.more\', \'加载更多\') }}</span></button></div>',
+'        <div v-if="!cards.length" class="pmk-empty">',
 '          <i class="fa-solid fa-store-slash"></i>',
 '          <div class="pmk-empty-title">{{ t(\'empty.title\', \'没有匹配的插件\') }}</div>',
 '          <div class="pmk-empty-hint">{{ t(\'empty.hint\', \'试试切换分类、关闭筛选，或更换搜索关键词。\') }}</div>',
@@ -205,7 +206,7 @@
 '        <button class="pmk-hero-close" :aria-label="t(\'modal.close\', \'关闭\')" @click="closeDetail"><i class="fa-solid fa-xmark"></i></button>',
 '        <span class="pmk-hero-icon"><i :class="detail.iconClass"></i></span>',
 '        <div class="pmk-hero-titleblock">',
-'          <div class="pmk-hero-name"><span>{{ detail.name }}</span><span class="pmk-hero-pill">{{ detail.official ? t(\'badge.official\', \'官方\') : t(\'badge.community\', \'社区\') }}</span></div>',
+'          <div class="pmk-hero-name"><span>{{ detail.name }}</span><span class="pmk-hero-pill">{{ detail.official ? t(\'badge.official\', \'官方\') : t(\'badge.publisher-signed\', \'发布者签名\') }}</span></div>',
 '          <div class="pmk-hero-sub">{{ detail.sub }}</div>',
 '        </div>',
 '      </div>',
@@ -266,6 +267,7 @@
 '              </div>',
 '            </div>',
 '            <div v-else class="pmk-version-empty">{{ t(\'detail.no-versions\', \'暂无版本信息。\') }}</div>',
+'            <button v-if="detail.nextVersionCursor" class="pmk-btn pmk-btn--gray pmk-btn--sm" @click="loadMoreVersions" :disabled="detailLoadingMore">{{ t(\'pagination.more-versions\', \'加载更多版本\') }}</button>',
 '          </div>',
 '          <div v-if="detail.dependencies.length">',
 '            <div class="pmk-section-label">{{ t(\'detail.dependencies\', \'依赖\') }}</div>',
@@ -308,6 +310,7 @@
                     i18nRev: 0,
                     loading: true,
                     catalogLoading: false,
+                    loadingMore: false,
                     error: null,
                     catalogError: null,
                     masterEnabled: false,
@@ -331,7 +334,9 @@
                     onlyOfficial: false,
                     onlyCompatible: false,
                     selectedPluginId: null,
+                    selectedDetail: null,
                     selectedVersion: null,
+                    detailLoadingMore: false,
                     installing: {},
                     installResults: {},
                     sortOptions: PMK.SORT_OPTIONS
@@ -368,6 +373,7 @@
                 selectedEntry: function () {
                     var id = this.selectedPluginId;
                     if (!id) return null;
+                    if (this.selectedDetail && this.selectedDetail.pluginId === id) return this.selectedDetail;
                     for (var i = 0; i < this.entries.length; i++) { if (this.entries[i].pluginId === id) return this.entries[i]; }
                     return null;
                 },
@@ -468,6 +474,20 @@
                         self.catalogLoading = false;
                     });
                 },
+                loadMore: function () {
+                    var self = this;
+                    if (!this.catalog || !this.catalog.nextCursor || this.loadingMore) return;
+                    this.loadingMore = true;
+                    PMK.api.fetchCatalog(this.activeRepositoryId, { cursor: this.catalog.nextCursor }).then(function (page) {
+                        if (!self.catalog || page.generation !== self.catalog.generation) {
+                            self.loadCatalog(self.activeRepositoryId); return;
+                        }
+                        self.catalog.entries = self.catalog.entries.concat(page.entries || []);
+                        self.catalog.nextCursor = page.nextCursor;
+                    }).catch(function () {
+                        PMK.toast(self.t('error.catalog', '无法加载该仓库的插件清单，请检查仓库状态或稍后重试。'), 'error');
+                    }).finally(function () { self.loadingMore = false; });
+                },
                 switchRepository: function (repo) {
                     if (!repo.enabled || repo.repositoryId === this.activeRepositoryId) return;
                     this.activeRepositoryId = repo.repositoryId;
@@ -476,13 +496,44 @@
                 },
                 setCategory: function (id) { this.category = id; },
                 openDetail: function (pluginId) {
+                    var self = this;
                     this.selectedPluginId = pluginId;
                     var entry = this.selectedEntry;
+                    this.selectedDetail = entry;
                     this.selectedVersion = entry ? entry.latestVersion : null;
                     document.body.style.overflow = 'hidden';
+                    PMK.api.fetchPluginDetail(this.activeCatalogRepositoryId, pluginId).then(function (detail) {
+                        if (self.selectedPluginId !== pluginId) return;
+                        self.selectedDetail = detail;
+                        self.selectedVersion = detail.latestVersion || self.selectedVersion;
+                    }).catch(function () {
+                        PMK.toast(self.t('error.detail', '无法加载插件详情，请稍后重试。'), 'error');
+                    });
+                },
+                loadMoreVersions: function () {
+                    var self = this;
+                    var detail = this.selectedDetail;
+                    if (!detail || !detail.nextVersionCursor || this.detailLoadingMore) return;
+                    this.detailLoadingMore = true;
+                    PMK.api.fetchPluginDetail(this.activeCatalogRepositoryId, detail.pluginId,
+                        { cursor: detail.nextVersionCursor }).then(function (page) {
+                        if (!self.selectedDetail || page.versionsGeneration !== detail.versionsGeneration) {
+                            self.openDetail(detail.pluginId); return;
+                        }
+                        var seen = {};
+                        (detail.packages || []).forEach(function (pkg) { seen[pkg.version] = true; });
+                        detail.packages = (detail.packages || []).concat((page.packages || []).filter(function (pkg) {
+                            if (seen[pkg.version]) return false;
+                            seen[pkg.version] = true; return true;
+                        }));
+                        detail.nextVersionCursor = page.nextVersionCursor;
+                    }).catch(function () {
+                        PMK.toast(self.t('error.detail', '无法加载插件详情，请稍后重试。'), 'error');
+                    }).finally(function () { self.detailLoadingMore = false; });
                 },
                 closeDetail: function () {
                     this.selectedPluginId = null;
+                    this.selectedDetail = null;
                     this.selectedVersion = null;
                     document.body.style.overflow = '';
                 },

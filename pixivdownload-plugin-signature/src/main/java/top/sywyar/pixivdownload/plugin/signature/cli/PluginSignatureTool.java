@@ -3,8 +3,10 @@ package top.sywyar.pixivdownload.plugin.signature.cli;
 import top.sywyar.pixivdownload.plugin.signature.ArtifactVerificationRequest;
 import top.sywyar.pixivdownload.plugin.signature.ManifestVerificationRequest;
 import top.sywyar.pixivdownload.plugin.signature.OfficialArtifactTrustRoots;
+import top.sywyar.pixivdownload.plugin.signature.PluginRevocationsVerificationRequest;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
+import top.sywyar.pixivdownload.plugin.signature.RepositoryUpdateVerificationRequest;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
 import top.sywyar.pixivdownload.plugin.signature.VerificationPolicy;
@@ -50,12 +52,20 @@ public final class PluginSignatureTool {
             signManifest(options);
             return;
         }
+        if ("repository-update".equals(command) || "plugin-revocations".equals(command)) {
+            signDocument(options, "repository-update".equals(command));
+            return;
+        }
         if ("verify-manifest".equals(command)) {
             verifyManifest(options);
             return;
         }
         if ("verify-artifact".equals(command)) {
             verifyArtifact(options);
+            return;
+        }
+        if ("verify-repository-update".equals(command) || "verify-plugin-revocations".equals(command)) {
+            verifyDocument(options, "verify-repository-update".equals(command));
             return;
         }
         throw new IllegalArgumentException("unknown command: " + command);
@@ -104,6 +114,34 @@ public final class PluginSignatureTool {
         byte[] bytes = Files.readAllBytes(manifest);
         byte[] message = EnvelopeV1Codec.manifestMessage(repositoryId, bytes.length, Hashing.sha256(bytes));
         writeMetadata(requiredPath(options, "out"), keyId, Ed25519Signer.sign(privateKey, message));
+    }
+
+    private static void signDocument(Map<String, String> options, boolean repositoryUpdate) throws IOException {
+        Path document = requiredPath(options, "document");
+        String repositoryId = required(options, "repository-id");
+        long sequence = Long.parseLong(required(options, "sequence"));
+        String keyId = required(options, "key-id");
+        PrivateKey privateKey = privateKey(options);
+        byte[] bytes = Files.readAllBytes(document);
+        byte[] sha256 = Hashing.sha256(bytes);
+        byte[] message = repositoryUpdate
+                ? EnvelopeV1Codec.repositoryUpdateMessage(repositoryId, sequence, bytes.length, sha256)
+                : EnvelopeV1Codec.pluginRevocationsMessage(repositoryId, sequence, bytes.length, sha256);
+        writeMetadata(requiredPath(options, "out"), keyId, Ed25519Signer.sign(privateKey, message));
+    }
+
+    private static void verifyDocument(Map<String, String> options, boolean repositoryUpdate) throws IOException {
+        Path document = requiredPath(options, "document");
+        byte[] bytes = Files.readAllBytes(document);
+        String repositoryId = required(options, "repository-id");
+        long sequence = Long.parseLong(required(options, "sequence"));
+        SignatureMetadata signature = readMetadata(requiredPath(options, "signature"));
+        VerificationResult result = repositoryUpdate
+                ? verifier(options).verifyRepositoryUpdate(new RepositoryUpdateVerificationRequest(
+                bytes, repositoryId, sequence, signature, policy(options)))
+                : verifier(options).verifyPluginRevocations(new PluginRevocationsVerificationRequest(
+                bytes, repositoryId, sequence, signature, policy(options)));
+        report(result);
     }
 
     private static PrivateKey privateKey(Map<String, String> options) throws IOException {
@@ -264,11 +302,15 @@ public final class PluginSignatureTool {
                 + "--key-id <key> --private-key <pkcs8.pem> --out <sig.json>");
         System.out.println("  manifest --manifest <manifest.json> --repository-id <id> "
                 + "--key-id <key> --private-key <pkcs8.pem> --out <manifest.json.sig>");
+        System.out.println("  repository-update|plugin-revocations --document <json> --repository-id <id> "
+                + "--sequence <n> --key-id <key> --private-key <pkcs8.pem> --out <json.sig>");
         System.out.println("  verify-manifest --manifest <manifest.json> --signature <manifest.json.sig> "
                 + "--repository-id <id> [--policy official|custom] "
                 + "[--official-purpose plugin|update|ffmpeg]");
         System.out.println("  verify-artifact --artifact <jar> --signature <sig.json> --plugin-id <id> "
                 + "--version <version> --expected-size <bytes> --sha256 <hex> [--policy official|custom] "
                 + "[--official-purpose plugin|update|ffmpeg]");
+        System.out.println("  verify-repository-update|verify-plugin-revocations --document <json> "
+                + "--signature <json.sig> --repository-id <id> --sequence <n> [--policy official|custom]");
     }
 }

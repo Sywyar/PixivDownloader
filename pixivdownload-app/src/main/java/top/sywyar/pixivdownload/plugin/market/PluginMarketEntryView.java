@@ -43,10 +43,25 @@ public record PluginMarketEntryView(
         String installedVersion,
         boolean updateAvailable,
         boolean compatible,
-        String compatibilityReason) {
+        String compatibilityReason,
+        String assuranceLevel,
+        String versionsGeneration,
+        String nextVersionCursor,
+        Long totalVersionsApproximate,
+        boolean versionsStale) {
 
     public PluginMarketEntryView {
         packages = packages != null ? List.copyOf(packages) : List.of();
+    }
+
+    public PluginMarketEntryView(String pluginId, String displayNamespace, String displayNameKey,
+                                 String descriptionKey, String latestVersion, PluginMarketMetaView market,
+                                 List<PluginMarketPackageView> packages, MarketInstallStatus installStatus,
+                                 String installedVersion, boolean updateAvailable, boolean compatible,
+                                 String compatibilityReason) {
+        this(pluginId, displayNamespace, displayNameKey, descriptionKey, latestVersion, market, packages,
+                installStatus, installedVersion, updateAvailable, compatible, compatibilityReason,
+                "PUBLISHER_SIGNED", null, null, null, false);
     }
 
     /**
@@ -85,7 +100,16 @@ public record PluginMarketEntryView(
                 installed ? installedVersion : null,
                 updateAvailable,
                 compatible,
-                compatibilityReason);
+                compatibilityReason,
+                repository.official() ? "OFFICIAL" : "PUBLISHER_SIGNED",
+                null, null, null, false);
+    }
+
+    PluginMarketEntryView withVersionPage(String generation, String nextCursor,
+                                          Long totalApproximate, boolean stale) {
+        return new PluginMarketEntryView(pluginId, displayNamespace, displayNameKey, descriptionKey,
+                latestVersion, market, packages, installStatus, installedVersion, updateAvailable, compatible,
+                compatibilityReason, assuranceLevel, generation, nextCursor, totalApproximate, stale);
     }
 
     /** 安装目标版本制品（用于兼容判定）：优先版本号等于 {@code latestVersion} 的包，否则首个包（清单约定新版本在前），都无则 {@code null}。 */

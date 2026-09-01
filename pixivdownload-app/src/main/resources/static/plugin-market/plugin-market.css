@@ -786,3 +786,15 @@ textarea {
 .pixiv-theme-toggle--green svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 html[data-theme="dark"] .pixiv-lang-switcher--green .pixiv-lang-switcher__select option { background: var(--surface); color: var(--text); }
+/* 第三方 repository.json 导入：独立于 Vue 主视图，预览事实只用 textContent 渲染。 */
+.pmk-import { max-width: 1180px; margin: 24px auto 0; padding: 20px; border: 1px solid var(--pmk-border); border-radius: 16px; background: var(--pmk-surface); }
+.pmk-import h2 { margin: 0 0 8px; font-size: 20px; }
+.pmk-import p { margin: 0 0 16px; color: var(--pmk-muted); }
+.pmk-import-form label { display: block; margin-bottom: 7px; font-weight: 700; }
+.pmk-import-row { display: flex; gap: 10px; }
+.pmk-import-row input { flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid var(--pmk-border); border-radius: 9px; background: var(--pmk-surface); color: inherit; }
+.pmk-import-preview { display: grid; grid-template-columns: minmax(140px, 220px) 1fr; gap: 8px 14px; margin: 18px 0; overflow-wrap: anywhere; }
+.pmk-import-preview dt { font-weight: 700; }
+.pmk-import-preview dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.pmk-import-confirm { display: flex; align-items: flex-start; gap: 9px; margin: 14px 0; }
+@media (max-width: 680px) { .pmk-import { margin: 14px 12px 0; } .pmk-import-row { flex-direction: column; } .pmk-import-preview { grid-template-columns: 1fr; } }

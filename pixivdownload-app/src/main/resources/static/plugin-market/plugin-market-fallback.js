@@ -13,7 +13,7 @@
         loading: true, error: null, masterEnabled: false, recoveryMode: false, recoveryReasons: [],
         filtersInitialized: false, sdkVersion: '',
         repositories: [], activeRepositoryId: null, defaultRepositoryId: null,
-        catalog: null, catalogError: null, category: 'all', search: '',
+        catalog: null, catalogError: null, loadingMore: false, category: 'all', search: '',
         hideDefaultInstalled: true, hideDependencies: true,
         // 异步竞态护栏：每次 catalog 拉取自增 token，回调只在仍最新时落地（仓库快速切换丢弃旧响应）。
         catalogToken: 0,
@@ -63,7 +63,7 @@
     function cardHtml(card) {
         var badges = card.official
             ? '<span class="pmk-badge pmk-badge--official">' + esc(t('badge.official', '官方')) + '</span>'
-            : '<span class="pmk-badge pmk-badge--community">' + esc(t('badge.community', '社区')) + '</span>';
+            : '<span class="pmk-badge pmk-badge--community">' + esc(t('badge.publisher-signed', '发布者签名')) + '</span>';
         if (card.recommended) badges += '<span class="pmk-badge pmk-badge--recommended">' + esc(t('badge.recommended', '推荐')) + '</span>';
         badges += verificationBadgeHtml(card.verificationBadge);
         var rating = '';
@@ -120,7 +120,7 @@
         var attrs = (!repo.enabled || active) ? ' disabled' : ' data-pmk-repo="' + esc(repo.repositoryId) + '"';
         return '<button class="pmk-repo-chip' + (active ? ' active' : '') + '"' + attrs + '>' +
             '<i class="fa-solid ' + (repo.official ? 'fa-circle-check' : 'fa-folder') + '"></i>' +
-            '<span class="pmk-repo-chip-name">' + esc(repo.repositoryId) + '</span>' +
+            '<span class="pmk-repo-chip-name">' + esc(repo.displayName || repo.repositoryId) + '</span>' +
             (metaText ? '<span class="pmk-repo-chip-meta">' + esc(metaText) + '</span>' : '') + '</button>';
     }
 
@@ -204,6 +204,9 @@
                 '<div class="pmk-search"><i class="fa-solid fa-magnifying-glass"></i>' +
                 '<input type="text" id="pmk-fb-search" value="' + esc(state.search) + '" placeholder="' + esc(t('search.placeholder', '搜索插件、作者或标签…')) + '" autocomplete="off"></div></div>' +
                 '<div id="pmk-fb-grid">' + gridHtml() + '</div>';
+            if (state.catalog.nextCursor) body += '<div class="pmk-load-more"><button class="pmk-btn pmk-btn--gray" data-pmk-more' +
+                (state.loadingMore ? ' disabled' : '') + '>' +
+                esc(t('pagination.more', '加载更多')) + '</button></div>';
         }
         return head + degraded + body + '<div class="pmk-disclaimer">' + esc(t('disclaimer', '插件运行于本地，仅供个人学习与研究使用；无法验证、未签名或用户放行的插件请自行确认来源与安全性，我们无法保证未验证插件的安全；请尊重创作者版权 · 本工具与 Pixiv 无任何关联')) + '</div>';
     }
@@ -346,6 +349,19 @@
                 return;
             }
             if (e.target.closest('[data-pmk-refresh]')) { load(); }
+            if (e.target.closest('[data-pmk-more]') && state.catalog && state.catalog.nextCursor && !state.loadingMore) {
+                var generation = state.catalog.generation;
+                state.loadingMore = true; paint();
+                PMK.api.fetchCatalog(state.activeRepositoryId, { cursor: state.catalog.nextCursor }).then(function (page) {
+                    if (!state.catalog || page.generation !== generation) return loadCatalog(state.activeRepositoryId).then(paint);
+                    state.catalog.entries = state.catalog.entries.concat(page.entries || []);
+                    state.catalog.nextCursor = page.nextCursor; paint();
+                }).catch(function () {
+                    PMK.toast(t('error.catalog', '无法加载该仓库的插件清单，请检查仓库状态或稍后重试。'), 'error');
+                }).then(function () {
+                    state.loadingMore = false; paint();
+                });
+            }
         });
         rootEl.addEventListener('input', function (e) {
             if (e.target && e.target.id === 'pmk-fb-search') {

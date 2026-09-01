@@ -58,6 +58,12 @@ public class DefaultPluginCatalogClientProvider implements PluginCatalogClientPr
                     (int) repository.connectTimeoutMs(), (int) repository.readTimeoutMs(),
                     outboundProxySelector(), TRUSTED_REDIRECT_HOSTS);
         }
+        if (policy == RepositoryProxyPolicy.GITHUB_RELEASES) {
+            return new PluginCatalogHttpClient(true, false,
+                    (int) repository.connectTimeoutMs(), (int) repository.readTimeoutMs(),
+                    outboundProxySelector(), true, TRUSTED_REDIRECT_HOSTS, false,
+                    1, Set.of("github.com", "githubusercontent.com"));
+        }
         if (policy == RepositoryProxyPolicy.CUSTOM) {
             return new PluginCatalogHttpClient(repository.strictHttps(), repository.allowNonPublicAddresses(),
                     (int) repository.connectTimeoutMs(), (int) repository.readTimeoutMs(),

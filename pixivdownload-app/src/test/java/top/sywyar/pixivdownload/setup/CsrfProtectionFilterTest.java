@@ -62,6 +62,8 @@ class CsrfProtectionFilterTest {
             "POST,/api/plugins/demo/start",
             "PUT,/api/plugins/demo/enabled",
             "POST,/api/plugin-market/official/demo/1.0.0/install",
+            "POST,/api/plugin-market/repositories/import/preview",
+            "POST,/api/plugin-market/repositories/import/trust",
             "POST,/api/collections/7/icon",
             "DELETE,/api/collections/7/icon",
             "POST,/api/narration/cast/voice/reference",

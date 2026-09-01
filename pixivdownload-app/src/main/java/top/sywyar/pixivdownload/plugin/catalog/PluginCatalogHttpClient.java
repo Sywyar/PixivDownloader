@@ -59,6 +59,8 @@ public class PluginCatalogHttpClient {
     private final boolean validateAddressesWhenProxied;
     private final int readTimeoutMs;
     private final Set<String> redirectAllowlistDomains;
+    private final Set<String> requestAllowlistDomains;
+    private final int maxRedirects;
     private final HttpClient httpClient;
 
     /**
@@ -94,7 +96,7 @@ public class PluginCatalogHttpClient {
                                    ProxySelector proxySelector, Set<String> redirectAllowlistDomains) {
         this(httpsOnly, allowNonPublicAddresses, connectTimeoutMs, readTimeoutMs, proxySelector,
                 redirectAllowlistDomains != null && !redirectAllowlistDomains.isEmpty(),
-                redirectAllowlistDomains, false);
+                redirectAllowlistDomains, false, MAX_REDIRECTS, Set.of());
     }
 
     /**
@@ -106,6 +108,15 @@ public class PluginCatalogHttpClient {
                                    int connectTimeoutMs, int readTimeoutMs,
                                    ProxySelector proxySelector, boolean allowRedirects,
                                    Set<String> redirectAllowlistDomains, boolean validateAddressesWhenProxied) {
+        this(httpsOnly, allowNonPublicAddresses, connectTimeoutMs, readTimeoutMs, proxySelector, allowRedirects,
+                redirectAllowlistDomains, validateAddressesWhenProxied, MAX_REDIRECTS, Set.of());
+    }
+
+    public PluginCatalogHttpClient(boolean httpsOnly, boolean allowNonPublicAddresses,
+                                   int connectTimeoutMs, int readTimeoutMs,
+                                   ProxySelector proxySelector, boolean allowRedirects,
+                                   Set<String> redirectAllowlistDomains, boolean validateAddressesWhenProxied,
+                                   int maxRedirects, Set<String> requestAllowlistDomains) {
         this.httpsOnly = httpsOnly;
         this.allowNonPublicAddresses = allowNonPublicAddresses;
         this.proxied = proxySelector != null;
@@ -114,6 +125,12 @@ public class PluginCatalogHttpClient {
         this.readTimeoutMs = readTimeoutMs > 0 ? readTimeoutMs : 60_000;
         this.redirectAllowlistDomains = redirectAllowlistDomains == null
                 ? Set.of() : Set.copyOf(redirectAllowlistDomains);
+        this.requestAllowlistDomains = requestAllowlistDomains == null
+                ? Set.of() : Set.copyOf(requestAllowlistDomains);
+        if (maxRedirects < 0 || maxRedirects > MAX_REDIRECTS) {
+            throw new IllegalArgumentException("maxRedirects must be between 0 and " + MAX_REDIRECTS);
+        }
+        this.maxRedirects = maxRedirects;
         this.httpClient = HttpClient.newBuilder()
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .proxy(proxySelector != null ? proxySelector : HttpClient.Builder.NO_PROXY)
@@ -126,15 +143,35 @@ public class PluginCatalogHttpClient {
      * {@link PluginCatalogException}。
      */
     public byte[] fetchBytes(String url, long maxBytes) {
+        FetchResult result = fetch(url, maxBytes, null);
+        if (result.statusCode() != 200) {
+            throw new PluginCatalogException(PluginCatalogErrorCode.DOWNLOAD_FAILED,
+                    "unexpected HTTP status " + result.statusCode() + " for " + url);
+        }
+        return result.bytes();
+    }
+
+    /** 有界条件 GET；仅分页目录使用 304/ETag，其余调用继续走 {@link #fetchBytes}. */
+    public FetchResult fetch(String url, long maxBytes, String etag) {
         URI uri = verifyUrlAllowed(url);
-        HttpResponse<InputStream> response = sendFollowingAllowedRedirect(uri);
+        HttpResponse<InputStream> response = sendFollowingAllowedRedirect(uri, etag);
         try (InputStream in = response.body()) {
+            if (response.statusCode() == 304) {
+                return new FetchResult(304, new byte[0], response.headers().firstValue("ETag").orElse(etag),
+                        response.uri().toString());
+            }
             requireOk(response, uri);
-            return readBounded(in, maxBytes, uri);
+            return new FetchResult(200, readBounded(in, maxBytes, uri),
+                    response.headers().firstValue("ETag").orElse(null), response.uri().toString());
         } catch (IOException e) {
             throw new PluginCatalogException(PluginCatalogErrorCode.DOWNLOAD_FAILED,
                     "failed to read " + uri + ": " + e.getMessage());
         }
+    }
+
+    public record FetchResult(int statusCode, byte[] bytes, String etag, String finalUrl) {
+        public FetchResult { bytes = bytes != null ? bytes.clone() : new byte[0]; }
+        @Override public byte[] bytes() { return bytes.clone(); }
     }
 
     /**
@@ -166,13 +203,18 @@ public class PluginCatalogHttpClient {
      * 绝不让它逃逸为未受控的 500（manifest-url 配置错误最终由调用方归 {@code CATALOG_UNAVAILABLE}，包 URL 错误保持稳定码）。
      */
     private HttpResponse<InputStream> send(URI uri) {
+        return send(uri, null);
+    }
+
+    private HttpResponse<InputStream> send(URI uri, String etag) {
         HttpRequest request;
         try {
-            request = HttpRequest.newBuilder(uri)
+            HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
                     .timeout(Duration.ofMillis(readTimeoutMs))
                     .header("Accept", "*/*")
-                    .GET()
-                    .build();
+                    .GET();
+            if (etag != null && !etag.isBlank()) builder.header("If-None-Match", etag);
+            request = builder.build();
         } catch (IllegalArgumentException e) {
             throw new PluginCatalogException(PluginCatalogErrorCode.INSECURE_URL,
                     "cannot build request for url '" + uri + "': " + e.getMessage());
@@ -193,19 +235,23 @@ public class PluginCatalogHttpClient {
      * 未允许时由后续 {@link #requireOk} 把 3xx 当失败拒绝（严格档行为）。
      */
     private HttpResponse<InputStream> sendFollowingAllowedRedirect(URI uri) {
-        HttpResponse<InputStream> response = send(uri);
+        return sendFollowingAllowedRedirect(uri, null);
+    }
+
+    private HttpResponse<InputStream> sendFollowingAllowedRedirect(URI uri, String etag) {
+        HttpResponse<InputStream> response = send(uri, etag);
         URI current = uri;
         int redirects = 0;
         while (isRedirect(response.statusCode()) && allowRedirects) {
-            if (redirects++ >= MAX_REDIRECTS) {
+            if (redirects++ >= maxRedirects) {
                 closeQuietly(response);
                 throw new PluginCatalogException(PluginCatalogErrorCode.DOWNLOAD_FAILED,
-                        "refusing to follow more than " + MAX_REDIRECTS + " redirects for " + uri);
+                        "refusing to follow more than " + maxRedirects + " redirects for " + uri);
             }
             URI target = resolveAllowedRedirect(response, current);
             closeQuietly(response);
             current = target;
-            response = send(current);
+            response = send(current, etag);
         }
         return response;
     }
@@ -337,6 +383,10 @@ public class PluginCatalogHttpClient {
         if (host == null || host.isBlank()) {
             throw new PluginCatalogException(PluginCatalogErrorCode.INSECURE_URL, "missing url host: " + url);
         }
+        if (!requestAllowlistDomains.isEmpty() && !matchesDomain(host, requestAllowlistDomains)) {
+            throw new PluginCatalogException(PluginCatalogErrorCode.INSECURE_URL,
+                    "url host is outside the fixed request boundary: " + host);
+        }
         // 预设受信代理档跳过本地解析与 IP 段校验（DNS 由代理完成）；自定义档可要求代理请求也先按本机 DNS 结果执行阻断。
         // 后者能挡 IP 字面量与本机明确解析到非公网的目标，但无法约束代理端可能不同的 DNS 视图。
         if (!proxied || validateAddressesWhenProxied) {
@@ -354,6 +404,17 @@ public class PluginCatalogHttpClient {
             }
         }
         return uri;
+    }
+
+    private static boolean matchesDomain(String host, Set<String> domains) {
+        String normalizedHost = stripBrackets(host).toLowerCase(Locale.ROOT);
+        for (String domain : domains) {
+            String normalizedDomain = domain.toLowerCase(Locale.ROOT);
+            if (normalizedHost.equals(normalizedDomain) || normalizedHost.endsWith("." + normalizedDomain)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** IPv6 字面量主机 {@code [::1]} → {@code ::1}，供 {@link InetAddress#getAllByName} 解析。 */

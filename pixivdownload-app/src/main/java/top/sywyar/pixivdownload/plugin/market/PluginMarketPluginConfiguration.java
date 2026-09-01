@@ -10,6 +10,8 @@ import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogAcquisitionService;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogService;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
+import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryImportService;
+import top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationService;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 /**
@@ -35,15 +37,19 @@ public class PluginMarketPluginConfiguration {
     public PluginMarketService pluginMarketService(PluginRepositoryRegistry repositoryRegistry,
                                                    PluginCatalogService catalogService,
                                                    PluginCatalogAcquisitionService acquisitionService,
-                                                   PluginStatusService pluginStatusService) {
-        return new PluginMarketService(repositoryRegistry, catalogService, acquisitionService, pluginStatusService);
+                                                   PluginStatusService pluginStatusService,
+                                                   PluginCatalogRevocationService revocations) {
+        return new PluginMarketService(repositoryRegistry, catalogService, acquisitionService,
+                pluginStatusService, revocations);
     }
 
     @Bean
     @ConditionalOnPluginEnabled(PluginMarketPlugin.ID)
     public PluginMarketController pluginMarketController(PluginMarketService pluginMarketService,
                                                          PluginInstallResponseMapper installResponseMapper,
-                                                         AppMessages messages, AppLocaleResolver localeResolver) {
-        return new PluginMarketController(pluginMarketService, installResponseMapper, messages, localeResolver);
+                                                         AppMessages messages, AppLocaleResolver localeResolver,
+                                                         PluginRepositoryImportService repositoryImportService) {
+        return new PluginMarketController(pluginMarketService, installResponseMapper, messages, localeResolver,
+                repositoryImportService);
     }
 }

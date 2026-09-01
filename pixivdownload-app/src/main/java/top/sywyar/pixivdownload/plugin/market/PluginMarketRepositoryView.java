@@ -36,7 +36,27 @@ public record PluginMarketRepositoryView(
         long connectTimeoutMs,
         long readTimeoutMs,
         long maxManifestBytes,
-        long maxPackageBytes) {
+        long maxPackageBytes,
+        String descriptorUrl,
+        String descriptorSha256,
+        String displayName,
+        String publisherId,
+        String publisherDisplayName,
+        String catalogProtocol,
+        String catalogEndpoint,
+        String revocationsUrl,
+        String trustSource) {
+
+    public PluginMarketRepositoryView(String repositoryId, String displayNameKey, String manifestUrl,
+                                      boolean enabled, boolean official, boolean builtIn, boolean legacy,
+                                      boolean defaultRepository, String proxyPolicy, boolean proxyPolicySupported,
+                                      long connectTimeoutMs, long readTimeoutMs, long maxManifestBytes,
+                                      long maxPackageBytes) {
+        this(repositoryId, displayNameKey, manifestUrl, enabled, official, builtIn, legacy, defaultRepository,
+                proxyPolicy, proxyPolicySupported, connectTimeoutMs, readTimeoutMs, maxManifestBytes,
+                maxPackageBytes, null, null, null, null, null, "manifest-v1", manifestUrl, null,
+                official ? "OFFICIAL" : "SELF_TRUSTED");
+    }
 
     static PluginMarketRepositoryView from(PluginRepository repository, boolean defaultRepository) {
         return new PluginMarketRepositoryView(
@@ -53,6 +73,9 @@ public record PluginMarketRepositoryView(
                 repository.connectTimeoutMs(),
                 repository.readTimeoutMs(),
                 repository.maxManifestBytes(),
-                repository.maxPackageBytes());
+                repository.maxPackageBytes(),
+                repository.descriptorUrl(), repository.descriptorSha256(), repository.displayName(),
+                repository.publisherId(), repository.publisherDisplayName(), repository.catalogProtocol(),
+                repository.catalogEndpoint(), repository.revocationsUrl(), repository.trustSource());
     }
 }
