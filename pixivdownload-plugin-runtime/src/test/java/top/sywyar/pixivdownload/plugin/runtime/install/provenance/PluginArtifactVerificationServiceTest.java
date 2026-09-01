@@ -25,8 +25,8 @@ class PluginArtifactVerificationServiceTest {
     Path temporaryDirectory;
 
     @Test
-    @DisplayName("关闭开发模式立即撤销未签名本地包的安装与离线信任")
-    void developmentSwitchRevokesUnsignedTrustOnEveryVerification() throws Exception {
+    @DisplayName("开发模式切换不改变未签名本地包的字节复验结果")
+    void developmentSwitchDoesNotChangeUnsignedByteVerification() throws Exception {
         Path artifact = temporaryDirectory.resolve("demo.jar");
         Files.write(artifact, new byte[]{1, 2, 3, 4});
         PluginDescriptor descriptor = descriptor();
@@ -39,16 +39,16 @@ class PluginArtifactVerificationServiceTest {
         VerificationResult installed = service.verifyForInstall(artifact, descriptor, origin);
         PluginProvenanceRecord provenance = PluginProvenanceRecord.from(origin, installed);
         developmentMode.set(false);
-        VerificationResult installRevoked = service.verifyForInstall(artifact, descriptor, origin);
-        VerificationResult revoked = service.verifyInstalled(artifact, descriptor, provenance);
+        VerificationResult installAfterDisable = service.verifyForInstall(artifact, descriptor, origin);
+        VerificationResult installedAfterDisable = service.verifyInstalled(artifact, descriptor, provenance);
         developmentMode.set(true);
-        VerificationResult restored = service.verifyInstalled(artifact, descriptor, provenance);
+        VerificationResult installedAfterEnable = service.verifyInstalled(artifact, descriptor, provenance);
 
         assertThat(installed.status()).isEqualTo(VerificationStatus.UNSIGNED_ALLOWED);
         assertThat(provenance.developmentOnly()).isTrue();
-        assertThat(installRevoked.status()).isEqualTo(VerificationStatus.SIGNATURE_REQUIRED);
-        assertThat(revoked.status()).isEqualTo(VerificationStatus.SIGNATURE_REQUIRED);
-        assertThat(restored.status()).isEqualTo(VerificationStatus.UNSIGNED_ALLOWED);
+        assertThat(installAfterDisable.status()).isEqualTo(VerificationStatus.UNSIGNED_ALLOWED);
+        assertThat(installedAfterDisable.status()).isEqualTo(VerificationStatus.UNSIGNED_ALLOWED);
+        assertThat(installedAfterEnable.status()).isEqualTo(VerificationStatus.UNSIGNED_ALLOWED);
     }
 
     private static PluginDescriptor descriptor() {

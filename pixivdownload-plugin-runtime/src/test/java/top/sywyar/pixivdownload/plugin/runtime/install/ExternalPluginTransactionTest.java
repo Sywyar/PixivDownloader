@@ -33,6 +33,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginRecover
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransactionRecoveryReport;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PreparedPluginTransaction;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageFixtures;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
 
 @DisplayName("外置插件事务：替换、回滚与启动恢复")
 class ExternalPluginTransactionTest extends ExternalPluginTransactionTestSupport {
@@ -81,16 +82,18 @@ class ExternalPluginTransactionTest extends ExternalPluginTransactionTestSupport
         installers.add(installer);
         assertThat(installer.recoverPendingTransactions().safeToScan()).isTrue();
         Path retiredPackage = packageFile("retired.zip", "novel-gallery", "1.0.0", null);
+        var retiredSignature = signing.artifactSignature(retiredPackage, "novel-gallery", "1.0.0");
         installFully(installer, retiredPackage,
-                PluginPackageOrigin.localUpload(signing.artifactSignature(
-                        retiredPackage, "novel-gallery", "1.0.0")));
+                PluginPackageOrigin.localUpload(
+                        retiredSignature, PluginPackageIntegrity.sha256Hex(retiredPackage)));
         installFully(installer, packageFile("third-party.zip", "novel-gallery-plus", "1.0.0", null));
         Path retired = plugins.resolve("novel-gallery-1.0.0.zip");
         Path unrelated = plugins.resolve("novel-gallery-plus-1.0.0.zip");
         Path replacement = packageFile("novel.zip", "novel", "1.0.0", "novel-gallery");
+        var replacementSignature = signing.artifactSignature(replacement, "novel", "1.0.0");
         PreparedPluginTransaction prepared = installer.prepareTransaction(
                 replacement, false, PluginPackageOrigin.localUpload(
-                        signing.artifactSignature(replacement, "novel", "1.0.0")));
+                        replacementSignature, PluginPackageIntegrity.sha256Hex(replacement)));
 
         assertThat(prepared.readyToCommit()).isTrue();
         assertThat(retired).exists();

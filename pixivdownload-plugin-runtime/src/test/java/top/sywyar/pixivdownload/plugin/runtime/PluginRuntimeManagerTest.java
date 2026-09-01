@@ -368,7 +368,8 @@ class PluginRuntimeManagerTest {
 
         assertThat(status.loadedPluginIds()).isEmpty();
         assertThat(status.failures()).singleElement()
-                .satisfies(failure -> assertThat(failure.reason()).contains("SIGNATURE_REQUIRED"));
+                .satisfies(failure -> assertThat(failure.reason())
+                        .contains("development-only plugin requires active development mode"));
         manager.shutdown();
     }
 
