@@ -218,7 +218,7 @@ class PluginRequiredVerificationRecoveryTest {
     }
 
     @Test
-    @DisplayName("local unsigned optional：生产模式即使有旧 sidecar 也在 PF4J 前拒绝")
+    @DisplayName("生产模式在 PF4J 前拒绝开发专用本地未签名插件")
     void localUnsignedOptionalRejectedOutsideDevelopmentMode() throws Exception {
         Scenario scenario = scenario("local-unsigned-production");
         PluginTestProvenance.writeLocalUpload(scenario.pluginsDir(), scenario.jar(), PLUGIN_ID, VERSION);
@@ -227,11 +227,12 @@ class PluginRequiredVerificationRecoveryTest {
         try {
             assertThat(manager.status().orElseThrow().startedPluginIds()).doesNotContain(PLUGIN_ID);
             assertThat(manager.status().orElseThrow().failures()).singleElement()
-                    .satisfies(failure -> assertThat(failure.reason()).contains("SIGNATURE_REQUIRED"));
+                    .satisfies(failure -> assertThat(failure.reason())
+                            .contains("development-only plugin requires active development mode"));
             assertThat(Files.readString(scenario.marker(), StandardCharsets.UTF_8)).isEmpty();
             PluginProvenanceRecord provenance =
                     new PluginProvenanceStore(scenario.pluginsDir()).read(scenario.jar()).orElseThrow();
-            assertThat(provenance.offlineStatus()).isEqualTo(VerificationStatus.SIGNATURE_REQUIRED);
+            assertThat(provenance.offlineStatus()).isEqualTo(VerificationStatus.UNSIGNED_ALLOWED);
         } finally {
             manager.shutdown();
         }
