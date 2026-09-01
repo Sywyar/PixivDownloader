@@ -148,6 +148,28 @@ function Get-OfficialPluginArtifactName {
     return "$($Plugin.Module)-$Version.$extension"
 }
 
+function Find-PrebuiltOfficialPluginArtifact {
+    param(
+        [Parameter(Mandatory = $true)]$Plugin,
+        [Parameter(Mandatory = $true)][string]$Directory
+    )
+    $extension = Get-OfficialPluginArtifactExtension $Plugin
+    $artifactNamePattern = '^' + [regex]::Escape($Plugin.Module) +
+        '-(?:0|[1-9][0-9]*)\..*\.' + [regex]::Escape($extension) + '$'
+    $candidate = Get-ChildItem -LiteralPath $Directory -File -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.Name -match $artifactNamePattern -and
+                $_.Name -notlike "*-sources.jar" -and
+                $_.Name -notlike "*-javadoc.jar"
+        } |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
+    if (-not $candidate) {
+        throw "Prebuilt plugin artifact for module $($Plugin.Module) not found under $Directory."
+    }
+    return $candidate.FullName
+}
+
 function Get-NightlyPluginVersion {
     param(
         [Parameter(Mandatory = $true)][string]$SourceVersion,

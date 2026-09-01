@@ -259,22 +259,6 @@ function Get-AppBootJar {
         Select-Object -First 1
 }
 
-function Find-PrebuiltPluginArtifact {
-    param(
-        [Parameter(Mandatory = $true)]$Plugin,
-        [Parameter(Mandatory = $true)][string]$Directory
-    )
-    $extension = Get-OfficialPluginArtifactExtension $Plugin
-    $candidate = Get-ChildItem (Join-Path $Directory "$($Plugin.Module)-*.$extension") -File -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
-        Sort-Object LastWriteTime -Descending |
-        Select-Object -First 1
-    if (-not $candidate) {
-        throw "Prebuilt plugin artifact for module $($Plugin.Module) not found under $Directory."
-    }
-    return $candidate.FullName
-}
-
 # Resolve and strictly validate the exact prebuilt core jar BEFORE Push-Location changes the current
 # directory, so a caller-provided relative path resolves in the caller's directory, not under
 # $ProjectRoot. With -PrebuiltJar set the script never calls Get-AppBootJar; the final selected jar
@@ -383,7 +367,7 @@ try {
     foreach ($plugin in $DistributionPlugins) {
         Write-Step "Staging plugin '$($plugin.Id)'"
         if ($ResolvedPrebuiltPluginsDir) {
-            $sourceArtifact = Find-PrebuiltPluginArtifact $plugin $ResolvedPrebuiltPluginsDir
+            $sourceArtifact = Find-PrebuiltOfficialPluginArtifact $plugin $ResolvedPrebuiltPluginsDir
         } else {
             $sourceArtifact = Find-ModulePluginArtifact $plugin $ProjectRoot
         }
