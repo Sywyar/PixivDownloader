@@ -253,7 +253,8 @@ public class PluginsPanel extends JPanel {
         }
         return switch (statusCode) {
             case "STARTED" -> new Color(0, 140, 0);
-            case "FAILED", "INCOMPATIBLE", "MISSING_REQUIRED", "INCOMPATIBLE_REQUIRED" -> new Color(180, 60, 60);
+            case "FAILED", "CRASHED", "INCOMPATIBLE", "MISSING_REQUIRED", "INCOMPATIBLE_REQUIRED" ->
+                    new Color(180, 60, 60);
             case "DISABLED", "STOPPED", "UNLOADED" -> Color.GRAY;
             default -> new Color(180, 100, 0);
         };

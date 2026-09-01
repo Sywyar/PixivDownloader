@@ -17,6 +17,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginRecoveryGateSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransactionRecoveryReport;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackagePhase;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginDiagnostic;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusReport;
@@ -150,6 +151,36 @@ class PluginStatusServiceTest {
         assertThat(recovery.isActive()).isTrue();
         assertThat(recovery.reasons()).extracting(reason -> reason.pluginId())
                 .containsExactly("crashy");
+    }
+
+    @Test
+    @DisplayName("隔离 worker 运行期崩溃报告 CRASHED，但可选插件不误触发全局恢复模式")
+    void isolatedWorkerCrashIsReportedWithoutStartupRecoveryMode() {
+        PluginRegistry registry = new PluginRegistry(List.of(), new PluginToggleProperties());
+        PluginDescriptor descriptor = external("crashy", "1.0.0", VersionRequirement.unspecified());
+        PluginRuntimeManager runtime = mock(PluginRuntimeManager.class);
+        ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
+        when(runtime.status()).thenReturn(Optional.of(new PluginRuntimeStatus(
+                Path.of("plugins"), PluginDirectoryState.POPULATED,
+                List.of("crashy"), List.of(),
+                List.of(new PluginLoadFailure(
+                        "crashy", "worker exited", PluginStatus.CRASHED,
+                        "worker-exit", 1L, "1.0.0", 1, "logs/crashy.log")))));
+        when(runtime.inspectPlugins()).thenReturn(PluginInventory.empty());
+        when(runtime.loadedDescriptors()).thenReturn(Map.of("crashy", descriptor));
+        when(runtime.packagePhases()).thenReturn(Map.of("crashy", PluginRuntimePackagePhase.CRASHED));
+        when(installer.recoveryGateSnapshot()).thenReturn(
+                PluginRecoveryGateSnapshot.safe(PluginTransactionRecoveryReport.success()));
+        when(installer.listInstalled()).thenReturn(List.of());
+        PluginStatusService service = new PluginStatusService(
+                registry, runtime, installer, RequiredPluginPolicy.empty());
+
+        PluginDiagnostic diagnostic = service.report().byId("crashy").orElseThrow();
+
+        assertThat(diagnostic.status()).isEqualTo(PluginStatus.CRASHED);
+        assertThat(diagnostic.messages()).containsExactly("worker exited");
+        assertThat(service.startupFailuresById()).isEmpty();
+        assertThat(new RecoveryModeService(service, RequiredPluginPolicy.empty()).isActive()).isFalse();
     }
 
     @Test

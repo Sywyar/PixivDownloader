@@ -68,7 +68,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - 第三方仓库新增独立签名域的连续性更新证明和撤销文档、单调序号与最后有效快照；安装前按仓库协议重新解析指定版本，并将下载字节的大小、SHA-256、发布者签名、包内插件 ID、版本、SDK 要求和依赖逐项绑定，撤销命中会在安装或 PF4J 加载前阻断。
 - 第三方插件会在任何代码执行前要求管理员确认其宿主进程完整权限风险：签名包按发布者指纹建立并延续信任，未签名包按精确 SHA-256 单次放行；插件管理页可查看、重新批准或撤销执行信任，撤销后下一次加载即拒绝运行。
 - 插件可通过 `pixiv.permissions` 声明权限风险，安装确认与插件管理页会显示规范化清单；旧包缺少声明时明确按完全访问处理，同一发布密钥的更新只有在权限未增加时才继承信任，新增权限或退回未声明状态都需重新确认。该清单不冒充宿主进程完全信任模式中的强制沙箱。
-- 未声明执行模式的现有插件和第三方插件默认以 `host-process-full-trust` 运行；只有显式声明 `declarative-process` 的插件才进入有限隔离 worker，`pixivdownload.plugin-worker.require-os-sandbox` 也只约束该模式。
+- 未声明执行模式的现有插件和第三方插件默认以 `host-process-full-trust` 运行；只有显式声明 `declarative-process` 的插件才进入有限隔离 worker。worker 异常退出时会撤回该插件服务贡献、报告崩溃状态、记录有界 stderr 并按可配置的有界指数退避恢复，关闭时终止其进程树；`pixivdownload.plugin-worker.require-os-sandbox` 也只约束该模式。
 - 插件包准入新增路径长度、目录深度和 Unix 链接 / 特殊文件检查；八项资源上限可通过 `pixivdownload.plugin.package.*` JVM 属性覆盖，非法值会明确失败。
 - 插件 runtime 权限加固在 ACL / POSIX 权限不可用时改为诊断后继续，并安全支持 `plugins/` 根符号链接或 junction；单个异常候选不再阻断同目录其它插件。
 - 外置插件先验证并冻结包描述符，再显式初始化宿主进程插件；签名验证通过的自定义仓库包可以进入完整执行路径，并恢复标准 PF4J `PluginWrapper` 构造器以及 JAR、ZIP、`lib/*.jar` 私有依赖布局兼容。

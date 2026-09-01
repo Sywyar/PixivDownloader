@@ -111,6 +111,7 @@
     "stat.external": "외부 플러그인",
     "stat.required": "필수 플러그인",
     "stat.total": "설치된 플러그인",
+    "status.crashed": "워커 비정상 종료",
     "status.disabled": "비활성화됨",
     "status.error": "플러그인 상태를 로드하지 못했습니다. 다시 시도하세요.",
     "status.failed": "로드 실패",

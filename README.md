@@ -79,6 +79,11 @@ Java 标准包和离线全量包必须**完整解压**后使用，不要只提�
 JVM 前设置 `-Dpixivdownload.plugin-worker.require-os-sandbox=true`；当前版本尚未集成已验证 OS 沙箱，
 启用后会拒绝所有 `declarative-process` 插件。签名和官方身份不授予额外运行能力。
 
+隔离 worker 异常退出时，宿主会撤回该插件的路由和能力、保留有界 stderr 日志，并按有界指数退避尝试恢复。
+初始化、命令、关闭超时以及恢复次数、初始 / 最大延迟和 stderr 上限可通过
+`pixivdownload.plugin-worker.*` 下的 `initialize-timeout-ms`、`command-timeout-ms`、`shutdown-timeout-ms`、
+`restart-attempts`、`restart-initial-delay-ms`、`restart-max-delay-ms` 与 `stderr-max-bytes` JVM 属性调整。
+
 插件可在 `plugin.properties` 中用 `pixiv.permissions` 声明逗号分隔的权限风险，例如
 `network,filesystem-write,schedule`。该清单用于安装确认和信任连续性说明，不是在
 `host-process-full-trust` 模式中虚构的权限沙箱；旧插件缺少该字段时按“未声明权限、完全访问”展示。

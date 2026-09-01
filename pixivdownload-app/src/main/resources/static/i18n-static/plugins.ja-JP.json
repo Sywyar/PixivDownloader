@@ -111,6 +111,7 @@
     "stat.external": "外部プラグイン",
     "stat.required": "必須プラグイン",
     "stat.total": "インストール済みプラグイン",
+    "status.crashed": "ワーカーが異常終了",
     "status.disabled": "無効",
     "status.error": "プラグインの状態を読み込めませんでした。もう一度お試しください。",
     "status.failed": "読み込み失敗",

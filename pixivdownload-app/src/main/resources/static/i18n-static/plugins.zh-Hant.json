@@ -111,6 +111,7 @@
     "stat.external": "外部外掛程式",
     "stat.required": "必要外掛程式",
     "stat.total": "已安裝外掛程式",
+    "status.crashed": "Worker 已崩潰",
     "status.disabled": "已停用",
     "status.error": "載入外掛程式狀態失敗，請重試。",
     "status.failed": "載入失敗",

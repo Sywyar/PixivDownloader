@@ -111,6 +111,7 @@
     "stat.external": "External",
     "stat.required": "Required",
     "stat.total": "Installed",
+    "status.crashed": "Worker crashed",
     "status.disabled": "Disabled",
     "status.error": "Failed to load plugin status. Please retry.",
     "status.failed": "Failed",

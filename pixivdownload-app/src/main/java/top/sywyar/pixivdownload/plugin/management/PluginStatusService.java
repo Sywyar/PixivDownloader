@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginRecoveryGateSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransactionRecoveryReport;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackagePhase;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginDiagnostic;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusEvaluator;
@@ -54,7 +55,8 @@ public class PluginStatusService {
     private final Supplier<Map<String, PluginDescriptor>> loadedDescriptors;
     private final Supplier<PluginRecoveryGateSnapshot> recoveryGate;
     private final Supplier<List<PluginRuntimeVerificationSnapshot>> runtimeVerifications;
-    private final Supplier<Map<String, String>> runtimeStartupFailures;
+    private final Supplier<Map<String, String>> runtimeFailures;
+    private final Supplier<Map<String, PluginRuntimePackagePhase>> runtimePhases;
     private final RequiredPluginPolicy requiredPluginPolicy;
     private final PluginStatusEvaluator evaluator = new PluginStatusEvaluator();
 
@@ -103,7 +105,8 @@ public class PluginStatusService {
         this.loadedDescriptors = loadedDescriptors;
         this.recoveryGate = recoveryGate;
         this.runtimeVerifications = runtimeVerifications;
-        this.runtimeStartupFailures = Map::of;
+        this.runtimeFailures = Map::of;
+        this.runtimePhases = Map::of;
         this.requiredPluginPolicy = requiredPluginPolicy;
     }
 
@@ -120,16 +123,18 @@ public class PluginStatusService {
         this.runtimeVerifications = () -> runtimeManager.status()
                 .map(status -> status.verifications())
                 .orElseGet(List::of);
-        this.runtimeStartupFailures = () -> runtimeManager.status()
-                .map(PluginStatusService::runtimeStartupFailures)
+        this.runtimeFailures = () -> runtimeManager.status()
+                .map(PluginStatusService::runtimeFailures)
                 .orElseGet(Map::of);
+        this.runtimePhases = runtimeManager::packagePhases;
         this.requiredPluginPolicy = requiredPluginPolicy;
     }
 
     /** 计算当前插件状态报告。每次调用按当前注册中心 / 清点快照重新评估。 */
     public PluginStatusReport report() {
         PluginRecoveryGateSnapshot recovery = recoveryGate.get();
-        Map<String, String> lifecycleFailures = startupFailuresById();
+        Map<String, String> lifecycleFailures = currentFailuresById();
+        Set<String> crashedIds = crashedPluginIds();
         Set<String> activeIds = pluginRegistry.registeredPlugins().stream()
                 .map(PluginRegistry.RegisteredPlugin::id)
                 .collect(Collectors.toSet());
@@ -162,19 +167,22 @@ public class PluginStatusService {
         PluginInventory inventory = pluginInventory.get();
         for (PluginInstallation installation : inventory.installations()) {
             observed.add(new ObservedPlugin(installation.descriptor(),
-                    externalBaseStatus(installation, activeIds, lifecycleFailures)));
+                    externalBaseStatus(installation, activeIds, lifecycleFailures, crashedIds)));
         }
         Set<String> observedExternalPackages = inventory.installations().stream()
                 .map(installation -> installation.descriptor().sourcePluginId())
                 .collect(Collectors.toCollection(LinkedHashSet::new));
         for (PluginDescriptor descriptor : loadedDescriptors.get().values()) {
             if (descriptor != null && observedExternalPackages.add(descriptor.sourcePluginId())) {
-                observed.add(new ObservedPlugin(descriptor, PluginStatus.INSTALLED));
+                observed.add(new ObservedPlugin(descriptor,
+                        crashedIds.contains(descriptor.sourcePluginId())
+                                ? PluginStatus.CRASHED : PluginStatus.INSTALLED));
             }
         }
         for (InstalledPlugin installed : installedArtifacts.get()) {
             if (observedExternalPackages.add(installed.id())) {
-                observed.add(new ObservedPlugin(installed.descriptor(), PluginStatus.INSTALLED));
+                observed.add(new ObservedPlugin(installed.descriptor(),
+                        crashedIds.contains(installed.id()) ? PluginStatus.CRASHED : PluginStatus.INSTALLED));
             }
         }
 
@@ -185,7 +193,7 @@ public class PluginStatusService {
                 .map(diagnostic -> withLifecycleFailure(diagnostic, lifecycleFailures.get(diagnostic.id())))
                 .collect(Collectors.toCollection(ArrayList::new));
         for (PluginLoadFailure failure : inventory.failures()) {
-            diagnostics.add(new PluginDiagnostic(failure.source(), PluginStatus.FAILED, null,
+            diagnostics.add(new PluginDiagnostic(failure.source(), failure.status(), null,
                     requiredPluginPolicy.isRequired(failure.source()), List.of(failure.reason())));
         }
         return new PluginStatusReport(diagnostics);
@@ -197,9 +205,26 @@ public class PluginStatusService {
 
     /** 当前确实发生在插件启动 / 子上下文启动阶段的失败；普通坏包与验签失败不在此列。 */
     public Map<String, String> startupFailuresById() {
-        Map<String, String> failures = new LinkedHashMap<>(runtimeStartupFailures.get());
-        failures.putAll(pluginRegistry.lifecycleFailuresById());
+        Map<String, String> failures = new LinkedHashMap<>(currentFailuresById());
+        crashedPluginIds().forEach(failures::remove);
         return Map.copyOf(failures);
+    }
+
+    private Map<String, String> currentFailuresById() {
+        Map<String, String> failures = new LinkedHashMap<>(runtimeFailures.get());
+        failures.putAll(pluginRegistry.lifecycleFailuresById());
+        return failures;
+    }
+
+    private Set<String> crashedPluginIds() {
+        Map<String, PluginRuntimePackagePhase> phases = runtimePhases.get();
+        if (phases == null || phases.isEmpty()) {
+            return Set.of();
+        }
+        return phases.entrySet().stream()
+                .filter(entry -> entry.getValue() == PluginRuntimePackagePhase.CRASHED)
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toUnmodifiableSet());
     }
 
     /** 当前 runtime 为各安装路径保留的最新结构化离线复验事实；不读取或解析失败原因文本。 */
@@ -213,7 +238,7 @@ public class PluginStatusService {
                 + " path=" + failure.transactionDirectory() + ": " + failure.detail();
     }
 
-    private static Map<String, String> runtimeStartupFailures(PluginRuntimeStatus status) {
+    private static Map<String, String> runtimeFailures(PluginRuntimeStatus status) {
         Set<String> notStarted = new LinkedHashSet<>(status.loadedPluginIds());
         notStarted.removeAll(status.startedPluginIds());
         Map<String, String> failures = new LinkedHashMap<>();
@@ -226,7 +251,10 @@ public class PluginStatusService {
     }
 
     private static PluginStatus externalBaseStatus(PluginInstallation installation, Set<String> activeIds,
-                                                   Map<String, String> lifecycleFailures) {
+                                                   Map<String, String> lifecycleFailures, Set<String> crashedIds) {
+        if (crashedIds.contains(installation.id())) {
+            return PluginStatus.CRASHED;
+        }
         if (lifecycleFailures.containsKey(installation.id())) {
             return PluginStatus.FAILED;
         }
@@ -244,7 +272,9 @@ public class PluginStatusService {
         List<String> messages = new ArrayList<>();
         messages.add(failure);
         messages.addAll(diagnostic.messages());
-        return new PluginDiagnostic(diagnostic.id(), PluginStatus.FAILED, diagnostic.descriptor(),
+        PluginStatus status = diagnostic.status() == PluginStatus.CRASHED
+                ? PluginStatus.CRASHED : PluginStatus.FAILED;
+        return new PluginDiagnostic(diagnostic.id(), status, diagnostic.descriptor(),
                 diagnostic.requiredByPolicy(), messages);
     }
 }

@@ -125,6 +125,7 @@ public class PluginLifecycleService {
     private final Runnable afterCapabilityRetireReturnProbe;
     private final Runnable afterCapabilityAcknowledgeReturnProbe;
     private final Runnable afterCapabilityAcknowledgeFlagProbe;
+    private final Consumer<PluginRuntimeManager.WorkerEvent> workerEventListener = this::handleWorkerEvent;
     private final ScheduleContributionLifecycleAuthority scheduleMutationAuthority =
             new ScheduleContributionLifecycleAuthority();
 
@@ -302,6 +303,7 @@ public class PluginLifecycleService {
                 bringUpFromBoot(record);
             }
             started = true;
+            pluginRuntimeManager.addWorkerListener(workerEventListener);
         }
         log.info("External plugin lifecycle started: {} plugin(s) {}.", managed.size(), managed.keySet());
     }
@@ -315,6 +317,7 @@ public class PluginLifecycleService {
             if (!started) {
                 return;
             }
+            pluginRuntimeManager.removeWorkerListener(workerEventListener);
             List<String> ids = new ArrayList<>(managed.keySet());
             Collections.reverse(ids);
             Throwable fatal = null;
@@ -382,6 +385,45 @@ public class PluginLifecycleService {
         boolean interrupted = Thread.interrupted();
         LockSupport.parkNanos(1_000_000L);
         return interrupted | Thread.interrupted();
+    }
+
+    /** 隔离 worker 退出时立即撤回同 generation 服务足迹；worker 恢复后再走既有启动通路重建。 */
+    private void handleWorkerEvent(PluginRuntimeManager.WorkerEvent event) {
+        synchronized (lock) {
+            ManagedPlugin record = managed.get(event.pluginId());
+            if (!started || record == null || record.generation != event.generation()) {
+                return;
+            }
+            try {
+                if (event.type() == PluginRuntimeManager.WorkerEventType.CRASHED) {
+                    if (record.registered != null) {
+                        pluginRegistry.recordLifecycleFailure(record.registered, new PluginLifecycleException(
+                                "isolated worker crashed: " + event.reason()));
+                    }
+                    PluginRuntimePhase phase = lifecycleState.phase(record.pluginId).orElse(null);
+                    if (phase == PluginRuntimePhase.STARTED || phase == PluginRuntimePhase.QUIESCED) {
+                        doStop(record);
+                    }
+                    return;
+                }
+                if (lifecycleState.phase(record.pluginId).orElse(null) == PluginRuntimePhase.QUIESCED) {
+                    doStop(record);
+                }
+                PluginRuntimePhase phase = lifecycleState.phase(record.pluginId).orElse(null);
+                if (phase == PluginRuntimePhase.STOPPED || phase == PluginRuntimePhase.LOADED) {
+                    doStart(record);
+                }
+            } catch (Throwable failure) {
+                if (record.registered != null) {
+                    pluginRegistry.recordLifecycleFailure(record.registered, failure);
+                }
+                if (isFatal(failure)) {
+                    rethrowFatal(failure);
+                }
+                log.error("Failed to reconcile isolated worker event: pluginId={}, generation={}, event={}",
+                        event.pluginId(), event.generation(), event.type(), failure);
+            }
+        }
     }
 
     // ---- 运行期热启停 / quiesce API（按 pluginId）----

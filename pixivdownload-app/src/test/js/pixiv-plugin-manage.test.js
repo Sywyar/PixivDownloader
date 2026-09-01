@@ -83,6 +83,10 @@ ok('PixivPluginManage 已挂载（core+api+views）', PM
     && typeof PM.renderInstallResultHtml === 'function'
     && typeof PM.hasNavigationForPlacement === 'function');
 
+const crashedStatus = PM.statusMeta('CRASHED');
+eq('隔离 worker 崩溃使用独立状态文案', crashedStatus.key, 'status.crashed');
+eq('隔离 worker 崩溃使用错误色调', crashedStatus.tone, 'bad');
+
 // 页面会话内固定首次加载顺序；仅显式刷新接受后端新顺序。
 (function () {
     PM.state.pluginOrder = [];

@@ -111,6 +111,7 @@
     "stat.external": "外置插件",
     "stat.required": "必须插件",
     "stat.total": "已安装插件",
+    "status.crashed": "Worker 已崩溃",
     "status.disabled": "已禁用",
     "status.error": "加载插件状态失败，请重试。",
     "status.failed": "加载失败",

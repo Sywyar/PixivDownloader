@@ -108,6 +108,7 @@
         INSTALLED:             { key: 'status.installed', tone: 'idle' },
         RESOLVED:              { key: 'status.resolved', tone: 'info' },
         FAILED:                { key: 'status.failed', tone: 'bad' },
+        CRASHED:               { key: 'status.crashed', tone: 'bad' },
         INCOMPATIBLE:          { key: 'status.incompatible', tone: 'bad' },
         MISSING_REQUIRED:      { key: 'status.missing-required', tone: 'bad' },
         INCOMPATIBLE_REQUIRED: { key: 'status.incompatible-required', tone: 'bad' }

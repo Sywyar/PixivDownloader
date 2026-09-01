@@ -88,6 +88,12 @@ application, so this is limited process isolation, not a complete OS sandbox. To
 OS sandbox integration, so enabling this option rejects every `declarative-process` plugin. A signature or official
 identity does not grant additional runtime capabilities.
 
+When an isolated worker exits unexpectedly, the host withdraws that plugin's routes and capabilities, retains a
+bounded stderr log, and attempts recovery with bounded exponential backoff. Initialization, command, and shutdown
+timeouts, recovery attempts and initial / maximum delays, and the stderr limit are configurable under
+`pixivdownload.plugin-worker.*` with `initialize-timeout-ms`, `command-timeout-ms`, `shutdown-timeout-ms`,
+`restart-attempts`, `restart-initial-delay-ms`, `restart-max-delay-ms`, and `stderr-max-bytes`.
+
 Plugins can declare comma-separated permission risks such as `network,filesystem-write,schedule` in
 `pixiv.permissions`. The list is used for installation confirmation and trust continuity; it is not presented as a
 permission sandbox for `host-process-full-trust`. Older plugins without the field are shown as undeclared with full
