@@ -9,6 +9,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -42,6 +44,27 @@ class PluginArtifactSnapshotTest {
         assertThat(secondWorkspace).exists();
         second.close();
         assertThat(secondWorkspace).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("同一 generation 可连续创建超过旧上限的 worker 私有目录")
+    void workerDirectoriesAreNotLimitedPerGeneration() throws IOException {
+        Path plugins = Files.createDirectory(tempDir.resolve("plugins-worker-restarts"));
+        Path artifact = plugins.resolve("probe.jar");
+        Files.writeString(artifact, "probe", StandardCharsets.UTF_8);
+        PluginArtifactSnapshot snapshot = PluginArtifactSnapshot.create(
+                new PluginRuntimeLayout(plugins), artifact, 1024L);
+        Path workspace = snapshot.snapshotArtifact().getParent();
+        Set<Path> workerDirectories = new HashSet<>();
+
+        for (int i = 0; i < 100; i++) {
+            Path workerDirectory = snapshot.createWorkerDirectory();
+            assertThat(workerDirectory).isDirectory();
+            assertThat(workerDirectories.add(workerDirectory)).isTrue();
+        }
+
+        snapshot.close();
+        assertThat(workspace).doesNotExist();
     }
 
     @Test

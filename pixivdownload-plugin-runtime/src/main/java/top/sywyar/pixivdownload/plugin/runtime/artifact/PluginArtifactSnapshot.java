@@ -39,7 +39,6 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
     private static final Logger log = LoggerFactory.getLogger(PluginArtifactSnapshot.class);
     private static final int COPY_BUFFER_BYTES = 64 * 1024;
     private static final int MAX_WORKSPACE_ENTRIES = 25_000;
-    private static final int MAX_WORKER_DIRECTORIES = 16;
     private static final String WORKSPACE_PREFIX = ".artifact-snapshot-";
     private static final String OWNER_MARKER = ".pixiv-plugin-runtime-workspace";
 
@@ -49,7 +48,6 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
     private final UserPrincipal owner;
     private Path loadDirectory;
     private LoadTreeManifest loadManifest;
-    private int workerDirectoryCount;
     private boolean closed;
 
     private PluginArtifactSnapshot(Path originalArtifact, Path workspace, Path snapshotArtifact,
@@ -150,10 +148,6 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
     public Path createWorkerDirectory() throws IOException {
         requireOpen();
         requirePlainDirectory(workspace, "plugin artifact snapshot workspace");
-        if (workerDirectoryCount >= MAX_WORKER_DIRECTORIES) {
-            throw new IOException("plugin generation exceeded the isolated worker restart limit");
-        }
-        workerDirectoryCount++;
         return PluginRuntimeFileSecurity.createPrivateDirectory(
                 workspace, "worker-" + UUID.randomUUID(), owner);
     }
