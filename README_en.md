@@ -70,7 +70,7 @@ Download the latest version from [Releases](../../releases):
 |-------------------------------------|------------------------------------------------------------------------------------------------------|
 | `PixivDownload-*-win-x64-setup.exe` | Windows installer; repair/change/uninstall, optional FFmpeg install; preinstalls all official plugins except Douyin |
 | `PixivDownload-*-java.zip`          | Java standard package (cross-platform), requires Java 17; same default plugin set as the Windows installer, no Douyin |
-| `PixivDownload-*-full-offline.zip`  | Full-offline package (cross-platform), requires Java 17; includes all user-facing official plugins including Douyin |
+| `PixivDownload-*-full-offline.zip`  | Full-offline package (cross-platform), requires Java 17; same plugin set as the Java standard package, no Douyin |
 
 > The core-shell `PixivDownload-*.jar` is only an internal build input and is not provided as a regular user
 > attachment; running it standalone is missing the required `download-workbench` external plugin and enters
