@@ -84,6 +84,13 @@ JVM 前设置 `-Dpixivdownload.plugin-worker.require-os-sandbox=true`；当前�
 `host-process-full-trust` 模式中虚构的权限沙箱；旧插件缺少该字段时按“未声明权限、完全访问”展示。
 同一发布密钥的更新只有在权限不增加且执行模式不升级时才继承既有信任，新增权限需重新确认。
 
+插件包准入默认限制归档为 64 MiB、20000 个条目、总解压 256 MiB、单条目 64 MiB、描述符
+1 MiB、压缩比 200、路径名 1024 字符和 64 层目录。部署者可在启动 JVM 时用
+`-Dpixivdownload.plugin.package.<name>=<positive-integer>` 覆盖；`<name>` 分别为
+`max-archive-bytes`、`max-entries`、`max-total-uncompressed-bytes`、
+`max-entry-uncompressed-bytes`、`max-descriptor-bytes`、`max-compression-ratio`、
+`max-entry-name-length` 和 `max-entry-depth`。非法值会拒绝启动插件运行时，而不会静默退回默认值。
+
 GUI 自动安装 FFmpeg 时，会从项目维护的 `ffmpeg-stable` Release 下载由 FFmpeg 官方最新稳定源码构建的
 Windows x64、Linux x64/arm64 或 macOS x64/arm64 资产；其它平台仍可手动安装系统 FFmpeg。
 

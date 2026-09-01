@@ -88,6 +88,19 @@ application, so this is limited process isolation, not a complete OS sandbox. To
 OS sandbox integration, so enabling this option rejects every `declarative-process` plugin. A signature or official
 identity does not grant additional runtime capabilities.
 
+Plugins can declare comma-separated permission risks such as `network,filesystem-write,schedule` in
+`pixiv.permissions`. The list is used for installation confirmation and trust continuity; it is not presented as a
+permission sandbox for `host-process-full-trust`. Older plugins without the field are shown as undeclared with full
+access. An update signed by the same publisher key inherits trust only when it adds no permissions and does not
+upgrade the execution mode; added permissions require confirmation again.
+
+Plugin-package admission defaults to a 64 MiB archive, 20,000 entries, 256 MiB total decompressed data, a 64 MiB
+single entry, a 1 MiB descriptor, compression ratio 200, a 1,024-character entry name, and 64 path segments.
+Deployments can override each value with `-Dpixivdownload.plugin.package.<name>=<positive-integer>` before JVM
+startup. The names are `max-archive-bytes`, `max-entries`, `max-total-uncompressed-bytes`,
+`max-entry-uncompressed-bytes`, `max-descriptor-bytes`, `max-compression-ratio`, `max-entry-name-length`, and
+`max-entry-depth`. Invalid values fail plugin-runtime initialization instead of silently falling back.
+
 GUI-managed FFmpeg installation downloads a project-maintained `ffmpeg-stable` Release built from the latest official
 stable FFmpeg source for Windows x64, Linux x64/arm64, or macOS x64/arm64. Other platforms can still use a manually
 installed system FFmpeg.

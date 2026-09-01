@@ -96,6 +96,48 @@ public final class PluginPackageFixtures {
         }
     }
 
+    /** 把指定中央目录 entry 标为 Unix 符号链接，用于验证读取器不会把链接元数据当作普通文件放行。 */
+    public static void markEntryAsUnixSymlink(Path file, String entryName) {
+        try {
+            byte[] archive = Files.readAllBytes(file);
+            byte[] encodedName = entryName.getBytes(StandardCharsets.UTF_8);
+            int matches = 0;
+            for (int offset = 0; offset <= archive.length - 46; offset++) {
+                if (archive[offset] != 'P' || archive[offset + 1] != 'K'
+                        || archive[offset + 2] != 1 || archive[offset + 3] != 2) {
+                    continue;
+                }
+                int nameLength = unsignedShort(archive, offset + 28);
+                if (nameLength != encodedName.length || offset + 46 + nameLength > archive.length) {
+                    continue;
+                }
+                boolean sameName = true;
+                for (int index = 0; index < nameLength; index++) {
+                    sameName &= archive[offset + 46 + index] == encodedName[index];
+                }
+                if (!sameName) {
+                    continue;
+                }
+                archive[offset + 5] = 3; // version-made-by host: Unix
+                archive[offset + 38] = 0;
+                archive[offset + 39] = 0;
+                archive[offset + 40] = 0;
+                archive[offset + 41] = (byte) 0xa0; // 0120000 << 16, little endian
+                matches++;
+            }
+            if (matches != 1) {
+                throw new IllegalStateException("unexpected central directory entry count: " + matches);
+            }
+            Files.write(file, archive);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static int unsignedShort(byte[] bytes, int offset) {
+        return Byte.toUnsignedInt(bytes[offset]) | Byte.toUnsignedInt(bytes[offset + 1]) << 8;
+    }
+
     /** 同 {@link #writeZip}，但返回 zip 字节（用于嵌套成内层 jar）。 */
     public static byte[] zipBytes(Map<String, byte[]> entries) {
         ByteArrayOutputStream bos = new ByteArrayOutputStream();

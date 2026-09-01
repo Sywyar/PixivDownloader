@@ -129,10 +129,9 @@ public final class PluginPackageReader {
     public static PluginPackageInspection inspect(Path packagePath, PluginPackageLimits limits) {
         Objects.requireNonNull(packagePath, "packagePath");
         Objects.requireNonNull(limits, "limits");
-        long maxDescriptorBytes = limits.maxDescriptorBytes();
         String name = packagePath.getFileName().toString().toLowerCase(Locale.ROOT);
         if (name.endsWith(".jar")) {
-            ArchiveInspection archive = inspectArchive(packagePath, maxDescriptorBytes, "jar");
+            ArchiveInspection archive = inspectArchive(packagePath, limits, "jar");
             if (archive.properties() == null) {
                 throw new PluginPackageException(PluginPackageException.Reason.NO_DESCRIPTOR,
                         "jar contains no " + PLUGIN_PROPERTIES + ": " + packagePath.getFileName());
@@ -140,10 +139,11 @@ public final class PluginPackageReader {
             return new PluginPackageInspection(PluginPackageFormat.SINGLE_JAR,
                     toDescriptor(archive.properties()), null, archive.containsPrivateLibraries());
         }
-        return inspectZip(packagePath, maxDescriptorBytes);
+        return inspectZip(packagePath, limits);
     }
 
-    private static PluginPackageInspection inspectZip(Path zip, long maxDescriptorBytes) {
+    private static PluginPackageInspection inspectZip(Path zip, PluginPackageLimits limits) {
+        long maxDescriptorBytes = limits.maxDescriptorBytes();
         boolean rootProperties = false;
         List<String> rootJars = new ArrayList<>();
         int entryCount = 0;
@@ -153,7 +153,7 @@ public final class PluginPackageReader {
             while (entries.hasMoreElements()) {
                 ZipEntry entry = entries.nextElement();
                 entryCount++;
-                String entryName = ZipSafety.requireUniqueEntryName(entry.getName(), entryNames);
+                String entryName = ZipSafety.requireUniqueEntryName(entry.getName(), entryNames, limits);
                 if (entry.isDirectory()) {
                     continue;
                 }
@@ -179,7 +179,7 @@ public final class PluginPackageReader {
             }
             if (rootJars.size() == 1) {
                 String jarEntry = rootJars.get(0);
-                ArchiveInspection innerJar = inspectInnerJar(zipFile, jarEntry, maxDescriptorBytes);
+                ArchiveInspection innerJar = inspectInnerJar(zipFile, jarEntry, limits);
                 if (innerJar.properties() == null) {
                     throw new PluginPackageException(PluginPackageException.Reason.NO_DESCRIPTOR,
                             "root jar " + jarEntry + " contains no " + PLUGIN_PROPERTIES);
@@ -208,7 +208,8 @@ public final class PluginPackageReader {
     }
 
     /** 从一个 zip / jar 归档根扫描描述符与 {@code lib/*.jar}。 */
-    private static ArchiveInspection inspectArchive(Path archive, long maxDescriptorBytes, String label) {
+    private static ArchiveInspection inspectArchive(Path archive, PluginPackageLimits limits, String label) {
+        long maxDescriptorBytes = limits.maxDescriptorBytes();
         Properties properties = null;
         boolean containsPrivateLibraries = false;
         try (ZipFile zipFile = new ZipFile(archive.toFile())) {
@@ -216,7 +217,7 @@ public final class PluginPackageReader {
             Enumeration<? extends ZipEntry> entries = zipFile.entries();
             while (entries.hasMoreElements()) {
                 ZipEntry entry = entries.nextElement();
-                String entryName = ZipSafety.requireUniqueEntryName(entry.getName(), entryNames);
+                String entryName = ZipSafety.requireUniqueEntryName(entry.getName(), entryNames, limits);
                 if (entry.isDirectory()) {
                     continue;
                 }
@@ -248,8 +249,10 @@ public final class PluginPackageReader {
     }
 
     /** 从 zip 内某个 jar entry 的内部扫描根 {@value #PLUGIN_PROPERTIES} 与 {@code lib/*.jar}。 */
-    private static ArchiveInspection inspectInnerJar(ZipFile zipFile, String jarEntryName, long maxDescriptorBytes)
+    private static ArchiveInspection inspectInnerJar(
+            ZipFile zipFile, String jarEntryName, PluginPackageLimits limits)
             throws IOException {
+        long maxDescriptorBytes = limits.maxDescriptorBytes();
         ZipEntry jarEntry = zipFile.getEntry(jarEntryName);
         if (jarEntry == null) {
             return new ArchiveInspection(null, false);
@@ -261,7 +264,7 @@ public final class PluginPackageReader {
                 new BufferedInputStream(zipFile.getInputStream(jarEntry)))) {
             ZipEntry inner;
             while ((inner = jarStream.getNextEntry()) != null) {
-                String entryName = ZipSafety.requireUniqueEntryName(inner.getName(), entryNames);
+                String entryName = ZipSafety.requireUniqueEntryName(inner.getName(), entryNames, limits);
                 if (inner.isDirectory()) {
                     continue;
                 }

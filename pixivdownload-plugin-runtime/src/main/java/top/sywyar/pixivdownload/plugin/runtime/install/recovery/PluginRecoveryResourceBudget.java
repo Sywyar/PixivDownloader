@@ -95,7 +95,9 @@ public final class PluginRecoveryResourceBudget {
                 Math.min(limits.maxTotalUncompressedBytes(), remainingUncompressed),
                 Math.min(limits.maxEntryUncompressedBytes(), remainingUncompressed),
                 limits.maxDescriptorBytes(),
-                limits.maxCompressionRatio());
+                limits.maxCompressionRatio(),
+                limits.maxEntryNameLength(),
+                limits.maxEntryDepth());
         boolean constrainedByRemainingBudget = effectiveLimits.maxEntries() < limits.maxEntries()
                 || effectiveLimits.maxTotalUncompressedBytes() < limits.maxTotalUncompressedBytes()
                 || effectiveLimits.maxEntryUncompressedBytes() < limits.maxEntryUncompressedBytes();

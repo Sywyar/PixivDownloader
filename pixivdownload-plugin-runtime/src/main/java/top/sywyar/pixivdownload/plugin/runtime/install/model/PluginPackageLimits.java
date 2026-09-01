@@ -3,6 +3,9 @@ package top.sywyar.pixivdownload.plugin.runtime.install.model;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageVerifier;
 
+import java.util.Objects;
+import java.util.Properties;
+
 /**
  * 外置插件包安装期的资源规模安全上限（防 Zip Bomb / 解压资源耗尽）。{@link PluginPackageVerifier} 据此扫描归档，
  * {@link PluginPackageReader} 据 {@link #maxDescriptorBytes()} 限制描述符读取字节。超限一律拒绝整包
@@ -25,6 +28,8 @@ import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageVerif
  * @param maxEntryUncompressedBytes  单个 entry 实际解压字节上限（含 single-jar zip 内的 inner jar）
  * @param maxDescriptorBytes         {@code plugin.properties} 描述符读取字节上限
  * @param maxCompressionRatio        单个 entry 的解压 / 压缩比上限（仅对超过内部地板阈值的较大 entry 生效，避免误伤小文件）
+ * @param maxEntryNameLength         单个 entry 路径名最大字符数
+ * @param maxEntryDepth              单个 entry 最大目录层级
  */
 public record PluginPackageLimits(
         long maxArchiveBytes,
@@ -32,7 +37,11 @@ public record PluginPackageLimits(
         long maxTotalUncompressedBytes,
         long maxEntryUncompressedBytes,
         long maxDescriptorBytes,
-        long maxCompressionRatio) {
+        long maxCompressionRatio,
+        int maxEntryNameLength,
+        int maxEntryDepth) {
+
+    public static final String PROPERTY_PREFIX = "pixivdownload.plugin.package.";
 
     /** 默认安装器归档体积上限：64 MiB（高于 Web 10MB multipart 上限，作硬兜底、不构成裂缝）。 */
     public static final long DEFAULT_MAX_ARCHIVE_BYTES = 64L * 1024 * 1024;
@@ -46,6 +55,22 @@ public record PluginPackageLimits(
     public static final long DEFAULT_MAX_DESCRIPTOR_BYTES = 1L * 1024 * 1024;
     /** 默认单 entry 压缩比上限：200（已压缩的 jar / class 远低于此；只对较大 entry 生效）。 */
     public static final long DEFAULT_MAX_COMPRESSION_RATIO = 200L;
+    /** 默认 entry 路径名上限：1024 字符。 */
+    public static final int DEFAULT_MAX_ENTRY_NAME_LENGTH = 1_024;
+    /** 默认 entry 目录深度上限：64 层。 */
+    public static final int DEFAULT_MAX_ENTRY_DEPTH = 64;
+
+    /** 保留既有调用方的六参数构造语义，并补入默认路径上限。 */
+    public PluginPackageLimits(long maxArchiveBytes,
+                               int maxEntries,
+                               long maxTotalUncompressedBytes,
+                               long maxEntryUncompressedBytes,
+                               long maxDescriptorBytes,
+                               long maxCompressionRatio) {
+        this(maxArchiveBytes, maxEntries, maxTotalUncompressedBytes, maxEntryUncompressedBytes,
+                maxDescriptorBytes, maxCompressionRatio,
+                DEFAULT_MAX_ENTRY_NAME_LENGTH, DEFAULT_MAX_ENTRY_DEPTH);
+    }
 
     public PluginPackageLimits {
         requirePositive("maxArchiveBytes", maxArchiveBytes);
@@ -54,17 +79,59 @@ public record PluginPackageLimits(
         requirePositive("maxEntryUncompressedBytes", maxEntryUncompressedBytes);
         requirePositive("maxDescriptorBytes", maxDescriptorBytes);
         requirePositive("maxCompressionRatio", maxCompressionRatio);
+        requirePositive("maxEntryNameLength", maxEntryNameLength);
+        requirePositive("maxEntryDepth", maxEntryDepth);
     }
 
-    /** 安装器默认安全上限（生产 @Bean 使用；测试可用更紧的上限确定性触发拒绝）。 */
+    /**
+     * 安装器安全上限。每项都可用 {@value #PROPERTY_PREFIX} 前缀的同名 kebab-case JVM system property 覆盖；
+     * 缺失时使用安全默认值，非法或非正数值会在运行时初始化时明确拒绝。
+     */
     public static PluginPackageLimits defaults() {
+        return fromProperties(System.getProperties());
+    }
+
+    static PluginPackageLimits fromProperties(Properties properties) {
+        Objects.requireNonNull(properties, "properties");
         return new PluginPackageLimits(
-                DEFAULT_MAX_ARCHIVE_BYTES,
-                DEFAULT_MAX_ENTRIES,
-                DEFAULT_MAX_TOTAL_UNCOMPRESSED_BYTES,
-                DEFAULT_MAX_ENTRY_UNCOMPRESSED_BYTES,
-                DEFAULT_MAX_DESCRIPTOR_BYTES,
-                DEFAULT_MAX_COMPRESSION_RATIO);
+                configuredLong(properties, "max-archive-bytes", DEFAULT_MAX_ARCHIVE_BYTES),
+                configuredInt(properties, "max-entries", DEFAULT_MAX_ENTRIES),
+                configuredLong(properties, "max-total-uncompressed-bytes", DEFAULT_MAX_TOTAL_UNCOMPRESSED_BYTES),
+                configuredLong(properties, "max-entry-uncompressed-bytes", DEFAULT_MAX_ENTRY_UNCOMPRESSED_BYTES),
+                configuredLong(properties, "max-descriptor-bytes", DEFAULT_MAX_DESCRIPTOR_BYTES),
+                configuredLong(properties, "max-compression-ratio", DEFAULT_MAX_COMPRESSION_RATIO),
+                configuredInt(properties, "max-entry-name-length", DEFAULT_MAX_ENTRY_NAME_LENGTH),
+                configuredInt(properties, "max-entry-depth", DEFAULT_MAX_ENTRY_DEPTH));
+    }
+
+    private static int configuredInt(Properties properties, String suffix, int fallback) {
+        long value = configuredLong(properties, suffix, fallback);
+        if (value > Integer.MAX_VALUE) {
+            throw invalidProperty(suffix, Long.toString(value), null);
+        }
+        return (int) value;
+    }
+
+    private static long configuredLong(Properties properties, String suffix, long fallback) {
+        String raw = properties.getProperty(PROPERTY_PREFIX + suffix);
+        if (raw == null || raw.isBlank()) {
+            return fallback;
+        }
+        try {
+            long value = Long.parseLong(raw.trim());
+            if (value <= 0L) {
+                throw invalidProperty(suffix, raw, null);
+            }
+            return value;
+        } catch (NumberFormatException failure) {
+            throw invalidProperty(suffix, raw, failure);
+        }
+    }
+
+    private static IllegalArgumentException invalidProperty(String suffix, String value, Throwable cause) {
+        return new IllegalArgumentException(
+                "system property " + PROPERTY_PREFIX + suffix + " must be a positive integer: " + value,
+                cause);
     }
 
     private static void requirePositive(String name, long value) {

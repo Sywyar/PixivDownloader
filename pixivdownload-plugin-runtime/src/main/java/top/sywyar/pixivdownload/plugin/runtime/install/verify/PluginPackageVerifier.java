@@ -31,6 +31,8 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits
  *       {@link PluginPackageLimits#maxTotalUncompressedBytes()}；</li>
  *   <li><b>压缩比</b>：外层与嵌套归档中较大 entry 的解压 / 压缩比不超过
  *       {@link PluginPackageLimits#maxCompressionRatio()}；</li>
+ *   <li><b>路径规模</b>：entry 名字符数与目录深度不超过调用方配置上限；</li>
+ *   <li><b>文件类型</b>：拒绝归档中央目录声明的 Unix 符号链接或特殊文件；</li>
  *   <li><b>entry 唯一性</b>：每层归档按可移植文件名语义规范化后不得重名。</li>
  * </ul>
  *
@@ -85,6 +87,7 @@ public final class PluginPackageVerifier {
                     + limits.maxArchiveBytes() + ")").withVerificationUsage(0, 0L);
         }
 
+        ZipSafety.assertNoSpecialFileEntries(archive);
         try (InputStream input = Files.newInputStream(archive)) {
             scanArchive(input, limits, budget, true, true, archive.getFileName().toString());
         } catch (PluginPackageException e) {
@@ -117,7 +120,7 @@ public final class PluginPackageVerifier {
                     throw tooLarge("too many zip entries including nested plugin jars (limit "
                             + limits.maxEntries() + ")");
                 }
-                String entryName = ZipSafety.requireUniqueEntryName(entry.getName(), entryNames);
+                String entryName = ZipSafety.requireUniqueEntryName(entry.getName(), entryNames, limits);
                 requireNoHostControlledClass(entryName);
                 NestedArchiveKind nestedKind = nestedArchiveKind(
                         entryName, scanRootPluginJar, scanPrivateLibraries);

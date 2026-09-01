@@ -42,7 +42,9 @@ public final class PluginStartupResourceBudget {
                 remainingBytes,
                 Math.min(packageLimits.maxEntryUncompressedBytes(), remainingBytes),
                 packageLimits.maxDescriptorBytes(),
-                packageLimits.maxCompressionRatio());
+                packageLimits.maxCompressionRatio(),
+                packageLimits.maxEntryNameLength(),
+                packageLimits.maxEntryDepth());
     }
 
     public void consumeVerification(PluginPackageVerifier.VerificationUsage usage) {

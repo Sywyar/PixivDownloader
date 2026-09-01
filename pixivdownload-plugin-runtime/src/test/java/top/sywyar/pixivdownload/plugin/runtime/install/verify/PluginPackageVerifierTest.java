@@ -239,6 +239,44 @@ class PluginPackageVerifierTest {
     }
 
     @Test
+    @DisplayName("路径字符数和目录深度分别按配置上限拒绝并给出准确原因")
+    void rejectsConfiguredEntryNameAndDepthLimits() {
+        Path longName = dir.resolve("long-name.zip");
+        PluginPackageFixtures.writeZip(longName, Map.of("classes/Marker.class", new byte[0]));
+        PluginPackageLimits nameLimits = new PluginPackageLimits(
+                1_000_000, 100, 1_000_000, 1_000_000, 10_000, 1_000, 10, 10);
+        assertThatThrownBy(() -> PluginPackageVerifier.verify(longName, nameLimits))
+                .isInstanceOfSatisfying(PluginPackageException.class, failure -> {
+                    assertThat(failure.reason()).isEqualTo(PluginPackageException.Reason.TOO_LARGE);
+                    assertThat(failure).hasMessageContaining("entry name exceeds 10 characters");
+                });
+
+        Path deep = dir.resolve("deep.zip");
+        PluginPackageFixtures.writeZip(deep, Map.of("a/b/c.txt", new byte[0]));
+        PluginPackageLimits depthLimits = new PluginPackageLimits(
+                1_000_000, 100, 1_000_000, 1_000_000, 10_000, 1_000, 100, 2);
+        assertThatThrownBy(() -> PluginPackageVerifier.verify(deep, depthLimits))
+                .isInstanceOfSatisfying(PluginPackageException.class, failure -> {
+                    assertThat(failure.reason()).isEqualTo(PluginPackageException.Reason.TOO_LARGE);
+                    assertThat(failure).hasMessageContaining("entry depth exceeds 2 segments");
+                });
+    }
+
+    @Test
+    @DisplayName("Unix 符号链接或特殊文件元数据在物化前按 UNSAFE 拒绝")
+    void rejectsUnixSymlinkMetadata() {
+        Path zip = dir.resolve("symlink.zip");
+        PluginPackageFixtures.writeZip(zip, Map.of("classes/link.class", PluginPackageFixtures.bytes("target")));
+        PluginPackageFixtures.markEntryAsUnixSymlink(zip, "classes/link.class");
+
+        assertThatThrownBy(() -> PluginPackageVerifier.verify(zip, PluginPackageLimits.defaults()))
+                .isInstanceOfSatisfying(PluginPackageException.class, failure -> {
+                    assertThat(failure.reason()).isEqualTo(PluginPackageException.Reason.UNSAFE);
+                    assertThat(failure).hasMessageContaining("symbolic link or special file");
+                });
+    }
+
+    @Test
     @DisplayName("Windows 保留设备名：普通扩展名与兼容数字写法均按 UNSAFE 拒绝")
     void rejectsWindowsReservedDeviceNames() {
         for (String entryName : List.of("classes/NUL.txt", "classes/COM\u00b9.log")) {
