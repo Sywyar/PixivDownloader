@@ -43,15 +43,7 @@ function Stage-OfficialPlugins {
     foreach ($plugin in $Plugins) {
         $extension = Get-OfficialPluginArtifactExtension $plugin
         if ($PrebuiltPluginsDir) {
-            $candidate = Get-ChildItem (Join-Path $PrebuiltPluginsDir "$($plugin.Module)-*.$extension") `
-                    -File -ErrorAction SilentlyContinue |
-                Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
-                Sort-Object LastWriteTime -Descending |
-                Select-Object -First 1
-            if (-not $candidate) {
-                throw "Prebuilt plugin artifact for module $($plugin.Module) not found under $PrebuiltPluginsDir."
-            }
-            $sourceArtifact = $candidate.FullName
+            $sourceArtifact = Find-PrebuiltOfficialPluginArtifact $plugin $PrebuiltPluginsDir
         } else {
             $sourceArtifact = Find-ModulePluginArtifact $plugin $ProjectRoot
         }

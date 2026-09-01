@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
@@ -435,7 +436,7 @@ class PluginReleaseScriptsTest {
         assertThat(windows).contains("Assert-NoPrivateKeyMaterial");
         assertThat(distribution).contains(
                 "[string]$PrebuiltPluginsDir",
-                "Find-PrebuiltPluginArtifact",
+                "Find-PrebuiltOfficialPluginArtifact",
                 "[switch]$DefaultDownloader",
                 "Get-OfficialDistributionPlugins -IncludeOptional:(!$DefaultDownloader)",
                 "CoreShellOnly and DefaultDownloader cannot be combined.");
@@ -949,7 +950,12 @@ class PluginReleaseScriptsTest {
                 "PowerShell 不可用，跳过行为测试");
         Path prebuilt = Files.createDirectories(tempDir.resolve("prebuilt"));
         Path appDir = Files.createDirectories(tempDir.resolve("app"));
-        writeThinPluginJar(prebuilt.resolve("sample-module-1.0.0.jar"), "sample", "1.0.0", "1.0");
+        Path expectedArtifact = prebuilt.resolve("sample-module-1.0.0.jar");
+        Path collidingArtifact = prebuilt.resolve("sample-module-tools-9.0.0.jar");
+        writeThinPluginJar(expectedArtifact, "sample", "1.0.0", "1.0");
+        writeThinPluginJar(collidingArtifact, "sample-tools", "9.0.0", "1.0");
+        Files.setLastModifiedTime(expectedArtifact, FileTime.fromMillis(1_000));
+        Files.setLastModifiedTime(collidingArtifact, FileTime.fromMillis(2_000));
 
         String command = "$ErrorActionPreference='Stop'; "
                 + ". './scripts/package-local-plugin-staging.ps1'; "
