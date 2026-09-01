@@ -28,7 +28,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -176,7 +175,7 @@ public final class IsolatedPluginSession {
             ProcessBuilder builder = new ProcessBuilder(workerCommand(workerDirectory));
             builder.directory(workerDirectory.toFile());
             builder.redirectError(ProcessBuilder.Redirect.DISCARD);
-            minimizeEnvironment(builder, workerDirectory);
+            configureEnvironment(builder, workerDirectory);
             process = builder.start();
             input = new DataInputStream(process.getInputStream());
             output = new DataOutputStream(process.getOutputStream());
@@ -404,23 +403,11 @@ public final class IsolatedPluginSession {
         }
     }
 
-    private static void minimizeEnvironment(ProcessBuilder builder, Path workerDirectory) {
-        Map<String, String> inherited = new LinkedHashMap<>(builder.environment());
-        builder.environment().clear();
-        copyEnvironment(inherited, builder.environment(), "SystemRoot");
-        copyEnvironment(inherited, builder.environment(), "WINDIR");
-        builder.environment().put("TEMP", workerDirectory.toString());
-        builder.environment().put("TMP", workerDirectory.toString());
-        builder.environment().put("TMPDIR", workerDirectory.toString());
-        builder.environment().put("LANG", "C.UTF-8");
-    }
-
-    private static void copyEnvironment(Map<String, String> source, Map<String, String> target, String key) {
-        source.forEach((name, value) -> {
-            if (name.equalsIgnoreCase(key) && value != null) {
-                target.put(name, value);
-            }
-        });
+    static void configureEnvironment(ProcessBuilder builder, Path workerDirectory) {
+        Map<String, String> environment = builder.environment();
+        environment.put("TEMP", workerDirectory.toString());
+        environment.put("TMP", workerDirectory.toString());
+        environment.put("TMPDIR", workerDirectory.toString());
     }
 
     private static boolean isWindows() {
