@@ -149,6 +149,30 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
+    @DisplayName("共享分发脚本接受 SDK 支持的稳定版和预发布版本")
+    void commonDistributionScriptParsesSdkPrereleaseVersions(@TempDir Path tempDir) throws Exception {
+        Path metadata = tempDir.resolve(
+                "pixivdownload-sdk-info/src/main/resources/META-INF/pixivdownload-sdk.properties");
+        Files.createDirectories(metadata.getParent());
+        for (String version : List.of("1.0.0", "1.0.0-alpha1", "1.0.0-beta2", "1.0.0-rc12")) {
+            Files.writeString(metadata, "version=" + version + "\n", StandardCharsets.UTF_8);
+            assertThat(runPowerShell(
+                    "$ErrorActionPreference='Stop'; "
+                            + ". './scripts/plugin-distribution-common.ps1'; "
+                            + "Get-PixivDownloadSdkVersion -ProjectRoot '" + psQuote(tempDir) + "'"))
+                    .isEqualTo(version);
+        }
+
+        Files.writeString(metadata, "version=1.0.0-rc0\n", StandardCharsets.UTF_8);
+        CommandResult invalid = runPowerShellResult(
+                "$ErrorActionPreference='Stop'; "
+                        + ". './scripts/plugin-distribution-common.ps1'; "
+                        + "Get-PixivDownloadSdkVersion -ProjectRoot '" + psQuote(tempDir) + "'");
+        assertThat(invalid.exitCode()).as(invalid.output()).isNotZero();
+        assertThat(invalid.output()).contains("SDK metadata contains an invalid semantic version");
+    }
+
+    @Test
     @DisplayName("共享分发脚本提供官方插件 jar 产物名解析和私有 lib 形态断言")
     void commonDistributionScriptResolvesOfficialArtifactNames() throws Exception {
         String common = script("plugin-distribution-common.ps1");

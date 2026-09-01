@@ -27,7 +27,7 @@ function Get-PixivDownloadSdkVersion {
     }
     $metadata = ConvertFrom-StringData (Get-Content -LiteralPath $metadataPath -Raw -Encoding UTF8)
     $version = [string]$metadata.version
-    if ($version -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') {
+    if ($version -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(alpha|beta|rc)([1-9]\d*))?$') {
         throw "SDK metadata contains an invalid semantic version: $version"
     }
     return $version
