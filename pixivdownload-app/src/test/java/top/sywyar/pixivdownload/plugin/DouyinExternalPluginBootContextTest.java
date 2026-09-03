@@ -573,8 +573,6 @@ class DouyinExternalPluginBootContextTest {
                             sha256,
                             signature,
                             Map.of(),
-                            Map.of(),
-                            false,
                             pending.trustRequirement().artifactSha256())
                     : PluginPackageOrigin.localUnsignedUpload(pending.trustRequirement().artifactSha256());
             PluginInstallResult installed = installFully(installer, source, confirmed);

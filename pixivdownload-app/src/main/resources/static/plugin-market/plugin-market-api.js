@@ -89,7 +89,6 @@
         confirmations = confirmations || {};
         var query = [];
         if (confirmations.trustSha256) query.push('confirmTrust=' + enc(confirmations.trustSha256));
-        if (confirmations.identityMigration) query.push('confirmIdentityMigration=true');
         if (query.length) url += '?' + query.join('&');
         return fetch(url, { method: 'POST', headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
             .then(function (res) {

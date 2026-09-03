@@ -1,11 +1,9 @@
 package top.sywyar.pixivdownload.plugin.runtime.install.trust;
 
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginPermissionDeclaration;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource;
 
 import java.util.Locale;
-import java.util.List;
 import java.util.Objects;
 
 /** 安装未发布前返回给管理员的精确制品信任确认事实。 */
@@ -19,10 +17,7 @@ public record PluginTrustRequirement(
         String publisher,
         String publisherKeyFingerprint,
         String artifactSha256,
-        PluginExecutionMode executionMode,
-        boolean permissionsDeclared,
-        List<String> declaredPermissions,
-        String declaredPermissionDigest) {
+        PluginExecutionMode executionMode) {
 
     public PluginTrustRequirement {
         pluginId = requiredText(pluginId, "pluginId");
@@ -33,12 +28,6 @@ public record PluginTrustRequirement(
         publisherKeyFingerprint = optionalSha256(publisherKeyFingerprint, "publisherKeyFingerprint");
         artifactSha256 = optionalSha256(artifactSha256, "artifactSha256");
         executionMode = Objects.requireNonNull(executionMode, "executionMode");
-        PluginPermissionDeclaration permissions = new PluginPermissionDeclaration(
-                permissionsDeclared, declaredPermissions);
-        declaredPermissions = permissions.permissions();
-        if (!permissions.digest().equals(declaredPermissionDigest)) {
-            throw new IllegalArgumentException("declaredPermissionDigest does not match declared permissions");
-        }
         if (artifactSha256 == null) {
             throw new IllegalArgumentException("artifactSha256 is required");
         }

@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.plugin.runtime.install;
 
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
-import top.sywyar.pixivdownload.plugin.signature.RepositoryIdentityMigrationAuthorization;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
 import top.sywyar.pixivdownload.plugin.signature.internal.envelope.EnvelopeV1Codec;
@@ -116,27 +115,6 @@ final class PluginSigningTestSupport {
                 artifactSignature(artifact, pluginId, version), identityMigrationSignatures);
     }
 
-    PluginPackageOrigin originFor(
-            String repositoryId,
-            Path artifact,
-            String pluginId,
-            String version,
-            Map<String, SignatureMetadata> identityMigrationSignatures,
-            Map<String, RepositoryIdentityMigrationAuthorization> repositoryIdentityMigrationAuthorizations,
-            boolean identityMigrationConfirmed) throws IOException {
-        long size = Files.size(artifact);
-        String sha256 = Hashing.hex(Hashing.sha256(artifact));
-        return PluginPackageOrigin.forTrustedCatalog(
-                repositoryId,
-                false,
-                size,
-                sha256,
-                artifactSignature(artifact, pluginId, version),
-                identityMigrationSignatures,
-                repositoryIdentityMigrationAuthorizations,
-                identityMigrationConfirmed);
-    }
-
     PluginPackageOrigin confirmed(PluginPackageOrigin origin) {
         return PluginPackageOrigin.forTrustedCatalog(
                 origin.repositoryId(),
@@ -145,8 +123,6 @@ final class PluginSigningTestSupport {
                 origin.expectedSha256(),
                 origin.signature(),
                 origin.identityMigrationSignatures(),
-                origin.repositoryIdentityMigrationAuthorizations(),
-                origin.identityMigrationConfirmed(),
                 origin.expectedSha256());
     }
 
@@ -209,45 +185,6 @@ final class PluginSigningTestSupport {
                 SignatureMetadata.ED25519,
                 keyId,
                 Base64.getEncoder().encodeToString(sign(message)));
-    }
-
-    RepositoryIdentityMigrationAuthorization repositoryIdentityMigrationAuthorization(
-            String reason,
-            String fromPluginId,
-            String fromRepositoryId,
-            PluginSigningTestSupport fromSigner,
-            String toPluginId,
-            String toRepositoryId,
-            PluginSigningTestSupport toSigner,
-            Path artifact,
-            String version) throws IOException {
-        byte[] sha256 = Hashing.sha256(artifact);
-        byte[] message = EnvelopeV1Codec.repositoryIdentityMigrationMessage(
-                SignatureMetadata.ED25519,
-                keyId,
-                reason,
-                fromPluginId,
-                "MARKET_CATALOG",
-                fromRepositoryId,
-                false,
-                fromSigner.trustedKey.publisher(),
-                fromSigner.keyId,
-                toPluginId,
-                "MARKET_CATALOG",
-                toRepositoryId,
-                false,
-                toSigner.trustedKey.publisher(),
-                toSigner.keyId,
-                version,
-                Files.size(artifact),
-                sha256);
-        return new RepositoryIdentityMigrationAuthorization(
-                reason,
-                new SignatureMetadata(
-                        SignatureMetadata.FORMAT_VERSION,
-                        SignatureMetadata.ED25519,
-                        keyId,
-                        Base64.getEncoder().encodeToString(sign(message))));
     }
 
     private byte[] sign(byte[] message) {

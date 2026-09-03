@@ -31,7 +31,6 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackagePhase;
-import top.sywyar.pixivdownload.plugin.signature.RepositoryIdentityMigrationAuthorization;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 
 import java.io.IOException;
@@ -155,7 +154,7 @@ class PluginCatalogAcquisitionServiceTest {
 
         PluginInstallReport report = service.install(
                 "configured", "ext", "1.0.0",
-                confirmationRequired.trustRequirement().artifactSha256(), false);
+                confirmationRequired.trustRequirement().artifactSha256());
         assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
         assertThat(downloads).hasValue(2);
     }
@@ -181,94 +180,6 @@ class PluginCatalogAcquisitionServiceTest {
     }
 
     @Test
-    @DisplayName("受信清单中的身份迁移授权与显式确认原样进入安装信任门")
-    void passesIdentityMigrationAuthorizationsAndConfirmationToInstaller() {
-        server = CatalogTestSupport.startServer();
-        CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture();
-        byte[] body = CatalogTestSupport.explodedPluginZip("ext", "2.0.0", null);
-        String packageUrl = servePackage("/migration.zip", body);
-        SignatureMetadata artifactSignature = signing.artifactSignature("ext", "2.0.0", body);
-        SignatureMetadata migrationSignature = new SignatureMetadata(
-                SignatureMetadata.FORMAT_VERSION, SignatureMetadata.ED25519, "old-key", "c2ln");
-        String manifest = "{\"entries\":[{\"pluginId\":\"ext\",\"packages\":[{"
-                + "\"version\":\"2.0.0\","
-                + "\"packageUrl\":\"" + packageUrl + "\","
-                + "\"expectedSizeBytes\":" + body.length + ","
-                + "\"sha256\":\"" + CatalogTestSupport.sha256Hex(body) + "\","
-                + "\"signature\":" + signing.signatureJson(artifactSignature) + ","
-                + "\"identityMigrationSignatures\":{\"ext\":"
-                + signing.signatureJson(migrationSignature) + "},"
-                + "\"repositoryIdentityMigrationAuthorizations\":{\"ext\":{"
-                + "\"reason\":\"KEY_UNAVAILABLE\",\"signature\":"
-                + signing.signatureJson(migrationSignature) + "}}}]}]}";
-        byte[] manifestBytes = manifest.getBytes(StandardCharsets.UTF_8);
-        CatalogTestSupport.serveBytes(server, "/migration-catalog.json", manifestBytes);
-        CatalogTestSupport.serveBytes(server, "/migration-catalog.json.sig",
-                signing.manifestSignatureBytes("configured", manifestBytes));
-        PluginCatalogProperties props = new PluginCatalogProperties();
-        props.setEnabled(true);
-        props.setManifestUrl(CatalogTestSupport.loopbackUrl(server, "/migration-catalog.json"));
-        props.setTrustedKeys(List.of(signing.trustedKeyConfig()));
-        PluginInstallService installService = mock(PluginInstallService.class);
-        when(installService.installTrustedFile(
-                any(Path.class), eq(false), any(PluginPackageOrigin.class)))
-                .thenReturn(new PluginInstallReport(PluginInstallOutcome.INSTALLED, true, false,
-                        "ext", "2.0.0", "1.0.0", List.of(), List.of(), List.of()));
-        PluginCatalogAcquisitionService service = acquisition(
-                props, installService, mock(PluginDependencyResolver.class));
-
-        String confirmedSha256 = CatalogTestSupport.sha256Hex(body);
-        service.install("configured", "ext", "2.0.0", confirmedSha256, true);
-
-        ArgumentCaptor<PluginPackageOrigin> origin = ArgumentCaptor.forClass(PluginPackageOrigin.class);
-        verify(installService).installTrustedFile(any(Path.class), eq(false), origin.capture());
-        assertThat(origin.getValue().identityMigrationSignatures())
-                .containsEntry("ext", migrationSignature);
-        assertThat(origin.getValue().repositoryIdentityMigrationAuthorizations())
-                .containsEntry("ext", new RepositoryIdentityMigrationAuthorization(
-                        RepositoryIdentityMigrationAuthorization.KEY_UNAVAILABLE, migrationSignature));
-        assertThat(origin.getValue().identityMigrationConfirmed()).isTrue();
-        assertThat(origin.getValue().trustConfirmationSha256()).isEqualTo(confirmedSha256);
-    }
-
-    @Test
-    @DisplayName("顶层身份迁移确认不会被自动安装的依赖继承")
-    void identityMigrationConfirmationIsNotInheritedByDependencies() {
-        server = CatalogTestSupport.startServer();
-        CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture();
-        byte[] beta = CatalogTestSupport.explodedPluginZip("beta", "1.0.0", null);
-        byte[] alpha = CatalogTestSupport.explodedPluginZip("alpha", "1.0.0", null, "beta@1.0");
-        String betaUrl = servePackage("/confirmation-beta.zip", beta);
-        String alphaUrl = servePackage("/confirmation-alpha.zip", alpha);
-        byte[] manifestBytes = ("{\"entries\":["
-                + entryJson("beta", "1.0.0", betaUrl, beta, signing, List.of()) + ","
-                + entryJson("alpha", "1.0.0", alphaUrl, alpha, signing, List.of("beta@1.0"))
-                + "]}").getBytes(StandardCharsets.UTF_8);
-        CatalogTestSupport.serveBytes(server, "/confirmation-catalog.json", manifestBytes);
-        CatalogTestSupport.serveBytes(server, "/confirmation-catalog.json.sig",
-                signing.manifestSignatureBytes("configured", manifestBytes));
-        PluginCatalogProperties props = new PluginCatalogProperties();
-        props.setEnabled(true);
-        props.setManifestUrl(CatalogTestSupport.loopbackUrl(server, "/confirmation-catalog.json"));
-        props.setTrustedKeys(List.of(signing.trustedKeyConfig()));
-        PluginInstallService installService = mock(PluginInstallService.class);
-        when(installService.installTrustedFile(any(Path.class), eq(false), any(PluginPackageOrigin.class)))
-                .thenReturn(new PluginInstallReport(PluginInstallOutcome.INSTALLED, true, true,
-                        "installed", "1.0.0", null, List.of(), List.of(), List.of()));
-        PluginCatalogAcquisitionService service = acquisition(
-                props, installService, mock(PluginDependencyResolver.class));
-
-        String confirmedSha256 = CatalogTestSupport.sha256Hex(alpha);
-        service.install("configured", "alpha", "1.0.0", confirmedSha256, true);
-
-        ArgumentCaptor<PluginPackageOrigin> origins = ArgumentCaptor.forClass(PluginPackageOrigin.class);
-        verify(installService, times(2)).installTrustedFile(any(Path.class), eq(false), origins.capture());
-        assertThat(origins.getAllValues())
-                .extracting(PluginPackageOrigin::identityMigrationConfirmed)
-                .containsExactly(false, true);
-    }
-
-    @Test
     @DisplayName("顶层制品的精确哈希不能批准不同的自动依赖包")
     void exactArtifactConfirmationCannotApproveDifferentDependency() {
         server = CatalogTestSupport.startServer();
@@ -282,7 +193,7 @@ class PluginCatalogAcquisitionServiceTest {
                 entryJson("alpha", "1.0.0", alphaUrl, alpha, signing, List.of("beta@1.0")));
 
         PluginInstallReport report = service.install(
-                "configured", "alpha", "1.0.0", CatalogTestSupport.sha256Hex(alpha), false);
+                "configured", "alpha", "1.0.0", CatalogTestSupport.sha256Hex(alpha));
 
         assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED);
         assertThat(report.trustRequirement().pluginId()).isEqualTo("beta");
@@ -589,7 +500,7 @@ class PluginCatalogAcquisitionServiceTest {
 
         PluginInstallReport report = service.install(
                 "configured", "ext", "1.0.0",
-                confirmationRequired.trustRequirement().artifactSha256(), false);
+                confirmationRequired.trustRequirement().artifactSha256());
 
         assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
         assertThat(installedFiles()).containsExactly("ext-1.0.0.zip");
@@ -658,7 +569,7 @@ class PluginCatalogAcquisitionServiceTest {
                 repoConfig("repo-b", CatalogTestSupport.loopbackUrl(server, "/b.json"), "direct-strict", repoB)));
         PluginCatalogAcquisitionService service = acquisition(props);
 
-        PluginInstallReport report = service.install("repo-b", "ext", "1.0.0", (String) null, false);
+        PluginInstallReport report = service.install("repo-b", "ext", "1.0.0", (String) null);
 
         assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
         assertThat(report.accepted()).isFalse();
@@ -848,7 +759,7 @@ class PluginCatalogAcquisitionServiceTest {
             String version) {
         List<PluginDependencyInstallResult> dependencyInstallResults = new ArrayList<>();
         Set<String> confirmedArtifacts = new HashSet<>();
-        PluginInstallReport report = service.install(repositoryId, pluginId, version, (String) null, false);
+        PluginInstallReport report = service.install(repositoryId, pluginId, version, (String) null);
         while (report.outcome() == PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED) {
             var requirement = report.trustRequirement();
             dependencyInstallResults.addAll(report.dependencyInstallResults());
@@ -863,8 +774,7 @@ class PluginCatalogAcquisitionServiceTest {
                         repositoryId,
                         requirement.pluginId(),
                         requirement.version(),
-                        requirement.artifactSha256(),
-                        false);
+                        requirement.artifactSha256());
             } catch (PluginCatalogException ex) {
                 dependencyInstallResults.addAll(ex.dependencyInstallResults());
                 throw ex.withDependencyInstallResults(dependencyInstallResults);
@@ -875,7 +785,7 @@ class PluginCatalogAcquisitionServiceTest {
                     dependencyInstallResults.add(PluginDependencyInstallResult.from(report));
                 }
                 try {
-                    report = service.install(repositoryId, pluginId, version, (String) null, false);
+                    report = service.install(repositoryId, pluginId, version, (String) null);
                 } catch (PluginCatalogException ex) {
                     dependencyInstallResults.addAll(ex.dependencyInstallResults());
                     throw ex.withDependencyInstallResults(dependencyInstallResults);

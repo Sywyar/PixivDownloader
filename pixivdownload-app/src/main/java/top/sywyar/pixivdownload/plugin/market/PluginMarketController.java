@@ -135,14 +135,11 @@ public class PluginMarketController {
     public ResponseEntity<PluginInstallResponse> install(@PathVariable String repositoryId,
                                                          @PathVariable String pluginId,
                                                          @PathVariable String version,
-                                                         @RequestParam(name = "confirmIdentityMigration",
-                                                                 defaultValue = "false")
-                                                         boolean confirmIdentityMigration,
                                                          @RequestParam(name = "confirmTrust", required = false)
                                                          String confirmTrust,
                                                          HttpServletRequest request) {
         PluginInstallReport report = marketService.install(
-                repositoryId, pluginId, version, confirmTrust, confirmIdentityMigration);
+                repositoryId, pluginId, version, confirmTrust);
         return installResponseMapper.toResponse(report, request);
     }
 

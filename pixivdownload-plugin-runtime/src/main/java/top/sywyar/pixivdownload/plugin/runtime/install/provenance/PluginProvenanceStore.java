@@ -377,11 +377,6 @@ public final class PluginProvenanceStore {
             props.setProperty("trust.repositoryOfficial", Boolean.toString(trust.repositoryOfficial()));
             put(props, "trust.artifactSha256", trust.artifactSha256());
             props.setProperty("trust.executionMode", trust.executionMode().name());
-            put(props, "trust.declaredPermissionDigest", trust.declaredPermissionDigest());
-            props.setProperty("trust.permissionsDeclared", Boolean.toString(trust.permissionsDeclared()));
-            if (!trust.declaredPermissions().isEmpty()) {
-                props.setProperty("trust.declaredPermissions", String.join(",", trust.declaredPermissions()));
-            }
             props.setProperty("trust.approvedAt", trust.approvedAt().toString());
             props.setProperty("trust.approvedAppSdkMajor", Integer.toString(trust.approvedAppSdkMajor()));
             props.setProperty("trust.approvalType", trust.approvalType().name());
@@ -635,8 +630,7 @@ public final class PluginProvenanceStore {
                 "status", "keyId", "publisher", "trustLabel", "publisherKeyFingerprint", "verifiedAt",
                 "offlineStatus", "offlineVerifiedAt", "diagnosticCode", "trust.pluginId",
                 "trust.publisherKeyFingerprint", "trust.repositoryId", "trust.repositoryOfficial",
-                "trust.artifactSha256", "trust.executionMode", "trust.declaredPermissionDigest",
-                "trust.permissionsDeclared", "trust.declaredPermissions",
+                "trust.artifactSha256", "trust.executionMode",
                 "trust.approvedAt", "trust.approvedAppSdkMajor", "trust.approvalType", "trustRevokedAt");
         for (String key : props.stringPropertyNames()) {
             if (!allowedKeys.contains(key)) {
@@ -729,20 +723,6 @@ public final class PluginProvenanceStore {
             if (!"true".equals(trustOfficial) && !"false".equals(trustOfficial)) {
                 throw new IllegalArgumentException("trust.repositoryOfficial must be true or false");
             }
-            String permissionsDeclared = props.getProperty("trust.permissionsDeclared");
-            if (permissionsDeclared != null
-                    && !"true".equals(permissionsDeclared) && !"false".equals(permissionsDeclared)) {
-                throw new IllegalArgumentException("trust.permissionsDeclared must be true or false");
-            }
-            if (!Boolean.parseBoolean(permissionsDeclared)
-                    && props.containsKey("trust.declaredPermissions")) {
-                throw new IllegalArgumentException(
-                        "trust.declaredPermissions requires an explicit permission declaration");
-            }
-            List<String> declaredPermissions = permissionsDeclared == null
-                    || !Boolean.parseBoolean(permissionsDeclared)
-                    ? List.of()
-                    : splitCommaSeparated(props.getProperty("trust.declaredPermissions"));
             trustDecision = new PluginTrustDecision(
                     requiredText(props, "trust.pluginId"),
                     text(props, "trust.publisherKeyFingerprint"),
@@ -750,11 +730,9 @@ public final class PluginProvenanceStore {
                     Boolean.parseBoolean(trustOfficial),
                     requiredText(props, "trust.artifactSha256"),
                     PluginExecutionMode.valueOf(requiredText(props, "trust.executionMode")),
-                    requiredText(props, "trust.declaredPermissionDigest"),
                     Instant.parse(requiredText(props, "trust.approvedAt")),
                     Integer.parseInt(requiredText(props, "trust.approvedAppSdkMajor")),
-                    PluginTrustDecision.ApprovalType.valueOf(requiredText(props, "trust.approvalType")),
-                    Boolean.parseBoolean(permissionsDeclared), declaredPermissions);
+                    PluginTrustDecision.ApprovalType.valueOf(requiredText(props, "trust.approvalType")));
         }
         return new PluginProvenanceRecord(
                 source,

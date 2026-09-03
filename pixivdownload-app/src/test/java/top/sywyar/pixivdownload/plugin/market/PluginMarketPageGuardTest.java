@@ -191,8 +191,6 @@ class PluginMarketPageGuardTest {
                 "install.action.install", "install.action.update", "install.state.installed",
                 "install.state.incompatible", "install.state.unavailable",
                 "install.state.installing", "install.state.pending-restart",
-                "install.identity-migration.title", "install.identity-migration.message",
-                "install.identity-migration.confirm", "install.identity-migration.cancel",
                 "install.restart-hint", "install.goto-manage", "compat.needs", "fallback.notice",
                 "detail.changelog", "detail.requires", "detail.sha256", "detail.verification",
                 "master.disabled.title", "recovery.banner.title", "recovery.banner.desc",
@@ -313,16 +311,16 @@ class PluginMarketPageGuardTest {
     }
 
     @Test
-    @DisplayName("精确制品信任与身份迁移确认复用共享反馈框，并由 Vue / 基础回退共同走同一请求状态机")
-    void identityMigrationConfirmationUsesSharedGuard() throws IOException {
+    @DisplayName("精确制品信任确认复用共享反馈框，并由 Vue / 基础回退共同走同一请求状态机")
+    void artifactTrustConfirmationUsesSharedGuard() throws IOException {
         String core = read(CORE);
         String api = read(API);
         String vue = read(VUE);
         String fallback = read(FALLBACK);
 
-        assertThat(core).contains("TRUST_CONFIRMATION_REQUIRED", "REJECTED_IDENTITY_CONFIRMATION_REQUIRED",
+        assertThat(core).contains("TRUST_CONFIRMATION_REQUIRED",
                 "trustRequirement", "artifactSha256", "PixivFeedback.confirm", "installPluginWithConfirmation");
-        assertThat(api).contains("confirmTrust=", "confirmIdentityMigration=true");
+        assertThat(api).contains("confirmTrust=").doesNotContain("confirmIdentityMigration");
         assertThat(vue).contains("PMK.installPluginWithConfirmation(repositoryId, pluginId, version)");
         assertThat(fallback).contains("PMK.installPluginWithConfirmation(repositoryId, pluginId, version)");
         assertThat(core + vue + fallback).doesNotContain("window.confirm(", "global.confirm(");

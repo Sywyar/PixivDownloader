@@ -188,17 +188,6 @@
         return EXECUTION_MODE_META[executionModeOf(mode)];
     }
 
-    function permissionSummary(value) {
-        var permissions = value || {};
-        if (permissions.declared !== true) {
-            return t('permissions.undeclared', '未声明权限，按完全访问处理');
-        }
-        var values = Array.isArray(permissions.values) ? permissions.values : [];
-        return values.length
-            ? t('permissions.declared', '声明权限：{values}', { values: values.join(', ') })
-            : t('permissions.none', '已声明不需要额外权限');
-    }
-
     // 插件声明的启停生效策略。未知 token 按完整进程重启收敛，避免误走热启停。
     var LIFECYCLE_POLICY_META = {
         HOT_RELOAD:      { key: 'lifecycle.hot-reload', tone: 'hot', fallback: '热重载' },
@@ -268,7 +257,6 @@
         var executionInfo = executionModeMeta(executionMode);
         var lifecyclePolicy = lifecyclePolicyOf(entry.lifecyclePolicy);
         var lifecycleInfo = lifecyclePolicyMeta(lifecyclePolicy);
-        var permissions = entry.permissions || {};
         var configuredEnabled = entry.configuredEnabled !== false;
         // 热重载插件的开关反映当前运行态；需重启插件反映已经持久化、将在重启后生效的配置态。
         var enabled = lifecyclePolicy === 'HOT_RELOAD' ? running : configuredEnabled;
@@ -302,8 +290,6 @@
             executionLabel: t(executionInfo.key, executionInfo.fallback),
             executionTone: executionInfo.tone,
             showExecutionTag: source === 'external',
-            permissionLabel: permissionSummary(permissions),
-            permissionDeclared: permissions.declared === true,
             lifecyclePolicy: lifecyclePolicy,
             lifecycleLabel: t(lifecycleInfo.key, lifecycleInfo.fallback),
             lifecycleTone: lifecycleInfo.tone,
@@ -525,10 +511,6 @@
         var executionMode = executionModeOf(r.executionMode);
         var execution = r.executionLabel
             || t(executionModeMeta(executionMode).key, executionModeMeta(executionMode).fallback);
-        var permissions = permissionSummary({
-            declared: r.permissionsDeclared === true,
-            values: Array.isArray(r.declaredPermissions) ? r.declaredPermissions : []
-        });
         var source = r.repositoryId || r.source || t('trust.confirm.source.local', '本地上传');
         var publisher = r.publisher || t('trust.confirm.publisher.unknown', '无法确认');
         var signature = signed
@@ -551,7 +533,6 @@
                 sha256: r.artifactSha256 || r.sha256 || '',
                 executionMode: execution
             });
-        message += '\n' + permissions;
         return {
             title: t('trust.confirm.title', '确认插件执行信任'),
             message: message,
@@ -600,7 +581,6 @@
         trustMeta: trustMeta,
         executionModeOf: executionModeOf,
         executionModeMeta: executionModeMeta,
-        permissionSummary: permissionSummary,
         lifecyclePolicyOf: lifecyclePolicyOf,
         lifecyclePolicyMeta: lifecyclePolicyMeta,
         applyReport: applyReport,

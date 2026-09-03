@@ -6,7 +6,6 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginPermissionDeclaration;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
@@ -25,46 +24,41 @@ class PluginTrustPolicyTest {
     private static final Instant APPROVED_AT = Instant.parse("2026-09-01T00:00:00Z");
 
     @Test
-    @DisplayName("同发布密钥更新仅在权限未增加时继承信任")
-    void publisherUpdateInheritsOnlyWithoutPermissionIncrease() {
-        PluginDescriptor installedDescriptor = descriptor(
-                "1.0.0", PluginPermissionDeclaration.declared(List.of("network", "filesystem-write")));
+    @DisplayName("同发布密钥更新可继承信任，但 worker 提升到宿主完全信任必须重确认")
+    void publisherUpdateInheritsUnlessExecutionPrivilegeIncreases() {
+        PluginDescriptor installedDescriptor = descriptor("1.0.0", PluginExecutionMode.DECLARATIVE_PROCESS);
         PluginProvenanceRecord installed = provenance("a".repeat(64)).withTrustDecision(
                 PluginTrustPolicy.approve(installedDescriptor, provenance("a".repeat(64)), APPROVED_AT));
 
         assertThat(PluginTrustPolicy.inherited(
-                descriptor("1.1.0", PluginPermissionDeclaration.declared(List.of("network"))),
+                descriptor("1.1.0", PluginExecutionMode.DECLARATIVE_PROCESS),
                 provenance("b".repeat(64)), installed)).isNotNull();
         assertThat(PluginTrustPolicy.inherited(
-                descriptor("1.1.0", PluginPermissionDeclaration.declared(List.of("network", "process-exec"))),
-                provenance("b".repeat(64)), installed)).isNull();
-        assertThat(PluginTrustPolicy.inherited(
-                descriptor("1.1.0", PluginPermissionDeclaration.undeclared()),
+                descriptor("1.1.0", PluginExecutionMode.HOST_PROCESS_FULL_TRUST),
                 provenance("b".repeat(64)), installed)).isNull();
     }
 
     @Test
-    @DisplayName("运行前复核拒绝权限声明与已确认决定不一致")
-    void executionReviewRejectsChangedPermissionDeclaration() {
-        PluginDescriptor approvedDescriptor = descriptor(
-                "1.0.0", PluginPermissionDeclaration.declared(List.of("network")));
+    @DisplayName("运行前复核拒绝执行模式与已确认决定不一致")
+    void executionReviewRejectsChangedExecutionMode() {
+        PluginDescriptor approvedDescriptor = descriptor("1.0.0", PluginExecutionMode.DECLARATIVE_PROCESS);
         PluginProvenanceRecord provenance = provenance("a".repeat(64));
         PluginProvenanceRecord approved = provenance.withTrustDecision(
                 PluginTrustPolicy.approve(approvedDescriptor, provenance, APPROVED_AT));
 
         assertThat(PluginTrustPolicy.executionDenial(approvedDescriptor, approved, false)).isNull();
         assertThat(PluginTrustPolicy.executionDenial(
-                descriptor("1.0.0", PluginPermissionDeclaration.declared(List.of("network", "process-exec"))),
+                descriptor("1.0.0", PluginExecutionMode.HOST_PROCESS_FULL_TRUST),
                 approved, false)).contains("does not bind");
     }
 
     private static PluginDescriptor descriptor(
-            String version, PluginPermissionDeclaration permissionDeclaration) {
+            String version, PluginExecutionMode executionMode) {
         return new PluginDescriptor(
                 "demo", "demo", version, VersionRequirement.unspecified(), List.of(),
                 "com.example.DemoPlugin", null, "demo", null, null, null,
                 PluginKind.FEATURE, List.of(), PluginLifecyclePolicy.HOT_RELOAD,
-                PluginExecutionMode.HOST_PROCESS_FULL_TRUST, List.of(), permissionDeclaration);
+                executionMode, List.of());
     }
 
     private static PluginProvenanceRecord provenance(String artifactSha256) {

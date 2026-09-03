@@ -92,7 +92,7 @@ public class PluginCatalogAcquisitionService {
         PluginCatalogService.ResolvedPackage resolved = catalogService.resolveDefaultPackage(pluginId, version);
         PluginCatalogManifest manifest = resolved.repository().pagedCatalog()
                 ? null : catalogService.load(resolved.repository().repositoryId());
-        return installFrom(resolved.repository(), manifest, pluginId, version, null, false);
+        return installFrom(resolved.repository(), manifest, pluginId, version, null);
     }
 
     /**
@@ -102,21 +102,15 @@ public class PluginCatalogAcquisitionService {
      * 版本缺失 / URL 不安全 / 阻断地址 / 超限 / 下载失败 → 对应稳定码；下载成功后的安装结局由 {@link PluginInstallReport} 承载。
      */
     public PluginInstallReport install(String repositoryId, String pluginId, String version) {
-        return install(repositoryId, pluginId, version, false);
+        return install(repositoryId, pluginId, version, null);
     }
 
     public PluginInstallReport install(String repositoryId, String pluginId, String version,
-                                       boolean identityMigrationConfirmed) {
-        return install(repositoryId, pluginId, version, null, identityMigrationConfirmed);
-    }
-
-    public PluginInstallReport install(String repositoryId, String pluginId, String version,
-                                       String confirmedTrustSha256, boolean identityMigrationConfirmed) {
+                                       String confirmedTrustSha256) {
         PluginCatalogService.ResolvedPackage resolved = catalogService.resolvePackage(repositoryId, pluginId, version);
         PluginCatalogManifest manifest = resolved.repository().pagedCatalog()
                 ? null : catalogService.load(repositoryId);
-        return installFrom(resolved.repository(), manifest, pluginId, version,
-                confirmedTrustSha256, identityMigrationConfirmed);
+        return installFrom(resolved.repository(), manifest, pluginId, version, confirmedTrustSha256);
     }
 
     /**
@@ -124,14 +118,12 @@ public class PluginCatalogAcquisitionService {
      * 结构 / 兼容校验落盘 → 删临时文件。下载始终用 {@code repository}（清单的来源仓库），不退回默认 / 全局客户端。
      */
     private PluginInstallReport installFrom(PluginRepository repository, PluginCatalogManifest manifest,
-                                            String pluginId, String version, String confirmedTrustSha256,
-                                            boolean identityMigrationConfirmed) {
+                                            String pluginId, String version, String confirmedTrustSha256) {
         catalogService.resolvePackage(repository.repositoryId(), pluginId, version);
         List<PluginDependencyInstallResult> dependencyInstallResults = new ArrayList<>();
         try {
             PluginInstallReport report = installFrom(repository, manifest, pluginId, version,
-                    new ArrayDeque<>(), dependencyInstallResults, confirmedTrustSha256,
-                    identityMigrationConfirmed);
+                    new ArrayDeque<>(), dependencyInstallResults, confirmedTrustSha256);
             return report.withDependencyInstallResults(dependencyInstallResults);
         } catch (PluginCatalogException ex) {
             throw ex.withDependencyInstallResults(dependencyInstallResults);
@@ -141,8 +133,7 @@ public class PluginCatalogAcquisitionService {
     private PluginInstallReport installFrom(PluginRepository repository, PluginCatalogManifest manifest,
                                             String pluginId, String version, ArrayDeque<String> stack,
                                             List<PluginDependencyInstallResult> dependencyInstallResults,
-                                            String confirmedTrustSha256,
-                                            boolean identityMigrationConfirmed) {
+                                            String confirmedTrustSha256) {
         if (stack.contains(pluginId)) {
             PluginDependencyRef dependency = new PluginDependencyRef(pluginId, version, false);
             return dependencyRejected(pluginId, version, List.of(dependency),
@@ -165,7 +156,7 @@ public class PluginCatalogAcquisitionService {
             Set<String> descriptorAttempts = new HashSet<>();
             while (true) {
                 PluginInstallReport installed = downloadAndInstall(
-                        repository, pluginId, version, confirmedTrustSha256, identityMigrationConfirmed);
+                        repository, pluginId, version, confirmedTrustSha256);
                 if (installed.outcome() != PluginInstallOutcome.REJECTED_DEPENDENCY
                         || installed.dependencyProblems().isEmpty()) {
                     return installed;
@@ -228,7 +219,7 @@ public class PluginCatalogAcquisitionService {
             }
             PluginInstallReport dependencyReport = installFrom(repository, manifest,
                     dependency.pluginId(), dependencyPackage.get().version(), stack, dependencyInstallResults,
-                    confirmedTrustSha256, false);
+                    confirmedTrustSha256);
             if (dependencyReport.outcome() == PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED) {
                 return dependencyReport;
             }
@@ -267,8 +258,7 @@ public class PluginCatalogAcquisitionService {
     }
 
     private PluginInstallReport downloadAndInstall(PluginRepository repository, String pluginId, String version,
-                                                   String confirmedTrustSha256,
-                                                   boolean identityMigrationConfirmed) {
+                                                   String confirmedTrustSha256) {
 
         PluginCatalogPackage pkg = catalogService.resolvePackage(repository.repositoryId(), pluginId, version).pkg();
         if (revocations != null) revocations.requireInstallAllowed(repository, pluginId, pkg);
@@ -281,9 +271,7 @@ public class PluginCatalogAcquisitionService {
                     pkg.signature(), pluginId, version,
                     repository.pagedCatalog() ? (pkg.requiredSdk() != null ? pkg.requiredSdk() : "*") : null,
                     repository.pagedCatalog() ? pkg.dependencies() : null,
-                    pkg.identityMigrationSignatures(),
-                    pkg.repositoryIdentityMigrationAuthorizations(), identityMigrationConfirmed,
-                    confirmedTrustSha256);
+                    pkg.identityMigrationSignatures(), confirmedTrustSha256);
             return installService.installTrustedFile(temp, false, origin);
         } finally {
             deleteQuietly(temp);

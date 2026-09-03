@@ -166,7 +166,6 @@ function vmOf(entry) {
         executionMode: 'HOST_PROCESS_FULL_TRUST', verification: {
             status: 'VERIFIED_CUSTOM', source: 'CUSTOM_CATALOG', publisher: 'Demo Publisher'
         },
-        permissions: { declared: true, values: ['network', 'filesystem-write'] },
         trust: {
             state: 'APPROVED', artifactSha256: artifactSha256,
             publisherKeyFingerprint: fingerprint, approvalType: 'PUBLISHER',
@@ -178,19 +177,16 @@ function vmOf(entry) {
         && trusted.trustRevocable === true && trusted.trustApprovable === false);
     const html = PM.renderCardHtml(trusted);
     ok('管理卡片持续显示执行信任状态', html.includes('已批准执行信任'));
-    ok('管理卡片持续显示声明权限', html.includes('network') && html.includes('filesystem-write'));
     ok('仅有信任动作时仍显示操作菜单', html.includes('data-pm-trust-action="revoke"'));
 
     const options = PM.trustConfirmationOptions({
         pluginId: 'third-party', version: '1.0.0', source: 'CUSTOM_CATALOG',
         publisher: 'Demo Publisher', publisherKeyFingerprint: fingerprint,
-        artifactSha256: artifactSha256, executionMode: 'HOST_PROCESS_FULL_TRUST',
-        permissionsDeclared: true, declaredPermissions: ['network']
+        artifactSha256: artifactSha256, executionMode: 'HOST_PROCESS_FULL_TRUST'
     });
     ok('重新批准提示显示后端发布者、摘要和完全访问模式', options.message.includes('Demo Publisher')
         && options.message.includes(artifactSha256) && options.message.includes('宿主进程完全信任'));
     ok('签名包提示不追加未签名警告', !options.message.includes('没有发布者签名'));
-    ok('签名包提示显示权限声明', options.message.includes('声明权限：network'));
 
     const unsigned = PM.trustConfirmationOptions({
         pluginId: 'unsigned', version: '1.0.0', source: 'LOCAL_UPLOAD', signed: false,
@@ -198,7 +194,6 @@ function vmOf(entry) {
     });
     ok('未签名本地包显示无法证明发布者连续性的额外警告', unsigned.message.includes('没有发布者签名')
         && unsigned.message.includes('LOCAL_UPLOAD'));
-    ok('旧包确认提示明确按完全访问处理', unsigned.message.includes('未声明权限，按完全访问处理'));
     PM.i18n.client = i18nClient;
 })();
 

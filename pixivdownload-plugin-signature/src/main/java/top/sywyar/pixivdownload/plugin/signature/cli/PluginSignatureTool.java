@@ -6,7 +6,6 @@ import top.sywyar.pixivdownload.plugin.signature.OfficialArtifactTrustRoots;
 import top.sywyar.pixivdownload.plugin.signature.PluginRevocationsVerificationRequest;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
-import top.sywyar.pixivdownload.plugin.signature.RepositoryIdentityMigrationAuthorization;
 import top.sywyar.pixivdownload.plugin.signature.RepositoryUpdateVerificationRequest;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
@@ -59,10 +58,6 @@ public final class PluginSignatureTool {
         }
         if ("identity-migration".equals(command)) {
             signIdentityMigration(options);
-            return;
-        }
-        if ("repository-identity-migration".equals(command)) {
-            signRepositoryIdentityMigration(options);
             return;
         }
         if ("verify-manifest".equals(command)) {
@@ -166,38 +161,6 @@ public final class PluginSignatureTool {
                 Boolean.parseBoolean(options.getOrDefault("from-official", "false")),
                 required(options, "from-publisher"),
                 keyId,
-                required(options, "to-plugin-id"),
-                required(options, "to-source"),
-                options.get("to-repository-id"),
-                Boolean.parseBoolean(options.getOrDefault("to-official", "false")),
-                required(options, "to-publisher"),
-                required(options, "to-key-id"),
-                required(options, "version"),
-                Files.size(artifact),
-                sha256);
-        writeMetadata(requiredPath(options, "out"), keyId,
-                Ed25519Signer.sign(privateKey(options), message));
-    }
-
-    private static void signRepositoryIdentityMigration(Map<String, String> options) throws IOException {
-        Path artifact = requiredPath(options, "artifact");
-        String keyId = required(options, "key-id");
-        String reason = required(options, "reason");
-        if (!RepositoryIdentityMigrationAuthorization.KEY_UNAVAILABLE.equals(reason)
-                && !RepositoryIdentityMigrationAuthorization.KEY_REVOKED.equals(reason)) {
-            throw new IllegalArgumentException("unsupported repository identity migration reason: " + reason);
-        }
-        byte[] sha256 = Hashing.sha256(artifact);
-        byte[] message = EnvelopeV1Codec.repositoryIdentityMigrationMessage(
-                SignatureMetadata.ED25519,
-                keyId,
-                reason,
-                required(options, "from-plugin-id"),
-                required(options, "from-source"),
-                options.get("from-repository-id"),
-                Boolean.parseBoolean(options.getOrDefault("from-official", "false")),
-                required(options, "from-publisher"),
-                required(options, "from-key-id"),
                 required(options, "to-plugin-id"),
                 required(options, "to-source"),
                 options.get("to-repository-id"),
@@ -377,13 +340,6 @@ public final class PluginSignatureTool {
                 + "--to-plugin-id <id> --to-source <source> [--to-repository-id <id>] "
                 + "[--to-official true|false] --to-publisher <publisher> --to-key-id <new-key> "
                 + "--private-key <old-key-pkcs8.pem> --out <sig.json>");
-        System.out.println("  repository-identity-migration --artifact <jar> --version <version> "
-                + "--reason <KEY_UNAVAILABLE|KEY_REVOKED> "
-                + "--from-plugin-id <id> --from-source <source> [--from-repository-id <id>] "
-                + "[--from-official true|false] --from-publisher <publisher> --from-key-id <old-key> "
-                + "--to-plugin-id <id> --to-source <source> [--to-repository-id <id>] "
-                + "[--to-official true|false] --to-publisher <publisher> --to-key-id <new-key> "
-                + "--key-id <repository-root-key> --private-key <repository-root-pkcs8.pem> --out <sig.json>");
         System.out.println("  verify-manifest --manifest <manifest.json> --signature <manifest.json.sig> "
                 + "--repository-id <id> [--policy official|custom] "
                 + "[--official-purpose plugin|update|ffmpeg]");

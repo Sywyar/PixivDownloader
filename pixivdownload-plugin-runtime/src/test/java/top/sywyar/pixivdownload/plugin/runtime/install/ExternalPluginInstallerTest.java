@@ -406,7 +406,6 @@ class ExternalPluginInstallerTest {
             PluginPackageOrigin confirmed = PluginPackageOrigin.forTrustedCatalog(
                     origin.repositoryId(), origin.officialRepository(), origin.expectedSizeBytes(),
                     origin.expectedSha256(), origin.signature(), origin.identityMigrationSignatures(),
-                    origin.repositoryIdentityMigrationAuthorizations(), false,
                     pending.trustRequirement().artifactSha256());
             PluginInstallResult result = installFully(signedInstaller, src, false, confirmed);
 

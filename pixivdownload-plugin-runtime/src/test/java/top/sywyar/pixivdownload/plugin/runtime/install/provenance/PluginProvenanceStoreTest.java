@@ -5,7 +5,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginPermissionDeclaration;
 import top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustDecision;
 import top.sywyar.pixivdownload.sdk.SdkVersion;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
@@ -47,7 +46,6 @@ class PluginProvenanceStoreTest {
                 validLocalRecord().replace("verifiedAt=2026-07-01T00:00:00Z\n", ""),
                 validLocalRecord() + "keyId=forged-key\n",
                 validLocalRecord() + "trustRevokedAt=2026-07-01T00:01:00Z\n",
-                validTrustRecord() + "trust.declaredPermissions=network\n",
                 validCatalogRecord().replace("status=VERIFIED", "status=UNSIGNED_ALLOWED"),
                 validCatalogRecord() + "offlineStatus=UNSIGNED_ALLOWED\nofflineVerifiedAt=2026-07-01T00:01:00Z\n",
                 validCatalogRecord().replace("\nkeyId=test-key\n", "\nkeyId=other-key\n"),
@@ -106,7 +104,6 @@ class PluginProvenanceStoreTest {
         PluginTrustDecision decision = new PluginTrustDecision(
                 "unsigned", null, null, false, SHA256,
                 PluginExecutionMode.HOST_PROCESS_FULL_TRUST,
-                PluginTrustDecision.EMPTY_PERMISSION_DIGEST,
                 approvedAt, SdkVersion.MAJOR, PluginTrustDecision.ApprovalType.EXACT_ARTIFACT);
         PluginProvenanceRecord record = new PluginProvenanceRecord(
                 PluginPackageSource.LOCAL_UPLOAD, null, false, false,
@@ -118,49 +115,6 @@ class PluginProvenanceStoreTest {
         store.write(artifact, record);
 
         assertThat(store.readRequiredForRecovery(artifact)).isEqualTo(record);
-    }
-
-    @Test
-    @DisplayName("v3 旁车往返保留显式权限声明并兼容旧决定")
-    void roundTripsDeclaredPermissionsAndReadsLegacyDecision() throws Exception {
-        Path plugins = Files.createDirectories(temporaryDirectory.resolve("plugins-permissions"));
-        Path artifact = plugins.resolve("signed.jar");
-        Files.write(artifact, new byte[]{1, 2, 3, 4});
-        Instant approvedAt = Instant.parse("2026-07-01T00:00:00Z");
-        PluginPermissionDeclaration permissions = PluginPermissionDeclaration.declared(
-                List.of("network", "filesystem-write"));
-        PluginTrustDecision decision = new PluginTrustDecision(
-                "signed", "b".repeat(64), null, false, SHA256,
-                PluginExecutionMode.HOST_PROCESS_FULL_TRUST, permissions.digest(), approvedAt,
-                SdkVersion.MAJOR, PluginTrustDecision.ApprovalType.PUBLISHER,
-                true, permissions.permissions());
-        SignatureMetadata signature = new SignatureMetadata(
-                SignatureMetadata.FORMAT_VERSION, SignatureMetadata.ED25519, "test-key", "c2ln");
-        PluginProvenanceRecord record = new PluginProvenanceRecord(
-                PluginPackageSource.LOCAL_UPLOAD, null, false, false,
-                null, null, 4L, SHA256, signature, VerificationStatus.VERIFIED,
-                "test-key", "Test Publisher", "Test Trust", "b".repeat(64),
-                approvedAt, null, null, "VERIFIED", decision, null);
-        PluginProvenanceStore store = new PluginProvenanceStore(plugins);
-
-        store.write(artifact, record);
-
-        assertThat(store.readRequiredForRecovery(artifact)).isEqualTo(record);
-
-        Path legacyArtifact = plugins.resolve("legacy.jar");
-        Path legacySidecar = store.sidecarPath(legacyArtifact);
-        String legacyRecord = String.join(System.lineSeparator(),
-                Files.readString(store.sidecarPath(artifact), StandardCharsets.UTF_8).lines()
-                        .filter(line -> !line.startsWith("trust.permissionsDeclared=")
-                                && !line.startsWith("trust.declaredPermissions="))
-                        .map(line -> line.equals("trust.declaredPermissionDigest=" + permissions.digest())
-                                ? "trust.declaredPermissionDigest=" + PluginTrustDecision.EMPTY_PERMISSION_DIGEST
-                                : line)
-                        .toList()) + System.lineSeparator();
-        Files.writeString(legacySidecar, legacyRecord, StandardCharsets.UTF_8);
-
-        assertThat(store.readRequiredForRecovery(legacyArtifact).trustDecision().permissionDeclaration())
-                .isEqualTo(PluginPermissionDeclaration.undeclared());
     }
 
     @Test
@@ -320,7 +274,6 @@ class PluginProvenanceStoreTest {
                 + "trust.repositoryOfficial=false\n"
                 + "trust.artifactSha256=" + SHA256 + "\n"
                 + "trust.executionMode=HOST_PROCESS_FULL_TRUST\n"
-                + "trust.declaredPermissionDigest=" + PluginTrustDecision.EMPTY_PERMISSION_DIGEST + "\n"
                 + "trust.approvedAt=2026-07-01T00:00:00Z\n"
                 + "trust.approvedAppSdkMajor=" + SdkVersion.MAJOR + "\n"
                 + "trust.approvalType=EXACT_ARTIFACT\n";

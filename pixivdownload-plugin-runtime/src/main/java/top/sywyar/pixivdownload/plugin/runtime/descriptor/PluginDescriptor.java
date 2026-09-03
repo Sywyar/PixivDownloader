@@ -39,7 +39,6 @@ import java.util.regex.Pattern;
  * @param lifecyclePolicy  插件包声明的运行期生效策略；旧包未声明时默认为热重载
  * @param executionMode    插件代码执行位置与能力边界；外置包必须显式声明
  * @param configurationClassNames 由已验证包描述符声明的 Spring 配置类全限定名；不调用插件入口 getter 获取
- * @param permissionDeclaration 描述符声明的权限风险说明；未声明按完全访问处理，不作为 full-trust 强制沙箱
  */
 public record PluginDescriptor(
         String id,
@@ -57,8 +56,7 @@ public record PluginDescriptor(
         List<String> replaces,
         PluginLifecyclePolicy lifecyclePolicy,
         PluginExecutionMode executionMode,
-        List<String> configurationClassNames,
-        PluginPermissionDeclaration permissionDeclaration) {
+        List<String> configurationClassNames) {
 
     /** 插件 id 规范：小写短横线，如 {@code download-workbench}（与核心注册中心一致）。 */
     public static final Pattern ID_PATTERN = Pattern.compile("[a-z][a-z0-9]*(-[a-z0-9]+)*");
@@ -86,18 +84,6 @@ public record PluginDescriptor(
         executionMode = executionMode != null ? executionMode : PluginExecutionMode.HOST_PROCESS_FULL_TRUST;
         configurationClassNames = configurationClassNames != null
                 ? List.copyOf(configurationClassNames) : List.of();
-        permissionDeclaration = permissionDeclaration != null
-                ? permissionDeclaration : PluginPermissionDeclaration.undeclared();
-    }
-
-    public PluginDescriptor(String id, String sourcePluginId, String version, VersionRequirement requires,
-                            List<PluginDependencyRef> dependencies, String pluginClass, String displayNamespace,
-                            String displayName, String description, String iconKey, String colorToken,
-                            PluginKind kind, List<String> replaces, PluginLifecyclePolicy lifecyclePolicy,
-                            PluginExecutionMode executionMode, List<String> configurationClassNames) {
-        this(id, sourcePluginId, version, requires, dependencies, pluginClass, displayNamespace, displayName,
-                description, iconKey, colorToken, kind, replaces, lifecyclePolicy, executionMode,
-                configurationClassNames, PluginPermissionDeclaration.undeclared());
     }
 
     public PluginDescriptor(String id, String sourcePluginId, String version, VersionRequirement requires,
@@ -165,7 +151,7 @@ public record PluginDescriptor(
                 List.of(),
                 PluginLifecyclePolicy.PROCESS_RESTART,
                 PluginExecutionMode.HOST_PROCESS_FULL_TRUST,
-                List.of(), PluginPermissionDeclaration.undeclared());
+                List.of());
     }
 
     /**
@@ -180,14 +166,13 @@ public record PluginDescriptor(
         return new PluginDescriptor(id, sourcePluginId, version, requires, dependencies, pluginClass,
                 displayNamespace, displayName, description, iconKey, colorToken, kind,
                 packageDescriptor.replaces(), packageDescriptor.lifecyclePolicy(), packageDescriptor.executionMode(),
-                packageDescriptor.configurationClassNames(), packageDescriptor.permissionDeclaration());
+                packageDescriptor.configurationClassNames());
     }
 
     public PluginDescriptor withExecutionMode(PluginExecutionMode mode) {
         return new PluginDescriptor(id, sourcePluginId, version, requires, dependencies, pluginClass,
                 displayNamespace, displayName, description, iconKey, colorToken, kind, replaces,
-                lifecyclePolicy, Objects.requireNonNull(mode, "mode"), configurationClassNames,
-                permissionDeclaration);
+                lifecyclePolicy, Objects.requireNonNull(mode, "mode"), configurationClassNames);
     }
 
     /** 该描述符声明的 SDK 版本要求是否被当前宿主 SDK 满足（{@code requires} 兼容性）。 */

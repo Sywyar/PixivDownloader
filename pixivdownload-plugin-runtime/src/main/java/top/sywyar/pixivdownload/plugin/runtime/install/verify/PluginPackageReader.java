@@ -7,7 +7,6 @@ import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginPermissionDeclaration;
 
 import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
@@ -87,7 +86,6 @@ public final class PluginPackageReader {
     static final String KEY_PIXIV_EXECUTION_MODE = "pixiv.execution-mode";
     static final String KEY_PIXIV_KIND = "pixiv.kind";
     static final String KEY_PIXIV_CONFIGURATION_CLASSES = "pixiv.configuration-classes";
-    static final String KEY_PIXIV_PERMISSIONS = "pixiv.permissions";
 
     private PluginPackageReader() {
     }
@@ -354,10 +352,6 @@ public final class PluginPackageReader {
         List<String> replaces = parsePluginIds(properties.getProperty(KEY_PIXIV_REPLACES));
         List<String> configurationClassNames = parseCommaSeparated(
                 properties.getProperty(KEY_PIXIV_CONFIGURATION_CLASSES));
-        String rawPermissions = properties.getProperty(KEY_PIXIV_PERMISSIONS);
-        PluginPermissionDeclaration permissionDeclaration = rawPermissions == null
-                ? PluginPermissionDeclaration.undeclared()
-                : PluginPermissionDeclaration.declared(parseCommaSeparated(rawPermissions));
         PluginLifecyclePolicy lifecyclePolicy;
         PluginExecutionMode executionMode;
         PluginKind kind;
@@ -373,7 +367,7 @@ public final class PluginPackageReader {
         }
         return new PluginDescriptor(id, id, version, requires, dependencies, pluginClass, displayNamespace,
                 displayName, description, iconKey, colorToken, kind, replaces, lifecyclePolicy,
-                executionMode, configurationClassNames, permissionDeclaration);
+                executionMode, configurationClassNames);
     }
 
     private static List<PluginDependencyRef> parseDependencies(String raw) {

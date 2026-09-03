@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.plugin.runtime.install.model;
 
-import top.sywyar.pixivdownload.plugin.signature.RepositoryIdentityMigrationAuthorization;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.VerificationPolicy;
 
@@ -29,8 +28,6 @@ import java.util.Objects;
  * @param expectedRequiredSdk 受信目录声明的 SDK 约束（未提供展示字段时可空）
  * @param expectedDependencies 受信目录声明的依赖（旧来源记录可空，空列表表示明确无依赖）
  * @param identityMigrationSignatures 旧插件 id 到旧 key 迁移授权签名的映射
- * @param repositoryIdentityMigrationAuthorizations 旧插件 id 到来源仓库根迁移声明的映射
- * @param identityMigrationConfirmed 管理员是否对当前精确仓库根迁移声明进行了显式确认
  * @param trustConfirmationSha256 管理员确认执行当前精确候选制品的 SHA-256；仅作本次安装令牌，不写入来源事实
  */
 public record PluginPackageOrigin(
@@ -46,23 +43,17 @@ public record PluginPackageOrigin(
         String expectedRequiredSdk,
         List<String> expectedDependencies,
         Map<String, SignatureMetadata> identityMigrationSignatures,
-        Map<String, RepositoryIdentityMigrationAuthorization> repositoryIdentityMigrationAuthorizations,
-        boolean identityMigrationConfirmed,
         String trustConfirmationSha256) {
 
     public PluginPackageOrigin {
         Objects.requireNonNull(source, "source");
         Map<String, SignatureMetadata> migrations = identityMigrationSignatures == null
                 ? Map.of() : identityMigrationSignatures;
-        Map<String, RepositoryIdentityMigrationAuthorization> repositoryMigrations =
-                repositoryIdentityMigrationAuthorizations == null
-                        ? Map.of() : repositoryIdentityMigrationAuthorizations;
         if (source == PluginPackageSource.LOCAL_UPLOAD
                 && (expectedSizeBytes != null || hasText(expectedSha256)
                 || hasText(repositoryId) || officialRepository || hasText(expectedPluginId)
                 || hasText(expectedVersion) || hasText(expectedRequiredSdk) || expectedDependencies != null
-                || !migrations.isEmpty()
-                || !repositoryMigrations.isEmpty() || identityMigrationConfirmed)) {
+                || !migrations.isEmpty())) {
             throw new IllegalArgumentException("LOCAL_UPLOAD must not carry catalog source bindings");
         }
         if (source == PluginPackageSource.LOCAL_UPLOAD && signature != null && developmentOnly) {
@@ -86,15 +77,10 @@ public record PluginPackageOrigin(
         if (invalidMigrationEntries(migrations)) {
             throw new IllegalArgumentException("identity migration signatures must bind a plugin id and signature");
         }
-        if (invalidMigrationEntries(repositoryMigrations)) {
-            throw new IllegalArgumentException(
-                    "repository identity migration authorizations must bind a plugin id and authorization");
-        }
-        if ((!migrations.isEmpty() || !repositoryMigrations.isEmpty()) && signature == null) {
+        if (!migrations.isEmpty() && signature == null) {
             throw new IllegalArgumentException("identity migration authorizations require a signed candidate artifact");
         }
         identityMigrationSignatures = Map.copyOf(migrations);
-        repositoryIdentityMigrationAuthorizations = Map.copyOf(repositoryMigrations);
     }
 
     public PluginPackageOrigin(
@@ -104,27 +90,10 @@ public record PluginPackageOrigin(
             boolean developmentOnly,
             Long expectedSizeBytes,
             String expectedSha256,
-            SignatureMetadata signature,
-            Map<String, SignatureMetadata> identityMigrationSignatures,
-            Map<String, RepositoryIdentityMigrationAuthorization> repositoryIdentityMigrationAuthorizations,
-            boolean identityMigrationConfirmed) {
-        this(source, repositoryId, officialRepository, developmentOnly, expectedSizeBytes, expectedSha256,
-                signature, null, null, null, null,
-                identityMigrationSignatures, repositoryIdentityMigrationAuthorizations,
-                identityMigrationConfirmed, null);
-    }
-
-    public PluginPackageOrigin(
-            PluginPackageSource source,
-            String repositoryId,
-            boolean officialRepository,
-            boolean developmentOnly,
-            Long expectedSizeBytes,
-            String expectedSha256,
-             SignatureMetadata signature) {
-         this(source, repositoryId, officialRepository, developmentOnly,
+            SignatureMetadata signature) {
+        this(source, repositoryId, officialRepository, developmentOnly,
                 expectedSizeBytes, expectedSha256, signature, null, null, null, null,
-                Map.of(), Map.of(), false, null);
+                Map.of(), null);
     }
 
     public PluginPackageOrigin(PluginPackageSource source, String repositoryId, boolean officialRepository,
@@ -132,27 +101,25 @@ public record PluginPackageOrigin(
         this(source, repositoryId, officialRepository,
                 source == PluginPackageSource.LOCAL_UPLOAD && signature == null,
                 expectedSizeBytes, expectedSha256, signature, null, null, null, null,
-                Map.of(), Map.of(), false, null);
+                Map.of(), null);
     }
 
     /** 开发模式允许的未签名本地上传来源。 */
     public static PluginPackageOrigin localUpload() {
         return new PluginPackageOrigin(PluginPackageSource.LOCAL_UPLOAD, null, false, true,
-                null, null, null, null, null, null, null, Map.of(), Map.of(), false, null);
+                null, null, null, null, null, null, null, Map.of(), null);
     }
 
     /** 正式运行允许管理员逐制品确认的未签名本地上传来源。 */
     public static PluginPackageOrigin localUnsignedUpload(String trustConfirmationSha256) {
         return new PluginPackageOrigin(PluginPackageSource.LOCAL_UPLOAD, null, false, false,
-                null, null, null, null, null, null, null,
-                Map.of(), Map.of(), false, trustConfirmationSha256);
+                null, null, null, null, null, null, null, Map.of(), trustConfirmationSha256);
     }
 
     /** 带 detached 签名的本地上传来源；验签策略只接受宿主官方信任根。 */
     public static PluginPackageOrigin localUpload(SignatureMetadata signature) {
         return new PluginPackageOrigin(PluginPackageSource.LOCAL_UPLOAD, null, false, false, null, null,
-                Objects.requireNonNull(signature, "signature"), null, null, null, null,
-                Map.of(), Map.of(), false, null);
+                Objects.requireNonNull(signature, "signature"), null, null, null, null, Map.of(), null);
     }
 
     /** 带 detached 签名和精确制品执行确认的本地上传来源。 */
@@ -160,8 +127,7 @@ public record PluginPackageOrigin(
             SignatureMetadata signature, String trustConfirmationSha256) {
         return new PluginPackageOrigin(PluginPackageSource.LOCAL_UPLOAD, null, false, false, null, null,
                 Objects.requireNonNull(signature, "signature"), null, null, null, null,
-                Map.of(), Map.of(), false,
-                trustConfirmationSha256);
+                Map.of(), trustConfirmationSha256);
     }
 
     /**
@@ -172,8 +138,7 @@ public record PluginPackageOrigin(
                                                         Long expectedSizeBytes, String expectedSha256,
                                                         SignatureMetadata signature) {
         return new PluginPackageOrigin(PluginPackageSource.MARKET_CATALOG, repositoryId, officialRepository, false,
-                expectedSizeBytes, expectedSha256, signature, null, null, null, null,
-                Map.of(), Map.of(), false, null);
+                expectedSizeBytes, expectedSha256, signature, null, null, null, null, Map.of(), null);
     }
 
     public static PluginPackageOrigin forTrustedCatalog(String repositoryId, boolean officialRepository,
@@ -183,7 +148,7 @@ public record PluginPackageOrigin(
                                                         List<String> expectedDependencies) {
         return new PluginPackageOrigin(PluginPackageSource.MARKET_CATALOG, repositoryId, officialRepository, false,
                 expectedSizeBytes, expectedSha256, signature, expectedPluginId, expectedVersion,
-                expectedRequiredSdk, expectedDependencies, Map.of(), Map.of(), false, null);
+                expectedRequiredSdk, expectedDependencies, Map.of(), null);
     }
 
     public static PluginPackageOrigin forTrustedCatalog(String repositoryId, boolean officialRepository,
@@ -192,7 +157,7 @@ public record PluginPackageOrigin(
                                                         Map<String, SignatureMetadata> identityMigrationSignatures) {
         return new PluginPackageOrigin(PluginPackageSource.MARKET_CATALOG, repositoryId, officialRepository, false,
                 expectedSizeBytes, expectedSha256, signature, null, null, null, null,
-                identityMigrationSignatures, Map.of(), false, null);
+                identityMigrationSignatures, null);
     }
 
     public static PluginPackageOrigin forTrustedCatalog(
@@ -202,9 +167,9 @@ public record PluginPackageOrigin(
             String expectedVersion, String expectedRequiredSdk,
             List<String> expectedDependencies,
             Map<String, SignatureMetadata> identityMigrationSignatures) {
-        return new PluginPackageOrigin(PluginPackageSource.MARKET_CATALOG, repositoryId, officialRepository, false,
-                expectedSizeBytes, expectedSha256, signature, expectedPluginId, expectedVersion,
-                expectedRequiredSdk, expectedDependencies, identityMigrationSignatures, Map.of(), false, null);
+        return forTrustedCatalog(repositoryId, officialRepository, expectedSizeBytes, expectedSha256,
+                signature, expectedPluginId, expectedVersion, expectedRequiredSdk, expectedDependencies,
+                identityMigrationSignatures, null);
     }
 
     public static PluginPackageOrigin forTrustedCatalog(
@@ -214,28 +179,10 @@ public record PluginPackageOrigin(
             String expectedVersion, String expectedRequiredSdk,
             List<String> expectedDependencies,
             Map<String, SignatureMetadata> identityMigrationSignatures,
-            Map<String, RepositoryIdentityMigrationAuthorization> repositoryIdentityMigrationAuthorizations,
-            boolean identityMigrationConfirmed) {
-        return new PluginPackageOrigin(PluginPackageSource.MARKET_CATALOG, repositoryId, officialRepository, false,
-                expectedSizeBytes, expectedSha256, signature, expectedPluginId, expectedVersion,
-                expectedRequiredSdk, expectedDependencies, identityMigrationSignatures,
-                repositoryIdentityMigrationAuthorizations, identityMigrationConfirmed, null);
-    }
-
-    public static PluginPackageOrigin forTrustedCatalog(
-            String repositoryId, boolean officialRepository,
-            Long expectedSizeBytes, String expectedSha256,
-            SignatureMetadata signature, String expectedPluginId,
-            String expectedVersion, String expectedRequiredSdk,
-            List<String> expectedDependencies,
-            Map<String, SignatureMetadata> identityMigrationSignatures,
-            Map<String, RepositoryIdentityMigrationAuthorization> repositoryIdentityMigrationAuthorizations,
-            boolean identityMigrationConfirmed,
             String trustConfirmationSha256) {
         return new PluginPackageOrigin(PluginPackageSource.MARKET_CATALOG, repositoryId, officialRepository, false,
                 expectedSizeBytes, expectedSha256, signature, expectedPluginId, expectedVersion,
-                expectedRequiredSdk, expectedDependencies, identityMigrationSignatures,
-                repositoryIdentityMigrationAuthorizations, identityMigrationConfirmed, trustConfirmationSha256);
+                expectedRequiredSdk, expectedDependencies, identityMigrationSignatures, trustConfirmationSha256);
     }
 
     public static PluginPackageOrigin forTrustedCatalog(
@@ -245,26 +192,10 @@ public record PluginPackageOrigin(
             String expectedSha256,
             SignatureMetadata signature,
             Map<String, SignatureMetadata> identityMigrationSignatures,
-             Map<String, RepositoryIdentityMigrationAuthorization> repositoryIdentityMigrationAuthorizations,
-             boolean identityMigrationConfirmed) {
-        return forTrustedCatalog(repositoryId, officialRepository, expectedSizeBytes, expectedSha256, signature,
-                identityMigrationSignatures, repositoryIdentityMigrationAuthorizations,
-                identityMigrationConfirmed, null);
-    }
-
-    public static PluginPackageOrigin forTrustedCatalog(
-            String repositoryId,
-            boolean officialRepository,
-            Long expectedSizeBytes,
-            String expectedSha256,
-            SignatureMetadata signature,
-            Map<String, SignatureMetadata> identityMigrationSignatures,
-            Map<String, RepositoryIdentityMigrationAuthorization> repositoryIdentityMigrationAuthorizations,
-             boolean identityMigrationConfirmed,
-             String trustConfirmationSha256) {
-         return new PluginPackageOrigin(PluginPackageSource.MARKET_CATALOG, repositoryId, officialRepository, false,
-                expectedSizeBytes, expectedSha256, signature, null, null, null, null, identityMigrationSignatures,
-                repositoryIdentityMigrationAuthorizations, identityMigrationConfirmed, trustConfirmationSha256);
+            String trustConfirmationSha256) {
+        return new PluginPackageOrigin(PluginPackageSource.MARKET_CATALOG, repositoryId, officialRepository, false,
+                expectedSizeBytes, expectedSha256, signature, null, null, null, null,
+                identityMigrationSignatures, trustConfirmationSha256);
     }
 
     /** 是否带至少一项完整性期望。 */

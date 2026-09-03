@@ -246,12 +246,10 @@ eq('市场 recoveryBlocked toast 保留后端 message', blockedFeedback.message,
     nextFetchResponse = {status: 200, body: {outcome: 'INSTALLED'}};
     const firstSha = 'a'.repeat(64);
     await PMK.api.installPlugin('official repo', 'demo plugin', '1.0.0', {
-        trustSha256: firstSha,
-        identityMigration: true
+        trustSha256: firstSha
     });
-    eq('市场 API 只追加精确制品摘要与固定身份迁移参数', fetchCalls[0].url,
-        '/api/plugin-market/official%20repo/demo%20plugin/1.0.0/install?confirmTrust=' + firstSha
-            + '&confirmIdentityMigration=true');
+    eq('市场 API 只追加精确制品摘要', fetchCalls[0].url,
+        '/api/plugin-market/official%20repo/demo%20plugin/1.0.0/install?confirmTrust=' + firstSha);
 
     fetchCalls.length = 0;
     const dependencySha = 'b'.repeat(64);
@@ -262,11 +260,9 @@ eq('市场 recoveryBlocked toast 保留后端 message', blockedFeedback.message,
                 pluginId: 'demo plugin', version: '1.0.0', source: 'MARKET_CATALOG',
                 repositoryId: 'custom repo', signed: true, publisher: 'Demo Publisher',
                 publisherKeyFingerprint: 'c'.repeat(64), artifactSha256: firstSha,
-                executionMode: 'HOST_PROCESS_FULL_TRUST', permissionsDeclared: true,
-                declaredPermissions: ['network', 'filesystem-write']
+                executionMode: 'HOST_PROCESS_FULL_TRUST'
             }
         }},
-        {status: 409, body: {outcome: 'REJECTED_IDENTITY_CONFIRMATION_REQUIRED'}},
         {status: 409, body: {
             outcome: 'TRUST_CONFIRMATION_REQUIRED',
             trustRequirement: {
@@ -286,28 +282,19 @@ eq('市场 recoveryBlocked toast 保留后端 message', blockedFeedback.message,
         }
     };
     const confirmed = await PMK.installPluginWithConfirmation('custom repo', 'demo plugin', '1.0.0');
-    eq('签名、身份迁移与依赖信任确认后返回最终安装结果', confirmed.body.outcome, 'INSTALLED');
-    eq('三个安全挑战都使用共享 PixivFeedback 确认框', confirmationOptions.length, 3);
+    eq('签名与依赖信任确认后返回最终安装结果', confirmed.body.outcome, 'INSTALLED');
+    eq('两个安全挑战都使用共享 PixivFeedback 确认框', confirmationOptions.length, 2);
     ok('执行信任提示只使用后端核验的发布者事实', confirmationOptions[0].message.includes('Demo Publisher'));
     ok('执行信任提示显示精确制品摘要和完全访问模式', confirmationOptions[0].message.includes(firstSha)
         && confirmationOptions[0].message.includes('HOST_PROCESS_FULL_TRUST'));
-    ok('执行信任提示显示后端解析的权限声明', confirmationOptions[0].message.includes('network')
-        && confirmationOptions[0].message.includes('filesystem-write'));
-    ok('身份迁移确认框包含完整按钮文案', confirmationOptions[1].title
-        && confirmationOptions[1].message && confirmationOptions[1].confirmLabel
-        && confirmationOptions[1].cancelLabel);
-    ok('未签名依赖使用更强风险提示', confirmationOptions[2].message.includes('没有发布者签名')
-        && confirmationOptions[2].message.includes('demo dependency'));
+    ok('未签名依赖使用更强风险提示', confirmationOptions[1].message.includes('没有发布者签名')
+        && confirmationOptions[1].message.includes('demo dependency'));
     eq('首次请求不携带确认', fetchCalls[0].url,
         '/api/plugin-market/custom%20repo/demo%20plugin/1.0.0/install');
     eq('首次信任只携带后端返回的精确摘要', fetchCalls[1].url,
         '/api/plugin-market/custom%20repo/demo%20plugin/1.0.0/install?confirmTrust=' + firstSha);
-    eq('身份迁移保留精确摘要并重试同一受控制品', fetchCalls[2].url,
-        '/api/plugin-market/custom%20repo/demo%20plugin/1.0.0/install?confirmTrust=' + firstSha
-            + '&confirmIdentityMigration=true');
-    eq('依赖确认不能复用顶层制品摘要', fetchCalls[3].url,
-        '/api/plugin-market/custom%20repo/demo%20plugin/1.0.0/install?confirmTrust=' + dependencySha
-            + '&confirmIdentityMigration=true');
+    eq('依赖确认不能复用顶层制品摘要', fetchCalls[2].url,
+        '/api/plugin-market/custom%20repo/demo%20plugin/1.0.0/install?confirmTrust=' + dependencySha);
 
     fetchCalls.length = 0;
     confirmationOptions.length = 0;

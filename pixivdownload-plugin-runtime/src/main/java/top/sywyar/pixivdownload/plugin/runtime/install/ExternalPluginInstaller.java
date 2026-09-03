@@ -620,7 +620,6 @@ public class ExternalPluginInstaller implements AutoCloseable {
             List<InstalledPlugin> replaced,
             String previousVersion,
             PluginPackageOrigin origin) {
-        InstalledPlugin confirmationRequired = null;
         for (InstalledPlugin current : sameId) {
             PluginProvenanceRecord installed = readIdentityProvenance(current, descriptor);
             IdentityMigrationDecision decision = installed == null || sameTrustOwner(installed, candidate)
@@ -630,9 +629,6 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 return identityRejected(descriptor, previousVersion, current,
                         installed == null ? "installed provenance is missing or invalid"
                                 : "trust owner changed");
-            }
-            if (decision == IdentityMigrationDecision.CONFIRMATION_REQUIRED) {
-                confirmationRequired = current;
             }
         }
         for (InstalledPlugin current : replaced) {
@@ -648,12 +644,8 @@ public class ExternalPluginInstaller implements AutoCloseable {
                         installed == null ? "installed provenance is missing or invalid"
                                 : "replacement is not authorized by the installed trust owner");
             }
-            if (decision == IdentityMigrationDecision.CONFIRMATION_REQUIRED) {
-                confirmationRequired = current;
-            }
         }
-        return confirmationRequired == null ? null
-                : identityConfirmationRequired(descriptor, previousVersion, confirmationRequired);
+        return null;
     }
 
     private TrustResolution resolveTrust(
@@ -718,19 +710,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
             log.warn("Plugin key identity migration authorization did not validate {} -> {}: {} ({})",
                     current.id(), descriptor.id(), result.status(), result.diagnosticCode());
         }
-        var repositoryAuthorization = origin.repositoryIdentityMigrationAuthorizations().get(current.id());
-        if (repositoryAuthorization == null) {
-            return IdentityMigrationDecision.REJECTED;
-        }
-        VerificationResult result = verificationService.verifyRepositoryIdentityMigration(
-                current.id(), installed, descriptor.id(), descriptor.version(), candidate, repositoryAuthorization);
-        if (!result.accepted()) {
-            log.warn("Rejecting repository-root plugin identity migration {} -> {}: {} ({})",
-                    current.id(), descriptor.id(), result.status(), result.diagnosticCode());
-            return IdentityMigrationDecision.REJECTED;
-        }
-        return origin.identityMigrationConfirmed()
-                ? IdentityMigrationDecision.AUTHORIZED : IdentityMigrationDecision.CONFIRMATION_REQUIRED;
+        return IdentityMigrationDecision.REJECTED;
     }
 
     private PluginProvenanceRecord readIdentityProvenance(
@@ -767,22 +747,8 @@ public class ExternalPluginInstaller implements AutoCloseable {
                         + " against installed " + current.id() + ": " + reason));
     }
 
-    private static PluginInstallResult identityConfirmationRequired(
-            PluginDescriptor descriptor,
-            String previousVersion,
-            InstalledPlugin current) {
-        return new PluginInstallResult(
-                PluginInstallOutcome.REJECTED_IDENTITY_CONFIRMATION_REQUIRED,
-                descriptor,
-                null,
-                previousVersion,
-                List.of("repository-root identity migration confirmation required for " + descriptor.id()
-                        + " against installed " + current.id()));
-    }
-
     private enum IdentityMigrationDecision {
         AUTHORIZED,
-        CONFIRMATION_REQUIRED,
         REJECTED
     }
 

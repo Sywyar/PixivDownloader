@@ -103,43 +103,6 @@ class PluginSignatureToolTest {
                         VerificationPolicy.installedCustom()));
         assertThat(migrationResult.status()).isEqualTo(VerificationStatus.VERIFIED);
 
-        Path repositoryMigrationSig = tempDir.resolve("repository-identity-migration.sig");
-        PluginSignatureTool.main(new String[]{
-                "repository-identity-migration",
-                "--artifact", artifact.toString(),
-                "--version", "2.0.0",
-                "--reason", RepositoryIdentityMigrationAuthorization.KEY_UNAVAILABLE,
-                "--from-plugin-id", "demo",
-                "--from-source", "MARKET_CATALOG",
-                "--from-repository-id", "old-repository",
-                "--from-publisher", "Old Publisher",
-                "--from-key-id", "missing-old-key",
-                "--to-plugin-id", "demo",
-                "--to-source", "MARKET_CATALOG",
-                "--to-repository-id", "new-repository",
-                "--to-publisher", "New Publisher",
-                "--to-key-id", "new-key",
-                "--key-id", keyId,
-                "--private-key", privateKey.toString(),
-                "--out", repositoryMigrationSig.toString()
-        });
-        VerificationResult repositoryMigrationResult = verifier.verifyRepositoryIdentityMigration(
-                new RepositoryIdentityMigrationVerificationRequest(
-                        new IdentityMigrationVerificationRequest.Identity(
-                                "demo", "MARKET_CATALOG", "old-repository", false,
-                                "Old Publisher", "missing-old-key"),
-                        new IdentityMigrationVerificationRequest.Identity(
-                                "demo", "MARKET_CATALOG", "new-repository", false,
-                                "New Publisher", "new-key"),
-                        "2.0.0",
-                        Files.size(artifact),
-                        Hashing.hex(Hashing.sha256(artifact)),
-                        new RepositoryIdentityMigrationAuthorization(
-                                RepositoryIdentityMigrationAuthorization.KEY_UNAVAILABLE,
-                                readMetadata(repositoryMigrationSig)),
-                        VerificationPolicy.customRepository()));
-        assertThat(repositoryMigrationResult.status()).isEqualTo(VerificationStatus.VERIFIED);
-
         Path manifest = tempDir.resolve("manifest.json");
         Files.writeString(manifest, "{\"schemaVersion\":\"1\",\"entries\":[]}");
         Path manifestSig = tempDir.resolve("manifest.json.sig");

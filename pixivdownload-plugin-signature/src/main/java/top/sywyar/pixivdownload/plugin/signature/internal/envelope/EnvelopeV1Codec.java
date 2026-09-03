@@ -16,8 +16,6 @@ public final class EnvelopeV1Codec {
     private static final String PLUGIN_REVOCATIONS_DOMAIN = "pixivdownloader-plugin-revocations-v1";
     private static final String IDENTITY_MIGRATION_DOMAIN =
             "PixivDownloader plugin identity migration signature v1";
-    private static final String REPOSITORY_IDENTITY_MIGRATION_DOMAIN =
-            "PixivDownloader plugin repository identity migration signature v1";
     private static final int FORMAT_VERSION = 1;
 
     private EnvelopeV1Codec() {
@@ -96,50 +94,6 @@ public final class EnvelopeV1Codec {
             out.writeInt(FORMAT_VERSION);
             writeString(out, algorithm);
             writeString(out, signingKeyId);
-            writeString(out, fromPluginId);
-            writeString(out, fromSource);
-            writeString(out, fromRepositoryId);
-            out.writeBoolean(fromOfficialRepository);
-            writeString(out, fromPublisher);
-            writeString(out, fromKeyId);
-            writeString(out, toPluginId);
-            writeString(out, toSource);
-            writeString(out, toRepositoryId);
-            out.writeBoolean(toOfficialRepository);
-            writeString(out, toPublisher);
-            writeString(out, toKeyId);
-            writeString(out, version);
-            out.writeLong(artifactSize);
-            out.write(sha256);
-        });
-    }
-
-    public static byte[] repositoryIdentityMigrationMessage(
-            String algorithm,
-            String signingKeyId,
-            String reason,
-            String fromPluginId,
-            String fromSource,
-            String fromRepositoryId,
-            boolean fromOfficialRepository,
-            String fromPublisher,
-            String fromKeyId,
-            String toPluginId,
-            String toSource,
-            String toRepositoryId,
-            boolean toOfficialRepository,
-            String toPublisher,
-            String toKeyId,
-            String version,
-            long artifactSize,
-            byte[] sha256) {
-        requireSha256(sha256);
-        return write(out -> {
-            writeString(out, REPOSITORY_IDENTITY_MIGRATION_DOMAIN);
-            out.writeInt(FORMAT_VERSION);
-            writeString(out, algorithm);
-            writeString(out, signingKeyId);
-            writeString(out, reason);
             writeString(out, fromPluginId);
             writeString(out, fromSource);
             writeString(out, fromRepositoryId);

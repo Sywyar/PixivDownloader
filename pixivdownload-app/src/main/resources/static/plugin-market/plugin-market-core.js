@@ -34,7 +34,6 @@
     };
 
     PMK.TRUST_CONFIRMATION_REQUIRED = 'TRUST_CONFIRMATION_REQUIRED';
-    PMK.IDENTITY_MIGRATION_CONFIRMATION_REQUIRED = 'REJECTED_IDENTITY_CONFIRMATION_REQUIRED';
     PMK.trustConfirmationOptions = function (requirement) {
         var r = requirement || {};
         var executionMode = String(r.executionMode || 'HOST_PROCESS_FULL_TRUST');
@@ -46,14 +45,6 @@
             : PMK.t('install.trust.signature.unsigned', '未签名');
         var fingerprint = r.publisherKeyFingerprint
             || PMK.t('install.trust.fingerprint.unavailable', '不适用');
-        var permissionValues = Array.isArray(r.declaredPermissions) ? r.declaredPermissions : [];
-        var permissions = r.permissionsDeclared !== true
-            ? PMK.t('install.trust.permissions.undeclared', '未声明权限，按完全访问处理')
-            : permissionValues.length
-                ? PMK.t('install.trust.permissions.declared', '声明权限：{values}', {
-                    values: permissionValues.join(', ')
-                })
-                : PMK.t('install.trust.permissions.none', '已声明不需要额外权限');
         var message = PMK.t('install.trust.risk',
             '此插件将在 PixivDownloader 进程中运行，拥有与 PixivDownloader 相同的本机权限。它可以访问当前用户可访问的文件和网络、运行后台任务、注册本地接口，并可能在 PixivDownloader 页面中执行脚本。安装插件相当于运行一个本地应用。请只安装你信任的来源。');
         if (r.signed !== true) {
@@ -71,7 +62,6 @@
                 sha256: r.artifactSha256 || '',
                 executionMode: executionLabel
             });
-        message += '\n' + permissions;
         return {
             title: PMK.t('install.trust.title', '确认插件执行信任'),
             message: message,
@@ -97,35 +87,13 @@
                         .then(function (confirmed) {
                         if (!confirmed) return response;
                         confirmedArtifacts[sha256] = true;
-                        return attempt({
-                            trustSha256: sha256,
-                            identityMigration: confirmations.identityMigration
-                        });
+                        return attempt({ trustSha256: sha256 });
                     });
                 }
-                if (response.kind !== 'install'
-                        || !response.body
-                        || response.body.outcome !== PMK.IDENTITY_MIGRATION_CONFIRMATION_REQUIRED
-                        || confirmations.identityMigration
-                        || !canConfirm()) {
-                    return response;
-                }
-                return global.PixivFeedback.confirm({
-                    title: PMK.t('install.identity-migration.title', '确认插件发布者身份迁移'),
-                    message: PMK.t('install.identity-migration.message',
-                        '受信仓库声明该插件的旧签名 key 已撤销或不可用，并请求迁移到新的发布者身份。继续前请确认你信任该仓库与新的插件发布者；确认后仍会重新校验当前精确制品。'),
-                    confirmLabel: PMK.t('install.identity-migration.confirm', '确认并继续'),
-                    cancelLabel: PMK.t('install.identity-migration.cancel', '取消安装')
-                }).then(function (confirmed) {
-                    if (!confirmed) return response;
-                    return attempt({
-                        trustSha256: confirmations.trustSha256,
-                        identityMigration: true
-                    });
-                });
+                return response;
             });
         }
-        return attempt({ trustSha256: null, identityMigration: false });
+        return attempt({ trustSha256: null });
     };
 
     PMK.currentLang = function () {
