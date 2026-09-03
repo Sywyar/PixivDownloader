@@ -26,8 +26,8 @@ java -version
 
 [Releases](https://github.com/Sywyar/PixivDownloader/releases) から次を選びます。
 
-- `PixivDownload-*-java.zip` — Windows インストーラーと同じ既定プラグイン構成（オンデマンドの Douyin と Compose GUI を除く）
-- `PixivDownload-*-full-offline.zip` — 上記に Douyin を追加した完全オフライン版
+- `PixivDownload-*-java.zip` — Windows インストーラーと同じ公式プラグイン構成（Douyin は含みません）
+- `PixivDownload-*-full-offline.zip` — Java 標準パッケージと同じプラグイン構成（Douyin は含みません）
 
 アーカイブは**すべて展開**してください。JAR だけを取り出してはいけません。起動スクリプトと `plugins/` ディレクトリが必要です。公式外部プラグインは起動時に作業ディレクトリの `plugins/` から読み込まれます。
 
@@ -69,7 +69,9 @@ java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --setup
 
 インストーラーをもう一度実行すると、修復、コンポーネント変更、アンインストールを選べます。インストール時は `PixivDownload.exe` が実行中なら終了を求められます。
 
-?> Windows インストーラーには、必須 `download-workbench` と既定 `gui-swing` を含む標準インストール対象の公式プラグインが入ります。オンデマンドの `douyin` と `gui-compose` は Web プラグインマーケットから追加でき、完全オフラインパッケージには両方が含まれます。
+?> Windows インストーラーには、必須 `download-workbench`、既定 `gui-compose`、代替 `gui-swing` を含む公式プラグイン配布セットが入ります。Java 標準パッケージと完全オフラインパッケージも同じ構成です。Douyin は一般のサードパーティプラグインとして、カスタムリポジトリまたはローカルパッケージからインストールします。
+
+インストーラーがアプリケーションディレクトリへ書き込む際は UAC を要求します。インストール済みアプリと portable ランチャーも既定で管理者権限を要求します。ホストが実際に昇格している場合、`host-process-full-trust` プラグインも同じ権限を継承し、プラグイン管理ページに警告が表示され続けます。
 
 ## 方法 3：Docker
 
@@ -99,7 +101,8 @@ FFmpeg はうごイラを WebP に変換するために使います。
 
 - Windows インストーラーで「FFmpeg をダウンロードしてインストール」を選ぶ
 - GUI の「ステータス」ページで「FFmpeg をダウンロード」をクリックする
-- [FFmpeg 公式サイト](https://ffmpeg.org/download.html)から取得し、`ffmpeg.exe` のあるディレクトリを `PATH` に追加する
+
+自動インストールは、FFmpeg の公式最新安定版ソースから構築したプロジェクト管理の `ffmpeg-stable` Release を使います。Windows x64、Linux x64/arm64、macOS x64/arm64 は対応するアセットが自動選択されます。その他の環境では [FFmpeg 公式サイト](https://ffmpeg.org/download.html)から取得し、システムの FFmpeg を使ってください。
 
 確認：`ffmpeg -version`
 
@@ -113,3 +116,5 @@ FFmpeg はうごイラを WebP に変換するために使います。
 - `http://localhost:6999/pixiv-gallery.html` — 作品ギャラリー（`gallery` プラグインが必要）
 
 `download-workbench` は必須の外部プラグインで、ダウンロードページ、API、キュー、ユーザースクリプト入口、Pixiv プロキシ、スケジュールタスクホストを提供します。不足・破損・検証失敗時はリカバリーページになります。その他の任意プラグインがない場合は、そのプラグインのページや機能だけがなくなり、リカバリーには入りません。
+
+公式プラグイン配布セットは `download-workbench`、`gui-compose`、`gui-swing`、`gallery-tools`、`posthog`、`gallery`、`novel`、`notification`、`multi-mode-decision-survey`、`push`、`mail`、`tts`、`ai` です。`gui-compose` が既定のデスクトップ UI、`gui-swing` が自動代替です。Douyin は公式リポジトリ、署名、Release パッケージでは配布されません。カスタムリポジトリまたはローカルパッケージからインストールしてください。

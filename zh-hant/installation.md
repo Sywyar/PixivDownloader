@@ -30,8 +30,8 @@ java -version
 
 從 [Releases](https://github.com/Sywyar/PixivDownloader/releases) 下載：
 
-- `PixivDownload-*-java.zip` — Java 標準包，與 Windows 安裝包默認插件集合一致（不含 Douyin）
-- `PixivDownload-*-full-offline.zip` — 離線全量包，額外包含 Douyin
+- `PixivDownload-*-java.zip` — Java 標準包，與 Windows 安裝包的插件集合一致（不含 Douyin）
+- `PixivDownload-*-full-offline.zip` — 離線全量包，與 Java 標準包的插件集合一致（不含 Douyin）
 
 下載後必須**完整解壓**，不要只提取其中的 JAR：啓動腳本與 `plugins/` 目錄缺一不可，程序啓動時會從工作目錄的 `plugins/` 加載官方外置插件。
 
@@ -81,7 +81,9 @@ nohup java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --no-gui > app.lo
 
 從 [Releases](https://github.com/Sywyar/PixivDownloader/releases) 下載 `PixivDownload-x.x.x-win-x64-setup.exe`。
 
-?> Windows 默認安裝包預置默認安裝的官方插件集合，其中包含必需的 `download-workbench` 和默認 `gui-swing`，啓動後即可使用下載頁和桌面 GUI。按需安裝的 `douyin` 與 `gui-compose` 不在其中；離線全量包會額外攜帶二者，也可從 Web 插件市場安裝。
+?> Windows 安裝包預置官方插件分發集合，其中包含必需的 `download-workbench`、默認 `gui-compose` 和後備 `gui-swing`。Java 標準包與離線全量包使用同一集合；Douyin 作爲普通第三方插件，需從自定義倉庫或本地包安裝。
+
+安裝器寫入應用目錄時會請求 UAC。安裝後的應用和 portable 啓動器也默認請求管理員權限；宿主實際提權運行時，`host-process-full-trust` 插件會繼承同等權限，插件管理頁會持續顯示警告。
 
 ### 2. 安裝過程
 
@@ -252,6 +254,8 @@ FFmpeg 用於 Ugoira 動圖轉換爲 WebP，普通圖片下載不需要。
 - **Windows 安裝包**：安裝時勾選「下載並安裝 FFmpeg」
 - **GUI 工具**：啓動後在 GUI「狀態」標籤頁點擊「下載 FFmpeg」按鈕
 
+自動安裝使用項目維護的 `ffmpeg-stable` Release，內容來自 FFmpeg 官方最新穩定源碼，並按 Windows x64、Linux x64/arm64、macOS x64/arm64 自動選擇資產。其它平臺請使用系統 FFmpeg。
+
 ### 手動安裝
 
 1. 從 [FFmpeg 官網](https://ffmpeg.org/download.html) 下載
@@ -310,11 +314,11 @@ FFmpeg 用於 Ugoira 動圖轉換爲 WebP，普通圖片下載不需要。
 
 `download-workbench` 是 required 外置插件，負責下載頁、下載 API、隊列、userscript 入口、Pixiv 插畫代理和計劃任務宿主。缺失、損壞、不兼容或離線複驗失敗時，程序進入恢復路徑，只開放登錄、插件管理和安裝修復入口。
 
-官方插件默認安裝集合包括 `download-workbench`、`gui-swing`、`stats`、`posthog`、`duplicate`、`gallery`、`novel`、`notification`、`multi-mode-decision-survey`、`push`、`mail`、`tts` 和 `ai`；`douyin` 與 `gui-compose` 按需安裝。缺失或禁用可選插件只會讓對應頁面、API、導航、靜態資源、i18n、GUI 配置 section 或能力貢獻缺席，本身不會讓程序進入恢復路徑。
+官方插件分發集合包括 `download-workbench`、`gui-compose`、`gui-swing`、`gallery-tools`、`posthog`、`gallery`、`novel`、`notification`、`multi-mode-decision-survey`、`push`、`mail`、`tts` 和 `ai`。`gui-compose` 是默認桌面界面，`gui-swing` 自動後備；Douyin 不再由官方倉庫、簽名或發行包分發。缺失或禁用可選插件只會讓所屬頁面、API、導航、靜態資源、i18n、GUI 配置 section 或能力貢獻缺席，本身不會讓程序進入恢復路徑。
 
-- Windows 安裝包：內置 JRE 與默認安裝插件集合；`douyin`、`gui-compose` 可從 Web 插件市場按需安裝。
-- Java 標準包（`*-java.zip`）：與 Windows 安裝包的 default-installed 插件集合一致；不含 JRE、不含 FFmpeg。
-- 離線全量包（`*-full-offline.zip`）：在 Java 標準包集合基礎上額外攜帶 `douyin` 與 `gui-compose`；不含 JRE、不含 FFmpeg。
-- `duplicate` 缺失不影響圖片 Hash 寫入和歷史 Hash 數據。
+- Windows 安裝包：內置 JRE 和官方插件分發集合；FFmpeg 僅在安裝時勾選後下載，不含 Douyin。
+- Java 標準包（`*-java.zip`）：插件集合相同；不含 JRE、FFmpeg 與 Douyin。
+- 離線全量包（`*-full-offline.zip`）：插件集合相同；不含 JRE、FFmpeg 與 Douyin。
+- `gallery-tools` 缺失不影響圖片 Hash 寫入和歷史 Hash 數據。
 - `gallery` 缺失不影響下載頁、下載 API、userscript、Pixiv 插畫代理、計劃任務宿主、作品元數據、下載事實、Hash 與本地資源索引。
 - `novel` 缺失會讓小說下載、小說畫廊、正文保存、翻譯狀態、系列合訂和計劃任務小說執行器一併缺席；核心不保留平行實現。

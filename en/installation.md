@@ -30,8 +30,8 @@ java -version
 
 Download from [Releases](https://github.com/Sywyar/PixivDownloader/releases):
 
-- `PixivDownload-*-java.zip` — Java standard package, same default plugin set as the Windows installer (no Douyin)
-- `PixivDownload-*-full-offline.zip` — full-offline package, additionally includes Douyin
+- `PixivDownload-*-java.zip` — Java standard package, with the same plugin set as the Windows installer (no Douyin)
+- `PixivDownload-*-full-offline.zip` — full-offline package, with the same plugin set as the Java standard package (no Douyin)
 
 You must **fully extract** the archive — do not take out only the JAR: both the launcher scripts and the `plugins/` directory are required, because official external plugins are loaded from the working directory's `plugins/` folder at startup.
 
@@ -82,7 +82,9 @@ nohup java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --no-gui > app.lo
 
 Download `PixivDownload-x.x.x-win-x64-setup.exe` from [Releases](https://github.com/Sywyar/PixivDownloader/releases).
 
-?> The default Windows installer preinstalls the default-installed official plugin set, including required `download-workbench` and default `gui-swing`, so the download page and desktop GUI work after startup. On-demand `douyin` and `gui-compose` are omitted; the full-offline package carries both, and either can be installed from the Web Plugin Marketplace.
+?> The Windows installer includes the official plugin distribution set, including required `download-workbench`, default `gui-compose`, and fallback `gui-swing`. The Java standard and full-offline packages use the same set. Douyin is a regular third-party plugin and must be installed from a custom repository or local package.
+
+The installer requests UAC when it writes the application directory. The installed application and portable launcher also request administrator privileges by default. When the host is actually elevated, `host-process-full-trust` plugins inherit those privileges and the Plugin Management page keeps a warning visible.
 
 ### 2. Installation Process
 
@@ -253,6 +255,8 @@ FFmpeg is used for Ugoira-to-WebP conversion. Not needed for regular image downl
 - **Windows Installer**: Check "Download and install FFmpeg" during installation
 - **GUI Tool**: Click "Download FFmpeg" on the GUI "Status" tab after startup
 
+Automatic installation uses the project-maintained `ffmpeg-stable` Release, built from the latest official stable FFmpeg source. It selects assets for Windows x64, Linux x64/arm64, or macOS x64/arm64. Use a system FFmpeg installation on other platforms.
+
 ### Manual Installation
 
 1. Download from [FFmpeg website](https://ffmpeg.org/download.html)
@@ -311,11 +315,11 @@ After startup, visit in your browser:
 
 `download-workbench` is the required external plugin. It owns the download page, download APIs, queue, userscript entry, Pixiv artwork proxy, and scheduled-task host. If it is missing, corrupted, incompatible, or fails offline verification, the app enters the recovery path and only exposes login, plugin management, and repair/install entry points.
 
-The default-installed official plugin set is `download-workbench`, `gui-swing`, `stats`, `posthog`, `duplicate`, `gallery`, `novel`, `notification`, `multi-mode-decision-survey`, `push`, `mail`, `tts`, and `ai`; `douyin` and `gui-compose` are on demand. Missing or disabling an optional plugin only removes its pages, APIs, navigation, static resources, i18n, GUI configuration sections, or capability contributions; it does not by itself trigger recovery.
+The official plugin distribution set is `download-workbench`, `gui-compose`, `gui-swing`, `gallery-tools`, `posthog`, `gallery`, `novel`, `notification`, `multi-mode-decision-survey`, `push`, `mail`, `tts`, and `ai`. `gui-compose` is the default desktop UI and `gui-swing` is the automatic fallback. Douyin is no longer distributed by the official repository, signature, or release packages. Missing or disabling an optional plugin only removes its own pages, APIs, navigation, resources, i18n, GUI settings, or capability contributions; it does not by itself trigger recovery.
 
-- Windows installer: bundles the JRE and the canonical default-installed plugin set; `douyin` and `gui-compose` can be installed on demand from the Web Plugin Marketplace.
-- Java standard package (`*-java.zip`): the same default-installed plugin set as the Windows installer; no JRE, no FFmpeg.
-- Full-offline package (`*-full-offline.zip`): the Java standard set plus `douyin` and `gui-compose`; no JRE, no FFmpeg.
-- Missing `duplicate` does not affect image Hash writes or historical Hash data.
+- Windows installer: bundles the JRE and official plugin distribution set; FFmpeg is downloaded only when selected during setup, and Douyin is not included.
+- Java standard package (`*-java.zip`): the same plugin set; no JRE, FFmpeg, or Douyin.
+- Full-offline package (`*-full-offline.zip`): the same plugin set; no JRE, FFmpeg, or Douyin.
+- Missing `gallery-tools` does not affect image Hash writes or historical Hash data.
 - Missing `gallery` does not affect the download page, download APIs, userscripts, Pixiv artwork proxy, scheduled-task host, work metadata, download facts, Hash data, or local resource index.
 - Missing `novel` withdraws novel downloading, its gallery, body storage, translation state, series compilation, and scheduled novel runner together; the core does not retain a parallel implementation.

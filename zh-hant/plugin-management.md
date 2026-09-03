@@ -4,7 +4,7 @@
 
 ## 安全模型
 
-外置插件與宿主運行在同一個 JVM 中，當前沒有進程或 OS 沙箱。簽名能夠證明 artifact 來自受信發佈者且字節未被篡改，但不能證明插件行爲無害。只安裝你信任的發佈者和倉庫。
+簽名能夠證明 artifact 的發佈者與字節完整性，但不代表安全審查，也不會授予額外運行權限。只安裝你信任的發佈者和倉庫。
 
 宿主在加載前會檢查：
 
@@ -15,17 +15,49 @@
 
 校驗、描述符解析和加載都使用同一份有界凍結字節。通過校驗後不會重新打開可被外部進程替換的公開安裝路徑。
 
+### 執行模式與隔離邊界
+
+每個外置插件都必須在 `plugin.properties` 顯式聲明 `pixiv.execution-mode`，只接受：
+
+| 值 | 運行位置 | 權限邊界 |
+| --- | --- | --- |
+| `host-process-full-trust` | 宿主 JVM | 繼承宿主進程的文件、網絡和 OS 權限 |
+| `declarative-process` | 獨立 worker JVM | 只通過有界協議發佈聲明式路由和能力 |
+
+缺失、空白或未知值會在任何插件代碼執行前被拒絕。worker 仍使用宿主的 OS 賬號，只提供進程、協議和資源層面的有限隔離；當前沒有完整 OS 沙箱，也沒有要求 OS 沙箱的 JVM 開關。生產模式拒絕目錄形式的 `declarative-process` 插件；顯式開發模式會將其降級爲 `host-process-full-trust`，狀態和日誌顯示實際生效模式。
+
+插件信任不會跨執行邊界靜默擴大。即使發佈者未變，從 `declarative-process` 升級爲 `host-process-full-trust`、SDK 主版本變化或信任撤銷後也必須由管理員重新確認。宿主實際以管理員或其它高權限運行時，full-trust 插件會繼承該權限，管理頁會持續顯示警告。
+
+worker 默認使用 128 MiB heap、128 MiB metaspace、64 MiB direct memory，並在 OOM 時退出；初始化、命令、關閉超時分別爲 10,000 / 5,000 / 2,000 ms。異常退出後最多重啓 3 次，退避從 500 ms 增至最多 10,000 ms；stderr 最多讀取 1 MiB，並保留末尾 16 KiB。每個 worker 同時只允許 1 個在途請求和 1 個排隊請求。退出時宿主先撤回該插件的路由與能力，再按上述上限嘗試恢復。
+
+可在 JVM 啓動前用 `pixivdownload.plugin-worker.*` 的 `initialize-timeout-ms`、`command-timeout-ms`、`shutdown-timeout-ms`、`restart-attempts`、`restart-initial-delay-ms`、`restart-max-delay-ms` 和 `stderr-max-bytes` 調整對應值。
+
+### 插件包資源上限
+
+默認准入上限爲 192 MiB 歸檔、48,000 個條目、672 MiB 實際解壓總量、64 MiB 單條目、1 MiB 描述符、壓縮比 200（只檢查至少 64 KiB 的條目）、1,024 個字符的條目名和 64 層路徑。對應 JVM 屬性爲：
+
+- `pixivdownload.plugin.package.max-archive-bytes`
+- `pixivdownload.plugin.package.max-entries`
+- `pixivdownload.plugin.package.max-total-uncompressed-bytes`
+- `pixivdownload.plugin.package.max-entry-uncompressed-bytes`
+- `pixivdownload.plugin.package.max-descriptor-bytes`
+- `pixivdownload.plugin.package.max-compression-ratio`
+- `pixivdownload.plugin.package.max-entry-name-length`
+- `pixivdownload.plugin.package.max-entry-depth`
+
+屬性只接受正整數；非法值會使插件運行時初始化失敗，不會靜默回退。
+
 ## 安裝來源
 
 ### 發行包預置
 
-標準發行包在 `plugins/` 預置 required 和 default-installed 官方插件。Douyin 是按需安裝插件：標準包不預置，full-offline 包預置，也可以從插件市場安裝。預置仍是獨立 artifact，不會合入核心 Boot JAR。
+Windows、Java 標準包和 full-offline 包在 `plugins/` 預置同一官方分發集合，包括 required `download-workbench`、默認 `gui-compose` 和後備 `gui-swing`。Douyin 是普通第三方插件，只從自定義倉庫或本地包安裝。預置插件仍是獨立 artifact，不會合入核心 Boot JAR。
 
 ### 本地上傳
 
-在插件管理頁同時選擇 `.jar`（或兼容 `.zip`）與對應的 detached `.sig` 文件。非插件開發模式要求籤名通過程序內置的官方信任根驗證；缺少簽名、簽名格式錯誤、簽名對應其它 artifact，或簽名來自非官方 key 時都會 fail-closed。需要信任自有 key 的第三方分發應配置自定義倉庫，不應把本地上傳當成自定義信任根入口。
+在插件管理頁選擇 `.jar` 或兼容 `.zip`，也可同時提供 detached `.sig`。本地上傳不建立自定義信任根：簽名存在時必須與精確 artifact 匹配並通過適用信任根驗證；未簽名包會標爲 `LOCAL_UPLOAD / UNSIGNED_ALLOWED`。非官方本地包在生產模式也能安裝，但任何代碼執行前都必須確認風險；簽名包按發佈者指紋批准，未簽名包只批准當前精確 SHA-256。更新、換 key、撤銷或執行權限提升可能再次要求確認。
 
-通過驗籤的本地包仍記錄爲 `LOCAL_UPLOAD` 來源，同時保留簽名和 `VERIFIED` provenance，供啓動時離線複驗；管理頁會顯示官方驗證狀態，但不會把來源僞裝成遠程倉庫。只有顯式插件開發模式允許省略 `.sig`，此時 provenance 爲 `LOCAL_UPLOAD / UNSIGNED_ALLOWED`。遠程倉庫無論運行模式如何都不能省略簽名。
+遠程倉庫包始終要求倉庫清單聲明的簽名，不能降級爲本地 unsigned。需要長期信任自有 key 的第三方分發應配置自定義倉庫。
 
 ### 插件市場
 
@@ -70,7 +102,7 @@
 
 “重啓後端”只重建 Spring 後端上下文，不等於完整進程重啓；它不能讓 `process-restart` 插件生效。桌面生命週期管理器不可用時，管理頁不能代替操作系統重啓進程。
 
-官方 `gui-swing` 是默認安裝的默認桌面 provider，`gui-compose` 按需安裝。二者都只渲染應用殼提供的同一份完整聲明式 UI 文檔，均爲 `process-restart`；安裝、更新、啓停、移除或在“配置 → 界面”切換 provider 後都必須完整退出並重新啓動軟件。
+官方 `gui-compose` 是默認桌面 provider，`gui-swing` 自動後備。兩者分別擁有自己的頁面與交互，共享應用業務語義，均爲 `process-restart`；安裝、更新、啓停、移除或在“配置 → 界面”切換 provider 後都必須完整退出並重新啓動軟件。
 
 ## 生命週期動作
 
@@ -111,6 +143,8 @@ required 插件不能被禁用或移除到不滿足狀態。required 包缺失�
 - 把 `plugins/runtime/` 當安裝目錄、簽名源或共享緩存；
 - 只複製 artifact 而遺漏遠程來源的 provenance；
 - 把私鑰放進 `plugins/`、源碼、構建輸出或日誌。
+
+portable 安裝可以讓 `plugins/` 根本身指向符號鏈接或 Windows junction；運行時會先解析並固定真實根目錄，但仍逐個拒絕根目錄內的鏈接製品。宿主會在文件系統支持時收緊 `plugins/runtime/` 與 `plugins/provenance/` 的 POSIX 權限或 Windows ACL；FAT32、exFAT、SMB 等不支持這些能力時會記錄診斷，並繼續依賴普通文件、`NOFOLLOW`、凍結快照與哈希檢查。
 
 完整佈局見[存儲原理](/zh-hant/storage)。
 
