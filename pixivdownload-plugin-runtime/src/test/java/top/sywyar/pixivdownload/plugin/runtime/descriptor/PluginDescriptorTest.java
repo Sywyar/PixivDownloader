@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("统一插件描述符：映射、校验与兼容性")
 class PluginDescriptorTest {
@@ -198,10 +199,10 @@ class PluginDescriptorTest {
     }
 
     @Test
-    @DisplayName("旧包缺执行模式时保持宿主完全信任和热重载兼容")
-    void legacyDescriptorDefaultsToHostFullTrustWithoutLifecycleRestriction() {
-        PluginDescriptor descriptor = external("legacy", "1.0.0", "1.0",
-                "com.example.LegacyPlugin", "legacy.label", PluginKind.FEATURE, List.of());
+    @DisplayName("显式宿主完全信任描述符仍可使用默认热重载策略")
+    void explicitHostDescriptorMayUseDefaultLifecyclePolicy() {
+        PluginDescriptor descriptor = external("host", "1.0.0", "1.0",
+                "com.example.HostPlugin", "host.label", PluginKind.FEATURE, List.of());
 
         assertThat(descriptor.executionMode()).isEqualTo(PluginExecutionMode.HOST_PROCESS_FULL_TRUST);
         assertThat(descriptor.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.HOT_RELOAD);
@@ -209,18 +210,24 @@ class PluginDescriptorTest {
     }
 
     @Test
-    @DisplayName("旧执行模式 token 保持原有运行位置兼容")
-    void legacyExecutionModeTokensRemainCompatible() {
-        assertThat(PluginExecutionMode.parse("trusted-in-process"))
-                .isEqualTo(PluginExecutionMode.HOST_PROCESS_FULL_TRUST);
-        assertThat(PluginExecutionMode.parse("isolated-process"))
-                .isEqualTo(PluginExecutionMode.DECLARATIVE_PROCESS);
+    @DisplayName("缺失或旧执行模式 token 均失败关闭")
+    void rejectsMissingAndLegacyExecutionModeTokens() {
+        assertThatThrownBy(() -> PluginExecutionMode.parse(null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("required");
+        assertThatThrownBy(() -> PluginExecutionMode.parse("trusted-in-process"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unsupported");
+        assertThatThrownBy(() -> PluginExecutionMode.parse("isolated-process"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unsupported");
     }
 
     private static PluginDescriptor external(String id, String version, String requires, String pluginClass,
                                              String displayName, PluginKind kind, List<PluginDependencyRef> deps) {
         return new PluginDescriptor(id, id + "-pack", version, VersionRequirement.parse(requires),
-                deps, pluginClass, null, displayName, null, null, null, kind);
+                deps, pluginClass, null, displayName, null, null, null, kind, List.of(),
+                PluginLifecyclePolicy.HOT_RELOAD, PluginExecutionMode.HOST_PROCESS_FULL_TRUST);
     }
 
     private static final class TestFeaturePlugin implements PixivFeaturePlugin {

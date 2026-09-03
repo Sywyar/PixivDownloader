@@ -30,7 +30,7 @@ class PluginPackageReaderTest {
     Path tempDir;
 
     @Test
-    @DisplayName("旧包缺执行模式时默认宿主进程完全信任")
+    @DisplayName("显式宿主完全信任的解压目录描述符可读取")
     void readsExplodedDirectoryLayout() {
         Path zip = PluginPackageFixtures.explodedZip(tempDir.resolve("p.zip"),
                 "ext-stats", "1.2.0", "1.0", "com.example.ExtStatsPlugin");
@@ -49,6 +49,24 @@ class PluginPackageReaderTest {
         assertThat(descriptor.executionMode()).isEqualTo(PluginExecutionMode.HOST_PROCESS_FULL_TRUST);
         assertThat(descriptor.externalValidationErrors()).isEmpty();
         assertThat(descriptor.isSdkCompatible()).isTrue();
+    }
+
+    @Test
+    @DisplayName("缺少执行模式时按畸形描述符失败关闭")
+    void rejectsMissingExecutionMode() {
+        String properties = PluginPackageReader.KEY_ID + "=missing-mode\n"
+                + PluginPackageReader.KEY_VERSION + "=1.0.0\n"
+                + PluginPackageReader.KEY_CLASS + "=com.example.MissingModePlugin\n";
+        Path zip = tempDir.resolve("missing-mode.zip");
+        PluginPackageFixtures.writeZip(zip, Map.of(
+                PluginPackageReader.PLUGIN_PROPERTIES, properties.getBytes(StandardCharsets.UTF_8),
+                "classes/Marker.class", PluginPackageFixtures.bytes("x")));
+
+        assertThatThrownBy(() -> PluginPackageReader.inspect(zip))
+                .isInstanceOfSatisfying(PluginPackageException.class, failure -> {
+                    assertThat(failure.reason()).isEqualTo(PluginPackageException.Reason.MALFORMED);
+                    assertThat(failure).hasMessageContaining("plugin execution mode is required");
+                });
     }
 
     @Test
@@ -105,6 +123,7 @@ class PluginPackageReaderTest {
         String properties = PluginPackageReader.KEY_ID + "=ext\n"
                 + PluginPackageReader.KEY_VERSION + "=1.0.0\n"
                 + PluginPackageReader.KEY_CLASS + "=com.example.P\n"
+                + PluginPackageReader.KEY_PIXIV_EXECUTION_MODE + "=host-process-full-trust\n"
                 + PluginPackageReader.KEY_DEPENDENCIES + "=novel@1.0, gallery?\n";
         Map<String, byte[]> entries = new LinkedHashMap<>();
         entries.put(PluginPackageReader.PLUGIN_PROPERTIES, properties.getBytes(StandardCharsets.UTF_8));
@@ -203,11 +222,12 @@ class PluginPackageReaderTest {
     }
 
     @Test
-    @DisplayName("旧第三方插件缺 pixiv.* 字段时：展示名沿用 plugin.description/id fallback，仍可安装列出")
+    @DisplayName("插件缺少可选展示字段时：展示名沿用 plugin.description/id fallback，仍可安装列出")
     void legacyDescriptorFallsBackWithoutCanonicalDisplayMetadata() {
         String properties = PluginPackageReader.KEY_ID + "=legacy\n"
                 + PluginPackageReader.KEY_VERSION + "=1.0.0\n"
                 + PluginPackageReader.KEY_CLASS + "=com.example.LegacyPlugin\n"
+                + PluginPackageReader.KEY_PIXIV_EXECUTION_MODE + "=host-process-full-trust\n"
                 + PluginPackageReader.KEY_DESCRIPTION + "=Legacy Plugin\n";
         Map<String, byte[]> entries = new LinkedHashMap<>();
         entries.put(PluginPackageReader.PLUGIN_PROPERTIES, properties.getBytes(StandardCharsets.UTF_8));

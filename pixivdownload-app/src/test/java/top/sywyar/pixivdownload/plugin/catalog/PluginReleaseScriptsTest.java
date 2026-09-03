@@ -2043,7 +2043,8 @@ class PluginReleaseScriptsTest {
             zip.putNextEntry(new ZipEntry("plugin.properties"));
             zip.write(("plugin.id=" + id + "\n"
                     + "plugin.version=" + version + "\n"
-                    + "plugin.requires=" + requires + "\n").getBytes(StandardCharsets.UTF_8));
+                    + "plugin.requires=" + requires + "\n"
+                    + "pixiv.execution-mode=host-process-full-trust\n").getBytes(StandardCharsets.UTF_8));
             zip.closeEntry();
         }
     }

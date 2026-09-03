@@ -29,6 +29,7 @@ public final class PluginPackageFixtures {
         appendLine(sb, PluginPackageReader.KEY_VERSION, version);
         appendLine(sb, PluginPackageReader.KEY_CLASS, pluginClass);
         appendLine(sb, PluginPackageReader.KEY_REQUIRES, requires);
+        appendLine(sb, PluginPackageReader.KEY_PIXIV_EXECUTION_MODE, "host-process-full-trust");
         return sb.toString();
     }
 

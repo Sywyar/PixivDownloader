@@ -120,8 +120,6 @@ class PluginRuntimeManagerTest {
     @AfterEach
     void clearProbeMarker() {
         System.clearProperty("bootstrap.probe.marker");
-        System.clearProperty(
-                top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager.REQUIRE_OS_SANDBOX_PROPERTY);
         List.of(
                 IsolatedPluginSession.INITIALIZE_TIMEOUT_PROPERTY,
                 IsolatedPluginSession.COMMAND_TIMEOUT_PROPERTY,
@@ -235,30 +233,6 @@ class PluginRuntimeManagerTest {
     }
 
     @Test
-    @DisplayName("严格隔离模式在没有 OS 沙箱时于启动 worker 前拒绝隔离插件")
-    void strictIsolationRejectsIsolatedPluginBeforeStartingWorker() throws IOException {
-        Path plugins = tempDir.resolve("plugins-strict-isolation");
-        Path jar = plugins.resolve("bootstrap-probe-1.0.0.jar");
-        writeDeclarativeProbeJar(jar);
-        writeLocalProvenance(plugins, jar);
-        System.setProperty(
-                top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager.REQUIRE_OS_SANDBOX_PROPERTY,
-                "true");
-        top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager manager =
-                new top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager(plugins, () -> true);
-        try {
-            assertThatThrownBy(() -> manager.loadPlugin(jar))
-                    .isInstanceOf(PluginRuntimeOperationException.class)
-                    .hasMessageContaining("verified OS sandbox")
-                    .hasMessageContaining(PROBE_ID);
-            assertThat(manager.isolatedWorkerAliveForTest(PROBE_ID)).isFalse();
-            assertThat(manager.packagePhases()).isEmpty();
-        } finally {
-            manager.shutdown();
-        }
-    }
-
-    @Test
     @DisplayName("隔离 worker 只把有界静态纯值和插件自有资源代理回宿主")
     void projectsOnlyBoundedStaticContributionsFromIsolatedWorker() throws IOException {
         Path plugins = tempDir.resolve("plugins-isolated-static");
@@ -308,8 +282,8 @@ class PluginRuntimeManagerTest {
     }
 
     @Test
-    @DisplayName("显式声明式开发插件在进入 PF4J 前失败关闭")
-    void rejectsDeclarativeDevelopmentPluginBeforePf4jLoad() throws IOException {
+    @DisplayName("显式声明式开发目录降级为宿主完全信任并在状态中如实显示")
+    void runsDeclarativeDevelopmentDirectoryAsHostFullTrust() throws IOException {
         Path repositoryRoot = tempDir.resolve("repo-isolated-development");
         Path pluginsRoot = repositoryRoot.resolve("plugins");
         Files.createDirectories(pluginsRoot);
@@ -326,12 +300,21 @@ class PluginRuntimeManagerTest {
             System.setProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, "true");
             System.setProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY, repositoryRoot.toString());
 
-            assertThatThrownBy(() -> manager.loadPlugin(classesDirectory))
-                    .isInstanceOf(PluginRuntimeOperationException.class)
-                    .hasMessageContaining("declarative-process development plugin execution is unavailable");
-            assertThat(manager.pluginManagerForTest()).isEmpty();
-            assertThat(manager.generation(PROBE_ID)).isEmpty();
+            manager.loadPlugin(classesDirectory);
+            assertThat(manager.loadedDescriptor(PROBE_ID)).hasValueSatisfying(descriptor ->
+                    assertThat(descriptor.executionMode())
+                            .isEqualTo(PluginExecutionMode.HOST_PROCESS_FULL_TRUST));
             assertThat(marker).doesNotExist();
+
+            LoadedPluginPackage initialized = manager.initializePlugin(PROBE_ID);
+            assertThat(initialized.inventory().installations()).singleElement()
+                    .satisfies(installation -> assertThat(installation.descriptor().executionMode())
+                            .isEqualTo(PluginExecutionMode.HOST_PROCESS_FULL_TRUST));
+            assertThat(Files.readAllLines(marker, StandardCharsets.UTF_8)).containsExactly("load");
+            manager.startPlugin(PROBE_ID);
+            assertThat(manager.inspectPlugins().installations()).singleElement()
+                    .satisfies(installation -> assertThat(installation.descriptor().executionMode())
+                            .isEqualTo(PluginExecutionMode.HOST_PROCESS_FULL_TRUST));
         } finally {
             manager.shutdown();
             restoreProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, previousEnabled);
@@ -340,7 +323,7 @@ class PluginRuntimeManagerTest {
     }
 
     @Test
-    @DisplayName("旧包缺执行模式时使用宿主完全信任并支持标准 PluginWrapper 构造器")
+    @DisplayName("显式宿主完全信任包保留生命周期策略并支持标准 PluginWrapper 构造器")
     void preservesManifestLifecyclePolicyAcrossRuntimeDiscovery() throws IOException {
         Path plugins = tempDir.resolve("plugins");
         Path jar = plugins.resolve("bootstrap-probe-1.0.0.jar");
@@ -1995,7 +1978,8 @@ class PluginRuntimeManagerTest {
     }
 
     private static void addDescriptor(ZipOutputStream zos, String lifecyclePolicy) throws IOException {
-        addDescriptor(zos, lifecyclePolicy != null ? lifecyclePolicy : "process-restart", null);
+        addDescriptor(zos, lifecyclePolicy != null ? lifecyclePolicy : "process-restart",
+                "host-process-full-trust");
     }
 
     private static void addDescriptor(

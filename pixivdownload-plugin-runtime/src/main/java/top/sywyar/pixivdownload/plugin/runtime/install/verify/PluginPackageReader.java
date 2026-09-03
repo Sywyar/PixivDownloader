@@ -334,8 +334,8 @@ public final class PluginPackageReader {
 
     /**
      * 把 PF4J {@value #PLUGIN_PROPERTIES} 映射为包级 {@link PluginDescriptor}（{@code id == sourcePluginId}）。
-     * 缺失 / 空字段保留为 {@code null} 交由
-     * {@link PluginDescriptor#externalValidationErrors()} 判定，本方法不在此处兜底校验。安装期尚未加载功能插件实例，
+     * {@code pixiv.execution-mode} 在此处要求显式且有效；其它缺失 / 空字段保留为 {@code null} 交由
+     * {@link PluginDescriptor#externalValidationErrors()} 判定。安装期尚未加载功能插件实例，
      * 故展示身份优先取包描述符里声明的 {@code pixiv.*} canonical 元数据；旧第三方插件缺这些字段时，展示名 key 仍回退到
      * PF4J {@code plugin.description} 或 id。
      */

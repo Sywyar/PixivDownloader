@@ -506,7 +506,6 @@ public final class IsolatedPluginSession {
         command.add("-Xmx128m");
         command.add("-XX:MaxMetaspaceSize=128m");
         command.add("-XX:MaxDirectMemorySize=64m");
-        command.add("-XX:ActiveProcessorCount=2");
         command.add("-XX:+ExitOnOutOfMemoryError");
         command.add("-Dfile.encoding=UTF-8");
         command.add("-Djava.awt.headless=true");

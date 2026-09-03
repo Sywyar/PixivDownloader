@@ -86,8 +86,6 @@ public class PluginRuntimeManager {
 
     private static final Logger log = LoggerFactory.getLogger(PluginRuntimeManager.class);
     private static final PluginPackageLimits PRODUCTION_PACKAGE_LIMITS = PluginPackageLimits.defaults();
-    static final String REQUIRE_OS_SANDBOX_PROPERTY =
-            "pixivdownload.plugin-worker.require-os-sandbox";
     static final int MAX_STARTUP_VERIFICATION_ENTRIES = 32_000;
     static final long MAX_STARTUP_VERIFICATION_UNCOMPRESSED_BYTES = 384L * 1024L * 1024L;
     static final long MAX_STARTUP_PROVENANCE_BYTES = 64L * 1024L * 1024L;
@@ -101,7 +99,6 @@ public class PluginRuntimeManager {
     private Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver;
     private PluginArtifactAdmissionPolicy admissionPolicy = PluginArtifactAdmissionPolicy.allowAll();
     private final BooleanSupplier developmentModeEnabled;
-    private final boolean osSandboxRequired;
     private final PluginProvenanceStore provenanceStore;
     private final int maximumStartupVerificationEntries;
     private final long maximumStartupVerificationUncompressedBytes;
@@ -210,7 +207,6 @@ public class PluginRuntimeManager {
         this.materializer = new PluginArtifactMaterializer(layout);
         this.verifierResolver = Objects.requireNonNull(verifierResolver, "verifierResolver");
         this.developmentModeEnabled = Objects.requireNonNull(developmentModeEnabled, "developmentModeEnabled");
-        this.osSandboxRequired = Boolean.getBoolean(REQUIRE_OS_SANDBOX_PROPERTY);
         this.verificationService = new PluginArtifactVerificationService(
                 this.verifierResolver, this.developmentModeEnabled);
         this.provenanceStore = new PluginProvenanceStore(layout);
@@ -522,7 +518,7 @@ public class PluginRuntimeManager {
                                                     PluginDescriptor packageDescriptor,
                                                     PluginArtifactSnapshot productionSnapshot) {
         if (productionSnapshot == null) {
-            requireDevelopmentExecutionAdmission(packageDescriptor);
+            packageDescriptor = developmentExecutionDescriptor(packageDescriptor);
         }
         if (packageIndex.contains(packageDescriptor.id())) {
             workspaceOwner.discard(productionSnapshot);
@@ -1187,11 +1183,6 @@ public class PluginRuntimeManager {
             throw new PluginRuntimeOperationException(trustDenial + ": " + descriptor.id());
         }
         if (descriptor.executionMode() == PluginExecutionMode.DECLARATIVE_PROCESS) {
-            if (osSandboxRequired) {
-                throw new PluginRuntimeOperationException(
-                        "strict plugin isolation requires a verified OS sandbox, which is unavailable: "
-                                + descriptor.id());
-            }
             if (!descriptor.configurationClassNames().isEmpty()) {
                 throw new PluginRuntimeOperationException(
                         "declarative-process plugins cannot declare Spring configuration classes: "
@@ -1236,11 +1227,17 @@ public class PluginRuntimeManager {
             throw new PluginRuntimeOperationException(
                     "development plugin execution requires active development mode: " + descriptor.id());
         }
+    }
+
+    private PluginDescriptor developmentExecutionDescriptor(PluginDescriptor descriptor) {
+        requireDevelopmentExecutionAdmission(descriptor);
         if (descriptor.executionMode() == PluginExecutionMode.DECLARATIVE_PROCESS) {
-            throw new PluginRuntimeOperationException(
-                    "declarative-process development plugin execution is unavailable until the bounded worker "
-                            + "protocol is active: " + descriptor.id());
+            log.warn("Development directory plugin {} requested declarative-process; running as "
+                    + "host-process-full-trust because worker admission requires a canonical packaged artifact",
+                    descriptor.id());
+            return descriptor.withExecutionMode(PluginExecutionMode.HOST_PROCESS_FULL_TRUST);
         }
+        return descriptor;
     }
 
     Optional<PluginProvenanceStore.MeasuredProvenance> readMeasuredStartupProvenance(

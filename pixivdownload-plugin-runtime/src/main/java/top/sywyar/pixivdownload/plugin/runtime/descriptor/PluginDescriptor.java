@@ -37,7 +37,7 @@ import java.util.regex.Pattern;
  * @param kind             插件类别
  * @param replaces         安装新包后精确替代的旧插件包 id；仅外置包描述符声明，内置插件为空
  * @param lifecyclePolicy  插件包声明的运行期生效策略；旧包未声明时默认为热重载
- * @param executionMode    插件代码执行位置与能力边界；外置包未声明时默认为宿主进程完全信任
+ * @param executionMode    插件代码执行位置与能力边界；外置包必须显式声明
  * @param configurationClassNames 由已验证包描述符声明的 Spring 配置类全限定名；不调用插件入口 getter 获取
  * @param permissionDeclaration 描述符声明的权限风险说明；未声明按完全访问处理，不作为 full-trust 强制沙箱
  */
@@ -181,6 +181,13 @@ public record PluginDescriptor(
                 displayNamespace, displayName, description, iconKey, colorToken, kind,
                 packageDescriptor.replaces(), packageDescriptor.lifecyclePolicy(), packageDescriptor.executionMode(),
                 packageDescriptor.configurationClassNames(), packageDescriptor.permissionDeclaration());
+    }
+
+    public PluginDescriptor withExecutionMode(PluginExecutionMode mode) {
+        return new PluginDescriptor(id, sourcePluginId, version, requires, dependencies, pluginClass,
+                displayNamespace, displayName, description, iconKey, colorToken, kind, replaces,
+                lifecyclePolicy, Objects.requireNonNull(mode, "mode"), configurationClassNames,
+                permissionDeclaration);
     }
 
     /** 该描述符声明的 SDK 版本要求是否被当前宿主 SDK 满足（{@code requires} 兼容性）。 */

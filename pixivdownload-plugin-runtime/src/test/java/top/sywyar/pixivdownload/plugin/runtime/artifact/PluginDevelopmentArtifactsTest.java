@@ -100,6 +100,7 @@ class PluginDevelopmentArtifactsTest {
                 + "plugin.version=" + PLUGIN_VERSION + "\n"
                 + "plugin.requires=1.0\n"
                 + "plugin.class=com.example.DevelopmentProbePlugin\n"
+                + "pixiv.execution-mode=host-process-full-trust\n"
                 + "plugin.provider=test\n"
                 + "plugin.description=development probe\n";
         Path descriptorPath = classesDirectory.resolve("plugin.properties");
