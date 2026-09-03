@@ -46,6 +46,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -234,7 +235,7 @@ class PluginRuntimeManagerTest {
 
     @Test
     @DisplayName("隔离 worker 只把有界静态纯值和插件自有资源代理回宿主")
-    void projectsOnlyBoundedStaticContributionsFromIsolatedWorker() throws IOException {
+    void projectsOnlyBoundedStaticContributionsFromIsolatedWorker() throws Exception {
         Path plugins = tempDir.resolve("plugins-isolated-static");
         Path jar = plugins.resolve("isolated-static-probe-1.0.0.jar");
         writeIsolatedStaticProbeJar(jar);
@@ -247,17 +248,25 @@ class PluginRuntimeManagerTest {
                     .inventory().installations().get(0);
 
             assertThat(installation.plugin().routes())
+                    .hasSize(IsolatedStaticProbeFeaturePlugin.MAX_CONTRIBUTIONS)
                     .extracting(route -> route.pathPattern())
-                    .containsExactly("/isolated-static/**");
+                    .startsWith("/isolated-static/**")
+                    .endsWith("/isolated-static/route-255");
             assertThat(installation.plugin().staticResources())
+                    .hasSize(IsolatedStaticProbeFeaturePlugin.MAX_CONTRIBUTIONS)
                     .extracting(resource -> resource.publicPathPrefix())
-                    .containsExactly("/isolated-static/");
+                    .startsWith("/isolated-static/")
+                    .endsWith("/isolated-static/resources-255/");
             assertThat(installation.plugin().i18n())
+                    .hasSize(IsolatedStaticProbeFeaturePlugin.MAX_CONTRIBUTIONS)
                     .extracting(contribution -> contribution.namespace())
-                    .containsExactly("isolated-static");
+                    .startsWith("isolated-static")
+                    .endsWith("isolated-static-255");
             assertThat(installation.plugin().navigation())
+                    .hasSize(IsolatedStaticProbeFeaturePlugin.MAX_CONTRIBUTIONS)
                     .extracting(item -> item.href())
-                    .containsExactly("/isolated-static/index.html");
+                    .startsWith("/isolated-static/index.html")
+                    .endsWith("/isolated-static/item-255");
             assertThat(installation.classLoader().getResource("static/isolated-static/index.html"))
                     .isNotNull();
             assertThat(installation.classLoader().getResource(
@@ -268,6 +277,19 @@ class PluginRuntimeManagerTest {
             installation.plugin().start();
             installation.plugin().stop();
             long workerPid = manager.isolatedWorkerPidForTest("isolated-static-probe");
+            ProcessHandle worker = ProcessHandle.of(workerPid).orElseThrow();
+            Path expectedJava = Path.of(System.getProperty("java.home"), "bin",
+                    System.getProperty("os.name").toLowerCase().contains("win") ? "java.exe" : "java");
+            assertThat(Path.of(worker.info().command().orElseThrow()).toRealPath())
+                    .isEqualTo(expectedJava.toRealPath());
+            Path commandProbe = Files.createDirectories(tempDir.resolve("worker-command-probe"));
+            Method workerCommand = IsolatedPluginSession.class.getDeclaredMethod("workerCommand", Path.class);
+            workerCommand.setAccessible(true);
+            assertThat((List<String>) workerCommand.invoke(null, commandProbe)).contains(
+                    "-Xmx128m",
+                    "-XX:MaxMetaspaceSize=128m",
+                    "-XX:MaxDirectMemorySize=64m",
+                    "-XX:+ExitOnOutOfMemoryError");
 
             manager.shutdown();
 
