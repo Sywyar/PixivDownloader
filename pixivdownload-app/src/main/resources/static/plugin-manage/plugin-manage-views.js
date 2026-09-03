@@ -68,6 +68,8 @@
     // —— 恢复 / 补齐模式横幅 ——
     function renderRecovery() {
         var host = document.getElementById('pm-recovery');
+        var privilege = document.getElementById('pm-host-privilege');
+        privilege.hidden = !(PM.state.report && PM.state.report.hostElevated);
         if (PM.state.report && PM.state.report.recoveryMode) {
             host.hidden = false;
             host.className = 'pm-recovery';

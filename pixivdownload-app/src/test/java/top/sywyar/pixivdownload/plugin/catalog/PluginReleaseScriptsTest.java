@@ -398,20 +398,17 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("Windows 主程序沿用调用者权限，仅安装器 loader 请求提权")
-    void windowsLauncherUsesCallerPrivilegesAndInstallerOwnsElevation() throws Exception {
+    @DisplayName("Windows 主程序与安装器 loader 均请求管理员权限")
+    void windowsLauncherAndInstallerLoaderRequestAdministratorRights() throws Exception {
         String windows = script("package-local.ps1");
         String executionLevel = script("set-windows-exe-requested-execution-level.ps1");
         String adminLoader = script("prepare-inno-admin-loader.ps1");
         String inno = innoScript();
 
         assertThat(windows).contains(
-                "Patching launcher to run with caller privileges",
-                "-Level \"asInvoker\"");
-        assertThat(windows).doesNotContain(
                 "Patching launcher to request administrator rights",
                 "-Level \"requireAdministrator\"");
-        assertThat(executionLevel).contains("[string]$Level = \"asInvoker\"");
+        assertThat(executionLevel).contains("[string]$Level = \"requireAdministrator\"");
         assertThat(adminLoader).contains("-Level \"requireAdministrator\"");
         assertThat(inno).contains(
                 "PrivilegesRequired=admin",

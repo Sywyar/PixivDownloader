@@ -99,6 +99,7 @@ class PluginManagementControllerTest {
     void statusReturnsReport() throws Exception {
         when(service.list()).thenReturn(new PluginManagementService.PluginManagementReport(
                 true,
+                true,
                 new PluginManagementService.TransactionRecoveryView("SAFE", true, List.of()),
                 List.of(new RecoveryModeReason("demo-ext", PluginStatus.FAILED,
                         "plugin.recovery.failed", VersionRequirement.unspecified(),
@@ -114,6 +115,7 @@ class PluginManagementControllerTest {
         mockMvc.perform(get("/api/plugins/status"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.recoveryMode").value(true))
+                .andExpect(jsonPath("$.hostElevated").value(true))
                 .andExpect(jsonPath("$.transactionRecovery.state").value("SAFE"))
                 .andExpect(jsonPath("$.transactionRecovery.safeToScan").value(true))
                 .andExpect(jsonPath("$.recoveryReasons[0].pluginId").value("demo-ext"))

@@ -182,11 +182,19 @@ function vmOf(entry) {
     const options = PM.trustConfirmationOptions({
         pluginId: 'third-party', version: '1.0.0', source: 'CUSTOM_CATALOG',
         publisher: 'Demo Publisher', publisherKeyFingerprint: fingerprint,
-        artifactSha256: artifactSha256, executionMode: 'HOST_PROCESS_FULL_TRUST'
+        artifactSha256: artifactSha256, executionMode: 'HOST_PROCESS_FULL_TRUST', hostElevated: true
     });
     ok('重新批准提示显示后端发布者、摘要和完全访问模式', options.message.includes('Demo Publisher')
         && options.message.includes(artifactSha256) && options.message.includes('宿主进程完全信任'));
     ok('签名包提示不追加未签名警告', !options.message.includes('没有发布者签名'));
+    ok('高权限宿主提示 full-trust 插件继承同等权限', options.message.includes('将继承同等权限'));
+
+    const declarative = PM.trustConfirmationOptions({
+        pluginId: 'declarative', version: '1.0.0', signed: true,
+        artifactSha256: artifactSha256, executionMode: 'DECLARATIVE_PROCESS', hostElevated: true
+    });
+    ok('声明式 worker 提示有限隔离且不冒充宿主内执行', declarative.message.includes('独立声明式 worker')
+        && !declarative.message.includes('将继承同等权限'));
 
     const unsigned = PM.trustConfirmationOptions({
         pluginId: 'unsigned', version: '1.0.0', source: 'LOCAL_UPLOAD', signed: false,

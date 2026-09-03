@@ -173,7 +173,8 @@
                 publisherKeyFingerprint: vm.trustPublisherKeyFingerprint,
                 artifactSha256: vm.trustArtifactSha256,
                 executionMode: vm.executionMode,
-                executionLabel: vm.executionLabel
+                executionLabel: vm.executionLabel,
+                hostElevated: !!(PM.state.report && PM.state.report.hostElevated)
             }));
             if (!approved) return;
         } else if (action === 'revoke') {

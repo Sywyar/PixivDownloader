@@ -171,18 +171,22 @@ class PluginManagePageGuardTest {
                 "action.menu", "action.menu.aria",
                 "verification.io-error", "verification.provenance-invalid",
                 "trust.state.approved", "trust.state.confirmation-required", "trust.state.revoked",
-                "trust.confirm.risk", "trust.confirm.unsigned-risk", "trust.confirm.details",
+                "trust.confirm.risk", "trust.confirm.declarative-risk", "trust.confirm.elevated-risk",
+                "trust.confirm.unsigned-risk", "trust.confirm.details",
                 "trust.confirm.allow", "trust.action.approve", "trust.action.revoke",
                 "trust.revoke.message", "trust.toast.approved", "trust.toast.revoked",
-                "security.notice.title", "security.notice.desc",
+                "security.notice.title", "security.notice.desc", "host.elevated.title", "host.elevated.desc",
                 "install.signature.pick", "install.signature.no-file", "install.signature.help",
                 "install.invalid-signature-extension"}) {
             assertThat(zh.getProperty(key)).as("中文文案 " + key).isNotBlank();
             assertThat(en.getProperty(key)).as("英文文案 " + key).isNotBlank();
         }
-        assertThat(read(HTML)).as("插件列表与本地安装弹窗都必须直接展示权限说明")
+        assertThat(read(HTML)).as("插件列表与本地安装弹窗都必须直接展示执行与签名说明")
                 .containsOnlyOnce("data-i18n=\"security.notice.title\"")
                 .contains("data-i18n=\"security.notice.desc\"");
+        assertThat(read(HTML)).as("高权限宿主警告必须有固定页面锚点")
+                .contains("id=\"pm-host-privilege\"", "data-i18n=\"host.elevated.title\"",
+                        "data-i18n=\"host.elevated.desc\"");
         assertThat(read(HTML)).as("本地安装必须提供 detached 签名选择入口与正式运行提示")
                 .contains("id=\"pm-install-signature\"", "accept=\".sig\"",
                         "data-i18n=\"install.signature.help\"");

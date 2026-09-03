@@ -195,7 +195,8 @@ class PluginMarketPageGuardTest {
                 "detail.changelog", "detail.requires", "detail.sha256", "detail.verification",
                 "master.disabled.title", "recovery.banner.title", "recovery.banner.desc",
                 "recovery.reason.missing", "recovery.reason.failed", "recovery.reason.unavailable",
-                "error.catalog", "empty.title", "security.notice", "disclaimer");
+                "error.catalog", "empty.title", "security.notice", "host.elevated.notice",
+                "install.trust.declarative-risk", "install.trust.elevated-risk", "disclaimer");
         for (String key : critical) {
             assertThat(zh.getProperty(key)).as("zh 缺关键键 %s", key).isNotBlank();
             assertThat(en.getProperty(key)).as("en 缺关键键 %s", key).isNotBlank();
@@ -265,13 +266,13 @@ class PluginMarketPageGuardTest {
     }
 
     @Test
-    @DisplayName("Vue 与基础回退视图共用插件权限说明 i18n key")
+    @DisplayName("Vue 与基础回退视图共用插件执行说明和高权限宿主警告")
     void rendersSecurityNoticeInVueAndFallback() throws IOException {
         String vue = read(VUE);
         String fallback = read(FALLBACK);
 
-        assertThat(vue).contains("pmk-security-notice", "security.notice");
-        assertThat(fallback).contains("pmk-security-notice", "security.notice");
+        assertThat(vue).contains("pmk-security-notice", "security.notice", "host.elevated.notice");
+        assertThat(fallback).contains("pmk-security-notice", "security.notice", "host.elevated.notice");
     }
 
     @Test

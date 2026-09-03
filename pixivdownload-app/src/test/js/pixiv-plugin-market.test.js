@@ -275,6 +275,7 @@ eq('市场 recoveryBlocked toast 保留后端 message', blockedFeedback.message,
         {status: 200, body: {outcome: 'INSTALLED', accepted: true}}
     );
     const confirmationOptions = [];
+    PMK.state.hostElevated = true;
     sandbox.PixivFeedback = {
         confirm: function (options) {
             confirmationOptions.push(options);
@@ -287,6 +288,8 @@ eq('市场 recoveryBlocked toast 保留后端 message', blockedFeedback.message,
     ok('执行信任提示只使用后端核验的发布者事实', confirmationOptions[0].message.includes('Demo Publisher'));
     ok('执行信任提示显示精确制品摘要和完全访问模式', confirmationOptions[0].message.includes(firstSha)
         && confirmationOptions[0].message.includes('HOST_PROCESS_FULL_TRUST'));
+    ok('市场在高权限宿主上提示 full-trust 插件继承同等权限',
+        confirmationOptions[0].message.includes('将继承同等权限'));
     ok('未签名依赖使用更强风险提示', confirmationOptions[1].message.includes('没有发布者签名')
         && confirmationOptions[1].message.includes('demo dependency'));
     eq('首次请求不携带确认', fetchCalls[0].url,
@@ -317,6 +320,7 @@ eq('市场 recoveryBlocked toast 保留后端 message', blockedFeedback.message,
     const repeated = await PMK.installPluginWithConfirmation('custom repo', 'loop', '1.0.0');
     eq('后端重复同一摘要时停止确认循环', repeated.body.outcome, 'TRUST_CONFIRMATION_REQUIRED');
     eq('同一摘要最多向管理员确认一次', confirmationOptions.length, 1);
+    PMK.state.hostElevated = false;
     console.log('pixiv-plugin-market.test.js: ' + passed + ' assertions passed');
 })().catch(err => {
     console.error('TEST FAILED:', err && err.message ? err.message : err);

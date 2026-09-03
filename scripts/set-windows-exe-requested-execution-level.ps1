@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Path,
     [ValidateSet("asInvoker", "highestAvailable", "requireAdministrator")]
-    [string]$Level = "asInvoker"
+    [string]$Level = "requireAdministrator"
 )
 
 $ErrorActionPreference = "Stop"

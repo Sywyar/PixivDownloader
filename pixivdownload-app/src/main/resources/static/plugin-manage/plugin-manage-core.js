@@ -4,7 +4,7 @@
  * 本模块只定义全局命名空间 PixivPluginManage，无任何顶层副作用（启动逻辑收拢在 plugin-manage-init.js）。
  *
  * 数据来源：后端管理 API（admin-only，已接线）。后端响应见 PluginManagementService.PluginManagementReport：
- *   { recoveryMode, plugins: [ { id, displayNamespace, displayNameKey, descriptionKey, iconKey, colorToken,
+ *   { recoveryMode, hostElevated, plugins: [ { id, displayNamespace, displayNameKey, descriptionKey, iconKey, colorToken,
  *     version, kind, sdkRequirement, dependencies, source, status, runtimePhase, managed, requiredByPolicy,
  *     allowDisable, executionMode, lifecyclePolicy, configuredEnabled, toggleable, availableActions, messages } ] }
  * 其中 descriptionKey 是纯 i18n key（在 displayNamespace 内解析）；iconKey / colorToken 是<b>受控展示 token</b>
@@ -516,8 +516,16 @@
         var signature = signed
             ? t('trust.confirm.signature.signed', '已签名')
             : t('trust.confirm.signature.unsigned', '未签名');
-        var message = t('trust.confirm.risk',
-            '此插件将在 PixivDownloader 进程中运行，拥有与 PixivDownloader 相同的本机权限。它可以访问当前用户可访问的文件和网络、运行后台任务、注册本地接口，并可能在 PixivDownloader 页面中执行脚本。安装插件相当于运行一个本地应用。请只安装你信任的来源。');
+        var fullTrust = executionMode === 'HOST_PROCESS_FULL_TRUST';
+        var message = fullTrust
+            ? t('trust.confirm.risk',
+                '此插件将在 PixivDownloader 进程中运行，拥有与 PixivDownloader 相同的本机权限。它可以访问当前用户可访问的文件和网络、运行后台任务、注册本地接口，并可能在 PixivDownloader 页面中执行脚本。安装插件相当于运行一个本地应用。请只安装你信任的来源。')
+            : t('trust.confirm.declarative-risk',
+                '此插件将在独立声明式 worker 中运行。worker 有协议与资源限制，但仍使用与 PixivDownloader 相同的系统账号，不是完整的操作系统沙箱。请只安装你信任的来源。');
+        if (fullTrust && r.hostElevated === true) {
+            message += '\n\n' + t('trust.confirm.elevated-risk',
+                'PixivDownloader 当前正以高权限运行；此 full-trust 插件将继承同等权限。');
+        }
         if (!signed) {
             message += '\n\n' + t('trust.confirm.unsigned-risk',
                 '此插件没有发布者签名。PixivDownloader 无法证明它来自谁，也无法确认后续更新是否仍由同一作者发布。');
@@ -554,7 +562,9 @@
             var sha256 = String(response.trustRequirement.artifactSha256 || '').toLowerCase();
             if (!/^[0-9a-f]{64}$/.test(sha256) || confirmedArtifacts[sha256]) return response;
             var confirmed = await global.PixivFeedback.confirm(
-                trustConfirmationOptions(response.trustRequirement));
+                trustConfirmationOptions(Object.assign({}, response.trustRequirement, {
+                    hostElevated: !!(state.report && state.report.hostElevated)
+                })));
             if (!confirmed) return response;
             confirmedArtifacts[sha256] = true;
             confirmTrust = sha256;

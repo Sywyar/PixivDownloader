@@ -10,7 +10,7 @@
 
     var rootEl = null;
     var state = {
-        loading: true, error: null, masterEnabled: false, recoveryMode: false, recoveryReasons: [],
+        loading: true, error: null, masterEnabled: false, recoveryMode: false, recoveryReasons: [], hostElevated: false,
         filtersInitialized: false, sdkVersion: '',
         repositories: [], activeRepositoryId: null, defaultRepositoryId: null,
         catalog: null, catalogError: null, loadingMore: false, category: 'all', search: '',
@@ -187,9 +187,14 @@
             body += '<div class="pmk-repos"><span class="pmk-repos-label">' + esc(t('section.repositories', '受信仓库')) + '</span>' +
                 state.repositories.map(repoChip).join('') + '</div>';
         }
+        if (state.hostElevated) {
+            body += '<div class="pmk-banner pmk-banner--warn"><i class="fa-solid fa-triangle-exclamation"></i>' +
+                '<div class="pmk-banner-body">' + esc(t('host.elevated.notice',
+                    '宿主正在以高权限运行；所有宿主进程完全信任插件都会继承当前高权限。')) + '</div></div>';
+        }
         body += '<div class="pmk-banner pmk-banner--warn pmk-security-notice">' +
             '<i class="fa-solid fa-shield-halved"></i><div class="pmk-banner-body">' +
-            esc(t('security.notice', '插件权限与签名说明：所有插件都与主程序运行在同一 JVM，并继承本机当前用户的操作系统权限。签名只证明来源与内容完整性，不代表安全审查，也不提供沙箱隔离；请仅安装你信任的插件。')) +
+            esc(t('security.notice', '插件执行与签名说明：宿主进程完全信任插件与主程序运行在同一 JVM；声明式插件进入使用同一系统账号的有限隔离 worker。签名只证明来源与内容完整性，不代表安全审查；请仅安装你信任的插件。')) +
             '</div></div>';
         if (state.masterEnabled && state.catalogError) {
             body += '<div class="pmk-banner pmk-banner--error"><i class="fa-solid fa-triangle-exclamation"></i><div class="pmk-banner-body">' +
@@ -252,6 +257,8 @@
             state.masterEnabled = !!repos.enabled;
             state.recoveryMode = !!status.recoveryMode;
             state.recoveryReasons = PMK.recoveryReasons(status);
+            state.hostElevated = !!status.hostElevated;
+            PMK.state.hostElevated = state.hostElevated;
             if (!state.filtersInitialized) {
                 state.hideDefaultInstalled = !state.recoveryMode;
                 state.filtersInitialized = true;

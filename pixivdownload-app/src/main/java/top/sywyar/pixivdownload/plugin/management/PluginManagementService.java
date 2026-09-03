@@ -141,7 +141,7 @@ public class PluginManagementService {
                 List<RecoveryModeReason> recoveryReasons = recoveryModeService.reasons();
                 if (gateBefore.equals(pluginStatusService.recoveryGateSnapshot())
                         && mutationBefore == lifecycleMutationEpoch()) {
-                    return new PluginManagementReport(recoveryMode,
+                    return new PluginManagementReport(recoveryMode, HostPrivilegeDetector.isElevated(),
                             TransactionRecoveryView.from(gateBefore), recoveryReasons, entries);
                 }
             } catch (RecoveryGateChangedException ignored) {
@@ -155,7 +155,7 @@ public class PluginManagementService {
             }
         }
         // 连续并发变化时不再读取或发布任何跨组件状态，等待下一次请求取得稳定 seqlock 快照。
-        return new PluginManagementReport(false,
+        return new PluginManagementReport(false, HostPrivilegeDetector.isElevated(),
                 TransactionRecoveryView.unstableLifecycleSnapshot(), List.of(), List.of());
     }
 
@@ -669,6 +669,7 @@ public class PluginManagementService {
      */
     public record PluginManagementReport(
             boolean recoveryMode,
+            boolean hostElevated,
             TransactionRecoveryView transactionRecovery,
             List<RecoveryModeReason> recoveryReasons,
             List<PluginManagementEntry> plugins) {

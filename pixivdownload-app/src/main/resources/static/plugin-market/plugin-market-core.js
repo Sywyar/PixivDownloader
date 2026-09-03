@@ -14,6 +14,7 @@
     // 共享状态：i18n 客户端容器（init 创建 / 切语言时替换）、当前渲染器句柄（Vue 或命令式回退，供刷新 / 重渲染统一调度）。
     PMK.state = {
         i18n: { client: null },
+        hostElevated: false,
         activeView: null   // { reload: fn, rerender: fn } —— 由实际挂载的渲染器登记
     };
 
@@ -45,8 +46,16 @@
             : PMK.t('install.trust.signature.unsigned', '未签名');
         var fingerprint = r.publisherKeyFingerprint
             || PMK.t('install.trust.fingerprint.unavailable', '不适用');
-        var message = PMK.t('install.trust.risk',
-            '此插件将在 PixivDownloader 进程中运行，拥有与 PixivDownloader 相同的本机权限。它可以访问当前用户可访问的文件和网络、运行后台任务、注册本地接口，并可能在 PixivDownloader 页面中执行脚本。安装插件相当于运行一个本地应用。请只安装你信任的来源。');
+        var fullTrust = executionMode === 'HOST_PROCESS_FULL_TRUST';
+        var message = fullTrust
+            ? PMK.t('install.trust.risk',
+                '此插件将在 PixivDownloader 进程中运行，拥有与 PixivDownloader 相同的本机权限。它可以访问当前用户可访问的文件和网络、运行后台任务、注册本地接口，并可能在 PixivDownloader 页面中执行脚本。安装插件相当于运行一个本地应用。请只安装你信任的来源。')
+            : PMK.t('install.trust.declarative-risk',
+                '此插件将在独立声明式 worker 中运行。worker 有协议与资源限制，但仍使用与 PixivDownloader 相同的系统账号，不是完整的操作系统沙箱。请只安装你信任的来源。');
+        if (fullTrust && PMK.state.hostElevated) {
+            message += '\n\n' + PMK.t('install.trust.elevated-risk',
+                'PixivDownloader 当前正以高权限运行；此 full-trust 插件将继承同等权限。');
+        }
         if (r.signed !== true) {
             message += '\n\n' + PMK.t('install.trust.unsigned-risk',
                 '此插件没有发布者签名。PixivDownloader 无法证明它来自谁，也无法确认后续更新是否仍由同一作者发布。');

@@ -80,6 +80,7 @@ class GuiPluginControllerTest {
     private static PluginManagementReport report(boolean recoveryMode, List<PluginManagementEntry> plugins) {
         return new PluginManagementReport(
                 recoveryMode,
+                false,
                 new TransactionRecoveryView("SAFE", true, List.of()),
                 List.of(),
                 plugins);
