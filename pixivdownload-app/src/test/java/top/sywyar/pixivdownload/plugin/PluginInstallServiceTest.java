@@ -371,6 +371,7 @@ class PluginInstallServiceTest {
         appendLine(sb, "plugin.class", pluginClass);
         appendLine(sb, "plugin.requires", requires);
         appendLine(sb, "plugin.dependencies", dependencies);
+        appendLine(sb, "pixiv.execution-mode", "host-process-full-trust");
         return sb.toString().getBytes(StandardCharsets.UTF_8);
     }
 
