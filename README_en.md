@@ -80,17 +80,20 @@ The Java standard package and the full-offline package must be **fully extracted
 the JAR: the launcher scripts and the `plugins/` directory are both required, because external official plugins are
 loaded from the working directory's `plugins/` folder at startup.
 
-The Windows installer requests UAC only while writing the application directory. The installed application and
-portable launcher both use the caller's privileges. If you manually run the application as administrator,
-`host-process-full-trust` plugins share that administrator token.
+The Windows installer requests UAC when writing the application directory. The installed application and portable
+launcher also request administrator privileges by default. When the host is actually elevated, the plugin management
+page shows a persistent warning that `host-process-full-trust` plugins inherit those privileges.
 
-Existing and third-party plugins that omit an execution mode use `host-process-full-trust` by default, run in the main
-JVM, and inherit the operating-system permissions of the current user. Only plugins that explicitly declare
-`declarative-process` enter the separate worker. The worker still shares the current OS account with the main
-application, so this is limited process isolation, not a complete OS sandbox. To fail closed, set
-`-Dpixivdownload.plugin-worker.require-os-sandbox=true` before starting the JVM. The current release has no verified
-OS sandbox integration, so enabling this option rejects every `declarative-process` plugin. A signature or official
-identity does not grant additional runtime capabilities.
+Every external plugin package must explicitly declare `pixiv.execution-mode` in `plugin.properties`. Missing or
+unknown values are rejected before plugin code runs. A `host-process-full-trust` plugin runs in the main JVM and
+inherits the host's privileges; a `declarative-process` plugin enters a separate worker. The worker has protocol and
+resource limits but still uses the same operating-system account, so it provides limited process isolation rather
+than a complete OS sandbox. This release has no OS sandbox provider or JVM switch that requires one. A signature or
+official identity does not grant additional runtime capabilities.
+
+Production mode rejects directory-form `declarative-process` plugins. Explicit development mode may temporarily
+downgrade one to `host-process-full-trust`; logs and plugin status show the effective mode instead of presenting it as
+a worker.
 
 When an isolated worker exits unexpectedly, the host withdraws that plugin's routes and capabilities, retains a
 bounded stderr log, and attempts recovery with bounded exponential backoff. Initialization, command, and shutdown
@@ -98,11 +101,8 @@ timeouts, recovery attempts and initial / maximum delays, and the stderr limit a
 `pixivdownload.plugin-worker.*` with `initialize-timeout-ms`, `command-timeout-ms`, `shutdown-timeout-ms`,
 `restart-attempts`, `restart-initial-delay-ms`, `restart-max-delay-ms`, and `stderr-max-bytes`.
 
-Plugins can declare comma-separated permission risks such as `network,filesystem-write,schedule` in
-`pixiv.permissions`. The list is used for installation confirmation and trust continuity; it is not presented as a
-permission sandbox for `host-process-full-trust`. Older plugins without the field are shown as undeclared with full
-access. An update signed by the same publisher key inherits trust only when it adds no permissions and does not
-upgrade the execution mode; added permissions require confirmation again.
+Plugin trust cannot silently expand across execution boundaries. Even when the publisher identity is unchanged, an
+upgrade from `declarative-process` to `host-process-full-trust` requires administrator confirmation again.
 
 Plugin-package admission defaults to a 64 MiB archive, 20,000 entries, 256 MiB total decompressed data, a 64 MiB
 single entry, a 1 MiB descriptor, compression ratio 200, a 1,024-character entry name, and 64 path segments.

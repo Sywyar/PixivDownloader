@@ -73,24 +73,25 @@
 Java 标准包和离线全量包必须**完整解压**后使用，不要只提取其中的 JAR：启动脚本与 `plugins/` 目录
 缺一不可，程序启动时会从工作目录的 `plugins/` 加载官方外置插件。
 
-Windows 安装器只在写入程序目录时请求 UAC；安装后的主程序与 portable 启动器均沿用调用者权限。
-如果手工“以管理员身份运行”，`host-process-full-trust` 插件也会共享该管理员令牌。
+Windows 安装器在写入程序目录时请求 UAC，安装后的主程序与 portable 启动器也默认请求管理员权限。
+宿主实际以高权限运行时，插件管理页会固定警告：`host-process-full-trust` 插件将继承该权限。
 
-未声明执行模式的现有插件和第三方插件默认使用 `host-process-full-trust`，在主程序 JVM 内运行并继承
-应用当前用户的操作系统权限。只有显式声明 `declarative-process` 的插件才进入独立 worker；worker 与
-主程序仍共享当前操作系统账户，因此只属于有限进程隔离，并非完整 OS 沙箱。需要失败关闭时，可在启动
-JVM 前设置 `-Dpixivdownload.plugin-worker.require-os-sandbox=true`；当前版本尚未集成已验证 OS 沙箱，
-启用后会拒绝所有 `declarative-process` 插件。签名和官方身份不授予额外运行能力。
+所有外置插件包都必须在 `plugin.properties` 中显式声明 `pixiv.execution-mode`；缺少或填写未知值会在
+代码执行前被拒绝。`host-process-full-trust` 插件在主程序 JVM 内运行并继承宿主权限，
+`declarative-process` 插件进入独立 worker。worker 有协议和资源限制，但仍与主程序使用同一操作系统账户，
+因此只是有限进程隔离，不是完整 OS 沙箱。当前版本没有 OS sandbox provider，也没有“必须使用 OS 沙箱”的
+JVM 开关；签名和官方身份不会授予额外运行能力。
+
+生产模式拒绝以目录形式加载 `declarative-process` 插件。显式开发模式允许目录插件临时降级为
+`host-process-full-trust`，并在日志和插件状态中显示实际模式，不会把它伪装成 worker。
 
 隔离 worker 异常退出时，宿主会撤回该插件的路由和能力、保留有界 stderr 日志，并按有界指数退避尝试恢复。
 初始化、命令、关闭超时以及恢复次数、初始 / 最大延迟和 stderr 上限可通过
 `pixivdownload.plugin-worker.*` 下的 `initialize-timeout-ms`、`command-timeout-ms`、`shutdown-timeout-ms`、
 `restart-attempts`、`restart-initial-delay-ms`、`restart-max-delay-ms` 与 `stderr-max-bytes` JVM 属性调整。
 
-插件可在 `plugin.properties` 中用 `pixiv.permissions` 声明逗号分隔的权限风险，例如
-`network,filesystem-write,schedule`。该清单用于安装确认和信任连续性说明，不是在
-`host-process-full-trust` 模式中虚构的权限沙箱；旧插件缺少该字段时按“未声明权限、完全访问”展示。
-同一发布密钥的更新只有在权限不增加且执行模式不升级时才继承既有信任，新增权限需重新确认。
+插件信任不会跨执行边界静默扩大。即使发布者身份保持不变，从 `declarative-process` 升级为
+`host-process-full-trust` 仍须管理员重新确认。
 
 插件包准入默认限制归档为 64 MiB、20000 个条目、总解压 256 MiB、单条目 64 MiB、描述符
 1 MiB、压缩比 200、路径名 1024 字符和 64 层目录。部署者可在启动 JVM 时用
