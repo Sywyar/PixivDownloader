@@ -63,12 +63,9 @@
 
 | 類型                                  | 說明                                 |
 |-------------------------------------|------------------------------------|
-| `PixivDownload-*-win-x64-setup.exe` | Windows 安裝包，支持修復/更改/卸載，可選安裝 FFmpeg；預置除 Douyin 外的官方插件 |
-| `PixivDownload-*-java.zip`          | Java 標準包（跨平臺），需 Java 17；與 Windows 安裝包默認插件集合一致，不含 Douyin |
-| `PixivDownload-*-full-offline.zip`  | 離線全量包（跨平臺），需 Java 17；包含含 Douyin 在內的全部面向用戶的官方插件 |
-
-> 核心殼 `PixivDownload-*.jar` 僅作爲內部構建輸入，不作爲普通用戶附件提供；單獨運行它缺少必需的
-> `download-workbench` 外置插件，會進入恢復/修復模式。
+| `PixivDownload-*-win-x64-setup.exe` | Windows 安裝包，內置 JRE，支持修復/更改/卸載，可選安裝 FFmpeg；預置官方插件分發集合，不含 Douyin |
+| `PixivDownload-*-java.zip`          | Java 標準包（跨平臺），需 Java 17；與 Windows 安裝包插件集合一致，不含 Douyin |
+| `PixivDownload-*-full-offline.zip`  | 離線全量包（跨平臺），需 Java 17；與 Java 標準包插件集合一致，不含 Douyin |
 
 Java 標準包和離線全量包必須**完整解壓**後使用，不要只提取其中的 JAR：啓動腳本與 `plugins/` 目錄
 缺一不可，程序啓動時會從工作目錄的 `plugins/` 加載官方外置插件。

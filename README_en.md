@@ -68,59 +68,13 @@ Download the latest version from [Releases](../../releases):
 
 | Type                                | Description                                                                                          |
 |-------------------------------------|------------------------------------------------------------------------------------------------------|
-| `PixivDownload-*-win-x64-setup.exe` | Windows installer; repair/change/uninstall, optional FFmpeg install; preinstalls all official plugins except Douyin |
-| `PixivDownload-*-java.zip`          | Java standard package (cross-platform), requires Java 17; same default plugin set as the Windows installer, no Douyin |
-| `PixivDownload-*-full-offline.zip`  | Full-offline package (cross-platform), requires Java 17; same plugin set as the Java standard package, no Douyin |
-
-> The core-shell `PixivDownload-*.jar` is only an internal build input and is not provided as a regular user
-> attachment; running it standalone is missing the required `download-workbench` external plugin and enters
-> recovery/repair mode.
+| `PixivDownload-*-win-x64-setup.exe` | Windows installer with bundled JRE; repair/change/uninstall and optional FFmpeg installation; includes the official plugin distribution set, without Douyin |
+| `PixivDownload-*-java.zip`          | Java standard package (cross-platform), requires Java 17; same plugin set as the Windows installer, without Douyin |
+| `PixivDownload-*-full-offline.zip`  | Full-offline package (cross-platform), requires Java 17; same plugin set as the Java standard package, without Douyin |
 
 The Java standard package and the full-offline package must be **fully extracted** before use — do not take out only
 the JAR: the launcher scripts and the `plugins/` directory are both required, because external official plugins are
 loaded from the working directory's `plugins/` folder at startup.
-
-The Windows installer requests UAC when writing the application directory. The installed application and portable
-launcher also request administrator privileges by default. When the host is actually elevated, the plugin management
-page shows a persistent warning that `host-process-full-trust` plugins inherit those privileges.
-
-Every external plugin package must explicitly declare `pixiv.execution-mode` in `plugin.properties`. Missing or
-unknown values are rejected before plugin code runs. A `host-process-full-trust` plugin runs in the main JVM and
-inherits the host's privileges; a `declarative-process` plugin enters a separate worker. The worker has protocol and
-resource limits but still uses the same operating-system account, so it provides limited process isolation rather
-than a complete OS sandbox. This release has no OS sandbox provider or JVM switch that requires one. A signature or
-official identity does not grant additional runtime capabilities.
-
-Production mode rejects directory-form `declarative-process` plugins. Explicit development mode may temporarily
-downgrade one to `host-process-full-trust`; logs and plugin status show the effective mode instead of presenting it as
-a worker.
-
-When an isolated worker exits unexpectedly, the host withdraws that plugin's routes and capabilities, retains a
-bounded stderr log, and attempts recovery with bounded exponential backoff. Initialization, command, and shutdown
-timeouts, recovery attempts and initial / maximum delays, and the stderr limit are configurable under
-`pixivdownload.plugin-worker.*` with `initialize-timeout-ms`, `command-timeout-ms`, `shutdown-timeout-ms`,
-`restart-attempts`, `restart-initial-delay-ms`, `restart-max-delay-ms`, and `stderr-max-bytes`.
-
-Plugin trust cannot silently expand across execution boundaries. Even when the publisher identity is unchanged, an
-upgrade from `declarative-process` to `host-process-full-trust` requires administrator confirmation again.
-
-Plugin-package admission defaults to a 64 MiB archive, 20,000 entries, 256 MiB total decompressed data, a 64 MiB
-single entry, a 1 MiB descriptor, compression ratio 200, a 1,024-character entry name, and 64 path segments.
-Deployments can override each value with `-Dpixivdownload.plugin.package.<name>=<positive-integer>` before JVM
-startup. The names are `max-archive-bytes`, `max-entries`, `max-total-uncompressed-bytes`,
-`max-entry-uncompressed-bytes`, `max-descriptor-bytes`, `max-compression-ratio`, `max-entry-name-length`, and
-`max-entry-depth`. Invalid values fail plugin-runtime initialization instead of silently falling back.
-
-A portable installation may make the `plugins/` root itself a symbolic link or Windows junction; the runtime resolves
-and pins the real directory first, while linked artifact candidates inside that root are still rejected individually.
-The host tightens POSIX permissions or Windows ACLs on managed `plugins/runtime/` and `plugins/provenance/` paths when
-the filesystem supports them. FAT32, exFAT, SMB, and similar filesystems that expose neither capability produce a
-diagnostic and continue under the regular-file, `NOFOLLOW`, frozen-snapshot, and hash checks instead of disabling all
-plugins.
-
-GUI-managed FFmpeg installation downloads a project-maintained `ffmpeg-stable` Release built from the latest official
-stable FFmpeg source for Windows x64, Linux x64/arm64, or macOS x64/arm64. Other platforms can still use a manually
-installed system FFmpeg.
 
 ### Run
 
