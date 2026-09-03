@@ -20,8 +20,9 @@ public final class PluginRecoveryResourceBudget {
     private static final int MAX_ENTRIES = 8_192;
     private static final long MAX_ARTIFACT_BYTES = 2L * 1024L * 1024L * 1024L;
     private static final long MAX_SIDECAR_BYTES = 64L * 1024L * 1024L;
-    private static final int MAX_ARCHIVE_ENTRIES = 32_000;
-    private static final long MAX_UNCOMPRESSED_BYTES = 384L * 1024L * 1024L;
+    // 一轮恢复会同时复核可见插件集与待安装包，因此预算为启动总量与单包上限之和。
+    private static final int MAX_ARCHIVE_ENTRIES = 96_000;
+    private static final long MAX_UNCOMPRESSED_BYTES = 1_376L * 1024L * 1024L;
 
     private long manifestBytes;
     private int backups;

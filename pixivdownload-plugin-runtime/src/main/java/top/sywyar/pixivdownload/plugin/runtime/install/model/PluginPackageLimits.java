@@ -43,12 +43,12 @@ public record PluginPackageLimits(
 
     public static final String PROPERTY_PREFIX = "pixivdownload.plugin.package.";
 
-    /** 默认安装器归档体积上限：64 MiB（高于 Web 10MB multipart 上限，作硬兜底、不构成裂缝）。 */
-    public static final long DEFAULT_MAX_ARCHIVE_BYTES = 64L * 1024 * 1024;
-    /** 默认 entry 数量上限：20000（合法插件包远低于此，纯防 entry 数量炸弹）。 */
-    public static final int DEFAULT_MAX_ENTRIES = 20_000;
-    /** 默认总解压字节上限：256 MiB。 */
-    public static final long DEFAULT_MAX_TOTAL_UNCOMPRESSED_BYTES = 256L * 1024 * 1024;
+    /** 默认安装器归档体积上限：192 MiB（按当前最大官方 Compose 最终产物保留约 50% 余量）。 */
+    public static final long DEFAULT_MAX_ARCHIVE_BYTES = 192L * 1024 * 1024;
+    /** 默认 entry 数量上限：48000（按当前最大官方 Compose 最终产物保留约 80% 余量）。 */
+    public static final int DEFAULT_MAX_ENTRIES = 48_000;
+    /** 默认总解压字节上限：672 MiB（按当前最大官方 Compose 最终产物保留约 50% 余量）。 */
+    public static final long DEFAULT_MAX_TOTAL_UNCOMPRESSED_BYTES = 672L * 1024 * 1024;
     /** 默认单 entry 解压字节上限：64 MiB（含 inner jar）。 */
     public static final long DEFAULT_MAX_ENTRY_UNCOMPRESSED_BYTES = 64L * 1024 * 1024;
     /** 默认描述符读取字节上限：1 MiB（{@code plugin.properties} 实际仅数百字节）。 */

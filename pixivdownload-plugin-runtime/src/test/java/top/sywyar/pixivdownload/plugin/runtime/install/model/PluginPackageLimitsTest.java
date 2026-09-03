@@ -12,6 +12,21 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class PluginPackageLimitsTest {
 
     @Test
+    @DisplayName("默认上限保持经校准的成组数值")
+    void exposesCalibratedDefaults() {
+        assertThat(PluginPackageLimits.fromProperties(new Properties()))
+                .isEqualTo(new PluginPackageLimits(
+                        192L * 1024 * 1024,
+                        48_000,
+                        672L * 1024 * 1024,
+                        64L * 1024 * 1024,
+                        1L * 1024 * 1024,
+                        200,
+                        1_024,
+                        64));
+    }
+
+    @Test
     @DisplayName("JVM 属性可覆盖全部八项限制")
     void readsEveryConfiguredLimit() {
         Properties properties = new Properties();

@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroupContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
+import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogProperties;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -157,7 +158,7 @@ final class DesktopCoreConfigCatalog {
                 "plugin-catalog.max-package-bytes",
                 GuiConfigGroups.PLUGINS,
                 GuiConfigFieldType.INT,
-                "104857600",
+                Long.toString(PluginCatalogProperties.DEFAULT_MAX_PACKAGE_BYTES),
                 GuiConfigEffect.BACKEND_RESTART,
                 1,
                 null,

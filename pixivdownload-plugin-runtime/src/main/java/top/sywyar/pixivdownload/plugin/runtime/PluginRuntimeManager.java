@@ -86,8 +86,8 @@ public class PluginRuntimeManager {
 
     private static final Logger log = LoggerFactory.getLogger(PluginRuntimeManager.class);
     private static final PluginPackageLimits PRODUCTION_PACKAGE_LIMITS = PluginPackageLimits.defaults();
-    static final int MAX_STARTUP_VERIFICATION_ENTRIES = 32_000;
-    static final long MAX_STARTUP_VERIFICATION_UNCOMPRESSED_BYTES = 384L * 1024L * 1024L;
+    static final int MAX_STARTUP_VERIFICATION_ENTRIES = 48_000;
+    static final long MAX_STARTUP_VERIFICATION_UNCOMPRESSED_BYTES = 704L * 1024L * 1024L;
     static final long MAX_STARTUP_PROVENANCE_BYTES = 64L * 1024L * 1024L;
     private static final int MAX_RUNTIME_FAILURES = 64;
 
