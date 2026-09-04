@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { assertSdkResolution, stageSdkArtifacts } from '../sdk-consumer.mjs';
+import { assertSdkResolution, parsePluginIdentity, stageSdkArtifacts } from '../sdk-consumer.mjs';
 
 const VERSION = '1.0.0-rc1';
 const GROUP_PATH = path.join('io', 'github', 'sywyar', 'pixivdownloader');
@@ -25,6 +25,18 @@ function writeRepository(root) {
         }
     }
 }
+
+test('第三方验收签名身份从插件描述符读取', () => {
+    assert.deepEqual(parsePluginIdentity(`
+        # fixture
+        plugin.id=douyin
+        plugin.version=2.3.4
+        plugin.requires=1.0
+    `), { id: 'douyin', version: '2.3.4' });
+    assert.throws(() => parsePluginIdentity('plugin.id=douyin\n'), /must declare/u);
+    assert.throws(() => parsePluginIdentity(
+            'plugin.id=douyin\nplugin.id=other\nplugin.version=2.3.4\n'), /more than once/u);
+});
 
 test('隔离消费者按指定仓库字节离线验证 SDK，不依赖 Maven 来源 marker', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pixivdownload-sdk-consumer-'));

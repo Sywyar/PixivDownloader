@@ -14,6 +14,11 @@
 
     <properties>
         <plugin.credential.filter>${project.basedir}/src/main/filters/plugin-credential-key-open-source.properties</plugin.credential.filter>
+        <pixivdownload.proguard.skip>false</pixivdownload.proguard.skip>
+        <pixivdownload.proguard.additionalProgramPath>${project.build.directory}/proguard/program-dependencies</pixivdownload.proguard.additionalProgramPath>
+        <pixivdownload.proguard.preservedContractsPath>${project.build.directory}/proguard/preserved-contracts</pixivdownload.proguard.preservedContractsPath>
+        <pixivdownload.proguard.libraryExcludeArtifactIds>mybatis-spring-boot-starter,pixivdownload-plugin-signature,pixivdownload-plugin-worker,pixivdownload-plugin-runtime</pixivdownload.proguard.libraryExcludeArtifactIds>
+        <pixivdownload.jar.classesDirectory>${pixivdownload.proguard.outputDirectory}</pixivdownload.jar.classesDirectory>
     </properties>
 
     <dependencies>
@@ -196,6 +201,36 @@
                 <version>3.8.1</version>
                 <executions>
                     <execution>
+                        <id>merge-host-program-dependencies</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>unpack-dependencies</goal>
+                        </goals>
+                        <configuration>
+                            <includeArtifactIds>pixivdownload-plugin-signature,pixivdownload-plugin-worker,pixivdownload-plugin-runtime</includeArtifactIds>
+                            <outputDirectory>${pixivdownload.proguard.additionalProgramPath}</outputDirectory>
+                            <excludes>META-INF/MANIFEST.MF,META-INF/maven/**</excludes>
+                            <overWriteReleases>true</overWriteReleases>
+                            <overWriteSnapshots>true</overWriteSnapshots>
+                            <overWriteIfNewer>true</overWriteIfNewer>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>stage-host-contract-dependencies</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>unpack-dependencies</goal>
+                        </goals>
+                        <configuration>
+                            <includeArtifactIds>pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api</includeArtifactIds>
+                            <outputDirectory>${pixivdownload.proguard.preservedContractsPath}</outputDirectory>
+                            <excludes>META-INF/MANIFEST.MF,META-INF/maven/**</excludes>
+                            <overWriteReleases>true</overWriteReleases>
+                            <overWriteSnapshots>true</overWriteSnapshots>
+                            <overWriteIfNewer>true</overWriteIfNewer>
+                        </configuration>
+                    </execution>
+                    <execution>
                         <id>embed-isolated-plugin-worker</id>
                         <phase>prepare-package</phase>
                         <goals>
@@ -225,6 +260,33 @@
                 <version>3.1.0</version>
                 <executions>
                     <execution>
+                        <id>clean-proguard-program-dependencies</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <delete dir="${pixivdownload.proguard.additionalProgramPath}" quiet="true"/>
+                                <delete dir="${pixivdownload.proguard.preservedContractsPath}" quiet="true"/>
+                            </target>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>preserve-host-contract-classes</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <copy todir="${pixivdownload.proguard.outputDirectory}" overwrite="true">
+                                    <fileset dir="${pixivdownload.proguard.preservedContractsPath}"/>
+                                </copy>
+                            </target>
+                        </configuration>
+                    </execution>
+                    <execution>
                         <id>generate-maintainer-catalog</id>
                         <phase>generate-resources</phase>
                         <goals>
@@ -253,6 +315,32 @@
                 <configuration>
                     <mainClass>top.sywyar.pixivdownload.gui.GuiLauncher</mainClass>
                     <classifier>boot</classifier>
+                    <excludes>
+                        <exclude>
+                            <groupId>io.github.sywyar.pixivdownloader</groupId>
+                            <artifactId>pixivdownload-sdk-info</artifactId>
+                        </exclude>
+                        <exclude>
+                            <groupId>io.github.sywyar.pixivdownloader</groupId>
+                            <artifactId>pixivdownload-plugin-api</artifactId>
+                        </exclude>
+                        <exclude>
+                            <groupId>io.github.sywyar.pixivdownloader</groupId>
+                            <artifactId>pixivdownload-core-api</artifactId>
+                        </exclude>
+                        <exclude>
+                            <groupId>top.sywyar.lovepopup</groupId>
+                            <artifactId>pixivdownload-plugin-signature</artifactId>
+                        </exclude>
+                        <exclude>
+                            <groupId>top.sywyar.lovepopup</groupId>
+                            <artifactId>pixivdownload-plugin-worker</artifactId>
+                        </exclude>
+                        <exclude>
+                            <groupId>top.sywyar.lovepopup</groupId>
+                            <artifactId>pixivdownload-plugin-runtime</artifactId>
+                        </exclude>
+                    </excludes>
                 </configuration>
             </plugin>
             <!-- 把外置插件的构建产物目录传给集成测试（据此组装临时插件 jar 做真实 PF4J 加载验证）。

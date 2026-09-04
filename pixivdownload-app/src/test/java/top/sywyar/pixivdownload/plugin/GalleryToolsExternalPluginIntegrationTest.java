@@ -86,7 +86,7 @@ class GalleryToolsExternalPluginIntegrationTest {
         tempPluginsDir = Files.createTempDirectory("pixiv-plugins-it");
         Path jar = tempPluginsDir.resolve("gallery-tools-plugin-0.0.1.jar");
         zipDirectoryAsJar(statsClasses, jar);
-        PluginTestProvenance.writeVerifiedLocalUpload(tempPluginsDir, jar, "gallery-tools", "1.0.0");
+        PluginTestProvenance.writeVerifiedLocalUpload(tempPluginsDir, jar);
 
         manager = new PluginRuntimeManager(tempPluginsDir, PluginTestProvenance.verifier());
         status = manager.start();
@@ -127,7 +127,6 @@ class GalleryToolsExternalPluginIntegrationTest {
         PluginDescriptor descriptor = stats.descriptor();
         assertThat(descriptor.id()).isEqualTo("gallery-tools");
         assertThat(descriptor.sourcePluginId()).isEqualTo("gallery-tools");
-        assertThat(descriptor.version()).isEqualTo("1.0.0");
         assertThat(descriptor.pluginClass())
                 .isEqualTo("top.sywyar.pixivdownload.gallerytools.GalleryToolsPf4jPlugin");
         assertThat(descriptor.requires().present()).isTrue();

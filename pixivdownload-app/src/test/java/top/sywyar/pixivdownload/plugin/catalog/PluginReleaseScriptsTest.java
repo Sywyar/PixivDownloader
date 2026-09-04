@@ -196,6 +196,7 @@ class PluginReleaseScriptsTest {
                 "function Find-ModulePluginArtifact",
                 "function Find-PluginArtifactSignatureSidecar",
                 "function Assert-PluginArtifactSignature",
+                "function Assert-ProguardProcessedArtifact",
                 "function Get-PluginArtifactSignatureForDistribution",
                 "Assert-JarWithPrivatePluginLibs",
                 "Assert-ThinPluginJar",
@@ -207,6 +208,27 @@ class PluginReleaseScriptsTest {
                 "Plugin jar is not thin - found private lib/*.jar entries");
         assertThat(common).doesNotContain("Format = \"zip\"");
         assertThat(common).doesNotContain("Assert-ExplodedPluginZip");
+    }
+
+    @Test
+    @DisplayName("发布产物 ProGuard 标记必须声明 shrink/optimize 且关闭混淆")
+    void proguardArtifactMetadataIsValidated(@TempDir Path tempDir) throws Exception {
+        Path processed = tempDir.resolve("processed.jar");
+        writeThinPluginJar(processed, "sample", "1.0.1", "1.0");
+        assertThat(runPowerShell(
+                "$ErrorActionPreference='Stop'; "
+                        + ". './scripts/plugin-distribution-common.ps1'; "
+                        + "Assert-ProguardProcessedArtifact '" + psQuote(processed) + "'; 'OK'"))
+                .isEqualTo("OK");
+
+        Path raw = tempDir.resolve("raw.jar");
+        writeThinPluginJar(raw, "sample", "1.0.1", "1.0", false);
+        CommandResult failure = runPowerShellResult(
+                "$ErrorActionPreference='Stop'; "
+                        + ". './scripts/plugin-distribution-common.ps1'; "
+                        + "Assert-ProguardProcessedArtifact '" + psQuote(raw) + "'");
+        assertThat(failure.exitCode()).as(failure.output()).isNotZero();
+        assertThat(failure.output()).contains("Release artifact is missing ProGuard metadata");
     }
 
     @Test
@@ -337,7 +359,6 @@ class PluginReleaseScriptsTest {
         assertThat(curation.has("douyin")).isFalse();
         assertThat(pluginDescriptor("pixivdownload-plugin-douyin")).contains(
                 "plugin.id=douyin",
-                "plugin.version=1.0.0",
                 "plugin.requires=1.0");
     }
 
@@ -868,17 +889,6 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("所有未发布官方插件统一使用初始版本 1.0.0 和首个SDK 1.0")
-    void officialPluginVersionsStartAtInitialVersion() throws Exception {
-        for (OfficialPlugin plugin : officialDistributionPlugins()) {
-            assertThat(pluginDescriptor(plugin.module())).as(plugin.id())
-                    .contains("plugin.version=1.0.0", "plugin.requires=1.0");
-        }
-        assertThat(pluginDescriptor("pixivdownload-plugin-recovery-sentinel"))
-                .contains("plugin.version=1.0.0", "plugin.requires=1.0");
-    }
-
-    @Test
     @DisplayName("市场清单从 descriptor 投影 SDK 要求并保留旧 wire alias")
     void marketManifestProjectsInitialSdkAndLegacyAlias() throws Exception {
         String descriptor = pluginDescriptor("pixivdownload-plugin-download-workbench");
@@ -1121,6 +1131,55 @@ class PluginReleaseScriptsTest {
                     "name: plugins",
                     "path: build/release-plugins/*.jar",
                     "artifacts/plugins/*.jar");
+        }
+    }
+
+    @Test
+    @DisplayName("release/nightly 发布前安装并启动最终 Windows 与 Java 分发产物")
+    void releaseWorkflowsRunFinalArtifactAcceptanceBeforePublication() throws Exception {
+        String script = script("test-release-artifacts.ps1");
+        String acceptanceAction = action("test-release-artifacts");
+
+        assertThat(script).contains(
+                "Refusing installer E2E because PixivDownload is already registered",
+                "Expand-Archive -LiteralPath $Archive",
+                "PixivDownload-$Version.jar",
+                "runtime\\bin\\server\\jvm.dll",
+                "--setup",
+                "--no-gui",
+                "/actuator/health",
+                "/actuator/info",
+                "/api/auth/login",
+                "/api/plugins/status",
+                "status -ne \"STARTED\"",
+                "runtimePhase -ne \"STARTED\"",
+                "recoveryMode",
+                "Wait-ArtifactProcessExit",
+                "-TimeoutSeconds 600",
+                "-TimeoutSeconds 300",
+                "unins000.exe");
+        assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("test-release-artifacts.ps1"));
+        assertThat(acceptanceAction).contains(
+                "name: windows-installer",
+                "name: java-distributions",
+                "Install and start final release artifacts",
+                "./scripts/test-release-artifacts.ps1",
+                "-InstallerPath $installers[0].FullName",
+                "-JavaZipPath $javaZips[0].FullName",
+                "-FullOfflineZipPath $offlineZips[0].FullName");
+
+        for (String name : List.of("release.yml", "nightly.yml")) {
+            String workflow = workflow(name);
+            String acceptanceJob = workflowJob(workflow, "release-artifact-e2e");
+            String publicationJob = workflowJob(workflow,
+                    name.equals("release.yml") ? "release" : "release-nightly");
+
+            assertThat(acceptanceJob).as(name).contains(
+                    "runs-on: windows-latest",
+                    "timeout-minutes: 45",
+                    "uses: ./.github/actions/test-release-artifacts",
+                    "release_version:");
+            assertThat(publicationJob).as(name).contains("release-artifact-e2e");
         }
     }
 
@@ -1546,7 +1605,8 @@ class PluginReleaseScriptsTest {
         assertThat(nightly).contains("workflow_dispatch:");
         assertThat(releaseJob)
                 .contains(
-                        "needs: [resolve-version, publish-plugins, publish-plugin-artifacts, build-jar, build-windows-installer]",
+                        "needs: [resolve-version, publish-plugins, publish-plugin-artifacts, build-jar, "
+                                + "build-windows-installer, release-artifact-e2e]",
                         "if: needs.resolve-version.outputs.has_changes == 'true'")
                 .doesNotContain("always()");
         assertThat(releaseStep).contains(
@@ -2036,6 +2096,12 @@ class PluginReleaseScriptsTest {
 
     private static void writeThinPluginJar(Path path, String id, String version, String requires)
             throws IOException {
+        writeThinPluginJar(path, id, version, requires, true);
+    }
+
+    private static void writeThinPluginJar(
+            Path path, String id, String version, String requires, boolean includeProguardMetadata)
+            throws IOException {
         try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(path), StandardCharsets.UTF_8)) {
             zip.putNextEntry(new ZipEntry("plugin.properties"));
             zip.write(("plugin.id=" + id + "\n"
@@ -2043,6 +2109,15 @@ class PluginReleaseScriptsTest {
                     + "plugin.requires=" + requires + "\n"
                     + "pixiv.execution-mode=host-process-full-trust\n").getBytes(StandardCharsets.UTF_8));
             zip.closeEntry();
+            if (includeProguardMetadata) {
+                zip.putNextEntry(new ZipEntry("META-INF/pixivdownload-proguard.properties"));
+                zip.write(("formatVersion=1\n"
+                        + "proguard.version=7.10.0\n"
+                        + "shrink=true\n"
+                        + "optimize=true\n"
+                        + "obfuscate=false\n").getBytes(StandardCharsets.UTF_8));
+                zip.closeEntry();
+            }
         }
     }
 

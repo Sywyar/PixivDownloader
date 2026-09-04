@@ -1401,8 +1401,9 @@ public class PluginRuntimeManager {
             recoveryToken = isolatedRecoveryTokens.merge(packageId, 1L, Math::addExact);
             attempts = isolatedSessions.get(packageId).restartAttempts();
         }
-        log.error("Isolated plugin worker crashed: pluginId={}, generation={}, crashCount={}, exitCode={}",
-                packageId, generation, event.crashCount(), exit.exitCode());
+        log.error("Isolated plugin worker crashed: "
+                        + "pluginId={}, generation={}, crashCount={}, exitCode={}, workerLog={}",
+                packageId, generation, event.crashCount(), exit.exitCode(), event.logPath());
         notifyWorkerListeners(event);
         if (attempts > 0) {
             scheduleIsolatedRecovery(packageId, generation, recoveryToken, 1);
@@ -1473,6 +1474,8 @@ public class PluginRuntimeManager {
             }
         }
         if (recovered != null) {
+            log.info("Isolated plugin worker recovered: pluginId={}, generation={}, attempt={}",
+                    recovered.pluginId(), recovered.generation(), recovered.restartAttempt());
             notifyWorkerListeners(recovered);
         } else if (retry) {
             scheduleIsolatedRecovery(packageId, generation, recoveryToken, attempt + 1);

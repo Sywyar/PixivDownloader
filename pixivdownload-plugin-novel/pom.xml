@@ -12,6 +12,11 @@
     <name>PixivDownloader Novel Plugin</name>
     <description>小说官方可选功能插件：下载支持、Pixiv 小说 API、计划任务小说执行、正文保存、翻译、合订、AI 听书协作、小说画廊与阅读页展示。</description>
 
+    <properties>
+        <pixivdownload.proguard.skip>false</pixivdownload.proguard.skip>
+        <pixivdownload.jar.classesDirectory>${pixivdownload.proguard.outputDirectory}</pixivdownload.jar.classesDirectory>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>io.github.sywyar.pixivdownloader</groupId>

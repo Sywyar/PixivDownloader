@@ -202,7 +202,7 @@ class PluginRequiredVerificationRecoveryTest {
     @DisplayName("local unsigned optional：显式开发态准入时允许加载并投影为本地来源")
     void localUnsignedOptionalAllowedWithExplicitSidecar() throws Exception {
         Scenario scenario = scenario("local-unsigned");
-        PluginTestProvenance.writeLocalUpload(scenario.pluginsDir(), scenario.jar(), PLUGIN_ID, VERSION);
+        PluginTestProvenance.writeLocalUpload(scenario.pluginsDir(), scenario.jar());
 
         PluginRuntimeManager manager = startDevelopmentTrust(scenario, new PluginSupplyChainVerifier());
         try {
@@ -221,7 +221,7 @@ class PluginRequiredVerificationRecoveryTest {
     @DisplayName("生产模式在 PF4J 前拒绝开发专用本地未签名插件")
     void localUnsignedOptionalRejectedOutsideDevelopmentMode() throws Exception {
         Scenario scenario = scenario("local-unsigned-production");
-        PluginTestProvenance.writeLocalUpload(scenario.pluginsDir(), scenario.jar(), PLUGIN_ID, VERSION);
+        PluginTestProvenance.writeLocalUpload(scenario.pluginsDir(), scenario.jar());
 
         PluginRuntimeManager manager = start(scenario, new PluginSupplyChainVerifier());
         try {

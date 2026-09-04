@@ -12,6 +12,11 @@
     <name>PixivDownloader Mail Plugin</name>
     <description>Official external SMTP mail notification plugin.</description>
 
+    <properties>
+        <pixivdownload.proguard.skip>false</pixivdownload.proguard.skip>
+        <pixivdownload.jar.classesDirectory>${pixivdownload.proguard.outputDirectory}</pixivdownload.jar.classesDirectory>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>io.github.sywyar.pixivdownloader</groupId>

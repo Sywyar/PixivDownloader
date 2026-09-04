@@ -38,10 +38,16 @@ test('Quality Gate：五个 required context 与完整触发面保持稳定', ()
     assert.deepEqual(doc.on.push['branches-ignore'], ['gh-pages']);
     const javaSteps = doc.jobs['java-tests'].steps;
     const sdkResolve = javaSteps.find((step) => step.name === 'Resolve SDK contract predecessor');
+    const releaseBuild = javaSteps.find((step) => step.name === 'Build release artifacts with ProGuard');
+    const releaseBoundary = javaSteps.find((step) => step.name === 'Verify packaged release boundaries');
     const sdkPackage = javaSteps.find((step) => step.name === 'Package SDK contract artifacts');
     const sdkContract = javaSteps.find((step) => step.name === 'Compare SDK public contract');
     assert.equal(sdkResolve.env.INPUT_TRUSTED_BASE_SHA, '${{ inputs.trusted_base_sha }}');
     assert.match(sdkResolve.run, /resolve-trusted-base\.mjs/u);
+    assert.equal(releaseBuild.run, 'mvn -B -ntp verify -Pofficial-surveys -DskipTests');
+    assert.match(releaseBoundary.run, /DistributionPackagingBoundaryTest/u);
+    assert.match(releaseBoundary.run, /distribution\.packaging\.require-artifacts=true/u);
+    assert.match(releaseBoundary.run, /Failures: 0, Errors: 0, Skipped: 0/u);
     assert.match(sdkPackage.run, /pixivdownload-sdk-bom package -DskipTests/u);
     assert.match(sdkContract.run, /git archive "\$SDK_BASE_SHA"/u);
     assert.match(sdkContract.run, /sdk-api-surface\.mjs/u);

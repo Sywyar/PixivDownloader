@@ -285,7 +285,7 @@ class GalleryExternalPluginBootContextTest {
             Files.createDirectories(PLUGINS_DIR);
             Path jar = PLUGINS_DIR.resolve("gallery-plugin.jar");
             zipDirectoryAsJar(galleryClasses, jar);
-            PluginTestProvenance.writeVerifiedLocalUpload(PLUGINS_DIR, jar, "gallery", "1.0.0");
+            PluginTestProvenance.writeVerifiedLocalUpload(PLUGINS_DIR, jar);
             return true;
         } catch (IOException | RuntimeException ex) {
             return false;

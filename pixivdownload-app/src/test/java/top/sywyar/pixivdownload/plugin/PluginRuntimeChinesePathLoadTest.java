@@ -73,7 +73,7 @@ class PluginRuntimeChinesePathLoadTest {
         Files.createDirectories(PLUGINS_DIR);
         Path jar = PLUGINS_DIR.resolve("pixivdownload-plugin-gallery-tools.jar");
         zipDirectoryAsJar(statsClasses, jar);
-        PluginTestProvenance.writeVerifiedLocalUpload(PLUGINS_DIR, jar, "gallery-tools", "1.0.0");
+        PluginTestProvenance.writeVerifiedLocalUpload(PLUGINS_DIR, jar);
 
         manager = new PluginRuntimeManager(PLUGINS_DIR, PluginTestProvenance.verifier());
         status = manager.start();

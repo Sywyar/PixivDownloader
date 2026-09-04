@@ -151,8 +151,24 @@ jobs:
         with:
           release_version: ${{ needs.build-jar.outputs.version }}
 
+  release-artifact-e2e:
+    needs: [build-jar, build-windows-installer]
+    if: github.event_name == 'push'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Test final release artifacts
+        uses: ./.github/actions/test-release-artifacts
+        with:
+          release_version: ${{ needs.build-jar.outputs.version }}
+
   release:
-    needs: [publish-plugins, publish-plugin-artifacts, build-jar, build-windows-installer]
+    needs: [publish-plugins, publish-plugin-artifacts, build-jar, build-windows-installer, release-artifact-e2e]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     environment: release

@@ -14,7 +14,8 @@ param(
     [string]$ManifestUrl = "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json",
     [string]$OutputDir,
     [Parameter(Mandatory = $true)][string]$SignatureToolJar,
-    [switch]$IncludeOptional
+    [switch]$IncludeOptional,
+    [switch]$RequireProguard
 )
 
 $ErrorActionPreference = "Stop"
@@ -251,6 +252,9 @@ try {
             $plugin.Id $version $expectedSize $sha256)
 
         $descriptor = Assert-OfficialPluginArtifact $artifactPath $plugin
+        if ($RequireProguard) {
+            Assert-ProguardProcessedArtifact $artifactPath
+        }
         if ($descriptor["plugin.version"] -ne $version) {
             throw "Catalog version '$version' does not match plugin.properties version '$($descriptor["plugin.version"])' for $($plugin.Id)."
         }

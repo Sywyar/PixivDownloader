@@ -49,16 +49,18 @@ public final class PluginTestProvenance {
     private PluginTestProvenance() {
     }
 
-    public static void writeLocalUpload(Path pluginsDir, Path artifact, String pluginId, String version)
-            throws IOException {
+    public static void writeLocalUpload(Path pluginsDir, Path artifact) throws IOException {
+        var descriptor = PluginPackageReader.inspect(artifact).descriptor();
         VerificationResult result = new VerificationResult(VerificationStatus.UNSIGNED_ALLOWED,
-                pluginId, version, null, null, null, null, Instant.now(), Files.size(artifact),
+                descriptor.id(), descriptor.version(), null, null, null, null, Instant.now(), Files.size(artifact),
                 PluginPackageIntegrity.sha256Hex(artifact), "UNSIGNED_ALLOWED");
         new PluginProvenanceStore(pluginsDir).write(artifact, PluginPackageOrigin.localUpload(), result);
     }
 
-    public static void writeVerifiedLocalUpload(Path pluginsDir, Path artifact, String pluginId, String version)
-            throws IOException {
+    public static void writeVerifiedLocalUpload(Path pluginsDir, Path artifact) throws IOException {
+        var descriptor = PluginPackageReader.inspect(artifact).descriptor();
+        String pluginId = descriptor.id();
+        String version = descriptor.version();
         String sha256 = PluginPackageIntegrity.sha256Hex(artifact);
         SignatureMetadata metadata = new SignatureMetadata(
                 SignatureMetadata.FORMAT_VERSION,
@@ -77,8 +79,7 @@ public final class PluginTestProvenance {
                 VerificationPolicy.customRepository()));
         PluginProvenanceRecord provenance = PluginProvenanceRecord.from(origin, result);
         new PluginProvenanceStore(pluginsDir).write(artifact, provenance.withTrustDecision(
-                PluginTrustPolicy.approve(
-                        PluginPackageReader.inspect(artifact).descriptor(), provenance, Instant.now())));
+                PluginTrustPolicy.approve(descriptor, provenance, Instant.now())));
     }
 
     public static PluginSupplyChainVerifier verifier() {

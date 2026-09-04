@@ -234,6 +234,85 @@ class PluginRuntimeManagerTest {
     }
 
     @Test
+    @DisplayName("声明式 worker 连续启停一百次均清退旧进程并保持同一 generation")
+    void survivesOneHundredIsolatedWorkerStartStopCycles() throws IOException {
+        Path plugins = tempDir.resolve("plugins-isolated-start-stop-stress");
+        Path jar = plugins.resolve("bootstrap-probe-1.0.0.jar");
+        writeDeclarativeProbeJar(jar);
+        writeLocalProvenance(plugins, jar);
+        top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager manager =
+                new top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager(plugins, () -> true);
+        try {
+            manager.loadPlugin(jar);
+            long generation = manager.generation(PROBE_ID).orElseThrow();
+            for (int cycle = 1; cycle <= 100; cycle++) {
+                manager.startPlugin(PROBE_ID);
+                assertThat(manager.isolatedWorkerAliveForTest(PROBE_ID)).as("start cycle %s", cycle).isTrue();
+                assertThat(manager.packagePhases().get(PROBE_ID)).isEqualTo(PluginRuntimePackagePhase.STARTED);
+
+                manager.stopPlugin(PROBE_ID);
+                assertThat(manager.isolatedWorkerAliveForTest(PROBE_ID)).as("stop cycle %s", cycle).isFalse();
+                assertThat(manager.packagePhases().get(PROBE_ID)).isEqualTo(PluginRuntimePackagePhase.STOPPED);
+                assertThat(manager.generation(PROBE_ID)).contains(generation);
+            }
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("单个声明式 worker 崩溃与恢复不改变兄弟 worker 的进程和状态")
+    void isolatesWorkerCrashAndRecoveryFromSibling() throws Exception {
+        Path plugins = tempDir.resolve("plugins-isolated-crash-boundary");
+        Path crashingJar = plugins.resolve("bootstrap-probe-1.0.0.jar");
+        Path siblingJar = plugins.resolve("isolated-static-probe-1.0.0.jar");
+        writeDeclarativeProbeJar(crashingJar);
+        writeIsolatedStaticProbeJar(siblingJar);
+        writeLocalProvenance(plugins, crashingJar);
+        writeLocalProvenance(plugins, siblingJar, "isolated-static-probe", PROBE_VERSION);
+        System.setProperty(IsolatedPluginSession.RESTART_ATTEMPTS_PROPERTY, "2");
+        System.setProperty(IsolatedPluginSession.RESTART_INITIAL_DELAY_PROPERTY, "250");
+        System.setProperty(IsolatedPluginSession.RESTART_MAX_DELAY_PROPERTY, "500");
+        top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager manager =
+                new top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager(plugins, () -> true);
+        LinkedBlockingQueue<top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager.WorkerEvent> events =
+                new LinkedBlockingQueue<>();
+        manager.addWorkerListener(events::add);
+        try {
+            manager.loadPlugin(crashingJar);
+            manager.loadPlugin(siblingJar);
+            manager.startPlugin(PROBE_ID);
+            manager.startPlugin("isolated-static-probe");
+            long crashedPid = manager.isolatedWorkerPidForTest(PROBE_ID);
+            long siblingPid = manager.isolatedWorkerPidForTest("isolated-static-probe");
+
+            ProcessHandle.of(crashedPid).orElseThrow().destroyForcibly();
+
+            top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager.WorkerEvent crashed =
+                    events.poll(10, TimeUnit.SECONDS);
+            assertThat(crashed).isNotNull();
+            assertThat(crashed.type()).isEqualTo(
+                    top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager.WorkerEventType.CRASHED);
+            assertThat(crashed.pluginId()).isEqualTo(PROBE_ID);
+            assertThat(manager.isolatedWorkerAliveForTest("isolated-static-probe")).isTrue();
+            assertThat(manager.isolatedWorkerPidForTest("isolated-static-probe")).isEqualTo(siblingPid);
+            assertThat(manager.packagePhases().get("isolated-static-probe"))
+                    .isEqualTo(PluginRuntimePackagePhase.STARTED);
+
+            top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager.WorkerEvent recovered =
+                    events.poll(10, TimeUnit.SECONDS);
+            assertThat(recovered).isNotNull();
+            assertThat(recovered.type()).isEqualTo(
+                    top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager.WorkerEventType.RECOVERED);
+            assertThat(recovered.pluginId()).isEqualTo(PROBE_ID);
+            assertThat(manager.isolatedWorkerAliveForTest("isolated-static-probe")).isTrue();
+            assertThat(manager.isolatedWorkerPidForTest("isolated-static-probe")).isEqualTo(siblingPid);
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
     @DisplayName("隔离 worker 只把有界静态纯值和插件自有资源代理回宿主")
     void projectsOnlyBoundedStaticContributionsFromIsolatedWorker() throws Exception {
         Path plugins = tempDir.resolve("plugins-isolated-static");

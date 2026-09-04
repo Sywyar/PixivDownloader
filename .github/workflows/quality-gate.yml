@@ -79,6 +79,14 @@ jobs:
         run: mvn -B -ntp -pl pixivdownload-official-plugins -am compile -Dexec.skip=true
       - name: Run Java tests
         run: mvn -B -ntp test -Dexec.skip=true -Duser.language=en -Duser.country=US
+      - name: Build release artifacts with ProGuard
+        run: mvn -B -ntp verify -Pofficial-surveys -DskipTests
+      - name: Verify packaged release boundaries
+        run: |
+          mvn -B -ntp -pl pixivdownload-app -am test -Dtest=DistributionPackagingBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false -Ddistribution.packaging.require-artifacts=true -Dexec.skip=true
+          REPORT=$(find pixivdownload-app/target/surefire-reports -name '*DistributionPackagingBoundaryTest.txt' -print -quit)
+          test -n "$REPORT"
+          grep -Eq 'Tests run: [1-9][0-9]*, Failures: 0, Errors: 0, Skipped: 0' "$REPORT"
       - name: Package SDK contract artifacts
         run: mvn -B -ntp -pl pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api,pixivdownload-sdk-bom package -DskipTests -Dexec.skip=true
       - name: Compare SDK public contract

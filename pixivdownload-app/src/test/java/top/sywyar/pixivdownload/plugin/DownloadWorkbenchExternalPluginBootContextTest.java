@@ -192,9 +192,7 @@ class DownloadWorkbenchExternalPluginBootContextTest {
         assertThat(pluginDiscoveryResult.discovered())
                 .extracting(DiscoveredFeaturePlugin::featurePluginId)
                 .contains(PLUGIN_ID);
-        assertThat(pluginRuntimeManager.loadedDescriptor(PLUGIN_ID))
-                .get()
-                .satisfies(descriptor -> assertThat(descriptor.version()).isEqualTo("1.0.0"));
+        assertThat(pluginRuntimeManager.loadedDescriptor(PLUGIN_ID)).isPresent();
 
         assertThat(pluginRegistry.plugins())
                 .extracting(PixivFeaturePlugin::id)
@@ -570,8 +568,7 @@ class DownloadWorkbenchExternalPluginBootContextTest {
             Files.createDirectories(PLUGINS_DIR);
             Path jar = PLUGINS_DIR.resolve("download-workbench-plugin.jar");
             zipDirectoryAsJar(workbenchClasses, jar);
-            PluginTestProvenance.writeVerifiedLocalUpload(
-                    PLUGINS_DIR, jar, PLUGIN_ID, "1.0.0");
+            PluginTestProvenance.writeVerifiedLocalUpload(PLUGINS_DIR, jar);
             return true;
         } catch (IOException failure) {
             throw new IllegalStateException(
