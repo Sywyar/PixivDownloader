@@ -337,7 +337,6 @@ class PluginReleaseScriptsTest {
         assertThat(curation.has("douyin")).isFalse();
         assertThat(pluginDescriptor("pixivdownload-plugin-douyin")).contains(
                 "plugin.id=douyin",
-                "plugin.version=1.0.0",
                 "plugin.requires=1.0");
     }
 
@@ -865,17 +864,6 @@ class PluginReleaseScriptsTest {
                 "package-ecosystem: \"github-actions\"",
                 "directory: \"/\"",
                 "interval: \"weekly\"");
-    }
-
-    @Test
-    @DisplayName("所有未发布官方插件统一使用初始版本 1.0.0 和首个SDK 1.0")
-    void officialPluginVersionsStartAtInitialVersion() throws Exception {
-        for (OfficialPlugin plugin : officialDistributionPlugins()) {
-            assertThat(pluginDescriptor(plugin.module())).as(plugin.id())
-                    .contains("plugin.version=1.0.0", "plugin.requires=1.0");
-        }
-        assertThat(pluginDescriptor("pixivdownload-plugin-recovery-sentinel"))
-                .contains("plugin.version=1.0.0", "plugin.requires=1.0");
     }
 
     @Test

@@ -66,7 +66,7 @@ class ExternalPluginClassLoaderReleaseTest {
         tempPluginsDir = Files.createTempDirectory(Path.of("target", "test-runtime"), "pixiv-plugins-leak");
         Path jar = tempPluginsDir.resolve("gallery-tools-plugin.jar");
         zipDirectoryAsJar(statsClasses, jar);
-        PluginTestProvenance.writeVerifiedLocalUpload(tempPluginsDir, jar, "gallery-tools", "1.0.0");
+        PluginTestProvenance.writeVerifiedLocalUpload(tempPluginsDir, jar);
 
         WeakReference<ClassLoader> weakCl = loadCaptureAndUnload(tempPluginsDir);
         assertThat(weakCl).as("加载时应已捕获到真实 stats classloader 的弱引用").isNotNull();

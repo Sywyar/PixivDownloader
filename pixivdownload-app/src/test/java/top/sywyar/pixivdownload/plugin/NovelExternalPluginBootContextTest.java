@@ -351,7 +351,7 @@ class NovelExternalPluginBootContextTest {
             Files.createDirectories(PLUGINS_DIR);
             Path jar = PLUGINS_DIR.resolve("novel-plugin.jar");
             zipDirectoryAsJar(classes, jar);
-            PluginTestProvenance.writeVerifiedLocalUpload(PLUGINS_DIR, jar, "novel", "1.0.0");
+            PluginTestProvenance.writeVerifiedLocalUpload(PLUGINS_DIR, jar);
             return true;
         } catch (IOException | RuntimeException ex) {
             return false;

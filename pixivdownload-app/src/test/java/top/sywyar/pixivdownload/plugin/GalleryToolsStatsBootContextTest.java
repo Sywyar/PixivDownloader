@@ -451,7 +451,7 @@ class GalleryToolsStatsBootContextTest {
             Files.createDirectories(PLUGINS_DIR);
             Path jar = PLUGINS_DIR.resolve("gallery-tools-plugin.jar");
             zipDirectoryAsJar(statsClasses, jar);
-            PluginTestProvenance.writeVerifiedLocalUpload(PLUGINS_DIR, jar, "gallery-tools", "1.0.0");
+            PluginTestProvenance.writeVerifiedLocalUpload(PLUGINS_DIR, jar);
             return true;
         } catch (IOException | RuntimeException ex) {
             return false;

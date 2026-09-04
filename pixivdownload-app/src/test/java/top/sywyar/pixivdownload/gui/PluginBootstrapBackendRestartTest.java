@@ -298,8 +298,8 @@ class PluginBootstrapBackendRestartTest {
     /** 把 {@link BackendRestartProbePlugin} + {@link BackendRestartProbeFeaturePlugin} 编译产物组装成 PF4J 可加载的 thin 插件 jar。 */
     private static Path stageProbeJar(Path pluginsDir) throws IOException {
         Files.createDirectories(pluginsDir);
-        Path jar = pluginsDir.resolve("bootstrap-probe-1.0.0.jar");
-        String props = "plugin.id=bootstrap-probe\nplugin.version=1.0.0\nplugin.requires=1.0\n"
+        Path jar = pluginsDir.resolve("bootstrap-probe-7.8.9.jar");
+        String props = "plugin.id=bootstrap-probe\nplugin.version=7.8.9\nplugin.requires=1.0\n"
                 + "plugin.class=" + BackendRestartProbePlugin.class.getName() + "\n"
                 + "plugin.provider=test\nplugin.description=bootstrap probe\n"
                 + "pixiv.execution-mode=host-process-full-trust\n"
@@ -311,7 +311,7 @@ class PluginBootstrapBackendRestartTest {
             addClassEntry(zos, BackendRestartProbePlugin.class);
             addClassEntry(zos, BackendRestartProbeFeaturePlugin.class);
         }
-        PluginTestProvenance.writeVerifiedLocalUpload(pluginsDir, jar, "bootstrap-probe", "1.0.0");
+        PluginTestProvenance.writeVerifiedLocalUpload(pluginsDir, jar);
         return jar;
     }
 

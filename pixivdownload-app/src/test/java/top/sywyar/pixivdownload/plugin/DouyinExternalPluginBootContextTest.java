@@ -182,9 +182,7 @@ class DouyinExternalPluginBootContextTest {
         assertThat(pluginDiscoveryResult.hasFailures()).isFalse();
         assertThat(pluginDiscoveryResult.discovered())
                 .extracting(DiscoveredFeaturePlugin::featurePluginId).contains("douyin");
-        assertThat(pluginRuntimeManager.loadedDescriptor("douyin"))
-                .get()
-                .satisfies(descriptor -> assertThat(descriptor.version()).isEqualTo("1.0.0"));
+        assertThat(pluginRuntimeManager.loadedDescriptor("douyin")).isPresent();
     }
 
     @Test
@@ -507,7 +505,7 @@ class DouyinExternalPluginBootContextTest {
             Files.createDirectories(PLUGINS_DIR);
             Path jar = PLUGINS_DIR.resolve("douyin-plugin.jar");
             zipDirectoryAsJar(classes, jar);
-            PluginTestProvenance.writeVerifiedLocalUpload(PLUGINS_DIR, jar, "douyin", "1.0.0");
+            PluginTestProvenance.writeVerifiedLocalUpload(PLUGINS_DIR, jar);
             return new StageResult(true, PluginTestProvenance.verifier(), null, null, jar);
         } catch (IOException | RuntimeException ex) {
             return StageResult.skipped();

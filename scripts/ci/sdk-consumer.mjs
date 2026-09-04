@@ -30,6 +30,30 @@ function thinJarEntries(pluginJar) {
     return entries;
 }
 
+export function parsePluginIdentity(propertiesText) {
+    const values = new Map();
+    for (const rawLine of propertiesText.split(/\r?\n/u)) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith('#') || line.startsWith('!')) continue;
+        const separator = line.search(/[=:]/u);
+        if (separator < 1) continue;
+        const key = line.slice(0, separator).trim();
+        if (key !== 'plugin.id' && key !== 'plugin.version') continue;
+        if (values.has(key)) fail(`plugin descriptor declares ${key} more than once`);
+        values.set(key, line.slice(separator + 1).trim());
+    }
+    const id = values.get('plugin.id');
+    const version = values.get('plugin.version');
+    if (!id || !version) fail('plugin descriptor must declare plugin.id and plugin.version');
+    return Object.freeze({ id, version });
+}
+
+function douyinPluginIdentity(repoRoot) {
+    const descriptor = path.join(
+            repoRoot, 'pixivdownload-plugin-douyin', 'src', 'main', 'resources', 'plugin.properties');
+    return parsePluginIdentity(fs.readFileSync(descriptor, 'utf8'));
+}
+
 function signatureToolJar(repoRoot) {
     const target = path.join(repoRoot, 'pixivdownload-plugin-signature', 'target');
     const candidates = fs.statSync(target, { throwIfNoEntry: false })?.isDirectory()
@@ -44,8 +68,7 @@ function signatureToolJar(repoRoot) {
 }
 
 function deriveDouyinPackages(repoRoot, work, pluginJar) {
-    const pluginId = 'douyin';
-    const pluginVersion = '1.0.0';
+    const { id: pluginId, version: pluginVersion } = douyinPluginIdentity(repoRoot);
     const packages = path.join(work, 'douyin-packages');
     const fileName = path.basename(pluginJar);
     const unsignedPluginJar = path.join(packages, 'unsigned', fileName);
@@ -281,7 +304,13 @@ export function verifyConsumer(options) {
     assertSdkResolution(localRepository, sdkRepository, identity.version);
     const pluginJar = path.join(project, 'plugin', 'target', 'example-download-plugin-0.1.0.jar');
     thinJarEntries(pluginJar);
-    const douyinPluginJar = path.join(douyinBuildDirectory, 'pixivdownload-plugin-douyin-1.0.0.jar');
+    const douyinCandidates = fs.readdirSync(douyinBuildDirectory)
+            .filter(name => /^pixivdownload-plugin-douyin-.+\.jar$/u.test(name))
+            .filter(name => !name.endsWith('-sources.jar') && !name.endsWith('-javadoc.jar'));
+    if (douyinCandidates.length !== 1) {
+        fail(`expected exactly one Douyin plugin JAR under ${douyinBuildDirectory}`);
+    }
+    const douyinPluginJar = path.join(douyinBuildDirectory, douyinCandidates[0]);
     const douyinEntries = thinJarEntries(douyinPluginJar);
     for (const required of [
         'top/sywyar/pixivdownload/douyin/DouyinPf4jPlugin.class',
