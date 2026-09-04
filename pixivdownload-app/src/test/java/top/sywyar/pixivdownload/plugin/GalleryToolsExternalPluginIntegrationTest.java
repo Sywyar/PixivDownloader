@@ -86,9 +86,9 @@ class GalleryToolsExternalPluginIntegrationTest {
         tempPluginsDir = Files.createTempDirectory("pixiv-plugins-it");
         Path jar = tempPluginsDir.resolve("gallery-tools-plugin-0.0.1.jar");
         zipDirectoryAsJar(statsClasses, jar);
-        PluginTestProvenance.writeLocalUpload(tempPluginsDir, jar, "gallery-tools", "1.0.0");
+        PluginTestProvenance.writeVerifiedLocalUpload(tempPluginsDir, jar, "gallery-tools", "1.0.0");
 
-        manager = new PluginRuntimeManager(tempPluginsDir);
+        manager = new PluginRuntimeManager(tempPluginsDir, PluginTestProvenance.verifier());
         status = manager.start();
     }
 
@@ -96,18 +96,7 @@ class GalleryToolsExternalPluginIntegrationTest {
     void unloadAndCleanup() {
         if (manager != null) {
             // 先停止 / 卸载，释放 PF4J 插件 classloader 对 jar 的文件锁（Windows 下否则删不掉临时目录）。
-            manager.pluginManager().ifPresent(pm -> {
-                try {
-                    pm.stopPlugins();
-                } catch (Exception ignored) {
-                    // best-effort
-                }
-                try {
-                    pm.unloadPlugins();
-                } catch (Exception ignored) {
-                    // best-effort
-                }
-            });
+            manager.shutdown();
         }
         deleteRecursivelyQuietly(tempPluginsDir);
     }

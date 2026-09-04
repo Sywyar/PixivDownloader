@@ -15,7 +15,6 @@
         <maven.compiler.release>17</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-        <spring-boot.version>3.5.7</spring-boot.version>
         <pixivdownload.sdk.version>1.0.0-rc2</pixivdownload.sdk.version>
         <pf4j.version>3.12.0</pf4j.version>
     </properties>
@@ -26,13 +25,6 @@
                 <groupId>io.github.sywyar.pixivdownloader</groupId>
                 <artifactId>pixivdownload-sdk-bom</artifactId>
                 <version>${pixivdownload.sdk.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-            <dependency>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-dependencies</artifactId>
-                <version>${spring-boot.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -56,22 +48,6 @@
             <groupId>org.pf4j</groupId>
             <artifactId>pf4j</artifactId>
             <version>${pf4j.version}</version>
-            <scope>provided</scope>
-        </dependency>
-        <!-- The host creates a child ApplicationContext for configurationClasses(). -->
-        <dependency>
-            <groupId>org.springframework</groupId>
-            <artifactId>spring-context</artifactId>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework</groupId>
-            <artifactId>spring-web</artifactId>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework</groupId>
-            <artifactId>spring-webmvc</artifactId>
             <scope>provided</scope>
         </dependency>
 
@@ -104,20 +80,6 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.5.0</version>
                 <executions>
-                    <execution>
-                        <id>check-template-javascript-core</id>
-                        <phase>test</phase>
-                        <goals>
-                            <goal>exec</goal>
-                        </goals>
-                        <configuration>
-                            <executable>node</executable>
-                            <arguments>
-                                <argument>--check</argument>
-                                <argument>${project.basedir}/src/main/resources/static/example-minimal/example-minimal-core.js</argument>
-                            </arguments>
-                        </configuration>
-                    </execution>
                     <execution>
                         <id>check-template-javascript-init</id>
                         <phase>test</phase>

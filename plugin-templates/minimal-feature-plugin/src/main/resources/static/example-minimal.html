@@ -8,7 +8,6 @@
     <link rel="stylesheet" href="/example-minimal/example-minimal.css">
     <script src="/js/pixiv-theme.js"></script>
     <script src="/js/pixiv-i18n.js" defer></script>
-    <script src="/example-minimal/example-minimal-core.js" defer></script>
     <script src="/example-minimal/example-minimal-init.js" defer></script>
 </head>
 <body>
@@ -17,13 +16,14 @@
         <p class="example-kicker" data-i18n="page.kicker">外置插件模板</p>
         <h1 data-i18n="page.heading">最小功能插件</h1>
         <p class="example-summary" data-i18n="page.summary">
-            此页面、接口与本地化资源均由插件自身贡献。
+            此页面、路由和本地化资源由独立插件 worker 的声明式贡献注册，无需在宿主进程执行插件 Spring Bean。
         </p>
 
         <section class="example-status" aria-live="polite">
-            <h2 data-i18n="status.heading">插件状态</h2>
-            <p id="example-status-message" data-state="loading" data-i18n="status.loading">正在读取状态…</p>
-            <button id="example-refresh" type="button" data-i18n="button.refresh">重新读取</button>
+            <h2 data-i18n="status.heading">执行边界</h2>
+            <p id="example-status-message" data-state="ready" data-i18n="status.ready">
+                已按独立进程模式加载；此模板不执行控制器或其它同进程行为。
+            </p>
         </section>
     </article>
 </main>

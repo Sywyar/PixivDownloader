@@ -15,8 +15,6 @@
             pixivdownload-plugin-download-workbench-<version>.jar
                                                  # official required plugin
             <plugin>-<version>.jar               # default-installed official plugin
-            pixivdownload-plugin-douyin-<version>.jar
-                                                 # on-demand plugin (full offline only)
             <plugin>-<version>.jar.sha256        # per-package sha256 checksum file
             provenance/
               <plugin>-<version>.jar.pixiv-plugin-provenance
@@ -26,8 +24,8 @@
           plugins-manifest.json                  # per external plugin: id / version / requires / file / sha256
 
     The boot jar alone is the core-shell package and must enter recovery/repair mode because the required
-    download-workbench plugin is missing. The default downloader is the boot jar plus every user-facing official plugin
-    except Douyin under plugins/. The full-offline bundle additionally carries Douyin. The launcher scripts
+    download-workbench plugin is missing. The default downloader is the boot jar plus the canonical default-installed
+    official plugin set under plugins/. The full-offline bundle adds any canonical optional official packages. The launcher scripts
     reference the exact PixivDownload-<Version>.jar staged for this distribution, set
     -Dpixivdownload.plugins-dir to the distribution's plugins/ folder, and forward all user arguments
     (run.bat passes %* and returns the Java exit code; run.sh uses exec with "$@"). CoreShellOnly layouts
@@ -42,8 +40,8 @@
     The result is a recovery/repair package, not the normal default downloader.
 
 .PARAMETER DefaultDownloader
-    Stage the default-installed official plugin set (all user-facing official plugins except Douyin).
-    Without this switch, the script additionally stages Douyin as the full-offline distribution.
+    Stage the default-installed official plugin set. Without this switch, the script additionally stages
+    canonical optional official packages; there are currently no user-facing packages in that set.
 
 .PARAMETER Version
     Distribution version, used for the core jar file name. Default 0.0.1-local.
@@ -112,7 +110,7 @@ if (-not $CoreShellOnly) {
     }
 }
 
-# Official external plugins (default-installed + optional Douyin). recovery-sentinel only when -IncludeSentinel.
+# Official external plugins (default-installed + canonical optional set). recovery-sentinel only when -IncludeSentinel.
 # Wrap in @() so a single-element result keeps array shape (the function return unwraps it otherwise),
 # preserving $DistributionPlugins.Count for the summary line.
 $DistributionPlugins = @()
@@ -465,9 +463,9 @@ exec java \
         $requiredCount = @($DistributionPlugins | Where-Object { $requiredPluginIds -contains $_.Id }).Count
         $optionalCount = $DistributionPlugins.Count - $requiredCount
         if ($DefaultDownloader) {
-            Write-Host "Core jar     : $coreJarName  (default downloader; plugins/ carries all user-facing official plugins except Douyin)"
+            Write-Host "Core jar     : $coreJarName  (default downloader; plugins/ carries the canonical default-installed set)"
         } else {
-            Write-Host "Core jar     : $coreJarName  (full offline; plugins/ carries required and optional plugins)"
+            Write-Host "Core jar     : $coreJarName  (full offline; plugins/ carries the canonical official distribution set)"
         }
         Write-Host "Plugins      : $requiredCount required + $optionalCount optional plugin(s) staged under plugins/"
     }

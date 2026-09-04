@@ -84,8 +84,12 @@
     // POST /api/plugin-market/{repositoryId}/{pluginId}/{version}/install（请求体不含 URL）。
     // 后端对「已决安装结局」返回 PluginInstallResponse（带稳定 outcome，含各类拒绝），对「拿到包之前的 catalog / 下载层
     // 失败」返回错误体（带稳定 code）。据响应体字段归一化：outcome → install；code → error；都没有 → 抛错（如 401 跳登录）。
-    API.installPlugin = function (repositoryId, pluginId, version) {
+    API.installPlugin = function (repositoryId, pluginId, version, confirmations) {
         var url = '/api/plugin-market/' + enc(repositoryId) + '/' + enc(pluginId) + '/' + enc(version) + '/install';
+        confirmations = confirmations || {};
+        var query = [];
+        if (confirmations.trustSha256) query.push('confirmTrust=' + enc(confirmations.trustSha256));
+        if (query.length) url += '?' + query.join('&');
         return fetch(url, { method: 'POST', headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
             .then(function (res) {
                 return res.json().catch(function () { return null; }).then(function (body) {

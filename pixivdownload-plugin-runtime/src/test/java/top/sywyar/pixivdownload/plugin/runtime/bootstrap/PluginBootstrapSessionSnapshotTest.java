@@ -71,7 +71,7 @@ class PluginBootstrapSessionSnapshotTest extends PluginBootstrapSessionTestSuppo
     void startupInventoryAndDiscoverySavedOnceWithProbe() throws Exception {
         Path pluginsDir = tempDir.resolve("plugins");
         stageProbeJar(pluginsDir);
-        PluginBootstrapSession session = PluginBootstrapSession.createProcess(pluginsDir, PluginEnabledSnapshot.empty());
+        PluginBootstrapSession session = createProcess(pluginsDir, PluginEnabledSnapshot.empty());
         session.start();
 
         PluginInventory inventory = session.startupInventory();
@@ -94,7 +94,7 @@ class PluginBootstrapSessionSnapshotTest extends PluginBootstrapSessionTestSuppo
     void repeatStartDoesNotRediscover() throws Exception {
         Path pluginsDir = tempDir.resolve("plugins");
         stageProbeJar(pluginsDir);
-        PluginBootstrapSession session = PluginBootstrapSession.createProcess(pluginsDir, PluginEnabledSnapshot.empty());
+        PluginBootstrapSession session = createProcess(pluginsDir, PluginEnabledSnapshot.empty());
         session.start();
         PluginInventory firstInventory = session.startupInventory();
         PluginDiscoveryResult firstDiscovery = session.startupDiscovery();
@@ -112,7 +112,7 @@ class PluginBootstrapSessionSnapshotTest extends PluginBootstrapSessionTestSuppo
     void dynamicInspectDoesNotMutateStartupSnapshot() throws Exception {
         Path pluginsDir = tempDir.resolve("plugins");
         stageProbeJar(pluginsDir);
-        PluginBootstrapSession session = PluginBootstrapSession.createProcess(pluginsDir, PluginEnabledSnapshot.empty());
+        PluginBootstrapSession session = createProcess(pluginsDir, PluginEnabledSnapshot.empty());
         session.start();
         PluginInventory saved = session.startupInventory();
 
@@ -130,7 +130,7 @@ class PluginBootstrapSessionSnapshotTest extends PluginBootstrapSessionTestSuppo
         stageProbeJar(pluginsDir); // 可正常发现的探针
         Files.write(pluginsDir.resolve("broken.jar"), new byte[]{1, 2, 3, 4}); // 非 zip → 加载失败
 
-        PluginBootstrapSession session = PluginBootstrapSession.createContext(pluginsDir, PluginEnabledSnapshot.empty());
+        PluginBootstrapSession session = createContext(pluginsDir, PluginEnabledSnapshot.empty());
         session.start();
 
         // start 未被坏包阻断
@@ -147,7 +147,7 @@ class PluginBootstrapSessionSnapshotTest extends PluginBootstrapSessionTestSuppo
     @Test
     @DisplayName("close 后不可重新 start：抛 IllegalStateException（不可复活语义）")
     void startAfterCloseRefuses() {
-        PluginBootstrapSession session = PluginBootstrapSession.createContext(
+        PluginBootstrapSession session = createContext(
                 tempDir.resolve("p"), PluginEnabledSnapshot.empty());
         session.start();
         session.close();
@@ -161,7 +161,7 @@ class PluginBootstrapSessionSnapshotTest extends PluginBootstrapSessionTestSuppo
     void releaseStartupSnapshotClearsSnapshot() throws Exception {
         Path pluginsDir = tempDir.resolve("plugins");
         stageProbeJar(pluginsDir);
-        PluginBootstrapSession session = PluginBootstrapSession.createProcess(pluginsDir, PluginEnabledSnapshot.empty());
+        PluginBootstrapSession session = createProcess(pluginsDir, PluginEnabledSnapshot.empty());
         session.start();
         assertThat(session.startupInventory().installations()).hasSize(1);
         assertThat(session.startupDiscovery().discovered()).hasSize(1);
@@ -187,7 +187,7 @@ class PluginBootstrapSessionSnapshotTest extends PluginBootstrapSessionTestSuppo
     void closeClearsStartupSnapshot() throws Exception {
         Path pluginsDir = tempDir.resolve("plugins");
         stageProbeJar(pluginsDir);
-        PluginBootstrapSession session = PluginBootstrapSession.createProcess(pluginsDir, PluginEnabledSnapshot.empty());
+        PluginBootstrapSession session = createProcess(pluginsDir, PluginEnabledSnapshot.empty());
         session.start();
         assertThat(session.startupInventory().installations()).isNotEmpty();
 
@@ -204,7 +204,7 @@ class PluginBootstrapSessionSnapshotTest extends PluginBootstrapSessionTestSuppo
     void releasedSnapshotDoesNotPinPluginClassLoader() throws Exception {
         Path pluginsDir = tempDir.resolve("plugins");
         stageProbeJar(pluginsDir);
-        PluginBootstrapSession session = PluginBootstrapSession.createProcess(pluginsDir, PluginEnabledSnapshot.empty());
+        PluginBootstrapSession session = createProcess(pluginsDir, PluginEnabledSnapshot.empty());
         session.start();
 
         // 捕获探针 classloader 的弱引用（启动期快照当前持有它）
@@ -235,7 +235,7 @@ class PluginBootstrapSessionSnapshotTest extends PluginBootstrapSessionTestSuppo
         Path pluginsDir = tempDir.resolve("plugins");
         Path pluginJar = stageProbeJar(pluginsDir);
         PluginBootstrapSession session =
-                PluginBootstrapSession.createProcess(pluginsDir, PluginEnabledSnapshot.empty());
+                createProcess(pluginsDir, PluginEnabledSnapshot.empty());
         session.start();
 
         ReloadProbe probe = reloadAfterReleasingSnapshot(session, pluginJar);

@@ -3,8 +3,10 @@ package top.sywyar.pixivdownload.plugin.runtime.install;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
 
 import java.nio.file.Files;
@@ -38,11 +40,26 @@ abstract class ExternalPluginTransactionTestSupport {
     @TempDir
     Path temp;
     protected final List<ExternalPluginInstaller> installers = new ArrayList<>();
+    private String previousDevelopmentMode;
+
+    @BeforeEach
+    void enableDevelopmentArtifacts() {
+        previousDevelopmentMode = System.getProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY);
+        System.setProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, "true");
+    }
 
     @AfterEach
     void closeInstallers() {
-        for (int i = installers.size() - 1; i >= 0; i--) {
-            installers.get(i).close();
+        try {
+            for (int i = installers.size() - 1; i >= 0; i--) {
+                installers.get(i).close();
+            }
+        } finally {
+            if (previousDevelopmentMode == null) {
+                System.clearProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY);
+            } else {
+                System.setProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, previousDevelopmentMode);
+            }
         }
     }
 
@@ -125,8 +142,13 @@ abstract class ExternalPluginTransactionTestSupport {
     }
 
     protected static PluginInstallResult installFully(ExternalPluginInstaller installer, Path packagePath) {
+        return installFully(installer, packagePath, PluginPackageOrigin.localUpload());
+    }
+
+    protected static PluginInstallResult installFully(
+            ExternalPluginInstaller installer, Path packagePath, PluginPackageOrigin origin) {
         PreparedPluginTransaction prepared = installer.prepareTransaction(
-                packagePath, false, PluginPackageOrigin.localUpload());
+                packagePath, false, origin);
         if (!prepared.readyToCommit()) {
             return prepared.result();
         }

@@ -8,6 +8,7 @@ import org.junit.jupiter.api.condition.EnabledIf;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.ContextConfiguration;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
@@ -48,6 +49,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "setup.browser.auto-open=false",
         "plugins.novel.enabled=false"
 })
+@ContextConfiguration(initializers = PluginTestProvenance.DisabledNovelPluginBootstrapInitializer.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @EnabledIf("externalNovelJarStaged")
@@ -75,18 +77,7 @@ class NovelPluginDisabledContextTest {
     @AfterAll
     void releasePluginsAndCleanup() {
         if (pluginRuntimeManager != null) {
-            pluginRuntimeManager.pluginManager().ifPresent(pm -> {
-                try {
-                    pm.stopPlugins();
-                } catch (Exception ignored) {
-                    // best-effort
-                }
-                try {
-                    pm.unloadPlugins();
-                } catch (Exception ignored) {
-                    // best-effort
-                }
-            });
+            pluginRuntimeManager.shutdown();
         }
         deleteRecursivelyQuietly(PLUGINS_DIR);
         System.clearProperty(RuntimeFiles.CONFIG_DIR_PROPERTY);
@@ -188,7 +179,7 @@ class NovelPluginDisabledContextTest {
             Files.createDirectories(PLUGINS_DIR);
             Path jar = PLUGINS_DIR.resolve("novel-plugin.jar");
             zipDirectoryAsJar(classes, jar);
-            PluginTestProvenance.writeLocalUpload(PLUGINS_DIR, jar, "novel", "1.0.0");
+            PluginTestProvenance.writeVerifiedLocalUpload(PLUGINS_DIR, jar, "novel", "1.0.0");
             return true;
         } catch (IOException | RuntimeException ex) {
             return false;

@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Objects;
 
@@ -114,6 +115,59 @@ public final class PluginSupplyChainVerifier {
                 null);
     }
 
+    /**
+     * 复用旧来源 trust store，验证旧 key 是否授权候选制品迁移到精确的新身份。
+     */
+    public VerificationResult verifyIdentityMigration(IdentityMigrationVerificationRequest request) {
+        Objects.requireNonNull(request, "request");
+        IdentityMigrationVerificationRequest.Identity from = request.from();
+        IdentityMigrationVerificationRequest.Identity to = request.to();
+        if (!validIdentity(from) || !validIdentity(to) || !hasText(request.version())
+                || request.artifactSizeBytes() <= 0L || !validSha256(request.artifactSha256())) {
+            return migrationFail(VerificationStatus.IDENTITY_MISMATCH, request, null,
+                    "MIGRATION_BINDING_MALFORMED");
+        }
+        SignatureMetadata signature = request.signature();
+        if (signature != null && !from.keyId().equals(signature.keyId())) {
+            return migrationFail(VerificationStatus.IDENTITY_MISMATCH, request, signature,
+                    "MIGRATION_SIGNER_MISMATCH");
+        }
+        byte[] sha256 = HexFormat.of().parseHex(request.artifactSha256().trim());
+        VerificationResult result = verifySignedEnvelope(
+                signature,
+                policy(request.policy()),
+                to.pluginId(),
+                request.version(),
+                request.artifactSizeBytes(),
+                sha256,
+                request.artifactSha256().toLowerCase(Locale.ROOT),
+                key -> EnvelopeV1Codec.identityMigrationMessage(
+                        signature.algorithm(),
+                        signature.keyId(),
+                        from.pluginId(),
+                        from.source(),
+                        from.repositoryId(),
+                        from.officialRepository(),
+                        from.publisher(),
+                        from.keyId(),
+                        to.pluginId(),
+                        to.source(),
+                        to.repositoryId(),
+                        to.officialRepository(),
+                        to.publisher(),
+                        to.keyId(),
+                        request.version(),
+                        request.artifactSizeBytes(),
+                        sha256),
+                null);
+        if (result.status() == VerificationStatus.VERIFIED
+                && !from.publisher().equals(result.publisher())) {
+            return migrationFail(VerificationStatus.IDENTITY_MISMATCH, request, signature,
+                    "MIGRATION_PUBLISHER_MISMATCH");
+        }
+        return result;
+    }
+
     private VerificationResult verifySignedEnvelope(SignatureMetadata metadata, VerificationPolicy policy,
                                                     String pluginId, String version, long size, byte[] sha256Bytes,
                                                     String sha256Hex, MessageFactory messageFactory,
@@ -155,21 +209,23 @@ public final class PluginSupplyChainVerifier {
         }
         if (key.state() == TrustedPluginKey.State.REVOKED) {
             return new VerificationResult(VerificationStatus.REVOKED_KEY, pluginId, version, metadata.keyId(),
-                    algorithm, key.publisher(), key.trustLabel(), Instant.now(), size, sha256Hex, "REVOKED_KEY");
+                    algorithm, key.publisher(), key.trustLabel(), key.publicKeyFingerprint(), Instant.now(),
+                    size, sha256Hex, "REVOKED_KEY");
         }
         if (key.state() == TrustedPluginKey.State.RETIRED && !policy.retiredKeysAllowed()) {
             return new VerificationResult(VerificationStatus.RETIRED_KEY, pluginId, version, metadata.keyId(),
-                    algorithm, key.publisher(), key.trustLabel(), Instant.now(), size, sha256Hex,
+                    algorithm, key.publisher(), key.trustLabel(), key.publicKeyFingerprint(), Instant.now(), size, sha256Hex,
                     "RETIRED_KEY_NOT_ALLOWED");
         }
         boolean valid = Ed25519Verifier.verify(key.publicKeySpkiBase64(), messageFactory.message(key), signature);
         if (!valid) {
             return new VerificationResult(VerificationStatus.INVALID_SIGNATURE, pluginId, version, metadata.keyId(),
-                    algorithm, key.publisher(), key.trustLabel(), Instant.now(), size, sha256Hex,
+                    algorithm, key.publisher(), key.trustLabel(), key.publicKeyFingerprint(), Instant.now(), size, sha256Hex,
                     "INVALID_SIGNATURE");
         }
         return new VerificationResult(VerificationStatus.VERIFIED, pluginId, version, metadata.keyId(), algorithm,
-                key.publisher(), key.trustLabel(), Instant.now(), size, sha256Hex, "VERIFIED");
+                key.publisher(), key.trustLabel(), key.publicKeyFingerprint(), Instant.now(), size, sha256Hex,
+                "VERIFIED");
     }
 
     private static VerificationPolicy policy(VerificationPolicy policy) {
@@ -189,6 +245,38 @@ public final class PluginSupplyChainVerifier {
 
     private static boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private static boolean validIdentity(IdentityMigrationVerificationRequest.Identity identity) {
+        return identity != null
+                && hasText(identity.pluginId())
+                && hasText(identity.source())
+                && hasText(identity.publisher())
+                && hasText(identity.keyId())
+                && (identity.repositoryId() == null || hasText(identity.repositoryId()));
+    }
+
+    private static boolean validSha256(String value) {
+        return value != null && value.matches("[0-9A-Fa-f]{64}");
+    }
+
+    private static VerificationResult migrationFail(
+            VerificationStatus status,
+            IdentityMigrationVerificationRequest request,
+            SignatureMetadata metadata,
+            String diagnosticCode) {
+        return new VerificationResult(
+                status,
+                request.to() != null ? request.to().pluginId() : null,
+                request.version(),
+                metadata != null ? metadata.keyId() : null,
+                metadata != null ? metadata.algorithm() : null,
+                null,
+                null,
+                Instant.now(),
+                request.artifactSizeBytes(),
+                request.artifactSha256(),
+                diagnosticCode);
     }
 
     @FunctionalInterface

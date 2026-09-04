@@ -217,13 +217,13 @@ class PluginMarketServiceTest {
     void installDelegatesByRepositoryId() {
         PluginInstallReport report = new PluginInstallReport(PluginInstallOutcome.INSTALLED, true, true,
                 "demo", "1.0.0", null, List.of(), List.of(), List.of());
-        when(acquisitionService.install("official", "demo", "1.0.0")).thenReturn(report);
+        when(acquisitionService.install("official", "demo", "1.0.0", (String) null)).thenReturn(report);
         PluginCatalogProperties props = new PluginCatalogProperties();
         props.setEnabled(true);
 
         PluginInstallReport result = service(props).install("official", "demo", "1.0.0");
 
         assertThat(result.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
-        verify(acquisitionService).install("official", "demo", "1.0.0");
+        verify(acquisitionService).install("official", "demo", "1.0.0", (String) null);
     }
 }

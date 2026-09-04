@@ -8,7 +8,6 @@ import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationE
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.Locale;
@@ -53,17 +52,18 @@ public final class PluginArtifactMaterializer {
             boolean materialized;
             if (inspection.format() == PluginPackageFormat.EXPLODED_DIRECTORY) {
                 loadPath = snapshot.createLoadDirectory();
-                extractExplodedZip(frozen, loadPath);
+                extractExplodedZip(snapshot, frozen, loadPath);
                 materialized = true;
             } else if (inspection.containsPrivateLibraries()) {
                 loadPath = snapshot.createLoadDirectory();
-                extractJarAsDirectory(frozen, loadPath);
+                extractJarAsDirectory(snapshot, frozen, loadPath);
                 materialized = true;
             } else {
                 loadPath = frozen;
                 materialized = false;
             }
             requireVerifiedSnapshotHash(frozen, expectedSha256, "during materialization");
+            snapshot.sealLoadPath(loadPath);
             return new MaterializedPluginArtifact(original, loadPath, materialized);
         } catch (IOException e) {
             throw new PluginRuntimeOperationException("failed to materialize plugin artifact " + original, e);
@@ -77,7 +77,8 @@ public final class PluginArtifactMaterializer {
         }
     }
 
-    private static void extractExplodedZip(Path zip, Path target) throws IOException {
+    private static void extractExplodedZip(PluginArtifactSnapshot snapshot, Path zip, Path target)
+            throws IOException {
         try (ZipFile zipFile = new ZipFile(zip.toFile())) {
             Set<String> entryNames = new HashSet<>();
             var entries = zipFile.entries();
@@ -85,17 +86,18 @@ public final class PluginArtifactMaterializer {
                 ZipEntry entry = entries.nextElement();
                 String entryName = ZipSafety.requireUniqueEntryName(entry.getName(), entryNames);
                 if (entry.isDirectory()) {
-                    Files.createDirectories(safeResolve(target, entryName));
+                    snapshot.createMaterializedDirectory(safeResolve(target, entryName));
                     continue;
                 }
                 try (InputStream in = zipFile.getInputStream(entry)) {
-                    copyEntry(in, safeResolve(target, entryName));
+                    snapshot.copyMaterializedEntry(in, safeResolve(target, entryName));
                 }
             }
         }
     }
 
-    private static void extractJarAsDirectory(Path jar, Path target) throws IOException {
+    private static void extractJarAsDirectory(PluginArtifactSnapshot snapshot, Path jar, Path target)
+            throws IOException {
         try (ZipFile zipFile = new ZipFile(jar.toFile())) {
             Set<String> entryNames = new HashSet<>();
             var entries = zipFile.entries();
@@ -106,13 +108,14 @@ public final class PluginArtifactMaterializer {
                     continue;
                 }
                 try (InputStream in = zipFile.getInputStream(entry)) {
-                    copyJarEntry(in, entryName, target);
+                    copyJarEntry(snapshot, in, entryName, target);
                 }
             }
         }
     }
 
-    private static void copyJarEntry(InputStream in, String entryName, Path target) throws IOException {
+    private static void copyJarEntry(PluginArtifactSnapshot snapshot, InputStream in,
+                                     String entryName, Path target) throws IOException {
         Path output;
         if ("plugin.properties".equals(entryName)) {
             output = target.resolve("plugin.properties");
@@ -121,7 +124,7 @@ public final class PluginArtifactMaterializer {
         } else {
             output = safeResolve(target.resolve("classes"), entryName);
         }
-        copyEntry(in, output);
+        snapshot.copyMaterializedEntry(in, output);
     }
 
     private static boolean isLibEntry(String entryName) {
@@ -139,14 +142,6 @@ public final class PluginArtifactMaterializer {
             throw new PluginRuntimeOperationException("unsafe plugin archive entry: " + entryName);
         }
         return output;
-    }
-
-    private static void copyEntry(InputStream in, Path output) throws IOException {
-        Path parent = output.getParent();
-        if (parent != null) {
-            Files.createDirectories(parent);
-        }
-        Files.copy(in, output);
     }
 
     public record MaterializedPluginArtifact(Path originalArtifactPath, Path pf4jLoadPath, boolean materialized) {

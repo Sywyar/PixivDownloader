@@ -5,6 +5,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 
 import java.io.BufferedInputStream;
@@ -82,6 +83,9 @@ public final class PluginPackageReader {
     static final String KEY_PIXIV_COLOR_TOKEN = "pixiv.color-token";
     static final String KEY_PIXIV_REPLACES = "pixiv.replaces";
     static final String KEY_PIXIV_LIFECYCLE_POLICY = "pixiv.lifecycle-policy";
+    static final String KEY_PIXIV_EXECUTION_MODE = "pixiv.execution-mode";
+    static final String KEY_PIXIV_KIND = "pixiv.kind";
+    static final String KEY_PIXIV_CONFIGURATION_CLASSES = "pixiv.configuration-classes";
 
     private PluginPackageReader() {
     }
@@ -123,10 +127,9 @@ public final class PluginPackageReader {
     public static PluginPackageInspection inspect(Path packagePath, PluginPackageLimits limits) {
         Objects.requireNonNull(packagePath, "packagePath");
         Objects.requireNonNull(limits, "limits");
-        long maxDescriptorBytes = limits.maxDescriptorBytes();
         String name = packagePath.getFileName().toString().toLowerCase(Locale.ROOT);
         if (name.endsWith(".jar")) {
-            ArchiveInspection archive = inspectArchive(packagePath, maxDescriptorBytes, "jar");
+            ArchiveInspection archive = inspectArchive(packagePath, limits, "jar");
             if (archive.properties() == null) {
                 throw new PluginPackageException(PluginPackageException.Reason.NO_DESCRIPTOR,
                         "jar contains no " + PLUGIN_PROPERTIES + ": " + packagePath.getFileName());
@@ -134,10 +137,11 @@ public final class PluginPackageReader {
             return new PluginPackageInspection(PluginPackageFormat.SINGLE_JAR,
                     toDescriptor(archive.properties()), null, archive.containsPrivateLibraries());
         }
-        return inspectZip(packagePath, maxDescriptorBytes);
+        return inspectZip(packagePath, limits);
     }
 
-    private static PluginPackageInspection inspectZip(Path zip, long maxDescriptorBytes) {
+    private static PluginPackageInspection inspectZip(Path zip, PluginPackageLimits limits) {
+        long maxDescriptorBytes = limits.maxDescriptorBytes();
         boolean rootProperties = false;
         List<String> rootJars = new ArrayList<>();
         int entryCount = 0;
@@ -147,7 +151,7 @@ public final class PluginPackageReader {
             while (entries.hasMoreElements()) {
                 ZipEntry entry = entries.nextElement();
                 entryCount++;
-                String entryName = ZipSafety.requireUniqueEntryName(entry.getName(), entryNames);
+                String entryName = ZipSafety.requireUniqueEntryName(entry.getName(), entryNames, limits);
                 if (entry.isDirectory()) {
                     continue;
                 }
@@ -173,7 +177,7 @@ public final class PluginPackageReader {
             }
             if (rootJars.size() == 1) {
                 String jarEntry = rootJars.get(0);
-                ArchiveInspection innerJar = inspectInnerJar(zipFile, jarEntry, maxDescriptorBytes);
+                ArchiveInspection innerJar = inspectInnerJar(zipFile, jarEntry, limits);
                 if (innerJar.properties() == null) {
                     throw new PluginPackageException(PluginPackageException.Reason.NO_DESCRIPTOR,
                             "root jar " + jarEntry + " contains no " + PLUGIN_PROPERTIES);
@@ -202,7 +206,8 @@ public final class PluginPackageReader {
     }
 
     /** 从一个 zip / jar 归档根扫描描述符与 {@code lib/*.jar}。 */
-    private static ArchiveInspection inspectArchive(Path archive, long maxDescriptorBytes, String label) {
+    private static ArchiveInspection inspectArchive(Path archive, PluginPackageLimits limits, String label) {
+        long maxDescriptorBytes = limits.maxDescriptorBytes();
         Properties properties = null;
         boolean containsPrivateLibraries = false;
         try (ZipFile zipFile = new ZipFile(archive.toFile())) {
@@ -210,7 +215,7 @@ public final class PluginPackageReader {
             Enumeration<? extends ZipEntry> entries = zipFile.entries();
             while (entries.hasMoreElements()) {
                 ZipEntry entry = entries.nextElement();
-                String entryName = ZipSafety.requireUniqueEntryName(entry.getName(), entryNames);
+                String entryName = ZipSafety.requireUniqueEntryName(entry.getName(), entryNames, limits);
                 if (entry.isDirectory()) {
                     continue;
                 }
@@ -242,8 +247,10 @@ public final class PluginPackageReader {
     }
 
     /** 从 zip 内某个 jar entry 的内部扫描根 {@value #PLUGIN_PROPERTIES} 与 {@code lib/*.jar}。 */
-    private static ArchiveInspection inspectInnerJar(ZipFile zipFile, String jarEntryName, long maxDescriptorBytes)
+    private static ArchiveInspection inspectInnerJar(
+            ZipFile zipFile, String jarEntryName, PluginPackageLimits limits)
             throws IOException {
+        long maxDescriptorBytes = limits.maxDescriptorBytes();
         ZipEntry jarEntry = zipFile.getEntry(jarEntryName);
         if (jarEntry == null) {
             return new ArchiveInspection(null, false);
@@ -255,7 +262,7 @@ public final class PluginPackageReader {
                 new BufferedInputStream(zipFile.getInputStream(jarEntry)))) {
             ZipEntry inner;
             while ((inner = jarStream.getNextEntry()) != null) {
-                String entryName = ZipSafety.requireUniqueEntryName(inner.getName(), entryNames);
+                String entryName = ZipSafety.requireUniqueEntryName(inner.getName(), entryNames, limits);
                 if (inner.isDirectory()) {
                     continue;
                 }
@@ -324,9 +331,9 @@ public final class PluginPackageReader {
     }
 
     /**
-     * 把 PF4J {@value #PLUGIN_PROPERTIES} 映射为包级 {@link PluginDescriptor}（{@code id == sourcePluginId}、
-     * {@code kind = FEATURE}）。缺失 / 空字段保留为 {@code null} 交由
-     * {@link PluginDescriptor#externalValidationErrors()} 判定，本方法不在此处兜底校验。安装期尚未加载功能插件实例，
+     * 把 PF4J {@value #PLUGIN_PROPERTIES} 映射为包级 {@link PluginDescriptor}（{@code id == sourcePluginId}）。
+     * {@code pixiv.execution-mode} 在此处要求显式且有效；其它缺失 / 空字段保留为 {@code null} 交由
+     * {@link PluginDescriptor#externalValidationErrors()} 判定。安装期尚未加载功能插件实例，
      * 故展示身份优先取包描述符里声明的 {@code pixiv.*} canonical 元数据；旧第三方插件缺这些字段时，展示名 key 仍回退到
      * PF4J {@code plugin.description} 或 id。
      */
@@ -343,9 +350,15 @@ public final class PluginPackageReader {
         String iconKey = trimToNull(properties.getProperty(KEY_PIXIV_ICON_KEY));
         String colorToken = trimToNull(properties.getProperty(KEY_PIXIV_COLOR_TOKEN));
         List<String> replaces = parsePluginIds(properties.getProperty(KEY_PIXIV_REPLACES));
+        List<String> configurationClassNames = parseCommaSeparated(
+                properties.getProperty(KEY_PIXIV_CONFIGURATION_CLASSES));
         PluginLifecyclePolicy lifecyclePolicy;
+        PluginExecutionMode executionMode;
+        PluginKind kind;
         try {
             lifecyclePolicy = PluginLifecyclePolicy.parse(properties.getProperty(KEY_PIXIV_LIFECYCLE_POLICY));
+            executionMode = PluginExecutionMode.parse(properties.getProperty(KEY_PIXIV_EXECUTION_MODE));
+            kind = parseKind(properties.getProperty(KEY_PIXIV_KIND));
         } catch (IllegalArgumentException e) {
             throw new PluginPackageException(PluginPackageException.Reason.MALFORMED, e.getMessage(), e);
         }
@@ -353,7 +366,8 @@ public final class PluginPackageReader {
             displayName = (pf4jDescription != null) ? pf4jDescription : id;
         }
         return new PluginDescriptor(id, id, version, requires, dependencies, pluginClass, displayNamespace,
-                displayName, description, iconKey, colorToken, PluginKind.FEATURE, replaces, lifecyclePolicy);
+                displayName, description, iconKey, colorToken, kind, replaces, lifecyclePolicy,
+                executionMode, configurationClassNames);
     }
 
     private static List<PluginDependencyRef> parseDependencies(String raw) {
@@ -361,10 +375,25 @@ public final class PluginPackageReader {
     }
 
     private static List<String> parsePluginIds(String raw) {
+        return parseCommaSeparated(raw);
+    }
+
+    private static List<String> parseCommaSeparated(String raw) {
         if (raw == null || raw.isBlank()) {
             return List.of();
         }
         return List.of(raw.split(",")).stream().map(String::trim).toList();
+    }
+
+    private static PluginKind parseKind(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return PluginKind.FEATURE;
+        }
+        try {
+            return PluginKind.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException failure) {
+            throw new IllegalArgumentException("unsupported plugin kind: " + raw, failure);
+        }
     }
 
     private static String trimToNull(String value) {

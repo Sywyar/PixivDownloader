@@ -10,11 +10,15 @@ import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageExcep
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageFixtures;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageVerifier;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationException;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -88,6 +92,95 @@ class PluginArtifactMaterializerTest {
                                     .isEqualTo(PluginPackageException.Reason.UNSAFE));
         } finally {
             snapshot.close();
+        }
+    }
+
+    @Test
+    @DisplayName("PF4J 准入前拒绝物化树中新增的文件")
+    void rejectsMaterializedTreeMutationBeforePf4jAdmission() throws IOException {
+        Path plugins = tempDir.resolve("manifest-plugins");
+        Files.createDirectory(plugins);
+        Path artifact = plugins.resolve("probe.jar");
+        Files.write(artifact, PluginPackageFixtures.pluginJarBytes(
+                "probe", "1.0.0", "1.0", "com.example.Probe",
+                Map.of("lib/private-lib.jar", PluginPackageFixtures.zipBytes(
+                        Map.of("private/Marker.txt", "first".getBytes(StandardCharsets.UTF_8))))));
+        PluginRuntimeLayout layout = new PluginRuntimeLayout(plugins);
+        PluginArtifactSnapshot snapshot = PluginArtifactSnapshot.create(
+                layout, artifact, PluginPackageLimits.DEFAULT_MAX_ARCHIVE_BYTES);
+        Path workspace = snapshot.snapshotArtifact().getParent();
+        try {
+            PluginPackageInspection inspection = PluginPackageReader.inspect(
+                    snapshot.snapshotArtifact(), PluginPackageLimits.defaults());
+            PluginArtifactMaterializer.MaterializedPluginArtifact materialized =
+                    new PluginArtifactMaterializer(layout).materialize(snapshot, inspection,
+                            PluginPackageIntegrity.sha256Hex(snapshot.snapshotArtifact()));
+            snapshot.verifyLoadPath(materialized.pf4jLoadPath());
+
+            PluginRuntimeFileSecurity.makeTreeWritable(
+                    workspace, PluginRuntimeFileSecurity.owner(workspace));
+            Files.writeString(materialized.pf4jLoadPath().resolve("injected.class"),
+                    "unverified", StandardCharsets.UTF_8);
+
+            assertThatThrownBy(() -> snapshot.verifyLoadPath(materialized.pf4jLoadPath()))
+                    .isInstanceOf(PluginRuntimeOperationException.class)
+                    .hasMessageContaining("load tree changed");
+        } finally {
+            snapshot.close();
+        }
+    }
+
+    @Test
+    @DisplayName("包条目预算内的隐式目录仍受实际物化路径预算约束")
+    void rejectsImplicitDirectoriesBeyondWorkspaceEntryBudget() throws IOException {
+        Path plugins = Files.createDirectory(tempDir.resolve("entry-budget-plugins"));
+        Path artifact = plugins.resolve("probe.zip");
+        int implicitDirectoryCount = 5_000;
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        entries.put(PluginPackageFixtures.PLUGIN_PROPERTIES, PluginPackageFixtures.bytes(
+                PluginPackageFixtures.pluginProperties(
+                        "probe", "1.0.0", "1.0", "com.example.Probe")));
+        entries.put("classes/", new byte[0]);
+        int fileEntryCount = PluginPackageLimits.DEFAULT_MAX_ENTRIES - entries.size();
+        for (int index = 0; index < fileEntryCount; index++) {
+            entries.put("classes/group-" + index % implicitDirectoryCount + "/Marker-" + index + ".class",
+                    new byte[]{1});
+        }
+        PluginPackageFixtures.writeZip(artifact, entries);
+        PluginPackageLimits limits = PluginPackageLimits.defaults();
+        PluginPackageVerifier.VerificationUsage usage =
+                PluginPackageVerifier.verifyAndMeasure(artifact, limits);
+        PluginPackageInspection inspection = PluginPackageReader.inspect(artifact, limits);
+        PluginRuntimeLayout layout = new PluginRuntimeLayout(plugins);
+        PluginArtifactSnapshot snapshot = PluginArtifactSnapshot.create(
+                layout, artifact, limits.maxArchiveBytes());
+        Path workspace = snapshot.snapshotArtifact().getParent();
+        Path loadPath = workspace.resolve("load");
+
+        try {
+            assertThat(usage.entryCount()).isEqualTo(PluginPackageLimits.DEFAULT_MAX_ENTRIES);
+            assertThatThrownBy(() -> new PluginArtifactMaterializer(layout).materialize(
+                    snapshot, inspection, PluginPackageIntegrity.sha256Hex(snapshot.snapshotArtifact())))
+                    .isInstanceOf(PluginRuntimeOperationException.class)
+                    .hasRootCauseMessage("plugin artifact load tree exceeds the supported entry count");
+            try (var paths = Files.walk(loadPath)) {
+                assertThat(paths.count())
+                        .isEqualTo((long) usage.entryCount() + implicitDirectoryCount + 1L);
+            }
+        } finally {
+            deleteTree(workspace);
+            snapshot.close();
+        }
+    }
+
+    private static void deleteTree(Path root) throws IOException {
+        if (!Files.exists(root)) {
+            return;
+        }
+        try (var paths = Files.walk(root)) {
+            for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+                Files.delete(path);
+            }
         }
     }
 }

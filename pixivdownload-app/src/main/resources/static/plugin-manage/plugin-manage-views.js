@@ -68,6 +68,8 @@
     // —— 恢复 / 补齐模式横幅 ——
     function renderRecovery() {
         var host = document.getElementById('pm-recovery');
+        var privilege = document.getElementById('pm-host-privilege');
+        privilege.hidden = !(PM.state.report && PM.state.report.hostElevated);
         if (PM.state.report && PM.state.report.recoveryMode) {
             host.hidden = false;
             host.className = 'pm-recovery';
@@ -78,6 +80,16 @@
             host.hidden = true;
             host.innerHTML = '';
         }
+    }
+
+    // 执行隔离级别 → 底栏元信息图标与色调类。
+    var EXECUTION_ITEM_META = {
+        DECLARATIVE_PROCESS:   { icon: 'fa-box', tone: 'info' },
+        HOST_PROCESS_FULL_TRUST: { icon: 'fa-triangle-exclamation', tone: 'warn' }
+    };
+
+    function executionItemMeta(mode) {
+        return EXECUTION_ITEM_META[mode] || EXECUTION_ITEM_META.HOST_PROCESS_FULL_TRUST;
     }
 
     // 生命周期策略 → 底栏元信息图标与色调类（替代原标签区：同类信息以更轻的图标项表达）。
@@ -93,7 +105,7 @@
 
     // 运行期操作收进卡片右下角的浮层菜单：入口是幽灵图标按钮，菜单项带动词图标；无可用动作时整体不渲染。
     function actionMenuHtml(vm, busy) {
-        if (!vm.availableActions.length) return '';
+        if (!vm.availableActions.length && !vm.trustApprovable && !vm.trustRevocable) return '';
         var aria = PM.t('action.menu.aria', '{plugin} 的可用操作', { plugin: vm.name });
         var title = PM.t('action.menu', '操作');
         var menuId = 'pm-action-menu-' + vm.id;
@@ -111,6 +123,18 @@
                 + (busy ? ' disabled' : '') + '><i class="fa-solid ' + E(meta.icon) + '" aria-hidden="true"></i>'
                 + E(PM.t('action.' + verb, verb)) + '</button>';
         }).join(''));
+        if (vm.trustApprovable) {
+            parts.push('<button type="button" role="menuitem" data-pm-trust-action="approve" data-pm-id="'
+                + E(vm.id) + '"' + (busy ? ' disabled' : '')
+                + '><i class="fa-solid fa-shield-halved" aria-hidden="true"></i>'
+                + E(PM.t('trust.action.approve', '重新批准执行信任')) + '</button>');
+        }
+        if (vm.trustRevocable) {
+            parts.push('<button type="button" role="menuitem" class="danger" data-pm-trust-action="revoke" data-pm-id="'
+                + E(vm.id) + '"' + (busy ? ' disabled' : '')
+                + '><i class="fa-solid fa-shield-circle-xmark" aria-hidden="true"></i>'
+                + E(PM.t('trust.action.revoke', '撤销执行信任')) + '</button>');
+        }
         parts.push('</div></div>');
         return parts.join('');
     }
@@ -182,9 +206,14 @@
             }).join('') + '</div>');
         }
 
-        // 底栏：轻量元信息（生命周期 / SDK / 依赖数 / 验签）+ 浮层操作菜单。
+        // 底栏：轻量元信息（执行信任级别 / 生命周期 / SDK / 依赖数 / 验签）+ 浮层操作菜单。
         parts.push('<div class="pm-card-foot">');
         parts.push('<div class="pm-meta">');
+        if (vm.showExecutionTag) {
+            var em = executionItemMeta(vm.executionMode);
+            parts.push('<span class="pm-meta-item pm-meta-item--' + em.tone + '"><i class="fa-solid '
+                + em.icon + '"></i>' + E(vm.executionLabel) + '</span>');
+        }
         if (vm.showLifecycleTag) {
             var lm = lifecycleItemMeta(vm.lifecyclePolicy);
             parts.push('<span class="pm-meta-item pm-meta-item--' + lm.tone + '"><i class="fa-solid '
@@ -209,6 +238,11 @@
             var verificationTitle = vm.verificationTrustLabel || vm.verificationStatus || '';
             parts.push('<span class="pm-meta-item" title="' + E(verificationTitle) + '"><i class="fa-solid fa-shield-halved" style="color:'
                 + toneColor(vm.verificationTone) + ';"></i>' + E(vm.verificationLabel) + '</span>');
+        }
+        if (vm.trustLabel) {
+            var trustTitle = [vm.trustPublisher, vm.trustArtifactSha256].filter(Boolean).join(' · ');
+            parts.push('<span class="pm-meta-item pm-meta-item--' + E(vm.trustTone) + '" title="'
+                + E(trustTitle) + '"><i class="fa-solid fa-user-shield"></i>' + E(vm.trustLabel) + '</span>');
         }
         parts.push('</div>'); // meta
         parts.push(actionMenuHtml(vm, busy));

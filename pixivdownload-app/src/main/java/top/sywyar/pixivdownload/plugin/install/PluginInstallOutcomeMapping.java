@@ -32,7 +32,8 @@ public final class PluginInstallOutcomeMapping {
                     REJECTED_INVALID, REJECTED_UNSAFE -> HttpStatus.BAD_REQUEST;
             case REJECTED_TOO_LARGE -> HttpStatus.PAYLOAD_TOO_LARGE;
             case REJECTED_INTEGRITY -> HttpStatus.UNPROCESSABLE_ENTITY;
-            case REJECTED_INCOMPATIBLE, REJECTED_DEPENDENCY, DOWNGRADE_REJECTED -> HttpStatus.CONFLICT;
+            case REJECTED_INCOMPATIBLE, REJECTED_DEPENDENCY, DOWNGRADE_REJECTED,
+                    TRUST_CONFIRMATION_REQUIRED -> HttpStatus.CONFLICT;
             case FAILED -> HttpStatus.INTERNAL_SERVER_ERROR;
         };
     }

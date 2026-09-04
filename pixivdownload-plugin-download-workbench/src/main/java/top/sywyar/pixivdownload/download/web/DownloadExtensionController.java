@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.web;
+package top.sywyar.pixivdownload.download.web;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;

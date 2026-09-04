@@ -4,5 +4,6 @@ package top.sywyar.pixivdownload.plugin.runtime.lifecycle;
 public enum PluginRuntimePackagePhase {
     LOADED,
     STARTED,
+    CRASHED,
     STOPPED
 }

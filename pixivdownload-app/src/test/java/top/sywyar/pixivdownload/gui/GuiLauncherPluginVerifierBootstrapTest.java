@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.gui;
 
 import top.sywyar.pixivdownload.gui.config.TestDesktopConfigFile;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -13,9 +12,13 @@ import top.sywyar.pixivdownload.plugin.api.gui.RepositoryConfigEntry;
 import top.sywyar.pixivdownload.plugin.api.gui.TrustedKeyConfigEntry;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginEnabledSnapshot;
-import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
+import top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustPolicy;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
@@ -48,11 +51,6 @@ class GuiLauncherPluginVerifierBootstrapTest {
     @TempDir
     Path tempDir;
 
-    @AfterEach
-    void clearMarkerProperty() {
-        System.clearProperty("bootstrap.probe.marker");
-    }
-
     @Test
     @DisplayName("配置 custom trusted key：custom-signed installed plugin 可在 PROCESS bootstrap 启动")
     void processBootstrapUsesCustomTrustedKeyFromConfig() throws Exception {
@@ -61,17 +59,20 @@ class GuiLauncherPluginVerifierBootstrapTest {
         SigningFixture signing = SigningFixture.create("gui-custom-key");
         writeSignedProvenance(pluginsDir, jar, signing);
         Path config = writeConfig(true, signing.publicKeyBase64());
-        Path marker = tempDir.resolve("with-key-events.log");
-        Files.createFile(marker);
-        System.setProperty("bootstrap.probe.marker", marker.toString());
-
         PluginBootstrapSession session = PluginBootstrapSession.createProcess(pluginsDir,
                 PluginEnabledSnapshot.empty(), GuiLauncher.readPluginVerifierResolver(config));
-        session.start();
+        try {
+            session.start();
 
-        assertThat(session.status().startedPluginIds()).contains("bootstrap-probe");
-        assertThat(Files.readString(marker, StandardCharsets.UTF_8)).contains("load").contains("start");
-        session.close();
+            assertThat(session.status().startedPluginIds()).contains("bootstrap-probe");
+            assertThat(session.status().verifications())
+                    .singleElement()
+                    .satisfies(snapshot -> assertThat(snapshot.result().status())
+                            .isEqualTo(VerificationStatus.VERIFIED));
+            assertThat(session.manager().generation("bootstrap-probe")).hasValue(1L);
+        } finally {
+            session.close();
+        }
     }
 
     @Test
@@ -82,20 +83,23 @@ class GuiLauncherPluginVerifierBootstrapTest {
         SigningFixture signing = SigningFixture.create("gui-custom-key");
         writeSignedProvenance(pluginsDir, jar, signing);
         Path config = writeConfig(false, signing.publicKeyBase64());
-        Path marker = tempDir.resolve("without-key-events.log");
-        Files.createFile(marker);
-        System.setProperty("bootstrap.probe.marker", marker.toString());
-
         PluginBootstrapSession session = PluginBootstrapSession.createProcess(pluginsDir,
                 PluginEnabledSnapshot.empty(), GuiLauncher.readPluginVerifierResolver(config));
-        session.start();
+        try {
+            session.start();
 
-        assertThat(session.status().startedPluginIds()).doesNotContain("bootstrap-probe");
-        assertThat(session.status().hasFailures()).isTrue();
-        assertThat(Files.readString(marker, StandardCharsets.UTF_8))
-                .as("缺少 custom trusted key 时必须在 PF4J 创建 classloader / 构造插件实例前阻断")
-                .isEmpty();
-        session.close();
+            assertThat(session.status().startedPluginIds()).doesNotContain("bootstrap-probe");
+            assertThat(session.status().hasFailures()).isTrue();
+            assertThat(session.status().verifications())
+                    .singleElement()
+                    .satisfies(snapshot -> assertThat(snapshot.result().status())
+                            .isEqualTo(VerificationStatus.UNKNOWN_KEY));
+            assertThat(session.manager().generation("bootstrap-probe"))
+                    .as("缺少 custom trusted key 时必须在物理 generation / classloader 创建前阻断")
+                    .isEmpty();
+        } finally {
+            session.close();
+        }
     }
 
     private Path writeConfig(boolean includeTrustedKey, String publicKey) throws IOException {
@@ -117,6 +121,7 @@ class GuiLauncherPluginVerifierBootstrapTest {
         Files.createDirectories(pluginsDir);
         Path jar = pluginsDir.resolve("bootstrap-probe-1.0.0.jar");
         String props = "plugin.id=bootstrap-probe\nplugin.version=1.0.0\nplugin.requires=1.0\n"
+                + "pixiv.execution-mode=host-process-full-trust\n"
                 + "plugin.class=" + BackendRestartProbePlugin.class.getName() + "\n"
                 + "plugin.provider=test\nplugin.description=bootstrap probe\n";
         try (OutputStream out = Files.newOutputStream(jar); ZipOutputStream zos = new ZipOutputStream(out)) {
@@ -136,9 +141,16 @@ class GuiLauncherPluginVerifierBootstrapTest {
                 PluginPackageIntegrity.sha256Hex(artifact), metadata);
         VerificationResult result = new VerificationResult(VerificationStatus.VERIFIED,
                 "bootstrap-probe", "1.0.0", signing.keyId(), SignatureMetadata.ED25519,
-                "GUI Test Publisher", "GUI Test Trust", Instant.now(), Files.size(artifact),
+                "GUI Test Publisher", "GUI Test Trust",
+                Hashing.hex(Hashing.sha256(Base64.getDecoder().decode(signing.publicKeyBase64()))),
+                Instant.now(), Files.size(artifact),
                 PluginPackageIntegrity.sha256Hex(artifact), "VERIFIED");
-        new PluginProvenanceStore(pluginsDir).write(artifact, origin, result);
+        PluginProvenanceRecord verified = PluginProvenanceRecord.from(origin, result);
+        PluginProvenanceRecord approved = verified.withTrustDecision(PluginTrustPolicy.approve(
+                PluginPackageReader.inspect(artifact, PluginPackageLimits.defaults()).descriptor(),
+                verified,
+                Instant.now()));
+        new PluginProvenanceStore(pluginsDir).write(artifact, approved);
     }
 
     private static void addClassEntry(ZipOutputStream zos, Class<?> type) throws IOException {

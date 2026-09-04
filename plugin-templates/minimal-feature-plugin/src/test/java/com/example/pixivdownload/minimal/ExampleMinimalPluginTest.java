@@ -1,10 +1,8 @@
 package com.example.pixivdownload.minimal;
 
-import com.example.pixivdownload.minimal.web.ExampleMinimalController;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.pf4j.Plugin;
-import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivPluginProvider;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
@@ -49,6 +47,10 @@ class ExampleMinimalPluginTest {
         assertEquals("plugin.summary", descriptor.getProperty("pixiv.description-key"));
         assertEquals("puzzle", descriptor.getProperty("pixiv.icon-key"));
         assertEquals("blue", descriptor.getProperty("pixiv.color-token"));
+        assertEquals("feature", descriptor.getProperty("pixiv.kind"));
+        assertFalse(descriptor.containsKey("pixiv.configuration-classes"));
+        assertEquals("hot-reload", descriptor.getProperty("pixiv.lifecycle-policy"));
+        assertEquals("declarative-process", descriptor.getProperty("pixiv.execution-mode"));
 
         Class<?> entrypoint = Class.forName(descriptor.getProperty("plugin.class"));
         assertTrue(Plugin.class.isAssignableFrom(entrypoint));
@@ -56,24 +58,14 @@ class ExampleMinimalPluginTest {
     }
 
     @Test
-    @DisplayName("provider 返回非空、无 null 的功能插件并声明唯一配置类")
+    @DisplayName("provider 返回功能插件且不声明同进程配置类")
     void providerReturnsFeaturesAndConfiguration() {
         ExampleMinimalPf4jPlugin provider = new ExampleMinimalPf4jPlugin();
         PixivFeaturePlugin feature = provider.featurePlugin();
 
         assertNotNull(feature);
         assertInstanceOf(ExampleMinimalPlugin.class, feature);
-        assertEquals(List.of(ExampleMinimalConfiguration.class), provider.configurationClasses());
-    }
-
-    @Test
-    @DisplayName("子上下文配置显式装配 descriptor 与 controller")
-    void configurationCreatesPluginOwnedBeans() {
-        try (AnnotationConfigApplicationContext context =
-                     new AnnotationConfigApplicationContext(ExampleMinimalConfiguration.class)) {
-            assertNotNull(context.getBean(ExampleMinimalPlugin.class));
-            assertNotNull(context.getBean(ExampleMinimalController.class));
-        }
+        assertTrue(provider.configurationClasses().isEmpty());
     }
 
     @Test
@@ -94,8 +86,7 @@ class ExampleMinimalPluginTest {
                 .collect(Collectors.toSet());
         assertEquals(Set.of(
                 "/example-minimal.html",
-                "/example-minimal/**",
-                "/api/example-minimal/**"), routePatterns);
+                "/example-minimal/**"), routePatterns);
         assertTrue(plugin.routes().stream().allMatch(route -> route.accessPolicy() == AccessPolicy.ADMIN));
     }
 
@@ -112,7 +103,6 @@ class ExampleMinimalPluginTest {
                 !resource.exactFile() && resource.publicPathPrefix().equals("/example-minimal/")));
         assertNotNull(getClass().getClassLoader().getResource("static/example-minimal.html"));
         assertNotNull(getClass().getClassLoader().getResource("static/example-minimal/example-minimal.css"));
-        assertNotNull(getClass().getClassLoader().getResource("static/example-minimal/example-minimal-core.js"));
         assertNotNull(getClass().getClassLoader().getResource("static/example-minimal/example-minimal-init.js"));
 
         I18nContribution i18n = plugin.i18n().get(0);
@@ -121,7 +111,7 @@ class ExampleMinimalPluginTest {
         Properties zh = loadProperties("i18n/web/example-minimal.properties");
         Properties en = loadProperties("i18n/web/example-minimal_en.properties");
         assertEquals(zh.stringPropertyNames(), en.stringPropertyNames());
-        for (String key : Set.of("plugin.name", "plugin.summary", "page.title", "status.ready")) {
+        for (String key : Set.of("plugin.name", "plugin.summary", "page.title", "status.heading", "status.ready")) {
             assertFalse(zh.getProperty(key, "").isBlank());
             assertFalse(en.getProperty(key, "").isBlank());
         }

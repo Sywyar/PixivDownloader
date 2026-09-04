@@ -195,7 +195,8 @@ class PluginMarketPageGuardTest {
                 "detail.changelog", "detail.requires", "detail.sha256", "detail.verification",
                 "master.disabled.title", "recovery.banner.title", "recovery.banner.desc",
                 "recovery.reason.missing", "recovery.reason.failed", "recovery.reason.unavailable",
-                "error.catalog", "empty.title", "security.notice", "disclaimer");
+                "error.catalog", "empty.title", "security.notice", "host.elevated.notice",
+                "install.trust.declarative-risk", "install.trust.elevated-risk", "disclaimer");
         for (String key : critical) {
             assertThat(zh.getProperty(key)).as("zh 缺关键键 %s", key).isNotBlank();
             assertThat(en.getProperty(key)).as("en 缺关键键 %s", key).isNotBlank();
@@ -265,13 +266,13 @@ class PluginMarketPageGuardTest {
     }
 
     @Test
-    @DisplayName("Vue 与基础回退视图共用插件权限说明 i18n key")
+    @DisplayName("Vue 与基础回退视图共用插件执行说明和高权限宿主警告")
     void rendersSecurityNoticeInVueAndFallback() throws IOException {
         String vue = read(VUE);
         String fallback = read(FALLBACK);
 
-        assertThat(vue).contains("pmk-security-notice", "security.notice");
-        assertThat(fallback).contains("pmk-security-notice", "security.notice");
+        assertThat(vue).contains("pmk-security-notice", "security.notice", "host.elevated.notice");
+        assertThat(fallback).contains("pmk-security-notice", "security.notice", "host.elevated.notice");
     }
 
     @Test
@@ -311,6 +312,22 @@ class PluginMarketPageGuardTest {
     }
 
     @Test
+    @DisplayName("精确制品信任确认复用共享反馈框，并由 Vue / 基础回退共同走同一请求状态机")
+    void artifactTrustConfirmationUsesSharedGuard() throws IOException {
+        String core = read(CORE);
+        String api = read(API);
+        String vue = read(VUE);
+        String fallback = read(FALLBACK);
+
+        assertThat(core).contains("TRUST_CONFIRMATION_REQUIRED",
+                "trustRequirement", "artifactSha256", "PixivFeedback.confirm", "installPluginWithConfirmation");
+        assertThat(api).contains("confirmTrust=").doesNotContain("confirmIdentityMigration");
+        assertThat(vue).contains("PMK.installPluginWithConfirmation(repositoryId, pluginId, version)");
+        assertThat(fallback).contains("PMK.installPluginWithConfirmation(repositoryId, pluginId, version)");
+        assertThat(core + vue + fallback).doesNotContain("window.confirm(", "global.confirm(");
+    }
+
+    @Test
     @DisplayName("市场安装响应中的自动依赖结果会同步更新依赖卡片，并在安装后刷新当前 catalog")
     void dependencyInstallResultsUpdateCardsAndRefreshCatalog() throws IOException {
         String data = read(DATA);
@@ -347,7 +364,7 @@ class PluginMarketPageGuardTest {
     }
 
     @Test
-    @DisplayName("验签状态只消费后端投影：市场卡片 / 详情 / 安装态不按 sha256、HTTPS、仓库名或 keyId 推断可信")
+    @DisplayName("验签状态只消费后端投影：市场卡片 / 详情 / 安装态不按摘要、仓库名或 keyId 推断可信")
     void verificationRenderingUsesBackendProjectionOnly() throws IOException {
         String data = read(DATA);
         String vue = read(VUE);
@@ -369,8 +386,9 @@ class PluginMarketPageGuardTest {
                         ".pmk-verification-badge--danger", ".pmk-detail-verification--danger");
         assertThat(core).as("安装按钮状态覆盖验签失败状态")
                 .contains("SIGNATURE_REQUIRED", "UNKNOWN_KEY", "INVALID_SIGNATURE", "HASH_MISMATCH");
-        assertThat(data + core).as("可信状态不得由摘要 / key 名称 / 仓库名硬推断")
-                .doesNotContain("sha256")
+        assertThat(data).as("卡片数据模型不得由摘要硬推断可信状态")
+                .doesNotContain("sha256");
+        assertThat(data + core).as("可信状态不得由 key 名称 / 仓库名硬推断")
                 .doesNotContain("keyId")
                 .doesNotContain("repositoryId === 'official'");
     }

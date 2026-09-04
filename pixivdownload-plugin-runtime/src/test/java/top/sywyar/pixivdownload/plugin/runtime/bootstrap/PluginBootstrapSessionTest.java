@@ -69,9 +69,9 @@ class PluginBootstrapSessionTest extends PluginBootstrapSessionTestSupport {
     @Test
     @DisplayName("ownership：createProcess=PROCESS、createContext=CONTEXT")
     void ownershipFactoryMethods() {
-        PluginBootstrapSession process = PluginBootstrapSession.createProcess(
+        PluginBootstrapSession process = createProcess(
                 tempDir.resolve("p"), PluginEnabledSnapshot.empty());
-        PluginBootstrapSession context = PluginBootstrapSession.createContext(
+        PluginBootstrapSession context = createContext(
                 tempDir.resolve("c"), PluginEnabledSnapshot.empty());
         assertThat(process.ownership()).isEqualTo(PluginBootstrapSession.Ownership.PROCESS);
         assertThat(context.ownership()).isEqualTo(PluginBootstrapSession.Ownership.CONTEXT);
@@ -80,7 +80,7 @@ class PluginBootstrapSessionTest extends PluginBootstrapSessionTestSupport {
     @Test
     @DisplayName("manager 构造严格晚于恢复结论：start 前不可取得，start 后保持唯一实例")
     void managerConstructedOnlyAfterRecoveryDecision() {
-        PluginBootstrapSession session = PluginBootstrapSession.createContext(
+        PluginBootstrapSession session = createContext(
                 tempDir.resolve("deferred-manager"), PluginEnabledSnapshot.empty());
         try {
             assertThatThrownBy(session::manager)
@@ -252,7 +252,7 @@ class PluginBootstrapSessionTest extends PluginBootstrapSessionTestSupport {
     @Test
     @DisplayName("启用快照：透传且默认全部启用；status 在 start 后保存")
     void enabledSnapshotPassedThroughAndStatusSaved() {
-        PluginBootstrapSession session = PluginBootstrapSession.createContext(
+        PluginBootstrapSession session = createContext(
                 tempDir, PluginEnabledSnapshot.ofDisabled(java.util.List.of("novel"), java.util.List.of()));
         assertThat(session.enabledSnapshot().isEnabled("novel")).isFalse();
         assertThat(session.enabledSnapshot().isEnabled("gallery")).isTrue();
@@ -274,7 +274,7 @@ class PluginBootstrapSessionTest extends PluginBootstrapSessionTestSupport {
         Files.createFile(marker);
         System.setProperty("bootstrap.probe.marker", marker.toString());
 
-        PluginBootstrapSession session = PluginBootstrapSession.createProcess(pluginsDir, PluginEnabledSnapshot.empty());
+        PluginBootstrapSession session = createProcess(pluginsDir, PluginEnabledSnapshot.empty());
         session.start();
 
         // 探针被 PF4J 加载（构造）+ 启动（start）各一次
@@ -294,7 +294,7 @@ class PluginBootstrapSessionTest extends PluginBootstrapSessionTestSupport {
         // close 停止 + 卸载探针，jar 文件锁释放（Windows 下可删）
         session.close();
         assertThat(countOccurrences(Files.readString(marker, StandardCharsets.UTF_8), "stop")).isEqualTo(1);
-        assertThat(session.manager().pluginManager()).isEmpty();
+        assertThat(session.manager().isPhysicalRuntimeInitialized()).isFalse();
         assertThat(Files.deleteIfExists(jar)).isTrue();
     }
 }

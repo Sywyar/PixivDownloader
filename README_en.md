@@ -68,21 +68,13 @@ Download the latest version from [Releases](../../releases):
 
 | Type                                | Description                                                                                          |
 |-------------------------------------|------------------------------------------------------------------------------------------------------|
-| `PixivDownload-*-win-x64-setup.exe` | Windows installer; repair/change/uninstall, optional FFmpeg install; preinstalls all official plugins except Douyin |
-| `PixivDownload-*-java.zip`          | Java standard package (cross-platform), requires Java 17; same default plugin set as the Windows installer, no Douyin |
-| `PixivDownload-*-full-offline.zip`  | Full-offline package (cross-platform), requires Java 17; includes all user-facing official plugins including Douyin |
-
-> The core-shell `PixivDownload-*.jar` is only an internal build input and is not provided as a regular user
-> attachment; running it standalone is missing the required `download-workbench` external plugin and enters
-> recovery/repair mode.
+| `PixivDownload-*-win-x64-setup.exe` | Windows installer with bundled JRE; repair/change/uninstall and optional FFmpeg installation; includes the official plugin distribution set, without Douyin |
+| `PixivDownload-*-java.zip`          | Java standard package (cross-platform), requires Java 17; same plugin set as the Windows installer, without Douyin |
+| `PixivDownload-*-full-offline.zip`  | Full-offline package (cross-platform), requires Java 17; same plugin set as the Java standard package, without Douyin |
 
 The Java standard package and the full-offline package must be **fully extracted** before use — do not take out only
 the JAR: the launcher scripts and the `plugins/` directory are both required, because external official plugins are
 loaded from the working directory's `plugins/` folder at startup.
-
-GUI-managed FFmpeg installation downloads a project-maintained `ffmpeg-stable` Release built from the latest official
-stable FFmpeg source for Windows x64, Linux x64/arm64, or macOS x64/arm64. Other platforms can still use a manually
-installed system FFmpeg.
 
 ### Run
 

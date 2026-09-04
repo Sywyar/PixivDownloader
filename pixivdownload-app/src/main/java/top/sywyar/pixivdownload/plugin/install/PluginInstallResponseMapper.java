@@ -60,7 +60,8 @@ public class PluginInstallResponseMapper {
                 report.activated(),
                 report.rolledBack(),
                 report.rollbackVersion(),
-                report.dependencyInstallResults());
+                report.dependencyInstallResults(),
+                report.trustRequirement());
         return ResponseEntity.status(httpStatus).body(body);
     }
 }

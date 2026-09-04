@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 
 import java.io.IOException;
@@ -29,7 +30,7 @@ class PluginPackageReaderTest {
     Path tempDir;
 
     @Test
-    @DisplayName("解压目录形态（根 plugin.properties + classes/）：识别为 EXPLODED_DIRECTORY 并映射包级描述符")
+    @DisplayName("显式宿主完全信任的解压目录描述符可读取")
     void readsExplodedDirectoryLayout() {
         Path zip = PluginPackageFixtures.explodedZip(tempDir.resolve("p.zip"),
                 "ext-stats", "1.2.0", "1.0", "com.example.ExtStatsPlugin");
@@ -45,8 +46,27 @@ class PluginPackageReaderTest {
         assertThat(descriptor.version()).isEqualTo("1.2.0");
         assertThat(descriptor.pluginClass()).isEqualTo("com.example.ExtStatsPlugin");
         assertThat(descriptor.kind()).isEqualTo(PluginKind.FEATURE);
+        assertThat(descriptor.executionMode()).isEqualTo(PluginExecutionMode.HOST_PROCESS_FULL_TRUST);
         assertThat(descriptor.externalValidationErrors()).isEmpty();
         assertThat(descriptor.isSdkCompatible()).isTrue();
+    }
+
+    @Test
+    @DisplayName("缺少执行模式时按畸形描述符失败关闭")
+    void rejectsMissingExecutionMode() {
+        String properties = PluginPackageReader.KEY_ID + "=missing-mode\n"
+                + PluginPackageReader.KEY_VERSION + "=1.0.0\n"
+                + PluginPackageReader.KEY_CLASS + "=com.example.MissingModePlugin\n";
+        Path zip = tempDir.resolve("missing-mode.zip");
+        PluginPackageFixtures.writeZip(zip, Map.of(
+                PluginPackageReader.PLUGIN_PROPERTIES, properties.getBytes(StandardCharsets.UTF_8),
+                "classes/Marker.class", PluginPackageFixtures.bytes("x")));
+
+        assertThatThrownBy(() -> PluginPackageReader.inspect(zip))
+                .isInstanceOfSatisfying(PluginPackageException.class, failure -> {
+                    assertThat(failure.reason()).isEqualTo(PluginPackageException.Reason.MALFORMED);
+                    assertThat(failure).hasMessageContaining("plugin execution mode is required");
+                });
     }
 
     @Test
@@ -103,6 +123,7 @@ class PluginPackageReaderTest {
         String properties = PluginPackageReader.KEY_ID + "=ext\n"
                 + PluginPackageReader.KEY_VERSION + "=1.0.0\n"
                 + PluginPackageReader.KEY_CLASS + "=com.example.P\n"
+                + PluginPackageReader.KEY_PIXIV_EXECUTION_MODE + "=host-process-full-trust\n"
                 + PluginPackageReader.KEY_DEPENDENCIES + "=novel@1.0, gallery?\n";
         Map<String, byte[]> entries = new LinkedHashMap<>();
         entries.put(PluginPackageReader.PLUGIN_PROPERTIES, properties.getBytes(StandardCharsets.UTF_8));
@@ -149,7 +170,11 @@ class PluginPackageReaderTest {
                 + PluginPackageReader.KEY_PIXIV_DESCRIPTION_KEY + "=plugin.summary\n"
                 + PluginPackageReader.KEY_PIXIV_ICON_KEY + "=mail\n"
                 + PluginPackageReader.KEY_PIXIV_COLOR_TOKEN + "=green\n"
-                + PluginPackageReader.KEY_PIXIV_LIFECYCLE_POLICY + "=backend-restart\n";
+                + PluginPackageReader.KEY_PIXIV_KIND + "=feature\n"
+                + PluginPackageReader.KEY_PIXIV_CONFIGURATION_CLASSES
+                + "=com.example.MailConfiguration,com.example.MailWebConfiguration\n"
+                + PluginPackageReader.KEY_PIXIV_LIFECYCLE_POLICY + "=process-restart\n"
+                + PluginPackageReader.KEY_PIXIV_EXECUTION_MODE + "=host-process-full-trust\n";
         Map<String, byte[]> entries = new LinkedHashMap<>();
         entries.put(PluginPackageReader.PLUGIN_PROPERTIES, properties.getBytes(StandardCharsets.UTF_8));
         entries.put("classes/Marker.class", PluginPackageFixtures.bytes("x"));
@@ -163,16 +188,21 @@ class PluginPackageReaderTest {
         assertThat(descriptor.description()).isEqualTo("plugin.summary");
         assertThat(descriptor.iconKey()).isEqualTo("mail");
         assertThat(descriptor.colorToken()).isEqualTo("green");
-        assertThat(descriptor.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.BACKEND_RESTART);
+        assertThat(descriptor.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.PROCESS_RESTART);
+        assertThat(descriptor.executionMode()).isEqualTo(PluginExecutionMode.HOST_PROCESS_FULL_TRUST);
+        assertThat(descriptor.kind()).isEqualTo(PluginKind.FEATURE);
+        assertThat(descriptor.configurationClassNames())
+                .containsExactly("com.example.MailConfiguration", "com.example.MailWebConfiguration");
         assertThat(descriptor.externalValidationErrors()).isEmpty();
     }
 
     @Test
-    @DisplayName("旧第三方插件缺 pixiv.* 字段时：展示名沿用 plugin.description/id fallback，仍可安装列出")
+    @DisplayName("插件缺少可选展示字段时：展示名沿用 plugin.description/id fallback，仍可安装列出")
     void legacyDescriptorFallsBackWithoutCanonicalDisplayMetadata() {
         String properties = PluginPackageReader.KEY_ID + "=legacy\n"
                 + PluginPackageReader.KEY_VERSION + "=1.0.0\n"
                 + PluginPackageReader.KEY_CLASS + "=com.example.LegacyPlugin\n"
+                + PluginPackageReader.KEY_PIXIV_EXECUTION_MODE + "=host-process-full-trust\n"
                 + PluginPackageReader.KEY_DESCRIPTION + "=Legacy Plugin\n";
         Map<String, byte[]> entries = new LinkedHashMap<>();
         entries.put(PluginPackageReader.PLUGIN_PROPERTIES, properties.getBytes(StandardCharsets.UTF_8));
@@ -207,6 +237,44 @@ class PluginPackageReaderTest {
                 .isInstanceOfSatisfying(PluginPackageException.class, failure -> {
                     assertThat(failure.reason()).isEqualTo(PluginPackageException.Reason.MALFORMED);
                     assertThat(failure).hasMessageContaining("unsupported plugin lifecycle policy");
+                });
+    }
+
+    @Test
+    @DisplayName("显式未知执行模式 token 作为错误清单被拒绝")
+    void rejectsUnknownExecutionMode() {
+        String properties = PluginPackageFixtures.pluginProperties(
+                "bad-mode", "1.0.0", "1.0", "com.example.BadModePlugin")
+                + PluginPackageReader.KEY_PIXIV_EXECUTION_MODE + "=sometimes-isolated\n";
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        entries.put(PluginPackageReader.PLUGIN_PROPERTIES, properties.getBytes(StandardCharsets.UTF_8));
+        entries.put("classes/Marker.class", PluginPackageFixtures.bytes("x"));
+        Path zip = tempDir.resolve("bad-mode.zip");
+        PluginPackageFixtures.writeZip(zip, entries);
+
+        assertThatThrownBy(() -> PluginPackageReader.inspect(zip))
+                .isInstanceOfSatisfying(PluginPackageException.class, failure -> {
+                    assertThat(failure.reason()).isEqualTo(PluginPackageException.Reason.MALFORMED);
+                    assertThat(failure).hasMessageContaining("unsupported plugin execution mode");
+                });
+    }
+
+    @Test
+    @DisplayName("显式未知插件类型作为错误清单被拒绝")
+    void rejectsUnknownPluginKind() {
+        String properties = PluginPackageFixtures.pluginProperties(
+                "bad-kind", "1.0.0", "1.0", "com.example.BadKindPlugin")
+                + PluginPackageReader.KEY_PIXIV_KIND + "=system\n";
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        entries.put(PluginPackageReader.PLUGIN_PROPERTIES, properties.getBytes(StandardCharsets.UTF_8));
+        entries.put("classes/Marker.class", PluginPackageFixtures.bytes("x"));
+        Path zip = tempDir.resolve("bad-kind.zip");
+        PluginPackageFixtures.writeZip(zip, entries);
+
+        assertThatThrownBy(() -> PluginPackageReader.inspect(zip))
+                .isInstanceOfSatisfying(PluginPackageException.class, failure -> {
+                    assertThat(failure.reason()).isEqualTo(PluginPackageException.Reason.MALFORMED);
+                    assertThat(failure).hasMessageContaining("unsupported plugin kind");
                 });
     }
 

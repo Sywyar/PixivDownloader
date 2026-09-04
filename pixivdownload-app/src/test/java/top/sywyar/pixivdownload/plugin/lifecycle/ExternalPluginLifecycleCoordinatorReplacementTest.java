@@ -137,6 +137,7 @@ class ExternalPluginLifecycleCoordinatorReplacementTest {
         doThrow(new AssertionError("wrapper removed before unload failure"))
                 .when(runtimeManager).unloadPlugin(retiredId);
         when(runtimeManager.loadPlugin(retiredArtifact)).thenReturn(reloaded);
+        when(runtimeManager.initializePlugin(retiredId)).thenReturn(reloaded);
         when(installer.discardPrepared(prepared)).thenReturn(true);
 
         var activation = new ExternalPluginLifecycleCoordinator(

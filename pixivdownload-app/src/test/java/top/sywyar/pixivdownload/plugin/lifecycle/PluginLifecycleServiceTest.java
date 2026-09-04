@@ -96,6 +96,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -169,6 +170,40 @@ class PluginLifecycleServiceTest extends PluginLifecycleServiceTestSupport {
 
             service.stopAll();
         }
+    }
+
+    @Test
+    @DisplayName("隔离 worker 崩溃撤回服务足迹，恢复后仅重建同 generation")
+    void isolatedWorkerCrashWithdrawsAndRecoveryRestoresServingFootprint() {
+        MockHarness h = new MockHarness();
+        Consumer<PluginRuntimeManager.WorkerEvent> listener = h.workerListener.get();
+
+        listener.accept(new PluginRuntimeManager.WorkerEvent(
+                PluginRuntimeManager.WorkerEventType.CRASHED,
+                "ext-demo", 2L, "1.0.0", Path.of("target/ext-demo.jar"),
+                1, 0, "stale worker", Path.of("target/ext-demo.stderr.log")));
+        assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.STARTED);
+
+        listener.accept(new PluginRuntimeManager.WorkerEvent(
+                PluginRuntimeManager.WorkerEventType.CRASHED,
+                "ext-demo", 1L, "1.0.0", Path.of("target/ext-demo.jar"),
+                1, 0, "worker exited", Path.of("target/ext-demo.stderr.log")));
+
+        assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.STOPPED);
+        assertThat(h.plugin.stopCount).isEqualTo(1);
+        verify(h.registry).recordLifecycleFailure(same(h.registered), any(PluginLifecycleException.class));
+
+        listener.accept(new PluginRuntimeManager.WorkerEvent(
+                PluginRuntimeManager.WorkerEventType.RECOVERED,
+                "ext-demo", 1L, "1.0.0", Path.of("target/ext-demo.jar"),
+                1, 1, "isolated plugin worker restarted", null));
+
+        assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.STARTED);
+        assertThat(h.plugin.startCount).isEqualTo(1);
+        verify(h.webRegistrar).commit(any(PreparedWebContribution.class));
+
+        h.service.stopAll();
+        verify(h.runtime).removeWorkerListener(same(listener));
     }
 
     @Test

@@ -157,6 +157,35 @@ class PluginPackageVerifierTest {
     }
 
     @Test
+    @DisplayName("根插件 JAR 不得夹带宿主共享命名空间")
+    void rejectsHostControlledClassInRootPluginJar() {
+        Path jar = dir.resolve("shared-class.jar");
+        PluginPackageFixtures.writeZip(jar, Map.of(
+                "plugin.properties", PluginPackageFixtures.bytes("plugin.id=ext\n"),
+                "top/sywyar/pixivdownload/plugin/api/plugin/PixivFeaturePlugin.class",
+                PluginPackageFixtures.bytes("shadow")
+        ));
+
+        assertUnsafe(jar);
+    }
+
+    @Test
+    @DisplayName("私有依赖与 multi-release entry 也不得夹带 PF4J 类")
+    void rejectsHostControlledClassInPrivateMultiReleaseJar() {
+        byte[] privateJar = PluginPackageFixtures.zipBytes(Map.of(
+                "META-INF/versions/17/org/pf4j/PluginManager.class",
+                PluginPackageFixtures.bytes("shadow")
+        ));
+        Path jar = dir.resolve("shared-private-lib.jar");
+        PluginPackageFixtures.writeZip(jar, Map.of(
+                "plugin.properties", PluginPackageFixtures.bytes("plugin.id=ext\n"),
+                "lib/private.jar", privateJar
+        ));
+
+        assertUnsafe(jar);
+    }
+
+    @Test
     @DisplayName("根 inner JAR 的内部 entry 数也计入统一上限")
     void countsEntriesInsideRootInnerJar() {
         Map<String, byte[]> innerEntries = new LinkedHashMap<>();
@@ -207,6 +236,44 @@ class PluginPackageVerifierTest {
                     .isInstanceOfSatisfying(PluginPackageException.class,
                             failure -> assertThat(failure.reason()).isEqualTo(PluginPackageException.Reason.UNSAFE));
         }
+    }
+
+    @Test
+    @DisplayName("路径字符数和目录深度分别按配置上限拒绝并给出准确原因")
+    void rejectsConfiguredEntryNameAndDepthLimits() {
+        Path longName = dir.resolve("long-name.zip");
+        PluginPackageFixtures.writeZip(longName, Map.of("classes/Marker.class", new byte[0]));
+        PluginPackageLimits nameLimits = new PluginPackageLimits(
+                1_000_000, 100, 1_000_000, 1_000_000, 10_000, 1_000, 10, 10);
+        assertThatThrownBy(() -> PluginPackageVerifier.verify(longName, nameLimits))
+                .isInstanceOfSatisfying(PluginPackageException.class, failure -> {
+                    assertThat(failure.reason()).isEqualTo(PluginPackageException.Reason.TOO_LARGE);
+                    assertThat(failure).hasMessageContaining("entry name exceeds 10 characters");
+                });
+
+        Path deep = dir.resolve("deep.zip");
+        PluginPackageFixtures.writeZip(deep, Map.of("a/b/c.txt", new byte[0]));
+        PluginPackageLimits depthLimits = new PluginPackageLimits(
+                1_000_000, 100, 1_000_000, 1_000_000, 10_000, 1_000, 100, 2);
+        assertThatThrownBy(() -> PluginPackageVerifier.verify(deep, depthLimits))
+                .isInstanceOfSatisfying(PluginPackageException.class, failure -> {
+                    assertThat(failure.reason()).isEqualTo(PluginPackageException.Reason.TOO_LARGE);
+                    assertThat(failure).hasMessageContaining("entry depth exceeds 2 segments");
+                });
+    }
+
+    @Test
+    @DisplayName("Unix 符号链接或特殊文件元数据在物化前按 UNSAFE 拒绝")
+    void rejectsUnixSymlinkMetadata() {
+        Path zip = dir.resolve("symlink.zip");
+        PluginPackageFixtures.writeZip(zip, Map.of("classes/link.class", PluginPackageFixtures.bytes("target")));
+        PluginPackageFixtures.markEntryAsUnixSymlink(zip, "classes/link.class");
+
+        assertThatThrownBy(() -> PluginPackageVerifier.verify(zip, PluginPackageLimits.defaults()))
+                .isInstanceOfSatisfying(PluginPackageException.class, failure -> {
+                    assertThat(failure.reason()).isEqualTo(PluginPackageException.Reason.UNSAFE);
+                    assertThat(failure).hasMessageContaining("symbolic link or special file");
+                });
     }
 
     @Test

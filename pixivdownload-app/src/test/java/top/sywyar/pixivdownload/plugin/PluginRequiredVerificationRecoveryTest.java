@@ -199,12 +199,12 @@ class PluginRequiredVerificationRecoveryTest {
     }
 
     @Test
-    @DisplayName("local unsigned optional：有显式本地 sidecar 时允许加载，并投影为 UNSIGNED_ALLOWED / 本地来源")
+    @DisplayName("local unsigned optional：显式开发态准入时允许加载并投影为本地来源")
     void localUnsignedOptionalAllowedWithExplicitSidecar() throws Exception {
         Scenario scenario = scenario("local-unsigned");
         PluginTestProvenance.writeLocalUpload(scenario.pluginsDir(), scenario.jar(), PLUGIN_ID, VERSION);
 
-        PluginRuntimeManager manager = start(scenario, new PluginSupplyChainVerifier());
+        PluginRuntimeManager manager = startDevelopmentTrust(scenario, new PluginSupplyChainVerifier());
         try {
             assertThat(manager.status().orElseThrow().startedPluginIds()).contains(PLUGIN_ID);
             PluginProvenanceRecord provenance =
@@ -212,6 +212,27 @@ class PluginRequiredVerificationRecoveryTest {
             assertThat(provenance.offlineStatus()).isEqualTo(VerificationStatus.UNSIGNED_ALLOWED);
             assertThat(PluginVerificationProjector.fromProvenance(provenance).status())
                     .isEqualTo(PluginVerificationProjector.UNSIGNED_ALLOWED);
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("生产模式在 PF4J 前拒绝开发专用本地未签名插件")
+    void localUnsignedOptionalRejectedOutsideDevelopmentMode() throws Exception {
+        Scenario scenario = scenario("local-unsigned-production");
+        PluginTestProvenance.writeLocalUpload(scenario.pluginsDir(), scenario.jar(), PLUGIN_ID, VERSION);
+
+        PluginRuntimeManager manager = start(scenario, new PluginSupplyChainVerifier());
+        try {
+            assertThat(manager.status().orElseThrow().startedPluginIds()).doesNotContain(PLUGIN_ID);
+            assertThat(manager.status().orElseThrow().failures()).singleElement()
+                    .satisfies(failure -> assertThat(failure.reason())
+                            .contains("development-only plugin requires active development mode"));
+            assertThat(Files.readString(scenario.marker(), StandardCharsets.UTF_8)).isEmpty();
+            PluginProvenanceRecord provenance =
+                    new PluginProvenanceStore(scenario.pluginsDir()).read(scenario.jar()).orElseThrow();
+            assertThat(provenance.offlineStatus()).isEqualTo(VerificationStatus.UNSIGNED_ALLOWED);
         } finally {
             manager.shutdown();
         }
@@ -236,6 +257,13 @@ class PluginRequiredVerificationRecoveryTest {
 
     private static PluginRuntimeManager start(Scenario scenario, PluginSupplyChainVerifier verifier) {
         PluginRuntimeManager manager = new PluginRuntimeManager(scenario.pluginsDir(), verifier);
+        manager.start();
+        return manager;
+    }
+
+    private static PluginRuntimeManager startDevelopmentTrust(
+            Scenario scenario, PluginSupplyChainVerifier verifier) {
+        PluginRuntimeManager manager = new DevelopmentTrustPluginRuntimeManager(scenario.pluginsDir(), verifier);
         manager.start();
         return manager;
     }
@@ -266,6 +294,7 @@ class PluginRequiredVerificationRecoveryTest {
         Files.createDirectories(pluginsDir);
         Path jar = pluginsDir.resolve("bootstrap-probe-1.0.0.jar");
         String props = "plugin.id=" + PLUGIN_ID + "\nplugin.version=" + VERSION + "\nplugin.requires=1.0\n"
+                + "pixiv.execution-mode=host-process-full-trust\n"
                 + "plugin.class=" + BackendRestartProbePlugin.class.getName() + "\n"
                 + "plugin.provider=test\nplugin.description=bootstrap probe\n";
         try (OutputStream out = Files.newOutputStream(jar); ZipOutputStream zos = new ZipOutputStream(out)) {
@@ -323,6 +352,13 @@ class PluginRequiredVerificationRecoveryTest {
     }
 
     private record Scenario(Path pluginsDir, Path jar, Path marker) {
+    }
+
+    private static final class DevelopmentTrustPluginRuntimeManager extends PluginRuntimeManager {
+
+        private DevelopmentTrustPluginRuntimeManager(Path pluginsRoot, PluginSupplyChainVerifier verifier) {
+            super(pluginsRoot, ignored -> verifier, () -> true);
+        }
     }
 
     private record SigningFixture(String keyId, PrivateKey privateKey, TrustedPluginKey trustedKey) {

@@ -108,6 +108,7 @@ class ExternalPluginLifecycleCoordinatorTest {
         when(lifecycleService.generation(pluginId)).thenReturn(Optional.of(1L));
         when(runtimeManager.unloadPlugin(pluginId)).thenReturn(unloaded).thenThrow(cleanupFailure);
         when(runtimeManager.loadPlugin(artifact)).thenReturn(loaded);
+        when(runtimeManager.initializePlugin(pluginId)).thenReturn(loaded);
         when(loaded.packageId()).thenReturn(pluginId);
         doThrow(startFailure).when(runtimeManager).startPlugin(pluginId);
 
@@ -211,6 +212,7 @@ class ExternalPluginLifecycleCoordinatorTest {
         when(runtimeManager.packagePhases()).thenReturn(Map.of());
         when(installer.commitTransaction(prepared)).thenReturn(committed);
         when(runtimeManager.loadPlugin(target)).thenReturn(loaded);
+        when(runtimeManager.initializePlugin(pluginId)).thenReturn(loaded);
         when(lifecycleService.phase(pluginId)).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
 
         PluginActivationResult activation = coordinator().installOrUpdate(
@@ -486,6 +488,7 @@ class ExternalPluginLifecycleCoordinatorTest {
         when(runtimeManager.artifactPath(pluginId)).thenReturn(Optional.empty());
         when(installer.commitTransaction(prepared)).thenReturn(committed);
         when(runtimeManager.loadPlugin(prepared.target())).thenReturn(loaded);
+        when(runtimeManager.initializePlugin(pluginId)).thenReturn(loaded);
         when(lifecycleService.phase(pluginId)).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
         doThrow(new AssertionError("post-terminal refresh failed")).when(recoveryModeService).refresh();
 
@@ -758,6 +761,7 @@ class ExternalPluginLifecycleCoordinatorTest {
             return committed;
         });
         when(runtimeManager.loadPlugin(target)).thenReturn(loaded);
+        when(runtimeManager.initializePlugin(pluginId)).thenReturn(loaded);
         when(lifecycleService.phase(pluginId)).thenReturn(
                 Optional.of(PluginRuntimePhase.STARTED),
                 Optional.of(PluginRuntimePhase.STOPPED),
@@ -846,6 +850,7 @@ class ExternalPluginLifecycleCoordinatorTest {
             return committed;
         });
         when(runtimeManager.loadPlugin(prepared.target())).thenReturn(loaded);
+        when(runtimeManager.initializePlugin(pluginId)).thenReturn(loaded);
         when(lifecycleService.phase(pluginId)).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
         doAnswer(invocation -> {
             committed.confirmDurableState(CommittedPluginTransaction.DurableState.ACTIVATED);
@@ -887,6 +892,7 @@ class ExternalPluginLifecycleCoordinatorTest {
             return committed;
         });
         when(runtimeManager.loadPlugin(prepared.target())).thenReturn(loaded);
+        when(runtimeManager.initializePlugin(pluginId)).thenReturn(loaded);
         when(lifecycleService.phase(pluginId)).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
         doAnswer(invocation -> {
             committed.confirmDurableState(CommittedPluginTransaction.DurableState.ACTIVATED);

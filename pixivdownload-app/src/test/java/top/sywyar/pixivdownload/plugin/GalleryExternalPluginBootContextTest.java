@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
@@ -53,6 +54,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "pixivdownload.plugins-dir=target/test-runtime/plugins-external-gallery",
         "setup.browser.auto-open=false"
 })
+@ContextConfiguration(initializers = PluginTestProvenance.VerifiedLocalPluginBootstrapInitializer.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @EnabledIf("externalGalleryJarStaged")
@@ -107,18 +109,7 @@ class GalleryExternalPluginBootContextTest {
     @AfterAll
     void releasePluginsAndCleanup() {
         if (pluginRuntimeManager != null) {
-            pluginRuntimeManager.pluginManager().ifPresent(pm -> {
-                try {
-                    pm.stopPlugins();
-                } catch (Exception ignored) {
-                    // best-effort
-                }
-                try {
-                    pm.unloadPlugins();
-                } catch (Exception ignored) {
-                    // best-effort
-                }
-            });
+            pluginRuntimeManager.shutdown();
         }
         deleteRecursivelyQuietly(PLUGINS_DIR);
         System.clearProperty(RuntimeFiles.CONFIG_DIR_PROPERTY);
@@ -294,7 +285,7 @@ class GalleryExternalPluginBootContextTest {
             Files.createDirectories(PLUGINS_DIR);
             Path jar = PLUGINS_DIR.resolve("gallery-plugin.jar");
             zipDirectoryAsJar(galleryClasses, jar);
-            PluginTestProvenance.writeLocalUpload(PLUGINS_DIR, jar, "gallery", "1.0.0");
+            PluginTestProvenance.writeVerifiedLocalUpload(PLUGINS_DIR, jar, "gallery", "1.0.0");
             return true;
         } catch (IOException | RuntimeException ex) {
             return false;

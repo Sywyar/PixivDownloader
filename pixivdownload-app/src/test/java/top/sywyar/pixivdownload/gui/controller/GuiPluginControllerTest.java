@@ -80,6 +80,7 @@ class GuiPluginControllerTest {
     private static PluginManagementReport report(boolean recoveryMode, List<PluginManagementEntry> plugins) {
         return new PluginManagementReport(
                 recoveryMode,
+                false,
                 new TransactionRecoveryView("SAFE", true, List.of()),
                 List.of(),
                 plugins);
@@ -266,6 +267,7 @@ class GuiPluginControllerTest {
                     plugin.version=1.0.0
                     plugin.class=com.example.%sPlugin
                     plugin.requires=1.0
+                    pixiv.execution-mode=host-process-full-trust
                     pixiv.display-namespace=%s
                     pixiv.display-name-key=plugin.name
                     pixiv.description-key=plugin.summary

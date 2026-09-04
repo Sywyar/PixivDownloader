@@ -37,6 +37,11 @@ class ExampleDownloadPluginTest {
         assertEquals(
                 ExampleDownloadPf4jPlugin.class.getName(),
                 properties.getProperty("plugin.class"));
+        assertEquals("feature", properties.getProperty("pixiv.kind"));
+        assertEquals(ExampleDownloadConfiguration.class.getName(),
+                properties.getProperty("pixiv.configuration-classes"));
+        assertEquals("process-restart", properties.getProperty("pixiv.lifecycle-policy"));
+        assertEquals("host-process-full-trust", properties.getProperty("pixiv.execution-mode"));
     }
 
     @Test

@@ -109,11 +109,14 @@ class PluginBootstrapBackendRestartTest {
     @DisplayName("start→RUNNING→restart→RUNNING→stop：探针 load/start 各一次、manager/实例/generation 不变、context 关闭不关会话")
     void realBootstrapSpringRestartReusesProcessSession() throws Exception {
         // 1. 进程级 PROCESS 会话 + 真实 PF4J load/start（探针记录 load=1, start=1）
-        session = PluginBootstrapSession.createProcess(pluginsDir, PluginEnabledSnapshot.empty());
+        session = PluginBootstrapSession.createProcess(
+                pluginsDir,
+                PluginEnabledSnapshot.empty(),
+                PluginTestProvenance.verifier());
         session.start();
         PluginRuntimeManager originalManager = session.manager();
         assertMarkerCounts(1, 1, 0);
-        assertThat(originalManager.pluginManager()).as("PF4J manager 已就绪").isPresent();
+        assertThat(originalManager.isPhysicalRuntimeInitialized()).as("PF4J manager 已就绪").isTrue();
         assertThat(originalManager.generation("bootstrap-probe")).hasValue(1L);
 
         // 2. 配置真实 BackendStarter：直连 PixivDownloadApplication.start(args, session)，捕获 context 供 Bean 校验
@@ -177,7 +180,7 @@ class PluginBootstrapBackendRestartTest {
         assertThat(session.manager()).isSameAs(originalManager);
         assertThat(session.manager().generation("bootstrap-probe")).hasValue(1L);
         assertThat(probeClassLoader(session.manager())).isSameAs(classLoaderBefore);
-        assertThat(session.manager().pluginManager()).isPresent();
+        assertThat(session.manager().isPhysicalRuntimeInitialized()).isTrue();
         // 新 context 仍注入同一 PROCESS 会话 / manager
         ConfigurableApplicationContext secondCtx = ctxRef.get();
         assertThat(secondCtx).isNotSameAs(firstCtx);
@@ -198,7 +201,7 @@ class PluginBootstrapBackendRestartTest {
         // 9. 关 PROCESS 会话：探针 stop 一次、PF4J manager 释放、探针 JAR 可删（Windows classloader 已释放）
         session.close();
         assertMarkerCounts(1, 1, 1);
-        assertThat(session.manager().pluginManager()).isEmpty();
+        assertThat(session.manager().isPhysicalRuntimeInitialized()).isFalse();
         assertThat(Files.deleteIfExists(probeJar)).as("探针 JAR 在会话关闭、classloader 释放后应可删").isTrue();
         session = null;
     }
@@ -298,7 +301,9 @@ class PluginBootstrapBackendRestartTest {
         Path jar = pluginsDir.resolve("bootstrap-probe-1.0.0.jar");
         String props = "plugin.id=bootstrap-probe\nplugin.version=1.0.0\nplugin.requires=1.0\n"
                 + "plugin.class=" + BackendRestartProbePlugin.class.getName() + "\n"
-                + "plugin.provider=test\nplugin.description=bootstrap probe\n";
+                + "plugin.provider=test\nplugin.description=bootstrap probe\n"
+                + "pixiv.execution-mode=host-process-full-trust\n"
+                + "pixiv.lifecycle-policy=process-restart\n";
         try (OutputStream out = Files.newOutputStream(jar); ZipOutputStream zos = new ZipOutputStream(out)) {
             zos.putNextEntry(new ZipEntry("plugin.properties"));
             zos.write(props.getBytes(StandardCharsets.UTF_8));
@@ -306,7 +311,7 @@ class PluginBootstrapBackendRestartTest {
             addClassEntry(zos, BackendRestartProbePlugin.class);
             addClassEntry(zos, BackendRestartProbeFeaturePlugin.class);
         }
-        PluginTestProvenance.writeLocalUpload(pluginsDir, jar, "bootstrap-probe", "1.0.0");
+        PluginTestProvenance.writeVerifiedLocalUpload(pluginsDir, jar, "bootstrap-probe", "1.0.0");
         return jar;
     }
 

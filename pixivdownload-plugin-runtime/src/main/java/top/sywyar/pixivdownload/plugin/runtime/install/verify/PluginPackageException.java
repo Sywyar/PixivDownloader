@@ -25,7 +25,7 @@ public class PluginPackageException extends RuntimeException {
         NO_DESCRIPTOR,
         /** 布局歧义：根同时存在描述符与插件 jar，或存在多个根插件 jar 候选，无法确定唯一插件。 */
         AMBIGUOUS,
-        /** entry 名不安全、不可移植或规范化后重名。 */
+        /** entry 名不安全、不可移植、规范化后重名，或声明符号链接 / 特殊文件。 */
         UNSAFE,
         /**
          * 资源规模超限：归档文件体积、entry 数量、单 entry / 总解压字节、压缩比或描述符读取字节超出

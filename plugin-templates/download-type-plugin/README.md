@@ -2,6 +2,8 @@
 
 This standalone Maven project demonstrates a stable, resilient, and approachable PixivDownloader Plugin API surface for a new download type. It is intentionally deterministic: the endpoints produce mock items, the queue is in memory, and no external website, credential, proxy, database, or download directory is used.
 
+> **Execution trust warning:** this template requires a Spring child context and behavioral capabilities, so its descriptor is `host-process-full-trust` with `process-restart`. A third-party package can use this full-capability path in production after package verification and explicit administrator trust confirmation; a signature proves publisher identity and content integrity, not safety. Do not change the descriptor to `declarative-process` while retaining configuration classes, controllers, queues, schedules, or other in-process behavior.
+
 Before publishing a real plugin, replace these identities consistently:
 
 | Template value | Replace with |
@@ -17,6 +19,8 @@ Before publishing a real plugin, replace these identities consistently:
 | `/api/example-download/**` and `/example-download/**` | Plugin-owned API and static paths |
 
 Build from this directory with `mvn clean verify`, or build both repository templates with `mvn -f ../pom.xml clean verify`. The output is a thin PF4J JAR. PixivDownloader supplies Plugin API, PF4J, Spring, and Jackson from its parent classloader, so every such dependency remains `provided` and must not be copied into the JAR.
+
+The verified `pixiv.kind`, `pixiv.configuration-classes`, `pixiv.execution-mode`, and `pixiv.lifecycle-policy` entries in `plugin.properties` are authoritative at runtime. Keep the compatibility `configurationClasses()` result aligned with the descriptor for older hosts and SDK tooling.
 
 ## Stable examples included
 

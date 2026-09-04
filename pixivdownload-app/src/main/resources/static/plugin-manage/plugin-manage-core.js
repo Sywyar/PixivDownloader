@@ -4,9 +4,9 @@
  * 本模块只定义全局命名空间 PixivPluginManage，无任何顶层副作用（启动逻辑收拢在 plugin-manage-init.js）。
  *
  * 数据来源：后端管理 API（admin-only，已接线）。后端响应见 PluginManagementService.PluginManagementReport：
- *   { recoveryMode, plugins: [ { id, displayNamespace, displayNameKey, descriptionKey, iconKey, colorToken,
+ *   { recoveryMode, hostElevated, plugins: [ { id, displayNamespace, displayNameKey, descriptionKey, iconKey, colorToken,
  *     version, kind, sdkRequirement, dependencies, source, status, runtimePhase, managed, requiredByPolicy,
- *     allowDisable, lifecyclePolicy, configuredEnabled, toggleable, availableActions, messages } ] }
+ *     allowDisable, executionMode, lifecyclePolicy, configuredEnabled, toggleable, availableActions, messages } ] }
  * 其中 descriptionKey 是纯 i18n key（在 displayNamespace 内解析）；iconKey / colorToken 是<b>受控展示 token</b>
  * （非 URL / CSS / 远程资源），经共享 PixivPluginPresentationTokens 映射为图标 class / 颜色 class，未知值回退默认。设计稿里后端仍未
  * 提供的字段（更新机制 / 体积 / 下载量 / 作者）在此处优雅留空（见各 vm.hasUpdate 等占位字段），待后端补齐后再点亮。
@@ -108,6 +108,7 @@
         INSTALLED:             { key: 'status.installed', tone: 'idle' },
         RESOLVED:              { key: 'status.resolved', tone: 'info' },
         FAILED:                { key: 'status.failed', tone: 'bad' },
+        CRASHED:               { key: 'status.crashed', tone: 'bad' },
         INCOMPATIBLE:          { key: 'status.incompatible', tone: 'bad' },
         MISSING_REQUIRED:      { key: 'status.missing-required', tone: 'bad' },
         INCOMPATIBLE_REQUIRED: { key: 'status.incompatible-required', tone: 'bad' }
@@ -155,6 +156,36 @@
 
     function verificationMeta(status) {
         return VERIFICATION_META[status] || { key: 'verification.unverified-local', tone: 'idle' };
+    }
+
+    var TRUST_META = {
+        NOT_INSTALLED: { key: 'trust.state.not-installed', tone: 'idle', fallback: '尚未安装' },
+        BUILT_IN: { key: 'trust.state.built-in', tone: 'ok', fallback: '内置信任' },
+        DEVELOPMENT: { key: 'trust.state.development', tone: 'warn', fallback: '仅开发模式信任' },
+        OFFICIAL: { key: 'trust.state.official', tone: 'ok', fallback: '官方来源信任' },
+        APPROVED: { key: 'trust.state.approved', tone: 'ok', fallback: '已批准执行信任' },
+        CONFIRMATION_REQUIRED: { key: 'trust.state.confirmation-required', tone: 'warn', fallback: '需要执行信任确认' },
+        REVOKED: { key: 'trust.state.revoked', tone: 'bad', fallback: '执行信任已撤销' },
+        INVALID: { key: 'trust.state.invalid', tone: 'bad', fallback: '执行信任无效' }
+    };
+
+    function trustMeta(state) {
+        return TRUST_META[state] || TRUST_META.INVALID;
+    }
+
+    // 插件代码执行位置。未知 token 按宿主进程完全信任收敛，避免向用户误报隔离保护。
+    var EXECUTION_MODE_META = {
+        DECLARATIVE_PROCESS:     { key: 'execution.declarative-process', tone: 'info', fallback: '声明式独立 JVM（有限隔离）' },
+        HOST_PROCESS_FULL_TRUST: { key: 'execution.host-process-full-trust', tone: 'warn', fallback: '宿主进程完全信任' }
+    };
+
+    function executionModeOf(value) {
+        var token = value == null ? '' : String(value).trim().toUpperCase();
+        return token === 'DECLARATIVE_PROCESS' ? token : 'HOST_PROCESS_FULL_TRUST';
+    }
+
+    function executionModeMeta(mode) {
+        return EXECUTION_MODE_META[executionModeOf(mode)];
     }
 
     // 插件声明的启停生效策略。未知 token 按完整进程重启收敛，避免误走热启停。
@@ -219,6 +250,11 @@
         var verification = entry.verification || {};
         var verificationStatus = verification.status || null;
         var verificationInfo = verificationMeta(verificationStatus);
+        var trust = entry.trust || {};
+        var trustState = String(trust.state || 'INVALID');
+        var trustInfo = trustMeta(trustState);
+        var executionMode = executionModeOf(entry.executionMode);
+        var executionInfo = executionModeMeta(executionMode);
         var lifecyclePolicy = lifecyclePolicyOf(entry.lifecyclePolicy);
         var lifecycleInfo = lifecyclePolicyMeta(lifecyclePolicy);
         var configuredEnabled = entry.configuredEnabled !== false;
@@ -250,6 +286,10 @@
             running: running,
             enabled: enabled,
             configuredEnabled: configuredEnabled,
+            executionMode: executionMode,
+            executionLabel: t(executionInfo.key, executionInfo.fallback),
+            executionTone: executionInfo.tone,
+            showExecutionTag: source === 'external',
             lifecyclePolicy: lifecyclePolicy,
             lifecycleLabel: t(lifecycleInfo.key, lifecycleInfo.fallback),
             lifecycleTone: lifecycleInfo.tone,
@@ -261,6 +301,18 @@
             verificationLabel: verificationStatus ? t(verificationInfo.key, verificationStatus) : null,
             verificationTone: verificationInfo.tone,
             verificationTrustLabel: verification.trustLabel || verification.publisher || null,
+            trustState: trustState,
+            trustLabel: t(trustInfo.key, trustInfo.fallback),
+            trustTone: trustInfo.tone,
+            trustArtifactSha256: trust.artifactSha256 || null,
+            trustPublisherKeyFingerprint: trust.publisherKeyFingerprint || null,
+            trustApprovalType: trust.approvalType || null,
+            trustApprovedAt: trust.approvedAt || null,
+            trustRevokedAt: trust.revokedAt || null,
+            trustApprovable: trust.approvable === true,
+            trustRevocable: trust.revocable === true,
+            trustSource: verification.source || source,
+            trustPublisher: verification.publisher || verification.trustLabel || null,
             icon: iconClass(entry.iconKey),
             colorToken: colorTokenOf(entry.colorToken),
             badgeKey: 'source.' + source,
@@ -452,6 +504,73 @@
         };
     }
 
+    function trustConfirmationOptions(details) {
+        var r = details || {};
+        var fingerprint = r.publisherKeyFingerprint || r.fingerprint || null;
+        var signed = r.signed === true || (r.signed == null && !!fingerprint);
+        var executionMode = executionModeOf(r.executionMode);
+        var execution = r.executionLabel
+            || t(executionModeMeta(executionMode).key, executionModeMeta(executionMode).fallback);
+        var source = r.repositoryId || r.source || t('trust.confirm.source.local', '本地上传');
+        var publisher = r.publisher || t('trust.confirm.publisher.unknown', '无法确认');
+        var signature = signed
+            ? t('trust.confirm.signature.signed', '已签名')
+            : t('trust.confirm.signature.unsigned', '未签名');
+        var fullTrust = executionMode === 'HOST_PROCESS_FULL_TRUST';
+        var message = fullTrust
+            ? t('trust.confirm.risk',
+                '此插件将在 PixivDownloader 进程中运行，拥有与 PixivDownloader 相同的本机权限。它可以访问当前用户可访问的文件和网络、运行后台任务、注册本地接口，并可能在 PixivDownloader 页面中执行脚本。安装插件相当于运行一个本地应用。请只安装你信任的来源。')
+            : t('trust.confirm.declarative-risk',
+                '此插件将在独立声明式 worker 中运行。worker 有协议与资源限制，但仍使用与 PixivDownloader 相同的系统账号，不是完整的操作系统沙箱。请只安装你信任的来源。');
+        if (fullTrust && r.hostElevated === true) {
+            message += '\n\n' + t('trust.confirm.elevated-risk',
+                'PixivDownloader 当前正以高权限运行；此 full-trust 插件将继承同等权限。');
+        }
+        if (!signed) {
+            message += '\n\n' + t('trust.confirm.unsigned-risk',
+                '此插件没有发布者签名。PixivDownloader 无法证明它来自谁，也无法确认后续更新是否仍由同一作者发布。');
+        }
+        message += '\n\n' + t('trust.confirm.details',
+            '插件 ID：{pluginId}\n版本：{version}\n来源：{source}\n发布者：{publisher}\n签名状态：{signature}\n发布者指纹：{fingerprint}\n制品 SHA-256：{sha256}\n执行模式：{executionMode}', {
+                pluginId: r.pluginId || r.id || '',
+                version: r.version || '',
+                source: source,
+                publisher: publisher,
+                signature: signature,
+                fingerprint: fingerprint || t('trust.confirm.fingerprint.unavailable', '不适用'),
+                sha256: r.artifactSha256 || r.sha256 || '',
+                executionMode: execution
+            });
+        return {
+            title: t('trust.confirm.title', '确认插件执行信任'),
+            message: message,
+            confirmLabel: t('trust.confirm.allow', '我信任此插件并允许运行'),
+            cancelLabel: t('trust.confirm.cancel', '取消')
+        };
+    }
+
+    async function installPackageWithConfirmation(file, signature, allowDowngrade) {
+        var confirmedArtifacts = Object.create(null);
+        var confirmTrust = null;
+        while (true) {
+            var response = await global.PixivPluginManage.installPackage(
+                file, signature, allowDowngrade, confirmTrust);
+            if (!response || response.outcome !== 'TRUST_CONFIRMATION_REQUIRED'
+                    || !response.trustRequirement
+                    || !global.PixivFeedback
+                    || typeof global.PixivFeedback.confirm !== 'function') return response;
+            var sha256 = String(response.trustRequirement.artifactSha256 || '').toLowerCase();
+            if (!/^[0-9a-f]{64}$/.test(sha256) || confirmedArtifacts[sha256]) return response;
+            var confirmed = await global.PixivFeedback.confirm(
+                trustConfirmationOptions(Object.assign({}, response.trustRequirement, {
+                    hostElevated: !!(state.report && state.report.hostElevated)
+                })));
+            if (!confirmed) return response;
+            confirmedArtifacts[sha256] = true;
+            confirmTrust = sha256;
+        }
+    }
+
     global.PixivPluginManage = {
         STATUS_URL: STATUS_URL,
         ACTION_URL_PREFIX: ACTION_URL_PREFIX,
@@ -469,6 +588,9 @@
         statusMeta: statusMeta,
         verbMeta: verbMeta,
         verificationMeta: verificationMeta,
+        trustMeta: trustMeta,
+        executionModeOf: executionModeOf,
+        executionModeMeta: executionModeMeta,
         lifecyclePolicyOf: lifecyclePolicyOf,
         lifecyclePolicyMeta: lifecyclePolicyMeta,
         applyReport: applyReport,
@@ -480,6 +602,8 @@
         hasAcceptedSignatureExtension: hasAcceptedSignatureExtension,
         buildInstallResult: buildInstallResult,
         installFeedback: installFeedback,
-        localInstallNotice: localInstallNotice
+        localInstallNotice: localInstallNotice,
+        trustConfirmationOptions: trustConfirmationOptions,
+        installPackageWithConfirmation: installPackageWithConfirmation
     };
 })(window);

@@ -11,8 +11,8 @@ import java.util.Objects;
  * {@link PixivPluginDiscoveryBridge} 内部。
  *
  * @param sourcePluginId  外置插件包的标识（PF4J pluginId，来自插件描述符），用于诊断 / 溯源
- * @param featurePluginId 发现桥首次读取并校验后盖章的稳定功能插件 id；当前发布格式要求它与
- *                        {@code sourcePluginId} 相同，后续注册与排序不得再次调用不可信的
+ * @param featurePluginId 已验证包描述符盖章的稳定功能插件 id；当前发布格式要求它与
+ *                        {@code sourcePluginId} 相同，后续注册与排序不得调用不可信的
  *                        {@link PixivFeaturePlugin#id()}
  * @param plugin         发现的功能插件实例（由 {@link #classLoader()} 创建）
  * @param classLoader    创建该插件实例的插件 classloader：其声明的静态资源 / i18n bundle 等资源解析都应经此

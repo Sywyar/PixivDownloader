@@ -4,6 +4,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader;
 
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -22,7 +25,7 @@ import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Repository guard for copyable third-party templates that are intentionally outside the product reactor. */
+/** 守卫位于产品 reactor 之外、可复制的第三方插件模板。 */
 @DisplayName("第三方插件模板结构与依赖边界")
 class PluginTemplateBoundaryTest {
 
@@ -31,13 +34,9 @@ class PluginTemplateBoundaryTest {
     private static final Map<String, Set<String>> EXPECTED_DEPENDENCIES = Map.of(
             "minimal-feature-plugin", Set.of(
                     "io.github.sywyar.pixivdownloader:pixivdownload-sdk-bom:import",
-                    "org.springframework.boot:spring-boot-dependencies:import",
                     "io.github.sywyar.pixivdownloader:pixivdownload-sdk-info:provided",
                     "io.github.sywyar.pixivdownloader:pixivdownload-plugin-api:provided",
                     "org.pf4j:pf4j:provided",
-                    "org.springframework:spring-context:provided",
-                    "org.springframework:spring-web:provided",
-                    "org.springframework:spring-webmvc:provided",
                     "org.junit.jupiter:junit-jupiter:test"),
             "download-type-plugin", Set.of(
                     "io.github.sywyar.pixivdownloader:pixivdownload-sdk-bom:import",
@@ -51,6 +50,11 @@ class PluginTemplateBoundaryTest {
                     "jakarta.servlet:jakarta.servlet-api:provided",
                     "com.fasterxml.jackson.core:jackson-databind:provided",
                     "org.junit.jupiter:junit-jupiter:test"));
+    private static final Map<String, ExpectedRuntimeBoundary> EXPECTED_RUNTIME_BOUNDARIES = Map.of(
+            "minimal-feature-plugin", new ExpectedRuntimeBoundary(
+                    PluginExecutionMode.DECLARATIVE_PROCESS, PluginLifecyclePolicy.HOT_RELOAD, 0),
+            "download-type-plugin", new ExpectedRuntimeBoundary(
+                    PluginExecutionMode.HOST_PROCESS_FULL_TRUST, PluginLifecyclePolicy.PROCESS_RESTART, 1));
     private static final Pattern HOST_IMPORT = Pattern.compile(
             "^import\\s+(top\\.sywyar\\.pixivdownload\\.[^;]+);",
             Pattern.MULTILINE);
@@ -142,7 +146,7 @@ class PluginTemplateBoundaryTest {
     }
 
     @Test
-    @DisplayName("模板描述符必填项完整且模板不进入产品构建和分发")
+    @DisplayName("模板描述符执行边界真实且模板不进入产品构建和分发")
     void descriptorsAreCompleteAndTemplatesStayOutsideDistribution() throws IOException {
         Path root = repositoryRoot();
         for (String templateName : TEMPLATE_NAMES) {
@@ -160,6 +164,12 @@ class PluginTemplateBoundaryTest {
             assertThat(runtimeDescriptor.externalValidationErrors()).isEmpty();
             assertThat(runtimeDescriptor.isSdkCompatible()).isTrue();
             assertThat(runtimeDescriptor.id()).isEqualTo(descriptor.getProperty("plugin.id"));
+            ExpectedRuntimeBoundary expected = EXPECTED_RUNTIME_BOUNDARIES.get(templateName);
+            assertThat(runtimeDescriptor.executionMode()).isEqualTo(expected.executionMode());
+            assertThat(runtimeDescriptor.lifecyclePolicy()).isEqualTo(expected.lifecyclePolicy());
+            assertThat(runtimeDescriptor.kind()).isEqualTo(PluginKind.FEATURE);
+            assertThat(runtimeDescriptor.configurationClassNames())
+                    .hasSize(expected.configurationClassCount());
         }
 
         assertThat(read(root.resolve("pom.xml")))
@@ -236,5 +246,11 @@ class PluginTemplateBoundaryTest {
             current = current.getParent();
         }
         throw new IllegalStateException("repository root not found");
+    }
+
+    private record ExpectedRuntimeBoundary(
+            PluginExecutionMode executionMode,
+            PluginLifecyclePolicy lifecyclePolicy,
+            int configurationClassCount) {
     }
 }

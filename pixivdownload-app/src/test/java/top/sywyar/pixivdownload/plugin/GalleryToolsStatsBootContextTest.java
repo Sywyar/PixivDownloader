@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
@@ -88,6 +89,7 @@ import top.sywyar.pixivdownload.plugin.web.registration.PluginWebContributionReg
         "pixivdownload.plugins-dir=target/test-runtime/plugins-external-gallery-tools-stats",
         "setup.browser.auto-open=false"
 })
+@ContextConfiguration(initializers = PluginTestProvenance.VerifiedLocalPluginBootstrapInitializer.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @EnabledIf("externalStatsJarStaged")
@@ -150,18 +152,7 @@ class GalleryToolsStatsBootContextTest {
     void releasePluginsAndCleanup() {
         if (pluginRuntimeManager != null) {
             // 先停止 / 卸载，释放 PF4J 插件 classloader 对 jar 的文件锁（Windows 下否则删不掉临时目录）。
-            pluginRuntimeManager.pluginManager().ifPresent(pm -> {
-                try {
-                    pm.stopPlugins();
-                } catch (Exception ignored) {
-                    // best-effort
-                }
-                try {
-                    pm.unloadPlugins();
-                } catch (Exception ignored) {
-                    // best-effort
-                }
-            });
+            pluginRuntimeManager.shutdown();
         }
         deleteRecursivelyQuietly(PLUGINS_DIR);
         System.clearProperty(RuntimeFiles.CONFIG_DIR_PROPERTY);
@@ -460,7 +451,7 @@ class GalleryToolsStatsBootContextTest {
             Files.createDirectories(PLUGINS_DIR);
             Path jar = PLUGINS_DIR.resolve("gallery-tools-plugin.jar");
             zipDirectoryAsJar(statsClasses, jar);
-            PluginTestProvenance.writeLocalUpload(PLUGINS_DIR, jar, "gallery-tools", "1.0.0");
+            PluginTestProvenance.writeVerifiedLocalUpload(PLUGINS_DIR, jar, "gallery-tools", "1.0.0");
             return true;
         } catch (IOException | RuntimeException ex) {
             return false;

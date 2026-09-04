@@ -24,7 +24,7 @@ class PluginRuntimeStatusTest {
     Path tempDir;
 
     @Test
-    @DisplayName("运行时状态投影会替换旧插件复验并限制保留数量")
+    @DisplayName("运行时状态投影会保留失败、替换旧插件复验并限制保留数量")
     void projectsRuntimePhasesAndRetainsBoundedLatestVerifications() {
         Map<String, PluginRuntimePackagePhase> phases = new LinkedHashMap<>();
         phases.put("alpha", PluginRuntimePackagePhase.STARTED);
@@ -52,7 +52,7 @@ class PluginRuntimeStatusTest {
         PluginRuntimeStatus refreshed = updated.refreshed(Map.of());
         assertThat(refreshed.state()).isEqualTo(PluginDirectoryState.EMPTY);
         assertThat(refreshed.loadedPluginIds()).isEmpty();
-        assertThat(refreshed.failures()).isEmpty();
+        assertThat(refreshed.failures()).isEqualTo(updated.failures());
         assertThat(refreshed.verifications()).containsExactly(newAlpha, gamma);
     }
 

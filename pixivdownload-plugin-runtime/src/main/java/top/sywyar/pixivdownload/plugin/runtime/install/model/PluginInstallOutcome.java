@@ -57,6 +57,10 @@ public enum PluginInstallOutcome {
      */
     REJECTED_INTEGRITY(false),
 
+
+    /** 候选已完成无副作用校验，但执行信任尚未绑定当前精确 SHA-256，事务未发布。 */
+    TRUST_CONFIRMATION_REQUIRED(false),
+
     /** 安装过程发生 IO 失败；安装器已清理暂存、不留半成品。 */
     FAILED(false);
 

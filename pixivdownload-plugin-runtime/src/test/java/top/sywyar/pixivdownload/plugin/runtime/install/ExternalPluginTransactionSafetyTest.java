@@ -140,12 +140,15 @@ class ExternalPluginTransactionSafetyTest extends ExternalPluginTransactionTestS
     @DisplayName("超过恢复上限的旧 artifact 集在发布前拒绝")
     void excessiveBackupCountIsRejectedBeforePublication() throws IOException {
         Path plugins = temp.resolve("plugins-excessive-backups");
-        Files.createDirectories(plugins);
-        Path template = packageFile("backup-template.zip", "1.0.0");
-        for (int index = 0; index < 257; index++) {
-            Files.copy(template, plugins.resolve("old-copy-" + index + ".zip"));
-        }
         ExternalPluginInstaller installer = newInstaller(plugins);
+        Path source = packageFile("backup-template.zip", "1.0.0");
+        installFully(installer, source);
+        Path template = plugins.resolve("demo-1.0.0.zip");
+        for (int index = 0; index < 256; index++) {
+            Path copy = plugins.resolve("old-copy-" + index + ".zip");
+            Files.copy(template, copy);
+            Files.copy(sidecar(plugins, template), sidecar(plugins, copy));
+        }
 
         PreparedPluginTransaction prepared = installer.prepareTransaction(
                 packageFile("backup-replacement.zip", "2.0.0"),
@@ -303,8 +306,8 @@ class ExternalPluginTransactionSafetyTest extends ExternalPluginTransactionTestS
     }
 
     @Test
-    @DisplayName("plugins root 是符号链接时恢复在枚举 staging 前 fail-closed")
-    void symbolicPluginRootIsRejectedBeforeEnumeration() throws IOException {
+    @DisplayName("plugins root 是符号链接时解析真实目录后安全恢复")
+    void symbolicPluginRootIsResolvedBeforeRecovery() throws IOException {
         Path actual = temp.resolve("actual-plugins");
         Files.createDirectories(actual);
         Path linked = temp.resolve("linked-plugins");
@@ -314,13 +317,12 @@ class ExternalPluginTransactionSafetyTest extends ExternalPluginTransactionTestS
             Assumptions.abort("当前文件系统不能创建符号链接: " + e.getMessage());
         }
 
-        PluginTransactionRecoveryReport recovery =
-                newInstaller(linked).recoverPendingTransactions();
+        ExternalPluginInstaller installer = newInstaller(linked);
+        PluginTransactionRecoveryReport recovery = installer.recoverPendingTransactions();
 
-        assertThat(recovery.safeToScan()).isFalse();
-        assertThat(recovery.failures())
-                .extracting(PluginTransactionRecoveryReport.Failure::kind)
-                .containsExactly(PluginTransactionRecoveryReport.FailureKind.STAGING_ROOT_UNSAFE);
+        assertThat(installer.pluginsDirectory()).isEqualTo(actual.toRealPath());
+        assertThat(recovery.safeToScan()).isTrue();
+        assertThat(recovery.failures()).isEmpty();
     }
 
     @Test

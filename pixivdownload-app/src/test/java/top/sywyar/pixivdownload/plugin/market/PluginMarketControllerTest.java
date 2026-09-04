@@ -203,7 +203,7 @@ class PluginMarketControllerTest {
                         "beta", "1.0.0", null, "beta", "1.0.0",
                         "INSTALLED", true, false, true, false, null,
                         "INSTALLING", "STARTED", false, false)));
-        when(marketService.install("official", "demo", "1.0.0")).thenReturn(report);
+        when(marketService.install("official", "demo", "1.0.0", (String) null)).thenReturn(report);
 
         mockMvc.perform(post("/api/plugin-market/official/demo/1.0.0/install"))
                 .andExpect(status().isOk())
@@ -226,7 +226,7 @@ class PluginMarketControllerTest {
     @Test
     @DisplayName("POST install 留下恢复事务时强制返回 503 且保留阻断机器态")
     void installRecoveryBlockedReturns503() throws Exception {
-        when(marketService.install("official", "demo", "1.0.0")).thenReturn(new PluginInstallReport(
+        when(marketService.install("official", "demo", "1.0.0", (String) null)).thenReturn(new PluginInstallReport(
                 PluginInstallOutcome.INSTALLED, true, false, "demo", "1.0.0", null,
                 List.of(), List.of(), List.of(), List.of("transaction recovery required"),
                 "tx-market-blocked", true, false, null,
@@ -248,7 +248,7 @@ class PluginMarketControllerTest {
     @Test
     @DisplayName("POST install 完整性不符：422 + 稳定 outcome（REJECTED_INTEGRITY）（复用安装结果模型）")
     void installIntegrityRejected() throws Exception {
-        when(marketService.install("official", "demo", "1.0.0")).thenReturn(new PluginInstallReport(
+        when(marketService.install("official", "demo", "1.0.0", (String) null)).thenReturn(new PluginInstallReport(
                 PluginInstallOutcome.REJECTED_INTEGRITY, false, false, "demo", "1.0.0", null,
                 List.of(), List.of(), List.of("sha-256 mismatch")));
 
@@ -261,7 +261,7 @@ class PluginMarketControllerTest {
     @Test
     @DisplayName("POST install 未知仓库：404 + 稳定 code（UNKNOWN_REPOSITORY）+ 诊断")
     void installUnknownRepository() throws Exception {
-        when(marketService.install("ghost", "demo", "1.0.0")).thenThrow(new PluginCatalogException(
+        when(marketService.install("ghost", "demo", "1.0.0", (String) null)).thenThrow(new PluginCatalogException(
                 PluginCatalogErrorCode.UNKNOWN_REPOSITORY, "demo", "1.0.0", "unknown repository: ghost"));
 
         mockMvc.perform(post("/api/plugin-market/ghost/demo/1.0.0/install"))
@@ -272,7 +272,7 @@ class PluginMarketControllerTest {
     @Test
     @DisplayName("POST install 已存在同版本：200 + 稳定 outcome（DUPLICATE，accepted）")
     void installDuplicate() throws Exception {
-        when(marketService.install("official", "demo", "1.0.0")).thenReturn(new PluginInstallReport(
+        when(marketService.install("official", "demo", "1.0.0", (String) null)).thenReturn(new PluginInstallReport(
                 PluginInstallOutcome.DUPLICATE, true, true, "demo", "1.0.0", "1.0.0",
                 List.of(), List.of(), List.of("DUPLICATE demo 1.0.0")));
 
@@ -285,7 +285,7 @@ class PluginMarketControllerTest {
     @Test
     @DisplayName("POST install 拒绝降级：409 + 稳定 outcome（DOWNGRADE_REJECTED，未落盘）")
     void installDowngradeRejected() throws Exception {
-        when(marketService.install("official", "demo", "0.9.0")).thenReturn(new PluginInstallReport(
+        when(marketService.install("official", "demo", "0.9.0", (String) null)).thenReturn(new PluginInstallReport(
                 PluginInstallOutcome.DOWNGRADE_REJECTED, false, false, "demo", "0.9.0", "1.0.0",
                 List.of(), List.of(), List.of("a higher version is installed")));
 
@@ -298,7 +298,7 @@ class PluginMarketControllerTest {
     @Test
     @DisplayName("POST install 未知版本：404 + 稳定 code（VERSION_NOT_FOUND）")
     void installUnknownVersion() throws Exception {
-        when(marketService.install("official", "demo", "9.9.9")).thenThrow(new PluginCatalogException(
+        when(marketService.install("official", "demo", "9.9.9", (String) null)).thenThrow(new PluginCatalogException(
                 PluginCatalogErrorCode.VERSION_NOT_FOUND, "demo", "9.9.9", "version not found"));
 
         mockMvc.perform(post("/api/plugin-market/official/demo/9.9.9/install"))
@@ -310,7 +310,7 @@ class PluginMarketControllerTest {
     @Test
     @DisplayName("POST install 包过大：413 + 稳定 code（DOWNLOAD_TOO_LARGE）")
     void installTooLarge() throws Exception {
-        when(marketService.install("official", "demo", "1.0.0")).thenThrow(new PluginCatalogException(
+        when(marketService.install("official", "demo", "1.0.0", (String) null)).thenThrow(new PluginCatalogException(
                 PluginCatalogErrorCode.DOWNLOAD_TOO_LARGE, "demo", "1.0.0", "download exceeds limit"));
 
         mockMvc.perform(post("/api/plugin-market/official/demo/1.0.0/install"))
@@ -327,7 +327,7 @@ class PluginMarketControllerTest {
                         "beta", "1.0.0", null, "beta", "1.0.0",
                         "INSTALLED", true, false, true, false, null,
                         "INSTALLING", "STARTED", false)));
-        when(marketService.install("official", "demo", "1.0.0")).thenThrow(exception);
+        when(marketService.install("official", "demo", "1.0.0", (String) null)).thenThrow(exception);
 
         mockMvc.perform(post("/api/plugin-market/official/demo/1.0.0/install"))
                 .andExpect(status().isBadGateway())
@@ -340,7 +340,7 @@ class PluginMarketControllerTest {
     @Test
     @DisplayName("端点不接受任意 URL：请求体里的 url / packageUrl 被忽略，安装仍只按路径 repositoryId+id+version 解析")
     void ignoresArbitraryUrlInBody() throws Exception {
-        when(marketService.install("official", "demo", "1.0.0")).thenReturn(new PluginInstallReport(
+        when(marketService.install("official", "demo", "1.0.0", (String) null)).thenReturn(new PluginInstallReport(
                 PluginInstallOutcome.INSTALLED, true, true, "demo", "1.0.0", null,
                 List.of(), List.of(), List.of()));
 
@@ -351,7 +351,23 @@ class PluginMarketControllerTest {
                 .andExpect(status().isOk());
 
         // 仅按路径变量解析；请求体里的 url / packageUrl / repositoryId 完全不参与。
-        verify(marketService).install("official", "demo", "1.0.0");
+        verify(marketService).install("official", "demo", "1.0.0", (String) null);
+    }
+
+    @Test
+    @DisplayName("POST install 显式精确制品信任确认只作用于同一受控制品")
+    void installPassesExactArtifactTrustConfirmation() throws Exception {
+        String confirmedSha256 = "a".repeat(64);
+        when(marketService.install("custom", "demo", "1.0.0", confirmedSha256)).thenReturn(new PluginInstallReport(
+                PluginInstallOutcome.INSTALLED, true, true, "demo", "1.0.0", null,
+                List.of(), List.of(), List.of()));
+
+        mockMvc.perform(post("/api/plugin-market/custom/demo/1.0.0/install")
+                        .param("confirmTrust", confirmedSha256))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcome").value("INSTALLED"));
+
+        verify(marketService).install("custom", "demo", "1.0.0", confirmedSha256);
     }
 
     private static PluginVerificationView verification() {

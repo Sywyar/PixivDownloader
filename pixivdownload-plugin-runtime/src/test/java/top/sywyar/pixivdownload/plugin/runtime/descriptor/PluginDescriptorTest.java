@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("统一插件描述符：映射、校验与兼容性")
 class PluginDescriptorTest {
@@ -26,7 +27,7 @@ class PluginDescriptorTest {
         assertThat(descriptor.pluginClass()).isEqualTo(TestFeaturePlugin.class.getName());
         assertThat(descriptor.displayName()).isEqualTo("stats.label");
         assertThat(descriptor.kind()).isEqualTo(PluginKind.FEATURE);
-        assertThat(descriptor.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.HOT_RELOAD);
+        assertThat(descriptor.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.PROCESS_RESTART);
         assertThat(descriptor.isSdkCompatible()).isTrue();
         assertThat(descriptor.validationErrors()).isEmpty();
         assertThat(descriptor.externalValidationErrors()).isEmpty();
@@ -164,26 +165,69 @@ class PluginDescriptorTest {
     }
 
     @Test
-    @DisplayName("运行期功能描述符合并清单专属替代关系和生命周期策略")
+    @DisplayName("运行期功能描述符合并清单专属替代关系、执行策略和配置类")
     void attachesPackageOnlyMetadata() {
         PluginDescriptor runtimeDescriptor = external("gui-swing", "1.0.0", "1.0",
                 "com.example.ThemePlugin", "theme.label", PluginKind.FEATURE, List.of());
         PluginDescriptor packageDescriptor = new PluginDescriptor("gui-swing-pack", "gui-swing-pack", "1.0.0",
                 VersionRequirement.parse("1.0"), List.of(), "com.example.ThemePlugin", null,
                 "package.label", null, null, null, PluginKind.FEATURE, List.of("legacy-theme"),
-                PluginLifecyclePolicy.PROCESS_RESTART);
+                PluginLifecyclePolicy.PROCESS_RESTART, PluginExecutionMode.HOST_PROCESS_FULL_TRUST,
+                List.of("com.example.ThemeConfiguration"));
 
         PluginDescriptor attached = runtimeDescriptor.withPackageMetadataFrom(packageDescriptor);
 
         assertThat(attached.displayName()).isEqualTo("theme.label");
         assertThat(attached.replaces()).containsExactly("legacy-theme");
         assertThat(attached.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.PROCESS_RESTART);
+        assertThat(attached.executionMode()).isEqualTo(PluginExecutionMode.HOST_PROCESS_FULL_TRUST);
+        assertThat(attached.configurationClassNames()).containsExactly("com.example.ThemeConfiguration");
+    }
+
+    @Test
+    @DisplayName("配置类清单拒绝非法类名和重复项")
+    void rejectsInvalidConfigurationClassNames() {
+        PluginDescriptor descriptor = new PluginDescriptor(
+                "ext", "ext", "1.0.0", VersionRequirement.parse("1.0"), List.of(),
+                "com.example.Plugin", null, "plugin.name", null, null, null, PluginKind.FEATURE,
+                List.of(), PluginLifecyclePolicy.PROCESS_RESTART, PluginExecutionMode.HOST_PROCESS_FULL_TRUST,
+                List.of("bad-class-name", "com.example.Valid", "com.example.Valid"));
+
+        assertThat(descriptor.validationErrors())
+                .anyMatch(error -> error.contains("invalid configuration class"))
+                .anyMatch(error -> error.contains("configuration classes must be unique"));
+    }
+
+    @Test
+    @DisplayName("显式宿主完全信任描述符仍可使用默认热重载策略")
+    void explicitHostDescriptorMayUseDefaultLifecyclePolicy() {
+        PluginDescriptor descriptor = external("host", "1.0.0", "1.0",
+                "com.example.HostPlugin", "host.label", PluginKind.FEATURE, List.of());
+
+        assertThat(descriptor.executionMode()).isEqualTo(PluginExecutionMode.HOST_PROCESS_FULL_TRUST);
+        assertThat(descriptor.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.HOT_RELOAD);
+        assertThat(descriptor.externalValidationErrors()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("缺失或旧执行模式 token 均失败关闭")
+    void rejectsMissingAndLegacyExecutionModeTokens() {
+        assertThatThrownBy(() -> PluginExecutionMode.parse(null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("required");
+        assertThatThrownBy(() -> PluginExecutionMode.parse("trusted-in-process"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unsupported");
+        assertThatThrownBy(() -> PluginExecutionMode.parse("isolated-process"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unsupported");
     }
 
     private static PluginDescriptor external(String id, String version, String requires, String pluginClass,
                                              String displayName, PluginKind kind, List<PluginDependencyRef> deps) {
         return new PluginDescriptor(id, id + "-pack", version, VersionRequirement.parse(requires),
-                deps, pluginClass, null, displayName, null, null, null, kind);
+                deps, pluginClass, null, displayName, null, null, null, kind, List.of(),
+                PluginLifecyclePolicy.HOT_RELOAD, PluginExecutionMode.HOST_PROCESS_FULL_TRUST);
     }
 
     private static final class TestFeaturePlugin implements PixivFeaturePlugin {

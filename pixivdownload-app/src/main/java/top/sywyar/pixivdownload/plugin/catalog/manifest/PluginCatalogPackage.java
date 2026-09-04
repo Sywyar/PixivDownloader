@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonAlias;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 受信 catalog 中某个插件的一个可安装版本制品（市场元数据，<b>纯 JDK record、不入 {@code plugin-api}</b>）。所有字段都来自
@@ -14,6 +15,7 @@ import java.util.List;
  * @param expectedSizeBytes 期望文件字节数（下载流式上限 + 落盘前完整性校验，必填且 &gt; 0）
  * @param sha256            期望 SHA-256 十六进制（必填；落盘前比对，不符即拒绝）
  * @param signature         发布者结构化签名元数据（目录安装必填，缺失时 fail-closed）
+ * @param identityMigrationSignatures 旧插件 id 到旧 key 迁移授权签名的映射（可空）
  * @param signatureUrl      可选 detached artifact signature URL（展示 / 诊断；安装使用已验证 manifest 中的结构化签名）
  * @param requiredSdk   声明的SDK 版本要求（展示 / 兼容标记用；安装时由<b>下载包描述符</b>权威裁定，不在此另立权威）
  * @param dependencies      声明的插件间依赖（展示用；安装时由下载包描述符权威解析）
@@ -28,6 +30,7 @@ public record PluginCatalogPackage(
         Long expectedSizeBytes,
         String sha256,
         SignatureMetadata signature,
+        Map<String, SignatureMetadata> identityMigrationSignatures,
         String signatureUrl,
         @JsonAlias("requiredCoreApi") String requiredSdk,
         List<String> dependencies,
@@ -37,8 +40,27 @@ public record PluginCatalogPackage(
         boolean deprecated) {
 
     public PluginCatalogPackage {
+        identityMigrationSignatures = identityMigrationSignatures != null
+                ? Map.copyOf(identityMigrationSignatures) : Map.of();
         dependencies = dependencies != null ? List.copyOf(dependencies) : List.of();
         changeNotes = changeNotes != null ? List.copyOf(changeNotes) : List.of();
+    }
+
+    public PluginCatalogPackage(
+            String version,
+            String packageUrl,
+            Long expectedSizeBytes,
+            String sha256,
+            SignatureMetadata signature,
+            String signatureUrl,
+            String requiredSdk,
+            List<String> dependencies,
+            String releasedTime,
+            List<String> changeNotes,
+            String channel,
+            boolean deprecated) {
+        this(version, packageUrl, expectedSizeBytes, sha256, signature, Map.of(), signatureUrl,
+                requiredSdk, dependencies, releasedTime, changeNotes, channel, deprecated);
     }
 
     /** 是否声明了结构化签名元数据。 */

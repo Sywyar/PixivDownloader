@@ -16,6 +16,8 @@ import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallResult;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource;
+import top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustRequirement;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 
 import java.nio.charset.StandardCharsets;
@@ -91,12 +93,30 @@ class PluginInstallServiceLifecyclePolicyTest {
     }
 
     @Test
-    @DisplayName("正式运行时缺少 detached 签名时在暂存前拒绝本地安装")
-    void formalRuntimeRejectsUnsignedLocalUploadBeforeStaging() {
+    @DisplayName("正式运行时未签名包由安装器生成精确制品信任确认要求")
+    void formalRuntimeRequestsExactArtifactTrustForUnsignedUpload() {
+        PluginDescriptor descriptor = descriptor("unsigned-plugin", PluginLifecyclePolicy.HOT_RELOAD);
+        PluginTrustRequirement requirement = new PluginTrustRequirement(
+                descriptor.id(), descriptor.version(), PluginPackageSource.LOCAL_UPLOAD,
+                null, false, false, null, null, "0".repeat(64), descriptor.executionMode());
+        PluginInstallResult result = new PluginInstallResult(
+                PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED,
+                descriptor,
+                null,
+                null,
+                List.of(),
+                requirement);
+        PluginPackageOrigin origin = PluginPackageOrigin.localUnsignedUpload(null);
+        when(coordinator.installOrUpdate(any(Path.class), eq(false), eq(origin)))
+                .thenReturn(new PluginActivationResult(
+                        null, result, false, false, null, ExternalPluginOperation.IDLE, null));
+        when(dependencyResolver.installedProblems(descriptor)).thenReturn(List.of());
+
         PluginInstallReport report = service(false).install(packageUpload(), null, false);
 
-        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
-        verify(coordinator, never()).installOrUpdate(any(), eq(false), any());
+        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED);
+        assertThat(report.trustRequirement()).isEqualTo(requirement);
+        verify(coordinator).installOrUpdate(any(Path.class), eq(false), eq(origin));
     }
 
     @Test
@@ -170,8 +190,8 @@ class PluginInstallServiceLifecyclePolicyTest {
         return new PluginInstallService(coordinator, dependencyResolver);
     }
 
-    private PluginInstallService service(boolean unsignedLocalUploadAllowed) {
-        return new PluginInstallService(coordinator, dependencyResolver, unsignedLocalUploadAllowed);
+    private PluginInstallService service(boolean developmentModeEnabled) {
+        return new PluginInstallService(coordinator, dependencyResolver, developmentModeEnabled);
     }
 
     private static MockMultipartFile packageUpload() {

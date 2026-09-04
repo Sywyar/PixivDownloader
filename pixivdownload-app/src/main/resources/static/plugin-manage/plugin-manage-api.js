@@ -100,7 +100,7 @@
     // 后端对所有「已决结局」（accepted / 各类拒绝 / 失败）都返回结构化 PluginInstallResponse（带稳定 outcome + 本地化
     // message），HTTP 状态由 outcome 派生。故只要响应体带 outcome 就<b>原样返回</b>（即便 4xx / 5xx）交结果区按
     // outcome 渲染；只有缺文件（不发请求）或拿不到结构化响应（如 401 跳登录 / 413 过大 / 网关 HTML）才抛错。
-    async function installPackage(file, signature, allowDowngrade) {
+    async function installPackage(file, signature, allowDowngrade, confirmTrust) {
         if (!file) {
             // 防御性：绝不发送无文件的 multipart 安装请求（与提交前的本地校验一致）。
             var localError = new Error('no plugin package selected');
@@ -124,6 +124,7 @@
         form.append('file', file);
         if (signature) form.append('signature', signature);
         form.append('allowDowngrade', allowDowngrade ? 'true' : 'false');
+        if (confirmTrust) form.append('confirmTrust', confirmTrust);
         var res = await fetch(PM.INSTALL_URL, {
             method: 'POST',
             body: form,
@@ -144,9 +145,42 @@
         throw err;
     }
 
+    async function approveTrust(id, artifactSha256) {
+        var url = PM.ACTION_URL_PREFIX + encodeURIComponent(id) + '/trust?confirmArtifactSha256='
+            + encodeURIComponent(artifactSha256);
+        return trustRequest(url, 'PUT');
+    }
+
+    async function revokeTrust(id) {
+        return trustRequest(PM.ACTION_URL_PREFIX + encodeURIComponent(id) + '/trust', 'DELETE');
+    }
+
+    async function trustRequest(url, method) {
+        var res = await fetch(url, {
+            method: method,
+            headers: { 'Accept': 'application/json' },
+            credentials: 'same-origin'
+        });
+        var body = null;
+        try {
+            body = await res.json();
+        } catch (parseError) {
+            body = null;
+        }
+        if (!res.ok) {
+            var err = new Error((body && body.message) || ('HTTP ' + res.status));
+            err.code = body && body.code;
+            err.httpStatus = res.status;
+            throw err;
+        }
+        return body;
+    }
+
     PM.fetchStatus = fetchStatus;
     PM.performAction = performAction;
     PM.setEnabled = setEnabled;
     PM.restartBackend = restartBackend;
     PM.installPackage = installPackage;
+    PM.approveTrust = approveTrust;
+    PM.revokeTrust = revokeTrust;
 })(window);

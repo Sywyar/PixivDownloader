@@ -26,6 +26,8 @@ import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenan
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
+import top.sywyar.pixivdownload.runtimeprobe.BootstrapProbeFeaturePlugin;
+import top.sywyar.pixivdownload.runtimeprobe.BootstrapProbePlugin;
 import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
@@ -70,6 +72,25 @@ abstract class PluginBootstrapSessionTestSupport {
     @AfterEach
     void clearMarkerProperty() {
         System.clearProperty("bootstrap.probe.marker");
+    }
+
+    protected static PluginBootstrapSession createContext(
+            Path pluginsRoot, PluginEnabledSnapshot enabledSnapshot) {
+        return createContext(pluginsRoot, enabledSnapshot, new PluginSupplyChainVerifier());
+    }
+
+    protected static PluginBootstrapSession createContext(
+            Path pluginsRoot, PluginEnabledSnapshot enabledSnapshot, PluginSupplyChainVerifier verifier) {
+        return new PluginBootstrapSession(
+                pluginsRoot, PluginBootstrapSession.Ownership.CONTEXT, enabledSnapshot,
+                ignored -> verifier, () -> true);
+    }
+
+    protected static PluginBootstrapSession createProcess(
+            Path pluginsRoot, PluginEnabledSnapshot enabledSnapshot) {
+        return new PluginBootstrapSession(
+                pluginsRoot, PluginBootstrapSession.Ownership.PROCESS, enabledSnapshot,
+                ignored -> new PluginSupplyChainVerifier(), () -> true);
     }
 
     // ── startup snapshot 短生命周期 + classloader 释放 ──────────────────────────
@@ -192,7 +213,9 @@ abstract class PluginBootstrapSessionTestSupport {
         Path jar = pluginsDir.resolve("bootstrap-probe-1.0.0.jar");
         String props = "plugin.id=bootstrap-probe\nplugin.version=1.0.0\nplugin.requires=1.0\n"
                 + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n"
-                + "plugin.provider=test\nplugin.description=bootstrap probe\n";
+                + "plugin.provider=test\nplugin.description=bootstrap probe\n"
+                + "pixiv.lifecycle-policy=process-restart\n"
+                + "pixiv.execution-mode=host-process-full-trust\n";
         try (OutputStream out = Files.newOutputStream(jar); ZipOutputStream zos = new ZipOutputStream(out)) {
             zos.putNextEntry(new ZipEntry("plugin.properties"));
             zos.write(props.getBytes(StandardCharsets.UTF_8));
@@ -206,7 +229,10 @@ abstract class PluginBootstrapSessionTestSupport {
     protected static Path stageProbeDevelopmentClasses(Path repositoryRoot) throws IOException {
         Path moduleRoot = repositoryRoot.resolve("pixivdownload-plugin-bootstrap-probe");
         String properties = "plugin.id=bootstrap-probe\nplugin.version=1.0.0\nplugin.requires=1.0\n"
-                + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n";
+                + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n"
+                + "pixiv.kind=feature\n"
+                + "pixiv.lifecycle-policy=process-restart\n"
+                + "pixiv.execution-mode=host-process-full-trust\n";
         Path sourceResources = moduleRoot.resolve("src/main/resources");
         Files.createDirectories(sourceResources);
         Files.writeString(sourceResources.resolve("plugin.properties"), properties, StandardCharsets.UTF_8);
@@ -289,7 +315,7 @@ abstract class PluginBootstrapSessionTestSupport {
                         TrustedPluginKey.State.ACTIVE,
                         "Bootstrap Test Publisher",
                         "Bootstrap Test Trust",
-                        false);
+                        true);
                 return new SigningFixture(keyId, keyPair.getPrivate(), trustedKey);
             } catch (GeneralSecurityException e) {
                 throw new IllegalStateException("无法生成启动探针签名密钥", e);
@@ -301,14 +327,15 @@ abstract class PluginBootstrapSessionTestSupport {
         }
 
         PluginPackageOrigin originFor(Path artifact, String pluginId, String version) throws IOException {
-            return PluginPackageOrigin.forTrustedCatalog("test-repository", false, Files.size(artifact),
+            return PluginPackageOrigin.forTrustedCatalog("test-repository", true, Files.size(artifact),
                     PluginPackageIntegrity.sha256Hex(artifact), artifactSignature(artifact, pluginId, version));
         }
 
         VerificationResult verifiedResult(Path artifact) throws IOException {
             return new VerificationResult(VerificationStatus.VERIFIED, "bootstrap-probe", "1.0.0",
                     keyId, SignatureMetadata.ED25519, trustedKey.publisher(), trustedKey.trustLabel(),
-                    Instant.now(), Files.size(artifact), PluginPackageIntegrity.sha256Hex(artifact), "VERIFIED");
+                    trustedKey.publicKeyFingerprint(), Instant.now(), Files.size(artifact),
+                    PluginPackageIntegrity.sha256Hex(artifact), "VERIFIED");
         }
 
         protected SignatureMetadata artifactSignature(Path artifact, String pluginId, String version)

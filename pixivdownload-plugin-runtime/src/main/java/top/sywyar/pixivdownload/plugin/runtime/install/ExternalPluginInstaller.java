@@ -3,12 +3,17 @@ package top.sywyar.pixivdownload.plugin.runtime.install;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactScanner;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeLayout;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginArtifactVerificationService;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
+import top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustDecision;
+import top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustPolicy;
+import top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustRequirement;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 
@@ -20,6 +25,7 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -31,6 +37,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
@@ -146,6 +153,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
     private final PluginPackageLimits limits;
     private Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver;
     private PluginArtifactVerificationService verificationService;
+    private final BooleanSupplier developmentModeEnabled;
     private final PluginProvenanceStore provenanceStore;
     private final InstalledPluginInventorySnapshotter inventorySnapshotter;
     private final PluginRecoveryManifestValidator recoveryManifestValidator;
@@ -185,7 +193,8 @@ public class ExternalPluginInstaller implements AutoCloseable {
     public ExternalPluginInstaller(Path pluginsDir, PluginPackageLimits limits,
                                    Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver) {
         this(pluginsDir, limits, verifierResolver,
-                new PluginDirectorySessionLock(Objects.requireNonNull(pluginsDir, "pluginsDir")), false);
+                new PluginDirectorySessionLock(Objects.requireNonNull(pluginsDir, "pluginsDir")), false,
+                PluginDevelopmentArtifacts::enabled);
     }
 
     /** bootstrap 会话使用的构造入口；目录锁由同一会话持有到进程 / context 生命周期结束。 */
@@ -193,21 +202,34 @@ public class ExternalPluginInstaller implements AutoCloseable {
                                    Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
                                    PluginDirectorySessionLock directorySessionLock) {
         this(pluginsDir, limits, verifierResolver,
-                Objects.requireNonNull(directorySessionLock, "directorySessionLock"), false);
+                Objects.requireNonNull(directorySessionLock, "directorySessionLock"), false,
+                PluginDevelopmentArtifacts::enabled);
+    }
+
+    /** bootstrap 会话使用的构造入口；开发态准入开关由同一会话显式提供。 */
+    public ExternalPluginInstaller(Path pluginsDir, PluginPackageLimits limits,
+                                   Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
+                                   PluginDirectorySessionLock directorySessionLock,
+                                   BooleanSupplier developmentModeEnabled) {
+        this(pluginsDir, limits, verifierResolver,
+                Objects.requireNonNull(directorySessionLock, "directorySessionLock"), false,
+                developmentModeEnabled);
     }
 
     private ExternalPluginInstaller(Path pluginsDir, PluginPackageLimits limits,
                                     Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
                                     PluginDirectorySessionLock directorySessionLock,
-                                    boolean isolatedWithoutDirectoryLock) {
+                                    boolean isolatedWithoutDirectoryLock,
+                                    BooleanSupplier developmentModeEnabled) {
         if (pluginsDir == null) {
             throw new IllegalArgumentException("pluginsDir must not be null");
         }
-        Path normalizedPluginsDir = pluginsDir.toAbsolutePath().normalize();
+        Path normalizedPluginsDir = PluginRuntimeLayout.resolveExistingPluginsRoot(pluginsDir);
         if (!isolatedWithoutDirectoryLock) {
             PluginDirectorySessionLock suppliedLock = Objects.requireNonNull(
                     directorySessionLock, "directorySessionLock");
-            Path lockedRoot = suppliedLock.lockPath().toAbsolutePath().normalize().getParent();
+            Path lockedRoot = PluginRuntimeLayout.resolveExistingPluginsRoot(
+                    suppliedLock.lockPath().toAbsolutePath().normalize().getParent());
             if (!normalizedPluginsDir.equals(lockedRoot)) {
                 throw new IllegalArgumentException("plugin directory lock protects a different root: "
                         + lockedRoot);
@@ -216,7 +238,9 @@ public class ExternalPluginInstaller implements AutoCloseable {
         this.pluginsDir = normalizedPluginsDir;
         this.limits = Objects.requireNonNull(limits, "limits");
         this.verifierResolver = Objects.requireNonNull(verifierResolver, "verifierResolver");
-        this.verificationService = new PluginArtifactVerificationService(this.verifierResolver);
+        this.developmentModeEnabled = Objects.requireNonNull(developmentModeEnabled, "developmentModeEnabled");
+        this.verificationService = new PluginArtifactVerificationService(
+                this.verifierResolver, this.developmentModeEnabled);
         this.provenanceStore = new PluginProvenanceStore(this.pluginsDir);
         this.inventorySnapshotter = new InstalledPluginInventorySnapshotter(provenanceStore);
         this.recoveryManifestValidator = new PluginRecoveryManifestValidator(
@@ -257,7 +281,8 @@ public class ExternalPluginInstaller implements AutoCloseable {
         installLock.lock();
         try {
             this.verifierResolver = Objects.requireNonNull(verifierResolver, "verifierResolver");
-            this.verificationService = new PluginArtifactVerificationService(this.verifierResolver);
+            this.verificationService = new PluginArtifactVerificationService(
+                    this.verifierResolver, this.developmentModeEnabled);
         } finally {
             installLock.unlock();
         }
@@ -420,20 +445,22 @@ public class ExternalPluginInstaller implements AutoCloseable {
             publishedTransaction = transaction;
             unpublishedTransaction = createUnpublishedTransaction(pluginsRoot, transactionId);
             Path validationDir = unpublishedTransaction.resolve("validation");
+            PluginPackageOrigin effectiveOrigin = origin != null ? origin : PluginPackageOrigin.localUpload();
             ExternalPluginInstaller validator = new ExternalPluginInstaller(
-                    validationDir, limits, verifierResolver, null, true);
+                    validationDir, limits, verifierResolver, null, true, developmentModeEnabled);
             PluginTransactionRecoveryReport validationRecovery = validator.recoverPendingTransactions();
             if (!validationRecovery.safeToScan()) {
                 throw new IOException("isolated validation directory did not pass recovery safety checks");
             }
-            PluginInstallResult validated = validator.installIsolated(packagePath,
-                    origin != null ? origin : PluginPackageOrigin.localUpload());
+            PluginInstallResult validated = validator.installIsolated(packagePath, effectiveOrigin);
             if (!validated.accepted() || validated.descriptor() == null || validated.installedPath() == null) {
                 deleteRecursivelyQuietly(unpublishedTransaction);
                 return new PreparedPluginTransaction(transactionId, validated, null, null, null, List.of());
             }
 
             PluginDescriptor descriptor = validated.descriptor();
+            PluginProvenanceRecord validatedProvenance = validator.provenanceStore
+                    .readRequiredForRecovery(validated.installedPath());
             List<InstalledPlugin> installed = listInstalledExclusive();
             List<InstalledPlugin> sameId = installed.stream()
                     .filter(plugin -> descriptor.id().equals(plugin.id())).toList();
@@ -452,12 +479,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 if (compare > 0) {
                     outcome = PluginInstallOutcome.UPGRADED;
                 } else if (compare == 0) {
-                    deleteRecursivelyQuietly(unpublishedTransaction);
-                    PluginInstallResult duplicate = new PluginInstallResult(PluginInstallOutcome.DUPLICATE,
-                            descriptor, highest.path(), previousVersion,
-                            List.of(descriptor.id() + " " + descriptor.version() + " already installed"));
-                    return new PreparedPluginTransaction(transactionId, duplicate, null, null, null,
-                            sameId.stream().map(InstalledPlugin::path).toList());
+                    outcome = PluginInstallOutcome.DUPLICATE;
                 } else if (allowDowngrade) {
                     outcome = PluginInstallOutcome.DOWNGRADED;
                 } else {
@@ -469,12 +491,60 @@ public class ExternalPluginInstaller implements AutoCloseable {
                             sameId.stream().map(InstalledPlugin::path).toList());
                 }
             }
+            PluginInstallResult identityRejection = rejectIdentityDiscontinuity(
+                    descriptor, validatedProvenance, sameId, replaced, previousVersion,
+                    effectiveOrigin);
+            if (identityRejection != null) {
+                deleteRecursivelyQuietly(unpublishedTransaction);
+                return new PreparedPluginTransaction(transactionId, identityRejection,
+                        null, null, null, List.of());
+            }
+            TrustResolution trust = resolveTrust(
+                    descriptor, validatedProvenance, sameId, replaced, previousVersion, effectiveOrigin);
+            if (trust.rejection() != null) {
+                deleteRecursivelyQuietly(unpublishedTransaction);
+                return new PreparedPluginTransaction(transactionId, trust.rejection(),
+                        null, null, null, List.of());
+            }
+            validatedProvenance = trust.provenance();
+
+            if (outcome == PluginInstallOutcome.DUPLICATE) {
+                deleteRecursivelyQuietly(unpublishedTransaction);
+                if (sameId.size() != 1) {
+                    PluginInstallResult rejected = new PluginInstallResult(
+                            PluginInstallOutcome.REJECTED_INTEGRITY, descriptor, null, previousVersion,
+                            List.of("multiple installed artifacts share plugin id " + descriptor.id()));
+                    return new PreparedPluginTransaction(transactionId, rejected,
+                            null, null, null, List.of());
+                }
+                PluginProvenanceRecord installedProvenance = readIdentityProvenance(highest, descriptor);
+                if (installedProvenance == null
+                        || !installedProvenance.artifactSha256().equals(validatedProvenance.artifactSha256())) {
+                    PluginInstallResult rejected = new PluginInstallResult(
+                            PluginInstallOutcome.REJECTED_INTEGRITY, descriptor, null, previousVersion,
+                            List.of("same plugin version has different artifact bytes"));
+                    return new PreparedPluginTransaction(transactionId, rejected,
+                            null, null, null, List.of());
+                }
+                try {
+                    provenanceStore.write(highest.path(), validatedProvenance);
+                } catch (IOException e) {
+                    PluginInstallResult failed = new PluginInstallResult(
+                            PluginInstallOutcome.FAILED, descriptor, null, previousVersion,
+                            List.of("failed to persist plugin trust: " + e.getMessage()));
+                    return new PreparedPluginTransaction(transactionId, failed,
+                            null, null, null, List.of());
+                }
+                PluginInstallResult duplicate = new PluginInstallResult(PluginInstallOutcome.DUPLICATE,
+                        descriptor, highest.path(), previousVersion,
+                        List.of(descriptor.id() + " " + descriptor.version() + " already installed"));
+                return new PreparedPluginTransaction(transactionId, duplicate, null, null, null,
+                        List.of(highest.path()));
+            }
 
             Files.createDirectories(unpublishedTransaction.resolve("new"));
             Path unpublishedArtifact = unpublishedTransaction.resolve("new")
                     .resolve(validated.installedPath().getFileName());
-            PluginProvenanceRecord validatedProvenance = validator.provenanceStore
-                    .readRequiredForRecovery(validated.installedPath());
             moveIntoPlace(validated.installedPath(), unpublishedArtifact);
             provenanceStore.write(unpublishedArtifact, validatedProvenance);
             validator.provenanceStore.delete(validated.installedPath());
@@ -541,6 +611,150 @@ public class ExternalPluginInstaller implements AutoCloseable {
         } finally {
             installLock.unlock();
         }
+    }
+
+    private PluginInstallResult rejectIdentityDiscontinuity(
+            PluginDescriptor descriptor,
+            PluginProvenanceRecord candidate,
+            List<InstalledPlugin> sameId,
+            List<InstalledPlugin> replaced,
+            String previousVersion,
+            PluginPackageOrigin origin) {
+        for (InstalledPlugin current : sameId) {
+            PluginProvenanceRecord installed = readIdentityProvenance(current, descriptor);
+            IdentityMigrationDecision decision = installed == null || sameTrustOwner(installed, candidate)
+                    ? IdentityMigrationDecision.AUTHORIZED
+                    : identityMigrationDecision(current, installed, descriptor, candidate, origin);
+            if (installed == null || decision == IdentityMigrationDecision.REJECTED) {
+                return identityRejected(descriptor, previousVersion, current,
+                        installed == null ? "installed provenance is missing or invalid"
+                                : "trust owner changed");
+            }
+        }
+        for (InstalledPlugin current : replaced) {
+            PluginProvenanceRecord installed = readIdentityProvenance(current, descriptor);
+            IdentityMigrationDecision decision = installed == null || installed.signature() == null
+                    || candidate.signature() == null
+                    ? IdentityMigrationDecision.REJECTED
+                    : sameTrustOwner(installed, candidate)
+                            ? IdentityMigrationDecision.AUTHORIZED
+                            : identityMigrationDecision(current, installed, descriptor, candidate, origin);
+            if (decision == IdentityMigrationDecision.REJECTED) {
+                return identityRejected(descriptor, previousVersion, current,
+                        installed == null ? "installed provenance is missing or invalid"
+                                : "replacement is not authorized by the installed trust owner");
+            }
+        }
+        return null;
+    }
+
+    private TrustResolution resolveTrust(
+            PluginDescriptor descriptor,
+            PluginProvenanceRecord candidate,
+            List<InstalledPlugin> sameId,
+            List<InstalledPlugin> replaced,
+            String previousVersion,
+            PluginPackageOrigin origin) {
+        if (candidate.developmentOnly()) {
+            return new TrustResolution(candidate, null);
+        }
+        List<PluginProvenanceRecord> installed = Stream.concat(sameId.stream(), replaced.stream())
+                .map(plugin -> readIdentityProvenance(plugin, descriptor))
+                .filter(Objects::nonNull)
+                .toList();
+        boolean previouslyRevoked = installed.stream()
+                .anyMatch(record -> record.trustRevokedAt() != null);
+        if (candidate.officialRepository() && !previouslyRevoked) {
+            return new TrustResolution(candidate.withTrustDecision(
+                    PluginTrustPolicy.official(descriptor, candidate, Instant.now())), null);
+        }
+        if (sameId.size() == 1 && replaced.isEmpty()) {
+            PluginTrustDecision inherited = PluginTrustPolicy.inherited(
+                    descriptor, candidate, installed.get(0));
+            if (inherited != null) {
+                return new TrustResolution(candidate.withTrustDecision(inherited), null);
+            }
+        }
+        if (candidate.artifactSha256().equals(origin.trustConfirmationSha256())) {
+            return new TrustResolution(candidate.withTrustDecision(
+                    PluginTrustPolicy.approve(descriptor, candidate, Instant.now())), null);
+        }
+        PluginTrustRequirement requirement = PluginTrustPolicy.requirement(descriptor, candidate);
+        PluginInstallResult rejection = new PluginInstallResult(
+                PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED,
+                descriptor,
+                null,
+                previousVersion,
+                List.of("execution trust confirmation required for exact artifact "
+                        + candidate.artifactSha256()),
+                requirement);
+        return new TrustResolution(null, rejection);
+    }
+
+    private IdentityMigrationDecision identityMigrationDecision(
+            InstalledPlugin current,
+            PluginProvenanceRecord installed,
+            PluginDescriptor descriptor,
+            PluginProvenanceRecord candidate,
+            PluginPackageOrigin origin) {
+        if (installed.signature() == null || candidate.signature() == null) {
+            return IdentityMigrationDecision.REJECTED;
+        }
+        var authorization = origin.identityMigrationSignatures().get(current.id());
+        if (authorization != null) {
+            VerificationResult result = verificationService.verifyIdentityMigration(
+                    current.id(), installed, descriptor.id(), descriptor.version(), candidate, authorization);
+            if (result.accepted()) {
+                return IdentityMigrationDecision.AUTHORIZED;
+            }
+            log.warn("Plugin key identity migration authorization did not validate {} -> {}: {} ({})",
+                    current.id(), descriptor.id(), result.status(), result.diagnosticCode());
+        }
+        return IdentityMigrationDecision.REJECTED;
+    }
+
+    private PluginProvenanceRecord readIdentityProvenance(
+            InstalledPlugin installed, PluginDescriptor descriptor) {
+        try {
+            return provenanceStore.readRequiredForRecovery(installed.path());
+        } catch (IOException | RuntimeException e) {
+            log.warn("Rejecting plugin {} because installed identity provenance for {} is unavailable: {}",
+                    descriptor.id(), installed.id(), e.toString());
+            return null;
+        }
+    }
+
+    private static boolean sameTrustOwner(PluginProvenanceRecord installed, PluginProvenanceRecord candidate) {
+        return installed.source() == candidate.source()
+                && Objects.equals(installed.repositoryId(), candidate.repositoryId())
+                && installed.officialRepository() == candidate.officialRepository()
+                && installed.developmentOnly() == candidate.developmentOnly()
+                && Objects.equals(installed.publisher(), candidate.publisher())
+                && Objects.equals(installed.keyId(), candidate.keyId());
+    }
+
+    private static PluginInstallResult identityRejected(
+            PluginDescriptor descriptor,
+            String previousVersion,
+            InstalledPlugin current,
+            String reason) {
+        return new PluginInstallResult(
+                PluginInstallOutcome.REJECTED_INTEGRITY,
+                descriptor,
+                null,
+                previousVersion,
+                List.of("plugin identity continuity rejected for " + descriptor.id()
+                        + " against installed " + current.id() + ": " + reason));
+    }
+
+    private enum IdentityMigrationDecision {
+        AUTHORIZED,
+        REJECTED
+    }
+
+    private record TrustResolution(
+            PluginProvenanceRecord provenance,
+            PluginInstallResult rejection) {
     }
 
     /**
@@ -1652,6 +1866,84 @@ public class ExternalPluginInstaller implements AutoCloseable {
         } finally {
             installLock.unlock();
         }
+    }
+
+    /** 以当前已安装 artifact 的精确 SHA-256 重新批准执行；全程位于安装锁与目录会话锁内。 */
+    public PluginProvenanceRecord approveTrust(String pluginId, String confirmedArtifactSha256) {
+        String id = requirePluginId(pluginId);
+        String confirmed = requireSha256(confirmedArtifactSha256);
+        installLock.lock();
+        try {
+            acquireDirectorySessionLockForMutation();
+            requireRecoverySafe("approve plugin execution trust");
+            Artifact artifact = requireSingleInstalledArtifact(id);
+            PluginProvenanceRecord provenance = provenanceStore.readRequiredForRecovery(artifact.plugin().path());
+            if (provenance.developmentOnly()) {
+                throw new IllegalArgumentException("development-only plugins do not inherit production trust");
+            }
+            VerificationResult result = verificationService.verifyInstalled(
+                    artifact.plugin().path(), artifact.plugin().descriptor(), provenance);
+            if (!result.accepted() || !confirmed.equals(result.sha256())
+                    || !artifact.artifactSha256().equals(result.sha256())) {
+                throw new IllegalArgumentException("trust confirmation does not bind the installed artifact");
+            }
+            PluginProvenanceRecord refreshed = provenance.withOfflineResult(
+                    result, artifact.plugin().id(), artifact.plugin().version());
+            PluginProvenanceRecord approved = refreshed.withTrustDecision(PluginTrustPolicy.approve(
+                    artifact.plugin().descriptor(), refreshed, Instant.now()));
+            provenanceStore.write(artifact.plugin().path(), approved);
+            return approved;
+        } catch (IOException e) {
+            throw new IllegalStateException("failed to approve plugin execution trust", e);
+        } finally {
+            installLock.unlock();
+        }
+    }
+
+    /** 撤销持久化执行信任；当前 generation 不被强停，下一次 initialize/start/load/reload/startup 在插件代码前拒绝。 */
+    public PluginProvenanceRecord revokeTrust(String pluginId) {
+        String id = requirePluginId(pluginId);
+        installLock.lock();
+        try {
+            acquireDirectorySessionLockForMutation();
+            requireRecoverySafe("revoke plugin execution trust");
+            Artifact artifact = requireSingleInstalledArtifact(id);
+            PluginProvenanceRecord provenance = provenanceStore.readRequiredForRecovery(artifact.plugin().path());
+            if (!artifact.artifactSha256().equals(provenance.artifactSha256())) {
+                throw new IllegalStateException("installed plugin provenance does not bind current artifact");
+            }
+            PluginProvenanceRecord revoked = provenance.withTrustRevokedAt(Instant.now());
+            provenanceStore.write(artifact.plugin().path(), revoked);
+            return revoked;
+        } catch (IOException e) {
+            throw new IllegalStateException("failed to revoke plugin execution trust", e);
+        } finally {
+            installLock.unlock();
+        }
+    }
+
+    private Artifact requireSingleInstalledArtifact(String pluginId) {
+        List<Artifact> matches = inspectInstalledArtifactsExclusive().stream()
+                .filter(artifact -> pluginId.equals(artifact.plugin().id()))
+                .toList();
+        if (matches.size() != 1) {
+            throw new IllegalArgumentException("expected exactly one installed artifact for " + pluginId);
+        }
+        return matches.get(0);
+    }
+
+    private static String requirePluginId(String pluginId) {
+        if (pluginId == null || pluginId.isBlank() || !pluginId.equals(pluginId.trim())) {
+            throw new IllegalArgumentException("pluginId is missing or malformed");
+        }
+        return pluginId;
+    }
+
+    private static String requireSha256(String sha256) {
+        if (sha256 == null || !sha256.matches("[0-9A-Fa-f]{64}")) {
+            throw new IllegalArgumentException("confirmedArtifactSha256 is not a SHA-256 digest");
+        }
+        return sha256.toLowerCase(Locale.ROOT);
     }
 
     private List<InstalledPlugin> listInstalledExclusive() {

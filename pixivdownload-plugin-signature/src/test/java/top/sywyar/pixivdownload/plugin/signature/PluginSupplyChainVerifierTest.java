@@ -268,6 +268,77 @@ class PluginSupplyChainVerifierTest {
                 .isEqualTo(VerificationStatus.INVALID_SIGNATURE);
     }
 
+    @Test
+    @DisplayName("identity migration：旧 key 只授权精确的新身份与候选制品")
+    void verifiesExactIdentityMigration() throws Exception {
+        Fixture oldOwner = Fixture.create(TrustedPluginKey.State.RETIRED);
+        IdentityMigrationVerificationRequest.Identity from = new IdentityMigrationVerificationRequest.Identity(
+                "demo", "MARKET_CATALOG", "old-repository", false,
+                oldOwner.key.publisher(), oldOwner.key.keyId());
+        IdentityMigrationVerificationRequest.Identity to = new IdentityMigrationVerificationRequest.Identity(
+                "demo", "MARKET_CATALOG", "new-repository", false,
+                "New Publisher", "new-key");
+        String sha256 = "ab".repeat(32);
+        SignatureMetadata signature = oldOwner.identityMigrationSignature(
+                from, to, "2.0.0", 123L, sha256);
+
+        VerificationResult verified = oldOwner.verifier.verifyIdentityMigration(
+                new IdentityMigrationVerificationRequest(
+                        from, to, "2.0.0", 123L, sha256, signature,
+                        VerificationPolicy.installedCustom()));
+        assertThat(verified.status()).isEqualTo(VerificationStatus.VERIFIED);
+
+        IdentityMigrationVerificationRequest.Identity tamperedDestination =
+                new IdentityMigrationVerificationRequest.Identity(
+                        "demo", "MARKET_CATALOG", "attacker-repository", false,
+                        "New Publisher", "new-key");
+        assertStatus(oldOwner.verifier.verifyIdentityMigration(new IdentityMigrationVerificationRequest(
+                        from, tamperedDestination, "2.0.0", 123L, sha256, signature,
+                        VerificationPolicy.installedCustom())),
+                VerificationStatus.INVALID_SIGNATURE);
+        assertStatus(oldOwner.verifier.verifyIdentityMigration(new IdentityMigrationVerificationRequest(
+                        from, to, "2.0.0", 123L, "cd".repeat(32), signature,
+                        VerificationPolicy.installedCustom())),
+                VerificationStatus.INVALID_SIGNATURE);
+    }
+
+    @Test
+    @DisplayName("identity migration：授权签名必须来自持久化旧 key 与旧 publisher")
+    void rejectsMigrationSignerIdentityMismatch() throws Exception {
+        Fixture oldOwner = Fixture.create(TrustedPluginKey.State.ACTIVE);
+        IdentityMigrationVerificationRequest.Identity from = new IdentityMigrationVerificationRequest.Identity(
+                "demo", "MARKET_CATALOG", "old-repository", false,
+                oldOwner.key.publisher(), oldOwner.key.keyId());
+        IdentityMigrationVerificationRequest.Identity to = new IdentityMigrationVerificationRequest.Identity(
+                "demo", "MARKET_CATALOG", "new-repository", false,
+                "New Publisher", "new-key");
+        String sha256 = "ab".repeat(32);
+        SignatureMetadata signature = oldOwner.identityMigrationSignature(
+                from, to, "2.0.0", 123L, sha256);
+
+        SignatureMetadata wrongKey = new SignatureMetadata(signature.formatVersion(), signature.algorithm(),
+                "other-key", signature.value());
+        VerificationResult keyMismatch = oldOwner.verifier.verifyIdentityMigration(
+                new IdentityMigrationVerificationRequest(
+                        from, to, "2.0.0", 123L, sha256, wrongKey,
+                        VerificationPolicy.installedCustom()));
+        assertThat(keyMismatch.status()).isEqualTo(VerificationStatus.IDENTITY_MISMATCH);
+        assertThat(keyMismatch.diagnosticCode()).isEqualTo("MIGRATION_SIGNER_MISMATCH");
+
+        IdentityMigrationVerificationRequest.Identity wrongPublisher =
+                new IdentityMigrationVerificationRequest.Identity(
+                        "demo", "MARKET_CATALOG", "old-repository", false,
+                        "Other Publisher", oldOwner.key.keyId());
+        SignatureMetadata wrongPublisherSignature = oldOwner.identityMigrationSignature(
+                wrongPublisher, to, "2.0.0", 123L, sha256);
+        VerificationResult publisherMismatch = oldOwner.verifier.verifyIdentityMigration(
+                new IdentityMigrationVerificationRequest(
+                        wrongPublisher, to, "2.0.0", 123L, sha256, wrongPublisherSignature,
+                        VerificationPolicy.installedCustom()));
+        assertThat(publisherMismatch.status()).isEqualTo(VerificationStatus.IDENTITY_MISMATCH);
+        assertThat(publisherMismatch.diagnosticCode()).isEqualTo("MIGRATION_PUBLISHER_MISMATCH");
+    }
+
     private Path artifact(String text) throws Exception {
         Path path = tempDir.resolve("plugin.jar");
         Files.writeString(path, text);
@@ -316,6 +387,48 @@ class PluginSupplyChainVerifierTest {
                     ? EnvelopeV1Codec.repositoryUpdateMessage(repositoryId, sequence, document.length, sha256)
                     : EnvelopeV1Codec.pluginRevocationsMessage(repositoryId, sequence, document.length, sha256);
             return metadata(sign(message));
+        }
+
+        SignatureMetadata identityMigrationSignature(
+                IdentityMigrationVerificationRequest.Identity from,
+                IdentityMigrationVerificationRequest.Identity to,
+                String version,
+                long size,
+                String sha256) throws Exception {
+            byte[] message = EnvelopeV1Codec.identityMigrationMessage(
+                    SignatureMetadata.ED25519,
+                    key.keyId(),
+                    from.pluginId(),
+                    from.source(),
+                    from.repositoryId(),
+                    from.officialRepository(),
+                    from.publisher(),
+                    from.keyId(),
+                    to.pluginId(),
+                    to.source(),
+                    to.repositoryId(),
+                    to.officialRepository(),
+                    to.publisher(),
+                    to.keyId(),
+                     version,
+                     size,
+                     java.util.HexFormat.of().parseHex(sha256));
+            return metadata(sign(message));
+        }
+
+        Fixture withState(TrustedPluginKey.State state) {
+            TrustedPluginKey statefulKey = new TrustedPluginKey(
+                    key.keyId(),
+                    key.algorithm(),
+                    key.publicKeySpkiBase64(),
+                    state,
+                    key.publisher(),
+                    key.trustLabel(),
+                    key.official());
+            return new Fixture(
+                    pair,
+                    statefulKey,
+                    new PluginSupplyChainVerifier(PluginTrustStores.of(List.of(statefulKey))));
         }
 
         private SignatureMetadata metadata(byte[] signature) {

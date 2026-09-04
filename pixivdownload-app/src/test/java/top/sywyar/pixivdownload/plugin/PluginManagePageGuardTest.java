@@ -111,8 +111,7 @@ class PluginManagePageGuardTest {
         assertThat(core).as("验签状态映射覆盖关键稳定状态")
                 .contains("VERIFIED_OFFICIAL", "VERIFIED_CUSTOM", "UNVERIFIED_LOCAL",
                         "INVALID_SIGNATURE", "UNKNOWN_KEY", "IO_ERROR", "PROVENANCE_INVALID");
-        assertThat(core).as("插件管理页不得按 sha256/keyId/repositoryId 自行推断可信状态")
-                .doesNotContain("sha256")
+        assertThat(core).as("插件管理页不得按 keyId/repositoryId 自行推断可信状态")
                 .doesNotContain("keyId")
                 .doesNotContain("repositoryId === 'official'");
         String api = read(API);
@@ -129,47 +128,65 @@ class PluginManagePageGuardTest {
     }
 
     @Test
-    @DisplayName("生命周期策略完全由 DTO 驱动：三类标签、持久化开关与反馈弹窗均接线且不使用原生对话框")
-    void lifecyclePolicyDrivesLabelsTogglesAndRestartGuidance() throws IOException {
+    @DisplayName("执行模式与生命周期策略完全由 DTO 驱动，且反馈弹窗不使用原生对话框")
+    void executionModeAndLifecyclePolicyDriveLabelsTogglesAndRestartGuidance() throws IOException {
         String core = read(CORE);
-        assertThat(core).contains("entry.lifecyclePolicy", "entry.configuredEnabled", "entry.toggleable");
+        assertThat(core).contains("entry.executionMode", "entry.lifecyclePolicy", "entry.configuredEnabled", "entry.toggleable");
+        assertThat(core).contains("DECLARATIVE_PROCESS", "HOST_PROCESS_FULL_TRUST");
         assertThat(core).contains("HOT_RELOAD", "BACKEND_RESTART", "PROCESS_RESTART");
 
         String views = read(VIEWS);
-        assertThat(views).contains("vm.showLifecycleTag", "vm.lifecycleLabel", "vm.enabled");
+        assertThat(views).contains("vm.showExecutionTag", "vm.executionLabel",
+                "vm.showLifecycleTag", "vm.lifecycleLabel", "vm.enabled",
+                "vm.trustLabel", "data-pm-trust-action");
 
         String init = read(INIT);
         assertThat(init).as("需重启策略持久化启停配置").contains("PM.setEnabled");
         assertThat(init).as("后端重启需先走共享确认框").contains("PixivFeedback.confirm", "PM.restartBackend");
         assertThat(init).as("完整进程重启只走共享提醒框").contains("PixivFeedback.alert");
+        assertThat(core + init).as("本地上传与已安装插件信任都绑定后端精确摘要")
+                .contains("TRUST_CONFIRMATION_REQUIRED", "trustRequirement", "artifactSha256",
+                        "installPackageWithConfirmation", "PM.approveTrust", "PM.revokeTrust",
+                        "PM.trustConfirmationOptions");
+        assertThat(read(API)).as("信任 API 使用受控插件 id 与精确 SHA 参数")
+                .contains("confirmTrust", "confirmArtifactSha256", "'/trust'", "'PUT'", "'DELETE'");
         assertThat(init).as("禁止原生 confirm / alert")
                 .doesNotContain("window.confirm(", "window.alert(", "global.confirm(", "global.alert(");
         assertThat(init).as("前端不得调用完整进程重启端点").doesNotContain("/api/gui/restart");
     }
 
     @Test
-    @DisplayName("生命周期与重启提示文案中英键集合一致且关键文案非空")
-    void lifecycleI18nKeysMatchAcrossLocales() throws IOException {
+    @DisplayName("执行信任、生命周期与重启提示文案中英键集合一致且关键文案非空")
+    void executionAndLifecycleI18nKeysMatchAcrossLocales() throws IOException {
         Properties zh = readProperties(I18N_ZH);
         Properties en = readProperties(I18N_EN);
         assertThat(zh.stringPropertyNames()).as("plugins 中英文案键集合一致")
                 .isEqualTo(en.stringPropertyNames());
         for (String key : new String[]{
+                "execution.declarative-process", "execution.host-process-full-trust",
                 "lifecycle.hot-reload", "lifecycle.backend-restart", "lifecycle.process-restart",
                 "toggle.saved.enabled", "toggle.saved.disabled", "toggle.failed",
                 "restart.backend.message", "restart.backend.confirm", "restart.backend.later",
                 "restart.process.message", "restart.process.done",
                 "action.menu", "action.menu.aria",
                 "verification.io-error", "verification.provenance-invalid",
-                "security.notice.title", "security.notice.desc",
+                "trust.state.approved", "trust.state.confirmation-required", "trust.state.revoked",
+                "trust.confirm.risk", "trust.confirm.declarative-risk", "trust.confirm.elevated-risk",
+                "trust.confirm.unsigned-risk", "trust.confirm.details",
+                "trust.confirm.allow", "trust.action.approve", "trust.action.revoke",
+                "trust.revoke.message", "trust.toast.approved", "trust.toast.revoked",
+                "security.notice.title", "security.notice.desc", "host.elevated.title", "host.elevated.desc",
                 "install.signature.pick", "install.signature.no-file", "install.signature.help",
                 "install.invalid-signature-extension"}) {
             assertThat(zh.getProperty(key)).as("中文文案 " + key).isNotBlank();
             assertThat(en.getProperty(key)).as("英文文案 " + key).isNotBlank();
         }
-        assertThat(read(HTML)).as("插件列表与本地安装弹窗都必须直接展示权限说明")
+        assertThat(read(HTML)).as("插件列表与本地安装弹窗都必须直接展示执行与签名说明")
                 .containsOnlyOnce("data-i18n=\"security.notice.title\"")
                 .contains("data-i18n=\"security.notice.desc\"");
+        assertThat(read(HTML)).as("高权限宿主警告必须有固定页面锚点")
+                .contains("id=\"pm-host-privilege\"", "data-i18n=\"host.elevated.title\"",
+                        "data-i18n=\"host.elevated.desc\"");
         assertThat(read(HTML)).as("本地安装必须提供 detached 签名选择入口与正式运行提示")
                 .contains("id=\"pm-install-signature\"", "accept=\".sig\"",
                         "data-i18n=\"install.signature.help\"");

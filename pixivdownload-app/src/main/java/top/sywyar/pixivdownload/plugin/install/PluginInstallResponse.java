@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService.PluginDependencyView;
 import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
+import top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustRequirement;
 
 import java.util.List;
 
@@ -57,7 +58,8 @@ public record PluginInstallResponse(
         boolean activated,
         boolean rolledBack,
         String rollbackVersion,
-        List<PluginDependencyInstallResult> dependencyInstallResults) implements ApiErrorResponse {
+        List<PluginDependencyInstallResult> dependencyInstallResults,
+        PluginTrustRequirement trustRequirement) implements ApiErrorResponse {
 
     /** 非 2xx 安装结局统一暴露的稳定 API 错误码；成功结局同时保留该别名，便于客户端统一读取。 */
     @Override

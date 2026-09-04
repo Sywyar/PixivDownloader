@@ -1,7 +1,6 @@
-package top.sywyar.pixivdownload.plugin.runtime.bootstrap;
+package top.sywyar.pixivdownload.runtimeprobe;
 
 import org.pf4j.Plugin;
-import org.pf4j.PluginWrapper;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivPluginProvider;
 
@@ -10,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Properties;
 
 /**
  * 依赖排序探针插件：同一插件类可被多个测试包复用，功能插件 id 跟随 PF4J 包 id。
@@ -18,9 +18,8 @@ public class DependencyOrderProbePlugin extends Plugin implements PixivPluginPro
 
     private final String pluginId;
 
-    public DependencyOrderProbePlugin(PluginWrapper wrapper) {
-        super(wrapper);
-        this.pluginId = wrapper.getPluginId();
+    public DependencyOrderProbePlugin() {
+        this.pluginId = readPluginId();
         record("load");
         replaceConfiguredArtifact();
     }
@@ -33,6 +32,23 @@ public class DependencyOrderProbePlugin extends Plugin implements PixivPluginPro
     @Override
     public PixivFeaturePlugin featurePlugin() {
         return new DependencyOrderProbeFeaturePlugin(pluginId);
+    }
+
+    private String readPluginId() {
+        Properties properties = new Properties();
+        try (var input = getClass().getClassLoader().getResourceAsStream("plugin.properties")) {
+            if (input == null) {
+                throw new IllegalStateException("missing dependency-order probe descriptor");
+            }
+            properties.load(input);
+        } catch (IOException e) {
+            throw new IllegalStateException("failed to read dependency-order probe descriptor", e);
+        }
+        String value = properties.getProperty("plugin.id");
+        if (value == null || value.isBlank()) {
+            throw new IllegalStateException("missing dependency-order probe id");
+        }
+        return value.trim();
     }
 
     private void record(String event) {

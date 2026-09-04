@@ -49,14 +49,14 @@ class PluginTemplateRuntimeRegistrationTest {
     Path temporaryDirectory;
 
     @Test
-    @DisplayName("模板只靠契约类路径注册下载扩展、运行期队列能力、route/static/i18n 并组建子上下文")
+    @DisplayName("独立模板注册声明式贡献，完全受信模板组建子上下文")
     void templatesRegisterThroughRealHostContracts() throws Exception {
         long minimalGeneration = 3L;
         long downloadGeneration = 7L;
         try (LoadedTemplate minimal = compileTemplate(
                 "minimal-feature-plugin",
                 "com.example.pixivdownload.minimal.ExampleMinimalPlugin",
-                "com.example.pixivdownload.minimal.ExampleMinimalConfiguration");
+                null);
              LoadedTemplate download = compileTemplate(
                      "download-type-plugin",
                      "com.example.pixivdownload.downloadtype.ExampleDownloadPlugin",
@@ -90,7 +90,8 @@ class PluginTemplateRuntimeRegistrationTest {
             routes.register(new PluginRequestOwner("example-download", 0L, 2L),
                     download.feature().routes());
             assertThat(routes.isDeclared("/api/example-download/queue")).isTrue();
-            assertThat(routes.isDeclared("/api/example-minimal/ping")).isTrue();
+            assertThat(routes.isDeclared("/example-minimal.html")).isTrue();
+            assertThat(routes.isDeclared("/api/example-minimal/ping")).isFalse();
             assertThat(routes.isDeclared("/example-download-gallery.html")).isTrue();
             assertThat(routes.isDeclared("/api/gallery/unified/descriptors")).isFalse();
 
@@ -104,6 +105,7 @@ class PluginTemplateRuntimeRegistrationTest {
 
             DatabaseSchemaRegistry schema = new DatabaseSchemaRegistry(plugins);
             assertThat(schema.mergedSchema().tables()).isEmpty();
+            assertThat(minimal.configurationClass()).isNull();
 
             QueueOperationRegistry operations = new QueueOperationRegistry(List.of());
             ExternalCapabilityInvocationRegistry invocationRegistry =
@@ -204,7 +206,9 @@ class PluginTemplateRuntimeRegistrationTest {
                 .forName(featureClassName, true, classLoader)
                 .getConstructor()
                 .newInstance();
-        Class<?> configuration = Class.forName(configurationClassName, true, classLoader);
+        Class<?> configuration = configurationClassName == null
+                ? null
+                : Class.forName(configurationClassName, true, classLoader);
         return new LoadedTemplate(feature, configuration, classLoader);
     }
 

@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.plugin.catalog;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -28,8 +29,8 @@ public class PluginCatalogProperties {
     /** 单个清单的默认字节上限（1MB）。 */
     public static final long DEFAULT_MAX_MANIFEST_BYTES = 1L * 1024 * 1024;
 
-    /** 单个插件包下载的默认绝对字节上限（100MB）。 */
-    public static final long DEFAULT_MAX_PACKAGE_BYTES = 100L * 1024 * 1024;
+    /** 单个插件包下载的默认绝对字节上限，与安装器归档上限保持一致。 */
+    public static final long DEFAULT_MAX_PACKAGE_BYTES = PluginPackageLimits.DEFAULT_MAX_ARCHIVE_BYTES;
 
     /** 是否启用受信 catalog / 插件市场主开关（默认启用；可显式关闭以禁止访问仓库）。 */
     private boolean enabled = true;
@@ -49,7 +50,7 @@ public class PluginCatalogProperties {
     /** 清单拉取的全局默认最大字节数（防超大响应；默认 1MB；可被仓库级覆盖）。 */
     private long maxManifestBytes = DEFAULT_MAX_MANIFEST_BYTES;
 
-    /** 单个插件包下载的全局默认绝对最大字节数（默认 100MB；可被仓库级覆盖）。 */
+    /** 单个插件包下载的全局默认绝对最大字节数（默认 192 MiB；可被仓库级覆盖）。 */
     private long maxPackageBytes = DEFAULT_MAX_PACKAGE_BYTES;
 
     /** 连接超时（毫秒；全局默认，可被仓库级覆盖）。 */

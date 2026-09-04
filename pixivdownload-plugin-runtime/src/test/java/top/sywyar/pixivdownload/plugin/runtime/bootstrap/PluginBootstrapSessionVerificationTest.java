@@ -23,6 +23,9 @@ import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageFixtu
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
+import top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustPolicy;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
@@ -69,7 +72,7 @@ class PluginBootstrapSessionVerificationTest extends PluginBootstrapSessionTestS
     @Test
     @DisplayName("诊断路径：缺失目录→ABSENT、坏包→failure、不抛、不阻断")
     void missingAndBadDirectoryConvergeToDiagnostics() throws Exception {
-        PluginBootstrapSession absent = PluginBootstrapSession.createContext(
+        PluginBootstrapSession absent = createContext(
                 tempDir.resolve("does-not-exist"), PluginEnabledSnapshot.empty());
         absent.start();
         assertThat(absent.status().state()).isEqualTo(PluginDirectoryState.ABSENT);
@@ -78,7 +81,7 @@ class PluginBootstrapSessionVerificationTest extends PluginBootstrapSessionTestS
         Path pluginsDir = tempDir.resolve("bad-plugins");
         Files.createDirectories(pluginsDir);
         Files.write(pluginsDir.resolve("broken.jar"), new byte[]{1, 2, 3, 4}); // 非 zip
-        PluginBootstrapSession bad = PluginBootstrapSession.createContext(pluginsDir, PluginEnabledSnapshot.empty());
+        PluginBootstrapSession bad = createContext(pluginsDir, PluginEnabledSnapshot.empty());
         bad.start();
         // 坏包被隔离捕获成诊断 / failure，不致命
         assertThat(bad.status().hasFailures()).isTrue();
@@ -98,7 +101,7 @@ class PluginBootstrapSessionVerificationTest extends PluginBootstrapSessionTestS
         PluginPackageOrigin origin = signing.originFor(jar, "bootstrap-probe", "1.0.0");
         new PluginProvenanceStore(pluginsDir).write(jar, origin, signing.verifiedResult(jar));
 
-        PluginBootstrapSession session = PluginBootstrapSession.createContext(
+        PluginBootstrapSession session = createContext(
                 pluginsDir, PluginEnabledSnapshot.empty(), signing.verifier());
         session.start();
 
@@ -106,6 +109,97 @@ class PluginBootstrapSessionVerificationTest extends PluginBootstrapSessionTestS
         assertThat(Files.readString(marker, StandardCharsets.UTF_8)).contains("load").contains("start");
         PluginProvenanceRecord provenance = new PluginProvenanceStore(pluginsDir).read(jar).orElseThrow();
         assertThat(provenance.offlineStatus()).isEqualTo(VerificationStatus.VERIFIED);
+        session.close();
+    }
+
+    @Test
+    @DisplayName("自定义仓库签名还必须有持久化发布者信任才能取得宿主进程执行权限")
+    void customRepositorySignatureAuthorizesHostProcessFullTrustExecution() throws Exception {
+        Path pluginsDir = tempDir.resolve("custom-trusted-plugins");
+        Path jar = stageProbeJar(pluginsDir);
+        Path marker = tempDir.resolve("custom-trusted-events.log");
+        Files.createFile(marker);
+        System.setProperty("bootstrap.probe.marker", marker.toString());
+        SigningFixture signing = SigningFixture.create();
+        PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog(
+                "custom-repository",
+                false,
+                Files.size(jar),
+                PluginPackageIntegrity.sha256Hex(jar),
+                signing.artifactSignature(jar, "bootstrap-probe", "1.0.0"));
+        PluginProvenanceRecord verified = PluginProvenanceRecord.from(origin, signing.verifiedResult(jar));
+        PluginProvenanceRecord approved = verified.withTrustDecision(PluginTrustPolicy.approve(
+                PluginPackageReader.inspect(jar, PluginPackageLimits.defaults()).descriptor(),
+                verified,
+                Instant.now()));
+        new PluginProvenanceStore(pluginsDir).write(jar, approved);
+
+        PluginBootstrapSession session = createContext(
+                pluginsDir, PluginEnabledSnapshot.empty(), signing.verifier());
+        session.start();
+
+        assertThat(session.status().startedPluginIds()).contains("bootstrap-probe");
+        assertThat(session.status().failures()).isEmpty();
+        assertThat(Files.readString(marker, StandardCharsets.UTF_8)).contains("load").contains("start");
+        session.close();
+    }
+
+    @Test
+    @DisplayName("撤销已加载插件的执行信任后，再次 start 必须在插件代码前拒绝")
+    void revokedTrustPreventsRestartingLoadedPlugin() throws Exception {
+        Path pluginsDir = tempDir.resolve("revoked-trust-plugins");
+        Path jar = stageProbeJar(pluginsDir);
+        Path marker = tempDir.resolve("revoked-trust-events.log");
+        Files.createFile(marker);
+        System.setProperty("bootstrap.probe.marker", marker.toString());
+        SigningFixture signing = SigningFixture.create();
+        PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog(
+                "custom-repository", false, Files.size(jar), PluginPackageIntegrity.sha256Hex(jar),
+                signing.artifactSignature(jar, "bootstrap-probe", "1.0.0"));
+        PluginProvenanceRecord verified = PluginProvenanceRecord.from(origin, signing.verifiedResult(jar));
+        PluginProvenanceRecord approved = verified.withTrustDecision(PluginTrustPolicy.approve(
+                PluginPackageReader.inspect(jar, PluginPackageLimits.defaults()).descriptor(),
+                verified,
+                Instant.now()));
+        PluginProvenanceStore store = new PluginProvenanceStore(pluginsDir);
+        store.write(jar, approved);
+
+        PluginBootstrapSession session = createContext(
+                pluginsDir, PluginEnabledSnapshot.empty(), signing.verifier());
+        session.start();
+        session.manager().stopPlugin("bootstrap-probe");
+        store.write(jar, store.read(jar).orElseThrow().withTrustRevokedAt(Instant.now()));
+        String eventsBeforeRestart = Files.readString(marker, StandardCharsets.UTF_8);
+
+        assertThatThrownBy(() -> session.manager().startPlugin("bootstrap-probe"))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("trust was revoked");
+        assertThat(Files.readString(marker, StandardCharsets.UTF_8)).isEqualTo(eventsBeforeRestart);
+        session.close();
+    }
+
+    @Test
+    @DisplayName("自定义仓库仅有合法签名但未确认时在 PF4J 前拒绝且不执行探针代码")
+    void customRepositoryWithoutExecutionTrustDoesNotRunPluginCode() throws Exception {
+        Path pluginsDir = tempDir.resolve("custom-unconfirmed-plugins");
+        Path jar = stageProbeJar(pluginsDir);
+        Path marker = tempDir.resolve("custom-unconfirmed-events.log");
+        Files.createFile(marker);
+        System.setProperty("bootstrap.probe.marker", marker.toString());
+        SigningFixture signing = SigningFixture.create();
+        PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog(
+                "custom-repository", false, Files.size(jar), PluginPackageIntegrity.sha256Hex(jar),
+                signing.artifactSignature(jar, "bootstrap-probe", "1.0.0"));
+        new PluginProvenanceStore(pluginsDir).write(jar, origin, signing.verifiedResult(jar));
+
+        PluginBootstrapSession session = createContext(
+                pluginsDir, PluginEnabledSnapshot.empty(), signing.verifier());
+        session.start();
+
+        assertThat(session.status().startedPluginIds()).doesNotContain("bootstrap-probe");
+        assertThat(session.status().failures())
+                .anyMatch(failure -> failure.reason().contains("trust confirmation is missing"));
+        assertThat(Files.readString(marker, StandardCharsets.UTF_8)).isEmpty();
         session.close();
     }
 
@@ -126,7 +220,7 @@ class PluginBootstrapSessionVerificationTest extends PluginBootstrapSessionTestS
                 null, null, Instant.now(), Files.size(jar), PluginPackageIntegrity.sha256Hex(jar), "VERIFIED");
         new PluginProvenanceStore(pluginsDir).write(jar, origin, result);
 
-        PluginBootstrapSession session = PluginBootstrapSession.createContext(pluginsDir, PluginEnabledSnapshot.empty());
+        PluginBootstrapSession session = createContext(pluginsDir, PluginEnabledSnapshot.empty());
         session.start();
 
         assertThat(session.status().startedPluginIds()).doesNotContain("bootstrap-probe");
@@ -146,7 +240,7 @@ class PluginBootstrapSessionVerificationTest extends PluginBootstrapSessionTestS
         Files.createFile(marker);
         System.setProperty("bootstrap.probe.marker", marker.toString());
 
-        PluginBootstrapSession session = PluginBootstrapSession.createContext(pluginsDir, PluginEnabledSnapshot.empty());
+        PluginBootstrapSession session = createContext(pluginsDir, PluginEnabledSnapshot.empty());
         session.start();
 
         assertThat(session.status().startedPluginIds()).doesNotContain("bootstrap-probe");
@@ -162,15 +256,15 @@ class PluginBootstrapSessionVerificationTest extends PluginBootstrapSessionTestS
     void processCloseForContextIsNoOp() throws Exception {
         Path pluginsDir = tempDir.resolve("plugins");
         stageProbeJar(pluginsDir);
-        PluginBootstrapSession session = PluginBootstrapSession.createProcess(pluginsDir, PluginEnabledSnapshot.empty());
+        PluginBootstrapSession session = createProcess(pluginsDir, PluginEnabledSnapshot.empty());
         session.start();
-        assertThat(session.manager().pluginManager()).isPresent();
+        assertThat(session.manager().isPhysicalRuntimeInitialized()).isTrue();
 
         session.closeForContext(); // PROCESS → no-op
-        assertThat(session.manager().pluginManager()).isPresent();
+        assertThat(session.manager().isPhysicalRuntimeInitialized()).isTrue();
 
         session.close(); // 真正关闭
-        assertThat(session.manager().pluginManager()).isEmpty();
+        assertThat(session.manager().isPhysicalRuntimeInitialized()).isFalse();
     }
 
     @Test
@@ -178,12 +272,12 @@ class PluginBootstrapSessionVerificationTest extends PluginBootstrapSessionTestS
     void contextCloseForContextCloses() throws Exception {
         Path pluginsDir = tempDir.resolve("plugins");
         stageProbeJar(pluginsDir);
-        PluginBootstrapSession session = PluginBootstrapSession.createContext(pluginsDir, PluginEnabledSnapshot.empty());
+        PluginBootstrapSession session = createContext(pluginsDir, PluginEnabledSnapshot.empty());
         session.start();
-        assertThat(session.manager().pluginManager()).isPresent();
+        assertThat(session.manager().isPhysicalRuntimeInitialized()).isTrue();
 
         session.closeForContext(); // CONTEXT → 关闭
-        assertThat(session.manager().pluginManager()).isEmpty();
+        assertThat(session.manager().isPhysicalRuntimeInitialized()).isFalse();
     }
 
     @Test
@@ -191,11 +285,11 @@ class PluginBootstrapSessionVerificationTest extends PluginBootstrapSessionTestS
     void closeIsIdempotent() throws Exception {
         Path pluginsDir = tempDir.resolve("plugins");
         stageProbeJar(pluginsDir);
-        PluginBootstrapSession session = PluginBootstrapSession.createContext(pluginsDir, PluginEnabledSnapshot.empty());
+        PluginBootstrapSession session = createContext(pluginsDir, PluginEnabledSnapshot.empty());
         session.start();
         session.close();
         session.close();
         session.closeForContext();
-        assertThat(session.manager().pluginManager()).isEmpty();
+        assertThat(session.manager().isPhysicalRuntimeInitialized()).isFalse();
     }
 }

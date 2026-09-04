@@ -32,6 +32,9 @@ public enum PluginStatus {
     /** 失败：加载 / 启动出错，或描述符非法（缺字段 / 非法字段）。 */
     FAILED,
 
+    /** 已崩溃：隔离 worker 异常退出，贡献已撤回且运行时正在恢复或等待人工重启。 */
+    CRASHED,
+
     /** 不兼容：插件声明的 SDK 版本要求（{@code requires}）不被当前宿主 SDK 满足。 */
     INCOMPATIBLE,
 

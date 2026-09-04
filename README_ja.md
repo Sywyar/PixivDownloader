@@ -64,11 +64,9 @@
 
 | 種類 | 説明 |
 |---|---|
-| `PixivDownload-*-win-x64-setup.exe` | Windows インストーラー。修復・変更・アンインストール、FFmpeg の任意インストールに対応。Douyin 以外の公式プラグインをすべて事前インストール |
-| `PixivDownload-*-java.zip` | Java 標準パッケージ（クロスプラットフォーム）。Java 17 が必要。Windows インストーラーと同じデフォルトプラグイン構成で、Douyin は含まれません |
-| `PixivDownload-*-full-offline.zip` | 完全オフラインパッケージ（クロスプラットフォーム）。Java 17 が必要。ユーザー向けの公式プラグインをすべて含み、Douyin にも対応 |
-
-> コアシェルの `PixivDownload-*.jar` は内部ビルド用の入力であり、通常のユーザー向け添付ファイルとしては提供していません。単独で実行すると必須の外部 `download-workbench` プラグインがないため、リカバリー・修復モードになります。
+| `PixivDownload-*-win-x64-setup.exe` | JRE 内蔵の Windows インストーラー。修復・変更・アンインストールと FFmpeg の任意インストールに対応。公式プラグイン配布セットを同梱し、Douyin は含みません |
+| `PixivDownload-*-java.zip` | Java 標準パッケージ（クロスプラットフォーム）。Java 17 が必要。Windows インストーラーと同じプラグイン構成で、Douyin は含みません |
+| `PixivDownload-*-full-offline.zip` | 完全オフラインパッケージ（クロスプラットフォーム）。Java 17 が必要。Java 標準パッケージと同じプラグイン構成で、Douyin は含みません |
 
 Java 標準パッケージと完全オフラインパッケージは、使用前に**必ず完全に展開**してください。JAR だけを取り出してはいけません。起動スクリプトと `plugins/` ディレクトリの両方が必要です。外部の公式プラグインは起動時に作業ディレクトリの `plugins/` フォルダーから読み込まれます。
 

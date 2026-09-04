@@ -8,7 +8,7 @@ import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 
 import java.util.List;
 
-/** Stable, framework-light declarations consumed by the host plugin registry. */
+/** 由宿主插件注册中心消费的稳定声明式贡献。 */
 public final class ExampleMinimalPlugin implements PixivFeaturePlugin {
 
     public static final String ID = "example-minimal";
@@ -47,8 +47,7 @@ public final class ExampleMinimalPlugin implements PixivFeaturePlugin {
     public List<WebRouteContribution> routes() {
         return List.of(
                 WebRouteContribution.admin("/example-minimal.html"),
-                WebRouteContribution.admin("/example-minimal/**"),
-                WebRouteContribution.admin("/api/example-minimal/**"));
+                WebRouteContribution.admin("/example-minimal/**"));
     }
 
     @Override

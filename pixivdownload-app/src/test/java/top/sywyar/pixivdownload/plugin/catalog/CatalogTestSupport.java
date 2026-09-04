@@ -115,6 +115,7 @@ final class CatalogTestSupport {
         sb.append("plugin.id=").append(id).append('\n');
         sb.append("plugin.version=").append(version).append('\n');
         sb.append("plugin.class=com.example.Plugin").append('\n');
+        sb.append("pixiv.execution-mode=host-process-full-trust").append('\n');
         if (requires != null) {
             sb.append("plugin.requires=").append(requires).append('\n');
         }

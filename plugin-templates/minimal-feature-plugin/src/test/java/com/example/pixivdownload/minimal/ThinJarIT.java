@@ -41,6 +41,10 @@ class ThinJarIT {
         assertTrue(entries.contains("plugin.properties"));
         assertTrue(entries.contains(
                 "com/example/pixivdownload/minimal/ExampleMinimalPf4jPlugin.class"));
+        assertFalse(entries.contains(
+                "com/example/pixivdownload/minimal/ExampleMinimalConfiguration.class"));
+        assertFalse(entries.contains(
+                "com/example/pixivdownload/minimal/web/ExampleMinimalController.class"));
         assertTrue(entries.stream().noneMatch(name -> name.startsWith("BOOT-INF/")));
         assertTrue(entries.stream().noneMatch(name -> name.startsWith("lib/") || name.endsWith(".jar")));
         assertTrue(entries.stream().noneMatch(name -> name.startsWith("org/pf4j/")));
@@ -65,10 +69,7 @@ class ThinJarIT {
             PixivFeaturePlugin feature = provider.featurePlugin();
             assertNotNull(feature);
             assertEquals("example-minimal", feature.id());
-            assertEquals(List.of("com.example.pixivdownload.minimal.ExampleMinimalConfiguration"),
-                    provider.configurationClasses().stream().map(Class::getName).toList());
-            assertTrue(provider.configurationClasses().stream()
-                    .allMatch(configuration -> configuration.getClassLoader() == loader));
+            assertEquals(List.of(), provider.configurationClasses());
             assertEquals(pluginJar.toUri(), entrypoint.getProtectionDomain().getCodeSource().getLocation().toURI());
         }
     }
@@ -81,7 +82,7 @@ class ThinJarIT {
         return Path.of(buildDirectory, finalName + ".jar").toAbsolutePath().normalize();
     }
 
-    /** Child-first only for plugin-owned classes; PF4J, Spring and plugin-api stay parent-shared. */
+    /** 仅插件自有类采用子优先；PF4J 与 plugin-api 继续由父加载器共享。 */
     private static final class PluginJarClassLoader extends URLClassLoader {
 
         private PluginJarClassLoader(URL pluginJar, ClassLoader parent) {

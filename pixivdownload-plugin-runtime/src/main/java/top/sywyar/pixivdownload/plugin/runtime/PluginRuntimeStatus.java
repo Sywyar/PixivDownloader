@@ -70,7 +70,21 @@ public record PluginRuntimeStatus(
         PluginDirectoryState refreshedState = Files.isDirectory(directory)
                 ? (phases.isEmpty() ? PluginDirectoryState.EMPTY : PluginDirectoryState.POPULATED)
                 : PluginDirectoryState.ABSENT;
-        return project(directory, refreshedState, phases, List.of(), verifications);
+        return project(directory, refreshedState, phases, failures, verifications);
+    }
+
+    PluginRuntimeStatus withFailure(PluginLoadFailure failure, int maximumFailures) {
+        Objects.requireNonNull(failure, "failure");
+        if (maximumFailures <= 0) {
+            throw new IllegalArgumentException("maximumFailures must be positive");
+        }
+        List<PluginLoadFailure> updated = new ArrayList<>(failures);
+        updated.add(failure);
+        if (updated.size() > maximumFailures) {
+            updated.subList(0, updated.size() - maximumFailures).clear();
+        }
+        return new PluginRuntimeStatus(
+                directory, state, loadedPluginIds, startedPluginIds, updated, verifications);
     }
 
     /**

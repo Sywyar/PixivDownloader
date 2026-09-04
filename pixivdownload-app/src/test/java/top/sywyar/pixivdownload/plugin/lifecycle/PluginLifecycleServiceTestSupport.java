@@ -97,6 +97,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -107,6 +108,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -139,10 +141,11 @@ abstract class PluginLifecycleServiceTestSupport {
                 mock(PluginCapabilityContributionRegistrar.class);
         final PluginRegistry registry = mock(PluginRegistry.class);
         final PluginRuntimeManager runtime = mock(PluginRuntimeManager.class);
+        final AtomicReference<Consumer<PluginRuntimeManager.WorkerEvent>> workerListener = new AtomicReference<>();
         final PluginLifecycleState state = new PluginLifecycleState();
         final RecordingPlugin plugin = new RecordingPlugin("ext-demo");
         final PluginRegistry.RegisteredPlugin registered = new PluginRegistry.RegisteredPlugin(
-                plugin, PluginSource.EXTERNAL, MockHarness.class.getClassLoader());
+                plugin, PluginSource.EXTERNAL, MockHarness.class.getClassLoader(), "ext-demo", 1L);
         final PluginWebContributionHandle bootWebHandle = mock(PluginWebContributionHandle.class);
         final PluginWebContributionHandle runtimeWebHandle = mock(PluginWebContributionHandle.class);
         final PluginRequestGenerationDrain requestDrain = mock(PluginRequestGenerationDrain.class);
@@ -171,6 +174,10 @@ abstract class PluginLifecycleServiceTestSupport {
                 queueRegistry = new QueueOperationRegistry(List.of());
             }
             when(runtime.inspectContextModules()).thenReturn(List.of());
+            doAnswer(invocation -> {
+                workerListener.set(invocation.getArgument(0));
+                return null;
+            }).when(runtime).addWorkerListener(any());
             when(registry.registeredPlugins()).thenReturn(List.of(registered));
             delegateFeatureCallbacks(registry, registered);
             when(registry.containsIdentity(same(registered))).thenReturn(true, false);

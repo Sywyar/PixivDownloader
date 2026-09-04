@@ -102,7 +102,7 @@ class PluginBootstrapHandoffTest {
             PluginRuntimeManager inertManager = session.manager();
 
             assertThat(session.status().hasFailures()).isTrue();
-            assertThat(inertManager.pluginManager()).isEmpty();
+            assertThat(inertManager.isPhysicalRuntimeInitialized()).isFalse();
 
             try (AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext()) {
                 new PixivDownloadApplication.PluginBootstrapHandoffInitializer(session).initialize(ctx);

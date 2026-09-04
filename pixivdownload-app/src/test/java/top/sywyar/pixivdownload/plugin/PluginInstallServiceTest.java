@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
 import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
@@ -56,9 +57,12 @@ class PluginInstallServiceTest {
     private Path pluginsDir;
     private ExternalPluginInstaller installer;
     private PluginInstallService service;
+    private String previousDevelopmentMode;
 
     @BeforeEach
     void setUp() {
+        previousDevelopmentMode = System.getProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY);
+        System.setProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, "true");
         pluginsDir = home.resolve("plugins");
         installer = new ExternalPluginInstaller(pluginsDir);
         installer.recoverPendingTransactions();
@@ -67,7 +71,15 @@ class PluginInstallServiceTest {
 
     @AfterEach
     void closeInstaller() {
-        installer.close();
+        try {
+            installer.close();
+        } finally {
+            if (previousDevelopmentMode == null) {
+                System.clearProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY);
+            } else {
+                System.setProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, previousDevelopmentMode);
+            }
+        }
     }
 
     @Test
@@ -75,7 +87,8 @@ class PluginInstallServiceTest {
     void installsExplodedZip() {
         PluginInstallReport report = service.install(explodedUpload("upload.zip", "ext-demo", "1.0.0", null, null), false);
 
-        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
+        assertThat(report.outcome()).as("install report: %s", report)
+                .isEqualTo(PluginInstallOutcome.INSTALLED);
         assertThat(report.accepted()).isTrue();
         assertThat(report.effectiveAfterRestart()).isFalse();
         assertThat(report.activated()).isTrue();
@@ -96,6 +109,33 @@ class PluginInstallServiceTest {
         assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
         assertThat(report.pluginId()).isEqualTo("ext-jar");
         assertThat(pluginFiles()).containsExactly("ext-jar-2.3.4.jar");
+    }
+
+    @Test
+    @DisplayName("正式模式未签名本地包先返回精确哈希确认要求，确认前不落盘")
+    void productionUnsignedUploadRequiresExactArtifactConfirmation() {
+        PluginInstallService production = serviceFor(installer, false);
+        byte[] body = explodedZipBytes("ext-unsigned", "1.0.0", null, null);
+
+        PluginInstallReport confirmationRequired = production.install(
+                new MockMultipartFile("file", "unsigned.zip", "application/zip", body),
+                null,
+                false,
+                null);
+
+        assertThat(confirmationRequired.outcome()).isEqualTo(PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED);
+        assertThat(confirmationRequired.trustRequirement()).isNotNull();
+        assertThat(confirmationRequired.trustRequirement().pluginId()).isEqualTo("ext-unsigned");
+        assertThat(pluginFiles()).isEmpty();
+
+        PluginInstallReport installed = production.install(
+                new MockMultipartFile("file", "unsigned.zip", "application/zip", body),
+                null,
+                false,
+                confirmationRequired.trustRequirement().artifactSha256());
+
+        assertThat(installed.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
+        assertThat(pluginFiles()).containsExactly("ext-unsigned-1.0.0.zip");
     }
 
     @Test
@@ -265,6 +305,12 @@ class PluginInstallServiceTest {
     // ---------- helpers（内联构造插件包字节，不依赖 plugin-runtime 测试夹具）----------
 
     private static PluginInstallService serviceFor(ExternalPluginInstaller installer) {
+        return serviceFor(installer, true);
+    }
+
+    private static PluginInstallService serviceFor(
+            ExternalPluginInstaller installer,
+            boolean developmentModeEnabled) {
         PluginRuntimeManager runtimeManager = mock(PluginRuntimeManager.class);
         PluginLifecycleService lifecycleService = mock(PluginLifecycleService.class);
         RecoveryModeService recoveryModeService = mock(RecoveryModeService.class);
@@ -273,9 +319,15 @@ class PluginInstallServiceTest {
         when(lifecycleService.phase(anyString())).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
         when(runtimeManager.loadPlugin(any(Path.class))).thenAnswer(invocation ->
                 loadedPackage(installer, invocation.getArgument(0)));
+        when(runtimeManager.initializePlugin(anyString())).thenAnswer(invocation ->
+                loadedPackage(installer, installer.listInstalled().stream()
+                        .filter(candidate -> candidate.id().equals(invocation.getArgument(0)))
+                        .findFirst()
+                        .orElseThrow()
+                        .path()));
         ExternalPluginLifecycleCoordinator coordinator = new ExternalPluginLifecycleCoordinator(
                 runtimeManager, lifecycleService, installer, recoveryModeService, dependencyResolver);
-        return new PluginInstallService(coordinator, dependencyResolver, true);
+        return new PluginInstallService(coordinator, dependencyResolver, developmentModeEnabled);
     }
 
     private static LoadedPluginPackage loadedPackage(ExternalPluginInstaller installer, Path artifact) {
@@ -319,6 +371,7 @@ class PluginInstallServiceTest {
         appendLine(sb, "plugin.class", pluginClass);
         appendLine(sb, "plugin.requires", requires);
         appendLine(sb, "plugin.dependencies", dependencies);
+        appendLine(sb, "pixiv.execution-mode", "host-process-full-trust");
         return sb.toString().getBytes(StandardCharsets.UTF_8);
     }
 

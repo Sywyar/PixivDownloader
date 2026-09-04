@@ -9,14 +9,12 @@
       1. Validate all inputs strictly and resolve absolute paths.
       2. Call scripts/assemble-plugin-distribution.ps1 twice with the SAME prebuilt core jar,
          prebuilt plugin inputs and signature tool:
-         - <OutputDir>/java-standard with -DefaultDownloader (setup-aligned default plugin set,
-           no Douyin);
-         - <OutputDir>/full-offline without -DefaultDownloader (default set plus Douyin).
+         - <OutputDir>/java-standard with -DefaultDownloader (setup-aligned default plugin set);
+         - <OutputDir>/full-offline without -DefaultDownloader (canonical official distribution set).
       3. Perform a real layout acceptance on BOTH assembled directories (fail-fast, before any
          zip is produced): exact core jar identity, launcher scripts, manifest id set vs the
          shared official-plugin sources, per-artifact .sha256 / .sig / provenance / SHA-256
-         consistency, verified provenance status, no Douyin in the standard layout, Douyin
-         required in full-offline, and identical core jar SHA-256 across both layouts and the
+         consistency, exact manifest-to-artifact membership, and identical core jar SHA-256 across both layouts and the
          input jar.
       4. Create PixivDownload-<Version>-java.zip and PixivDownload-<Version>-full-offline.zip
          with the layout contents at the zip root (no extra wrapper directory).
@@ -207,7 +205,6 @@ function Assert-DistributionLayout {
         [Parameter(Mandatory = $true)][string]$Version,
         [Parameter(Mandatory = $true)][string]$Label,
         [Parameter(Mandatory = $true)][string[]]$ExpectedPluginIds,
-        [Parameter(Mandatory = $true)][bool]$ExpectDouyin,
         [Parameter(Mandatory = $true)][string]$InputJarSha256
     )
     if (-not (Test-Path -LiteralPath $Directory -PathType Container)) {
@@ -257,19 +254,11 @@ function Assert-DistributionLayout {
     }
     Assert-IdSetMatches -Label $Label -ActualIds $ids -ExpectedIds $ExpectedPluginIds
 
-    $hasDouyin = $ids -contains "douyin"
-    if ($ExpectDouyin -and -not $hasDouyin) {
-        throw "${Label}: full-offline layout must include the douyin plugin."
-    }
-    if (-not $ExpectDouyin -and $hasDouyin) {
-        throw "${Label}: java-standard layout must not include the douyin plugin."
-    }
-    $douyinArtifacts = @(Get-ChildItem -LiteralPath $pluginsDir -Filter "pixivdownload-plugin-douyin-*" -File)
-    if ($ExpectDouyin -and $douyinArtifacts.Count -lt 1) {
-        throw "${Label}: douyin artifact missing under plugins/."
-    }
-    if (-not $ExpectDouyin -and $douyinArtifacts.Count -gt 0) {
-        throw "${Label}: douyin artifact must not be staged under plugins/."
+    $manifestArtifacts = @($files | ForEach-Object { [System.IO.Path]::GetFileName($_) } | Sort-Object -Unique)
+    $stagedArtifacts = @(Get-ChildItem -LiteralPath $pluginsDir -Filter "*.jar" -File |
+        ForEach-Object { $_.Name } | Sort-Object -Unique)
+    if (@(Compare-Object -ReferenceObject $manifestArtifacts -DifferenceObject $stagedArtifacts).Count -ne 0) {
+        throw "${Label}: staged plugin artifacts do not match plugins-manifest.json."
     }
 
     foreach ($entry in $manifest) {
@@ -338,7 +327,7 @@ Write-Step "Assembling java-standard distribution (DefaultDownloader)"
     -SignatureToolJar $ResolvedSignatureToolJar `
     -DefaultDownloader
 Assert-DistributionLayout -Directory $JavaStandardDir -Version $Version -Label "java-standard" `
-    -ExpectedPluginIds $DefaultInstalledIds -ExpectDouyin $false -InputJarSha256 $InputJarSha256
+    -ExpectedPluginIds $DefaultInstalledIds -InputJarSha256 $InputJarSha256
 
 Write-Step "Assembling full-offline distribution"
 & $AssemblerScript `
@@ -348,7 +337,7 @@ Write-Step "Assembling full-offline distribution"
     -PrebuiltPluginsDir $ResolvedPrebuiltPluginsDir `
     -SignatureToolJar $ResolvedSignatureToolJar
 Assert-DistributionLayout -Directory $FullOfflineDir -Version $Version -Label "full-offline" `
-    -ExpectedPluginIds $FullOfflineIds -ExpectDouyin $true -InputJarSha256 $InputJarSha256
+    -ExpectedPluginIds $FullOfflineIds -InputJarSha256 $InputJarSha256
 
 Write-Step "Creating distribution zips"
 Compress-Archive -Path (Join-Path $JavaStandardDir "*") -DestinationPath $JavaZip -Force

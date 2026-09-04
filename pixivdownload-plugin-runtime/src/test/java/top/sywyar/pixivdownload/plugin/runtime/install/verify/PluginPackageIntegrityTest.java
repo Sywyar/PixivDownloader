@@ -3,6 +3,8 @@ package top.sywyar.pixivdownload.plugin.runtime.install.verify;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 
 import java.io.IOException;
@@ -12,9 +14,6 @@ import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
-import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource;
-import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
 
 @DisplayName("插件包来源建模与完整性校验（本地、无网络）")
 class PluginPackageIntegrityTest {
@@ -37,7 +36,7 @@ class PluginPackageIntegrityTest {
     @DisplayName("本地上传来源携带目录绑定：构造期即拒绝（无可信清单背书）")
     void localUploadRejectsCatalogBindings() {
         assertThatThrownBy(() -> new PluginPackageOrigin(
-                PluginPackageSource.LOCAL_UPLOAD, null, false, 10L, null, null))
+                PluginPackageSource.LOCAL_UPLOAD, null, false, true, 10L, null, null))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -50,9 +49,9 @@ class PluginPackageIntegrityTest {
         PluginPackageOrigin origin = PluginPackageOrigin.localUpload(metadata);
 
         assertThat(origin.signature()).isEqualTo(metadata);
-        assertThat(origin.verificationPolicy().signatureRequired()).isTrue();
-        assertThat(origin.verificationPolicy().officialTrustRequired()).isTrue();
-        assertThat(origin.installedVerificationPolicy().retiredKeysAllowed()).isTrue();
+        assertThat(origin.verificationPolicy(false).signatureRequired()).isTrue();
+        assertThat(origin.verificationPolicy(false).officialTrustRequired()).isTrue();
+        assertThat(origin.installedVerificationPolicy(false).retiredKeysAllowed()).isTrue();
     }
 
     @Test

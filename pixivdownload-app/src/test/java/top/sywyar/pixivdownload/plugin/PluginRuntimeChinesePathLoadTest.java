@@ -73,9 +73,9 @@ class PluginRuntimeChinesePathLoadTest {
         Files.createDirectories(PLUGINS_DIR);
         Path jar = PLUGINS_DIR.resolve("pixivdownload-plugin-gallery-tools.jar");
         zipDirectoryAsJar(statsClasses, jar);
-        PluginTestProvenance.writeLocalUpload(PLUGINS_DIR, jar, "gallery-tools", "1.0.0");
+        PluginTestProvenance.writeVerifiedLocalUpload(PLUGINS_DIR, jar, "gallery-tools", "1.0.0");
 
-        manager = new PluginRuntimeManager(PLUGINS_DIR);
+        manager = new PluginRuntimeManager(PLUGINS_DIR, PluginTestProvenance.verifier());
         status = manager.start();
     }
 
@@ -83,18 +83,7 @@ class PluginRuntimeChinesePathLoadTest {
     void unloadAndCleanup() {
         if (manager != null) {
             // 先停止 / 卸载，释放 PF4J 插件 classloader 对 jar 的文件锁（Windows 下否则删不掉目录）。
-            manager.pluginManager().ifPresent(pm -> {
-                try {
-                    pm.stopPlugins();
-                } catch (Exception ignored) {
-                    // best-effort
-                }
-                try {
-                    pm.unloadPlugins();
-                } catch (Exception ignored) {
-                    // best-effort
-                }
-            });
+            manager.shutdown();
         }
         // 删整棵「中文 + 空格」目录（plugins 的父目录）。
         deleteRecursivelyQuietly(PLUGINS_DIR.getParent());

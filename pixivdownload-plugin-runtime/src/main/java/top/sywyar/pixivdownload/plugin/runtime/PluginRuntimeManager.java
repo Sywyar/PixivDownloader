@@ -1,7 +1,6 @@
 package top.sywyar.pixivdownload.plugin.runtime;
 
 import org.pf4j.DefaultPluginManager;
-import org.pf4j.PluginDependency;
 import org.pf4j.PluginManager;
 import org.pf4j.PluginState;
 import org.pf4j.PluginWrapper;
@@ -19,6 +18,7 @@ import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginStartupResourceBud
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PreparedPluginArtifact;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageInspection;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
@@ -28,18 +28,24 @@ import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageVerif
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginArtifactVerificationService;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
+import top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustPolicy;
+import top.sywyar.pixivdownload.plugin.runtime.isolation.IsolatedPluginSession;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
+import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
 import top.sywyar.pixivdownload.plugin.runtime.admission.PluginArtifactAdmissionPolicy;
 import top.sywyar.pixivdownload.plugin.runtime.admission.PluginArtifactAdmissionRequest;
 import top.sywyar.pixivdownload.plugin.runtime.admission.PluginArtifactAdmissionResult;
 
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -49,6 +55,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PixivPluginDiscoveryBridge;
@@ -75,9 +86,10 @@ public class PluginRuntimeManager {
 
     private static final Logger log = LoggerFactory.getLogger(PluginRuntimeManager.class);
     private static final PluginPackageLimits PRODUCTION_PACKAGE_LIMITS = PluginPackageLimits.defaults();
-    static final int MAX_STARTUP_VERIFICATION_ENTRIES = 32_000;
-    static final long MAX_STARTUP_VERIFICATION_UNCOMPRESSED_BYTES = 384L * 1024L * 1024L;
+    static final int MAX_STARTUP_VERIFICATION_ENTRIES = 48_000;
+    static final long MAX_STARTUP_VERIFICATION_UNCOMPRESSED_BYTES = 704L * 1024L * 1024L;
     static final long MAX_STARTUP_PROVENANCE_BYTES = 64L * 1024L * 1024L;
+    private static final int MAX_RUNTIME_FAILURES = 64;
 
     private final Path pluginsRoot;
     private final PluginRuntimeLayout layout;
@@ -86,11 +98,17 @@ public class PluginRuntimeManager {
     private PluginArtifactVerificationService verificationService;
     private Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver;
     private PluginArtifactAdmissionPolicy admissionPolicy = PluginArtifactAdmissionPolicy.allowAll();
+    private final BooleanSupplier developmentModeEnabled;
     private final PluginProvenanceStore provenanceStore;
     private final int maximumStartupVerificationEntries;
     private final long maximumStartupVerificationUncompressedBytes;
     private final long maximumStartupProvenanceBytes;
     private final PluginRuntimePackageIndex packageIndex = new PluginRuntimePackageIndex();
+    private final Map<String, IsolatedPluginSession> isolatedSessions = new LinkedHashMap<>();
+    private final Map<String, Integer> isolatedCrashCounts = new LinkedHashMap<>();
+    private final Map<String, Long> isolatedRecoveryTokens = new LinkedHashMap<>();
+    private final Map<String, WorkerEvent> currentWorkerEvents = new LinkedHashMap<>();
+    private final CopyOnWriteArrayList<Consumer<WorkerEvent>> workerListeners = new CopyOnWriteArrayList<>();
 
     private volatile PluginManager pluginManager;
     private volatile PluginRuntimeStatus status;
@@ -114,7 +132,23 @@ public class PluginRuntimeManager {
                          long maximumStartupProvenanceBytes) {
         this(pluginsRoot, fixedVerifier(new PluginSupplyChainVerifier()),
                 maximumStartupVerificationEntries, maximumStartupVerificationUncompressedBytes,
-                maximumStartupProvenanceBytes);
+                maximumStartupProvenanceBytes, PluginDevelopmentArtifacts::enabled);
+    }
+
+    protected PluginRuntimeManager(Path pluginsRoot, BooleanSupplier developmentModeEnabled) {
+        this(pluginsRoot, fixedVerifier(new PluginSupplyChainVerifier()),
+                MAX_STARTUP_VERIFICATION_ENTRIES, MAX_STARTUP_VERIFICATION_UNCOMPRESSED_BYTES,
+                MAX_STARTUP_PROVENANCE_BYTES, developmentModeEnabled);
+    }
+
+    protected PluginRuntimeManager(Path pluginsRoot,
+                                   int maximumStartupVerificationEntries,
+                                   long maximumStartupVerificationUncompressedBytes,
+                                   long maximumStartupProvenanceBytes,
+                                   BooleanSupplier developmentModeEnabled) {
+        this(pluginsRoot, fixedVerifier(new PluginSupplyChainVerifier()),
+                maximumStartupVerificationEntries, maximumStartupVerificationUncompressedBytes,
+                maximumStartupProvenanceBytes, developmentModeEnabled);
     }
 
     public PluginRuntimeManager(Path pluginsRoot, PluginSupplyChainVerifier verifier) {
@@ -125,6 +159,15 @@ public class PluginRuntimeManager {
                                 Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver) {
         this(pluginsRoot, verifierResolver, MAX_STARTUP_VERIFICATION_ENTRIES,
                 MAX_STARTUP_VERIFICATION_UNCOMPRESSED_BYTES, MAX_STARTUP_PROVENANCE_BYTES);
+    }
+
+    protected PluginRuntimeManager(
+            Path pluginsRoot,
+            Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
+            BooleanSupplier developmentModeEnabled) {
+        this(pluginsRoot, verifierResolver, MAX_STARTUP_VERIFICATION_ENTRIES,
+                MAX_STARTUP_VERIFICATION_UNCOMPRESSED_BYTES, MAX_STARTUP_PROVENANCE_BYTES,
+                developmentModeEnabled);
     }
 
     PluginRuntimeManager(Path pluginsRoot,
@@ -140,6 +183,17 @@ public class PluginRuntimeManager {
                          int maximumStartupVerificationEntries,
                          long maximumStartupVerificationUncompressedBytes,
                          long maximumStartupProvenanceBytes) {
+        this(pluginsRoot, verifierResolver, maximumStartupVerificationEntries,
+                maximumStartupVerificationUncompressedBytes, maximumStartupProvenanceBytes,
+                PluginDevelopmentArtifacts::enabled);
+    }
+
+    private PluginRuntimeManager(Path pluginsRoot,
+                                 Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
+                                 int maximumStartupVerificationEntries,
+                                 long maximumStartupVerificationUncompressedBytes,
+                                 long maximumStartupProvenanceBytes,
+                                 BooleanSupplier developmentModeEnabled) {
         if (pluginsRoot == null) {
             throw new IllegalArgumentException("pluginsRoot must not be null");
         }
@@ -147,12 +201,14 @@ public class PluginRuntimeManager {
                 || maximumStartupProvenanceBytes <= 0L) {
             throw new IllegalArgumentException("startup verification budgets must be positive");
         }
-        this.pluginsRoot = pluginsRoot;
         this.layout = new PluginRuntimeLayout(pluginsRoot);
+        this.pluginsRoot = layout.pluginsRoot();
         this.workspaceOwner = new PluginArtifactWorkspaceOwner(layout);
         this.materializer = new PluginArtifactMaterializer(layout);
         this.verifierResolver = Objects.requireNonNull(verifierResolver, "verifierResolver");
-        this.verificationService = new PluginArtifactVerificationService(this.verifierResolver);
+        this.developmentModeEnabled = Objects.requireNonNull(developmentModeEnabled, "developmentModeEnabled");
+        this.verificationService = new PluginArtifactVerificationService(
+                this.verifierResolver, this.developmentModeEnabled);
         this.provenanceStore = new PluginProvenanceStore(layout);
         this.maximumStartupVerificationEntries = maximumStartupVerificationEntries;
         this.maximumStartupVerificationUncompressedBytes = maximumStartupVerificationUncompressedBytes;
@@ -168,7 +224,8 @@ public class PluginRuntimeManager {
     public synchronized void updateVerifierResolver(
             Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver) {
         this.verifierResolver = Objects.requireNonNull(verifierResolver, "verifierResolver");
-        this.verificationService = new PluginArtifactVerificationService(this.verifierResolver);
+        this.verificationService = new PluginArtifactVerificationService(
+                this.verifierResolver, this.developmentModeEnabled);
     }
 
     public synchronized void updateAdmissionPolicy(PluginArtifactAdmissionPolicy admissionPolicy) {
@@ -205,7 +262,7 @@ public class PluginRuntimeManager {
             if (rootAttributes.isSymbolicLink() || rootAttributes.isOther()) {
                 throw new IOException("plugins root must be a plain directory: " + directory);
             }
-            beforeProductionScan(directory);
+            prepareProductionScan(directory);
             workspaceOwner.cleanupAbandoned(packageIndex.isEmpty());
             scan = PluginArtifactScanner.scan(directory);
         } catch (IOException | RuntimeException e) {
@@ -213,13 +270,19 @@ public class PluginRuntimeManager {
                     List.of(), List.of(), List.of(new PluginLoadFailure(directory.toString(), describe(e)))));
         }
         List<Path> candidates = scan.candidates();
+        List<PluginLoadFailure> failures = new ArrayList<>(scan.rejectedCandidates().size());
+        for (PluginArtifactScanner.RejectedCandidate rejected : scan.rejectedCandidates()) {
+            PluginLoadFailure failure = new PluginLoadFailure(
+                    rejected.path().getFileName().toString(), rejected.reason());
+            failures.add(failure);
+            log.error("Rejected plugin package candidate {}: {}", failure.source(), failure.reason());
+        }
         if (candidates.isEmpty()) {
             return cache(new PluginRuntimeStatus(directory, PluginDirectoryState.EMPTY,
-                    List.of(), List.of(), List.of()));
+                    List.of(), List.of(), failures));
         }
 
         List<PreparedPluginArtifact> preparedCandidates = new ArrayList<>(candidates.size());
-        List<PluginLoadFailure> failures = new ArrayList<>();
         List<PluginRuntimeVerificationSnapshot> verifications = new ArrayList<>(candidates.size());
         PluginStartupResourceBudget startupBudget = new PluginStartupResourceBudget(
                 maximumStartupVerificationEntries,
@@ -304,8 +367,10 @@ public class PluginRuntimeManager {
                             + candidate.artifactPath());
                 }
                 try {
-                    loadPreparedProductionArtifact(prepared);
+                    LoadedPluginPackage loaded = loadPreparedProductionArtifact(prepared);
+                    initializePlugin(loaded.packageId());
                 } catch (RuntimeException e) {
+                    discardFailedInitialization(candidate.pluginId(), e);
                     failedPluginIds.add(candidate.pluginId());
                     failures.add(new PluginLoadFailure(
                             candidate.artifactPath().getFileName().toString(), describe(e)));
@@ -339,8 +404,9 @@ public class PluginRuntimeManager {
             return loadDevelopmentPlugin(artifactPath);
         }
         try {
+            workspaceOwner.secureLoadingRoots();
             workspaceOwner.cleanupAbandoned(packageIndex.isEmpty());
-        } catch (RuntimeException e) {
+        } catch (IOException | RuntimeException e) {
             throw new PluginRuntimeOperationException(
                     "plugin directory is not safe for a production artifact load", e);
         }
@@ -415,9 +481,11 @@ public class PluginRuntimeManager {
         for (PluginDevelopmentArtifacts.MaterializedDevelopmentPlugin materialized
                 : PluginDevelopmentArtifacts.dependencyOrder(materializedPlugins)) {
             try {
-                loadPreparedPlugin(materialized.classesDirectory(), materialized.pf4jLoadPath(),
-                        session.sessionRoot(), materialized.descriptor(), null);
+                LoadedPluginPackage loaded = loadPreparedPlugin(materialized.classesDirectory(),
+                        materialized.pf4jLoadPath(), session.sessionRoot(), materialized.descriptor(), null);
+                initializePlugin(loaded.packageId());
             } catch (RuntimeException e) {
+                discardFailedInitialization(materialized.descriptor().id(), e);
                 failures.add(new PluginLoadFailure(materialized.descriptor().id(), describe(e)));
                 log.error("Failed to load development plugin module {}",
                         materialized.moduleRoot().getFileName(), e);
@@ -434,9 +502,24 @@ public class PluginRuntimeManager {
         return cache(PluginRuntimeStatus.populated(developmentRoot, phaseSnapshot(), failures));
     }
 
+    private void discardFailedInitialization(String packageId, RuntimeException failure) {
+        if (!packageIndex.contains(packageId)) {
+            return;
+        }
+        try {
+            unloadPlugin(packageId);
+        } catch (Throwable cleanupFailure) {
+            rethrowFatal(cleanupFailure);
+            addSuppressedSafely(failure, cleanupFailure);
+        }
+    }
+
     private LoadedPluginPackage loadPreparedPlugin(Path artifactPath, Path pf4jLoadPath, Path pluginManagerRoot,
                                                     PluginDescriptor packageDescriptor,
                                                     PluginArtifactSnapshot productionSnapshot) {
+        if (productionSnapshot == null) {
+            packageDescriptor = developmentExecutionDescriptor(packageDescriptor);
+        }
         if (packageIndex.contains(packageDescriptor.id())) {
             workspaceOwner.discard(productionSnapshot);
             throw new PluginRuntimeOperationException("plugin package already loaded: " + packageDescriptor.id());
@@ -456,6 +539,9 @@ public class PluginRuntimeManager {
         }
         String packageId;
         try {
+            if (productionSnapshot != null) {
+                productionSnapshot.verifyLoadPath(pf4jLoadPath);
+            }
             packageId = pluginManager.loadPlugin(pf4jLoadPath);
         } catch (Throwable failure) {
             cleanupNewWrappers(wrappersBeforeLoad, failure,
@@ -465,6 +551,14 @@ public class PluginRuntimeManager {
         if (packageId == null || packageId.isBlank()) {
             PluginRuntimeOperationException failure = new PluginRuntimeOperationException(
                     "PF4J returned no package id for " + artifactPath);
+            cleanupNewWrappers(wrappersBeforeLoad, failure,
+                    artifactPath, pf4jLoadPath, packageDescriptor, productionSnapshot);
+            throw failure;
+        }
+        if (!packageDescriptor.id().equals(packageId)) {
+            PluginRuntimeOperationException failure = new PluginRuntimeOperationException(
+                    "PF4J package id does not match the verified descriptor: expected "
+                            + packageDescriptor.id() + ", got " + packageId);
             cleanupNewWrappers(wrappersBeforeLoad, failure,
                     artifactPath, pf4jLoadPath, packageDescriptor, productionSnapshot);
             throw failure;
@@ -493,28 +587,34 @@ public class PluginRuntimeManager {
                     artifactPath, pf4jLoadPath, packageDescriptor, productionSnapshot);
             throw failure;
         }
-        String version;
+        String pf4jVersion;
         try {
-            version = wrapper.getDescriptor().getVersion();
+            pf4jVersion = wrapper.getDescriptor().getVersion();
         } catch (Throwable failure) {
             cleanupNewWrappers(wrappersBeforeLoad, failure,
                     artifactPath, pf4jLoadPath, packageDescriptor, productionSnapshot);
             throw operationFailure("failed to inspect loaded plugin descriptor " + packageId, failure);
         }
+        if (!Objects.equals(packageDescriptor.version(), pf4jVersion)) {
+            PluginRuntimeOperationException failure = new PluginRuntimeOperationException(
+                    "PF4J package version does not match the verified descriptor: expected "
+                            + packageDescriptor.version() + ", got " + pf4jVersion);
+            cleanupNewWrappers(wrappersBeforeLoad, failure,
+                    artifactPath, pf4jLoadPath, packageDescriptor, productionSnapshot);
+            throw failure;
+        }
         Entry entry = packageIndex.add(
                 packageId,
                 artifactPath,
                 pf4jLoadPath,
-                version,
+                packageDescriptor.version(),
                 PluginRuntimePackagePhase.LOADED,
                 packageDescriptor,
                 productionSnapshot
         );
         try {
-            LoadedPluginPackage loaded = snapshot(entry, true);
-            entry.updateDescriptor(validateReleaseShape(loaded));
             refreshStatus();
-            return loaded;
+            return snapshot(entry, false);
         } catch (Throwable failure) {
             boolean released = false;
             try {
@@ -539,17 +639,65 @@ public class PluginRuntimeManager {
         }
     }
 
+    /**
+     * 在物理 load 已完成后显式实例化受信进程内插件并固化贡献快照。调用方必须先建立自己的 registrar / 回滚边界；
+     * 单独调用 {@link #loadPlugin(Path)} 不执行插件构造器、provider 或贡献 getter。
+     */
+    public synchronized LoadedPluginPackage initializePlugin(String packageId) {
+        Entry entry = requireEntry(packageId);
+        try {
+            requireCurrentExecutionAdmission(entry);
+            if (entry.descriptor().executionMode() == PluginExecutionMode.DECLARATIVE_PROCESS) {
+                entry.updateContributionSnapshot(requireIsolatedSession(packageId).initialize());
+            }
+            LoadedPluginPackage initialized = snapshot(entry, true);
+            entry.updateDescriptor(validateReleaseShape(initialized));
+            return initialized;
+        } catch (Throwable failure) {
+            throw operationFailure("failed to initialize loaded plugin package " + packageId, failure);
+        }
+    }
+
     /** 启动 PF4J 插件入口，并返回 load 准入时固化的本代功能插件与 Spring 模块快照。 */
     public synchronized LoadedPluginPackage startPlugin(String packageId) {
         Entry entry = requireEntry(packageId);
         if (entry.phase() == PluginRuntimePackagePhase.STARTED) {
-            try {
-                return snapshot(entry, true);
-            } catch (Throwable failure) {
-                throw operationFailure("failed to inspect started plugin package " + packageId, failure);
+            if (entry.descriptor().executionMode() == PluginExecutionMode.DECLARATIVE_PROCESS
+                    && !requireIsolatedSession(packageId).isWorkerAlive()) {
+                entry.updatePhase(PluginRuntimePackagePhase.CRASHED);
+                refreshStatus();
+            } else {
+                try {
+                    return snapshot(entry, true);
+                } catch (Throwable failure) {
+                    throw operationFailure("failed to inspect started plugin package " + packageId, failure);
+                }
             }
         }
+        requireCurrentExecutionAdmission(entry);
         PluginRuntimePackagePhase previousPhase = entry.phase();
+        if (entry.descriptor().executionMode() == PluginExecutionMode.DECLARATIVE_PROCESS) {
+            cancelIsolatedRecovery(packageId);
+            try {
+                IsolatedPluginSession session = requireIsolatedSession(packageId);
+                entry.updateContributionSnapshot(session.initialize());
+                session.startPackage();
+                entry.updatePhase(PluginRuntimePackagePhase.STARTED);
+                currentWorkerEvents.remove(packageId);
+                refreshStatus();
+                LoadedPluginPackage started = snapshot(entry, true);
+                entry.updateDescriptor(validateReleaseShape(started));
+                return started;
+            } catch (Throwable failure) {
+                IsolatedPluginSession session = isolatedSessions.get(packageId);
+                if (session != null) {
+                    session.stopAndTerminate();
+                }
+                entry.updatePhase(previousPhase);
+                refreshStatusSafely(failure);
+                throw operationFailure("failed to start isolated plugin package " + packageId, failure);
+            }
+        }
         PluginState result;
         try {
             result = pluginManager.startPlugin(packageId);
@@ -568,7 +716,9 @@ public class PluginRuntimeManager {
         entry.updatePhase(PluginRuntimePackagePhase.STARTED);
         refreshStatus();
         try {
-            return snapshot(entry, true);
+            LoadedPluginPackage started = snapshot(entry, true);
+            entry.updateDescriptor(validateReleaseShape(started));
+            return started;
         } catch (Throwable failure) {
             throw operationFailure("failed to inspect started plugin package " + packageId, failure);
         }
@@ -577,12 +727,24 @@ public class PluginRuntimeManager {
     /** 停止 PF4J 插件入口但保留 wrapper/classloader。 */
     public synchronized LoadedPluginPackage stopPlugin(String packageId) {
         Entry entry = requireEntry(packageId);
-        if (entry.phase() != PluginRuntimePackagePhase.STARTED) {
+        if (entry.phase() != PluginRuntimePackagePhase.STARTED
+                && entry.phase() != PluginRuntimePackagePhase.CRASHED) {
             try {
                 return snapshot(entry, false);
             } catch (Throwable failure) {
                 throw operationFailure("failed to inspect stopped plugin package " + packageId, failure);
             }
+        }
+        if (entry.descriptor().executionMode() == PluginExecutionMode.DECLARATIVE_PROCESS) {
+            cancelIsolatedRecovery(packageId);
+            boolean terminated = requireIsolatedSession(packageId).stopAndTerminate();
+            entry.updatePhase(PluginRuntimePackagePhase.STOPPED);
+            refreshStatus();
+            if (!terminated) {
+                throw new PluginRuntimeOperationException(
+                        "isolated plugin worker did not terminate: " + packageId);
+            }
+            return snapshot(entry, false);
         }
         PluginState result;
         try {
@@ -614,8 +776,25 @@ public class PluginRuntimeManager {
             throw new PluginRuntimeOperationException("plugin package " + packageId
                     + " is required by loaded package(s): " + String.join(", ", dependents));
         }
-        if (entry.phase() == PluginRuntimePackagePhase.STARTED) {
+        if (entry.phase() == PluginRuntimePackagePhase.STARTED
+                || entry.phase() == PluginRuntimePackagePhase.CRASHED) {
             stopPlugin(packageId);
+        }
+        if (entry.descriptor().executionMode() == PluginExecutionMode.DECLARATIVE_PROCESS) {
+            IsolatedPluginSession session = requireIsolatedSession(packageId);
+            if (!session.close()) {
+                throw new PluginRuntimeOperationException(
+                        "isolated plugin worker release is unconfirmed: " + packageId);
+            }
+            isolatedSessions.remove(packageId);
+            isolatedCrashCounts.remove(packageId);
+            cancelIsolatedRecovery(packageId);
+            isolatedRecoveryTokens.remove(packageId);
+            Entry removed = packageIndex.remove(packageId);
+            releaseProductionSnapshot(removed);
+            refreshStatus();
+            return new UnloadedPluginPackage(
+                    entry.packageId(), entry.artifactPath(), entry.version(), entry.generation());
         }
         boolean unloaded;
         try {
@@ -654,6 +833,23 @@ public class PluginRuntimeManager {
         return packageIndex.packagePhases();
     }
 
+    /** 订阅隔离 worker 的崩溃 / 恢复事实；注册后立即回放当前仍处于 CRASHED 的 generation。 */
+    public void addWorkerListener(Consumer<WorkerEvent> listener) {
+        Objects.requireNonNull(listener, "worker listener");
+        workerListeners.addIfAbsent(listener);
+        List<WorkerEvent> replay;
+        synchronized (this) {
+            replay = List.copyOf(currentWorkerEvents.values());
+        }
+        replay.forEach(event -> notifyWorkerListener(listener, event));
+    }
+
+    public void removeWorkerListener(Consumer<WorkerEvent> listener) {
+        if (listener != null) {
+            workerListeners.remove(listener);
+        }
+    }
+
     private Map<String, PluginRuntimePackagePhase> phaseSnapshot() {
         return packageIndex.packagePhases();
     }
@@ -683,17 +879,14 @@ public class PluginRuntimeManager {
 
     /** 当前已加载的非可选反向依赖包。 */
     public synchronized List<String> activeDependents(String packageId) {
-        if (pluginManager == null) {
-            return List.of();
-        }
         List<String> result = new ArrayList<>();
-        for (PluginWrapper wrapper : pluginManager.getPlugins()) {
-            if (wrapper.getPluginId().equals(packageId)) {
+        for (Entry entry : packageIndex.entries()) {
+            if (entry.packageId().equals(packageId)) {
                 continue;
             }
-            for (PluginDependency dependency : wrapper.getDescriptor().getDependencies()) {
-                if (!dependency.isOptional() && packageId.equals(dependency.getPluginId())) {
-                    result.add(wrapper.getPluginId());
+            for (var dependency : entry.descriptor().dependencies()) {
+                if (!dependency.optional() && packageId.equals(dependency.pluginId())) {
+                    result.add(entry.packageId());
                 }
             }
         }
@@ -705,16 +898,28 @@ public class PluginRuntimeManager {
         return Optional.ofNullable(status);
     }
 
-    /** 仅供 runtime 内发现桥接和既有测试观测；app 不应消费 PF4J 类型。 */
-    public Optional<PluginManager> pluginManager() {
+    /** 仅供运行时包内测试做故障注入；生产调用方不得取得物理 manager。 */
+    Optional<PluginManager> pluginManagerForTest() {
         return Optional.ofNullable(pluginManager);
+    }
+
+    boolean isolatedWorkerAliveForTest(String packageId) {
+        IsolatedPluginSession session = isolatedSessions.get(packageId);
+        return session != null && session.isWorkerAlive();
+    }
+
+    long isolatedWorkerPidForTest(String packageId) {
+        IsolatedPluginSession session = isolatedSessions.get(packageId);
+        return session == null ? 0L : session.workerPid();
+    }
+
+    /** 是否已初始化物理插件运行时。只暴露宿主诊断状态，不暴露 PF4J 控制面。 */
+    public synchronized boolean isPhysicalRuntimeInitialized() {
+        return pluginManager != null || !isolatedSessions.isEmpty();
     }
 
     /** 汇总当前 STARTED generation 在 load 准入时固化的 provider 快照，不重新调用插件 getter。 */
     public synchronized PluginInventory inspectPlugins() {
-        if (pluginManager == null) {
-            return PluginInventory.empty();
-        }
         List<PluginInstallation> installations = new ArrayList<>();
         List<PluginContextModule> contextModules = new ArrayList<>();
         List<PluginLoadFailure> failures = new ArrayList<>();
@@ -766,15 +971,16 @@ public class PluginRuntimeManager {
      * 进程级关闭：停止全部已启动插件、卸载全部插件、释放 PF4J classloader / 文件句柄、清空内部 entry / status / generation
      * 引用。多次调用安全（幂等）；批量 stop / unload 各自 best-effort——任一抛错只记日志、不影响另一批清退，不致核心退出失败。
      * 供唯一 bootstrap session 在进程最终退出（PROCESS）或 context 销毁（CONTEXT）时统一关闭运行时；禁止 app 侧经
-     * {@link #pluginManager()} 直接操作 PF4J。不抛异常、不吞掉 JVM 致命 Error。
+     * 直接操作 PF4J。不抛异常、不吞掉 JVM 致命 Error。
      */
     public synchronized void shutdown() {
         PluginManager previous = pluginManager;
         PluginDevelopmentArtifacts.DevelopmentCacheSession previousDevelopmentSession = developmentCacheSession;
         if (previous == null && packageIndex.isEmpty() && previousDevelopmentSession == null
-                && !workspaceOwner.hasUnconfirmedSnapshots()) {
+                && isolatedSessions.isEmpty() && !workspaceOwner.hasUnconfirmedSnapshots()) {
             // 已关闭（或从未扫描）：清空残余引用即返回，幂等。
             packageIndex.clearGenerations();
+            clearIsolatedWorkerState();
             status = null;
             return;
         }
@@ -782,7 +988,9 @@ public class PluginRuntimeManager {
         pluginManager = null;
         developmentCacheSession = null;
         status = null;
-        boolean released = previous == null || bestEffortStopAndUnload(previous, "shutdown");
+        boolean released = closeIsolatedSessions("shutdown");
+        clearIsolatedWorkerState();
+        released &= previous == null || bestEffortStopAndUnload(previous, "shutdown");
         workspaceOwner.closeAll(productionSnapshots(previousEntries), released, "shutdown");
         closeDevelopmentCacheSession(previousDevelopmentSession, released, "shutdown");
     }
@@ -794,7 +1002,7 @@ public class PluginRuntimeManager {
     private LoadedPluginPackage snapshot(Entry entry, boolean includeContributions) {
         PluginInventory inventory = PluginInventory.empty();
         List<PluginContextModule> modules = List.of();
-        if (includeContributions && pluginManager != null) {
+        if (includeContributions) {
             inventory = contributionSnapshot(entry);
             modules = inventory.contextModules();
         }
@@ -808,37 +1016,27 @@ public class PluginRuntimeManager {
         // 默认 manager 没有 bootstrap 会话所有权；生产会话子类覆写。
     }
 
-    /**
-     * 每个物理 generation 恰好读取一次 provider 的 feature/configuration 声明并固化为宿主快照。
-     * load、start、Spring 接入与状态查询只复用该快照，禁止状态化 getter 改变已验证身份或制造半份装配。
-     */
-    private PluginInventory contributionSnapshot(Entry entry) {
-        if (entry.contributionSnapshot() == null) {
-            PixivPluginDiscoveryBridge bridge = new PixivPluginDiscoveryBridge();
-            entry.updateContributionSnapshot(attachPackageMetadata(
-                    bridge.inspectLoadedPackage(pluginManager, entry.packageId())));
-        }
-        return entry.contributionSnapshot();
+    private void prepareProductionScan(Path directory) throws IOException {
+        beforeProductionScan(directory);
+        workspaceOwner.secureLoadingRoots();
     }
 
     /**
-     * 发现桥接从运行期插件实例重建功能元数据；包级替代关系与生命周期策略只存在于清单，
-     * 因此按当前 runtime entry 重新附着，确保 load/start 后仍保留已验签的包元数据。
+     * 每个物理 generation 恰好读取一次 provider 的 feature 声明并固化为宿主快照。
+     * 身份、展示、配置类与执行策略只取已验证 descriptor；load 不调用插件代码，显式 initialize、start、Spring 接入与
+     * 状态查询复用同一快照。
      */
-    private PluginInventory attachPackageMetadata(PluginInventory inventory) {
-        List<PluginInstallation> installations = inventory.installations().stream()
-                .map(installation -> {
-                    Entry entry = packageIndex.get(installation.descriptor().sourcePluginId());
-                    if (entry == null) {
-                        return installation;
-                    }
-                    PluginDescriptor descriptor = installation.descriptor()
-                            .withPackageMetadataFrom(entry.descriptor());
-                    return new PluginInstallation(descriptor, installation.status(), installation.classLoader(),
-                            installation.plugin());
-                })
-                .toList();
-        return new PluginInventory(installations, inventory.contextModules(), inventory.failures());
+    private PluginInventory contributionSnapshot(Entry entry) {
+        if (entry.contributionSnapshot() == null) {
+            if (entry.descriptor().executionMode() == PluginExecutionMode.DECLARATIVE_PROCESS) {
+                entry.updateContributionSnapshot(requireIsolatedSession(entry.packageId()).initialize());
+            } else {
+                PixivPluginDiscoveryBridge bridge = new PixivPluginDiscoveryBridge();
+                entry.updateContributionSnapshot(
+                        bridge.inspectLoadedPackage(pluginManager, entry.descriptor()));
+            }
+        }
+        return entry.contributionSnapshot();
     }
 
     /** 当前发布格式要求物理包与唯一功能插件同 id，并至多声明一个 Spring 模块。 */
@@ -934,10 +1132,12 @@ public class PluginRuntimeManager {
                         provenance,
                         result));
             }
+            PluginProvenanceRecord admissionProvenance = provenance;
             try {
                 if (provenance != null) {
-                    persistOfflineVerification(snapshot.originalArtifact(), provenance.withOfflineResult(
-                            result, inspection.descriptor().id(), inspection.descriptor().version()));
+                    admissionProvenance = provenance.withOfflineResult(
+                            result, inspection.descriptor().id(), inspection.descriptor().version());
+                    persistOfflineVerification(snapshot.originalArtifact(), admissionProvenance);
                 }
             } catch (IOException e) {
                 log.warn("Failed to persist plugin verification provenance for {}: {}",
@@ -947,9 +1147,9 @@ public class PluginRuntimeManager {
                 throw new PluginRuntimeOperationException(
                         "plugin verification failed before load: " + result.status());
             }
-            if (provenance != null && provenance.repositoryId() != null) {
+            if (admissionProvenance != null && admissionProvenance.repositoryId() != null) {
                 PluginArtifactAdmissionResult admission = admissionPolicy.evaluate(
-                        new PluginArtifactAdmissionRequest(provenance.repositoryId(), inspection.descriptor().id(),
+                        new PluginArtifactAdmissionRequest(admissionProvenance.repositoryId(), inspection.descriptor().id(),
                                 inspection.descriptor().version(), result.sha256(), result.keyId(), result.publisher()));
                 if (admission == null || !admission.allowed()) {
                     throw new PluginRuntimeOperationException("plugin admission rejected before load: "
@@ -960,6 +1160,7 @@ public class PluginRuntimeManager {
                             inspection.descriptor().id(), admission.code(), admission.detail());
                 }
             }
+            requireExecutionAdmission(inspection.descriptor(), admissionProvenance, result);
             return new PreparedPluginArtifact(snapshot, inspection, result.sha256());
         } catch (Throwable failure) {
             snapshot.close();
@@ -970,6 +1171,73 @@ public class PluginRuntimeManager {
             throw new PluginRuntimeOperationException(
                     "failed to prepare plugin artifact " + snapshot.originalArtifact(), failure);
         }
+    }
+
+    private void requireExecutionAdmission(
+            PluginDescriptor descriptor,
+            PluginProvenanceRecord provenance,
+            VerificationResult result) {
+        String trustDenial = PluginTrustPolicy.executionDenial(
+                descriptor, provenance, developmentModeEnabled.getAsBoolean());
+        if (trustDenial != null) {
+            throw new PluginRuntimeOperationException(trustDenial + ": " + descriptor.id());
+        }
+        if (descriptor.executionMode() == PluginExecutionMode.DECLARATIVE_PROCESS) {
+            if (!descriptor.configurationClassNames().isEmpty()) {
+                throw new PluginRuntimeOperationException(
+                        "declarative-process plugins cannot declare Spring configuration classes: "
+                                + descriptor.id());
+            }
+            if (!descriptor.dependencies().isEmpty()) {
+                throw new PluginRuntimeOperationException(
+                        "declarative-process plugins cannot declare plugin dependencies until capability IPC is active: "
+                                + descriptor.id());
+            }
+            return;
+        }
+        if (!result.accepted()) {
+            throw new PluginRuntimeOperationException(
+                    "host full-trust execution requires an accepted verification result: " + descriptor.id());
+        }
+    }
+
+    private void requireCurrentExecutionAdmission(Entry entry) {
+        if (entry.productionSnapshot() == null) {
+            requireDevelopmentExecutionAdmission(entry.descriptor());
+            return;
+        }
+        PluginProvenanceRecord provenance;
+        try {
+            provenance = provenanceStore.readRequiredForRecovery(entry.artifactPath());
+        } catch (IOException e) {
+            throw new PluginRuntimeOperationException(
+                    "failed to read plugin execution trust before running " + entry.packageId(), e);
+        }
+        VerificationResult result = verificationService.verifyInstalled(
+                entry.productionSnapshot().snapshotArtifact(), entry.descriptor(), provenance);
+        if (!result.accepted()) {
+            throw new PluginRuntimeOperationException(
+                    "plugin verification failed before execution: " + result.status());
+        }
+        requireExecutionAdmission(entry.descriptor(), provenance, result);
+    }
+
+    private void requireDevelopmentExecutionAdmission(PluginDescriptor descriptor) {
+        if (!developmentModeEnabled.getAsBoolean()) {
+            throw new PluginRuntimeOperationException(
+                    "development plugin execution requires active development mode: " + descriptor.id());
+        }
+    }
+
+    private PluginDescriptor developmentExecutionDescriptor(PluginDescriptor descriptor) {
+        requireDevelopmentExecutionAdmission(descriptor);
+        if (descriptor.executionMode() == PluginExecutionMode.DECLARATIVE_PROCESS) {
+            log.warn("Development directory plugin {} requested declarative-process; running as "
+                    + "host-process-full-trust because worker admission requires a canonical packaged artifact",
+                    descriptor.id());
+            return descriptor.withExecutionMode(PluginExecutionMode.HOST_PROCESS_FULL_TRUST);
+        }
+        return descriptor;
     }
 
     Optional<PluginProvenanceStore.MeasuredProvenance> readMeasuredStartupProvenance(
@@ -996,16 +1264,73 @@ public class PluginRuntimeManager {
         PluginArtifactMaterializer.MaterializedPluginArtifact materialized = materializer.materialize(
                 prepared.snapshot(), prepared.inspection(), prepared.verifiedSha256());
         PluginArtifactSnapshot ownedSnapshot = prepared.detachSnapshot();
+        if (prepared.inspection().descriptor().executionMode() == PluginExecutionMode.DECLARATIVE_PROCESS) {
+            if (materialized.materialized()) {
+                workspaceOwner.discard(ownedSnapshot);
+                throw new PluginRuntimeOperationException(
+                        "declarative-process plugins must use a canonical thin JAR: "
+                                + prepared.inspection().descriptor().id());
+            }
+            return loadPreparedIsolatedPlugin(materialized.originalArtifactPath(),
+                    materialized.pf4jLoadPath(), prepared.inspection().descriptor(),
+                    prepared.verifiedSha256(), ownedSnapshot);
+        }
         return loadPreparedPlugin(materialized.originalArtifactPath(), materialized.pf4jLoadPath(), pluginsRoot,
                 prepared.inspection().descriptor(), ownedSnapshot);
     }
 
+    private LoadedPluginPackage loadPreparedIsolatedPlugin(
+            Path artifactPath,
+            Path loadPath,
+            PluginDescriptor descriptor,
+            String verifiedSha256,
+            PluginArtifactSnapshot productionSnapshot) {
+        if (packageIndex.contains(descriptor.id())) {
+            workspaceOwner.discard(productionSnapshot);
+            throw new PluginRuntimeOperationException("plugin package already loaded: " + descriptor.id());
+        }
+        try {
+            productionSnapshot.verifyLoadPath(loadPath);
+            Entry entry = packageIndex.add(descriptor.id(), artifactPath, loadPath, descriptor.version(),
+                    PluginRuntimePackagePhase.LOADED, descriptor, productionSnapshot);
+            IsolatedPluginSession session = new IsolatedPluginSession(
+                    descriptor, loadPath, verifiedSha256, productionSnapshot,
+                    exit -> handleIsolatedWorkerExit(descriptor.id(), entry.generation(), exit));
+            isolatedSessions.put(descriptor.id(), session);
+            isolatedCrashCounts.put(descriptor.id(), 0);
+            cancelIsolatedRecovery(descriptor.id());
+            refreshStatus();
+            return snapshot(entry, false);
+        } catch (Throwable failure) {
+            isolatedSessions.remove(descriptor.id());
+            isolatedCrashCounts.remove(descriptor.id());
+            isolatedRecoveryTokens.remove(descriptor.id());
+            currentWorkerEvents.remove(descriptor.id());
+            packageIndex.remove(descriptor.id());
+            workspaceOwner.discard(productionSnapshot);
+            throw operationFailure("failed to admit isolated plugin package " + descriptor.id(), failure);
+        }
+    }
+
     private Entry requireEntry(String packageId) {
         Entry entry = packageIndex.get(packageId);
-        if (entry == null || pluginManager == null) {
+        if (entry == null) {
             throw new PluginRuntimeOperationException("plugin package is not loaded: " + packageId);
         }
+        if (entry.descriptor().executionMode() != PluginExecutionMode.DECLARATIVE_PROCESS
+                && pluginManager == null) {
+            throw new PluginRuntimeOperationException("PF4J runtime is not initialized: " + packageId);
+        }
         return entry;
+    }
+
+    private IsolatedPluginSession requireIsolatedSession(String packageId) {
+        IsolatedPluginSession session = isolatedSessions.get(packageId);
+        if (session == null) {
+            throw new PluginRuntimeOperationException(
+                    "isolated plugin session is not loaded: " + packageId);
+        }
+        return session;
     }
 
     /**
@@ -1038,13 +1363,160 @@ public class PluginRuntimeManager {
         status = current.refreshed(phaseSnapshot());
     }
 
+    private void handleIsolatedWorkerExit(
+            String packageId, long generation, IsolatedPluginSession.WorkerExit exit) {
+        WorkerEvent event;
+        long recoveryToken;
+        int attempts;
+        synchronized (this) {
+            Entry entry = packageIndex.get(packageId);
+            if (entry == null || entry.generation() != generation
+                    || entry.phase() != PluginRuntimePackagePhase.STARTED
+                    || isolatedSessions.get(packageId) == null) {
+                return;
+            }
+            int crashCount = isolatedCrashCounts.merge(packageId, 1, Math::addExact);
+            entry.updatePhase(PluginRuntimePackagePhase.CRASHED);
+            event = new WorkerEvent(
+                    WorkerEventType.CRASHED,
+                    packageId,
+                    generation,
+                    entry.version(),
+                    entry.artifactPath(),
+                    crashCount,
+                    0,
+                    exit.reason(),
+                    exit.logPath());
+            currentWorkerEvents.put(packageId, event);
+            refreshStatus();
+            status = status.withFailure(new PluginLoadFailure(
+                    packageId,
+                    exit.reason(),
+                    top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus.CRASHED,
+                    "worker-exit",
+                    generation,
+                    entry.version(),
+                    crashCount,
+                    exit.logPath() == null ? null : exit.logPath().toString()), MAX_RUNTIME_FAILURES);
+            recoveryToken = isolatedRecoveryTokens.merge(packageId, 1L, Math::addExact);
+            attempts = isolatedSessions.get(packageId).restartAttempts();
+        }
+        log.error("Isolated plugin worker crashed: pluginId={}, generation={}, crashCount={}, exitCode={}",
+                packageId, generation, event.crashCount(), exit.exitCode());
+        notifyWorkerListeners(event);
+        if (attempts > 0) {
+            scheduleIsolatedRecovery(packageId, generation, recoveryToken, 1);
+        }
+    }
+
+    private void scheduleIsolatedRecovery(
+            String packageId, long generation, long recoveryToken, int attempt) {
+        IsolatedPluginSession session;
+        synchronized (this) {
+            session = isolatedSessions.get(packageId);
+            if (session == null || !Objects.equals(isolatedRecoveryTokens.get(packageId), recoveryToken)) {
+                return;
+            }
+        }
+        Duration delay = session.restartDelay(attempt);
+        CompletableFuture.delayedExecutor(delay.toMillis(), TimeUnit.MILLISECONDS)
+                .execute(() -> recoverIsolatedWorker(packageId, generation, recoveryToken, attempt));
+    }
+
+    private void recoverIsolatedWorker(
+            String packageId, long generation, long recoveryToken, int attempt) {
+        WorkerEvent recovered = null;
+        boolean retry = false;
+        synchronized (this) {
+            Entry entry = packageIndex.get(packageId);
+            IsolatedPluginSession session = isolatedSessions.get(packageId);
+            if (entry == null || session == null || entry.generation() != generation
+                    || entry.phase() != PluginRuntimePackagePhase.CRASHED
+                    || !Objects.equals(isolatedRecoveryTokens.get(packageId), recoveryToken)) {
+                return;
+            }
+            try {
+                requireCurrentExecutionAdmission(entry);
+                entry.updateContributionSnapshot(session.initialize());
+                session.startPackage();
+                entry.updatePhase(PluginRuntimePackagePhase.STARTED);
+                currentWorkerEvents.remove(packageId);
+                isolatedRecoveryTokens.put(packageId, Math.addExact(recoveryToken, 1L));
+                refreshStatus();
+                recovered = new WorkerEvent(
+                        WorkerEventType.RECOVERED,
+                        packageId,
+                        generation,
+                        entry.version(),
+                        entry.artifactPath(),
+                        isolatedCrashCounts.getOrDefault(packageId, 0),
+                        attempt,
+                        "isolated plugin worker restarted",
+                        null);
+            } catch (Throwable failure) {
+                rethrowFatal(failure);
+                session.stopAndTerminate();
+                String diagnostic = stackTrace(failure);
+                refreshStatus();
+                status = status.withFailure(new PluginLoadFailure(
+                        packageId,
+                        diagnostic,
+                        top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus.CRASHED,
+                        "worker-restart",
+                        generation,
+                        entry.version(),
+                        isolatedCrashCounts.getOrDefault(packageId, 1),
+                        null), MAX_RUNTIME_FAILURES);
+                retry = attempt < session.restartAttempts();
+                log.error("Failed to restart isolated plugin worker: pluginId={}, generation={}, attempt={}",
+                        packageId, generation, attempt, failure);
+            }
+        }
+        if (recovered != null) {
+            notifyWorkerListeners(recovered);
+        } else if (retry) {
+            scheduleIsolatedRecovery(packageId, generation, recoveryToken, attempt + 1);
+        }
+    }
+
+    private void cancelIsolatedRecovery(String packageId) {
+        isolatedRecoveryTokens.merge(packageId, 1L, Math::addExact);
+        currentWorkerEvents.remove(packageId);
+    }
+
+    private void notifyWorkerListeners(WorkerEvent event) {
+        for (Consumer<WorkerEvent> listener : workerListeners) {
+            notifyWorkerListener(listener, event);
+        }
+    }
+
+    private static void notifyWorkerListener(Consumer<WorkerEvent> listener, WorkerEvent event) {
+        try {
+            listener.accept(event);
+        } catch (RuntimeException failure) {
+            log.warn("Plugin worker lifecycle listener failed: pluginId={}, generation={}, event={}",
+                    event.pluginId(), event.generation(), event.type(), failure);
+        }
+    }
+
+    private static String stackTrace(Throwable failure) {
+        StringWriter stack = new StringWriter();
+        failure.printStackTrace(new PrintWriter(stack));
+        String diagnostic = stack.toString();
+        return diagnostic.length() <= 30_000
+                ? diagnostic
+                : diagnostic.substring(0, 30_000) + System.lineSeparator() + "... stack trace truncated";
+    }
+
     private synchronized void resetPluginManager() {
         PluginManager previous = pluginManager;
         PluginDevelopmentArtifacts.DevelopmentCacheSession previousDevelopmentSession = developmentCacheSession;
         List<Entry> previousEntries = packageIndex.clearEntries();
         pluginManager = null;
         developmentCacheSession = null;
-        boolean released = previous == null || bestEffortStopAndUnload(previous, "reset");
+        boolean released = closeIsolatedSessions("reset");
+        clearIsolatedWorkerState();
+        released &= previous == null || bestEffortStopAndUnload(previous, "reset");
         workspaceOwner.closeAll(productionSnapshots(previousEntries), released, "reset");
         closeDevelopmentCacheSession(previousDevelopmentSession, released, "reset");
     }
@@ -1098,6 +1570,33 @@ public class PluginRuntimeManager {
         return releasedCleanly;
     }
 
+    private boolean closeIsolatedSessions(String action) {
+        boolean released = true;
+        for (Map.Entry<String, IsolatedPluginSession> entry : List.copyOf(isolatedSessions.entrySet())) {
+            try {
+                if (entry.getValue().close()) {
+                    isolatedSessions.remove(entry.getKey(), entry.getValue());
+                } else {
+                    released = false;
+                    log.warn("Isolated plugin worker {} remained alive during runtime {}",
+                            entry.getKey(), action);
+                }
+            } catch (Throwable failure) {
+                rethrowFatal(failure);
+                released = false;
+                log.warn("Failed to close isolated plugin worker {} during runtime {}: {}",
+                        entry.getKey(), action, describe(failure));
+            }
+        }
+        return released;
+    }
+
+    private void clearIsolatedWorkerState() {
+        isolatedCrashCounts.clear();
+        isolatedRecoveryTokens.clear();
+        currentWorkerEvents.clear();
+    }
+
     private PluginDevelopmentArtifacts.DevelopmentCacheSession ensureDevelopmentCacheSession(Path cacheRoot) {
         Path normalizedCacheRoot = cacheRoot.toAbsolutePath().normalize();
         PluginDevelopmentArtifacts.DevelopmentCacheSession current = developmentCacheSession;
@@ -1108,7 +1607,7 @@ public class PluginRuntimeManager {
             }
             return current;
         }
-        if (pluginManager != null) {
+        if (pluginManager != null || !isolatedSessions.isEmpty()) {
             throw new PluginRuntimeOperationException(
                     "cannot open plugin development cache session after PF4J manager initialization");
         }
@@ -1333,6 +1832,37 @@ public class PluginRuntimeManager {
             PluginSupplyChainVerifier verifier) {
         PluginSupplyChainVerifier fixed = Objects.requireNonNull(verifier, "verifier");
         return origin -> fixed;
+    }
+
+    public enum WorkerEventType {
+        CRASHED,
+        RECOVERED
+    }
+
+    public record WorkerEvent(WorkerEventType type,
+                              String pluginId,
+                              long generation,
+                              String version,
+                              Path artifactPath,
+                              int crashCount,
+                              int restartAttempt,
+                              String reason,
+                              Path logPath) {
+
+        public WorkerEvent {
+            Objects.requireNonNull(type, "type");
+            Objects.requireNonNull(pluginId, "pluginId");
+            Objects.requireNonNull(version, "version");
+            Objects.requireNonNull(artifactPath, "artifactPath");
+            Objects.requireNonNull(reason, "reason");
+            artifactPath = artifactPath.toAbsolutePath().normalize();
+            if (logPath != null) {
+                logPath = logPath.toAbsolutePath().normalize();
+            }
+            if (generation <= 0L || crashCount <= 0 || restartAttempt < 0) {
+                throw new IllegalArgumentException("invalid isolated worker event counters");
+            }
+        }
     }
 
 }

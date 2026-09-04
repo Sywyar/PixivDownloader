@@ -52,7 +52,7 @@ public class PluginInstallService {
 
     private final ExternalPluginLifecycleCoordinator coordinator;
     private final PluginDependencyResolver dependencyResolver;
-    private final boolean unsignedLocalUploadAllowed;
+    private final boolean developmentModeEnabled;
 
     @Autowired
     public PluginInstallService(ExternalPluginLifecycleCoordinator coordinator,
@@ -62,10 +62,10 @@ public class PluginInstallService {
 
     public PluginInstallService(ExternalPluginLifecycleCoordinator coordinator,
                                 PluginDependencyResolver dependencyResolver,
-                                boolean unsignedLocalUploadAllowed) {
+                                boolean developmentModeEnabled) {
         this.coordinator = coordinator;
         this.dependencyResolver = dependencyResolver;
-        this.unsignedLocalUploadAllowed = unsignedLocalUploadAllowed;
+        this.developmentModeEnabled = developmentModeEnabled;
     }
 
     /**
@@ -81,18 +81,23 @@ public class PluginInstallService {
     }
 
     /**
-     * 安装本地插件包及其可选 detached 签名。正式运行时签名必需；只有显式插件开发模式允许省略。
+     * 安装本地插件包及其可选 detached 签名。签名用于发布者身份连续性；正式运行时未签名包以精确 SHA-256
+     * 确认授予执行信任，显式插件开发模式不继承生产信任。
      */
     public PluginInstallReport install(MultipartFile file, MultipartFile signatureFile, boolean allowDowngrade) {
+        return install(file, signatureFile, allowDowngrade, null);
+    }
+
+    public PluginInstallReport install(
+            MultipartFile file,
+            MultipartFile signatureFile,
+            boolean allowDowngrade,
+            String confirmedTrustSha256) {
         if (file == null || file.isEmpty()) {
             return terminal(PluginInstallOutcome.REJECTED_EMPTY, "no plugin package uploaded");
         }
         SignatureMetadata signature;
         if (signatureFile == null) {
-            if (!unsignedLocalUploadAllowed) {
-                return terminal(PluginInstallOutcome.REJECTED_INTEGRITY,
-                        "official detached signature is required outside plugin development mode");
-            }
             signature = null;
         } else {
             try {
@@ -116,9 +121,12 @@ public class PluginInstallService {
                 log.error("Failed to write uploaded plugin package to temp file: {}", e.toString());
                 return terminal(PluginInstallOutcome.FAILED, "failed to stage uploaded package: " + e.getMessage());
             }
-            return toReport(coordinator.installOrUpdate(
-                    temp, allowDowngrade, signature != null
-                            ? PluginPackageOrigin.localUpload(signature) : PluginPackageOrigin.localUpload()));
+            PluginPackageOrigin origin = signature != null
+                    ? PluginPackageOrigin.localUpload(signature, confirmedTrustSha256)
+                    : developmentModeEnabled
+                            ? PluginPackageOrigin.localUpload()
+                            : PluginPackageOrigin.localUnsignedUpload(confirmedTrustSha256);
+            return toReport(coordinator.installOrUpdate(temp, allowDowngrade, origin));
         } finally {
             deleteQuietly(temp);
         }
@@ -170,7 +178,9 @@ public class PluginInstallService {
                 activation.rollbackVersion(), activation.operation(), activation.runtimePhase(),
                 activation.recoveryBlocked(),
                 activation.activated() && result.previousVersion() != null
-                        && result.outcome() != PluginInstallOutcome.DUPLICATE);
+                        && result.outcome() != PluginInstallOutcome.DUPLICATE,
+                List.of(),
+                result.trustRequirement());
     }
 
     /** 描述符声明的插件间依赖投影（描述符不可读时为空列表）。 */

@@ -56,6 +56,10 @@ public final class PluginSignatureTool {
             signDocument(options, "repository-update".equals(command));
             return;
         }
+        if ("identity-migration".equals(command)) {
+            signIdentityMigration(options);
+            return;
+        }
         if ("verify-manifest".equals(command)) {
             verifyManifest(options);
             return;
@@ -142,6 +146,32 @@ public final class PluginSignatureTool {
                 : verifier(options).verifyPluginRevocations(new PluginRevocationsVerificationRequest(
                 bytes, repositoryId, sequence, signature, policy(options)));
         report(result);
+    }
+
+    private static void signIdentityMigration(Map<String, String> options) throws IOException {
+        Path artifact = requiredPath(options, "artifact");
+        String keyId = required(options, "key-id");
+        byte[] sha256 = Hashing.sha256(artifact);
+        byte[] message = EnvelopeV1Codec.identityMigrationMessage(
+                SignatureMetadata.ED25519,
+                keyId,
+                required(options, "from-plugin-id"),
+                required(options, "from-source"),
+                options.get("from-repository-id"),
+                Boolean.parseBoolean(options.getOrDefault("from-official", "false")),
+                required(options, "from-publisher"),
+                keyId,
+                required(options, "to-plugin-id"),
+                required(options, "to-source"),
+                options.get("to-repository-id"),
+                Boolean.parseBoolean(options.getOrDefault("to-official", "false")),
+                required(options, "to-publisher"),
+                required(options, "to-key-id"),
+                required(options, "version"),
+                Files.size(artifact),
+                sha256);
+        writeMetadata(requiredPath(options, "out"), keyId,
+                Ed25519Signer.sign(privateKey(options), message));
     }
 
     private static PrivateKey privateKey(Map<String, String> options) throws IOException {
@@ -304,6 +334,12 @@ public final class PluginSignatureTool {
                 + "--key-id <key> --private-key <pkcs8.pem> --out <manifest.json.sig>");
         System.out.println("  repository-update|plugin-revocations --document <json> --repository-id <id> "
                 + "--sequence <n> --key-id <key> --private-key <pkcs8.pem> --out <json.sig>");
+        System.out.println("  identity-migration --artifact <jar> --version <version> "
+                + "--from-plugin-id <id> --from-source <source> [--from-repository-id <id>] "
+                + "[--from-official true|false] --from-publisher <publisher> --key-id <old-key> "
+                + "--to-plugin-id <id> --to-source <source> [--to-repository-id <id>] "
+                + "[--to-official true|false] --to-publisher <publisher> --to-key-id <new-key> "
+                + "--private-key <old-key-pkcs8.pem> --out <sig.json>");
         System.out.println("  verify-manifest --manifest <manifest.json> --signature <manifest.json.sig> "
                 + "--repository-id <id> [--policy official|custom] "
                 + "[--official-purpose plugin|update|ffmpeg]");

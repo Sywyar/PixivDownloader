@@ -27,21 +27,24 @@ public final class PluginArtifactScanner {
     }
 
     /**
-     * 枚举安装根的全部直接 entry，并只返回 NOFOLLOW 意义下的普通 jar/zip 文件。
-     * 任一候选是链接、特殊文件或累计预算超限时拒绝整次扫描，避免部分清点被误当成完整事实。
+     * 枚举安装根的全部直接 entry，并只返回 NOFOLLOW 意义下的普通 jar/zip 文件。单个候选是链接、特殊文件或
+     * 超出累计预算时记录为独立拒绝项；安装根本身或全局枚举预算异常仍拒绝整次扫描。
      */
     public static ScanResult scan(Path directory) throws IOException {
-        Path root = Objects.requireNonNull(directory, "directory").toAbsolutePath().normalize();
+        Path root = PluginRuntimeLayout.resolveExistingPluginsRoot(
+                Objects.requireNonNull(directory, "directory"));
         BasicFileAttributes rootAttributes = attributesIfPresent(root);
         if (rootAttributes == null) {
-            return new ScanResult(root, false, 0, 0L, List.of());
+            return new ScanResult(root, false, 0, 0L, List.of(), List.of());
         }
         if (rootAttributes.isSymbolicLink() || rootAttributes.isOther() || !rootAttributes.isDirectory()) {
             throw new IOException("plugins root must be a plain directory: " + root);
         }
 
         List<Path> candidates = new ArrayList<>();
+        List<RejectedCandidate> rejectedCandidates = new ArrayList<>();
         int entryCount = 0;
+        int namedCandidateCount = 0;
         long candidateBytes = 0L;
         try (Stream<Path> entries = Files.list(root)) {
             var iterator = entries.iterator();
@@ -56,23 +59,35 @@ public final class PluginArtifactScanner {
                 if (!hasCandidateName(candidate)) {
                     continue;
                 }
-                if (candidates.size() >= MAX_CANDIDATES) {
+                if (++namedCandidateCount > MAX_CANDIDATES) {
                     throw new IOException("plugins root exceeds the supported artifact count");
                 }
-                BasicFileAttributes attributes = attributesIfPresent(candidate);
+                BasicFileAttributes attributes;
+                try {
+                    attributes = attributesIfPresent(candidate);
+                } catch (IOException failure) {
+                    rejectedCandidates.add(new RejectedCandidate(candidate,
+                            "visible plugin artifact could not be inspected: " + failure.getMessage()));
+                    continue;
+                }
                 if (attributes == null || attributes.isSymbolicLink() || attributes.isOther()
                         || !attributes.isRegularFile()) {
-                    throw new IOException("visible plugin artifact must be a plain regular file: " + candidate);
+                    rejectedCandidates.add(new RejectedCandidate(candidate,
+                            "visible plugin artifact must be a plain regular file: " + candidate));
+                    continue;
                 }
                 if (attributes.size() > MAX_TOTAL_CANDIDATE_BYTES - candidateBytes) {
-                    throw new IOException("plugins root artifacts exceed the cumulative byte budget");
+                    rejectedCandidates.add(new RejectedCandidate(candidate,
+                            "plugin artifact exceeds the remaining cumulative byte budget: " + candidate));
+                    continue;
                 }
                 candidateBytes += attributes.size();
                 candidates.add(candidate);
             }
         }
         candidates.sort(Comparator.comparing(path -> path.getFileName().toString()));
-        return new ScanResult(root, true, entryCount, candidateBytes, candidates);
+        rejectedCandidates.sort(Comparator.comparing(rejected -> rejected.path().getFileName().toString()));
+        return new ScanResult(root, true, entryCount, candidateBytes, candidates, rejectedCandidates);
     }
 
     public static boolean hasCandidateName(Path path) {
@@ -92,7 +107,8 @@ public final class PluginArtifactScanner {
     }
 
     public record ScanResult(Path root, boolean rootPresent, int entryCount,
-                             long candidateBytes, List<Path> candidates) {
+                             long candidateBytes, List<Path> candidates,
+                             List<RejectedCandidate> rejectedCandidates) {
 
         public ScanResult {
             root = Objects.requireNonNull(root, "root");
@@ -100,6 +116,16 @@ public final class PluginArtifactScanner {
                 throw new IllegalArgumentException("scan counters must not be negative");
             }
             candidates = List.copyOf(Objects.requireNonNull(candidates, "candidates"));
+            rejectedCandidates = List.copyOf(
+                    Objects.requireNonNull(rejectedCandidates, "rejectedCandidates"));
+        }
+    }
+
+    public record RejectedCandidate(Path path, String reason) {
+
+        public RejectedCandidate {
+            path = Objects.requireNonNull(path, "path");
+            reason = Objects.requireNonNull(reason, "reason");
         }
     }
 }

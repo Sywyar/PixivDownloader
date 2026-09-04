@@ -6,7 +6,7 @@
  * 本测试只调用纯函数与 api 层，故无需 DOM），用最小 i18n / fetch / FormData 桩验证两组契约：
  *
  * 一、展示元数据——卡片视图模型对后端 descriptionKey / iconKey / colorToken 的解析与受控白名单回退，
- *    并把 lifecyclePolicy / configuredEnabled / toggleable 映射为三类生命周期标签与开关语义。
+ *    并把 executionMode / lifecyclePolicy / configuredEnabled / toggleable 映射为执行信任、生命周期标签与开关语义。
  *
  * 二、启停 API——HOT_RELOAD 继续保留运行期动词；需重启策略通过 PUT /enabled 持久化，后端重启走独立 POST。
  *
@@ -68,15 +68,24 @@ const PM = sandbox.window.PixivPluginManage;
 ok('PixivPluginManage 已挂载（core+api+views）', PM
     && typeof PM.allViewModels === 'function'
     && typeof PM.applyReport === 'function'
+    && typeof PM.executionModeMeta === 'function'
     && typeof PM.lifecyclePolicyMeta === 'function'
     && typeof PM.setEnabled === 'function'
     && typeof PM.restartBackend === 'function'
     && typeof PM.installPackage === 'function'
+    && typeof PM.approveTrust === 'function'
+    && typeof PM.revokeTrust === 'function'
+    && typeof PM.trustConfirmationOptions === 'function'
+    && typeof PM.installPackageWithConfirmation === 'function'
     && typeof PM.buildInstallResult === 'function'
     && typeof PM.installFeedback === 'function'
     && typeof PM.renderCardHtml === 'function'
     && typeof PM.renderInstallResultHtml === 'function'
     && typeof PM.hasNavigationForPlacement === 'function');
+
+const crashedStatus = PM.statusMeta('CRASHED');
+eq('隔离 worker 崩溃使用独立状态文案', crashedStatus.key, 'status.crashed');
+eq('隔离 worker 崩溃使用错误色调', crashedStatus.tone, 'bad');
 
 // 页面会话内固定首次加载顺序；仅显式刷新接受后端新顺序。
 (function () {
@@ -147,10 +156,78 @@ function vmOf(entry) {
     return models[0];
 }
 
+(function () {
+    const i18nClient = PM.i18n.client;
+    PM.i18n.client = null;
+    const artifactSha256 = 'a'.repeat(64);
+    const fingerprint = 'b'.repeat(64);
+    const trusted = vmOf({
+        id: 'third-party', version: '1.0.0', source: 'external', status: 'STOPPED',
+        executionMode: 'HOST_PROCESS_FULL_TRUST', verification: {
+            status: 'VERIFIED_CUSTOM', source: 'CUSTOM_CATALOG', publisher: 'Demo Publisher'
+        },
+        trust: {
+            state: 'APPROVED', artifactSha256: artifactSha256,
+            publisherKeyFingerprint: fingerprint, approvalType: 'PUBLISHER',
+            approvable: false, revocable: true
+        }
+    });
+    eq('管理卡片投影后端执行信任状态', trusted.trustLabel, '已批准执行信任');
+    ok('管理卡片保留精确摘要与撤销能力', trusted.trustArtifactSha256 === artifactSha256
+        && trusted.trustRevocable === true && trusted.trustApprovable === false);
+    const html = PM.renderCardHtml(trusted);
+    ok('管理卡片持续显示执行信任状态', html.includes('已批准执行信任'));
+    ok('仅有信任动作时仍显示操作菜单', html.includes('data-pm-trust-action="revoke"'));
+
+    const options = PM.trustConfirmationOptions({
+        pluginId: 'third-party', version: '1.0.0', source: 'CUSTOM_CATALOG',
+        publisher: 'Demo Publisher', publisherKeyFingerprint: fingerprint,
+        artifactSha256: artifactSha256, executionMode: 'HOST_PROCESS_FULL_TRUST', hostElevated: true
+    });
+    ok('重新批准提示显示后端发布者、摘要和完全访问模式', options.message.includes('Demo Publisher')
+        && options.message.includes(artifactSha256) && options.message.includes('宿主进程完全信任'));
+    ok('签名包提示不追加未签名警告', !options.message.includes('没有发布者签名'));
+    ok('高权限宿主提示 full-trust 插件继承同等权限', options.message.includes('将继承同等权限'));
+
+    const declarative = PM.trustConfirmationOptions({
+        pluginId: 'declarative', version: '1.0.0', signed: true,
+        artifactSha256: artifactSha256, executionMode: 'DECLARATIVE_PROCESS', hostElevated: true
+    });
+    ok('声明式 worker 提示有限隔离且不冒充宿主内执行', declarative.message.includes('独立声明式 worker')
+        && !declarative.message.includes('将继承同等权限'));
+
+    const unsigned = PM.trustConfirmationOptions({
+        pluginId: 'unsigned', version: '1.0.0', source: 'LOCAL_UPLOAD', signed: false,
+        artifactSha256: artifactSha256, executionMode: 'HOST_PROCESS_FULL_TRUST'
+    });
+    ok('未签名本地包显示无法证明发布者连续性的额外警告', unsigned.message.includes('没有发布者签名')
+        && unsigned.message.includes('LOCAL_UPLOAD'));
+    PM.i18n.client = i18nClient;
+})();
+
 // 通用来源回退文案（与 core 的 sourceDesc 默认 fallback 一致）。
 const DESC_BUILT_IN = '内置插件，随主程序编译。';
 const DESC_EXTERNAL = '外置插件；启停后的生效方式以生命周期标签为准。';
 const DESC_NOT_INSTALLED = '该插件尚未安装。';
+
+(function () {
+    const isolated = vmOf({
+        id: 'isolated', source: 'external', status: 'STARTED', executionMode: 'DECLARATIVE_PROCESS'
+    });
+    eq('声明式隔离进程标签', isolated.executionLabel, '声明式独立 JVM（有限隔离）');
+    eq('声明式隔离进程色调', isolated.executionTone, 'info');
+    ok('外置插件显示执行信任标签', isolated.showExecutionTag === true);
+
+    const trusted = vmOf({
+        id: 'trusted', source: 'external', status: 'STARTED', executionMode: 'HOST_PROCESS_FULL_TRUST'
+    });
+    eq('宿主进程完全信任标签', trusted.executionLabel, '宿主进程完全信任');
+    eq('宿主进程完全信任色调', trusted.executionTone, 'warn');
+    eq('未知执行模式安全收敛为宿主进程完全信任', PM.executionModeOf('future-mode'), 'HOST_PROCESS_FULL_TRUST');
+
+    const builtIn = vmOf({ id: 'core', source: 'built-in', status: 'STARTED', executionMode: 'HOST_PROCESS_FULL_TRUST' });
+    ok('内置插件不重复显示执行信任标签', builtIn.showExecutionTag === false);
+})();
 
 // —— 1) descriptionKey 命中：经 tns(displayNamespace, descriptionKey, fallback) 解析 ——
 (function () {
@@ -240,7 +317,8 @@ const DESC_NOT_INSTALLED = '该插件尚未安装。';
 (function () {
     const vmm = vmOf({
         id: 'compact-demo', source: 'external', status: 'STARTED', managed: true, runtimePhase: 'STARTED',
-        version: '1.2.3', lifecyclePolicy: 'HOT_RELOAD', configuredEnabled: true, toggleable: true,
+        version: '1.2.3', executionMode: 'DECLARATIVE_PROCESS', lifecyclePolicy: 'HOT_RELOAD',
+        configuredEnabled: true, toggleable: true,
         availableActions: ['restart', 'remove'], descriptionKey: null, tags: ['demo']
     });
     const html = PM.renderCardHtml(vmm);
@@ -249,6 +327,7 @@ const DESC_NOT_INSTALLED = '该插件尚未安装。';
     ok('卡片首行显示状态与开关',
         html.indexOf('pm-card-status') !== -1 && html.indexOf('data-pm-toggle="compact-demo"') !== -1);
     ok('完整描述始终可见', html.indexOf(DESC_EXTERNAL) !== -1);
+    ok('卡片显示执行信任级别', html.indexOf('独立 JVM（有限隔离）') !== -1);
     ok('不使用展开控件', html.indexOf('data-pm-expand') === -1 && html.indexOf('is-expanded') === -1);
     ok('浮层菜单只渲染后端可用动词',
         html.indexOf('data-pm-action-menu-toggle') !== -1
@@ -472,13 +551,16 @@ async function apiTests() {
     eq('installPackage form 的 file 字段 = 上传文件', form.get('file'), fileStub);
     eq('installPackage form 的 signature 字段 = detached 签名', form.get('signature'), signatureStub);
     eq('installPackage allowDowngrade 默认 false', form.get('allowDowngrade'), 'false');
+    ok('installPackage 未确认时不发送空 confirmTrust 字段', !form.has('confirmTrust'));
     eq('installPackage 带 same-origin 凭据', fetchCalls[0].opts.credentials, 'same-origin');
 
-    // A-2) allowDowngrade=true → 'true'
+    // A-2) allowDowngrade=true + 精确制品信任确认均按 multipart 字段传递。
     fetchCalls.length = 0;
+    const artifactSha256 = 'a'.repeat(64);
     nextFetchResponse = { ok: true, status: 200, body: installResponse({ outcome: 'DOWNGRADED' }) };
-    await PM.installPackage(fileStub, null, true);
+    await PM.installPackage(fileStub, null, true, artifactSha256);
     eq('installPackage allowDowngrade=true', fetchCalls[0].opts.body.get('allowDowngrade'), 'true');
+    eq('installPackage 只发送用户确认的精确制品摘要', fetchCalls[0].opts.body.get('confirmTrust'), artifactSha256);
     ok('installPackage 未提供签名时不发送空 signature 字段', !fetchCalls[0].opts.body.has('signature'));
 
     // A-3) 4xx 仍返回结构化体（不抛）：结果区据 outcome 渲染。
@@ -558,7 +640,23 @@ async function apiTests() {
     ok('setEnabled 失败携稳定 code/httpStatus', toggleErr
         && toggleErr.code === 'REQUIRED_PLUGIN' && toggleErr.httpStatus === 409);
 
-    // A-10) 后端重启只请求专用 POST；204 / 空响应体也视为已受理。
+    // A-10) 执行信任批准 / 撤销只作用于受控插件 id，批准额外绑定当前精确摘要。
+    fetchCalls.length = 0;
+    nextFetchResponse = { ok: true, status: 200, body: { state: 'APPROVED', artifactSha256: artifactSha256 } };
+    const approved = await PM.approveTrust('demo plugin', artifactSha256);
+    eq('approveTrust 返回后端信任事实', approved.state, 'APPROVED');
+    eq('approveTrust 编码插件 id 与精确摘要', fetchCalls[0].url,
+        '/api/plugins/demo%20plugin/trust?confirmArtifactSha256=' + artifactSha256);
+    eq('approveTrust 使用 PUT', fetchCalls[0].opts.method, 'PUT');
+
+    fetchCalls.length = 0;
+    nextFetchResponse = { ok: true, status: 200, body: { state: 'REVOKED' } };
+    const revoked = await PM.revokeTrust('demo plugin');
+    eq('revokeTrust 返回后端信任事实', revoked.state, 'REVOKED');
+    eq('revokeTrust 编码插件 id', fetchCalls[0].url, '/api/plugins/demo%20plugin/trust');
+    eq('revokeTrust 使用 DELETE', fetchCalls[0].opts.method, 'DELETE');
+
+    // A-11) 后端重启只请求专用 POST；204 / 空响应体也视为已受理。
     fetchCalls.length = 0;
     nextFetchResponse = { ok: true, status: 204, body: null, throwJson: true };
     const restartResult = await PM.restartBackend();
@@ -566,6 +664,53 @@ async function apiTests() {
     eq('restartBackend 请求路径', fetchCalls[0].url, '/api/plugins/backend-restart');
     eq('restartBackend 方法 = POST', fetchCalls[0].opts.method, 'POST');
     eq('restartBackend 带 same-origin 凭据', fetchCalls[0].opts.credentials, 'same-origin');
+
+    // A-12) 本地上传按后端逐次返回的精确摘要确认；同一摘要重复挑战时停止，避免确认循环。
+    const originalInstallPackage = PM.installPackage;
+    const uploadCalls = [];
+    const confirmOptions = [];
+    sandbox.PixivFeedback = {
+        confirm: async function (options) { confirmOptions.push(options); return true; }
+    };
+    const firstSha = 'c'.repeat(64);
+    const dependencySha = 'd'.repeat(64);
+    let uploadResponses = [
+        { outcome: 'TRUST_CONFIRMATION_REQUIRED', trustRequirement: {
+            pluginId: 'local-main', version: '1.0.0', source: 'LOCAL_UPLOAD', signed: false,
+            artifactSha256: firstSha, executionMode: 'HOST_PROCESS_FULL_TRUST'
+        } },
+        { outcome: 'TRUST_CONFIRMATION_REQUIRED', trustRequirement: {
+            pluginId: 'local-dependency', version: '1.0.0', source: 'LOCAL_UPLOAD', signed: false,
+            artifactSha256: dependencySha, executionMode: 'HOST_PROCESS_FULL_TRUST'
+        } },
+        { outcome: 'INSTALLED', accepted: true }
+    ];
+    PM.installPackage = async function (file, signature, allowDowngrade, confirmTrust) {
+        uploadCalls.push(confirmTrust || null);
+        return uploadResponses.shift();
+    };
+    const uploadResult = await PM.installPackageWithConfirmation(fileStub, null, false);
+    eq('本地上传逐制品确认后返回最终安装结果', uploadResult.outcome, 'INSTALLED');
+    eq('本地上传先无确认、再分别携带两个精确摘要', uploadCalls.join(','),
+        ',' + firstSha + ',' + dependencySha);
+    eq('两个不同制品分别显示风险确认', confirmOptions.length, 2);
+
+    uploadCalls.length = 0;
+    confirmOptions.length = 0;
+    uploadResponses = [
+        { outcome: 'TRUST_CONFIRMATION_REQUIRED', trustRequirement: {
+            pluginId: 'loop', version: '1.0.0', source: 'LOCAL_UPLOAD', signed: false,
+            artifactSha256: firstSha, executionMode: 'HOST_PROCESS_FULL_TRUST'
+        } },
+        { outcome: 'TRUST_CONFIRMATION_REQUIRED', trustRequirement: {
+            pluginId: 'loop', version: '1.0.0', source: 'LOCAL_UPLOAD', signed: false,
+            artifactSha256: firstSha, executionMode: 'HOST_PROCESS_FULL_TRUST'
+        } }
+    ];
+    const repeated = await PM.installPackageWithConfirmation(fileStub, null, false);
+    eq('本地上传重复摘要挑战停止重试', repeated.outcome, 'TRUST_CONFIRMATION_REQUIRED');
+    eq('本地上传同一摘要最多确认一次', confirmOptions.length, 1);
+    PM.installPackage = originalInstallPackage;
 }
 
 (async function () {

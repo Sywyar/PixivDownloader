@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.plugin.runtime.install.provenance;
 
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource;
+import top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustDecision;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
@@ -18,6 +19,7 @@ public record PluginProvenanceRecord(
         PluginPackageSource source,
         String repositoryId,
         boolean officialRepository,
+        boolean developmentOnly,
         Long expectedSizeBytes,
         String expectedSha256,
         long artifactSizeBytes,
@@ -27,10 +29,13 @@ public record PluginProvenanceRecord(
         String keyId,
         String publisher,
         String trustLabel,
+        String publisherKeyFingerprint,
         Instant verifiedAt,
         VerificationStatus offlineStatus,
         Instant offlineVerifiedAt,
-        String diagnosticCode) {
+        String diagnosticCode,
+        PluginTrustDecision trustDecision,
+        Instant trustRevokedAt) {
 
     public PluginProvenanceRecord {
         source = Objects.requireNonNull(source, "source");
@@ -45,6 +50,8 @@ public record PluginProvenanceRecord(
         keyId = optionalText(keyId, "keyId");
         publisher = optionalText(publisher, "publisher");
         trustLabel = optionalText(trustLabel, "trustLabel");
+        publisherKeyFingerprint = publisherKeyFingerprint != null
+                ? normalizedSha256(publisherKeyFingerprint, "publisherKeyFingerprint") : null;
         diagnosticCode = optionalText(diagnosticCode, "diagnosticCode");
         if (verifiedAt == null) {
             throw new IllegalArgumentException("verifiedAt is required");
@@ -58,6 +65,18 @@ public record PluginProvenanceRecord(
         }
         VerificationStatus diagnosticStatus = offlineStatus != null ? offlineStatus : status;
         validateDiagnosticCode(diagnosticStatus, diagnosticCode);
+        if (trustDecision != null) {
+            if (!trustDecision.artifactSha256().equals(artifactSha256)) {
+                throw new IllegalArgumentException("trust decision must bind the installed artifact");
+            }
+            if (!Objects.equals(trustDecision.publisherKeyFingerprint(), publisherKeyFingerprint)) {
+                throw new IllegalArgumentException("trust decision publisher key does not match provenance");
+            }
+            if (!Objects.equals(trustDecision.repositoryId(), repositoryId)
+                    || trustDecision.repositoryOfficial() != officialRepository) {
+                throw new IllegalArgumentException("trust decision repository does not match provenance");
+            }
+        }
 
         if (source == PluginPackageSource.LOCAL_UPLOAD) {
             if (officialRepository || repositoryId != null || expectedSizeBytes != null
@@ -71,10 +90,14 @@ public record PluginProvenanceRecord(
                 if (offlineStatus == VerificationStatus.VERIFIED) {
                     throw new IllegalArgumentException("unsigned local provenance cannot become VERIFIED");
                 }
-                if (keyId != null || publisher != null || trustLabel != null) {
+                if (keyId != null || publisher != null || trustLabel != null
+                        || publisherKeyFingerprint != null) {
                     throw new IllegalArgumentException("unsigned local provenance must not claim signer metadata");
                 }
             } else {
+                if (developmentOnly) {
+                    throw new IllegalArgumentException("signed local provenance must not be development-only");
+                }
                 validateSignatureEnvelope(signature);
                 if (status != VerificationStatus.VERIFIED) {
                     throw new IllegalArgumentException("signed local provenance initial status must be VERIFIED");
@@ -87,26 +110,60 @@ public record PluginProvenanceRecord(
                 }
             }
         } else if (source == PluginPackageSource.MARKET_CATALOG) {
+            if (developmentOnly) {
+                throw new IllegalArgumentException("catalog provenance must not be development-only");
+            }
             if (repositoryId == null || expectedSizeBytes == null || expectedSizeBytes <= 0L
-                    || expectedSha256 == null || signature == null) {
-                throw new IllegalArgumentException("catalog provenance is missing its signed source binding");
+                    || expectedSha256 == null || officialRepository && signature == null) {
+                throw new IllegalArgumentException("catalog provenance is missing its source binding");
             }
             if (expectedSizeBytes != artifactSizeBytes || !expectedSha256.equals(artifactSha256)) {
                 throw new IllegalArgumentException("catalog provenance observed artifact binding changed");
             }
-            validateSignatureEnvelope(signature);
-            if (status != VerificationStatus.VERIFIED) {
-                throw new IllegalArgumentException("catalog provenance initial status must be VERIFIED");
-            }
-            if (offlineStatus == VerificationStatus.UNSIGNED_ALLOWED) {
-                throw new IllegalArgumentException("catalog provenance offline success must be VERIFIED");
-            }
-            if (!signature.keyId().equals(keyId)) {
-                throw new IllegalArgumentException("catalog provenance keyId must match signature.keyId");
+            if (signature == null) {
+                if (status != VerificationStatus.UNSIGNED_ALLOWED || keyId != null || publisher != null
+                        || trustLabel != null || publisherKeyFingerprint != null) {
+                    throw new IllegalArgumentException("unsigned catalog provenance must remain unsigned");
+                }
+            } else {
+                validateSignatureEnvelope(signature);
+                if (status != VerificationStatus.VERIFIED) {
+                    throw new IllegalArgumentException("signed catalog provenance initial status must be VERIFIED");
+                }
+                if (offlineStatus == VerificationStatus.UNSIGNED_ALLOWED) {
+                    throw new IllegalArgumentException("signed catalog provenance cannot become UNSIGNED_ALLOWED");
+                }
+                if (!signature.keyId().equals(keyId)) {
+                    throw new IllegalArgumentException("catalog provenance keyId must match signature.keyId");
+                }
             }
         } else {
             throw new IllegalArgumentException("unsupported provenance source: " + source);
         }
+    }
+
+    /** 兼容既有来源记录与测试夹具；新增信任字段初始为空。 */
+    public PluginProvenanceRecord(
+            PluginPackageSource source,
+            String repositoryId,
+            boolean officialRepository,
+            boolean developmentOnly,
+            Long expectedSizeBytes,
+            String expectedSha256,
+            long artifactSizeBytes,
+            String artifactSha256,
+            SignatureMetadata signature,
+            VerificationStatus status,
+            String keyId,
+            String publisher,
+            String trustLabel,
+            Instant verifiedAt,
+            VerificationStatus offlineStatus,
+            Instant offlineVerifiedAt,
+            String diagnosticCode) {
+        this(source, repositoryId, officialRepository, developmentOnly, expectedSizeBytes, expectedSha256,
+                artifactSizeBytes, artifactSha256, signature, status, keyId, publisher, trustLabel,
+                null, verifiedAt, offlineStatus, offlineVerifiedAt, diagnosticCode, null, null);
     }
 
     public PluginPackageOrigin originForOfflineVerification() {
@@ -114,7 +171,11 @@ public record PluginProvenanceRecord(
             return PluginPackageOrigin.forTrustedCatalog(repositoryId, officialRepository, expectedSizeBytes,
                     expectedSha256, signature);
         }
-        return signature != null ? PluginPackageOrigin.localUpload(signature) : PluginPackageOrigin.localUpload();
+        if (signature != null) {
+            return PluginPackageOrigin.localUpload(signature);
+        }
+        return developmentOnly ? PluginPackageOrigin.localUpload()
+                : PluginPackageOrigin.localUnsignedUpload(null);
     }
 
     public static PluginProvenanceRecord from(PluginPackageOrigin origin, VerificationResult result) {
@@ -122,6 +183,7 @@ public record PluginProvenanceRecord(
                 origin.source(),
                 origin.repositoryId(),
                 origin.officialRepository(),
+                origin.developmentOnly(),
                 origin.expectedSizeBytes(),
                 origin.expectedSha256(),
                 result.sizeBytes(),
@@ -131,10 +193,13 @@ public record PluginProvenanceRecord(
                 result.keyId(),
                 result.publisher(),
                 result.trustLabel(),
+                result.publisherKeyFingerprint(),
                 result.verifiedAt(),
                 null,
                 null,
-                result.diagnosticCode());
+                result.diagnosticCode(),
+                null,
+                null);
     }
 
     public PluginProvenanceRecord withOfflineResult(
@@ -152,12 +217,31 @@ public record PluginProvenanceRecord(
                 || !artifactSha256.equals(normalizedSha256(result.sha256(), "result.sha256")))) {
             throw new IllegalArgumentException("offline verification result does not bind the installed artifact");
         }
-        return new PluginProvenanceRecord(source, repositoryId, officialRepository, expectedSizeBytes, expectedSha256,
+        return new PluginProvenanceRecord(source, repositoryId, officialRepository, developmentOnly,
+                expectedSizeBytes, expectedSha256,
                 artifactSizeBytes, artifactSha256, signature, status,
                 result.keyId() != null ? result.keyId() : keyId,
                 result.publisher() != null ? result.publisher() : publisher,
                 result.trustLabel() != null ? result.trustLabel() : trustLabel,
-                verifiedAt, result.status(), result.verifiedAt(), result.diagnosticCode());
+                result.publisherKeyFingerprint() != null
+                        ? result.publisherKeyFingerprint() : publisherKeyFingerprint,
+                verifiedAt, result.status(), result.verifiedAt(), result.diagnosticCode(),
+                trustDecision, trustRevokedAt);
+    }
+
+    public PluginProvenanceRecord withTrustDecision(PluginTrustDecision decision) {
+        return new PluginProvenanceRecord(source, repositoryId, officialRepository, developmentOnly,
+                expectedSizeBytes, expectedSha256, artifactSizeBytes, artifactSha256, signature, status,
+                keyId, publisher, trustLabel, publisherKeyFingerprint, verifiedAt, offlineStatus,
+                offlineVerifiedAt, diagnosticCode, Objects.requireNonNull(decision, "decision"), null);
+    }
+
+    public PluginProvenanceRecord withTrustRevokedAt(Instant revokedAt) {
+        return new PluginProvenanceRecord(source, repositoryId, officialRepository, developmentOnly,
+                expectedSizeBytes, expectedSha256, artifactSizeBytes, artifactSha256, signature, status,
+                keyId, publisher, trustLabel, publisherKeyFingerprint, verifiedAt, offlineStatus,
+                offlineVerifiedAt, diagnosticCode, trustDecision,
+                Objects.requireNonNull(revokedAt, "revokedAt"));
     }
 
     private static void validateDiagnosticCode(VerificationStatus status, String diagnosticCode) {

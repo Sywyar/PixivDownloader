@@ -68,7 +68,6 @@ class PluginInstallOutcomeMappingTest {
                 .isEqualTo(HttpStatus.CONFLICT);
         assertThat(PluginInstallOutcomeMapping.httpStatus(PluginInstallOutcome.DOWNGRADE_REJECTED))
                 .isEqualTo(HttpStatus.CONFLICT);
-
         assertThat(PluginInstallOutcomeMapping.httpStatus(PluginInstallOutcome.FAILED))
                 .isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
     }

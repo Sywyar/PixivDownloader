@@ -112,12 +112,14 @@
     D.cardModel = function (entry) {
         var m = market(entry) || {};
         var author = D.entryAuthor(entry);
+        var verification = packageVerification(entry);
         var ratingVal = m.rating != null ? Number(m.rating) : null;
         var dl = PMK.formatDownloads(m.totalDownloadCount);
         var category = D.entryCategory(entry);
         return {
             pluginId: entry.pluginId,
             name: D.entryName(entry),
+            publisher: verification && verification.publisher ? verification.publisher : author,
             sub: [entry.pluginId, author].filter(Boolean).join(' · '),
             iconClass: PMK.iconClass(m.iconToken),
             colorClass: PMK.colorClass(m.colorToken),
@@ -141,8 +143,8 @@
             updateAvailable: entry.updateAvailable,
             compatible: entry.compatible,
             compatibilityReason: entry.compatibilityReason,
-            verification: packageVerification(entry),
-            verificationBadge: D.verificationBadge(packageVerification(entry))
+            verification: verification,
+            verificationBadge: D.verificationBadge(verification)
         };
     };
 

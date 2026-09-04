@@ -15,8 +15,10 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.PrivateKey;
 import java.security.Signature;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 
 final class PluginSigningTestSupport {
@@ -32,24 +34,23 @@ final class PluginSigningTestSupport {
     }
 
     static PluginSigningTestSupport create() {
-        return create(false);
+        return create("test-key", "Test Publisher", false);
     }
 
     static PluginSigningTestSupport createOfficial() {
-        return create(true);
+        return create("test-key", "Test Publisher", true);
     }
 
-    private static PluginSigningTestSupport create(boolean official) {
+    static PluginSigningTestSupport create(String keyId, String publisher, boolean official) {
         try {
             KeyPairGenerator generator = KeyPairGenerator.getInstance(SignatureMetadata.ED25519);
             KeyPair keyPair = generator.generateKeyPair();
-            String keyId = "test-key";
             TrustedPluginKey trustedKey = new TrustedPluginKey(
                     keyId,
                     SignatureMetadata.ED25519,
                     Base64.getEncoder().encodeToString(keyPair.getPublic().getEncoded()),
                     TrustedPluginKey.State.ACTIVE,
-                    "Test Publisher",
+                    publisher,
                     "Test Trust",
                     official);
             return new PluginSigningTestSupport(keyId, keyPair.getPrivate(), trustedKey);
@@ -58,22 +59,127 @@ final class PluginSigningTestSupport {
         }
     }
 
+    static PluginSupplyChainVerifier verifierFor(PluginSigningTestSupport... signers) {
+        return new PluginSupplyChainVerifier(PluginTrustStores.of(
+                Arrays.stream(signers).map(signer -> signer.trustedKey).toList()));
+    }
+
     PluginSupplyChainVerifier verifier() {
         return new PluginSupplyChainVerifier(PluginTrustStores.of(List.of(trustedKey)));
     }
 
+    TrustedPluginKey trustedKey(TrustedPluginKey.State state) {
+        return new TrustedPluginKey(
+                trustedKey.keyId(),
+                trustedKey.algorithm(),
+                trustedKey.publicKeySpkiBase64(),
+                state,
+                trustedKey.publisher(),
+                trustedKey.trustLabel(),
+                trustedKey.official());
+    }
+
     PluginPackageOrigin originFor(String repositoryId, Path artifact, String pluginId, String version)
             throws IOException {
+        return originFor(repositoryId, false, artifact, pluginId, version, Map.of());
+    }
+
+    PluginPackageOrigin originFor(
+            String repositoryId,
+            boolean officialRepository,
+            Path artifact,
+            String pluginId,
+            String version) throws IOException {
+        return originFor(repositoryId, officialRepository, artifact, pluginId, version, Map.of());
+    }
+
+    PluginPackageOrigin originFor(
+            String repositoryId,
+            Path artifact,
+            String pluginId,
+            String version,
+            Map<String, SignatureMetadata> identityMigrationSignatures) throws IOException {
+        return originFor(repositoryId, false, artifact, pluginId, version, identityMigrationSignatures);
+    }
+
+    PluginPackageOrigin originFor(
+            String repositoryId,
+            boolean officialRepository,
+            Path artifact,
+            String pluginId,
+            String version,
+            Map<String, SignatureMetadata> identityMigrationSignatures) throws IOException {
         long size = Files.size(artifact);
         String sha256 = Hashing.hex(Hashing.sha256(artifact));
-        return PluginPackageOrigin.forTrustedCatalog(repositoryId, false, size, sha256,
-                artifactSignature(artifact, pluginId, version));
+        return PluginPackageOrigin.forTrustedCatalog(repositoryId, officialRepository, size, sha256,
+                artifactSignature(artifact, pluginId, version), identityMigrationSignatures);
+    }
+
+    PluginPackageOrigin confirmed(PluginPackageOrigin origin) {
+        return PluginPackageOrigin.forTrustedCatalog(
+                origin.repositoryId(),
+                origin.officialRepository(),
+                origin.expectedSizeBytes(),
+                origin.expectedSha256(),
+                origin.signature(),
+                origin.identityMigrationSignatures(),
+                origin.expectedSha256());
     }
 
     SignatureMetadata artifactSignature(Path artifact, String pluginId, String version) throws IOException {
         byte[] sha256 = Hashing.sha256(artifact);
         byte[] message = EnvelopeV1Codec.artifactMessage(
                 SignatureMetadata.ED25519, keyId, pluginId, version, Files.size(artifact), sha256);
+        return new SignatureMetadata(
+                SignatureMetadata.FORMAT_VERSION,
+                SignatureMetadata.ED25519,
+                keyId,
+                Base64.getEncoder().encodeToString(sign(message)));
+    }
+
+    SignatureMetadata identityMigrationSignature(
+            String fromPluginId,
+            String fromRepositoryId,
+            String toPluginId,
+            String toRepositoryId,
+            PluginSigningTestSupport toSigner,
+            Path artifact,
+            String version) throws IOException {
+        return identityMigrationSignature(
+                fromPluginId, fromRepositoryId, false,
+                toPluginId, toRepositoryId, false,
+                toSigner, artifact, version);
+    }
+
+    SignatureMetadata identityMigrationSignature(
+            String fromPluginId,
+            String fromRepositoryId,
+            boolean fromOfficialRepository,
+            String toPluginId,
+            String toRepositoryId,
+            boolean toOfficialRepository,
+            PluginSigningTestSupport toSigner,
+            Path artifact,
+            String version) throws IOException {
+        byte[] sha256 = Hashing.sha256(artifact);
+        byte[] message = EnvelopeV1Codec.identityMigrationMessage(
+                SignatureMetadata.ED25519,
+                keyId,
+                fromPluginId,
+                "MARKET_CATALOG",
+                fromRepositoryId,
+                fromOfficialRepository,
+                trustedKey.publisher(),
+                keyId,
+                toPluginId,
+                "MARKET_CATALOG",
+                toRepositoryId,
+                toOfficialRepository,
+                toSigner.trustedKey.publisher(),
+                toSigner.keyId,
+                version,
+                Files.size(artifact),
+                sha256);
         return new SignatureMetadata(
                 SignatureMetadata.FORMAT_VERSION,
                 SignatureMetadata.ED25519,

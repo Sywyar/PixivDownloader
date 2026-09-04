@@ -98,7 +98,7 @@ class PluginRuntimeBootContextTest {
         assertThat(pluginRuntimeStatus.directory().getFileName()).isEqualTo(Path.of("plugins-absent"));
         assertThat(Files.exists(pluginRuntimeStatus.directory())).isFalse();
         // 骨架已就绪：缺失目录路径不构造 PF4J 实例
-        assertThat(pluginRuntimeManager.pluginManager()).isEmpty();
+        assertThat(pluginRuntimeManager.isPhysicalRuntimeInitialized()).isFalse();
         // 无外置插件：发现结果为空（既无发现也无失败）
         assertThat(pluginDiscoveryResult.discovered()).isEmpty();
         assertThat(pluginDiscoveryResult.hasFailures()).isFalse();
@@ -115,7 +115,7 @@ class PluginRuntimeBootContextTest {
         assertThat(pluginRuntimeStatus).isSameAs(pluginBootstrapSession.status());
         assertThat(externalPluginInstaller).isSameAs(pluginBootstrapSession.installer());
         // ABSENT 目录零加载、不构造 PF4J 实例——只扫描一次、无第二套 classloader
-        assertThat(pluginRuntimeManager.pluginManager()).isEmpty();
+        assertThat(pluginRuntimeManager.isPhysicalRuntimeInitialized()).isFalse();
     }
 
     @Test

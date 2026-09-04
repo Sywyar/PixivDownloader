@@ -67,6 +67,7 @@ class PluginRuntimeDependencyGuardTest {
     private static final Set<DependencyCoordinate> EXPECTED_POM_DEPENDENCIES = Set.of(
             dependency("io.github.sywyar.pixivdownloader", "pixivdownload-sdk-info", "compile"),
             dependency("io.github.sywyar.pixivdownloader", "pixivdownload-plugin-api", "compile"),
+            dependency("top.sywyar.lovepopup", "pixivdownload-plugin-worker", "compile"),
             dependency("top.sywyar.lovepopup", "pixivdownload-plugin-signature", "compile"),
             dependency("org.springframework", "spring-context", "compile"),
             dependency("org.springframework", "spring-web", "compile"),

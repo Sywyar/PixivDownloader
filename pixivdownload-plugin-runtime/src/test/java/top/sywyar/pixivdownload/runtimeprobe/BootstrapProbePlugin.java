@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.runtime.bootstrap;
+package top.sywyar.pixivdownload.runtimeprobe;
 
 import org.pf4j.Plugin;
 import org.pf4j.PluginWrapper;
@@ -17,8 +17,8 @@ import java.util.List;
  * {@link PixivPluginProvider}、暴露最小功能插件 {@link BootstrapProbeFeaturePlugin}，使其能通过
  * {@code PluginRuntimeManager} 的发布形态校验并被真实加载 / 启动。
  *
- * <p>PF4J 加载即（懒）构造、start / stop 即记录，供 bootstrap 端到端探针经文件标记跨插件 classloader 观测
- * load / start / stop 次数。标记文件路径经系统属性 {@code bootstrap.probe.marker} 传入（JVM 全局、与 classloader 无关）。
+ * <p>宿主显式初始化时构造、start / stop 时记录，供 bootstrap 端到端探针经文件标记跨插件 classloader 观测
+ * initialize / start / stop 次数。标记文件路径经系统属性 {@code bootstrap.probe.marker} 传入（JVM 全局、与 classloader 无关）。
  */
 public class BootstrapProbePlugin extends Plugin implements PixivPluginProvider {
 
