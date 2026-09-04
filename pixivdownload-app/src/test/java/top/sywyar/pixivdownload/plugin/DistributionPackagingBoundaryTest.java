@@ -76,8 +76,24 @@ class DistributionPackagingBoundaryTest {
             Boolean.getBoolean("distribution.packaging.require-production-credential-key");
     private static final String PLUGIN_CREDENTIAL_KEY_RESOURCE =
             "BOOT-INF/classes/plugin-credential-key.properties";
+    private static final String PROGUARD_METADATA_RESOURCE =
+            "META-INF/pixivdownload-proguard.properties";
     private static final String ISOLATED_WORKER_RESOURCE =
             "BOOT-INF/classes/top/sywyar/pixivdownload/plugin/runtime/isolated-plugin-worker.jar";
+    private static final Set<String> PROGUARD_RELEASE_ARTIFACT_IDS = Set.of(
+            "pixivdownload-plugin-download-workbench",
+            "pixivdownload-plugin-gui-compose",
+            "pixivdownload-plugin-gui-swing",
+            "pixivdownload-plugin-gallery-tools",
+            "pixivdownload-plugin-posthog",
+            "pixivdownload-plugin-gallery",
+            "pixivdownload-plugin-novel",
+            "pixivdownload-plugin-notification",
+            "pixivdownload-plugin-multi-mode-decision-survey",
+            "pixivdownload-plugin-push",
+            "pixivdownload-plugin-mail",
+            "pixivdownload-plugin-tts",
+            "pixivdownload-plugin-ai");
 
     private static final String DOWNLOAD_WORKBENCH_CLASSES_PROPERTY = "download-workbench.plugin.classes";
     private static final String POSTHOG_CLASSES_PROPERTY = "posthog.plugin.classes";
@@ -362,13 +378,43 @@ class DistributionPackagingBoundaryTest {
                 "boot jar 尚未生成（需 package 阶段），无法执行 jar 条目级边界验证");
 
         List<String> entries = jarEntryNames(bootJar);
+        assertProguardProcessedArtifact(bootJar);
+        assertThat(entries).as("宿主一方模块应合并进优化后的 BOOT-INF/classes")
+                .contains(
+                        "BOOT-INF/classes/top/sywyar/pixivdownload/sdk/SdkVersion.class",
+                        "BOOT-INF/classes/top/sywyar/pixivdownload/plugin/api/plugin/PixivFeaturePlugin.class",
+                        "BOOT-INF/classes/top/sywyar/pixivdownload/core/download/InteractiveDownloadExecutionLane.class",
+                        "BOOT-INF/classes/top/sywyar/pixivdownload/plugin/signature/PluginSupplyChainVerifier.class",
+                        "BOOT-INF/classes/top/sywyar/pixivdownload/plugin/runtime/isolation/IsolatedPluginProtocol.class",
+                        "BOOT-INF/classes/top/sywyar/pixivdownload/plugin/runtime/PluginRuntimeManager.class");
+        assertContractClassesPresent(entries, "pixivdownload-sdk-info");
+        assertContractClassesPresent(entries, "pixivdownload-plugin-api");
+        assertContractClassesPresent(entries, "pixivdownload-core-api");
+        assertThat(entries).as("已合并处理的一方模块不得再以未处理依赖 JAR 进入 Boot classpath")
+                .noneMatch(name -> name.matches(
+                        "BOOT-INF/lib/pixivdownload-(?:sdk-info|plugin-api|core-api|plugin-signature|plugin-worker|plugin-runtime)-[^/]+\\.jar"));
         List<String> forbiddenPrefixes = List.of(
-                "BOOT-INF/classes/top/sywyar/pixivdownload/ai/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/notification/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/ai/controller/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/ai/http/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/ai/preset/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/ai/probe/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/notificationbase/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/multimodesurvey/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/push/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/tts/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/push/channel/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/push/controller/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/push/http/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/tts/controller/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/tts/dto/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/tts/http/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/cosyvoice/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/doubao/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/elevenlabs/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/fish/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/http/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/mimo/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/minimax/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/qwen/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/voxcpm/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/mail/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/gallerytools/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/stats/",
@@ -434,6 +480,22 @@ class DistributionPackagingBoundaryTest {
                     .as("boot jar must not contain external plugin payload prefix " + prefix)
                     .noneMatch(name -> name.startsWith(prefix) && !name.endsWith("/"));
         }
+        assertThat(entries).as("共享 API 包内不得混入外置插件入口或实现")
+                .doesNotContain(
+                        "BOOT-INF/classes/top/sywyar/pixivdownload/ai/AiPf4jPlugin.class",
+                        "BOOT-INF/classes/top/sywyar/pixivdownload/ai/AiPlugin.class",
+                        "BOOT-INF/classes/top/sywyar/pixivdownload/ai/AiPluginConfiguration.class",
+                        "BOOT-INF/classes/top/sywyar/pixivdownload/ai/OpenAiCompatibleAiClient.class",
+                        "BOOT-INF/classes/top/sywyar/pixivdownload/notification/NotificationPushTestController.class",
+                        "BOOT-INF/classes/top/sywyar/pixivdownload/notification/PushNotificationSink.class",
+                        "BOOT-INF/classes/top/sywyar/pixivdownload/push/PushPf4jPlugin.class",
+                        "BOOT-INF/classes/top/sywyar/pixivdownload/push/PushPlugin.class",
+                        "BOOT-INF/classes/top/sywyar/pixivdownload/push/PushPluginConfiguration.class",
+                        "BOOT-INF/classes/top/sywyar/pixivdownload/push/PushHttpSender.class",
+                        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/TtsPf4jPlugin.class",
+                        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/TtsPlugin.class",
+                        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/TtsPluginConfiguration.class",
+                        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/EdgeTtsClient.class");
         assertThat(entries).as("Compose / Kotlin / Skiko 私有运行库不得进入 boot jar")
                 .noneMatch(name -> name.startsWith("BOOT-INF/lib/desktop-jvm-")
                         || name.startsWith("BOOT-INF/lib/ui-desktop-")
@@ -475,6 +537,7 @@ class DistributionPackagingBoundaryTest {
 
         try (JarFile worker = new JarFile(workerJar.toFile())) {
             List<String> entries = worker.stream().map(JarEntry::getName).toList();
+            assertProguardProcessedArtifact(workerJar);
             assertThat(worker.getManifest().getMainAttributes().getValue("Start-Class"))
                     .isEqualTo("top.sywyar.pixivdownload.plugin.runtime.isolation.IsolatedPluginWorkerMain");
             assertThat(entries)
@@ -651,6 +714,7 @@ class DistributionPackagingBoundaryTest {
             return;
         }
         List<String> entries = jarEntryNames(jar);
+        assertProguardProcessedArtifact(jar);
         assertThat(entries).contains("plugin.properties");
         assertThat(entries).contains("top/sywyar/pixivdownload/guitheme/GuiSwingPf4jPlugin.class");
         assertThat(entries).contains("top/sywyar/pixivdownload/gui/MainFrame.class");
@@ -688,6 +752,7 @@ class DistributionPackagingBoundaryTest {
             return;
         }
         List<String> entries = jarEntryNames(jar);
+        assertProguardProcessedArtifact(jar);
         assertThat(entries).contains(
                 "plugin.properties",
                 "top/sywyar/pixivdownload/guicompose/GuiComposePf4jPlugin.class",
@@ -758,6 +823,9 @@ class DistributionPackagingBoundaryTest {
                 .noneMatch(name -> name.startsWith("top/sywyar/pixivdownload/plugin/api/"));
         assertThat(entries).as("thin 插件 jar 不得携带私有 lib/*.jar")
                 .noneMatch(name -> name.matches("lib/[^/]+\\.jar"));
+        if (PROGUARD_RELEASE_ARTIFACT_IDS.contains(artifactId)) {
+            assertProguardProcessedArtifact(jar);
+        }
     }
 
     private void assertJarWithPrivateLibraries(String classesProperty, String artifactId, String mainClassEntry,
@@ -790,6 +858,7 @@ class DistributionPackagingBoundaryTest {
             assertThat(entries).as("插件 JAR 应在 lib/ 中携带私有依赖 " + required)
                     .anyMatch(name -> name.matches("lib/" + required));
         }
+        assertProguardProcessedArtifact(jar);
     }
 
     // --- helpers ---
@@ -837,14 +906,42 @@ class DistributionPackagingBoundaryTest {
     private static Properties loadUtf8Properties(Path jar, String resource) {
         try (JarFile jarFile = new JarFile(jar.toFile())) {
             JarEntry entry = jarFile.getJarEntry(resource);
-            assertThat(entry).as("boot jar 应包含 %s", resource).isNotNull();
+            assertThat(entry).as("JAR 应包含 %s", resource).isNotNull();
             try (InputStream input = jarFile.getInputStream(entry)) {
                 Properties properties = new Properties();
                 properties.load(new InputStreamReader(input, StandardCharsets.UTF_8));
                 return properties;
             }
         } catch (IOException e) {
-            throw new IllegalStateException("读取 boot jar 资源失败: " + resource, e);
+            throw new IllegalStateException("读取 JAR 资源失败: " + resource, e);
+        }
+    }
+
+    private static void assertProguardProcessedArtifact(Path jar) {
+        Properties metadata = loadUtf8Properties(jar, PROGUARD_METADATA_RESOURCE);
+        assertThat(metadata.getProperty("formatVersion")).isEqualTo("1");
+        assertThat(metadata.getProperty("proguard.version")).isNotBlank();
+        assertThat(metadata.getProperty("shrink")).isEqualTo("true");
+        assertThat(metadata.getProperty("optimize")).isEqualTo("true");
+        assertThat(metadata.getProperty("obfuscate")).isEqualTo("false");
+    }
+
+    private static void assertContractClassesPresent(List<String> entries, String module) {
+        Path classes = locateRepoRoot().resolve(module).resolve("target").resolve("classes");
+        assertThat(classes).as("公共契约模块应已构建: %s", module).isDirectory();
+        try (Stream<Path> stream = Files.walk(classes)) {
+            List<String> expected = stream
+                    .filter(Files::isRegularFile)
+                    .map(classes::relativize)
+                    .map(Path::toString)
+                    .filter(name -> name.endsWith(".class"))
+                    .map(name -> "BOOT-INF/classes/" + name.replace('\\', '/'))
+                    .toList();
+            assertThat(expected).as("公共契约模块应至少包含一个 class: %s", module).isNotEmpty();
+            assertThat(entries).as("boot jar 应原样保留公共契约模块全部 class: %s", module)
+                    .containsAll(expected);
+        } catch (IOException e) {
+            throw new IllegalStateException("读取公共契约模块失败: " + module, e);
         }
     }
 
@@ -889,6 +986,15 @@ class DistributionPackagingBoundaryTest {
     private static boolean isFreshBootJar(Path candidate, Path repoRoot) {
         try {
             FileTime jarTime = Files.getLastModifiedTime(candidate);
+            String bootName = candidate.getFileName().toString();
+            Path mainJar = candidate.resolveSibling(
+                    bootName.substring(0, bootName.length() - "-boot.jar".length()) + ".jar");
+            if (Files.isRegularFile(mainJar)) {
+                FileTime mainJarTime = Files.getLastModifiedTime(mainJar);
+                if (mainJarTime.compareTo(jarTime) > 0) {
+                    jarTime = mainJarTime;
+                }
+            }
             return !hasNewerFile(repoRoot.resolve("pixivdownload-app").resolve("src").resolve("main").resolve("java"),
                     jarTime)
                     && !hasNewerFile(repoRoot.resolve("pixivdownload-app").resolve("src").resolve("main")

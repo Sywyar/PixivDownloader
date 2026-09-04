@@ -108,6 +108,13 @@
         <jacoco.version>0.8.12</jacoco.version>
         <jna.version>5.17.0</jna.version>
         <pf4j.version>3.12.0</pf4j.version>
+        <proguard.version>7.10.0</proguard.version>
+        <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
+        <pixivdownload.proguard.skip>true</pixivdownload.proguard.skip>
+        <pixivdownload.proguard.additionalProgramPath>${project.build.directory}/proguard/additional-program</pixivdownload.proguard.additionalProgramPath>
+        <pixivdownload.proguard.libraryExcludeArtifactIds>mybatis-spring-boot-starter</pixivdownload.proguard.libraryExcludeArtifactIds>
+        <pixivdownload.proguard.outputDirectory>${project.build.directory}/proguard/classes</pixivdownload.proguard.outputDirectory>
+        <pixivdownload.jar.classesDirectory>${project.build.outputDirectory}</pixivdownload.jar.classesDirectory>
         <!-- jacoco prepare-agent 会覆写该属性注入 agent；无 jacoco 的模块则解析为空串 -->
         <argLine></argLine>
     </properties>
@@ -156,6 +163,27 @@
             </plugins>
         </pluginManagement>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.8.1</version>
+                <executions>
+                    <execution>
+                        <id>proguard-library-classpath</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>build-classpath</goal>
+                        </goals>
+                        <configuration>
+                            <skip>${pixivdownload.proguard.skip}</skip>
+                            <includeScope>compile</includeScope>
+                            <excludeArtifactIds>${pixivdownload.proguard.libraryExcludeArtifactIds}</excludeArtifactIds>
+                            <outputProperty>pixivdownload.proguard.libraryClasspath</outputProperty>
+                            <silent>true</silent>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <!-- JDK 23+ 默认禁用隐式注解处理（Lombok 等处理器不再经 classpath 自动发现），
                 显式声明 Lombok 处理器路径，使任意 JDK（17/21/23/26…）下 @RequiredArgsConstructor
                 等注解都能正常生成代码；未依赖 Lombok 的模块不受影响。 -->
@@ -170,6 +198,93 @@
                         </path>
                     </annotationProcessorPaths>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <classesDirectory>${pixivdownload.jar.classesDirectory}</classesDirectory>
+                    <forceCreation>true</forceCreation>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <dependencies>
+                    <dependency>
+                        <groupId>com.guardsquare</groupId>
+                        <artifactId>proguard-ant</artifactId>
+                        <version>${proguard.version}</version>
+                    </dependency>
+                </dependencies>
+                <executions>
+                    <execution>
+                        <id>proguard-release-classes</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <skip>${pixivdownload.proguard.skip}</skip>
+                            <target>
+                                <delete dir="${pixivdownload.proguard.outputDirectory}" quiet="true"/>
+                                <mkdir dir="${project.build.directory}/proguard/additional-program"/>
+                                <mkdir dir="${pixivdownload.proguard.outputDirectory}"/>
+                                <mkdir dir="${project.build.directory}/proguard/reports"/>
+                                <path id="pixivdownload.proguard.program">
+                                    <pathelement path="${pixivdownload.proguard.additionalProgramPath}"/>
+                                </path>
+                                <path id="pixivdownload.proguard.jmods">
+                                    <fileset dir="${java.home}/jmods">
+                                        <include name="*.jmod"/>
+                                    </fileset>
+                                </path>
+                                <path id="pixivdownload.proguard.libraries">
+                                    <path path="${pixivdownload.proguard.libraryClasspath}"/>
+                                </path>
+                                <java classname="proguard.ProGuard" fork="true" failonerror="true" maxmemory="2048m">
+                                    <classpath refid="maven.plugin.classpath"/>
+                                    <arg value="-include"/>
+                                    <arg file="${maven.multiModuleProjectDirectory}/build-support/proguard/base.pro"/>
+                                    <arg value="-include"/>
+                                    <arg file="${maven.multiModuleProjectDirectory}/build-support/proguard/spring.pro"/>
+                                    <arg value="-include"/>
+                                    <arg file="${maven.multiModuleProjectDirectory}/build-support/proguard/plugin.pro"/>
+                                    <arg value="-injars"/>
+                                    <arg value="${project.build.outputDirectory}(!**.jar;)"/>
+                                    <arg value="-injars"/>
+                                    <arg pathref="pixivdownload.proguard.program"/>
+                                    <arg value="-outjars"/>
+                                    <arg file="${pixivdownload.proguard.outputDirectory}"/>
+                                    <arg value="-libraryjars"/>
+                                    <arg pathref="pixivdownload.proguard.libraries"/>
+                                    <arg value="-libraryjars"/>
+                                    <arg pathref="pixivdownload.proguard.jmods"/>
+                                    <arg value="-printconfiguration"/>
+                                    <arg file="${project.build.directory}/proguard/reports/configuration.pro"/>
+                                    <arg value="-printseeds"/>
+                                    <arg file="${project.build.directory}/proguard/reports/seeds.txt"/>
+                                    <arg value="-printusage"/>
+                                    <arg file="${project.build.directory}/proguard/reports/usage.txt"/>
+                                </java>
+                                <copy todir="${pixivdownload.proguard.outputDirectory}" overwrite="true">
+                                    <fileset dir="${project.build.outputDirectory}" erroronmissingdir="false">
+                                        <include name="**/*.jar"/>
+                                    </fileset>
+                                </copy>
+                                <mkdir dir="${pixivdownload.proguard.outputDirectory}/META-INF"/>
+                                <echo file="${pixivdownload.proguard.outputDirectory}/META-INF/pixivdownload-proguard.properties"
+                                      encoding="UTF-8">formatVersion=1
+proguard.version=${proguard.version}
+shrink=true
+optimize=true
+obfuscate=false
+</echo>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <!-- Windows 中文环境下，JDK 17 的 surefire 测试 fork 默认用平台编码（GBK/cp936）写 stdout/stderr，
                 而 surefire 按 UTF-8 解码，导致测试输出的中文在控制台与 surefire-reports 中乱码。

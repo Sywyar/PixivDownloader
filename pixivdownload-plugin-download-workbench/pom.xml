@@ -12,6 +12,11 @@
     <name>PixivDownloader Download Workbench Plugin</name>
     <description>Official required external PF4J plugin for the download workbench, Pixiv fetch proxy, queue, userscripts, and scheduled download host.</description>
 
+    <properties>
+        <pixivdownload.proguard.skip>false</pixivdownload.proguard.skip>
+        <pixivdownload.jar.classesDirectory>${pixivdownload.proguard.outputDirectory}</pixivdownload.jar.classesDirectory>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>io.github.sywyar.pixivdownloader</groupId>

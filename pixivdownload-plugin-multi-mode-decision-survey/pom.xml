@@ -12,6 +12,11 @@
     <name>PixivDownloader Multi-mode Decision Survey Plugin</name>
     <description>Official inbox-only survey publisher for the proposed removal of multi-user mode.</description>
 
+    <properties>
+        <pixivdownload.proguard.skip>false</pixivdownload.proguard.skip>
+        <pixivdownload.jar.classesDirectory>${pixivdownload.proguard.outputDirectory}</pixivdownload.jar.classesDirectory>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>io.github.sywyar.pixivdownloader</groupId>

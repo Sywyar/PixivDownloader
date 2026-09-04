@@ -12,6 +12,11 @@
     <name>PixivDownloader Swing GUI Plugin</name>
     <description>Official process-lifetime Swing desktop UI and theme plugin, packaged as a PF4J JAR-with-lib.</description>
 
+    <properties>
+        <pixivdownload.proguard.skip>false</pixivdownload.proguard.skip>
+        <pixivdownload.jar.classesDirectory>${pixivdownload.proguard.outputDirectory}</pixivdownload.jar.classesDirectory>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>io.github.sywyar.pixivdownloader</groupId>

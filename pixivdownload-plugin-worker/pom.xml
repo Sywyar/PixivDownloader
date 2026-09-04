@@ -14,6 +14,7 @@
 
     <properties>
         <java.version>17</java.version>
+        <pixivdownload.proguard.skip>false</pixivdownload.proguard.skip>
     </properties>
 
     <dependencies>
@@ -34,6 +35,26 @@
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <classesDirectory>${project.build.outputDirectory}</classesDirectory>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>proguard-worker-jar</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                        <configuration>
+                            <classesDirectory>${pixivdownload.proguard.outputDirectory}</classesDirectory>
+                            <classifier>worker</classifier>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
