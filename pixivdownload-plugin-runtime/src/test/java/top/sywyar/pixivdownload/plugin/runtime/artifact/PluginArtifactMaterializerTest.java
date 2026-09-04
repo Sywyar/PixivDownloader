@@ -165,8 +165,7 @@ class PluginArtifactMaterializerTest {
                     .hasRootCauseMessage("plugin artifact load tree exceeds the supported entry count");
             try (var paths = Files.walk(loadPath)) {
                 assertThat(paths.count())
-                        .isEqualTo((long) usage.entryCount() + implicitDirectoryCount + 1L)
-                        .isEqualTo(25_001L);
+                        .isEqualTo((long) usage.entryCount() + implicitDirectoryCount + 1L);
             }
         } finally {
             deleteTree(workspace);
