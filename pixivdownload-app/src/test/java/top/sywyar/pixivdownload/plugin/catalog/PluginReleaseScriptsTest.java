@@ -1135,6 +1135,55 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
+    @DisplayName("release/nightly 发布前安装并启动最终 Windows 与 Java 分发产物")
+    void releaseWorkflowsRunFinalArtifactAcceptanceBeforePublication() throws Exception {
+        String script = script("test-release-artifacts.ps1");
+        String acceptanceAction = action("test-release-artifacts");
+
+        assertThat(script).contains(
+                "Refusing installer E2E because PixivDownload is already registered",
+                "Expand-Archive -LiteralPath $Archive",
+                "PixivDownload-$Version.jar",
+                "runtime\\bin\\server\\jvm.dll",
+                "--setup",
+                "--no-gui",
+                "/actuator/health",
+                "/actuator/info",
+                "/api/auth/login",
+                "/api/plugins/status",
+                "status -ne \"STARTED\"",
+                "runtimePhase -ne \"STARTED\"",
+                "recoveryMode",
+                "Wait-ArtifactProcessExit",
+                "-TimeoutSeconds 600",
+                "-TimeoutSeconds 300",
+                "unins000.exe");
+        assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("test-release-artifacts.ps1"));
+        assertThat(acceptanceAction).contains(
+                "name: windows-installer",
+                "name: java-distributions",
+                "Install and start final release artifacts",
+                "./scripts/test-release-artifacts.ps1",
+                "-InstallerPath $installers[0].FullName",
+                "-JavaZipPath $javaZips[0].FullName",
+                "-FullOfflineZipPath $offlineZips[0].FullName");
+
+        for (String name : List.of("release.yml", "nightly.yml")) {
+            String workflow = workflow(name);
+            String acceptanceJob = workflowJob(workflow, "release-artifact-e2e");
+            String publicationJob = workflowJob(workflow,
+                    name.equals("release.yml") ? "release" : "release-nightly");
+
+            assertThat(acceptanceJob).as(name).contains(
+                    "runs-on: windows-latest",
+                    "timeout-minutes: 45",
+                    "uses: ./.github/actions/test-release-artifacts",
+                    "release_version:");
+            assertThat(publicationJob).as(name).contains("release-artifact-e2e");
+        }
+    }
+
+    @Test
     @DisplayName("分发组装脚本支持精确 PrebuiltJar 输入：互斥、严格验证、精确路径、本地 fallback 保留")
     void distributionAssemblerSupportsExactPrebuiltJarInput() throws Exception {
         String distribution = script("assemble-plugin-distribution.ps1");
@@ -1556,7 +1605,8 @@ class PluginReleaseScriptsTest {
         assertThat(nightly).contains("workflow_dispatch:");
         assertThat(releaseJob)
                 .contains(
-                        "needs: [resolve-version, publish-plugins, publish-plugin-artifacts, build-jar, build-windows-installer]",
+                        "needs: [resolve-version, publish-plugins, publish-plugin-artifacts, build-jar, "
+                                + "build-windows-installer, release-artifact-e2e]",
                         "if: needs.resolve-version.outputs.has_changes == 'true'")
                 .doesNotContain("always()");
         assertThat(releaseStep).contains(

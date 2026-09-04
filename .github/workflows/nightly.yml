@@ -165,8 +165,24 @@ jobs:
         with:
           release_version: ${{ needs.resolve-version.outputs.version }}
 
+  release-artifact-e2e:
+    needs: [resolve-version, build-jar, build-windows-installer]
+    if: needs.resolve-version.outputs.has_changes == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Test final release artifacts
+        uses: ./.github/actions/test-release-artifacts
+        with:
+          release_version: ${{ needs.resolve-version.outputs.version }}
+
   release-nightly:
-    needs: [resolve-version, publish-plugins, publish-plugin-artifacts, build-jar, build-windows-installer]
+    needs: [resolve-version, publish-plugins, publish-plugin-artifacts, build-jar, build-windows-installer, release-artifact-e2e]
     if: needs.resolve-version.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     environment: release
