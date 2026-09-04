@@ -12,7 +12,7 @@
       - if release exists and the artifact is present but companions are missing -> regenerate only those companions
         from the published artifact bytes;
       - if release exists without the artifact -> FAIL and require a new plugin.version;
-      - else build ONLY that module (`mvn -Pofficial-surveys -pl <module> -am package` - its dep subtree, not the whole reactor
+      - else build ONLY that module (`mvn -Pofficial-surveys -pl <module> -am verify` - its dep subtree, not the whole reactor
         nor other plugins), verify its official artifact format, then create the release and upload the artifact
         + .sha256 + .sig.
 
@@ -139,7 +139,7 @@ function Build-StagedPluginArtifact {
     Write-Host "==> Building only module $($Plugin.Module) for release $($Plugin.Id)-v$Version"
     Push-Location $ProjectRoot
     try {
-        & $mvn "-Pofficial-surveys" "-pl" $Plugin.Module "-am" "package" "-DskipTests" "-Dexec.skip=true" |
+        & $mvn "-Pofficial-surveys" "-pl" $Plugin.Module "-am" "verify" "-DskipTests" |
             ForEach-Object { Write-Host $_ }
         if ($LASTEXITCODE -ne 0) { throw "Maven build failed for module $($Plugin.Module)." }
     } finally {
@@ -148,6 +148,7 @@ function Build-StagedPluginArtifact {
 
     $builtArtifact = Find-ModulePluginArtifact $Plugin $ProjectRoot
     $descriptor = Assert-OfficialPluginArtifact $builtArtifact $Plugin
+    Assert-ProguardProcessedArtifact $builtArtifact
     $pluginVersion = $descriptor["plugin.version"]
     if ($pluginVersion -ne $Version) {
         throw "Built plugin.version '$pluginVersion' != source '$Version' for $($Plugin.Id)."

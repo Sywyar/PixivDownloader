@@ -136,6 +136,7 @@ function Get-MavenCommand {
 
 function Assert-BootJarBoundary {
     param([string]$JarPath)
+    Assert-ProguardProcessedArtifact $JarPath
     $entries = Get-ZipEntryNames $JarPath
     $forbidden = @(
         "BOOT-INF/classes/top/sywyar/pixivdownload/ai/",
@@ -318,9 +319,9 @@ $PluginsOutDir = Join-Path $OutputDir "plugins"
 Push-Location $ProjectRoot
 try {
     if ($Build) {
-        Write-Step "Building reactor (mvn package -DskipTests)"
+        Write-Step "Building reactor release artifacts (mvn verify -DskipTests)"
         $mvn = Get-MavenCommand
-        & $mvn "package" "-DskipTests" "-Dexec.skip=true" "-Dapp.release.version=$Version"
+        & $mvn "verify" "-DskipTests" "-Dapp.release.version=$Version"
         if ($LASTEXITCODE -ne 0) { throw "Maven build failed." }
     }
 
@@ -328,7 +329,7 @@ try {
     if (-not $SelectedAppJar) {
         $appJarCandidate = Get-AppBootJar
         if (-not $appJarCandidate) {
-            throw "Could not find boot jar under pixivdownload-app/target/ (run with -Build, pass -PrebuiltJar, or 'mvn package' first)."
+            throw "Could not find boot jar under pixivdownload-app/target/ (run with -Build, pass -PrebuiltJar, or 'mvn verify' first)."
         }
         $SelectedAppJar = $appJarCandidate.FullName
         Write-Host "    Local target fallback: $SelectedAppJar" -ForegroundColor DarkGray
@@ -371,6 +372,7 @@ try {
         }
         $sourceSignaturePath = Find-PluginArtifactSignatureSidecar $sourceArtifact
         $descriptor = Assert-OfficialPluginArtifact $sourceArtifact $plugin
+        Assert-ProguardProcessedArtifact $sourceArtifact
         $pluginVersion = $descriptor["plugin.version"]
         $requires = $descriptor["plugin.requires"]
         $extension = Get-OfficialPluginArtifactExtension $plugin

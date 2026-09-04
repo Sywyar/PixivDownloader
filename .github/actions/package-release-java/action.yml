@@ -43,7 +43,7 @@ runs:
       env:
         RELEASE_VERSION: ${{ inputs.release_version }}
       run: >
-        mvn package -Pofficial-surveys -DskipTests "-Dapp.release.version=$RELEASE_VERSION"
+        mvn verify -Pofficial-surveys -DskipTests "-Dapp.release.version=$RELEASE_VERSION"
         "-Dplugin.credential.filter=$PLUGIN_CREDENTIAL_FILTER"
 
     - name: Verify packaged distribution boundaries
@@ -104,6 +104,7 @@ runs:
           OutputDir = "build/plugin-inputs"
           SignatureToolJar = $signatureTools[0].FullName
           IncludeOptional = $true
+          RequireProguard = $true
         }
         if (-not [string]::IsNullOrWhiteSpace($env:PLUGIN_MANIFEST_COMMIT)) {
           if ($env:PLUGIN_MANIFEST_COMMIT -notmatch '^[0-9a-f]{40}$') {

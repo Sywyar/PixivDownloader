@@ -129,8 +129,7 @@ try {
     $mavenArgs = @(
         "-pl", ($mavenProjects -join ","),
         "-am",
-        "package",
-        "-Dexec.skip=true",
+        "verify",
         "-Dapp.release.version=$Version"
     )
     if (-not $RunTests) {

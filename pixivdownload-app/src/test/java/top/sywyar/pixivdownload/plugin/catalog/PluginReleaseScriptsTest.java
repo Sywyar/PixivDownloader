@@ -196,6 +196,7 @@ class PluginReleaseScriptsTest {
                 "function Find-ModulePluginArtifact",
                 "function Find-PluginArtifactSignatureSidecar",
                 "function Assert-PluginArtifactSignature",
+                "function Assert-ProguardProcessedArtifact",
                 "function Get-PluginArtifactSignatureForDistribution",
                 "Assert-JarWithPrivatePluginLibs",
                 "Assert-ThinPluginJar",
@@ -207,6 +208,27 @@ class PluginReleaseScriptsTest {
                 "Plugin jar is not thin - found private lib/*.jar entries");
         assertThat(common).doesNotContain("Format = \"zip\"");
         assertThat(common).doesNotContain("Assert-ExplodedPluginZip");
+    }
+
+    @Test
+    @DisplayName("发布产物 ProGuard 标记必须声明 shrink/optimize 且关闭混淆")
+    void proguardArtifactMetadataIsValidated(@TempDir Path tempDir) throws Exception {
+        Path processed = tempDir.resolve("processed.jar");
+        writeThinPluginJar(processed, "sample", "1.0.1", "1.0");
+        assertThat(runPowerShell(
+                "$ErrorActionPreference='Stop'; "
+                        + ". './scripts/plugin-distribution-common.ps1'; "
+                        + "Assert-ProguardProcessedArtifact '" + psQuote(processed) + "'; 'OK'"))
+                .isEqualTo("OK");
+
+        Path raw = tempDir.resolve("raw.jar");
+        writeThinPluginJar(raw, "sample", "1.0.1", "1.0", false);
+        CommandResult failure = runPowerShellResult(
+                "$ErrorActionPreference='Stop'; "
+                        + ". './scripts/plugin-distribution-common.ps1'; "
+                        + "Assert-ProguardProcessedArtifact '" + psQuote(raw) + "'");
+        assertThat(failure.exitCode()).as(failure.output()).isNotZero();
+        assertThat(failure.output()).contains("Release artifact is missing ProGuard metadata");
     }
 
     @Test
@@ -2024,6 +2046,12 @@ class PluginReleaseScriptsTest {
 
     private static void writeThinPluginJar(Path path, String id, String version, String requires)
             throws IOException {
+        writeThinPluginJar(path, id, version, requires, true);
+    }
+
+    private static void writeThinPluginJar(
+            Path path, String id, String version, String requires, boolean includeProguardMetadata)
+            throws IOException {
         try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(path), StandardCharsets.UTF_8)) {
             zip.putNextEntry(new ZipEntry("plugin.properties"));
             zip.write(("plugin.id=" + id + "\n"
@@ -2031,6 +2059,15 @@ class PluginReleaseScriptsTest {
                     + "plugin.requires=" + requires + "\n"
                     + "pixiv.execution-mode=host-process-full-trust\n").getBytes(StandardCharsets.UTF_8));
             zip.closeEntry();
+            if (includeProguardMetadata) {
+                zip.putNextEntry(new ZipEntry("META-INF/pixivdownload-proguard.properties"));
+                zip.write(("formatVersion=1\n"
+                        + "proguard.version=7.10.0\n"
+                        + "shrink=true\n"
+                        + "optimize=true\n"
+                        + "obfuscate=false\n").getBytes(StandardCharsets.UTF_8));
+                zip.closeEntry();
+            }
         }
     }
 

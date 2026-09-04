@@ -350,14 +350,16 @@ try {
             $mavenCmd = Get-MavenCommand
         }
         if ($RunTests) {
-            Invoke-External $mavenCmd @("package", "-Dapp.release.version=$Version")
+            Invoke-External $mavenCmd @("verify", "-Dapp.release.version=$Version")
         } else {
-            Invoke-External $mavenCmd @("package", "-DskipTests", "-Dapp.release.version=$Version")
+            Invoke-External $mavenCmd @("verify", "-DskipTests", "-Dapp.release.version=$Version")
         }
 
         $jar = Get-BuiltJar
         Copy-Item $jar.FullName $stagedJar -Force
     }
+
+    Assert-ProguardProcessedArtifact $stagedJar
 
     Write-Step "Building trimmed runtime image"
     Invoke-External "jlink" @(

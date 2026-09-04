@@ -430,12 +430,15 @@ function Get-ZipEntryNames {
     }
 }
 
-function Read-PluginDescriptor {
-    param([Parameter(Mandatory = $true)][string]$JarPath)
+function Read-ZipProperties {
+    param(
+        [Parameter(Mandatory = $true)][string]$JarPath,
+        [Parameter(Mandatory = $true)][string]$EntryName
+    )
     Import-ZipFileAssembly
     $archive = [System.IO.Compression.ZipFile]::OpenRead($JarPath)
     try {
-        $entry = $archive.GetEntry("plugin.properties")
+        $entry = $archive.GetEntry($EntryName)
         if (-not $entry) { return $null }
         $reader = New-Object System.IO.StreamReader($entry.Open(), [System.Text.Encoding]::UTF8)
         try { $text = $reader.ReadToEnd() } finally { $reader.Dispose() }
@@ -451,6 +454,33 @@ function Read-PluginDescriptor {
         $props[$trimmed.Substring(0, $idx).Trim()] = $trimmed.Substring($idx + 1).Trim()
     }
     return $props
+}
+
+function Read-PluginDescriptor {
+    param([Parameter(Mandatory = $true)][string]$JarPath)
+    return Read-ZipProperties -JarPath $JarPath -EntryName "plugin.properties"
+}
+
+function Assert-ProguardProcessedArtifact {
+    param([Parameter(Mandatory = $true)][string]$JarPath)
+    $metadata = Read-ZipProperties -JarPath $JarPath -EntryName "META-INF/pixivdownload-proguard.properties"
+    if (-not $metadata) {
+        throw "Release artifact is missing ProGuard metadata: $JarPath"
+    }
+    $expectedMetadata = [ordered]@{
+        formatVersion = "1"
+        shrink = "true"
+        optimize = "true"
+        obfuscate = "false"
+    }
+    foreach ($expected in $expectedMetadata.GetEnumerator()) {
+        if ($metadata[$expected.Key] -ne $expected.Value) {
+            throw "Release artifact has invalid ProGuard metadata '$($expected.Key)': $JarPath"
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$metadata["proguard.version"])) {
+        throw "Release artifact ProGuard version is missing: $JarPath"
+    }
 }
 
 function Find-ModuleJar {
