@@ -306,8 +306,8 @@ class ExternalPluginTransactionSafetyTest extends ExternalPluginTransactionTestS
     }
 
     @Test
-    @DisplayName("plugins root 是符号链接时恢复在枚举 staging 前 fail-closed")
-    void symbolicPluginRootIsRejectedBeforeEnumeration() throws IOException {
+    @DisplayName("plugins root 是符号链接时解析真实目录后安全恢复")
+    void symbolicPluginRootIsResolvedBeforeRecovery() throws IOException {
         Path actual = temp.resolve("actual-plugins");
         Files.createDirectories(actual);
         Path linked = temp.resolve("linked-plugins");
@@ -317,13 +317,12 @@ class ExternalPluginTransactionSafetyTest extends ExternalPluginTransactionTestS
             Assumptions.abort("当前文件系统不能创建符号链接: " + e.getMessage());
         }
 
-        PluginTransactionRecoveryReport recovery =
-                newInstaller(linked).recoverPendingTransactions();
+        ExternalPluginInstaller installer = newInstaller(linked);
+        PluginTransactionRecoveryReport recovery = installer.recoverPendingTransactions();
 
-        assertThat(recovery.safeToScan()).isFalse();
-        assertThat(recovery.failures())
-                .extracting(PluginTransactionRecoveryReport.Failure::kind)
-                .containsExactly(PluginTransactionRecoveryReport.FailureKind.STAGING_ROOT_UNSAFE);
+        assertThat(installer.pluginsDirectory()).isEqualTo(actual.toRealPath());
+        assertThat(recovery.safeToScan()).isTrue();
+        assertThat(recovery.failures()).isEmpty();
     }
 
     @Test
