@@ -41,12 +41,13 @@ function validMasterDetail() {
                 type: 'required_status_checks',
                 parameters: {
                     strict_required_status_checks_policy: true,
-                    required_status_checks: REQUIRED.map((context) => ({ context })),
+                    required_status_checks: REQUIRED.map((context) => ({ context,
+                        integration_id: invariants.master.requiredCheckSources[context] })),
                 },
             },
             {
                 type: 'pull_request',
-                parameters: { required_approving_review_count: 0 },
+                parameters: { required_approving_review_count: 0, allowed_merge_methods: ['merge'] },
             },
             { type: 'deletion', parameters: {} },
             { type: 'non_fast_forward', parameters: {} },
@@ -71,9 +72,8 @@ function validTagDetail(ref = 'refs/tags/i18n-gate-epoch-3-root', id = 203) {
 }
 
 function validTagDetails(epoch3 = validTagDetail()) {
-    return [validTagDetail('refs/tags/i18n-gate-epoch-2-root', 202), epoch3,
-        validTagDetail('refs/tags/i18n-gate-epoch-4-root', 204),
-        validTagDetail('refs/tags/release-gate-epoch-5-root', 205)];
+    return Object.keys(invariants.roots).map((ref, index) => ref === 'refs/tags/i18n-gate-epoch-3-root'
+        ? epoch3 : validTagDetail(ref, 202 + index));
 }
 
 /** 摘要只含 id / name / target / enforcement；真实 API 的摘要 conditions 为 null（必须用 detail 分类）。 */
@@ -87,10 +87,13 @@ function summaryOf(detail) {
     };
 }
 
-function makeFetch(listSummaries, detailsById) {
+function makeFetch(listSummaries, detailsById, repository = {
+    allow_merge_commit: true, allow_squash_merge: false, allow_rebase_merge: false,
+}) {
     const calls = [];
     const fetchJson = async (url) => {
         calls.push(url);
+        if (url.endsWith('/repos/' + REPO)) return { status: 200, body: repository };
         if (/\/rulesets\?per_page=100$/.test(url)) {
             return { status: 200, body: listSummaries };
         }
@@ -158,6 +161,52 @@ test('doctor：master + root tag detail 完全正确 → success (exit 0)', asyn
     assert.equal(result.exitCode, 0, JSON.stringify(result.problems));
 });
 
+test('doctor: Rulesets beyond the first page must be read and incomplete pagination cannot pass', async () => {
+    const relevant = [validMasterDetail(), ...validTagDetails()];
+    const filler = Array.from({ length: 100 }, (_, index) => ({ ...validMasterDetail(), id: 1000 + index,
+        enforcement: 'disabled' }));
+    const { fetchJson } = makeFetch(filler.map(summaryOf),
+        Object.fromEntries([...filler, ...relevant].map((item) => [item.id, item])));
+    for (const second of [{ status: 200, body: relevant.map(summaryOf) }, { status: 403, body: null },
+        { status: 200, body: [summaryOf(filler[0])] }]) {
+        const actual = await runDoctor({ token: 't', repo: REPO, invariants,
+            fetchJson: (url) => url.includes('&page=2') ? second : fetchJson(url) });
+        assert.equal(actual.exitCode, second.body === null || second.body[0].id === 1000 ? 2 : 0);
+    }
+});
+
+test('doctor: merge-only protection must be enforced by the Ruleset and repository settings', async () => {
+    const master = validMasterDetail();
+    master.rules[1].parameters.allowed_merge_methods = ['merge', 'squash'];
+    const { result } = await doctorWith(master);
+    assert.equal(result.exitCode, 1);
+    assert.ok(result.problems.some((problem) => /only merge commits/.test(problem)));
+
+    const all = [validMasterDetail(), ...validTagDetails()];
+    for (const settings of [
+        { allow_merge_commit: false, allow_squash_merge: false, allow_rebase_merge: false },
+        { allow_merge_commit: true, allow_squash_merge: true, allow_rebase_merge: false },
+        { allow_merge_commit: true, allow_squash_merge: false, allow_rebase_merge: true },
+        {},
+    ]) {
+        const { fetchJson } = makeFetch(all.map(summaryOf),
+            Object.fromEntries(all.map((detail) => [detail.id, detail])), settings);
+        const actual = await runDoctor({ fetchJson, token: 't', repo: REPO, invariants });
+        assert.equal(actual.exitCode, Object.keys(settings).length ? 1 : 2);
+    }
+});
+
+test('doctor: a named required check must come from its declared GitHub App', async () => {
+    const expected = structuredClone(invariants);
+    expected.master.requiredCheckSources = { [REQUIRED[0]]: 4837005 };
+    for (const appId of [undefined, 15368, 4837005]) {
+        const master = validMasterDetail();
+        master.rules[0].parameters.required_status_checks[0].integration_id = appId;
+        const { result } = await doctorWith(master, undefined, { invariants: expected });
+        assert.equal(result.exitCode, appId === 4837005 ? 0 : 1);
+    }
+});
+
 test('doctor：多个 master Ruleset 的有效保护按 GitHub 叠加语义聚合', async () => {
     const first = validMasterDetail();
     first.id = 101;
@@ -187,19 +236,18 @@ test('doctor：多个 master Ruleset 的有效保护按 GitHub 叠加语义聚�
 
 test('doctor：声明多个 Epoch root 时逐个要求受保护 ruleset', async () => {
     const master = validMasterDetail();
-    const [epoch2, epoch3, epoch4, epoch5] = validTagDetails();
+    const tags = validTagDetails();
+    const details = Object.fromEntries([master, ...tags].map((detail) => [detail.id, detail]));
     const completeFetch = makeFetch(
-        [summaryOf(master), summaryOf(epoch2), summaryOf(epoch3), summaryOf(epoch4), summaryOf(epoch5)],
-        { [master.id]: master, [epoch2.id]: epoch2, [epoch3.id]: epoch3,
-            [epoch4.id]: epoch4, [epoch5.id]: epoch5 });
+        [master, ...tags].map(summaryOf), details);
     const complete = await runDoctor({
         fetchJson: completeFetch.fetchJson, token: 't', repo: REPO, invariants,
     });
     assert.equal(complete.exitCode, 0, JSON.stringify(complete.problems));
 
     const missingFetch = makeFetch(
-        [summaryOf(master), summaryOf(epoch2), summaryOf(epoch3), summaryOf(epoch5)],
-        { [master.id]: master, [epoch2.id]: epoch2, [epoch3.id]: epoch3, [epoch5.id]: epoch5 });
+        [master, ...tags.filter((tag) => !tag.conditions.ref_name.include.includes('refs/tags/i18n-gate-epoch-4-root'))]
+            .map(summaryOf), details);
     const missing = await runDoctor({
         fetchJson: missingFetch.fetchJson, token: 't', repo: REPO, invariants,
     });

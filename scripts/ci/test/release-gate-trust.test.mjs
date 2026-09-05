@@ -7,9 +7,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { historicalGateFile } from './lib/historical-gate.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
-const CLI = path.join(ROOT, 'scripts', 'ci', 'release-gate-trust.mjs');
 const CONTRACT = path.join(ROOT, 'scripts', 'ci', 'gate-contract.mjs');
 
 function git(root, args) {
@@ -19,7 +19,8 @@ function git(root, args) {
 function copy(root, rel) {
     const target = path.join(root, ...rel.split('/'));
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.copyFileSync(path.join(ROOT, ...rel.split('/')), target);
+    if (['package.json', 'package-lock.json', '.gitignore'].includes(rel)) fs.copyFileSync(path.join(ROOT, rel), target);
+    else fs.writeFileSync(target, historicalGateFile(ROOT, rel));
 }
 
 function commit(root, message) {
@@ -37,6 +38,7 @@ test('Epoch 5 adoption accepts the required Merge commit and verifies both Epoch
         git(root, ['config', 'user.name', 'test']);
         copy(root, '.gitignore');
         copy(root, 'package.json');
+        copy(root, 'package-lock.json');
         const oldPolicy = JSON.parse(fs.readFileSync(path.join(ROOT, 'scripts/i18n/gate-policy.json'), 'utf8'));
         const oldFiles = new Set([...oldPolicy.minimumTrustedVerifier.requiredFiles,
             ...oldPolicy.requiredWorkflowFiles, 'scripts/ci/github-ruleset-invariants.json',
@@ -50,7 +52,7 @@ test('Epoch 5 adoption accepts the required Merge commit and verifies both Epoch
 
         git(root, ['switch', '-q', '-c', 'epoch-5']);
         copy(root, 'scripts/ci/release-gate-policy.json');
-        const policy = JSON.parse(fs.readFileSync(path.join(ROOT, 'scripts/ci/release-gate-policy.json'), 'utf8'));
+        const policy = JSON.parse(historicalGateFile(ROOT, 'scripts/ci/release-gate-policy.json').toString('utf8'));
         for (const rel of policy.protectedCore) copy(root, rel);
         for (const rel of Object.keys(policy.workflows)) copy(root, rel);
         commit(root, 'Epoch 5 candidate');
@@ -69,7 +71,7 @@ test('Epoch 5 adoption accepts the required Merge commit and verifies both Epoch
 
         const env = { ...process.env };
         delete env.CI;
-        const result = spawnSync(process.execPath, [CLI, '--adopt-root', '--ref', candidate], {
+        const result = spawnSync(process.execPath, [path.join(root, 'scripts/ci/release-gate-trust.mjs'), '--adopt-root', '--ref', candidate], {
             cwd: root, env, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024,
         });
         assert.equal(result.status, 0, result.stderr || result.stdout);

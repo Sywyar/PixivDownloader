@@ -47,6 +47,7 @@ export function loadInvariants() {
         branch: policy.protectedBranch,
         master: {
             requiredChecks: rules.requiredChecks,
+            requiredCheckSources: rules.requiredCheckSources || {},
             requireStrict: rules.requireStrict,
             requirePullRequest: rules.requirePullRequest,
             requiredApprovals: rules.minimumApprovals,
@@ -124,6 +125,11 @@ function auditMaster(details, invariants, problems, report) {
         if (found.length === 0) {
             problems.push(`master Rulesets miss required check "${expected}"`);
         }
+        const appId = invariants.requiredCheckSources?.[expected];
+        if (appId !== undefined && (!Number.isSafeInteger(appId) || appId <= 0
+            || !found.some((check) => check.integration_id === appId))) {
+            problems.push(`master Rulesets must bind "${expected}" to GitHub App ${appId}`);
+        }
     }
     if (invariants.requireStrict && !statusRules.some((rule) =>
         rule.parameters?.strict_required_status_checks_policy === true)) {
@@ -137,6 +143,11 @@ function auditMaster(details, invariants, problems, report) {
             Number(rule.parameters?.required_approving_review_count) || 0));
         if (approvals < invariants.requiredApprovals) {
             problems.push(`master Rulesets require ${approvals} approvals instead of at least ${invariants.requiredApprovals}`);
+        }
+        if (!pullRules.some((rule) => Array.isArray(rule.parameters?.allowed_merge_methods)
+            && rule.parameters.allowed_merge_methods.length === 1
+            && rule.parameters.allowed_merge_methods[0] === 'merge')) {
+            problems.push('master Rulesets must allow only merge commits');
         }
     }
     for (const [type, allowed] of [['deletion', invariants.allowDeletion],
@@ -212,6 +223,21 @@ export async function runDoctor({ fetchJson, token, repo, baseUrl, invariants })
         return { exitCode: 2, problems, report,
             cannotVerify: 'unexpected rulesets response shape; this is a report, not a pass' };
     }
+    const all = [...list.body];
+    const seen = new Set(all.map((item) => item.id));
+    try {
+        for (let page = 2; list.body.length === 100; page += 1) {
+            list = await fetchJson(base + '/repos/' + repo + '/rulesets?per_page=100&page=' + page, token);
+            if (list.status !== 200 || !Array.isArray(list.body)) throw new Error('unreadable ruleset page');
+            for (const item of list.body) {
+                if (seen.has(item.id)) throw new Error('duplicate ruleset across pages');
+                seen.add(item.id);
+                all.push(item);
+            }
+        }
+    } catch (error) {
+        return { exitCode: 2, problems, report, cannotVerify: 'cannot read all rulesets: ' + error.message };
+    }
 
     // 2. 逐个 follow detail endpoint：list 摘要不含 conditions / rules / bypass_actors 完整语义
     //    （真实 API 的摘要对象 conditions 为 null），必须用 detail 的 target + conditions 分类，
@@ -231,7 +257,7 @@ export async function runDoctor({ fetchJson, token, repo, baseUrl, invariants })
 
     const masterMatches = [];
     const tagMatches = new Map(tagInvariants.map(([name]) => [name, []]));
-    for (const rs of list.body) {
+    for (const rs of all) {
         const fetched = await fetchDetail(rs.id);
         if (fetched.error) {
             return { exitCode: 2, problems, report, cannotVerify: fetched.error };
@@ -261,6 +287,25 @@ export async function runDoctor({ fetchJson, token, repo, baseUrl, invariants })
         }
     }
 
+    let repository;
+    try {
+        repository = await fetchJson(base + '/repos/' + repo, token);
+    } catch (error) {
+        return { exitCode: 2, problems, report,
+            cannotVerify: 'cannot read repository merge settings: ' + error.message };
+    }
+    if (repository.status !== 200 || !repository.body
+        || ['allow_merge_commit', 'allow_squash_merge', 'allow_rebase_merge']
+            .some((key) => typeof repository.body[key] !== 'boolean')) {
+        return { exitCode: 2, problems, report,
+            cannotVerify: 'cannot verify repository merge settings (HTTP ' + repository.status + ')' };
+    }
+    if (!repository.body.allow_merge_commit || repository.body.allow_squash_merge
+        || repository.body.allow_rebase_merge) {
+        problems.push('repository settings must enable merge commits and disable squash/rebase merges');
+    }
+    report.push('repository merge methods: merge=' + repository.body.allow_merge_commit
+        + ', squash=' + repository.body.allow_squash_merge + ', rebase=' + repository.body.allow_rebase_merge);
     const exitCode = problems.length > 0 ? 1 : 0;
     return { exitCode, problems, report, cannotVerify: null };
 }

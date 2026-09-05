@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { historicalGateFile } from './lib/historical-gate.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const FILES = [
@@ -56,7 +57,7 @@ function fixture() {
     for (const rel of FILES) {
         const target = path.join(root, ...rel.split('/'));
         fs.mkdirSync(path.dirname(target), { recursive: true });
-        fs.copyFileSync(path.join(ROOT, ...rel.split('/')), target);
+        fs.writeFileSync(target, historicalGateFile(ROOT, rel));
     }
     try {
         fs.symlinkSync(path.join(ROOT, 'node_modules'), path.join(root, 'node_modules'),

@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { historicalGateFile } from './lib/historical-gate.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const FILES = [
@@ -42,7 +43,7 @@ function fixture() {
     git(root, ['init', '-q']);
     git(root, ['config', 'user.email', 'test@example.com']);
     git(root, ['config', 'user.name', 'test']);
-    for (const rel of FILES) write(root, rel, fs.readFileSync(path.join(ROOT, ...rel.split('/')), 'utf8'));
+    for (const rel of FILES) write(root, rel, historicalGateFile(ROOT, rel));
     try {
         fs.symlinkSync(path.join(ROOT, 'node_modules'), path.join(root, 'node_modules'),
             process.platform === 'win32' ? 'junction' : 'dir');

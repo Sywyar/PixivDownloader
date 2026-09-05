@@ -139,10 +139,13 @@ class PluginInstallServiceTest {
     }
 
     @Test
-    @DisplayName("同 id 同版本重复上传：DUPLICATE，幂等不产生第二个副本")
+    @DisplayName("同一包字节重复上传：DUPLICATE，幂等不产生第二个副本")
     void duplicateIsIdempotent() {
-        service.install(explodedUpload("a.zip", "ext", "1.0.0", null, null), false);
-        PluginInstallReport again = service.install(explodedUpload("a.zip", "ext", "1.0.0", null, null), false);
+        MockMultipartFile upload = explodedUpload("a.zip", "ext", "1.0.0", null, null);
+        PluginInstallReport installed = service.install(upload, false);
+        assertThat(installed.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
+
+        PluginInstallReport again = service.install(upload, false);
 
         assertThat(again.outcome()).isEqualTo(PluginInstallOutcome.DUPLICATE);
         assertThat(again.accepted()).isTrue();
