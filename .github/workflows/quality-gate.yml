@@ -1,23 +1,10 @@
 name: Quality Gate
 
 on:
-  push:
-    branches-ignore: [gh-pages]
-  pull_request:
-  merge_group:
   workflow_dispatch:
     inputs:
       trusted_base_sha:
-        description: 'Protected predecessor commit (optional)'
-        required: false
-        type: string
-      root_admission:
-        description: 'Admit the dispatched commit as the Gate Epoch 4 root'
-        required: false
-        type: boolean
-        default: false
-      root_candidate_sha:
-        description: 'Root commit; must equal the dispatched commit'
+        description: Protected predecessor commit (optional)
         required: false
         type: string
   workflow_call:
@@ -28,10 +15,6 @@ on:
 
 permissions:
   contents: read
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   java-tests:
@@ -62,8 +45,6 @@ jobs:
           EVENT_MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           INPUT_TRUSTED_BASE_SHA: ${{ inputs.trusted_base_sha }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          INPUT_ROOT_ADMISSION: ${{ inputs.root_admission }}
-          INPUT_ROOT_CANDIDATE_SHA: ${{ inputs.root_candidate_sha }}
         run: |
           TRUSTED_BASE_SHA="$INPUT_TRUSTED_BASE_SHA"
           if [ -z "$TRUSTED_BASE_SHA" ] && [ "$INPUT_ROOT_ADMISSION" != "true" ]; then
@@ -77,7 +58,7 @@ jobs:
               fi
             fi
           fi
-          node scripts/ci/resolve-trusted-base.mjs --repo-root . --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --before "$EVENT_BEFORE" --ref "$GITHUB_REF" --pr-head "$EVENT_PR_HEAD_SHA" --pr-base "$EVENT_PR_BASE_SHA" --merge-group-base "$EVENT_MERGE_GROUP_BASE_SHA" --input-base "$TRUSTED_BASE_SHA" --default-branch "$DEFAULT_BRANCH" --root-admission "$INPUT_ROOT_ADMISSION" --root-candidate-sha "$INPUT_ROOT_CANDIDATE_SHA" --mode > "$RUNNER_TEMP/sdk-gate-base.json"
+          node scripts/ci/resolve-trusted-base.mjs --repo-root . --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --before "$EVENT_BEFORE" --ref "$GITHUB_REF" --pr-head "$EVENT_PR_HEAD_SHA" --pr-base "$EVENT_PR_BASE_SHA" --merge-group-base "$EVENT_MERGE_GROUP_BASE_SHA" --input-base "$TRUSTED_BASE_SHA" --default-branch "$DEFAULT_BRANCH" --mode > "$RUNNER_TEMP/sdk-gate-base.json"
           node -e 'const j=require(process.argv[1]); console.log(`SDK_BASE_SHA=${j.base}`)' "$RUNNER_TEMP/sdk-gate-base.json" >> "$GITHUB_ENV"
       - name: Compile external plugin test fixtures
         run: mvn -B -ntp -pl pixivdownload-official-plugins -am compile -Dexec.skip=true
@@ -92,7 +73,9 @@ jobs:
           test -n "$REPORT"
           grep -Eq 'Tests run: [1-9][0-9]*, Failures: 0, Errors: 0, Skipped: 0' "$REPORT"
       - name: Package SDK contract artifacts
-        run: mvn -B -ntp -pl pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api,pixivdownload-sdk-bom package -DskipTests -Dexec.skip=true
+        run: mvn -B -ntp -pl
+          pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api,pixivdownload-sdk-bom
+          package -DskipTests -Dexec.skip=true
       - name: Compare SDK public contract
         run: |
           BASE_DIR="$RUNNER_TEMP/sdk-base-source"
@@ -143,8 +126,6 @@ jobs:
           EVENT_MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           INPUT_TRUSTED_BASE_SHA: ${{ inputs.trusted_base_sha }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          INPUT_ROOT_ADMISSION: ${{ inputs.root_admission }}
-          INPUT_ROOT_CANDIDATE_SHA: ${{ inputs.root_candidate_sha }}
         run: |
           TRUSTED_BASE_SHA="$INPUT_TRUSTED_BASE_SHA"
           if [ -z "$TRUSTED_BASE_SHA" ] && [ "$INPUT_ROOT_ADMISSION" != "true" ]; then
@@ -158,7 +139,7 @@ jobs:
               fi
             fi
           fi
-          node scripts/ci/resolve-trusted-base.mjs --repo-root . --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --before "$EVENT_BEFORE" --ref "$GITHUB_REF" --pr-head "$EVENT_PR_HEAD_SHA" --pr-base "$EVENT_PR_BASE_SHA" --merge-group-base "$EVENT_MERGE_GROUP_BASE_SHA" --input-base "$TRUSTED_BASE_SHA" --default-branch "$DEFAULT_BRANCH" --root-admission "$INPUT_ROOT_ADMISSION" --root-candidate-sha "$INPUT_ROOT_CANDIDATE_SHA" --mode > "$RUNNER_TEMP/gate-base.json"
+          node scripts/ci/resolve-trusted-base.mjs --repo-root . --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --before "$EVENT_BEFORE" --ref "$GITHUB_REF" --pr-head "$EVENT_PR_HEAD_SHA" --pr-base "$EVENT_PR_BASE_SHA" --merge-group-base "$EVENT_MERGE_GROUP_BASE_SHA" --input-base "$TRUSTED_BASE_SHA" --default-branch "$DEFAULT_BRANCH" --mode > "$RUNNER_TEMP/gate-base.json"
           node -e 'const j=require(process.argv[1]); for (const [k,v] of Object.entries({GATE_MODE:j.mode,BASE_SHA:j.base,ROOT_SHA:j.root,CANDIDATE_SHA:process.env.GITHUB_SHA})) console.log(`${k}=${v}`)' "$RUNNER_TEMP/gate-base.json" >> "$GITHUB_ENV"
       - name: Materialize protected verifier
         run: |
@@ -234,8 +215,6 @@ jobs:
           EVENT_MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           INPUT_TRUSTED_BASE_SHA: ${{ inputs.trusted_base_sha }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          INPUT_ROOT_ADMISSION: ${{ inputs.root_admission }}
-          INPUT_ROOT_CANDIDATE_SHA: ${{ inputs.root_candidate_sha }}
         run: |
           TRUSTED_BASE_SHA="$INPUT_TRUSTED_BASE_SHA"
           if [ -z "$TRUSTED_BASE_SHA" ] && [ "$INPUT_ROOT_ADMISSION" != "true" ]; then
@@ -249,7 +228,7 @@ jobs:
               fi
             fi
           fi
-          node scripts/ci/resolve-trusted-base.mjs --repo-root . --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --before "$EVENT_BEFORE" --ref "$GITHUB_REF" --pr-head "$EVENT_PR_HEAD_SHA" --pr-base "$EVENT_PR_BASE_SHA" --merge-group-base "$EVENT_MERGE_GROUP_BASE_SHA" --input-base "$TRUSTED_BASE_SHA" --default-branch "$DEFAULT_BRANCH" --root-admission "$INPUT_ROOT_ADMISSION" --root-candidate-sha "$INPUT_ROOT_CANDIDATE_SHA" --mode > "$RUNNER_TEMP/gate-base.json"
+          node scripts/ci/resolve-trusted-base.mjs --repo-root . --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --before "$EVENT_BEFORE" --ref "$GITHUB_REF" --pr-head "$EVENT_PR_HEAD_SHA" --pr-base "$EVENT_PR_BASE_SHA" --merge-group-base "$EVENT_MERGE_GROUP_BASE_SHA" --input-base "$TRUSTED_BASE_SHA" --default-branch "$DEFAULT_BRANCH" --mode > "$RUNNER_TEMP/gate-base.json"
           node -e 'const j=require(process.argv[1]); for (const [k,v] of Object.entries({GATE_MODE:j.mode,BASE_SHA:j.base,ROOT_SHA:j.root,CANDIDATE_SHA:process.env.GITHUB_SHA})) console.log(`${k}=${v}`)' "$RUNNER_TEMP/gate-base.json" >> "$GITHUB_ENV"
       - name: Materialize protected verifier
         run: |
@@ -314,7 +293,8 @@ jobs:
       - name: Run i18n checks
         run: npm run i18n:check
       - name: Verify generated static resources
-        run: npm run i18n:generate-static && git diff --exit-code -- pixivdownload-app/src/main/resources/static/i18n-static
+        run: npm run i18n:generate-static && git diff --exit-code --
+          pixivdownload-app/src/main/resources/static/i18n-static
 
   check-shared-snippets:
     runs-on: ubuntu-latest
