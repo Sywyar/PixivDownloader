@@ -21,7 +21,7 @@ class TtsRateLimitServiceTest {
     @Test
     @DisplayName("同一 subject 共享窗口而不同 subject 相互隔离")
     void isolatesCountersBySubject() {
-        TtsRateLimitService service = new TtsRateLimitService(config(2));
+        TtsRateLimitService service = new TtsRateLimitService(config(2), () -> 0L);
 
         assertThat(service.isAllowed("invite:1")).isTrue();
         assertThat(service.isAllowed("invite:1")).isTrue();
@@ -32,7 +32,7 @@ class TtsRateLimitServiceTest {
     @Test
     @DisplayName("非正上限关闭限流")
     void disablesNonPositiveLimit() {
-        TtsRateLimitService service = new TtsRateLimitService(config(0));
+        TtsRateLimitService service = new TtsRateLimitService(config(0), () -> 0L);
 
         assertThat(service.isAllowed("invite:1")).isTrue();
         assertThat(service.isAllowed("invite:1")).isTrue();
@@ -41,8 +41,8 @@ class TtsRateLimitServiceTest {
     @Test
     @DisplayName("插件重建后的服务实例不继承旧计数器")
     void rebuiltServiceHasIndependentCounters() {
-        TtsRateLimitService first = new TtsRateLimitService(config(1));
-        TtsRateLimitService second = new TtsRateLimitService(config(1));
+        TtsRateLimitService first = new TtsRateLimitService(config(1), () -> 0L);
+        TtsRateLimitService second = new TtsRateLimitService(config(1), () -> 0L);
 
         assertThat(first.isAllowed("invite:1")).isTrue();
         assertThat(first.isAllowed("invite:1")).isFalse();
@@ -53,7 +53,7 @@ class TtsRateLimitServiceTest {
     @DisplayName("热重绑配置后同一服务实例立即使用新上限且保留已有计数")
     void observesReboundLimitWithoutResettingCounters() {
         TtsGuestRateLimitConfig config = config(2);
-        TtsRateLimitService service = new TtsRateLimitService(config);
+        TtsRateLimitService service = new TtsRateLimitService(config, () -> 0L);
 
         assertThat(service.isAllowed("invite:1")).isTrue();
         config.setTtsRequestLimitMinute(1);
@@ -65,7 +65,7 @@ class TtsRateLimitServiceTest {
     @Test
     @DisplayName("容量拒绝告警不得记录不透明 subject")
     void capacityWarningDoesNotLogOpaqueSubject() {
-        TtsRateLimitService service = new TtsRateLimitService(config(1));
+        TtsRateLimitService service = new TtsRateLimitService(config(1), () -> 0L);
         for (int index = 0; index < TtsRateLimitService.MAX_TRACKED_KEYS; index++) {
             assertThat(service.isAllowed("fixture:" + index)).isTrue();
         }
