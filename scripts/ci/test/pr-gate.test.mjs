@@ -266,6 +266,27 @@ test('protected predecessor admits only its approved core and exact root merge; 
         git(['tag', 'release-gate-epoch-8-root', root]);
         const tree = git(['rev-parse', root + '^{tree}']);
         const merge = git(['commit-tree', tree, '-p', base, '-p', root], 'PR merge\n');
+        const qualityJobs = YAML.parse(git(['show', `${base}:.github/workflows/quality-gate.yml`])).jobs;
+        for (const role of ['signature-guard', 'trusted-gate-contract']) {
+            const runner = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv gate runner '));
+            try {
+                const materialize = qualityJobs[role].steps.find((step) => step.name === 'Materialize protected verifier');
+                const verify = qualityJobs[role].steps.find((step) =>
+                    ['Run trusted signature guard', 'Verify trusted release contract'].includes(step.name));
+                const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', `${materialize.run}\n${verify.run}`], {
+                    cwd: repo, encoding: 'utf8', env: { ...process.env, BASE_SHA: base, CANDIDATE_SHA: merge,
+                        GATE_MODE: 'NORMAL', NODE_PATH: path.join(source, 'node_modules'),
+                        RUNNER_TEMP: runner.replaceAll('\\', '/'), GITHUB_ENV: path.join(runner, 'env').replaceAll('\\', '/') },
+                });
+                assert.equal(result.status, 0, result.stderr);
+                assert.match(fs.readFileSync(path.join(runner, 'env'), 'utf8'), new RegExp(`^GATE_EPOCH=${preparedPolicy.gateEpoch}$`, 'm'));
+                for (const rel of policy.protectedCore) assert.equal(
+                    fs.readFileSync(path.join(runner, 'trusted-gate', rel), 'utf8'),
+                    fs.readFileSync(path.join(source, CORE_DIRECTORY, path.basename(rel)), 'utf8'));
+            } finally {
+                fs.rmSync(runner, { recursive: true, force: true });
+            }
+        }
         assert.equal(verifyCandidate({ repo, trusted: base, candidate: merge }).gateEpoch, 8);
         assert.equal(verifyCandidate({ repo, trusted: base, candidate: root }).gateEpoch, 8);
         for (const request of [
