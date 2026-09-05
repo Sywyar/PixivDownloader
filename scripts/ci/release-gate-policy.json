@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "gateEpoch": 7,
-  "contractVersion": 8,
-  "rootTag": "refs/tags/release-gate-epoch-7-root",
+  "gateEpoch": 5,
+  "contractVersion": 6,
+  "rootTag": "refs/tags/release-gate-epoch-5-root",
   "protectedBranch": "refs/heads/master",
   "protectedCore": [
     "scripts/ci/release-gate-trust.mjs",
@@ -17,15 +17,31 @@
       "javascript-tests",
       "signature-guard",
       "trusted-gate-contract",
-      "i18n-check",
-      "check-shared-snippets"
+      "i18n-check"
     ],
     "requiredTriggers": [
-      "workflow_call",
-      "workflow_dispatch"
+      "push",
+      "pull_request",
+      "merge_group",
+      "workflow_dispatch",
+      "workflow_call"
+    ],
+    "allowedPushExclusions": [
+      "gh-pages"
     ]
   },
   "workflows": {
+    ".github/workflows/shared-snippets-check.yml": {
+      "workflowName": "Shared Snippet Drift Check",
+      "requiredJobs": [
+        "check-shared-snippets"
+      ],
+      "requiredTriggers": [
+        "push",
+        "pull_request",
+        "workflow_dispatch"
+      ]
+    },
     ".github/workflows/release.yml": {
       "workflowName": "Release",
       "requiredJobs": [
@@ -160,14 +176,6 @@
         "allowNonFastForward": false,
         "allowBypass": false
       }
-    },
-    "requiredCheckSources": {
-      "java-tests": 4837005,
-      "javascript-tests": 4837005,
-      "signature-guard": 4837005,
-      "trusted-gate-contract": 4837005,
-      "i18n-check": 4837005,
-      "check-shared-snippets": 4837005
     }
   }
 }

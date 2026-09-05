@@ -12,7 +12,7 @@ if (process.argv.length === 3 && process.argv[2] === '--version') {
 } else if (process.argv.includes('--version')) {
     console.error('Usage: trust-gate.mjs --version');
     process.exitCode = 2;
-} else if (['5', '7'].includes(configuredEpoch())) {
+} else if (['5', '8'].includes(configuredEpoch())) {
     const repo = git(['rev-parse', '--show-toplevel']);
     const args = process.argv.slice(2);
     const epoch = configuredEpoch();
@@ -35,7 +35,7 @@ if (process.argv.length === 3 && process.argv[2] === '--version') {
         });
     }
 } else {
-    throw new Error('configured release Gate epoch 5 or 7 is required');
+    throw new Error('configured release Gate epoch 5 or 8 is required');
 }
 
 function git(args) {

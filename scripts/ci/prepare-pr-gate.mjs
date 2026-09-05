@@ -51,9 +51,9 @@ export function prepare(repo) {
             uses: 'Sywyar/PixivDownloader/.github/workflows/quality-gate.yml@master',
         } },
     };
-    policy.gateEpoch = 7;
-    policy.contractVersion = 8;
-    policy.rootTag = 'refs/tags/release-gate-epoch-7-root';
+    policy.gateEpoch = 8;
+    policy.contractVersion = 9;
+    policy.rootTag = 'refs/tags/release-gate-epoch-8-root';
     policy.qualityGate.requiredJobs = [...policy.ruleset.requiredChecks];
     policy.qualityGate.requiredTriggers = ['workflow_call', 'workflow_dispatch'];
     delete policy.qualityGate.allowedPushExclusions;

@@ -2,15 +2,8 @@ name: Gate Checks
 
 on:
   workflow_run:
-    workflows:
-      - Pull Request Quality Gate
-      - Quality Gate
-    types:
-      - in_progress
-      - completed
-  push:
-    branches:
-      - master
+    workflows: [Pull Request Quality Gate]
+    types: [completed]
 
 permissions:
   contents: read
@@ -23,8 +16,27 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  protected-base:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.base.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: base
+        run: echo "sha=$(git rev-parse HEAD^1)" >> "$GITHUB_OUTPUT"
+
+  quality-gate:
+    needs: protected-base
+    uses: ./.github/workflows/quality-gate.yml
+    with:
+      trusted_base_sha: ${{ needs.protected-base.outputs.sha }}
 
   checks:
+    needs: quality-gate
     environment: release
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -44,8 +56,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/ci/gate-checks.mjs
       - name: Create check token
-        if: github.event_name == 'workflow_run' && steps.verification.outputs.publish ==
-          'true'
+        if: github.event_name == 'workflow_run' && steps.verification.outputs.publish == 'true'
         id: app
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
@@ -53,13 +64,8 @@ jobs:
           private-key: ${{ secrets.GATE_APP_PRIVATE_KEY }}
           permission-checks: write
       - name: Publish verified checks
-        if: github.event_name == 'workflow_run' && steps.verification.outputs.publish ==
-          'true'
+        if: github.event_name == 'workflow_run' && steps.verification.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GATE_APP_TOKEN: ${{ steps.app.outputs.token }}
         run: node scripts/ci/gate-checks.mjs --publish
-    if: github.event_name == 'push' || github.event.workflow_run.event ==
-      'pull_request' || (github.event.workflow_run.event == 'workflow_dispatch'
-      && github.event.workflow_run.head_branch == 'master' &&
-      github.event.action == 'completed')
