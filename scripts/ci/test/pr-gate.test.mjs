@@ -216,19 +216,36 @@ test('protected predecessor admits only its approved core and exact root merge; 
         policy.gateEpoch = 5;
         policy.contractVersion = 6;
         policy.rootTag = 'refs/tags/release-gate-epoch-5-root';
-        delete policy.ruleset.roots['refs/tags/release-gate-epoch-6-root'];
+        delete policy.ruleset.roots['refs/tags/release-gate-epoch-7-root'];
         delete policy.ruleset.requiredCheckSources;
         fs.writeFileSync(path.join(repo, 'scripts/ci/release-gate-policy.json'), JSON.stringify(policy, null, 2));
         const base = commit('protected admission');
         git(['tag', 'release-gate-epoch-5-root', base]);
         git(['update-ref', 'refs/remotes/origin/master', base]);
+        const actionComments = (file) => {
+            const comments = [];
+            const doc = YAML.parseDocument(fs.readFileSync(path.join(repo, file), 'utf8'));
+            const retained = file.endsWith('/gate-checks.yml') ? doc.getIn(['jobs', 'checks']) : doc;
+            YAML.visit(retained, {
+                Pair(_, pair) {
+                    if (pair.key?.value === 'uses' && pair.value?.comment) {
+                        comments.push([pair.value.value, pair.value.comment]);
+                    }
+                },
+            });
+            return comments;
+        };
+        const workflowFiles = ['.github/workflows/quality-gate.yml', '.github/workflows/gate-checks.yml'];
+        const comments = workflowFiles.map(actionComments);
+        assert.ok(comments.every((entries) => entries.length > 0));
         prepare(repo);
+        assert.deepEqual(workflowFiles.map(actionComments), comments, '生成器保留既有 Action 版本注释');
         const root = commit('approved root');
-        git(['tag', 'release-gate-epoch-6-root', root]);
+        git(['tag', 'release-gate-epoch-7-root', root]);
         const tree = git(['rev-parse', root + '^{tree}']);
         const merge = git(['commit-tree', tree, '-p', base, '-p', root], 'PR merge\n');
-        assert.equal(verifyCandidate({ repo, trusted: base, candidate: merge }).gateEpoch, 6);
-        assert.equal(verifyCandidate({ repo, trusted: base, candidate: root }).gateEpoch, 6);
+        assert.equal(verifyCandidate({ repo, trusted: base, candidate: merge }).gateEpoch, 7);
+        assert.equal(verifyCandidate({ repo, trusted: base, candidate: root }).gateEpoch, 7);
         for (const request of [
             { event: 'pull_request', candidate: merge, prBase: base, prHead: root },
             { event: 'push', candidate: root, ref: 'refs/heads/feature' },
@@ -285,7 +302,7 @@ test('protected predecessor admits only its approved core and exact root merge; 
             [path.join(source, CORE_DIRECTORY, 'release-gate-trust.mjs'), '--adopt-root', '--ref', merge],
             { cwd: repo, env, encoding: 'utf8' });
         assert.equal(adopted.status, 0, adopted.stderr || adopted.stdout);
-        assert.equal(git(['config', '--get', 'pixiv.release.trustedGateEpoch']), '6');
+        assert.equal(git(['config', '--get', 'pixiv.release.trustedGateEpoch']), '7');
         assert.equal(git(['config', '--get', 'pixiv.release.trustedGateRef']), merge);
         assert.equal(fs.existsSync(path.join(repo, '.git/config.lock')), false);
         const full = { ...f.run, event: 'workflow_dispatch', head_branch: 'master', head_sha: merge,
@@ -320,7 +337,7 @@ test('protected predecessor admits only its approved core and exact root merge; 
             [path.join(source, CORE_DIRECTORY, 'release-gate-trust.mjs'), '--advance', '--ref', unapproved],
             { cwd: repo, env, encoding: 'utf8' });
         assert.notEqual(rejected.status, 0);
-        assert.equal(git(['config', '--get', 'pixiv.release.trustedGateEpoch']), '6');
+        assert.equal(git(['config', '--get', 'pixiv.release.trustedGateEpoch']), '7');
         assert.equal(git(['config', '--get', 'pixiv.release.trustedGateRef']), merge);
         fs.writeFileSync(path.join(repo, 'scripts/ci/release-gate-verifier.mjs'),
             fs.readFileSync(path.join(source, CORE_DIRECTORY, 'release-gate-verifier.mjs')));
@@ -331,12 +348,12 @@ test('protected predecessor admits only its approved core and exact root merge; 
         fs.writeFileSync(workflow, fs.readFileSync(workflow, 'utf8').replace(
             'mvn -B -ntp test', 'mvn -ntp -B test'));
         const maintenance = commit('ordinary command ordering');
-        assert.equal(verifyCandidate({ repo, trusted: merge, candidate: maintenance }).gateEpoch, 6);
+        assert.equal(verifyCandidate({ repo, trusted: merge, candidate: maintenance }).gateEpoch, 7);
         const extraPath = path.join(repo, '.github/workflows/diagnostics.yml');
         const extra = { name: 'Diagnostics', on: { workflow_dispatch: {} }, permissions: { contents: 'read' },
             jobs: { report: { 'runs-on': 'ubuntu-latest', if: 'always()', steps: [{ run: 'echo report' }] } } };
         fs.writeFileSync(extraPath, YAML.stringify(extra));
-        assert.equal(verifyCandidate({ repo, trusted: merge, candidate: commit('read-only diagnostics') }).gateEpoch, 6);
+        assert.equal(verifyCandidate({ repo, trusted: merge, candidate: commit('read-only diagnostics') }).gateEpoch, 7);
         for (const mutate of [
             (doc) => { doc.env = { KEY: '${{ secrets.PRODUCT_KEY }}' }; },
             (doc) => { doc.jobs.report.environment = 'release'; doc.jobs.report.permissions = { contents: 'write' }; },

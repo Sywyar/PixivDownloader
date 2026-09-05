@@ -8,7 +8,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 const POLICY = 'scripts/ci/release-gate-policy.json';
-const ROOT_TAG = 'refs/tags/release-gate-epoch-6-root';
+const ROOT_TAG = 'refs/tags/release-gate-epoch-7-root';
 const ADMISSION = 'scripts/ci/gate-admission/';
 const REPOSITORY = 'Sywyar/PixivDownloader';
 const REPOSITORY_ID = 1089943605;
@@ -27,7 +27,8 @@ const FLOOR = {
     checks: ['java-tests', 'javascript-tests', 'signature-guard', 'trusted-gate-contract',
         'i18n-check', 'check-shared-snippets'],
     roots: ['refs/tags/i18n-gate-epoch-2-root', 'refs/tags/i18n-gate-epoch-3-root',
-        'refs/tags/i18n-gate-epoch-4-root', 'refs/tags/release-gate-epoch-5-root', ROOT_TAG],
+        'refs/tags/i18n-gate-epoch-4-root', 'refs/tags/release-gate-epoch-5-root',
+        'refs/tags/release-gate-epoch-6-root', ROOT_TAG],
     workflows: {
         '.github/workflows/release.yml': ['validate-release-tag', 'draft-quality-gate',
             'publish-plugins', 'publish-plugin-artifacts', 'build-jar',
@@ -91,8 +92,8 @@ function exactIdentity(trusted, candidate, label) {
 }
 
 function validateRootPolicy(policy) {
-    if (policy.schemaVersion !== 1 || policy.gateEpoch !== 6 || policy.contractVersion !== 7) {
-        fail('Epoch 6 policy identity is invalid');
+    if (policy.schemaVersion !== 1 || policy.gateEpoch !== 7 || policy.contractVersion !== 8) {
+        fail('Epoch 7 policy identity is invalid');
     }
     if (policy.rootTag !== ROOT_TAG || policy.protectedBranch !== BRANCH) {
         fail('protected root or branch identity changed');
@@ -450,9 +451,9 @@ function validateAdmission(repo, trusted, candidate, localFeedback) {
         if (process.env.CI === 'true') fail('local admission feedback is forbidden in CI');
         return;
     }
-    const root = resolveCommit(repo, ROOT_TAG, 'Epoch 6 root');
+    const root = resolveCommit(repo, ROOT_TAG, 'Epoch 7 root');
     const parents = (sha) => git(repo, ['rev-list', '--parents', '-n', '1', sha]).trim().split(/\s+/u).slice(1);
-    if (!same(parents(root), [trusted])) fail('Epoch 6 root must directly descend from its admission base');
+    if (!same(parents(root), [trusted])) fail('Epoch 7 root must directly descend from its admission base');
     if (candidate !== root && (!same(parents(candidate), [trusted, root])
         || git(repo, ['rev-parse', `${candidate}^{tree}`]) !== git(repo, ['rev-parse', `${root}^{tree}`]))) {
         fail('first admission is restricted to the exact root or its unchanged two-parent merge');
@@ -460,7 +461,7 @@ function validateAdmission(repo, trusted, candidate, localFeedback) {
 }
 
 function validateAncestry(repo, trusted, candidate) {
-    const root = resolveCommit(repo, ROOT_TAG, 'Epoch 6 root');
+    const root = resolveCommit(repo, ROOT_TAG, 'Epoch 7 root');
     if (trusted === candidate) fail('trusted base must be a strict predecessor of the candidate');
     for (const [ancestor, descendant, label] of [
         [root, trusted, 'root to trusted base'],
@@ -608,14 +609,14 @@ export function verifyAppChecks({ checks, evidence, requiredChecks = FLOOR.check
 function main() {
     const args = parseArgs(process.argv.slice(2));
     if (args.version) {
-        console.log('release-gate-verifier epoch=6 contract=7 schema=1');
+        console.log('release-gate-verifier epoch=7 contract=8 schema=1');
         return;
     }
     const repo = path.resolve(args.repo);
     const candidate = resolveCommit(repo, args.candidate || 'HEAD', 'candidate');
     const trusted = args.invariants ? null : resolveCommit(repo, args.trusted, 'trusted base');
     verifyCandidate({ ...args, repo, trusted, candidate });
-    console.log(`TRUSTED RELEASE GATE 6 OK (${candidate})`);
+    console.log(`TRUSTED RELEASE GATE 7 OK (${candidate})`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

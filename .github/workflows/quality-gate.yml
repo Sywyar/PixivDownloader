@@ -177,17 +177,17 @@ jobs:
             mkdir -p "$GATE_DIR/$(dirname "$rel")"
             git show "$BASE_SHA:$rel" > "$GATE_DIR/$rel"
           done < "$RUNNER_TEMP/gate-files.txt"
-          if [ "$GATE_EPOCH" = "5" ] && [ "$(git show "$CANDIDATE_SHA:scripts/ci/release-gate-policy.json" | node -e 'let s=""; process.stdin.on("data",c=>s+=c).on("end",()=>console.log(JSON.parse(s).gateEpoch))')" = "6" ]; then
+          if [ "$GATE_EPOCH" = "5" ] && [ "$(git show "$CANDIDATE_SHA:scripts/ci/release-gate-policy.json" | node -e 'let s=""; process.stdin.on("data",c=>s+=c).on("end",()=>console.log(JSON.parse(s).gateEpoch))')" = "7" ]; then
             for rel in release-gate-trust.mjs release-gate-verifier.mjs resolve-trusted-base.mjs; do
               git show "$BASE_SHA:scripts/ci/gate-admission/$rel" > "$GATE_DIR/scripts/ci/$rel"
             done
-            GATE_EPOCH=6
+            GATE_EPOCH=7
           fi
           echo "GATE_EPOCH=$GATE_EPOCH" >> "$GITHUB_ENV"
           echo "GATE_DIR=$GATE_DIR" >> "$GITHUB_ENV"
       - name: Run trusted signature guard
         run: |
-          if [ "$GATE_EPOCH" = "5" ] || [ "$GATE_EPOCH" = "6" ]; then
+          if [ "$GATE_EPOCH" = "5" ] || [ "$GATE_EPOCH" = "7" ]; then
             node "$GATE_DIR/scripts/ci/release-gate-verifier.mjs" --repo-root . --trusted-ref "$BASE_SHA" --candidate-ref "$CANDIDATE_SHA" --signature
           elif [ "$GATE_MODE" = "ROOT_ADMISSION" ]; then
             node scripts/ci/gate-parity.mjs --repo-root . --candidate-ref "$CANDIDATE_SHA" --invariants --signature
@@ -268,11 +268,11 @@ jobs:
             mkdir -p "$GATE_DIR/$(dirname "$rel")"
             git show "$BASE_SHA:$rel" > "$GATE_DIR/$rel"
           done < "$RUNNER_TEMP/gate-files.txt"
-          if [ "$GATE_EPOCH" = "5" ] && [ "$(git show "$CANDIDATE_SHA:scripts/ci/release-gate-policy.json" | node -e 'let s=""; process.stdin.on("data",c=>s+=c).on("end",()=>console.log(JSON.parse(s).gateEpoch))')" = "6" ]; then
+          if [ "$GATE_EPOCH" = "5" ] && [ "$(git show "$CANDIDATE_SHA:scripts/ci/release-gate-policy.json" | node -e 'let s=""; process.stdin.on("data",c=>s+=c).on("end",()=>console.log(JSON.parse(s).gateEpoch))')" = "7" ]; then
             for rel in release-gate-trust.mjs release-gate-verifier.mjs resolve-trusted-base.mjs; do
               git show "$BASE_SHA:scripts/ci/gate-admission/$rel" > "$GATE_DIR/scripts/ci/$rel"
             done
-            GATE_EPOCH=6
+            GATE_EPOCH=7
           fi
           echo "GATE_EPOCH=$GATE_EPOCH" >> "$GITHUB_ENV"
           echo "GATE_DIR=$GATE_DIR" >> "$GITHUB_ENV"
@@ -285,7 +285,7 @@ jobs:
           echo "TRUSTED_GATE_PACKAGE_JSON=$GATE_DIR/package.json" >> "$GITHUB_ENV"
       - name: Verify trusted release contract
         run: |
-          if [ "$GATE_EPOCH" = "5" ] || [ "$GATE_EPOCH" = "6" ]; then
+          if [ "$GATE_EPOCH" = "5" ] || [ "$GATE_EPOCH" = "7" ]; then
             node "$GATE_DIR/scripts/ci/release-gate-verifier.mjs" --repo-root . --trusted-ref "$BASE_SHA" --candidate-ref "$CANDIDATE_SHA"
           elif [ "$GATE_MODE" = "ROOT_ADMISSION" ]; then
             node scripts/ci/gate-parity.mjs --repo-root . --candidate-ref "$CANDIDATE_SHA" --invariants

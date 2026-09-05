@@ -27,10 +27,52 @@ function secretNames(job) {
         .map((match) => match[1]))];
 }
 
+function assertActionPins(text) {
+    const doc = YAML.parseDocument(text);
+    assert.deepEqual(doc.errors, []);
+    const jobs = doc.get('jobs')?.items.map(({ value }) => value) || [doc.get('runs')];
+    let count = 0;
+    for (const job of jobs) {
+        for (const step of job?.get('steps')?.items || []) {
+            const uses = step.get('uses', true);
+            if (!uses || uses.value.startsWith('./')) continue;
+            assert.match(uses.value, /@[0-9a-f]{40}$/u, 'external Action must use a full commit SHA');
+            assert.match(uses.comment?.trim().split(/\s+/u)[0] || '',
+                /^v[1-9][0-9]*(?:\.[0-9]+\.[0-9]+)?$/u, 'external Action must keep a readable version comment');
+            count++;
+        }
+    }
+    return count;
+}
+
+test('Action 引用按 YAML step 校验完整 SHA 与版本注释，reusable 调用由可信合同校验', () => {
+    const action = `actions/checkout@${'a'.repeat(40)}`;
+    const workflow = `jobs:\n  reusable:\n    uses: owner/repo/.github/workflows/check.yml@master\n  direct:\n    steps:\n      - uses: ${action} # v8\n`;
+    assert.equal(assertActionPins(workflow), 1);
+    assert.equal(assertActionPins(workflow.replace('# v8', '# v8.0.1')), 1);
+    assert.equal(assertActionPins(`runs:\n  using: composite\n  steps:\n    - uses: ${action} # v8\n`), 1);
+    assert.throws(() => assertActionPins(workflow.replace(action, 'actions/checkout@master')), /full commit SHA/u);
+    for (const comment of ['', '# v8.0']) {
+        assert.throws(() => assertActionPins(workflow.replace('# v8', comment)), /version comment/u);
+    }
+    const githubRoot = path.join(ROOT, '.github');
+    let count = 0;
+    for (const rel of fs.readdirSync(githubRoot, { recursive: true })) {
+        if (!(path.dirname(rel) === 'workflows' && /\.ya?ml$/u.test(rel))
+            && !/^action\.ya?ml$/u.test(path.basename(rel))) continue;
+        count += assertActionPins(fs.readFileSync(path.join(githubRoot, rel), 'utf8'));
+    }
+    assert.ok(count > 0);
+    const dependabot = load('.github/dependabot.yml');
+    assert.equal(dependabot.version, 2);
+    assert.ok(dependabot.updates.some((entry) => entry['package-ecosystem'] === 'github-actions'
+        && entry.directory === '/' && entry.schedule?.interval === 'weekly'));
+});
+
 test('PR concurrency cancels only earlier validation of the same PR and workflow', () => {
     const evaluate = (text, github) => text.replace(/\$\{\{(.*?)\}\}/g,
         (_, expression) => String(vm.runInNewContext(expression, { github })));
-    if (POLICY.gateEpoch === 6) {
+    if (POLICY.gateEpoch === 7) {
         const caller = load('.github/workflows/pr-quality-gate.yml');
         assert.deepEqual(triggers(caller), ['pull_request']);
         assert.equal(caller.concurrency['cancel-in-progress'], true);
@@ -73,6 +115,23 @@ test('check publication queues each upstream run independently, including text-o
     const master = { event: { workflow_run: {} }, sha: 'integrated-commit' };
     assert.notEqual(group(upstream), group(master));
     assert.notEqual(group(master), group({ ...master, sha: 'next-integrated-commit' }));
+});
+
+test('主线手动全量验证只在完成后核对证据，PR 进行中事件仍撤销旧成功检查', () => {
+    if (POLICY.gateEpoch === 5) return;
+    const condition = load('.github/workflows/gate-checks.yml').jobs.checks.if;
+    for (const [event_name, event, head_branch, action, expected] of [
+        ['push', '', '', '', true],
+        ['workflow_run', 'pull_request', 'feature', 'in_progress', true],
+        ['workflow_run', 'pull_request', 'feature', 'completed', true],
+        ['workflow_run', 'workflow_dispatch', 'master', 'in_progress', false],
+        ['workflow_run', 'workflow_dispatch', 'master', 'completed', true],
+        ['workflow_run', 'workflow_dispatch', 'feature', 'completed', false],
+    ]) {
+        assert.equal(vm.runInNewContext(condition, { github: {
+            event_name, event: { action, workflow_run: { event, head_branch } },
+        } }), expected);
+    }
 });
 
 test('Quality Gate preserves required roles and the active event contract', () => {
@@ -163,7 +222,7 @@ test('发布链：所有凭据与写权限只在 release Environment 的门禁�
     assert.deepEqual(publish.permissions, { contents: 'read' });
     assert.deepEqual(release.permissions, { contents: 'read' });
     assert.deepEqual(nightly.permissions, { contents: 'read' });
-    const sharedProvider = load(POLICY.gateEpoch === 6
+    const sharedProvider = load(POLICY.gateEpoch === 7
         ? '.github/workflows/quality-gate.yml' : '.github/workflows/shared-snippets-check.yml');
     assert.deepEqual(sharedProvider.permissions, { contents: 'read' });
     assert.equal(release.jobs['publish-plugins'].uses, './.github/workflows/publish-plugins.yml');
