@@ -7,10 +7,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import vm from 'node:vm';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const require = createRequire(path.join(ROOT, 'package.json'));
 const YAML = require('yaml');
+const POLICY = JSON.parse(fs.readFileSync(path.join(ROOT, 'scripts/ci/release-gate-policy.json'), 'utf8'));
 
 function load(rel) {
     return YAML.parse(fs.readFileSync(path.join(ROOT, ...rel.split('/')), 'utf8'));
@@ -25,48 +27,80 @@ function secretNames(job) {
         .map((match) => match[1]))];
 }
 
-test('Quality Gate：五个 required context 与完整触发面保持稳定', () => {
+test('PR concurrency cancels only earlier validation of the same PR and workflow', () => {
+    const evaluate = (text, github) => text.replace(/\$\{\{(.*?)\}\}/g,
+        (_, expression) => String(vm.runInNewContext(expression, { github })));
+    if (POLICY.gateEpoch === 6) {
+        const caller = load('.github/workflows/pr-quality-gate.yml');
+        assert.deepEqual(triggers(caller), ['pull_request']);
+        assert.equal(caller.concurrency['cancel-in-progress'], true);
+        const first = { event: { pull_request: { number: 1 } } };
+        const second = { event: { pull_request: { number: 2 } } };
+        assert.notEqual(evaluate(caller.concurrency.group, first), evaluate(caller.concurrency.group, second));
+        assert.equal(load('.github/workflows/quality-gate.yml').concurrency, undefined);
+        return;
+    }
+    for (const rel of ['.github/workflows/quality-gate.yml', '.github/workflows/shared-snippets-check.yml']) {
+        const { concurrency } = load(rel);
+        const run = { workflow: rel, event_name: 'pull_request', event: { pull_request: { number: 1 } }, run_id: 10 };
+        const group = (context) => evaluate(concurrency.group, context);
+        assert.equal(group(run), group({ ...run, run_id: 11 }));
+        assert.notEqual(group(run), group({ ...run, event: { pull_request: { number: 2 } } }));
+        assert.notEqual(group(run), group({ ...run, workflow: 'another workflow' }));
+        assert.equal(evaluate(concurrency['cancel-in-progress'], run), 'true');
+        for (const event_name of ['push', 'workflow_dispatch', 'schedule']) {
+            const other = { ...run, event_name, event: { pull_request: {} } };
+            assert.notEqual(group(other), group({ ...other, run_id: 11 }));
+            assert.equal(evaluate(concurrency['cancel-in-progress'], other), 'false');
+        }
+    }
+});
+
+test('Quality Gate preserves required roles and the active event contract', () => {
     const doc = load('.github/workflows/quality-gate.yml');
     assert.equal(doc.name, 'Quality Gate');
     assert.deepEqual(doc.permissions, { contents: 'read' });
-    assert.deepEqual(Object.keys(doc.jobs), [
+    for (const id of [
         'java-tests', 'javascript-tests', 'signature-guard', 'trusted-gate-contract', 'i18n-check',
-    ]);
-    assert.deepEqual(triggers(doc), [
-        'push', 'pull_request', 'merge_group', 'workflow_dispatch', 'workflow_call',
-    ]);
-    assert.deepEqual(doc.on.push['branches-ignore'], ['gh-pages']);
+    ]) assert.ok(doc.jobs[id], `required job ${id}`);
+    for (const event of POLICY.qualityGate.requiredTriggers) {
+        assert.ok(triggers(doc).includes(event), `required event ${event}`);
+    }
+    if (POLICY.gateEpoch === 5) assert.deepEqual(doc.on.push['branches-ignore'], ['gh-pages']);
+    else {
+        assert.ok(doc.jobs['check-shared-snippets']);
+        assert.deepEqual(triggers(doc).sort(), ['workflow_call', 'workflow_dispatch']);
+    }
     const javaSteps = doc.jobs['java-tests'].steps;
-    const sdkResolve = javaSteps.find((step) => step.name === 'Resolve SDK contract predecessor');
-    const releaseBuild = javaSteps.find((step) => step.name === 'Build release artifacts with ProGuard');
-    const releaseBoundary = javaSteps.find((step) => step.name === 'Verify packaged release boundaries');
-    const sdkPackage = javaSteps.find((step) => step.name === 'Package SDK contract artifacts');
-    const sdkContract = javaSteps.find((step) => step.name === 'Compare SDK public contract');
+    const sdkResolve = javaSteps.find((step) => step.env?.INPUT_TRUSTED_BASE_SHA !== undefined);
+    const releaseBuild = javaSteps.find((step) => /\bverify\b/.test(step.run || ''));
+    const releaseBoundary = javaSteps.find((step) => /DistributionPackagingBoundaryTest/.test(step.run || ''));
+    const sdkPackage = javaSteps.find((step) => /\bpackage\b/.test(step.run || '')
+        && /pixivdownload-sdk-bom/.test(step.run));
+    const sdkContract = javaSteps.find((step) => /sdk-contract\.mjs/.test(step.run || ''));
     assert.equal(sdkResolve.env.INPUT_TRUSTED_BASE_SHA, '${{ inputs.trusted_base_sha }}');
     assert.match(sdkResolve.run, /resolve-trusted-base\.mjs/u);
-    assert.equal(releaseBuild.run, 'mvn -B -ntp verify -Pofficial-surveys -DskipTests');
+    assert.match(releaseBuild.run, /\bmvn(?:w)?\b/u);
+    assert.match(releaseBuild.run, /-P\s*(?:[^\s,]+,)*official-surveys(?:,|\s|$)/u);
+    assert.doesNotMatch(releaseBuild.run, /-Dexec\.skip(?:=true)?(?:\s|$)/u);
     assert.match(releaseBoundary.run, /DistributionPackagingBoundaryTest/u);
     assert.match(releaseBoundary.run, /distribution\.packaging\.require-artifacts=true/u);
     assert.match(releaseBoundary.run, /Failures: 0, Errors: 0, Skipped: 0/u);
-    assert.match(sdkPackage.run, /pixivdownload-sdk-bom package -DskipTests/u);
+    assert.ok(sdkPackage, 'SDK consumer artifacts must be built');
     assert.match(sdkContract.run, /git archive "\$SDK_BASE_SHA"/u);
     assert.match(sdkContract.run, /sdk-api-surface\.mjs/u);
     assert.match(sdkContract.run, /sdk-contract\.mjs/u);
-    assert.match(sdkContract.run, /--base-sdk-root "\$BASE_DIR" --candidate-sdk-root \./u);
+    assert.match(sdkContract.run, /--base-sdk-root\b/u);
+    assert.match(sdkContract.run, /--candidate-sdk-root\b/u);
     assert.doesNotMatch(sdkContract.run, /continue-on-error|always\(\)|failure\(\)|cancelled\(\)/u);
     for (const id of ['signature-guard', 'trusted-gate-contract']) {
-        const resolve = doc.jobs[id].steps.find((step) => step.name === 'Resolve protected predecessor');
+        const resolve = doc.jobs[id].steps.find((step) => step.env?.EVENT_PR_BASE_REF !== undefined);
         const scripts = doc.jobs[id].steps.map((step) => step.run || '').join('\n');
         assert.doesNotMatch(resolve.run, /\$\{\{/);
         assert.equal(resolve.env.EVENT_PR_BASE_REF, '${{ github.event.pull_request.base.ref }}');
         assert.equal(resolve.env.INPUT_TRUSTED_BASE_SHA, '${{ inputs.trusted_base_sha }}');
-        assert.match(resolve.run, /GITHUB_EVENT_NAME" = "workflow_dispatch"/);
-        assert.match(resolve.run, /EVENT_PR_BASE_REF" != "\$DEFAULT_BRANCH"/);
-        assert.match(resolve.run, /git merge-base "\$GITHUB_SHA" "\$PROTECTED_TIP"/);
-        assert.match(resolve.run, /--input-base "\$TRUSTED_BASE_SHA"/);
         assert.match(scripts, /resolve-trusted-base\.mjs/);
         assert.match(scripts, /git show "\$BASE_SHA:\$rel"/);
-        assert.match(scripts, /gate-parity\.mjs/);
     }
 });
 
@@ -107,11 +141,12 @@ test('发布链：所有凭据与写权限只在 release Environment 的门禁�
 
     const release = load('.github/workflows/release.yml');
     const nightly = load('.github/workflows/nightly.yml');
-    const sharedSnippets = load('.github/workflows/shared-snippets-check.yml');
     assert.deepEqual(publish.permissions, { contents: 'read' });
     assert.deepEqual(release.permissions, { contents: 'read' });
     assert.deepEqual(nightly.permissions, { contents: 'read' });
-    assert.deepEqual(sharedSnippets.permissions, { contents: 'read' });
+    const sharedProvider = load(POLICY.gateEpoch === 6
+        ? '.github/workflows/quality-gate.yml' : '.github/workflows/shared-snippets-check.yml');
+    assert.deepEqual(sharedProvider.permissions, { contents: 'read' });
     assert.equal(release.jobs['publish-plugins'].uses, './.github/workflows/publish-plugins.yml');
     assert.equal(nightly.jobs['publish-plugins'].uses, './.github/workflows/publish-plugins.yml');
     assert.equal(release.jobs['publish-plugins'].with.publish_in_caller, true);

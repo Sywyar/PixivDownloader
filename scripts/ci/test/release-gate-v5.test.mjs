@@ -1,15 +1,19 @@
 'use strict';
 
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { historicalGateFile, historicalWorkflows } from './lib/historical-gate.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
-const VERIFIER = path.join(ROOT, 'scripts', 'ci', 'release-gate-verifier.mjs');
+const historical = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv historical verifier '));
+const VERIFIER = path.join(historical, 'release-gate-verifier.mjs');
+fs.writeFileSync(VERIFIER, historicalGateFile(ROOT, 'scripts/ci/release-gate-verifier.mjs'));
+after(() => fs.rmSync(historical, { recursive: true, force: true }));
 const POLICY_REL = 'scripts/ci/release-gate-policy.json';
 
 function git(root, args) {
@@ -21,7 +25,8 @@ function git(root, args) {
 function copy(root, rel) {
     const target = path.join(root, ...rel.split('/'));
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.copyFileSync(path.join(ROOT, ...rel.split('/')), target);
+    if (rel === 'package.json') fs.copyFileSync(path.join(ROOT, rel), target);
+    else fs.writeFileSync(target, historicalGateFile(ROOT, rel));
 }
 
 function commit(root, message) {
@@ -36,10 +41,9 @@ function fixture() {
     git(root, ['config', 'user.email', 'test@example.com']);
     git(root, ['config', 'user.name', 'test']);
     copy(root, POLICY_REL);
-    const policy = JSON.parse(fs.readFileSync(path.join(ROOT, POLICY_REL), 'utf8'));
+    const policy = JSON.parse(historicalGateFile(ROOT, POLICY_REL).toString('utf8'));
     for (const rel of policy.protectedCore) copy(root, rel);
-    for (const rel of fs.readdirSync(path.join(ROOT, '.github', 'workflows'))
-        .filter((name) => /\.ya?ml$/.test(name)).map((name) => `.github/workflows/${name}`)) {
+    for (const rel of historicalWorkflows(ROOT)) {
         copy(root, rel);
     }
     copy(root, 'package.json');
@@ -239,8 +243,7 @@ test('top-level writes, inherited secrets and modified trusted core fail closed'
         (root) => {
             const workflow = path.join(root, '.github', 'workflows', 'quality-gate.yml');
             fs.writeFileSync(workflow, fs.readFileSync(workflow, 'utf8')
-                .replace('node "$GATE_DIR/scripts/ci/release-gate-verifier.mjs"',
-                    'node candidate.mjs'), 'utf8');
+                .replaceAll('release-gate-verifier.mjs', 'candidate.mjs'), 'utf8');
         },
         (root) => fs.appendFileSync(path.join(root, 'scripts', 'ci', 'resolve-trusted-base.mjs'),
             '\n// candidate change\n', 'utf8'),

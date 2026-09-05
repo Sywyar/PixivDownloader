@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { historicalGateFile } from './lib/historical-gate.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const CORE = JSON.parse(fs.readFileSync(path.join(ROOT, 'scripts/ci/gate-invariants.json'), 'utf8')).protectedPaths;
@@ -40,7 +41,7 @@ test('verifier rollback：protected predecessor 必须满足当前五文件能�
         for (const rel of CORE) {
             const target = path.join(root, ...rel.split('/'));
             fs.mkdirSync(path.dirname(target), { recursive: true });
-            fs.copyFileSync(path.join(ROOT, ...rel.split('/')), target);
+            fs.writeFileSync(target, historicalGateFile(ROOT, rel));
         }
         const gateRoot = commit(root, 'root');
         git(root, ['tag', 'i18n-gate-epoch-4-root', gateRoot]);
