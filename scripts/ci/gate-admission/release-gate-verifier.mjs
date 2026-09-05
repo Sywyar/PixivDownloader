@@ -293,8 +293,7 @@ function validateCheckPublisher(doc) {
         || !same(doc.on.push?.branches, ['master'])) {
         fail('check credentials are restricted to protected workflow completion and master push');
     }
-    // This workflow's exception is only for a checks-only App token. Product
-    // credentials and GITHUB_TOKEN writes still require the full release gate.
+    // 此例外仅允许 App 写检查；产品凭据和 GITHUB_TOKEN 写权限仍须经过完整发布门禁。
     const publicDocument = structuredClone(doc);
     for (const job of Object.values(publicDocument.jobs)) {
         if (permissionsWrite(job.permissions === undefined ? doc.permissions : job.permissions)) {

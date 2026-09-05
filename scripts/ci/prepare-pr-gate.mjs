@@ -27,8 +27,7 @@ export function prepare(repo) {
     quality.on = { workflow_dispatch: { inputs: {
         trusted_base_sha: { description: 'Protected predecessor commit (optional)', required: false, type: 'string' },
     } }, workflow_call: { inputs: { trusted_base_sha: { required: false, type: 'string' } } } };
-    // A reusable call shares github.workflow with its caller. Only the PR caller
-    // owns cancellation, so the callee cannot cancel its own parent run.
+    // 可复用调用共享调用者的 github.workflow；仅由 PR 入口取消旧运行，避免取消自身。
     delete quality.concurrency;
     for (const job of Object.values(quality.jobs)) {
         for (const step of job.steps || []) {

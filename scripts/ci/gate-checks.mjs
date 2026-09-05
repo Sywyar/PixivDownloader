@@ -88,8 +88,7 @@ export async function inspectRun({ repo, runId, api = github, core }) {
 }
 
 function verifyAttempts(run, jobs, api, proofJob, proofAttempt) {
-    // A failed-job rerun retains successful jobs. Prove the source of every
-    // retained job, rather than treating the newest attempt as a complete run.
+    // 失败 job 重跑会保留已成功的 job，须逐项证明其实际执行来源。
     const remaining = new Set(jobs.map((job) => job.id));
     for (let attempt = run.run_attempt; attempt > 0 && remaining.size; attempt -= 1) {
         const current = api(`${PREFIX}/actions/runs/${run.id}/attempts/${attempt}`);
@@ -163,8 +162,7 @@ function skippedCaller(run, api) {
 }
 
 function latestExecution(runs, api) {
-    // A text-only PR edit creates a skipped caller, not another execution.
-    // Ignoring it never grants success: the prior run must still prove this M.
+    // 纯文本编辑只产生跳过的调用；原有运行仍须完整证明同一合并候选。
     return runs.sort((a, b) => integer(b.id) - integer(a.id)).find((run) => !skippedCaller(run, api));
 }
 
@@ -284,8 +282,7 @@ async function main() {
             publishChecks(evidence, process.env.GATE_APP_TOKEN);
             assertCurrentEvidence(evidence);
         } catch (error) {
-            // GitHub check writes are not atomic. Invalidate this merge if a
-            // concurrent rerun or PR update was observed during publication.
+            // GitHub 检查写入并非原子操作；发现并发重跑或 PR 更新时撤销本次成功。
             publishChecks({ ...evidence, status: 'completed', conclusion: 'failure' }, process.env.GATE_APP_TOKEN);
             throw error;
         }
