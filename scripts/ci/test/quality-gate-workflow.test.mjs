@@ -73,6 +73,19 @@ test('check publication queues each upstream run independently, including text-o
     const master = { event: { workflow_run: {} }, sha: 'integrated-commit' };
     assert.notEqual(group(upstream), group(master));
     assert.notEqual(group(master), group({ ...master, sha: 'next-integrated-commit' }));
+    if (POLICY.gateEpoch === 6) {
+        const condition = load('.github/workflows/gate-checks.yml').jobs.checks.if;
+        const accepts = (event_name, event = {}) => vm.runInNewContext(condition, { github: { event_name, event } });
+        assert.equal(accepts('push'), true);
+        for (const action of ['in_progress', 'completed']) {
+            assert.equal(accepts('workflow_run', { action, workflow_run: { event: 'pull_request' } }), true);
+            for (const head_branch of ['master', 'feature']) {
+                assert.equal(accepts('workflow_run', { action,
+                    workflow_run: { event: 'workflow_dispatch', head_branch } }),
+                action === 'completed' && head_branch === 'master');
+            }
+        }
+    }
 });
 
 test('Quality Gate preserves required roles and the active event contract', () => {

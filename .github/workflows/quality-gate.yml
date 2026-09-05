@@ -1,23 +1,9 @@
 name: Quality Gate
-
 on:
-  push:
-    branches-ignore: [gh-pages]
-  pull_request:
-  merge_group:
   workflow_dispatch:
     inputs:
       trusted_base_sha:
-        description: 'Protected predecessor commit (optional)'
-        required: false
-        type: string
-      root_admission:
-        description: 'Admit the dispatched commit as the Gate Epoch 4 root'
-        required: false
-        type: boolean
-        default: false
-      root_candidate_sha:
-        description: 'Root commit; must equal the dispatched commit'
+        description: Protected predecessor commit (optional)
         required: false
         type: string
   workflow_call:
@@ -25,34 +11,28 @@ on:
       trusted_base_sha:
         required: false
         type: string
-
 permissions:
   contents: read
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
   java-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - name: Checkout tested commit
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
       - name: Set up JDK 17
-        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c
         with:
-          java-version: '17'
+          java-version: "17"
           distribution: temurin
           cache: maven
       - name: Set up Node.js 24
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
-          node-version: '24'
+          node-version: "24"
       - name: Resolve SDK contract predecessor
         env:
           EVENT_BEFORE: ${{ github.event.before }}
@@ -62,11 +42,11 @@ jobs:
           EVENT_MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           INPUT_TRUSTED_BASE_SHA: ${{ inputs.trusted_base_sha }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          INPUT_ROOT_ADMISSION: ${{ inputs.root_admission }}
-          INPUT_ROOT_CANDIDATE_SHA: ${{ inputs.root_candidate_sha }}
-        run: |
+        run: >
           TRUSTED_BASE_SHA="$INPUT_TRUSTED_BASE_SHA"
-          if [ -z "$TRUSTED_BASE_SHA" ] && [ "$INPUT_ROOT_ADMISSION" != "true" ]; then
+
+          if [ -z "$TRUSTED_BASE_SHA" ] && [ "$INPUT_ROOT_ADMISSION" != "true"
+          ]; then
             if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] || { [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ "$EVENT_PR_BASE_REF" != "$DEFAULT_BRANCH" ]; }; then
               git fetch --no-tags origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
               PROTECTED_TIP="$(git rev-parse "refs/remotes/origin/$DEFAULT_BRANCH")"
@@ -77,8 +57,18 @@ jobs:
               fi
             fi
           fi
-          node scripts/ci/resolve-trusted-base.mjs --repo-root . --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --before "$EVENT_BEFORE" --ref "$GITHUB_REF" --pr-head "$EVENT_PR_HEAD_SHA" --pr-base "$EVENT_PR_BASE_SHA" --merge-group-base "$EVENT_MERGE_GROUP_BASE_SHA" --input-base "$TRUSTED_BASE_SHA" --default-branch "$DEFAULT_BRANCH" --root-admission "$INPUT_ROOT_ADMISSION" --root-candidate-sha "$INPUT_ROOT_CANDIDATE_SHA" --mode > "$RUNNER_TEMP/sdk-gate-base.json"
-          node -e 'const j=require(process.argv[1]); console.log(`SDK_BASE_SHA=${j.base}`)' "$RUNNER_TEMP/sdk-gate-base.json" >> "$GITHUB_ENV"
+
+          node scripts/ci/resolve-trusted-base.mjs --repo-root . --event-name
+          "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --before
+          "$EVENT_BEFORE" --ref "$GITHUB_REF" --pr-head "$EVENT_PR_HEAD_SHA"
+          --pr-base "$EVENT_PR_BASE_SHA" --merge-group-base
+          "$EVENT_MERGE_GROUP_BASE_SHA" --input-base "$TRUSTED_BASE_SHA"
+          --default-branch "$DEFAULT_BRANCH" --mode >
+          "$RUNNER_TEMP/sdk-gate-base.json"
+
+          node -e 'const j=require(process.argv[1]);
+          console.log(`SDK_BASE_SHA=${j.base}`)'
+          "$RUNNER_TEMP/sdk-gate-base.json" >> "$GITHUB_ENV"
       - name: Compile external plugin test fixtures
         run: mvn -B -ntp -pl pixivdownload-official-plugins -am compile -Dexec.skip=true
       - name: Run Java tests
@@ -86,13 +76,23 @@ jobs:
       - name: Build release artifacts with ProGuard
         run: mvn -B -ntp verify -Pofficial-surveys -DskipTests
       - name: Verify packaged release boundaries
-        run: |
-          mvn -B -ntp -pl pixivdownload-app -am test -Dtest=DistributionPackagingBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false -Ddistribution.packaging.require-artifacts=true -Dexec.skip=true
-          REPORT=$(find pixivdownload-app/target/surefire-reports -name '*DistributionPackagingBoundaryTest.txt' -print -quit)
+        run: >
+          mvn -B -ntp -pl pixivdownload-app -am test
+          -Dtest=DistributionPackagingBoundaryTest
+          -Dsurefire.failIfNoSpecifiedTests=false
+          -Ddistribution.packaging.require-artifacts=true -Dexec.skip=true
+
+          REPORT=$(find pixivdownload-app/target/surefire-reports -name
+          '*DistributionPackagingBoundaryTest.txt' -print -quit)
+
           test -n "$REPORT"
-          grep -Eq 'Tests run: [1-9][0-9]*, Failures: 0, Errors: 0, Skipped: 0' "$REPORT"
+
+          grep -Eq 'Tests run: [1-9][0-9]*, Failures: 0, Errors: 0, Skipped: 0'
+          "$REPORT"
       - name: Package SDK contract artifacts
-        run: mvn -B -ntp -pl pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api,pixivdownload-sdk-bom package -DskipTests -Dexec.skip=true
+        run: mvn -B -ntp -pl
+          pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api,pixivdownload-sdk-bom
+          package -DskipTests -Dexec.skip=true
       - name: Compare SDK public contract
         run: |
           BASE_DIR="$RUNNER_TEMP/sdk-base-source"
@@ -103,20 +103,19 @@ jobs:
           node scripts/ci/sdk-api-surface.mjs --module sdk-info=pixivdownload-sdk-info/target --module plugin-api=pixivdownload-plugin-api/target --module core-api=pixivdownload-core-api/target --output "$RUNNER_TEMP/sdk-candidate-surface.txt"
           node scripts/ci/sdk-contract.mjs --repo-root . --base-ref "$SDK_BASE_SHA" --candidate-ref "$GITHUB_SHA" --base-surface "$RUNNER_TEMP/sdk-base-surface.txt" --candidate-surface "$RUNNER_TEMP/sdk-candidate-surface.txt" --base-sdk-root "$BASE_DIR" --candidate-sdk-root . --report "$RUNNER_TEMP/sdk-contract-report.json"
           cat "$RUNNER_TEMP/sdk-contract-report.json"
-
   javascript-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - name: Checkout tested commit
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
       - name: Set up Node.js 24
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
-          node-version: '24'
+          node-version: "24"
           cache: npm
       - name: Install dependencies
         run: npm ci
@@ -124,13 +123,12 @@ jobs:
         run: npm run test:js
       - name: Run web standards guard
         run: npm run test:web-standards
-
   signature-guard:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Checkout tested commit
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -143,8 +141,6 @@ jobs:
           EVENT_MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           INPUT_TRUSTED_BASE_SHA: ${{ inputs.trusted_base_sha }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          INPUT_ROOT_ADMISSION: ${{ inputs.root_admission }}
-          INPUT_ROOT_CANDIDATE_SHA: ${{ inputs.root_candidate_sha }}
         run: |
           TRUSTED_BASE_SHA="$INPUT_TRUSTED_BASE_SHA"
           if [ -z "$TRUSTED_BASE_SHA" ] && [ "$INPUT_ROOT_ADMISSION" != "true" ]; then
@@ -158,7 +154,7 @@ jobs:
               fi
             fi
           fi
-          node scripts/ci/resolve-trusted-base.mjs --repo-root . --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --before "$EVENT_BEFORE" --ref "$GITHUB_REF" --pr-head "$EVENT_PR_HEAD_SHA" --pr-base "$EVENT_PR_BASE_SHA" --merge-group-base "$EVENT_MERGE_GROUP_BASE_SHA" --input-base "$TRUSTED_BASE_SHA" --default-branch "$DEFAULT_BRANCH" --root-admission "$INPUT_ROOT_ADMISSION" --root-candidate-sha "$INPUT_ROOT_CANDIDATE_SHA" --mode > "$RUNNER_TEMP/gate-base.json"
+          node scripts/ci/resolve-trusted-base.mjs --repo-root . --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --before "$EVENT_BEFORE" --ref "$GITHUB_REF" --pr-head "$EVENT_PR_HEAD_SHA" --pr-base "$EVENT_PR_BASE_SHA" --merge-group-base "$EVENT_MERGE_GROUP_BASE_SHA" --input-base "$TRUSTED_BASE_SHA" --default-branch "$DEFAULT_BRANCH" --mode > "$RUNNER_TEMP/gate-base.json"
           node -e 'const j=require(process.argv[1]); for (const [k,v] of Object.entries({GATE_MODE:j.mode,BASE_SHA:j.base,ROOT_SHA:j.root,CANDIDATE_SHA:process.env.GITHUB_SHA})) console.log(`${k}=${v}`)' "$RUNNER_TEMP/gate-base.json" >> "$GITHUB_ENV"
       - name: Materialize protected verifier
         run: |
@@ -186,7 +182,7 @@ jobs:
           echo "GATE_EPOCH=$GATE_EPOCH" >> "$GITHUB_ENV"
           echo "GATE_DIR=$GATE_DIR" >> "$GITHUB_ENV"
       - name: Run trusted signature guard
-        run: |
+        run: >
           if [ "$GATE_EPOCH" = "5" ] || [ "$GATE_EPOCH" = "6" ]; then
             node "$GATE_DIR/scripts/ci/release-gate-verifier.mjs" --repo-root . --trusted-ref "$BASE_SHA" --candidate-ref "$CANDIDATE_SHA" --signature
           elif [ "$GATE_MODE" = "ROOT_ADMISSION" ]; then
@@ -194,7 +190,6 @@ jobs:
           else
             node "$GATE_DIR/scripts/ci/gate-parity.mjs" --repo-root . --trusted-dir "$GATE_DIR" --trusted-ref "$BASE_SHA" --candidate-ref "$CANDIDATE_SHA" --signature
           fi
-
   trusted-gate-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -208,7 +203,7 @@ jobs:
           GATE_HEAD: ${{ github.event.pull_request.head.sha }}
           GATE_BASE_REF: ${{ github.event.pull_request.base.ref }}
           GATE_PR: ${{ github.event.pull_request.number }}
-        run: |
+        run: >
           node --input-type=module -e '
             const e = process.env;
             console.log("GATE_EXECUTION " + JSON.stringify({schemaVersion: 1,
@@ -217,14 +212,14 @@ jobs:
               head: e.GATE_HEAD, baseRef: e.GATE_BASE_REF, pullRequest: e.GATE_PR,
               runId: e.GITHUB_RUN_ID, attempt: e.GITHUB_RUN_ATTEMPT}));'
       - name: Checkout tested commit
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
       - name: Set up Node.js 24
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
-          node-version: '24'
+          node-version: "24"
       - name: Resolve protected predecessor
         env:
           EVENT_BEFORE: ${{ github.event.before }}
@@ -234,8 +229,6 @@ jobs:
           EVENT_MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           INPUT_TRUSTED_BASE_SHA: ${{ inputs.trusted_base_sha }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          INPUT_ROOT_ADMISSION: ${{ inputs.root_admission }}
-          INPUT_ROOT_CANDIDATE_SHA: ${{ inputs.root_candidate_sha }}
         run: |
           TRUSTED_BASE_SHA="$INPUT_TRUSTED_BASE_SHA"
           if [ -z "$TRUSTED_BASE_SHA" ] && [ "$INPUT_ROOT_ADMISSION" != "true" ]; then
@@ -249,7 +242,7 @@ jobs:
               fi
             fi
           fi
-          node scripts/ci/resolve-trusted-base.mjs --repo-root . --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --before "$EVENT_BEFORE" --ref "$GITHUB_REF" --pr-head "$EVENT_PR_HEAD_SHA" --pr-base "$EVENT_PR_BASE_SHA" --merge-group-base "$EVENT_MERGE_GROUP_BASE_SHA" --input-base "$TRUSTED_BASE_SHA" --default-branch "$DEFAULT_BRANCH" --root-admission "$INPUT_ROOT_ADMISSION" --root-candidate-sha "$INPUT_ROOT_CANDIDATE_SHA" --mode > "$RUNNER_TEMP/gate-base.json"
+          node scripts/ci/resolve-trusted-base.mjs --repo-root . --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --before "$EVENT_BEFORE" --ref "$GITHUB_REF" --pr-head "$EVENT_PR_HEAD_SHA" --pr-base "$EVENT_PR_BASE_SHA" --merge-group-base "$EVENT_MERGE_GROUP_BASE_SHA" --input-base "$TRUSTED_BASE_SHA" --default-branch "$DEFAULT_BRANCH" --mode > "$RUNNER_TEMP/gate-base.json"
           node -e 'const j=require(process.argv[1]); for (const [k,v] of Object.entries({GATE_MODE:j.mode,BASE_SHA:j.base,ROOT_SHA:j.root,CANDIDATE_SHA:process.env.GITHUB_SHA})) console.log(`${k}=${v}`)' "$RUNNER_TEMP/gate-base.json" >> "$GITHUB_ENV"
       - name: Materialize protected verifier
         run: |
@@ -277,14 +270,17 @@ jobs:
           echo "GATE_EPOCH=$GATE_EPOCH" >> "$GITHUB_ENV"
           echo "GATE_DIR=$GATE_DIR" >> "$GITHUB_ENV"
       - name: Install protected parser
-        run: |
+        run: >
           for rel in package.json package-lock.json; do
             git show "$BASE_SHA:$rel" > "$GATE_DIR/$rel"
           done
+
           (cd "$GATE_DIR" && npm ci --ignore-scripts --no-audit --no-fund)
-          echo "TRUSTED_GATE_PACKAGE_JSON=$GATE_DIR/package.json" >> "$GITHUB_ENV"
+
+          echo "TRUSTED_GATE_PACKAGE_JSON=$GATE_DIR/package.json" >>
+          "$GITHUB_ENV"
       - name: Verify trusted release contract
-        run: |
+        run: >
           if [ "$GATE_EPOCH" = "5" ] || [ "$GATE_EPOCH" = "6" ]; then
             node "$GATE_DIR/scripts/ci/release-gate-verifier.mjs" --repo-root . --trusted-ref "$BASE_SHA" --candidate-ref "$CANDIDATE_SHA"
           elif [ "$GATE_MODE" = "ROOT_ADMISSION" ]; then
@@ -292,20 +288,19 @@ jobs:
           else
             node "$GATE_DIR/scripts/ci/gate-parity.mjs" --repo-root . --trusted-dir "$GATE_DIR" --trusted-ref "$BASE_SHA" --candidate-ref "$CANDIDATE_SHA"
           fi
-
   i18n-check:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - name: Checkout tested commit
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
       - name: Set up Node.js 24
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
-          node-version: '24'
+          node-version: "24"
           cache: npm
       - name: Install dependencies
         run: npm ci
@@ -314,19 +309,17 @@ jobs:
       - name: Run i18n checks
         run: npm run i18n:check
       - name: Verify generated static resources
-        run: npm run i18n:generate-static && git diff --exit-code -- pixivdownload-app/src/main/resources/static/i18n-static
-
+        run: npm run i18n:generate-static && git diff --exit-code --
+          pixivdownload-app/src/main/resources/static/i18n-static
   check-shared-snippets:
     runs-on: ubuntu-latest
     steps:
       - name: Fix Git UTF-8 filenames
         run: git config --global core.quotepath false
-
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
-
       - name: Verify .user.js shared snippets are in sync
         shell: pwsh
         run: ./scripts/sync-shared-snippets.ps1 -Check

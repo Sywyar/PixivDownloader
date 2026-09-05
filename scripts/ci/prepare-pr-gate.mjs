@@ -23,7 +23,7 @@ export function prepare(repo) {
     delete publisher.jobs['protected-base'];
     delete publisher.jobs['quality-gate'];
     delete publisher.jobs.checks.needs;
-    publisher.jobs.checks.if = "github.event_name == 'push' || github.event.workflow_run.event == 'pull_request' || (github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'master')";
+    publisher.jobs.checks.if = "github.event_name == 'push' || github.event.workflow_run.event == 'pull_request' || (github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'master' && github.event.action == 'completed')";
     quality.on = { workflow_dispatch: { inputs: {
         trusted_base_sha: { description: 'Protected predecessor commit (optional)', required: false, type: 'string' },
     } }, workflow_call: { inputs: { trusted_base_sha: { required: false, type: 'string' } } } };

@@ -7,13 +7,11 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 
-const EPOCH = 5;
-const ROOT_TAG = 'refs/tags/release-gate-epoch-5-root';
+const EPOCH = 6;
+const ROOT_TAG = 'refs/tags/release-gate-epoch-6-root';
 const POLICY = 'scripts/ci/release-gate-policy.json';
 const REF_KEY = 'pixiv.release.trustedGateRef';
 const EPOCH_KEY = 'pixiv.release.trustedGateEpoch';
-const OLD_REF_KEY = 'pixiv.i18n.trustedGateRef';
-const OLD_EPOCH_KEY = 'pixiv.i18n.trustedGateEpoch';
 const SHA = /^[0-9a-f]{40}$/;
 
 function fail(message) {
@@ -47,14 +45,23 @@ function clean(root) {
     if (git(root, ['status', '--porcelain'])) fail('trust commands require a clean worktree');
 }
 
-function materialize(root, ref, files) {
+function materialize(root, ref, files, admission = false) {
     const out = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv-release-gate-core-'));
     try {
-        for (const rel of files) {
+        for (const rel of [...files, 'package.json', 'package-lock.json']) {
             const target = path.join(out, ...rel.split('/'));
             fs.mkdirSync(path.dirname(target), { recursive: true });
-            fs.writeFileSync(target, git(root, ['show', `${ref}:${rel}`], { encoding: null }));
+            const source = admission && files.includes(rel)
+                ? `scripts/ci/gate-admission/${path.posix.basename(rel)}` : rel;
+            fs.writeFileSync(target, git(root, ['show', `${ref}:${source}`], { encoding: null }));
         }
+        const install = spawnSync(process.platform === 'win32'
+            ? 'npm.cmd ci --offline --ignore-scripts --no-audit --no-fund' : 'npm',
+            process.platform === 'win32' ? [] : ['ci', '--offline', '--ignore-scripts', '--no-audit', '--no-fund'], {
+                cwd: out, shell: process.platform === 'win32', windowsHide: true,
+                stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8',
+            });
+        if (install.status !== 0) fail('protected parser is not available in the local npm cache; install the protected base dependencies first');
         return out;
     } catch (error) {
         fs.rmSync(out, { recursive: true, force: true });
@@ -71,8 +78,20 @@ function run(root, script, args) {
 }
 
 function setAnchor(root, sha) {
-    git(root, ['config', '--local', EPOCH_KEY, String(EPOCH)]);
-    git(root, ['config', '--local', REF_KEY, sha]);
+    const common = git(root, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+    const configFile = path.join(common, 'config');
+    const lock = `${configFile}.lock`;
+    const fd = fs.openSync(lock, 'wx');
+    try {
+        try { fs.writeFileSync(fd, fs.readFileSync(configFile)); } finally { fs.closeSync(fd); }
+        git(root, ['config', '--file', lock, EPOCH_KEY, String(EPOCH)]);
+        git(root, ['config', '--file', lock, REF_KEY, sha]);
+        if (git(root, ['config', '--file', lock, '--get', EPOCH_KEY]) !== String(EPOCH)
+            || git(root, ['config', '--file', lock, '--get', REF_KEY]) !== sha) fail('invalid proposed anchor');
+        fs.renameSync(lock, configFile);
+    } finally {
+        if (fs.existsSync(lock)) fs.unlinkSync(lock);
+    }
     if (config(root, EPOCH_KEY) !== String(EPOCH) || config(root, REF_KEY) !== sha) {
         fail('trusted anchor verification failed');
     }
@@ -82,38 +101,28 @@ function adopt(root, ref) {
     if (process.env.CI === 'true') fail('root adoption is forbidden in CI');
     clean(root);
     const candidate = commit(root, ref);
-    const source = commit(root, config(root, OLD_REF_KEY));
+    const source = commit(root, config(root, REF_KEY));
     const master = commit(root, 'refs/remotes/origin/master');
     const rootTag = commit(root, ROOT_TAG);
-    if (config(root, OLD_EPOCH_KEY) !== '4' || !candidate || !source
-        || candidate !== master || candidate !== commit(root, 'HEAD') || candidate !== rootTag) {
-        fail('adoption requires the Epoch 4 anchor, protected master tip, HEAD and Epoch 5 root tag');
+    if (config(root, EPOCH_KEY) !== '5' || !candidate || !source || !rootTag
+        || git(root, ['symbolic-ref', '--quiet', 'HEAD']) !== 'refs/heads/master'
+        || candidate !== master || candidate !== commit(root, 'HEAD')) {
+        fail('adoption requires the Epoch 5 anchor, protected master tip, HEAD and Epoch 6 root');
     }
     const parents = git(root, ['rev-list', '--parents', '-n', '1', candidate]).split(/\s+/u).slice(1);
-    if (parents.length !== 2 || parents[0] !== source || !ancestor(root, source, parents[1])) {
-        fail('Epoch 5 root must be a two-parent Merge commit from the Epoch 4 anchor');
+    if (parents.length !== 2 || parents[0] !== source || parents[1] !== rootTag) {
+        fail('Epoch 6 adoption requires the exact root merge from the Epoch 5 anchor');
     }
-    const oldPolicy = JSON.parse(git(root, ['show', `${source}:scripts/i18n/gate-policy.json`]));
-    const oldCore = materialize(root, source, oldPolicy.minimumTrustedVerifier.requiredFiles);
+    const files = JSON.parse(git(root, ['show', `${source}:${POLICY}`])).protectedCore;
+    const oldCore = materialize(root, source, files, true);
     try {
-        run(root, path.join(oldCore, 'scripts', 'ci', 'gate-parity.mjs'),
-            ['--trusted-dir', oldCore, '--trusted-ref', source, '--candidate-ref', candidate]);
-        run(root, path.join(oldCore, 'scripts', 'ci', 'gate-parity.mjs'),
-            ['--trusted-dir', oldCore, '--trusted-ref', source, '--candidate-ref', candidate,
-                '--signature']);
+        run(root, path.join(oldCore, 'scripts', 'ci', 'release-gate-verifier.mjs'),
+            ['--trusted-ref', source, '--candidate-ref', candidate]);
     } finally {
         fs.rmSync(oldCore, { recursive: true, force: true });
     }
-    const policy = JSON.parse(git(root, ['show', `${candidate}:${POLICY}`]));
-    const newCore = materialize(root, candidate, policy.protectedCore);
-    try {
-        run(root, path.join(newCore, 'scripts', 'ci', 'release-gate-verifier.mjs'),
-            ['--candidate-ref', candidate, '--invariants']);
-    } finally {
-        fs.rmSync(newCore, { recursive: true, force: true });
-    }
     setAnchor(root, candidate);
-    console.log(`release-gate-trust: Epoch 5 root adopted at ${candidate}`);
+    console.log(`release-gate-trust: Epoch 6 root adopted at ${candidate}`);
 }
 
 function advance(root, ref) {
@@ -124,7 +133,9 @@ function advance(root, ref) {
     const master = commit(root, 'refs/remotes/origin/master');
     const rootSha = commit(root, ROOT_TAG);
     if (config(root, EPOCH_KEY) !== String(EPOCH) || !current || !candidate || !rootSha
-        || candidate !== master || candidate === current || !ancestor(root, rootSha, current)
+        || candidate !== master || candidate !== commit(root, 'HEAD')
+        || git(root, ['symbolic-ref', '--quiet', 'HEAD']) !== 'refs/heads/master'
+        || candidate === current || !ancestor(root, rootSha, current)
         || !ancestor(root, current, candidate)) {
         fail('advance requires root <= current anchor < protected master tip');
     }
@@ -151,7 +162,7 @@ function main() {
     if (args[0] === '--show') show(root);
     else if (args[0] === '--adopt-root' && args[1] === '--ref' && args[2]) adopt(root, args[2]);
     else if (args[0] === '--advance' && args[1] === '--ref' && args[2]) advance(root, args[2]);
-    else if (args[0] === '--version') console.log('release-gate-trust 5');
+    else if (args[0] === '--version') console.log('release-gate-trust 6');
     else fail('usage: release-gate-trust.mjs --show | --adopt-root --ref <commit> | --advance --ref <commit>');
 }
 
