@@ -87,14 +87,30 @@ export async function inspectRun({ repo, runId, api = github, core }) {
         status: 'completed', conclusion: 'success' };
 }
 
-function verifyAttempts(run, jobs, api, proofJob, proofAttempt) {
-    // 失败 job 重跑会保留已成功的 job，须逐项证明其实际执行来源。
-    const remaining = new Set(jobs.map((job) => job.id));
-    for (let attempt = run.run_attempt; attempt > 0 && remaining.size; attempt -= 1) {
+export function verifyAttempts(run, jobs, api, proofJob, proofAttempt) {
+    // GitHub 会给复用的 job 分配新 ID；用原生执行时间与步骤记录追溯实际来源。
+    const execution = (job) => {
+        if (!Number.isFinite(Date.parse(job.started_at)) || !Number.isFinite(Date.parse(job.completed_at))
+            || !Array.isArray(job.steps) || !job.steps.length) fail('missing job execution metadata');
+        return JSON.stringify([job.name, job.run_id, job.head_sha, job.status, job.conclusion,
+            job.started_at, job.completed_at, job.steps.map((step) => [step.number, step.name,
+                step.status, step.conclusion, step.started_at, step.completed_at])]);
+    };
+    const executions = new Map(jobs.map((job) => [job.id, execution(job)]));
+    const origins = new Map();
+    for (let attempt = run.run_attempt; attempt > 0 && origins.size < jobs.length; attempt -= 1) {
         const current = api(`${PREFIX}/actions/runs/${run.id}/attempts/${attempt}`);
+        const started = Date.parse(current.run_started_at);
+        if (!Number.isFinite(started)) fail('missing attempt start time');
         const entries = completePages(api(`${PREFIX}/actions/runs/${run.id}/attempts/${attempt}/jobs?per_page=100`,
             { pages: true }), 'jobs');
-        const retained = entries.filter((job) => remaining.has(job.id));
+        const retained = jobs.filter((job) => {
+            if (origins.has(job.id) || Date.parse(job.started_at) < started) return false;
+            const matches = entries.filter((entry) => entry.name === job.name && entry.status === 'completed'
+                && entry.conclusion === 'success' && execution(entry) === executions.get(job.id));
+            if (matches.length > 1) fail('ambiguous retained job execution');
+            return matches.length === 1;
+        });
         if (!retained.length) continue;
         const sources = (value) => (value.referenced_workflows || []).map(({ path, sha, ref }) => ({ path, sha, ref }));
         if (current.head_sha !== run.head_sha || current.id !== run.id || current.run_attempt !== attempt
@@ -102,19 +118,12 @@ function verifyAttempts(run, jobs, api, proofJob, proofAttempt) {
             || JSON.stringify(sources(current)) !== JSON.stringify(sources(run))) {
             fail('retained jobs used a different workflow source');
         }
-        for (const job of retained) {
-            const effective = jobs.find((item) => item.id === job.id);
-            if (job.name !== effective.name || job.conclusion !== 'success'
-                || job.status !== 'completed' || job.head_sha !== run.head_sha || job.run_id !== run.id) {
-                fail('retained job results do not agree with the effective run');
-            }
-            if (job.id === proofJob && proofAttempt !== attempt) {
-                fail('execution record belongs to a different job attempt');
-            }
-            remaining.delete(job.id);
-        }
+        for (const job of retained) origins.set(job.id, attempt);
     }
-    if (remaining.size) fail('cannot identify the execution attempt of every effective job');
+    if (origins.size !== jobs.length) fail('cannot identify the execution attempt of every effective job');
+    if (proofJob !== undefined && origins.get(proofJob) !== proofAttempt) {
+        fail('execution record belongs to a different job attempt');
+    }
     const latest = api(`${PREFIX}/actions/runs/${run.id}`);
     if (latest.run_attempt !== run.run_attempt || latest.status !== 'completed' || latest.conclusion !== 'success') {
         fail('workflow changed while its evidence was being verified');

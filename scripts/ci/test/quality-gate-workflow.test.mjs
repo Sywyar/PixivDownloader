@@ -37,6 +37,12 @@ test('PR concurrency cancels only earlier validation of the same PR and workflow
         const first = { event: { pull_request: { number: 1 } } };
         const second = { event: { pull_request: { number: 2 } } };
         assert.notEqual(evaluate(caller.concurrency.group, first), evaluate(caller.concurrency.group, second));
+        const textEdit = { event: { ...first.event, action: 'edited', changes: {} } };
+        const baseEdit = { event: { ...textEdit.event, changes: { base: {} } } };
+        assert.notEqual(evaluate(caller.concurrency.group, first), evaluate(caller.concurrency.group, textEdit));
+        assert.equal(evaluate(caller.concurrency.group, first), evaluate(caller.concurrency.group, baseEdit));
+        assert.equal(evaluate(caller.concurrency.group, first), evaluate(caller.concurrency.group,
+            { event: { ...first.event, action: 'synchronize' } }));
         assert.equal(load('.github/workflows/quality-gate.yml').concurrency, undefined);
         return;
     }
@@ -54,6 +60,19 @@ test('PR concurrency cancels only earlier validation of the same PR and workflow
             assert.equal(evaluate(concurrency['cancel-in-progress'], other), 'false');
         }
     }
+});
+
+test('check publication queues each upstream run independently, including text-only edits of the same head', () => {
+    const { concurrency } = load('.github/workflows/gate-checks.yml');
+    const group = (github) => concurrency.group.replace(/\$\{\{(.*?)\}\}/g,
+        (_, expression) => String(vm.runInNewContext(expression, { github })));
+    const upstream = { event: { workflow_run: { id: 10, head_sha: 'same-head' } }, sha: 'protected-base' };
+    assert.equal(concurrency['cancel-in-progress'], false);
+    assert.equal(group(upstream), group({ ...upstream, event: { workflow_run: { ...upstream.event.workflow_run, run_attempt: 2 } } }));
+    assert.notEqual(group(upstream), group({ ...upstream, event: { workflow_run: { id: 11, head_sha: 'same-head' } } }));
+    const master = { event: { workflow_run: {} }, sha: 'integrated-commit' };
+    assert.notEqual(group(upstream), group(master));
+    assert.notEqual(group(master), group({ ...master, sha: 'next-integrated-commit' }));
 });
 
 test('Quality Gate preserves required roles and the active event contract', () => {

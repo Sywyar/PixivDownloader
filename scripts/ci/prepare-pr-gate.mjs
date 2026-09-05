@@ -43,7 +43,7 @@ export function prepare(repo) {
         name: 'Pull Request Quality Gate',
         on: { pull_request: { branches: ['master'], types: ['opened', 'reopened', 'synchronize', 'edited'] } },
         permissions: { contents: 'read' },
-        concurrency: { group: 'pr-quality-${{ github.event.pull_request.number }}', 'cancel-in-progress': true },
+        concurrency: { group: "pr-quality-${{ github.event.pull_request.number }}-${{ github.event.action == 'edited' && github.event.changes.base == null }}", 'cancel-in-progress': true },
         jobs: { 'quality-gate': {
             if: "github.event.action != 'edited' || github.event.changes.base != null",
             uses: 'Sywyar/PixivDownloader/.github/workflows/quality-gate.yml@master',

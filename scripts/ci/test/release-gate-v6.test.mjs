@@ -30,7 +30,7 @@ function fixture() {
             if: "github.event.action != 'edited' || github.event.changes.base != null",
             uses: 'Sywyar/PixivDownloader/.github/workflows/quality-gate.yml@master',
         } } };
-    const run = { id: 123, run_attempt: 2, head_sha: H, name: caller.name,
+    const run = { id: 123, run_attempt: 2, run_started_at: '2026-09-05T08:02:00Z', head_sha: H, name: caller.name,
         repository: { id: 1089943605, full_name: 'Sywyar/PixivDownloader' },
         event: 'pull_request', path: '.github/workflows/pr-quality-gate.yml',
         status: 'completed', conclusion: 'success', referenced_workflows: [{
@@ -41,7 +41,10 @@ function fixture() {
         pullRequest: '42', runId: '123', attempt: '1' };
     const merge = { sha: M, tree: { sha: T }, parents: [{ sha: B }, { sha: H }] };
     const jobs = roles.map((name, i) => ({ id: 20 + i, name: `quality-gate / ${name}`,
-        run_id: 123, head_sha: H, status: 'completed', conclusion: 'success' }));
+        run_id: 123, head_sha: H, status: 'completed', conclusion: 'success',
+        started_at: '2026-09-05T08:00:10Z', completed_at: '2026-09-05T08:01:00Z',
+        steps: [{ number: 1, name: 'Execute check', status: 'completed', conclusion: 'success',
+            started_at: '2026-09-05T08:00:10Z', completed_at: '2026-09-05T08:01:00Z' }] }));
     return { run, proof, merge, jobs, caller, protectedBase: B };
 }
 
@@ -240,16 +243,19 @@ test('protected predecessor admits only its approved core and exact root merge; 
         f.run.referenced_workflows[0].sha = base;
         f.proof = { ...f.proof, base, head: root, merge };
         f.jobs.forEach((job) => { job.head_sha = root; });
-        f.jobs[0].id = 90;
+        const originalJobs = structuredClone(f.jobs);
+        f.jobs.forEach((job) => { job.id += 100; job.run_attempt = 2; });
+        Object.assign(f.jobs[0], { started_at: '2026-09-05T08:02:10Z', completed_at: '2026-09-05T08:03:00Z' });
+        Object.assign(f.jobs[0].steps[0], { started_at: f.jobs[0].started_at, completed_at: f.jobs[0].completed_at });
+        const contractId = f.jobs.find((job) => job.name === 'quality-gate / trusted-gate-contract').id;
         const api = (endpoint, options = {}) => {
             if (endpoint.endsWith('/actions/runs/123')) return f.run;
-            if (endpoint.includes('/actions/jobs/23/logs')) return `GATE_EXECUTION ${JSON.stringify(f.proof)}`;
+            if (endpoint.includes(`/actions/jobs/${contractId}/logs`)) return `GATE_EXECUTION ${JSON.stringify(f.proof)}`;
             if (endpoint.endsWith(`/git/commits/${merge}`)) return { sha: merge, tree: { sha: tree }, parents: [{ sha: base }, { sha: root }] };
             if (endpoint.endsWith('/attempts/2')) return f.run;
-            if (endpoint.endsWith('/attempts/1')) return { ...f.run, run_attempt: 1 };
-            if (options.pages && endpoint.includes('/attempts/2/jobs')) return [{ total_count: 1, jobs: [f.jobs[0]] }];
-            if (options.pages && endpoint.includes('/attempts/1/jobs')) return [{ total_count: 6,
-                jobs: [{ ...f.jobs[0], id: 20 }, ...f.jobs.slice(1)] }];
+            if (endpoint.endsWith('/attempts/1')) return { ...f.run, run_attempt: 1, run_started_at: '2026-09-05T08:00:00Z' };
+            if (options.pages && endpoint.includes('/attempts/2/jobs')) return [{ total_count: 6, jobs: f.jobs }];
+            if (options.pages && endpoint.includes('/attempts/1/jobs')) return [{ total_count: 6, jobs: originalJobs }];
             if (options.pages && endpoint.includes('/jobs?filter=latest')) return [{ total_count: 6, jobs: f.jobs }];
             throw new Error(`unexpected test API request: ${endpoint}`);
         };
@@ -260,6 +266,12 @@ test('protected predecessor admits only its approved core and exact root merge; 
             const response = api(endpoint, options);
             return endpoint.endsWith('/attempts/1') ? { ...response, referenced_workflows: [] } : response;
         } }), /different workflow source/u);
+        await assert.rejects(inspectRun({ repo, runId: 123, core, api: (endpoint, options) => {
+            if (endpoint.includes(`/actions/jobs/${contractId}/logs`)) {
+                return `GATE_EXECUTION ${JSON.stringify({ ...f.proof, attempt: '2' })}`;
+            }
+            return api(endpoint, options);
+        } }), /different job attempt/u);
         git(['branch', '-M', 'master']);
         git(['update-ref', 'refs/heads/master', merge]);
         git(['read-tree', merge]);
@@ -279,14 +291,15 @@ test('protected predecessor admits only its approved core and exact root merge; 
         const full = { ...f.run, event: 'workflow_dispatch', head_branch: 'master', head_sha: merge,
             path: '.github/workflows/quality-gate.yml', name: 'Quality Gate', referenced_workflows: [] };
         const fullJobs = f.jobs.map((job) => ({ ...job, name: job.name.replace('quality-gate / ', ''), head_sha: merge }));
+        const originalFullJobs = originalJobs.map((job) => ({ ...job, name: job.name.replace('quality-gate / ', ''), head_sha: merge }));
         const fullApi = (endpoint, options = {}) => {
             if (endpoint.includes('/workflows/pr-quality-gate.yml/runs')) return [{ total_count: 0, workflow_runs: [] }];
             if (endpoint.includes('/workflows/quality-gate.yml/runs')) return [{ total_count: 1, workflow_runs: [full] }];
             if (endpoint.endsWith('/actions/runs/123') || endpoint.endsWith('/attempts/2')) return full;
-            if (endpoint.endsWith('/attempts/1')) return { ...full, run_attempt: 1 };
+            if (endpoint.endsWith('/attempts/1')) return { ...full, run_attempt: 1, run_started_at: '2026-09-05T08:00:00Z' };
             if (endpoint.endsWith(`/git/commits/${merge}`)) return { sha: merge, tree: { sha: tree }, parents: [{ sha: base }, { sha: root }] };
-            if (options.pages && endpoint.includes('/attempts/2/jobs')) return [{ total_count: 1, jobs: [fullJobs[0]] }];
-            if (options.pages && endpoint.includes('/attempts/1/jobs')) return [{ total_count: 5, jobs: fullJobs.slice(1) }];
+            if (options.pages && endpoint.includes('/attempts/2/jobs')) return [{ total_count: 6, jobs: fullJobs }];
+            if (options.pages && endpoint.includes('/attempts/1/jobs')) return [{ total_count: 6, jobs: originalFullJobs }];
             if (options.pages && endpoint.includes('/jobs?filter=latest')) return [{ total_count: 6, jobs: fullJobs }];
             throw new Error(`unexpected full-gate API request: ${endpoint}`);
         };
