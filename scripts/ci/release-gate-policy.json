@@ -170,6 +170,11 @@
         "allowDeletion": false,
         "allowNonFastForward": false,
         "allowBypass": false
+      },
+      "refs/tags/release-gate-epoch-7-root": {
+        "allowDeletion": false,
+        "allowNonFastForward": false,
+        "allowBypass": false
       }
     }
   }

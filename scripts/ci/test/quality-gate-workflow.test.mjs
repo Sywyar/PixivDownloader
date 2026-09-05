@@ -72,7 +72,7 @@ test('Action 引用按 YAML step 校验完整 SHA 与版本注释，reusable 调
 test('PR concurrency cancels only earlier validation of the same PR and workflow', () => {
     const evaluate = (text, github) => text.replace(/\$\{\{(.*?)\}\}/g,
         (_, expression) => String(vm.runInNewContext(expression, { github })));
-    if (POLICY.gateEpoch === 7) {
+    if (POLICY.gateEpoch === 8) {
         const caller = load('.github/workflows/pr-quality-gate.yml');
         assert.deepEqual(triggers(caller), ['pull_request']);
         assert.equal(caller.concurrency['cancel-in-progress'], true);
@@ -222,7 +222,7 @@ test('发布链：所有凭据与写权限只在 release Environment 的门禁�
     assert.deepEqual(publish.permissions, { contents: 'read' });
     assert.deepEqual(release.permissions, { contents: 'read' });
     assert.deepEqual(nightly.permissions, { contents: 'read' });
-    const sharedProvider = load(POLICY.gateEpoch === 7
+    const sharedProvider = load(POLICY.gateEpoch === 8
         ? '.github/workflows/quality-gate.yml' : '.github/workflows/shared-snippets-check.yml');
     assert.deepEqual(sharedProvider.permissions, { contents: 'read' });
     assert.equal(release.jobs['publish-plugins'].uses, './.github/workflows/publish-plugins.yml');

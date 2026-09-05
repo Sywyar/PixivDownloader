@@ -33,6 +33,7 @@ function git(repo, args) {
 export function github(endpoint, { pages = false, raw = false, method = 'GET', body, token } = {}) {
     const args = ['api', '--method', method, endpoint];
     if (pages) args.push('--paginate', '--slurp');
+    if (raw) args.push('--allow-escape-sequences');
     if (body) args.push('--input', '-');
     const result = execFileSync('gh', args, {
         encoding: 'utf8', windowsHide: true, timeout: 60_000, maxBuffer: MAX_RESPONSE,

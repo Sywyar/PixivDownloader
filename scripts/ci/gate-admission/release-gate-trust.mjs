@@ -7,8 +7,8 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 
-const EPOCH = 7;
-const ROOT_TAG = 'refs/tags/release-gate-epoch-7-root';
+const EPOCH = 8;
+const ROOT_TAG = 'refs/tags/release-gate-epoch-8-root';
 const POLICY = 'scripts/ci/release-gate-policy.json';
 const REF_KEY = 'pixiv.release.trustedGateRef';
 const EPOCH_KEY = 'pixiv.release.trustedGateEpoch';
@@ -107,11 +107,11 @@ function adopt(root, ref) {
     if (config(root, EPOCH_KEY) !== '5' || !candidate || !source || !rootTag
         || git(root, ['symbolic-ref', '--quiet', 'HEAD']) !== 'refs/heads/master'
         || candidate !== master || candidate !== commit(root, 'HEAD')) {
-        fail('adoption requires the Epoch 5 anchor, protected master tip, HEAD and Epoch 7 root');
+        fail('adoption requires the Epoch 5 anchor, protected master tip, HEAD and Epoch 8 root');
     }
     const parents = git(root, ['rev-list', '--parents', '-n', '1', candidate]).split(/\s+/u).slice(1);
     if (parents.length !== 2 || parents[0] !== source || parents[1] !== rootTag) {
-        fail('Epoch 7 adoption requires the exact root merge from the Epoch 5 anchor');
+        fail('Epoch 8 adoption requires the exact root merge from the Epoch 5 anchor');
     }
     const files = JSON.parse(git(root, ['show', `${source}:${POLICY}`])).protectedCore;
     const oldCore = materialize(root, source, files, true);
@@ -122,7 +122,7 @@ function adopt(root, ref) {
         fs.rmSync(oldCore, { recursive: true, force: true });
     }
     setAnchor(root, candidate);
-    console.log(`release-gate-trust: Epoch 7 root adopted at ${candidate}`);
+    console.log(`release-gate-trust: Epoch 8 root adopted at ${candidate}`);
 }
 
 function advance(root, ref) {
@@ -162,7 +162,7 @@ function main() {
     if (args[0] === '--show') show(root);
     else if (args[0] === '--adopt-root' && args[1] === '--ref' && args[2]) adopt(root, args[2]);
     else if (args[0] === '--advance' && args[1] === '--ref' && args[2]) advance(root, args[2]);
-    else if (args[0] === '--version') console.log('release-gate-trust 7');
+    else if (args[0] === '--version') console.log('release-gate-trust 8');
     else fail('usage: release-gate-trust.mjs --show | --adopt-root --ref <commit> | --advance --ref <commit>');
 }
 
