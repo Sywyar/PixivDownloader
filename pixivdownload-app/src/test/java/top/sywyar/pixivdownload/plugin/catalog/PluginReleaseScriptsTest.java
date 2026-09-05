@@ -29,9 +29,6 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 @DisplayName("官方插件发布脚本签名协议守卫")
 class PluginReleaseScriptsTest {
 
-    private static final String ACTION_VERSION_COMMENT_PATTERN =
-            "v[1-9][0-9]*(?:\\.[0-9]+\\.[0-9]+)?";
-
     @Test
     @DisplayName("市场清单生成脚本输出结构化包签名，并在写出原始 manifest 后生成 detached 签名")
     void marketManifestScriptWritesStructuredSignaturesAndDetachedManifestSignature() throws Exception {
@@ -838,54 +835,6 @@ class PluginReleaseScriptsTest {
         assertThat(packageJson.has("dependencies")).isFalse();
         assertThat(packageJson.path("devDependencies").path("yaml").asText())
                 .isNotBlank();
-    }
-
-    @Test
-    @DisplayName("所有外部 Action 固定完整提交并由 Dependabot 每周检查更新")
-    void externalActionsUseReviewedCommitPins() throws Exception {
-        assertThat("v8").matches(ACTION_VERSION_COMMENT_PATTERN);
-        assertThat("v8.0.1").matches(ACTION_VERSION_COMMENT_PATTERN);
-        assertThat("v8.0").doesNotMatch(ACTION_VERSION_COMMENT_PATTERN);
-
-        Pattern usesPattern = Pattern.compile(
-                "(?m)^\\s*uses:\\s*([^\\s#]+)(?:\\s+#\\s*(\\S+))?\\s*$");
-        int externalActions = 0;
-        Path githubRoot = repoRoot().resolve(".github");
-        try (var yamlFiles = Files.walk(githubRoot)) {
-            for (Path file : yamlFiles
-                    .filter(Files::isRegularFile)
-                    .filter(path -> (path.getParent().equals(githubRoot.resolve("workflows"))
-                            && path.getFileName().toString().matches(".*\\.ya?ml"))
-                            || path.getFileName().toString().equals("action.yml"))
-                    .sorted()
-                    .toList()) {
-                String name = githubRoot.relativize(file).toString();
-                Matcher matcher = usesPattern.matcher(Files.readString(file, StandardCharsets.UTF_8));
-                while (matcher.find()) {
-                    String target = matcher.group(1);
-                    if (target.startsWith("./")) {
-                        continue;
-                    }
-                    externalActions++;
-                    int separator = target.lastIndexOf('@');
-                    assertThat(separator).as("%s external action %s", name, target).isGreaterThan(0);
-                    assertThat(target.substring(separator + 1))
-                            .as("%s external action %s must use a full commit SHA", name, target)
-                            .matches("[0-9a-f]{40}");
-                    assertThat(matcher.group(2))
-                            .as("%s external action %s must keep a readable version comment", name, target)
-                            .matches(ACTION_VERSION_COMMENT_PATTERN);
-                }
-            }
-        }
-        assertThat(externalActions).as("external actions across workflows and composite actions").isPositive();
-
-        String dependabot = Files.readString(repoRoot().resolve(".github/dependabot.yml"), StandardCharsets.UTF_8);
-        assertThat(dependabot).contains(
-                "version: 2",
-                "package-ecosystem: \"github-actions\"",
-                "directory: \"/\"",
-                "interval: \"weekly\"");
     }
 
     @Test

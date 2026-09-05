@@ -14,28 +14,30 @@ export function prepare(repo) {
     const sources = policy.protectedCore.map((rel) => ({ rel,
         bytes: fs.readFileSync(path.join(repo, 'scripts/ci/gate-admission', path.basename(rel))) }));
     const qualityFile = path.join(repo, '.github/workflows/quality-gate.yml');
-    const quality = YAML.parse(fs.readFileSync(qualityFile, 'utf8'));
+    const quality = YAML.parseDocument(fs.readFileSync(qualityFile, 'utf8'));
     const publisherFile = path.join(repo, '.github/workflows/gate-checks.yml');
-    const publisher = YAML.parse(fs.readFileSync(publisherFile, 'utf8'));
-    publisher.on.workflow_run.types = ['in_progress', 'completed'];
-    publisher.on.workflow_run.workflows = ['Pull Request Quality Gate', 'Quality Gate'];
-    publisher.on.push = { branches: ['master'] };
-    delete publisher.jobs['protected-base'];
-    delete publisher.jobs['quality-gate'];
-    delete publisher.jobs.checks.needs;
-    publisher.jobs.checks.if = "github.event_name == 'push' || github.event.workflow_run.event == 'pull_request' || (github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'master' && github.event.action == 'completed')";
-    quality.on = { workflow_dispatch: { inputs: {
+    const publisher = YAML.parseDocument(fs.readFileSync(publisherFile, 'utf8'));
+    if (quality.errors.length || publisher.errors.length) throw new Error('invalid workflow YAML');
+    publisher.setIn(['on', 'workflow_run', 'types'], ['in_progress', 'completed']);
+    publisher.setIn(['on', 'workflow_run', 'workflows'], ['Pull Request Quality Gate', 'Quality Gate']);
+    publisher.setIn(['on', 'push'], { branches: ['master'] });
+    publisher.deleteIn(['jobs', 'protected-base']);
+    publisher.deleteIn(['jobs', 'quality-gate']);
+    publisher.deleteIn(['jobs', 'checks', 'needs']);
+    publisher.setIn(['jobs', 'checks', 'if'], "github.event_name == 'push' || github.event.workflow_run.event == 'pull_request' || (github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'master' && github.event.action == 'completed')");
+    quality.set('on', { workflow_dispatch: { inputs: {
         trusted_base_sha: { description: 'Protected predecessor commit (optional)', required: false, type: 'string' },
-    } }, workflow_call: { inputs: { trusted_base_sha: { required: false, type: 'string' } } } };
+    } }, workflow_call: { inputs: { trusted_base_sha: { required: false, type: 'string' } } } });
     // 可复用调用共享调用者的 github.workflow；仅由 PR 入口取消旧运行，避免取消自身。
-    delete quality.concurrency;
-    for (const job of Object.values(quality.jobs)) {
-        for (const step of job.steps || []) {
-            if (step.env) {
-                delete step.env.INPUT_ROOT_ADMISSION;
-                delete step.env.INPUT_ROOT_CANDIDATE_SHA;
+    quality.delete('concurrency');
+    for (const { value: job } of quality.get('jobs').items) {
+        for (const step of job.get('steps')?.items || []) {
+            if (step.has('env')) {
+                step.deleteIn(['env', 'INPUT_ROOT_ADMISSION']);
+                step.deleteIn(['env', 'INPUT_ROOT_CANDIDATE_SHA']);
             }
-            if (step.run) step.run = step.run.replace(
+            const run = step.get('run', true);
+            if (run) run.value = run.value.replace(
                 ' --root-admission "$INPUT_ROOT_ADMISSION" --root-candidate-sha "$INPUT_ROOT_CANDIDATE_SHA"', '');
         }
     }
@@ -49,9 +51,9 @@ export function prepare(repo) {
             uses: 'Sywyar/PixivDownloader/.github/workflows/quality-gate.yml@master',
         } },
     };
-    policy.gateEpoch = 6;
-    policy.contractVersion = 7;
-    policy.rootTag = 'refs/tags/release-gate-epoch-6-root';
+    policy.gateEpoch = 7;
+    policy.contractVersion = 8;
+    policy.rootTag = 'refs/tags/release-gate-epoch-7-root';
     policy.qualityGate.requiredJobs = [...policy.ruleset.requiredChecks];
     policy.qualityGate.requiredTriggers = ['workflow_call', 'workflow_dispatch'];
     delete policy.qualityGate.allowedPushExclusions;
@@ -60,8 +62,8 @@ export function prepare(repo) {
     policy.ruleset.roots[policy.rootTag] = { allowDeletion: false, allowNonFastForward: false, allowBypass: false };
     for (const { rel, bytes } of sources) fs.writeFileSync(path.join(repo, rel), bytes);
     fs.writeFileSync(policyFile, JSON.stringify(policy, null, 2) + '\n', 'utf8');
-    fs.writeFileSync(qualityFile, YAML.stringify(quality), 'utf8');
-    fs.writeFileSync(publisherFile, YAML.stringify(publisher), 'utf8');
+    fs.writeFileSync(qualityFile, quality.toString(), 'utf8');
+    fs.writeFileSync(publisherFile, publisher.toString(), 'utf8');
     fs.writeFileSync(path.join(repo, '.github/workflows/pr-quality-gate.yml'), YAML.stringify(caller), 'utf8');
     const shared = path.join(repo, '.github/workflows/shared-snippets-check.yml');
     if (fs.existsSync(shared)) fs.unlinkSync(shared);

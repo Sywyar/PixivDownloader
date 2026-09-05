@@ -15,8 +15,8 @@ const dispatchRoot = path.resolve(repoIndex >= 0 ? cliArgs[repoIndex + 1] : proc
 if (process.argv.length === 3 && process.argv[2] === '--version') {
     const policy = JSON.parse(fs.readFileSync(new URL('./release-gate-policy.json', import.meta.url), 'utf8'));
     console.log(`gate-contract ${policy.contractVersion}`);
-} else if (!['5', '6'].includes(configuredEpoch(dispatchRoot))) {
-    throw new Error('configured release Gate epoch 5 or 6 is required');
+} else if (!['5', '7'].includes(configuredEpoch(dispatchRoot))) {
+    throw new Error('configured release Gate epoch 5 or 7 is required');
 } else {
     const args = cliArgs;
     const value = (name) => {
@@ -53,7 +53,7 @@ if (process.argv.length === 3 && process.argv[2] === '--version') {
             '--repo-root', repo, '--candidate-ref', candidateSha];
         if (candidateSha === trustedSha) verifyArgs.push('--invariants');
         else verifyArgs.push('--trusted-ref', trustedSha);
-        if (policy.gateEpoch === 6 && snapshot) verifyArgs.push('--local-feedback');
+        if (policy.gateEpoch === 7 && snapshot) verifyArgs.push('--local-feedback');
         if (args.includes('--signature')) verifyArgs.push('--signature');
         const result = spawnSync(process.execPath, verifyArgs,
             { cwd: repo, env, stdio: 'inherit', windowsHide: true });

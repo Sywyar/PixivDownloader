@@ -7,10 +7,10 @@ export function withTrustedGate(repo, base, candidateEpoch, action) {
     const read = (rel) => execFileSync('git', ['-C', repo, 'show', `${base}:${rel}`],
         { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     const policy = JSON.parse(read('scripts/ci/release-gate-policy.json').toString('utf8'));
-    if (![5, 6].includes(policy.gateEpoch) || ![5, 6].includes(candidateEpoch)) {
+    if (![5, 7].includes(policy.gateEpoch) || ![5, 7].includes(candidateEpoch)) {
         throw new Error('unsupported trusted gate epoch');
     }
-    const admission = policy.gateEpoch === 5 && candidateEpoch === 6;
+    const admission = policy.gateEpoch === 5 && candidateEpoch === 7;
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv-protected-gate-'));
     try {
         for (const name of ['release-gate-trust.mjs', 'release-gate-verifier.mjs', 'resolve-trusted-base.mjs']) {
