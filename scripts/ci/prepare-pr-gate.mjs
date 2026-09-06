@@ -24,7 +24,7 @@ export function prepare(repo) {
     publisher.deleteIn(['jobs', 'protected-base']);
     publisher.deleteIn(['jobs', 'quality-gate']);
     publisher.deleteIn(['jobs', 'checks', 'needs']);
-    publisher.setIn(['jobs', 'checks', 'if'], "github.event_name == 'push' || github.event.workflow_run.event == 'pull_request' || (github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'master' && github.event.action == 'completed')");
+    publisher.setIn(['jobs', 'checks', 'if'], "github.event_name == 'push' || github.event.workflow_run.event == 'pull_request' || (github.event.workflow_run.event == 'workflow_dispatch' && github.event.action == 'completed')");
     quality.set('on', { workflow_dispatch: { inputs: {
         trusted_base_sha: { description: 'Protected predecessor commit (optional)', required: false, type: 'string' },
     } }, workflow_call: { inputs: { trusted_base_sha: { required: false, type: 'string' } } } });
@@ -37,13 +37,63 @@ export function prepare(repo) {
                 step.deleteIn(['env', 'INPUT_ROOT_CANDIDATE_SHA']);
             }
             const run = step.get('run', true);
-            if (run) run.value = run.value.replace(
-                ' --root-admission "$INPUT_ROOT_ADMISSION" --root-candidate-sha "$INPUT_ROOT_CANDIDATE_SHA"', '');
+            if (!run) continue;
+            if (run.value.includes('node scripts/ci/resolve-trusted-base.mjs ')) {
+                run.value = run.value.slice(run.value.indexOf('node scripts/ci/resolve-trusted-base.mjs '))
+                    .replace('"$TRUSTED_BASE_SHA"', '"$INPUT_TRUSTED_BASE_SHA"')
+                    .replace(' --root-admission "$INPUT_ROOT_ADMISSION" --root-candidate-sha "$INPUT_ROOT_CANDIDATE_SHA"', '');
+            }
+            if (run.value.includes('if git cat-file -e "$BASE_SHA:scripts/ci/release-gate-policy.json"')) {
+                // YAML scalar 已去掉缩进；只保留当前受保护 policy 的物化路径。
+                const from = run.value.indexOf('if git cat-file');
+                const end = run.value.indexOf('while IFS= read -r rel; do');
+                run.value = run.value.slice(0, from) + [
+                    'git show "$BASE_SHA:scripts/ci/release-gate-policy.json" > "$RUNNER_TEMP/gate-policy.json"',
+                    'GATE_EPOCH=$(node -e \'console.log(require(process.argv[1]).gateEpoch)\' "$RUNNER_TEMP/gate-policy.json")',
+                    'node -e \'const p=require(process.argv[1]); console.log(p.protectedCore.join("\\n"))\' "$RUNNER_TEMP/gate-policy.json" > "$RUNNER_TEMP/gate-files.txt"',
+                    '',
+                ].join('\n') + run.value.slice(end);
+            }
+            if (run.value.includes('elif [ "$GATE_MODE" = "ROOT_ADMISSION" ]')) {
+                run.value = run.value.split('\n').find((line) => line.includes('node "$GATE_DIR/scripts/ci/release-gate-verifier.mjs"')).trim() + '\n';
+            }
         }
+    }
+    // 复用同一 protected predecessor 算法；历史 master 提交仍使用自己的严格前驱。
+    for (const name of ['release.yml', 'publish-plugins.yml', 'build-stable-ffmpeg.yml']) {
+        const file = path.join(repo, '.github/workflows', name);
+        const doc = YAML.parseDocument(fs.readFileSync(file, 'utf8'));
+        if (doc.errors.length) throw new Error(`invalid workflow YAML: ${name}`);
+        const step = doc.getIn(['jobs', 'trusted-base', 'steps']).items.find((entry) => entry.get('id') === 'base');
+        step.commentBefore = ' 从受保护默认分支历史解析候选的严格前驱；历史提交仍使用自己的父提交。';
+        step.set('run', [
+            'set -euo pipefail',
+            ...(name === 'publish-plugins.yml' ? [
+                'if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$GITHUB_REF" != "refs/heads/master" ]; then',
+                '  echo "manual publication requires the protected master branch" >&2',
+                '  exit 1',
+                'fi',
+            ] : []),
+            'git fetch --no-tags origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"',
+            'tip="$(git rev-parse "refs/remotes/origin/$DEFAULT_BRANCH")"',
+            'if git merge-base --is-ancestor "$GITHUB_SHA" "$tip"; then',
+            '  base="$(git rev-parse "$GITHUB_SHA^1")"',
+            'else',
+            '  base="$(git merge-base "$GITHUB_SHA" "$tip")"',
+            'fi',
+            'echo "sha=$base" >> "$GITHUB_OUTPUT"',
+            '',
+        ].join('\n'));
+        if (name === 'publish-plugins.yml') {
+            doc.deleteIn(['jobs', 'trusted-base', 'if']);
+            doc.deleteIn(['jobs', 'quality-gate', 'if']);
+        }
+        fs.writeFileSync(file, doc.toString(), 'utf8');
     }
     const caller = {
         name: 'Pull Request Quality Gate',
-        on: { pull_request: { branches: ['master'], types: ['opened', 'reopened', 'synchronize', 'edited'] } },
+        'run-name': 'PR #${{ github.event.pull_request.number }}',
+        on: { pull_request: { types: ['opened', 'reopened', 'synchronize', 'edited'] } },
         permissions: { contents: 'read' },
         concurrency: { group: "pr-quality-${{ github.event.pull_request.number }}-${{ github.event.action == 'edited' && github.event.changes.base == null }}", 'cancel-in-progress': true },
         jobs: { 'quality-gate': {

@@ -50,6 +50,8 @@ export function completePages(pages, key) {
         page.total_count !== expected || !Array.isArray(page[key]))) fail('inconsistent API pagination');
     const rows = pages.flatMap((page) => page[key]);
     if (rows.length !== expected) fail('incomplete API pagination');
+    const ids = rows.filter((row) => row?.id !== undefined).map((row) => row.id);
+    if (new Set(ids).size !== ids.length) fail('duplicated API pagination');
     return rows;
 }
 
@@ -62,33 +64,35 @@ function assertRun(run) {
 
 function expectedJobs(repo, ref) {
     const source = YAML.parse(git(repo, ['show', `${sha(ref)}:${QUALITY}`]));
-    return Object.entries(source.jobs).map(([id, job]) => {
-        if (job.uses || job.strategy || job.if !== undefined) fail('protected jobs must execute directly and unconditionally');
-        return job.name || id;
-    });
+    return Object.entries(source.jobs).filter(([, job]) => !job.uses && !job.strategy && job.if === undefined)
+        .map(([id, job]) => job.name || id);
 }
 
 export async function inspectRun({ repo, runId, api = github, core }) {
     const run = api(`${PREFIX}/actions/runs/${integer(runId)}`);
     assertRun(run);
+    if (run.id !== Number(runId)) fail('workflow response does not match the requested run');
     const jobs = completePages(api(`${PREFIX}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`,
         { pages: true }), 'jobs');
     const contract = jobs.filter((job) => job.name === 'quality-gate / trusted-gate-contract');
     if (contract.length !== 1) fail('missing or ambiguous protected contract job');
     const proof = core.parseExecutionProof(api(`${PREFIX}/actions/jobs/${integer(contract[0].id)}/logs`, { raw: true }));
+    if (pullRequestNumber(run) !== Number(proof.pullRequest)) fail('run PR association differs from its execution proof');
     git(repo, ['fetch', '--no-tags', 'origin', sha(proof.merge)]);
     const read = (ref, rel) => git(repo, ['show', `${ref}:${rel}`]);
     const merge = api(`${PREFIX}/git/commits/${sha(proof.merge)}`);
     const caller = YAML.parse(read(proof.merge, CALLER));
-    core.verifyRunResults({ run, jobs, expectedJobs: expectedJobs(repo, proof.base) });
     const evidence = core.verifyRunIdentity({ run, merge, caller, proof, protectedBase: proof.base });
     const policy = core.verifyCandidate({ repo, trusted: proof.base, candidate: proof.merge });
+    core.verifyRunResults({ run, jobs, requiredJobs: policy.qualityGate.requiredJobs,
+        expectedJobs: expectedJobs(repo, proof.base) });
     verifyAttempts(run, jobs, api, contract[0].id, Number(proof.attempt));
     return { ...evidence, pullRequest: integer(proof.pullRequest), checks: policy.ruleset.requiredChecks,
         status: 'completed', conclusion: 'success' };
 }
 
 export function verifyAttempts(run, jobs, api, proofJob, proofAttempt) {
+    jobs = jobs.filter((job) => job.conclusion === 'success');
     // GitHub 会给复用的 job 分配新 ID；用原生执行时间与步骤记录追溯实际来源。
     const execution = (job) => {
         if (!Number.isFinite(Date.parse(job.started_at)) || !Number.isFinite(Date.parse(job.completed_at))
@@ -113,7 +117,8 @@ export function verifyAttempts(run, jobs, api, proofJob, proofAttempt) {
             return matches.length === 1;
         });
         if (!retained.length) continue;
-        const sources = (value) => (value.referenced_workflows || []).map(({ path, sha, ref }) => ({ path, sha, ref }));
+        const sources = (value) => (value.referenced_workflows || [])
+            .map(({ path, sha, ref }) => JSON.stringify([path, sha, ref])).sort();
         if (current.head_sha !== run.head_sha || current.id !== run.id || current.run_attempt !== attempt
             || current.event !== run.event || current.path !== run.path
             || JSON.stringify(sources(current)) !== JSON.stringify(sources(run))) {
@@ -135,32 +140,42 @@ export function inspectFullRun({ repo, runId, candidate, api = github, core }) {
     const run = api(`${PREFIX}/actions/runs/${integer(runId)}`);
     integer(run.run_attempt);
     if (run.id !== Number(runId) || run.repository?.id !== REPO_ID || run.repository?.full_name !== REPO
-        || run.event !== 'workflow_dispatch' || run.head_branch !== 'master' || run.head_sha !== sha(candidate)
-        || run.path?.split('@')[0] !== QUALITY || run.name !== 'Quality Gate'
-        || run.referenced_workflows?.length) fail('full verification must execute Quality Gate on the same protected master commit');
+        || run.event !== 'workflow_dispatch' || run.head_sha !== sha(candidate)
+        || run.path?.split('@')[0] !== QUALITY || run.name !== 'Quality Gate') {
+        fail('full verification must execute Quality Gate on the same protected master commit');
+    }
     const runs = completePages(api(`${PREFIX}/actions/workflows/quality-gate.yml/runs?event=workflow_dispatch&head_sha=${candidate}&per_page=100`,
-        { pages: true }), 'workflow_runs').filter((entry) => entry.head_branch === 'master');
+        { pages: true }), 'workflow_runs');
     if (!runs.length || Math.max(...runs.map((entry) => integer(entry.id))) !== run.id) fail('newer full verification superseded this run');
     git(repo, ['fetch', '--no-tags', 'origin', candidate]);
-    git(repo, ['merge-base', '--is-ancestor', candidate, 'refs/remotes/origin/master']);
+    if (git(repo, ['merge-base', candidate, 'refs/remotes/origin/master']) !== candidate) {
+        return { ignored: true, reason: 'full Quality Gate candidate is not in protected master history', runId: run.id };
+    }
     const parent = git(repo, ['rev-parse', `${candidate}^1`]);
-    core.verifyCandidate({ repo, trusted: parent, candidate });
+    const policy = core.verifyCandidate({ repo, trusted: parent, candidate });
     const jobs = completePages(api(`${PREFIX}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`,
         { pages: true }), 'jobs');
-    core.verifyRunResults({ run, jobs, expectedJobs: expectedJobs(repo, candidate), jobPrefix: '' });
+    core.verifyRunResults({ run, jobs, requiredJobs: policy.qualityGate.requiredJobs,
+        expectedJobs: expectedJobs(repo, candidate), jobPrefix: '' });
     verifyAttempts(run, jobs, api);
     return { integrated: candidate, runId: run.id, attempt: run.run_attempt, verification: 'same-commit-full-quality-gate' };
 }
 
+function pullRequestNumber(run) {
+    // fork 的原生关联可能为空；run-name 携带既有 PR 编号，只用于路由，成功仍须执行证明。
+    const named = /^PR #([1-9][0-9]*)(?:\s|$)/u.exec(run.display_title || '');
+    const numbers = [...new Set((run.pull_requests || []).map((pr) => integer(pr.number)))];
+    if (named) return !numbers.length || numbers.includes(integer(named[1])) ? integer(named[1]) : undefined;
+    return numbers.length === 1 ? numbers[0] : undefined;
+}
+
 function openPullRequest(run, api) {
-    const numbers = run.pull_requests?.map((pr) => pr.number) || [];
-    const candidates = numbers.length
-        ? numbers.map((number) => api(`${PREFIX}/pulls/${integer(number)}`))
-        : api(`${PREFIX}/commits/${sha(run.head_sha)}/pulls?per_page=100`, { pages: true }).flat();
-    const matches = candidates.filter((pr) => pr.state === 'open' && pr.base?.ref === 'master'
-        && pr.base?.repo?.id === REPO_ID && pr.head?.sha === run.head_sha);
-    if (matches.length !== 1) fail('run does not identify one current master PR');
-    return matches[0];
+    const number = pullRequestNumber(run);
+    if (!number) fail('PR execution must identify its PR through run-name or native metadata');
+    const pr = api(`${PREFIX}/pulls/${number}`);
+    return pr.state === 'open' && pr.base?.ref === 'master'
+        && pr.base?.repo?.id === REPO_ID && pr.head?.sha === run.head_sha
+        && pr.head?.repo?.id === run.head_repository?.id && pr.head?.ref === run.head_branch ? pr : undefined;
 }
 
 function skippedCaller(run, api) {
@@ -176,13 +191,16 @@ function latestExecution(runs, api) {
     return runs.sort((a, b) => integer(b.id) - integer(a.id)).find((run) => !skippedCaller(run, api));
 }
 
-function assertLatestPullRequestRun(run, number, api) {
+function latestPullRequestRun(run, number, api) {
     const runs = completePages(api(`${PREFIX}/actions/workflows/pr-quality-gate.yml/runs?event=pull_request&head_sha=${sha(run.head_sha)}&per_page=100`,
         { pages: true }), 'workflow_runs');
-    const matching = runs.filter((entry) => entry.pull_requests?.some((pr) => pr.number === number)
-        || (!entry.pull_requests?.length && entry.head_branch === run.head_branch
-            && entry.head_repository?.id === run.head_repository?.id));
-    if (latestExecution(matching, api)?.id !== run.id) {
+    const matching = runs.filter((entry) => pullRequestNumber(entry) === number
+        && entry.head_branch === run.head_branch && entry.head_repository?.id === run.head_repository?.id);
+    return latestExecution(matching, api);
+}
+
+function assertLatestPullRequestRun(run, number, api) {
+    if (latestPullRequestRun(run, number, api)?.id !== run.id) {
         fail('a newer PR execution superseded this run');
     }
 }
@@ -190,14 +208,18 @@ function assertLatestPullRequestRun(run, number, api) {
 export async function checkEvent({ repo, event, eventName, core, api = github }) {
     const ownPolicy = JSON.parse(fs.readFileSync(path.join(repo, 'scripts/ci/release-gate-policy.json'), 'utf8'));
     if (eventName === 'workflow_run') {
-        const run = api(`${PREFIX}/actions/runs/${integer(event.workflow_run?.id)}`);
+        let run = api(`${PREFIX}/actions/runs/${integer(event.workflow_run?.id)}`);
         if (run.event === 'workflow_dispatch') {
             return inspectFullRun({ repo, runId: run.id, candidate: run.head_sha, api, core });
         }
         assertRun(run);
-        if (skippedCaller(run, api)) return { ignored: true, reason: 'PR caller did not start a quality execution', runId: run.id };
         const pr = openPullRequest(run, api);
-        assertLatestPullRequestRun(run, pr.number, api);
+        if (!pr) return { ignored: true, reason: 'no current master PR for this execution', runId: run.id };
+        // 同一 head 的发布由原生 concurrency 串行化；迟到事件也核对最新运行，避免覆盖新结果。
+        const latest = latestPullRequestRun(run, pr.number, api);
+        if (!latest) return { ignored: true, reason: 'no quality execution for the current PR', runId: run.id };
+        run = api(`${PREFIX}/actions/runs/${integer(latest.id)}`);
+        assertRun(run);
         if (run.status !== 'completed' || run.conclusion !== 'success') {
             return { merge: sha(pr.merge_commit_sha), head: sha(pr.head.sha), base: sha(pr.base.sha),
                 pullRequest: integer(pr.number), runId: run.id, attempt: run.run_attempt,
@@ -220,21 +242,30 @@ export async function checkEvent({ repo, event, eventName, core, api = github })
     }
     try {
     const head = sha(integrated.parents[1].sha);
+    const pulls = api(`${PREFIX}/commits/${integrated.sha}/pulls?per_page=100`, { pages: true }).flat();
+    const merged = pulls.filter((pr) => pr.merged_at && pr.merge_commit_sha === integrated.sha
+        && pr.base?.ref === 'master' && pr.base?.repo?.id === REPO_ID && pr.head?.sha === head);
+    if (merged.length !== 1) fail('integrated commit does not identify one merged master PR');
+    const pr = merged[0];
     const runs = completePages(api(`${PREFIX}/actions/workflows/pr-quality-gate.yml/runs?event=pull_request&head_sha=${head}&per_page=100`,
         { pages: true }), 'workflow_runs').sort((a, b) => b.id - a.id);
-    const selected = latestExecution(runs, api);
+    const selected = latestExecution(runs.filter((run) => pullRequestNumber(run) === pr.number
+        && run.head_repository?.id === pr.head?.repo?.id && run.head_branch === pr.head?.ref), api);
     if (!selected) fail('no PR execution for the integrated head');
     const evidence = await inspectRun({ repo, runId: selected.id, api, core });
     core.verifyIntegratedTree(evidence, integrated);
     const checks = completePages(api(`${PREFIX}/commits/${evidence.merge}/check-runs?filter=latest&per_page=100`,
         { pages: true }), 'check_runs');
-    core.verifyAppChecks({ checks, evidence });
+    if (evidence.pullRequest !== pr.number) fail('execution belongs to a different PR');
+    core.verifyAppChecks({ checks, evidence, requiredChecks: evidence.checks });
     return { ...evidence, integrated: integrated.sha };
     } catch (prError) {
         const full = completePages(api(`${PREFIX}/actions/workflows/quality-gate.yml/runs?event=workflow_dispatch&head_sha=${sha(integrated.sha)}&per_page=100`,
-            { pages: true }), 'workflow_runs').filter((run) => run.head_branch === 'master').sort((a, b) => b.id - a.id);
+            { pages: true }), 'workflow_runs').sort((a, b) => b.id - a.id);
         if (!full.length) fail(`PR evidence unavailable: ${prError.message}; run the existing manual Quality Gate on this master commit`);
-        return inspectFullRun({ repo, runId: full[0].id, candidate: integrated.sha, api, core });
+        const recovered = inspectFullRun({ repo, runId: full[0].id, candidate: integrated.sha, api, core });
+        if (recovered.integrated !== integrated.sha) fail('full verification does not cover the protected merge');
+        return recovered;
     }
 }
 
@@ -242,10 +273,13 @@ export function assertCurrentEvidence(evidence, api = github) {
     const run = api(`${PREFIX}/actions/runs/${integer(evidence.runId)}`);
     assertRun(run);
     const pr = api(`${PREFIX}/pulls/${integer(evidence.pullRequest)}`);
+    const status = run.status === 'completed' ? 'completed' : 'in_progress';
+    const conclusion = status === 'completed' ? (run.conclusion === 'success' ? 'success' : 'failure') : null;
     if (pr.state !== 'open' || pr.base?.repo?.id !== REPO_ID || pr.base?.ref !== 'master'
         || pr.base?.sha !== evidence.base || pr.head?.sha !== evidence.head || pr.merge_commit_sha !== evidence.merge
-        || run.run_attempt !== evidence.attempt || run.head_sha !== evidence.head
-        || (evidence.conclusion === 'success' && (run.status !== 'completed' || run.conclusion !== 'success'))) {
+        || pr.head?.repo?.id !== run.head_repository?.id || pr.head?.ref !== run.head_branch
+        || pullRequestNumber(run) !== evidence.pullRequest || run.run_attempt !== evidence.attempt || run.head_sha !== evidence.head
+        || evidence.status !== status || evidence.conclusion !== conclusion) {
         fail('PR or execution changed before check publication completed');
     }
     assertLatestPullRequestRun(run, evidence.pullRequest, api);
@@ -286,6 +320,7 @@ async function main() {
         fs.appendFileSync(process.env.GITHUB_OUTPUT, `publish=${Boolean(evidence.merge && process.env.GITHUB_EVENT_NAME === 'workflow_run')}\n`, 'utf8');
     }
     if (process.argv.includes('--publish')) {
+        if (evidence.ignored) { console.log(JSON.stringify(evidence)); return; }
         if (process.env.GITHUB_EVENT_NAME !== 'workflow_run' || !evidence.merge) fail('master verification does not publish checks');
         assertCurrentEvidence(evidence);
         try {

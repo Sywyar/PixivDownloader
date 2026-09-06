@@ -50,6 +50,7 @@ function fixture() {
             uses: 'Sywyar/PixivDownloader/.github/workflows/quality-gate.yml@master',
         } } };
     const run = { id: 123, run_attempt: 2, run_started_at: '2026-09-05T08:02:00Z', head_sha: H, name: caller.name,
+        display_title: 'PR #42', head_branch: 'feature', head_repository: { id: 12345 },
         repository: { id: 1089943605, full_name: 'Sywyar/PixivDownloader' },
         event: 'pull_request', path: '.github/workflows/pr-quality-gate.yml',
         status: 'completed', conclusion: 'success', referenced_workflows: [{
@@ -99,7 +100,6 @@ test('foreign, stale, skipped and fabricated jobs cannot substitute for the prot
         (f) => { f.proof.base = H; },
         (f) => { f.proof.runId = '124'; },
         (f) => { f.proof.attempt = '3'; },
-        (f) => { f.caller.jobs['quality-gate'].if = 'false'; },
         (f) => { f.caller.jobs.fake = { 'runs-on': 'ubuntu-latest', steps: [{ run: 'true' }] }; },
         (f) => { f.jobs[0].conclusion = 'skipped'; },
         (f) => { f.jobs[0].conclusion = 'neutral'; },
@@ -144,7 +144,8 @@ test('execution records fail closed when missing, duplicated, malformed or from 
 test('API pagination and check publication cannot accept a partial response or another App', () => {
     assert.deepEqual(completePages([{ total_count: 2, jobs: [1] }, { total_count: 2, jobs: [2] }], 'jobs'), [1, 2]);
     for (const pages of [[], [{ jobs: [] }], [{ total_count: 2, jobs: [1] }],
-        [{ total_count: 2, jobs: [1] }, { total_count: 3, jobs: [2] }]]) {
+        [{ total_count: 2, jobs: [1] }, { total_count: 3, jobs: [2] }],
+        [{ total_count: 2, jobs: [{ id: 1 }] }, { total_count: 2, jobs: [{ id: 1 }] }]]) {
         assert.throws(() => completePages(pages, 'jobs'));
     }
     const f = fixture();
@@ -168,9 +169,9 @@ test('publication rechecks the current PR and newest run even when fork run asso
     f.run.head_branch = 'feature';
     f.run.head_repository = { id: 12345 };
     f.run.pull_requests = [];
-    const evidence = { ...verifyRunIdentity(f), pullRequest: 42, conclusion: 'success' };
+    const evidence = { ...verifyRunIdentity(f), pullRequest: 42, status: 'completed', conclusion: 'success' };
     const pr = { state: 'open', base: { sha: B, ref: 'master', repo: { id: 1089943605 } },
-        head: { sha: H }, merge_commit_sha: M };
+        head: { sha: H, ref: 'feature', repo: { id: 12345 } }, merge_commit_sha: M };
     const api = (endpoint, options) => endpoint.includes('/jobs?') ? [{ total_count: f.jobs.length, jobs: f.jobs }] : options?.pages
         ? [{ total_count: 1, workflow_runs: [f.run] }]
         : endpoint.endsWith('/pulls/42') ? pr : f.run;
@@ -188,12 +189,15 @@ test('publication rechecks the current PR and newest run even when fork run asso
     assert.throws(() => assertCurrentEvidence(evidence, (endpoint, options) => endpoint.includes('/workflows/')
         ? [{ total_count: 2, workflow_runs: [f.run, { ...f.run, id: 124 }] }] : api(endpoint, options)), /newer PR/u);
     assert.throws(() => assertCurrentEvidence(evidence, () => { throw new Error('API unavailable'); }), /API unavailable/u);
+    assert.throws(() => assertCurrentEvidence({ ...evidence, status: 'in_progress', conclusion: null }, api), /changed/u);
+    assert.throws(() => assertCurrentEvidence({ ...evidence, conclusion: 'failure' }, api), /changed/u);
 });
 
-test('text-only PR edits do not publish success or supersede verified execution of the same merge', async () => {
+test('late text-only PR edits reconcile the latest execution without publishing a false success', async () => {
     const f = fixture();
+    Object.assign(f.run, { head_branch: 'feature', head_repository: { id: 12345 } });
     const skipped = { ...f.run, id: 124, pull_requests: [{ number: 42 }] };
-    const evidence = { ...verifyRunIdentity(f), pullRequest: 42, conclusion: 'success' };
+    f.run.status = 'in_progress'; f.run.conclusion = null;
     f.run.pull_requests = [{ number: 42 }];
     const api = (endpoint) => {
         if (endpoint.endsWith('/actions/runs/123')) return f.run;
@@ -202,18 +206,69 @@ test('text-only PR edits do not publish success or supersede verified execution 
             name: 'quality-gate', run_id: 124, head_sha: H, status: 'completed', conclusion: 'skipped' }] }];
         if (endpoint.includes('/runs/123/jobs')) return [{ total_count: 6, jobs: f.jobs }];
         if (endpoint.includes('/workflows/')) return [{ total_count: 2, workflow_runs: [skipped, f.run] }];
-        if (endpoint.endsWith('/pulls/42')) return { state: 'open', base: { sha: B, ref: 'master', repo: { id: 1089943605 } },
-            head: { sha: H }, merge_commit_sha: M };
+        if (endpoint.endsWith('/pulls/42')) return { number: 42, state: 'open', base: { sha: B, ref: 'master', repo: { id: 1089943605 } },
+            head: { sha: H, ref: 'feature', repo: { id: 12345 } }, merge_commit_sha: M };
         throw new Error(`unexpected edit API request: ${endpoint}`);
     };
-    assertCurrentEvidence(evidence, api);
     const result = await checkEvent({ repo: SOURCE_ROOT, eventName: 'workflow_run',
         event: { workflow_run: { id: 124 } }, core, api });
-    assert.equal(result.ignored, true);
-    assert.equal(result.merge, undefined);
+    assert.equal(result.runId, 123);
+    assert.equal(result.status, 'in_progress');
+    assert.equal(result.conclusion, null);
 });
 
-test('protected predecessor admits only its approved core and exact root merge; ordinary workflow maintenance remains possible', async () => {
+test('fork runs match the PR repository and branch; development targets and closed PRs need no App checks', async () => {
+    const f = fixture();
+    Object.assign(f.run, { head_branch: 'feature', head_repository: { id: 12345 }, pull_requests: [],
+        status: 'in_progress', conclusion: null });
+    const pr = { number: 42, state: 'open', base: { sha: B, ref: 'master', repo: { id: 1089943605 } },
+        head: { sha: H, ref: 'feature', repo: { id: 12345 } }, merge_commit_sha: M };
+    const other = structuredClone(pr); other.number = 43; other.head.repo.id = 54321;
+    const development = structuredClone(pr); development.number = 44; development.base.ref = 'refactor/gui';
+    const devRun = { ...f.run, id: 125, display_title: 'PR #44' };
+    const otherRun = { ...f.run, id: 124, display_title: 'PR #43', head_repository: { id: 54321 } };
+    const api = (endpoint) => {
+        if (endpoint.endsWith('/pulls/42')) return pr;
+        if (endpoint.endsWith('/pulls/43')) return other;
+        if (endpoint.endsWith('/pulls/44')) return development;
+        if (endpoint.includes('/workflows/')) return [{ total_count: 3, workflow_runs: [devRun, otherRun, f.run] }];
+        if (endpoint.endsWith('/actions/runs/123')) return f.run;
+        if (endpoint.endsWith('/actions/runs/125')) return devRun;
+        throw new Error(`unexpected PR association request: ${endpoint}`);
+    };
+    const inspect = () => checkEvent({ repo: SOURCE_ROOT, eventName: 'workflow_run',
+        event: { workflow_run: { id: 123 } }, core, api });
+    assert.equal((await inspect()).pullRequest, 42);
+    assert.equal((await inspect()).runId, 123, '同 fork 同 head 的开发目标运行不得抢占 master PR');
+    assert.equal((await checkEvent({ repo: SOURCE_ROOT, eventName: 'workflow_run',
+        event: { workflow_run: { id: 125 } }, core, api })).ignored, true);
+    f.run.display_title = 'PR #43';
+    assert.equal((await inspect()).ignored, true, '运行名称不能替代 head 仓库与分支核对');
+    f.run.display_title = 'PR #42';
+    pr.base.ref = 'refactor/gui/swing-plugin-boundary';
+    assert.equal((await inspect()).ignored, true);
+    pr.base.ref = 'master'; pr.state = 'closed';
+    assert.equal((await inspect()).ignored, true);
+});
+
+test('PR listener maintenance and helper jobs do not change the protected execution identity', () => {
+    for (const change of [
+        (f) => { delete f.caller.on.pull_request.branches; },
+        (f) => { f.caller.on.pull_request.branches.push('refactor/**'); },
+        (f) => { delete f.caller.jobs['quality-gate'].if; },
+        (f) => { f.caller.jobs['quality-gate'].if = "github.event.action!='edited'||github.event.changes.base!=null"; },
+        (f) => { f.run.referenced_workflows.push({ path: 'owner/repo/.github/workflows/helper.yml@' + H, sha: H }); },
+        (f) => { f.jobs.push({ ...f.jobs[0], id: 99, name: 'quality-gate / diagnostic', conclusion: 'skipped', steps: [] }); },
+        (f) => { f.jobs.push({ ...f.jobs[0], id: 99, name: 'quality-gate / helper (linux)' }); },
+    ]) {
+        const f = fixture(); change(f);
+        verifyRunIdentity(f); verifyRunResults(f);
+    }
+    const f = fixture();
+    assert.throws(() => verifyRunResults({ ...f, requiredJobs: [...roles, 'new-required-test'], expectedJobs: roles }), /roles/u);
+});
+
+test('protected predecessor admits only its approved core, permits ordinary root repairs, and verifies real execution', async () => {
     const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
     const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv gate admission '));
     const git = (args, input) => execFileSync('git', ['-C', repo, ...args],
@@ -289,6 +344,30 @@ test('protected predecessor admits only its approved core and exact root merge; 
         }
         assert.equal(verifyCandidate({ repo, trusted: base, candidate: merge }).gateEpoch, 8);
         assert.equal(verifyCandidate({ repo, trusted: base, candidate: root }).gateEpoch, 8);
+        const repairFile = path.join(repo, '.github/workflows/root-diagnostics.yml');
+        fs.writeFileSync(repairFile, YAML.stringify({ name: 'Diagnostics', on: { workflow_dispatch: {} },
+            permissions: { contents: 'read' }, jobs: { report: { 'runs-on': 'ubuntu-latest', steps: [{ run: 'echo report' }] } } }));
+        const repair = commit('ordinary maintenance after sealing the core');
+        const repairTree = git(['rev-parse', repair + '^{tree}']);
+        const advancedBase = git(['commit-tree', git(['rev-parse', base + '^{tree}']), '-p', base], 'protected master advanced\n');
+        git(['update-ref', 'refs/remotes/origin/master', advancedBase]);
+        const repairMerge = git(['commit-tree', repairTree, '-p', advancedBase, '-p', repair], 'retested repaired root descendant\n');
+        assert.equal(verifyCandidate({ repo, trusted: advancedBase, candidate: repairMerge }).gateEpoch, 8);
+        git(['branch', '-M', 'master']);
+        git(['update-ref', 'refs/heads/master', repairMerge]);
+        git(['update-ref', 'refs/remotes/origin/master', repairMerge]);
+        git(['config', '--local', 'pixiv.release.trustedGateEpoch', '5']);
+        git(['config', '--local', 'pixiv.release.trustedGateRef', advancedBase]);
+        const adoptionEnv = { ...process.env }; delete adoptionEnv.CI;
+        const repairedAdoption = spawnSync(process.execPath,
+            [path.join(source, CORE_DIRECTORY, 'release-gate-trust.mjs'), '--adopt-root', '--ref', repairMerge],
+            { cwd: repo, env: adoptionEnv, encoding: 'utf8' });
+        assert.equal(repairedAdoption.status, 0, repairedAdoption.stderr || repairedAdoption.stdout);
+        assert.equal(git(['config', '--get', 'pixiv.release.trustedGateRef']), repairMerge);
+        fs.unlinkSync(repairFile);
+        git(['update-ref', 'refs/heads/master', root]);
+        git(['read-tree', root]);
+        git(['update-ref', 'refs/remotes/origin/master', base]);
         for (const request of [
             { event: 'pull_request', candidate: merge, prBase: base, prHead: root },
             { event: 'push', candidate: root, ref: 'refs/heads/feature' },
@@ -322,6 +401,28 @@ test('protected predecessor admits only its approved core and exact root merge; 
         const evidence = await inspectRun({ repo, runId: 123, api, core });
         assert.equal(evidence.merge, merge);
         assert.equal(evidence.attempt, 2);
+        const integrated = git(['commit-tree', tree, '-p', base, '-p', root], 'actual integrated merge\n');
+        const mergedPr = { number: 42, state: 'closed', merged_at: '2026-09-05T09:00:00Z', merge_commit_sha: integrated,
+            base: { ref: 'master', repo: { id: 1089943605 } }, head: { sha: root, ref: 'feature', repo: { id: 12345 } } };
+        const masterApi = (endpoint, options) => {
+            if (endpoint.endsWith(`/git/commits/${integrated}`)) return { ...f.merge, sha: integrated,
+                tree: { sha: tree }, parents: [{ sha: base }, { sha: root }] };
+            if (endpoint.includes(`/commits/${integrated}/pulls`)) return [[mergedPr]];
+            if (endpoint.includes('/workflows/pr-quality-gate.yml/runs')) return [{ total_count: 2, workflow_runs: [
+                { ...f.run, id: 124, display_title: 'PR #43', pull_requests: [] }, { ...f.run, pull_requests: [] },
+            ] }];
+            if (endpoint.includes('/check-runs?')) return [{ total_count: roles.length, check_runs: roles.map((name, id) => ({
+                id: id + 1000, name, head_sha: merge, status: 'completed', conclusion: 'success', app: { id: 4837005 },
+                details_url: 'https://github.com/Sywyar/PixivDownloader/actions/runs/123/attempts/2',
+            })) }];
+            return api(endpoint, options);
+        };
+        assert.equal((await checkEvent({ repo, eventName: 'push', core, api: masterApi,
+            event: { ref: 'refs/heads/master', before: base, after: integrated } })).integrated, integrated);
+        await assert.rejects(inspectRun({ repo, runId: 123, core, api: (endpoint, options) => {
+            const response = api(endpoint, options);
+            return endpoint.endsWith('/actions/runs/123') ? { ...response, display_title: 'PR #43' } : response;
+        } }), /PR association differs/u);
         await assert.rejects(inspectRun({ repo, runId: 123, core, api: (endpoint, options) => {
             const response = api(endpoint, options);
             return endpoint.endsWith('/attempts/1') ? { ...response, referenced_workflows: [] } : response;
@@ -337,6 +438,48 @@ test('protected predecessor admits only its approved core and exact root merge; 
         git(['read-tree', merge]);
         git(['update-ref', 'refs/remotes/origin/master', merge]);
         assert.equal(resolveTrustedBase({ repo, event: 'push', candidate: merge, before: base, ref: 'refs/heads/master' }).base, base);
+        const later = git(['commit-tree', tree, '-p', merge], 'later protected merge\n');
+        git(['update-ref', 'refs/remotes/origin/master', later]);
+        for (const inputBase of [undefined, base]) {
+            assert.equal(resolveTrustedBase({ repo, event: 'workflow_dispatch', candidate: merge, inputBase }).base, base);
+        }
+        const development = git(['commit-tree', tree, '-p', merge], 'development base\n');
+        const contribution = git(['commit-tree', tree, '-p', development], 'fork contribution\n');
+        const developmentMerge = git(['commit-tree', tree, '-p', development, '-p', contribution], 'fork PR to development\n');
+        assert.equal(resolveTrustedBase({ repo, event: 'pull_request', candidate: developmentMerge,
+            prBase: development, prHead: contribution }).base, merge);
+        assert.throws(() => resolveTrustedBase({ repo, event: 'pull_request', candidate: developmentMerge,
+            prBase: development, prHead: contribution, inputBase: development }), /protected predecessor/u);
+        assert.equal(verifyCandidate({ repo, trusted: merge, candidate: developmentMerge }).gateEpoch, 8);
+        git(['update-ref', 'refs/heads/master', later]);
+        const outputDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv base output '));
+        try {
+            for (const workflowName of ['release.yml', 'publish-plugins.yml', 'build-stable-ffmpeg.yml']) {
+                const doc = YAML.parse(fs.readFileSync(path.join(repo, '.github/workflows', workflowName), 'utf8'));
+                const resolve = doc.jobs['trusted-base'].steps.find((step) => step.id === 'base');
+                const output = path.join(outputDirectory, workflowName);
+                const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', resolve.run], {
+                    cwd: repo, encoding: 'utf8', env: { ...process.env, DEFAULT_BRANCH: 'master',
+                        GITHUB_SHA: merge, GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/master',
+                        GITHUB_OUTPUT: output.replaceAll('\\', '/') },
+                });
+                assert.equal(result.status, 0, result.stderr);
+                assert.equal(fs.readFileSync(output, 'utf8').trim(), `sha=${base}`);
+            }
+            const doc = YAML.parse(fs.readFileSync(path.join(repo, '.github/workflows/quality-gate.yml'), 'utf8'));
+            const resolver = doc.jobs['trusted-gate-contract'].steps.find((step) => step.env?.EVENT_PR_BASE_REF);
+            const output = path.join(outputDirectory, 'development-env');
+            const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', resolver.run], {
+                cwd: repo, encoding: 'utf8', env: { ...process.env, DEFAULT_BRANCH: 'master',
+                    GITHUB_SHA: developmentMerge, GITHUB_EVENT_NAME: 'pull_request', GITHUB_REF: 'refs/pull/42/merge',
+                    EVENT_PR_BASE_SHA: development, EVENT_PR_HEAD_SHA: contribution, EVENT_PR_BASE_REF: 'refactor/feature',
+                    RUNNER_TEMP: outputDirectory.replaceAll('\\', '/'), GITHUB_ENV: output.replaceAll('\\', '/') },
+            });
+            assert.equal(result.status, 0, result.stderr);
+            assert.match(fs.readFileSync(output, 'utf8'), new RegExp(`^BASE_SHA=${merge}$`, 'm'));
+        } finally { fs.rmSync(outputDirectory, { recursive: true, force: true }); }
+        git(['update-ref', 'refs/heads/master', merge]);
+        git(['update-ref', 'refs/remotes/origin/master', merge]);
         git(['config', '--local', 'pixiv.release.trustedGateEpoch', '5']);
         git(['config', '--local', 'pixiv.release.trustedGateRef', base]);
         const env = { ...process.env };
@@ -364,6 +507,11 @@ test('protected predecessor admits only its approved core and exact root merge; 
             throw new Error(`unexpected full-gate API request: ${endpoint}`);
         };
         assert.equal(inspectFullRun({ repo, runId: 123, candidate: merge, api: fullApi, core }).integrated, merge);
+        full.head_branch = 'v1.14.0';
+        assert.equal(inspectFullRun({ repo, runId: 123, candidate: merge, api: fullApi, core }).integrated, merge);
+        full.head_sha = later; full.head_branch = 'feature';
+        assert.equal(inspectFullRun({ repo, runId: 123, candidate: later, api: fullApi, core }).ignored, true);
+        full.head_sha = merge; full.head_branch = 'master';
         const recovered = await checkEvent({ repo, eventName: 'push', event: { ref: 'refs/heads/master', before: base, after: merge }, api: fullApi, core });
         assert.equal(recovered.verification, 'same-commit-full-quality-gate');
         assert.throws(() => inspectFullRun({ repo, runId: 123, candidate: root, api: fullApi, core }), /same protected master commit/u);
@@ -425,6 +573,64 @@ test('protected predecessor admits only its approved core and exact root merge; 
         }
         fs.writeFileSync(publisherPath, publisher);
         const quality = YAML.parse(fs.readFileSync(workflow, 'utf8'));
+        const helpers = structuredClone(quality);
+        helpers.jobs.diagnostics = { 'runs-on': 'ubuntu-latest', if: 'always()', steps: [{ run: 'echo diagnostic' }] };
+        helpers.jobs.matrix = { 'runs-on': '${{ matrix.os }}', strategy: { matrix: { os: ['ubuntu-latest', 'windows-latest'] } },
+            steps: [{ run: 'echo helper' }] };
+        fs.writeFileSync(workflow, YAML.stringify(helpers));
+        assert.equal(verifyCandidate({ repo, trusted: merge, candidate: commit('ordinary quality helpers') }).gateEpoch, 8);
+        fs.writeFileSync(workflow, YAML.stringify(quality));
+
+        const wrapperFile = path.join(repo, '.github/workflows/wrapped-quality.yml');
+        const consumerFile = path.join(repo, '.github/workflows/privileged-consumer.yml');
+        const wrapper = { name: 'Wrapped quality', on: { workflow_call: {} }, permissions: { contents: 'read' }, jobs: {
+            gate: { uses: './.github/workflows/quality-gate.yml' },
+            noop: { 'runs-on': 'ubuntu-latest', steps: [{ run: 'true' }] },
+        } };
+        fs.writeFileSync(consumerFile, YAML.stringify({ name: 'Consumer', on: { workflow_dispatch: {} },
+            permissions: { contents: 'read' }, jobs: { gate: { uses: './.github/workflows/wrapped-quality.yml' },
+                publish: { needs: 'gate', environment: 'release', permissions: { contents: 'write' },
+                    'runs-on': 'ubuntu-latest', steps: [{ run: 'true' }] } } }));
+        for (const change of [
+            (doc) => { doc.jobs.gate.if = 'false'; },
+            (doc) => { doc.jobs.noop.if = 'false'; doc.jobs.gate.needs = 'noop'; },
+        ]) {
+            const doc = structuredClone(wrapper); change(doc);
+            fs.writeFileSync(wrapperFile, YAML.stringify(doc));
+            assert.throws(() => verifyCandidate({ repo, trusted: merge, candidate: commit('skippable wrapped quality') }), /before Quality Gate success/u);
+        }
+        fs.writeFileSync(wrapperFile, YAML.stringify(wrapper));
+        assert.equal(verifyCandidate({ repo, trusted: merge, candidate: commit('unconditional wrapped quality') }).gateEpoch, 8);
+        fs.unlinkSync(wrapperFile); fs.unlinkSync(consumerFile);
+
+        const policyFile = path.join(repo, 'scripts/ci/release-gate-policy.json');
+        const policyText = fs.readFileSync(policyFile, 'utf8');
+        const promoted = JSON.parse(policyText);
+        promoted.qualityGate.requiredJobs.push('new-required-test');
+        promoted.ruleset.requiredChecks.push('new-required-test');
+        promoted.ruleset.requiredCheckSources['new-required-test'] = 4837005;
+        const newQuality = structuredClone(quality);
+        newQuality.jobs['new-required-test'] = { 'runs-on': 'ubuntu-latest', steps: [{ run: 'false' }] };
+        fs.writeFileSync(policyFile, JSON.stringify(promoted));
+        fs.writeFileSync(workflow, YAML.stringify(newQuality));
+        const requiredHead = commit('new required execution role');
+        const requiredTree = git(['rev-parse', requiredHead + '^{tree}']);
+        const requiredMerge = git(['commit-tree', requiredTree, '-p', merge, '-p', requiredHead], 'required role candidate\n');
+        const required = fixture();
+        required.run.head_sha = requiredHead;
+        required.run.referenced_workflows[0].sha = merge;
+        required.proof = { ...required.proof, base: merge, head: requiredHead, merge: requiredMerge };
+        required.jobs.forEach((job) => { job.head_sha = requiredHead; });
+        const requiredApi = (endpoint) => {
+            if (endpoint.endsWith('/actions/runs/123')) return required.run;
+            if (endpoint.includes('/jobs?')) return [{ total_count: 6, jobs: required.jobs }];
+            if (endpoint.endsWith('/logs')) return `GATE_EXECUTION ${JSON.stringify(required.proof)}`;
+            if (endpoint.endsWith(`/git/commits/${requiredMerge}`)) return { sha: requiredMerge, tree: { sha: requiredTree },
+                parents: [{ sha: merge }, { sha: requiredHead }] };
+            throw new Error(`unexpected required-role API request: ${endpoint}`);
+        };
+        await assert.rejects(inspectRun({ repo, runId: 123, api: requiredApi, core }), /protected Quality Gate roles removed new-required-test/u);
+        fs.writeFileSync(policyFile, policyText);
         quality.jobs['java-tests'].steps[0]['continue-on-error'] = '${{ true }}';
         fs.writeFileSync(workflow, YAML.stringify(quality));
         assert.throws(() => verifyCandidate({ repo, trusted: merge, candidate: commit('suppressed quality failure') }), /suppress/u);

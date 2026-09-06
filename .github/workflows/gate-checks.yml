@@ -12,8 +12,9 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: gate-checks-${{ github.event.workflow_run.id || github.sha }}
+  group: gate-checks-${{ github.event.workflow_run.head_sha || github.sha }}
   cancel-in-progress: false
+  queue: max
 
 jobs:
   protected-base:
