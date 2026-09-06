@@ -110,8 +110,8 @@ function adopt(root, ref) {
         fail('adoption requires the Epoch 5 anchor, protected master tip, HEAD and Epoch 8 root');
     }
     const parents = git(root, ['rev-list', '--parents', '-n', '1', candidate]).split(/\s+/u).slice(1);
-    if (parents.length !== 2 || parents[0] !== source || parents[1] !== rootTag) {
-        fail('Epoch 8 adoption requires the exact root merge from the Epoch 5 anchor');
+    if (parents.length !== 2 || parents[0] !== source || !ancestor(root, rootTag, parents[1])) {
+        fail('Epoch 8 adoption requires a merge of the sealed core from the Epoch 5 anchor');
     }
     const files = JSON.parse(git(root, ['show', `${source}:${POLICY}`])).protectedCore;
     const oldCore = materialize(root, source, files, true);

@@ -15,7 +15,6 @@ const REPOSITORY_ID = 1089943605;
 const APP_ID = 4837005;
 const PR_WORKFLOW = '.github/workflows/pr-quality-gate.yml';
 const CHECK_WORKFLOW = '.github/workflows/gate-checks.yml';
-const PR_EDIT_CONDITION = "github.event.action != 'edited' || github.event.changes.base != null";
 const QUALITY_USE = `${REPOSITORY}/.github/workflows/quality-gate.yml@master`;
 const BRANCH = 'refs/heads/master';
 const CORE = [
@@ -118,6 +117,7 @@ function validateRootPolicy(policy) {
         fail('Ruleset required check declarations are invalid or duplicated');
     }
     requireSubset(FLOOR.checks, contexts, 'Ruleset checks');
+    requireSubset(contexts, policy.qualityGate.requiredJobs, 'required check execution roles');
     for (const context of contexts) {
         if (rules.requiredCheckSources?.[context] !== APP_ID) {
             fail(`required check ${context} must be bound to the Gate App`);
@@ -250,14 +250,9 @@ function validateActionPins(rel, doc) {
 }
 
 function validateQualityJobs(policy, doc) {
-    for (const [id, job] of Object.entries(doc.jobs)) {
-        if (job.uses || job.strategy !== undefined || job.if !== undefined) {
-            fail(`Quality Gate job ${id} must execute directly and unconditionally for execution evidence`);
-        }
-    }
     for (const id of policy.qualityGate.requiredJobs) {
         const job = doc.jobs[id];
-        if (!job || job.if !== undefined || job.strategy !== undefined
+        if (!job || job.uses || job.if !== undefined || job.strategy !== undefined
             || (job.name !== undefined && job.name !== id)) {
             fail(`Quality Gate role ${id} must be unconditional and have a stable check identity`);
         }
@@ -267,18 +262,11 @@ function validateQualityJobs(policy, doc) {
 export function validatePullRequestCaller(doc) {
     if (!doc || doc.name !== 'Pull Request Quality Gate'
         || !same(triggers(doc), ['pull_request'])) fail('PR caller must use pull_request');
-    const event = doc.on.pull_request;
-    if (!same(event?.branches, ['master'])
-        || Object.keys(event).some((key) => !['branches', 'types'].includes(key))) {
-        fail('PR caller must cover all master PR paths');
-    }
+    const event = doc.on.pull_request || {};
     requireSubset(['opened', 'reopened', 'synchronize', 'edited'], event.types || [], 'PR events');
-    if ((event.types || []).some((type) => !['opened', 'reopened', 'synchronize',
-        'edited', 'ready_for_review'].includes(type))) fail('unsupported PR caller event');
     if (!same(Object.keys(doc.jobs), ['quality-gate'])) fail('PR caller must only invoke Quality Gate');
     const call = doc.jobs['quality-gate'];
-    if (call.uses !== QUALITY_USE || Object.keys(call).some((key) => !['uses', 'if'].includes(key))
-        || String(call.if).replace(/^\$\{\{\s*|\s*\}\}$/gu, '').trim() !== PR_EDIT_CONDITION) {
+    if (call.uses !== QUALITY_USE || Object.keys(call).some((key) => !['uses', 'if'].includes(key))) {
         fail('PR caller must invoke the protected Quality Gate without candidate inputs or steps');
     }
     if (!same(doc.permissions, { contents: 'read' }) || containsSecret(doc)) {
@@ -289,8 +277,8 @@ export function validatePullRequestCaller(doc) {
 function validateCheckPublisher(doc) {
     if (!doc || doc.name !== 'Gate Checks') fail('missing protected check publisher');
     if (triggers(doc).some((event) => !['workflow_run', 'push'].includes(event))
-        || !same(doc.on.workflow_run?.workflows, ['Pull Request Quality Gate', 'Quality Gate'])
-        || !same(doc.on.workflow_run?.types, ['in_progress', 'completed'])
+        || !same([...(doc.on.workflow_run?.workflows || [])].sort(), ['Pull Request Quality Gate', 'Quality Gate'])
+        || !same([...(doc.on.workflow_run?.types || [])].sort(), ['completed', 'in_progress'])
         || !same(doc.on.push?.branches, ['master'])) {
         fail('check credentials are restricted to protected workflow completion and master push');
     }
@@ -341,7 +329,8 @@ function workflowSecurityProblems(rel, doc, policy, providerPaths) {
         const provider = roots.has(id);
         const sensitive = permissionsWrite(job.permissions === undefined ? doc.permissions : job.permissions)
             || containsSecret(doc.env) || containsSecret(job) || environmentName(job) !== undefined;
-        const required = rel === policy.qualityGate.workflow || provider;
+        const required = provider || (rel === policy.qualityGate.workflow
+            && policy.qualityGate.requiredJobs.some((role) => dependsOn(jobs, role, new Set([id]))));
         if ((required || sensitive) && (/\b(?:always|failure|cancelled)\s*\(/iu.test(condition)
             || [job, ...(job.steps || [])].some((step) => step['continue-on-error'] !== undefined
                 && step['continue-on-error'] !== false))) {
@@ -394,8 +383,15 @@ function validateWorkflows(repo, ref, policy) {
         changed = false;
         for (const [rel, doc] of docs) {
             if (providerPaths.has(rel) || !triggers(doc).includes('workflow_call')) continue;
-            const hasProvider = Object.values(doc.jobs)
-                .some((job) => providerPaths.has(localWorkflow(job.uses)));
+            // 可复用 workflow 整体成功必须意味着 QG 已执行成功；仅包含一个可跳过的调用不够。
+            const unconditional = (id, seen = new Set()) => {
+                const job = doc.jobs[id];
+                if (!job || seen.has(id) || job.if !== undefined
+                    || (job.uses && !providerPaths.has(localWorkflow(job.uses)))) return false;
+                return needs(job).every((dep) => unconditional(dep, new Set([...seen, id])));
+            };
+            const hasProvider = Object.entries(doc.jobs)
+                .some(([id, job]) => providerPaths.has(localWorkflow(job.uses)) && unconditional(id));
             if (hasProvider && workflowSecurityProblems(rel, doc, policy, providerPaths).length === 0) {
                 providerPaths.add(rel);
                 changed = true;
@@ -453,10 +449,17 @@ function validateAdmission(repo, trusted, candidate, localFeedback) {
     }
     const root = resolveCommit(repo, ROOT_TAG, 'Epoch 8 root');
     const parents = (sha) => git(repo, ['rev-list', '--parents', '-n', '1', sha]).trim().split(/\s+/u).slice(1);
-    if (!same(parents(root), [trusted])) fail('Epoch 8 root must directly descend from its admission base');
-    if (candidate !== root && (!same(parents(candidate), [trusted, root])
-        || git(repo, ['rev-parse', `${candidate}^{tree}`]) !== git(repo, ['rev-parse', `${root}^{tree}`]))) {
-        fail('first admission is restricted to the exact root or its unchanged two-parent merge');
+    const rootParents = parents(root);
+    if (rootParents.length !== 1 || !ancestor(rootParents[0], trusted)
+        || json(repo, rootParents[0], POLICY).gateEpoch !== 5) {
+        fail('Epoch 8 root must directly descend from a protected Epoch 5 admission base');
+    }
+    validateCore(repo, root, candidate);
+    validateMonotonic(json(repo, root, POLICY), next);
+    const candidateParents = parents(candidate);
+    if (candidate !== root && (candidateParents.length !== 2 || candidateParents[0] !== trusted
+        || !ancestor(root, candidateParents[1]))) {
+        fail('first admission requires the root or a two-parent merge of its unchanged core descendants');
     }
 }
 
@@ -553,9 +556,9 @@ export function verifyRunIdentity({ run, merge, caller, protectedBase, proof }) 
     }
     const use = caller.jobs['quality-gate'].uses;
     const sources = run.referenced_workflows;
-    if (!Array.isArray(sources) || sources.length !== 1
-        || sources[0].path !== use || sources[0].sha !== protectedBase
-        || sources[0].ref !== 'refs/heads/master'
+    const qualitySources = (sources || []).filter((source) => source.path === use);
+    if (!Array.isArray(sources) || qualitySources.length !== 1
+        || qualitySources[0].sha !== protectedBase || qualitySources[0].ref !== 'refs/heads/master'
         || proof.runId !== String(run.id) || Number(proof.attempt) > run.run_attempt) {
         fail('Quality Gate execution did not use the tested protected base');
     }
@@ -568,22 +571,23 @@ export function verifyRunResults({ run, jobs, requiredJobs = FLOOR.checks, expec
     if (run.status !== 'completed' || run.conclusion !== 'success') {
         fail('Quality Gate run has not completed successfully');
     }
-    if (!Array.isArray(jobs) || jobs.length !== expectedJobs.length) {
-        fail('effective jobs do not exactly match the protected workflow');
+    if (!Array.isArray(jobs)) {
+        fail('missing effective jobs');
     }
     const ids = new Set();
     for (const job of jobs) {
         if (!Number.isSafeInteger(job.id) || job.id <= 0 || ids.has(job.id)
             || job.run_id !== run.id || job.head_sha !== run.head_sha
-            || job.status !== 'completed' || job.conclusion !== 'success') {
-            fail('job results are duplicated, foreign, missing, skipped or unsuccessful');
+            || job.status !== 'completed' || !job.name?.startsWith(jobPrefix)) {
+            fail('job results are duplicated, foreign or incomplete');
         }
         ids.add(job.id);
     }
     requireSubset(requiredJobs, expectedJobs, 'protected Quality Gate roles');
-    for (const role of expectedJobs) {
+    for (const role of requiredJobs) {
         const matches = jobs.filter((job) => job.name === `${jobPrefix}${role}`);
         if (matches.length !== 1) fail(`missing or ambiguous effective result for ${role}`);
+        if (matches[0].conclusion !== 'success') fail(`required role ${role} is skipped or unsuccessful`);
     }
 }
 

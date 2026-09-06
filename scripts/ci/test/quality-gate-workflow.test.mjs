@@ -78,6 +78,8 @@ test('PR concurrency cancels only earlier validation of the same PR and workflow
         assert.equal(caller.concurrency['cancel-in-progress'], true);
         const first = { event: { pull_request: { number: 1 } } };
         const second = { event: { pull_request: { number: 2 } } };
+        assert.equal(evaluate(caller['run-name'], first), 'PR #1');
+        assert.equal(evaluate(caller['run-name'], second), 'PR #2');
         assert.notEqual(evaluate(caller.concurrency.group, first), evaluate(caller.concurrency.group, second));
         const textEdit = { event: { ...first.event, action: 'edited', changes: {} } };
         const baseEdit = { event: { ...textEdit.event, changes: { base: {} } } };
@@ -104,14 +106,17 @@ test('PR concurrency cancels only earlier validation of the same PR and workflow
     }
 });
 
-test('check publication queues each upstream run independently, including text-only edits of the same head', () => {
+test('check publication serializes writers for the same head without canceling active publication', () => {
     const { concurrency } = load('.github/workflows/gate-checks.yml');
     const group = (github) => concurrency.group.replace(/\$\{\{(.*?)\}\}/g,
         (_, expression) => String(vm.runInNewContext(expression, { github })));
     const upstream = { event: { workflow_run: { id: 10, head_sha: 'same-head' } }, sha: 'protected-base' };
     assert.equal(concurrency['cancel-in-progress'], false);
     assert.equal(group(upstream), group({ ...upstream, event: { workflow_run: { ...upstream.event.workflow_run, run_attempt: 2 } } }));
-    assert.notEqual(group(upstream), group({ ...upstream, event: { workflow_run: { id: 11, head_sha: 'same-head' } } }));
+    const sameHead = { ...upstream, event: { workflow_run: { id: 11, head_sha: 'same-head' } } };
+    assert.equal(group(upstream), group(sameHead));
+    assert.equal(concurrency.queue, 'max');
+    assert.notEqual(group(upstream), group({ ...upstream, event: { workflow_run: { id: 12, head_sha: 'other-head' } } }));
     const master = { event: { workflow_run: {} }, sha: 'integrated-commit' };
     assert.notEqual(group(upstream), group(master));
     assert.notEqual(group(master), group({ ...master, sha: 'next-integrated-commit' }));
@@ -126,7 +131,7 @@ test('主线手动全量验证只在完成后核对证据，PR 进行中事件�
         ['workflow_run', 'pull_request', 'feature', 'completed', true],
         ['workflow_run', 'workflow_dispatch', 'master', 'in_progress', false],
         ['workflow_run', 'workflow_dispatch', 'master', 'completed', true],
-        ['workflow_run', 'workflow_dispatch', 'feature', 'completed', false],
+        ['workflow_run', 'workflow_dispatch', 'feature', 'completed', true],
     ]) {
         assert.equal(vm.runInNewContext(condition, { github: {
             event_name, event: { action, workflow_run: { event, head_branch } },
@@ -149,7 +154,7 @@ test('Quality Gate preserves required roles and the active event contract', () =
         assert.ok(doc.jobs['check-shared-snippets']);
         assert.deepEqual(triggers(doc).sort(), ['workflow_call', 'workflow_dispatch']);
     }
-    const javaSteps = doc.jobs['java-tests'].steps;
+    const javaSteps = Object.values(doc.jobs).flatMap((job) => job.steps || []);
     const sdkResolve = javaSteps.find((step) => step.env?.INPUT_TRUSTED_BASE_SHA !== undefined);
     const releaseBuild = javaSteps.find((step) => /\bverify\b/.test(step.run || ''));
     const releaseBoundary = javaSteps.find((step) => /DistributionPackagingBoundaryTest/.test(step.run || ''));

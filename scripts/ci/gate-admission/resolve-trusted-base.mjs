@@ -21,15 +21,17 @@ export function resolveTrustedBase({ repo = '.', candidate, event, before, ref,
     };
     const tested = commit(candidate);
     const master = commit('refs/remotes/origin/master');
-    const protectedPredecessor = tested === master
-        ? commit(tested + '^1') : git(repo, ['merge-base', tested, master]);
+    const onMaster = git(repo, ['merge-base', tested, master]) === tested;
+    let protectedPredecessor = onMaster ? commit(tested + '^1') : git(repo, ['merge-base', tested, master]);
     let proposed = inputBase;
     if (event === 'pull_request') {
-        proposed = prBase;
         const parents = git(repo, ['rev-list', '--parents', '-n', '1', tested]).split(/\s+/u).slice(1);
         if (parents.length !== 2 || parents[0] !== commit(prBase) || parents[1] !== commit(prHead)) {
             throw new Error('PR candidate must have the event base and head as its two parents');
         }
+        // 开发分支是合并候选的父提交；只有它与 master 的共同历史能提供可信核心。
+        protectedPredecessor = git(repo, ['merge-base', commit(prBase), master]);
+        proposed = protectedPredecessor;
     } else if (!proposed && event === 'push' && ref === 'refs/heads/master') {
         proposed = before;
     } else if (!proposed && event === 'merge_group') {
