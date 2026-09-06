@@ -317,7 +317,7 @@ jobs:
           update_signing_private_key_pem_base64: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
 
       - name: Create Release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           prerelease: ${{ contains(github.ref_name, '-beta') }}
           files: |
@@ -359,7 +359,7 @@ jobs:
           fi
 
       - name: Create draft release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ inputs.tag_name }}
           target_commitish: ${{ github.sha }}
