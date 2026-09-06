@@ -362,6 +362,21 @@ test('protected predecessor admits only its approved core, permits ordinary root
         const repairTree = git(['rev-parse', repair + '^{tree}']);
         const advancedBase = git(['commit-tree', git(['rev-parse', base + '^{tree}']), '-p', base], 'protected master advanced\n');
         git(['update-ref', 'refs/remotes/origin/master', advancedBase]);
+        git(['config', '--local', 'pixiv.release.trustedGateEpoch', '5']);
+        git(['config', '--local', 'pixiv.release.trustedGateRef', advancedBase]);
+        const synchronizedHead = git(['commit-tree', repairTree, '-p', repair, '-p', advancedBase], 'synchronize sealed root branch\n');
+        const localEnv = { ...process.env }; delete localEnv.CI;
+        const tipContract = (ref, env = localEnv) => spawnSync(process.execPath,
+            [path.join(source, 'scripts/ci/gate-contract.mjs'), '--repo-root', repo, '--candidate-ref', ref],
+            { cwd: repo, env, encoding: 'utf8' });
+        for (const tip of [root, repair, synchronizedHead]) {
+            const result = tipContract(tip);
+            assert.equal(result.status, 0, result.stderr || result.stdout);
+            assert.match(result.stdout, /LOCAL MERGE CANDIDATE/u);
+        }
+        assert.notEqual(tipContract(synchronizedHead, { ...localEnv, CI: 'true' }).status, 0);
+        const unrelated = git(['commit-tree', repairTree, '-p', advancedBase], 'tree without sealed root ancestry\n');
+        assert.notEqual(tipContract(unrelated).status, 0, '相同内容树不能替代 sealed root 祖先关系');
         const repairMerge = git(['commit-tree', repairTree, '-p', advancedBase, '-p', repair], 'retested repaired root descendant\n');
         assert.equal(verifyCandidate({ repo, trusted: advancedBase, candidate: repairMerge }).gateEpoch, 8);
         git(['branch', '-M', 'master']);

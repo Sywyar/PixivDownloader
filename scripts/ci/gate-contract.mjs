@@ -45,9 +45,15 @@ if (process.argv.length === 3 && process.argv[2] === '--version') {
         }, 'local staged snapshot\n');
     }
     if (!candidate) throw new Error('--candidate-ref or --candidate-snapshot index is required');
-    const candidateSha = git(repo, ['rev-parse', '--verify', `${candidate}^{commit}`]);
+    let candidateSha = git(repo, ['rev-parse', '--verify', `${candidate}^{commit}`]);
     const trustedSha = git(repo, ['rev-parse', '--verify', `${trusted}^{commit}`]);
     const policy = JSON.parse(git(repo, ['show', `${candidateSha}:scripts/ci/release-gate-policy.json`]));
+    if (!snapshot && process.env.CI !== 'true' && policy.gateEpoch === 8 && configuredEpoch(repo) === '5') {
+        // 推送前按精确 tip 的树核对拟合并对象，保留首次准入的核心、根与双亲校验。
+        const tip = candidateSha;
+        candidateSha = git(repo, ['commit-tree', `${tip}^{tree}`, '-p', trustedSha, '-p', tip], {}, 'local proposed merge\n');
+        console.log(`LOCAL MERGE CANDIDATE ${candidateSha} (tip ${tip})`);
+    }
     withTrustedGate(repo, trustedSha, policy.gateEpoch, (directory, env) => {
         const verifyArgs = [path.join(directory, 'scripts/ci/release-gate-verifier.mjs'),
             '--repo-root', repo, '--candidate-ref', candidateSha];
