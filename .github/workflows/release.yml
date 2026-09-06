@@ -46,9 +46,7 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
-      # Quality Gate 的 workflow_call 要求显式 trusted_base_sha：
-      # 解析受保护默认分支的当前远端状态；与候选相同（默认分支 tip 被分发）时用其父提交
-      # （此前已过质量门禁的 master 状态）。解析失败 fail closed，绝不回退到未验证的提交。
+      # 从受保护默认分支历史解析候选的严格前驱；历史提交仍使用自己的父提交。
       - name: Resolve trusted base
         id: base
         shell: bash
@@ -56,21 +54,14 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
-          default_branch="$DEFAULT_BRANCH"
-          git fetch -q origin "refs/heads/$default_branch" 2>/dev/null || true
-          tip="$(git rev-parse --verify --quiet "refs/remotes/origin/$default_branch" || true)"
-          if [ -z "$tip" ]; then
-            echo "cannot resolve the protected default branch remote ref; fail closed" >&2
-            exit 1
+          git fetch --no-tags origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
+          tip="$(git rev-parse "refs/remotes/origin/$DEFAULT_BRANCH")"
+          if git merge-base --is-ancestor "$GITHUB_SHA" "$tip"; then
+            base="$(git rev-parse "$GITHUB_SHA^1")"
+          else
+            base="$(git merge-base "$GITHUB_SHA" "$tip")"
           fi
-          if [ "$tip" = "$GITHUB_SHA" ]; then
-            tip="$(git rev-parse --verify --quiet "$tip^{commit}^" || true)"
-          fi
-          if ! [[ "$tip" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "cannot resolve a trusted base for $GITHUB_SHA; fail closed" >&2
-            exit 1
-          fi
-          echo "sha=$tip" >> "$GITHUB_OUTPUT"
+          echo "sha=$base" >> "$GITHUB_OUTPUT"
 
   draft-quality-gate:
     needs: trusted-base
@@ -104,7 +95,7 @@ jobs:
           cross_repo_release_token: ${{ secrets.CROSS_REPO_RELEASE_TOKEN }}
 
   build-jar:
-    needs: [validate-release-tag, publish-plugin-artifacts]
+    needs: [ validate-release-tag, publish-plugin-artifacts ]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: release
@@ -152,7 +143,7 @@ jobs:
           release_version: ${{ needs.build-jar.outputs.version }}
 
   release-artifact-e2e:
-    needs: [build-jar, build-windows-installer]
+    needs: [ build-jar, build-windows-installer ]
     if: github.event_name == 'push'
     runs-on: windows-latest
     timeout-minutes: 45
@@ -168,7 +159,14 @@ jobs:
           release_version: ${{ needs.build-jar.outputs.version }}
 
   release:
-    needs: [publish-plugins, publish-plugin-artifacts, build-jar, build-windows-installer, release-artifact-e2e]
+    needs:
+      [
+        publish-plugins,
+        publish-plugin-artifacts,
+        build-jar,
+        build-windows-installer,
+        release-artifact-e2e
+      ]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     environment: release
