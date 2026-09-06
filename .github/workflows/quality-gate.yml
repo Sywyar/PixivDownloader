@@ -18,6 +18,14 @@ permissions:
 
 jobs:
   java-tests:
+    needs: [java-unit-tests, release-artifacts]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Confirm Java verification completed
+        run: echo "Java tests, SDK contract and release artifact verification succeeded."
+
+  java-unit-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -52,14 +60,6 @@ jobs:
         run: mvn -B -ntp -pl pixivdownload-official-plugins -am compile -Dexec.skip=true
       - name: Run Java tests
         run: mvn -B -ntp test -Dexec.skip=true -Duser.language=en -Duser.country=US
-      - name: Build release artifacts with ProGuard
-        run: mvn -B -ntp verify -Pofficial-surveys -DskipTests
-      - name: Verify packaged release boundaries
-        run: |
-          mvn -B -ntp -pl pixivdownload-app -am test -Dtest=DistributionPackagingBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false -Ddistribution.packaging.require-artifacts=true -Dexec.skip=true
-          REPORT=$(find pixivdownload-app/target/surefire-reports -name '*DistributionPackagingBoundaryTest.txt' -print -quit)
-          test -n "$REPORT"
-          grep -Eq 'Tests run: [1-9][0-9]*, Failures: 0, Errors: 0, Skipped: 0' "$REPORT"
       - name: Package SDK contract artifacts
         run: mvn -B -ntp -pl
           pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api,pixivdownload-sdk-bom
@@ -74,6 +74,34 @@ jobs:
           node scripts/ci/sdk-api-surface.mjs --module sdk-info=pixivdownload-sdk-info/target --module plugin-api=pixivdownload-plugin-api/target --module core-api=pixivdownload-core-api/target --output "$RUNNER_TEMP/sdk-candidate-surface.txt"
           node scripts/ci/sdk-contract.mjs --repo-root . --base-ref "$SDK_BASE_SHA" --candidate-ref "$GITHUB_SHA" --base-surface "$RUNNER_TEMP/sdk-base-surface.txt" --candidate-surface "$RUNNER_TEMP/sdk-candidate-surface.txt" --base-sdk-root "$BASE_DIR" --candidate-sdk-root . --report "$RUNNER_TEMP/sdk-contract-report.json"
           cat "$RUNNER_TEMP/sdk-contract-report.json"
+
+  release-artifacts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Set up JDK 17
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: maven
+      - name: Set up Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - name: Build release artifacts with ProGuard
+        run: mvn -B -ntp verify -Pofficial-surveys -DskipTests
+      - name: Verify packaged release boundaries
+        run: |
+          mvn -B -ntp -pl pixivdownload-app -am test -Dtest=DistributionPackagingBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false -Ddistribution.packaging.require-artifacts=true -Dexec.skip=true
+          REPORT=$(find pixivdownload-app/target/surefire-reports -name '*DistributionPackagingBoundaryTest.txt' -print -quit)
+          test -n "$REPORT"
+          grep -Eq 'Tests run: [1-9][0-9]*, Failures: 0, Errors: 0, Skipped: 0' "$REPORT"
 
   javascript-tests:
     runs-on: ubuntu-latest
