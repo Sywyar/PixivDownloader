@@ -187,6 +187,36 @@ test('Quality Gate preserves required roles and the active event contract', () =
     }
 });
 
+test('Java tests and ProGuard run independently and both gate the required Java result', () => {
+    const { jobs } = load('.github/workflows/quality-gate.yml');
+    const owner = (pattern) => {
+        const matches = Object.keys(jobs).filter((id) => jobs[id].steps?.some((step) => pattern.test(step.run || '')));
+        assert.equal(matches.length, 1, `one execution owner for ${pattern}`);
+        return matches[0];
+    };
+    const ancestors = (id, visited = new Set()) => {
+        assert.ok(jobs[id], `dependency ${id} exists`);
+        if (visited.has(id)) return visited;
+        visited.add(id);
+        for (const dependency of [jobs[id].needs || []].flat()) ancestors(dependency, visited);
+        return visited;
+    };
+    const tests = owner(/\bmvn\b[^\n]*\btest\b[^\n]*-Duser\.language=/u);
+    const build = owner(/\bmvn\b[^\n]*\bverify\b/u);
+    assert.notEqual(tests, build);
+    assert.equal(ancestors(tests).has(build), false);
+    assert.equal(ancestors(build).has(tests), false);
+    const required = ancestors('java-tests');
+    for (const id of [tests, build, owner(/DistributionPackagingBoundaryTest/u), owner(/sdk-contract\.mjs/u)]) {
+        assert.ok(required.has(id), `java-tests must require ${id}`);
+    }
+    for (const id of required) {
+        assert.equal(jobs[id].if, undefined, `${id} must preserve dependency success`);
+        assert.ok(Number.isInteger(jobs[id]['timeout-minutes']) && jobs[id]['timeout-minutes'] > 0);
+        assert.ok(jobs[id]['continue-on-error'] === undefined || jobs[id]['continue-on-error'] === false);
+    }
+});
+
 test('发布链：所有凭据与写权限只在 release Environment 的门禁后使用', () => {
     const publish = load('.github/workflows/publish-plugins.yml');
     const publishAction = load('.github/actions/publish-official-plugins/action.yml');
