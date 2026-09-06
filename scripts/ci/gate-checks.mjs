@@ -62,6 +62,16 @@ function assertRun(run) {
         || run.name !== 'Pull Request Quality Gate') fail('foreign or unexpected workflow run');
 }
 
+function readRun(runId, api) {
+    const run = api(`${PREFIX}/actions/runs/${integer(runId)}`);
+    if (run.id !== Number(runId)) fail('workflow response does not match the requested run');
+    const workflow = api(`${PREFIX}/actions/workflows/${integer(run.workflow_id)}`);
+    if (workflow.id !== run.workflow_id || workflow.path !== run.path?.split('@')[0]
+        || typeof workflow.name !== 'string') fail('workflow metadata does not match the run');
+    // run.name 可包含自定义运行标题；核心消费的是同一原生 workflow 的名称。
+    return { ...run, name: workflow.name };
+}
+
 function expectedJobs(repo, ref) {
     const source = YAML.parse(git(repo, ['show', `${sha(ref)}:${QUALITY}`]));
     return Object.entries(source.jobs).filter(([, job]) => !job.uses && !job.strategy && job.if === undefined)
@@ -69,9 +79,8 @@ function expectedJobs(repo, ref) {
 }
 
 export async function inspectRun({ repo, runId, api = github, core }) {
-    const run = api(`${PREFIX}/actions/runs/${integer(runId)}`);
+    const run = readRun(runId, api);
     assertRun(run);
-    if (run.id !== Number(runId)) fail('workflow response does not match the requested run');
     const jobs = completePages(api(`${PREFIX}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`,
         { pages: true }), 'jobs');
     const contract = jobs.filter((job) => job.name === 'quality-gate / trusted-gate-contract');
@@ -137,7 +146,7 @@ export function verifyAttempts(run, jobs, api, proofJob, proofAttempt) {
 }
 
 export function inspectFullRun({ repo, runId, candidate, api = github, core }) {
-    const run = api(`${PREFIX}/actions/runs/${integer(runId)}`);
+    const run = readRun(runId, api);
     integer(run.run_attempt);
     if (run.id !== Number(runId) || run.repository?.id !== REPO_ID || run.repository?.full_name !== REPO
         || run.event !== 'workflow_dispatch' || run.head_sha !== sha(candidate)
@@ -208,7 +217,7 @@ function assertLatestPullRequestRun(run, number, api) {
 export async function checkEvent({ repo, event, eventName, core, api = github }) {
     const ownPolicy = JSON.parse(fs.readFileSync(path.join(repo, 'scripts/ci/release-gate-policy.json'), 'utf8'));
     if (eventName === 'workflow_run') {
-        let run = api(`${PREFIX}/actions/runs/${integer(event.workflow_run?.id)}`);
+        let run = readRun(event.workflow_run?.id, api);
         if (run.event === 'workflow_dispatch') {
             return inspectFullRun({ repo, runId: run.id, candidate: run.head_sha, api, core });
         }
@@ -218,7 +227,7 @@ export async function checkEvent({ repo, event, eventName, core, api = github })
         // 同一 head 的发布由原生 concurrency 串行化；迟到事件也核对最新运行，避免覆盖新结果。
         const latest = latestPullRequestRun(run, pr.number, api);
         if (!latest) return { ignored: true, reason: 'no quality execution for the current PR', runId: run.id };
-        run = api(`${PREFIX}/actions/runs/${integer(latest.id)}`);
+        run = readRun(latest.id, api);
         assertRun(run);
         if (run.status !== 'completed' || run.conclusion !== 'success') {
             return { merge: sha(pr.merge_commit_sha), head: sha(pr.head.sha), base: sha(pr.base.sha),
@@ -270,7 +279,7 @@ export async function checkEvent({ repo, event, eventName, core, api = github })
 }
 
 export function assertCurrentEvidence(evidence, api = github) {
-    const run = api(`${PREFIX}/actions/runs/${integer(evidence.runId)}`);
+    const run = readRun(evidence.runId, api);
     assertRun(run);
     const pr = api(`${PREFIX}/pulls/${integer(evidence.pullRequest)}`);
     const status = run.status === 'completed' ? 'completed' : 'in_progress';
