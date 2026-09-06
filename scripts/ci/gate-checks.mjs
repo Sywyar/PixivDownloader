@@ -298,26 +298,26 @@ export function assertCurrentEvidence(evidence, api = github, core) {
 }
 
 export function publishCurrentChecks(evidence, token, core, api = github) {
-    const currentMerge = assertCurrentEvidence(evidence, api, core);
-    // 保留被测 M 的检查供主线复验；GitHub 重建临时 M 时，只签发双亲和树均相同的当前对象。
-    const targets = [...new Set([evidence.merge, currentMerge])];
+    assertCurrentEvidence(evidence, api, core);
+    // 原被测 M 保留复验证据；PR 的原生检查关联使用稳定的 head，临时 M 可被 GitHub 重建。
+    const targets = [...new Set([evidence.merge, evidence.head])];
     try {
-        for (const merge of targets) publishChecks({ ...evidence, merge }, token, api);
-        if (assertCurrentEvidence(evidence, api, core) !== currentMerge) fail('PR merge changed during check publication');
+        for (const target of targets) publishChecks(evidence, token, api, target);
+        assertCurrentEvidence(evidence, api, core);
     } catch (error) {
         // 多次 API 写入并非原子操作；重跑、更新或部分写入失败时撤销本轮全部目标的成功。
         let revokeError;
-        for (const merge of targets.toReversed()) {
-            try { publishChecks({ ...evidence, merge, status: 'completed', conclusion: 'failure' }, token, api); }
+        for (const target of targets.toReversed()) {
+            try { publishChecks({ ...evidence, status: 'completed', conclusion: 'failure' }, token, api, target); }
             catch (failure) { revokeError ??= failure; }
         }
         throw revokeError ? new AggregateError([error, revokeError], 'check publication and revocation failed') : error;
     }
 }
 
-export function publishChecks(evidence, token, api = github) {
+export function publishChecks(evidence, token, api = github, target = evidence.merge) {
     if (!token) fail('missing App check token');
-    const existing = completePages(api(`${PREFIX}/commits/${sha(evidence.merge)}/check-runs?filter=latest&per_page=100`,
+    const existing = completePages(api(`${PREFIX}/commits/${sha(target)}/check-runs?filter=latest&per_page=100`,
         { pages: true }), 'check_runs');
     for (const name of evidence.checks) {
         const matches = existing.filter((check) => check.name === name && check.app?.id === APP_ID);
@@ -331,9 +331,9 @@ export function publishChecks(evidence, token, api = github) {
         if (evidence.conclusion) body.conclusion = evidence.conclusion;
         const result = matches.length
             ? api(`${PREFIX}/check-runs/${integer(matches[0].id)}`, { method: 'PATCH', body, token })
-            : api(`${PREFIX}/check-runs`, { method: 'POST', body: { ...body, head_sha: evidence.merge }, token });
-        if (result.app?.id !== APP_ID || result.head_sha !== evidence.merge || result.name !== name) {
-            fail('check response does not match the configured authority and merge');
+            : api(`${PREFIX}/check-runs`, { method: 'POST', body: { ...body, head_sha: target }, token });
+        if (result.app?.id !== APP_ID || result.head_sha !== target || result.name !== name) {
+            fail('check response does not match the configured authority and target');
         }
     }
 }

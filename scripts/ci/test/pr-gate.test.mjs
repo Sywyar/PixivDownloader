@@ -202,12 +202,12 @@ test('publication rechecks the current PR and newest run even when fork run asso
     assert.throws(() => assertCurrentEvidence({ ...evidence, conclusion: 'failure' }, api), /changed/u);
 });
 
-test('regenerated PR merges require the tested parents and tree, retain replay evidence, and revoke raced writes', () => {
+test('PR checks attach to the head, retain tested merge evidence, and reject changed execution', () => {
     const f = fixture(), current = 'e'.repeat(40), later = 'f'.repeat(40);
     const evidence = { ...verifyRunIdentity(f), pullRequest: 42, checks: roles, status: 'completed', conclusion: 'success' };
     const pr = { number: 42, state: 'open', base: { sha: B, ref: 'master', repo: { id: 1089943605 } },
         head: { sha: H, ref: 'feature', repo: { id: 12345 } }, merge_commit_sha: current };
-    let merge = { ...structuredClone(f.merge), sha: current }, race = false, writes = 0;
+    let merge = { ...structuredClone(f.merge), sha: current }, race, writes = 0;
     const checks = new Map();
     const api = (endpoint, options = {}) => {
         if (endpoint.endsWith('/workflows/999')) return f.workflow;
@@ -224,28 +224,45 @@ test('regenerated PR merges require the tested parents and tree, retain replay e
             const id = options.method === 'POST' ? checks.size + 1 : Number(endpoint.split('/').at(-1));
             const row = { ...checks.get(id), id, app: { id: 4837005 }, ...options.body };
             checks.set(id, row);
-            if (race && ++writes === roles.length * 2) pr.merge_commit_sha = later;
+            if (race && ++writes === roles.length * 2) race();
             return row;
         }
         throw new Error(`unexpected regenerated-merge request: ${endpoint}`);
     };
     publishCurrentChecks(evidence, 'test-only-token', core, api);
-    for (const target of [M, current]) verifyAppChecks({ evidence: { ...evidence, merge: target },
-        checks: [...checks.values()].filter(c => c.head_sha === target) });
+    verifyAppChecks({ evidence, checks: [...checks.values()].filter(c => c.head_sha === M) });
+    const headChecks = [...checks.values()].filter(c => c.head_sha === H);
+    assert.deepEqual(headChecks.map(c => c.name), roles, 'PR 原生汇总按 head 关联检查');
+    assert.ok(headChecks.every(c => c.conclusion === 'success' && c.app.id === 4837005
+        && c.details_url.endsWith('/runs/123/attempts/2') && c.output.summary.includes(`merge ${M}`)));
+    assert.throws(() => verifyAppChecks({ evidence, checks: headChecks }), 'head 检查不能替代被测 M 的复验证据');
+    assert.equal(checks.size, roles.length * 2);
     checks.clear(); pr.merge_commit_sha = M;
     publishCurrentChecks(evidence, 'test-only-token', core, api);
-    assert.equal(checks.size, roles.length, '未重建时只维护一组检查');
+    assert.equal(checks.size, roles.length * 2);
     pr.merge_commit_sha = current;
     for (const mutate of [m => { m.parents.reverse(); }, m => { m.parents.pop(); }, m => { m.tree.sha = H; }]) {
         const saved = structuredClone(merge); mutate(merge); checks.clear();
         assert.throws(() => publishCurrentChecks(evidence, 'test-only-token', core, api), /parents and tree/u);
         assert.equal(checks.size, 0); merge = saved;
     }
-    checks.clear(); race = true;
-    assert.throws(() => publishCurrentChecks(evidence, 'test-only-token', core, api), /changed during/u);
+    checks.clear(); race = () => { pr.merge_commit_sha = later; };
+    publishCurrentChecks(evidence, 'test-only-token', core, api);
     assert.equal(checks.size, roles.length * 2);
-    assert.ok([...checks.values()].every(c => c.conclusion === 'failure'));
-    checks.clear(); race = false; pr.merge_commit_sha = current;
+    assert.ok([...checks.values()].every(c => c.conclusion === 'success'), '仅重建相同双亲和树不使 head 检查失效');
+    for (const mutate of [
+        () => { pr.base.sha = H; }, () => { pr.head.sha = B; },
+        () => { f.run.run_attempt++; }, () => { f.run.conclusion = 'failure'; },
+        () => { pr.merge_commit_sha = later; merge.tree.sha = H; },
+    ]) {
+        const savedRun = structuredClone(f.run), savedPr = structuredClone(pr), savedMerge = structuredClone(merge);
+        checks.clear(); writes = 0; race = mutate;
+        assert.throws(() => publishCurrentChecks(evidence, 'test-only-token', core, api));
+        assert.equal(checks.size, roles.length * 2);
+        assert.ok([...checks.values()].every(c => c.conclusion === 'failure'));
+        Object.assign(f.run, savedRun); Object.assign(pr, savedPr); merge = savedMerge;
+    }
+    checks.clear(); race = undefined; pr.merge_commit_sha = current;
     let requests = 0;
     assert.throws(() => publishCurrentChecks(evidence, 'test-only-token', core, (endpoint, options) => {
         if (options?.method && ++requests === roles.length + 2) throw new Error('partial API write failed');
