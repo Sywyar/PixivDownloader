@@ -49,7 +49,7 @@ function fixture() {
             if: "github.event.action != 'edited' || github.event.changes.base != null",
             uses: 'Sywyar/PixivDownloader/.github/workflows/quality-gate.yml@master',
         } } };
-    const run = { id: 123, run_attempt: 2, run_started_at: '2026-09-05T08:02:00Z', head_sha: H, name: caller.name,
+    const run = { id: 123, workflow_id: 999, run_attempt: 2, run_started_at: '2026-09-05T08:02:00Z', head_sha: H, name: caller.name,
         display_title: 'PR #42', head_branch: 'feature', head_repository: { id: 12345 },
         repository: { id: 1089943605, full_name: 'Sywyar/PixivDownloader' },
         event: 'pull_request', path: '.github/workflows/pr-quality-gate.yml',
@@ -65,7 +65,8 @@ function fixture() {
         started_at: '2026-09-05T08:00:10Z', completed_at: '2026-09-05T08:01:00Z',
         steps: [{ number: 1, name: 'Execute check', status: 'completed', conclusion: 'success',
             started_at: '2026-09-05T08:00:10Z', completed_at: '2026-09-05T08:01:00Z' }] }));
-    return { run, proof, merge, jobs, caller, protectedBase: B };
+    const workflow = { id: run.workflow_id, name: caller.name, path: run.path };
+    return { run, proof, merge, jobs, caller, workflow, protectedBase: B };
 }
 
 test('protected job evidence binds head, base, tested merge, integrated tree and App source', () => {
@@ -172,10 +173,18 @@ test('publication rechecks the current PR and newest run even when fork run asso
     const evidence = { ...verifyRunIdentity(f), pullRequest: 42, status: 'completed', conclusion: 'success' };
     const pr = { state: 'open', base: { sha: B, ref: 'master', repo: { id: 1089943605 } },
         head: { sha: H, ref: 'feature', repo: { id: 12345 } }, merge_commit_sha: M };
-    const api = (endpoint, options) => endpoint.includes('/jobs?') ? [{ total_count: f.jobs.length, jobs: f.jobs }] : options?.pages
+    const api = (endpoint, options) => endpoint.endsWith('/workflows/999') ? f.workflow
+        : endpoint.includes('/jobs?') ? [{ total_count: f.jobs.length, jobs: f.jobs }] : options?.pages
         ? [{ total_count: 1, workflow_runs: [f.run] }]
         : endpoint.endsWith('/pulls/42') ? pr : f.run;
     assertCurrentEvidence(evidence, api);
+    f.run.name = 'PR #42';
+    assertCurrentEvidence(evidence, api);
+    assert.equal(f.run.name, 'PR #42', '读取 workflow 身份不得篡改原生运行标题');
+    for (const change of [
+        { id: 1000 }, { path: '.github/workflows/foreign.yml' }, { name: 'Foreign workflow' },
+    ]) assert.throws(() => assertCurrentEvidence(evidence, (endpoint, options) =>
+        endpoint.endsWith('/workflows/999') ? { ...f.workflow, ...change } : api(endpoint, options)));
     for (const mutate of [
         () => { f.run.run_attempt++; },
         () => { pr.base.sha = H; },
@@ -186,7 +195,7 @@ test('publication rechecks the current PR and newest run even when fork run asso
         assert.throws(() => assertCurrentEvidence(evidence, api));
         Object.assign(f.run, savedRun); Object.assign(pr, savedPr);
     }
-    assert.throws(() => assertCurrentEvidence(evidence, (endpoint, options) => endpoint.includes('/workflows/')
+    assert.throws(() => assertCurrentEvidence(evidence, (endpoint, options) => endpoint.includes('/workflows/pr-quality-gate.yml/runs')
         ? [{ total_count: 2, workflow_runs: [f.run, { ...f.run, id: 124 }] }] : api(endpoint, options)), /newer PR/u);
     assert.throws(() => assertCurrentEvidence(evidence, () => { throw new Error('API unavailable'); }), /API unavailable/u);
     assert.throws(() => assertCurrentEvidence({ ...evidence, status: 'in_progress', conclusion: null }, api), /changed/u);
@@ -200,6 +209,7 @@ test('late text-only PR edits reconcile the latest execution without publishing 
     f.run.status = 'in_progress'; f.run.conclusion = null;
     f.run.pull_requests = [{ number: 42 }];
     const api = (endpoint) => {
+        if (endpoint.endsWith('/workflows/999')) return f.workflow;
         if (endpoint.endsWith('/actions/runs/123')) return f.run;
         if (endpoint.endsWith('/actions/runs/124')) return skipped;
         if (endpoint.includes('/runs/124/jobs')) return [{ total_count: 1, jobs: [{ id: 99,
@@ -228,6 +238,7 @@ test('fork runs match the PR repository and branch; development targets and clos
     const devRun = { ...f.run, id: 125, display_title: 'PR #44' };
     const otherRun = { ...f.run, id: 124, display_title: 'PR #43', head_repository: { id: 54321 } };
     const api = (endpoint) => {
+        if (endpoint.endsWith('/workflows/999')) return f.workflow;
         if (endpoint.endsWith('/pulls/42')) return pr;
         if (endpoint.endsWith('/pulls/43')) return other;
         if (endpoint.endsWith('/pulls/44')) return development;
@@ -388,6 +399,7 @@ test('protected predecessor admits only its approved core, permits ordinary root
         Object.assign(f.jobs[0].steps[0], { started_at: f.jobs[0].started_at, completed_at: f.jobs[0].completed_at });
         const contractId = f.jobs.find((job) => job.name === 'quality-gate / trusted-gate-contract').id;
         const api = (endpoint, options = {}) => {
+            if (endpoint.endsWith('/workflows/999')) return f.workflow;
             if (endpoint.endsWith('/actions/runs/123')) return f.run;
             if (endpoint.includes(`/actions/jobs/${contractId}/logs`)) return `GATE_EXECUTION ${JSON.stringify(f.proof)}`;
             if (endpoint.endsWith(`/git/commits/${merge}`)) return { sha: merge, tree: { sha: tree }, parents: [{ sha: base }, { sha: root }] };
@@ -398,6 +410,7 @@ test('protected predecessor admits only its approved core, permits ordinary root
             if (options.pages && endpoint.includes('/jobs?filter=latest')) return [{ total_count: 6, jobs: f.jobs }];
             throw new Error(`unexpected test API request: ${endpoint}`);
         };
+        f.run.name = 'PR #42';
         const evidence = await inspectRun({ repo, runId: 123, api, core });
         assert.equal(evidence.merge, merge);
         assert.equal(evidence.attempt, 2);
@@ -492,10 +505,11 @@ test('protected predecessor admits only its approved core, permits ordinary root
         assert.equal(git(['config', '--get', 'pixiv.release.trustedGateRef']), merge);
         assert.equal(fs.existsSync(path.join(repo, '.git/config.lock')), false);
         const full = { ...f.run, event: 'workflow_dispatch', head_branch: 'master', head_sha: merge,
-            path: '.github/workflows/quality-gate.yml', name: 'Quality Gate', referenced_workflows: [] };
+            path: '.github/workflows/quality-gate.yml', name: 'Manual verification', referenced_workflows: [] };
         const fullJobs = f.jobs.map((job) => ({ ...job, name: job.name.replace('quality-gate / ', ''), head_sha: merge }));
         const originalFullJobs = originalJobs.map((job) => ({ ...job, name: job.name.replace('quality-gate / ', ''), head_sha: merge }));
         const fullApi = (endpoint, options = {}) => {
+            if (endpoint.endsWith('/workflows/999')) return { id: 999, name: 'Quality Gate', path: full.path };
             if (endpoint.includes('/workflows/pr-quality-gate.yml/runs')) return [{ total_count: 0, workflow_runs: [] }];
             if (endpoint.includes('/workflows/quality-gate.yml/runs')) return [{ total_count: 1, workflow_runs: [full] }];
             if (endpoint.endsWith('/actions/runs/123') || endpoint.endsWith('/attempts/2')) return full;
@@ -622,6 +636,7 @@ test('protected predecessor admits only its approved core, permits ordinary root
         required.proof = { ...required.proof, base: merge, head: requiredHead, merge: requiredMerge };
         required.jobs.forEach((job) => { job.head_sha = requiredHead; });
         const requiredApi = (endpoint) => {
+            if (endpoint.endsWith('/workflows/999')) return required.workflow;
             if (endpoint.endsWith('/actions/runs/123')) return required.run;
             if (endpoint.includes('/jobs?')) return [{ total_count: 6, jobs: required.jobs }];
             if (endpoint.endsWith('/logs')) return `GATE_EXECUTION ${JSON.stringify(required.proof)}`;
