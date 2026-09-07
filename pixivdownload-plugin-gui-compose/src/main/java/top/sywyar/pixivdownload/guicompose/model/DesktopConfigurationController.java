@@ -835,26 +835,32 @@ final class DesktopConfigurationController {
     }
 
     private Map<String, String> pendingInterfaceValues() {
-        String language = form(
-                "interface.language",
-                selected("app.language", "follow-system")
-        );
+        return normalizeInterfaceValues(Map.of(
+                "app.language",
+                selected("app.language", "follow-system"),
+                "app.gui-provider",
+                selectedProvider(),
+                "app.theme",
+                selected("app.theme", "system"),
+                "app.config-menu-expand-all",
+                selected("app.config-menu-expand-all", "false")
+        ));
+    }
+
+    Map<String, String> normalizeInterfaceValues(Map<String, String> preferences) {
+        String language = preferences.getOrDefault("app.language", "follow-system");
         if (!"follow-system".equals(language) && host.matchLocale(language).isEmpty())
             language = "follow-system";
         Set<String> availableProviders = owner.currentSources().stream().filter(source -> source.desktopUiProvider()).map(
                 DesktopUiPluginSnapshot::id).collect(java.util.stream.Collectors.toSet());
-        String provider = form(
-                "interface.provider",
-                selectedProvider()
-        );
+        String provider = preferences.getOrDefault("app.gui-provider", owner.selectedProviderId());
         if (!availableProviders.contains(provider)) provider = owner.selectedProviderId();
         Set<String> availableThemes = view.fields.themeOptions(provider).stream().map(DesktopUiNode.Option::id).collect(
                 java.util.stream.Collectors.toSet());
-        String theme = form("interface.theme", selected("app.theme", "system"));
+        String theme = preferences.getOrDefault("app.theme", "system");
         if (!availableThemes.contains(theme)) theme = "system";
-        String expandAll = Boolean.toString(boolForm(
-                "interface.config-menu-expand-all",
-                Boolean.parseBoolean(selected("app.config-menu-expand-all", "false"))
+        String expandAll = Boolean.toString(Boolean.parseBoolean(
+                preferences.get("app.config-menu-expand-all")
         ));
         return Map.of(
                 "app.language",
@@ -966,10 +972,6 @@ final class DesktopConfigurationController {
 
     private String form(String key, String fallback) {
         return formValues.getOrDefault(key, fallback);
-    }
-
-    private boolean boolForm(String key, boolean fallback) {
-        return Boolean.parseBoolean(form(key, Boolean.toString(fallback)));
     }
 
     private void setConfigNotice(String value) {

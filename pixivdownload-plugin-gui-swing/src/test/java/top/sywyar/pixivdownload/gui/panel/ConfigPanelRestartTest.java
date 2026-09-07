@@ -14,8 +14,10 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPluginSnapshot;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
+import javax.swing.SwingUtilities;
 import java.awt.Component;
 import java.awt.Container;
 import java.lang.reflect.Proxy;
@@ -114,6 +116,188 @@ class ConfigPanelRestartTest {
         assertThat(backendRestarts).hasValue(0);
     }
 
+    @Test
+    @DisplayName("缺项空值和不可用偏好自动回退后保存不改写也不提示重启")
+    void fallbackPreferencesRemainUnchangedOnSave() throws Exception {
+        for (Map<String, String> stored : List.of(
+                Map.<String, String>of(),
+                Map.of(
+                        "app.language",
+                        "",
+                        "app.gui-provider",
+                        "",
+                        "app.theme",
+                        "",
+                        "app.config-menu-expand-all",
+                        ""
+                ),
+                Map.of(
+                        "app.language",
+                        "unknown",
+                        "app.gui-provider",
+                        "removed-ui",
+                        "app.theme",
+                        "unavailable",
+                        "app.config-menu-expand-all",
+                        "false"
+                ),
+                Map.of(
+                        "app.language",
+                        "zh-cn",
+                        "app.gui-provider",
+                        " gui-swing ",
+                        "app.theme",
+                        "dark",
+                        "app.config-menu-expand-all",
+                        "TRUE"
+                )
+        )) {
+            SwingUtilities.invokeAndWait(() -> {
+                MemoryConfigFile config = installHost(stored);
+                AtomicInteger restarts = new AtomicInteger();
+                ConfigPanel panel = preferencePanel(restarts);
+
+                findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+
+                assertThat(config.values).isEqualTo(stored);
+                assertThat(config.writes).isZero();
+                assertThat(restarts).hasValue(0);
+            });
+        }
+    }
+
+    @Test
+    @DisplayName("提供者还原后不写配置而实际切换保存回退主题且不重复提示重启")
+    void providerRevertAndSaveKeepAnIndependentBaseline() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            Map<String, String> stored = Map.of(
+                    "app.language",
+                    "unknown",
+                    "app.gui-provider",
+                    "removed-ui",
+                    "app.theme",
+                    "unavailable"
+            );
+            MemoryConfigFile config = installHost(stored);
+            AtomicInteger restarts = new AtomicInteger();
+            ConfigPanel panel = preferencePanel(restarts);
+            selectProvider(panel, "gui-compose");
+            selectProvider(panel, "gui-swing");
+            findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+            assertThat(config.values).isEqualTo(stored);
+            assertThat(config.writes).isZero();
+            assertThat(restarts).hasValue(0);
+
+            selectProvider(panel, "gui-compose");
+            findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+            assertThat(config.values).containsExactlyInAnyOrderEntriesOf(Map.of(
+                    "app.language",
+                    "unknown",
+                    "app.gui-provider",
+                    "gui-compose",
+                    "app.theme",
+                    "system"
+            ));
+            assertThat(config.writes).isEqualTo(1);
+            assertThat(restarts).hasValue(1);
+
+            findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+            assertThat(config.writes).isEqualTo(1);
+            assertThat(restarts).hasValue(1);
+        });
+    }
+
+    @Test
+    @DisplayName("面板重建保留偏好草稿且只持久化实际修改的偏好")
+    void rebuiltPanelKeepsDraftSeparateFromSavedPreferences() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            Map<String, String> stored = Map.of(
+                    "app.gui-provider",
+                    "removed-ui",
+                    "app.theme",
+                    "unavailable"
+            );
+            MemoryConfigFile config = installHost(stored);
+            Map<String, String> draft = new LinkedHashMap<>();
+            ConfigPanel first = preferencePanel(draft);
+            JCheckBox expand = preferenceControl(
+                    first,
+                    InterfacePreferencesPanel.EXPAND_ALL_CONFIG_KEY,
+                    JCheckBox.class
+            );
+            expand.doClick();
+            expand.doClick();
+            findButton(first, GuiMessages.get("gui.button.save")).doClick();
+            assertThat(config.writes).isZero();
+
+            expand.doClick();
+            ConfigPanel rebuilt = preferencePanel(draft);
+            assertThat(preferenceControl(
+                    rebuilt,
+                    InterfacePreferencesPanel.EXPAND_ALL_CONFIG_KEY,
+                    JCheckBox.class
+            ).isSelected()).isTrue();
+            findButton(rebuilt, GuiMessages.get("gui.button.save")).doClick();
+            assertThat(config.values).containsExactlyInAnyOrderEntriesOf(Map.of(
+                    "app.gui-provider",
+                    "removed-ui",
+                    "app.theme",
+                    "unavailable",
+                    "app.config-menu-expand-all",
+                    "true"
+            ));
+            assertThat(config.writes).isEqualTo(1);
+            assertThat(draft).isEmpty();
+
+            ConfigPanel saved = preferencePanel(draft);
+            findButton(saved, GuiMessages.get("gui.button.save")).doClick();
+            assertThat(config.writes).isEqualTo(1);
+        });
+    }
+
+    private ConfigPanel preferencePanel(AtomicInteger restarts) {
+        return new ConfigPanel(
+                tempDir.resolve("config.yaml"),
+                6999,
+                path -> path,
+                new ConfigFieldSnapshot(List.of(), List.of(), List.of()),
+                null,
+                null,
+                () -> { restarts.incrementAndGet(); return false; },
+                () -> false,
+                () -> { restarts.incrementAndGet(); return false; },
+                () -> false
+        );
+    }
+
+    private ConfigPanel preferencePanel(Map<String, String> draft) {
+        return new ConfigPanel(
+                tempDir.resolve("config.yaml"),
+                6999,
+                path -> path,
+                new ConfigFieldSnapshot(List.of(), List.of(), List.of()),
+                null,
+                null,
+                draft
+        );
+    }
+
+    private static void selectProvider(ConfigPanel panel, String providerId) {
+        JComboBox<?> combo = preferenceControl(
+                panel,
+                InterfacePreferencesPanel.GUI_PROVIDER_CONFIG_KEY,
+                JComboBox.class
+        );
+        for (int index = 0; index < combo.getItemCount(); index++) {
+            if (combo.getItemAt(index) instanceof InterfacePreferencesPanel.ProviderOption option
+                    && providerId.equals(option.id())) {
+                combo.setSelectedItem(option);
+                return;
+            }
+        }
+        throw new AssertionError("provider not found: " + providerId);
+    }
+
     @SuppressWarnings("unchecked")
     private MemoryConfigFile installHost(Map<String, String> values) {
         MemoryConfigFile config = new MemoryConfigFile(values);
@@ -137,6 +321,7 @@ class ConfigPanelRestartTest {
                         yield null;
                     }
                     case "message" -> args[0];
+                    case "guiGet", "guiPostJson" -> DesktopUiHost.GuiResponse.unreachable();
                     case "autoStartSupported", "autoStartEnabled", "launchedFromExecutable",
                          "currentVersionNightly", "supportsManagedFfmpegInstall" -> false;
                     case "defaultProxyPort", "minimumPasswordLength", "recommendedPasswordLength" -> 1;
@@ -221,6 +406,7 @@ class ConfigPanelRestartTest {
 
     private static final class MemoryConfigFile implements DesktopUiHost.ConfigFile {
         private final Map<String, String> values = new LinkedHashMap<>();
+        private int writes;
 
         private MemoryConfigFile(Map<String, String> values) {
             this.values.putAll(values);
@@ -235,7 +421,10 @@ class ConfigPanelRestartTest {
             return result;
         }
 
-        @Override public void writeAll(Map<String, String> updates) { values.putAll(updates); }
+        @Override public void writeAll(Map<String, String> updates) {
+            writes++;
+            values.putAll(updates);
+        }
         @Override public void removeAll(Collection<String> keys) { keys.forEach(values::remove); }
         @Override public DesktopUiHost.ConfigSnapshot snapshot() {
             return new DesktopUiHost.ConfigSnapshot(true, List.of());

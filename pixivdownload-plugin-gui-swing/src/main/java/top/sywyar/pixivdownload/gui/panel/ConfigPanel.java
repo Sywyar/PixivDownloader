@@ -1008,9 +1008,8 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                     : "");
         }
 
-        Map<String, String> interfaceValues = interfacePreferencesPanel.pendingValues();
-        Set<String> interfaceChangedKeys = changedInterfaceKeys(
-                interfaceBefore, interfaceValues, SwingHost.context().selectedProviderId());
+        Map<String, String> interfaceValues = interfacePreferencesPanel.pendingChanges(interfaceBefore);
+        Set<String> interfaceChangedKeys = interfaceValues.keySet();
         Set<String> changedKeys = changedKeys(before, values);
         Set<String> hotReloadKeys = changedFieldKeys(changedKeys, GuiConfigEffect.HOT_RELOAD);
         boolean hasHotReloadChanges = !hotReloadKeys.isEmpty()
@@ -1038,6 +1037,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                     sectionRestartChange = true;
                 }
             }
+            interfacePreferencesPanel.changesSaved();
             GuiConfigEffect pendingRestart = hasProcessRestartChanges
                     ? GuiConfigEffect.PROCESS_RESTART
                     : hasBackendRestartChanges || sectionRestartChange
@@ -1168,32 +1168,6 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             }
         }
         return changed;
-    }
-
-    private static Set<String> changedInterfaceKeys(Map<String, String> before, Map<String, String> after,
-                                                    String activeProviderId) {
-        Set<String> changed = new LinkedHashSet<>();
-        for (String key : InterfacePreferencesPanel.CONFIG_KEYS) {
-            if (!Objects.equals(normalizeInterfaceValue(key, before.get(key), activeProviderId),
-                    normalizeInterfaceValue(key, after.get(key), activeProviderId))) {
-                changed.add(key);
-            }
-        }
-        return changed;
-    }
-
-    private static String normalizeInterfaceValue(String key, String value, String activeProviderId) {
-        String normalized = normalizeValue(value);
-        if (InterfacePreferencesPanel.LANGUAGE_CONFIG_KEY.equals(key)) {
-            return normalized.isBlank() ? "follow-system" : normalized;
-        }
-        if (InterfacePreferencesPanel.GUI_PROVIDER_CONFIG_KEY.equals(key)) {
-            return normalized.isBlank() ? activeProviderId : normalized;
-        }
-        if (InterfacePreferencesPanel.THEME_CONFIG_KEY.equals(key)) {
-            return normalized.isBlank() ? "system" : normalized;
-        }
-        return normalized.isBlank() ? "false" : Boolean.toString(Boolean.parseBoolean(normalized));
     }
 
     private String validateFieldValueForSave(ConfigFieldSpec spec, String value) {
