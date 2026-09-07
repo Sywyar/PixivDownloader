@@ -270,6 +270,85 @@ class ConfigPanelRestartTest {
         );
     }
 
+    @Test
+    @DisplayName("隐藏的证书配置无修改保存时保持原值且保留隐藏前的编辑")
+    void hiddenCertificateFieldsPreserveValuesAndEdits() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            Map<String, String> stored = Map.of(
+                    "ssl.type",
+                    "pem",
+                    "server.ssl.key-store-type",
+                    "JKS",
+                    "server.ssl.key-store",
+                    "certificate.jks",
+                    "server.ssl.key-store-password",
+                    "fixture-password"
+            );
+            MemoryConfigFile config = installHost(stored);
+            String group = "Certificates";
+            List<ConfigFieldSpec> fields = List.of(
+                    ConfigFieldSpec.builder(
+                                    "ssl.type",
+                                    "Type",
+                                    FieldType.ENUM,
+                                    group
+                            )
+                            .enumValues("pem", "jks").defaultValue("pem").build(),
+                    ConfigFieldSpec.builder(
+                                    "server.ssl.key-store-type",
+                                    "Store type",
+                                    FieldType.STRING,
+                                    group
+                            )
+                            .defaultValue("JKS").visibleWhen(snapshot -> snapshot.equals("ssl.type", "jks")).build(),
+                    ConfigFieldSpec.builder(
+                                    "server.ssl.key-store",
+                                    "Store",
+                                    FieldType.PATH_FILE,
+                                    group
+                            )
+                            .visibleWhen(snapshot -> snapshot.equals("ssl.type", "jks")).build(),
+                    ConfigFieldSpec.builder(
+                                    "server.ssl.key-store-password",
+                                    "Password",
+                                    FieldType.PASSWORD,
+                                    group
+                            )
+                            .visibleWhen(snapshot -> snapshot.equals("ssl.type", "jks")).build()
+            );
+            AtomicInteger restarts = new AtomicInteger();
+            ConfigPanel panel = new ConfigPanel(
+                    tempDir.resolve("config.yaml"),
+                    6999,
+                    path -> path,
+                    new ConfigFieldSnapshot(List.of(group), fields, List.of()),
+                    null,
+                    null,
+                    () -> { restarts.incrementAndGet(); return false; },
+                    () -> false,
+                    () -> { restarts.incrementAndGet(); return false; },
+                    () -> false
+            );
+
+            findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+            assertThat(config.values).isEqualTo(stored);
+            assertThat(restarts).hasValue(0);
+
+            panel.setFieldValue("ssl.type", "jks");
+            panel.setFieldValue("server.ssl.key-store", "updated.jks");
+            panel.setFieldValue("ssl.type", "pem");
+            panel.updateEnabledStates();
+            findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+            Map<String, String> edited = new LinkedHashMap<>(stored);
+            edited.put("server.ssl.key-store", "updated.jks");
+            assertThat(config.values).isEqualTo(edited);
+            assertThat(restarts).hasValue(1);
+
+            findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+            assertThat(restarts).hasValue(1);
+        });
+    }
+
     private ConfigPanel preferencePanel(Map<String, String> draft) {
         return new ConfigPanel(
                 tempDir.resolve("config.yaml"),

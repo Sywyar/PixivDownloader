@@ -989,7 +989,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             return;
         }
 
-        // 收集所有值：核心隐藏字段保持既有语义；插件字段按 contribution 当前值保存，避免卡片切换清空其它插件配置。
+        // 可见性只控制展示；隐藏字段仍保存当前值，保留已有配置和隐藏前的编辑。
         Map<String, String> values = new LinkedHashMap<>();
         for (ConfigFieldSpec spec : allFields) {
             FieldRenderer.RenderedField rf = renderedFields.get(spec.key());
@@ -1003,9 +1003,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 }
                 continue;
             }
-            values.put(spec.key(), rf.panel().isVisible() || shouldPreserveHiddenValue(spec)
-                    ? rf.getValue().get()
-                    : "");
+            values.put(spec.key(), rf.getValue().get());
         }
 
         Map<String, String> interfaceValues = interfacePreferencesPanel.pendingChanges(interfaceBefore);
@@ -1737,11 +1735,6 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         };
     }
 
-    private static boolean shouldPreserveHiddenValue(ConfigFieldSpec spec) {
-        // debug.enabled 在未解锁时隐藏，但其值仍应原样保留（写空会清掉用户已有的调试开关）
-        return spec.pluginContributed() || isMaintenanceDayTimeKey(spec.key()) || "debug.enabled".equals(spec.key());
-    }
-
     private static boolean isPluginCredential(ConfigFieldSpec spec) {
         return spec != null && spec.pluginContributed() && spec.type() == FieldType.PASSWORD;
     }
@@ -1769,10 +1762,6 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
     private static boolean isMaintenanceDayEnabledKey(String key) {
         return maintenanceDayKey(key, "enabled");
-    }
-
-    private static boolean isMaintenanceDayTimeKey(String key) {
-        return maintenanceDayKey(key, "time");
     }
 
     private static boolean maintenanceDayKey(String key, String suffix) {
