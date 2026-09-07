@@ -1,0 +1,45 @@
+name: Verify SDK artifacts
+description: Build and validate the SDK, templates, Javadocs and isolated third-party consumers
+
+inputs:
+  source_sha:
+    description: Exact source commit recorded in the SDK artifacts
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Stage SDK Maven artifacts
+      shell: bash
+      env:
+        SOURCE_SHA: ${{ inputs.source_sha }}
+      run: |
+        set -euo pipefail
+        staging="$GITHUB_WORKSPACE/target/sdk-staging"
+        staging_url="$(node --input-type=module -e 'import { pathToFileURL } from "node:url"; console.log(pathToFileURL(process.argv[1]).href)' "$staging")"
+        mvn -B -ntp -pl pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api,pixivdownload-sdk-bom deploy \
+          -DskipTests -Dexec.skip=true "-Dpixivdownload.source.sha=$SOURCE_SHA" \
+          "-DaltDeploymentRepository=sdk-staging::$staging_url"
+        mvn -B -ntp -pl pixivdownload-plugin-signature package -DskipTests -Dexec.skip=true
+
+    - name: Verify standalone plugin templates
+      shell: bash
+      run: mvn -B -ntp -f plugin-templates/pom.xml -pl minimal-feature-plugin,download-type-plugin verify
+
+    - name: Generate complete SDK Javadocs
+      shell: bash
+      run: |
+        mvn -B -ntp -pl pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api org.apache.maven.plugins:maven-javadoc-plugin:javadoc -DskipTests -Dexec.skip=true
+        node scripts/ci/sdk-javadocs.mjs --repo-root .
+
+    - name: Verify integrated SDK and isolated consumers
+      shell: bash
+      env:
+        SOURCE_SHA: ${{ inputs.source_sha }}
+      run: |
+        set -euo pipefail
+        sdk_version="$(node scripts/ci/sdk-version.mjs --repo-root . --json | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')"
+        node scripts/ci/sdk-release.mjs --repo-root . --output target/sdk-release --source-sha "$SOURCE_SHA"
+        node scripts/ci/sdk-consumer.mjs --repo-root . \
+          --sdk-zip "target/sdk-release/PixivDownloader-Plugin-SDK-$sdk_version.zip" \
+          --sdk-repository target/sdk-staging --work-dir target/sdk-staged-consumer

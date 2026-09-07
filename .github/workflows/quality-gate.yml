@@ -60,10 +60,10 @@ jobs:
         run: mvn -B -ntp -pl pixivdownload-official-plugins -am compile -Dexec.skip=true
       - name: Run Java tests
         run: mvn -B -ntp test -Dexec.skip=true -Duser.language=en -Duser.country=US
-      - name: Package SDK contract artifacts
-        run: mvn -B -ntp -pl
-          pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api,pixivdownload-sdk-bom
-          package -DskipTests -Dexec.skip=true
+      - name: Verify SDK, templates and isolated consumers
+        uses: ./.github/actions/verify-sdk
+        with:
+          source_sha: ${{ github.sha }}
       - name: Compare SDK public contract
         run: |
           BASE_DIR="$RUNNER_TEMP/sdk-base-source"
@@ -76,7 +76,7 @@ jobs:
           cat "$RUNNER_TEMP/sdk-contract-report.json"
 
   release-artifacts:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     timeout-minutes: 60
     steps:
       - name: Checkout tested commit
@@ -96,12 +96,31 @@ jobs:
           node-version: '24'
       - name: Build release artifacts with ProGuard
         run: mvn -B -ntp verify -Pofficial-surveys -DskipTests
-      - name: Verify packaged release boundaries
+      - name: Run Windows Compose tests using the compiled plugin
+        working-directory: pixivdownload-plugin-gui-compose
+        shell: pwsh
         run: |
-          mvn -B -ntp -pl pixivdownload-app -am test -Dtest=DistributionPackagingBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false -Ddistribution.packaging.require-artifacts=true -Dexec.skip=true
-          REPORT=$(find pixivdownload-app/target/surefire-reports -name '*DistributionPackagingBoundaryTest.txt' -print -quit)
-          test -n "$REPORT"
-          grep -Eq 'Tests run: [1-9][0-9]*, Failures: 0, Errors: 0, Skipped: 0' "$REPORT"
+          ./gradlew.bat --no-daemon mavenTest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $reports = @(Get-ChildItem build/test-results/test/TEST-*.xml -File)
+          if ($reports.Count -eq 0) { throw "Compose test reports are missing." }
+          $count = 0
+          foreach ($report in $reports) {
+            [xml]$xml = Get-Content -LiteralPath $report.FullName -Raw
+            $suite = $xml.testsuite
+            if ([int]$suite.failures -ne 0 -or [int]$suite.errors -ne 0 -or [int]$suite.skipped -ne 0) {
+              throw "Compose tests failed or were skipped: $($report.Name)"
+            }
+            $count += [int]$suite.tests
+          }
+          if ($count -eq 0) { throw "No Compose tests ran." }
+      - name: Parse PowerShell scripts with Windows PowerShell
+        shell: powershell
+        run: ./scripts/ci/check-powershell.ps1
+      - name: Verify packaged release boundaries
+        uses: ./.github/actions/verify-release-boundaries
+        with:
+          additional_tests: StagedFileDeletionTest#rejectsWindowsJunctionBeforeStaging,WorkDeletionFileRollbackTest#novelJunctionAbortsFilesAndSoftDelete,DeleteStagingManifestTest#rejectsWindowsJunctionParentDuringRecovery
 
   javascript-tests:
     runs-on: ubuntu-latest
@@ -274,6 +293,10 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.sha }}
+
+      - name: Parse PowerShell scripts with PowerShell Core
+        shell: pwsh
+        run: ./scripts/ci/check-powershell.ps1
 
       - name: Verify .user.js shared snippets are in sync
         shell: pwsh

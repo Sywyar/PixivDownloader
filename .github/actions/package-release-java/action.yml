@@ -47,12 +47,9 @@ runs:
         "-Dplugin.credential.filter=$PLUGIN_CREDENTIAL_FILTER"
 
     - name: Verify packaged distribution boundaries
-      shell: bash
-      run: |
-        mvn -B -ntp -pl pixivdownload-app -am test -Dtest=DistributionPackagingBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false -Ddistribution.packaging.require-artifacts=true -Ddistribution.packaging.require-production-credential-key=true -Dexec.skip=true
-        REPORT=$(find pixivdownload-app/target/surefire-reports -name '*DistributionPackagingBoundaryTest.txt' -print -quit)
-        test -n "$REPORT"
-        grep -Eq 'Tests run: [1-9][0-9]*, Failures: 0, Errors: 0, Skipped: 0' "$REPORT"
+      uses: ./.github/actions/verify-release-boundaries
+      with:
+        require_production_credential_key: 'true'
 
     - name: Stage executable JAR
       shell: bash

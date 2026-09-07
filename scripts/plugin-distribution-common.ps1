@@ -483,6 +483,154 @@ function Assert-ProguardProcessedArtifact {
     }
 }
 
+function Assert-BootJarBoundary {
+    param([string]$JarPath)
+    Assert-ProguardProcessedArtifact $JarPath
+    $entries = Get-ZipEntryNames $JarPath
+    # Shared SDK contracts may be merged into BOOT-INF/classes; reject plugin implementations only.
+    $forbidden = @(
+        "BOOT-INF/classes/i18n/ai/",
+        "BOOT-INF/classes/i18n/mail/",
+        "BOOT-INF/classes/i18n/novel/",
+        "BOOT-INF/classes/i18n/push/",
+        "BOOT-INF/classes/i18n/tts/",
+        "BOOT-INF/classes/i18n/web/ai",
+        "BOOT-INF/classes/i18n/web/artwork",
+        "BOOT-INF/classes/i18n/web/batch",
+        "BOOT-INF/classes/i18n/web/douyin",
+        "BOOT-INF/classes/i18n/web/duplicates",
+        "BOOT-INF/classes/i18n/web/gallery",
+        "BOOT-INF/classes/i18n/web/gui-compose",
+        "BOOT-INF/classes/i18n/web/gui-swing",
+        "BOOT-INF/classes/i18n/web/mail",
+        "BOOT-INF/classes/i18n/web/multi-mode-decision-survey",
+        "BOOT-INF/classes/i18n/web/narration",
+        "BOOT-INF/classes/i18n/web/notification",
+        "BOOT-INF/classes/i18n/web/novel",
+        "BOOT-INF/classes/i18n/web/push",
+        "BOOT-INF/classes/i18n/web/series",
+        "BOOT-INF/classes/i18n/web/showcase",
+        "BOOT-INF/classes/i18n/web/stats",
+        "BOOT-INF/classes/i18n/web/translate",
+        "BOOT-INF/classes/i18n/web/tts",
+        "BOOT-INF/classes/i18n/web/userscript",
+        "BOOT-INF/classes/mail/",
+        "BOOT-INF/classes/notification/templates/",
+        "BOOT-INF/classes/org/pf4j/",
+        "BOOT-INF/classes/static/pixiv-ai",
+        "BOOT-INF/classes/static/pixiv-artwork",
+        "BOOT-INF/classes/static/pixiv-batch",
+        "BOOT-INF/classes/static/pixiv-douyin-download",
+        "BOOT-INF/classes/static/pixiv-douyin-gallery",
+        "BOOT-INF/classes/static/pixiv-douyin.html",
+        "BOOT-INF/classes/static/pixiv-douyin/",
+        "BOOT-INF/classes/static/pixiv-duplicates",
+        "BOOT-INF/classes/static/pixiv-gallery",
+        "BOOT-INF/classes/static/pixiv-multi-mode-decision-survey/",
+        "BOOT-INF/classes/static/pixiv-novel-download",
+        "BOOT-INF/classes/static/pixiv-novel-gallery",
+        "BOOT-INF/classes/static/pixiv-novel.html",
+        "BOOT-INF/classes/static/pixiv-novel/",
+        "BOOT-INF/classes/static/pixiv-series",
+        "BOOT-INF/classes/static/pixiv-showcase",
+        "BOOT-INF/classes/static/pixiv-stats",
+        "BOOT-INF/classes/static/pixiv-tts",
+        "BOOT-INF/classes/static/userscripts/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/ai/AiConfig",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/ai/AiPf4jPlugin",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/ai/AiPlugin",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/ai/OpenAiCompatibleAiClient",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/ai/controller/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/ai/http/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/ai/model/AiModelInfo",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/ai/preset/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/ai/probe/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/douyin/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/download/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/duplicate/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/gallery/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/gallerytools/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/guicompose/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/guitheme/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/mail/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/multimodesurvey/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/notification/MailNotificationSink",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/notification/NotificationPushTestController",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/notification/PushNotificationSink",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/notificationbase/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/novel/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/novelgallery/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/push/MarkdownEscape",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/push/OutboundRequest",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/push/PushChannelIds",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/push/PushConfig",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/push/PushHttpSender",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/push/PushMessageFactory",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/push/PushPf4jPlugin",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/push/PushPlugin",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/push/channel/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/push/controller/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/push/http/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/recoverysentinel/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/schedule/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/stats/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/DefaultEdgeTtsWebSocketConnector",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/EdgeTts",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/TtsGuestRateLimitConfig",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/TtsPf4jPlugin",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/TtsPlugin",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/TtsRateLimitService",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/TtsRuntimeFiles",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/controller/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/dto/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/http/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/AbstractHttp",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/CosyVoice",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/Doubao",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/ElevenLabs",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/Fish",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/MiMo",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/MiniMax",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/Qwen",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/TtsPluginConfig",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/VoxCpm",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/cosyvoice/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/doubao/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/elevenlabs/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/fish/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/http/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/mimo/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/minimax/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/qwen/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/voxcpm/",
+        "BOOT-INF/lib/angus-",
+        "BOOT-INF/lib/desktop-jvm-",
+        "BOOT-INF/lib/flatlaf-",
+        "BOOT-INF/lib/jakarta.activation-api-",
+        "BOOT-INF/lib/jakarta.mail-",
+        "BOOT-INF/lib/jna-",
+        "BOOT-INF/lib/kotlin-stdlib-",
+        "BOOT-INF/lib/skiko-awt-",
+        "BOOT-INF/lib/spring-context-support-",
+        "BOOT-INF/lib/ui-desktop-"
+    )
+    foreach ($prefix in $forbidden) {
+        $leaked = $entries | Where-Object { $_.StartsWith($prefix) -and -not $_.EndsWith("/") }
+        if ($leaked) {
+            throw "Boot jar boundary violated - contains '$prefix' entries: $JarPath"
+        }
+    }
+    # The boot jar root must not be a plugin descriptor (the boot jar is not an external plugin package).
+    if ($entries -contains "plugin.properties") {
+        throw "Boot jar must not contain a root plugin.properties: $JarPath"
+    }
+    # PF4J must travel as a nested library only (BOOT-INF/lib/pf4j-*.jar), not as loose classes.
+    $pf4jLib = $entries | Where-Object { $_ -match "^BOOT-INF/lib/pf4j-.*\.jar$" }
+    if (-not $pf4jLib) {
+        throw "Boot jar is missing the nested PF4J runtime (BOOT-INF/lib/pf4j-*.jar): $JarPath"
+    }
+}
+
 function Find-ModuleJar {
     # Locate a reactor module's built jar under <ProjectRoot>/<Module>/target (excludes sources/javadoc).
     param(
