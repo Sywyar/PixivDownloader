@@ -989,7 +989,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             return;
         }
 
-        // 收集所有值：核心隐藏字段保持既有语义；插件字段按 contribution 当前值保存，避免卡片切换清空其它插件配置。
+        // 可见性只控制展示；隐藏字段仍保存当前值，保留已有配置和隐藏前的编辑。
         Map<String, String> values = new LinkedHashMap<>();
         for (ConfigFieldSpec spec : allFields) {
             FieldRenderer.RenderedField rf = renderedFields.get(spec.key());
@@ -1003,14 +1003,11 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 }
                 continue;
             }
-            values.put(spec.key(), rf.panel().isVisible() || shouldPreserveHiddenValue(spec)
-                    ? rf.getValue().get()
-                    : "");
+            values.put(spec.key(), rf.getValue().get());
         }
 
-        Map<String, String> interfaceValues = interfacePreferencesPanel.pendingValues();
-        Set<String> interfaceChangedKeys = changedInterfaceKeys(
-                interfaceBefore, interfaceValues, SwingHost.context().selectedProviderId());
+        Map<String, String> interfaceValues = interfacePreferencesPanel.pendingChanges(interfaceBefore);
+        Set<String> interfaceChangedKeys = interfaceValues.keySet();
         Set<String> changedKeys = changedKeys(before, values);
         Set<String> hotReloadKeys = changedFieldKeys(changedKeys, GuiConfigEffect.HOT_RELOAD);
         boolean hasHotReloadChanges = !hotReloadKeys.isEmpty()
@@ -1038,6 +1035,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                     sectionRestartChange = true;
                 }
             }
+            interfacePreferencesPanel.changesSaved();
             GuiConfigEffect pendingRestart = hasProcessRestartChanges
                     ? GuiConfigEffect.PROCESS_RESTART
                     : hasBackendRestartChanges || sectionRestartChange
@@ -1168,32 +1166,6 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             }
         }
         return changed;
-    }
-
-    private static Set<String> changedInterfaceKeys(Map<String, String> before, Map<String, String> after,
-                                                    String activeProviderId) {
-        Set<String> changed = new LinkedHashSet<>();
-        for (String key : InterfacePreferencesPanel.CONFIG_KEYS) {
-            if (!Objects.equals(normalizeInterfaceValue(key, before.get(key), activeProviderId),
-                    normalizeInterfaceValue(key, after.get(key), activeProviderId))) {
-                changed.add(key);
-            }
-        }
-        return changed;
-    }
-
-    private static String normalizeInterfaceValue(String key, String value, String activeProviderId) {
-        String normalized = normalizeValue(value);
-        if (InterfacePreferencesPanel.LANGUAGE_CONFIG_KEY.equals(key)) {
-            return normalized.isBlank() ? "follow-system" : normalized;
-        }
-        if (InterfacePreferencesPanel.GUI_PROVIDER_CONFIG_KEY.equals(key)) {
-            return normalized.isBlank() ? activeProviderId : normalized;
-        }
-        if (InterfacePreferencesPanel.THEME_CONFIG_KEY.equals(key)) {
-            return normalized.isBlank() ? "system" : normalized;
-        }
-        return normalized.isBlank() ? "false" : Boolean.toString(Boolean.parseBoolean(normalized));
     }
 
     private String validateFieldValueForSave(ConfigFieldSpec spec, String value) {
@@ -1763,11 +1735,6 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         };
     }
 
-    private static boolean shouldPreserveHiddenValue(ConfigFieldSpec spec) {
-        // debug.enabled 在未解锁时隐藏，但其值仍应原样保留（写空会清掉用户已有的调试开关）
-        return spec.pluginContributed() || isMaintenanceDayTimeKey(spec.key()) || "debug.enabled".equals(spec.key());
-    }
-
     private static boolean isPluginCredential(ConfigFieldSpec spec) {
         return spec != null && spec.pluginContributed() && spec.type() == FieldType.PASSWORD;
     }
@@ -1795,10 +1762,6 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
     private static boolean isMaintenanceDayEnabledKey(String key) {
         return maintenanceDayKey(key, "enabled");
-    }
-
-    private static boolean isMaintenanceDayTimeKey(String key) {
-        return maintenanceDayKey(key, "time");
     }
 
     private static boolean maintenanceDayKey(String key, String suffix) {

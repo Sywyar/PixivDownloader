@@ -50,6 +50,7 @@ final class InterfacePreferencesPanel extends JPanel {
     private final BooleanSupplier languageChangeBlocked;
     private final Consumer<Boolean> onExpandAllChanged;
     private final Map<String, String> draft;
+    private Map<String, String> baselineValues;
 
     private final JComboBox<LocaleOption> languageCombo = new JComboBox<>();
     private final JComboBox<ProviderOption> providerCombo = new JComboBox<>();
@@ -80,6 +81,7 @@ final class InterfacePreferencesPanel extends JPanel {
         this.languageChangeBlocked = languageChangeBlocked == null ? () -> false : languageChangeBlocked;
         this.onExpandAllChanged = onExpandAllChanged == null ? ignored -> { } : onExpandAllChanged;
         this.draft = Objects.requireNonNull(draft, "draft");
+        baselineValues = loadBaselineValues();
         buildUi();
     }
 
@@ -228,16 +230,46 @@ final class InterfacePreferencesPanel extends JPanel {
     }
 
     private String preference(String key, String fallback) {
-        if (draft.containsKey(key)) {
-            return draft.getOrDefault(key, fallback);
-        }
+        return draft.getOrDefault(key, baselineValues.getOrDefault(key, fallback));
+    }
+
+    private Map<String, String> loadBaselineValues() {
+        Map<String, String> stored = Map.of();
         try {
-            String value = SwingHost.host().applicationConfig().read(key);
-            return value == null ? fallback : value;
+            stored = SwingHost.host().applicationConfig().readAll(CONFIG_KEYS);
         } catch (Exception e) {
             log.debug(logMessage("gui.interface.log.language.read-failed", e.getMessage()));
-            return fallback;
         }
+        // 基线只来自持久化配置，与跨面板重建保留的草稿分开解析。
+        String language = stored.getOrDefault(LANGUAGE_CONFIG_KEY, "follow-system");
+        language = language.isBlank() || "follow-system".equalsIgnoreCase(language)
+                ? "follow-system"
+                : SwingHost.host().matchLocale(language)
+                        .filter(locale -> SwingHost.host().visibleLocales().stream()
+                                .anyMatch(visible -> visible.toLocale().equals(locale.toLocale())))
+                        .map(locale -> locale.toLocale().toLanguageTag())
+                        .orElse("follow-system");
+        List<DesktopUiPluginSnapshot> snapshots = SwingHost.context().currentPluginSnapshots();
+        String activeProviderId = SwingHost.context().selectedProviderId();
+        ProviderOption provider = selectedProviderOption(
+                providerOptions(snapshots),
+                stored.get(GUI_PROVIDER_CONFIG_KEY),
+                activeProviderId
+        );
+        String providerId = provider == null ? activeProviderId : provider.id();
+        String configuredTheme = stored.getOrDefault(THEME_CONFIG_KEY, "system");
+        String theme = themeOptions(snapshots, providerId).stream()
+                .anyMatch(option -> option.id().equals(configuredTheme)) ? configuredTheme : "system";
+        return Map.of(
+                LANGUAGE_CONFIG_KEY,
+                language,
+                GUI_PROVIDER_CONFIG_KEY,
+                providerId,
+                THEME_CONFIG_KEY,
+                theme,
+                EXPAND_ALL_CONFIG_KEY,
+                Boolean.toString(Boolean.parseBoolean(stored.get(EXPAND_ALL_CONFIG_KEY)))
+        );
     }
 
     private void applyLanguageSelection() {
@@ -304,7 +336,26 @@ final class InterfacePreferencesPanel extends JPanel {
         onExpandAllChanged.accept(expanded);
     }
 
-    Map<String, String> pendingValues() {
+    Map<String, String> pendingChanges(Map<String, String> storedValues) {
+        Map<String, String> pending = pendingValues();
+        Map<String, String> changes = new LinkedHashMap<>(pending);
+        changes.entrySet().removeIf(entry -> Objects.equals(baselineValues.get(entry.getKey()), entry.getValue()));
+        String storedTheme = storedValues.getOrDefault(THEME_CONFIG_KEY, "system");
+        if (storedTheme.isBlank()) storedTheme = "system";
+        // 主动切换提供者时，连同不再适用的原主题一起保存；临时回退本身不覆盖原偏好。
+        if (changes.containsKey(GUI_PROVIDER_CONFIG_KEY)
+                && !Objects.equals(storedTheme, pending.get(THEME_CONFIG_KEY))) {
+            changes.put(THEME_CONFIG_KEY, pending.get(THEME_CONFIG_KEY));
+        }
+        return changes;
+    }
+
+    void changesSaved() {
+        baselineValues = pendingValues();
+        draft.keySet().removeAll(CONFIG_KEYS);
+    }
+
+    private Map<String, String> pendingValues() {
         LocaleOption locale = (LocaleOption) languageCombo.getSelectedItem();
         ProviderOption provider = (ProviderOption) providerCombo.getSelectedItem();
         StatusPanelThemeOption theme = (StatusPanelThemeOption) themeCombo.getSelectedItem();

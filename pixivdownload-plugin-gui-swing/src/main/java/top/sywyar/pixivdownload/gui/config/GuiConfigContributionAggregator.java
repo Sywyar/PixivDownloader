@@ -29,8 +29,11 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Aggregates GUI configuration fields from active plugins into a classloader-aware immutable snapshot.
@@ -89,6 +92,7 @@ public final class GuiConfigContributionAggregator {
             }
         }
 
+        registerDefaultGroups(contributions, customGroups, diagnostics);
         List<AcceptedField> accepted = enforceFieldReferenceOwnership(
                 collectFields(contributions, customGroups, diagnostics), diagnostics);
         Map<String, TrustedField> trustedFields = trustedFields(accepted);
@@ -107,6 +111,53 @@ public final class GuiConfigContributionAggregator {
                 .map(GroupEntry::spec)
                 .toList();
         return new GuiConfigContributionSnapshot(groups, fields, sections, diagnostics);
+    }
+
+    private static void registerDefaultGroups(
+            List<PluginContributions> contributions,
+            Map<String, GroupEntry> customGroups,
+            List<GuiConfigContributionDiagnostic> diagnostics
+    ) {
+        // 先尊重所有显式声明；无效声明不能通过名称回退重新接纳。
+        Set<String> declaredGroups = contributions.stream()
+                .flatMap(plugin -> plugin.contributions().stream())
+                .flatMap(contribution -> contribution.groups().stream())
+                .filter(Objects::nonNull)
+                .map(group -> normalize(group.groupId()))
+                .collect(Collectors.toSet());
+        for (PluginContributions plugin : contributions.stream()
+                .sorted(Comparator.comparing(item -> item.registered().id())).toList()) {
+            DesktopUiPluginSnapshot registered = plugin.registered();
+            List<String> missingGroups = plugin.contributions().stream()
+                    .flatMap(contribution -> Stream.concat(
+                            contribution.fields().stream().filter(Objects::nonNull).map(GuiConfigFieldContribution::groupId),
+                            contribution.sections().stream().filter(Objects::nonNull).map(GuiConfigSectionContribution::groupId)
+                    ))
+                    .map(GuiConfigContributionAggregator::normalize)
+                    .filter(Objects::nonNull)
+                    .filter(id -> !declaredGroups.contains(id) && !customGroups.containsKey(id)
+                            && !ConfigFieldRegistry.hasGroupId(id))
+                    .distinct().toList();
+            if (missingGroups.isEmpty()) continue;
+            String label;
+            try {
+                label = SwingHost.context().resolveText(registered.displayName());
+            } catch (RuntimeException failure) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(
+                        registered.id(),
+                        null,
+                        "GUI config group display name resolution failed: " + safeMessage(failure)
+                ));
+                continue;
+            }
+            // 分组可由多个活动插件共享；按 owner 排序使名称不依赖发现顺序。
+            for (String id : missingGroups) {
+                customGroups.put(id, new GroupEntry(
+                        registered.id(),
+                        new ConfigGroupSpec(id, label, 10_000, true)
+                ));
+            }
+        }
     }
 
     private static void registerGroups(DesktopUiPluginSnapshot registered,

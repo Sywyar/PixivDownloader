@@ -248,23 +248,22 @@ final class DesktopConfigurationLoader {
                 }
             }
         }
+        Map<String, String> special = Map.of();
         try {
-            Map<String, String> special = host.applicationConfig().readAll(List.of(
+            special = host.applicationConfig().readAll(List.of(
                     "app.language",
                     "app.gui-provider",
                     "app.theme",
                     "app.config-menu-expand-all"
             ));
-            special.forEach((
-                    key,
-                    value
-            ) -> savedValues.put(
-                    new FieldKey(null, key),
-                    value
-            ));
         } catch (Exception ignored) {
             // 保持下方默认值继续生效。
         }
+        // 比较基线与表单共用默认值和可用选项解析，缺项或空值不代表用户修改。
+        model.normalizeInterfaceValues(special).forEach((key, value) -> savedValues.put(
+                new FieldKey(null, key),
+                value
+        ));
         Set<FieldKey> loadedKeys = Set.copyOf(loaded.keySet());
         values.keySet().removeIf(key -> key.key().startsWith("app.") || loadedKeys.contains(key));
         values.putAll(loaded);
