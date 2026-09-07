@@ -372,13 +372,12 @@ class DistributionPackagingBoundaryTest {
 
     @Test
     @DisplayName("boot jar 条目黑名单：不含外置插件实现包、静态资源、i18n 与私有依赖")
-    void bootJarEntriesExcludeExternalPluginPayloads() {
+    void bootJarEntriesExcludeExternalPluginPayloads(@TempDir Path tempDir) throws Exception {
         Path bootJar = locateBootJar();
         requireAvailable(bootJar != null,
                 "boot jar 尚未生成（需 package 阶段），无法执行 jar 条目级边界验证");
 
         List<String> entries = jarEntryNames(bootJar);
-        assertProguardProcessedArtifact(bootJar);
         assertThat(entries).as("宿主一方模块应合并进优化后的 BOOT-INF/classes")
                 .contains(
                         "BOOT-INF/classes/top/sywyar/pixivdownload/sdk/SdkVersion.class",
@@ -393,129 +392,22 @@ class DistributionPackagingBoundaryTest {
         assertThat(entries).as("已合并处理的一方模块不得再以未处理依赖 JAR 进入 Boot classpath")
                 .noneMatch(name -> name.matches(
                         "BOOT-INF/lib/pixivdownload-(?:sdk-info|plugin-api|core-api|plugin-signature|plugin-worker|plugin-runtime)-[^/]+\\.jar"));
-        List<String> forbiddenPrefixes = List.of(
-                "BOOT-INF/classes/top/sywyar/pixivdownload/ai/controller/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/ai/http/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/ai/preset/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/ai/probe/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/notificationbase/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/multimodesurvey/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/push/channel/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/push/controller/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/push/http/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/tts/controller/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/tts/dto/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/tts/http/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/cosyvoice/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/doubao/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/elevenlabs/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/fish/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/http/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/mimo/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/minimax/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/qwen/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/voxcpm/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/mail/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/gallerytools/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/stats/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/duplicate/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/gallery/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/novel/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/novelgallery/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/guitheme/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/guicompose/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/douyin/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/download/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/schedule/",
-                "BOOT-INF/classes/top/sywyar/pixivdownload/recoverysentinel/",
-                "BOOT-INF/classes/static/pixiv-batch",
-                "BOOT-INF/classes/static/pixiv-douyin-download",
-                "BOOT-INF/classes/static/pixiv-douyin-gallery",
-                "BOOT-INF/classes/static/pixiv-douyin.html",
-                "BOOT-INF/classes/static/pixiv-douyin/",
-                "BOOT-INF/classes/static/userscripts/",
-                "BOOT-INF/classes/static/pixiv-stats/",
-                "BOOT-INF/classes/static/pixiv-duplicates",
-                "BOOT-INF/classes/static/pixiv-gallery",
-                "BOOT-INF/classes/static/pixiv-novel-download",
-                "BOOT-INF/classes/static/pixiv-novel-gallery",
-                "BOOT-INF/classes/static/pixiv-novel.html",
-                "BOOT-INF/classes/static/pixiv-novel/",
-                "BOOT-INF/classes/static/pixiv-artwork",
-                "BOOT-INF/classes/static/pixiv-showcase",
-                "BOOT-INF/classes/static/pixiv-series",
-                "BOOT-INF/classes/static/pixiv-tts/",
-                "BOOT-INF/classes/static/pixiv-ai/",
-                "BOOT-INF/classes/static/pixiv-multi-mode-decision-survey/",
-                "BOOT-INF/classes/i18n/web/batch",
-                "BOOT-INF/classes/i18n/web/userscript",
-                "BOOT-INF/classes/i18n/web/douyin",
-                "BOOT-INF/classes/i18n/web/stats",
-                "BOOT-INF/classes/i18n/web/duplicates",
-                "BOOT-INF/classes/i18n/web/gallery",
-                "BOOT-INF/classes/i18n/web/novel",
-                "BOOT-INF/classes/i18n/web/novel-gallery",
-                "BOOT-INF/classes/i18n/web/narration",
-                "BOOT-INF/classes/i18n/novel/",
-                "BOOT-INF/classes/i18n/web/artwork",
-                "BOOT-INF/classes/i18n/web/showcase",
-                "BOOT-INF/classes/i18n/web/series",
-                "BOOT-INF/classes/i18n/web/gui-swing",
-                "BOOT-INF/classes/i18n/web/gui-compose",
-                "BOOT-INF/classes/i18n/web/notification",
-                "BOOT-INF/classes/i18n/web/multi-mode-decision-survey",
-                "BOOT-INF/classes/i18n/web/push",
-                "BOOT-INF/classes/i18n/web/mail",
-                "BOOT-INF/classes/i18n/web/tts",
-                "BOOT-INF/classes/i18n/web/ai",
-                "BOOT-INF/classes/i18n/web/translate",
-                "BOOT-INF/classes/i18n/mail/",
-                "BOOT-INF/classes/i18n/push/",
-                "BOOT-INF/classes/i18n/tts/",
-                "BOOT-INF/classes/i18n/ai/",
-                "BOOT-INF/classes/mail/templates/",
-                "BOOT-INF/classes/notification/templates/");
-        for (String prefix : forbiddenPrefixes) {
-            assertThat(entries)
-                    .as("boot jar must not contain external plugin payload prefix " + prefix)
-                    .noneMatch(name -> name.startsWith(prefix) && !name.endsWith("/"));
-        }
-        assertThat(entries).as("共享 API 包内不得混入外置插件入口或实现")
-                .doesNotContain(
-                        "BOOT-INF/classes/top/sywyar/pixivdownload/ai/AiPf4jPlugin.class",
-                        "BOOT-INF/classes/top/sywyar/pixivdownload/ai/AiPlugin.class",
-                        "BOOT-INF/classes/top/sywyar/pixivdownload/ai/AiPluginConfiguration.class",
-                        "BOOT-INF/classes/top/sywyar/pixivdownload/ai/OpenAiCompatibleAiClient.class",
-                        "BOOT-INF/classes/top/sywyar/pixivdownload/notification/NotificationPushTestController.class",
-                        "BOOT-INF/classes/top/sywyar/pixivdownload/notification/PushNotificationSink.class",
-                        "BOOT-INF/classes/top/sywyar/pixivdownload/push/PushPf4jPlugin.class",
-                        "BOOT-INF/classes/top/sywyar/pixivdownload/push/PushPlugin.class",
-                        "BOOT-INF/classes/top/sywyar/pixivdownload/push/PushPluginConfiguration.class",
-                        "BOOT-INF/classes/top/sywyar/pixivdownload/push/PushHttpSender.class",
-                        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/TtsPf4jPlugin.class",
-                        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/TtsPlugin.class",
-                        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/TtsPluginConfiguration.class",
-                        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/EdgeTtsClient.class");
-        assertThat(entries).as("Compose / Kotlin / Skiko 私有运行库不得进入 boot jar")
-                .noneMatch(name -> name.startsWith("BOOT-INF/lib/desktop-jvm-")
-                        || name.startsWith("BOOT-INF/lib/ui-desktop-")
-                        || name.startsWith("BOOT-INF/lib/skiko-awt-")
-                        || name.startsWith("BOOT-INF/lib/kotlin-stdlib-"));
-
-        List<String> forbiddenLibPatterns = List.of(
-                "BOOT-INF/lib/flatlaf-[^/]+\\.jar",
-                "BOOT-INF/lib/flatlaf-intellij-themes-[^/]+\\.jar",
-                "BOOT-INF/lib/jna-[^/]+\\.jar",
-                "BOOT-INF/lib/jna-platform-[^/]+\\.jar",
-                "BOOT-INF/lib/jakarta\\.mail-[^/]+\\.jar",
-                "BOOT-INF/lib/jakarta\\.activation-api-[^/]+\\.jar",
-                "BOOT-INF/lib/angus-[^/]+\\.jar",
-                "BOOT-INF/lib/spring-context-support-[^/]+\\.jar");
-        for (String pattern : forbiddenLibPatterns) {
-            assertThat(entries)
-                    .as("boot jar must not contain external plugin private dependency " + pattern)
-                    .noneMatch(name -> name.matches(pattern));
-        }
+        ProcessBuilder builder = new ProcessBuilder(
+                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("win")
+                        ? "powershell" : "pwsh",
+                "-NoProfile", "-NonInteractive", "-Command",
+                "$ErrorActionPreference='Stop'; & './scripts/assemble-plugin-distribution.ps1' "
+                        + "-CoreShellOnly -Version 0.0.1-qg -PrebuiltJar $env:BOUNDARY_JAR "
+                        + "-OutputDir $env:BOUNDARY_OUTPUT")
+                .directory(locateRepoRoot().toFile())
+                .redirectErrorStream(true);
+        builder.environment().put("BOUNDARY_JAR", bootJar.toAbsolutePath().toString());
+        builder.environment().put("BOUNDARY_OUTPUT", tempDir.resolve("distribution").toString());
+        Process process = builder.start();
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertThat(process.waitFor()).as("实际分发 PowerShell 边界检查: %s", output).isZero();
+        assertThat(Files.mismatch(bootJar, tempDir.resolve("distribution/PixivDownload-0.0.1-qg.jar")))
+                .as("分发入口必须复制本次受检的精确 JAR 字节").isEqualTo(-1L);
     }
 
     @Test

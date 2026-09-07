@@ -18,6 +18,12 @@ function load(rel) {
     return YAML.parse(fs.readFileSync(path.join(ROOT, ...rel.split('/')), 'utf8'));
 }
 
+function executionSteps(job) {
+    return (job.steps || []).flatMap((step) => step.uses?.startsWith('./.github/actions/')
+        ? [step, ...executionSteps({ steps: load(`${step.uses}/action.yml`).runs.steps })]
+        : [step]);
+}
+
 function triggers(doc) {
     return Object.keys(doc.on ?? doc.true ?? {});
 }
@@ -154,11 +160,11 @@ test('Quality Gate preserves required roles and the active event contract', () =
         assert.ok(doc.jobs['check-shared-snippets']);
         assert.deepEqual(triggers(doc).sort(), ['workflow_call', 'workflow_dispatch']);
     }
-    const javaSteps = Object.values(doc.jobs).flatMap((job) => job.steps || []);
+    const javaSteps = Object.values(doc.jobs).flatMap(executionSteps);
     const sdkResolve = javaSteps.find((step) => step.env?.INPUT_TRUSTED_BASE_SHA !== undefined);
-    const releaseBuild = javaSteps.find((step) => /\bverify\b/.test(step.run || ''));
+    const releaseBuild = javaSteps.find((step) => /\bverify\b.*-Pofficial-surveys/.test(step.run || ''));
     const releaseBoundary = javaSteps.find((step) => /DistributionPackagingBoundaryTest/.test(step.run || ''));
-    const sdkPackage = javaSteps.find((step) => /\bpackage\b/.test(step.run || '')
+    const sdkPackage = javaSteps.find((step) => /\b(?:package|deploy)\b/.test(step.run || '')
         && /pixivdownload-sdk-bom/.test(step.run));
     const sdkContract = javaSteps.find((step) => /sdk-contract\.mjs/.test(step.run || ''));
     assert.equal(sdkResolve.env.INPUT_TRUSTED_BASE_SHA, '${{ inputs.trusted_base_sha }}');
@@ -190,7 +196,7 @@ test('Quality Gate preserves required roles and the active event contract', () =
 test('Java tests and ProGuard run independently and both gate the required Java result', () => {
     const { jobs } = load('.github/workflows/quality-gate.yml');
     const owner = (pattern) => {
-        const matches = Object.keys(jobs).filter((id) => jobs[id].steps?.some((step) => pattern.test(step.run || '')));
+        const matches = Object.keys(jobs).filter((id) => executionSteps(jobs[id]).some((step) => pattern.test(step.run || '')));
         assert.equal(matches.length, 1, `one execution owner for ${pattern}`);
         return matches[0];
     };
@@ -202,7 +208,7 @@ test('Java tests and ProGuard run independently and both gate the required Java 
         return visited;
     };
     const tests = owner(/\bmvn\b[^\n]*\btest\b[^\n]*-Duser\.language=/u);
-    const build = owner(/\bmvn\b[^\n]*\bverify\b/u);
+    const build = owner(/\bmvn\b[^\n]*\bverify\b[^\n]*-Pofficial-surveys/u);
     assert.notEqual(tests, build);
     assert.equal(ancestors(tests).has(build), false);
     assert.equal(ancestors(build).has(tests), false);
@@ -215,6 +221,45 @@ test('Java tests and ProGuard run independently and both gate the required Java 
         assert.ok(Number.isInteger(jobs[id]['timeout-minutes']) && jobs[id]['timeout-minutes'] > 0);
         assert.ok(jobs[id]['continue-on-error'] === undefined || jobs[id]['continue-on-error'] === false);
     }
+});
+
+test('QG 覆盖 Compose、SDK 消费者和两种 PowerShell，并顺序复用构建产物', () => {
+    const { jobs } = load('.github/workflows/quality-gate.yml');
+    const artifacts = executionSteps(jobs['release-artifacts']);
+    const build = artifacts.findIndex(step => /mvn.*verify.*-Pofficial-surveys/u.test(step.run || ''));
+    const compose = artifacts.findIndex(step => /gradlew(?:\.bat)?.*mavenTest/u.test(step.run || ''));
+    const boundaries = artifacts.findIndex(step => /DistributionPackagingBoundaryTest/u.test(step.run || ''));
+    assert.ok(build >= 0 && compose > build && boundaries > build);
+    assert.equal(artifacts[compose]['working-directory'], 'pixivdownload-plugin-gui-compose');
+    assert.doesNotMatch(artifacts[compose].run, /-Pmaven(?:SkipTests|TestSkip)=true|(?:^|\s)-x(?:\s|$)/u);
+    assert.equal(jobs['release-artifacts']['runs-on'], 'windows-latest');
+    const boundaryCall = artifacts.find(step => step.uses === './.github/actions/verify-release-boundaries');
+    assert.deepEqual(boundaryCall.with.additional_tests.split(',').sort(),
+        ['DeleteStagingManifestTest#rejectsWindowsJunctionParentDuringRecovery',
+            'StagedFileDeletionTest#rejectsWindowsJunctionBeforeStaging',
+            'WorkDeletionFileRollbackTest#novelJunctionAbortsFilesAndSoftDelete']);
+    const sources = executionSteps(jobs['java-unit-tests']);
+    const stage = sources.findIndex(step => /altDeploymentRepository=sdk-staging/u.test(step.run || ''));
+    const templates = sources.findIndex(step => /plugin-templates\/pom.xml/u.test(step.run || ''));
+    const consumer = sources.findIndex(step => /sdk-consumer\.mjs/u.test(step.run || ''));
+    const contract = sources.findIndex(step => /sdk-contract\.mjs/u.test(step.run || ''));
+    assert.ok(stage >= 0 && templates > stage && consumer > stage && contract > stage);
+    assert.doesNotMatch(sources[templates].run, /-D(?:skipTests|maven\.test\.skip)(?:=true)?(?:\s|$)/u);
+    assert.match(sources[consumer].run, /sdk-release\.mjs/u);
+    const scripts = Object.values(jobs).flatMap(executionSteps)
+        .filter(step => /check-powershell\.ps1/u.test(step.run || ''));
+    assert.deepEqual(scripts.map(step => step.shell).sort(), ['powershell', 'pwsh']);
+    for (const [file, action] of [
+        ['.github/workflows/publish-sdk.yml', './.github/actions/verify-sdk'],
+        ['.github/actions/package-release-java/action.yml', './.github/actions/verify-release-boundaries'],
+    ]) {
+        const doc = load(file);
+        const steps = doc.runs?.steps || Object.values(doc.jobs).flatMap(job => job.steps || []);
+        assert.ok(steps.some(step => step.uses === action), file);
+    }
+    const release = load('.github/actions/package-release-java/action.yml').runs.steps
+        .find(step => step.uses === './.github/actions/verify-release-boundaries');
+    assert.equal(release.with.require_production_credential_key, 'true');
 });
 
 test('发布链：所有凭据与写权限只在 release Environment 的门禁后使用', () => {

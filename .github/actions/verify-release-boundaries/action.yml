@@ -1,0 +1,30 @@
+name: Verify release boundaries
+description: Run the shared Java and PowerShell checks against the current release artifacts
+
+inputs:
+  require_production_credential_key:
+    description: Require the release credential key in the freshly built app
+    default: 'false'
+  additional_tests:
+    description: Comma-separated Surefire test selectors to run against the same build
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Verify packaged distribution boundaries
+      shell: bash
+      env:
+        REQUIRE_PRODUCTION_CREDENTIAL_KEY: ${{ inputs.require_production_credential_key }}
+        ADDITIONAL_TESTS: ${{ inputs.additional_tests }}
+      run: |
+        set -euo pipefail
+        tests="DistributionPackagingBoundaryTest${ADDITIONAL_TESTS:+,$ADDITIONAL_TESTS}"
+        mvn -B -ntp -pl pixivdownload-app -am test "-Dtest=$tests" -Dsurefire.failIfNoSpecifiedTests=false -Ddistribution.packaging.require-artifacts=true "-Ddistribution.packaging.require-production-credential-key=$REQUIRE_PRODUCTION_CREDENTIAL_KEY" -Dexec.skip=true
+        IFS=',' read -r -a selectors <<< "$tests"
+        for selector in "${selectors[@]}"; do
+          class=${selector%%#*}
+          report=$(find pixivdownload-app/target/surefire-reports -name "*$class.txt" -print -quit)
+          test -n "$report"
+          grep -Eq 'Tests run: [1-9][0-9]*, Failures: 0, Errors: 0, Skipped: 0' "$report"
+        done

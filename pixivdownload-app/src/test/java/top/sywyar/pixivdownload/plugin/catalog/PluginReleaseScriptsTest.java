@@ -796,31 +796,6 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("离线分发 boot jar 边界黑名单覆盖可选外置插件")
-    void offlineDistributionBootJarBlacklistCoversOptionalPlugins() throws Exception {
-        String distribution = script("assemble-plugin-distribution.ps1");
-
-        assertThat(distribution).contains(
-                "\"BOOT-INF/classes/top/sywyar/pixivdownload/ai/\"",
-                "\"BOOT-INF/classes/top/sywyar/pixivdownload/duplicate/\"",
-                "\"BOOT-INF/classes/top/sywyar/pixivdownload/novel/\"",
-                "\"BOOT-INF/classes/top/sywyar/pixivdownload/novelgallery/\"",
-                "\"BOOT-INF/classes/top/sywyar/pixivdownload/notification/\"",
-                "\"BOOT-INF/classes/top/sywyar/pixivdownload/push/\"",
-                "\"BOOT-INF/classes/top/sywyar/pixivdownload/tts/\"",
-                "\"BOOT-INF/classes/top/sywyar/pixivdownload/download/\"",
-                "\"BOOT-INF/classes/top/sywyar/pixivdownload/schedule/\"",
-                "\"BOOT-INF/classes/top/sywyar/pixivdownload/notificationbase/\"",
-                "\"BOOT-INF/classes/static/pixiv-novel-download\"",
-                "\"BOOT-INF/classes/i18n/web/duplicates\"",
-                "\"BOOT-INF/classes/i18n/web/novel\"",
-                "\"BOOT-INF/classes/i18n/web/novel-gallery\"",
-                "\"BOOT-INF/classes/i18n/web/narration\"",
-                "\"BOOT-INF/classes/i18n/web/notification\""
-        );
-    }
-
-    @Test
     @DisplayName("JavaScript 测试脚本覆盖所有模块测试且 YAML 解析器仅为开发依赖")
     void javascriptTestScriptsCoverAllModules() throws Exception {
         JsonNode packageJson = new ObjectMapper().readTree(repoRoot().resolve("package.json").toFile());
@@ -1133,31 +1108,65 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("分发组装脚本支持精确 PrebuiltJar 输入：互斥、严格验证、精确路径、本地 fallback 保留")
-    void distributionAssemblerSupportsExactPrebuiltJarInput() throws Exception {
-        String distribution = script("assemble-plugin-distribution.ps1");
+    @DisplayName("PowerShell 检查使用真实解析器并使语法错误失败")
+    void powershellSyntaxCheckRejectsInvalidScripts(@TempDir Path tempDir) throws Exception {
+        Path script = tempDir.resolve("syntax.ps1");
+        String command = "& './scripts/ci/check-powershell.ps1' -Paths '" + psQuote(script) + "'";
+        Files.writeString(script, "param([string]$Name)\nWrite-Output $Name\n", StandardCharsets.UTF_8);
+        assertThat(runPowerShellResult(command).exitCode()).isZero();
+        Files.writeString(script, "if ($true) {", StandardCharsets.UTF_8);
+        assertThat(runPowerShellResult(command).exitCode()).isNotZero();
+    }
 
-        assertThat(distribution).contains(
-                "[string]$PrebuiltJar",
-                "Build and PrebuiltJar cannot be combined.",
-                "Test-Path -LiteralPath $PrebuiltJar -PathType Leaf",
-                "$prebuiltItem.Extension.Equals(\".jar\", [System.StringComparison]::OrdinalIgnoreCase)",
-                "PrebuiltJar is empty",
-                "PrebuiltJar cannot be read as a zip/jar",
-                "missing BOOT-INF/",
-                "$SelectedAppJar = $prebuiltItem.FullName",
-                "if (-not $SelectedAppJar) {",
-                "Get-AppBootJar",
-                "Assert-BootJarBoundary $SelectedAppJar",
-                "Copy-Item $SelectedAppJar (Join-Path $OutputDir $coreJarName) -Force");
-        // 路径解析必须发生在 Push-Location 切目录之前。
-        assertThat(distribution.indexOf("$SelectedAppJar = $prebuiltItem.FullName"))
-                .as("PrebuiltJar 解析必须先于 Push-Location")
-                .isLessThan(distribution.indexOf("Push-Location $ProjectRoot"));
-        // 指定 PrebuiltJar 后不再走 Get-AppBootJar：fallback 分支整体位于 Push-Location 之后。
-        assertThat(distribution.indexOf("if (-not $SelectedAppJar) {"))
-                .as("PrebuiltJar 指定后不再调用 Get-AppBootJar")
-                .isGreaterThan(distribution.indexOf("Push-Location $ProjectRoot"));
+    @Test
+    @DisplayName("真实分发入口接受合并的 SDK 契约并拒绝插件实现、资源和私有依赖")
+    void distributionAssemblerChecksExactPrebuiltJar(@TempDir Path tempDir) throws Exception {
+        Path jar = tempDir.resolve("candidate.jar");
+        Path output = tempDir.resolve("distribution");
+        Map<String, String> entries = new LinkedHashMap<>();
+        entries.put("META-INF/pixivdownload-proguard.properties",
+                "formatVersion=1\nproguard.version=7.10.0\nshrink=true\noptimize=true\nobfuscate=false\n");
+        entries.put("BOOT-INF/lib/pf4j-3.13.0.jar", "");
+        for (String contract : List.of("ai/AiChatClient", "notification/NotificationSink",
+                "push/PushChannel", "tts/narration/NarrationVoiceEngine")) {
+            entries.put("BOOT-INF/classes/top/sywyar/pixivdownload/" + contract + ".class", "");
+        }
+        String command = "$ErrorActionPreference='Stop'; & './scripts/assemble-plugin-distribution.ps1'"
+                + " -CoreShellOnly -Version 0.0.1-test -PrebuiltJar '" + psQuote(jar)
+                + "' -OutputDir '" + psQuote(output) + "'";
+        List<String> leaks = List.of("",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/ai/AiConfig.class",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/ai/OpenAiCompatibleAiClient.class",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/notification/PushNotificationSink.class",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/push/http/PushHttpClient.class",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/tts/narration/engine/http/HttpVoiceEngine.class",
+                "BOOT-INF/classes/static/pixiv-batch/index.js",
+                "BOOT-INF/classes/i18n/web/ai.properties",
+                "BOOT-INF/classes/org/pf4j/Plugin.class",
+                "BOOT-INF/lib/angus-mail-2.0.3.jar",
+                "BOOT-INF/lib/kotlin-stdlib-2.4.10.jar",
+                "plugin.properties");
+        for (String leak : leaks) {
+            if (!leak.isEmpty()) entries.put(leak, "");
+            try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(jar), StandardCharsets.UTF_8)) {
+                for (Map.Entry<String, String> entry : entries.entrySet()) {
+                    zip.putNextEntry(new ZipEntry(entry.getKey()));
+                    zip.write(entry.getValue().getBytes(StandardCharsets.UTF_8));
+                    zip.closeEntry();
+                }
+            }
+            CommandResult result = runPowerShellResult(command);
+            if (leak.isEmpty()) {
+                assertThat(result.exitCode()).as("共享契约应可分发: %s", result.output()).isZero();
+                assertThat(Files.readAllBytes(output.resolve("PixivDownload-0.0.1-test.jar")))
+                        .isEqualTo(Files.readAllBytes(jar));
+                assertThat(runPowerShellResult(command + " -Build").exitCode()).isNotZero();
+            } else {
+                assertThat(result.exitCode()).as("必须拒绝泄漏 %s: %s", leak, result.output()).isNotZero();
+                assertThat(result.output()).contains("Boot jar");
+                entries.remove(leak);
+            }
+        }
     }
 
     @Test
