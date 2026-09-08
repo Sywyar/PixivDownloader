@@ -1640,6 +1640,29 @@ class PluginRuntimeManagerTest {
     }
 
     @Test
+    @DisplayName("损坏归档预检查失败只隔离该候选，后续正常插件仍可启动")
+    void startupContinuesAfterMalformedArchivePrecheckFailure() throws IOException {
+        Path plugins = tempDir.resolve("startup-malformed-precheck");
+        Files.createDirectories(plugins);
+        Files.writeString(plugins.resolve("alpha-malformed.jar"), "invalid archive", StandardCharsets.UTF_8);
+        Path valid = plugins.resolve("beta.jar");
+        writeDependencyOrderProbeJar(valid, "beta", List.of());
+        writeLocalProvenance(plugins, valid, "beta", PROBE_VERSION);
+        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+        try {
+            PluginRuntimeStatus status = manager.start();
+
+            assertThat(status.loadedPluginIds()).containsExactly("beta");
+            assertThat(status.failures()).singleElement().satisfies(failure -> {
+                assertThat(failure.source()).isEqualTo("alpha-malformed.jar");
+                assertThat(failure.reason()).contains("zip central directory terminator is missing");
+            });
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
     @DisplayName("启动扫描会扣除 MALFORMED 候选的实际用量并在累计预算耗尽后停止")
     void startupChargesMalformedCandidateUsageBeforeStopping() throws IOException {
         Path plugins = tempDir.resolve("startup-malformed-budget");

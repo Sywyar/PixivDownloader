@@ -87,9 +87,11 @@ public final class PluginPackageVerifier {
                     + limits.maxArchiveBytes() + ")").withVerificationUsage(0, 0L);
         }
 
-        ZipSafety.assertNoSpecialFileEntries(archive);
-        try (InputStream input = Files.newInputStream(archive)) {
-            scanArchive(input, limits, budget, NestedArchiveKind.TOP_LEVEL, archive.getFileName().toString());
+        try {
+            ZipSafety.assertNoSpecialFileEntries(archive);
+            try (InputStream input = Files.newInputStream(archive)) {
+                scanArchive(input, limits, budget, NestedArchiveKind.TOP_LEVEL, archive.getFileName().toString());
+            }
         } catch (PluginPackageException e) {
             throw e.withVerificationUsage(budget.entryCount, budget.totalUncompressed);
         } catch (ZipException e) {

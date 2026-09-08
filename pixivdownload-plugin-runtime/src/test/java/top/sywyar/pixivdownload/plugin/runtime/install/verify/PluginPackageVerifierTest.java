@@ -94,6 +94,21 @@ class PluginPackageVerifierTest {
     }
 
     @Test
+    @DisplayName("损坏归档在解压前拒绝时仍返回已知的零扫描用量")
+    void reportsUsageWhenMalformedArchiveFailsPrecheck() throws IOException {
+        Path archive = dir.resolve("malformed.jar");
+        Files.write(archive, PluginPackageFixtures.bytes("invalid archive"));
+
+        assertThatThrownBy(() -> PluginPackageVerifier.verifyAndMeasure(archive, PluginPackageLimits.defaults()))
+                .isInstanceOfSatisfying(PluginPackageException.class, failure -> {
+                    assertThat(failure.reason()).isEqualTo(PluginPackageException.Reason.MALFORMED);
+                    assertThat(failure.hasVerificationUsage()).isTrue();
+                    assertThat(failure.consumedEntries()).isZero();
+                    assertThat(failure.consumedUncompressedBytes()).isZero();
+                });
+    }
+
+    @Test
     @DisplayName("归档体积超限：TOO_LARGE（解压前即按磁盘体积拒绝）")
     void rejectsArchiveTooLarge() {
         Path zip = PluginPackageFixtures.explodedZip(dir.resolve("arch.zip"),
@@ -294,6 +309,9 @@ class PluginPackageVerifierTest {
                 .isInstanceOfSatisfying(PluginPackageException.class, failure -> {
                     assertThat(failure.reason()).isEqualTo(PluginPackageException.Reason.UNSAFE);
                     assertThat(failure).hasMessageContaining("symbolic link or special file");
+                    assertThat(failure.hasVerificationUsage()).isTrue();
+                    assertThat(failure.consumedEntries()).isZero();
+                    assertThat(failure.consumedUncompressedBytes()).isZero();
                 });
     }
 
