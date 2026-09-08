@@ -120,7 +120,7 @@ jobs:
       - name: Verify packaged release boundaries
         uses: ./.github/actions/verify-release-boundaries
         with:
-          additional_tests: StagedFileDeletionTest#rejectsWindowsJunctionBeforeStaging,WorkDeletionFileRollbackTest#novelJunctionAbortsFilesAndSoftDelete,DeleteStagingManifestTest#rejectsWindowsJunctionParentDuringRecovery
+          additional_tests: StagedFileDeletionTest#rejectsWindowsJunctionBeforeStaging,WorkDeletionFileRollbackTest#novelJunctionAbortsFilesAndSoftDelete,DeleteStagingManifestTest#rejectsWindowsJunctionParentDuringRecovery,PluginReleaseScriptsTest#releaseArtifactCleanupHandlesSealedPermissions+releaseArtifactFailurePrintsDiagnosticTail
 
   javascript-tests:
     runs-on: ubuntu-latest

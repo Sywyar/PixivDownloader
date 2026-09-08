@@ -236,6 +236,7 @@ test('QG 覆盖 Compose、SDK 消费者和两种 PowerShell，并顺序复用构
     const boundaryCall = artifacts.find(step => step.uses === './.github/actions/verify-release-boundaries');
     assert.deepEqual(boundaryCall.with.additional_tests.split(',').sort(),
         ['DeleteStagingManifestTest#rejectsWindowsJunctionParentDuringRecovery',
+            'PluginReleaseScriptsTest#releaseArtifactCleanupHandlesSealedPermissions+releaseArtifactFailurePrintsDiagnosticTail',
             'StagedFileDeletionTest#rejectsWindowsJunctionBeforeStaging',
             'WorkDeletionFileRollbackTest#novelJunctionAbortsFilesAndSoftDelete']);
     const sources = executionSteps(jobs['java-unit-tests']);
