@@ -4,6 +4,14 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.beans.BeanUtils;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Condition;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.core.type.classreading.SimpleMetadataReaderFactory;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeContribution;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
@@ -39,6 +47,7 @@ import java.util.jar.JarFile;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 
 /**
  * 插件分发打包边界守卫：把「主程序 boot jar 只含核心 + 内置插件、外置插件单独分发」这一发布形态不变量
@@ -371,12 +380,14 @@ class DistributionPackagingBoundaryTest {
     }
 
     @Test
-    @DisplayName("boot jar 条目黑名单：不含外置插件实现包、静态资源、i18n 与私有依赖")
+    @DisplayName("boot jar 保留宿主契约与 Spring 运行时结构，不含外置插件实现和私有依赖")
     void bootJarEntriesExcludeExternalPluginPayloads(@TempDir Path tempDir) throws Exception {
         Path bootJar = locateBootJar();
         requireAvailable(bootJar != null,
                 "boot jar 尚未生成（需 package 阶段），无法执行 jar 条目级边界验证");
 
+        assertThat(assertSpringRuntimeStructure(bootJar))
+                .as("实际 boot jar 必须包含需要 CGLIB 增强的配置类").isPositive();
         List<String> entries = jarEntryNames(bootJar);
         assertThat(entries).as("宿主一方模块应合并进优化后的 BOOT-INF/classes")
                 .contains(
@@ -816,6 +827,68 @@ class DistributionPackagingBoundaryTest {
         assertThat(metadata.getProperty("shrink")).isEqualTo("true");
         assertThat(metadata.getProperty("optimize")).isEqualTo("true");
         assertThat(metadata.getProperty("obfuscate")).isEqualTo("false");
+        assertSpringRuntimeStructure(jar);
+    }
+
+    private static int assertSpringRuntimeStructure(Path jar) {
+        int fullConfigurations = 0;
+        var readers = new SimpleMetadataReaderFactory();
+        try (JarFile jarFile = new JarFile(jar.toFile())) {
+            var entries = jarFile.entries();
+            while (entries.hasMoreElements()) {
+                JarEntry entry = entries.nextElement();
+                String name = entry.getName();
+                if (!name.endsWith(".class") || !(name.startsWith("top/sywyar/")
+                        || name.startsWith("BOOT-INF/classes/top/sywyar/"))) {
+                    continue;
+                }
+                try (InputStream input = jarFile.getInputStream(entry)) {
+                    byte[] bytecode = input.readAllBytes();
+                    var type = readers.getMetadataReader(new ByteArrayResource(bytecode))
+                            .getAnnotationMetadata();
+                    if (type.isInterface()) {
+                        continue;
+                    }
+                    if (List.of(type.getInterfaceNames()).contains(Condition.class.getName())) {
+                        // 单独定义产物类，避免父 classloader 的开发 classes 掩盖构造器收缩。
+                        Class<?> condition = new ClassLoader(DistributionPackagingBoundaryTest.class.getClassLoader()) {
+                            Class<?> artifactClass() {
+                                return defineClass(type.getClassName(), bytecode, 0, bytecode.length);
+                            }
+                        }.artifactClass();
+                        assertThatCode(() -> BeanUtils.instantiateClass(condition))
+                                .as("%s!/%s 必须允许 Spring 反射实例化条件类", jar, name)
+                                .doesNotThrowAnyException();
+                    }
+                    var configuration = type.getAnnotations().get(Configuration.class);
+                    boolean fullConfiguration = configuration.isPresent()
+                            && configuration.getBoolean("proxyBeanMethods");
+                    if (fullConfiguration) {
+                        fullConfigurations++;
+                    }
+                    boolean classAdvice = type.isAnnotated(Async.class.getName())
+                            || type.isAnnotated(Transactional.class.getName());
+                    boolean needsProxy = fullConfiguration || classAdvice;
+                    for (var method : type.getDeclaredMethods()) {
+                        boolean intercepted = (fullConfiguration && method.isAnnotated(Bean.class.getName()))
+                                || method.isAnnotated(Async.class.getName())
+                                || method.isAnnotated(Transactional.class.getName());
+                        if (intercepted && !method.isStatic()) {
+                            needsProxy = true;
+                            assertThat(method.isOverridable())
+                                    .as("%s!/%s#%s 必须允许 Spring 代理覆写", jar, name, method.getMethodName())
+                                    .isTrue();
+                        }
+                    }
+                    if (needsProxy) {
+                        assertThat(type.isFinal()).as("%s!/%s 必须允许 Spring 创建子类代理", jar, name).isFalse();
+                    }
+                }
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException("无法验证发行 JAR 的 Spring 运行时结构: " + jar, e);
+        }
+        return fullConfigurations;
     }
 
     private static void assertContractClassesPresent(List<String> entries, String module) {
