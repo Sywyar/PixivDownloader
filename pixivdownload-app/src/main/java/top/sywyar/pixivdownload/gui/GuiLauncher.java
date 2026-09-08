@@ -1,8 +1,10 @@
 package top.sywyar.pixivdownload.gui;
 
+import ch.qos.logback.classic.LoggerContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.bridge.SLF4JBridgeHandler;
+import org.springframework.boot.SpringApplication;
 import top.sywyar.pixivdownload.PixivDownloadApplication;
 import top.sywyar.pixivdownload.cli.CliSetupCommand;
 import top.sywyar.pixivdownload.common.AppVersion;
@@ -14,6 +16,8 @@ import top.sywyar.pixivdownload.core.db.schema.ManagedDatabaseSchema;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.i18n.LocaleCatalog;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
+import top.sywyar.pixivdownload.logback.ConsoleLogStreams;
+import top.sywyar.pixivdownload.logback.LogSession;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPluginSnapshot;
@@ -51,10 +55,7 @@ import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.text.MessageFormat;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -64,7 +65,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 /**
  * GUI 模式入口点。
@@ -75,19 +75,8 @@ import java.util.stream.Collectors;
  * </ul>
  * Spring Boot fat-jar 的 {@code Start-Class} 指向此类（pom.xml 已配置）。
  *
- * <h3>日志文件策略</h3>
- * <p>每次启动在 {@code log/} 目录生成两份内容相同的日志：
- * <ul>
- *   <li>{@code log/latest.log} — 始终代表本次运行</li>
- *   <li>{@code log/pixiv-download_YYYY-MM-DD_HHmmss.log} — 带时间戳的会话存档</li>
- * </ul>
- * 仅保留最近 {@value #LOG_HISTORY_COUNT} 份时间戳文件，多余的在启动时自动删除。
- *
- * <h3>实现关键</h3>
- * <p>logback 在第一次 {@code getLogger()} 调用时完成初始化并读取 {@code logback.xml}。
- * 为确保 {@code logback.xml} 中的 {@code ${LOG_TIMESTAMP}} 占位符可以正确解析，
- * 本类故意不使用 {@code @Slf4j}，而是在 {@code main()} 方法体内、完成系统属性写入后
- * 再获取 logger，让 logback 的初始化晚于 {@code System.setProperty()} 调用。
+ * <p>Logback 在创建文件前分配会话并清理旧历史。latest 只含本次运行，
+ * 带日期的文本和 HTML 文件额外保留前五次运行；标准流和 JUL 统一写入同一组 appender。
  *
  * <p>同时设置 {@code org.springframework.boot.logging.LoggingSystem=none}，禁止
  * Spring Boot 接管日志系统。否则 Spring Boot 启动时会重新初始化 logback，令
@@ -100,17 +89,11 @@ public class GuiLauncher {
     // logger 故意不声明为 static final 字段，避免类加载时触发 logback 提前初始化
     private static Logger log;
 
-    private static final String LOG_DIR = "log";
-    private static final String LOG_HTML_DIR = LOG_DIR + "/html";
-    private static final String LOG_LATEST = LOG_DIR + "/latest.log";
-    private static final String LOG_SESSION_PREFIX = "pixiv-download_";
-    /**
-     * 保留最近的会话日志数量（不含 latest.log / latest.html）
-     */
-    private static final int LOG_HISTORY_COUNT = 5;
+    private static final String LOG_LATEST = "log/latest.log";
     private static final int DEFAULT_PORT = 6999;
     private static final String DEFAULT_ROOT = RuntimeFiles.DEFAULT_DOWNLOAD_ROOT;
     private static final AtomicReference<DesktopUiSession> ACTIVE_UI = new AtomicReference<>();
+    private static volatile Runnable processShutdown = () -> {};
     private static final AtomicBoolean EXIT_REQUESTED = new AtomicBoolean();
     /** 进程退出时同步关闭 Spring backend context 的超时上限：足够正常拆卸，又不让卡死的拆卸挂死进程退出。 */
     private static final long BACKEND_CONTEXT_CLOSE_TIMEOUT_MS = 15_000L;
@@ -122,18 +105,20 @@ public class GuiLauncher {
      * {@link #supportsStartupAutoBackfill} 的整段元数据自动回填判定。与
      * {@link ArtworksBackFill#SUPPORTED_DATABASE_COLUMNS} 区分：后者是必须联网抓取才能填充的列。
      */
-    private static final Set<ArtworksBackFill.DatabaseColumn> RUNTIME_AUTO_MIGRATED_COLUMNS = Set.of(
-            new ArtworksBackFill.DatabaseColumn("artworks", "file_name"),
-            new ArtworksBackFill.DatabaseColumn("artworks", "file_author_name_id"),
-            new ArtworksBackFill.DatabaseColumn("artworks", "deleted"),
-            new ArtworksBackFill.DatabaseColumn("novels", "deleted"),
-            new ArtworksBackFill.DatabaseColumn("artworks", "upload_time"),
-            new ArtworksBackFill.DatabaseColumn("artworks", "is_original"),
-            new ArtworksBackFill.DatabaseColumn("novels", "upload_time"),
-            new ArtworksBackFill.DatabaseColumn("statistics", "daily_date"),
-            new ArtworksBackFill.DatabaseColumn("statistics", "daily_completed"),
-            new ArtworksBackFill.DatabaseColumn("statistics", "daily_failed")
-    );
+    private static final class StartupColumns {
+        private static final Set<ArtworksBackFill.DatabaseColumn> AUTO_MIGRATED = Set.of(
+                new ArtworksBackFill.DatabaseColumn("artworks", "file_name"),
+                new ArtworksBackFill.DatabaseColumn("artworks", "file_author_name_id"),
+                new ArtworksBackFill.DatabaseColumn("artworks", "deleted"),
+                new ArtworksBackFill.DatabaseColumn("novels", "deleted"),
+                new ArtworksBackFill.DatabaseColumn("artworks", "upload_time"),
+                new ArtworksBackFill.DatabaseColumn("artworks", "is_original"),
+                new ArtworksBackFill.DatabaseColumn("novels", "upload_time"),
+                new ArtworksBackFill.DatabaseColumn("statistics", "daily_date"),
+                new ArtworksBackFill.DatabaseColumn("statistics", "daily_completed"),
+                new ArtworksBackFill.DatabaseColumn("statistics", "daily_failed")
+        );
+    }
 
     /**
      * 标记本次运行是否为无 GUI（headless / {@code --no-gui}）模式。
@@ -145,23 +130,28 @@ public class GuiLauncher {
 
     public static void main(String[] args) throws Exception {
         // ── 0. 统一标准输出/错误流为 UTF-8（必须先于 logback 初始化与任何打印）──────
-        //    logback 的 ConsoleAppender 在初始化时会捕获当时的 System.out，故须最先执行。
+        //    标准流转接在 Logback 配置完成后固定 ConsoleAppender 的原始输出流。
         Utf8ConsoleStreams.install();
 
-        // ── 0a. 全局 locale 检测（必须先于 logback 初始化）────────────────────────
-        //    检测器内部不允许使用 SLF4J / @Slf4j 类；通过 Locale.setDefault 写回，
-        //    使后续 HtmlLogLayout / 桌面 UI 文案解析 / getForLog 拿到统一信号。
-        SystemLocaleDetector.detectAndApply();
-
-        // ── 0b. 在 logback 初始化前完成日志目录/属性准备 ─────────────────────────
-        //    顺序不可颠倒：必须先于任何 getLogger() / log.xxx() 调用
-        String loggingPreparationWarning = prepareLogging();
-
-        // ── 触发 logback 初始化（此时 LOG_TIMESTAMP 已就绪）─────────────────────
+        // Logback 自己在文件 appender 创建前建立会话，Spring 不重新配置它。
+        System.setProperty("org.springframework.boot.logging.LoggingSystem", "none");
         log = LoggerFactory.getLogger(GuiLauncher.class);
+        ConsoleLogStreams.install();
         installJulBridge();
-        if (loggingPreparationWarning != null) {
-            log.warn(loggingPreparationWarning);
+        SystemLocaleDetector.detectAndApply();
+        var loggerContext = (LoggerContext) LoggerFactory.getILoggerFactory();
+        Thread processShutdownHook = new Thread(() -> {
+            try {
+                processShutdown.run();
+            } finally {
+                loggerContext.stop();
+            }
+        }, "process-shutdown");
+        Runtime.getRuntime().addShutdownHook(processShutdownHook);
+        if (loggerContext.getObject(LogSession.class.getName()) instanceof LogSession session) {
+            for (String warning : session.warnings()) {
+                log.warn(logMessage("gui.launcher.log.prepare-logging.failed", warning));
+            }
         }
         log.info(logMessage("gui.launcher.log.version",
                 AppVersion.getDisplayVersionOrDefault(logMessage("app.version.unknown"))));
@@ -229,6 +219,9 @@ public class GuiLauncher {
             CliSetupCommand.enforceSetupCompleteForHeadlessOrExit();
             log.info(logMessage("gui.launcher.log.headless"));
             try {
+                // Spring 独占无 GUI 后端的关闭；日志在其 context 清退完成后再停止。
+                SpringApplication.getShutdownHandlers().add(loggerContext::stop);
+                Runtime.getRuntime().removeShutdownHook(processShutdownHook);
                 PixivDownloadApplication.start(filterArgs(args));
             } catch (Throwable t) {
                 logStartupFailure(t);
@@ -429,82 +422,9 @@ public class GuiLauncher {
         }
     }
 
-    // ────────────────────────────────────────────────────────────────────────
-    // 日志目录准备（必须在 logback 初始化前执行）
-    // ────────────────────────────────────────────────────────────────────────
-
-    /**
-     * 在 logback 读取 {@code logback.xml} 之前完成以下操作：
-     * <ol>
-     *   <li>将 {@code LOG_TIMESTAMP} 写入系统属性，确保后续文件清理即使失败也有独立会话文件</li>
-     *   <li>创建 {@code log/} 目录</li>
-     *   <li>删除上次遗留的 {@code latest.log}，使本次运行重新创建</li>
-     *   <li>清理多余的历史时间戳文件，只保留最近 {@value #LOG_HISTORY_COUNT} - 1 份，
-     *       为本次新文件留出位置</li>
-     * </ol>
-     *
-     * @return 清理失败时待 logback 初始化后回灌的告警；成功时返回 {@code null}
-     */
-    private static String prepareLogging() {
-        return prepareLogging(Path.of(LOG_DIR), Path.of(LOG_HTML_DIR));
-    }
-
-    static String prepareLogging(Path logDir, Path htmlLogDir) {
-        // 禁止 Spring Boot 接管日志系统，避免其重新初始化 logback、重复写入 HTML 文档头部。
-        System.setProperty("org.springframework.boot.logging.LoggingSystem", "none");
-        String timestamp = LocalDateTime.now()
-                .format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmmss"));
-        System.setProperty("LOG_TIMESTAMP", timestamp);
-
-        try {
-            // 创建目录
-            Files.createDirectories(logDir);
-            Files.createDirectories(htmlLogDir);
-
-            // 删除旧 latest 文件，使 logback 以 append=true 创建新文件（等效覆盖）
-            Files.deleteIfExists(logDir.resolve("latest.log"));
-            // HTML 与文本 latest 使用相同的 append=true 语义，必须同步删除。
-            Files.deleteIfExists(htmlLogDir.resolve("latest.html"));
-
-            // 清理超量的历史会话文件
-            cleanOldSessionLogs(logDir, ".log");
-            cleanOldSessionLogs(htmlLogDir, ".html");
-        } catch (Exception e) {
-            return logMessage("gui.launcher.log.prepare-logging.failed", e.getMessage());
-        }
-        return null;
-    }
-
     static void installJulBridge() {
         SLF4JBridgeHandler.removeHandlersForRootLogger();
         SLF4JBridgeHandler.install();
-    }
-
-    /**
-     * 删除指定目录下最旧的时间戳会话日志，使现有文件数不超过
-     * {@value #LOG_HISTORY_COUNT} - 1，从而在新会话文件创建后恰好保持 {@value #LOG_HISTORY_COUNT} 份。
-     *
-     * @param logDir    目标目录（{@code log/} 或 {@code log/html/}）
-     * @param extension 文件扩展名（{@code ".log"} 或 {@code ".html"}）
-     */
-    private static void cleanOldSessionLogs(Path logDir, String extension) {
-        try {
-            List<Path> sessions = Files.list(logDir)
-                    .filter(p -> {
-                        String name = p.getFileName().toString();
-                        return name.startsWith(LOG_SESSION_PREFIX) && name.endsWith(extension);
-                    })
-                    .sorted(Comparator.naturalOrder()) // 文件名含时间戳，自然序即时间序
-                    .collect(Collectors.toList());
-
-            int toDelete = sessions.size() - (LOG_HISTORY_COUNT - 1);
-            for (int i = 0; i < toDelete; i++) {
-                Files.deleteIfExists(sessions.get(i));
-            }
-        } catch (Exception e) {
-            System.err.println(logMessage("gui.launcher.log.cleanup-old-logs.failed",
-                    logDir, extension, e.getMessage()));
-        }
     }
 
     private static void maybeScheduleStartupBackfillFlow(DesktopUiSession frame, Path configPath, String rootFolder,
@@ -656,7 +576,7 @@ public class GuiLauncher {
                 return true;
             }
             return difference.kind() == DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_COLUMN
-                    && RUNTIME_AUTO_MIGRATED_COLUMNS.contains(
+                    && StartupColumns.AUTO_MIGRATED.contains(
                             new ArtworksBackFill.DatabaseColumn(difference.tableName(), difference.columnName()));
         }
         // 缺表（MISSING_TABLE）一律放行：受管 schema（DatabaseSchemaRegistry 合并结果）登记的每张表
@@ -1218,7 +1138,7 @@ public class GuiLauncher {
                 BackendLifecycleManager::closeBackendContext,
                 BACKEND_CONTEXT_CLOSE_TIMEOUT_MS,
                 session);
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+        processShutdown = () -> {
             // 受控退出已在 System.exit 前关闭桌面 UI；shutdown hook 内不得再调用依赖 AWT 事件泵的工具包清理。
             try {
                 coordinator.shutdown();
@@ -1227,7 +1147,7 @@ public class GuiLauncher {
                     log.debug(logMessage("gui.launcher.log.plugin-session.close-failed", e.getMessage()));
                 }
             }
-        }, "process-shutdown"));
+        };
     }
 
     static void requestApplicationExit() {

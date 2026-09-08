@@ -655,13 +655,13 @@ public final class CliSetupCommand {
     // ── 输入/输出 ────────────────────────────────────────────────────────────────
 
     private static String promptLine(String prompt) {
-        Console console = System.console();
-        if (console != null) {
-            return console.readLine("%s", prompt);
-        }
-        // 无 tty（IDE / pipe）：退回到 System.in
         System.out.print(prompt);
         System.out.flush();
+        Console console = System.console();
+        if (console != null) {
+            return console.readLine();
+        }
+        // 无 tty（IDE / pipe）：退回到 System.in
         try {
             return STDIN_READER.readLine();
         } catch (IOException e) {
@@ -675,7 +675,9 @@ public final class CliSetupCommand {
     private static String promptPassword(String prompt) {
         Console console = System.console();
         if (console != null) {
-            char[] chars = console.readPassword("%s", prompt);
+            System.out.print(prompt);
+            System.out.flush();
+            char[] chars = console.readPassword();
             return chars == null ? null : new String(chars);
         }
         System.err.println(message("cli.warn.password-echoed"));

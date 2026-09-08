@@ -28,24 +28,73 @@ class GuiLauncherLoggingTest {
     Path tempDir;
 
     @Test
-    @DisplayName("日志清理失败前仍会分配独立会话时间戳")
-    void assignsSessionTimestampBeforeLatestCleanup() throws Exception {
-        Path logDir = tempDir.resolve("log");
-        Path htmlLogDir = logDir.resolve("html");
-        Files.createDirectories(logDir.resolve("latest.log"));
-        Files.writeString(logDir.resolve("latest.log/occupied"), "probe");
-        String previousTimestamp = System.getProperty("LOG_TIMESTAMP");
-        String previousLoggingSystem = System.getProperty("org.springframework.boot.logging.LoggingSystem");
-        System.setProperty("LOG_TIMESTAMP", "stale");
+    @DisplayName("真实入口冷启动覆盖 latest 并保留前五次日志")
+    void coldStartsRotatePreviousFiveRuns() throws Exception {
+        for (int run = 0; run < 7; run++) {
+            String console = launchHelp("run-" + run);
+            String latest = Files.readString(tempDir.resolve("log/latest.log"));
+            String html = Files.readString(tempDir.resolve("log/html/latest.html"));
+            List<Path> textSessions = sessionFiles(tempDir.resolve("log"));
+            List<Path> htmlSessions = sessionFiles(tempDir.resolve("log/html"));
+            assertThat(textSessions).hasSize(Math.min(run + 1, 6));
+            assertThat(htmlSessions).hasSize(textSessions.size());
+            assertThat(latest).containsOnlyOnce("run-" + run);
+            assertThat(html).containsOnlyOnce("<!DOCTYPE html>");
+            assertThat(console).contains("System locale resolved:", "--help");
+            assertThat(latest).contains("System locale resolved:", "--help");
+            assertThat(html).contains("System locale resolved:", "--help");
+            assertThat(latest).isEqualTo(Files.readString(textSessions.get(textSessions.size() - 1)));
+            assertThat(html).isEqualTo(Files.readString(htmlSessions.get(htmlSessions.size() - 1)));
+            if (run > 0) assertThat(latest).doesNotContain("run-" + (run - 1));
+        }
+        for (Path session : sessionFiles(tempDir.resolve("log"))) {
+            assertThat(Files.readString(session)).doesNotContain("run-0");
+        }
+    }
 
+    @Test
+    @DisplayName("另一进程持有日志目录时帮助命令不改写当前日志")
+    void concurrentStartPreservesActiveLogFiles() throws Exception {
+        Files.createDirectories(tempDir.resolve("log/html"));
+        Path latest = tempDir.resolve("log/latest.log");
+        Path html = tempDir.resolve("log/html/latest.html");
+        Files.writeString(latest, "active-text", StandardCharsets.UTF_8);
+        Files.writeString(html, "active-html", StandardCharsets.UTF_8);
+        try (var channel = java.nio.channels.FileChannel.open(tempDir.resolve("log/.session.lock"),
+                java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.WRITE);
+             var lock = channel.lock()) {
+            assertThat(launchHelp("secondary")).contains("--help");
+            assertThat(Files.readString(latest)).isEqualTo("active-text");
+            assertThat(Files.readString(html)).isEqualTo("active-html");
+            assertThat(sessionFiles(tempDir.resolve("log"))).isEmpty();
+        }
+    }
+
+    private String launchHelp(String marker) throws Exception {
+        Path java = Path.of(System.getProperty("java.home"), "bin",
+                System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win") ? "java.exe" : "java");
+        Path logback = Path.of(GuiLauncher.class.getProtectionDomain().getCodeSource().getLocation().toURI())
+                .resolve("logback.xml");
+        Path output = tempDir.resolve("console-" + marker + ".txt");
+        String classPath = System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
+        Process process = new ProcessBuilder(java.toString(), "-Duser.language=en", "-Duser.country=US",
+                "-Dlogback.configurationFile=" + logback, "-cp", classPath,
+                GuiLauncher.class.getName(), "--help", "--probe=" + marker)
+                .directory(tempDir.toFile()).redirectErrorStream(true).redirectOutput(output.toFile()).start();
         try {
-            assertThat(GuiLauncher.prepareLogging(logDir, htmlLogDir)).isNotNull();
-            assertThat(System.getProperty("LOG_TIMESTAMP"))
-                    .matches("\\d{4}-\\d{2}-\\d{2}_\\d{6}")
-                    .isNotEqualTo("stale");
+            assertThat(process.waitFor(30, TimeUnit.SECONDS)).isTrue();
+            String console = Files.readString(output);
+            assertThat(process.exitValue()).as(console).isZero();
+            return console;
         } finally {
-            restoreProperty("LOG_TIMESTAMP", previousTimestamp);
-            restoreProperty("org.springframework.boot.logging.LoggingSystem", previousLoggingSystem);
+            if (process.isAlive()) process.destroyForcibly().waitFor();
+        }
+    }
+
+    private static List<Path> sessionFiles(Path directory) throws Exception {
+        try (var files = Files.list(directory)) {
+            return files.filter(path -> path.getFileName().toString().startsWith("pixiv-download_"))
+                    .sorted().toList();
         }
     }
 
@@ -86,7 +135,6 @@ class GuiLauncherLoggingTest {
         String classPath = System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
         Process process = new ProcessBuilder(java.toString(),
                 "-Dlogback.configurationFile=" + logback,
-                "-DLOG_TIMESTAMP=parity-probe",
                 "-cp", classPath,
                 LoggingProbe.class.getName())
                 .directory(tempDir.toFile())
@@ -101,20 +149,23 @@ class GuiLauncherLoggingTest {
         assertThat(process.exitValue()).as(console).isZero();
 
         String textLatest = Files.readString(tempDir.resolve("log/latest.log"));
-        String textSession = Files.readString(tempDir.resolve("log/pixiv-download_parity-probe.log"));
+        String textSession = Files.readString(sessionFiles(tempDir.resolve("log")).get(0));
         String htmlLatest = Files.readString(tempDir.resolve("log/html/latest.html"));
-        String htmlSession = Files.readString(tempDir.resolve("log/html/pixiv-download_parity-probe.html"));
+        String htmlSession = Files.readString(sessionFiles(tempDir.resolve("log/html")).get(0));
 
         assertThat(textLatest).isEqualTo(textSession);
         assertThat(htmlLatest).isEqualTo(htmlSession);
-        assertThat(eventCount(console, "^\\d{2}:\\d{2}:\\d{2}\\.\\d{3} ")).isEqualTo(3);
-        assertThat(eventCount(textLatest, "^\\d{4}-\\d{2}-\\d{2} ")).isEqualTo(3);
-        assertThat(eventCount(htmlLatest, "<div class=\"entry ")).isEqualTo(3);
+        assertThat(eventCount(console, "^\\d{2}:\\d{2}:\\d{2}\\.\\d{3} ")).isEqualTo(6);
+        assertThat(eventCount(textLatest, "^\\d{4}-\\d{2}-\\d{2} ")).isEqualTo(6);
+        assertThat(eventCount(htmlLatest, "<div class=\"entry ")).isEqualTo(6);
 
         for (String output : List.of(console, textLatest, htmlLatest)) {
             assertThat(output)
                     .containsOnlyOnce("PARITY_JUL")
                     .containsOnlyOnce("PARITY_ERROR")
+                    .containsOnlyOnce("PARITY_STDOUT 中文")
+                    .containsOnlyOnce("PARITY_STDERR")
+                    .containsOnlyOnce("PARITY_PROMPT")
                     .contains("parity outer", "parity cause", "parity suppressed",
                             "Caused by:", "Suppressed:", "1 common frames omitted");
         }
@@ -136,6 +187,7 @@ class GuiLauncherLoggingTest {
             Utf8ConsoleStreams.install();
             org.slf4j.Logger logger = LoggerFactory.getLogger(
                     "top.sywyar.pixivdownload.logging.ProductionParityProbe");
+            top.sywyar.pixivdownload.logback.ConsoleLogStreams.install();
             GuiLauncher.installJulBridge();
             logger.info("PARITY_INFO <probe>&\" 中文");
             java.util.logging.Logger.getLogger("parity-jul").info("PARITY_JUL");
@@ -162,15 +214,12 @@ class GuiLauncherLoggingTest {
             } catch (IllegalStateException thrown) {
                 logger.error("PARITY_ERROR", thrown);
             }
+            System.out.println("PARITY_STDOUT 中文");
+            System.err.println("PARITY_STDERR");
+            System.out.print("PARITY_PROMPT");
+            System.out.flush();
             ((LoggerContext) LoggerFactory.getILoggerFactory()).stop();
         }
     }
 
-    private static void restoreProperty(String key, String value) {
-        if (value == null) {
-            System.clearProperty(key);
-        } else {
-            System.setProperty(key, value);
-        }
-    }
 }
