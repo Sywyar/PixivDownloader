@@ -30,13 +30,13 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - 未绑定 Cookie 的公开 Pixiv 计划任务改用受限模式运行；账号专属来源仍要求凭证。两个下载工作台都会显示提供者给出的挂起或过度访问保护原因。
 - 应用日志固定使用英文，HTML 日志固定声明英文文档语言。
 - FFmpeg 自动安装改用项目从官方最新稳定源码构建的固定 Release，按 Windows x64、Linux x64/arm64 和 macOS x64/arm64 选择资产，不再使用每日构建。
-- Swing 和主题实现移入 `gui-swing` 外置插件；宿主只保留 `DesktopUiProvider` / `DesktopUiHost` 契约与确定性选择。`gui-compose` 成为标准包默认界面，`gui-swing` 自动后备；可用 `app.gui-provider` 或「配置 → 界面」切换，均不可用时引导进入插件市场。
+- Swing 和主题实现移入 `gui-swing` 外置插件；宿主只保留 `DesktopUiProvider` / `DesktopUiHost` 契约与确定性选择。`gui-compose` 成为标准包默认界面；GUI 启动或运行中崩溃时自动尝试其它可用界面并提示，全部不可用时通过内嵌提示引导进入插件市场。可用 `app.gui-provider` 或「配置 → 界面」选择提供者。
 - 下载页改为集中展示队列、速度、取得模式、配置、工具与常驻队列的工作台；统一提示、确认和输入组件，并完善深浅主题、响应式布局、错误页、滚动条、动画及“减少动态效果”支持。GUI 状态页和系统托盘移除下载监控快捷入口。
 - 插件管理页改用紧凑卡片和操作菜单，页面内排序在状态变化后保持稳定，重新打开后再按最新状态排序。
 - 第三方插件通过 owner-scoped `RuntimePathProvider` 和 `PluginDataSource` 访问自己的配置、状态、数据目录及 `data/{pluginId}/plugin.db`，不再依赖宿主文件、配置或数据库实现。Douyin 使用自有 SQLite schema，默认下载到 `{download.root-folder}/douyin`。
 - 移除通用跨类型画廊契约；各下载类型插件拥有自己的页面、API、资源和 i18n，只通过 `NavigationContribution` 的 `gallery.type-switch` 提供入口。队列标签统一按数据来源、取得模式、年龄分级、作品类型排列，并随插件热启停增减。
 - Windows 安装包、portable、Java 标准包和离线全量包使用同一官方插件分发集合；Java 包提供 `run.bat` / `run.sh`，要求 Java 17。核心壳 JAR 仅作内部构建输入，不单独发布；Douyin 只由自定义仓库或本地包分发。
-- `download-workbench` 成为必需外置插件；缺失、损坏、不兼容、验签失败或插件启动崩溃时进入恢复模式，只开放登录、插件管理与修复入口。其它外置插件缺失或禁用时只撤回所属入口与能力，既有数据和配置保留；`novel` 缺席时核心不保留平行小说实现。
+- `download-workbench` 成为必需外置插件；必装插件缺失、损坏、不兼容、验签失败或启动 / 运行中崩溃时进入恢复模式，只开放登录、插件管理与修复入口。普通插件故障会提示并隔离，不触发全局恢复模式；缺失或禁用时只撤回所属入口与能力，既有数据和配置保留。`novel` 缺席时核心不保留平行小说实现。
 - 插件市场默认启用内嵌官方仓库并显示来源验证状态；普通模式隐藏默认安装与依赖插件，恢复模式自动显示默认安装插件。
 - 桌面配置按下载、运行与网络、访问控制、自动化与维护、插件重组。首次安装固定为自用（solo）模式，`multi-mode.*` 仍可在 `config.yaml` 手工调整。
 

@@ -9,7 +9,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DisplayName("恢复模式评估器：必选插件未满足或插件启动失败时进入恢复模式")
+@DisplayName("恢复模式评估器：仅必选插件未满足时进入恢复模式")
 class RecoveryModeEvaluatorTest {
 
     private static final String DW = "download-workbench";
@@ -100,19 +100,17 @@ class RecoveryModeEvaluatorTest {
     }
 
     @Test
-    @DisplayName("空必选策略：明确的插件启动失败进入恢复模式并保留诊断")
-    void failedPluginEntersRecoveryWithoutRequiredPolicy() {
+    @DisplayName("空必选策略：普通插件启动失败不触发恢复模式")
+    void failedOptionalPluginDoesNotEnterRecovery() {
         PluginStatusReport report = new PluginStatusReport(List.of(
                 new PluginDiagnostic("crashy", PluginStatus.FAILED, null, false, List.of("boom"))));
 
         RecoveryModeDecision decision = evaluator.evaluate(
-                report, RequiredPluginPolicy.empty(), java.util.Set.of("crashy"));
+                report, RequiredPluginPolicy.empty());
 
-        assertThat(decision.active()).isTrue();
-        RecoveryModeReason reason = decision.firstReason().orElseThrow();
-        assertThat(reason.pluginId()).isEqualTo("crashy");
-        assertThat(reason.messageKey()).isEqualTo("plugin.recovery.failed");
-        assertThat(reason.messages()).containsExactly("boom");
+        assertThat(decision.active()).isFalse();
+        assertThat(decision.reasons()).isEmpty();
+        assertThat(report.byId("crashy").orElseThrow().messages()).containsExactly("boom");
     }
 
     @Test

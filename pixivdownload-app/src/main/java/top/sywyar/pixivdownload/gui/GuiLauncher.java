@@ -36,6 +36,7 @@ import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegist
 import top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationAdmissionPolicy;
 import top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogTrustStateStore;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession;
+import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginEnabledSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
@@ -44,6 +45,7 @@ import top.sywyar.pixivdownload.tools.ArtworksBackFill;
 import org.yaml.snakeyaml.Yaml;
 
 import java.awt.GraphicsEnvironment;
+import java.util.Objects;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.BindException;
@@ -93,6 +95,7 @@ public class GuiLauncher {
     private static final int DEFAULT_PORT = 6999;
     private static final String DEFAULT_ROOT = RuntimeFiles.DEFAULT_DOWNLOAD_ROOT;
     private static final AtomicReference<DesktopUiSession> ACTIVE_UI = new AtomicReference<>();
+    private static volatile PluginRuntimeManager processPluginRuntime;
     private static volatile Runnable processShutdown = () -> {};
     private static final AtomicBoolean EXIT_REQUESTED = new AtomicBoolean();
     /** 进程退出时同步关闭 Spring backend context 的超时上限：足够正常拆卸，又不让卡死的拆卸挂死进程退出。 */
@@ -263,6 +266,7 @@ public class GuiLauncher {
         pluginSession.updateAdmissionPolicy(new PluginCatalogRevocationAdmissionPolicy(
                 startupRepositoryRegistry, new PluginCatalogTrustStateStore()));
         pluginSession.start();
+        processPluginRuntime = pluginSession.manager();
         // 启动期 inventory / discovery 快照持有插件实例 / classloader 引用，仅存在于启动前的短生命周期窗口。
         // 首窗前 startup-only 消费者先取出需要的固定快照；GUI 动态贡献在面板 / 菜单重建时从运行期 manager 重新发现，
         // 以便按当前 GUI locale 重新解析插件 i18n，同时不长期持有启动 discovery。
@@ -287,20 +291,7 @@ public class GuiLauncher {
         registerProcessShutdown(pluginSession, backendRegistration);
         // ── 3. 选择并启动外置桌面 UI ─────────────────────────────────────────
         try {
-            List<DesktopUiProvider> desktopProviders = startupPluginSources.stream()
-                    .map(DesktopUiPluginSource::plugin)
-                    .filter(DesktopUiProvider.class::isInstance)
-                    .map(DesktopUiProvider.class::cast)
-                    .toList();
             AppDesktopUiHost desktopUiHost = new AppDesktopUiHost(port);
-            if (desktopProviders.isEmpty()) {
-                pluginSession.releaseStartupSnapshot();
-                openPluginMarketWithoutDesktopProvider(configPath, port, desktopUiHost);
-                return;
-            }
-            DesktopUiSelector.Selection selection = DesktopUiSelector.select(
-                    readConfigScalar(configPath, "app.gui-provider"),
-                    desktopProviders);
             desktopUiHost.resetIncompleteOnboardingState(root);
             Supplier<List<DesktopUiPluginSource>> currentDesktopSources = memoizedDesktopUiSources(
                     () -> pluginSession.manager().discoverFeaturePlugins(),
@@ -312,29 +303,39 @@ public class GuiLauncher {
                     () -> pluginSession.manager().discoverFeaturePlugins(),
                     discovery -> new WebI18nBundleRegistry(pluginRegistry(pluginSession, discovery)),
                     pluginSession.startupDiscovery(), startupDesktopBundles);
-            DesktopUiProvider selectedProvider = selection.provider();
-            DesktopUiContext context = new DesktopUiContext(
-                    startupLaunch,
-                    port,
-                    root,
-                    configPath,
-                    selectedProvider.id(),
-                    desktopUiHost,
-                    startupDesktopSnapshots,
-                    currentDesktopSnapshots,
-                    token -> resolveDesktopText(token, currentDesktopBundles),
-                    () -> readThemePreference(desktopUiHost)
+            DesktopUiFailover ui = new DesktopUiFailover(
+                    startupPluginSources,
+                    (providerId, failureHandler) -> new DesktopUiContext(
+                            startupLaunch,
+                            port,
+                            root,
+                            configPath,
+                            providerId,
+                            desktopUiHost,
+                            startupDesktopSnapshots,
+                            currentDesktopSnapshots,
+                            token -> resolveDesktopText(token, currentDesktopBundles),
+                            () -> readThemePreference(desktopUiHost),
+                            failureHandler
+                    ),
+                    session -> {
+                        ACTIVE_UI.set(session);
+                        singleInstanceManager.setActivationHandler(session == null ? () -> {} : session::activate);
+                    },
+                    () -> openPluginMarketWithoutDesktopProvider(configPath, port, desktopUiHost),
+                    (source, failure) -> pluginSession.manager().reportPluginFailure(
+                            source.packageId(), source.generation(), failure)
             );
-            DesktopUiSession ui = selectedProvider.launch(context);
-            ACTIVE_UI.set(ui);
-            singleInstanceManager.setActivationHandler(ui::activate);
-            if (selection.diagnostic() != null) {
-                log.warn(selection.diagnostic());
-                ui.showMessage(DesktopUiSession.MessageLevel.WARNING,
-                        MessageBundles.get("gui.dialog.warning.title"), selection.diagnostic());
-            }
+            pluginSession.manager().addWorkerListener(event -> {
+                if (event.type() == top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager.WorkerEventType.CRASHED) {
+                    ui.reportFailure(event.pluginId(), new IllegalStateException(event.reason()));
+                }
+            });
+            ui.start(readConfigScalar(configPath, "app.gui-provider"));
             pluginSession.releaseStartupSnapshot();
-            maybeScheduleStartupBackfillFlow(ui, configPath, root, startupManagedSchema);
+            if (ACTIVE_UI.get() != null) {
+                maybeScheduleStartupBackfillFlow(ui, configPath, root, startupManagedSchema);
+            }
         } catch (Throwable failure) {
             handleFatalGuiBootstrapFailure(failure);
         }
@@ -354,12 +355,34 @@ public class GuiLauncher {
             try {
                 log.error(logMessage("gui.launcher.log.uncaught-exception",
                         thread.getName(), safeMessage(error)), error);
+                if (!(error instanceof VirtualMachineError) && !(error instanceof ThreadDeath)) {
+                    var runtime = processPluginRuntime;
+                    if (runtime != null) runtime.reportUncaughtFailure(thread, error);
+                }
             } catch (Throwable loggingFailure) {
+                DesktopUiFailover.rethrowFatal(loggingFailure);
                 System.err.println("[GuiLauncher] uncaught exception on "
                         + thread.getName() + ": " + error);
                 error.printStackTrace();
+            } finally {
+                DesktopUiFailover.rethrowFatal(error);
             }
         });
+    }
+
+    static PluginRuntimeManager bindPluginFailureRuntime(
+            PluginRuntimeManager runtime
+    ) {
+        var previous = processPluginRuntime;
+        processPluginRuntime = runtime;
+        return previous;
+    }
+
+    static void restorePluginFailureRuntime(
+            PluginRuntimeManager runtime,
+            PluginRuntimeManager previous
+    ) {
+        if (processPluginRuntime == runtime) processPluginRuntime = previous;
     }
 
     /**
@@ -394,14 +417,16 @@ public class GuiLauncher {
         if (!confirmed) return;
 
         URI marketUri = pluginMarketUri(configPath, port);
-        BackendLifecycleManager.startAsync(() -> {
+        Runnable openMarket = () -> {
             try {
                 desktopUiHost.openExternalUri(marketUri);
             } catch (Exception failure) {
                 log.error(logMessage("gui.status.log.open-browser-failed",
                         marketUri, safeMessage(failure)), failure);
             }
-        });
+        };
+        if (BackendLifecycleManager.isRunning()) openMarket.run();
+        else BackendLifecycleManager.startAsync(openMarket);
     }
 
     static URI pluginMarketUri(Path configPath, int port) {
@@ -843,38 +868,30 @@ public class GuiLauncher {
         if (sources == null || sources.isEmpty()) return List.of();
         return sources.stream().map(source -> {
             var plugin = source.plugin();
-            return new DesktopUiPluginSnapshot(
-                    source.id(),
-                    source.builtIn(),
-                    source.packageId(),
-                    source.generation(),
-                    plugin instanceof DesktopUiProvider,
-                    safeScalar(plugin::displayNamespace),
-                    safeScalar(plugin::displayName),
-                    safeList(plugin::guiThemes),
-                    safeList(plugin::guiConfigContributions),
-                    safeList(plugin::guiOnboardingSteps),
-                    safeList(plugin::routes),
-                    safeList(plugin::navigation)
-            );
-        }).toList();
-    }
-
-    private static String safeScalar(Supplier<String> supplier) {
-        try {
-            return supplier.get();
-        } catch (RuntimeException failure) {
-            return null;
-        }
-    }
-
-    private static <T> List<T> safeList(Supplier<List<T>> supplier) {
-        try {
-            List<T> values = supplier.get();
-            return values == null ? List.of() : List.copyOf(values);
-        } catch (RuntimeException failure) {
-            return List.of();
-        }
+            try {
+                return new DesktopUiPluginSnapshot(
+                        source.id(),
+                        source.builtIn(),
+                        source.packageId(),
+                        source.generation(),
+                        plugin instanceof DesktopUiProvider,
+                        plugin.displayNamespace(),
+                        plugin.displayName(),
+                        plugin.guiThemes(),
+                        plugin.guiConfigContributions(),
+                        plugin.guiOnboardingSteps(),
+                        plugin.routes(),
+                        plugin.navigation()
+                );
+            } catch (Throwable failure) {
+                DesktopUiFailover.rethrowFatal(failure);
+                LoggerFactory.getLogger(GuiLauncher.class).error(MessageBundles.getForLog(
+                        "plugin.log.start-failed", source.id(), failure.getMessage()), failure);
+                var runtime = processPluginRuntime;
+                if (runtime != null) runtime.reportPluginFailure(source.packageId(), source.generation(), failure);
+                return null;
+            }
+        }).filter(Objects::nonNull).toList();
     }
 
     static Supplier<List<DesktopUiPluginSource>> memoizedDesktopUiSources(

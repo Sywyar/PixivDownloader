@@ -9,6 +9,7 @@ import java.awt.Button;
 import java.awt.Dialog;
 import java.awt.EventQueue;
 import java.awt.FlowLayout;
+import java.awt.Font;
 import java.awt.Frame;
 import java.awt.GraphicsEnvironment;
 import java.awt.Label;
@@ -16,6 +17,8 @@ import java.awt.Panel;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.lang.reflect.InvocationTargetException;
+import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** 宿主启动流程使用且不依赖 Swing 的呈现桥。 */
@@ -76,6 +79,15 @@ final class DesktopUiDialogs {
             String title, String message, String confirmLabel) {
         AtomicBoolean confirmed = new AtomicBoolean();
         Dialog dialog = new Dialog((Frame) null, title, true);
+        // AWT 原生控件不会完整应用逻辑字体的字形回退，选取可显示整段提示的系统物理字体。
+        Set<String> logicalFonts = Set.of("dialog", "dialoginput", "monospaced", "sansserif", "serif");
+        for (Font font : GraphicsEnvironment.getLocalGraphicsEnvironment().getAllFonts()) {
+            if (!logicalFonts.contains(font.getFamily(Locale.ROOT).toLowerCase(Locale.ROOT))
+                    && font.canDisplayUpTo(title + message + confirmLabel) < 0) {
+                dialog.setFont(font.deriveFont(Font.PLAIN, 12f));
+                break;
+            }
+        }
         dialog.setLayout(new BorderLayout());
 
         Panel body = new Panel(new FlowLayout(FlowLayout.CENTER, 24, 20));

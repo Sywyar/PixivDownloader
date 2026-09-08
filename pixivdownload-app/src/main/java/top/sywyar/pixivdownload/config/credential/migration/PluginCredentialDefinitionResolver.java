@@ -81,8 +81,11 @@ public class PluginCredentialDefinitionResolver {
             owned.put(owner, new LinkedHashSet<>());
             try {
                 collectSensitiveKeys(registered, keys);
-            } catch (RuntimeException | IOException e) {
+            } catch (Throwable e) {
+                if (e instanceof VirtualMachineError fatal) throw fatal;
+                if (e instanceof ThreadDeath fatal) throw fatal;
                 failures.put(owner, safeMessage(e));
+                pluginRegistry.recordLifecycleFailure(registered, e);
             }
         }
 

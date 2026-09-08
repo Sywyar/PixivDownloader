@@ -35,12 +35,12 @@ public class WebUiSlotRegistry implements WebUiSlotCatalog {
     private volatile List<RegisteredUiSlot> snapshot = List.of();
 
     public WebUiSlotRegistry(PluginRegistry pluginRegistry) {
-        for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
+        pluginRegistry.forEachBootPlugin(registered -> {
             List<WebUiSlotContribution> slots = registered.plugin().uiSlots();
             if (!slots.isEmpty()) {
                 register(registered.id(), slots);
             }
-        }
+        });
     }
 
     /** 以内置插件清单构建注册中心，供 Spring 上下文之外的入口（测试 / 启动期检查等）使用。 */

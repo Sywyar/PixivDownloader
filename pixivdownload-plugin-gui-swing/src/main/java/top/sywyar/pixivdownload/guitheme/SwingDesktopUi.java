@@ -38,8 +38,23 @@ final class SwingDesktopUi {
             frame.setTrayAvailable(trayInstalled);
             if (!context.startupLaunch() || !trayInstalled) frame.showWindow();
         };
-        runAndWait(create);
-        return new Session(Objects.requireNonNull(frameRef.get(), "frame"));
+        try {
+            runAndWait(create);
+            return new Session(Objects.requireNonNull(frameRef.get(), "frame"), context);
+        } catch (Exception | Error failure) {
+            try {
+                runAndWait(() -> {
+                    SystemTrayManager.uninstall();
+                    MainFrame frame = frameRef.get();
+                    if (frame != null) frame.dispose();
+                });
+            } catch (Exception | Error cleanupFailure) {
+                if (cleanupFailure instanceof VirtualMachineError fatal) throw fatal;
+                if (cleanupFailure instanceof ThreadDeath fatal) throw fatal;
+                if (failure != cleanupFailure) failure.addSuppressed(cleanupFailure);
+            }
+            throw failure;
+        }
     }
 
     private static void runAndWait(Runnable action) throws Exception {
@@ -57,7 +72,7 @@ final class SwingDesktopUi {
         }
     }
 
-    private record Session(MainFrame frame) implements DesktopUiSession {
+    private record Session(MainFrame frame, DesktopUiContext context) implements DesktopUiSession {
         @Override public void activate() { onEdt(frame::showWindow); }
         @Override public void showMessage(MessageLevel level, String title, String message) {
             int type = switch (level == null ? MessageLevel.INFO : level) {
@@ -67,9 +82,21 @@ final class SwingDesktopUi {
             };
             onEdt(() -> JOptionPane.showMessageDialog(frame, message, title, type));
         }
-        @Override public void close() { onEdt(() -> { frame.persistWindowState(); frame.dispose(); }); }
-        private static void onEdt(Runnable action) {
-            if (SwingUtilities.isEventDispatchThread()) action.run(); else SwingUtilities.invokeLater(action);
+        @Override public void close() {
+            try {
+                runAndWait(() -> {
+                    SystemTrayManager.uninstall();
+                    try { frame.persistWindowState(); } finally { frame.dispose(); }
+                });
+            } catch (Exception failure) {
+                throw new IllegalStateException("Unable to close the Swing desktop UI", failure);
+            }
+        }
+        private void onEdt(Runnable action) {
+            Runnable guarded = () -> {
+                try { action.run(); } catch (Throwable failure) { context.reportFailure(failure); }
+            };
+            if (SwingUtilities.isEventDispatchThread()) guarded.run(); else SwingUtilities.invokeLater(guarded);
         }
     }
 }

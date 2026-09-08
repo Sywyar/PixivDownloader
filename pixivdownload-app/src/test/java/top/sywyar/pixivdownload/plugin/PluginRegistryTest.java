@@ -245,6 +245,9 @@ class PluginRegistryTest {
         PluginRegistry.RegisteredPlugin firstIdentity = registry.registeredPlugins().get(0);
         PluginRegistry.RegisteredPlugin secondIdentity = registry.registeredPlugins().get(1);
         PluginRegistry.RegisteredPlugin thirdIdentity = registry.registeredPlugins().get(2);
+        List<String> notifications = new ArrayList<>();
+        registry.addFailureListener((plugin, diagnostic) -> { throw new AssertionError("broken observer"); });
+        registry.addFailureListener((plugin, diagnostic) -> notifications.add(plugin.id()));
 
         registry.start();
 
@@ -258,6 +261,8 @@ class PluginRegistryTest {
         assertThat(registry.featureStarted(thirdIdentity)).isTrue();
         assertThat(registry.lifecycleFailuresById()).containsEntry(
                 "second", IllegalStateException.class.getName() + ": second start failed");
+        registry.recordLifecycleFailure(secondIdentity, failure);
+        assertThat(notifications).containsExactly("second");
     }
 
     @Test
@@ -652,6 +657,34 @@ class PluginRegistryTest {
         PluginToggleProperties.PluginToggle toggle = new PluginToggleProperties.PluginToggle();
         toggle.setEnabled(false);
         return toggle;
+    }
+
+    @Test
+    @DisplayName("外置贡献初始化错误保留诊断并重放提示，仍启动其它插件")
+    void bootContributionFailureIsIsolatedAndReplayed() {
+        List<String> lifecycle = new ArrayList<>();
+        TestPlugin broken = new TestPlugin("broken", lifecycle, false) {
+            @Override public List<top.sywyar.pixivdownload.plugin.api.web.I18nContribution> i18n() {
+                throw new ExceptionInInitializerError("message resources");
+            }
+            @Override public List<top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution> schema() {
+                throw new NoClassDefFoundError("schema resources");
+            }
+        };
+        PluginRegistry registry = new PluginRegistry(List.of(), new PluginToggleProperties(),
+                new PluginDiscoveryResult(List.of(
+                        external("broken", broken, getClass().getClassLoader()),
+                        external("healthy", new TestPlugin("healthy", lifecycle, false), getClass().getClassLoader())
+                ), List.of()));
+        new top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry(registry);
+        assertThat(new top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry(registry)
+                .mergedSchema().tables()).isEmpty();
+        List<String> notifications = new ArrayList<>();
+        registry.addFailureListener((plugin, diagnostic) -> notifications.add(plugin.id()));
+        registry.start();
+        assertThat(registry.lifecycleFailuresById()).containsKey("broken");
+        assertThat(notifications).containsExactly("broken");
+        assertThat(lifecycle).containsExactly("start:healthy");
     }
 
     private static final class RetryStopPlugin implements PixivFeaturePlugin {

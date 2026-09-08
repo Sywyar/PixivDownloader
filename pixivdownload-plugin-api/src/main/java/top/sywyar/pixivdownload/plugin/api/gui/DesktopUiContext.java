@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.function.Function;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
@@ -22,6 +23,7 @@ public final class DesktopUiContext {
     private final Supplier<List<DesktopUiPluginSnapshot>> currentPlugins;
     private final Function<DesktopUiText, String> textResolver;
     private final Supplier<String> themePreference;
+    private final Consumer<Throwable> failureHandler;
 
     /**
      * 创建一个只在当前桌面进程中使用的业务上下文。
@@ -77,6 +79,41 @@ public final class DesktopUiContext {
             Function<DesktopUiText, String> textResolver,
             Supplier<String> themePreference
     ) {
+        this(startupLaunch, serverPort, rootFolder, configPath, selectedProviderId, host, startupPlugins,
+                currentPlugins, textResolver, themePreference, failure -> {
+                    Thread thread = Thread.currentThread();
+                    thread.getUncaughtExceptionHandler().uncaughtException(thread, failure);
+                });
+    }
+
+    /**
+     * 创建带本会话异常上报通道的上下文；宿主负责隔离、提示和选择其它可用界面。
+     *
+     * @param startupLaunch 是否由应用启动流程打开桌面界面
+     * @param serverPort 本地服务端口
+     * @param rootFolder 下载根目录
+     * @param configPath 主配置文件路径
+     * @param selectedProviderId 本次启动实际选中的桌面 UI 提供者 id
+     * @param host 工具包无关的宿主业务能力
+     * @param startupPlugins 启动时已经冻结的活动插件快照
+     * @param currentPlugins 当前活动插件快照读取器
+     * @param textResolver 本地化文本解析器
+     * @param themePreference 当前共享主题偏好读取器
+     * @param failureHandler 当前 GUI 会话的异常接收器
+     */
+    public DesktopUiContext(
+            boolean startupLaunch,
+            int serverPort,
+            String rootFolder,
+            Path configPath,
+            String selectedProviderId,
+            DesktopUiHost host,
+            List<DesktopUiPluginSnapshot> startupPlugins,
+            Supplier<List<DesktopUiPluginSnapshot>> currentPlugins,
+            Function<DesktopUiText, String> textResolver,
+            Supplier<String> themePreference,
+            Consumer<Throwable> failureHandler
+    ) {
         if (serverPort < 1 || serverPort > 65_535) {
             throw new IllegalArgumentException("serverPort out of range");
         }
@@ -90,7 +127,20 @@ public final class DesktopUiContext {
         this.currentPlugins = Objects.requireNonNull(currentPlugins, "currentPlugins");
         this.textResolver = Objects.requireNonNull(textResolver, "textResolver");
         this.themePreference = Objects.requireNonNull(themePreference, "themePreference");
+        this.failureHandler = Objects.requireNonNull(failureHandler, "failureHandler");
         currentPluginSnapshots();
+    }
+
+    /**
+     * 界面启动后无法继续工作时上报；JVM 致命错误仍按原对象抛出。
+     *
+     * @param failure 导致当前 GUI 会话无法继续工作的异常
+     */
+    public void reportFailure(Throwable failure) {
+        Objects.requireNonNull(failure, "failure");
+        if (failure instanceof VirtualMachineError fatal) throw fatal;
+        if (failure instanceof ThreadDeath fatal) throw fatal;
+        failureHandler.accept(failure);
     }
 
     /**

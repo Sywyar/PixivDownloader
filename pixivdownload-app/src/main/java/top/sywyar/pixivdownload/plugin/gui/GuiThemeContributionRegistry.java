@@ -29,7 +29,7 @@ public class GuiThemeContributionRegistry {
     private volatile Map<String, RegisteredTheme> byThemeId = Map.of();
 
     public GuiThemeContributionRegistry(PluginRegistry pluginRegistry) {
-        for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
+        pluginRegistry.forEachBootPlugin(registered -> {
             PixivFeaturePlugin plugin = registered.plugin();
             List<GuiThemeContribution> themes = plugin.guiThemes();
             if (themes == null) {
@@ -39,7 +39,7 @@ public class GuiThemeContributionRegistry {
             if (!themes.isEmpty()) {
                 register(registered.id(), themes);
             }
-        }
+        });
     }
 
     /**

@@ -303,21 +303,33 @@ internal object ComposeDesktopUi {
                 }
             } catch (problem: Throwable) {
                 failure.set(problem)
+                val launched = ready.count == 0L
                 ready.countDown()
+                if (problem is VirtualMachineError || problem is ThreadDeath) throw problem
+                if (launched) context.reportFailure(problem)
             }
         }
 
-        if (!ready.await(30, TimeUnit.SECONDS)) {
-            exit.get()?.invoke()
-            throw IllegalStateException("Timed out while starting the Compose desktop UI")
+        val session = Session(visible, message, windowRef, exit, uiThread, model)
+        try {
+            check(ready.await(30, TimeUnit.SECONDS)) { "Timed out while starting the Compose desktop UI" }
+            failure.get()?.let { throw unwrap(it) }
+            return session
+        } catch (problem: Throwable) {
+            try {
+                session.close()
+            } catch (cleanup: Throwable) {
+                if (cleanup is VirtualMachineError || cleanup is ThreadDeath) throw cleanup
+                problem.addSuppressed(cleanup)
+            }
+            if (problem is InterruptedException) Thread.currentThread().interrupt()
+            throw problem
         }
-        failure.get()?.let { throw unwrap(it) }
-        return Session(visible, message, windowRef, exit, uiThread, model)
     }
 
-    private fun unwrap(problem: Throwable): RuntimeException {
+    private fun unwrap(problem: Throwable): Throwable {
         val cause = if (problem is InvocationTargetException && problem.cause != null) problem.cause!! else problem
-        return cause as? RuntimeException ?: IllegalStateException("Failed to start the Compose desktop UI", cause)
+        return cause
     }
 
     private data class UiMessage(val level: DesktopUiSession.MessageLevel, val title: String, val message: String)

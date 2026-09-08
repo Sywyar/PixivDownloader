@@ -127,6 +127,27 @@ import static org.mockito.Mockito.when;
 class PluginLifecycleBringUpTest extends PluginLifecycleServiceTestSupport {
 
     @Test
+    @DisplayName("启动期插件失败且清理未完成时保留隔离状态与句柄，核心仍可启动")
+    void bootCleanupFailureDoesNotAbortCoreStartup() {
+        try (StatefulWebLifecycleHarness h = new StatefulWebLifecycleHarness()) {
+            when(h.scheduleRegistrar.register(any(), same(h.registered), any()))
+                    .thenThrow(new IllegalStateException("schedule startup failed"));
+            h.routes.failBeforeUnregister = true;
+            try {
+                h.service.startAll();
+                assertThat(h.service.phase(h.plugin.id())).contains(PluginRuntimePhase.QUIESCED);
+                assertThat(h.service.contextFor(h.plugin.id()).orElseThrow().isActive()).isTrue();
+                assertThat(h.webRegistrar.currentHandle(h.registered)).isPresent();
+                assertThat(h.registry.lifecycleFailuresById()).containsKey(h.plugin.id());
+            } finally {
+                h.routes.failBeforeUnregister = false;
+            }
+            h.service.stop(h.plugin.id());
+            assertThat(h.service.phase(h.plugin.id())).contains(PluginRuntimePhase.STOPPED);
+        }
+    }
+
+    @Test
     @DisplayName("boot startAll 不重复调用插件 start()：启动期 start 归 PluginRegistry，本服务只建立服务足迹")
     void bootStartAllDoesNotInvokePluginStart() {
         try (ContextHarness h = new ContextHarness()) {

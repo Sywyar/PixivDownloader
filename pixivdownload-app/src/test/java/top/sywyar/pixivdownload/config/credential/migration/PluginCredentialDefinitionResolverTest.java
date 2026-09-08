@@ -160,6 +160,24 @@ class PluginCredentialDefinitionResolverTest {
         return new PluginCredentialDefinitionResolver(registry, Set::of);
     }
 
+    @Test
+    @DisplayName("凭据声明初始化错误只拒绝故障 owner，进程级致命错误仍原样抛出")
+    void isolatesCredentialGetterFailure() {
+        PixivFeaturePlugin broken = org.mockito.Mockito.mock(PixivFeaturePlugin.class);
+        org.mockito.Mockito.when(broken.id()).thenReturn("broken");
+        org.mockito.Mockito.when(broken.kind()).thenReturn(PluginKind.FEATURE);
+        org.mockito.Mockito.when(broken.guiConfigContributions()).thenThrow(new ExceptionInInitializerError("fields"));
+        PluginRegistry registry = new PluginRegistry(List.of(broken, new MutablePlugin("healthy",
+                List.of(field("healthy.token", GuiConfigFieldType.PASSWORD, false)))));
+        PluginCredentialDefinitionResolver resolver = resolver(registry);
+        assertThat(resolver.resolveAll()).containsOnlyKeys("healthy");
+        assertThatThrownBy(() -> resolver.resolveForOwner("broken")).isInstanceOf(IllegalStateException.class);
+        assertThat(registry.lifecycleFailuresById()).containsKey("broken");
+        VirtualMachineError fatal = new VirtualMachineError("fatal") {};
+        org.mockito.Mockito.doThrow(fatal).when(broken).guiConfigContributions();
+        assertThatThrownBy(resolver::resolveAll).isSameAs(fatal);
+    }
+
     private static GuiConfigFieldContribution field(String key,
                                                     GuiConfigFieldType type,
                                                     boolean sensitive) {

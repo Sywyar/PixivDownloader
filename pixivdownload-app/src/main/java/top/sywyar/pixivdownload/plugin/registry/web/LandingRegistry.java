@@ -41,13 +41,13 @@ public class LandingRegistry {
     private volatile List<RegisteredLanding> snapshot = List.of();
 
     public LandingRegistry(PluginRegistry pluginRegistry) {
-        for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
+        pluginRegistry.forEachBootPlugin(registered -> {
             PixivFeaturePlugin plugin = registered.plugin();
             List<LandingContribution> landings = plugin.landings();
             if (!landings.isEmpty()) {
                 register(registered.id(), landings);
             }
-        }
+        });
     }
 
     /** 以内置插件清单构建注册中心，供 Spring 上下文之外的入口（测试 / 启动期检查等）使用。 */

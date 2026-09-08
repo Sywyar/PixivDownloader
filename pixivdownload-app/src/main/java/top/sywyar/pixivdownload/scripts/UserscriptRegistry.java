@@ -43,13 +43,13 @@ public class UserscriptRegistry {
     private volatile List<RegisteredUserscript> snapshot = List.of();
 
     public UserscriptRegistry(PluginRegistry pluginRegistry) {
-        for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
+        pluginRegistry.forEachBootPlugin(registered -> {
             PixivFeaturePlugin plugin = registered.plugin();
             List<UserscriptContribution> contributions = plugin.userscripts();
             if (!contributions.isEmpty()) {
                 register(registered.id(), registered.classLoader(), contributions);
             }
-        }
+        });
     }
 
     /**

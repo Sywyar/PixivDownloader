@@ -398,7 +398,7 @@ public class PluginLifecycleService {
                 if (event.type() == PluginRuntimeManager.WorkerEventType.CRASHED) {
                     if (record.registered != null) {
                         pluginRegistry.recordLifecycleFailure(record.registered, new PluginLifecycleException(
-                                "isolated worker crashed: " + event.reason()));
+                                event.reason()));
                     }
                     PluginRuntimePhase phase = lifecycleState.phase(record.pluginId).orElse(null);
                     if (phase == PluginRuntimePhase.STARTED || phase == PluginRuntimePhase.QUIESCED) {
@@ -909,6 +909,19 @@ public class PluginLifecycleService {
      * （区别于运行期 {@link #doStart}）。
      */
     private void bringUpFromBoot(ManagedPlugin record) {
+        try {
+            doBringUpFromBoot(record);
+        } catch (Throwable failure) {
+            rethrowFatal(failure);
+            // 回滚尚未完成时保留 QUIESCED 与原有句柄；其它插件及核心修复入口仍可启动。
+            lifecycleState.set(record.pluginId, PluginRuntimePhase.QUIESCED);
+            if (record.registered != null) pluginRegistry.recordLifecycleFailure(record.registered, failure);
+            log.error(top.sywyar.pixivdownload.i18n.MessageBundles.getForLog(
+                    "plugin.log.start-failed", record.pluginId, failure.getMessage()), failure);
+        }
+    }
+
+    private void doBringUpFromBoot(ManagedPlugin record) {
         lifecycleState.initialize(record.pluginId, PluginRuntimePhase.LOADED);
         if (record.registered != null) {
             try {
