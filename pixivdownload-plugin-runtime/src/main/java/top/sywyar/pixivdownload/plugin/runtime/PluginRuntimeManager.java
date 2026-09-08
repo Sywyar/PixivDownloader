@@ -717,6 +717,7 @@ public class PluginRuntimeManager {
             throw failure;
         }
         entry.updatePhase(PluginRuntimePackagePhase.STARTED);
+        currentWorkerEvents.remove(packageId);
         refreshStatus();
         try {
             LoadedPluginPackage started = snapshot(entry, true);
@@ -836,7 +837,7 @@ public class PluginRuntimeManager {
         return packageIndex.packagePhases();
     }
 
-    /** 订阅隔离 worker 的崩溃 / 恢复事实；注册后立即回放当前仍处于 CRASHED 的 generation。 */
+    /** 订阅插件执行的崩溃 / worker 恢复事实；注册后回放当前仍处于 CRASHED 的 generation。 */
     public void addWorkerListener(Consumer<WorkerEvent> listener) {
         Objects.requireNonNull(listener, "worker listener");
         workerListeners.addIfAbsent(listener);
@@ -851,6 +852,64 @@ public class PluginRuntimeManager {
         if (listener != null) {
             workerListeners.remove(listener);
         }
+    }
+
+    /** 宿主报告精确代际的进程内执行故障；保留代码供安全清退，不自动重启故障插件。 */
+    public void reportPluginFailure(String packageId, long generation, Throwable failure) {
+        Objects.requireNonNull(failure, "failure");
+        rethrowFatal(failure);
+        WorkerEvent event;
+        synchronized (this) {
+            Entry entry = packageIndex.get(packageId);
+            if (entry == null || entry.generation() != generation
+                    || entry.phase() != PluginRuntimePackagePhase.STARTED) return;
+            entry.updatePhase(PluginRuntimePackagePhase.CRASHED);
+            event = new WorkerEvent(WorkerEventType.CRASHED, packageId, generation, entry.version(),
+                    entry.artifactPath(), 1, 0, describe(failure), null);
+            currentWorkerEvents.put(packageId, event);
+            refreshStatus();
+            status = status.withFailure(new PluginLoadFailure(packageId, event.reason(),
+                    top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus.CRASHED,
+                    "plugin-execution", generation, entry.version(), 1, null), MAX_RUNTIME_FAILURES);
+        }
+        notifyWorkerListeners(event);
+    }
+
+    /** 按实际定义类的加载器归属未捕获异常；归属不唯一时只交给宿主日志，不误停其它插件。 */
+    public void reportUncaughtFailure(Thread thread, Throwable failure) {
+        rethrowFatal(failure);
+        Map<ClassLoader, Entry> owners = new LinkedHashMap<>();
+        synchronized (this) {
+            if (pluginManager == null) return;
+            for (Entry entry : packageIndex.entries()) {
+                ClassLoader loader = pluginManager.getPluginClassLoader(entry.packageId());
+                if (loader != null && entry.phase() == PluginRuntimePackagePhase.STARTED) owners.put(loader, entry);
+            }
+        }
+        Entry owner = null;
+        Throwable cause = failure;
+        // 异常链与堆栈只用于诊断归属，不能让畸形 Throwable 导致无界解析。
+        for (int depth = 0; cause != null && depth < 8 && owner == null; depth++, cause = cause.getCause()) {
+            StackTraceElement[] frames = cause.getStackTrace();
+            for (int index = 0; index < Math.min(frames.length, 256) && owner == null; index++) {
+                Entry match = null;
+                boolean ambiguous = false;
+                for (var candidate : owners.entrySet()) {
+                    try {
+                        if (Class.forName(frames[index].getClassName(), false, candidate.getKey()).getClassLoader()
+                                == candidate.getKey()) {
+                            if (match != null) { ambiguous = true; break; }
+                            match = candidate.getValue();
+                        }
+                    } catch (ClassNotFoundException | LinkageError ignored) {
+                        // 类缺席 / 链接失败不能成为归属证据；继续检查其它帧。
+                    }
+                }
+                if (!ambiguous) owner = match;
+            }
+        }
+        if (owner == null) owner = owners.get(thread.getContextClassLoader());
+        if (owner != null) reportPluginFailure(owner.packageId(), owner.generation(), failure);
     }
 
     private Map<String, PluginRuntimePackagePhase> phaseSnapshot() {
@@ -1512,7 +1571,8 @@ public class PluginRuntimeManager {
     private static void notifyWorkerListener(Consumer<WorkerEvent> listener, WorkerEvent event) {
         try {
             listener.accept(event);
-        } catch (RuntimeException failure) {
+        } catch (Throwable failure) {
+            rethrowFatal(failure);
             log.warn("Plugin worker lifecycle listener failed: pluginId={}, generation={}, event={}",
                     event.pluginId(), event.generation(), event.type(), failure);
         }

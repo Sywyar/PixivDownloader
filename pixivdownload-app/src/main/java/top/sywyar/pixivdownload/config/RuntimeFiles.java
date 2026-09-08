@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.config;
 
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.common.AppInfo;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
@@ -22,8 +23,16 @@ import java.util.stream.Stream;
 /**
  * 管理运行期生成文件的目录，并兼容旧位置自动迁移。
  */
-@Slf4j
 public final class RuntimeFiles {
+
+    private static final class Logging {
+        private static final Logger log = LoggerFactory.getLogger(RuntimeFiles.class);
+    }
+
+    /** 日志初始化也需要解析路径，不能在路径类初始化时取得 logger。 */
+    public static Path logDirectory() {
+        return Path.of("log");
+    }
 
     public static final String CONFIG_DIR_PROPERTY = "pixivdownload.config-dir";
     public static final String STATE_DIR_PROPERTY = "pixivdownload.state-dir";
@@ -285,7 +294,7 @@ public final class RuntimeFiles {
                 }
             }
         } catch (IOException e) {
-            log.warn(logMessage(
+            Logging.log.warn(logMessage(
                     "runtime.log.download-root.read-failed",
                     configPath.toAbsolutePath(),
                     e.getMessage()
@@ -395,22 +404,22 @@ public final class RuntimeFiles {
 
         if (!Files.exists(target)) {
             if (hasAnyCompanion(target, companionSuffixes)) {
-                log.warn(logMessage("runtime.log.legacy-conflict.retained", normalizedLegacy, normalizedTarget));
+                Logging.log.warn(logMessage("runtime.log.legacy-conflict.retained", normalizedLegacy, normalizedTarget));
                 return;
             }
             copyFileUnit(legacy, target, companionSuffixes);
             deleteFileUnit(legacy, companionSuffixes);
-            log.info(logMessage("runtime.log.file.migrated", normalizedLegacy, normalizedTarget));
+            Logging.log.info(logMessage("runtime.log.file.migrated", normalizedLegacy, normalizedTarget));
             return;
         }
 
         if (fileUnitsMatch(legacy, target, companionSuffixes)) {
             deleteFileUnit(legacy, companionSuffixes);
-            log.info(logMessage("runtime.log.legacy-duplicate.deleted", normalizedLegacy));
+            Logging.log.info(logMessage("runtime.log.legacy-duplicate.deleted", normalizedLegacy));
             return;
         }
 
-        log.warn(logMessage("runtime.log.legacy-conflict.retained", normalizedLegacy, normalizedTarget));
+        Logging.log.warn(logMessage("runtime.log.legacy-conflict.retained", normalizedLegacy, normalizedTarget));
     }
 
     private static void adoptLegacyDirectory(Path target, Path legacy) throws IOException {
@@ -424,7 +433,7 @@ public final class RuntimeFiles {
             return;
         }
         if (!Files.isDirectory(legacy)) {
-            log.warn(logMessage("runtime.log.legacy-directory.not-directory", normalizedLegacy));
+            Logging.log.warn(logMessage("runtime.log.legacy-directory.not-directory", normalizedLegacy));
             return;
         }
 
@@ -443,9 +452,9 @@ public final class RuntimeFiles {
 
         deleteEmptyDirectories(legacy);
         if (Files.exists(legacy, LinkOption.NOFOLLOW_LINKS)) {
-            log.warn(logMessage("runtime.log.legacy-conflict.retained", normalizedLegacy, normalizedTarget));
+            Logging.log.warn(logMessage("runtime.log.legacy-conflict.retained", normalizedLegacy, normalizedTarget));
         } else {
-            log.info(logMessage("runtime.log.directory.migrated", normalizedLegacy, normalizedTarget));
+            Logging.log.info(logMessage("runtime.log.directory.migrated", normalizedLegacy, normalizedTarget));
         }
     }
 

@@ -233,6 +233,8 @@ test('QG 覆盖 Compose、SDK 消费者和两种 PowerShell，并顺序复用构
     assert.equal(artifacts[compose]['working-directory'], 'pixivdownload-plugin-gui-compose');
     assert.doesNotMatch(artifacts[compose].run, /-Pmaven(?:SkipTests|TestSkip)=true|(?:^|\s)-x(?:\s|$)/u);
     assert.equal(jobs['release-artifacts']['runs-on'], 'windows-latest');
+    assert.ok(artifacts.some(step => step.shell === 'pwsh'
+        && /scripts\/release-e2e\/runtime\.test\.ps1/u.test(step.run || '')));
     const boundaryCall = artifacts.find(step => step.uses === './.github/actions/verify-release-boundaries');
     assert.deepEqual(boundaryCall.with.additional_tests.split(',').sort(),
         ['DeleteStagingManifestTest#rejectsWindowsJunctionParentDuringRecovery',

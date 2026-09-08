@@ -283,14 +283,24 @@ public class PluginWebContributionRegistrar {
             for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
                 DownloadExtensionPublication publication =
                         downloadExtensionRegistry.currentPublication(registered).orElse(null);
-                if (isRequestManaged(registered)) {
-                    BootServingSnapshot prepared = prepareBootServing(registered);
-                    commitBootRegistration(registered, prepared, publication);
-                } else {
-                    PluginWebContributionHandle handle = newHandle(registered);
-                    registrations.put(registered.id(), new Registration(
-                            handle, publication, RegistrationState.ACTIVE));
-                }
+                PluginWebContributionHandle handle = newHandle(registered);
+                pluginRegistry.runBootContribution(registered, () -> {
+                    if (isRequestManaged(registered)) {
+                        try {
+                            BootServingSnapshot prepared = prepareBootServing(registered, handle);
+                            commitBootRegistration(registered, prepared, publication);
+                        } catch (Throwable failure) {
+                            // 先前各 registry 已物化的足迹仍需由生命周期按同一个 owner 撤回。
+                            registrations.putIfAbsent(registered.id(), new Registration(
+                                    handle, publication, RegistrationState.ACTIVE));
+                            rethrowFatal(failure);
+                            throw boundaryFailure("failed to register boot web contributions: " + registered.id(), failure);
+                        }
+                    } else {
+                        registrations.put(registered.id(), new Registration(
+                                handle, publication, RegistrationState.ACTIVE));
+                    }
+                });
             }
         }
     }
@@ -369,10 +379,10 @@ public class PluginWebContributionRegistrar {
     }
 
     private BootServingSnapshot prepareBootServing(
-            PluginRegistry.RegisteredPlugin registered) {
+            PluginRegistry.RegisteredPlugin registered, PluginWebContributionHandle handle) {
         List<WebRouteContribution> routes = readPluginList(
                 registered.id(), "routes", registered.plugin()::routes);
-        return new BootServingSnapshot(newHandle(registered), routes);
+        return new BootServingSnapshot(handle, routes);
     }
 
     private void commitBootRegistration(

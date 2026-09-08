@@ -1,4 +1,5 @@
 <configuration>
+    <define name="LOG_TIMESTAMP" class="top.sywyar.pixivdownload.logback.LogSession"/>
     <conversionRule conversionWord="mdcColor"
                     class="top.sywyar.pixivdownload.logback.MdcColorConverter"/>
 
@@ -7,7 +8,6 @@
     <property name="file_pattern"
               value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"/>
 
-    <!-- 控制台 -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
             <pattern>${console_pattern}</pattern>
@@ -15,59 +15,56 @@
         </encoder>
     </appender>
 
-    <!--
-        ── 纯文本日志（log/） ──────────────────────────────────────────────────────
-        append=true：每次启动时由 GuiLauncher 在 logback 初始化前删除 latest.log，
-        等效于覆盖写。Spring Boot 已通过 LoggingSystem=none 被禁止接管日志，
-        因此运行期间不会发生 logback 重新初始化。
-    -->
-    <appender name="FILE_LATEST" class="ch.qos.logback.core.FileAppender">
-        <file>log/latest.log</file>
-        <append>true</append>
-        <encoder>
-            <pattern>${file_pattern}</pattern>
-            <charset>UTF-8</charset>
-        </encoder>
-    </appender>
+    <condition class="ch.qos.logback.core.boolex.PropertyEqualityCondition">
+        <key>LOG_FILES_ENABLED</key>
+        <value>true</value>
+    </condition>
+    <if>
+        <then>
+            <appender name="FILE_LATEST" class="ch.qos.logback.core.FileAppender">
+                <file>${LOG_DIRECTORY}/latest.log</file>
+                <append>false</append>
+                <encoder>
+                    <pattern>${file_pattern}</pattern>
+                    <charset>UTF-8</charset>
+                </encoder>
+            </appender>
 
-    <appender name="FILE_SESSION" class="ch.qos.logback.core.FileAppender">
-        <file>log/pixiv-download_${LOG_TIMESTAMP:-startup}.log</file>
-        <append>true</append>
-        <encoder>
-            <pattern>${file_pattern}</pattern>
-            <charset>UTF-8</charset>
-        </encoder>
-    </appender>
+            <appender name="FILE_SESSION" class="ch.qos.logback.core.FileAppender">
+                <file>${LOG_DIRECTORY}/pixiv-download_${LOG_TIMESTAMP}.log</file>
+                <append>false</append>
+                <encoder>
+                    <pattern>${file_pattern}</pattern>
+                    <charset>UTF-8</charset>
+                </encoder>
+            </appender>
 
-    <!--
-        ── HTML 日志（log/html/） ──────────────────────────────────────────────────
-        append=true：与纯文本日志保持相同的追加语义。GuiLauncher 正常启动时会先删除 latest，
-        会话文件则使用唯一时间戳；即使 latest 因外部占用无法删除，两种格式也会保留相同历史，
-        不再出现文本追加而 HTML 单独截断的问题。
-    -->
-    <appender name="HTML_LATEST" class="ch.qos.logback.core.FileAppender">
-        <file>log/html/latest.html</file>
-        <append>true</append>
-        <encoder class="ch.qos.logback.core.encoder.LayoutWrappingEncoder">
-            <layout class="top.sywyar.pixivdownload.logback.HtmlLogLayout"/>
-            <charset>UTF-8</charset>
-        </encoder>
-    </appender>
+            <appender name="HTML_LATEST" class="ch.qos.logback.core.FileAppender">
+                <file>${LOG_DIRECTORY}/html/latest.html</file>
+                <append>false</append>
+                <encoder class="ch.qos.logback.core.encoder.LayoutWrappingEncoder">
+                    <layout class="top.sywyar.pixivdownload.logback.HtmlLogLayout"/>
+                    <charset>UTF-8</charset>
+                </encoder>
+            </appender>
 
-    <appender name="HTML_SESSION" class="ch.qos.logback.core.FileAppender">
-        <file>log/html/pixiv-download_${LOG_TIMESTAMP:-startup}.html</file>
-        <append>true</append>
-        <encoder class="ch.qos.logback.core.encoder.LayoutWrappingEncoder">
-            <layout class="top.sywyar.pixivdownload.logback.HtmlLogLayout"/>
-            <charset>UTF-8</charset>
-        </encoder>
-    </appender>
-
+            <appender name="HTML_SESSION" class="ch.qos.logback.core.FileAppender">
+                <file>${LOG_DIRECTORY}/html/pixiv-download_${LOG_TIMESTAMP}.html</file>
+                <append>false</append>
+                <encoder class="ch.qos.logback.core.encoder.LayoutWrappingEncoder">
+                    <layout class="top.sywyar.pixivdownload.logback.HtmlLogLayout"/>
+                    <charset>UTF-8</charset>
+                </encoder>
+            </appender>
+            <root level="INFO">
+                <appender-ref ref="FILE_LATEST"/>
+                <appender-ref ref="FILE_SESSION"/>
+                <appender-ref ref="HTML_LATEST"/>
+                <appender-ref ref="HTML_SESSION"/>
+            </root>
+        </then>
+    </if>
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>
-        <appender-ref ref="FILE_LATEST"/>
-        <appender-ref ref="FILE_SESSION"/>
-        <appender-ref ref="HTML_LATEST"/>
-        <appender-ref ref="HTML_SESSION"/>
     </root>
 </configuration>

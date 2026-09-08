@@ -40,6 +40,34 @@ import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 class PluginStatusServiceTest {
 
     @Test
+    @DisplayName("必装插件异步崩溃后恢复模式立即刷新，恢复后退出")
+    void requiredPluginCrashInvalidatesCachedRecoveryDecision() {
+        PluginStatusService status = mock(PluginStatusService.class);
+        RequiredPluginPolicy policy = RequiredPluginPolicy.of(List.of(
+                new RequiredPluginPolicy.RequiredPlugin("required", VersionRequirement.unspecified(),
+                        false, "plugin.recovery.failed")));
+        when(status.recoveryGateSnapshot()).thenReturn(
+                PluginRecoveryGateSnapshot.safe(PluginTransactionRecoveryReport.success()));
+        when(status.failureSnapshot()).thenReturn(Map.of());
+        when(status.report()).thenReturn(new top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusReport(List.of(
+                new PluginDiagnostic("required", PluginStatus.STARTED, null, true, List.of()))));
+        RecoveryModeService recovery = new RecoveryModeService(status, policy);
+        assertThat(recovery.isActive()).isFalse();
+
+        when(status.failureSnapshot()).thenReturn(Map.of("required", "CRASHED"));
+        when(status.report()).thenReturn(new top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusReport(List.of(
+                new PluginDiagnostic("required", PluginStatus.CRASHED, null, true, List.of("worker failed")))));
+        assertThat(recovery.isActive()).isTrue();
+        assertThat(recovery.reasons()).singleElement()
+                .satisfies(reason -> assertThat(reason.pluginId()).isEqualTo("required"));
+
+        when(status.failureSnapshot()).thenReturn(Map.of());
+        when(status.report()).thenReturn(new top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusReport(List.of(
+                new PluginDiagnostic("required", PluginStatus.STARTED, null, true, List.of()))));
+        assertThat(recovery.isActive()).isFalse();
+    }
+
+    @Test
     @DisplayName("内置（启用 / 禁用）、外置（兼容接入 / 不兼容拒绝）、坏包失败的状态在报告中清晰可查")
     void reportReflectsBuiltInExternalAndFailures() {
         ClassLoader extCl = new ClassLoader(getClass().getClassLoader()) {
@@ -148,9 +176,8 @@ class PluginStatusServiceTest {
         assertThat(diagnostic.messages()).containsExactly("startup exploded");
         assertThat(service.startupFailuresById()).containsOnlyKeys("crashy");
         RecoveryModeService recovery = new RecoveryModeService(service, RequiredPluginPolicy.empty());
-        assertThat(recovery.isActive()).isTrue();
-        assertThat(recovery.reasons()).extracting(reason -> reason.pluginId())
-                .containsExactly("crashy");
+        assertThat(recovery.isActive()).isFalse();
+        assertThat(recovery.reasons()).isEmpty();
     }
 
     @Test

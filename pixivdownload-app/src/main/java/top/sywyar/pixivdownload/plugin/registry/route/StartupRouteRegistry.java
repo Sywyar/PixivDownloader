@@ -34,13 +34,13 @@ public class StartupRouteRegistry {
     private volatile List<RegisteredStartupRoute> snapshot = List.of();
 
     public StartupRouteRegistry(PluginRegistry pluginRegistry) {
-        for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
+        pluginRegistry.forEachBootPlugin(registered -> {
             PixivFeaturePlugin plugin = registered.plugin();
             List<StartupRouteContribution> routes = plugin.startupRoutes();
             if (!routes.isEmpty()) {
                 register(registered.id(), routes);
             }
-        }
+        });
     }
 
     /** 以内置插件清单构建注册中心，供 Spring 上下文之外的入口（测试 / 启动期检查等）使用。 */

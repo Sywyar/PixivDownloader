@@ -246,10 +246,10 @@ class StaticResourceRegistryTest {
                         List.of(new DiscoveredFeaturePlugin(
                                 "ext-static", "ext-static", external, bridgeClassLoader)),
                         List.of()));
-        assertThatThrownBy(() -> new StaticResourceRegistry(registry))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("ext-static")
-                .hasMessageContaining("not defined by its registered classloader");
+        StaticResourceRegistry resources = new StaticResourceRegistry(registry);
+        assertThat(resources.resources()).noneMatch(resource -> resource.pluginId().equals("ext-static"));
+        assertThat(registry.lifecycleFailuresById().get("ext-static"))
+                .contains("ext-static", "not defined by its registered classloader");
     }
 
     @Test

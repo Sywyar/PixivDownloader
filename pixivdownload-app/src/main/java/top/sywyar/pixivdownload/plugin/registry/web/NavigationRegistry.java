@@ -37,13 +37,13 @@ public class NavigationRegistry {
     private volatile List<RegisteredNavigation> snapshot = List.of();
 
     public NavigationRegistry(PluginRegistry pluginRegistry) {
-        for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
+        pluginRegistry.forEachBootPlugin(registered -> {
             PixivFeaturePlugin plugin = registered.plugin();
             List<NavigationContribution> navigation = plugin.navigation();
             if (!navigation.isEmpty()) {
                 register(registered.id(), navigation);
             }
-        }
+        });
     }
 
     /**

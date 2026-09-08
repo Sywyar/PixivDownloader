@@ -5,7 +5,8 @@ param(
     [Parameter(Mandatory = $true)][string]$FullOfflineZipPath,
     [string]$InstallerPath,
     [string]$AppImagePath,
-    [string]$WorkRoot
+    [string]$WorkRoot,
+    [string]$ReportRoot
 )
 
 $ErrorActionPreference = "Stop"
@@ -61,7 +62,7 @@ function Remove-TestSessionRoot {
         return
     }
     $candidate = [System.IO.Path]::GetFullPath($Context.Session)
-    if ((Split-Path -Parent $candidate) -ne [System.IO.Path]::GetFullPath($Context.Base) -or
+    if ((Split-Path -Parent $candidate).TrimEnd('\', '/') -ne [System.IO.Path]::GetFullPath($Context.Base).TrimEnd('\', '/') -or
         (Split-Path -Leaf $candidate) -notlike "pixiv-release-e2e-*") {
         throw "Refusing to remove unsafe test session root: $candidate"
     }
@@ -170,6 +171,13 @@ function Stop-ArtifactProcess {
         & taskkill.exe /PID $Process.Id /T /F | Out-Null
         $Process.WaitForExit(30000) | Out-Null
     }
+    if ($Process.PSObject.Properties['EngineProcess']) {
+        $Process.EngineProcess.Refresh()
+        if (-not $Process.EngineProcess.HasExited) {
+            & taskkill.exe /PID $Process.EngineProcess.Id /T /F | Out-Null
+            $Process.EngineProcess.WaitForExit(30000) | Out-Null
+        }
+    }
 }
 
 function Wait-ArtifactProcessExit {
@@ -195,10 +203,7 @@ function Wait-ForHealthyApplication {
     param([int]$Port, $Process, [string]$Label)
     $deadline = [DateTime]::UtcNow.AddMinutes(3)
     do {
-        $Process.Refresh()
-        if ($Process.HasExited) {
-            throw "$Label exited before becoming healthy with code $($Process.ExitCode)"
-        }
+        Assert-ArtifactAlive $Process "$Label before becoming healthy"
         try {
             $health = Invoke-RestMethod -UseBasicParsing -Uri "http://127.0.0.1:$Port/actuator/health" `
                 -TimeoutSec 5
@@ -220,69 +225,20 @@ function Wait-ForHealthyApplication {
     throw "$Label did not become healthy within three minutes"
 }
 
-function Assert-PluginRuntimeStatus {
-    param([int]$Port, [string[]]$ExpectedPluginIds, [string]$Label)
-    $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-    $body = @{ username = $Username; password = $Password; rememberMe = $false } | ConvertTo-Json -Compress
-    $login = Invoke-RestMethod -UseBasicParsing -Method Post -Uri "http://127.0.0.1:$Port/api/auth/login" `
-        -ContentType "application/json" -Body $body -WebSession $session -TimeoutSec 10
-    if (-not $login.ok) {
-        throw "$Label login did not return ok=true"
-    }
-    $status = Invoke-RestMethod -UseBasicParsing -Uri "http://127.0.0.1:$Port/api/plugins/status" `
-        -WebSession $session -TimeoutSec 15
-    if ($status.recoveryMode) {
-        throw "$Label entered plugin recovery mode"
-    }
-    foreach ($pluginId in $ExpectedPluginIds) {
-        $matches = @($status.plugins | Where-Object { $_.id -eq $pluginId })
-        if ($matches.Count -ne 1) {
-            throw "$Label expected one status row for $pluginId, found $($matches.Count)"
-        }
-        if ($matches[0].status -ne "STARTED" -or $matches[0].runtimePhase -ne "STARTED") {
-            throw "$Label plugin $pluginId is not fully started: status=$($matches[0].status), phase=$($matches[0].runtimePhase)"
-        }
-    }
-}
-
 function Test-ApplicationLayout {
-    param([string]$Label, [string]$Root, [string]$Launcher, [string]$RuntimeRoot, [string]$LogRoot)
-    $manifestPath = Get-ManifestPath $Root
-    $expectedPluginIds = @(Read-ExpectedPluginIds $manifestPath)
-    Set-IsolatedRuntimeEnvironment $RuntimeRoot
-    $application = $null
-    try {
-        $setup = Start-ArtifactProcess -Launcher $Launcher -WorkingDirectory $Root -Arguments @(
-            "--setup",
-            "--username=$Username",
-            "--password=$Password",
-            "--mode=solo",
-            "--proxy-enabled=false"
-        ) -LogPrefix "$LogRoot-setup" -Wait
-        if ($setup.ExitCode -ne 0) {
-            throw "$Label setup failed with exit code $($setup.ExitCode)"
-        }
-        $port = Get-FreePort
-        $application = Start-ArtifactProcess -Launcher $Launcher -WorkingDirectory $Root -Arguments @(
-            "--no-gui",
-            "--server.address=127.0.0.1",
-            "--server.port=$port"
-        ) -LogPrefix "$LogRoot-application"
-        Wait-ForHealthyApplication -Port $port -Process $application -Label $Label
-        Assert-PluginRuntimeStatus -Port $port -ExpectedPluginIds $expectedPluginIds -Label $Label
-        Write-Host "PASS: $Label ($($expectedPluginIds.Count) external plugin(s))" -ForegroundColor Green
-    } catch {
-        Write-Host "FAIL: $Label - $($_.Exception.Message)"
-        foreach ($log in @("$LogRoot-setup.stdout.log", "$LogRoot-setup.stderr.log",
-                "$LogRoot-application.stdout.log", "$LogRoot-application.stderr.log")) {
-            if (Test-Path -LiteralPath $log -PathType Leaf) {
-                Write-Host "Log: $log (last 200 lines)"
-                Get-Content -LiteralPath $log -Encoding UTF8 -Tail 200
-            }
-        }
-        throw
-    } finally {
-        Stop-ArtifactProcess $application
+    param([string]$Label, [string]$Root, [string]$Launcher, [string]$RuntimeRoot, [string]$LogRoot,
+        [switch]$AdverseScenarios)
+    Test-ApplicationScenario -Label "$Label-headless" -Root $Root -Launcher $Launcher `
+        -RuntimeRoot "$RuntimeRoot-headless" -LogRoot "$LogRoot-headless" -Headless
+    foreach ($provider in @('gui-compose', 'gui-swing')) {
+        # Empty preference exercises the shipped default; Swing exercises explicit selection.
+        $configured = if ($provider -eq 'gui-compose') { '' } else { $provider }
+        Test-ApplicationScenario -Label "$Label-$provider" -Root $Root -Launcher $Launcher `
+            -RuntimeRoot "$RuntimeRoot-$provider" -LogRoot "$LogRoot-$provider" `
+            -Provider $provider -ConfiguredProvider $configured -Exercise ${function:Test-ReleaseDuplicateInstance}
+    }
+    if ($AdverseScenarios) {
+        Test-ReleaseAdverseLayouts -Label $Label -Root $Root -Launcher $Launcher -RuntimeRoot $RuntimeRoot -LogRoot $LogRoot
     }
 }
 
@@ -294,6 +250,9 @@ function Test-JavaArchive {
     if (-not (Test-Path -LiteralPath $launcher -PathType Leaf) -or
         -not (Test-Path -LiteralPath $jar -PathType Leaf)) {
         throw "$Label does not contain run.bat and the exact versioned application JAR"
+    }
+    if ($null -eq $script:ReleaseTools) {
+        $script:ReleaseTools = Initialize-ReleaseProbe -ApplicationJar $jar -Destination (Join-Path $context.Session 'probe-tools')
     }
     Test-ApplicationLayout -Label $Label -Root $Destination -Launcher $launcher `
         -RuntimeRoot (Join-Path $Destination ".e2e-runtime") -LogRoot (Join-Path $Destination "e2e")
@@ -309,6 +268,10 @@ function Assert-PackagedRuntime {
     }
     return $launcher
 }
+
+. (Join-Path $PSScriptRoot 'plugin-distribution-common.ps1')
+. (Join-Path $PSScriptRoot 'release-e2e/runtime.ps1')
+. (Join-Path $PSScriptRoot 'release-e2e/scenarios.ps1')
 
 $resolvedJavaZip = Resolve-RequiredFile $JavaZipPath "Java distribution"
 $resolvedFullOfflineZip = Resolve-RequiredFile $FullOfflineZipPath "Full-offline distribution"
@@ -326,18 +289,25 @@ $oldJavaToolOptions = $env:JAVA_TOOL_OPTIONS
 $oldNoProxy = $env:NO_PROXY
 $context = $null
 $uninstaller = ""
+$script:ReleaseTools = $null
 try {
     $context = New-TestSessionRoot
+    if ([string]::IsNullOrWhiteSpace($ReportRoot)) { $ReportRoot = Join-Path $context.Base 'release-e2e-reports' }
+    $script:ReleaseReportRoot = Join-Path $ReportRoot (Split-Path -Leaf $context.Session)
+    [IO.Directory]::CreateDirectory($script:ReleaseReportRoot) | Out-Null
+    Write-Host "Release E2E evidence: $script:ReleaseReportRoot"
     Test-JavaArchive -Label "java-standard" -Archive $resolvedJavaZip `
         -Destination (Join-Path $context.Session "java-standard")
     Test-JavaArchive -Label "full-offline" -Archive $resolvedFullOfflineZip `
         -Destination (Join-Path $context.Session "full-offline")
 
     if (-not [string]::IsNullOrWhiteSpace($resolvedAppImage)) {
-        $launcher = Assert-PackagedRuntime $resolvedAppImage "Windows app image"
-        Test-ApplicationLayout -Label "windows-app-image" -Root $resolvedAppImage -Launcher $launcher `
+        $isolatedImage = Join-Path $context.Session 'app-image'
+        Copy-Item -LiteralPath $resolvedAppImage -Destination $isolatedImage -Recurse
+        $launcher = Assert-PackagedRuntime $isolatedImage "Windows app image"
+        Test-ApplicationLayout -Label "windows-app-image" -Root $isolatedImage -Launcher $launcher `
             -RuntimeRoot (Join-Path $context.Session "app-image-runtime") `
-            -LogRoot (Join-Path $context.Session "app-image")
+            -LogRoot (Join-Path $context.Session "app-image") -AdverseScenarios
     }
 
     if (-not [string]::IsNullOrWhiteSpace($resolvedInstaller)) {
@@ -358,7 +328,7 @@ try {
         }
         Test-ApplicationLayout -Label "windows-installer" -Root $installDir -Launcher $launcher `
             -RuntimeRoot (Join-Path $context.Session "installer-runtime") `
-            -LogRoot (Join-Path $context.Session "installer")
+            -LogRoot (Join-Path $context.Session "installer") -AdverseScenarios
     }
 } finally {
     $uninstallFailure = ""

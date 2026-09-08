@@ -90,6 +90,54 @@ class PluginRuntimeManagerTest {
     private static final String PROBE_ID = "bootstrap-probe";
 
     @Test
+    @DisplayName("进程内插件崩溃按代际隔离，旧代与重复回调不污染当前运行态")
+    void inProcessFailureIsIsolatedAndGenerationScoped() throws IOException {
+        Path plugins = tempDir.resolve("in-process-failure");
+        Path jar = plugins.resolve("bootstrap-probe-1.0.0.jar");
+        writeProbeJar(jar, false);
+        writeLocalProvenance(plugins, jar);
+        var manager = new top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager(plugins, () -> true);
+        try {
+            manager.loadPlugin(jar);
+            manager.startPlugin(PROBE_ID);
+            long generation = manager.generation(PROBE_ID).orElseThrow();
+            List<PluginRuntimeManager.WorkerEvent> events = new ArrayList<>();
+            manager.addWorkerListener(event -> { throw new AssertionError("observer failed"); });
+            manager.addWorkerListener(events::add);
+            manager.reportPluginFailure(PROBE_ID, generation - 1, new LinkageError("stale"));
+            assertThat(events).isEmpty();
+            StackOverflowError fatal = new StackOverflowError("fatal");
+            assertThatThrownBy(() -> manager.reportPluginFailure(PROBE_ID, generation, fatal)).isSameAs(fatal);
+            assertThat(manager.packagePhases().get(PROBE_ID)).isEqualTo(PluginRuntimePackagePhase.STARTED);
+
+            Thread pluginThread = new Thread();
+            pluginThread.setContextClassLoader(manager.pluginManagerForTest().orElseThrow()
+                    .getPluginClassLoader(PROBE_ID));
+            manager.reportUncaughtFailure(pluginThread, new NoClassDefFoundError("private dependency"));
+            manager.reportPluginFailure(PROBE_ID, generation, new LinkageError("duplicate"));
+            assertThat(manager.packagePhases().get(PROBE_ID)).isEqualTo(PluginRuntimePackagePhase.CRASHED);
+            assertThat(events).singleElement().satisfies(event -> {
+                assertThat(event.pluginId()).isEqualTo(PROBE_ID);
+                assertThat(event.generation()).isEqualTo(generation);
+            });
+            assertThat(manager.pluginManagerForTest().orElseThrow().getPlugin(PROBE_ID)).isNotNull();
+            assertThat(manager.status().orElseThrow().failures()).singleElement()
+                    .satisfies(failure -> assertThat(failure.phase()).isEqualTo("plugin-execution"));
+            manager.stopPlugin(PROBE_ID);
+            manager.startPlugin(PROBE_ID);
+            List<PluginRuntimeManager.WorkerEvent> replayed = new ArrayList<>();
+            manager.addWorkerListener(replayed::add);
+            assertThat(replayed).isEmpty();
+            assertThat(manager.packagePhases().get(PROBE_ID)).isEqualTo(PluginRuntimePackagePhase.STARTED);
+            assertThat(manager.status().orElseThrow().failures()).isEmpty();
+            manager.stopPlugin(PROBE_ID);
+            assertThat(manager.status().orElseThrow().failures()).isEmpty();
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
     @DisplayName("撤销策略在 PF4J 加载前拒绝已验签的目录制品")
     void admissionPolicyRejectsVerifiedCatalogArtifactBeforePf4jLoad() throws IOException {
         Path plugins = tempDir.resolve("admission-rejected");
@@ -1589,6 +1637,29 @@ class PluginRuntimeManagerTest {
         assertThat(manager.verificationLimits().get(1).maxEntries())
                 .isEqualTo(secondUsage.entryCount() - 1);
         manager.shutdown();
+    }
+
+    @Test
+    @DisplayName("损坏归档预检查失败只隔离该候选，后续正常插件仍可启动")
+    void startupContinuesAfterMalformedArchivePrecheckFailure() throws IOException {
+        Path plugins = tempDir.resolve("startup-malformed-precheck");
+        Files.createDirectories(plugins);
+        Files.writeString(plugins.resolve("alpha-malformed.jar"), "invalid archive", StandardCharsets.UTF_8);
+        Path valid = plugins.resolve("beta.jar");
+        writeDependencyOrderProbeJar(valid, "beta", List.of());
+        writeLocalProvenance(plugins, valid, "beta", PROBE_VERSION);
+        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+        try {
+            PluginRuntimeStatus status = manager.start();
+
+            assertThat(status.loadedPluginIds()).containsExactly("beta");
+            assertThat(status.failures()).singleElement().satisfies(failure -> {
+                assertThat(failure.source()).isEqualTo("alpha-malformed.jar");
+                assertThat(failure.reason()).contains("zip central directory terminator is missing");
+            });
+        } finally {
+            manager.shutdown();
+        }
     }
 
     @Test

@@ -27,6 +27,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.BiConsumer;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -136,6 +138,7 @@ public class PluginRegistry implements SmartLifecycle {
             Collections.newSetFromMap(new IdentityHashMap<>());
     /** 插件启动 / 服务接入失败的纯值诊断；对象身份区分代际，避免保留插件异常或 classloader。 */
     private final Map<RegisteredPlugin, String> lifecycleFailures = new IdentityHashMap<>();
+    private final CopyOnWriteArrayList<BiConsumer<RegisteredPlugin, String>> failureListeners = new CopyOnWriteArrayList<>();
 
     /** 启用开关：活动成员判定的事实源。构造期与运行期 {@link #register} 都据此决定插件是否进入活动快照。 */
     private final PluginToggleProperties toggles;
@@ -582,6 +585,7 @@ public class PluginRegistry implements SmartLifecycle {
         List<RegisteredPlugin> startedThisAttempt = new ArrayList<>();
         Throwable startFailure = null;
         for (RegisteredPlugin registered : plugins) {
+            if (lifecycleFailure(registered).isPresent()) continue;
             try {
                 if (startFeature(registered)) {
                     startedThisAttempt.add(registered);
@@ -707,13 +711,64 @@ public class PluginRegistry implements SmartLifecycle {
     public void recordLifecycleFailure(RegisteredPlugin registered, Throwable failure) {
         Objects.requireNonNull(registered, "registered plugin");
         Objects.requireNonNull(failure, "failure");
+        String diagnostic = describeFailure(failure);
+        List<BiConsumer<RegisteredPlugin, String>> listeners;
         synchronized (lock) {
             if (!containsIdentity(state.installed(), registered)
                     && !containsIdentity(state.active(), registered)) {
                 return;
             }
-            lifecycleFailures.put(registered, describeFailure(failure));
+            listeners = lifecycleFailures.put(registered, diagnostic) == null
+                    ? List.copyOf(failureListeners) : List.of();
         }
+        for (var listener : listeners) {
+            notifyFailureListener(listener, registered, diagnostic);
+        }
+    }
+
+    /** 构造期逐个接入贡献；外置插件失败留给生命周期清理，核心内置注册错误仍阻断启动。 */
+    public void forEachBootPlugin(java.util.function.Consumer<RegisteredPlugin> contribution) {
+        for (RegisteredPlugin registered : registeredPlugins()) {
+            runBootContribution(registered, () -> contribution.accept(registered));
+        }
+    }
+
+    /** 隔离单个插件贡献；调用方须先取得宿主清理所需的精确所有权信息。 */
+    public void runBootContribution(RegisteredPlugin registered, Runnable contribution) {
+        try {
+            contribution.run();
+        } catch (Throwable failure) {
+            rethrowFatal(failure);
+            if (registered.source() == PluginSource.BUILT_IN) rethrowUnchecked(failure);
+            recordLifecycleFailure(registered, failure);
+            log.error(MessageBundles.getForLog(
+                    "plugin.log.start-failed", registered.id(), failure.getMessage()), failure);
+        }
+    }
+
+    /** 订阅当前代际首次失败并重放已有诊断；不向通知消费者暴露异常对象。 */
+    public void addFailureListener(BiConsumer<RegisteredPlugin, String> listener) {
+        Objects.requireNonNull(listener, "listener");
+        Map<RegisteredPlugin, String> existing;
+        synchronized (lock) {
+            if (!failureListeners.addIfAbsent(listener)) return;
+            existing = new java.util.IdentityHashMap<>(lifecycleFailures);
+        }
+        existing.forEach((plugin, diagnostic) -> notifyFailureListener(listener, plugin, diagnostic));
+    }
+
+    private static void notifyFailureListener(BiConsumer<RegisteredPlugin, String> listener,
+                                              RegisteredPlugin plugin, String diagnostic) {
+        try {
+            listener.accept(plugin, diagnostic);
+        } catch (Throwable failure) {
+            rethrowFatal(failure);
+            log.warn(MessageBundles.getForLog("plugin.log.failure-notification-failed"), failure);
+        }
+    }
+
+    public void removeFailureListener(BiConsumer<RegisteredPlugin, String> listener) {
+        failureListeners.remove(listener);
     }
 
     /** 清除当前精确身份的生命周期失败；完整服务足迹成功发布后调用。 */

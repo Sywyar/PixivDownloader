@@ -52,7 +52,11 @@ public class DatabaseSchemaRegistry {
         // 禁用插件声明的表 / 列仍需创建，
         // 已有数据保留，故 schema 不随插件启用开关变化，亦为前向兼容守住此不变量。
         for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.allRegisteredPlugins()) {
-            registered.plugin().schema().forEach(contribution -> register(registered.id(), contribution));
+            List<SchemaContribution> contributions = new ArrayList<>();
+            pluginRegistry.runBootContribution(registered,
+                    () -> contributions.addAll(registered.plugin().schema()));
+            // 插件 getter 失败按身份隔离；已取得声明仍须通过原有数据完整性校验。
+            contributions.forEach(contribution -> register(registered.id(), contribution));
         }
     }
 

@@ -64,7 +64,9 @@ function Stage-OfficialPlugins {
             $signature = $null
             $provenanceSource = "LOCAL_UPLOAD"
             $verificationStatus = "UNSIGNED_ALLOWED"
-            [void](Write-UnsignedLocalPluginProvenanceSidecar $targetArtifact $verifiedAt)
+            $sdkVersion = Get-PixivDownloadSdkVersion -ProjectRoot $ProjectRoot
+            [void](Write-UnsignedLocalPluginProvenanceSidecar $targetArtifact $verifiedAt `
+                -AppSdkMajor ([int]$sdkVersion.Split('.')[0]))
         } else {
             if ([string]::IsNullOrWhiteSpace($SignatureToolJar)) {
                 throw "SignatureToolJar is required unless -AllowUnsignedLocalPlugins is used."

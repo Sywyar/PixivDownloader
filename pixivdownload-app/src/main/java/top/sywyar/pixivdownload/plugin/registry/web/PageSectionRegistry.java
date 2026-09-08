@@ -33,13 +33,13 @@ public class PageSectionRegistry {
     private volatile List<RegisteredSection> snapshot = List.of();
 
     public PageSectionRegistry(PluginRegistry pluginRegistry) {
-        for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
+        pluginRegistry.forEachBootPlugin(registered -> {
             PixivFeaturePlugin plugin = registered.plugin();
             List<PageSectionContribution> sections = plugin.pageSections();
             if (!sections.isEmpty()) {
                 register(registered.id(), sections);
             }
-        }
+        });
     }
 
     /** 以内置插件清单构建注册中心，供 Spring 上下文之外的入口（测试 / 启动期检查等）使用。 */

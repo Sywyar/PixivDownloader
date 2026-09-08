@@ -156,7 +156,7 @@ public final class DownloadExtensionRegistry {
         this.pluginRegistry = Objects.requireNonNull(pluginRegistry, "plugin registry");
         this.staticResourceRegistry = Objects.requireNonNull(staticResourceRegistry, "static resource registry");
         this.assetValidator = Objects.requireNonNull(assetValidator, "plugin owned web asset validator");
-        for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
+        pluginRegistry.forEachBootPlugin(registered -> {
             if (webUiSlotRegistry == null) {
                 publish(registered);
             } else {
@@ -166,7 +166,7 @@ public final class DownloadExtensionRegistry {
                         readList(registered.id(), "downloadTypes", plugin::downloadTypes),
                         webUiSlotRegistry.slotsFor(registered.id())));
             }
-        }
+        });
     }
 
     /** 独立 registry 单测兼容构造器；生产 Spring 装配使用复用 WebUiSlotRegistry 快照的完整构造器。 */

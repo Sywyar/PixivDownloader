@@ -27,6 +27,13 @@ public final class SystemTrayManager {
 
     private SystemTrayManager() {}
 
+    /** 关闭本 provider 的托盘，释放旧窗口引用，供启动失败和 GUI 回退复用。 */
+    public static void uninstall() {
+        TrayIcon icon = installedTrayIcon;
+        installedTrayIcon = null;
+        if (icon != null && SystemTray.isSupported()) SystemTray.getSystemTray().remove(icon);
+    }
+
     /**
      * 在系统托盘中安装图标和菜单。
      *

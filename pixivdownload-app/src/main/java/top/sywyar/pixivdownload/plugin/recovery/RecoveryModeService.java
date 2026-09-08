@@ -12,13 +12,13 @@ import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
 
 /**
  * 恢复模式判定服务（后端）：综合 {@link PluginStatusService} 的插件状态报告与必选插件策略
- * {@link RequiredPluginPolicy}，判定核心壳当前是否应进入恢复模式（存在未满足的必选插件或插件启动失败）。
+ * {@link RequiredPluginPolicy}，判定核心壳当前是否应进入恢复模式（存在未满足的必选插件）。
  *
  * <p>必选插件全部 {@link top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus#STARTED} 时判定为正常运行，
- * 此时不改变任何路由行为；只要有必选插件缺失 / 禁用 / 版本不兼容，或插件在启动阶段崩溃，即判定进入恢复模式。判定结果由访问控制
+ * 此时不改变任何路由行为；只要有必选插件缺失 / 禁用 / 版本不兼容，或必选插件在启动或运行中崩溃，即判定进入恢复模式。判定结果由访问控制
  * 消费方 {@link RecoveryModeGate} 据以放行诊断 / 修复入口、拦截正常业务请求。
  *
- * <p>判定结果在首次查询后缓存；运行期插件状态变化后由生命周期协调器调用 {@link #refresh()} 重新评估。
+ * <p>判定结果在首次查询后缓存；异步失败事实变化时自动重新评估，其它生命周期变化由协调器调用 {@link #refresh()}。
  */
 @Service
 public class RecoveryModeService {
@@ -27,7 +27,8 @@ public class RecoveryModeService {
     private final RequiredPluginPolicy requiredPluginPolicy;
     private final RecoveryModeEvaluator evaluator = new RecoveryModeEvaluator();
 
-    private volatile RecoveryModeDecision cached;
+    private record CachedDecision(java.util.Map<String, String> failures, RecoveryModeDecision decision) {}
+    private volatile CachedDecision cached;
 
     public RecoveryModeService(PluginStatusService pluginStatusService,
                                RequiredPluginPolicy requiredPluginPolicy) {
@@ -41,13 +42,13 @@ public class RecoveryModeService {
         if (!recovery.safeToScan()) {
             return transactionRecoveryDecision(recovery);
         }
-        RecoveryModeDecision current = cached;
-        if (current == null) {
-            current = evaluator.evaluate(pluginStatusService.report(), requiredPluginPolicy,
-                    pluginStatusService.startupFailuresById().keySet());
+        java.util.Map<String, String> failures = pluginStatusService.failureSnapshot();
+        CachedDecision current = cached;
+        if (current == null || !current.failures().equals(failures)) {
+            current = new CachedDecision(failures, evaluator.evaluate(pluginStatusService.report(), requiredPluginPolicy));
             cached = current;
         }
-        return current;
+        return current.decision();
     }
 
     private static RecoveryModeDecision transactionRecoveryDecision(PluginRecoveryGateSnapshot recovery) {

@@ -79,8 +79,8 @@ class RecoveryModeServiceTest {
     }
 
     @Test
-    @DisplayName("空必选策略下插件 start 失败：完整状态链进入恢复模式并指出插件")
-    void pluginStartFailureActivatesRecovery() {
+    @DisplayName("普通插件 start 失败保留诊断，不触发全局恢复模式")
+    void optionalPluginStartFailureDoesNotActivateRecovery() {
         PluginRegistry registry = new PluginRegistry(List.of(
                 new TestPlugin("crashy", new IllegalStateException("startup exploded"))));
         registry.start();
@@ -88,10 +88,10 @@ class RecoveryModeServiceTest {
                 new PluginStatusService(registry, PluginInventory.empty(), RequiredPluginPolicy.empty()),
                 RequiredPluginPolicy.empty());
 
-        assertThat(service.isActive()).isTrue();
-        assertThat(service.decision().firstReason().orElseThrow().pluginId()).isEqualTo("crashy");
-        assertThat(service.decision().firstReason().orElseThrow().messages())
-                .containsExactly(IllegalStateException.class.getName() + ": startup exploded");
+        assertThat(service.isActive()).isFalse();
+        assertThat(service.decision().reasons()).isEmpty();
+        assertThat(registry.lifecycleFailuresById()).containsEntry("crashy",
+                IllegalStateException.class.getName() + ": startup exploded");
     }
 
     private static PluginInventory startedDownloadWorkbenchInventory() {

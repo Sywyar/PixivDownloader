@@ -94,14 +94,14 @@ public class StaticResourceRegistry {
                                   PluginOwnedWebResourceResolver resourceResolver) {
         this.pluginRegistry = Objects.requireNonNull(pluginRegistry, "plugin registry");
         this.resourceResolver = resourceResolver;
-        for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
+        pluginRegistry.forEachBootPlugin(registered -> {
             List<StaticResourceContribution> resources = readContributionSnapshot(registered);
             if (!resources.isEmpty()) {
                 PreparedResources prepared = prepare(registered, resources);
                 prepared.beginAttempt(preparationAuthority);
                 registerSnapshot(prepared);
             }
-        }
+        });
     }
 
     public StaticResourceRegistry(PluginRegistry pluginRegistry) {

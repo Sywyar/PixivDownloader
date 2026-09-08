@@ -210,6 +210,13 @@ public class PluginStatusService {
         return Map.copyOf(failures);
     }
 
+    /** 只读取内存中的失败事实，供恢复模式缓存识别异步崩溃和恢复，不重新扫描安装目录。 */
+    public Map<String, String> failureSnapshot() {
+        Map<String, String> failures = new LinkedHashMap<>(currentFailuresById());
+        crashedPluginIds().forEach(id -> failures.put(id, "CRASHED"));
+        return Map.copyOf(failures);
+    }
+
     private Map<String, String> currentFailuresById() {
         Map<String, String> failures = new LinkedHashMap<>(runtimeFailures.get());
         failures.putAll(pluginRegistry.lifecycleFailuresById());

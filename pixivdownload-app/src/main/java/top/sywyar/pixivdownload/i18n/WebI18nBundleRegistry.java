@@ -180,13 +180,13 @@ public class WebI18nBundleRegistry implements NamespaceMessageResolver {
                           LocaleCatalog catalog) {
         this.installedPlugins = installedPlugins != null ? installedPlugins : List::of;
         this.catalog = catalog == null ? LocaleCatalog.defaultCatalog() : catalog;
-        for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
+        pluginRegistry.forEachBootPlugin(registered -> {
             PixivFeaturePlugin plugin = registered.plugin();
             List<I18nContribution> contributions = plugin.i18n();
             if (!contributions.isEmpty()) {
                 register(registered.id(), registered.classLoader(), contributions);
             }
-        }
+        });
         refreshInstalledSnapshot();
     }
 

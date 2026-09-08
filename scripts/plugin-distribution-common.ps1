@@ -365,22 +365,40 @@ function Write-PluginProvenanceSidecar {
 function Write-UnsignedLocalPluginProvenanceSidecar {
     param(
         [Parameter(Mandatory = $true)][string]$ArtifactPath,
-        [Parameter(Mandatory = $true)][string]$VerifiedAt
+        [Parameter(Mandatory = $true)][string]$VerifiedAt,
+        [Parameter(Mandatory = $true)][ValidateRange(0, 2147483647)][int]$AppSdkMajor
     )
     $artifact = Get-Item -LiteralPath $ArtifactPath
     $provenanceDir = Join-Path $artifact.Directory.FullName "provenance"
     New-Item -ItemType Directory -Force -Path $provenanceDir | Out-Null
     $sidecar = Join-Path $provenanceDir "$($artifact.Name).pixiv-plugin-provenance"
     $artifactSha256 = Get-Sha256Hex $ArtifactPath
+    $descriptor = Read-PluginDescriptor $ArtifactPath
+    $pluginId = $descriptor['plugin.id']
+    if ($pluginId -notmatch '^[A-Za-z0-9._-]+$') { throw 'Invalid local plugin id.' }
+    $executionMode = switch ($descriptor['pixiv.execution-mode']) {
+        'host-process-full-trust' { 'HOST_PROCESS_FULL_TRUST' }
+        'declarative-process' { 'DECLARATIVE_PROCESS' }
+        default { throw 'Local plugin must declare a supported execution mode.' }
+    }
+    # The explicit local-test opt-in approves these exact bytes, never a publisher or repository.
     $lines = @(
-        "formatVersion=1",
+        "formatVersion=3",
         "source=LOCAL_UPLOAD",
         "officialRepository=false",
+        "developmentOnly=false",
         "artifactSizeBytes=$($artifact.Length)",
         "artifactSha256=$artifactSha256",
         "status=UNSIGNED_ALLOWED",
         "verifiedAt=$VerifiedAt",
-        "diagnosticCode=UNSIGNED_ALLOWED"
+        "diagnosticCode=UNSIGNED_ALLOWED",
+        "trust.pluginId=$pluginId",
+        "trust.repositoryOfficial=false",
+        "trust.artifactSha256=$artifactSha256",
+        "trust.executionMode=$executionMode",
+        "trust.approvedAt=$VerifiedAt",
+        "trust.approvedAppSdkMajor=$AppSdkMajor",
+        "trust.approvalType=EXACT_ARTIFACT"
     )
     [System.IO.File]::WriteAllText($sidecar, (($lines -join "`n") + "`n"), (New-Object System.Text.UTF8Encoding($false)))
     return $sidecar

@@ -70,7 +70,12 @@ public record PluginRuntimeStatus(
         PluginDirectoryState refreshedState = Files.isDirectory(directory)
                 ? (phases.isEmpty() ? PluginDirectoryState.EMPTY : PluginDirectoryState.POPULATED)
                 : PluginDirectoryState.ABSENT;
-        return project(directory, refreshedState, phases, failures, verifications);
+        // 已恢复的执行故障不再作为当前失败；后续正常 stop 不能重新激活旧崩溃诊断。
+        List<PluginLoadFailure> currentFailures = failures.stream()
+                .filter(failure -> !"plugin-execution".equals(failure.phase())
+                        || phases.get(failure.source()) != PluginRuntimePackagePhase.STARTED)
+                .toList();
+        return project(directory, refreshedState, phases, currentFailures, verifications);
     }
 
     PluginRuntimeStatus withFailure(PluginLoadFailure failure, int maximumFailures) {

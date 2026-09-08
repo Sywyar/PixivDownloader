@@ -7,7 +7,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { changedMavenContracts, evaluateBaselineState, evaluateContract } from '../sdk-contract.mjs';
-import { parseSdkVersion } from '../sdk-version.mjs';
+import { inspectSdkVersion, parseSdkVersion } from '../sdk-version.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const CLI = path.join(ROOT, 'scripts', 'ci', 'sdk-contract.mjs');
@@ -127,8 +127,9 @@ test('Wrapper 纯权限变化不属于 SDK 语义合同', () => {
         assert.match(git(root, ['ls-tree', base, 'mvnw']), /^100644\s/u);
         assert.match(git(root, ['ls-tree', candidate, 'mvnw']), /^100755\s/u);
 
-        writeConsumerPoms(baseSdk, '1.0.0-rc1', 'Base metadata');
-        writeConsumerPoms(candidateSdk, '1.0.0-rc1', 'Candidate metadata');
+        const sdkIdentity = inspectSdkVersion(root);
+        writeConsumerPoms(baseSdk, sdkIdentity.version, 'Base metadata');
+        writeConsumerPoms(candidateSdk, sdkIdentity.version, 'Candidate metadata');
         const baseSurface = path.join(root, 'base-surface.txt');
         const candidateSurface = path.join(root, 'candidate-surface.txt');
         const report = path.join(root, 'report.json');
@@ -145,7 +146,7 @@ test('Wrapper 纯权限变化不属于 SDK 语义合同', () => {
             '--report', report
         ], { cwd: root, encoding: 'utf8' });
         assert.equal(result.status, 0, result.stderr || result.stdout);
-        assert.equal(result.stdout, 'NO_PUBLISH: sdk-api-v1.0.0-rc2\n');
+        assert.equal(result.stdout, `NO_PUBLISH: ${sdkIdentity.releaseId}\n`);
         assert.deepEqual(JSON.parse(fs.readFileSync(report, 'utf8')).mavenContractChanges, []);
     } finally {
         fs.rmSync(root, { recursive: true, force: true });

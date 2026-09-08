@@ -17,6 +17,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class GuiLauncherDesktopSourcesTest {
     @Test
+    @org.junit.jupiter.api.DisplayName("桌面贡献初始化错误只排除故障插件，JVM 致命错误保持传播")
+    void contributionErrorsAreIsolatedPerPlugin() {
+        PixivFeaturePlugin broken = org.mockito.Mockito.mock(PixivFeaturePlugin.class);
+        org.mockito.Mockito.when(broken.guiThemes()).thenThrow(new ExceptionInInitializerError("theme metadata"));
+        var sources = List.of(
+                new DesktopUiPluginSource("broken", false, broken, getClass().getClassLoader()),
+                new DesktopUiPluginSource("fixture", false, new TestPlugin(), getClass().getClassLoader()));
+        assertThat(GuiLauncher.buildDesktopUiPluginSnapshots(sources))
+                .extracting(snapshot -> snapshot.id()).containsExactly("fixture");
+        StackOverflowError fatal = new StackOverflowError("VM failure");
+        org.mockito.Mockito.doThrow(fatal).when(broken).guiThemes();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> GuiLauncher.buildDesktopUiPluginSnapshots(sources))
+                .isSameAs(fatal);
+    }
+
+    @Test
     void reusesSourcesUntilTheRuntimeDiscoveryChanges() {
         PluginDiscoveryResult initial = PluginDiscoveryResult.empty();
         PluginDiscoveryResult changed = new PluginDiscoveryResult(

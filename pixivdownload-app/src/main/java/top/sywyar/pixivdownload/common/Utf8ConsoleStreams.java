@@ -12,13 +12,13 @@ import java.nio.charset.StandardCharsets;
  * （Windows 中文环境通常为 GBK/cp936），而 logback 的控制台 appender 固定以 UTF-8
  * 写出字节。两者不一致会导致 CLI（如 {@code --setup}）打印的中文与日志中的中文在
  * 同一终端里必有一方乱码。本方法在任何打印或 logback 初始化之前，把标准流强制为
- * UTF-8，使全项目的控制台输出统一为 UTF-8（参见 {@code CLAUDE.md} 的「编码」一节）。
+ * UTF-8，使全项目的控制台输出统一为 UTF-8。
  *
  * <p><strong>调用时机</strong>：必须在每个 {@code main()} 的第一行、且早于第一次
- * {@code LoggerFactory.getLogger()} 调用时执行——logback 的 {@code ConsoleAppender}
- * 在初始化时会捕获当时的 {@code System.out} 引用，之后再替换便不再生效。
+ * {@code LoggerFactory.getLogger()} 调用时执行，确保启动日志和后续标准流捕获均使用 UTF-8。
  */
 public final class Utf8ConsoleStreams {
+    private static boolean installed;
 
     private Utf8ConsoleStreams() {
     }
@@ -28,8 +28,12 @@ public final class Utf8ConsoleStreams {
      * {@link PrintStream}。幂等：重复调用无副作用。无控制台（如 jpackage 窗口化 exe）
      * 时写入会被 {@link PrintStream} 静默吞掉，不影响启动。
      */
-    public static void install() {
+    public static synchronized void install() {
+        if (installed) {
+            return;
+        }
         System.setOut(new PrintStream(new FileOutputStream(FileDescriptor.out), true, StandardCharsets.UTF_8));
         System.setErr(new PrintStream(new FileOutputStream(FileDescriptor.err), true, StandardCharsets.UTF_8));
+        installed = true;
     }
 }

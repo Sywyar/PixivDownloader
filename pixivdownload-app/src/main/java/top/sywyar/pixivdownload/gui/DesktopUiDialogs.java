@@ -6,9 +6,13 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiSession;
 
 import java.awt.BorderLayout;
 import java.awt.Button;
+import java.awt.Component;
+import java.awt.Dimension;
 import java.awt.Dialog;
 import java.awt.EventQueue;
 import java.awt.FlowLayout;
+import java.awt.Font;
+import java.awt.Graphics;
 import java.awt.Frame;
 import java.awt.GraphicsEnvironment;
 import java.awt.Label;
@@ -76,13 +80,24 @@ final class DesktopUiDialogs {
             String title, String message, String confirmLabel) {
         AtomicBoolean confirmed = new AtomicBoolean();
         Dialog dialog = new Dialog((Frame) null, title, true);
+        dialog.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
         dialog.setLayout(new BorderLayout());
 
         Panel body = new Panel(new FlowLayout(FlowLayout.CENTER, 24, 20));
-        body.add(new Label(message));
+        // Windows JDK 17 的 UTF-8 原生字库映射不含完整 CJK，文本交给 Java2D 绘制。
+        Label bodyText = new Label("") {
+            @Override public Dimension getPreferredSize() { return bootstrapTextSize(this, message); }
+            @Override public void paint(Graphics graphics) { paintBootstrapText(this, message, graphics); }
+        };
+        bodyText.getAccessibleContext().setAccessibleName(message);
+        body.add(bodyText);
         dialog.add(body, BorderLayout.CENTER);
 
-        Button confirm = new Button(confirmLabel);
+        Button confirm = new Button("") {
+            @Override public Dimension getPreferredSize() { return bootstrapTextSize(this, confirmLabel); }
+            @Override public void paint(Graphics graphics) { paintBootstrapText(this, confirmLabel, graphics); }
+        };
+        confirm.getAccessibleContext().setAccessibleName(confirmLabel);
         confirm.addActionListener(event -> {
             confirmed.set(true);
             dialog.dispose();
@@ -101,5 +116,21 @@ final class DesktopUiDialogs {
         confirm.requestFocus();
         dialog.setVisible(true);
         return confirmed.get();
+    }
+
+    private static Dimension bootstrapTextSize(Component component, String text) {
+        var metrics = component.getFontMetrics(component.getFont());
+        return new Dimension(metrics.stringWidth(text) + 16, metrics.getHeight() + 10);
+    }
+
+    private static void paintBootstrapText(Component component, String text, Graphics graphics) {
+        graphics.setFont(component.getFont());
+        graphics.setColor(component.getForeground());
+        var metrics = graphics.getFontMetrics();
+        graphics.drawString(
+                text,
+                (component.getWidth() - metrics.stringWidth(text)) / 2,
+                (component.getHeight() - metrics.getHeight()) / 2 + metrics.getAscent()
+        );
     }
 }

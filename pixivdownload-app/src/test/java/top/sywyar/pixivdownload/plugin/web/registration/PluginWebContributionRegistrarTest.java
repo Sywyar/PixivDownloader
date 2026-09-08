@@ -86,6 +86,19 @@ import static org.mockito.Mockito.when;
 class PluginWebContributionRegistrarTest extends PluginWebContributionRegistrarTestSupport {
 
     @Test
+    @DisplayName("启动期路由 getter 崩溃后保留精确句柄，既有贡献仍可完整撤回")
+    void bootRouteFailureRetainsHandleForCleanup() {
+        var plugin = org.mockito.Mockito.spy(new LifecycleWebPlugin("boot-failure", "boot-failure.section"));
+        org.mockito.Mockito.doThrow(new LinkageError("route metadata")).when(plugin).routes();
+        PluginRegistry.RegisteredPlugin registered = external(plugin, "boot-failure", 1L);
+        LifecycleHarness h = bootLifecycleHarness(registered);
+        PluginWebContributionHandle handle = h.registrar.currentHandle(registered).orElseThrow();
+        assertLifecycleContributions(h, "boot-failure", true);
+        h.registrar.unregister(handle);
+        assertLifecycleContributions(h, "boot-failure", false);
+    }
+
+    @Test
     @DisplayName("register 把十类贡献接入各注册中心（classloader-aware），ScriptRegistry 刷新出脚本")
     void registerExposesAllTenContributions() {
         Harness h = emptyHarness();
