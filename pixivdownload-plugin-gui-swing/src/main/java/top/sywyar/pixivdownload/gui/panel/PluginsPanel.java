@@ -29,7 +29,7 @@ import java.util.function.Function;
 public class PluginsPanel extends JPanel {
 
     private static final String PLUGIN_MANAGE_PAGE = "/plugin-manage.html";
-    private static final int READ_TIMEOUT_MS = 5000;
+    private static final int READ_TIMEOUT_MS = 60_000;
 
     private final Function<String, String> webUrlProvider;
 

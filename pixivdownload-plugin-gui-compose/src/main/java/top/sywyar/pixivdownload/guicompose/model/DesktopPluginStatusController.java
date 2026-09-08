@@ -8,6 +8,7 @@ import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.TextStyl
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static top.sywyar.pixivdownload.guicompose.model.DesktopUiNodes.*;
 
@@ -17,6 +18,7 @@ import static top.sywyar.pixivdownload.guicompose.model.DesktopUiNodes.*;
 final class DesktopPluginStatusController {
     private final ComposeDesktopUiModel owner;
     private final DesktopUiHost host;
+    private final AtomicBoolean loading = new AtomicBoolean();
 
     private volatile String notice = "";
     private volatile List<PluginStatusRow> statuses = List.of();
@@ -197,7 +199,17 @@ final class DesktopPluginStatusController {
     }
 
     void load() {
-        DesktopUiHost.GuiResponse response = host.guiGet("plugins/status", 5_000);
+        if (!loading.compareAndSet(false, true)) return;
+        try {
+            readStatus();
+        } finally {
+            loading.set(false);
+        }
+    }
+
+    private void readStatus() {
+        // 状态读取会复验磁盘中的插件包；过短超时会遗留仍在执行的请求。
+        DesktopUiHost.GuiResponse response = host.guiGet("plugins/status", 60_000);
         if (!response.reachable()) {
             notice = host.message("gui.plugins.state.offline");
             statuses = List.of();
