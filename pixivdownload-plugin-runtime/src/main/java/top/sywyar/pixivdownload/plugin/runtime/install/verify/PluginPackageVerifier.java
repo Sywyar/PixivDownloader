@@ -33,7 +33,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits
  *       {@link PluginPackageLimits#maxCompressionRatio()}；</li>
  *   <li><b>路径规模</b>：entry 名字符数与目录深度不超过调用方配置上限；</li>
  *   <li><b>文件类型</b>：拒绝归档中央目录声明的 Unix 符号链接或特殊文件；</li>
- *   <li><b>entry 唯一性</b>：每层归档按可移植文件名语义规范化后不得重名。</li>
+ *   <li><b>entry 唯一性</b>：可落盘条目按可移植名称去重；不展开的私有 JAR 内部按区分大小写的资源名去重。</li>
  * </ul>
  *
  * <h2>不信任 header</h2>
@@ -89,7 +89,7 @@ public final class PluginPackageVerifier {
 
         ZipSafety.assertNoSpecialFileEntries(archive);
         try (InputStream input = Files.newInputStream(archive)) {
-            scanArchive(input, limits, budget, true, true, archive.getFileName().toString());
+            scanArchive(input, limits, budget, NestedArchiveKind.TOP_LEVEL, archive.getFileName().toString());
         } catch (PluginPackageException e) {
             throw e.withVerificationUsage(budget.entryCount, budget.totalUncompressed);
         } catch (ZipException e) {
@@ -107,8 +107,7 @@ public final class PluginPackageVerifier {
     private static void scanArchive(InputStream input,
                                     PluginPackageLimits limits,
                                     ScanBudget budget,
-                                    boolean scanRootPluginJar,
-                                    boolean scanPrivateLibraries,
+                                    NestedArchiveKind archiveKind,
                                     String archiveLabel) throws IOException {
         byte[] buffer = new byte[8192];
         Set<String> entryNames = new HashSet<>();
@@ -120,10 +119,21 @@ public final class PluginPackageVerifier {
                     throw tooLarge("too many zip entries including nested plugin jars (limit "
                             + limits.maxEntries() + ")");
                 }
-                String entryName = ZipSafety.requireUniqueEntryName(entry.getName(), entryNames, limits);
+                String entryName;
+                if (archiveKind == NestedArchiveKind.PRIVATE_LIBRARY) {
+                    // 私有依赖整包保留为 JAR；JVM 资源名区分大小写，不映射到 Windows 文件路径。
+                    entryName = ZipSafety.requireSafeEntryName(entry.getName(), limits);
+                    if (!entryNames.add(entryName)) {
+                        throw new PluginPackageException(PluginPackageException.Reason.UNSAFE,
+                                "duplicate private jar entry: " + entryName);
+                    }
+                } else {
+                    entryName = ZipSafety.requireUniqueEntryName(entry.getName(), entryNames, limits);
+                }
                 requireNoHostControlledClass(entryName);
                 NestedArchiveKind nestedKind = nestedArchiveKind(
-                        entryName, scanRootPluginJar, scanPrivateLibraries);
+                        entryName, archiveKind == NestedArchiveKind.TOP_LEVEL,
+                        archiveKind != NestedArchiveKind.PRIVATE_LIBRARY);
                 ByteArrayOutputStream nestedBytes = nestedKind == null ? null : new ByteArrayOutputStream();
                 long entryUncompressed = 0;
                 int read;
@@ -151,7 +161,7 @@ public final class PluginPackageVerifier {
                     }
                     requireZipSignature(bytes, archiveLabel + "!/" + entryName);
                     scanArchive(new ByteArrayInputStream(bytes), limits, budget,
-                            false, nestedKind == NestedArchiveKind.ROOT_PLUGIN,
+                            nestedKind,
                             archiveLabel + "!/" + entryName);
                 }
             }
@@ -232,6 +242,7 @@ public final class PluginPackageVerifier {
     }
 
     private enum NestedArchiveKind {
+        TOP_LEVEL,
         ROOT_PLUGIN,
         PRIVATE_LIBRARY
     }

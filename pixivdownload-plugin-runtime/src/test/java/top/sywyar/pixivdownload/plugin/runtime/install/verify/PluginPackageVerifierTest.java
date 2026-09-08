@@ -212,6 +212,27 @@ class PluginPackageVerifierTest {
         Path zip = dir.resolve("nested-duplicate.zip");
         PluginPackageFixtures.writeZip(zip, Map.of("plugin.jar", Files.readAllBytes(jar)));
         assertUnsafe(zip);
+        Path privateJar = dir.resolve("private-duplicate.jar");
+        PluginPackageFixtures.writeZip(privateJar, Map.of("lib/private.jar", Files.readAllBytes(jar)));
+        assertUnsafe(privateJar);
+    }
+
+    @Test
+    @DisplayName("不展开的私有 JAR 允许大小写不同的合法类名，实际落盘层仍拒绝冲突")
+    void privateJarResourceNamesAreCaseSensitive() throws IOException {
+        byte[] library = PluginPackageFixtures.zipBytes(Map.of(
+                "icons/AddChartKt.class", new byte[]{1},
+                "icons/AddchartKt.class", new byte[]{2}));
+        Path plugin = dir.resolve("icons.jar");
+        PluginPackageFixtures.writeZip(plugin, Map.of("lib/icons.jar", library));
+        assertThat(PluginPackageVerifier.verifyAndMeasure(plugin, PluginPackageLimits.defaults()).entryCount())
+                .isEqualTo(3);
+        Path wrapper = dir.resolve("wrapped.zip");
+        PluginPackageFixtures.writeZip(wrapper, Map.of("plugin.jar", Files.readAllBytes(plugin)));
+        assertThat(PluginPackageVerifier.verifyAndMeasure(wrapper, PluginPackageLimits.defaults()).entryCount())
+                .isEqualTo(4);
+        PluginPackageFixtures.writeZip(wrapper, Map.of("plugin.jar", library));
+        assertUnsafe(wrapper);
     }
 
     @Test
