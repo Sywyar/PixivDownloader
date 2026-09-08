@@ -947,6 +947,15 @@ class PluginReleaseScriptsTest {
         assertThat(provenance).isRegularFile();
         assertThat(Files.readString(provenance, StandardCharsets.UTF_8))
                 .contains("source=LOCAL_UPLOAD", "status=UNSIGNED_ALLOWED");
+        var stored = new top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore(plugins)
+                .readRequiredForRecovery(artifact);
+        assertThat(stored.developmentOnly()).isFalse();
+        assertThat(stored.trustDecision().pluginId()).isEqualTo("sample");
+        assertThat(stored.trustDecision().artifactSha256()).isEqualTo(stored.artifactSha256());
+        assertThat(stored.trustDecision().approvedAppSdkMajor())
+                .isEqualTo(top.sywyar.pixivdownload.sdk.SdkVersion.MAJOR);
+        assertThat(stored.trustDecision().approvalType())
+                .isEqualTo(top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustDecision.ApprovalType.EXACT_ARTIFACT);
 
         JsonNode manifest = new ObjectMapper().readTree(
                 Files.readString(plugins.resolve("plugins-manifest.json"), StandardCharsets.UTF_8));
