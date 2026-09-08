@@ -117,6 +117,9 @@ jobs:
       - name: Parse PowerShell scripts with Windows PowerShell
         shell: powershell
         run: ./scripts/ci/check-powershell.ps1
+      - name: Test release runtime acceptance guards
+        shell: pwsh
+        run: ./scripts/release-e2e/runtime.test.ps1
       - name: Verify packaged release boundaries
         uses: ./.github/actions/verify-release-boundaries
         with:

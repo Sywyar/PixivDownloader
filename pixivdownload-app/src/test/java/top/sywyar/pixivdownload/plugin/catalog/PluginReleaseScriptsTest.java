@@ -1078,15 +1078,8 @@ class PluginReleaseScriptsTest {
                 "Expand-Archive -LiteralPath $Archive",
                 "PixivDownload-$Version.jar",
                 "runtime\\bin\\server\\jvm.dll",
-                "--setup",
-                "--no-gui",
                 "/actuator/health",
                 "/actuator/info",
-                "/api/auth/login",
-                "/api/plugins/status",
-                "status -ne \"STARTED\"",
-                "runtimePhase -ne \"STARTED\"",
-                "recoveryMode",
                 "Wait-ArtifactProcessExit",
                 "-TimeoutSeconds 600",
                 "-TimeoutSeconds 300",
@@ -1186,12 +1179,17 @@ class PluginReleaseScriptsTest {
                 + "$root = '" + psQuote(tempDir) + "'\n" + """
                 $Username = 'release-e2e'
                 $Password = 'ReleaseE2ePassword2026'
-                Test-ApplicationLayout -Label 'failed-fixture' -Root $root -Launcher (Join-Path $root 'run.bat') `
+                $script:ReleaseReportRoot = Join-Path $root 'reports'
+                Test-ApplicationScenario -Headless -Label 'failed-fixture' -Root $root -Launcher (Join-Path $root 'run.bat') `
                     -RuntimeRoot (Join-Path $root 'runtime') -LogRoot (Join-Path $root 'e2e')
                 """);
         assertThat(result.exitCode()).isNotZero();
         assertThat(result.output()).contains("setup failed with exit code 17", "diagnostic-line-205")
                 .doesNotContain("OMITTED-LOG-HEAD");
+        assertThat(Files.readString(tempDir.resolve("reports/failed-fixture/result.json"), StandardCharsets.UTF_8))
+                .contains("\"passed\": false", "setup failed with exit code 17");
+        assertThat(Files.readString(tempDir.resolve("reports/failed-fixture/e2e-setup.stdout.log"), StandardCharsets.UTF_8))
+                .contains("OMITTED-LOG-HEAD", "diagnostic-line-205");
     }
 
     private static String releaseAcceptanceFunctions() {
@@ -1206,6 +1204,8 @@ class PluginReleaseScriptsTest {
                     $node -is [System.Management.Automation.Language.FunctionDefinitionAst]}, $false)) {
                     . ([scriptblock]::Create($function.Extent.Text))
                 }
+                . ./scripts/release-e2e/runtime.ps1
+                . ./scripts/release-e2e/scenarios.ps1
                 """;
     }
 

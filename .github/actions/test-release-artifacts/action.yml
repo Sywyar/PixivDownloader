@@ -42,4 +42,14 @@ runs:
           -Version $env:RELEASE_VERSION `
           -InstallerPath $installers[0].FullName `
           -JavaZipPath $javaZips[0].FullName `
-          -FullOfflineZipPath $offlineZips[0].FullName
+          -FullOfflineZipPath $offlineZips[0].FullName `
+          -ReportRoot "$env:RUNNER_TEMP/release-e2e-reports"
+
+    - name: Upload release runtime evidence
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      with:
+        name: release-e2e-evidence
+        path: ${{ runner.temp }}/release-e2e-reports/
+        if-no-files-found: error
+        retention-days: 7
