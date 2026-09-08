@@ -1,9 +1,11 @@
 package top.sywyar.pixivdownload.plugin.runtime;
 
 import org.pf4j.DefaultPluginManager;
+import org.pf4j.DefaultVersionManager;
 import org.pf4j.PluginManager;
 import org.pf4j.PluginState;
 import org.pf4j.PluginWrapper;
+import org.pf4j.VersionManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactLoadPlan;
@@ -19,6 +21,7 @@ import top.sywyar.pixivdownload.plugin.runtime.artifact.PreparedPluginArtifact;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageInspection;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
@@ -1071,7 +1074,20 @@ public class PluginRuntimeManager {
 
     private void ensureManager(Path root) {
         if (pluginManager == null) {
-            pluginManager = new DefaultPluginManager(root);
+            pluginManager = new DefaultPluginManager(root) {
+                @Override
+                protected VersionManager createVersionManager() {
+                    return new DefaultVersionManager() {
+                        @Override
+                        public boolean checkVersionConstraint(String version, String constraint) {
+                            VersionRequirement actual = VersionRequirement.parse(version);
+                            return actual.present() && actual.valid()
+                                    && VersionRequirement.parse(constraint)
+                                            .isSatisfiedBy(actual.major(), actual.minor());
+                        }
+                    };
+                }
+            };
         }
     }
 

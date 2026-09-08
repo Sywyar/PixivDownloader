@@ -4,6 +4,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.pf4j.PluginManager;
 import org.pf4j.PluginState;
 import org.pf4j.PluginWrapper;
@@ -1124,6 +1126,50 @@ class PluginRuntimeManagerTest {
         }
     }
 
+    @ParameterizedTest
+    @CsvSource({
+            "1.0.0, 1.0, true",
+            "1.0.0-nightly.20260908.125.1, 1.0, true",
+            "1.2.3, 1.1, true",
+            "1.2.3-beta.1, >=1.1, true",
+            "2.0.0, 1.0, false",
+            "1.0.0, 1.1, false"
+    })
+    @DisplayName("真实插件加载与启动扫描使用相同的主次版本兼容规则")
+    void dependencyVersionsAgreeWithRuntimeAdmission(String version, String requirement, boolean compatible)
+            throws IOException {
+        Path plugins = tempDir.resolve("versioned-dependencies");
+        Path provider = plugins.resolve("provider.jar");
+        Path dependent = plugins.resolve("dependent.jar");
+        writeDependencyOrderProbeJar(provider, "provider", version, List.of());
+        writeDependencyOrderProbeJar(dependent, "dependent",
+                List.of(new PluginDependencyRef("provider", requirement, false)));
+        writeLocalProvenance(plugins, provider, "provider", version);
+        writeLocalProvenance(plugins, dependent, "dependent", PROBE_VERSION);
+        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+        try {
+            manager.loadPlugin(provider);
+            if (compatible) {
+                manager.loadPlugin(dependent);
+            } else {
+                assertThatThrownBy(() -> manager.loadPlugin(dependent))
+                        .isInstanceOf(PluginRuntimeOperationException.class);
+            }
+            manager.shutdown();
+            PluginRuntimeStatus status = manager.start();
+            if (compatible) {
+                assertThat(status.failures()).isEmpty();
+                assertThat(status.startedPluginIds()).containsExactly("provider", "dependent");
+            } else {
+                assertThat(status.startedPluginIds()).containsExactly("provider");
+                assertThat(status.failures()).singleElement().satisfies(failure ->
+                        assertThat(failure.reason()).contains("required dependency provider needs version"));
+            }
+        } finally {
+            manager.shutdown();
+        }
+    }
+
     @Test
     @DisplayName("启动扫描：缺少必需依赖时跳过依赖方，不把半加载包交给 PF4J")
     void startupSkipsPluginWithMissingRequiredDependencyBeforePf4jLoad() throws IOException {
@@ -1958,10 +2004,15 @@ class PluginRuntimeManagerTest {
 
     private static void writeDependencyOrderProbeJar(Path jar, String pluginId,
                                                      List<PluginDependencyRef> dependencies) throws IOException {
+        writeDependencyOrderProbeJar(jar, pluginId, PROBE_VERSION, dependencies);
+    }
+
+    private static void writeDependencyOrderProbeJar(Path jar, String pluginId, String version,
+                                                     List<PluginDependencyRef> dependencies) throws IOException {
         Files.createDirectories(jar.getParent());
         try (OutputStream out = Files.newOutputStream(jar);
              ZipOutputStream zos = new ZipOutputStream(out)) {
-            addDependencyOrderDescriptor(zos, pluginId, dependencies);
+            addDependencyOrderDescriptor(zos, pluginId, version, dependencies);
             addClassEntry(zos, DependencyOrderProbePlugin.class, "");
             addClassEntry(zos, DependencyOrderProbeFeaturePlugin.class, "");
         }
@@ -2100,9 +2151,14 @@ class PluginRuntimeManagerTest {
 
     private static void addDependencyOrderDescriptor(ZipOutputStream zos, String pluginId,
                                                      List<PluginDependencyRef> dependencies) throws IOException {
+        addDependencyOrderDescriptor(zos, pluginId, PROBE_VERSION, dependencies);
+    }
+
+    private static void addDependencyOrderDescriptor(ZipOutputStream zos, String pluginId, String version,
+                                                     List<PluginDependencyRef> dependencies) throws IOException {
         StringBuilder props = new StringBuilder()
                 .append("plugin.id=").append(pluginId).append('\n')
-                .append("plugin.version=").append(PROBE_VERSION).append('\n')
+                .append("plugin.version=").append(version).append('\n')
                 .append("plugin.requires=1.0\n")
                 .append("plugin.class=").append(DependencyOrderProbePlugin.class.getName()).append('\n')
                 .append("plugin.provider=test\n")
