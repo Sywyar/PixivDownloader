@@ -1,6 +1,13 @@
+# 参数删除会留下越界的 Kotlin long/double 局部变量槽，保留参数形状。
+-optimizations !method/removal/parameter
+
 -keep class kotlin.** { *; }
 -keep class org.jetbrains.skia.** { *; }
 -keep class org.jetbrains.skiko.** { *; }
+
+# JNA 通过 JNI 回调和反射访问 API、派生结构体及库接口。
+-keep class com.sun.jna.* { *; }
+-keep class * extends com.sun.jna.* { *; }
 
 -keep,allowoptimization class top.sywyar.pixivdownload.guicompose.** { *; }
 -keepclasseswithmembernames,includedescriptorclasses class * {

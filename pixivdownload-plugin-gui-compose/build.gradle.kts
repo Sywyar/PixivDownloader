@@ -278,6 +278,7 @@ val proguardInputJar = tasks.register<Jar>("proguardInputJar") {
 val proguardRawDirectory = mavenBuildDirectory.resolve("proguard/raw")
 val proguardRawLibraries = proguardRawDirectory.resolve("lib")
 val proguardReportsDirectory = mavenBuildDirectory.resolve("proguard/reports")
+val baseProguardRules = layout.projectDirectory.file("../build-support/proguard/base.pro")
 val composeProguardRules = layout.projectDirectory.file("../build-support/proguard/compose.pro")
 val proguardRuntimeJars = configurations.runtimeClasspath.map { runtimeClasspath ->
     runtimeClasspath.files.sortedBy(File::getName).also { files ->
@@ -295,11 +296,10 @@ val proguardPlugin = tasks.register<ProGuardTask>("proguardPlugin") {
     dependsOn(proguardInputJar, verifyMavenClasspath)
     inputs.file(proguardInputJar.flatMap(Jar::getArchiveFile))
     inputs.files(configurations.runtimeClasspath, mavenClasspath)
-    inputs.file(composeProguardRules)
+    inputs.files(baseProguardRules, composeProguardRules)
     outputs.dir(proguardRawDirectory)
+    configuration(baseProguardRules.asFile)
     configuration(composeProguardRules.asFile)
-    dontobfuscate()
-    optimizationpasses(3)
     printconfiguration(proguardReportsDirectory.resolve("configuration.pro"))
     printseeds(proguardReportsDirectory.resolve("seeds.txt"))
     printusage(proguardReportsDirectory.resolve("usage.txt"))

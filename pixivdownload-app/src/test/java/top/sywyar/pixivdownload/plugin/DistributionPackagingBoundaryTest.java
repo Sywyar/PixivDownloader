@@ -753,6 +753,8 @@ class DistributionPackagingBoundaryTest {
         List<String> entries = jarEntryNames(jar);
         assertThat(entries).contains("plugin.properties");
         assertThat(entries).contains(mainClassEntry);
+        top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageVerifier.verify(
+                jar, top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits.defaults());
         assertThat(entries).noneMatch(name -> name.startsWith("BOOT-INF/"));
         assertThat(entries).noneMatch(name -> name.startsWith("top/sywyar/pixivdownload/plugin/api/"));
         assertThat(entries).noneMatch(name -> name.startsWith("org/pf4j/"));
@@ -1124,8 +1126,7 @@ class DistributionPackagingBoundaryTest {
                     urls.add(lib.toUri().toURL());
                 }
             }
-            try (URLClassLoader loader = new URLClassLoader(urls.toArray(URL[]::new),
-                    DistributionPackagingBoundaryTest.class.getClassLoader())) {
+            try (URLClassLoader loader = new GuiComposeJarClassLoader(urls.toArray(URL[]::new))) {
                 try {
                     Class<?> plugin = Class.forName(
                             "top.sywyar.pixivdownload.guicompose.GuiComposePf4jPlugin", false, loader);
@@ -1135,6 +1136,20 @@ class DistributionPackagingBoundaryTest {
                     DesktopUiProvider provider = (DesktopUiProvider) feature;
                     assertThat(provider.id()).isEqualTo("gui-compose");
                     assertThat(provider.defaultProvider()).isTrue();
+                    // 首窗布局会加载此类，JVM 必须接受优化后的局部变量表。
+                    assertThat(Class.forName("androidx.compose.ui.spatial.RectManager", false, loader)
+                            .getClassLoader()).isSameAs(loader);
+                    // 实际初始化 JNI 回调，单纯加载 Native 类无法发现被删除的 dispose 等入口。
+                    assertThat(Class.forName("com.sun.jna.Native", true, loader)
+                            .getClassLoader()).isSameAs(loader);
+                    // 必须使用插件私有 Jackson，宿主完整版不能掩盖 ProGuard 删除枚举反射成员的问题。
+                    Class<?> mapper = Class.forName("com.fasterxml.jackson.databind.ObjectMapper", true, loader);
+                    assertThat(mapper.getClassLoader()).isSameAs(loader);
+                    Class<?> resources = Class.forName(
+                            "top.sywyar.pixivdownload.guicompose.model.DesktopApplicationResources", true, loader);
+                    var maintainers = resources.getDeclaredMethod("loadMaintainers");
+                    maintainers.setAccessible(true);
+                    assertThat((List<?>) maintainers.invoke(null)).isNotEmpty();
                     Class<?> imageType = Class.forName("org.jetbrains.skia.Image", true, loader);
                     Object companion = imageType.getField("Companion").get(null);
                     byte[] pixel = Base64.getDecoder().decode(
@@ -1162,6 +1177,26 @@ class DistributionPackagingBoundaryTest {
         Class<?> executorType = Class.forName("kotlinx.coroutines.DefaultExecutor", true, loader);
         Object executor = executorType.getField("INSTANCE").get(null);
         executorType.getMethod("shutdownForTests", long.class).invoke(executor, 5_000L);
+    }
+
+    private static final class GuiComposeJarClassLoader extends URLClassLoader {
+        private GuiComposeJarClassLoader(URL[] urls) {
+            super(urls, DistributionPackagingBoundaryTest.class.getClassLoader());
+        }
+
+        @Override protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+            synchronized (getClassLoadingLock(name)) {
+                if (name.startsWith("com.fasterxml.jackson.")
+                        || name.startsWith("com.sun.jna.")
+                        || name.startsWith("top.sywyar.pixivdownload.guicompose.")) {
+                    Class<?> type = findLoadedClass(name);
+                    if (type == null) type = findClass(name);
+                    if (resolve) resolveClass(type);
+                    return type;
+                }
+                return super.loadClass(name, resolve);
+            }
+        }
     }
 
     private static void assertGuiThemeLookAndFeelCanCreateSwingDelegates(URLClassLoader loader)

@@ -14,7 +14,8 @@
     native <methods>;
 }
 
--keepclassmembers,includedescriptorclasses,allowoptimization enum * {
+# Class.getEnumConstants 通过反射查找这些成员，禁止优化改写反射入口。
+-keepclassmembers,includedescriptorclasses enum * {
     public static **[] values();
     public static ** valueOf(java.lang.String);
 }
