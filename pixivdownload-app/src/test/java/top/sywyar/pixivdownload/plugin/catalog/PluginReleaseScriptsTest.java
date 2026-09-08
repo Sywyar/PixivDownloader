@@ -1119,6 +1119,88 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
+    @DisplayName("发行物验收清理封存快照权限并拒绝越界和目录链接")
+    void releaseArtifactCleanupHandlesSealedPermissions(@TempDir Path tempDir) throws Exception {
+        assumeTrue(System.getProperty("os.name").startsWith("Windows"));
+        String output = runPowerShell(releaseAcceptanceFunctions() + "$WorkRoot = '" + psQuote(tempDir) + "'\n" + """
+                $context = New-TestSessionRoot
+                $load = New-Item -ItemType Directory -Path (Join-Path $context.Session 'snapshot/load')
+                $file = Join-Path $load.FullName 'plugin.jar'
+                [IO.File]::WriteAllText($file, 'sealed bytes')
+                foreach ($path in @($file, $load.FullName)) {
+                    $acl = Get-Acl -LiteralPath $path
+                    $acl.SetAccessRuleProtection($true, $false)
+                    $rule = [Security.AccessControl.FileSystemAccessRule]::new(
+                        [Security.Principal.WindowsIdentity]::GetCurrent().User,
+                        'ReadAndExecute, ChangePermissions, Synchronize', 'Allow')
+                    $acl.SetAccessRule($rule)
+                    Set-Acl -LiteralPath $path -AclObject $acl
+                }
+                Remove-TestSessionRoot $context
+                if (Test-Path -LiteralPath $context.Session) { throw 'Sealed session was not removed' }
+                $outside = New-Item -ItemType Directory -Path (Join-Path $WorkRoot 'outside')
+                $sentinel = Join-Path $outside.FullName 'sentinel.txt'
+                [IO.File]::WriteAllText($sentinel, 'preserved')
+                try {
+                    Remove-TestSessionRoot ([pscustomobject]@{Base=$WorkRoot; Session=$outside.FullName})
+                    throw 'Unsafe root accepted'
+                } catch {
+                    if ($_.Exception.Message -notlike '*unsafe test session root*') { throw }
+                }
+                $context = New-TestSessionRoot
+                $link = Join-Path $context.Session 'linked-directory'
+                New-Item -ItemType Junction -Path $link -Target $outside.FullName | Out-Null
+                try {
+                    Remove-TestSessionRoot $context
+                    throw 'Reparse point accepted'
+                } catch {
+                    if ($_.Exception.Message -notlike '*reparse points*') { throw }
+                } finally {
+                    [IO.Directory]::Delete($link)
+                    Remove-TestSessionRoot $context
+                }
+                if ([IO.File]::ReadAllText($sentinel) -ne 'preserved') { throw 'Outside content changed' }
+                'CLEANUP-PASS'
+                """);
+        assertThat(output).contains("CLEANUP-PASS");
+    }
+
+    @Test
+    @DisplayName("发行物启动失败输出原始错误和有界日志尾部")
+    void releaseArtifactFailurePrintsDiagnosticTail(@TempDir Path tempDir) throws Exception {
+        assumeTrue(System.getProperty("os.name").startsWith("Windows"));
+        Files.writeString(tempDir.resolve("plugins-manifest.json"), "[{\"id\":\"probe\"}]", StandardCharsets.UTF_8);
+        Files.writeString(tempDir.resolve("run.bat"), "@echo off\r\necho OMITTED-LOG-HEAD\r\n"
+                + "for /l %%i in (1,1,205) do echo diagnostic-line-%%i\r\nexit /b 17\r\n",
+                StandardCharsets.UTF_8);
+        CommandResult result = runPowerShellResult(releaseAcceptanceFunctions()
+                + "$root = '" + psQuote(tempDir) + "'\n" + """
+                $Username = 'release-e2e'
+                $Password = 'ReleaseE2ePassword2026'
+                Test-ApplicationLayout -Label 'failed-fixture' -Root $root -Launcher (Join-Path $root 'run.bat') `
+                    -RuntimeRoot (Join-Path $root 'runtime') -LogRoot (Join-Path $root 'e2e')
+                """);
+        assertThat(result.exitCode()).isNotZero();
+        assertThat(result.output()).contains("setup failed with exit code 17", "diagnostic-line-205")
+                .doesNotContain("OMITTED-LOG-HEAD");
+    }
+
+    private static String releaseAcceptanceFunctions() {
+        return """
+                $ErrorActionPreference = 'Stop'
+                $tokens = $null
+                $errors = $null
+                $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+                    (Join-Path (Get-Location) 'scripts/test-release-artifacts.ps1'), [ref]$tokens, [ref]$errors)
+                if ($errors.Count -ne 0) { throw 'Invalid acceptance script' }
+                foreach ($function in $ast.FindAll({param($node)
+                    $node -is [System.Management.Automation.Language.FunctionDefinitionAst]}, $false)) {
+                    . ([scriptblock]::Create($function.Extent.Text))
+                }
+                """;
+    }
+
+    @Test
     @DisplayName("真实分发入口接受合并的 SDK 契约并拒绝插件实现、资源和私有依赖")
     void distributionAssemblerChecksExactPrebuiltJar(@TempDir Path tempDir) throws Exception {
         Path jar = tempDir.resolve("candidate.jar");

@@ -65,6 +65,18 @@ function Remove-TestSessionRoot {
         (Split-Path -Leaf $candidate) -notlike "pixiv-release-e2e-*") {
         throw "Refusing to remove unsafe test session root: $candidate"
     }
+    $entries = @((Get-Item -LiteralPath $candidate -Force)) +
+        @(Get-ChildItem -LiteralPath $candidate -Force -Recurse)
+    if (@($entries | Where-Object {
+        $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint
+    }).Count -ne 0) {
+        throw "Refusing to change permissions in a test session containing reparse points: $candidate"
+    }
+    # Forced process termination leaves plugin snapshots sealed read-only.
+    & icacls.exe $candidate /reset /T /L /Q | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to restore test session permissions: $candidate"
+    }
     Remove-Item -LiteralPath $candidate -Recurse -Force
 }
 
@@ -238,20 +250,19 @@ function Test-ApplicationLayout {
     $manifestPath = Get-ManifestPath $Root
     $expectedPluginIds = @(Read-ExpectedPluginIds $manifestPath)
     Set-IsolatedRuntimeEnvironment $RuntimeRoot
-    $setup = Start-ArtifactProcess -Launcher $Launcher -WorkingDirectory $Root -Arguments @(
-        "--setup",
-        "--username=$Username",
-        "--password=$Password",
-        "--mode=solo",
-        "--proxy-enabled=false"
-    ) -LogPrefix "$LogRoot-setup" -Wait
-    if ($setup.ExitCode -ne 0) {
-        throw "$Label setup failed with exit code $($setup.ExitCode)"
-    }
-
-    $port = Get-FreePort
     $application = $null
     try {
+        $setup = Start-ArtifactProcess -Launcher $Launcher -WorkingDirectory $Root -Arguments @(
+            "--setup",
+            "--username=$Username",
+            "--password=$Password",
+            "--mode=solo",
+            "--proxy-enabled=false"
+        ) -LogPrefix "$LogRoot-setup" -Wait
+        if ($setup.ExitCode -ne 0) {
+            throw "$Label setup failed with exit code $($setup.ExitCode)"
+        }
+        $port = Get-FreePort
         $application = Start-ArtifactProcess -Launcher $Launcher -WorkingDirectory $Root -Arguments @(
             "--no-gui",
             "--server.address=127.0.0.1",
@@ -260,6 +271,16 @@ function Test-ApplicationLayout {
         Wait-ForHealthyApplication -Port $port -Process $application -Label $Label
         Assert-PluginRuntimeStatus -Port $port -ExpectedPluginIds $expectedPluginIds -Label $Label
         Write-Host "PASS: $Label ($($expectedPluginIds.Count) external plugin(s))" -ForegroundColor Green
+    } catch {
+        Write-Host "FAIL: $Label - $($_.Exception.Message)"
+        foreach ($log in @("$LogRoot-setup.stdout.log", "$LogRoot-setup.stderr.log",
+                "$LogRoot-application.stdout.log", "$LogRoot-application.stderr.log")) {
+            if (Test-Path -LiteralPath $log -PathType Leaf) {
+                Write-Host "Log: $log (last 200 lines)"
+                Get-Content -LiteralPath $log -Encoding UTF8 -Tail 200
+            }
+        }
+        throw
     } finally {
         Stop-ArtifactProcess $application
     }
