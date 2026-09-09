@@ -212,6 +212,12 @@ test('Java tests and ProGuard run independently and both gate the required Java 
     assert.notEqual(tests, build);
     assert.equal(ancestors(tests).has(build), false);
     assert.equal(ancestors(build).has(tests), false);
+    const sdk = owner(/sdk-contract\.mjs/u);
+    assert.notEqual(sdk, tests);
+    for (const [a, b] of [[tests, sdk], [build, sdk]]) {
+        assert.equal(ancestors(a).has(b), false);
+        assert.equal(ancestors(b).has(a), false);
+    }
     const required = ancestors('java-tests');
     for (const id of [tests, build, owner(/DistributionPackagingBoundaryTest/u), owner(/sdk-contract\.mjs/u)]) {
         assert.ok(required.has(id), `java-tests must require ${id}`);
@@ -241,7 +247,7 @@ test('QG 覆盖 Compose、SDK 消费者和两种 PowerShell，并顺序复用构
             'PluginReleaseScriptsTest#releaseArtifactCleanupHandlesSealedPermissions+releaseArtifactFailurePrintsDiagnosticTail',
             'StagedFileDeletionTest#rejectsWindowsJunctionBeforeStaging',
             'WorkDeletionFileRollbackTest#novelJunctionAbortsFilesAndSoftDelete']);
-    const sources = executionSteps(jobs['java-unit-tests']);
+    const sources = executionSteps(jobs['sdk-tests']);
     const stage = sources.findIndex(step => /altDeploymentRepository=sdk-staging/u.test(step.run || ''));
     const templates = sources.findIndex(step => /plugin-templates\/pom.xml/u.test(step.run || ''));
     const consumer = sources.findIndex(step => /sdk-consumer\.mjs/u.test(step.run || ''));
@@ -254,13 +260,13 @@ test('QG 覆盖 Compose、SDK 消费者和两种 PowerShell，并顺序复用构
     assert.deepEqual(scripts.map(step => step.shell).sort(), ['powershell', 'pwsh']);
     for (const [file, action] of [
         ['.github/workflows/publish-sdk.yml', './.github/actions/verify-sdk'],
-        ['.github/actions/package-release-java/action.yml', './.github/actions/verify-release-boundaries'],
+        ['.github/actions/build-release-java/action.yml', './.github/actions/verify-release-boundaries'],
     ]) {
         const doc = load(file);
         const steps = doc.runs?.steps || Object.values(doc.jobs).flatMap(job => job.steps || []);
         assert.ok(steps.some(step => step.uses === action), file);
     }
-    const release = load('.github/actions/package-release-java/action.yml').runs.steps
+    const release = load('.github/actions/build-release-java/action.yml').runs.steps
         .find(step => step.uses === './.github/actions/verify-release-boundaries');
     assert.equal(release.with.require_production_credential_key, 'true');
 });
@@ -268,7 +274,8 @@ test('QG 覆盖 Compose、SDK 消费者和两种 PowerShell，并顺序复用构
 test('发布链：所有凭据与写权限只在 release Environment 的门禁后使用', () => {
     const publish = load('.github/workflows/publish-plugins.yml');
     const publishAction = load('.github/actions/publish-official-plugins/action.yml');
-    const javaAction = load('.github/actions/package-release-java/action.yml');
+    const javaAction = load('.github/actions/build-release-java/action.yml');
+    const pluginInputs = load('.github/actions/stage-release-plugins/action.yml');
     const windowsAction = load('.github/actions/package-windows-installer/action.yml');
     const updateSigningAction = load('.github/actions/sign-update-manifest/action.yml');
     assert.equal(publish.jobs['quality-gate'].uses, './.github/workflows/quality-gate.yml');
@@ -344,8 +351,8 @@ test('发布链：所有凭据与写权限只在 release Environment 的门禁�
         assert.equal(job.steps.find((step) => step.uses === './.github/actions/publish-official-plugins')
             ?.name, 'Publish official plugins');
     }
-    assert.deepEqual(release.jobs['build-jar'].needs, ['validate-release-tag', 'publish-plugin-artifacts']);
-    assert.deepEqual(nightly.jobs['build-jar'].needs, ['resolve-version', 'publish-plugin-artifacts']);
+    assert.deepEqual(release.jobs['build-jar'].needs, ['validate-release-tag', 'publish-plugins']);
+    assert.deepEqual(nightly.jobs['build-jar'].needs, ['resolve-version', 'publish-plugins']);
     assert.ok(release.jobs.release.needs.includes('publish-plugin-artifacts'));
     assert.ok(nightly.jobs['release-nightly'].needs.includes('publish-plugin-artifacts'));
     for (const doc of [release, nightly]) {
@@ -367,17 +374,18 @@ test('发布链：所有凭据与写权限只在 release Environment 的门禁�
     assert.equal(nightly.jobs['publish-plugin-artifacts'].outputs.manifest_commit,
         '${{ steps.publish.outputs.manifest_commit }}');
     const releaseJava = release.jobs['build-jar'].steps
-        .find((step) => step.uses === './.github/actions/package-release-java');
+        .find((step) => step.uses === './.github/actions/build-release-java');
     const nightlyJava = nightly.jobs['build-jar'].steps
-        .find((step) => step.uses === './.github/actions/package-release-java');
+        .find((step) => step.uses === './.github/actions/build-release-java');
     assert.equal(releaseJava.with.release_version, '${{ needs.validate-release-tag.outputs.version }}');
     assert.equal(releaseJava.with.distribution_version, '${{ github.ref_name }}');
     assert.equal(releaseJava.with.plugin_manifest_commit, undefined);
     assert.equal(nightlyJava.with.release_version, '${{ needs.resolve-version.outputs.version }}');
     assert.equal(nightlyJava.with.distribution_version, '${{ needs.resolve-version.outputs.version }}');
-    assert.equal(nightlyJava.with.plugin_manifest_commit,
-        '${{ needs.publish-plugin-artifacts.outputs.manifest_commit }}');
-    assert.match(javaAction.runs.steps
+    assert.equal(nightly.jobs['publish-plugin-artifacts'].steps
+        .find(step => step.uses === './.github/actions/stage-release-plugins').with.plugin_manifest_commit,
+        '${{ steps.publish.outputs.manifest_commit }}');
+    assert.match(pluginInputs.runs.steps
         .find((step) => step.name === 'Stage official plugin inputs from signed catalog').run,
         /PLUGIN_MANIFEST_COMMIT\/nightly-manifest\.json/);
     for (const doc of [release, nightly]) {
@@ -426,6 +434,55 @@ test('SDK 发布链只在身份变化或显式恢复时通过同 SHA 门禁写�
         requiredJobs: ['release-plan', 'quality-gate', 'publish'],
         requiredTriggers: ['push', 'workflow_dispatch'],
     });
+});
+
+test('发行构建与插件发布并行，分发产物依赖完整且全部 E2E 成功后才能发布', () => {
+    for (const file of ['release', 'nightly']) {
+        const { jobs } = load(`.github/workflows/${file}.yml`);
+        const ancestors = (id, visited = new Set()) => {
+            assert.ok(jobs[id], `dependency ${id} exists`);
+            if (visited.has(id)) return visited;
+            visited.add(id);
+            for (const parent of [jobs[id].needs || []].flat()) ancestors(parent, visited);
+            return visited;
+        };
+        for (const [a, b] of [['build-jar', 'publish-plugin-artifacts'], ['package-java', 'build-windows-installer']]) {
+            assert.equal(ancestors(a).has(b), false);
+            assert.equal(ancestors(b).has(a), false);
+        }
+        const sharedArtifacts = ['app-shell-jar', 'plugin-inputs', 'release-signature-tool',
+            'java-distributions', 'windows-installer'];
+        for (const artifact of sharedArtifacts) {
+            const producers = Object.keys(jobs).filter(id => executionSteps(jobs[id]).some(step =>
+                step.uses?.startsWith('actions/upload-artifact@') && step.with?.name === artifact));
+            assert.equal(producers.length, 1, `one producer of ${artifact}`);
+            for (const id of Object.keys(jobs)) {
+                if (executionSteps(jobs[id]).some(step => step.uses?.startsWith('actions/download-artifact@')
+                    && step.with?.name === artifact)) {
+                    assert.ok(ancestors(id).has(producers[0]), `${id} waits for ${artifact}`);
+                }
+            }
+        }
+        const e2e = jobs['release-artifact-e2e'];
+        assert.deepEqual(e2e.strategy.matrix.distribution.sort(), ['full-offline', 'java-standard', 'windows-installer']);
+        assert.equal(e2e.strategy['fail-fast'], false);
+        const acceptance = e2e.steps.find(step => step.uses === './.github/actions/test-release-artifacts');
+        assert.equal(acceptance.with.distribution, '${{ matrix.distribution }}');
+        const publication = file === 'nightly' ? 'release-nightly' : 'release';
+        const required = ancestors(publication);
+        for (const id of ['publish-plugins', 'publish-plugin-artifacts', 'build-jar', 'package-java',
+            'build-windows-installer', 'release-artifact-e2e']) {
+            assert.ok(required.has(id));
+            assert.ok(jobs[id]['continue-on-error'] === undefined || jobs[id]['continue-on-error'] === false);
+            assert.doesNotMatch(jobs[id].if || '', /always\(|failure\(|cancelled\(/u);
+        }
+        assert.ok(ancestors('build-jar').has('publish-plugins'));
+    }
+    const evidence = load('.github/actions/test-release-artifacts/action.yml').runs.steps
+        .find(step => step.uses?.startsWith('actions/upload-artifact@'));
+    assert.equal(evidence.if, 'always()');
+    assert.equal(evidence.with.name, 'release-e2e-evidence-${{ inputs.distribution }}');
+    assert.equal(evidence.with['if-no-files-found'], 'error');
 });
 
 test('SDK 接收仓库 workflow 由主仓库只读编排且不持有跨仓库凭据', () => {
@@ -595,6 +652,8 @@ test('发布链：仅接受 Base64 私钥且不存在失败绕过', () => {
         '.github/workflows/publish-plugins.yml', '.github/workflows/build-stable-ffmpeg.yml',
         '.github/actions/publish-official-plugins/action.yml',
         '.github/actions/package-release-java/action.yml',
+        '.github/actions/build-release-java/action.yml',
+        '.github/actions/stage-release-plugins/action.yml',
         '.github/actions/package-windows-installer/action.yml',
         '.github/actions/sign-update-manifest/action.yml']) {
         const text = fs.readFileSync(path.join(ROOT, ...rel.split('/')), 'utf8');
@@ -615,8 +674,8 @@ test('发布链：仅接受 Base64 私钥且不存在失败绕过', () => {
 
 test('Nightly：共享变更门禁以语义输出控制全部昂贵任务', () => {
     const nightly = load('.github/workflows/nightly.yml');
-    for (const id of ['publish-plugins', 'publish-plugin-artifacts', 'build-jar', 'build-windows-installer',
-        'release-nightly']) {
+    for (const id of ['publish-plugins', 'publish-plugin-artifacts', 'build-jar', 'package-java', 'build-windows-installer',
+        'release-artifact-e2e', 'release-nightly']) {
         assert.equal(nightly.jobs[id].if, "needs.resolve-version.outputs.has_changes == 'true'");
     }
     const resolveScripts = nightly.jobs['resolve-version'].steps.map((step) => step.run || '').join('\n');

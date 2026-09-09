@@ -1,20 +1,10 @@
 name: Package release Java artifacts
-description: Build the app shell and assemble signed Java distributions
+description: Assemble signed Java distributions from verified release inputs
 
 inputs:
-  release_version:
-    description: Application version embedded in the executable JAR
-    required: true
   distribution_version:
     description: Version used in staged JAR and distribution filenames
     required: true
-  plugin_credential_master_key_base64:
-    description: Base64-encoded production plugin credential master key
-    required: true
-  plugin_manifest_commit:
-    description: Optional commit containing the Nightly plugin manifest
-    required: false
-    default: ''
 
 runs:
   using: composite
@@ -24,92 +14,24 @@ runs:
       with:
         java-version: '17'
         distribution: temurin
-        cache: maven
 
-    - name: Prepare production plugin credential key filter
-      shell: pwsh
-      env:
-        PIXIVDOWNLOAD_PLUGIN_CREDENTIAL_MASTER_KEY_BASE64: ${{ inputs.plugin_credential_master_key_base64 }}
-      run: |
-        $filterPath = Join-Path $env:RUNNER_TEMP "pixivdownload-plugin-credential-key-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.properties"
-        [System.IO.File]::AppendAllText(
-          $env:GITHUB_ENV,
-          "PLUGIN_CREDENTIAL_FILTER=$filterPath`n",
-          (New-Object System.Text.UTF8Encoding($false)))
-        ./scripts/write-plugin-credential-key-filter.ps1 -OutputPath $filterPath
-
-    - name: Build JAR
-      shell: bash
-      env:
-        RELEASE_VERSION: ${{ inputs.release_version }}
-      run: >
-        mvn verify -Pofficial-surveys -DskipTests "-Dapp.release.version=$RELEASE_VERSION"
-        "-Dplugin.credential.filter=$PLUGIN_CREDENTIAL_FILTER"
-
-    - name: Verify packaged distribution boundaries
-      uses: ./.github/actions/verify-release-boundaries
-      with:
-        require_production_credential_key: 'true'
-
-    - name: Stage executable JAR
-      shell: bash
-      env:
-        DISTRIBUTION_VERSION: ${{ inputs.distribution_version }}
-      run: |
-        BOOT_JARS=()
-        while IFS= read -r f; do BOOT_JARS+=("$f"); done < <(ls pixivdownload-app/target/PixivDownload-*-boot.jar 2>/dev/null || true)
-        if [ "${#BOOT_JARS[@]}" -eq 0 ]; then
-          while IFS= read -r f; do BOOT_JARS+=("$f"); done < <(ls pixivdownload-app/target/PixivDownload-*.jar 2>/dev/null | grep -vE '(-sources\.jar|-javadoc\.jar|-original\.jar)$' || true)
-        fi
-        if [ "${#BOOT_JARS[@]}" -ne 1 ]; then
-          echo "Expected exactly one executable app jar, found ${#BOOT_JARS[@]}:" >&2
-          printf '%s\n' "${BOOT_JARS[@]}" >&2
-          exit 1
-        fi
-        BOOT_JAR=${BOOT_JARS[0]}
-        mkdir -p build/release-jars
-        OUTPUT_JAR="build/release-jars/PixivDownload-${DISTRIBUTION_VERSION}.jar"
-        cp "$BOOT_JAR" "$OUTPUT_JAR"
-        test -s "$OUTPUT_JAR"
-        jar tf "$OUTPUT_JAR" | grep -q '^BOOT-INF/' || {
-          echo "Selected jar is not a Spring Boot executable jar: $OUTPUT_JAR" >&2
-          exit 1
-        }
-        STAGED_COUNT=$(ls build/release-jars/*.jar 2>/dev/null | wc -l)
-        test "$STAGED_COUNT" -eq 1
-        ls -l build/release-jars/
-
-    - name: Upload internal app-shell JAR
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+    - name: Download internal app-shell JAR
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
         name: app-shell-jar
-        path: build/release-jars/*.jar
-        if-no-files-found: error
+        path: build/release-jars
 
-    - name: Stage official plugin inputs from signed catalog
-      shell: pwsh
-      env:
-        PLUGIN_MANIFEST_COMMIT: ${{ inputs.plugin_manifest_commit }}
-      run: |
-        $signatureTools = @(Get-ChildItem pixivdownload-plugin-signature/target/pixivdownload-plugin-signature-*.jar -File |
-          Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
-          Sort-Object LastWriteTime -Descending)
-        if ($signatureTools.Count -lt 1) {
-          throw "Could not find pixivdownload-plugin-signature tool jar."
-        }
-        $stageArgs = @{
-          OutputDir = "build/plugin-inputs"
-          SignatureToolJar = $signatureTools[0].FullName
-          IncludeOptional = $true
-          RequireProguard = $true
-        }
-        if (-not [string]::IsNullOrWhiteSpace($env:PLUGIN_MANIFEST_COMMIT)) {
-          if ($env:PLUGIN_MANIFEST_COMMIT -notmatch '^[0-9a-f]{40}$') {
-            throw "Invalid plugin manifest commit: $env:PLUGIN_MANIFEST_COMMIT"
-          }
-          $stageArgs["ManifestUrl"] = "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/$env:PLUGIN_MANIFEST_COMMIT/nightly-manifest.json"
-        }
-        ./scripts/stage-official-plugin-inputs-from-catalog.ps1 @stageArgs
+    - name: Download plugin inputs
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: plugin-inputs
+        path: build/plugin-inputs
+
+    - name: Download release signature tool
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: release-signature-tool
+        path: artifacts/signature-tool
 
     - name: Assemble Java distributions
       shell: pwsh
@@ -120,10 +42,10 @@ runs:
         if ($jars.Count -ne 1) {
           throw "Expected exactly one staged app-shell JAR under build/release-jars, found $($jars.Count)"
         }
-        $signatureTools = @(Get-ChildItem pixivdownload-plugin-signature/target/pixivdownload-plugin-signature-*.jar -File |
+        $signatureTools = @(Get-ChildItem artifacts/signature-tool/pixivdownload-plugin-signature-*.jar -File |
           Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
           Sort-Object LastWriteTime -Descending)
-        if ($signatureTools.Count -lt 1) {
+        if ($signatureTools.Count -ne 1) {
           throw "Could not find pixivdownload-plugin-signature tool jar."
         }
         ./scripts/package-java-distributions.ps1 `
@@ -132,13 +54,6 @@ runs:
           -PrebuiltPluginsDir build/plugin-inputs `
           -SignatureToolJar $signatureTools[0].FullName `
           -OutputDir build/plugin-distributions
-
-    - name: Upload plugin inputs artifact
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-      with:
-        name: plugin-inputs
-        path: build/plugin-inputs/*
-        if-no-files-found: error
 
     - name: Upload java distributions artifact
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

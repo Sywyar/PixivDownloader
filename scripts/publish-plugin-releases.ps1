@@ -24,6 +24,7 @@
     With -NightlyBuildVersion, every official plugin is rebuilt from current source, its staged plugin.properties is
     rewritten to the derived Nightly version, and the fixed `<plugin-id>-nightly` Release has all old assets replaced.
     The matching tag is advanced by the publishing action only after the signed Nightly manifest is committed.
+    Nightly and Force build the official modules in one Maven reactor before staging individual artifacts.
 
     With -Force/-f, every official plugin is rebuilt for the source plugin.version. Existing expected release
     assets (artifact + .sha256 + .sig) are deleted before the freshly built files are uploaded, so a manual
@@ -129,21 +130,27 @@ function Get-ReleaseAssetState([string]$Tag) {
     return [pscustomobject]@{ Exists = $false; AssetNames = @() }
 }
 
+function Invoke-PluginBuild {
+    param([Parameter(Mandatory = $true)][string[]]$Modules)
+    Write-Host "==> Building plugin modules: $($Modules -join ', ')"
+    Push-Location $ProjectRoot
+    try {
+        & $mvn "-Pofficial-surveys" "-pl" ($Modules -join ',') "-am" "verify" "-DskipTests" |
+            ForEach-Object { Write-Host $_ }
+        if ($LASTEXITCODE -ne 0) { throw "Maven plugin build failed." }
+    } finally {
+        Pop-Location
+    }
+}
+
 function Build-StagedPluginArtifact {
     param(
         [Parameter(Mandatory = $true)]$Plugin,
         [Parameter(Mandatory = $true)][string]$Version,
         [Parameter(Mandatory = $true)][string]$AssetName
     )
-
-    Write-Host "==> Building only module $($Plugin.Module) for release $($Plugin.Id)-v$Version"
-    Push-Location $ProjectRoot
-    try {
-        & $mvn "-Pofficial-surveys" "-pl" $Plugin.Module "-am" "verify" "-DskipTests" |
-            ForEach-Object { Write-Host $_ }
-        if ($LASTEXITCODE -ne 0) { throw "Maven build failed for module $($Plugin.Module)." }
-    } finally {
-        Pop-Location
+    if (-not $buildAllPlugins) {
+        Invoke-PluginBuild -Modules @($Plugin.Module)
     }
 
     $builtArtifact = Find-ModulePluginArtifact $Plugin $ProjectRoot
@@ -294,6 +301,10 @@ $stageDir = Join-Path $ProjectRoot "build/release-plugins"
 New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
 $plugins = @(Get-OfficialDistributionPlugins -IncludeOptional)
 $published = @()
+$buildAllPlugins = -not [string]::IsNullOrWhiteSpace($NightlyBuildVersion) -or $Force
+if ($buildAllPlugins) {
+    Invoke-PluginBuild -Modules @($plugins | ForEach-Object { $_.Module })
+}
 
 if (-not [string]::IsNullOrWhiteSpace($NightlyBuildVersion)) {
     foreach ($plugin in $plugins) {

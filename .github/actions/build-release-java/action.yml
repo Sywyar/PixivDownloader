@@ -1,0 +1,93 @@
+name: Build release Java artifacts
+description: Build and verify production artifacts before distributing the app shell
+
+inputs:
+  release_version:
+    description: Application version embedded in the executable JAR
+    required: true
+  distribution_version:
+    description: Version used in staged JAR and distribution filenames
+    required: true
+  plugin_credential_master_key_base64:
+    description: Base64-encoded production plugin credential master key
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Set up JDK 17
+      uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+      with:
+        java-version: '17'
+        distribution: temurin
+        cache: maven
+
+    - name: Prepare production plugin credential key filter
+      shell: pwsh
+      env:
+        PIXIVDOWNLOAD_PLUGIN_CREDENTIAL_MASTER_KEY_BASE64: ${{ inputs.plugin_credential_master_key_base64 }}
+      run: |
+        $filterPath = Join-Path $env:RUNNER_TEMP "pixivdownload-plugin-credential-key-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.properties"
+        [System.IO.File]::AppendAllText(
+          $env:GITHUB_ENV,
+          "PLUGIN_CREDENTIAL_FILTER=$filterPath`n",
+          (New-Object System.Text.UTF8Encoding($false)))
+        ./scripts/write-plugin-credential-key-filter.ps1 -OutputPath $filterPath
+
+    - name: Build JAR
+      shell: bash
+      env:
+        RELEASE_VERSION: ${{ inputs.release_version }}
+      run: >
+        mvn verify -Pofficial-surveys -DskipTests "-Dapp.release.version=$RELEASE_VERSION"
+        "-Dplugin.credential.filter=$PLUGIN_CREDENTIAL_FILTER"
+
+    - name: Verify packaged distribution boundaries
+      uses: ./.github/actions/verify-release-boundaries
+      with:
+        require_production_credential_key: 'true'
+
+    - name: Stage executable JAR
+      shell: bash
+      env:
+        DISTRIBUTION_VERSION: ${{ inputs.distribution_version }}
+      run: |
+        BOOT_JARS=()
+        while IFS= read -r f; do BOOT_JARS+=("$f"); done < <(ls pixivdownload-app/target/PixivDownload-*-boot.jar 2>/dev/null || true)
+        if [ "${#BOOT_JARS[@]}" -eq 0 ]; then
+          while IFS= read -r f; do BOOT_JARS+=("$f"); done < <(ls pixivdownload-app/target/PixivDownload-*.jar 2>/dev/null | grep -vE '(-sources\.jar|-javadoc\.jar|-original\.jar)$' || true)
+        fi
+        if [ "${#BOOT_JARS[@]}" -ne 1 ]; then
+          echo "Expected exactly one executable app jar, found ${#BOOT_JARS[@]}:" >&2
+          printf '%s\n' "${BOOT_JARS[@]}" >&2
+          exit 1
+        fi
+        BOOT_JAR=${BOOT_JARS[0]}
+        mkdir -p build/release-jars
+        OUTPUT_JAR="build/release-jars/PixivDownload-${DISTRIBUTION_VERSION}.jar"
+        cp "$BOOT_JAR" "$OUTPUT_JAR"
+        test -s "$OUTPUT_JAR"
+        jar tf "$OUTPUT_JAR" | grep -q '^BOOT-INF/' || {
+          echo "Selected jar is not a Spring Boot executable jar: $OUTPUT_JAR" >&2
+          exit 1
+        }
+        STAGED_COUNT=$(ls build/release-jars/*.jar 2>/dev/null | wc -l)
+        test "$STAGED_COUNT" -eq 1
+        ls -l build/release-jars/
+
+    - name: Upload internal app-shell JAR
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      with:
+        name: app-shell-jar
+        path: build/release-jars/*.jar
+        if-no-files-found: error
+
+    - name: Upload release signature tool
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      with:
+        name: release-signature-tool
+        path: |
+          pixivdownload-plugin-signature/target/pixivdownload-plugin-signature-*.jar
+          !pixivdownload-plugin-signature/target/*-sources.jar
+          !pixivdownload-plugin-signature/target/*-javadoc.jar
+        if-no-files-found: error

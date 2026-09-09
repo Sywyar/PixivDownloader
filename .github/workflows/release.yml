@@ -94,8 +94,11 @@ jobs:
           plugin_signing_private_key_pem_base64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
           cross_repo_release_token: ${{ secrets.CROSS_REPO_RELEASE_TOKEN }}
 
+      - name: Stage signed release plugin inputs
+        uses: ./.github/actions/stage-release-plugins
+
   build-jar:
-    needs: [ validate-release-tag, publish-plugin-artifacts ]
+    needs: [ validate-release-tag, publish-plugins ]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: release
@@ -113,15 +116,30 @@ jobs:
         with:
           ref: ${{ github.sha }}
 
-      - name: Package release Java artifacts
-        uses: ./.github/actions/package-release-java
+      - name: Build release Java artifacts
+        uses: ./.github/actions/build-release-java
         with:
           release_version: ${{ needs.validate-release-tag.outputs.version }}
           distribution_version: ${{ github.ref_name }}
           plugin_credential_master_key_base64: ${{ secrets.PIXIVDOWNLOAD_PLUGIN_CREDENTIAL_MASTER_KEY_BASE64 }}
 
+  package-java:
+    needs: [validate-release-tag, build-jar, publish-plugin-artifacts]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Package release Java artifacts
+        uses: ./.github/actions/package-release-java
+        with:
+          distribution_version: ${{ github.ref_name }}
+
   build-windows-installer:
-    needs: build-jar
+    needs: [build-jar, publish-plugin-artifacts]
     if: github.event_name == 'push'
     runs-on: windows-latest
     environment: release
@@ -143,10 +161,14 @@ jobs:
           release_version: ${{ needs.build-jar.outputs.version }}
 
   release-artifact-e2e:
-    needs: [ build-jar, build-windows-installer ]
+    needs: [ build-jar, package-java, build-windows-installer ]
     if: github.event_name == 'push'
     runs-on: windows-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        distribution: [java-standard, full-offline, windows-installer]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -156,6 +178,8 @@ jobs:
       - name: Test final release artifacts
         uses: ./.github/actions/test-release-artifacts
         with:
+          distribution: ${{ matrix.distribution }}
+          distribution_version: ${{ matrix.distribution == 'windows-installer' && needs.build-jar.outputs.version || github.ref_name }}
           release_version: ${{ needs.build-jar.outputs.version }}
 
   release:
@@ -164,6 +188,7 @@ jobs:
         publish-plugins,
         publish-plugin-artifacts,
         build-jar,
+        package-java,
         build-windows-installer,
         release-artifact-e2e
       ]

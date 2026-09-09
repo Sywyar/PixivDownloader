@@ -116,8 +116,13 @@ jobs:
           cross_repo_release_token: ${{ secrets.CROSS_REPO_RELEASE_TOKEN }}
           nightly_build_version: ${{ needs.resolve-version.outputs.version }}
 
+      - name: Stage signed release plugin inputs
+        uses: ./.github/actions/stage-release-plugins
+        with:
+          plugin_manifest_commit: ${{ steps.publish.outputs.manifest_commit }}
+
   build-jar:
-    needs: [resolve-version, publish-plugin-artifacts]
+    needs: [resolve-version, publish-plugins]
     if: needs.resolve-version.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     environment: release
@@ -134,16 +139,30 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
-      - name: Package release Java artifacts
-        uses: ./.github/actions/package-release-java
+      - name: Build release Java artifacts
+        uses: ./.github/actions/build-release-java
         with:
           release_version: ${{ needs.resolve-version.outputs.version }}
           distribution_version: ${{ needs.resolve-version.outputs.version }}
           plugin_credential_master_key_base64: ${{ secrets.PIXIVDOWNLOAD_PLUGIN_CREDENTIAL_MASTER_KEY_BASE64 }}
-          plugin_manifest_commit: ${{ needs.publish-plugin-artifacts.outputs.manifest_commit }}
+
+  package-java:
+    needs: [resolve-version, build-jar, publish-plugin-artifacts]
+    if: needs.resolve-version.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Package release Java artifacts
+        uses: ./.github/actions/package-release-java
+        with:
+          distribution_version: ${{ needs.resolve-version.outputs.version }}
 
   build-windows-installer:
-    needs: [resolve-version, build-jar]
+    needs: [resolve-version, build-jar, publish-plugin-artifacts]
     if: needs.resolve-version.outputs.has_changes == 'true'
     runs-on: windows-latest
     environment: release
@@ -166,10 +185,14 @@ jobs:
           release_version: ${{ needs.resolve-version.outputs.version }}
 
   release-artifact-e2e:
-    needs: [resolve-version, build-jar, build-windows-installer]
+    needs: [resolve-version, build-jar, package-java, build-windows-installer]
     if: needs.resolve-version.outputs.has_changes == 'true'
     runs-on: windows-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        distribution: [java-standard, full-offline, windows-installer]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -179,10 +202,11 @@ jobs:
       - name: Test final release artifacts
         uses: ./.github/actions/test-release-artifacts
         with:
+          distribution: ${{ matrix.distribution }}
           release_version: ${{ needs.resolve-version.outputs.version }}
 
   release-nightly:
-    needs: [resolve-version, publish-plugins, publish-plugin-artifacts, build-jar, build-windows-installer, release-artifact-e2e]
+    needs: [resolve-version, publish-plugins, publish-plugin-artifacts, build-jar, package-java, build-windows-installer, release-artifact-e2e]
     if: needs.resolve-version.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     environment: release
