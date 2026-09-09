@@ -119,7 +119,7 @@ jobs:
         with:
           node-version: '24'
       - name: Build release artifacts with ProGuard
-        run: mvn -B -ntp verify -Pofficial-surveys -DskipTests -Dmaven.javadoc.skip=true -Dmaven.source.skip=true
+        run: mvn -B -ntp verify -Pofficial-surveys -DskipTests '-Dmaven.javadoc.skip=true' '-Dmaven.source.skip=true'
       - name: Run Windows Compose tests using the compiled plugin
         working-directory: pixivdownload-plugin-gui-compose
         shell: pwsh
