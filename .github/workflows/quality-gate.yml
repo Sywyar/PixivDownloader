@@ -9,6 +9,10 @@ on:
         type: string
   workflow_call:
     inputs:
+      export_release_candidates:
+        required: false
+        type: boolean
+        default: false
       trusted_base_sha:
         required: false
         type: string
@@ -115,7 +119,7 @@ jobs:
         with:
           node-version: '24'
       - name: Build release artifacts with ProGuard
-        run: mvn -B -ntp verify -Pofficial-surveys -DskipTests
+        run: mvn -B -ntp verify -Pofficial-surveys -DskipTests -Dmaven.javadoc.skip=true -Dmaven.source.skip=true
       - name: Run Windows Compose tests using the compiled plugin
         working-directory: pixivdownload-plugin-gui-compose
         shell: pwsh
@@ -146,6 +150,20 @@ jobs:
         uses: ./.github/actions/verify-release-boundaries
         with:
           additional_tests: StagedFileDeletionTest#rejectsWindowsJunctionBeforeStaging,WorkDeletionFileRollbackTest#novelJunctionAbortsFilesAndSoftDelete,DeleteStagingManifestTest#rejectsWindowsJunctionParentDuringRecovery,PluginReleaseScriptsTest#releaseArtifactCleanupHandlesSealedPermissions+releaseArtifactFailurePrintsDiagnosticTail
+
+      - name: Stage unsigned release candidates
+        if: inputs.export_release_candidates == true
+        shell: pwsh
+        run: ./scripts/ci/release-build-candidates.ps1 -Mode Export -Directory build/release-candidates
+      - name: Upload verified release candidates
+        if: inputs.export_release_candidates == true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-candidates-${{ github.sha }}
+          path: build/release-candidates/
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
 
   javascript-tests:
     runs-on: ubuntu-latest

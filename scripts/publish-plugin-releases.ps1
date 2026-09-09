@@ -26,6 +26,10 @@
     The matching tag is advanced by the publishing action only after the signed Nightly manifest is committed.
     Nightly and Force build the official modules in one Maven reactor before staging individual artifacts.
 
+    With -UsePrebuiltArtifacts, consume the existing module outputs instead of invoking Maven. Every selected
+    artifact must still match its source version, official layout and ProGuard marker; missing or invalid outputs
+    fail without rebuilding. CI first restores the completed Quality Gate outputs from the same run and source SHA.
+
     With -Force/-f, every official plugin is rebuilt for the source plugin.version. Existing expected release
     assets (artifact + .sha256 + .sig) are deleted before the freshly built files are uploaded, so a manual
     repair can replace an already-published asset set without changing the release tag.
@@ -51,6 +55,7 @@ param(
     [string]$PrivateKeyFile,
     [string]$SignatureToolJar,
     [string]$NightlyBuildVersion,
+    [switch]$UsePrebuiltArtifacts,
     [Alias("f")]
     [switch]$Force
 )
@@ -149,7 +154,7 @@ function Build-StagedPluginArtifact {
         [Parameter(Mandatory = $true)][string]$Version,
         [Parameter(Mandatory = $true)][string]$AssetName
     )
-    if (-not $buildAllPlugins) {
+    if (-not $buildAllPlugins -and -not $UsePrebuiltArtifacts) {
         Invoke-PluginBuild -Modules @($Plugin.Module)
     }
 
@@ -296,13 +301,13 @@ function Remove-ExistingReleaseAssets {
     }
 }
 
-$mvn = Get-MavenCommand $ProjectRoot
+$mvn = if (-not $UsePrebuiltArtifacts) { Get-MavenCommand $ProjectRoot } else { $null }
 $stageDir = Join-Path $ProjectRoot "build/release-plugins"
 New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
 $plugins = @(Get-OfficialDistributionPlugins -IncludeOptional)
 $published = @()
 $buildAllPlugins = -not [string]::IsNullOrWhiteSpace($NightlyBuildVersion) -or $Force
-if ($buildAllPlugins) {
+if ($buildAllPlugins -and -not $UsePrebuiltArtifacts) {
     Invoke-PluginBuild -Modules @($plugins | ForEach-Object { $_.Module })
 }
 

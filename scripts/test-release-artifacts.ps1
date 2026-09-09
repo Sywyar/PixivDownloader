@@ -8,11 +8,16 @@ param(
     [string]$WorkRoot,
     [string]$ReportRoot,
     [ValidateSet('all', 'java-standard', 'full-offline', 'windows-installer')]
-    [string]$Distribution = 'all'
+    [string]$Distribution = 'all',
+    [ValidateSet('all', 'startup', 'failures', 'recovery')]
+    [string]$ScenarioGroup = 'all'
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+if ($ScenarioGroup -ne 'all' -and $Distribution -ne 'windows-installer') {
+    throw 'ScenarioGroup requires the windows-installer distribution.'
+}
 
 $Username = "release-e2e"
 $Password = "ReleaseE2ePassword2026"
@@ -105,7 +110,7 @@ function Get-ManifestPath {
 
 function Read-ExpectedPluginIds {
     param([string]$ManifestPath)
-    $manifest = @(Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json)
+    $manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $ids = @($manifest | ForEach-Object { $_.id })
     if ($ids.Count -eq 0 -or $ids -contains $null -or (@($ids | Sort-Object -Unique)).Count -ne $ids.Count) {
         throw "Invalid plugin id set in $ManifestPath"
@@ -239,17 +244,19 @@ function Test-ApplicationLayout {
         $jar = Resolve-RequiredFile $jar "$Label application JAR"
         $script:ReleaseTools = Initialize-ReleaseProbe -ApplicationJar $jar -Destination (Join-Path $context.Session 'probe-tools')
     }
-    Test-ApplicationScenario -Label "$Label-headless" -Root $Root -Launcher $Launcher `
-        -RuntimeRoot "$RuntimeRoot-headless" -LogRoot "$LogRoot-headless" -Headless
-    foreach ($provider in @('gui-compose', 'gui-swing')) {
-        # Empty preference exercises the shipped default; Swing exercises explicit selection.
-        $configured = if ($provider -eq 'gui-compose') { '' } else { $provider }
-        Test-ApplicationScenario -Label "$Label-$provider" -Root $Root -Launcher $Launcher `
-            -RuntimeRoot "$RuntimeRoot-$provider" -LogRoot "$LogRoot-$provider" `
-            -Provider $provider -ConfiguredProvider $configured -Exercise ${function:Test-ReleaseDuplicateInstance}
+    if ($ScenarioGroup -in @('all', 'startup')) {
+        Test-ApplicationScenario -Label "$Label-headless" -Root $Root -Launcher $Launcher `
+            -RuntimeRoot "$RuntimeRoot-headless" -LogRoot "$LogRoot-headless" -Headless
+        foreach ($provider in @('gui-compose', 'gui-swing')) {
+            # Empty preference exercises the shipped default; Swing exercises explicit selection.
+            $configured = if ($provider -eq 'gui-compose') { '' } else { $provider }
+            Test-ApplicationScenario -Label "$Label-$provider" -Root $Root -Launcher $Launcher `
+                -RuntimeRoot "$RuntimeRoot-$provider" -LogRoot "$LogRoot-$provider" `
+                -Provider $provider -ConfiguredProvider $configured -Exercise ${function:Test-ReleaseDuplicateInstance}
+        }
     }
-    if ($AdverseScenarios) {
-        Test-ReleaseAdverseLayouts -Label $Label -Root $Root -Launcher $Launcher -RuntimeRoot $RuntimeRoot -LogRoot $LogRoot
+    if ($AdverseScenarios -and $ScenarioGroup -in @('all', 'failures', 'recovery')) {
+        Test-ReleaseAdverseLayouts -Label $Label -Root $Root -Launcher $Launcher -RuntimeRoot $RuntimeRoot -LogRoot $LogRoot -ScenarioGroup $ScenarioGroup
     }
 }
 

@@ -251,35 +251,39 @@ function Test-ReleaseGuiFailures {
 }
 
 function Test-ReleaseAdverseLayouts {
-    param([string]$Label, [string]$Root, [string]$Launcher, [string]$RuntimeRoot, [string]$LogRoot)
-    Test-ApplicationScenario -Label "$Label-first-run" -Root $Root -Launcher $Launcher `
-        -RuntimeRoot "$RuntimeRoot-first" -LogRoot "$LogRoot-first" -Provider 'gui-compose' -FirstRun
-    Test-ApplicationScenario -Label "$Label-plugin-runtime-failures" -Root $Root -Launcher $Launcher `
-        -RuntimeRoot "$RuntimeRoot-runtime-fault" -LogRoot "$LogRoot-runtime-fault" -Provider 'gui-compose' `
-        -Exercise ${function:Test-ReleaseRuntimeFailures} -InjectsFailure
-    Test-ApplicationScenario -Label "$Label-gui-runtime-failures" -Root $Root -Launcher $Launcher `
-        -RuntimeRoot "$RuntimeRoot-gui-fault" -LogRoot "$LogRoot-gui-fault" -Provider 'gui-compose' `
-        -Exercise ${function:Test-ReleaseGuiFailures} -InjectsFailure
+    param([string]$Label, [string]$Root, [string]$Launcher, [string]$RuntimeRoot, [string]$LogRoot,
+        [ValidateSet('all', 'failures', 'recovery')][string]$ScenarioGroup = 'all')
+    if ($ScenarioGroup -in @('all', 'failures')) {
+        Test-ApplicationScenario -Label "$Label-first-run" -Root $Root -Launcher $Launcher `
+            -RuntimeRoot "$RuntimeRoot-first" -LogRoot "$LogRoot-first" -Provider 'gui-compose' -FirstRun
+        Test-ApplicationScenario -Label "$Label-plugin-runtime-failures" -Root $Root -Launcher $Launcher `
+            -RuntimeRoot "$RuntimeRoot-runtime-fault" -LogRoot "$LogRoot-runtime-fault" -Provider 'gui-compose' `
+            -Exercise ${function:Test-ReleaseRuntimeFailures} -InjectsFailure
+        Test-ApplicationScenario -Label "$Label-gui-runtime-failures" -Root $Root -Launcher $Launcher `
+            -RuntimeRoot "$RuntimeRoot-gui-fault" -LogRoot "$LogRoot-gui-fault" -Provider 'gui-compose' `
+            -Exercise ${function:Test-ReleaseGuiFailures} -InjectsFailure
 
-    $fixture = Join-Path $Root 'plugins/release-e2e-broken-gui.jar'
-    Copy-Item -LiteralPath $script:ReleaseTools.Fixture -Destination $fixture
-    $sdkMajor = [int](Get-PixivDownloadSdkVersion -ProjectRoot (Join-Path $PSScriptRoot '../..')).Split('.')[0]
-    $sidecar = Write-UnsignedLocalPluginProvenanceSidecar -ArtifactPath $fixture `
-        -VerifiedAt ([DateTime]::UtcNow.ToString('o')) -AppSdkMajor $sdkMajor
-    try {
-        Test-ApplicationScenario -Label "$Label-gui-initializer-failure" -Root $Root -Launcher $Launcher `
-            -RuntimeRoot "$RuntimeRoot-initializer" -LogRoot "$LogRoot-initializer" -Provider 'gui-compose' `
-            -ConfiguredProvider 'release-e2e-broken-gui' -CrashedIds @('release-e2e-broken-gui')
-    } finally {
-        Remove-Item -LiteralPath $fixture, $sidecar
+        $fixture = Join-Path $Root 'plugins/release-e2e-broken-gui.jar'
+        Copy-Item -LiteralPath $script:ReleaseTools.Fixture -Destination $fixture
+        $sdkMajor = [int](Get-PixivDownloadSdkVersion -ProjectRoot (Join-Path $PSScriptRoot '../..')).Split('.')[0]
+        $sidecar = Write-UnsignedLocalPluginProvenanceSidecar -ArtifactPath $fixture `
+            -VerifiedAt ([DateTime]::UtcNow.ToString('o')) -AppSdkMajor $sdkMajor
+        try {
+            Test-ApplicationScenario -Label "$Label-gui-initializer-failure" -Root $Root -Launcher $Launcher `
+                -RuntimeRoot "$RuntimeRoot-initializer" -LogRoot "$LogRoot-initializer" -Provider 'gui-compose' `
+                -ConfiguredProvider 'release-e2e-broken-gui' -CrashedIds @('release-e2e-broken-gui')
+        } finally {
+            Remove-Item -LiteralPath $fixture, $sidecar
+        }
     }
-
-    Test-ReleaseUnavailableLayouts -Label $Label -Root $Root -Launcher $Launcher -RuntimeRoot $RuntimeRoot -LogRoot $LogRoot
+    if ($ScenarioGroup -in @('all', 'recovery')) {
+        Test-ReleaseUnavailableLayouts -Label $Label -Root $Root -Launcher $Launcher -RuntimeRoot $RuntimeRoot -LogRoot $LogRoot
+    }
 }
 
 function Test-ReleaseUnavailableLayouts {
     param([string]$Label, [string]$Root, [string]$Launcher, [string]$RuntimeRoot, [string]$LogRoot)
-    $manifest = @(Get-Content (Get-ManifestPath $Root) -Raw -Encoding UTF8 | ConvertFrom-Json)
+    $manifest = Get-Content (Get-ManifestPath $Root) -Raw -Encoding UTF8 | ConvertFrom-Json
     foreach ($scenario in @('no-gui', 'missing-required', 'corrupt-required', 'core-shell')) {
         $hidden = New-Object 'System.Collections.Generic.List[object]'
         try {

@@ -70,6 +70,7 @@ jobs:
     uses: ./.github/workflows/quality-gate.yml
     with:
       trusted_base_sha: ${{ needs.trusted-base.outputs.sha }}
+      export_release_candidates: true
 
   publish:
     needs: quality-gate
