@@ -81,6 +81,33 @@ try {
     } while ($true)
     if (Test-ReleaseDesktopReady $desktop '' -BootstrapPrompt) { throw 'Loaded entry without a window was accepted.' }
     Assert-Rejected { Invoke-ReleaseProbe $child $startupProbe 'unknown-command' } 'Unknown probe command'
+    New-Item -ItemType File -Path (Join-Path $startupProbe 'block') | Out-Null
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    while (-not (Test-Path -LiteralPath (Join-Path $startupProbe 'blocked'))) {
+        Assert-ArtifactAlive $child 'Blocked EDT fixture'
+        if ([DateTime]::UtcNow -ge $deadline) { throw 'EDT fixture did not block.' }
+        Start-Sleep -Milliseconds 50
+    }
+    Assert-Rejected { Invoke-ReleaseProbe $child $startupProbe 'dismiss' } 'TimeoutException'
+    $threads = Get-Content -LiteralPath (Join-Path $startupProbe 'edt-timeout.txt') -Raw -Encoding UTF8
+    if (-not $threads.Contains('EDT task started: false') -or
+        -not $threads.Contains('AWT-EventQueue') -or -not $threads.Contains('blockEventThread')) {
+        throw 'EDT timeout evidence omitted the queued task or blocking thread.'
+    }
+    $threadPath = Join-Path $startupProbe 'edt-timeout.txt'
+    Remove-Item -LiteralPath $threadPath
+    New-Item -ItemType Directory -Path $threadPath | Out-Null
+    Assert-Rejected { Invoke-ReleaseProbe $child $startupProbe 'desktop' } 'TimeoutException'
+    $errorResponse = Get-Content -LiteralPath (Join-Path $startupProbe 'response.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (-not $errorResponse.error.Contains('Suppressed:')) {
+        throw 'Thread evidence write failure replaced or hid the original timeout.'
+    }
+    New-Item -ItemType File -Path (Join-Path $startupProbe 'release') | Out-Null
+    $desktop = Invoke-ReleaseProbe $child $startupProbe 'desktop'
+    if ($desktop.bootstrapPrompts -ne 1) { throw 'Expired dismissal ran after EDT recovery.' }
+    Invoke-ReleaseProbe $child $startupProbe 'dismiss' | Out-Null
+    $desktop = Invoke-ReleaseProbe $child $startupProbe 'desktop'
+    if ($desktop.bootstrapPrompts -ne 0) { throw 'Fresh dismissal did not close the fixture window.' }
     New-Item -ItemType File -Path (Join-Path $startupProbe 'exit') | Out-Null
     Wait-ArtifactProcessExit $child 'Delayed entry fixture' 15
     if ($child.ExitCode -ne 0) { throw "Delayed entry fixture failed with code $($child.ExitCode)." }
