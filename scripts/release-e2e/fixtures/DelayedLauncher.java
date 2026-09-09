@@ -1,5 +1,10 @@
 package top.sywyar.pixivdownload.gui;
 
+import java.awt.Dialog;
+import java.awt.EventQueue;
+import java.awt.Frame;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicReference;
@@ -10,7 +15,28 @@ public final class DelayedLauncher {
         Path directory = Path.of(args[0]);
         while (!Files.exists(directory.resolve("load"))) Thread.sleep(20);
         Class.forName("top.sywyar.pixivdownload.gui.GuiLauncher");
-        while (!Files.exists(directory.resolve("exit"))) Thread.sleep(20);
+        while (!Files.exists(directory.resolve("exit"))) {
+            if (Files.deleteIfExists(directory.resolve("block"))) {
+                EventQueue.invokeLater(() -> blockEventThread(directory));
+            }
+            Thread.sleep(20);
+        }
+        System.exit(0);
+    }
+
+    private static void blockEventThread(Path directory) {
+        try {
+            Dialog dialog = new Dialog((Frame) null, "Queued dismissal sentinel");
+            dialog.addWindowListener(new WindowAdapter() {
+                @Override public void windowClosing(WindowEvent event) { dialog.dispose(); }
+            });
+            dialog.setSize(240, 120);
+            dialog.setVisible(true);
+            Files.createFile(directory.resolve("blocked"));
+            while (!Files.exists(directory.resolve("release"))) Thread.sleep(20);
+        } catch (Exception failure) {
+            throw new IllegalStateException(failure);
+        }
     }
 }
 

@@ -13,6 +13,7 @@ import java.awt.image.BufferedImage;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.lang.instrument.Instrumentation;
+import java.lang.management.ManagementFactory;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
@@ -26,6 +27,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.imageio.ImageIO;
 
@@ -249,9 +252,34 @@ public final class ReleaseProbeAgent {
     }
 
     private static <T> T onEventThread(java.util.concurrent.Callable<T> action) throws Exception {
-        FutureTask<T> task = new FutureTask<>(action);
+        AtomicBoolean started = new AtomicBoolean();
+        FutureTask<T> task = new FutureTask<>(() -> {
+            started.set(true);
+            return action.call();
+        });
         EventQueue.invokeLater(task);
-        return task.get(5, TimeUnit.SECONDS);
+        try {
+            return task.get(5, TimeUnit.SECONDS);
+        } catch (TimeoutException failure) {
+            task.cancel(false);
+            // 不依赖已阻塞的 EDT 保存现场，也不让诊断失败覆盖原始超时。
+            try { saveThreads(started.get()); } catch (Exception diagnostic) { failure.addSuppressed(diagnostic); }
+            throw failure;
+        }
+    }
+
+    private static void saveThreads(boolean started) throws Exception {
+        var threads = ManagementFactory.getThreadMXBean().dumpAllThreads(true, true, 128);
+        try (var output = Files.newBufferedWriter(directory.resolve("edt-timeout.txt"), StandardCharsets.UTF_8)) {
+            output.write("EDT task started: " + started + "\n");
+            for (int i = 0; i < Math.min(threads.length, 256); i++) {
+                var thread = threads[i];
+                output.write("\n" + thread.getThreadName() + " #" + thread.getThreadId() + " "
+                        + thread.getThreadState() + " lock=" + thread.getLockName()
+                        + " owner=" + thread.getLockOwnerName() + " #" + thread.getLockOwnerId() + "\n");
+                for (var frame : thread.getStackTrace()) output.write("\tat " + frame + "\n");
+            }
+        }
     }
 
     private static Object field(Class<?> type, Object object, String name) throws Exception {
