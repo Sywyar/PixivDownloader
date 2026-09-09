@@ -117,10 +117,16 @@ public final class ReleaseProbeAgent {
     }
 
     private static Class<?> launcher() {
+        Class<?> launcher = findLauncher();
+        if (launcher != null) return launcher;
+        throw new IllegalStateException("Application entry has not loaded");
+    }
+
+    private static Class<?> findLauncher() {
         for (Class<?> type : instrumentation.getAllLoadedClasses()) {
             if (type.getName().equals("top.sywyar.pixivdownload.gui.GuiLauncher")) return type;
         }
-        throw new IllegalStateException("Application entry has not loaded");
+        return null;
     }
 
     private static ClassLoader pluginLoader(String id) throws Exception {
@@ -138,7 +144,10 @@ public final class ReleaseProbeAgent {
     }
 
     private static String desktop() throws Exception {
-        Object ui = ((AtomicReference<?>) field(launcher(), null, "ACTIVE_UI")).get();
+        Class<?> launcher = findLauncher();
+        // premain 观测器可先于应用入口响应；未加载只表示桌面仍需等待。
+        if (launcher == null) return "\"applicationLoaded\":false";
+        Object ui = ((AtomicReference<?>) field(launcher, null, "ACTIVE_UI")).get();
         String provider = "";
         if (ui != null) {
             Object source = field(ui.getClass(), ui, "activeSource");
@@ -188,7 +197,7 @@ public final class ReleaseProbeAgent {
             }
             colors = content.size();
         }
-        return "\"pid\":" + ProcessHandle.current().pid() + ",\"provider\":" + quote(provider)
+        return "\"applicationLoaded\":true,\"pid\":" + ProcessHandle.current().pid() + ",\"provider\":" + quote(provider)
                 + ",\"bootstrapPrompts\":" + desktop.bootstrapPrompts() + ",\"contentColors\":" + colors
                 + ",\"bootstrapTextRendered\":" + desktop.bootstrapTextRendered()
                 + ",\"windows\":" + desktop.windows();

@@ -162,6 +162,7 @@ function Wait-ReleaseDesktop {
 
 function Test-ReleaseDesktopReady {
     param($Desktop, [string]$Provider, [switch]$BootstrapPrompt)
+    if (-not $Desktop.applicationLoaded) { return $false }
     $rendered = if ($BootstrapPrompt) { $Desktop.bootstrapTextRendered } else { $Desktop.contentColors -gt 8 }
     return $Desktop.provider -eq $Provider -and $Desktop.bootstrapPrompts -eq [int][bool]$BootstrapPrompt `
         -and @($Desktop.windows).Count -gt 0 -and $rendered
