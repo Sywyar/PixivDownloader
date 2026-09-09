@@ -46,13 +46,53 @@ try {
         Remove-Item -LiteralPath (Join-Path $probe 'request.txt')
     }
 
-    $good = [pscustomobject]@{provider='gui-compose'; bootstrapPrompts=0; contentColors=30; windows=@('window')}
+    $agentRoot = Join-Path $context.Session 'startup-agent'
+    $agentClasses = Join-Path $agentRoot 'classes'
+    $startupProbe = Join-Path $agentRoot 'probe'
+    New-Item -ItemType Directory -Path $agentClasses, $startupProbe | Out-Null
+    & javac --release 17 -encoding UTF-8 -d $agentClasses `
+        (Join-Path $PSScriptRoot 'ReleaseProbeAgent.java') `
+        (Join-Path $PSScriptRoot 'fixtures/DelayedLauncher.java')
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot compile startup observer regression.' }
+    $manifest = Join-Path $agentRoot 'manifest.mf'
+    [IO.File]::WriteAllText($manifest, "Premain-Class: releasee2e.ReleaseProbeAgent`n`n", [Text.Encoding]::ASCII)
+    $agentJar = Join-Path $agentRoot 'observer.jar'
+    & jar --create --file $agentJar --manifest $manifest -C $agentClasses .
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot package startup observer regression.' }
+    $child = Start-Process java -ArgumentList @(
+        "-javaagent:`"$agentJar=$startupProbe`"", '-cp', "`"$agentClasses`"",
+        'top.sywyar.pixivdownload.gui.DelayedLauncher', "`"$startupProbe`""
+    ) -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $agentRoot 'stdout.log') `
+        -RedirectStandardError (Join-Path $agentRoot 'stderr.log')
+    $children += $child
+    $null = $child.Handle
+    Connect-ReleaseProbe $child $startupProbe
+    $desktop = Invoke-ReleaseProbe $child $startupProbe 'desktop'
+    if ($desktop.applicationLoaded) { throw 'Observer loaded the application entry prematurely.' }
+    Assert-Rejected { Wait-ReleaseDesktop $child $startupProbe '' -BootstrapPrompt -TimeoutSeconds 1 } 'did not render'
+    Assert-Rejected { Invoke-ReleaseProbe $child $startupProbe 'shutdown' } 'Application entry has not loaded'
+    New-Item -ItemType File -Path (Join-Path $startupProbe 'load') | Out-Null
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        $desktop = Invoke-ReleaseProbe $child $startupProbe 'desktop'
+        if ($desktop.applicationLoaded) { break }
+        if ([DateTime]::UtcNow -ge $deadline) { throw 'Observer did not see the delayed entry load.' }
+        Start-Sleep -Milliseconds 50
+    } while ($true)
+    if (Test-ReleaseDesktopReady $desktop '' -BootstrapPrompt) { throw 'Loaded entry without a window was accepted.' }
+    Assert-Rejected { Invoke-ReleaseProbe $child $startupProbe 'unknown-command' } 'Unknown probe command'
+    New-Item -ItemType File -Path (Join-Path $startupProbe 'exit') | Out-Null
+    Wait-ArtifactProcessExit $child 'Delayed entry fixture' 15
+    if ($child.ExitCode -ne 0) { throw "Delayed entry fixture failed with code $($child.ExitCode)." }
+    Assert-Rejected { Wait-ReleaseDesktop $child $startupProbe '' -BootstrapPrompt -TimeoutSeconds 1 } 'exited'
+
+    $good = [pscustomobject]@{applicationLoaded=$true; provider='gui-compose'; bootstrapPrompts=0; contentColors=30; windows=@('window')}
     if (-not (Test-ReleaseDesktopReady $good 'gui-compose')) { throw 'Rendered GUI rejected.' }
     foreach ($bad in @(
-        [pscustomobject]@{provider='gui-swing'; bootstrapPrompts=0; contentColors=30; windows=@('window')},
-        [pscustomobject]@{provider='gui-compose'; bootstrapPrompts=0; contentColors=1; windows=@('window')},
-        [pscustomobject]@{provider='gui-compose'; bootstrapPrompts=0; contentColors=30; windows=@()},
-        [pscustomobject]@{provider=''; bootstrapPrompts=1; contentColors=30; windows=@('dialog'); bootstrapTextRendered=$true}
+        [pscustomobject]@{applicationLoaded=$true; provider='gui-swing'; bootstrapPrompts=0; contentColors=30; windows=@('window')},
+        [pscustomobject]@{applicationLoaded=$true; provider='gui-compose'; bootstrapPrompts=0; contentColors=1; windows=@('window')},
+        [pscustomobject]@{applicationLoaded=$true; provider='gui-compose'; bootstrapPrompts=0; contentColors=30; windows=@()},
+        [pscustomobject]@{applicationLoaded=$true; provider=''; bootstrapPrompts=1; contentColors=30; windows=@('dialog'); bootstrapTextRendered=$true}
     )) {
         if (Test-ReleaseDesktopReady $bad 'gui-compose') { throw 'Wrong, blank or absent GUI accepted.' }
     }
@@ -69,6 +109,19 @@ try {
     Assert-Rejected { Wait-ReleaseDesktop $parent $probe 'gui-compose' -TimeoutSeconds 1 } 'did not render'
     function Invoke-ReleaseProbe { throw 'EDT unresponsive' }
     Assert-Rejected { Wait-ReleaseDesktop $parent $probe 'gui-compose' -TimeoutSeconds 1 } 'EDT unresponsive'
+    foreach ($bootstrap in @($false, $true)) {
+        $ready = if ($bootstrap) { $bad } else { $good }
+        $bad.bootstrapPrompts = 1
+        $script:desktopReads = 0
+        function Invoke-ReleaseProbe {
+            if (++$script:desktopReads -eq 1) { return [pscustomobject]@{applicationLoaded=$false} }
+            return $ready
+        }
+        $observed = Wait-ReleaseDesktop $parent $probe $ready.provider -BootstrapPrompt:$bootstrap -TimeoutSeconds 3
+        if ($script:desktopReads -ne 2 -or -not $observed.applicationLoaded) {
+            throw 'Desktop wait did not retry startup readiness.'
+        }
+    }
     Set-Item Function:Invoke-ReleaseProbe $savedProbe
 
     # Drive the real observation loop with a process which exits after readiness.
