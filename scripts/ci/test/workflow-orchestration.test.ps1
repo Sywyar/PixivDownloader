@@ -39,6 +39,16 @@ $fixture = Join-Path $tempBase ('pixiv-workflow-test-' + [Guid]::NewGuid().ToStr
 [IO.Directory]::CreateDirectory($fixture) | Out-Null
 try {
     & {
+        $commands = @(Get-Content (Join-Path $repo '.github/workflows/quality-gate.yml') |
+            Where-Object { $_ -match '^\s+run: mvn\b.*\bverify\b.*-Pofficial-surveys' })
+        Assert-Equal $commands.Count 1
+        function mvn { $script:mavenArguments = @($args) }
+        & ([scriptblock]::Create(($commands[0] -replace '^\s+run: ', '')))
+        foreach ($property in @('maven.javadoc.skip', 'maven.source.skip')) {
+            Assert-Equal (@($script:mavenArguments | Where-Object { $_ -ceq "-D$property=true" }).Count) 1
+        }
+    }
+    & {
         $program = Read-Program (Join-Path $repo 'scripts/test-release-artifacts.ps1')
         foreach ($definition in $program.Functions) { . ([scriptblock]::Create($definition.Extent.Text)) }
         $script:observed = [Collections.Generic.List[string]]::new()
