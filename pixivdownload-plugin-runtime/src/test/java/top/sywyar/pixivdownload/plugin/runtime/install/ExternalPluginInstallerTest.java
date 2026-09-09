@@ -87,6 +87,33 @@ class ExternalPluginInstallerTest {
     // ---------- 基本安装 ----------
 
     @Test
+    @DisplayName("清点复用仍检测同大小同时间内容替换并保留旧包拒绝")
+    void repeatedInventoryRevalidatesContent() throws Exception {
+        Files.createDirectories(pluginsDir);
+        Path artifact = PluginPackageFixtures.bareJar(pluginsDir.resolve("installed.jar"),
+                "example", "1.0.0", null, "example.Plugin");
+        var first = installer.listInstalled().get(0).descriptor();
+        assertThat(installer.listInstalled().get(0).descriptor()).isSameAs(first);
+        var timestamp = Files.getLastModifiedTime(artifact);
+        byte[] replaced = Files.readAllBytes(artifact);
+        // 保留文件大小和时间，完整 SHA-256 仍必须使缓存失效。
+        java.util.Arrays.fill(replaced, (byte) 0);
+        Files.write(artifact, replaced);
+        Files.setLastModifiedTime(artifact, timestamp);
+        assertThat(installer.listInstalled()).isEmpty();
+        PluginPackageFixtures.bareJar(artifact, "example", "2.0.0", null, "example.Plugin");
+        assertThat(installer.listInstalled()).singleElement()
+                .satisfies(plugin -> assertThat(plugin.descriptor().version()).isEqualTo("2.0.0"));
+        Files.delete(artifact);
+        assertThat(installer.listInstalled()).isEmpty();
+        PluginPackageFixtures.writeZip(artifact, Map.of("plugin.properties",
+                "plugin.id=legacy\nplugin.version=1.0.0\nplugin.class=example.Plugin\n"
+                        .getBytes(StandardCharsets.UTF_8)));
+        assertThat(installer.listInstalled()).isEmpty();
+        assertThat(installer.listInstalled()).isEmpty();
+    }
+
+    @Test
     @DisplayName("调用方提供的目录租约必须保护同一规范化安装根")
     void suppliedDirectoryLockMustProtectSameRoot() throws Exception {
         Path otherRoot = home.resolve("other-plugins");
