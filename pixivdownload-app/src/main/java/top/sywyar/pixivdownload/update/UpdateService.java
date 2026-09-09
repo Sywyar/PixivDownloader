@@ -188,67 +188,65 @@ public class UpdateService {
         }
 
         log.info(forLog("update.log.check.starting", manifestUrl));
+        UpdateCheckResult officialResult;
         try {
             UpdateManifest manifest = fetchManifest(manifestUrl, CHANNEL_STABLE);
             if (manifest == null || manifest.getLatestVersion() == null) {
                 throw new IllegalStateException(forLog("update.error.manifest.invalid", "empty"));
             }
-            UpdateCheckResult officialResult = handleManifest(currentVersion, manifest, false);
-            UpdateCheckResult nightlyAlternative = null;
-
-            if (updateConfig.resolveCheckNightly()) {
-                String nightlyUrl = updateConfig.getNightlyManifestUrl();
-                if (nightlyUrl != null && !nightlyUrl.isBlank()) {
-                    try {
-                        UpdateManifest nightlyManifest = fetchManifest(nightlyUrl, CHANNEL_NIGHTLY);
-                        if (nightlyManifest != null && nightlyManifest.getLatestVersion() != null) {
-                            UpdateCheckResult nightlyResult = handleManifest(currentVersion, nightlyManifest, true);
-                            boolean hasUpdate = nightlyResult.isUpdateAvailable();
-                            boolean hasNotes = nightlyResult.getReleaseNotes() != null
-                                    && !nightlyResult.getReleaseNotes().isBlank();
-                            // 每夜版严格新于最新正式版时才作为替代选项
-                            boolean newerThanOfficial = compareVersions(
-                                    nightlyResult.getLatestVersion(),
-                                    officialResult.getLatestVersion()) > 0;
-                            if (hasUpdate && hasNotes && newerThanOfficial) {
-                                nightlyAlternative = nightlyResult;
-                                log.info(forLog("update.log.check.nightly-available",
-                                        currentVersion, nightlyResult.getLatestVersion()));
-                            } else if (hasUpdate && !hasNotes) {
-                                log.info(forLog("update.log.check.nightly-empty-notes",
-                                        nightlyResult.getLatestVersion()));
-                            }
-                        }
-                    } catch (IOException | IllegalStateException e) {
-                        log.warn(forLog("update.log.check.nightly-failed", e.getMessage()));
-                    }
-                }
-            }
-
-            UpdateCheckResult combined = officialResult;
-            if (nightlyAlternative != null) {
-                combined = officialResult.toBuilder().nightlyAlternative(nightlyAlternative).build();
-            }
-
-            lastResult = combined;
-            lastSuccessfulCheckAt = combined.getCheckedAt();
-            if (!combined.isUpdateAvailable() && combined.getNightlyAlternative() == null) {
-                cleanupInstallerCache();
-            }
-            return combined;
+            officialResult = handleManifest(currentVersion, manifest, false);
         } catch (IOException | IllegalStateException e) {
             log.warn(forLog("update.log.check.failed", e.getMessage()));
-            UpdateCheckResult failed = UpdateCheckResult.builder()
-                    .enabled(true)
-                    .checkSucceeded(false)
-                    .updateAvailable(false)
-                    .currentVersion(currentVersion)
-                    .checkedAt(Instant.now())
-                    .error(e.getMessage())
-                    .build();
-            lastResult = failed;
-            return failed;
+            officialResult = UpdateCheckResult.builder()
+                    .enabled(true).checkSucceeded(false).updateAvailable(false)
+                    .currentVersion(currentVersion).checkedAt(Instant.now()).error(e.getMessage()).build();
         }
+        UpdateCheckResult nightlyAlternative = null;
+
+        if (updateConfig.resolveCheckNightly()) {
+            String nightlyUrl = updateConfig.getNightlyManifestUrl();
+            if (nightlyUrl != null && !nightlyUrl.isBlank()) {
+                try {
+                    UpdateManifest nightlyManifest = fetchManifest(nightlyUrl, CHANNEL_NIGHTLY);
+                    if (nightlyManifest != null && nightlyManifest.getLatestVersion() != null) {
+                        UpdateCheckResult nightlyResult = handleManifest(currentVersion, nightlyManifest, true);
+                        boolean hasUpdate = nightlyResult.isUpdateAvailable();
+                        boolean hasNotes = nightlyResult.getReleaseNotes() != null
+                                && !nightlyResult.getReleaseNotes().isBlank();
+                        // 正式版不可用时保留独立可信的每夜版；否则比较已验证的版本。
+                        boolean newerThanOfficial = !officialResult.isCheckSucceeded() || compareVersions(
+                                nightlyResult.getLatestVersion(),
+                                officialResult.getLatestVersion()) > 0;
+                        if (hasUpdate && hasNotes && newerThanOfficial) {
+                            nightlyAlternative = nightlyResult;
+                            log.info(forLog("update.log.check.nightly-available",
+                                    currentVersion, nightlyResult.getLatestVersion()));
+                        } else if (hasUpdate && !hasNotes) {
+                            log.info(forLog("update.log.check.nightly-empty-notes",
+                                    nightlyResult.getLatestVersion()));
+                        }
+                    }
+                } catch (IOException | IllegalStateException e) {
+                    log.warn(forLog("update.log.check.nightly-failed", e.getMessage()));
+                }
+            }
+        }
+
+        UpdateCheckResult combined = officialResult;
+        if (nightlyAlternative != null) {
+            combined = officialResult.toBuilder().checkSucceeded(true)
+                    .nightlyAlternative(nightlyAlternative).build();
+        }
+
+        lastResult = combined;
+        if (combined.isCheckSucceeded()) {
+            lastSuccessfulCheckAt = combined.getCheckedAt();
+        }
+        if (officialResult.isCheckSucceeded() && !combined.isUpdateAvailable()
+                && combined.getNightlyAlternative() == null) {
+            cleanupInstallerCache();
+        }
+        return combined;
     }
 
     /**
