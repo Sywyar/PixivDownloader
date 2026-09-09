@@ -176,18 +176,15 @@ function Resolve-PrebuiltJar {
     }
 
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-        Write-Warning "Prebuilt JAR not found: $Path"
-        return $null
+        throw "Prebuilt JAR not found: $Path"
     }
 
     $item = Get-Item -LiteralPath $Path
     if ($item.Extension -ne ".jar") {
-        Write-Warning "Prebuilt JAR is not a .jar file: $Path"
-        return $null
+        throw "Prebuilt JAR is not a .jar file: $Path"
     }
     if ($item.Length -le 0) {
-        Write-Warning "Prebuilt JAR is empty: $Path"
-        return $null
+        throw "Prebuilt JAR is empty: $Path"
     }
 
     return $item.FullName
@@ -341,11 +338,7 @@ try {
         Write-Step "Staging prebuilt application JAR"
         Copy-Item $resolvedPrebuiltJar $stagedJar -Force
     } else {
-        if ($PrebuiltJar) {
-            Write-Step "Prebuilt JAR invalid; falling back to Maven build"
-        } else {
-            Write-Step "Building application JAR"
-        }
+        Write-Step "Building application JAR"
         if (-not $mavenCmd) {
             $mavenCmd = Get-MavenCommand
         }

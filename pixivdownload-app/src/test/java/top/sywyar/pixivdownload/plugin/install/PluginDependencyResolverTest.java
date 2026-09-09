@@ -19,10 +19,30 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @DisplayName("插件运行期依赖解析")
 class PluginDependencyResolverTest {
+
+    @Test
+    @DisplayName("无必需依赖时不清点安装目录或查询生命周期")
+    void absentAndOptionalDependenciesDoNotScanInstalledArtifacts() {
+        ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
+        PluginRegistry registry = mock(PluginRegistry.class);
+        PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
+        PluginDependencyResolver resolver = new PluginDependencyResolver(installer, registry, lifecycle);
+        PluginDependencyRef optional = new PluginDependencyRef("optional", "1.0", true);
+        assertThat(resolver.installedProblems(null)).isEmpty();
+        assertThat(resolver.activationProblems(null)).isEmpty();
+        for (PluginDescriptor descriptor : List.of(descriptor("empty", List.of()),
+                descriptor("optional-only", List.of(optional)))) {
+            assertThat(resolver.installedProblems(descriptor)).isEmpty();
+            assertThat(resolver.activationProblems(descriptor)).isEmpty();
+        }
+        assertThat(resolver.installedDependencySatisfied(optional)).isTrue();
+        verifyNoInteractions(installer, registry, lifecycle);
+    }
 
     @Test
     @DisplayName("开发模式从受管 generation 描述符恢复插件并校验依赖阶段")

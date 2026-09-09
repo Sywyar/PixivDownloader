@@ -10,6 +10,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageVerif
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /** 一轮插件事务恢复或安装清点共用的累计资源预算与 archive 检视缓存。 */
@@ -32,7 +33,23 @@ public final class PluginRecoveryResourceBudget {
     private int archiveEntries;
     private long uncompressedBytes;
     private boolean exhausted;
-    private final Map<String, PluginPackageInspection> archiveInspections = new LinkedHashMap<>();
+    private final Map<ArchiveIdentity, VerifiedArchive> archiveInspections = new LinkedHashMap<>();
+    private final Map<ArchiveIdentity, VerifiedArchive> previousInspections;
+
+    public PluginRecoveryResourceBudget() {
+        previousInspections = Map.of();
+    }
+
+    /** 仅供安装清点复用上一轮的成功结构校验；调用方必须重新计算当前文件的完整 SHA-256。 */
+    public PluginRecoveryResourceBudget(PluginRecoveryResourceBudget previousInventory) {
+        previousInspections = previousInventory == null
+                ? Map.of() : Map.copyOf(previousInventory.archiveInspections);
+    }
+
+    private record ArchiveIdentity(String sha256, boolean jar, PluginPackageLimits limits) { }
+
+    private record VerifiedArchive(PluginPackageInspection inspection,
+                                   PluginPackageVerifier.VerificationUsage usage) { }
 
     public void requireAvailable() throws PluginRecoveryValidationException {
         if (exhausted) {
@@ -81,9 +98,18 @@ public final class PluginRecoveryResourceBudget {
     public PluginPackageInspection inspectArchive(Path artifact, String sha256, PluginPackageLimits limits)
             throws PluginRecoveryValidationException {
         requireAvailable();
-        PluginPackageInspection cached = archiveInspections.get(sha256);
+        ArchiveIdentity identity = new ArchiveIdentity(sha256,
+                artifact.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".jar"), limits);
+        VerifiedArchive cached = archiveInspections.get(identity);
         if (cached != null) {
-            return cached;
+            return cached.inspection();
+        }
+        cached = previousInspections.get(identity);
+        if (cached != null) {
+            // 复用只省去解压工作，不能省去本轮累计预算或改变单包限制。
+            consumeArchiveUsage(cached.usage().entryCount(), cached.usage().totalUncompressedBytes());
+            archiveInspections.put(identity, cached);
+            return cached.inspection();
         }
         int remainingEntries = MAX_ARCHIVE_ENTRIES - archiveEntries;
         long remainingUncompressed = MAX_UNCOMPRESSED_BYTES - uncompressedBytes;
@@ -115,7 +141,7 @@ public final class PluginRecoveryResourceBudget {
         }
         consumeArchiveUsage(usage.entryCount(), usage.totalUncompressedBytes());
         PluginPackageInspection inspection = PluginPackageReader.inspect(artifact, limits);
-        archiveInspections.put(sha256, inspection);
+        archiveInspections.put(identity, new VerifiedArchive(inspection, usage));
         return inspection;
     }
 

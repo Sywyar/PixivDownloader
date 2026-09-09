@@ -34,11 +34,11 @@ public class UpdateCheckResult {
     private Instant checkedAt;
     /** 是否为每夜版更新（而非正式发布）。 */
     private boolean nightly;
-    /** 检查失败时的人类可读信息（成功时为空）。 */
+    /** 正式版检查失败的信息；独立验签成功的每夜版仍可作为替代选项。 */
     private String error;
     /**
-     * 可选的每夜版替代选项。仅当 {@code update.check-nightly=true} 且 nightly 版本严格新于
-     * 当前正式版（或当前正式版无更新但 nightly 有）时出现。嵌套对象本身的
+     * 可选的每夜版替代选项。启用每夜版检查且发现可信更新时，若正式版检查失败，或每夜版
+     * 严格新于已验证的最新正式版，则提供该选项。嵌套对象本身的
      * {@code nightlyAlternative} 字段始终为 {@code null}。
      */
     private UpdateCheckResult nightlyAlternative;

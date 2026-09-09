@@ -192,7 +192,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        distribution: [java-standard, full-offline, windows-installer]
+        include:
+          - { distribution: java-standard, scenario_group: all }
+          - { distribution: full-offline, scenario_group: all }
+          - { distribution: windows-installer, scenario_group: startup }
+          - { distribution: windows-installer, scenario_group: failures }
+          - { distribution: windows-installer, scenario_group: recovery }
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -203,6 +208,7 @@ jobs:
         uses: ./.github/actions/test-release-artifacts
         with:
           distribution: ${{ matrix.distribution }}
+          scenario_group: ${{ matrix.scenario_group }}
           release_version: ${{ needs.resolve-version.outputs.version }}
 
   release-nightly:

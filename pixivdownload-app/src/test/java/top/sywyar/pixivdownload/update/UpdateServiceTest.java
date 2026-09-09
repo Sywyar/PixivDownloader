@@ -54,6 +54,49 @@ class UpdateServiceTest {
     Path tempDir;
 
     @Test
+    @DisplayName("正式版缺少签名不阻断独立验签的每夜版且不能下载未验证的正式版")
+    void signedNightlyRemainsAvailableWhenStableSignatureIsMissing() throws Exception {
+        SigningSupport signing = new SigningSupport();
+        UpdateConfig config = config();
+        config.setCheckNightly(true);
+        String nightlyUrl = "https://example.com/nightly/update.json";
+        config.setNightlyManifestUrl(nightlyUrl);
+        byte[] stable = manifest(10, "stable", "999.0.0", "2099-01-01T00:00:00Z", "stable", ASSET_SHA256);
+        byte[] nightly = manifest(11, "nightly", "998.0.0-nightly.20260909.129.1",
+                "2099-01-01T00:00:00Z", "nightly", ASSET_SHA256);
+        PluginCatalogHttpClient client = mock(PluginCatalogHttpClient.class);
+        when(client.fetchBytes(MANIFEST_URL, 1024L * 1024L)).thenReturn(stable);
+        when(client.fetchBytes(MANIFEST_URL + ".sig", 16L * 1024L)).thenReturn(new byte[0]);
+        when(client.fetchBytes(nightlyUrl, 1024L * 1024L)).thenReturn(nightly);
+        when(client.fetchBytes(nightlyUrl + ".sig", 16L * 1024L)).thenReturn(signing.signature(nightly));
+        PluginCatalogClientProvider provider = mock(PluginCatalogClientProvider.class);
+        when(provider.clientFor(any())).thenReturn(client);
+        UpdateService service = new UpdateService(config, APP_MESSAGES, signing.verifier(),
+                tempDir.resolve("trust.json"), provider);
+        String oldOs = System.getProperty("os.name");
+        String oldArch = System.getProperty("os.arch");
+        try {
+            System.setProperty("os.name", "Windows 11");
+            System.setProperty("os.arch", "amd64");
+            UpdateCheckResult result = service.checkForUpdate(true);
+            assertThat(result.isCheckSucceeded()).isTrue();
+            assertThat(result.isUpdateAvailable()).isFalse();
+            assertThat(result.getLatestVersion()).isNull();
+            assertThat(result.getError()).isNotBlank();
+            assertThat(result.getNightlyAlternative().isUpdateAvailable()).isTrue();
+            assertThat(result.getNightlyAlternative().isNightly()).isTrue();
+            assertThat(result.getNightlyAlternative().getLatestVersion()).isEqualTo("998.0.0-nightly.20260909.129.1");
+            assertThatThrownBy(() -> service.downloadInstaller(false)).isInstanceOf(IllegalStateException.class);
+            when(client.fetchBytes(nightlyUrl + ".sig", 16L * 1024L)).thenReturn(new byte[0]);
+            assertThat(service.checkForUpdate(true).isCheckSucceeded()).isFalse();
+            assertThat(service.checkForUpdate(false).getNightlyAlternative()).isNull();
+        } finally {
+            restoreProperty("os.name", oldOs);
+            restoreProperty("os.arch", oldArch);
+        }
+    }
+
+    @Test
     @DisplayName("Spring 明确选择生产构造器装配更新服务")
     void shouldWireProductionConstructorInSpringContext() {
         try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {

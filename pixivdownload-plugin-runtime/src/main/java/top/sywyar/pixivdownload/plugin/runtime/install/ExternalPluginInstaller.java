@@ -165,6 +165,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
     private final PluginDirectorySessionLock directorySessionLock;
     /** 把恢复、权威枚举与文件事务串行化（同一实例 / 同一安装目录的并发操作互斥）。 */
     private final ReentrantLock installLock = new ReentrantLock();
+    private PluginRecoveryResourceBudget previousInventoryBudget;
 
     /** 启动期最多枚举的待恢复事务数；超过即在任何事务写入前 fail-closed。 */
     private static final int MAX_RECOVERY_TRANSACTIONS = 256;
@@ -1956,11 +1957,12 @@ public class ExternalPluginInstaller implements AutoCloseable {
         try {
             PluginArtifactScanner.ScanResult scan = PluginArtifactScanner.scan(pluginsRoot);
             if (!scan.rootPresent()) {
+                previousInventoryBudget = null;
                 return List.of();
             }
             assertExistingPathComponentsSafe(pluginsRoot, pluginsRoot, "plugins root");
             List<Artifact> result = new ArrayList<>(scan.candidates().size());
-            PluginRecoveryResourceBudget inventoryBudget = new PluginRecoveryResourceBudget();
+            PluginRecoveryResourceBudget inventoryBudget = new PluginRecoveryResourceBudget(previousInventoryBudget);
             for (Path path : scan.candidates()) {
                 try {
                     BasicFileAttributes before = Files.readAttributes(
@@ -1987,8 +1989,10 @@ public class ExternalPluginInstaller implements AutoCloseable {
                     log.warn("Skipping unreadable plugin package {}: {}", path.getFileName(), e.getMessage());
                 }
             }
+            previousInventoryBudget = inventoryBudget;
             return List.copyOf(result);
         } catch (IOException | PluginRecoveryValidationException e) {
+            previousInventoryBudget = null;
             throw new IllegalStateException("failed to enumerate plugins directory safely", e);
         }
     }
@@ -2835,6 +2839,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
         } catch (IOException e) {
             throw new IllegalStateException("failed to release the plugin directory session lock", e);
         } finally {
+            previousInventoryBudget = null;
             installLock.unlock();
         }
     }

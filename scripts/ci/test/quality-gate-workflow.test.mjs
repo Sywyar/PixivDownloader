@@ -464,10 +464,15 @@ test('发行构建与插件发布并行，分发产物依赖完整且全部 E2E 
             }
         }
         const e2e = jobs['release-artifact-e2e'];
-        assert.deepEqual(e2e.strategy.matrix.distribution.sort(), ['full-offline', 'java-standard', 'windows-installer']);
+        assert.deepEqual(e2e.strategy.matrix.include.map(({distribution, scenario_group}) =>
+            `${distribution}/${scenario_group}`).sort(), [
+            'full-offline/all', 'java-standard/all', 'windows-installer/failures',
+            'windows-installer/recovery', 'windows-installer/startup'
+        ]);
         assert.equal(e2e.strategy['fail-fast'], false);
         const acceptance = e2e.steps.find(step => step.uses === './.github/actions/test-release-artifacts');
         assert.equal(acceptance.with.distribution, '${{ matrix.distribution }}');
+        assert.equal(acceptance.with.scenario_group, '${{ matrix.scenario_group }}');
         const publication = file === 'nightly' ? 'release-nightly' : 'release';
         const required = ancestors(publication);
         for (const id of ['publish-plugins', 'publish-plugin-artifacts', 'build-jar', 'package-java',
@@ -481,8 +486,31 @@ test('发行构建与插件发布并行，分发产物依赖完整且全部 E2E 
     const evidence = load('.github/actions/test-release-artifacts/action.yml').runs.steps
         .find(step => step.uses?.startsWith('actions/upload-artifact@'));
     assert.equal(evidence.if, 'always()');
-    assert.equal(evidence.with.name, 'release-e2e-evidence-${{ inputs.distribution }}');
+    assert.equal(evidence.with.name, 'release-e2e-evidence-${{ inputs.distribution }}-${{ inputs.scenario_group }}');
     assert.equal(evidence.with['if-no-files-found'], 'error');
+});
+
+test('发行候选只来自同次完整 QG，生产应用继续重建并执行完整发行边界', () => {
+    const qg = load('.github/workflows/quality-gate.yml');
+    const steps = qg.jobs['release-artifacts'].steps;
+    const upload = steps.find(step => step.with?.name === 'release-candidates-${{ github.sha }}');
+    assert.equal(upload.if, 'inputs.export_release_candidates == true');
+    assert.equal(upload.with['if-no-files-found'], 'error');
+    assert.equal(upload.with.overwrite, true);
+    assert.ok(steps.indexOf(upload) > steps.findIndex(step => step.uses === './.github/actions/verify-release-boundaries'));
+    assert.equal(load('.github/workflows/publish-plugins.yml').jobs['quality-gate'].with.export_release_candidates, true);
+    const restore = load('.github/actions/restore-release-candidates/action.yml').runs.steps;
+    const download = restore.find(step => step.uses?.startsWith('actions/download-artifact@'));
+    assert.equal(download.with.name, 'release-candidates-${{ github.sha }}');
+    assert.equal(download.with['run-id'], undefined);
+    assert.equal(download.with['github-token'], undefined);
+    assert.match(restore.at(-1).run, /release-build-candidates\.ps1 -Mode Import/u);
+    const app = load('.github/actions/build-release-java/action.yml').runs.steps;
+    assert.ok(app.findIndex(step => step.uses === './.github/actions/restore-release-candidates') <
+        app.findIndex(step => step.name === 'Build JAR'));
+    assert.match(app.find(step => step.name === 'Build JAR').run, /-pl pixivdownload-app -am verify/u);
+    const boundary = app.find(step => step.uses === './.github/actions/verify-release-boundaries');
+    assert.equal(boundary.with.require_production_credential_key, 'true');
 });
 
 test('SDK 接收仓库 workflow 由主仓库只读编排且不持有跨仓库凭据', () => {

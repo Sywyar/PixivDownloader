@@ -8,6 +8,10 @@ inputs:
   distribution:
     description: Distribution to exercise on this runner
     required: true
+  scenario_group:
+    description: Installer scenarios to exercise; all preserves the complete local acceptance
+    required: false
+    default: all
   distribution_version:
     description: Optional filename version when it differs from the embedded release version
     required: false
@@ -41,11 +45,13 @@ runs:
       env:
         RELEASE_VERSION: ${{ inputs.release_version }}
         DISTRIBUTION: ${{ inputs.distribution }}
+        SCENARIO_GROUP: ${{ inputs.scenario_group }}
         DISTRIBUTION_VERSION: ${{ inputs.distribution_version || inputs.release_version }}
       run: |
         $acceptanceArgs = @{
           Version = $env:DISTRIBUTION_VERSION
           Distribution = $env:DISTRIBUTION
+          ScenarioGroup = $env:SCENARIO_GROUP
           ReportRoot = "$env:RUNNER_TEMP/release-e2e-reports"
         }
         switch ($env:DISTRIBUTION) {
@@ -63,7 +69,7 @@ runs:
       if: always()
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
       with:
-        name: release-e2e-evidence-${{ inputs.distribution }}
+        name: release-e2e-evidence-${{ inputs.distribution }}-${{ inputs.scenario_group }}
         path: ${{ runner.temp }}/release-e2e-reports/
         if-no-files-found: error
         retention-days: 7

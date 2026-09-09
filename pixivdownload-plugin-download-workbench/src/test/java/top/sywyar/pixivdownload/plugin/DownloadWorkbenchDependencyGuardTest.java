@@ -684,7 +684,7 @@ class DownloadWorkbenchDependencyGuardTest {
     }
 
     private static boolean referencesFullyQualifiedType(String code, String appType) {
-        return identifierReference(appType).matcher(code).find();
+        return code.contains(appType) && identifierReference(appType).matcher(code).find();
     }
 
     private static boolean samePackageSimpleReference(String code,
@@ -695,7 +695,7 @@ class DownloadWorkbenchDependencyGuardTest {
             return false;
         }
         String simpleName = appType.substring(separator + 1);
-        return identifierReference(simpleName).matcher(code).find();
+        return code.contains(simpleName) && identifierReference(simpleName).matcher(code).find();
     }
 
     private static Set<String> importedNames(String code) {

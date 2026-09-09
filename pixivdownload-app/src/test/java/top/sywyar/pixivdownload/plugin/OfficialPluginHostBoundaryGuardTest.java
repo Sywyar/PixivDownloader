@@ -904,7 +904,7 @@ class OfficialPluginHostBoundaryGuardTest {
     }
 
     private static boolean referencesFullyQualifiedType(String code, String appType) {
-        return identifierReference(appType).matcher(code).find();
+        return code.contains(appType) && identifierReference(appType).matcher(code).find();
     }
 
     private static boolean samePackageSimpleReference(String code, String packageName, String appType) {
@@ -912,7 +912,8 @@ class OfficialPluginHostBoundaryGuardTest {
         if (separator < 0 || !appType.substring(0, separator).equals(packageName)) {
             return false;
         }
-        return identifierReference(appType.substring(separator + 1)).matcher(code).find();
+        String simpleName = appType.substring(separator + 1);
+        return code.contains(simpleName) && identifierReference(simpleName).matcher(code).find();
     }
 
     private static Set<String> importedNames(String code) {

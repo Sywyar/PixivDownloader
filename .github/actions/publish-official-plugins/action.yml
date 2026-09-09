@@ -32,9 +32,8 @@ runs:
         java-version: '17'
         cache: maven
 
-    - name: Build plugin signature tool
-      shell: powershell
-      run: .\mvnw.cmd "-pl" "pixivdownload-plugin-signature" "-am" "package" "-DskipTests" "-Dexec.skip=true"
+    - name: Restore plugin artifacts verified by this run
+      uses: ./.github/actions/restore-release-candidates
 
     - name: Prepare plugin signing private key
       shell: powershell
@@ -79,6 +78,7 @@ runs:
             Repo = $env:PLUGINS_REPO
             OfficialKeyId = $env:PLUGIN_SIGNING_KEY_ID
             PrivateKeyFile = $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE
+            UsePrebuiltArtifacts = $true
           }
           $inputTokens = @()
           if (-not [string]::IsNullOrWhiteSpace($env:PUBLISH_PLUGIN_ARGS)) {
