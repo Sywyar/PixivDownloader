@@ -1,12 +1,14 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$Version,
-    [Parameter(Mandatory = $true)][string]$JavaZipPath,
-    [Parameter(Mandatory = $true)][string]$FullOfflineZipPath,
+    [string]$JavaZipPath,
+    [string]$FullOfflineZipPath,
     [string]$InstallerPath,
     [string]$AppImagePath,
     [string]$WorkRoot,
-    [string]$ReportRoot
+    [string]$ReportRoot,
+    [ValidateSet('all', 'java-standard', 'full-offline', 'windows-installer')]
+    [string]$Distribution = 'all'
 )
 
 $ErrorActionPreference = "Stop"
@@ -228,6 +230,15 @@ function Wait-ForHealthyApplication {
 function Test-ApplicationLayout {
     param([string]$Label, [string]$Root, [string]$Launcher, [string]$RuntimeRoot, [string]$LogRoot,
         [switch]$AdverseScenarios)
+    if ($null -eq $script:ReleaseTools) {
+        $jar = if (Test-Path -LiteralPath (Join-Path $Root 'app') -PathType Container) {
+            Join-Path $Root "app/PixivDownload-$Version.jar"
+        } else {
+            Join-Path $Root "PixivDownload-$Version.jar"
+        }
+        $jar = Resolve-RequiredFile $jar "$Label application JAR"
+        $script:ReleaseTools = Initialize-ReleaseProbe -ApplicationJar $jar -Destination (Join-Path $context.Session 'probe-tools')
+    }
     Test-ApplicationScenario -Label "$Label-headless" -Root $Root -Launcher $Launcher `
         -RuntimeRoot "$RuntimeRoot-headless" -LogRoot "$LogRoot-headless" -Headless
     foreach ($provider in @('gui-compose', 'gui-swing')) {
@@ -251,9 +262,6 @@ function Test-JavaArchive {
         -not (Test-Path -LiteralPath $jar -PathType Leaf)) {
         throw "$Label does not contain run.bat and the exact versioned application JAR"
     }
-    if ($null -eq $script:ReleaseTools) {
-        $script:ReleaseTools = Initialize-ReleaseProbe -ApplicationJar $jar -Destination (Join-Path $context.Session 'probe-tools')
-    }
     Test-ApplicationLayout -Label $Label -Root $Destination -Launcher $launcher `
         -RuntimeRoot (Join-Path $Destination ".e2e-runtime") -LogRoot (Join-Path $Destination "e2e")
 }
@@ -273,15 +281,23 @@ function Assert-PackagedRuntime {
 . (Join-Path $PSScriptRoot 'release-e2e/runtime.ps1')
 . (Join-Path $PSScriptRoot 'release-e2e/scenarios.ps1')
 
-$resolvedJavaZip = Resolve-RequiredFile $JavaZipPath "Java distribution"
-$resolvedFullOfflineZip = Resolve-RequiredFile $FullOfflineZipPath "Full-offline distribution"
-$resolvedInstaller = if ([string]::IsNullOrWhiteSpace($InstallerPath)) {
+$resolvedJavaZip = if ($Distribution -in @('all', 'java-standard')) {
+    Resolve-RequiredFile $JavaZipPath "Java distribution"
+} else { '' }
+$resolvedFullOfflineZip = if ($Distribution -in @('all', 'full-offline')) {
+    Resolve-RequiredFile $FullOfflineZipPath "Full-offline distribution"
+} else { '' }
+$resolvedInstaller = if ($Distribution -eq 'windows-installer') {
+    Resolve-RequiredFile $InstallerPath "Windows installer"
+} elseif ($Distribution -ne 'all' -or [string]::IsNullOrWhiteSpace($InstallerPath)) {
     ""
 } else {
     Resolve-RequiredFile $InstallerPath "Windows installer"
 }
-$resolvedAppImage = Resolve-OptionalDirectory $AppImagePath "Windows app image"
-if ([string]::IsNullOrWhiteSpace($resolvedInstaller) -and [string]::IsNullOrWhiteSpace($resolvedAppImage)) {
+$resolvedAppImage = if ($Distribution -eq 'all') {
+    Resolve-OptionalDirectory $AppImagePath "Windows app image"
+} else { '' }
+if ($Distribution -eq 'all' -and [string]::IsNullOrWhiteSpace($resolvedInstaller) -and [string]::IsNullOrWhiteSpace($resolvedAppImage)) {
     throw "Specify InstallerPath or AppImagePath so the packaged JVM is exercised."
 }
 
@@ -296,10 +312,14 @@ try {
     $script:ReleaseReportRoot = Join-Path $ReportRoot (Split-Path -Leaf $context.Session)
     [IO.Directory]::CreateDirectory($script:ReleaseReportRoot) | Out-Null
     Write-Host "Release E2E evidence: $script:ReleaseReportRoot"
-    Test-JavaArchive -Label "java-standard" -Archive $resolvedJavaZip `
-        -Destination (Join-Path $context.Session "java-standard")
-    Test-JavaArchive -Label "full-offline" -Archive $resolvedFullOfflineZip `
-        -Destination (Join-Path $context.Session "full-offline")
+    if ($resolvedJavaZip) {
+        Test-JavaArchive -Label "java-standard" -Archive $resolvedJavaZip `
+            -Destination (Join-Path $context.Session "java-standard")
+    }
+    if ($resolvedFullOfflineZip) {
+        Test-JavaArchive -Label "full-offline" -Archive $resolvedFullOfflineZip `
+            -Destination (Join-Path $context.Session "full-offline")
+    }
 
     if (-not [string]::IsNullOrWhiteSpace($resolvedAppImage)) {
         $isolatedImage = Join-Path $context.Session 'app-image'

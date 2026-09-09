@@ -31,9 +31,11 @@ runs:
         name: plugin-inputs
         path: artifacts/plugin-inputs
 
-    - name: Build plugin signature tool
-      shell: powershell
-      run: .\mvnw.cmd "-pl" "pixivdownload-plugin-signature" "-am" "package" "-DskipTests" "-Dexec.skip=true"
+    - name: Download release signature tool
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: release-signature-tool
+        path: artifacts/signature-tool
 
     - name: Package Windows setup
       shell: pwsh
@@ -45,10 +47,10 @@ runs:
           throw "Expected exactly one executable JAR artifact under artifacts/app-shell-jar, found $($jars.Count)"
         }
         $pluginsDir = (Resolve-Path artifacts/plugin-inputs).Path
-        $signatureTools = @(Get-ChildItem pixivdownload-plugin-signature/target/pixivdownload-plugin-signature-*.jar -File |
+        $signatureTools = @(Get-ChildItem artifacts/signature-tool/pixivdownload-plugin-signature-*.jar -File |
           Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
           Sort-Object LastWriteTime -Descending)
-        if ($signatureTools.Count -lt 1) {
+        if ($signatureTools.Count -ne 1) {
           throw "Could not find pixivdownload-plugin-signature tool jar."
         }
         ./scripts/package-local.ps1 `

@@ -1,0 +1,43 @@
+name: Stage release plugin inputs
+description: Verify the published catalog and upload signed plugins for both distribution formats
+
+inputs:
+  plugin_manifest_commit:
+    description: Optional commit containing the Nightly plugin manifest
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Stage official plugin inputs from signed catalog
+      shell: pwsh
+      env:
+        PLUGIN_MANIFEST_COMMIT: ${{ inputs.plugin_manifest_commit }}
+      run: |
+        $signatureTools = @(Get-ChildItem pixivdownload-plugin-signature/target/pixivdownload-plugin-signature-*.jar -File |
+          Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
+          Sort-Object LastWriteTime -Descending)
+        if ($signatureTools.Count -lt 1) {
+          throw "Could not find pixivdownload-plugin-signature tool jar."
+        }
+        $stageArgs = @{
+          OutputDir = "build/plugin-inputs"
+          SignatureToolJar = $signatureTools[0].FullName
+          IncludeOptional = $true
+          RequireProguard = $true
+        }
+        if (-not [string]::IsNullOrWhiteSpace($env:PLUGIN_MANIFEST_COMMIT)) {
+          if ($env:PLUGIN_MANIFEST_COMMIT -notmatch '^[0-9a-f]{40}$') {
+            throw "Invalid plugin manifest commit: $env:PLUGIN_MANIFEST_COMMIT"
+          }
+          $stageArgs["ManifestUrl"] = "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/$env:PLUGIN_MANIFEST_COMMIT/nightly-manifest.json"
+        }
+        ./scripts/stage-official-plugin-inputs-from-catalog.ps1 @stageArgs
+
+    - name: Upload plugin inputs artifact
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      with:
+        name: plugin-inputs
+        path: build/plugin-inputs/*
+        if-no-files-found: error

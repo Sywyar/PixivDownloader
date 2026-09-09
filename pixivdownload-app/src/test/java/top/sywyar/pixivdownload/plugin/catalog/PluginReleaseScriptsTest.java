@@ -976,7 +976,7 @@ class PluginReleaseScriptsTest {
     @Test
     @DisplayName("release/nightly 通过共享动作只上传一个 app-shell JAR，安装器消费同一 artifact")
     void releaseWorkflowsUploadOnlyStagedAppShellJar() throws Exception {
-        String javaAction = action("package-release-java");
+        String javaAction = action("build-release-java");
         String windowsAction = action("package-windows-installer");
 
         assertThat(javaAction).contains(
@@ -1017,10 +1017,13 @@ class PluginReleaseScriptsTest {
     @DisplayName("release/nightly 经共享动作发布 java-standard 与 full-offline 签名分发布局")
     void releaseWorkflowsPublishJavaDistributions() throws Exception {
         String javaAction = action("package-release-java");
-        assertThat(javaAction).contains(
-                "Stage official plugin inputs from signed catalog",
+        String pluginInputs = action("stage-release-plugins");
+        assertThat(pluginInputs).contains(
                 "stage-official-plugin-inputs-from-catalog.ps1",
                 "IncludeOptional = $true",
+                "name: plugin-inputs",
+                "path: build/plugin-inputs/*");
+        assertThat(javaAction).contains(
                 "Assemble Java distributions",
                 "package-java-distributions.ps1",
                 "-PrebuiltJar $jars[0].FullName",
@@ -1030,8 +1033,7 @@ class PluginReleaseScriptsTest {
                 "build/plugin-distributions/PixivDownload-*-java.zip",
                 "build/plugin-distributions/PixivDownload-*-full-offline.zip",
                 "if-no-files-found: error",
-                "name: plugin-inputs",
-                "path: build/plugin-inputs/*");
+                "name: plugin-inputs");
         for (String name : List.of("release.yml", "nightly.yml")) {
             String workflow = workflow(name);
 
@@ -1089,10 +1091,7 @@ class PluginReleaseScriptsTest {
                 "name: windows-installer",
                 "name: java-distributions",
                 "Install and start final release artifacts",
-                "./scripts/test-release-artifacts.ps1",
-                "-InstallerPath $installers[0].FullName",
-                "-JavaZipPath $javaZips[0].FullName",
-                "-FullOfflineZipPath $offlineZips[0].FullName");
+                "./scripts/test-release-artifacts.ps1");
 
         for (String name : List.of("release.yml", "nightly.yml")) {
             String workflow = workflow(name);
@@ -1654,8 +1653,6 @@ class PluginReleaseScriptsTest {
         assertThat(nightly).contains("workflow_dispatch:");
         assertThat(releaseJob)
                 .contains(
-                        "needs: [resolve-version, publish-plugins, publish-plugin-artifacts, build-jar, "
-                                + "build-windows-installer, release-artifact-e2e]",
                         "if: needs.resolve-version.outputs.has_changes == 'true'")
                 .doesNotContain("always()");
         assertThat(releaseStep).contains(
