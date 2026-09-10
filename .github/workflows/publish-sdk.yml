@@ -143,7 +143,8 @@ jobs:
         run: |
           set -euo pipefail
           group_path="io/github/sywyar/pixivdownloader"
-          artifacts=(pixivdownload-sdk-info pixivdownload-plugin-api pixivdownload-core-api pixivdownload-sdk-bom)
+          sdk_modules="$(node scripts/ci/sdk-version.mjs --modules)"
+          IFS=, read -r -a artifacts <<< "$sdk_modules"
           central_count=0
           for artifact in "${artifacts[@]}"; do
             url="$CENTRAL_BASE_URL/$group_path/$artifact/$SDK_VERSION/$artifact-$SDK_VERSION.pom"
@@ -198,7 +199,9 @@ jobs:
       - name: Publish SDK artifacts to Maven Central
         if: ${{ needs.release-plan.outputs.mode == 'publish' }}
         run: |
-          mvn -B -ntp -P sdk-central -pl pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api,pixivdownload-sdk-bom deploy \
+          set -euo pipefail
+          sdk_modules="$(node scripts/ci/sdk-version.mjs --modules)"
+          mvn -B -ntp -P sdk-central -pl "$sdk_modules" deploy \
             -DskipTests -Dexec.skip=true -Dpixivdownload.source.sha="$GITHUB_SHA"
 
       - name: Download and verify public Maven artifacts
@@ -208,7 +211,8 @@ jobs:
           repository="$GITHUB_WORKSPACE/target/sdk-public-central"
           rm -rf "$repository"
           group_path="io/github/sywyar/pixivdownloader"
-          artifacts=(pixivdownload-sdk-info pixivdownload-plugin-api pixivdownload-core-api pixivdownload-sdk-bom)
+          sdk_modules="$(node scripts/ci/sdk-version.mjs --modules)"
+          IFS=, read -r -a artifacts <<< "$sdk_modules"
           for attempt in $(seq 1 30); do
             available=true
             for artifact in "${artifacts[@]}"; do
@@ -268,7 +272,7 @@ jobs:
           PixivDownloader Plugin SDK $SDK_VERSION
 
           Source: https://github.com/Sywyar/PixivDownloader/commit/$GITHUB_SHA
-          Maven BOM: io.github.sywyar.pixivdownloader:pixivdownload-sdk-bom:$SDK_VERSION
+          Maven SDK: io.github.sywyar.pixivdownloader:pixivdownload-sdk:$SDK_VERSION
           Javadocs: docs/javadocs/index.html in the SDK archive
           EOF
           args=(--repo "$SDK_REPOSITORY" --title "$RELEASE_ID" --notes-file "$notes")

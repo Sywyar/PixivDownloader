@@ -6,14 +6,7 @@ import process from 'node:process';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { inspectSdkVersion, parseSdkVersion, readSdkIdentity, SDK_GROUP_ID } from './sdk-version.mjs';
-
-const CONSUMER_POM_MODULES = [
-    'pixivdownload-sdk-info',
-    'pixivdownload-plugin-api',
-    'pixivdownload-core-api',
-    'pixivdownload-sdk-bom'
-];
+import { inspectSdkVersion, parseSdkVersion, readSdkIdentity, sdkModulesAtRef, SDK_GROUP_ID, SDK_MODULES } from './sdk-version.mjs';
 
 function lines(text) {
     return new Set(text.split(/\r?\n/u).filter(Boolean));
@@ -150,9 +143,9 @@ export function evaluateContract({
 }
 
 export function changedMavenContracts(baseSdkRoot, candidateSdkRoot, baseSdkVersion, candidateSdkVersion,
-        allowMissingBase = false) {
+        allowMissingBase = false, baseModules = SDK_MODULES) {
     const changes = [];
-    for (const module of CONSUMER_POM_MODULES) {
+    for (const module of SDK_MODULES) {
         const relative = path.join(module, 'target', 'flattened-pom.xml');
         const basePath = path.join(baseSdkRoot, relative);
         const candidatePath = path.join(candidateSdkRoot, relative);
@@ -160,7 +153,9 @@ export function changedMavenContracts(baseSdkRoot, candidateSdkRoot, baseSdkVers
             throw new Error(`Missing candidate consumer POM: ${relative}`);
         }
         if (!fs.existsSync(basePath)) {
-            if (!allowMissingBase) throw new Error(`Missing base consumer POM: ${relative}`);
+            if (!allowMissingBase && baseModules.includes(module)) {
+                throw new Error(`Missing base consumer POM: ${relative}`);
+            }
             changes.push(`${module}/maven-consumer-contract`);
             continue;
         }
@@ -271,7 +266,7 @@ function main() {
                 path.resolve(options.candidateSdkRoot),
                 baseIdentity.version,
                 candidateIdentity.version,
-                Boolean(baseIdentity.legacyRevision)),
+                Boolean(baseIdentity.legacyRevision), sdkModulesAtRef(repoRoot, options.baseRef)),
         stableBaseline: baseline });
     const report = {
         schemaVersion: 2,

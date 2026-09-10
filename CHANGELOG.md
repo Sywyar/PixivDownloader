@@ -11,7 +11,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 ### Features
 - 完成应用插件化：主程序收敛为核心壳；下载工作台、桌面 GUI、画廊、小说、统计与重复检测、通知、推送、邮件、TTS 和 AI 等能力改为独立外置插件。插件通过稳定的 `plugin-api` / `core-api`、owner-scoped 存储与 capability 协作，并由统一安装和生命周期管理。
 - 新增繁體中文（zh-Hant）、韩语（ko-KR）和日语（ja-JP）界面、在线文档与公告。
-- 发布独立版本的第三方插件 SDK。SDK BOM 对齐 `sdk-info`、`plugin-api` 与 `core-api`，版本独立于应用；发行包包含可直接用于 IntelliJ IDEA、VS Code 或 Eclipse 的下载类型插件工程、完整 Javadoc、源码追溯、摘要与签名，并通过同一源码提交的质量门禁发布到 Maven Central 和独立 SDK 仓库。
+- 发布独立版本的第三方插件 SDK。开发者通过单个 `pixivdownload-sdk` 依赖取得公开契约与宿主提供的编译依赖，Maven、Gradle 和 sbt 均可使用；原有 API 模块与 BOM 继续保留。发行包包含可直接用于 IntelliJ IDEA、VS Code 或 Eclipse 的下载类型插件工程、完整 Javadoc、源码追溯、摘要与签名，并通过同一源码提交的质量门禁发布到 Maven Central 和独立 SDK 仓库。
 - Web 插件市场支持浏览、筛选、安装和更新官方或自定义仓库插件，并可通过公网 HTTPS `repository.json` 预览、确认后导入第三方仓库；仓库目录兼容 `manifest-v1` 与分页的 `paged-v2`。Web 管理页提供插件状态、依赖、诊断、本地上传和完整生命周期操作，桌面端提供状态与市场 / 仓库配置入口。
 - 插件管理和桌面配置统一采用热重载、重启后端、重启软件三级生效语义。
 - 管理员站内信归入 `notification` 插件，与邮件、推送并行接收计划任务通知和本轮不重试的维护失败。下载通知与系统消息共用可配置的 500 封、90 天保留池；公告不自动清理，显式删除后不再恢复。公告 HTML 首次同步后离线保存，同一 ID 不覆盖；外部 HTTP(S) 链接先显示目标并经确认后跳转。

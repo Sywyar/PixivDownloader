@@ -13,6 +13,7 @@ const ARTIFACTS = [
     ['pixivdownload-sdk-info', ['pom', 'jar']],
     ['pixivdownload-plugin-api', ['pom', 'jar']],
     ['pixivdownload-core-api', ['pom', 'jar']],
+    ['pixivdownload-sdk', ['pom', 'jar']],
 ];
 
 function writeRepository(root) {

@@ -16,6 +16,7 @@
         <module>../pixivdownload-plugin-api</module>
         <module>../pixivdownload-core-api</module>
         <module>../pixivdownload-sdk-bom</module>
+        <module>../pixivdownload-sdk</module>
         <module>minimal-feature-plugin</module>
         <module>download-type-plugin</module>
     </modules>

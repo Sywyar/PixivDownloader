@@ -18,7 +18,7 @@ Before publishing a real plugin, replace these identities consistently:
 | `example-download` i18n namespace | Your unique web i18n namespace |
 | `/api/example-download/**` and `/example-download/**` | Plugin-owned API and static paths |
 
-Build from this directory with `mvn clean verify`, or build both repository templates with `mvn -f ../pom.xml clean verify`. The output is a thin PF4J JAR. PixivDownloader supplies Plugin API, PF4J, Spring, and Jackson from its parent classloader, so every such dependency remains `provided` and must not be copied into the JAR.
+Build with JDK 17, Maven and Node.js using `mvn clean verify`, or build both repository templates with `mvn -f ../pom.xml clean verify`. The POM declares one `pixivdownload-sdk` dependency with `provided` scope, plus JUnit for tests. The SDK supplies public contracts, PF4J, Spring, Servlet and Jackson transitively. The output remains a thin PF4J JAR without copies of those libraries. The configured candidate SDK version must be available in your Maven repository.
 
 The verified `pixiv.kind`, `pixiv.configuration-classes`, `pixiv.execution-mode`, and `pixiv.lifecycle-policy` entries in `plugin.properties` are authoritative at runtime. Keep the compatibility `configurationClasses()` result aligned with the descriptor for older hosts and SDK tooling.
 

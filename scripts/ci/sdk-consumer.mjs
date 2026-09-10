@@ -8,7 +8,7 @@ import process from 'node:process';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 
 import { assertThinJarEntries } from './sdk-release.mjs';
-import { inspectSdkVersion, SDK_GROUP_ID } from './sdk-version.mjs';
+import { inspectSdkVersion, SDK_ARTIFACTS, SDK_GROUP_ID } from './sdk-version.mjs';
 
 function fail(message) {
     throw new Error(message);
@@ -202,16 +202,9 @@ function parseArguments(argv) {
     return options;
 }
 
-const SDK_ARTIFACTS = [
-    ['pixivdownload-sdk-bom', ['pom']],
-    ['pixivdownload-sdk-info', ['pom', 'jar']],
-    ['pixivdownload-plugin-api', ['pom', 'jar']],
-    ['pixivdownload-core-api', ['pom', 'jar']],
-];
-
 function sdkArtifactFiles(repository, version) {
     const group = SDK_GROUP_ID.split('.');
-    return SDK_ARTIFACTS.flatMap(([artifact, extensions]) => extensions.map((extension) => ({
+    return SDK_ARTIFACTS.flatMap(([artifact, packaging]) => (packaging === 'pom' ? ['pom'] : ['pom', 'jar']).map((extension) => ({
         artifact,
         file: path.join(repository, ...group, artifact, version, `${artifact}-${version}.${extension}`),
     })));
@@ -288,14 +281,20 @@ export function verifyConsumer(options) {
         '-Dmaven.test.skip=true', '-f', douyinPom, 'clean', 'package',
     ], repoRoot);
 
-    runMaven(['-s', settings, `-Dmaven.repo.local=${localRepository}`, 'clean', 'verify']);
+    const buildTemplates = offline => {
+        for (const pom of ['pom.xml', 'examples/minimal-feature-plugin/pom.xml']) {
+            runMaven([...(offline ? ['-o'] : []), '-s', settings,
+                `-Dmaven.repo.local=${localRepository}`, '-f', path.join(project, pom), 'clean', 'verify']);
+        }
+    };
+    buildTemplates(false);
     runMaven(['-s', settings, `-Dmaven.repo.local=${localRepository}`,
         'org.apache.maven.plugins:maven-dependency-plugin:3.8.1:get',
         `-Dartifact=${SDK_GROUP_ID}:pixivdownload-core-api:${identity.version}`,
     ]);
     buildDouyin(false);
     stageSdkArtifacts(localRepository, sdkRepository, identity.version);
-    runMaven(['-o', '-s', settings, `-Dmaven.repo.local=${localRepository}`, 'clean', 'verify']);
+    buildTemplates(true);
     runMaven(['-o', '-s', settings, `-Dmaven.repo.local=${localRepository}`,
         'org.apache.maven.plugins:maven-dependency-plugin:3.8.1:get',
         `-Dartifact=${SDK_GROUP_ID}:pixivdownload-core-api:${identity.version}`,
@@ -304,6 +303,7 @@ export function verifyConsumer(options) {
     assertSdkResolution(localRepository, sdkRepository, identity.version);
     const pluginJar = path.join(project, 'plugin', 'target', 'example-download-plugin-0.1.0.jar');
     thinJarEntries(pluginJar);
+    thinJarEntries(path.join(project, 'examples', 'minimal-feature-plugin', 'target', 'example-minimal-plugin-0.1.0.jar'));
     const douyinCandidates = fs.readdirSync(douyinBuildDirectory)
             .filter(name => /^pixivdownload-plugin-douyin-.+\.jar$/u.test(name))
             .filter(name => !name.endsWith('-sources.jar') && !name.endsWith('-javadoc.jar'));

@@ -16,7 +16,8 @@ const CONSUMER_POM_MODULES = [
     'pixivdownload-sdk-info',
     'pixivdownload-plugin-api',
     'pixivdownload-core-api',
-    'pixivdownload-sdk-bom'
+    'pixivdownload-sdk-bom',
+    'pixivdownload-sdk'
 ];
 
 function identity(version, legacyRevision = 0) {
@@ -113,6 +114,7 @@ test('Wrapper 纯权限变化不属于 SDK 语义合同', () => {
             'pixivdownload-plugin-api/pom.xml',
             'pixivdownload-core-api/pom.xml',
             'pixivdownload-sdk-bom/pom.xml',
+            'pixivdownload-sdk/pom.xml',
             'plugin-templates/minimal-feature-plugin/pom.xml',
             'plugin-templates/download-type-plugin/pom.xml'
         ]) copy(root, relativePath);
@@ -217,6 +219,27 @@ test('首次结构化身份把旧基线缺少的 consumer POM 视为 Maven 合�
         fs.rmSync(path.join(candidate, CONSUMER_POM_MODULES[0], 'target', 'flattened-pom.xml'));
         assert.throws(() => changedMavenContracts(base, candidate, '1.0.0', '1.0.0-rc1', true),
                 /Missing candidate consumer POM/u);
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test('新增坐标区分基线尚未声明与已有坐标构建产物缺失', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pixivdownload-sdk-new-coordinate-'));
+    const base = path.join(root, 'base');
+    const candidate = path.join(root, 'candidate');
+    try {
+        writeConsumerPoms(base, '1.0.0-rc3', 'Base');
+        writeConsumerPoms(candidate, '1.0.0-rc4', 'Candidate');
+        fs.rmSync(path.join(base, 'pixivdownload-sdk', 'target', 'flattened-pom.xml'));
+        const previousModules = CONSUMER_POM_MODULES.filter(module => module !== 'pixivdownload-sdk');
+        const changes = changedMavenContracts(base, candidate, '1.0.0-rc3', '1.0.0-rc4', false, previousModules);
+        assert.deepEqual(changes, ['pixivdownload-sdk/maven-consumer-contract']);
+        assert.throws(() => changedMavenContracts(base, candidate, '1.0.0-rc3', '1.0.0-rc4'),
+                /Missing base consumer POM/u);
+        fs.rmSync(path.join(base, 'pixivdownload-plugin-api', 'target', 'flattened-pom.xml'));
+        assert.throws(() => changedMavenContracts(base, candidate, '1.0.0-rc3', '1.0.0-rc4', false, previousModules),
+                /Missing base consumer POM/u);
     } finally {
         fs.rmSync(root, { recursive: true, force: true });
     }

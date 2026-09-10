@@ -164,8 +164,7 @@ test('Quality Gate preserves required roles and the active event contract', () =
     const sdkResolve = javaSteps.find((step) => step.env?.INPUT_TRUSTED_BASE_SHA !== undefined);
     const releaseBuild = javaSteps.find((step) => /\bverify\b.*-Pofficial-surveys/.test(step.run || ''));
     const releaseBoundary = javaSteps.find((step) => /DistributionPackagingBoundaryTest/.test(step.run || ''));
-    const sdkPackage = javaSteps.find((step) => /\b(?:package|deploy)\b/.test(step.run || '')
-        && /pixivdownload-sdk-bom/.test(step.run));
+    const sdkPackage = javaSteps.find((step) => /-DaltDeploymentRepository=/.test(step.run || ''));
     const sdkContract = javaSteps.find((step) => /sdk-contract\.mjs/.test(step.run || ''));
     assert.equal(sdkResolve.env.INPUT_TRUSTED_BASE_SHA, '${{ inputs.trusted_base_sha }}');
     assert.match(sdkResolve.run, /resolve-trusted-base\.mjs/u);
@@ -176,6 +175,17 @@ test('Quality Gate preserves required roles and the active event contract', () =
     assert.match(releaseBoundary.run, /distribution\.packaging\.require-artifacts=true/u);
     assert.match(releaseBoundary.run, /Failures: 0, Errors: 0, Skipped: 0/u);
     assert.ok(sdkPackage, 'SDK consumer artifacts must be built');
+    const sdkArguments = execFileSync('bash', ['-e', '-o', 'pipefail', '-c',
+        `mvn() { printf 'MAVEN_ARGUMENT:%s\\n' "$@"; }\n${sdkPackage.run}`], {
+        cwd: ROOT, encoding: 'utf8',
+        env: { ...process.env, GITHUB_WORKSPACE: ROOT.replaceAll('\\', '/'), SOURCE_SHA: 'a'.repeat(40) },
+    }).trim().split('\n').filter(line => line.startsWith('MAVEN_ARGUMENT:'))
+        .map(line => line.slice('MAVEN_ARGUMENT:'.length));
+    assert.deepEqual(sdkArguments[sdkArguments.indexOf('-pl') + 1].split(','), [
+        'pixivdownload-sdk-info', 'pixivdownload-plugin-api', 'pixivdownload-core-api',
+        'pixivdownload-sdk-bom', 'pixivdownload-sdk',
+    ], 'Maven receives every public SDK module as one argument');
+    assert.ok(sdkArguments.includes('deploy'), 'SDK artifacts must reach the staging repository');
     assert.match(sdkContract.run, /git archive "\$SDK_BASE_SHA"/u);
     assert.match(sdkContract.run, /sdk-api-surface\.mjs/u);
     assert.match(sdkContract.run, /sdk-contract\.mjs/u);

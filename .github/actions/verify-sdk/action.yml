@@ -17,7 +17,8 @@ runs:
         set -euo pipefail
         staging="$GITHUB_WORKSPACE/target/sdk-staging"
         staging_url="$(node --input-type=module -e 'import { pathToFileURL } from "node:url"; console.log(pathToFileURL(process.argv[1]).href)' "$staging")"
-        mvn -B -ntp -pl pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api,pixivdownload-sdk-bom deploy \
+        sdk_modules="$(node scripts/ci/sdk-version.mjs --modules)"
+        mvn -B -ntp -pl "$sdk_modules" deploy \
           -DskipTests -Dexec.skip=true "-Dpixivdownload.source.sha=$SOURCE_SHA" \
           "-DaltDeploymentRepository=sdk-staging::$staging_url"
         mvn -B -ntp -pl pixivdownload-plugin-signature package -DskipTests -Dexec.skip=true
@@ -25,6 +26,17 @@ runs:
     - name: Verify standalone plugin templates
       shell: bash
       run: mvn -B -ntp -f plugin-templates/pom.xml -pl minimal-feature-plugin,download-type-plugin verify
+
+    - name: Verify single SDK dependency across build tools
+      shell: bash
+      run: |
+        set -euo pipefail
+        launcher="$GITHUB_WORKSPACE/target/sbt-launch-1.10.11.jar"
+        curl --fail --show-error --silent --location \
+          https://repo.maven.apache.org/maven2/org/scala-sbt/sbt-launch/1.10.11/sbt-launch-1.10.11.jar \
+          --output "$launcher"
+        printf '%s  %s\n' e988d533a020e5b60ec22c3b5df4cd3e3df465f4fdc3951c63036e21483978e4 "$launcher" | sha256sum --check
+        node scripts/ci/sdk-build-tools.mjs --sdk-repository target/sdk-staging --sbt-launcher "$launcher"
 
     - name: Generate complete SDK Javadocs
       shell: bash

@@ -7,14 +7,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
-import { inspectSdkVersion, SDK_GROUP_ID } from './sdk-version.mjs';
-
-const MODULES = [
-    ['pixivdownload-sdk-info', 'jar'],
-    ['pixivdownload-plugin-api', 'jar'],
-    ['pixivdownload-core-api', 'jar'],
-    ['pixivdownload-sdk-bom', 'pom'],
-];
+import { inspectSdkVersion, SDK_ARTIFACTS, SDK_GROUP_ID } from './sdk-version.mjs';
 const ARCHIVE_TIME = new Date('1980-01-01T00:00:00.000Z');
 
 function fail(message) {
@@ -41,7 +34,7 @@ export function createProjectManifest(identity, sourceSha, minimumVerifiedHostRe
         minimumVerifiedHostRelease: minimumVerifiedHostRelease || null,
         verifiedHostSourceSha: minimumVerifiedHostRelease ? sourceSha : null,
         javaVersion: 17,
-        mavenCoordinates: MODULES.map(([artifactId, packaging]) => ({
+        mavenCoordinates: SDK_ARTIFACTS.map(([artifactId, packaging]) => ({
             groupId: SDK_GROUP_ID,
             artifactId,
             version: identity.version,
@@ -120,8 +113,9 @@ function assertConsumerPom(file, artifactId, version, sourceSha) {
         const managed = [...pom.matchAll(/<dependency>[\s\S]*?<\/dependency>/gu)]
                 .map(match => match[0])
                 .filter(block => block.includes(`<groupId>${SDK_GROUP_ID}</groupId>`));
-        const expected = new Set(['pixivdownload-sdk-info', 'pixivdownload-plugin-api', 'pixivdownload-core-api']);
-        if (managed.length !== expected.size) fail('SDK BOM consumer POM must manage exactly three SDK artifacts');
+        const expected = new Set(SDK_ARTIFACTS.filter(([, packaging]) => packaging === 'jar')
+                .map(([artifact]) => artifact));
+        if (managed.length !== expected.size) fail('SDK BOM consumer POM must manage all SDK JAR artifacts');
         for (const block of managed) {
             const managedArtifact = block.match(/<artifactId>([^<]+)<\/artifactId>/u)?.[1];
             if (!expected.delete(managedArtifact) || !block.includes(`<version>${version}</version>`)) {
@@ -133,7 +127,7 @@ function assertConsumerPom(file, artifactId, version, sourceSha) {
 }
 
 function validateReleaseInputs(root, identity, sourceSha) {
-    for (const [artifactId, packaging] of MODULES) {
+    for (const [artifactId, packaging] of SDK_ARTIFACTS) {
         const moduleRoot = path.join(root, artifactId);
         assertConsumerPom(path.join(moduleRoot, 'target', 'flattened-pom.xml'), artifactId, identity.version,
                 sourceSha);

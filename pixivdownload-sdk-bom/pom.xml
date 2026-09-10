@@ -20,6 +20,11 @@
         <dependencies>
             <dependency>
                 <groupId>io.github.sywyar.pixivdownloader</groupId>
+                <artifactId>pixivdownload-sdk</artifactId>
+                <version>${pixivdownload.sdk.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.sywyar.pixivdownloader</groupId>
                 <artifactId>pixivdownload-sdk-info</artifactId>
                 <version>${pixivdownload.sdk.version}</version>
             </dependency>

@@ -15,45 +15,20 @@
         <maven.compiler.release>17</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-        <pixivdownload.sdk.version>1.0.0-rc3</pixivdownload.sdk.version>
-        <pf4j.version>3.12.0</pf4j.version>
+        <pixivdownload.sdk.version>1.0.0-rc4</pixivdownload.sdk.version>
     </properties>
 
-    <dependencyManagement>
-        <dependencies>
-            <dependency>
-                <groupId>io.github.sywyar.pixivdownloader</groupId>
-                <artifactId>pixivdownload-sdk-bom</artifactId>
-                <version>${pixivdownload.sdk.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-        </dependencies>
-    </dependencyManagement>
-
     <dependencies>
-        <!-- Shared contracts: the host parent classloader must provide the only copy. -->
         <dependency>
             <groupId>io.github.sywyar.pixivdownloader</groupId>
-            <artifactId>pixivdownload-sdk-info</artifactId>
+            <artifactId>pixivdownload-sdk</artifactId>
+            <version>${pixivdownload.sdk.version}</version>
             <scope>provided</scope>
         </dependency>
-        <dependency>
-            <groupId>io.github.sywyar.pixivdownloader</groupId>
-            <artifactId>pixivdownload-plugin-api</artifactId>
-            <scope>provided</scope>
-        </dependency>
-        <!-- PF4J owns loading; the host supplies the framework classes. -->
-        <dependency>
-            <groupId>org.pf4j</groupId>
-            <artifactId>pf4j</artifactId>
-            <version>${pf4j.version}</version>
-            <scope>provided</scope>
-        </dependency>
-
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
+            <version>5.12.2</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

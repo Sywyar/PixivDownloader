@@ -20,7 +20,7 @@ test('SDK 发布元数据使用结构化版本、精确源码与附件摘要', (
     assert.equal(project.prereleaseSequence, 4);
     assert.equal(project.minimumVerifiedHostRelease, null);
     assert.equal(project.verifiedHostSourceSha, null);
-    assert.equal(project.mavenCoordinates.length, 4);
+    assert.equal(project.mavenCoordinates.length, 5);
     assert.ok(project.mavenCoordinates.every(item => item.groupId === 'io.github.sywyar.pixivdownloader'));
     const hostVerified = createProjectManifest(parseSdkVersion('1.2.3-rc4'), 'a'.repeat(40), 'v1.14.0');
     assert.equal(hostVerified.minimumVerifiedHostRelease, 'v1.14.0');

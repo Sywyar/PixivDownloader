@@ -7,18 +7,26 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const METADATA_PATH = 'pixivdownload-sdk-info/src/main/resources/META-INF/pixivdownload-sdk.properties';
-const SDK_MODULES = [
-    'pixivdownload-sdk-info',
-    'pixivdownload-plugin-api',
-    'pixivdownload-core-api',
-    'pixivdownload-sdk-bom'
-];
+export const SDK_ARTIFACTS = Object.freeze([
+    ['pixivdownload-sdk-info', 'jar'],
+    ['pixivdownload-plugin-api', 'jar'],
+    ['pixivdownload-core-api', 'jar'],
+    ['pixivdownload-sdk-bom', 'pom'],
+    ['pixivdownload-sdk', 'jar'],
+].map(Object.freeze));
+export const SDK_MODULES = Object.freeze(SDK_ARTIFACTS.map(([artifact]) => artifact));
 const TEMPLATE_POMS = [
     'plugin-templates/minimal-feature-plugin/pom.xml',
     'plugin-templates/download-type-plugin/pom.xml'
 ];
 export const SDK_GROUP_ID = 'io.github.sywyar.pixivdownloader';
 const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(alpha|beta|rc)([1-9]\d*))?$/;
+
+export function sdkModulesAtRef(repoRoot, ref = '') {
+    const pom = readText(repoRoot, 'pom.xml', ref);
+    const modules = new Set([...pom.matchAll(/<module>\s*([^<]+?)\s*<\/module>/gu)].map(match => match[1]));
+    return SDK_MODULES.filter(module => modules.has(module));
+}
 
 export function parseSdkVersion(version) {
     const match = VERSION_PATTERN.exec(version);
@@ -107,6 +115,7 @@ export function inspectSdkVersion(repoRoot, ref = '') {
     const identity = readSdkIdentity(repoRoot, ref);
     const version = identity.version;
     const rootPom = readText(repoRoot, 'pom.xml', ref);
+    assertEqual(sdkModulesAtRef(repoRoot, ref).join(','), SDK_MODULES.join(','), 'Root SDK modules');
     const mavenProjection = oneMatch(rootPom, /<revision>\s*([^<]+?)\s*<\/revision>/gu, 'Maven SDK revision projection');
     assertEqual(mavenProjection, version, 'Maven SDK version projection');
     assertEqual(
@@ -132,23 +141,23 @@ export function inspectSdkVersion(repoRoot, ref = '') {
     }
 
     const bom = readText(repoRoot, 'pixivdownload-sdk-bom/pom.xml', ref);
-    const managedGroups = [...bom.matchAll(/<groupId>\s*(io\.github\.sywyar\.pixivdownloader)\s*<\/groupId>\s*<artifactId>pixivdownload-(?:sdk-info|plugin-api|core-api)<\/artifactId>/gu)];
-    if (managedGroups.length !== 3) {
-        throw new Error(`SDK BOM must manage exactly three artifacts from ${SDK_GROUP_ID}, found ${managedGroups.length}`);
+    const managedGroups = [...bom.matchAll(/<groupId>\s*(io\.github\.sywyar\.pixivdownloader)\s*<\/groupId>\s*<artifactId>pixivdownload-(?:sdk|sdk-info|plugin-api|core-api)<\/artifactId>/gu)];
+    if (managedGroups.length !== 4) {
+        throw new Error(`SDK BOM must manage exactly four artifacts from ${SDK_GROUP_ID}, found ${managedGroups.length}`);
     }
     const managedVersions = [...bom.matchAll(/<version>\s*(\$\{pixivdownload\.sdk\.version\})\s*<\/version>/g)];
-    if (managedVersions.length !== 3) {
-        throw new Error(`SDK BOM must manage exactly three SDK artifacts, found ${managedVersions.length}`);
+    if (managedVersions.length !== 4) {
+        throw new Error(`SDK BOM must manage exactly four SDK artifacts, found ${managedVersions.length}`);
     }
 
     for (const templatePom of TEMPLATE_POMS) {
         const pom = readText(repoRoot, templatePom, ref);
-        const importedBomGroup = oneMatch(
+        const sdkGroup = oneMatch(
                 pom,
-                /<groupId>\s*([^<]+?)\s*<\/groupId>\s*<artifactId>pixivdownload-sdk-bom<\/artifactId>/gu,
-                `${templatePom} SDK BOM group id`
+                /<groupId>\s*([^<]+?)\s*<\/groupId>\s*<artifactId>pixivdownload-sdk<\/artifactId>/gu,
+                `${templatePom} SDK group id`
         );
-        assertEqual(importedBomGroup, SDK_GROUP_ID, `${templatePom} SDK BOM group id`);
+        assertEqual(sdkGroup, SDK_GROUP_ID, `${templatePom} SDK group id`);
         const templateVersion = oneMatch(
                 pom,
                 /<pixivdownload\.sdk\.version>\s*([^<]+?)\s*<\/pixivdownload\.sdk\.version>/gu,
@@ -160,7 +169,7 @@ export function inspectSdkVersion(repoRoot, ref = '') {
 }
 
 function parseArguments(argv) {
-    const options = { repoRoot: '.', ref: '', json: false };
+    const options = { repoRoot: '.', ref: '', json: false, modules: false };
     for (let index = 0; index < argv.length; index += 1) {
         const argument = argv[index];
         if (argument === '--repo-root') {
@@ -169,6 +178,8 @@ function parseArguments(argv) {
             options.ref = argv[++index];
         } else if (argument === '--json') {
             options.json = true;
+        } else if (argument === '--modules') {
+            options.modules = true;
         } else {
             throw new Error(`Unknown argument: ${argument}`);
         }
@@ -181,6 +192,10 @@ function parseArguments(argv) {
 
 function main() {
     const options = parseArguments(process.argv.slice(2));
+    if (options.modules) {
+        process.stdout.write(`${sdkModulesAtRef(path.resolve(options.repoRoot), options.ref).join(',')}\n`);
+        return;
+    }
     const identity = inspectSdkVersion(path.resolve(options.repoRoot), options.ref);
     if (options.json) {
         process.stdout.write(`${JSON.stringify(identity)}\n`);
