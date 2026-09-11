@@ -8,6 +8,10 @@
 
 ## 开始开发
 
+根 Maven 工程和三个 `examples/` 工程各自包含已纳入 Git 的 `.pixivdownloader-plugin-project`。该文件只标识选中工程的格式，不证明身份或安全；`sdk-project.json` 另行固定开发环境。插件 JAR、`.dev/` 和运行附件不包含工程标识。
+
+开发者在包内 `plugin.properties` 的 `pixiv.risk-signals` 中声明能力，使用逗号分隔的 token。根工程、Gradle 和 sbt 示例是显式空声明；下载类型示例声明 `HOST_DATA_ACCESS`，对应其使用的宿主身份与任务上下文。添加行为时一并更新声明；缺失、空值或没有扫描命中均不代表安全，也不授予运行时权限。
+
 安装 JDK 17 和 Node.js，让 `java`、`node` 可从命令行调用。IDE 导入只解析工程。显式 Run / Debug 才编译当前插件、准备固定运行包并启动完整应用；构建失败会中止启动。Maven Wrapper 会取得固定版本的 Maven，无需克隆宿主仓库或手工复制宿主和官方插件。首次应用配置使用宿主自己的 setup 流程。
 
 | IDE | 导入 | 运行 | 调试 |

@@ -5,6 +5,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginRiskDeclaration;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 
@@ -86,6 +87,7 @@ public final class PluginPackageReader {
     static final String KEY_PIXIV_EXECUTION_MODE = "pixiv.execution-mode";
     static final String KEY_PIXIV_KIND = "pixiv.kind";
     static final String KEY_PIXIV_CONFIGURATION_CLASSES = "pixiv.configuration-classes";
+    static final String KEY_PIXIV_RISK_SIGNALS = "pixiv.risk-signals";
 
     private PluginPackageReader() {
     }
@@ -367,7 +369,10 @@ public final class PluginPackageReader {
         }
         return new PluginDescriptor(id, id, version, requires, dependencies, pluginClass, displayNamespace,
                 displayName, description, iconKey, colorToken, kind, replaces, lifecyclePolicy,
-                executionMode, configurationClassNames);
+                executionMode, configurationClassNames,
+                new PluginRiskDeclaration(
+                        properties.containsKey(KEY_PIXIV_RISK_SIGNALS),
+                        parseCommaSeparated(properties.getProperty(KEY_PIXIV_RISK_SIGNALS))));
     }
 
     private static List<PluginDependencyRef> parseDependencies(String raw) {

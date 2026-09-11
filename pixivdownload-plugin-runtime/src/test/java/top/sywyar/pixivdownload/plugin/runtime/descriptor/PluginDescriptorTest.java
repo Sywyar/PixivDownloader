@@ -173,7 +173,8 @@ class PluginDescriptorTest {
                 VersionRequirement.parse("1.0"), List.of(), "com.example.ThemePlugin", null,
                 "package.label", null, null, null, PluginKind.FEATURE, List.of("legacy-theme"),
                 PluginLifecyclePolicy.PROCESS_RESTART, PluginExecutionMode.HOST_PROCESS_FULL_TRUST,
-                List.of("com.example.ThemeConfiguration"));
+                List.of("com.example.ThemeConfiguration"),
+                new PluginRiskDeclaration(true, List.of("NETWORK", "FILE_READ")));
 
         PluginDescriptor attached = runtimeDescriptor.withPackageMetadataFrom(packageDescriptor);
 
@@ -182,6 +183,9 @@ class PluginDescriptorTest {
         assertThat(attached.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.PROCESS_RESTART);
         assertThat(attached.executionMode()).isEqualTo(PluginExecutionMode.HOST_PROCESS_FULL_TRUST);
         assertThat(attached.configurationClassNames()).containsExactly("com.example.ThemeConfiguration");
+        assertThat(attached.riskDeclaration()).isEqualTo(packageDescriptor.riskDeclaration());
+        assertThat(attached.withExecutionMode(PluginExecutionMode.DECLARATIVE_PROCESS).riskDeclaration())
+                .isEqualTo(packageDescriptor.riskDeclaration());
     }
 
     @Test
@@ -191,7 +195,8 @@ class PluginDescriptorTest {
                 "ext", "ext", "1.0.0", VersionRequirement.parse("1.0"), List.of(),
                 "com.example.Plugin", null, "plugin.name", null, null, null, PluginKind.FEATURE,
                 List.of(), PluginLifecyclePolicy.PROCESS_RESTART, PluginExecutionMode.HOST_PROCESS_FULL_TRUST,
-                List.of("bad-class-name", "com.example.Valid", "com.example.Valid"));
+                List.of("bad-class-name", "com.example.Valid", "com.example.Valid"),
+                PluginRiskDeclaration.absent());
 
         assertThat(descriptor.validationErrors())
                 .anyMatch(error -> error.contains("invalid configuration class"))

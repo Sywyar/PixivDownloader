@@ -24,6 +24,10 @@ The verified `pixiv.kind`, `pixiv.configuration-classes`, `pixiv.execution-mode`
 
 ## Stable examples included
 
+Keep `.pixivdownloader-plugin-project` in the selected project directory and track it with Git. Generated markers contain `pixivdownloader-plugin-project-v1` followed by LF; readers also accept a UTF-8 BOM and no line ending or CRLF. The marker identifies the project format and proves neither publisher identity nor code safety. It stays out of the plugin JAR.
+
+The package declares `pixiv.risk-signals=HOST_DATA_ACCESS` because its controller and scheduled executors consume host-provided identity and task contexts. The example does not download remote content or write artwork files. Update the declaration when adding behavior. Declarations describe capabilities; they do not grant permissions or establish that a plugin is safe.
+
 - PF4J entry point, `PixivPluginProvider`, `PixivFeaturePlugin`, and explicit Spring child-context configuration.
 - `DownloadTypeDescriptor` contract version 1 with all five acquisition modes, explicit single-item cancellation support, filters, settings, and a required behavior-module URL. UI slots are published separately so their module ownership cannot drift from the host-stamped contribution.
 - `QueueOperations` with clear-all, owner-scoped clear, optional opaque-string `workKey` cancel, and the default already-drained quiesce sentinel. Queue items keep the raw key in top-level `cancelWorkKey`; the host posts it as JSON to the queue-type endpoint, so it is distinct from the card/display id and is not restricted to one URL path segment. The default drain is correct only because this mock performs no background work; an asynchronous implementation must return and drain a real positive generation.
