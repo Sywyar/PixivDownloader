@@ -640,17 +640,19 @@ When a plugin contributes both backend and frontend code, do not test the fronte
 
 ### Local development
 
-Install JDK 17 and Node.js, with `java` and `node` on `PATH`. IDE import only resolves the project. Explicit Run / Debug builds the current plugin, prepares the pinned runtime, installs the new artifact, and starts the full application. Build failure stops this sequence. Maven Wrapper obtains the pinned Maven version; no host checkout or manually copied host and plugin JARs are needed. Initial application configuration uses the host's setup flow.
+Install JDK 17 and Node.js, with `java` and `node` on `PATH`. IDE import only resolves the project. Explicit Run / Debug compiles the current plugin, prepares the pinned runtime, and starts the full application. Build failure stops this sequence. Maven Wrapper obtains the pinned Maven version; no host checkout or manually copied host and plugin JARs are needed. Initial application configuration uses the host's setup flow.
 
 | IDE | Import | Run | Debug |
 | --- | --- | --- | --- |
-| IntelliJ IDEA | Open the root `pom.xml` | Shared `Run Plugin` configuration | Shared `Debug Plugin` compound configuration |
+| IntelliJ IDEA | Open the root `pom.xml` | Select `Developer Mode` and click Run | Select the same `Developer Mode` and click Debug |
 | VS Code | Open this directory and install the recommended Java Extension Pack | `Tasks: Run Task > Run Plugin` | `Run and Debug > Debug Plugin` |
 | Eclipse | `Import > Existing Maven Projects` | `eclipse/Run Plugin.launch` | `eclipse/Debug Plugin.launch` group |
 
-Set a breakpoint inside `ExampleMinimalPlugin.java`'s `routes()`. The default `declarative-process` plugin is debugged in its worker; a `host-process-full-trust` plugin is debugged in the host JVM. The default address is `127.0.0.1:5005`. IntelliJ starts a listener for the tool to connect to. VS Code and Eclipse attach after the host process is created.
+IntelliJ's `Developer Mode` is a native Application configuration. Before launch, Maven runs `test-compile exec:exec@sdk-prepare`. The IDE starts the JVM directly, running the host, bundled official plugins, and the current project's `target/classes` in that process. Set a breakpoint inside `ExampleMinimalPlugin.java`'s `routes()` and click Debug. No remote connection or fixed debug port is needed. The entry point in `src/test/java/sdk/DevelopmentLauncher.java` stays out of the plugin JAR. The run configuration adds the bundled tool to the launch classpath so Spring Boot can resolve nested JARs.
 
-Use `Stop Plugin`, or stop the entire run / debug group, to finish. Disconnecting only the remote debugger does not stop the application. The next Run builds and deploys the current artifact again.
+This configuration explicitly enables plugin development mode. Current sources execute as `host-process-full-trust`, which the runtime status reports; the source descriptor stays unchanged. Each Run / Debug recompiles and loads the sources. Use `Stop Plugin` or stop the Application session to finish.
+
+VS Code, Eclipse, and the command-line tasks below validate the packaged artifact: they install the current JAR and preserve its declared execution mode. Their remote debugger uses `127.0.0.1:5005` by default, connecting to the worker for `declarative-process` or the host for `host-process-full-trust`. Use `Stop Plugin` or stop the entire group to finish; disconnecting only the remote debugger leaves the application running.
 
 #### Command line
 
@@ -680,7 +682,7 @@ java -jar tools/sdk-tools.jar debug <absolute-project-path> <absolute-current-pl
 java -jar tools/sdk-tools.jar stop <absolute-project-path>
 ```
 
-`--debug-connect` connects to an IDE already listening. The tool accepts artifacts inside the project and outside `.dev/`, preserving their declared execution mode. Explicit Run confirms the current JAR's SHA-256 for normal local installation. Official plugins retain signature and provenance checks. Duplicate plugin IDs and `replaces` are rejected; choose a unique ID.
+`--debug-connect` connects to an IDE already listening. `run` / `debug` accept artifacts inside the project and outside `.dev/`, preserving their declared execution mode and confirming the current JAR's SHA-256 for local installation. Official plugins retain signature and provenance checks during both development and packaged validation. Choose a unique plugin ID to avoid conflicts with bundled plugins.
 
 #### Runtime, cache, and project data
 
@@ -692,9 +694,9 @@ After stopping, delete the project's `.dev/` to reset development data, includin
 
 Offline use requires both runtime preparation and cached build-tool dependencies. Maven uses `-o`; Gradle uses `--offline`. Incomplete caches fail. To update the SDK, use the new development package and matching manifest, then move your sources into it.
 
-Windows paths containing Chinese characters and spaces have been tested. Deep directories can still exceed Windows' working-directory limit when creating a worker; move to a shorter path if error 267 occurs. Other platforms declared by the runtime require verification on their own operating systems.
+On Windows, IntelliJ Application launch and source breakpoints have been tested, along with startup, pages, and normal shutdown for both Maven examples in the host process. The VS Code and Eclipse GUI flows have not been tested. During packaged validation, deep directories can still exceed Windows' working-directory limit when creating a worker; move to a shorter path if error 267 occurs. Other platforms declared by the runtime require verification on their own operating systems.
 
-IntelliJ's native listener and build/start configurations have been exercised; one-click startup of the compound configuration has not. VS Code / Eclipse configurations have passed structural checks; their IDE runs and other operating systems have not been verified. Gradle / sbt examples use `runPlugin` and `debugPlugin` to call the same tools. Gradle stops with `stopPlugin`. An sbt run occupies the build process, so stop it from another terminal in the example directory with `java -jar ../../tools/sdk-tools.jar stop .`.
+Gradle / sbt examples use `runPlugin` and `debugPlugin` to call the same tools. Gradle stops with `stopPlugin`. An sbt run occupies the build process, so stop it from another terminal in the example directory with `java -jar ../../tools/sdk-tools.jar stop .`.
 
 Official plugins in the repository use a dedicated development mode that compiles them and loads the current `target/classes` from each module:
 
