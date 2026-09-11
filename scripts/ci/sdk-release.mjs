@@ -315,6 +315,48 @@ function normalizeTimes(root) {
     }
 }
 
+export function initializeProjectGit(workspace, { repoRoot, sourceSha, sdkVersion }) {
+    const gitDirectory = path.join(workspace, '.git');
+    if (fs.existsSync(gitDirectory)) fail('SDK workspace already contains Git metadata');
+    // 作者来自指定源码提交，时间记录本次打包，不继承构建机的仓库位置、模板或签名配置。
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^GIT_/iu.test(key)));
+    Object.assign(env, {
+        GIT_CONFIG_NOSYSTEM: '1',
+        GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null',
+        GIT_ATTR_NOSYSTEM: '1',
+    });
+    const [authorName, authorEmail] = execFileSync('git', [
+        '-C', repoRoot, 'show', '--no-patch', '--format=%an%x00%ae', sourceSha, '--',
+    ], { env, encoding: 'utf8', windowsHide: true }).trimEnd().split('\0');
+    const commitDate = new Date().toISOString();
+    Object.assign(env, {
+        GIT_AUTHOR_NAME: authorName,
+        GIT_AUTHOR_EMAIL: authorEmail,
+        GIT_COMMITTER_NAME: authorName,
+        GIT_COMMITTER_EMAIL: authorEmail,
+        GIT_AUTHOR_DATE: commitDate,
+        GIT_COMMITTER_DATE: commitDate,
+    });
+    const git = args => execFileSync('git', ['-C', workspace, ...args], {
+        env, encoding: 'utf8', windowsHide: true,
+    });
+    git(['init', '--quiet', '--template=', '--initial-branch=main', '--object-format=sha1']);
+    fs.writeFileSync(path.join(gitDirectory, 'config'),
+            '[core]\n\trepositoryformatversion = 0\n\tfilemode = false\n\tbare = false\n'
+            + '\tlogallrefupdates = true\n\tautocrlf = false\n\tlongpaths = true\n', 'utf8');
+    git(['add', '--all', '--force', '--', '.']);
+    const message = path.join(gitDirectory, 'initial-message');
+    fs.writeFileSync(message, 'chore(sdk): Initialize plugin development baseline\n\n'
+            + `- Set up the development workspace for SDK ${sdkVersion}\n`
+            + '- Include plugin examples, build tools and API documentation\n'
+            + `- Generate the baseline from source commit ${sourceSha}\n`, 'utf8');
+    git(['commit', '--quiet', '-F', message]);
+    fs.rmSync(message);
+    // 索引只保留提交树，排除构建机的 inode、ctime 等信息。
+    git(['read-tree', '--empty']);
+    git(['read-tree', 'HEAD']);
+}
+
 export function createArchive(source, destination) {
     fs.rmSync(destination, { force: true });
     normalizeTimes(source);
@@ -324,7 +366,7 @@ export function createArchive(source, destination) {
             .sort();
     fs.writeFileSync(argumentsFile, `${entries.map(entry => JSON.stringify(entry)).join('\n')}\n`, 'utf8');
     try {
-        execFileSync('jar', ['--create', '--file', destination, '--no-manifest', `@${argumentsFile}`], {
+        execFileSync('jar', ['-J-Dfile.encoding=UTF-8', '--create', '--file', destination, '--no-manifest', `@${argumentsFile}`], {
             cwd: source,
             stdio: 'inherit',
         });
@@ -414,6 +456,7 @@ export function assembleRelease(options) {
     }
     if (process.platform !== 'win32') fs.chmodSync(path.join(gradle, 'gradlew'), 0o755);
     copyTree(path.join(root, 'target', 'sdk-javadocs'), path.join(workspace, 'docs', 'javadocs'));
+    initializeProjectGit(workspace, { repoRoot: root, sourceSha: options.sourceSha, sdkVersion: identity.version });
 
     const sdkZip = path.join(output, `PixivDownloader-Plugin-SDK-${identity.version}.zip`);
     const assets = [

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,6 +11,7 @@ import {
     createArchive,
     createProjectManifest,
     createReleaseManifest,
+    initializeProjectGit,
     readRuntimeInput,
     sha256,
     verifyReleaseDirectory,
@@ -85,6 +87,79 @@ test('SDK ZIP 使用固定时间产生可重复字节', () => {
     } finally {
         fs.rmSync(root, { recursive: true, force: true });
     }
+});
+
+test('SDK ZIP 初始提交使用源码作者和打包时间，英文要点记录版本且可跟踪修改', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv-sdk-git-'));
+    try {
+        const repoRoot = path.join(root, 'repository');
+        fs.mkdirSync(repoRoot);
+        const authorName = 'Source Author 作者';
+        const authorEmail = 'source@example.invalid';
+        const sourceDate = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^GIT_/iu.test(key)));
+        Object.assign(env, {
+            GIT_CONFIG_NOSYSTEM: '1',
+            GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null',
+            GIT_AUTHOR_NAME: authorName, GIT_AUTHOR_EMAIL: authorEmail, GIT_AUTHOR_DATE: sourceDate,
+            GIT_COMMITTER_NAME: authorName, GIT_COMMITTER_EMAIL: authorEmail, GIT_COMMITTER_DATE: sourceDate,
+        });
+        const sourceGit = args => execFileSync('git', ['-C', repoRoot, ...args], { env, encoding: 'utf8' });
+        sourceGit(['init', '--quiet', '--template=']);
+        const sourceMessage = path.join(repoRoot, '.git', 'fixture-message');
+        fs.writeFileSync(sourceMessage, 'chore: Create source fixture\n', 'utf8');
+        sourceGit(['commit', '--quiet', '--allow-empty', '-F', sourceMessage]);
+        const sourceSha = sourceGit(['rev-parse', 'HEAD']).trim();
+        const options = { repoRoot, sourceSha, sdkVersion: IDENTITY.version };
+        const files = new Map([
+            ['源码 文件.txt', Buffer.from('source\n')],
+            ['tools/payload.bin', Buffer.from([0, 1, 128, 255])],
+            [`${'nested/'.repeat(40)}source.txt`, Buffer.from('long path\n')],
+            ['.gitignore', Buffer.from('/target/\n*.bin\n')],
+        ]);
+        const source = path.join(root, 'workspace');
+        for (const [relative, bytes] of files) {
+            const file = path.join(source, relative);
+            fs.mkdirSync(path.dirname(file), { recursive: true });
+            fs.writeFileSync(file, bytes);
+        }
+        const before = Math.floor(Date.now() / 1000);
+        initializeProjectGit(source, options);
+        const after = Math.floor(Date.now() / 1000);
+        const zip = path.join(root, 'sdk.zip');
+        createArchive(source, zip);
+        const extracted = path.join(root, 'extracted');
+        fs.mkdirSync(extracted);
+        execFileSync('jar', ['--extract', '--file', zip], { cwd: extracted });
+        const git = args => execFileSync('git', ['-C', extracted, ...args]);
+        const metadata = git(['log', '-1', '--format=%an%x00%ae%x00%cn%x00%ce%x00%at%x00%ct'])
+                .toString('utf8').trimEnd().split('\0');
+        assert.deepEqual(metadata.slice(0, 4), [authorName, authorEmail, authorName, authorEmail]);
+        assert.equal(metadata[4], metadata[5]);
+        assert.ok(Number(metadata[5]) >= before && Number(metadata[5]) <= after);
+        const [subject, separator, ...body] = git(['log', '-1', '--format=%B']).toString('utf8').trimEnd().split('\n');
+        assert.match(subject, /^chore\(sdk\): [\x20-\x7e]+$/u);
+        assert.equal(separator, '');
+        assert.ok(body.length > 0 && body.every(line => /^- [\x20-\x7e]+$/u.test(line)));
+        assert.ok(body.some(line => line.includes(IDENTITY.version)));
+        assert.ok(body.some(line => line.includes(sourceSha)));
+        assert.equal(git(['rev-list', '--count', 'HEAD']).toString().trim(), '1');
+        assert.equal(git(['remote']).toString(), '');
+        assert.equal(git(['status', '--porcelain']).toString(), '');
+        assert.deepEqual(git(['ls-files', '-z']).toString('utf8').split('\0').filter(Boolean).sort(),
+                [...files.keys()].sort());
+        for (const [relative, bytes] of files) {
+            assert.deepEqual(git(['show', `HEAD:${relative}`]), bytes);
+        }
+        fs.appendFileSync(path.join(extracted, '源码 文件.txt'), 'changed\n', 'utf8');
+        fs.mkdirSync(path.join(extracted, 'target'));
+        fs.writeFileSync(path.join(extracted, 'target', 'build.txt'), 'output\n', 'utf8');
+        assert.equal(git(['diff', '--name-only', '-z']).toString('utf8'), '源码 文件.txt\0');
+        assert.equal(git(['ls-files', '--others', '--exclude-standard']).toString(), '');
+        const head = git(['rev-parse', 'HEAD']);
+        assert.throws(() => initializeProjectGit(extracted, options), /already contains Git metadata/u);
+        assert.deepEqual(git(['rev-parse', 'HEAD']), head);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 test('发布恢复复用完整原始附件，拒绝换源码、漏附件和篡改字节', () => {

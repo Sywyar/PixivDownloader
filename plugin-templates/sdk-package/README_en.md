@@ -4,6 +4,8 @@
 
 The extracted root is a standalone Maven project with sources in `src/`. Its SDK identity is `@SDK_RELEASE_ID@`, built from main-repository commit `@SOURCE_SHA@`. Open `docs/javadocs/index.html` for the API reference.
 
+The package includes `.git/` with an initial commit on `main` containing all delivered files. Use `git status` and `git diff` to review your changes. Configure your Git name and email before committing your work, and add a remote when you need one. The `.gitignore` excludes build output, local IDE settings, and `.dev/` runtime data.
+
 ## Start developing
 
 Install JDK 17 and Node.js, with `java` and `node` on `PATH`. IDE import only resolves the project. Explicit Run / Debug builds the current plugin, prepares the pinned runtime, installs the new artifact, and starts the full application. Build failure stops this sequence. Maven Wrapper obtains the pinned Maven version; no host checkout or manually copied host and plugin JARs are needed. Initial application configuration uses the host's setup flow.
