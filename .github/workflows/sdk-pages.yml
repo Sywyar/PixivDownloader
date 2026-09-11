@@ -67,7 +67,11 @@ jobs:
             while IFS= read -r asset; do
               case "$asset" in
                 "PixivDownloader-Plugin-SDK-$version.zip"|"PixivDownloader-Plugin-SDK-Javadocs-$version.zip") ;;
-                *) echo "invalid SDK Release artifact: $asset" >&2; exit 1 ;;
+                *)
+                  # Pages 校验固定运行元数据，不下载历史宿主 ZIP。
+                  if jq -e --arg asset "$asset" '.schemaVersion == 4 and .developmentRuntime.archive.file == $asset' \
+                    "$directory/sdk-release.json" > /dev/null; then continue; fi
+                  echo "invalid SDK Release artifact: $asset" >&2; exit 1 ;;
               esac
               curl --retry 5 --retry-all-errors -fsSLo "$directory/$asset" "$base/$asset"
             done < <(jq -er '.artifacts[].file' "$directory/sdk-release.json")

@@ -434,7 +434,14 @@ test('SDK 发布链只在身份变化或显式恢复时通过同 SHA 门禁写�
     const state = sdk.jobs.publish.steps.find((step) => step.name === 'Check immutable publication state');
     const central = sdk.jobs.publish.steps.find((step) => step.name === 'Publish SDK artifacts to Maven Central');
     const remote = sdk.jobs.publish.steps.find((step) => step.name === 'Verify public SDK Release and clean consumer');
-    assert.match(state.run, /central_count.*tag_exists.*release_exists/su);
+    assert.match(state.run, /central_count.*tag_exists.*reuse_release/su);
+    const freeze = sdk.jobs.publish.steps.findIndex(step => step.name === 'Freeze signed SDK assets before Central publication');
+    assert.ok(freeze > -1 && freeze < sdk.jobs.publish.steps.indexOf(central));
+    assert.match(sdk.jobs.publish.steps[freeze].run, /--draft/u);
+    assert.doesNotMatch(serialized, /--clobber/u);
+    const restore = sdk.jobs.publish.steps.find(step => step.name === 'Restore original frozen SDK Release');
+    assert.match(restore.run, /gpg --batch --verify/u);
+    assert.match(restore.run, /--verify-directory/u);
     assert.equal(central.if, "${{ needs.release-plan.outputs.mode == 'publish' }}");
     assert.match(remote.run, /gh release download/u);
     assert.match(remote.run, /sdk-consumer\.mjs/u);
