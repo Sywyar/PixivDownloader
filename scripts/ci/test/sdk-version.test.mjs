@@ -3,8 +3,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { inspectSdkVersion, parseSdkVersion, sdkModulesAtRef } from '../sdk-version.mjs';
+
+const CURRENT = inspectSdkVersion(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..'));
+const STABLE = `${CURRENT.major}.${CURRENT.minor}.${CURRENT.patch}`;
+const NEXT = `${CURRENT.major}.${CURRENT.minor}.${CURRENT.patch + 1}`;
+const SEQUENCE = Math.max(1, CURRENT.prereleaseSequence);
 
 const MODULES = [
     'pixivdownload-sdk-info',
@@ -23,8 +29,8 @@ function write(root, relativePath, content) {
 function createFixture() {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv-sdk-version-'));
     write(root, 'pixivdownload-sdk-info/src/main/resources/META-INF/pixivdownload-sdk.properties',
-            'version=1.0.0-rc1\n');
-    write(root, 'pom.xml', '<properties><revision>1.0.0-rc1</revision>'
+            `version=${CURRENT.version}\n`);
+    write(root, 'pom.xml', `<properties><revision>${CURRENT.version}</revision>`
             + '<pixivdownload.sdk.version>${revision}</pixivdownload.sdk.version></properties>'
             + '<modules>' + MODULES.map(module => `<module>${module}</module>`).join('') + '</modules>');
     for (const module of MODULES) {
@@ -47,27 +53,28 @@ function createFixture() {
         write(root, `plugin-templates/${template}/pom.xml`,
                 '<groupId>io.github.sywyar.pixivdownloader</groupId>'
                 + '<artifactId>pixivdownload-sdk</artifactId>'
-                + '<properties><pixivdownload.sdk.version>1.0.0-rc1</pixivdownload.sdk.version></properties>');
+                + `<properties><pixivdownload.sdk.version>${CURRENT.version}</pixivdownload.sdk.version></properties>`);
     }
     return root;
 }
 
 test('版本解析区分稳定版与结构化预发布版', () => {
-    assert.deepEqual(parseSdkVersion('2.3.4'), {
-        version: '2.3.4',
-        major: 2,
-        minor: 3,
-        patch: 4,
+    assert.deepEqual(parseSdkVersion(STABLE), {
+        version: STABLE,
+        major: CURRENT.major,
+        minor: CURRENT.minor,
+        patch: CURRENT.patch,
         prereleaseChannel: '',
         prereleaseSequence: 0,
         prerelease: false,
-        releaseId: 'sdk-api-v2.3.4',
-        compatibilityVersion: '2.3'
+        releaseId: `sdk-api-v${STABLE}`,
+        compatibilityVersion: `${CURRENT.major}.${CURRENT.minor}`
     });
-    assert.equal(parseSdkVersion('2.3.4-alpha2').prereleaseSequence, 2);
-    assert.equal(parseSdkVersion('2.3.4-beta3').prereleaseChannel, 'beta');
-    assert.equal(parseSdkVersion('2.3.4-rc12').releaseId, 'sdk-api-v2.3.4-rc12');
-    for (const invalid of ['1.0.0-r1', '1.0.0-rc.1', '1.0.0-rc0', '01.0.0', '1.0']) {
+    assert.equal(parseSdkVersion(`${STABLE}-alpha${SEQUENCE}`).prereleaseSequence, SEQUENCE);
+    assert.equal(parseSdkVersion(`${STABLE}-beta${SEQUENCE}`).prereleaseChannel, 'beta');
+    assert.equal(parseSdkVersion(`${STABLE}-rc${SEQUENCE}`).releaseId, `sdk-api-v${STABLE}-rc${SEQUENCE}`);
+    for (const invalid of [`${STABLE}-r${SEQUENCE}`, `${STABLE}-rc.${SEQUENCE}`, `${STABLE}-rc0`,
+        `0${CURRENT.major + 1}.${CURRENT.minor}.${CURRENT.patch}`, CURRENT.compatibilityVersion]) {
         assert.throws(() => parseSdkVersion(invalid), /Invalid SDK semantic version/u);
     }
 });
@@ -75,12 +82,12 @@ test('版本解析区分稳定版与结构化预发布版', () => {
 test('SDK 身份事实源与 Maven、BOM 及模板投影必须一致', () => {
     const root = createFixture();
     try {
-        assert.equal(inspectSdkVersion(root).releaseId, 'sdk-api-v1.0.0-rc1');
+        assert.equal(inspectSdkVersion(root).releaseId, CURRENT.releaseId);
         fs.writeFileSync(path.join(root, 'plugin-templates', 'minimal-feature-plugin', 'pom.xml'),
                 '<groupId>io.github.sywyar.pixivdownloader</groupId>'
                 + '<artifactId>pixivdownload-sdk</artifactId>'
-                + '<pixivdownload.sdk.version>1.0.0-rc2</pixivdownload.sdk.version>', 'utf8');
-        assert.throws(() => inspectSdkVersion(root), /minimal-feature-plugin.*must be 1\.0\.0-rc1/u);
+                + `<pixivdownload.sdk.version>${NEXT}</pixivdownload.sdk.version>`, 'utf8');
+        assert.throws(() => inspectSdkVersion(root), error => error.message.includes('minimal-feature-plugin') && error.message.includes(`must be ${CURRENT.version}`));
     } finally {
         fs.rmSync(root, { recursive: true, force: true });
     }
@@ -93,11 +100,11 @@ test('旧 revision 元数据和 Maven 版本漂移会被拒绝', () => {
                 'pixivdownload-sdk.properties');
         fs.appendFileSync(metadata, 'revision=1\n', 'utf8');
         assert.throws(() => inspectSdkVersion(root), /removed revision axis/u);
-        fs.writeFileSync(metadata, 'version=1.0.0-rc1\n', 'utf8');
+        fs.writeFileSync(metadata, `version=${CURRENT.version}\n`, 'utf8');
         const pom = path.join(root, 'pom.xml');
-        fs.writeFileSync(pom, fs.readFileSync(pom, 'utf8').replace('<revision>1.0.0-rc1</revision>',
-                '<revision>1.0.0-rc2</revision>'), 'utf8');
-        assert.throws(() => inspectSdkVersion(root), /Maven SDK version projection must be 1\.0\.0-rc1/u);
+        fs.writeFileSync(pom, fs.readFileSync(pom, 'utf8').replace(`<revision>${CURRENT.version}</revision>`,
+                `<revision>${NEXT}</revision>`), 'utf8');
+        assert.throws(() => inspectSdkVersion(root), error => error.message.includes(`Maven SDK version projection must be ${CURRENT.version}`));
     } finally {
         fs.rmSync(root, { recursive: true, force: true });
     }

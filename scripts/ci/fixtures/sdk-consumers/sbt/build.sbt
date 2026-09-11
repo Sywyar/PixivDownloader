@@ -1,5 +1,5 @@
 name := "sdk-consumer"
-version := "1.0"
+version := sys.env("SDK_VERSION")
 autoScalaLibrary := false
 crossPaths := false
 Compile / unmanagedSourceDirectories := Seq(baseDirectory.value.getParentFile / "src" / "main" / "java")

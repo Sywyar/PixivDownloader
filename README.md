@@ -130,6 +130,8 @@ sh run.sh
 - [❓ 常见问题](https://sywyar.github.io/PixivDownloader/#/zh-cn/faq)
 - [🛠️ 开发指南](https://sywyar.github.io/PixivDownloader/#/zh-cn/development)
 
+插件开发包提供单个 `pixivdownload-sdk` 编译依赖、独立 Maven 工程及 Gradle / sbt 示例。带固定运行清单的 SDK 可通过自带 Run / Debug 入口构建当前插件，自动准备配套宿主和完整官方插件；运行数据保存在各工程的 `.dev/`。可下载版本及具体用法以对应 Release 和包内 README 为准。
+
 ---
 
 ## 免责声明

@@ -1,0 +1,7 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Debug Plugin" type="CompoundRunConfigurationType" factoryName="Compound Run Configuration">
+    <toRun name="Plugin Debugger" type="Remote" />
+    <toRun name="Start Plugin Debug" type="MavenRunConfiguration" />
+    <method v="2" />
+  </configuration>
+</component>

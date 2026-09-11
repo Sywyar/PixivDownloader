@@ -1,5 +1,9 @@
 /target/
-/plugin/target/
-/examples/minimal-feature-plugin/target/
+/examples/*/target/
+/examples/*/build/
+/examples/*/.gradle/
+/examples/*/project/target/
+/.dev/
+/examples/*/.dev/
 /.idea/
 *.iml

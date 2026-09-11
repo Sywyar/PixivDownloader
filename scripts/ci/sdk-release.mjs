@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 
 import { inspectSdkVersion, SDK_ARTIFACTS, SDK_GROUP_ID } from './sdk-version.mjs';
 const ARCHIVE_TIME = new Date('1980-01-01T00:00:00.000Z');
@@ -15,12 +16,21 @@ function fail(message) {
 }
 
 export function sha256(file) {
-    return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+    const hash = crypto.createHash('sha256');
+    const descriptor = fs.openSync(file, 'r');
+    try {
+        const buffer = Buffer.alloc(128 * 1024);
+        for (let count; (count = fs.readSync(descriptor, buffer)) > 0;) hash.update(buffer.subarray(0, count));
+        return hash.digest('hex');
+    } finally {
+        fs.closeSync(descriptor);
+    }
 }
 
-export function createProjectManifest(identity, sourceSha, minimumVerifiedHostRelease = '') {
+export function createProjectManifest(identity, sourceSha, minimumVerifiedHostRelease = '', developmentRuntime) {
+    if (!developmentRuntime) fail('SDK project requires a fixed development runtime');
     return {
-        schemaVersion: 1,
+        schemaVersion: 3,
         sdkVersion: identity.version,
         major: identity.major,
         minor: identity.minor,
@@ -34,6 +44,7 @@ export function createProjectManifest(identity, sourceSha, minimumVerifiedHostRe
         minimumVerifiedHostRelease: minimumVerifiedHostRelease || null,
         verifiedHostSourceSha: minimumVerifiedHostRelease ? sourceSha : null,
         javaVersion: 17,
+        developmentRuntime,
         mavenCoordinates: SDK_ARTIFACTS.map(([artifactId, packaging]) => ({
             groupId: SDK_GROUP_ID,
             artifactId,
@@ -46,12 +57,89 @@ export function createProjectManifest(identity, sourceSha, minimumVerifiedHostRe
 export function createReleaseManifest(projectManifest, assets) {
     return {
         ...projectManifest,
-        schemaVersion: 2,
+        schemaVersion: 4,
         artifacts: assets.map(asset => ({
             file: path.basename(asset.file),
+            size: asset.size,
             sha256: asset.sha256,
         })),
     };
+}
+
+export function readRuntimeInput(identity, sourceSha, manifestFile) {
+    requireFile(manifestFile);
+    if (fs.statSync(manifestFile).size > 1024 * 1024) fail('SDK runtime metadata exceeds the byte limit');
+    const input = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
+    const runtime = input.developmentRuntime;
+    if (input.schemaVersion !== 1 || input.sdkVersion !== identity.version || input.sourceCommitSha !== sourceSha) {
+        fail('SDK runtime does not identify this SDK and source commit');
+    }
+    validateDevelopmentRuntime(identity, sourceSha, runtime);
+    const archive = path.join(path.dirname(manifestFile), runtime.archive.file);
+    verifyArtifact(archive, runtime.archive);
+    return { developmentRuntime: runtime, archive };
+}
+
+function validateDevelopmentRuntime(identity, sourceSha, runtime) {
+    if (!runtime || runtime.hostSourceCommitSha !== sourceSha
+            || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(runtime.hostVersion)) {
+        fail('SDK runtime does not identify this SDK and source commit');
+    }
+    const allowedPlatforms = ['windows-x64', 'windows-arm64', 'linux-x64', 'linux-arm64', 'macos-arm64'];
+    if (!Array.isArray(runtime.platforms) || runtime.platforms.length === 0
+            || new Set(runtime.platforms).size !== runtime.platforms.length
+            || runtime.platforms.some(platform => !allowedPlatforms.includes(platform))) fail('invalid SDK runtime platforms');
+    for (const artifact of [runtime.archive, runtime.host, runtime.pluginsManifest]) {
+        if (!artifact || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(artifact.file)
+                || !Number.isSafeInteger(artifact.size) || artifact.size <= 0 || artifact.size > 512 * 1024 * 1024
+                || !/^[0-9a-f]{64}$/u.test(artifact.sha256)) fail('invalid SDK runtime artifact');
+    }
+    if (runtime.archive.file !== `PixivDownload-${runtime.hostVersion}-full-offline.zip`
+            || runtime.host.file !== `PixivDownload-${runtime.hostVersion}.jar`
+            || runtime.pluginsManifest.file !== 'plugins-manifest.json'
+            || runtime.downloadUrl !== `https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases/download/${identity.releaseId}/${runtime.archive.file}`) {
+        fail('SDK runtime archive identity mismatch');
+    }
+}
+
+function verifyArtifact(file, expected) {
+    requireFile(file);
+    if (!Number.isSafeInteger(expected.size) || expected.size <= 0 || expected.size > 512 * 1024 * 1024
+            || !/^[0-9a-f]{64}$/u.test(expected.sha256)
+            || fs.statSync(file).size !== expected.size || sha256(file) !== expected.sha256) {
+        fail(`SDK artifact bytes do not match the fixed manifest: ${path.basename(file)}`);
+    }
+}
+
+// 发布 workflow 负责验签；这里验证签名覆盖的完整发行附件。
+export function verifyReleaseDirectory(directory, identity, sourceSha) {
+    const metadataFile = path.join(directory, 'sdk-release.json');
+    requireFile(metadataFile);
+    if (fs.statSync(metadataFile).size > 1024 * 1024) fail('SDK release metadata exceeds the byte limit');
+    const metadata = JSON.parse(fs.readFileSync(metadataFile, 'utf8'));
+    validateDevelopmentRuntime(identity, sourceSha, metadata.developmentRuntime);
+    const { artifacts, ...project } = metadata;
+    const expectedProject = createProjectManifest(identity, sourceSha, metadata.minimumVerifiedHostRelease,
+            metadata.developmentRuntime);
+    if (!isDeepStrictEqual(project, { ...expectedProject, schemaVersion: 4 })) {
+        fail('SDK release metadata does not identify the exact source and coordinates');
+    }
+    const expectedNames = [`PixivDownloader-Plugin-SDK-${identity.version}.zip`, metadata.developmentRuntime.archive.file];
+    if (!Array.isArray(artifacts) || artifacts.length !== 2
+            || !isDeepStrictEqual(artifacts.map(item => item.file).sort(), [...expectedNames].sort())
+            || !isDeepStrictEqual(artifacts.find(item => item.file === expectedNames[1]), metadata.developmentRuntime.archive)) {
+        fail('SDK release contains unexpected or inconsistent artifacts');
+    }
+    for (const artifact of artifacts) verifyArtifact(path.join(directory, artifact.file), artifact);
+    const checksumFile = path.join(directory, 'SHA256SUMS');
+    requireFile(checksumFile);
+    if (fs.statSync(checksumFile).size > 1024 * 1024) fail('SDK checksums exceed the byte limit');
+    const expectedChecksums = [...artifacts, { file: 'sdk-release.json', sha256: sha256(metadataFile) }]
+            .map(item => `${item.sha256}  ${item.file}`).sort();
+    if (!isDeepStrictEqual(fs.readFileSync(checksumFile, 'utf8').trimEnd().split(/\r?\n/u).sort(), expectedChecksums)) {
+        fail('SDK release checksums do not match the complete frozen payload');
+    }
+    return metadata;
 }
 
 export function assertThinJarEntries(entries) {
@@ -174,6 +262,32 @@ function renderOverlay(overlay, destination, values) {
     }
 }
 
+function addMavenRuntimeTasks(project, toolsRelativePath) {
+    const pom = path.join(project, 'pom.xml');
+    let source = fs.readFileSync(pom, 'utf8');
+    const marker = /(<artifactId>exec-maven-plugin<\/artifactId>[\s\S]*?<executions>)/u;
+    if (!marker.test(source)) fail('SDK Maven template is missing its exec plugin');
+    const executions = ['run', 'debug', 'debug-connect', 'stop', 'prepare'].map(command => `
+                    <execution>
+                        <id>sdk-${command}</id>
+                        <goals><goal>exec</goal></goals>
+                        <configuration>
+                            <executable>java</executable>
+                            <arguments>
+                                <argument>-Dfile.encoding=UTF-8</argument>
+                                <argument>-jar</argument>
+                                <argument>\${project.basedir}/${toolsRelativePath}</argument>
+                                <argument>${command === 'debug-connect' ? 'debug' : command}</argument>
+                                <argument>\${project.basedir}</argument>${['run', 'debug', 'debug-connect'].includes(command) ? `
+                                <argument>\${project.build.directory}/\${project.build.finalName}.jar</argument>` : ''}${command === 'debug-connect' ? `
+                                <argument>--debug-connect</argument>` : ''}
+                            </arguments>
+                        </configuration>
+                    </execution>`).join('');
+    source = source.replace(marker, `$1${executions}`);
+    fs.writeFileSync(pom, source, 'utf8');
+}
+
 function regularFiles(root) {
     const files = [];
     const pending = [root];
@@ -226,7 +340,7 @@ function writeJson(file, value) {
 }
 
 function parseArguments(argv) {
-    const options = { repoRoot: '.', output: '', sourceSha: '', minimumHostRelease: '' };
+    const options = { repoRoot: '.', output: '', sourceSha: '', minimumHostRelease: '', runtimeManifest: '', toolsJar: '' };
     for (let index = 0; index < argv.length; index += 1) {
         const argument = argv[index];
         const value = argv[index + 1];
@@ -234,11 +348,15 @@ function parseArguments(argv) {
         else if (argument === '--output') options.output = value;
         else if (argument === '--source-sha') options.sourceSha = value;
         else if (argument === '--minimum-host-release') options.minimumHostRelease = value;
+        else if (argument === '--runtime-manifest') options.runtimeManifest = value;
+        else if (argument === '--tools-jar') options.toolsJar = value;
+        else if (argument === '--verify-directory') options.verifyDirectory = value;
         else fail(`unknown argument: ${argument}`);
         index += 1;
     }
-    if (!options.output || !/^[0-9a-f]{40}$/u.test(options.sourceSha)) {
-        fail('usage: sdk-release.mjs --repo-root <path> --output <target-child> --source-sha <40-hex> [--minimum-host-release <version>]');
+    if ((!options.verifyDirectory && (!options.output || !options.runtimeManifest || !options.toolsJar))
+            || !/^[0-9a-f]{40}$/u.test(options.sourceSha)) {
+        fail('usage: sdk-release.mjs --repo-root <path> --output <target-child> --source-sha <40-hex> --runtime-manifest <file> --tools-jar <file> [--minimum-host-release <version>]');
     }
     return options;
 }
@@ -248,18 +366,20 @@ export function assembleRelease(options) {
     const output = safeOutput(root, options.output);
     const identity = inspectSdkVersion(root);
     validateReleaseInputs(root, identity, options.sourceSha);
+    const runtime = readRuntimeInput(identity, options.sourceSha, path.resolve(options.runtimeManifest));
+    requireFile(options.toolsJar);
     fs.rmSync(output, { recursive: true, force: true });
     fs.mkdirSync(output, { recursive: true });
 
     const work = path.join(output, '.work');
     const workspace = path.join(work, 'workspace');
     fs.mkdirSync(path.dirname(workspace), { recursive: true });
-    copyTree(path.join(root, 'plugin-templates', 'download-type-plugin'), path.join(workspace, 'plugin'));
-    const pluginReadme = path.join(workspace, 'plugin', 'README.md');
-    const pluginReadmeEnglish = path.join(workspace, 'plugin', 'README_en.md');
+    copyTree(path.join(root, 'plugin-templates', 'minimal-feature-plugin'), workspace);
+    copyTree(path.join(root, 'plugin-templates', 'download-type-plugin'),
+            path.join(workspace, 'examples', 'download-type-plugin'));
+    const pluginReadme = path.join(workspace, 'examples', 'download-type-plugin', 'README.md');
+    const pluginReadmeEnglish = path.join(workspace, 'examples', 'download-type-plugin', 'README_en.md');
     if (!fs.existsSync(pluginReadmeEnglish)) fs.copyFileSync(pluginReadme, pluginReadmeEnglish);
-    copyTree(path.join(root, 'plugin-templates', 'minimal-feature-plugin'),
-            path.join(workspace, 'examples', 'minimal-feature-plugin'));
     renderOverlay(path.join(root, 'plugin-templates', 'sdk-package'), workspace, {
         '@SDK_VERSION@': identity.version,
         '@SDK_RELEASE_ID@': identity.releaseId,
@@ -271,14 +391,39 @@ export function assembleRelease(options) {
     }
     if (process.platform !== 'win32') fs.chmodSync(path.join(workspace, 'mvnw'), 0o755);
 
-    const projectManifest = createProjectManifest(identity, options.sourceSha, options.minimumHostRelease);
+    fs.mkdirSync(path.join(workspace, 'tools'), { recursive: true });
+    fs.copyFileSync(options.toolsJar, path.join(workspace, 'tools', 'sdk-tools.jar'));
+    const projectManifest = createProjectManifest(identity, options.sourceSha, options.minimumHostRelease,
+            runtime.developmentRuntime);
     writeJson(path.join(workspace, 'sdk-project.json'), projectManifest);
+    const downloadExample = path.join(workspace, 'examples', 'download-type-plugin');
+    writeJson(path.join(downloadExample, 'sdk-project.json'), projectManifest);
+    addMavenRuntimeTasks(workspace, 'tools/sdk-tools.jar');
+    addMavenRuntimeTasks(downloadExample, '../../tools/sdk-tools.jar');
+    for (const tool of ['gradle', 'sbt']) {
+        const example = path.join(workspace, 'examples', `${tool}-plugin`);
+        copyTree(path.join(root, 'plugin-templates', 'minimal-feature-plugin', 'src', 'main'),
+                path.join(example, 'src', 'main'));
+        writeJson(path.join(example, 'sdk-project.json'), projectManifest);
+    }
+    const gradle = path.join(workspace, 'examples', 'gradle-plugin');
+    const gradleSource = path.join(root, 'pixivdownload-plugin-gui-compose');
+    fs.cpSync(path.join(gradleSource, 'gradle'), path.join(gradle, 'gradle'), { recursive: true });
+    for (const wrapper of ['gradlew', 'gradlew.bat']) {
+        fs.copyFileSync(path.join(gradleSource, wrapper), path.join(gradle, wrapper));
+    }
+    if (process.platform !== 'win32') fs.chmodSync(path.join(gradle, 'gradlew'), 0o755);
     copyTree(path.join(root, 'target', 'sdk-javadocs'), path.join(workspace, 'docs', 'javadocs'));
 
     const sdkZip = path.join(output, `PixivDownloader-Plugin-SDK-${identity.version}.zip`);
     const assets = [
         { file: sdkZip, sha256: createArchive(workspace, sdkZip) },
     ];
+    assets[0].size = fs.statSync(sdkZip).size;
+    const runtimeArchive = path.join(output, path.basename(runtime.archive));
+    fs.copyFileSync(runtime.archive, runtimeArchive);
+    assets.push({ file: runtimeArchive, size: runtime.developmentRuntime.archive.size,
+        sha256: runtime.developmentRuntime.archive.sha256 });
     const releaseMetadata = path.join(output, 'sdk-release.json');
     writeJson(releaseMetadata, createReleaseManifest(projectManifest, assets));
     const checksumEntries = [...assets, { file: releaseMetadata, sha256: sha256(releaseMetadata) }];
@@ -289,7 +434,13 @@ export function assembleRelease(options) {
 }
 
 function main() {
-    const result = assembleRelease(parseArguments(process.argv.slice(2)));
+    const options = parseArguments(process.argv.slice(2));
+    if (options.verifyDirectory) {
+        verifyReleaseDirectory(path.resolve(options.verifyDirectory), inspectSdkVersion(options.repoRoot), options.sourceSha);
+        process.stdout.write('Verified the complete fixed SDK release payload.\n');
+        return;
+    }
+    const result = assembleRelease(options);
     process.stdout.write(`${JSON.stringify({
         releaseId: result.identity.releaseId,
         output: result.output,

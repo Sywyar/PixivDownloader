@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "name": "Debug Plugin",
+      "request": "attach",
+      "hostName": "127.0.0.1",
+      "port": 5005,
+      "timeout": 300000,
+      "sourcePaths": ["${workspaceFolder}/src/main/java"],
+      "preLaunchTask": "Start Plugin Debug",
+      "postDebugTask": "Stop Plugin"
+    }
+  ]
+}

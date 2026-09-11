@@ -15,16 +15,41 @@
       "problemMatcher": ["$javac"]
     },
     {
-      "label": "Package Plugin",
+      "label": "Run Plugin",
       "type": "process",
       "command": "sh",
-      "args": ["${workspaceFolder}/mvnw", "package", "-DskipTests"],
+      "args": ["${workspaceFolder}/mvnw", "verify", "exec:exec@sdk-run"],
       "windows": {
         "command": "${workspaceFolder}\\mvnw.cmd",
-        "args": ["package", "-DskipTests"]
+        "args": ["verify", "exec:exec@sdk-run"]
       },
       "options": {"cwd": "${workspaceFolder}"},
       "problemMatcher": ["$javac"]
+    },
+    {
+      "label": "Start Plugin Debug",
+      "type": "process",
+      "command": "sh",
+      "args": ["${workspaceFolder}/mvnw", "verify", "exec:exec@sdk-debug"],
+      "windows": {
+        "command": "${workspaceFolder}\\mvnw.cmd",
+        "args": ["verify", "exec:exec@sdk-debug"]
+      },
+      "options": {"cwd": "${workspaceFolder}"},
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "sdk",
+        "pattern": {"regexp": "^(.*):(\\d+): (.*)$", "file": 1, "line": 2, "message": 3},
+        "background": {"activeOnStart": true, "beginsPattern": "^\\[INFO\\] Scanning", "endsPattern": "^PIXIV_SDK_HOST_STARTED$"}
+      }
+    },
+    {
+      "label": "Stop Plugin",
+      "type": "process",
+      "command": "java",
+      "args": ["-jar", "${workspaceFolder}/tools/sdk-tools.jar", "stop", "${workspaceFolder}"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": []
     }
   ]
 }

@@ -1,0 +1,11 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Plugin Debugger" type="Remote" factoryName="Remote JVM Debug">
+    <option name="USE_SOCKET_TRANSPORT" value="true" />
+    <option name="SERVER_MODE" value="true" />
+    <option name="HOST" value="127.0.0.1" />
+    <option name="PORT" value="5005" />
+    <option name="AUTO_RESTART" value="false" />
+    <module name="example-minimal-plugin" />
+    <method v="2" />
+  </configuration>
+</component>

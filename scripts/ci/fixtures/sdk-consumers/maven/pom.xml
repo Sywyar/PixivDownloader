@@ -3,7 +3,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>example</groupId>
     <artifactId>sdk-consumer</artifactId>
-    <version>1.0</version>
+    <version>${sdk.version}</version>
     <properties>
         <maven.compiler.release>17</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -21,11 +21,11 @@
         <plugins>
             <plugin>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.14.1</version>
+                <version>${maven.compiler.version}</version>
             </plugin>
             <plugin>
                 <artifactId>maven-jar-plugin</artifactId>
-                <version>3.4.2</version>
+                <version>${maven.jar.version}</version>
             </plugin>
         </plugins>
     </build>
