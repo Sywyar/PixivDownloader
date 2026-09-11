@@ -246,12 +246,17 @@ public record PluginDescriptor(
         List<String> errors = validationErrors();
         if (version == null || version.isBlank()) {
             errors.add("version must not be blank for an external plugin");
-        } else if (!SEMVER_PATTERN.matcher(version.trim()).matches()) {
+        } else if (!isExternalVersion(version.trim())) {
             errors.add("invalid version for an external plugin (expected semver major.minor.patch): " + version);
         }
         if (pluginClass == null || pluginClass.isBlank()) {
             errors.add("plugin-class must not be blank for an external plugin");
         }
         return errors;
+    }
+
+    /** 外置包与社区数据复用同一版本语法；调用方自行保留或拒绝原始空白。 */
+    public static boolean isExternalVersion(String value) {
+        return value != null && SEMVER_PATTERN.matcher(value).matches();
     }
 }

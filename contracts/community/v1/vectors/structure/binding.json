@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "pluginId": "demo",
+  "owner": {
+    "accountId": "101",
+    "accountType": "User",
+    "publisherId": "example"
+  },
+  "effectiveRequestId": null,
+  "updatedAt": "2026-01-02T03:04:05Z"
+}

@@ -14,10 +14,29 @@
     <description>SDK 发行包内的固定宿主准备与独立插件启动工具。</description>
     <dependencies>
         <dependency>
-            <groupId>io.github.sywyar.pixivdownloader</groupId>
-            <artifactId>pixivdownload-sdk-info</artifactId>
-            <version>${pixivdownload.sdk.version}</version>
-            <scope>test</scope>
+            <groupId>top.sywyar.lovepopup</groupId>
+            <artifactId>pixivdownload-plugin-runtime</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>top.sywyar.lovepopup</groupId>
+            <artifactId>pixivdownload-plugin-signature</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.networknt</groupId>
+            <artifactId>json-schema-validator</artifactId>
+            <version>2.0.1</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.erdtman</groupId>
+            <artifactId>java-json-canonicalization</artifactId>
+            <version>1.1</version>
+        </dependency>
+        <dependency>
+            <groupId>com.twelvemonkeys.imageio</groupId>
+            <artifactId>imageio-webp</artifactId>
+            <version>3.13.1</version>
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
@@ -41,6 +60,10 @@
     <build>
         <resources>
             <resource><directory>src/main/resources</directory></resource>
+            <resource>
+                <directory>../contracts/community</directory>
+                <targetPath>community</targetPath>
+            </resource>
             <resource>
                 <directory>../pixivdownload-app/src/main/resources</directory>
                 <includes><include>i18n/locales.json</include></includes>

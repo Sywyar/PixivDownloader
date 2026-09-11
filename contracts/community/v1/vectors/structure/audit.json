@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "requestId": "abababababababababababababababababababababababababababababababab",
+  "action": "YANK",
+  "requestRef": {
+    "path": "history/request.json",
+    "size": 1,
+    "sha256": "abababababababababababababababababababababababababababababababab"
+  },
+  "beforeRef": {
+    "path": "history/before.json",
+    "size": 1,
+    "sha256": "abababababababababababababababababababababababababababababababab"
+  },
+  "afterRef": {
+    "path": "history/after.json",
+    "size": 1,
+    "sha256": "abababababababababababababababababababababababababababababababab"
+  },
+  "decisionRef": {
+    "path": "evidence/decision.json",
+    "size": 1,
+    "sha256": "abababababababababababababababababababababababababababababababab"
+  },
+  "actorAccountId": "101",
+  "reviewerAccountIds": [
+    "202"
+  ],
+  "prEvidence": [
+    {
+      "githubRepositoryId": "1001",
+      "number": 17,
+      "authorAccountId": "101",
+      "headRepositoryId": "1002",
+      "headSha": "1212121212121212121212121212121212121212",
+      "baseSha": "1212121212121212121212121212121212121212"
+    }
+  ],
+  "result": "APPLIED",
+  "appliedAt": "2026-01-02T03:04:05Z",
+  "revocationSequence": 2
+}

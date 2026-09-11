@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "repositoryId": "demo-directory",
+  "sequence": 1,
+  "generatedAt": "2026-01-02T03:04:05Z",
+  "partitioning": "sha256-repository-id-prefix-2",
+  "shards": [
+    {
+      "prefix": "ab",
+      "url": "shards/ab.json",
+      "size": 1,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "payload": {
+    "owner": {
+      "accountId": "101",
+      "accountType": "User",
+      "publisherId": "example"
+    },
+    "requester": {
+      "id": "101",
+      "type": "User"
+    },
+    "pluginBindingSha256": "abababababababababababababababababababababababababababababababab",
+    "pluginId": "demo",
+    "version": "2.3.4",
+    "packageSha256": "abababababababababababababababababababababababababababababababab",
+    "action": "YANK",
+    "reasonCode": "FUNCTIONAL_DEFECT",
+    "explanation": "Incorrect result"
+  },
+  "requestId": "abababababababababababababababababababababababababababababababab",
+  "proofs": {}
+}
