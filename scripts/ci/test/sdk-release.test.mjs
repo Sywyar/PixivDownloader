@@ -11,6 +11,7 @@ import {
     createArchive,
     createProjectManifest,
     createReleaseManifest,
+    extractArchive,
     initializeProjectGit,
     readRuntimeInput,
     sha256,
@@ -112,6 +113,8 @@ test('SDK ZIP 初始提交使用源码作者和打包时间，英文要点记录
         const sourceSha = sourceGit(['rev-parse', 'HEAD']).trim();
         const options = { repoRoot, sourceSha, sdkVersion: IDENTITY.version };
         const files = new Map([
+            ['mvnw', Buffer.from('#!/bin/sh\nprintf "%s\\n" "$1"\n')],
+            ['examples/gradle-plugin/gradlew', Buffer.from('#!/bin/sh\nprintf "%s\\n" "$1"\n')],
             ['源码 文件.txt', Buffer.from('source\n')],
             ['tools/payload.bin', Buffer.from([0, 1, 128, 255])],
             [`${'nested/'.repeat(40)}source.txt`, Buffer.from('long path\n')],
@@ -130,8 +133,22 @@ test('SDK ZIP 初始提交使用源码作者和打包时间，英文要点记录
         createArchive(source, zip);
         const extracted = path.join(root, 'extracted');
         fs.mkdirSync(extracted);
-        execFileSync('jar', ['--extract', '--file', zip], { cwd: extracted });
+        extractArchive(zip, extracted);
+        // 同时检验 Windows 创建的 ZIP 权限；Unix 再直接执行解压出的脚本。
+        execFileSync(process.platform === 'win32' ? 'python' : 'python3', ['-X', 'utf8', '-c', `
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    for name in sys.argv[2:]:
+        entry = archive.getinfo(name)
+        assert entry.create_system == 3 and (entry.external_attr >> 16) & 0o111, name
+`, zip, 'mvnw', 'examples/gradle-plugin/gradlew']);
         const git = args => execFileSync('git', ['-C', extracted, ...args]);
+        for (const script of ['mvnw', 'examples/gradle-plugin/gradlew']) {
+            assert.match(git(['ls-tree', 'HEAD', '--', script]).toString(), /^100755 /u);
+            if (process.platform !== 'win32') {
+                assert.equal(execFileSync(path.join(extracted, script), ['SDK 源码'], { encoding: 'utf8' }), 'SDK 源码\n');
+            }
+        }
         const metadata = git(['log', '-1', '--format=%an%x00%ae%x00%cn%x00%ce%x00%at%x00%ct'])
                 .toString('utf8').trimEnd().split('\0');
         assert.deepEqual(metadata.slice(0, 4), [authorName, authorEmail, authorName, authorEmail]);

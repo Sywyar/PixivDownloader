@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { readMavenPluginVersion, stageSdkArtifacts } from './sdk-consumer.mjs';
-import { assertThinJarEntries } from './sdk-release.mjs';
+import { assertThinJarEntries, extractArchive } from './sdk-release.mjs';
 import { inspectSdkVersion, SDK_ARTIFACTS, SDK_GROUP_ID } from './sdk-version.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -67,7 +67,7 @@ function verifyClasspath(file) {
 const sdkProject = path.join(work, 'project');
 if (options['--sdk-zip']) {
     fs.mkdirSync(sdkProject);
-    run('jar', ['--extract', '--file', path.resolve(options['--sdk-zip'])], sdkProject);
+    extractArchive(options['--sdk-zip'], sdkProject);
 }
 
 for (const tool of selected) {

@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
 import { inspectSdkVersion, SDK_ARTIFACTS, SDK_GROUP_ID } from './sdk-version.mjs';
-const ARCHIVE_TIME = new Date('1980-01-01T00:00:00.000Z');
+const EXECUTABLE_ENTRIES = ['mvnw', 'examples/gradle-plugin/gradlew', 'run.sh'];
 
 function fail(message) {
     throw new Error(message);
@@ -302,19 +302,6 @@ function regularFiles(root) {
     return files.sort();
 }
 
-function normalizeTimes(root) {
-    const entries = [root];
-    for (let index = 0; index < entries.length; index += 1) {
-        const current = entries[index];
-        if (fs.statSync(current).isDirectory()) {
-            for (const child of fs.readdirSync(current)) entries.push(path.join(current, child));
-        }
-    }
-    for (const entry of entries.sort((left, right) => right.length - left.length)) {
-        fs.utimesSync(entry, ARCHIVE_TIME, ARCHIVE_TIME);
-    }
-}
-
 export function initializeProjectGit(workspace, { repoRoot, sourceSha, sdkVersion }) {
     const gitDirectory = path.join(workspace, '.git');
     if (fs.existsSync(gitDirectory)) fail('SDK workspace already contains Git metadata');
@@ -345,6 +332,8 @@ export function initializeProjectGit(workspace, { repoRoot, sourceSha, sdkVersio
             '[core]\n\trepositoryformatversion = 0\n\tfilemode = false\n\tbare = false\n'
             + '\tlogallrefupdates = true\n\tautocrlf = false\n\tlongpaths = true\n', 'utf8');
     git(['add', '--all', '--force', '--', '.']);
+    const executables = EXECUTABLE_ENTRIES.filter(file => fs.existsSync(path.join(workspace, file)));
+    if (executables.length) git(['update-index', '--chmod=+x', '--', ...executables]);
     const message = path.join(gitDirectory, 'initial-message');
     fs.writeFileSync(message, 'chore(sdk): Initialize plugin development baseline\n\n'
             + `- Set up the development workspace for SDK ${sdkVersion}\n`
@@ -359,22 +348,30 @@ export function initializeProjectGit(workspace, { repoRoot, sourceSha, sdkVersio
 
 export function createArchive(source, destination) {
     fs.rmSync(destination, { force: true });
-    normalizeTimes(source);
-    const argumentsFile = `${destination}.args`;
     const entries = regularFiles(source)
             .map(file => path.relative(source, file).split(path.sep).join('/'))
             .sort();
-    fs.writeFileSync(argumentsFile, `${entries.map(entry => JSON.stringify(entry)).join('\n')}\n`, 'utf8');
-    try {
-        execFileSync('jar', ['-J-Dfile.encoding=UTF-8', '--create', '--file', destination, '--no-manifest', `@${argumentsFile}`], {
-            cwd: source,
-            stdio: 'inherit',
-        });
-    } finally {
-        fs.rmSync(argumentsFile, { force: true });
-    }
+    // zipfile 显式写入 Unix 权限，Windows 打包也生成可直接执行的启动脚本。
+    execFileSync(process.platform === 'win32' ? 'python' : 'python3', ['-X', 'utf8', '-c', `
+import json, shutil, sys, zipfile
+entries, executables = json.load(sys.stdin)
+with zipfile.ZipFile(sys.argv[1], 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+    for name in entries:
+        entry = zipfile.ZipInfo(name, (1980, 1, 1, 0, 0, 0))
+        entry.create_system = 3
+        entry.external_attr = (0o100755 if name in executables else 0o100644) << 16
+        entry.compress_type = zipfile.ZIP_DEFLATED
+        with open(name, 'rb') as source, archive.open(entry, 'w') as target:
+            shutil.copyfileobj(source, target)
+`, path.resolve(destination)], { cwd: source, input: JSON.stringify([entries, EXECUTABLE_ENTRIES]), windowsHide: true });
     requireFile(destination);
     return sha256(destination);
+}
+
+export function extractArchive(archive, destination) {
+    const command = process.platform === 'win32' ? 'jar' : 'unzip';
+    const args = process.platform === 'win32' ? ['--extract', '--file', path.resolve(archive)] : ['-q', path.resolve(archive)];
+    execFileSync(command, args, { cwd: destination, stdio: 'inherit', windowsHide: true });
 }
 
 function writeJson(file, value) {

@@ -7,7 +7,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 
-import { assertThinJarEntries } from './sdk-release.mjs';
+import { assertThinJarEntries, extractArchive } from './sdk-release.mjs';
 import { inspectSdkVersion, SDK_ARTIFACTS, SDK_GROUP_ID } from './sdk-version.mjs';
 
 function fail(message) {
@@ -271,7 +271,7 @@ export function verifyConsumer(options) {
     const localRepository = path.join(work, 'm2', 'repository');
     const mavenHome = path.join(work, 'maven-home');
     fs.mkdirSync(project, { recursive: true });
-    run('jar', ['--extract', '--file', sdkZip], { cwd: project });
+    extractArchive(sdkZip, project);
     if (!fs.statSync(path.join(project, 'docs', 'javadocs', 'index.html'), { throwIfNoEntry: false })?.isFile()) {
         fail('integrated SDK Javadocs are missing');
     }
