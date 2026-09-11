@@ -31,25 +31,9 @@ class PluginTemplateBoundaryTest {
 
     private static final List<String> TEMPLATE_NAMES = List.of(
             "minimal-feature-plugin", "download-type-plugin");
-    private static final Map<String, Set<String>> EXPECTED_DEPENDENCIES = Map.of(
-            "minimal-feature-plugin", Set.of(
-                    "io.github.sywyar.pixivdownloader:pixivdownload-sdk-bom:import",
-                    "io.github.sywyar.pixivdownloader:pixivdownload-sdk-info:provided",
-                    "io.github.sywyar.pixivdownloader:pixivdownload-plugin-api:provided",
-                    "org.pf4j:pf4j:provided",
-                    "org.junit.jupiter:junit-jupiter:test"),
-            "download-type-plugin", Set.of(
-                    "io.github.sywyar.pixivdownloader:pixivdownload-sdk-bom:import",
-                    "org.springframework.boot:spring-boot-dependencies:import",
-                    "io.github.sywyar.pixivdownloader:pixivdownload-sdk-info:provided",
-                    "io.github.sywyar.pixivdownloader:pixivdownload-plugin-api:provided",
-                    "org.pf4j:pf4j:provided",
-                    "org.springframework:spring-context:provided",
-                    "org.springframework:spring-web:provided",
-                    "org.springframework:spring-webmvc:provided",
-                    "jakarta.servlet:jakarta.servlet-api:provided",
-                    "com.fasterxml.jackson.core:jackson-databind:provided",
-                    "org.junit.jupiter:junit-jupiter:test"));
+    private static final Set<String> EXPECTED_DEPENDENCIES = Set.of(
+            "io.github.sywyar.pixivdownloader:pixivdownload-sdk:provided",
+            "org.junit.jupiter:junit-jupiter:test");
     private static final Map<String, ExpectedRuntimeBoundary> EXPECTED_RUNTIME_BOUNDARIES = Map.of(
             "minimal-feature-plugin", new ExpectedRuntimeBoundary(
                     PluginExecutionMode.DECLARATIVE_PROCESS, PluginLifecyclePolicy.HOT_RELOAD, 0),
@@ -86,7 +70,7 @@ class PluginTemplateBoundaryTest {
             }
             assertThat(coordinates)
                     .as(templateName + " dependency coordinates")
-                    .containsExactlyInAnyOrderElementsOf(EXPECTED_DEPENDENCIES.get(templateName));
+                    .containsExactlyInAnyOrderElementsOf(EXPECTED_DEPENDENCIES);
         }
     }
 

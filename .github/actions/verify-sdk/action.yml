@@ -17,7 +17,8 @@ runs:
         set -euo pipefail
         staging="$GITHUB_WORKSPACE/target/sdk-staging"
         staging_url="$(node --input-type=module -e 'import { pathToFileURL } from "node:url"; console.log(pathToFileURL(process.argv[1]).href)' "$staging")"
-        mvn -B -ntp -pl pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api,pixivdownload-sdk-bom deploy \
+        sdk_modules="$(node scripts/ci/sdk-version.mjs --modules)"
+        mvn -B -ntp -pl "$sdk_modules" deploy \
           -DskipTests -Dexec.skip=true "-Dpixivdownload.source.sha=$SOURCE_SHA" \
           "-DaltDeploymentRepository=sdk-staging::$staging_url"
         mvn -B -ntp -pl pixivdownload-plugin-signature package -DskipTests -Dexec.skip=true
@@ -26,11 +27,55 @@ runs:
       shell: bash
       run: mvn -B -ntp -f plugin-templates/pom.xml -pl minimal-feature-plugin,download-type-plugin verify
 
+    - name: Verify single SDK dependency across build tools
+      shell: bash
+      run: |
+        set -euo pipefail
+        launcher="$GITHUB_WORKSPACE/target/sbt-launch.jar"
+        properties=plugin-templates/sdk-package/examples/sbt-plugin/project/build.properties
+        sbt_version="$(sed -n 's/^sbt.version=//p' "$properties" | tr -d '\r')"
+        sbt_sha="$(sed -n 's/^sbt.launcher.sha256=//p' "$properties" | tr -d '\r')"
+        curl --fail --show-error --silent --location \
+          "https://repo.maven.apache.org/maven2/org/scala-sbt/sbt-launch/$sbt_version/sbt-launch-$sbt_version.jar" \
+          --output "$launcher"
+        printf '%s  %s\n' "$sbt_sha" "$launcher" | sha256sum --check
+        node scripts/ci/sdk-build-tools.mjs --sdk-repository target/sdk-staging --sbt-launcher "$launcher"
+
     - name: Generate complete SDK Javadocs
       shell: bash
       run: |
         mvn -B -ntp -pl pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api org.apache.maven.plugins:maven-javadoc-plugin:javadoc -DskipTests -Dexec.skip=true
         node scripts/ci/sdk-javadocs.mjs --repo-root .
+
+    - name: Build development host and shared SDK tools
+      shell: bash
+      env:
+        SOURCE_SHA: ${{ inputs.source_sha }}
+      run: |
+        set -euo pipefail
+        mvn -B -ntp -pl pixivdownload-app,pixivdownload-sdk-tools -am verify \
+          -DskipTests "-Dpixivdownload.source.sha=$SOURCE_SHA"
+
+    - name: Stage fixed signed official plugin input
+      shell: pwsh
+      run: |
+        ./scripts/ci/test/sdk-runtime-input.test.ps1 -TestDirectory target/sdk-runtime-input-tests
+        ./scripts/ci/sdk-runtime-inputs.ps1 -OutputDirectory target/sdk-runtime-inputs
+
+    - name: Assemble fixed complete development runtime
+      shell: bash
+      env:
+        SOURCE_SHA: ${{ inputs.source_sha }}
+      run: |
+        set -euo pipefail
+        hosts=(pixivdownload-app/target/PixivDownload-*-boot.jar)
+        signatures=(pixivdownload-plugin-signature/target/pixivdownload-plugin-signature-*.jar)
+        [ "${#hosts[@]}" -eq 1 ] && [ "${#signatures[@]}" -eq 1 ]
+        host_version="$(basename "${hosts[0]}" -boot.jar)"
+        host_version="${host_version#PixivDownload-}"
+        node scripts/ci/sdk-runtime.mjs --repo-root . --source-sha "$SOURCE_SHA" \
+          --host-version "$host_version" --host-jar "${hosts[0]}" \
+          --plugins-directory target/sdk-runtime-inputs/plugins --signature-tool "${signatures[0]}"
 
     - name: Verify integrated SDK and isolated consumers
       shell: bash
@@ -39,7 +84,21 @@ runs:
       run: |
         set -euo pipefail
         sdk_version="$(node scripts/ci/sdk-version.mjs --repo-root . --json | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')"
-        node scripts/ci/sdk-release.mjs --repo-root . --output target/sdk-release --source-sha "$SOURCE_SHA"
+        tools=(pixivdownload-sdk-tools/target/pixivdownload-sdk-tools-*.jar)
+        [ "${#tools[@]}" -eq 1 ]
+        node scripts/ci/sdk-release.mjs --repo-root . --output target/sdk-release --source-sha "$SOURCE_SHA" \
+          --runtime-manifest build/sdk-development-runtime/sdk-runtime.json --tools-jar "${tools[0]}"
         node scripts/ci/sdk-consumer.mjs --repo-root . \
           --sdk-zip "target/sdk-release/PixivDownloader-Plugin-SDK-$sdk_version.zip" \
           --sdk-repository target/sdk-staging --work-dir target/sdk-staged-consumer
+        node scripts/ci/sdk-build-tools.mjs --sdk-repository target/sdk-staging \
+          --sdk-zip "target/sdk-release/PixivDownloader-Plugin-SDK-$sdk_version.zip" \
+          --sbt-launcher target/sbt-launch.jar
+
+    - name: Run both SDK plugin modes with the fixed complete host
+      shell: pwsh
+      run: |
+        $release = Get-Content -Raw -Encoding UTF8 target/sdk-release/sdk-release.json | ConvertFrom-Json
+        ./scripts/ci/sdk-runtime-consumer.ps1 -BuiltProject target/sdk-staged-consumer/project `
+          -WorkDirectory target/sdk-host-consumer `
+          -RuntimeArchive (Join-Path target/sdk-release $release.developmentRuntime.archive.file)

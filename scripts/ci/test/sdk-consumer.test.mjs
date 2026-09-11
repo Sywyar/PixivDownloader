@@ -3,16 +3,22 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { inspectSdkVersion } from '../sdk-version.mjs';
 
 import { assertSdkResolution, parsePluginIdentity, stageSdkArtifacts } from '../sdk-consumer.mjs';
 
-const VERSION = '1.0.0-rc1';
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+const VERSION = inspectSdkVersion(ROOT).version;
+const DESCRIPTOR = fs.readFileSync(path.join(ROOT, 'pixivdownload-plugin-douyin/src/main/resources/plugin.properties'), 'utf8');
+const PLUGIN_VERSION = /^plugin\.version=(.+)$/mu.exec(DESCRIPTOR)[1].trim();
 const GROUP_PATH = path.join('io', 'github', 'sywyar', 'pixivdownloader');
 const ARTIFACTS = [
     ['pixivdownload-sdk-bom', ['pom']],
     ['pixivdownload-sdk-info', ['pom', 'jar']],
     ['pixivdownload-plugin-api', ['pom', 'jar']],
     ['pixivdownload-core-api', ['pom', 'jar']],
+    ['pixivdownload-sdk', ['pom', 'jar']],
 ];
 
 function writeRepository(root) {
@@ -30,12 +36,11 @@ test('第三方验收签名身份从插件描述符读取', () => {
     assert.deepEqual(parsePluginIdentity(`
         # fixture
         plugin.id=douyin
-        plugin.version=2.3.4
-        plugin.requires=1.0
-    `), { id: 'douyin', version: '2.3.4' });
+        plugin.version=${PLUGIN_VERSION}
+    `), { id: 'douyin', version: PLUGIN_VERSION });
     assert.throws(() => parsePluginIdentity('plugin.id=douyin\n'), /must declare/u);
     assert.throws(() => parsePluginIdentity(
-            'plugin.id=douyin\nplugin.id=other\nplugin.version=2.3.4\n'), /more than once/u);
+            `plugin.id=douyin\nplugin.id=other\nplugin.version=${PLUGIN_VERSION}\n`), /more than once/u);
 });
 
 test('隔离消费者按指定仓库字节离线验证 SDK，不依赖 Maven 来源 marker', () => {

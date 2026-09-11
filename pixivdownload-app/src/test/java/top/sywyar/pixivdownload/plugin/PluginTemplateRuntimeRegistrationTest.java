@@ -25,6 +25,12 @@ import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
 import top.sywyar.pixivdownload.plugin.registry.web.WebUiSlotRegistry;
 import top.sywyar.pixivdownload.plugin.web.resource.PluginOwnedWebAssetValidator;
+import top.sywyar.pixivdownload.plugin.web.resource.PluginOwnedWebResourceResolver;
+import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
+import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationException;
 
 import javax.tools.JavaCompiler;
 import javax.tools.ToolProvider;
@@ -33,13 +39,17 @@ import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.stream.Stream;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** 把仓库外置模板当作真实第三方类加载，验证宿主注册与子上下文边界。 */
 @DisplayName("第三方插件模板真实宿主注册")
@@ -47,6 +57,62 @@ class PluginTemplateRuntimeRegistrationTest {
 
     @TempDir
     Path temporaryDirectory;
+
+    @Test
+    @DisplayName("真实 worker 代理只解析本代产物资源，拒绝宿主回退和伪造 loader")
+    void isolatedTemplateResolvesOnlyItsAdmittedArtifact() throws Exception {
+        Path artifact = temporaryDirectory.resolve("当前 插件.jar");
+        try (LoadedTemplate compiled = compileTemplate("minimal-feature-plugin",
+                "com.example.pixivdownload.minimal.ExampleMinimalPlugin", null);
+             JarOutputStream jar = new JarOutputStream(Files.newOutputStream(artifact))) {
+            Path classes = Path.of(compiled.classLoader().getURLs()[0].toURI());
+            try (Stream<Path> files = Files.walk(classes)) {
+                for (Path file : files.filter(Files::isRegularFile).toList()) {
+                    jar.putNextEntry(new JarEntry(classes.relativize(file).toString().replace('\\', '/')));
+                    Files.copy(file, jar);
+                    jar.closeEntry();
+                }
+            }
+        }
+        Path plugins = Files.createDirectories(temporaryDirectory.resolve("运行/plugins"));
+        Path installed;
+        try (ExternalPluginInstaller installer = new ExternalPluginInstaller(plugins)) {
+            assertThat(installer.recoverPendingTransactions().safeToScan()).isTrue();
+            var prepared = installer.prepareNewTransaction(artifact,
+                    PluginPackageOrigin.localUnsignedUpload(PluginPackageIntegrity.sha256Hex(artifact)));
+            assertThat(prepared.readyToCommit()).isTrue();
+            var committed = installer.commitTransaction(prepared);
+            installer.verifyCommittedTarget(committed);
+            installer.markActivated(committed);
+            installer.completeTransaction(committed);
+            assertThat(committed.recoveryBlocked()).isFalse();
+            installed = prepared.target();
+        }
+        var manager = new PluginRuntimeManager(plugins);
+        try {
+            manager.loadPlugin(installed);
+            var installation = manager.initializePlugin("example-minimal").inventory().installations().get(0);
+            var owner = new PluginRegistry.RegisteredPlugin(installation.plugin(), PluginSource.EXTERNAL,
+                    installation.classLoader(), installation.id(), 1L);
+            assertThat(owner.plugin().getClass().getClassLoader()).isNotSameAs(owner.classLoader());
+            var contribution = owner.plugin().staticResources().get(0);
+            var resolver = new PluginOwnedWebResourceResolver();
+            var root = resolver.resolveLocation(owner, contribution);
+            assertThat(root.createRelative("example-minimal.html").getContentAsString(StandardCharsets.UTF_8))
+                    .contains("example-minimal");
+            assertThat(getClass().getClassLoader().getResource("static/plugin-manage.html")).isNotNull();
+            assertThat(root.createRelative("plugin-manage.html").exists()).isFalse();
+            var forged = new PluginRegistry.RegisteredPlugin(owner.plugin(), PluginSource.EXTERNAL,
+                    getClass().getClassLoader(), owner.id(), 1L);
+            assertThatThrownBy(() -> resolver.resolveLocation(forged, contribution))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("loader identity");
+            manager.shutdown();
+            assertThatThrownBy(() -> resolver.resolveLocation(owner, contribution))
+                    .isInstanceOf(PluginRuntimeOperationException.class);
+        } finally {
+            manager.shutdown();
+        }
+    }
 
     @Test
     @DisplayName("独立模板注册声明式贡献，完全受信模板组建子上下文")

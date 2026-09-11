@@ -47,8 +47,36 @@ class IsolatedPluginSessionTest {
                 IsolatedPluginSession.RESTART_ATTEMPTS_PROPERTY,
                 IsolatedPluginSession.RESTART_INITIAL_DELAY_PROPERTY,
                 IsolatedPluginSession.RESTART_MAX_DELAY_PROPERTY,
-                IsolatedPluginSession.STDERR_MAX_BYTES_PROPERTY
+                IsolatedPluginSession.STDERR_MAX_BYTES_PROPERTY,
+                SdkWorkerDebug.ID_PROPERTY, SdkWorkerDebug.SHA256_PROPERTY, SdkWorkerDebug.PORT_PROPERTY,
+                SdkWorkerDebug.CONNECT_PROPERTY
         ).forEach(System::clearProperty);
+    }
+
+    @Test
+    @DisplayName("SDK worker 调试目标必须完整且端口与摘要均合法")
+    void validatesExactSdkDebugTarget() {
+        assertThat(SdkWorkerDebug.fromSystemProperties()).isNull();
+        System.setProperty(SdkWorkerDebug.ID_PROPERTY, "my-plugin");
+        assertThatThrownBy(SdkWorkerDebug::fromSystemProperties).isInstanceOf(IllegalArgumentException.class);
+        System.setProperty(SdkWorkerDebug.SHA256_PROPERTY, "a".repeat(64));
+        System.setProperty(SdkWorkerDebug.PORT_PROPERTY, "1");
+        assertThat(SdkWorkerDebug.fromSystemProperties().matches("my-plugin", "a".repeat(64))).isTrue();
+        assertThat(SdkWorkerDebug.fromSystemProperties().matches("my-plugin", "b".repeat(64))).isFalse();
+        System.setProperty(SdkWorkerDebug.PORT_PROPERTY, "65535");
+        assertThat(SdkWorkerDebug.fromSystemProperties().port()).isEqualTo(65535);
+        for (String invalid : List.of("0", "65536", "-1", "5005,address=*", "abc", "")) {
+            System.setProperty(SdkWorkerDebug.PORT_PROPERTY, invalid);
+            assertThatThrownBy(SdkWorkerDebug::fromSystemProperties).isInstanceOf(IllegalArgumentException.class);
+        }
+        System.setProperty(SdkWorkerDebug.PORT_PROPERTY, "5005");
+        System.setProperty(SdkWorkerDebug.CONNECT_PROPERTY, "true");
+        assertThat(SdkWorkerDebug.fromSystemProperties().agentArgument()).contains("server=n", "127.0.0.1:5005");
+        System.setProperty(SdkWorkerDebug.CONNECT_PROPERTY, "invalid");
+        assertThatThrownBy(SdkWorkerDebug::fromSystemProperties).isInstanceOf(IllegalArgumentException.class);
+        System.clearProperty(SdkWorkerDebug.CONNECT_PROPERTY);
+        System.setProperty(SdkWorkerDebug.SHA256_PROPERTY, "A".repeat(64));
+        assertThatThrownBy(SdkWorkerDebug::fromSystemProperties).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

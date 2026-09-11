@@ -10,13 +10,21 @@ import { changedMavenContracts, evaluateBaselineState, evaluateContract } from '
 import { inspectSdkVersion, parseSdkVersion } from '../sdk-version.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const CURRENT = inspectSdkVersion(ROOT);
+const STABLE = `${CURRENT.major}.${CURRENT.minor}.${CURRENT.patch}`;
+const NEXT_PATCH = `${CURRENT.major}.${CURRENT.minor}.${CURRENT.patch + 1}`;
+const NEXT_MINOR = `${CURRENT.major}.${CURRENT.minor + 1}.${CURRENT.patch}`;
+const SEQUENCE = Math.max(1, CURRENT.prereleaseSequence);
+const rc = (offset = 0) => `${STABLE}-rc${SEQUENCE + offset}`;
+
 const CLI = path.join(ROOT, 'scripts', 'ci', 'sdk-contract.mjs');
 
 const CONSUMER_POM_MODULES = [
     'pixivdownload-sdk-info',
     'pixivdownload-plugin-api',
     'pixivdownload-core-api',
-    'pixivdownload-sdk-bom'
+    'pixivdownload-sdk-bom',
+    'pixivdownload-sdk'
 ];
 
 function identity(version, legacyRevision = 0) {
@@ -35,7 +43,7 @@ function dependency(groupId, artifactId, version, scope = '') {
     </dependency>`;
 }
 
-function consumerPom(module, sdkVersion, label, servletVersion = '6.0.0') {
+function consumerPom(module, sdkVersion, label, servletVersion = STABLE) {
     const directDependencies = module === 'pixivdownload-plugin-api'
         ? `<dependencies>${dependency('jakarta.servlet', 'jakarta.servlet-api', servletVersion, 'provided')}</dependencies>`
         : '';
@@ -59,7 +67,7 @@ function consumerPom(module, sdkVersion, label, servletVersion = '6.0.0') {
 </project>\n`;
 }
 
-function writeConsumerPoms(root, sdkVersion, label, servletVersion = '6.0.0') {
+function writeConsumerPoms(root, sdkVersion, label, servletVersion = STABLE) {
     for (const module of CONSUMER_POM_MODULES) {
         const target = path.join(root, module, 'target');
         fs.mkdirSync(target, { recursive: true });
@@ -84,14 +92,14 @@ function copy(root, relativePath) {
 
 test('公开表面变化必须同时更新 SDK 身份', () => {
     assert.throws(() => evaluateContract({
-        baseIdentity: identity('1.0.0-rc1'),
-        candidateIdentity: identity('1.0.0-rc1'),
+        baseIdentity: identity(rc()),
+        candidateIdentity: identity(rc()),
         baseSurface: 'A\n',
         candidateSurface: 'A\nB\n'
     }), /without a new SDK release identity/u);
     assert.equal(evaluateContract({
-        baseIdentity: identity('1.0.0-rc1'),
-        candidateIdentity: identity('1.0.0-rc2'),
+        baseIdentity: identity(rc()),
+        candidateIdentity: identity(rc(1)),
         baseSurface: 'A\n',
         candidateSurface: 'A\nB\n'
     }).outcome, 'PUBLISH');
@@ -113,6 +121,7 @@ test('Wrapper 纯权限变化不属于 SDK 语义合同', () => {
             'pixivdownload-plugin-api/pom.xml',
             'pixivdownload-core-api/pom.xml',
             'pixivdownload-sdk-bom/pom.xml',
+            'pixivdownload-sdk/pom.xml',
             'plugin-templates/minimal-feature-plugin/pom.xml',
             'plugin-templates/download-type-plugin/pom.xml'
         ]) copy(root, relativePath);
@@ -154,7 +163,7 @@ test('Wrapper 纯权限变化不属于 SDK 语义合同', () => {
 });
 
 test('Maven 消费语义变化必须同时更新 SDK 身份', () => {
-    const identity = parseSdkVersion('1.2.3');
+    const identity = parseSdkVersion(STABLE);
     assert.throws(() => evaluateContract({
         baseIdentity: identity,
         candidateIdentity: identity,
@@ -164,7 +173,7 @@ test('Maven 消费语义变化必须同时更新 SDK 身份', () => {
     }), /Maven SDK consumer contract changed without a new SDK release identity/u);
     const result = evaluateContract({
         baseIdentity: identity,
-        candidateIdentity: parseSdkVersion('1.2.4'),
+        candidateIdentity: parseSdkVersion(NEXT_PATCH),
         baseSurface: 'type A',
         candidateSurface: 'type A',
         mavenContractChanges: ['pixivdownload-plugin-api/maven-consumer-contract'],
@@ -174,14 +183,14 @@ test('Maven 消费语义变化必须同时更新 SDK 身份', () => {
 
 test('预发布版本必须单调递增且首次结构化身份可从旧元数据迁移', () => {
     assert.throws(() => evaluateContract({
-        baseIdentity: identity('1.0.0-rc2'),
-        candidateIdentity: identity('1.0.0-rc1'),
+        baseIdentity: identity(rc(1)),
+        candidateIdentity: identity(rc()),
         baseSurface: 'A\n',
         candidateSurface: 'A\n'
     }), /must increase/u);
     assert.equal(evaluateContract({
-        baseIdentity: identity('1.0.0', 1),
-        candidateIdentity: identity('1.0.0-rc1'),
+        baseIdentity: identity(STABLE, 1),
+        candidateIdentity: identity(rc()),
         baseSurface: 'A\n',
         candidateSurface: 'A\n'
     }).outcome, 'PUBLISH');
@@ -192,12 +201,12 @@ test('Maven 合同比较忽略发布元数据和 SDK 自身版本投影', () => 
     const base = path.join(root, 'base');
     const candidate = path.join(root, 'candidate');
     try {
-        writeConsumerPoms(base, '1.2.3', 'Old metadata');
-        writeConsumerPoms(candidate, '1.2.4', 'New metadata');
-        assert.deepEqual(changedMavenContracts(base, candidate, '1.2.3', '1.2.4'), []);
+        writeConsumerPoms(base, STABLE, 'Old metadata');
+        writeConsumerPoms(candidate, NEXT_PATCH, 'New metadata');
+        assert.deepEqual(changedMavenContracts(base, candidate, STABLE, NEXT_PATCH), []);
 
-        writeConsumerPoms(candidate, '1.2.4', 'New metadata', '6.1.0');
-        assert.deepEqual(changedMavenContracts(base, candidate, '1.2.3', '1.2.4'),
+        writeConsumerPoms(candidate, NEXT_PATCH, 'New metadata', NEXT_MINOR);
+        assert.deepEqual(changedMavenContracts(base, candidate, STABLE, NEXT_PATCH),
                 ['pixivdownload-plugin-api/maven-consumer-contract']);
     } finally {
         fs.rmSync(root, { recursive: true, force: true });
@@ -209,38 +218,59 @@ test('首次结构化身份把旧基线缺少的 consumer POM 视为 Maven 合�
     const base = path.join(root, 'base');
     const candidate = path.join(root, 'candidate');
     try {
-        writeConsumerPoms(candidate, '1.0.0-rc1', 'Candidate metadata');
-        assert.deepEqual(changedMavenContracts(base, candidate, '1.0.0', '1.0.0-rc1', true),
+        writeConsumerPoms(candidate, rc(), 'Candidate metadata');
+        assert.deepEqual(changedMavenContracts(base, candidate, STABLE, rc(), true),
                 CONSUMER_POM_MODULES.map((module) => `${module}/maven-consumer-contract`));
-        assert.throws(() => changedMavenContracts(base, candidate, '1.0.0', '1.0.0-rc1'),
+        assert.throws(() => changedMavenContracts(base, candidate, STABLE, rc()),
                 /Missing base consumer POM/u);
         fs.rmSync(path.join(candidate, CONSUMER_POM_MODULES[0], 'target', 'flattened-pom.xml'));
-        assert.throws(() => changedMavenContracts(base, candidate, '1.0.0', '1.0.0-rc1', true),
+        assert.throws(() => changedMavenContracts(base, candidate, STABLE, rc(), true),
                 /Missing candidate consumer POM/u);
     } finally {
         fs.rmSync(root, { recursive: true, force: true });
     }
 });
 
+test('新增坐标区分基线尚未声明与已有坐标构建产物缺失', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pixivdownload-sdk-new-coordinate-'));
+    const base = path.join(root, 'base');
+    const candidate = path.join(root, 'candidate');
+    try {
+        writeConsumerPoms(base, rc(), 'Base');
+        writeConsumerPoms(candidate, rc(1), 'Candidate');
+        fs.rmSync(path.join(base, 'pixivdownload-sdk', 'target', 'flattened-pom.xml'));
+        const previousModules = CONSUMER_POM_MODULES.filter(module => module !== 'pixivdownload-sdk');
+        const changes = changedMavenContracts(base, candidate, rc(), rc(1), false, previousModules);
+        assert.deepEqual(changes, ['pixivdownload-sdk/maven-consumer-contract']);
+        assert.throws(() => changedMavenContracts(base, candidate, rc(), rc(1)),
+                /Missing base consumer POM/u);
+        fs.rmSync(path.join(base, 'pixivdownload-plugin-api', 'target', 'flattened-pom.xml'));
+        assert.throws(() => changedMavenContracts(base, candidate, rc(), rc(1), false, previousModules),
+                /Missing base consumer POM/u);
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
 test('同主版本稳定基线禁止删除并要求兼容新增提升次版本', () => {
-    const stableBaseline = { identity: identity('1.0.0'), surface: 'A\n' };
+    const stableBaseline = { identity: identity(STABLE), surface: 'A\n' };
     assert.throws(() => evaluateContract({
-        baseIdentity: identity('1.0.0'),
-        candidateIdentity: identity('1.1.0-rc1'),
+        baseIdentity: identity(STABLE),
+        candidateIdentity: identity(`${NEXT_MINOR}-rc${SEQUENCE}`),
         baseSurface: 'A\n',
         candidateSurface: 'B\n',
         stableBaseline
     }), /removes public API/u);
     assert.throws(() => evaluateContract({
-        baseIdentity: identity('1.0.0'),
-        candidateIdentity: identity('1.0.1-rc1'),
+        baseIdentity: identity(STABLE),
+        candidateIdentity: identity(`${NEXT_PATCH}-rc${SEQUENCE}`),
         baseSurface: 'A\n',
         candidateSurface: 'A\nB\n',
         stableBaseline
     }), /higher SDK minor/u);
     assert.equal(evaluateContract({
-        baseIdentity: identity('1.0.0'),
-        candidateIdentity: identity('1.1.0-rc1'),
+        baseIdentity: identity(STABLE),
+        candidateIdentity: identity(`${NEXT_MINOR}-rc${SEQUENCE}`),
         baseSurface: 'A\n',
         candidateSurface: 'A\nB\n',
         stableBaseline
@@ -248,19 +278,19 @@ test('同主版本稳定基线禁止删除并要求兼容新增提升次版本',
 });
 
 test('预发布不能建立或改写稳定基线', () => {
-    const base = { identity: identity('1.0.0'), metadataText: '{}\n', surface: 'A\n' };
+    const base = { identity: identity(STABLE), metadataText: '{}\n', surface: 'A\n' };
     assert.throws(() => evaluateBaselineState({
         base: null,
         candidate: base,
-        candidateIdentity: identity('1.1.0-rc1'),
+        candidateIdentity: identity(`${NEXT_MINOR}-rc${SEQUENCE}`),
         candidateSurface: 'A\n',
-        directory: 'sdk-baselines/v1'
+        directory: `sdk-baselines/v${CURRENT.major}`
     }), /cannot establish/u);
     assert.throws(() => evaluateBaselineState({
         base,
         candidate: { ...base, surface: 'A\nB\n' },
-        candidateIdentity: identity('1.1.0-rc1'),
+        candidateIdentity: identity(`${NEXT_MINOR}-rc${SEQUENCE}`),
         candidateSurface: 'A\nB\n',
-        directory: 'sdk-baselines/v1'
+        directory: `sdk-baselines/v${CURRENT.major}`
     }), /cannot modify/u);
 });

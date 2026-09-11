@@ -975,6 +975,81 @@ class PluginRuntimeManagerTest {
     }
 
     @Test
+    @DisplayName("独立开发工程在宿主中加载当前编译输出并保留已验证插件")
+    void standaloneDevelopmentLoadsSourceAlongsidePackagedPlugins() throws IOException {
+        Path project = tempDir.resolve("standalone project");
+        Path plugins = project.resolve(".dev/runtime/plugins");
+        Path baseline = plugins.resolve("baseline.jar");
+        writeDependencyOrderProbeJar(baseline, "baseline", List.of());
+        writeLocalProvenance(plugins, baseline, "baseline", PROBE_VERSION);
+        writeDeclarativeProbeSourceDescriptor(project);
+        Path classes = project.resolve("target/classes");
+        writeDeclarativeProbeClassesDirectory(classes);
+        byte[] descriptor = Files.readAllBytes(classes.resolve("plugin.properties"));
+        String previousEnabled = System.getProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY);
+        String previousRoot = System.getProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY);
+        var manager = new PluginRuntimeManager(plugins);
+        try {
+            System.setProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, "true");
+            System.setProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY, project.toString());
+            PluginRuntimeStatus status = manager.start();
+            assertThat(status.failures()).isEmpty();
+            assertThat(status.startedPluginIds()).containsExactlyInAnyOrder("baseline", PROBE_ID);
+            assertThat(status.verifications()).extracting(PluginRuntimeVerificationSnapshot::pluginId)
+                    .contains("baseline");
+            assertThat(manager.isDevelopmentArtifact("baseline")).isFalse();
+            assertThat(manager.artifactPath(PROBE_ID)).contains(classes.toAbsolutePath());
+            assertThat(manager.loadedDescriptor(PROBE_ID)).hasValueSatisfying(value ->
+                    assertThat(value.executionMode()).isEqualTo(PluginExecutionMode.HOST_PROCESS_FULL_TRUST));
+            // A real plugin instance in this JVM proves the source did not run in a worker.
+            assertThat(manager.pluginManagerForTest().orElseThrow().getPlugin(PROBE_ID).getPlugin()).isNotNull();
+            assertThat(Files.readAllBytes(classes.resolve("plugin.properties"))).isEqualTo(descriptor);
+            long generation = manager.generation(PROBE_ID).orElseThrow();
+            manager.unloadPlugin(PROBE_ID);
+            manager.loadPlugin(classes);
+            manager.startPlugin(PROBE_ID);
+            assertThat(manager.generation(PROBE_ID).orElseThrow()).isGreaterThan(generation);
+            assertThat(manager.packagePhases().get("baseline")).isEqualTo(PluginRuntimePackagePhase.STARTED);
+        } finally {
+            manager.shutdown();
+            restoreProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, previousEnabled);
+            restoreProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY, previousRoot);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true", "false"})
+    @DisplayName("独立工程缺少编译输出或插件标识冲突时仍保留配套插件")
+    void standaloneDevelopmentFailuresDoNotRemovePackagedPlugins(boolean compiled) throws IOException {
+        Path project = tempDir.resolve("standalone failure");
+        Path plugins = project.resolve(".dev/runtime/plugins");
+        Path baseline = plugins.resolve("baseline.jar");
+        writeProbeJar(baseline, false);
+        writeLocalProvenance(plugins, baseline);
+        writeDeclarativeProbeSourceDescriptor(project);
+        if (compiled) writeDeclarativeProbeClassesDirectory(project.resolve("target/classes"));
+        String previousEnabled = System.getProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY);
+        String previousRoot = System.getProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY);
+        var manager = new PluginRuntimeManager(plugins);
+        try {
+            System.setProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, "true");
+            System.setProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY, project.toString());
+            PluginRuntimeStatus status = manager.start();
+            assertThat(status.failures()).singleElement()
+                    .satisfies(failure -> assertThat(failure.source()).isEqualTo(PROBE_ID));
+            assertThat(status.startedPluginIds()).containsExactly(PROBE_ID);
+            assertThat(manager.artifactPath(PROBE_ID)).contains(baseline.toAbsolutePath());
+            assertThat(manager.isDevelopmentArtifact(PROBE_ID)).isFalse();
+            assertThat(status.verifications()).extracting(PluginRuntimeVerificationSnapshot::pluginId)
+                    .contains(PROBE_ID);
+        } finally {
+            manager.shutdown();
+            restoreProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, previousEnabled);
+            restoreProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY, previousRoot);
+        }
+    }
+
+    @Test
     @DisplayName("开发模式：同一仓库的两个运行时使用独立会话并只清理自身缓存")
     void developmentModeManagersUseIsolatedCacheSessions() throws IOException {
         Path repositoryRoot = tempDir.resolve("repo-isolated-sessions");

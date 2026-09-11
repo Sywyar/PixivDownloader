@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<launchConfiguration type="org.eclipse.jdt.launching.remoteJavaApplication">
+  <stringAttribute key="org.eclipse.jdt.launching.PROJECT_ATTR" value="example-minimal-plugin" />
+  <stringAttribute key="org.eclipse.jdt.launching.VM_CONNECTOR_ID" value="org.eclipse.jdt.launching.socketAttachConnector" />
+  <mapAttribute key="org.eclipse.jdt.launching.CONNECT_MAP">
+    <mapEntry key="hostname" value="127.0.0.1" />
+    <mapEntry key="port" value="5005" />
+    <mapEntry key="timeout" value="300000" />
+  </mapAttribute>
+  <booleanAttribute key="org.eclipse.jdt.launching.ALLOW_TERMINATE" value="false" />
+</launchConfiguration>

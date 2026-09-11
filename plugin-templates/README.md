@@ -23,7 +23,7 @@
 
     mvn -f plugin-templates/pom.xml verify
 
-这个验证 reactor 会先构建同仓的 SDK Info、Plugin API、Core API 与 SDK BOM。复制到仓库外时，两个子项目仍是无相对 parent 的独立 POM，但构建环境必须能从 Maven 仓库解析 <code>io.github.sywyar.pixivdownloader:pixivdownload-sdk-bom:1.0.0-rc3</code> 及 BOM 管理的公共构件；不要改成引用宿主源码目录或应用模块。
+这个验证 reactor 会先构建同仓的 SDK 模块。两个模板只声明一个 <code>io.github.sywyar.pixivdownloader:pixivdownload-sdk:1.0.0-rc4</code> 依赖，作用域为 <code>provided</code>，不继承仓库 parent。复制到仓库外时，需要能解析该版本的 Maven 仓库；源码中的候选版本不代表已经公开发布。
 
 产物位于 <code>plugin-templates/minimal-feature-plugin/target/example-minimal-plugin-0.1.0.jar</code>。将复制并改名后的插件 JAR 通过插件管理页安装，或放入宿主的运行期 <code>plugins/</code> 目录；两种方式都受宿主的包验证与签名策略约束，模板不包含签名、信任根或 installer 内部实现。其 <code>declarative-process</code> 描述符与零配置类边界允许宿主在独立 worker 中接纳声明式贡献，启用后管理员可访问 <code>/example-minimal.html</code>。
 
@@ -42,14 +42,49 @@
 | <code>ExampleMinimal</code> | 你的 Java 类型名前缀 |
 | <code>0.1.0</code> | 插件项目版本与 <code>plugin.version</code> |
 | <code>plugin.requires=1.0</code> | 目标宿主的 major.minor 契约版本；只替换这一整行，不要误改 <code>1.0.0</code> |
-| <code>&lt;pixivdownload.sdk.version&gt;1.0.0-rc3&lt;/pixivdownload.sdk.version&gt;</code> | 构建环境提供的统一 SDK/BOM 版本 |
+| <code>&lt;pixivdownload.sdk.version&gt;1.0.0-rc4&lt;/pixivdownload.sdk.version&gt;</code> | 构建环境提供的 SDK 版本 |
 | <code>plugin.provider=Example Developer</code> | 你的 provider 名称 |
 
 最后修改各正式语言 i18n 文件中的展示文案，并再次运行 <code>mvn verify</code>。不要只改 <code>plugin.properties</code>：feature id、route、static、namespace 和测试中的对应值必须同步替换。
 
 ## 运行时边界
 
-模板 POM 不继承本仓库根 parent，也不依赖 <code>pixivdownload-app</code> 或 <code>pixivdownload-plugin-runtime</code>。SDK BOM 统一管理 SDK Info、Plugin API 与 Core API 版本。最小模板只依赖宿主提供的 SDK 与 PF4J；下载类型模板另外把 Spring、Jackson 和 Servlet API 声明为 <code>provided</code>。这些共享依赖不能复制进插件 JAR，否则跨 classloader 的契约类型将不再相同。
+模板 POM 不继承本仓库根 parent，也不依赖 <code>pixivdownload-app</code> 或 <code>pixivdownload-plugin-runtime</code>。薄入口 <code>pixivdownload-sdk</code> 传递 SDK Info、Plugin API、Core API、PF4J、Spring context/web/webmvc、Servlet 和 Jackson 编译依赖。消费者将整个入口声明为宿主提供；这些共享依赖不能复制进插件 JAR，否则跨 classloader 的契约类型将不再相同。JUnit 由模板单独声明，测试库不属于 SDK 编译入口。原有三个 SDK 模块和 BOM 坐标仍保留。
+
+其它构建工具可以直接消费同一 Maven 坐标，不需要导入 BOM：
+
+```kotlin
+// Gradle
+dependencies {
+    compileOnly("io.github.sywyar.pixivdownloader:pixivdownload-sdk:1.0.0-rc4")
+}
+```
+
+```scala
+// sbt
+libraryDependencies += "io.github.sywyar.pixivdownloader" % "pixivdownload-sdk" % "1.0.0-rc4" % Provided
+```
+
+Ivy 使用 Maven 兼容 resolver，并将 SDK 的默认传递依赖映射到自己的编译配置；不要把这个配置加入运行或打包配置：
+
+```xml
+<configurations>
+    <conf name="compile"/>
+    <conf name="runtime"/>
+</configurations>
+<dependencies>
+    <dependency org="io.github.sywyar.pixivdownloader" name="pixivdownload-sdk"
+                rev="1.0.0-rc4" conf="compile->default"/>
+</dependencies>
+```
+
+仓库的跨工具消费者检查使用同一份 Java 源码，验证三个 SDK 模块和框架类型的编译、SDK JAR 字节以及运行作用域。先构建 SDK 暂存仓库，再执行：
+
+```text
+node scripts/ci/sdk-build-tools.mjs --sdk-repository target/sdk-staging --sbt-launcher <sbt-launch.jar>
+```
+
+也可用 <code>--tool maven</code>、<code>--tool gradle</code> 或 <code>--tool sbt</code> 单独运行。Maven 和 Gradle 使用仓库 Wrapper；sbt 使用调用者提供的 launcher，版本由消费者的 <code>project/build.properties</code> 固定。检查在新的 <code>target/</code> 子目录中保存工程与缓存。Ivy 示例说明标准配置映射，不属于这三种工具的实测结果。
 
 已验证 <code>plugin.properties</code> 中的 <code>pixiv.kind</code>、<code>pixiv.execution-mode</code>、<code>pixiv.lifecycle-policy</code> 和可选的 <code>pixiv.configuration-classes</code> 是运行边界的权威来源。<code>minimal-feature-plugin</code> 不声明配置类，宿主只注册独立 worker 返回的声明式贡献；<code>download-type-plugin</code> 的配置类只会在完全受信准入后用于插件专属子 <code>ApplicationContext</code>。下载模板的 <code>configurationClasses()</code> 仅为旧版宿主与 SDK 工具兼容而保留，并与描述符保持一致。完全受信插件 Bean 必须在配置类中用 <code>@Bean</code> 显式创建，不得依赖宿主根包扫描。
 

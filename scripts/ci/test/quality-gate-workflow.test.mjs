@@ -164,8 +164,7 @@ test('Quality Gate preserves required roles and the active event contract', () =
     const sdkResolve = javaSteps.find((step) => step.env?.INPUT_TRUSTED_BASE_SHA !== undefined);
     const releaseBuild = javaSteps.find((step) => /\bverify\b.*-Pofficial-surveys/.test(step.run || ''));
     const releaseBoundary = javaSteps.find((step) => /DistributionPackagingBoundaryTest/.test(step.run || ''));
-    const sdkPackage = javaSteps.find((step) => /\b(?:package|deploy)\b/.test(step.run || '')
-        && /pixivdownload-sdk-bom/.test(step.run));
+    const sdkPackage = javaSteps.find((step) => /-DaltDeploymentRepository=/.test(step.run || ''));
     const sdkContract = javaSteps.find((step) => /sdk-contract\.mjs/.test(step.run || ''));
     assert.equal(sdkResolve.env.INPUT_TRUSTED_BASE_SHA, '${{ inputs.trusted_base_sha }}');
     assert.match(sdkResolve.run, /resolve-trusted-base\.mjs/u);
@@ -176,6 +175,17 @@ test('Quality Gate preserves required roles and the active event contract', () =
     assert.match(releaseBoundary.run, /distribution\.packaging\.require-artifacts=true/u);
     assert.match(releaseBoundary.run, /Failures: 0, Errors: 0, Skipped: 0/u);
     assert.ok(sdkPackage, 'SDK consumer artifacts must be built');
+    const sdkArguments = execFileSync('bash', ['-e', '-o', 'pipefail', '-c',
+        `mvn() { printf 'MAVEN_ARGUMENT:%s\\n' "$@"; }\n${sdkPackage.run}`], {
+        cwd: ROOT, encoding: 'utf8',
+        env: { ...process.env, GITHUB_WORKSPACE: ROOT.replaceAll('\\', '/'), SOURCE_SHA: 'a'.repeat(40) },
+    }).trim().split('\n').filter(line => line.startsWith('MAVEN_ARGUMENT:'))
+        .map(line => line.slice('MAVEN_ARGUMENT:'.length));
+    assert.deepEqual(sdkArguments[sdkArguments.indexOf('-pl') + 1].split(','), [
+        'pixivdownload-sdk-info', 'pixivdownload-plugin-api', 'pixivdownload-core-api',
+        'pixivdownload-sdk-bom', 'pixivdownload-sdk',
+    ], 'Maven receives every public SDK module as one argument');
+    assert.ok(sdkArguments.includes('deploy'), 'SDK artifacts must reach the staging repository');
     assert.match(sdkContract.run, /git archive "\$SDK_BASE_SHA"/u);
     assert.match(sdkContract.run, /sdk-api-surface\.mjs/u);
     assert.match(sdkContract.run, /sdk-contract\.mjs/u);
@@ -424,7 +434,14 @@ test('SDK 发布链只在身份变化或显式恢复时通过同 SHA 门禁写�
     const state = sdk.jobs.publish.steps.find((step) => step.name === 'Check immutable publication state');
     const central = sdk.jobs.publish.steps.find((step) => step.name === 'Publish SDK artifacts to Maven Central');
     const remote = sdk.jobs.publish.steps.find((step) => step.name === 'Verify public SDK Release and clean consumer');
-    assert.match(state.run, /central_count.*tag_exists.*release_exists/su);
+    assert.match(state.run, /central_count.*tag_exists.*reuse_release/su);
+    const freeze = sdk.jobs.publish.steps.findIndex(step => step.name === 'Freeze signed SDK assets before Central publication');
+    assert.ok(freeze > -1 && freeze < sdk.jobs.publish.steps.indexOf(central));
+    assert.match(sdk.jobs.publish.steps[freeze].run, /--draft/u);
+    assert.doesNotMatch(serialized, /--clobber/u);
+    const restore = sdk.jobs.publish.steps.find(step => step.name === 'Restore original frozen SDK Release');
+    assert.match(restore.run, /gpg --batch --verify/u);
+    assert.match(restore.run, /--verify-directory/u);
     assert.equal(central.if, "${{ needs.release-plan.outputs.mode == 'publish' }}");
     assert.match(remote.run, /gh release download/u);
     assert.match(remote.run, /sdk-consumer\.mjs/u);

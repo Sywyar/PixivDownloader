@@ -103,6 +103,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     environment: release
+    concurrency:
+      group: sdk-publication-${{ needs.release-plan.outputs.release_id }}
+      cancel-in-progress: false
     env:
       GH_TOKEN: ${{ secrets.CROSS_REPO_RELEASE_TOKEN }}
       CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
@@ -143,7 +146,8 @@ jobs:
         run: |
           set -euo pipefail
           group_path="io/github/sywyar/pixivdownloader"
-          artifacts=(pixivdownload-sdk-info pixivdownload-plugin-api pixivdownload-core-api pixivdownload-sdk-bom)
+          sdk_modules="$(node scripts/ci/sdk-version.mjs --modules)"
+          IFS=, read -r -a artifacts <<< "$sdk_modules"
           central_count=0
           for artifact in "${artifacts[@]}"; do
             url="$CENTRAL_BASE_URL/$group_path/$artifact/$SDK_VERSION/$artifact-$SDK_VERSION.pom"
@@ -160,7 +164,6 @@ jobs:
           fi
 
           tag_exists=false
-          release_exists=false
           github_exists() {
             local response
             if response="$(gh api "$1" 2>&1)"; then return 0; fi
@@ -169,36 +172,106 @@ jobs:
             exit 1
           }
           if github_exists "repos/$SDK_REPOSITORY/git/ref/tags/$RELEASE_ID"; then tag_exists=true; fi
-          if github_exists "repos/$SDK_REPOSITORY/releases/tags/$RELEASE_ID"; then release_exists=true; fi
+          releases="$(gh api --paginate --slurp "repos/$SDK_REPOSITORY/releases?per_page=100" | \
+            node -e 'const pages = JSON.parse(require("node:fs").readFileSync(0, "utf8")); process.stdout.write(JSON.stringify(pages.flat().filter(release => release.tag_name === process.env.RELEASE_ID)))')"
+          release_count="$(node -pe 'JSON.parse(process.argv[1]).length' "$releases")"
+          [ "$release_count" -le 1 ] || { echo 'Duplicate SDK release identity' >&2; exit 1; }
+          reuse_release=false
+          published=false
+          if [ "$release_count" -eq 1 ]; then
+            reuse_release=true
+            published="$(node -pe '!JSON.parse(process.argv[1])[0].draft' "$releases")"
+          fi
 
           if [ "$PUBLICATION_MODE" = "publish" ]; then
-            if [ "$central_count" -ne 0 ] || [ "$tag_exists" = true ] || [ "$release_exists" = true ]; then
-              echo "SDK $RELEASE_ID already has a public artifact, tag, or release; use a new SDK version" >&2
+            if [ "$central_count" -ne 0 ] || [ "$published" = true ] || { [ "$tag_exists" = true ] && [ "$reuse_release" = false ]; }; then
+              echo "SDK $RELEASE_ID already has public artifacts; use exact recovery or a new SDK version" >&2
               exit 1
             fi
           elif [ "$PUBLICATION_MODE" = "recover-release" ]; then
-            if [ "$central_count" -ne "${#artifacts[@]}" ] || [ "$release_exists" = true ]; then
-              echo "release recovery requires complete Central artifacts and no existing SDK Release" >&2
+            if [ "$central_count" -ne "${#artifacts[@]}" ] || [ "$reuse_release" = false ]; then
+              echo "release recovery requires complete Central artifacts and the original frozen SDK Release" >&2
               exit 1
             fi
           else
             echo "unsupported publication mode: $PUBLICATION_MODE" >&2
             exit 1
           fi
-          echo "tag_exists=$tag_exists" >> "$GITHUB_OUTPUT"
+          echo "reuse_release=$reuse_release" >> "$GITHUB_OUTPUT"
+          echo "published=$published" >> "$GITHUB_OUTPUT"
 
       - name: Install Node.js dependencies
         run: npm ci
 
       - name: Verify release SDK artifacts
+        if: ${{ steps.state.outputs.reuse_release == 'false' }}
         uses: ./.github/actions/verify-sdk
         with:
           source_sha: ${{ github.sha }}
 
+      - name: Restore original frozen SDK Release
+        if: ${{ steps.state.outputs.reuse_release == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p target/sdk-release
+          gh release download "$RELEASE_ID" --repo "$SDK_REPOSITORY" --dir target/sdk-release
+          cd target/sdk-release
+          for file in *.zip sdk-release.json SHA256SUMS; do
+            gpg --batch --verify "$file.asc" "$file"
+          done
+          cd "$GITHUB_WORKSPACE"
+          node scripts/ci/sdk-release.mjs --verify-directory target/sdk-release --source-sha "$GITHUB_SHA"
+          # 消费者仍从同一源码构建；恢复时复用原始宿主、工具和 SDK ZIP。
+          mvn -B -ntp -pl pixivdownload-plugin-signature package -DskipTests -Dexec.skip=true
+
+      - name: Freeze signed SDK assets before Central publication
+        if: ${{ steps.state.outputs.reuse_release == 'false' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/ci/sdk-release.mjs --verify-directory target/sdk-release --source-sha "$GITHUB_SHA"
+          cd target/sdk-release
+          files=(*.zip sdk-release.json SHA256SUMS)
+          for file in "${files[@]}"; do
+            printf '%s' "$MAVEN_GPG_PASSPHRASE" | \
+              gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 --armor --detach-sign "$file"
+          done
+          notes="$RUNNER_TEMP/sdk-release-notes.md"
+          cat > "$notes" <<EOF
+          PixivDownloader Plugin SDK $SDK_VERSION
+
+          Source: https://github.com/Sywyar/PixivDownloader/commit/$GITHUB_SHA
+          Maven SDK: io.github.sywyar.pixivdownloader:pixivdownload-sdk:$SDK_VERSION
+          Javadocs: docs/javadocs/index.html in the SDK archive
+          The separate full-offline runtime is fixed to this SDK release.
+          EOF
+          args=(--repo "$SDK_REPOSITORY" --title "$RELEASE_ID" --notes-file "$notes" --draft --target master)
+          if [ "$PRERELEASE" = true ]; then args+=(--prerelease); fi
+          # 恢复时校验原始冻结附件，缺失或冲突直接失败，禁止覆盖。
+          gh release create "$RELEASE_ID" "${args[@]}" "${files[@]}" ./*.asc
+
+      - name: Verify uploaded candidate before Central publication
+        if: ${{ steps.state.outputs.reuse_release == 'false' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p target/sdk-frozen-download
+          gh release download "$RELEASE_ID" --repo "$SDK_REPOSITORY" --dir target/sdk-frozen-download
+          cd target/sdk-frozen-download
+          for file in *.zip sdk-release.json SHA256SUMS; do
+            gpg --batch --verify "$file.asc" "$file"
+          done
+          cmp sdk-release.json ../sdk-release/sdk-release.json
+          cd "$GITHUB_WORKSPACE"
+          node scripts/ci/sdk-release.mjs --verify-directory target/sdk-frozen-download --source-sha "$GITHUB_SHA"
+
       - name: Publish SDK artifacts to Maven Central
         if: ${{ needs.release-plan.outputs.mode == 'publish' }}
         run: |
-          mvn -B -ntp -P sdk-central -pl pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api,pixivdownload-sdk-bom deploy \
+          set -euo pipefail
+          sdk_modules="$(node scripts/ci/sdk-version.mjs --modules)"
+          mvn -B -ntp -P sdk-central -pl "$sdk_modules" deploy \
             -DskipTests -Dexec.skip=true -Dpixivdownload.source.sha="$GITHUB_SHA"
 
       - name: Download and verify public Maven artifacts
@@ -208,7 +281,8 @@ jobs:
           repository="$GITHUB_WORKSPACE/target/sdk-public-central"
           rm -rf "$repository"
           group_path="io/github/sywyar/pixivdownloader"
-          artifacts=(pixivdownload-sdk-info pixivdownload-plugin-api pixivdownload-core-api pixivdownload-sdk-bom)
+          sdk_modules="$(node scripts/ci/sdk-version.mjs --modules)"
+          IFS=, read -r -a artifacts <<< "$sdk_modules"
           for attempt in $(seq 1 30); do
             available=true
             for artifact in "${artifacts[@]}"; do
@@ -246,43 +320,26 @@ jobs:
             ' "$target/$artifact-$SDK_VERSION.pom" "$GITHUB_SHA"
           done
 
-      - name: Sign SDK Release assets
+      - name: Verify frozen SDK against public Central
         shell: bash
         run: |
           set -euo pipefail
-          cd target/sdk-release
-          for file in "PixivDownloader-Plugin-SDK-$SDK_VERSION.zip" \
-                      sdk-release.json SHA256SUMS; do
-            printf '%s' "$MAVEN_GPG_PASSPHRASE" | \
-              gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 --armor --detach-sign "$file"
-          done
+          node scripts/ci/sdk-consumer.mjs --repo-root . \
+            --sdk-zip "target/sdk-release/PixivDownloader-Plugin-SDK-$SDK_VERSION.zip" \
+            --sdk-repository target/sdk-public-central --work-dir target/sdk-frozen-public-consumer
 
-      - name: Create immutable SDK Release
-        shell: bash
-        env:
-          TAG_EXISTS: ${{ steps.state.outputs.tag_exists }}
+      - name: Verify frozen runtime with both current plugins
+        shell: pwsh
         run: |
-          set -euo pipefail
-          notes="target/sdk-release/RELEASE_NOTES.md"
-          cat > "$notes" <<EOF
-          PixivDownloader Plugin SDK $SDK_VERSION
+          $release = Get-Content -Raw -Encoding UTF8 target/sdk-release/sdk-release.json | ConvertFrom-Json
+          ./scripts/ci/sdk-runtime-consumer.ps1 -BuiltProject target/sdk-frozen-public-consumer/project `
+            -WorkDirectory target/sdk-frozen-host-consumer `
+            -RuntimeArchive (Join-Path target/sdk-release $release.developmentRuntime.archive.file)
 
-          Source: https://github.com/Sywyar/PixivDownloader/commit/$GITHUB_SHA
-          Maven BOM: io.github.sywyar.pixivdownloader:pixivdownload-sdk-bom:$SDK_VERSION
-          Javadocs: docs/javadocs/index.html in the SDK archive
-          EOF
-          args=(--repo "$SDK_REPOSITORY" --title "$RELEASE_ID" --notes-file "$notes")
-          if [ "$PRERELEASE" = true ]; then args+=(--prerelease); fi
-          if [ "$TAG_EXISTS" = true ]; then
-            args+=(--verify-tag)
-          else
-            args+=(--target master)
-          fi
-          gh release create "$RELEASE_ID" "${args[@]}" \
-            "target/sdk-release/PixivDownloader-Plugin-SDK-$SDK_VERSION.zip" \
-            "target/sdk-release/PixivDownloader-Plugin-SDK-$SDK_VERSION.zip.asc" \
-            target/sdk-release/sdk-release.json target/sdk-release/sdk-release.json.asc \
-            target/sdk-release/SHA256SUMS target/sdk-release/SHA256SUMS.asc
+      - name: Publish the verified frozen SDK Release
+        if: ${{ steps.state.outputs.published == 'false' }}
+        shell: bash
+        run: gh release edit "$RELEASE_ID" --repo "$SDK_REPOSITORY" --draft=false
 
       - name: Verify public SDK Release and clean consumer
         shell: bash
@@ -293,12 +350,17 @@ jobs:
           mkdir -p "$public_release"
           gh release download "$RELEASE_ID" --repo "$SDK_REPOSITORY" --dir "$public_release"
           cd "$public_release"
-          sha256sum -c SHA256SUMS
-          for file in "PixivDownloader-Plugin-SDK-$SDK_VERSION.zip" \
-                      sdk-release.json SHA256SUMS; do
+          for file in *.zip sdk-release.json SHA256SUMS; do
             gpg --batch --verify "$file.asc" "$file"
           done
           cd "$GITHUB_WORKSPACE"
+          node scripts/ci/sdk-release.mjs --verify-directory "$public_release" --source-sha "$GITHUB_SHA"
           node scripts/ci/sdk-consumer.mjs --repo-root . \
             --sdk-zip "$public_release/PixivDownloader-Plugin-SDK-$SDK_VERSION.zip" \
             --sdk-repository target/sdk-public-central --work-dir target/sdk-public-consumer
+
+      - name: Verify first SDK runtime download from the public Release
+        shell: pwsh
+        run: |
+          ./scripts/ci/sdk-runtime-consumer.ps1 -BuiltProject target/sdk-public-consumer/project `
+            -WorkDirectory target/sdk-public-host-consumer

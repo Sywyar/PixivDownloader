@@ -29,8 +29,8 @@ import java.util.stream.Stream;
  * Explicit development-mode adapter for Maven plugin modules.
  *
  * <p>Production still loads only verified artifacts from {@code plugins/}. When the opt-in JVM property is enabled,
- * the runtime ignores that directory and maps sibling modules' {@code target/classes} output to a PF4J directory
- * layout under the repository {@code target/} cache.
+ * sibling modules use their {@code target/classes} output. A standalone plugin project keeps the packaged
+ * host plugins and adds its own compiled output. Both use a PF4J layout under the development root's cache.
  */
 public final class PluginDevelopmentArtifacts {
 
@@ -54,6 +54,14 @@ public final class PluginDevelopmentArtifacts {
         return Boolean.parseBoolean(System.getProperty(ENABLED_PROPERTY));
     }
 
+    public static boolean standaloneProject(Path pluginsRoot) {
+        return isPluginProject(developmentRoot(pluginsRoot));
+    }
+
+    private static boolean isPluginProject(Path root) {
+        return Files.isRegularFile(root.resolve("src/main/resources/plugin.properties"));
+    }
+
     public static DevelopmentDiscovery discover(Path pluginsRoot) {
         Objects.requireNonNull(pluginsRoot, "pluginsRoot");
         Path developmentRoot = developmentRoot(pluginsRoot);
@@ -62,7 +70,8 @@ public final class PluginDevelopmentArtifacts {
             return new DevelopmentDiscovery(developmentRoot, cacheRoot, List.of(), List.of());
         }
         Path ignoredPluginsRoot = pluginsRoot.toAbsolutePath().normalize();
-        try (Stream<Path> stream = Files.list(developmentRoot)) {
+        try (Stream<Path> stream = isPluginProject(developmentRoot)
+                ? Stream.of(developmentRoot) : Files.list(developmentRoot)) {
             List<Path> moduleRoots = stream
                     .filter(Files::isDirectory)
                     .filter(path -> !path.toAbsolutePath().normalize().equals(ignoredPluginsRoot))

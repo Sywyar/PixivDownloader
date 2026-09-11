@@ -1,0 +1,27 @@
+plugins { id 'java' }
+
+repositories {
+    exclusiveContent {
+        forRepository { maven { url = uri(System.getenv('SDK_REPOSITORY')) } }
+        filter { includeGroup('io.github.sywyar.pixivdownloader') }
+    }
+    mavenCentral()
+}
+
+dependencies {
+    compileOnly("io.github.sywyar.pixivdownloader:pixivdownload-sdk:${System.getenv('SDK_VERSION')}")
+}
+
+sourceSets.main.java.srcDirs = ['../src/main/java']
+tasks.withType(JavaCompile).configureEach {
+    options.release = 17
+    options.encoding = 'UTF-8'
+}
+
+tasks.register('verifySdk') {
+    dependsOn jar
+    doLast {
+        assert configurations.runtimeClasspath.files.empty : 'SDK dependencies leaked into the runtime classpath'
+        layout.buildDirectory.file('sdk-classpath.txt').get().asFile.setText(configurations.compileClasspath.asPath, 'UTF-8')
+    }
+}

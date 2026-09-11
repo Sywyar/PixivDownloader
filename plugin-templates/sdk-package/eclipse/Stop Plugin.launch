@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<launchConfiguration type="org.eclipse.m2e.Maven2LaunchConfigurationType">
+  <stringAttribute key="M2_GOALS" value="exec:exec@sdk-stop" />
+  <booleanAttribute key="M2_WORKSPACE_RESOLUTION" value="false" />
+  <stringAttribute key="M2_RUNTIME" value="EMBEDDED" />
+  <stringAttribute key="org.eclipse.jdt.launching.WORKING_DIRECTORY" value="${workspace_loc:/example-minimal-plugin}" />
+</launchConfiguration>

@@ -7,11 +7,20 @@ import path from 'node:path';
 import process from 'node:process';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 
-import { assertThinJarEntries } from './sdk-release.mjs';
-import { inspectSdkVersion, SDK_GROUP_ID } from './sdk-version.mjs';
+import { assertThinJarEntries, extractArchive } from './sdk-release.mjs';
+import { inspectSdkVersion, SDK_ARTIFACTS, SDK_GROUP_ID } from './sdk-version.mjs';
 
 function fail(message) {
     throw new Error(message);
+}
+
+export function readMavenPluginVersion(pomFile, artifactId) {
+    const pom = fs.readFileSync(pomFile, 'utf8');
+    const plugin = [...pom.matchAll(/<plugin>([\s\S]*?)<\/plugin>/gu)]
+        .find(match => match[1].includes(`<artifactId>${artifactId}</artifactId>`))?.[1];
+    const version = /<version>\s*([^<$]+)\s*<\/version>/u.exec(plugin ?? '')?.[1].trim();
+    if (!version) fail(`Missing explicit build plugin version: ${artifactId} in ${pomFile}`);
+    return version;
 }
 
 function run(command, args, options = {}) {
@@ -28,6 +37,14 @@ function thinJarEntries(pluginJar) {
     const entries = listing.stdout.split(/\r?\n/u).filter(Boolean);
     assertThinJarEntries(entries);
     return entries;
+}
+
+function currentPluginJar(project) {
+    const directory = path.join(project, 'target');
+    const files = fs.readdirSync(directory).filter(name => name.endsWith('.jar')
+            && !/-(sources|javadoc|original)\.jar$/u.test(name));
+    if (files.length !== 1) fail(`expected one current plugin JAR under ${directory}`);
+    return path.join(directory, files[0]);
 }
 
 export function parsePluginIdentity(propertiesText) {
@@ -202,16 +219,9 @@ function parseArguments(argv) {
     return options;
 }
 
-const SDK_ARTIFACTS = [
-    ['pixivdownload-sdk-bom', ['pom']],
-    ['pixivdownload-sdk-info', ['pom', 'jar']],
-    ['pixivdownload-plugin-api', ['pom', 'jar']],
-    ['pixivdownload-core-api', ['pom', 'jar']],
-];
-
 function sdkArtifactFiles(repository, version) {
     const group = SDK_GROUP_ID.split('.');
-    return SDK_ARTIFACTS.flatMap(([artifact, extensions]) => extensions.map((extension) => ({
+    return SDK_ARTIFACTS.flatMap(([artifact, packaging]) => (packaging === 'pom' ? ['pom'] : ['pom', 'jar']).map((extension) => ({
         artifact,
         file: path.join(repository, ...group, artifact, version, `${artifact}-${version}.${extension}`),
     })));
@@ -248,6 +258,7 @@ export function stageSdkArtifacts(localRepository, sdkRepository, version) {
 export function verifyConsumer(options) {
     const repoRoot = path.resolve(options.repoRoot);
     const identity = inspectSdkVersion(repoRoot);
+    const dependencyVersion = readMavenPluginVersion(path.join(repoRoot, 'pom.xml'), 'maven-dependency-plugin');
     const sdkZip = path.resolve(options.sdkZip);
     const sdkRepository = path.resolve(options.sdkRepository);
     const work = safeWorkDirectory(repoRoot, options.workDirectory);
@@ -260,7 +271,7 @@ export function verifyConsumer(options) {
     const localRepository = path.join(work, 'm2', 'repository');
     const mavenHome = path.join(work, 'maven-home');
     fs.mkdirSync(project, { recursive: true });
-    run('jar', ['--extract', '--file', sdkZip], { cwd: project });
+    extractArchive(sdkZip, project);
     if (!fs.statSync(path.join(project, 'docs', 'javadocs', 'index.html'), { throwIfNoEntry: false })?.isFile()) {
         fail('integrated SDK Javadocs are missing');
     }
@@ -288,22 +299,29 @@ export function verifyConsumer(options) {
         '-Dmaven.test.skip=true', '-f', douyinPom, 'clean', 'package',
     ], repoRoot);
 
-    runMaven(['-s', settings, `-Dmaven.repo.local=${localRepository}`, 'clean', 'verify']);
+    const buildTemplates = offline => {
+        for (const pom of ['pom.xml', 'examples/download-type-plugin/pom.xml']) {
+            runMaven([...(offline ? ['-o'] : []), '-s', settings,
+                `-Dmaven.repo.local=${localRepository}`, '-f', path.join(project, pom), 'clean', 'verify']);
+        }
+    };
+    buildTemplates(false);
     runMaven(['-s', settings, `-Dmaven.repo.local=${localRepository}`,
-        'org.apache.maven.plugins:maven-dependency-plugin:3.8.1:get',
+        `org.apache.maven.plugins:maven-dependency-plugin:${dependencyVersion}:get`,
         `-Dartifact=${SDK_GROUP_ID}:pixivdownload-core-api:${identity.version}`,
     ]);
     buildDouyin(false);
     stageSdkArtifacts(localRepository, sdkRepository, identity.version);
-    runMaven(['-o', '-s', settings, `-Dmaven.repo.local=${localRepository}`, 'clean', 'verify']);
+    buildTemplates(true);
     runMaven(['-o', '-s', settings, `-Dmaven.repo.local=${localRepository}`,
-        'org.apache.maven.plugins:maven-dependency-plugin:3.8.1:get',
+        `org.apache.maven.plugins:maven-dependency-plugin:${dependencyVersion}:get`,
         `-Dartifact=${SDK_GROUP_ID}:pixivdownload-core-api:${identity.version}`,
     ]);
     buildDouyin(true);
     assertSdkResolution(localRepository, sdkRepository, identity.version);
-    const pluginJar = path.join(project, 'plugin', 'target', 'example-download-plugin-0.1.0.jar');
+    const pluginJar = currentPluginJar(path.join(project, 'examples', 'download-type-plugin'));
     thinJarEntries(pluginJar);
+    thinJarEntries(currentPluginJar(project));
     const douyinCandidates = fs.readdirSync(douyinBuildDirectory)
             .filter(name => /^pixivdownload-plugin-douyin-.+\.jar$/u.test(name))
             .filter(name => !name.endsWith('-sources.jar') && !name.endsWith('-javadoc.jar'));

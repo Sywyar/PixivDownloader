@@ -294,6 +294,7 @@ try {
             requires = $requires
             required = $isRequired
             file     = "plugins/$targetName"
+            size     = (Get-Item -LiteralPath $targetArtifact).Length
             sha256   = $sha
             signature = $signature
         }

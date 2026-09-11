@@ -146,6 +146,8 @@ For detailed installation steps, usage guides, configuration reference, and deve
 - [❓ FAQ](https://sywyar.github.io/PixivDownloader/#/en/faq)
 - [🛠️ Development](https://sywyar.github.io/PixivDownloader/#/en/development)
 
+The plugin SDK provides one `pixivdownload-sdk` compile dependency, an independent Maven project, and Gradle / sbt examples. Packages with a fixed runtime manifest include Run / Debug entries that build the current plugin and prepare its matching host and complete official plugin set. Each project keeps runtime data in `.dev/`. Check the selected Release and its README for availability and instructions.
+
 ---
 
 ## Disclaimer
