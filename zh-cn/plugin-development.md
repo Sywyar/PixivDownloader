@@ -8,16 +8,16 @@
 - [SDK Info](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-sdk-info)
 - [Plugin API](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-api)
 - [Core API](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-core-api)
-- [Douyin 官方示例插件](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-douyin)
+- [Douyin 第三方示例插件](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-douyin)
 - [插件签名工具](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-signature)
 - [SDK 下载与版本记录](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases)
 - [版本化 SDK Javadoc](https://sywyar.github.io/PixivDownloader-Plugin-SDK/)
 
-> Douyin 是完整官方实现的 SDK 示例，展示下载、配置、代理、队列、计划任务、私有持久化和插件自有画廊如何组合。它只依赖公开 SDK 契约，可用于核对完整实现。新项目仍应先复制 `plugin-templates`，避免带入与目标站点绑定的业务代码。
+> Douyin 是完整的第三方 SDK 示例，展示下载、配置、代理、队列、计划任务、私有持久化和插件自有画廊如何组合。它只依赖公开 SDK 契约，不属于官方分发集合。新项目从 `plugin-templates` 开始，可避免带入与目标站点绑定的业务代码。
 
 ## 先理解信任边界
 
-外置插件与宿主运行在同一个 JVM 中，当前不是进程或 OS 级安全沙箱。插件代码拥有与同进程代码相同的风险级别：它可能读取进程可访问的文件、发起网络请求或消耗资源。
+`declarative-process` 插件在独立 worker JVM 中执行，具有资源与协议隔离；`host-process-full-trust` 插件在宿主 JVM 中执行。两者都不是 OS 级安全沙箱，插件仍可能访问当前账户可读的文件、发起网络请求或消耗资源。
 
 Ed25519 签名只证明 artifact 来自某个受信密钥且字节未被篡改，不能证明已签名代码没有恶意行为。安装前必须信任发布者、源码和仓库运营者。Cookie、Token、代理、作品目录和插件私有数据的合法使用也由插件作者负责。
 
@@ -25,13 +25,15 @@ Ed25519 签名只证明 artifact 来自某个受信密钥且字节未被篡改�
 
 ## SDK 边界
 
-SDK 由 `pixivdownload-sdk-info`、`pixivdownload-plugin-api` 和 `pixivdownload-core-api` 组成，`pixivdownload-sdk-bom` 统一管理三个构件的版本。`sdk-info` 是完整 SDK 版本、预发布身份和兼容规则的唯一事实源；SDK 版本与应用发行版本独立。`plugin-api` 提供插件入口、contribution、宿主控制面和 owner-scoped 存储能力；`core-api` 提供稳定的业务语义端口、值模型和中性算法。依赖方向必须保持为：
+统一薄 JAR 入口 `pixivdownload-sdk` 通过标准 POM 传递三个 API 模块及宿主提供的编译依赖；`pixivdownload-sdk-info`、`pixivdownload-plugin-api`、`pixivdownload-core-api` 和 BOM 仍可独立使用。`sdk-info` 是完整 SDK 版本、预发布身份和兼容规则的唯一事实源；SDK 版本与应用发行版本独立。`plugin-api` 提供插件入口、contribution、宿主控制面和 owner-scoped 存储能力；`core-api` 提供稳定的业务语义端口、值模型和中性算法。依赖方向必须保持为：
 
 ```text
 第三方插件
-  ├─ pixivdownload-sdk-info    必选：SDK 版本与兼容信息
-  ├─ pixivdownload-plugin-api  必选：插件入口、contribution、路径与私有数据源
-  └─ pixivdownload-core-api    按需：下载设置、代理设置等稳定语义端口
+  └─ pixivdownload-sdk        provided：统一编译入口
+      ├─ pixivdownload-sdk-info    SDK 版本与兼容信息
+      ├─ pixivdownload-plugin-api  插件入口、contribution、路径与私有数据源
+      ├─ pixivdownload-core-api    下载设置、代理设置等稳定语义端口
+      └─ PF4J、Spring、Servlet、Jackson 等宿主编译依赖
 
 禁止依赖：pixivdownload-app、宿主实现类、plugin-runtime/installer/signature internal、
 官方插件私有 service/mapper/controller、宿主 DataSource 或私有前端全局
@@ -79,7 +81,7 @@ Spring Bean 不从 `PixivFeaturePlugin` 返回。外置入口通过 `PixivPlugin
 
 | 模板 | 适用情况 | 已包含内容 |
 | --- | --- | --- |
-| `minimal-feature-plugin` | 页面、API、导航、i18n 或配置 | PF4J 入口、provider、feature、显式子上下文、controller、route/static/i18n、thin JAR 测试 |
+| `minimal-feature-plugin` | 声明式页面、导航和 i18n | 独立 worker、PF4J 入口、feature、route/static/i18n、thin JAR 测试；无 Spring 子上下文 |
 | `download-type-plugin` | 新增一种可下载作品类型 | 下载描述符、五类取得模式、队列、计划来源、Vue 槽位、独立画廊、前后端测试 |
 
 仓库内验证两个模板：
@@ -98,54 +100,25 @@ mvn clean verify
 
 ### 获取 SDK artifact
 
-模板先导入 SDK BOM，再声明宿主提供的 SDK 构件：
-
-```xml
-<dependencyManagement>
-    <dependencies>
-        <dependency>
-            <groupId>io.github.sywyar.pixivdownloader</groupId>
-            <artifactId>pixivdownload-sdk-bom</artifactId>
-            <version>SDK_VERSION</version>
-            <type>pom</type>
-            <scope>import</scope>
-        </dependency>
-    </dependencies>
-</dependencyManagement>
-
-<dependency>
-    <groupId>io.github.sywyar.pixivdownloader</groupId>
-    <artifactId>pixivdownload-sdk-info</artifactId>
-    <scope>provided</scope>
-</dependency>
-<dependency>
-    <groupId>io.github.sywyar.pixivdownloader</groupId>
-    <artifactId>pixivdownload-plugin-api</artifactId>
-    <scope>provided</scope>
-</dependency>
-```
-
-将 `SDK_VERSION` 替换为 [SDK Releases](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) 中真实存在的版本；列表为空表示尚未公开发布 SDK，不要自行猜测版本。每个已发布版本同时提供开箱即用的插件工程 ZIP、完整 Javadoc ZIP、`sdk-release.json`、`SHA256SUMS` 和 detached signatures。解压工程 ZIP 后可直接用 IntelliJ IDEA、VS Code 或 Eclipse 打开根目录，命令行使用 `./mvnw clean verify`，Windows 使用 `mvnw.cmd clean verify`。
-
-同一版本的四个坐标发布到 Maven Central。主仓库可信 workflow 从通过同一源码 SHA Quality Gate 的内容构建、签名并发布 Maven 构件，再在独立 SDK 仓库创建不可变 Tag / Release；SDK 仓库不重新编译或签发 API。若 Releases 列表仍为空或需要验证尚未发布的源码，可在 PixivDownloader 主仓库根目录安装当前 SDK 到本地 Maven 仓库：
-
-```powershell
-./mvnw.cmd -pl pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api,pixivdownload-sdk-bom -am install -DskipTests
-```
-
-只有确实需要稳定宿主语义端口时才增加 Core API，并保持 `provided`：
-
 ```xml
 <dependency>
     <groupId>io.github.sywyar.pixivdownloader</groupId>
-    <artifactId>pixivdownload-core-api</artifactId>
+    <artifactId>pixivdownload-sdk</artifactId>
+    <version>SDK_VERSION</version>
     <scope>provided</scope>
 </dependency>
 ```
 
-`plugin.requires` 只声明 SDK `major.minor`。同 major 且宿主 minor 不低于插件要求时兼容，patch 和预发布序号不参与运行时准入。公开契约或发行产物变化必须提升 SDK 身份；目标主版本尚无稳定基线时，后续 RC 可以调整公共表面，但已发布 RC 不可覆盖，必须增加预发布序号。质量门禁会拒绝未同步提升 Release ID 的 SDK 表面变化；只有 SDK 元数据改变才触发 SDK 发布，应用发行不会自动制造新 SDK。
+Gradle 使用 `compileOnly("io.github.sywyar.pixivdownloader:pixivdownload-sdk:SDK_VERSION")`，sbt 使用 `"io.github.sywyar.pixivdownloader" % "pixivdownload-sdk" % "SDK_VERSION" % Provided`。标准 Ivy 可映射编译配置：
 
-PF4J、Spring、Jackson、Servlet API 等由宿主父 classloader 提供的依赖也必须是 `provided`。不要把共享契约或框架类复制进插件 JAR，否则同名类会因 classloader 不同而无法转换。
+```xml
+<dependency org="io.github.sywyar.pixivdownloader" name="pixivdownload-sdk"
+            rev="SDK_VERSION" conf="compile->default"/>
+```
+
+Ivy 的运行配置不要继承此编译配置。标准 Maven 元数据传递公开 API 及 PF4J、Spring、Servlet、Jackson 编译依赖；产物仍是 thin PF4J JAR，不将这些宿主提供类打包。测试框架自行声明，三个 API 模块和 BOM 仍可单独消费。
+
+将 `SDK_VERSION` 替换为 [SDK Releases](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) 中已公开且包含统一入口的版本。五个坐标包括统一入口、三个 API 模块与 BOM。带 `developmentRuntime` 元数据的开发包提供固定运行宿主；历史版本按各自 README 使用。公开 Java 表面或 Maven 消费语义变化要求新 SDK 身份，已发布坐标与附件不得覆盖。
 
 ### 复制后必须统一改名
 
@@ -181,7 +154,8 @@ pixiv.display-name-key=plugin.name
 pixiv.description-key=plugin.summary
 pixiv.icon-key=download
 pixiv.color-token=green
-pixiv.lifecycle-policy=hot-reload
+pixiv.execution-mode=host-process-full-trust
+pixiv.lifecycle-policy=process-restart
 ```
 
 字段规则：
@@ -665,21 +639,61 @@ mvn -f plugin-templates/pom.xml clean verify
 
 ### 本地开发
 
-第三方独立项目的基线流程：
+安装 JDK 17 和 Node.js，让 `java`、`node` 可从命令行调用。IDE 导入只解析工程。显式 Run / Debug 才依次构建当前插件、准备固定运行包、安装本次产物并启动完整应用；构建失败会中止启动。Maven Wrapper 会取得固定版本的 Maven，无需克隆宿主仓库或手工复制宿主和官方插件。首次应用配置使用宿主自己的 setup 流程。
 
-1. `mvn clean verify`；
-2. 在 JAR 中确认根 `plugin.properties`、类和资源；
-3. 正式运行时通过已配置的自定义仓库安装；本地上传只接受内置官方信任根签发的 JAR 与对应 `.sig`；
-4. 显式插件开发模式可省略本地上传签名，产生的来源会保持为未验证开发 artifact；
-5. 对 `hot-reload` 插件执行事务替换和即时激活；
-6. 刷新页面，验证 controller、route、static、i18n 和下载类型都属于当前 generation；
-7. 修改后重新构建、上传并使用 `reload`，不要在运行时手工覆盖 JAR。
+| IDE | 导入 | 运行 | 调试 |
+| --- | --- | --- | --- |
+| IntelliJ IDEA | 打开根 `pom.xml` | 共享配置 `Run Plugin` | 共享组合配置 `Debug Plugin` |
+| VS Code | 打开本目录，安装推荐的 Java Extension Pack | `Tasks: Run Task > Run Plugin` | `Run and Debug > Debug Plugin` |
+| Eclipse | `Import > Existing Maven Projects` | `eclipse/Run Plugin.launch` | `eclipse/Debug Plugin.launch` 启动组 |
+
+在 `ExampleMinimalPlugin.java` 的 `routes()` 内设置断点。默认插件以 `declarative-process` 运行，调试器连接它的 worker；声明 `host-process-full-trust` 的插件则连接宿主 JVM。默认调试地址为 `127.0.0.1:5005`。IntelliJ 组合配置建立监听后，工具主动连接；VS Code 与 Eclipse 在宿主进程创建后附加。
+
+结束时使用 `Stop Plugin`，或停止整个运行 / 调试组合。单独断开远程调试连接不等于结束应用。下一次 Run 会重新构建并部署当前产物。
+
+#### 命令行
+
+Windows：
 
 ```powershell
-jar tf target/example-download-plugin-0.1.0.jar
+.\mvnw.cmd verify exec:exec@sdk-run
+.\mvnw.cmd verify exec:exec@sdk-debug
+.\mvnw.cmd exec:exec@sdk-stop
 ```
 
-也可以在应用停止时把 JAR 放入工作目录 `plugins/`，再启动应用。`plugins/runtime/` 是宿主私有冻结工作区，不是安装目录或调试输出目录。
+Linux / macOS：
+
+```bash
+sh ./mvnw verify exec:exec@sdk-run
+sh ./mvnw verify exec:exec@sdk-debug
+sh ./mvnw exec:exec@sdk-stop
+```
+
+`sdk-debug` 等待 IDE 附加，不自行打开调试器。只验证插件使用 `clean verify`，只准备运行包使用 `exec:exec@sdk-prepare`。默认产物为 `target/example-minimal-plugin-0.1.0.jar`。
+
+已成功构建本次产物后，也可直接调用随包工具：
+
+```text
+java -jar tools/sdk-tools.jar run <工程绝对路径> <本次插件JAR绝对路径> --no-gui
+java -jar tools/sdk-tools.jar debug <工程绝对路径> <本次插件JAR绝对路径> --debug-port=5005
+java -jar tools/sdk-tools.jar stop <工程绝对路径>
+```
+
+`--debug-connect` 用于连接已监听的 IDE。工具只接受工程内、`.dev/` 外的产物，并保留描述符中的执行模式。显式运行使用本次 JAR 的 SHA-256 完成正式本地安装确认；官方插件仍验证原签名及 provenance。重复插件 ID 和 `replaces` 会被拒绝，请选择唯一 ID。
+
+#### 运行包、缓存和工程数据
+
+`sdk-project.json` 与发行附件 `sdk-release.json` 记录同一套 SDK、宿主、官方插件清单及完整运行 ZIP 的固定身份、大小与 SHA-256。运行 ZIP 是 SDK Release 的独立附件，首次显式准备时下载，后续复用 `~/.cache/pixivdownloader-sdk/` 中的已校验缓存。清空缓存后仍取得相同字节；资源不可用或摘要不符会失败。
+
+每次启动创建独立运行副本，并核对宿主及逐个官方插件。缓存不承载应用状态。工程 `.dev/` 保存配置、数据库、日志、下载和运行副本；配置及状态按运行包摘要隔离。此环境关闭宿主与官方插件自动更新，日常安装的应用数据不参与这条启动链。
+
+停止应用后，可删除本工程的 `.dev/` 重置开发数据，这也会删除其中的下载文件。直接调用工具时，可通过 JVM 属性 `-Dpixivdownload.sdk.cache-dir=<目录>` 指定缓存位置；工程运行目录仍独立。
+
+离线使用需要提前完成运行包准备和构建工具依赖缓存，两者互不替代。Maven 使用 `-o`，Gradle 使用 `--offline`；缓存不完整会失败。更新 SDK 时使用新版本开发包及配套清单，再迁入自己的源码。
+
+Windows 中文及空格路径已验证。目录过深仍可能触及 Windows 创建 worker 时的工作目录长度限制，遇到错误 267 时请移到较短路径。运行包声明的其它平台需在对应操作系统上验收，不能以 Windows 结果代替。
+
+IntelliJ 已验证原生监听与构建启动配置，组合配置的一键启动尚未实测。VS Code / Eclipse 共享配置已通过结构检查，尚未完成 IDE 内运行验证；其它操作系统未列为已实测。Gradle / sbt 示例通过 `runPlugin`、`debugPlugin` 调用相同工具。Gradle 用 `stopPlugin` 停止；sbt 运行期间会占用构建进程，请从另一终端在示例目录执行 `java -jar ../../tools/sdk-tools.jar stop .`。
 
 仓库中的官方插件使用专用开发模式，它先编译官方插件并从各模块当前 `target/classes` 加载：
 
@@ -871,7 +885,7 @@ repository-update --document repository-update.json --repository-id example.plug
 plugin-revocations --document revocations.json --repository-id example.plugins --sequence 1 --key-id example-2026 --private-key <pem> --out revocations.json.sig
 ```
 
-撤销范围支持 `PACKAGE_SHA256`、`PLUGIN_VERSION`、`SIGNING_KEY`、`PUBLISHER`；`YANKED` 只阻止新安装/更新，`REVOKED` 还会在下次启动加载前阻断已安装的匹配字节。插件仍与主程序运行在同一 JVM，没有代码沙箱；签名和撤销不能证明代码无恶意。
+撤销范围支持 `PACKAGE_SHA256`、`PLUGIN_VERSION`、`SIGNING_KEY`、`PUBLISHER`；`YANKED` 只阻止新安装/更新，`REVOKED` 还会在下次启动加载前阻断已安装的匹配字节。`host-process-full-trust` 与宿主共用 JVM，`declarative-process` 使用独立 worker；两者都使用当前操作系统账户，不构成 OS 沙箱。签名和撤销不能证明代码无恶意。
 
 ## 向项目贡献
 
@@ -906,7 +920,7 @@ git switch -c feat/plugin-api/your-capability upstream/master
 
 ## 发布前检查表
 
-- [ ] 导入 SDK BOM，只依赖 SDK Info、Plugin API 和确有需要的 Core API 稳定端口，全部共享依赖为 `provided`
+- [ ] 声明单个 `pixivdownload-sdk` provided 依赖或正确的旧 BOM 组合，插件不包含宿主提供类
 - [ ] `plugin.properties` 位于 JAR 根，id/version/requires/class 与代码一致
 - [ ] feature 只返回一个，子上下文只显式装配自己的 Bean
 - [ ] 每个 controller、页面和静态目录都有正确 `AccessPolicy` 路由声明

@@ -8,16 +8,16 @@ Relevant source code:
 - [SDK Info](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-sdk-info)
 - [Plugin API](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-api)
 - [Core API](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-core-api)
-- [Official Douyin example plugin](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-douyin)
+- [Third-party Douyin example plugin](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-douyin)
 - [Plugin signature tool](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-signature)
 - [SDK downloads and release history](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases)
 - [Versioned SDK Javadocs](https://sywyar.github.io/PixivDownloader-Plugin-SDK/)
 
-> Douyin is the complete official SDK example. It shows how downloads, configuration, proxies, queues, scheduled tasks, private persistence, and a plugin-owned gallery fit together. It depends only on public SDK contracts and can be used to review a complete implementation. Start new projects by copying `plugin-templates` so that site-specific business code is not carried into an unrelated plugin.
+> Douyin is a complete third-party SDK example. It shows how downloads, configuration, proxies, queues, scheduled tasks, private persistence, and a plugin-owned gallery fit together. It depends only on public SDK contracts and is outside the official distribution set. Start new projects from `plugin-templates` to avoid carrying over site-specific business code.
 
 ## Understand the trust boundary first
 
-External plugins run in the same JVM as the host. They are not isolated by a process-level or OS-level security sandbox. Plugin code carries the same risk as any other in-process code: it may read files accessible to the process, make network requests, or consume resources.
+A `declarative-process` plugin executes in a separate worker JVM with resource and protocol isolation. A `host-process-full-trust` plugin executes in the host JVM. Neither provides an OS security sandbox; plugin code may access files readable by the current account, make network requests or consume resources.
 
 An Ed25519 signature proves only that an artifact came from a trusted key and that its bytes were not modified. It does not prove that the signed code is safe. Before installation, users must trust the publisher, source code, and repository operator. Plugin authors are responsible for legitimate use of cookies, tokens, proxies, artwork directories, and plugin-private data.
 
@@ -25,13 +25,15 @@ The host still validates structure, size, paths, versions, dependencies, SHA-256
 
 ## SDK boundaries
 
-The SDK consists of `pixivdownload-sdk-info`, `pixivdownload-plugin-api`, and `pixivdownload-core-api`; `pixivdownload-sdk-bom` aligns all three artifact versions. `sdk-info` is the single source of truth for the complete SDK version, prerelease identity, and compatibility rules, independently of the application release version. `plugin-api` provides entry points, contributions, host control surfaces, and owner-scoped storage capabilities. `core-api` provides stable business-semantic ports, value models, and neutral algorithms. Keep dependencies pointing in this direction:
+The thin `pixivdownload-sdk` entry uses standard POM dependencies to expose the three API modules and host-provided compile dependencies. The API modules and BOM remain available separately. `sdk-info` is the single source of truth for the complete SDK version, prerelease identity, and compatibility rules, independently of the application release version. `plugin-api` provides entry points, contributions, host control surfaces, and owner-scoped storage capabilities. `core-api` provides stable business-semantic ports, value models, and neutral algorithms. Keep dependencies pointing in this direction:
 
 ```text
 Third-party plugin
-  ├─ pixivdownload-sdk-info    required: SDK version and compatibility information
-  ├─ pixivdownload-plugin-api  required: entry points, contributions, paths, and private data source
-  └─ pixivdownload-core-api    optional: stable ports such as download and proxy settings
+  └─ pixivdownload-sdk        provided: one compile dependency
+      ├─ pixivdownload-sdk-info    SDK version and compatibility information
+      ├─ pixivdownload-plugin-api  Entry points, contributions, paths, and private data source
+      ├─ pixivdownload-core-api    Stable download and proxy settings ports
+      └─ Host-provided PF4J, Spring, Servlet, Jackson and other compile dependencies
 
 Do not depend on: pixivdownload-app, host implementation classes,
 plugin-runtime/installer/signature internals, private services/mappers/controllers
@@ -80,7 +82,7 @@ The official `gui-swing` provider is default-installed and is the default. `gui-
 
 | Template | Use it for | Included |
 | --- | --- | --- |
-| `minimal-feature-plugin` | A page, API, navigation, i18n, or configuration | PF4J entry point, provider, feature, explicit child context, controller, route/static/i18n contributions, and thin-JAR tests |
+| `minimal-feature-plugin` | Declarative pages, navigation and i18n | Separate worker, PF4J entry, feature, route/static/i18n and thin-JAR tests; no Spring child context |
 | `download-type-plugin` | A new downloadable work type | Download descriptor, five acquisition modes, queue, scheduled source, Vue UI slot, independent gallery, and frontend/backend tests |
 
 Validate both templates inside the repository:
@@ -99,54 +101,25 @@ mvn clean verify
 
 ### Obtain the SDK artifacts
 
-The templates import the SDK BOM and then declare the SDK artifacts supplied by the host:
-
-```xml
-<dependencyManagement>
-    <dependencies>
-        <dependency>
-            <groupId>io.github.sywyar.pixivdownloader</groupId>
-            <artifactId>pixivdownload-sdk-bom</artifactId>
-            <version>SDK_VERSION</version>
-            <type>pom</type>
-            <scope>import</scope>
-        </dependency>
-    </dependencies>
-</dependencyManagement>
-
-<dependency>
-    <groupId>io.github.sywyar.pixivdownloader</groupId>
-    <artifactId>pixivdownload-sdk-info</artifactId>
-    <scope>provided</scope>
-</dependency>
-<dependency>
-    <groupId>io.github.sywyar.pixivdownloader</groupId>
-    <artifactId>pixivdownload-plugin-api</artifactId>
-    <scope>provided</scope>
-</dependency>
-```
-
-Replace `SDK_VERSION` with a version that actually exists on the [SDK Releases](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) page. An empty list means that no SDK has been published; do not invent a version. Each published version includes a ready-to-open plugin project ZIP, the complete Javadoc ZIP, `sdk-release.json`, `SHA256SUMS`, and detached signatures. Extract the project ZIP and open its root in IntelliJ IDEA, VS Code, or Eclipse. Run `./mvnw clean verify` from a terminal, or `mvnw.cmd clean verify` on Windows.
-
-The same four coordinates are published to Maven Central. The trusted workflow in the main repository builds and signs Maven artifacts from source that passed the Quality Gate at the same commit SHA, then creates an immutable tag and release in the SDK repository. The SDK repository does not rebuild or reissue the APIs. If the Releases list is still empty or you need to validate unpublished source, install the current SDK from the PixivDownloader repository root into your local Maven repository:
-
-```powershell
-./mvnw.cmd -pl pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api,pixivdownload-sdk-bom -am install -DskipTests
-```
-
-Add Core API only when you actually need a stable host semantic port, and keep it `provided`:
-
 ```xml
 <dependency>
     <groupId>io.github.sywyar.pixivdownloader</groupId>
-    <artifactId>pixivdownload-core-api</artifactId>
+    <artifactId>pixivdownload-sdk</artifactId>
+    <version>SDK_VERSION</version>
     <scope>provided</scope>
 </dependency>
 ```
 
-`plugin.requires` declares only the SDK `major.minor`. Compatibility requires the same major and a host minor no lower than the plugin requirement; patch and prerelease sequence do not participate in runtime admission. A public-contract or release-payload change requires a new SDK identity. Before a target major has a stable baseline, a later RC may adjust the public surface, but an existing RC remains immutable and the prerelease sequence must increase. The quality gate rejects SDK-surface changes without a matching Release ID increase. Only an SDK metadata change triggers SDK publication; an application release does not manufacture a new SDK.
+Gradle uses `compileOnly("io.github.sywyar.pixivdownloader:pixivdownload-sdk:SDK_VERSION")`. sbt uses `"io.github.sywyar.pixivdownloader" % "pixivdownload-sdk" % "SDK_VERSION" % Provided`. Standard Ivy can map its compile configuration:
 
-PF4J, Spring, Jackson, Servlet API, and other dependencies supplied by the host parent classloader must also use `provided`. Do not copy shared contracts or framework classes into the plugin JAR; classes with the same name from different classloaders are not assignment-compatible.
+```xml
+<dependency org="io.github.sywyar.pixivdownloader" name="pixivdownload-sdk"
+            rev="SDK_VERSION" conf="compile->default"/>
+```
+
+Do not make Ivy's runtime configuration extend this compile configuration. Standard Maven metadata supplies public APIs and PF4J, Spring, Servlet, and Jackson compile dependencies. Produce a thin PF4J JAR without bundling these host-provided classes. Declare test frameworks separately. The three API modules and BOM remain individually available.
+
+Replace `SDK_VERSION` with a published version on [SDK Releases](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) that includes the unified entry. Its five coordinates comprise the entry, three API modules and BOM. Packages with `developmentRuntime` metadata include a fixed host; follow each historical package's README. Public Java surface or Maven consumer semantics require a new SDK identity. Published coordinates and assets must not be overwritten.
 
 ### Rename every identity after copying
 
@@ -182,7 +155,8 @@ pixiv.display-name-key=plugin.name
 pixiv.description-key=plugin.summary
 pixiv.icon-key=download
 pixiv.color-token=green
-pixiv.lifecycle-policy=hot-reload
+pixiv.execution-mode=host-process-full-trust
+pixiv.lifecycle-policy=process-restart
 ```
 
 Field rules:
@@ -666,21 +640,61 @@ When a plugin contributes both backend and frontend code, do not test the fronte
 
 ### Local development
 
-Baseline flow for a standalone third-party project:
+Install JDK 17 and Node.js, with `java` and `node` on `PATH`. IDE import only resolves the project. Explicit Run / Debug builds the current plugin, prepares the pinned runtime, installs the new artifact, and starts the full application. Build failure stops this sequence. Maven Wrapper obtains the pinned Maven version; no host checkout or manually copied host and plugin JARs are needed. Initial application configuration uses the host's setup flow.
 
-1. Run `mvn clean verify`.
-2. Confirm the root `plugin.properties`, classes, and resources inside the JAR.
-3. In a formal runtime, install through a configured custom repository. Local upload accepts only a JAR and `.sig` issued by the built-in official trust root.
-4. Explicit plugin development mode may omit the local-upload signature; the artifact remains recorded as an unverified development source.
-5. For a `hot-reload` plugin, let the transaction replace and activate it immediately.
-6. Refresh the page and verify that controllers, routes, static resources, i18n, and download types all belong to the current generation.
-7. After changes, rebuild, upload, and use `reload`; do not overwrite the installed JAR by hand while the application is running.
+| IDE | Import | Run | Debug |
+| --- | --- | --- | --- |
+| IntelliJ IDEA | Open the root `pom.xml` | Shared `Run Plugin` configuration | Shared `Debug Plugin` compound configuration |
+| VS Code | Open this directory and install the recommended Java Extension Pack | `Tasks: Run Task > Run Plugin` | `Run and Debug > Debug Plugin` |
+| Eclipse | `Import > Existing Maven Projects` | `eclipse/Run Plugin.launch` | `eclipse/Debug Plugin.launch` group |
+
+Set a breakpoint inside `ExampleMinimalPlugin.java`'s `routes()`. The default `declarative-process` plugin is debugged in its worker; a `host-process-full-trust` plugin is debugged in the host JVM. The default address is `127.0.0.1:5005`. IntelliJ starts a listener for the tool to connect to. VS Code and Eclipse attach after the host process is created.
+
+Use `Stop Plugin`, or stop the entire run / debug group, to finish. Disconnecting only the remote debugger does not stop the application. The next Run builds and deploys the current artifact again.
+
+#### Command line
+
+Windows:
 
 ```powershell
-jar tf target/example-download-plugin-0.1.0.jar
+.\mvnw.cmd verify exec:exec@sdk-run
+.\mvnw.cmd verify exec:exec@sdk-debug
+.\mvnw.cmd exec:exec@sdk-stop
 ```
 
-You may also place the JAR in the working-directory `plugins/` while the application is stopped, then start the application. `plugins/runtime/` is a private host freezing workspace, not an installation directory or debugging output directory.
+Linux / macOS:
+
+```bash
+sh ./mvnw verify exec:exec@sdk-run
+sh ./mvnw verify exec:exec@sdk-debug
+sh ./mvnw exec:exec@sdk-stop
+```
+
+`sdk-debug` waits for an IDE to attach; it does not open a debugger. Use `clean verify` to validate the plugin, or `exec:exec@sdk-prepare` to prepare only the runtime. The default artifact is `target/example-minimal-plugin-0.1.0.jar`.
+
+After successfully building the current artifact, you can call the bundled tool directly:
+
+```text
+java -jar tools/sdk-tools.jar run <absolute-project-path> <absolute-current-plugin-JAR> --no-gui
+java -jar tools/sdk-tools.jar debug <absolute-project-path> <absolute-current-plugin-JAR> --debug-port=5005
+java -jar tools/sdk-tools.jar stop <absolute-project-path>
+```
+
+`--debug-connect` connects to an IDE already listening. The tool accepts artifacts inside the project and outside `.dev/`, preserving their declared execution mode. Explicit Run confirms the current JAR's SHA-256 for normal local installation. Official plugins retain signature and provenance checks. Duplicate plugin IDs and `replaces` are rejected; choose a unique ID.
+
+#### Runtime, cache, and project data
+
+`sdk-project.json` and the release-side `sdk-release.json` record the same SDK, host, official plugin manifest, and runtime ZIP identities, sizes, and SHA-256 hashes. The runtime ZIP is a separate SDK Release attachment. Explicit preparation downloads it once and reuses verified bytes in `~/.cache/pixivdownloader-sdk/`. Clearing the cache still selects the same bytes. Unavailable resources and hash mismatches fail.
+
+Every launch creates a private runtime copy and checks the host and each official plugin. The cache holds no application state. Project `.dev/` contains configuration, databases, logs, downloads, and run copies. Configuration and state are separated by runtime ZIP hash. Host and official plugin automatic updates are disabled in this environment; your regular installation's data is separate.
+
+After stopping, delete the project's `.dev/` to reset development data, including downloads stored there. Direct tool calls can select a cache with the JVM property `-Dpixivdownload.sdk.cache-dir=<directory>`; project runtime directories remain separate.
+
+Offline use requires both runtime preparation and cached build-tool dependencies. Maven uses `-o`; Gradle uses `--offline`. Incomplete caches fail. To update the SDK, use the new development package and matching manifest, then move your sources into it.
+
+Windows paths containing Chinese characters and spaces have been tested. Deep directories can still exceed Windows' working-directory limit when creating a worker; move to a shorter path if error 267 occurs. Other platforms declared by the runtime require verification on their own operating systems.
+
+IntelliJ's native listener and build/start configurations have been exercised; one-click startup of the compound configuration has not. VS Code / Eclipse configurations have passed structural checks; their IDE runs and other operating systems have not been verified. Gradle / sbt examples use `runPlugin` and `debugPlugin` to call the same tools. Gradle stops with `stopPlugin`. An sbt run occupies the build process, so stop it from another terminal in the example directory with `java -jar ../../tools/sdk-tools.jar stop .`.
 
 Official plugins in the repository use a dedicated development mode that compiles them and loads the current `target/classes` from each module:
 
@@ -872,7 +886,7 @@ repository-update --document repository-update.json --repository-id example.plug
 plugin-revocations --document revocations.json --repository-id example.plugins --sequence 1 --key-id example-2026 --private-key <pem> --out revocations.json.sig
 ```
 
-Revocation scopes include `PACKAGE_SHA256`, `PLUGIN_VERSION`, `SIGNING_KEY`, and `PUBLISHER`. `YANKED` blocks new installation and update; `REVOKED` also blocks matching installed bytes before the next load. Plugins still run in the same JVM as the host without a code sandbox. Signatures and revocations do not prove that code is safe.
+Revocation scopes include `PACKAGE_SHA256`, `PLUGIN_VERSION`, `SIGNING_KEY`, and `PUBLISHER`. `YANKED` blocks new installation and update; `REVOKED` also blocks matching installed bytes before the next load. `host-process-full-trust` shares the host JVM, while `declarative-process` runs in a separate worker. Both use the current OS account and provide no OS sandbox. Signatures and revocations do not prove that code is safe.
 
 ## Contributing to the project
 
@@ -907,7 +921,7 @@ Before submission:
 
 ## Pre-release checklist
 
-- [ ] Import the SDK BOM and depend only on SDK Info, Plugin API, and genuinely needed stable Core API ports; every shared dependency is `provided`
+- [ ] Declare one provided `pixivdownload-sdk` dependency or a valid existing BOM setup; exclude host-provided classes from the plugin
 - [ ] `plugin.properties` is at the JAR root, and id/version/requires/class match the code
 - [ ] The provider returns exactly one feature, and the child context explicitly assembles only its own Beans
 - [ ] Every controller, page, and static directory has the correct `AccessPolicy` route declaration
