@@ -1862,9 +1862,6 @@
         "headRepositoryId",
         "headSha",
         "baseSha",
-        "submissionSha256",
-        "sourceCommit",
-        "packageSha256",
         "actorAccountId",
         "actorLoginSnapshot",
         "prAuthorAccountId",
@@ -1896,7 +1893,10 @@
               "scannerVersion",
               "rulesSha256",
               "reportRef",
-              "findingIds"
+              "findingIds",
+              "submissionSha256",
+              "sourceCommit",
+              "packageSha256"
             ],
             "not": {
               "anyOf": [
@@ -1936,7 +1936,10 @@
               "scanRunAttempt",
               "scannerVersion",
               "rulesSha256",
-              "reportRef"
+              "reportRef",
+              "submissionSha256",
+              "sourceCommit",
+              "packageSha256"
             ],
             "not": {
               "anyOf": [
@@ -2081,6 +2084,38 @@
               ]
             }
           }
+        },
+        {
+          "oneOf": [
+            {
+              "required": [
+                "submissionSha256",
+                "sourceCommit",
+                "packageSha256"
+              ]
+            },
+            {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "submissionSha256"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "sourceCommit"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "packageSha256"
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -2263,6 +2298,211 @@
         "generatedAt",
         "partitioning",
         "shards"
+      ],
+      "additionalProperties": false
+    },
+    "rebuildProof": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "sourceCommit": {
+          "$ref": "#/$defs/commit"
+        },
+        "jdkVersion": {
+          "$ref": "#/$defs/machine"
+        },
+        "buildToolVersion": {
+          "$ref": "#/$defs/machine"
+        },
+        "buildImageSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "dependencyLockRef": {
+          "$ref": "#/$defs/reference"
+        },
+        "packageSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sbomRef": {
+          "$ref": "#/$defs/reference"
+        },
+        "packageSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "result": {
+          "type": "string",
+          "enum": [
+            "MATCH",
+            "MISMATCH"
+          ]
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "sourceCommit",
+        "jdkVersion",
+        "buildToolVersion",
+        "buildImageSha256",
+        "dependencyLockRef",
+        "packageSha256",
+        "sbomRef",
+        "packageSize",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "toolDigest": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "$ref": "#/$defs/machine"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": [
+        "version",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "bundleManifest": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "toolchain": {
+          "type": "object",
+          "properties": {
+            "sdk": {
+              "$ref": "#/$defs/machine"
+            },
+            "java": {
+              "$ref": "#/$defs/machine"
+            },
+            "maven": {
+              "$ref": "#/$defs/toolDigest"
+            },
+            "gradle": {
+              "$ref": "#/$defs/toolDigest"
+            },
+            "sbt": {
+              "$ref": "#/$defs/toolDigest"
+            },
+            "jsonSchemaValidator": {
+              "$ref": "#/$defs/machine"
+            },
+            "jsonCanonicalization": {
+              "$ref": "#/$defs/machine"
+            },
+            "webpDecoder": {
+              "$ref": "#/$defs/machine"
+            }
+          },
+          "required": [
+            "sdk",
+            "java",
+            "maven",
+            "gradle",
+            "sbt",
+            "jsonSchemaValidator",
+            "jsonCanonicalization",
+            "webpDecoder"
+          ],
+          "additionalProperties": false
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "contractVersion",
+        "toolchain",
+        "files"
+      ],
+      "additionalProperties": false
+    },
+    "signatureMessages": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "formatVersion": {
+          "const": 1
+        },
+        "algorithm": {
+          "const": "Ed25519"
+        },
+        "byteOrder": {
+          "const": "BIG_ENDIAN"
+        },
+        "stringEncoding": {
+          "const": "UTF8_WITH_U32_BYTE_LENGTH"
+        },
+        "digestEncoding": {
+          "const": "RAW_SHA256_32_BYTES"
+        },
+        "base64": {
+          "const": "RFC4648_STANDARD_WITH_PADDING"
+        },
+        "operationBody": {
+          "const": "RFC8785_JCS_SCHEMA_VERSION_AND_PAYLOAD"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/machine"
+              },
+              "domain": {
+                "$ref": "#/$defs/machine"
+              },
+              "fields": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/machine"
+                },
+                "minItems": 1
+              }
+            },
+            "required": [
+              "id",
+              "domain",
+              "fields"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "formatVersion",
+        "algorithm",
+        "byteOrder",
+        "stringEncoding",
+        "digestEncoding",
+        "base64",
+        "operationBody",
+        "messages"
       ],
       "additionalProperties": false
     }

@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 1,
+  "formatVersion": 1,
+  "algorithm": "Ed25519",
+  "byteOrder": "BIG_ENDIAN",
+  "stringEncoding": "UTF8_WITH_U32_BYTE_LENGTH",
+  "digestEncoding": "RAW_SHA256_32_BYTES",
+  "base64": "RFC4648_STANDARD_WITH_PADDING",
+  "operationBody": "RFC8785_JCS_SCHEMA_VERSION_AND_PAYLOAD",
+  "messages": [
+    {
+      "id": "artifact",
+      "domain": "PixivDownloader plugin artifact signature v1",
+      "fields": [
+        "domain:string",
+        "formatVersion:u32",
+        "algorithm:string",
+        "keyId:string",
+        "pluginId:string",
+        "version:string",
+        "size:u64",
+        "sha256:digest"
+      ]
+    },
+    {
+      "id": "repositoryUpdate",
+      "domain": "pixivdownloader-repository-update-v1",
+      "fields": [
+        "domain:string",
+        "formatVersion:u32",
+        "repositoryId:string",
+        "sequence:u64",
+        "size:u64",
+        "sha256:digest"
+      ]
+    },
+    {
+      "id": "revocations",
+      "domain": "pixivdownloader-plugin-revocations-v1",
+      "fields": [
+        "domain:string",
+        "formatVersion:u32",
+        "repositoryId:string",
+        "sequence:u64",
+        "size:u64",
+        "sha256:digest"
+      ]
+    },
+    {
+      "id": "package",
+      "domain": "pixivdownloader-community-package-v1",
+      "fields": [
+        "domain:string",
+        "formatVersion:u32",
+        "algorithm:string",
+        "keyId:string",
+        "repositoryId:string",
+        "pluginId:string",
+        "version:string",
+        "size:u64",
+        "sha256:digest",
+        "assuranceLevel:string",
+        "sourceCommit:string",
+        "reviewRecordSha256:digest"
+      ]
+    },
+    {
+      "id": "directory",
+      "domain": "pixivdownloader-community-directory-root-v1",
+      "fields": [
+        "domain:string",
+        "formatVersion:u32",
+        "repositoryId:string",
+        "sequence:u64",
+        "size:u64",
+        "sha256:digest"
+      ]
+    },
+    {
+      "id": "rotation",
+      "domain": "pixivdownloader-community-publisher-key-rotation-v1",
+      "fields": [
+        "domain:string",
+        "formatVersion:u32",
+        "algorithm:string",
+        "keyId:string",
+        "canonicalSize:u64",
+        "requestId:digest"
+      ]
+    },
+    {
+      "id": "status",
+      "domain": "pixivdownloader-community-version-status-request-v1",
+      "fields": [
+        "domain:string",
+        "formatVersion:u32",
+        "algorithm:string",
+        "keyId:string",
+        "canonicalSize:u64",
+        "requestId:digest"
+      ]
+    },
+    {
+      "id": "transfer",
+      "domain": "pixivdownloader-community-ownership-transfer-v1",
+      "fields": [
+        "domain:string",
+        "formatVersion:u32",
+        "algorithm:string",
+        "keyId:string",
+        "canonicalSize:u64",
+        "requestId:digest"
+      ]
+    }
+  ]
+}

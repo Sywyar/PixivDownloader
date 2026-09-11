@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
 import { inspectSdkVersion, SDK_ARTIFACTS, SDK_GROUP_ID } from './sdk-version.mjs';
+import { stageCommunityBundle } from './community-contracts.mjs';
 const EXECUTABLE_ENTRIES = ['mvnw', 'examples/gradle-plugin/gradlew', 'run.sh'];
 
 function fail(message) {
@@ -451,6 +452,7 @@ export function assembleRelease(options) {
 
     fs.mkdirSync(path.join(workspace, 'tools'), { recursive: true });
     fs.copyFileSync(options.toolsJar, path.join(workspace, 'tools', 'sdk-tools.jar'));
+    stageCommunityBundle(root, workspace, path.join(workspace, 'tools', 'sdk-tools.jar'), options.sourceSha);
     const projectManifest = createProjectManifest(identity, options.sourceSha, options.minimumHostRelease,
             runtime.developmentRuntime);
     writeJson(path.join(workspace, 'sdk-project.json'), projectManifest);

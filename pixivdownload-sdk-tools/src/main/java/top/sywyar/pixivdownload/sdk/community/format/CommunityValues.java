@@ -8,6 +8,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 
 /** 不携带认证结论的身份与原始字节引用；身份核实由受保护调用方提供。 */
@@ -17,6 +18,15 @@ public final class CommunityValues {
     public record Account(String id, String type) { }
     public record Owner(String accountId, String accountType, String publisherId) {
         public Account account() { return new Account(accountId, accountType); }
+    }
+    /** 先取得并核对实际字节，再把引用交给审核或审计记录。 */
+    public record Evidence(Reference reference, byte[] bytes) {
+        public Evidence {
+            reference.validate();
+            reference.verify(bytes);
+            bytes = bytes.clone();
+        }
+        @Override public byte[] bytes() { return bytes.clone(); }
     }
     public record Reference(String path, long size, String sha256) {
         public void validate() { CommunityPaths.relative(path, false); }
@@ -52,6 +62,13 @@ public final class CommunityValues {
     public static void verifyBytes(byte[] bytes, long size, String sha256, String field) {
         if (bytes.length != size) throw new ContractException("SIZE_MISMATCH", field);
         if (!CommunityJson.sha256(bytes).equals(sha256)) throw new ContractException("HASH_MISMATCH", field);
+    }
+
+    public static Evidence requireEvidence(Reference reference, Map<String, Evidence> evidence) {
+        reference.validate();
+        Evidence found = evidence.get(reference.path());
+        if (found == null || !found.reference().equals(reference)) throw new ContractException("REVIEW_MISMATCH", reference.path());
+        return found;
     }
 
     public static URI https(String value, boolean noQueryOrFragment, String field) {

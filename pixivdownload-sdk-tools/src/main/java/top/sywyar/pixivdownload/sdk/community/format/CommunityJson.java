@@ -85,6 +85,14 @@ public final class CommunityJson {
         return new Document(kind, bytes, node);
     }
 
+    /** 报告以固定引用保存，读取预算由持有该报告的执行边界传入。 */
+    public static <T> T decode(String definition, byte[] bytes, int maximumBytes, Class<T> type) {
+        JsonNode node = strictTree(bytes, maximumBytes);
+        validateStructure(definition, node);
+        try { return JSON.treeToValue(node, type); }
+        catch (IOException e) { throw new ContractException("SCHEMA_INVALID", ""); }
+    }
+
     /** 独立报告的读取预算由执行器提供；共享结构不另设报告条数或文件大小门槛。 */
     public static void validateStructure(String definition, JsonNode node) {
         var errors = SCHEMAS.getSchema(SchemaLocation.of(SCHEMA_ID + "#/$defs/" + definition)).validate(node);
