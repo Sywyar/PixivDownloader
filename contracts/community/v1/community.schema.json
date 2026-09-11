@@ -2568,6 +2568,155 @@
         "jcs"
       ],
       "additionalProperties": false
+    },
+    "sdkDistribution": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "sourceCommit": {
+          "$ref": "#/$defs/commit"
+        },
+        "sdkVersion": {
+          "$ref": "#/$defs/machine"
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "manifestSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "tool": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/reference"
+            },
+            {
+              "properties": {
+                "path": {
+                  "const": "tools/sdk-tools.jar"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "sourceCommit",
+        "sdkVersion",
+        "contractVersion",
+        "manifestSha256",
+        "tool"
+      ],
+      "additionalProperties": false
+    },
+    "stateVectors": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "versionStatus": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/machine"
+              },
+              "before": {
+                "enum": [
+                  "ACTIVE",
+                  "YANKED",
+                  "REVOKED"
+                ]
+              },
+              "decisionSha256": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/sha256"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "action": {
+                "enum": [
+                  "YANK",
+                  "UNYANK",
+                  "REVOKE"
+                ]
+              },
+              "yankedDecisionSha256": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/sha256"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "newDecisionSha256": {
+                "$ref": "#/$defs/sha256"
+              },
+              "after": {
+                "enum": [
+                  "ACTIVE",
+                  "YANKED",
+                  "REVOKED"
+                ]
+              },
+              "error": {
+                "enum": [
+                  "INVALID_STATE_TRANSITION",
+                  "BASELINE_CHANGED"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "before",
+              "decisionSha256",
+              "action",
+              "yankedDecisionSha256",
+              "newDecisionSha256"
+            ],
+            "oneOf": [
+              {
+                "required": [
+                  "after"
+                ],
+                "not": {
+                  "required": [
+                    "error"
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "error"
+                ],
+                "not": {
+                  "required": [
+                    "after"
+                  ]
+                }
+              }
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "versionStatus"
+      ],
+      "additionalProperties": false
     }
   }
 }

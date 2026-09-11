@@ -13,6 +13,18 @@ import { inspectSdkVersion } from '../sdk-version.mjs';
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const sha = bytes => crypto.createHash('sha256').update(bytes).digest();
 
+test('版本状态向量由独立消费者验证，旧恢复请求不能解除新下架', () => {
+    const vectors = JSON.parse(fs.readFileSync(path.join(ROOT, 'contracts/community/v1/vectors/state-transitions.json'), 'utf8'));
+    for (const item of vectors.versionStatus) {
+        let error, after;
+        if (item.before === 'REVOKED' || item.action === 'YANK' && item.before !== 'ACTIVE'
+                || item.action === 'UNYANK' && item.before !== 'YANKED') error = 'INVALID_STATE_TRANSITION';
+        else if (item.action === 'UNYANK' && item.yankedDecisionSha256 !== item.decisionSha256) error = 'BASELINE_CHANGED';
+        else after = { YANK: 'YANKED', UNYANK: 'ACTIVE', REVOKE: 'REVOKED' }[item.action];
+        assert.deepEqual({ after, error }, { after: item.after, error: item.error }, item.id);
+    }
+});
+
 test('Java 共用的严格编码与 JCS 正反向量由独立 Python 和 Node 消费', () => {
     const vectorPath = path.join(ROOT, 'contracts/community/v1/vectors/json.json');
     const vectors = JSON.parse(fs.readFileSync(vectorPath, 'utf8'));

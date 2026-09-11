@@ -28,8 +28,8 @@
     },
     {
       "path": "community.schema.json",
-      "size": 58455,
-      "sha256": "4b88e0530fdb31f069fff3439f8f17b25786aa26d274e588b11f75e0fe83b33a"
+      "size": 61961,
+      "sha256": "b6819f40086b8227307fca53cdc56073450e6f290ff773b9978623d39350a6ed"
     },
     {
       "path": "licenses/0BSD.txt",
@@ -150,6 +150,11 @@
       "path": "vectors/signatures.properties",
       "size": 4172,
       "sha256": "f6dfda14a5894a532efc1467ac364e0e792a8723116dce6c50edc6d54eca24b8"
+    },
+    {
+      "path": "vectors/state-transitions.json",
+      "size": 3617,
+      "sha256": "94e1367ad6698d62239e4e80f7fbd4aee66de43bb914e8804852091ee9cbf728"
     },
     {
       "path": "vectors/structure/approval.json",
