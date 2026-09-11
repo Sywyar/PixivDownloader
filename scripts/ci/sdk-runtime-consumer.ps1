@@ -138,9 +138,11 @@ try {
     }
     foreach ($session in $sessions) {
         Invoke-SdkJava ($session.ToolArgs + @('stop', $session.Project)) $session.Project (Join-Path $session.Project 'stop.log')
+        $shutdown = [Diagnostics.Stopwatch]::StartNew()
         if (-not $session.Process.WaitForExit(60000) -or $session.Process.ExitCode -ne 0) { throw 'SDK host did not stop normally.' }
-        $session.Host.Refresh()
-        if (-not $session.Host.HasExited) { throw 'SDK left a running host behind.' }
+        # Unix observes a non-child process asynchronously; share the original stop budget.
+        $remaining = [int][Math]::Max(0, 60000 - $shutdown.ElapsedMilliseconds)
+        if (-not $session.Host.WaitForExit($remaining)) { throw 'SDK left a running host behind.' }
     }
     Write-Host "PASS: SDK examples load with all official plugins, independent state, shared cache and normal stop (development=$Development)."
 } finally {
