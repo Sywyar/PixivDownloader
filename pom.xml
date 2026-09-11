@@ -41,6 +41,8 @@
         <!-- 第三方插件统一导入的 SDK 依赖版本清单；不进入运行时。 -->
         <module>pixivdownload-sdk-bom</module>
         <module>pixivdownload-sdk</module>
+        <!-- 随 SDK ZIP 交付的独立开发工具，不属于公开编译坐标或宿主 classpath。 -->
+        <module>pixivdownload-sdk-tools</module>
         <!-- 宿主 owned 插件供应链验签模块，Spring-free / PF4J-free / app-free / plugin-runtime-free，纯 JDK 17 -->
         <module>pixivdownload-plugin-signature</module>
         <!-- 最小 PF4J 执行内核与隔离 worker；独立可执行产物只携带协议、稳定契约和 PF4J，不继承 app classpath。 -->

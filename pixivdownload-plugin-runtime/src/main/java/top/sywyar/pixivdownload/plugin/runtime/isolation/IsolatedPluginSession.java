@@ -33,6 +33,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutionException;
@@ -73,6 +74,7 @@ public final class IsolatedPluginSession {
     private final PluginArtifactSnapshot artifactSnapshot;
     private final Consumer<WorkerExit> exitListener;
     private final Settings settings;
+    private final SdkWorkerDebug debug;
 
     private Process process;
     private DataInputStream input;
@@ -103,6 +105,8 @@ public final class IsolatedPluginSession {
         this.exitListener = exitListener == null ? ignored -> {
         } : exitListener;
         this.settings = Settings.fromSystemProperties();
+        SdkWorkerDebug target = SdkWorkerDebug.fromSystemProperties();
+        this.debug = target != null && target.matches(descriptor.id(), verifiedSha256) ? target : null;
     }
 
     public synchronized PluginInventory initialize() {
@@ -129,18 +133,18 @@ public final class IsolatedPluginSession {
     public synchronized void startPackage() {
         requireOpen();
         ensureWorker();
-        command(IsolatedPluginProtocol.START_PACKAGE, settings.commandTimeout());
+        command(IsolatedPluginProtocol.START_PACKAGE, executionTimeout());
     }
 
     synchronized void startFeature() {
         requireOpen();
         requireLiveWorker();
-        command(IsolatedPluginProtocol.START_FEATURE, settings.commandTimeout());
+        command(IsolatedPluginProtocol.START_FEATURE, executionTimeout());
     }
 
     synchronized void stopFeature() {
         if (!closed && isWorkerAlive()) {
-            command(IsolatedPluginProtocol.STOP_FEATURE, settings.commandTimeout());
+            command(IsolatedPluginProtocol.STOP_FEATURE, executionTimeout());
         }
     }
 
@@ -201,6 +205,30 @@ public final class IsolatedPluginSession {
         return settings.restartDelay(attempt);
     }
 
+    /** 仅为本会话创建的代理与资源 loader 返回已冻结的资源根，不接受插件自行声明的来源。 */
+    public static Optional<URL> ownedResourceRoot(PixivFeaturePlugin plugin, ClassLoader registeredLoader) {
+        if (!(plugin instanceof IsolatedFeaturePlugin proxy)) {
+            return Optional.empty();
+        }
+        IsolatedPluginSession session = proxy.session;
+        synchronized (session) {
+            session.requireOpen();
+            if (session.resourceClassLoader != registeredLoader) {
+                throw new IllegalStateException("isolated plugin resource loader identity mismatch");
+            }
+            session.artifactSnapshot.verifyLoadPath(session.artifact);
+            try {
+                if (Files.isDirectory(session.artifact, LinkOption.NOFOLLOW_LINKS)) {
+                    return Optional.of(session.artifact.toUri().toURL());
+                }
+                return Optional.of(java.net.URI.create(
+                        "jar:" + session.artifact.toUri().toASCIIString() + "!/").toURL());
+            } catch (IOException failure) {
+                throw new PluginRuntimeOperationException("isolated plugin resource root is unavailable", failure);
+            }
+        }
+    }
+
     private void ensureWorker() {
         if (isWorkerAlive()) {
             return;
@@ -209,7 +237,11 @@ public final class IsolatedPluginSession {
         Path workerDirectory;
         try {
             workerDirectory = artifactSnapshot.createWorkerDirectory();
-            ProcessBuilder builder = new ProcessBuilder(workerCommand(workerDirectory));
+            List<String> command = new ArrayList<>(workerCommand(workerDirectory));
+            if (debug != null) {
+                command.add(1, debug.agentArgument());
+            }
+            ProcessBuilder builder = new ProcessBuilder(command);
             builder.directory(workerDirectory.toFile());
             configureEnvironment(builder, workerDirectory);
             Path workerLog = prepareWorkerLog(workerDirectory.getParent());
@@ -243,7 +275,7 @@ public final class IsolatedPluginSession {
                         IsolatedPluginProtocol.writeString(payload, descriptor.version());
                         IsolatedPluginProtocol.writeString(payload, verifiedSha256);
                         IsolatedPluginProtocol.writeString(payload, artifact.toString());
-                    }), settings.initializeTimeout());
+                    }), debug != null ? SdkWorkerDebug.TIMEOUT : settings.initializeTimeout());
             IsolatedPluginProtocol.Snapshot observed;
             try (DataInputStream payload = IsolatedPluginProtocol.requireSuccess(response)) {
                 observed = IsolatedPluginProtocol.Snapshot.readFrom(payload);
@@ -520,6 +552,10 @@ public final class IsolatedPluginSession {
             command.add(WORKER_MAIN);
         }
         return List.copyOf(command);
+    }
+
+    private Duration executionTimeout() {
+        return debug != null ? SdkWorkerDebug.TIMEOUT : settings.commandTimeout();
     }
 
     private static Path materializeEmbeddedWorker(Path workerDirectory) throws IOException {

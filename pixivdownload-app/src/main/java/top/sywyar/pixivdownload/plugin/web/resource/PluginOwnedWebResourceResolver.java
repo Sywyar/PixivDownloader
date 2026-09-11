@@ -6,6 +6,7 @@ import org.springframework.core.io.UrlResource;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.isolation.IsolatedPluginSession;
 
 import java.net.URI;
 import java.net.URL;
@@ -26,26 +27,29 @@ public final class PluginOwnedWebResourceResolver {
                                     StaticResourceContribution contribution) {
         Objects.requireNonNull(owner, "registered plugin owner");
         Objects.requireNonNull(contribution, "static resource contribution");
+        var isolatedRoot = IsolatedPluginSession.ownedResourceRoot(owner.plugin(), owner.classLoader());
         Class<?> pluginClass = AopProxyUtils.ultimateTargetClass(owner.plugin());
-        if (pluginClass.getClassLoader() != owner.classLoader()) {
+        if (isolatedRoot.isEmpty() && pluginClass.getClassLoader() != owner.classLoader()) {
             throw new IllegalStateException("plugin implementation is not defined by its registered classloader: "
                     + owner.id());
         }
         CodeSource codeSource = pluginClass.getProtectionDomain() == null
                 ? null : pluginClass.getProtectionDomain().getCodeSource();
-        if (codeSource == null || codeSource.getLocation() == null) {
+        if (isolatedRoot.isEmpty() && (codeSource == null || codeSource.getLocation() == null)) {
             throw new IllegalStateException("plugin implementation has no verifiable code source: " + owner.id());
         }
 
         String relativeLocation = normalizedClasspathDirectory(
                 contribution.classpathLocation(), owner.id());
         try {
-            URL root = ownerRoot(codeSource.getLocation(), pluginClass);
+            URL root = isolatedRoot.isPresent() ? isolatedRoot.get() : ownerRoot(codeSource.getLocation(), pluginClass);
             URL resolved = new URL(root, relativeLocation);
             if (!isUnderRoot(root, resolved)) {
                 throw new IllegalStateException("static resource location escapes its owner code source");
             }
-            return new UrlResource(resolved);
+            UrlResource resource = new UrlResource(resolved);
+            resource.setUseCaches(false);
+            return resource;
         } catch (Exception failure) {
             throw new IllegalStateException("failed to resolve owner-only static resource root for plugin: "
                     + owner.id(), failure);

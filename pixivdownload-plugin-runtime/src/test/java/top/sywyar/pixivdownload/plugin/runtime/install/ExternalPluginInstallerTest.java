@@ -87,6 +87,51 @@ class ExternalPluginInstallerTest {
     // ---------- 基本安装 ----------
 
     @Test
+    @DisplayName("仅新增事务拒绝全部重复版本及替代声明，既有产物与信任字节不变")
+    void newOnlyInstallPreservesExistingArtifactAndTrust() throws Exception {
+        System.setProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, "false");
+        String compatibility = SdkVersion.MAJOR + "." + SdkVersion.MINOR;
+        String versionSuffix = "." + SdkVersion.MINOR + "." + SdkVersion.PATCH;
+        String installedVersion = (SdkVersion.MAJOR + 1) + versionSuffix;
+        Path source = PluginPackageFixtures.bareJar(home.resolve("candidate.jar"),
+                "example", installedVersion, compatibility, "example.Plugin");
+        var origin = PluginPackageOrigin.localUnsignedUpload(
+                top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity.sha256Hex(source));
+        var prepared = installer.prepareNewTransaction(source, origin);
+        assertThat(prepared.readyToCommit()).isTrue();
+        var committed = installer.commitTransaction(prepared);
+        installer.verifyCommittedTarget(committed);
+        installer.markActivated(committed);
+        installer.completeTransaction(committed);
+        Path installed = prepared.target();
+        Path provenance = new PluginProvenanceStore(pluginsDir).sidecarPath(installed);
+        byte[] originalArtifact = Files.readAllBytes(installed);
+        byte[] originalTrust = Files.readAllBytes(provenance);
+        for (String version : List.of(SdkVersion.MAJOR + versionSuffix, installedVersion,
+                (SdkVersion.MAJOR + 2) + versionSuffix)) {
+            PluginPackageFixtures.bareJar(source, "example", version, compatibility, "example.Plugin");
+            var result = installer.prepareNewTransaction(source, PluginPackageOrigin.localUnsignedUpload(
+                    top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity.sha256Hex(source)));
+            assertThat(result.readyToCommit()).isFalse();
+            assertThat(result.result().outcome()).isEqualTo(PluginInstallOutcome.REJECTED_INVALID);
+            assertThat(Files.readAllBytes(installed)).isEqualTo(originalArtifact);
+            assertThat(Files.readAllBytes(provenance)).isEqualTo(originalTrust);
+        }
+        for (String replaced : List.of("example", "absent-plugin")) {
+            PluginPackageFixtures.writeZip(source, Map.of("plugin.properties", PluginPackageFixtures.bytes(
+                    PluginPackageFixtures.pluginProperties("another", installedVersion, compatibility, "example.Plugin")
+                            + "pixiv.replaces=" + replaced + "\n")));
+            var result = installer.prepareNewTransaction(source, PluginPackageOrigin.localUnsignedUpload(
+                    top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity.sha256Hex(source)));
+            assertThat(result.readyToCommit()).isFalse();
+            assertThat(result.result().outcome()).isEqualTo(PluginInstallOutcome.REJECTED_INVALID);
+        }
+        assertThat(installer.listInstalled()).singleElement().satisfies(plugin ->
+                assertThat(plugin.path()).isEqualTo(installed));
+        assertThat(Files.readAllBytes(provenance)).isEqualTo(originalTrust);
+    }
+
+    @Test
     @DisplayName("清点复用仍检测同大小同时间内容替换并保留旧包拒绝")
     void repeatedInventoryRevalidatesContent() throws Exception {
         Files.createDirectories(pluginsDir);
@@ -703,11 +748,13 @@ class ExternalPluginInstallerTest {
     @DisplayName("调用方串行化完整事务时，并发同 id 请求只落盘一份规范包")
     void callerSerializesConcurrentTransactionsOfSameId() throws Exception {
         int threads = 8;
-        // 每个线程一份独立源 zip（同 id/version），避免共享源文件读竞争
+        // 每个线程读取独立副本，同时固定实际字节，避免 ZIP 时间戳改变重复安装语义。
+        String version = SdkVersion.VERSION;
+        Path original = PluginPackageFixtures.explodedZip(
+                home.resolve("source.zip"), "ext", version, null, "com.example.P");
         List<Path> sources = new ArrayList<>();
         for (int i = 0; i < threads; i++) {
-            sources.add(PluginPackageFixtures.explodedZip(
-                    home.resolve("src-" + i + ".zip"), "ext", "1.0.0", null, "com.example.P"));
+            sources.add(Files.copy(original, home.resolve("src-" + i + ".zip")));
         }
         ExecutorService pool = Executors.newFixedThreadPool(threads);
         CyclicBarrier barrier = new CyclicBarrier(threads);
@@ -734,7 +781,7 @@ class ExternalPluginInstallerTest {
             assertThat(outcomes).allMatch(o ->
                     o == PluginInstallOutcome.INSTALLED || o == PluginInstallOutcome.DUPLICATE);
             // 落盘唯一规范包、无半成品 / 无 .staging 残留
-            assertThat(pluginFiles()).containsExactly("ext-1.0.0.zip");
+            assertThat(pluginFiles()).containsExactly("ext-" + version + ".zip");
             assertThat(installer.listInstalled()).extracting(InstalledPlugin::id).containsExactly("ext");
             assertThat(Files.exists(pluginsDir.resolve(ExternalPluginInstaller.STAGING_DIR))).isFalse();
         } finally {

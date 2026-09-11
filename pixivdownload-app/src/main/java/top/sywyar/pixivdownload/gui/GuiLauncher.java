@@ -1167,7 +1167,7 @@ public class GuiLauncher {
         };
     }
 
-    static void requestApplicationExit() {
+    public static void requestApplicationExit() {
         requestApplicationExit(GuiLauncher::closeActiveDesktopUiResources, () -> System.exit(0));
     }
 

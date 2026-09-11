@@ -434,6 +434,16 @@ public class ExternalPluginInstaller implements AutoCloseable {
      */
     public PreparedPluginTransaction prepareTransaction(Path packagePath, boolean allowDowngrade,
                                                         PluginPackageOrigin origin) {
+        return prepareTransaction(packagePath, allowDowngrade, origin, false);
+    }
+
+    /** 仅准备新增插件；SDK 隔离宿主不能替换已有包，也不接受 replaces 声明。 */
+    public PreparedPluginTransaction prepareNewTransaction(Path packagePath, PluginPackageOrigin origin) {
+        return prepareTransaction(packagePath, false, origin, true);
+    }
+
+    private PreparedPluginTransaction prepareTransaction(Path packagePath, boolean allowDowngrade,
+                                                         PluginPackageOrigin origin, boolean newOnly) {
         installLock.lock();
         Path unpublishedTransaction = null;
         Path publishedTransaction = null;
@@ -470,6 +480,13 @@ public class ExternalPluginInstaller implements AutoCloseable {
             InstalledPlugin highest = sameId.stream()
                     .max(Comparator.comparing(plugin -> PluginPackageVersion.parse(plugin.version())))
                     .orElse(null);
+            if (newOnly && (!sameId.isEmpty() || !descriptor.replaces().isEmpty())) {
+                deleteRecursivelyQuietly(unpublishedTransaction);
+                PluginInstallResult rejected = new PluginInstallResult(PluginInstallOutcome.REJECTED_INVALID,
+                        descriptor, null, highest != null ? highest.version() : null,
+                        List.of("new plugin installation forbids duplicate ids and replaces declarations"));
+                return new PreparedPluginTransaction(transactionId, rejected, null, null, null, List.of());
+            }
             PluginInstallOutcome outcome;
             String previousVersion = highest != null ? highest.version() : null;
             if (highest == null) {
