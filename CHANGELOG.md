@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 ## [Unreleased]
 
 ### Features
+- 插件 SDK 开发工程新增 Git 跟踪的工程标识和包内能力声明，并随开发包提供固定版本的社区格式、目录资源与许可证模板。
 - 完成应用插件化：主程序收敛为核心壳；下载工作台、桌面 GUI、画廊、小说、统计与重复检测、通知、推送、邮件、TTS 和 AI 等能力改为独立外置插件。插件通过稳定的 `plugin-api` / `core-api`、owner-scoped 存储与 capability 协作，并由统一安装和生命周期管理。
 - 新增繁體中文（zh-Hant）、韩语（ko-KR）和日语（ja-JP）界面、在线文档与公告。
 - Web 插件市场支持浏览、筛选、安装和更新官方或自定义仓库插件，并可通过公网 HTTPS `repository.json` 预览、确认后导入第三方仓库；仓库目录兼容 `manifest-v1` 与分页的 `paged-v2`。Web 管理页提供插件状态、依赖、诊断、本地上传和完整生命周期操作，桌面端提供状态与市场 / 仓库配置入口。

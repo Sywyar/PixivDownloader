@@ -86,6 +86,12 @@ Gradle 使用 `compileOnly("io.github.sywyar.pixivdownloader:pixivdownload-sdk:@
 
 Ivy 的运行配置不要继承此编译配置。标准 Maven 元数据传递公开 API 及 PF4J、Spring、Servlet、Jackson 编译依赖；产物仍是 thin PF4J JAR，不将这些宿主提供类打包。测试框架自行声明，三个 API 模块和 BOM 仍可单独消费。
 
+## 社区格式与资源
+
+`contracts/community/v1/` 提供社区 JSON Schema、能力声明 token、市场分类与标签、许可证模板，以及签名和数据校验向量。填写 `pixiv.risk-signals` 时查阅其中的 `catalogs.json`；许可证模板可按项目需要选用，许可证声明不受模板清单限制。
+
+`bundle-manifest.json` 固定每份资源的大小和 SHA-256，并记录工具版本。`tools/community-contract.json` 记录 SDK、源码提交、合同版本、资源清单摘要及本次 `sdk-tools.jar` 的大小与摘要。消费这些资源时固定完整发行物和摘要；更新时使用同一发行物中的工具与资源，不单独替换目录文件。它们随开发包进入初始 Git 提交，不进入插件 JAR 或公共 Maven 编译依赖。
+
 ## 运行包、缓存和工程数据
 
 `sdk-project.json` 与发行附件 `sdk-release.json` 记录同一套 SDK、宿主、官方插件清单及完整运行 ZIP 的固定身份、大小与 SHA-256。运行 ZIP 是 SDK Release 的独立附件，首次显式准备时下载，后续复用 `~/.cache/pixivdownloader-sdk/` 中的已校验缓存。清空缓存后仍取得相同字节；资源不可用或摘要不符会失败。

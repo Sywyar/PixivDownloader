@@ -86,6 +86,12 @@ Gradle uses `compileOnly("io.github.sywyar.pixivdownloader:pixivdownload-sdk:@SD
 
 Do not make Ivy's runtime configuration extend this compile configuration. Standard Maven metadata supplies public APIs and PF4J, Spring, Servlet, and Jackson compile dependencies. Produce a thin PF4J JAR without bundling these host-provided classes. Declare test frameworks separately. The three API modules and BOM remain individually available.
 
+## Community formats and resources
+
+`contracts/community/v1/` contains the community JSON Schema, capability tokens, market categories and tags, license templates, and signature and data validation vectors. Consult `catalogs.json` when filling in `pixiv.risk-signals`. Choose a license template that fits your project; license declarations are not restricted to the template list.
+
+`bundle-manifest.json` records each resource's size and SHA-256, along with tool versions. `tools/community-contract.json` records the SDK, source commit, contract version, resource manifest hash, and the size and hash of this `sdk-tools.jar`. Pin the complete release and its hashes when consuming these resources. Update tools and resources from the same release instead of replacing individual catalog files. These files belong to the development package's initial Git commit and stay out of plugin JARs and public Maven compile dependencies.
+
 ## Runtime, cache, and project data
 
 `sdk-project.json` and the release-side `sdk-release.json` record the same SDK, host, official plugin manifest, and runtime ZIP identities, sizes, and SHA-256 hashes. The runtime ZIP is a separate SDK Release attachment. Explicit preparation downloads it once and reuses verified bytes in `~/.cache/pixivdownloader-sdk/`. Clearing the cache still selects the same bytes. Unavailable resources and hash mismatches fail.
