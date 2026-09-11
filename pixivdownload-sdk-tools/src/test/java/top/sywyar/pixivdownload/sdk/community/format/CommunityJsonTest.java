@@ -22,13 +22,10 @@ class CommunityJsonTest {
     @Test
     @DisplayName("JCS 使用 RFC 标准的 UTF16 排序并保留数组顺序和数字序列化")
     void canonicalizesStandardBoundaries() throws Exception {
-        // RFC 8785 3.2.3 的同组属性码点；值只保留测试所需的序号。
-        String input = "{\"€\":5,\"\\r\":1,\"דּ\":7,\"1\":2,\"😀\":6,\"\\u0080\":3,\"ö\":4}";
-        String expected = "{\"\\r\":1,\"1\":2,\"\u0080\":3,\"ö\":4,\"€\":5,\"😀\":6,\"דּ\":7}";
-        assertThat(new org.erdtman.jcs.JsonCanonicalizer(input).getEncodedUTF8())
-                .isEqualTo(expected.getBytes(StandardCharsets.UTF_8));
-        assertThat(new org.erdtman.jcs.JsonCanonicalizer("[333333333.33333329,1E30,4.50,2e-3,1e-27]").getEncodedString())
-                .isEqualTo("[333333333.3333333,1e+30,4.5,0.002,1e-27]");
+        for (var vector : jsonVectors().get("jcs")) {
+            assertThat(new org.erdtman.jcs.JsonCanonicalizer(vector.get("input").textValue()).getEncodedString())
+                    .as(vector.get("id").textValue()).isEqualTo(vector.get("canonical").textValue());
+        }
         // 社区文档只接受安全整数；标准 JCS 数字支持不放宽外层合同。
         assertThatThrownBy(() -> tree("[1E30]")).isInstanceOf(ContractException.class);
     }
@@ -97,18 +94,25 @@ class CommunityJsonTest {
 
     @Test
     @DisplayName("拒绝重复键尾随值非法 UTF8 BOM 和非成对代理字符")
-    void rejectsAmbiguousEncoding() {
-        for (String input : new String[]{"{\"a\":1,\"a\":2}", "{\"a\":{\"b\":1,\"b\":2}}",
-                "{} {}", "{} null", "{}x", "\ufeff{}", "", "\"\\ud800\"", "\"\\udc00\"",
-                "{\"\\ud800\":0}", "NaN", "1.5", "9007199254740992", "-9007199254740992"}) {
-            assertThatThrownBy(() -> tree(input)).isInstanceOf(ContractException.class);
+    void rejectsAmbiguousEncoding() throws Exception {
+        for (var vector : jsonVectors().get("strictJson")) {
+            byte[] input = java.util.HexFormat.of().parseHex(vector.get("utf8Hex").textValue());
+            if (vector.get("accepted").booleanValue()) {
+                assertThatCode(() -> CommunityJson.strictTree(input, input.length)).as(vector.get("id").textValue()).doesNotThrowAnyException();
+            } else {
+                assertThatThrownBy(() -> CommunityJson.strictTree(input, input.length)).as(vector.get("id").textValue()).isInstanceOf(ContractException.class);
+            }
         }
-        assertThatThrownBy(() -> CommunityJson.strictTree(new byte[]{(byte) 0xc0, (byte) 0x80}, 100))
-                .isInstanceOf(ContractException.class);
         assertThatThrownBy(() -> CommunityJson.encode(java.util.Map.of("text", "\ud800")))
                 .isInstanceOf(ContractException.class);
-        for (String valid : new String[]{"9007199254740991", "-9007199254740991", "1.0", "1e0", "\"\\ud83d\\ude00\""}) {
-            assertThatCode(() -> tree(valid)).doesNotThrowAnyException();
+    }
+
+    private static com.fasterxml.jackson.databind.JsonNode jsonVectors() throws Exception {
+        try (var input = CommunityJsonTest.class.getResourceAsStream("/community/v1/vectors/json.json")) {
+            byte[] bytes = java.util.Objects.requireNonNull(input).readAllBytes();
+            var vectors = CommunityJson.strictTree(bytes, bytes.length);
+            CommunityJson.validateStructure("jsonVectors", vectors);
+            return vectors;
         }
     }
 

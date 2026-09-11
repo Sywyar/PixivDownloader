@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "contractVersion": 1,
   "toolchain": {
-    "sdk": "1.0.0-rc4",
+    "sdk": "1.0.0-rc5",
     "java": "17",
     "maven": {
       "version": "3.9.11",
@@ -28,8 +28,8 @@
     },
     {
       "path": "community.schema.json",
-      "size": 56985,
-      "sha256": "3a8cb7e944acb58a7b00663974256d1d8688d556b5513052535c8e30aef3f2c9"
+      "size": 58455,
+      "sha256": "4b88e0530fdb31f069fff3439f8f17b25786aa26d274e588b11f75e0fe83b33a"
     },
     {
       "path": "licenses/0BSD.txt",
@@ -140,6 +140,11 @@
       "path": "vectors/images/static.webp",
       "size": 38,
       "sha256": "cbe58301bcdc7b49229aae8681e11f5fa73412fe6d7bea92e9d9644069ee0991"
+    },
+    {
+      "path": "vectors/json.json",
+      "size": 3744,
+      "sha256": "be8585d7f1195f693c143adc104dda04087d40b490317d2375e3e8cf90232747"
     },
     {
       "path": "vectors/signatures.properties",

@@ -13,6 +13,23 @@ import { inspectSdkVersion } from '../sdk-version.mjs';
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const sha = bytes => crypto.createHash('sha256').update(bytes).digest();
 
+test('Java 共用的严格编码与 JCS 正反向量由独立 Python 和 Node 消费', () => {
+    const vectorPath = path.join(ROOT, 'contracts/community/v1/vectors/json.json');
+    const vectors = JSON.parse(fs.readFileSync(vectorPath, 'utf8'));
+    const python = process.platform === 'win32' ? 'python' : 'python3';
+    const outcomes = JSON.parse(execFileSync(python, [path.join(ROOT, 'scripts/ci/fixtures/community-json-consumer.py'), vectorPath], { encoding: 'utf8' }));
+    assert.deepEqual(outcomes, vectors.strictJson.map(({ id, accepted }) => ({ id, accepted })));
+    // 独立测试编码器使用 ECMAScript 原生数字及字符串序列化，不进入发行工具。
+    const canonical = value => {
+        if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+        if (value !== null && typeof value === 'object') {
+            return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;
+        }
+        return JSON.stringify(value);
+    };
+    for (const vector of vectors.jcs) assert.equal(canonical(JSON.parse(vector.input)), vector.canonical, vector.id);
+});
+
 test('合同清单固定全部资源和真实工具版本，SDK 初始 Git 与解压副本保持同一摘要', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'community-contract-'));
     try {

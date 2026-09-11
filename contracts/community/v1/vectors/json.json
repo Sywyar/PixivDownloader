@@ -1,0 +1,172 @@
+{
+  "schemaVersion": 1,
+  "strictJson": [
+    {
+      "id": "valid-1",
+      "utf8Hex": "6e756c6c",
+      "accepted": true
+    },
+    {
+      "id": "valid-2",
+      "utf8Hex": "7b7d",
+      "accepted": true
+    },
+    {
+      "id": "valid-3",
+      "utf8Hex": "5b747275652c66616c73652c6e756c6c5d",
+      "accepted": true
+    },
+    {
+      "id": "valid-4",
+      "utf8Hex": "39303037313939323534373430393931",
+      "accepted": true
+    },
+    {
+      "id": "valid-5",
+      "utf8Hex": "2d39303037313939323534373430393931",
+      "accepted": true
+    },
+    {
+      "id": "valid-6",
+      "utf8Hex": "312e30",
+      "accepted": true
+    },
+    {
+      "id": "valid-7",
+      "utf8Hex": "316530",
+      "accepted": true
+    },
+    {
+      "id": "valid-8",
+      "utf8Hex": "2d30",
+      "accepted": true
+    },
+    {
+      "id": "valid-9",
+      "utf8Hex": "225c75643833645c756465303022",
+      "accepted": true
+    },
+    {
+      "id": "valid-10",
+      "utf8Hex": "7b2276616c7565223a22e6b58be8af95f09f9880227d",
+      "accepted": true
+    },
+    {
+      "id": "valid-11",
+      "utf8Hex": "5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b305d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d",
+      "accepted": true
+    },
+    {
+      "id": "invalid-1",
+      "utf8Hex": "7b2261223a312c2261223a327d",
+      "accepted": false
+    },
+    {
+      "id": "invalid-2",
+      "utf8Hex": "7b2261223a7b2262223a312c2262223a327d7d",
+      "accepted": false
+    },
+    {
+      "id": "invalid-3",
+      "utf8Hex": "7b2261223a312c225c7530303631223a327d",
+      "accepted": false
+    },
+    {
+      "id": "invalid-4",
+      "utf8Hex": "7b7d207b7d",
+      "accepted": false
+    },
+    {
+      "id": "invalid-5",
+      "utf8Hex": "7b7d206e756c6c",
+      "accepted": false
+    },
+    {
+      "id": "invalid-6",
+      "utf8Hex": "7b7d78",
+      "accepted": false
+    },
+    {
+      "id": "invalid-7",
+      "utf8Hex": "efbbbf7b7d",
+      "accepted": false
+    },
+    {
+      "id": "invalid-8",
+      "utf8Hex": "",
+      "accepted": false
+    },
+    {
+      "id": "invalid-9",
+      "utf8Hex": "225c756438303022",
+      "accepted": false
+    },
+    {
+      "id": "invalid-10",
+      "utf8Hex": "225c756463303022",
+      "accepted": false
+    },
+    {
+      "id": "invalid-11",
+      "utf8Hex": "7b225c7564383030223a307d",
+      "accepted": false
+    },
+    {
+      "id": "invalid-12",
+      "utf8Hex": "4e614e",
+      "accepted": false
+    },
+    {
+      "id": "invalid-13",
+      "utf8Hex": "496e66696e697479",
+      "accepted": false
+    },
+    {
+      "id": "invalid-14",
+      "utf8Hex": "312e35",
+      "accepted": false
+    },
+    {
+      "id": "invalid-15",
+      "utf8Hex": "39303037313939323534373430393932",
+      "accepted": false
+    },
+    {
+      "id": "invalid-16",
+      "utf8Hex": "2d39303037313939323534373430393932",
+      "accepted": false
+    },
+    {
+      "id": "invalid-17",
+      "utf8Hex": "5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b305d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d",
+      "accepted": false
+    },
+    {
+      "id": "invalid-utf8-overlong",
+      "utf8Hex": "c080",
+      "accepted": false
+    },
+    {
+      "id": "invalid-utf8-surrogate",
+      "utf8Hex": "eda080",
+      "accepted": false
+    }
+  ],
+  "jcs": [
+    {
+      "id": "utf16-property-order",
+      "input": "{\"€\":5,\"\\r\":1,\"דּ\":7,\"1\":2,\"😀\":6,\"\\u0080\":3,\"ö\":4}",
+      "canonical": "{\"\\r\":1,\"1\":2,\"\":3,\"ö\":4,\"€\":5,\"😀\":6,\"דּ\":7}"
+    },
+    {
+      "id": "ecmascript-numbers",
+      "input": "[333333333.33333329,1E30,4.50,2e-3,1e-27]",
+      "canonical": "[333333333.3333333,1e+30,4.5,0.002,1e-27]"
+    },
+    {
+      "id": "array-order",
+      "input": "{\"z\":[3,2,1],\"a\":\"测试😀\"}",
+      "canonical": "{\"a\":\"测试😀\",\"z\":[3,2,1]}"
+    }
+  ]
+}

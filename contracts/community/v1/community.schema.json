@@ -2505,6 +2505,69 @@
         "messages"
       ],
       "additionalProperties": false
+    },
+    "jsonVectors": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "strictJson": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/machine"
+              },
+              "utf8Hex": {
+                "type": "string",
+                "pattern": "^(?:[0-9a-f]{2})*$"
+              },
+              "accepted": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "utf8Hex",
+              "accepted"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "jcs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/machine"
+              },
+              "input": {
+                "type": "string"
+              },
+              "canonical": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "input",
+              "canonical"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "strictJson",
+        "jcs"
+      ],
+      "additionalProperties": false
     }
   }
 }
