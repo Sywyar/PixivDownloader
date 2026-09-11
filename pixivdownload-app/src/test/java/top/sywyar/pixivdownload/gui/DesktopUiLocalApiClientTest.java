@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.gui;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiActionInvocationHeaders;
@@ -17,6 +18,27 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class DesktopUiLocalApiClientTest {
     private HttpServer server;
+
+    @Test
+    @DisplayName("命令行端口覆盖配置后，管理员初始化与插件状态请求使用同一后端")
+    void launchPortOverrideReachesSetupAndPluginStatus() throws Exception {
+        AtomicReference<String> requestPath = new AtomicReference<>();
+        server = server(exchange -> {
+            requestPath.set(exchange.getRequestMethod() + " " + exchange.getRequestURI().getPath());
+            respond(exchange, 200, "{\"ok\":true}".getBytes(StandardCharsets.UTF_8));
+        });
+        int configuredPort = port() == 65_535 ? port() - 1 : port() + 1;
+        assertThat(GuiLauncher.resolveServerPort(configuredPort, new String[0])).isEqualTo(configuredPort);
+        AppDesktopUiHost host = new AppDesktopUiHost(GuiLauncher.resolveServerPort(
+                configuredPort,
+                new String[]{"--server.address=127.0.0.1", "--server.port=" + port()}
+        ));
+
+        assertThat(host.guiPostJson("setup/init", Map.of(), 2_000).successful()).isTrue();
+        assertThat(requestPath).hasValue("POST /api/gui/setup/init");
+        assertThat(host.guiGet("plugins/status", 2_000).successful()).isTrue();
+        assertThat(requestPath).hasValue("GET /api/gui/plugins/status");
+    }
 
     @AfterEach
     void stopServer() {
@@ -92,6 +114,8 @@ class DesktopUiLocalApiClientTest {
         created.createContext("/api/gui/mail/test", exchange -> handle(exchange, handler));
         created.createContext("/api/gui/status", exchange -> handle(exchange, handler));
         created.createContext("/api/gui/restart", exchange -> handle(exchange, handler));
+        created.createContext("/api/gui/setup/init", exchange -> handle(exchange, handler));
+        created.createContext("/api/gui/plugins/status", exchange -> handle(exchange, handler));
         created.start();
         return created;
     }

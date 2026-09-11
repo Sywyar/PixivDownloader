@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.bridge.SLF4JBridgeHandler;
 import org.springframework.boot.SpringApplication;
+import org.springframework.core.env.SimpleCommandLinePropertySource;
 import top.sywyar.pixivdownload.PixivDownloadApplication;
 import top.sywyar.pixivdownload.cli.CliSetupCommand;
 import top.sywyar.pixivdownload.common.AppVersion;
@@ -278,9 +279,9 @@ public class GuiLauncher {
         final ManagedDatabaseSchema.DatabaseSchema startupManagedSchema =
                 buildStartupManagedSchema(pluginSession.enabledSnapshot(), pluginSession.startupDiscovery());
 
-        final int port = serverPort;
-        final String root = rootFolder;
         String[] backendArgs = filterArgs(args);
+        final int port = resolveServerPort(serverPort, backendArgs);
+        final String root = rootFolder;
 
         // 后端启动经显式、可清理的回调接收同一 PROCESS 会话——每次 startAsync（含 restart 的 start 阶段）都把同一会话
         // 交接给 Spring，复用同一 manager / classloader；Spring context 关闭只关 context、不关 PROCESS 会话。configure 返回
@@ -1234,6 +1235,12 @@ public class GuiLauncher {
     }
     static DesktopUiSession activeUi() {
         return ACTIVE_UI.get();
+    }
+
+    static int resolveServerPort(int configuredPort, String[] args) {
+        // 与后端使用同一命令行属性语义，临时端口不写回用户配置。
+        String override = new SimpleCommandLinePropertySource(args).getProperty("server.port");
+        return override == null ? configuredPort : Integer.parseInt(override.trim());
     }
 
     private static String[] filterArgs(String[] args) {
