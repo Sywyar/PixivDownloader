@@ -19,11 +19,17 @@ public final class SdkHostLauncher {
         try {
             if (args.length < 3) throw new IllegalArgumentException("SDK_HOST_ARGUMENTS");
             long parentPid = Long.parseLong(args[0]);
-            var parent = ProcessHandle.current().parent().filter(process -> process.pid() == parentPid)
+            boolean development = Boolean.getBoolean("pixivdownload.plugin-dev.enabled")
+                    && parentPid == ProcessHandle.current().pid();
+            var parent = (development ? java.util.Optional.of(ProcessHandle.current())
+                    : ProcessHandle.current().parent()).filter(process -> process.pid() == parentPid)
                     .filter(process -> process.info().startInstant().map(Object::toString).orElse("").equals(args[1]))
                     .orElseThrow(() -> new IllegalArgumentException("SDK_HOST_PARENT"));
             Path run = Path.of(args[2]).toRealPath();
-            if (!run.equals(Path.of("").toRealPath())
+            Path workingDirectory = development
+                    ? Path.of(System.getProperty("pixivdownload.plugin-dev.root")).toRealPath().resolve(".dev") : run;
+            if (!workingDirectory.equals(Path.of("").toRealPath())
+                    || (development && !run.getParent().getParent().equals(workingDirectory))
                     || !run.getParent().endsWith(Path.of(".dev", "runs"))) {
                 throw new IllegalArgumentException("SDK_HOST_WORKSPACE");
             }

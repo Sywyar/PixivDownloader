@@ -1,0 +1,15 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Developer Mode" type="Application" factoryName="Application">
+    <option name="MAIN_CLASS_NAME" value="sdk.DevelopmentLauncher" />
+    <module name="example-minimal-plugin" />
+    <classpathModifications>
+      <entry path="$PROJECT_DIR$/tools/sdk-tools.jar" />
+    </classpathModifications>
+    <option name="VM_PARAMETERS" value="-Dfile.encoding=UTF-8" />
+    <option name="PROGRAM_PARAMETERS" value="&quot;$PROJECT_DIR$/tools/sdk-tools.jar&quot; develop &quot;$PROJECT_DIR$&quot; &quot;$PROJECT_DIR$/target/classes&quot;" />
+    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/.dev" />
+    <method v="2">
+      <option name="Maven.BeforeRunTask" enabled="true" file="$PROJECT_DIR$/pom.xml" goal="test-compile exec:exec@sdk-prepare" />
+    </method>
+  </configuration>
+</component>

@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.BindException;
 import java.net.ServerSocket;
+import java.net.URLClassLoader;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -20,7 +21,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.LinkedHashMap;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -47,7 +50,7 @@ public final class SdkTools {
     }
 
     static int execute(String[] args) throws Exception {
-        if (args.length < 2 || !List.of("prepare", "run", "debug", "stop").contains(args[0])) {
+        if (args.length < 2 || !List.of("prepare", "develop", "run", "debug", "stop").contains(args[0])) {
             System.out.println(MessageBundles.get("sdk.usage"));
             return 2;
         }
@@ -71,6 +74,7 @@ public final class SdkTools {
         }
         if (args.length < 3) throw new IllegalArgumentException("SDK_ARTIFACT_ARGUMENT");
         boolean debug = args[0].equals("debug");
+        boolean develop = args[0].equals("develop");
         boolean noGui = false;
         boolean debugConnect = false;
         int debugPort = 5005;
@@ -84,7 +88,10 @@ public final class SdkTools {
         }
         Path artifact = Path.of(args[2]).toRealPath();
         if (!artifact.startsWith(project) || artifact.startsWith(dev)
-                || !Files.isRegularFile(artifact, LinkOption.NOFOLLOW_LINKS)) {
+                || !(develop ? artifact.equals(project.resolve("target/classes"))
+                        && Files.isRegularFile(artifact.resolve("plugin.properties"), LinkOption.NOFOLLOW_LINKS)
+                        && Files.isRegularFile(project.resolve("src/main/resources/plugin.properties"))
+                        : Files.isRegularFile(artifact, LinkOption.NOFOLLOW_LINKS))) {
             throw new IOException("SDK_ARTIFACT_LOCATION");
         }
         // 只在取得项目锁后准备本次运行；另一个项目不使用此锁或此项目的可写目录。
@@ -93,7 +100,6 @@ public final class SdkTools {
              var lease = channel.tryLock()) {
             if (lease == null) throw new IOException("SDK_PROJECT_BUSY");
             stopPrevious(project);
-            String digest = SdkRuntimeArchive.sha256(artifact, SdkRuntimeArchive.MAX_ARCHIVE_BYTES);
             // Windows CreateProcess 的工作目录仍有长度限制，为正式 worker 的私有目录保留空间。
             Path run = dev.resolve("runs").resolve(UUID.randomUUID().toString().replace("-", "").substring(0, 16));
             SdkRuntimeArchive.prepare(lock, SdkRuntimeArchive.cached(lock, cache), run);
@@ -103,6 +109,11 @@ public final class SdkTools {
                 SdkRuntimeArchive.requireDirectory(state.resolve(kind));
             }
             cleanOldRuns(project, run, state, lock);
+            if (develop) {
+                develop(project, run, state, lock, noGui);
+                return 0;
+            }
+            String digest = SdkRuntimeArchive.sha256(artifact, SdkRuntimeArchive.MAX_ARCHIVE_BYTES);
             List<String> install = javaCommand(run, state);
             install.addAll(List.of("-Dloader.main=top.sywyar.pixivdownload.plugin.sdk.SdkPluginInstaller",
                     "-cp", run.resolve(lock.runtime().host().file()).toString(),
@@ -153,16 +164,7 @@ public final class SdkTools {
             try {
                 Process host = processBuilder(command, run).inheritIO().start();
                 process.set(host);
-                Path session = Files.createTempFile(dev, "current-run-", ".json");
-                try {
-                    SdkRuntimeLock.JSON.writeValue(session.toFile(), Map.of(
-                            "run", run.getFileName().toString(), "pid", host.pid(),
-                            "port", serverPort,
-                            "started", host.info().startInstant().orElseThrow().toString()));
-                    Files.move(session, dev.resolve("current-run.json"), StandardCopyOption.ATOMIC_MOVE);
-                } finally {
-                    Files.deleteIfExists(session);
-                }
+                recordSession(dev, run, host.toHandle(), serverPort);
                 System.out.println(MessageBundles.get(debug ? "sdk.debug" : "sdk.running",
                         receipt.path("pluginId").asText(), mode, Integer.toString(debugPort)));
                 System.out.println("PIXIV_SDK_HOST_STARTED");
@@ -176,6 +178,48 @@ public final class SdkTools {
                 stopOwnedProcess(run, process.get());
                 Runtime.getRuntime().removeShutdownHook(shutdown);
             }
+        }
+    }
+
+    private static void develop(Path project, Path run, Path state, SdkRuntimeLock lock,
+                                boolean noGui) throws Exception {
+        Path dev = project.resolve(".dev");
+        if (!Path.of("").toRealPath().equals(dev)) throw new IOException("SDK_HOST_WORKSPACE");
+        runtimeProperties(run, state).forEach(System::setProperty);
+        System.setProperty("pixivdownload.plugin-dev.enabled", "true");
+        System.setProperty("pixivdownload.plugin-dev.root", project.toString());
+        System.setProperty("loader.main", "top.sywyar.pixivdownload.plugin.sdk.SdkHostLauncher");
+        System.setProperty("loader.home", run.toString());
+        System.setProperty("loader.path", "");
+        var owner = ProcessHandle.current();
+        int port = freePort();
+        List<String> arguments = new ArrayList<>(List.of(Long.toString(owner.pid()),
+                owner.info().startInstant().orElseThrow().toString(), run.toString(),
+                "--server.address=127.0.0.1", "--server.port=" + port,
+                "--update.enabled=false", "--plugin-catalog.enabled=false",
+                "--download.root-folder=" + dev.resolve("downloads")));
+        if (noGui) arguments.add("--no-gui");
+        recordSession(dev, run, owner, port);
+        // 宿主及插件仍用固定运行包自己的类加载器，但执行在 IDE 调试的同一个 JVM。
+        try (var loader = new URLClassLoader(new java.net.URL[]{
+                run.resolve(lock.runtime().host().file()).toUri().toURL()}, ClassLoader.getPlatformClassLoader())) {
+            Thread.currentThread().setContextClassLoader(loader);
+            loader.loadClass("org.springframework.boot.loader.launch.PropertiesLauncher")
+                    .getMethod("main", String[].class).invoke(null, (Object) arguments.toArray(String[]::new));
+            System.out.println("PIXIV_SDK_HOST_STARTED");
+            new CountDownLatch(1).await();
+        }
+    }
+
+    private static void recordSession(Path dev, Path run, ProcessHandle host, int port) throws IOException {
+        Path session = Files.createTempFile(dev, "current-run-", ".json");
+        try {
+            SdkRuntimeLock.JSON.writeValue(session.toFile(), Map.of(
+                    "run", run.getFileName().toString(), "pid", host.pid(), "port", port,
+                    "started", host.info().startInstant().orElseThrow().toString()));
+            Files.move(session, dev.resolve("current-run.json"), StandardCopyOption.ATOMIC_MOVE);
+        } finally {
+            Files.deleteIfExists(session);
         }
     }
 
@@ -272,11 +316,18 @@ public final class SdkTools {
     private static List<String> javaCommand(Path run, Path state) {
         String executable = System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java";
         List<String> command = new ArrayList<>(List.of(Path.of(System.getProperty("java.home"), "bin", executable)
-                .toString(), "-Dfile.encoding=UTF-8", "-Dpixivdownload.plugins-dir=" + run.resolve("plugins")));
-        for (String kind : List.of("config", "state", "data", "instance")) {
-            command.add("-Dpixivdownload." + kind + "-dir=" + state.resolve(kind));
-        }
+                .toString(), "-Dfile.encoding=UTF-8"));
+        runtimeProperties(run, state).forEach((key, value) -> command.add("-D" + key + "=" + value));
         return command;
+    }
+
+    private static Map<String, String> runtimeProperties(Path run, Path state) {
+        Map<String, String> properties = new LinkedHashMap<>();
+        properties.put("pixivdownload.plugins-dir", run.resolve("plugins").toString());
+        for (String kind : List.of("config", "state", "data", "instance")) {
+            properties.put("pixivdownload." + kind + "-dir", state.resolve(kind).toString());
+        }
+        return properties;
     }
 
     private static ProcessBuilder processBuilder(List<String> command, Path run) {

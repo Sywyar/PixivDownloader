@@ -4,7 +4,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$BuiltProject,
     [Parameter(Mandatory = $true)][string]$WorkDirectory,
-    [string]$RuntimeArchive
+    [string]$RuntimeArchive,
+    [switch]$Development
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -80,8 +81,15 @@ try {
             "app.language: en-US`nproxy.enabled: false`nmaintenance.enabled: false`n", [Text.UTF8Encoding]::new($false))
         Invoke-SdkJava ($setupArgs + @('-jar', $hostJar, '--setup', "--username=$Username", "--password=$Password", '--mode=solo', '--proxy-enabled=false')) `
             $project (Join-Path $WorkDirectory "$($example.Name)-setup.log")
-        $process = Invoke-SdkJava ($toolArgs + @('run', $project, $artifacts[0].FullName, '--no-gui')) `
-            $project (Join-Path $WorkDirectory "$($example.Name)-run.log") -Background
+        $launchArgs = $toolArgs + @('run', $project, $artifacts[0].FullName, '--no-gui')
+        $launchDirectory = $project
+        if ($Development) {
+            $launchArgs = @('-Dfile.encoding=UTF-8', "-Dpixivdownload.sdk.cache-dir=$cache", '-cp',
+                ((Join-Path $BuiltProject 'target/test-classes') + [IO.Path]::PathSeparator + $tools), 'sdk.DevelopmentLauncher',
+                $tools, 'develop', $project, (Join-Path $project 'target/classes'), '--no-gui')
+            $launchDirectory = Join-Path $project '.dev'
+        }
+        $process = Invoke-SdkJava $launchArgs $launchDirectory (Join-Path $WorkDirectory "$($example.Name)-run.log") -Background
         $processes += $process
         $current = Join-Path $project '.dev/current-run.json'
         $deadline = [DateTime]::UtcNow.AddMinutes(3)
@@ -91,6 +99,7 @@ try {
             Start-Sleep -Milliseconds 200
         } while ([DateTime]::UtcNow -lt $deadline)
         $session = [IO.File]::ReadAllText($current, [Text.Encoding]::UTF8) | ConvertFrom-Json
+        if ($Development -and $session.pid -ne $process.Id) { throw 'Development host left the launched JVM.' }
         $hostProcess = [Diagnostics.Process]::GetProcessById($session.pid)
         $null = $hostProcess.Handle
         $sessions += @{Project=$project; Process=$process; Host=$hostProcess; Metadata=$session; ToolArgs=$toolArgs}
@@ -103,11 +112,24 @@ try {
         if (-not $healthy) { throw 'SDK host did not become healthy.' }
         $run = Join-Path $project ".dev/runs/$($session.run)"
         $official = Get-Content -LiteralPath (Join-Path $run 'plugins-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-        $receiptLine = Get-Content -LiteralPath (Join-Path $run 'install.log') -Encoding UTF8 | Where-Object { $_.StartsWith('PIXIV_SDK_INSTALL_RESULT=') }
-        $receipt = $receiptLine.Substring('PIXIV_SDK_INSTALL_RESULT='.Length) | ConvertFrom-Json
+        if ($Development) {
+            $descriptor = [IO.File]::ReadAllText((Join-Path $project 'target/classes/plugin.properties'), [Text.Encoding]::UTF8)
+            $pluginId = [regex]::Match($descriptor, '(?m)^plugin\.id=(.+)\r?$').Groups[1].Value.Trim()
+        } else {
+            $receiptLine = Get-Content -LiteralPath (Join-Path $run 'install.log') -Encoding UTF8 | Where-Object { $_.StartsWith('PIXIV_SDK_INSTALL_RESULT=') }
+            $receipt = $receiptLine.Substring('PIXIV_SDK_INSTALL_RESULT='.Length) | ConvertFrom-Json
+            $pluginId = $receipt.pluginId
+        }
         $login = New-ReleaseLogin $session.port
-        Assert-ReleaseStatus -Port $session.port -Session $login -ExpectedIds (@($official.id) + @($receipt.pluginId)) `
-            -EvidencePath (Join-Path $WorkDirectory "$($example.Name)-status.json") | Out-Null
+        $status = Assert-ReleaseStatus -Port $session.port -Session $login -ExpectedIds (@($official.id) + @($pluginId)) `
+            -EvidencePath (Join-Path $WorkDirectory "$($example.Name)-status.json")
+        if ($Development) {
+            $plugin = @($status.plugins | Where-Object { $_.id -eq $pluginId })[0]
+            if ($plugin.executionMode -ne 'HOST_PROCESS_FULL_TRUST') { throw 'Development source did not use the host JVM.' }
+            if ([IO.File]::ReadAllText((Join-Path $project 'target/classes/plugin.properties'), [Text.Encoding]::UTF8) -cne $descriptor) {
+                throw 'Development launch modified the compiled descriptor.'
+            }
+        }
         $page = Invoke-WebRequest -Uri "http://127.0.0.1:$($session.port)$($example.Page)" -WebSession $login -TimeoutSec 10
         if ($page.StatusCode -ne 200) { throw 'The current SDK plugin page is unavailable.' }
     }
@@ -120,7 +142,7 @@ try {
         $session.Host.Refresh()
         if (-not $session.Host.HasExited) { throw 'SDK left a running host behind.' }
     }
-    Write-Host 'PASS: both SDK execution modes load with all official plugins, independent state, shared cache and normal stop.'
+    Write-Host "PASS: SDK examples load with all official plugins, independent state, shared cache and normal stop (development=$Development)."
 } finally {
     foreach ($process in $processes) {
         if (-not $process.HasExited) { $process.Kill($true); $process.WaitForExit() }

@@ -240,14 +240,16 @@ public class PluginRuntimeManager {
         Path directory = pluginsRoot.toAbsolutePath().normalize();
         resetPluginManager();
 
-        if (PluginDevelopmentArtifacts.enabled()) {
+        boolean standaloneDevelopment = PluginDevelopmentArtifacts.enabled()
+                && PluginDevelopmentArtifacts.standaloneProject(directory);
+        if (PluginDevelopmentArtifacts.enabled() && !standaloneDevelopment) {
             try {
                 beforeProductionScan(directory);
             } catch (IOException | RuntimeException e) {
                 return cache(new PluginRuntimeStatus(directory, PluginDirectoryState.EMPTY,
                         List.of(), List.of(), List.of(new PluginLoadFailure(directory.toString(), describe(e)))));
             }
-            return startDevelopmentMode(directory);
+            return startDevelopmentMode(directory, new ArrayList<>(), List.of());
         }
 
         PluginArtifactScanner.ScanResult scan;
@@ -266,6 +268,9 @@ public class PluginRuntimeManager {
                 throw new IOException("plugins root must be a plain directory: " + directory);
             }
             prepareProductionScan(directory);
+            if (standaloneDevelopment) {
+                ensureDevelopmentCacheSession(PluginDevelopmentArtifacts.discover(directory).cacheRoot());
+            }
             workspaceOwner.cleanupAbandoned(packageIndex.isEmpty());
             scan = PluginArtifactScanner.scan(directory);
         } catch (IOException | RuntimeException e) {
@@ -280,7 +285,7 @@ public class PluginRuntimeManager {
             failures.add(failure);
             log.error("Rejected plugin package candidate {}: {}", failure.source(), failure.reason());
         }
-        if (candidates.isEmpty()) {
+        if (candidates.isEmpty() && !standaloneDevelopment) {
             return cache(new PluginRuntimeStatus(directory, PluginDirectoryState.EMPTY,
                     List.of(), List.of(), failures));
         }
@@ -384,6 +389,14 @@ public class PluginRuntimeManager {
         } finally {
             preparedCandidates.forEach(PreparedPluginArtifact::close);
         }
+        if (standaloneDevelopment) {
+            return startDevelopmentMode(directory, failures, verifications);
+        }
+        return startLoadedPlugins(directory, failures, verifications);
+    }
+
+    private PluginRuntimeStatus startLoadedPlugins(Path directory, List<PluginLoadFailure> failures,
+                                                    List<PluginRuntimeVerificationSnapshot> verifications) {
         for (String packageId : packageIndex.packageIds()) {
             try {
                 startPlugin(packageId);
@@ -442,7 +455,8 @@ public class PluginRuntimeManager {
                 session.sessionRoot(), materialized.descriptor(), null);
     }
 
-    private PluginRuntimeStatus startDevelopmentMode(Path productionDirectory) {
+    private PluginRuntimeStatus startDevelopmentMode(Path productionDirectory, List<PluginLoadFailure> failures,
+                                                     List<PluginRuntimeVerificationSnapshot> verifications) {
         PluginDevelopmentArtifacts.DevelopmentDiscovery discovery;
         try {
             discovery = PluginDevelopmentArtifacts.discover(pluginsRoot);
@@ -457,10 +471,13 @@ public class PluginRuntimeManager {
             return cache(new PluginRuntimeStatus(developmentRoot, PluginDirectoryState.ABSENT,
                     List.of(), List.of(), List.of()));
         }
-        List<PluginLoadFailure> failures = new ArrayList<>(PluginDevelopmentDiagnostics.sourceFailures(discovery));
+        failures.addAll(PluginDevelopmentDiagnostics.sourceFailures(discovery));
         if (discovery.artifacts().isEmpty()) {
-            return cache(new PluginRuntimeStatus(developmentRoot, PluginDirectoryState.EMPTY,
-                    List.of(), List.of(), failures));
+            if (packageIndex.isEmpty()) {
+                return cache(new PluginRuntimeStatus(developmentRoot, PluginDirectoryState.EMPTY,
+                        List.of(), List.of(), failures, verifications));
+            }
+            return startLoadedPlugins(developmentRoot, failures, verifications);
         }
 
         PluginDevelopmentArtifacts.DevelopmentCacheSession session;
@@ -469,7 +486,7 @@ public class PluginRuntimeManager {
         } catch (RuntimeException e) {
             failures.add(new PluginLoadFailure(discovery.cacheRoot().toString(), describe(e)));
             log.error("Failed to open plugin development cache session {}", discovery.cacheRoot(), e);
-            return cache(PluginRuntimeStatus.populated(developmentRoot, phaseSnapshot(), failures));
+            return startLoadedPlugins(developmentRoot, failures, verifications);
         }
         List<PluginDevelopmentArtifacts.MaterializedDevelopmentPlugin> materializedPlugins = new ArrayList<>();
         for (PluginDevelopmentArtifacts.DevelopmentPluginArtifact artifact : discovery.artifacts()) {
@@ -483,6 +500,11 @@ public class PluginRuntimeManager {
         }
         for (PluginDevelopmentArtifacts.MaterializedDevelopmentPlugin materialized
                 : PluginDevelopmentArtifacts.dependencyOrder(materializedPlugins)) {
+            if (packageIndex.contains(materialized.descriptor().id())) {
+                failures.add(new PluginLoadFailure(materialized.descriptor().id(),
+                        "plugin package already loaded: " + materialized.descriptor().id()));
+                continue;
+            }
             try {
                 LoadedPluginPackage loaded = loadPreparedPlugin(materialized.classesDirectory(),
                         materialized.pf4jLoadPath(), session.sessionRoot(), materialized.descriptor(), null);
@@ -494,15 +516,7 @@ public class PluginRuntimeManager {
                         materialized.moduleRoot().getFileName(), e);
             }
         }
-        for (String packageId : packageIndex.packageIds()) {
-            try {
-                startPlugin(packageId);
-            } catch (RuntimeException e) {
-                failures.add(new PluginLoadFailure(packageId, describe(e)));
-                log.error("Failed to start plugin package {}", packageId, e);
-            }
-        }
-        return cache(PluginRuntimeStatus.populated(developmentRoot, phaseSnapshot(), failures));
+        return startLoadedPlugins(developmentRoot, failures, verifications);
     }
 
     private void discardFailedInitialization(String packageId, RuntimeException failure) {

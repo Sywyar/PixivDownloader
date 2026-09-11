@@ -59511,8 +59511,8 @@
       "module": "pixivdownload-sdk-tools",
       "baseName": "messages",
       "key": "sdk.usage",
-      "acceptedSourceHash": "d84864b834acf46068336dd91700d0f80b2d3bf492e5ba3e733300f8ce00639a",
-      "acceptedTranslationHash": "e55caa7de41fc46b39ebd983099961aeeb2b59f923453a0d5219f09d7603060c"
+      "acceptedSourceHash": "056a8a443d16eea4e3aea03ffb9a0926921341761f7976507c2ec66c928d1baf",
+      "acceptedTranslationHash": "73dc9fff0d31c78fb483c4c62bfab28a268185ab79fe40f95a380744d12135a3"
     },
     {
       "locale": "en-US",
@@ -119359,8 +119359,8 @@
       "module": "pixivdownload-sdk-tools",
       "baseName": "messages",
       "key": "sdk.usage",
-      "acceptedSourceHash": "d84864b834acf46068336dd91700d0f80b2d3bf492e5ba3e733300f8ce00639a",
-      "acceptedTranslationHash": "09b76170caa7e82ce85f0f1021ff554969e41d48114ec900229653681d5e8c41"
+      "acceptedSourceHash": "056a8a443d16eea4e3aea03ffb9a0926921341761f7976507c2ec66c928d1baf",
+      "acceptedTranslationHash": "a0228dfd22697f255e8f660f3d68065dc1c73d8a97a0de086e5f8a9c916972ab"
     },
     {
       "locale": "ja-JP",
@@ -179207,8 +179207,8 @@
       "module": "pixivdownload-sdk-tools",
       "baseName": "messages",
       "key": "sdk.usage",
-      "acceptedSourceHash": "d84864b834acf46068336dd91700d0f80b2d3bf492e5ba3e733300f8ce00639a",
-      "acceptedTranslationHash": "d58e6ac5f0d8f6ea8a783b990ba3edd6fda2a9d85b863ab2fc73f0ee76818522"
+      "acceptedSourceHash": "056a8a443d16eea4e3aea03ffb9a0926921341761f7976507c2ec66c928d1baf",
+      "acceptedTranslationHash": "dddc99fee563ec8ffdb45df8d6a0ffaf2fffeee4405a47ecb994d1011d44d137"
     },
     {
       "locale": "ko-KR",
@@ -239055,8 +239055,8 @@
       "module": "pixivdownload-sdk-tools",
       "baseName": "messages",
       "key": "sdk.usage",
-      "acceptedSourceHash": "d84864b834acf46068336dd91700d0f80b2d3bf492e5ba3e733300f8ce00639a",
-      "acceptedTranslationHash": "51f890200146bd39276f4f6f686406b0a96f009e39588c1de0b6df872b65d691"
+      "acceptedSourceHash": "056a8a443d16eea4e3aea03ffb9a0926921341761f7976507c2ec66c928d1baf",
+      "acceptedTranslationHash": "16a0eb7a28577b9a83b77417a087fa9347d9796fab0a5d168b025474fb6e5a72"
     },
     {
       "locale": "zh-Hant",

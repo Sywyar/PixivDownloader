@@ -8,17 +8,19 @@
 
 ## 开始开发
 
-安装 JDK 17 和 Node.js，让 `java`、`node` 可从命令行调用。IDE 导入只解析工程。显式 Run / Debug 才依次构建当前插件、准备固定运行包、安装本次产物并启动完整应用；构建失败会中止启动。Maven Wrapper 会取得固定版本的 Maven，无需克隆宿主仓库或手工复制宿主和官方插件。首次应用配置使用宿主自己的 setup 流程。
+安装 JDK 17 和 Node.js，让 `java`、`node` 可从命令行调用。IDE 导入只解析工程。显式 Run / Debug 才编译当前插件、准备固定运行包并启动完整应用；构建失败会中止启动。Maven Wrapper 会取得固定版本的 Maven，无需克隆宿主仓库或手工复制宿主和官方插件。首次应用配置使用宿主自己的 setup 流程。
 
 | IDE | 导入 | 运行 | 调试 |
 | --- | --- | --- | --- |
-| IntelliJ IDEA | 打开根 `pom.xml` | 共享配置 `Run Plugin` | 共享组合配置 `Debug Plugin` |
+| IntelliJ IDEA | 打开根 `pom.xml` | 选择 `Developer Mode`，点击 Run | 选择同一个 `Developer Mode`，点击 Debug |
 | VS Code | 打开本目录，安装推荐的 Java Extension Pack | `Tasks: Run Task > Run Plugin` | `Run and Debug > Debug Plugin` |
 | Eclipse | `Import > Existing Maven Projects` | `eclipse/Run Plugin.launch` | `eclipse/Debug Plugin.launch` 启动组 |
 
-在 `ExampleMinimalPlugin.java` 的 `routes()` 内设置断点。默认插件以 `declarative-process` 运行，调试器连接它的 worker；声明 `host-process-full-trust` 的插件则连接宿主 JVM。默认调试地址为 `127.0.0.1:5005`。IntelliJ 组合配置建立监听后，工具主动连接；VS Code 与 Eclipse 在宿主进程创建后附加。
+IntelliJ 的 `Developer Mode` 是原生 Application 配置，启动前由 Maven 执行 `test-compile exec:exec@sdk-prepare`。IDE 直接启动 JVM，在同一进程中运行宿主、配套官方插件和当前工程的 `target/classes`。在 `ExampleMinimalPlugin.java` 的 `routes()` 内设置断点，再点击 Debug 即可，无需远程连接或固定调试端口。入口 `src/test/java/sdk/DevelopmentLauncher.java` 不进入插件 JAR；运行配置把随包工具加入启动 classpath，以便解析 Spring Boot 嵌套 JAR。
 
-结束时使用 `Stop Plugin`，或停止整个运行 / 调试组合。单独断开远程调试连接不等于结束应用。下一次 Run 会重新构建并部署当前产物。
+此配置显式启用插件开发模式：当前源码按 `host-process-full-trust` 执行，运行状态如实显示该模式，源描述符保持原样。重新 Run / Debug 会重新编译并加载源码。结束时使用 `Stop Plugin`，或停止 Application 会话。
+
+VS Code、Eclipse 和下述命令行任务使用打包验证流程，安装当前 JAR 并保留其声明的执行模式。它们的远程调试地址默认为 `127.0.0.1:5005`；`declarative-process` 连接插件 worker，`host-process-full-trust` 连接宿主。使用 `Stop Plugin` 或停止整个组合来结束应用，单独断开远程调试连接不会停止应用。
 
 ## 命令行
 
@@ -48,7 +50,7 @@ java -jar tools/sdk-tools.jar debug <工程绝对路径> <本次插件JAR绝对�
 java -jar tools/sdk-tools.jar stop <工程绝对路径>
 ```
 
-`--debug-connect` 用于连接已监听的 IDE。工具只接受工程内、`.dev/` 外的产物，并保留描述符中的执行模式。显式运行使用本次 JAR 的 SHA-256 完成正式本地安装确认；官方插件仍验证原签名及 provenance。重复插件 ID 和 `replaces` 会被拒绝，请选择唯一 ID。
+`--debug-connect` 用于连接已监听的 IDE。`run` / `debug` 只接受工程内、`.dev/` 外的产物，并保留描述符中的执行模式，使用本次 JAR 的 SHA-256 完成本地安装确认。官方插件在开发和打包验证时均验证原签名及 provenance。请使用唯一插件 ID，避免与配套插件冲突。
 
 ## 独立示例
 
@@ -90,7 +92,7 @@ Ivy 的运行配置不要继承此编译配置。标准 Maven 元数据传递公
 
 离线使用需要提前完成运行包准备和构建工具依赖缓存，两者互不替代。Maven 使用 `-o`，Gradle 使用 `--offline`；缓存不完整会失败。更新 SDK 时使用新版本开发包及配套清单，再迁入自己的源码。
 
-Windows 中文及空格路径、命令行运行及 IntelliJ 原生监听器连接真实源码断点已验证；IntelliJ 组合配置的一键启动、VS Code 和 Eclipse 的图形操作尚未实测。目录过深仍可能触及 Windows 创建 worker 时的工作目录长度限制，遇到错误 267 时请移到较短路径。运行包声明的其它平台需在对应操作系统上验收，不能以 Windows 结果代替。
+Windows 下已实测 IntelliJ Application 一键 Debug 和当前源码断点，以及两个 Maven 示例的同进程启动、页面与正常停止。VS Code 和 Eclipse 的图形操作尚未实测。打包验证时，目录过深仍可能触及 Windows 创建 worker 时的工作目录长度限制，遇到错误 267 时请移到较短路径。运行包声明的其它平台需在对应操作系统上验收，不能以 Windows 结果代替。
 
 ## 修改插件
 
