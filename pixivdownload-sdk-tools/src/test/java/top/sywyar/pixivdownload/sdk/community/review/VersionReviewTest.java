@@ -95,23 +95,30 @@ class VersionReviewTest {
         assertThatThrownBy(() -> f.verify(f.review)).isInstanceOf(ContractException.class);
     }
 
-    private static final class Fixture {
+    static final class Fixture {
         final Map<String, Evidence> evidence = new HashMap<>();
         final CommunityJson.Document submissionDocument;
         final CommunityJson.Document reviewDocument;
         final VersionReview review;
         final Owner owner = new Owner("101", "User", "example");
-        final DescriptorSnapshot descriptor = new DescriptorSnapshot("1.0", "declarative-process",
-                List.of(new PluginDependencyRef("another", "1.0", true)), PluginRiskDeclaration.absent());
-        final CommunityPr pr = new CommunityPr("1001", 17, "101", "1002", HEAD, HEAD, null);
+        final DescriptorSnapshot descriptor;
+        final CommunityPr pr;
         final Reference lock, sbom, publication;
         RebuildProof actualProof;
         ReviewAdmission.Result admission;
 
         Fixture() throws Exception {
-            try (var input = getClass().getResourceAsStream("/community/v1/vectors/submission.json")) {
-                submissionDocument = CommunityJson.read(CommunityJson.Kind.SUBMISSION, input);
+            this(sampleSubmission(), new CommunityPr("1001", 17, "101", "1002", HEAD, HEAD, null), HASH,
+                    new DescriptorSnapshot("1.0", "declarative-process",
+                            List.of(new PluginDependencyRef("another", "1.0", true)), PluginRiskDeclaration.absent()));
+        }
+        static CommunityJson.Document sampleSubmission() throws Exception {
+            try (var input = VersionReviewTest.class.getResourceAsStream("/community/v1/vectors/submission.json")) {
+                return CommunityJson.read(CommunityJson.Kind.SUBMISSION, input);
             }
+        }
+        Fixture(CommunityJson.Document submissionDocument, CommunityPr pr, String bindingSha256, DescriptorSnapshot descriptor) {
+            this.submissionDocument = submissionDocument; this.pr = pr; this.descriptor = descriptor;
             var submission = VersionSubmission.read(submissionDocument);
             var submissionRef = put("history/submission.json", submissionDocument.bytes());
             lock = put("evidence/lock.json", "locked inputs");
@@ -125,10 +132,11 @@ class VersionReviewTest {
                     "test-scanner", HASH, "300", 1, HEAD, submission.source().commit(), submission.artifact().sha256(), List.of(), List.of(), null)));
             var snapshot = new ReviewAdmission.Snapshot("test-catalog", pr,
                     new ReviewDecision.Version(submissionDocument.sha256(), submission.source().commit(), submission.artifact().sha256()),
-                    submissionDocument.sha256(), HASH, HASH, ReviewAdmission.PrState.OPEN, false,
+                    submissionDocument.sha256(), bindingSha256, HASH,
+                    pr.mergeSha() == null ? ReviewAdmission.PrState.OPEN : ReviewAdmission.PrState.MERGED, false,
                     new ReviewAdmission.Scan("300", 1, "test-scanner", HASH, ReviewAdmission.Conclusion.SUCCESS), null);
             var validation = new ReviewAdmission.Validation(ReviewAdmission.Conclusion.SUCCESS, "90", HEAD, HEAD,
-                    submissionDocument.sha256(), HASH, HASH);
+                    submissionDocument.sha256(), bindingSha256, HASH);
             var policy = new ReviewPolicy(Set.of("202"), Set.of("202"), "workflows/review.yml", Set.of(HEAD));
             var nativeReview = new HumanReviews.NativeReview("20", "1001", 17, new Account("202", "User"), HEAD,
                     HumanReviews.NativeState.APPROVED, TIME, evidence.get(human.path()), null);
