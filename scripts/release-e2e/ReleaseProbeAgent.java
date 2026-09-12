@@ -28,7 +28,7 @@ import java.util.Map;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.imageio.ImageIO;
 
@@ -60,7 +60,9 @@ public final class ReleaseProbeAgent {
                         String result = execute(lines.get(1), lines.size() > 2 ? lines.get(2) : "");
                         respond(nonce, "\"ok\":true," + result);
                     } catch (Throwable failure) {
-                        respond(nonce, "\"ok\":false,\"error\":" + quote(stack(failure)));
+                        String status = failure instanceof EdtTimeoutException timeout
+                                ? ",\"code\":\"EDT_TIMEOUT\",\"taskStarted\":" + timeout.taskStarted : "";
+                        respond(nonce, "\"ok\":false,\"error\":" + quote(stack(failure)) + status);
                     }
                 }
                 Thread.sleep(50);
@@ -252,19 +254,32 @@ public final class ReleaseProbeAgent {
     }
 
     private static <T> T onEventThread(java.util.concurrent.Callable<T> action) throws Exception {
-        AtomicBoolean started = new AtomicBoolean();
+        // 开始与取消竞争同一个状态，避免超时响应把刚开始的检查误报为仍在排队。
+        AtomicInteger state = new AtomicInteger(); // 0：排队；1：开始；2：取消
         FutureTask<T> task = new FutureTask<>(() -> {
-            started.set(true);
+            if (!state.compareAndSet(0, 1)) return null;
             return action.call();
         });
         EventQueue.invokeLater(task);
         try {
             return task.get(5, TimeUnit.SECONDS);
-        } catch (TimeoutException failure) {
+        } catch (TimeoutException cause) {
+            boolean started = !state.compareAndSet(0, 2);
             task.cancel(false);
+            EdtTimeoutException failure = new EdtTimeoutException(started, cause);
             // 不依赖已阻塞的 EDT 保存现场，也不让诊断失败覆盖原始超时。
-            try { saveThreads(started.get()); } catch (Exception diagnostic) { failure.addSuppressed(diagnostic); }
+            try { saveThreads(started); } catch (Exception diagnostic) { failure.addSuppressed(diagnostic); }
             throw failure;
+        }
+    }
+
+    private static final class EdtTimeoutException extends TimeoutException {
+        private final boolean taskStarted;
+
+        private EdtTimeoutException(boolean taskStarted, TimeoutException cause) {
+            super("EDT task started: " + taskStarted);
+            this.taskStarted = taskStarted;
+            initCause(cause);
         }
     }
 

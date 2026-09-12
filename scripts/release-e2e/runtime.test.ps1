@@ -19,6 +19,20 @@ function Assert-Rejected {
     throw "False success: expected $Message"
 }
 
+function Start-BlockedDesktop {
+    foreach ($name in @('blocked', 'release', 'edt-timeout.txt')) {
+        $path = Join-Path $startupProbe $name
+        if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path }
+    }
+    New-Item -ItemType File -Path (Join-Path $startupProbe 'block') | Out-Null
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    while (-not (Test-Path -LiteralPath (Join-Path $startupProbe 'blocked'))) {
+        Assert-ArtifactAlive $child 'Blocked EDT fixture'
+        if ([DateTime]::UtcNow -ge $deadline) { throw 'EDT fixture did not block.' }
+        Start-Sleep -Milliseconds 50
+    }
+}
+
 $WorkRoot = [IO.Path]::GetTempPath()
 $context = New-TestSessionRoot
 $children = @()
@@ -81,14 +95,8 @@ try {
     } while ($true)
     if (Test-ReleaseDesktopReady $desktop '' -BootstrapPrompt) { throw 'Loaded entry without a window was accepted.' }
     Assert-Rejected { Invoke-ReleaseProbe $child $startupProbe 'unknown-command' } 'Unknown probe command'
-    New-Item -ItemType File -Path (Join-Path $startupProbe 'block') | Out-Null
-    $deadline = [DateTime]::UtcNow.AddSeconds(15)
-    while (-not (Test-Path -LiteralPath (Join-Path $startupProbe 'blocked'))) {
-        Assert-ArtifactAlive $child 'Blocked EDT fixture'
-        if ([DateTime]::UtcNow -ge $deadline) { throw 'EDT fixture did not block.' }
-        Start-Sleep -Milliseconds 50
-    }
-    Assert-Rejected { Invoke-ReleaseProbe $child $startupProbe 'dismiss' } 'TimeoutException'
+    Start-BlockedDesktop
+    Assert-Rejected { Invoke-ReleaseProbe $child $startupProbe 'dismiss' -AllowPendingDesktop } 'TimeoutException'
     $threads = Get-Content -LiteralPath (Join-Path $startupProbe 'edt-timeout.txt') -Raw -Encoding UTF8
     if (-not $threads.Contains('EDT task started: false') -or
         -not $threads.Contains('AWT-EventQueue') -or -not $threads.Contains('blockEventThread')) {
@@ -102,9 +110,44 @@ try {
     if (-not $errorResponse.error.Contains('Suppressed:')) {
         throw 'Thread evidence write failure replaced or hid the original timeout.'
     }
-    New-Item -ItemType File -Path (Join-Path $startupProbe 'release') | Out-Null
-    $desktop = Invoke-ReleaseProbe $child $startupProbe 'desktop'
+    if ($errorResponse.code -ne 'EDT_TIMEOUT' -or $errorResponse.taskStarted -cne $false) {
+        throw 'Queued EDT timeout did not carry structured state.'
+    }
+    Remove-Item -LiteralPath $threadPath
+    New-Item -ItemType File -Path (Join-Path $startupProbe 'release-after-timeout') | Out-Null
+    $elapsed = [Diagnostics.Stopwatch]::StartNew()
+    $desktop = Wait-ReleaseDesktop $child $startupProbe '' -BootstrapPrompt -TimeoutSeconds 15
+    if ($elapsed.Elapsed.TotalSeconds -lt 5) { throw 'Recovery did not exercise a queued EDT timeout.' }
     if ($desktop.bootstrapPrompts -ne 1) { throw 'Expired dismissal ran after EDT recovery.' }
+
+    Start-BlockedDesktop
+    $elapsed.Restart()
+    Assert-Rejected { Wait-ReleaseDesktop $child $startupProbe '' -BootstrapPrompt -TimeoutSeconds 7 } 'did not answer desktop'
+    if ($elapsed.Elapsed.TotalSeconds -lt 7 -or $elapsed.Elapsed.TotalSeconds -gt 9) {
+        throw 'Desktop retries reset or overran the shared deadline.'
+    }
+    New-Item -ItemType File -Path (Join-Path $startupProbe 'release') | Out-Null
+    Wait-ReleaseDesktop $child $startupProbe '' -BootstrapPrompt -TimeoutSeconds 15 | Out-Null
+
+    Start-BlockedDesktop
+    $elapsed.Restart()
+    Assert-Rejected { Assert-ReleaseStable -Process $child -ProbeRoot $startupProbe -BootstrapPrompt -Seconds 15 } 'TimeoutException'
+    if ($elapsed.Elapsed.TotalSeconds -gt 8) { throw 'Stable observation retried an unresponsive EDT.' }
+    New-Item -ItemType File -Path (Join-Path $startupProbe 'release') | Out-Null
+    Wait-ReleaseDesktop $child $startupProbe '' -BootstrapPrompt -TimeoutSeconds 15 | Out-Null
+
+    Remove-Item -LiteralPath (Join-Path $startupProbe 'release')
+    New-Item -ItemType File -Path (Join-Path $startupProbe 'block-inspection') | Out-Null
+    $elapsed.Restart()
+    Assert-Rejected { Wait-ReleaseDesktop $child $startupProbe '' -BootstrapPrompt -TimeoutSeconds 15 } 'TimeoutException'
+    $errorResponse = Get-Content -LiteralPath (Join-Path $startupProbe 'response.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    $threads = Get-Content -LiteralPath $threadPath -Raw -Encoding UTF8
+    if ($errorResponse.taskStarted -cne $true -or -not $threads.Contains('EDT task started: true') -or
+        -not (Test-Path -LiteralPath (Join-Path $startupProbe 'inspection-started')) -or $elapsed.Elapsed.TotalSeconds -gt 8) {
+        throw 'An already running desktop inspection was retried or lost its evidence.'
+    }
+    New-Item -ItemType File -Path (Join-Path $startupProbe 'release') | Out-Null
+    Wait-ReleaseDesktop $child $startupProbe '' -BootstrapPrompt -TimeoutSeconds 15 | Out-Null
     Invoke-ReleaseProbe $child $startupProbe 'dismiss' | Out-Null
     $desktop = Invoke-ReleaseProbe $child $startupProbe 'desktop'
     if ($desktop.bootstrapPrompts -ne 0) { throw 'Fresh dismissal did not close the fixture window.' }
@@ -113,13 +156,13 @@ try {
     if ($child.ExitCode -ne 0) { throw "Delayed entry fixture failed with code $($child.ExitCode)." }
     Assert-Rejected { Wait-ReleaseDesktop $child $startupProbe '' -BootstrapPrompt -TimeoutSeconds 1 } 'exited'
 
-    $good = [pscustomobject]@{applicationLoaded=$true; provider='gui-compose'; bootstrapPrompts=0; contentColors=30; windows=@('window')}
+    $good = [pscustomobject]@{ok=$true; applicationLoaded=$true; provider='gui-compose'; bootstrapPrompts=0; contentColors=30; windows=@('window')}
     if (-not (Test-ReleaseDesktopReady $good 'gui-compose')) { throw 'Rendered GUI rejected.' }
     foreach ($bad in @(
         [pscustomobject]@{applicationLoaded=$true; provider='gui-swing'; bootstrapPrompts=0; contentColors=30; windows=@('window')},
         [pscustomobject]@{applicationLoaded=$true; provider='gui-compose'; bootstrapPrompts=0; contentColors=1; windows=@('window')},
         [pscustomobject]@{applicationLoaded=$true; provider='gui-compose'; bootstrapPrompts=0; contentColors=30; windows=@()},
-        [pscustomobject]@{applicationLoaded=$true; provider=''; bootstrapPrompts=1; contentColors=30; windows=@('dialog'); bootstrapTextRendered=$true}
+        [pscustomobject]@{ok=$true; applicationLoaded=$true; provider=''; bootstrapPrompts=1; contentColors=30; windows=@('dialog'); bootstrapTextRendered=$true}
     )) {
         if (Test-ReleaseDesktopReady $bad 'gui-compose') { throw 'Wrong, blank or absent GUI accepted.' }
     }
@@ -141,7 +184,7 @@ try {
         $bad.bootstrapPrompts = 1
         $script:desktopReads = 0
         function Invoke-ReleaseProbe {
-            if (++$script:desktopReads -eq 1) { return [pscustomobject]@{applicationLoaded=$false} }
+            if (++$script:desktopReads -eq 1) { return [pscustomobject]@{ok=$true; applicationLoaded=$false} }
             return $ready
         }
         $observed = Wait-ReleaseDesktop $parent $probe $ready.provider -BootstrapPrompt:$bootstrap -TimeoutSeconds 3
@@ -185,7 +228,7 @@ try {
     $children += $child
     Assert-Rejected { Wait-ArtifactProcessExit $child 'stuck child' 1 } 'did not exit'
     if (-not $child.HasExited) { throw 'Timed out child was not cleaned up.' }
-    Write-Host 'PASS: release E2E rejects early/late exit, dead JVM, stale probes, broken GUI, unexpected recovery and failed shutdown.'
+    Write-Host 'PASS: release E2E retries queued desktop startup within one deadline; rejects active/stable EDT stalls, early/late exit, dead JVM, stale probes, broken GUI, unexpected recovery and failed shutdown.'
 } finally {
     foreach ($child in $children) { Stop-ArtifactProcess $child }
     Remove-TestSessionRoot $context

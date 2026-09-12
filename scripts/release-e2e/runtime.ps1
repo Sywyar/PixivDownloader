@@ -66,7 +66,10 @@ function Assert-ArtifactAlive {
 }
 
 function Invoke-ReleaseProbe {
-    param($Process, [string]$ProbeRoot, [string]$Command, [string]$Target = '', [int]$TimeoutSeconds = 15)
+    param($Process, [string]$ProbeRoot, [string]$Command, [string]$Target = '', [int]$TimeoutSeconds = 15,
+        [switch]$AllowPendingDesktop, [DateTime]$Deadline = [DateTime]::MaxValue)
+    $responseDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    if ($Deadline -lt $responseDeadline) { $responseDeadline = $Deadline }
     Assert-ArtifactAlive $Process $Command
     $nonce = [Guid]::NewGuid().ToString('N')
     $responsePath = Join-Path $ProbeRoot 'response.json'
@@ -76,12 +79,19 @@ function Invoke-ReleaseProbe {
     $request = Join-Path $ProbeRoot 'request.txt'
     [IO.File]::WriteAllText($temporary, "$nonce`n$Command`n$Target`n", [Text.UTF8Encoding]::new($false))
     [IO.File]::Move($temporary, $request)
-    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
-    do {
+    while ([DateTime]::UtcNow -lt $responseDeadline) {
         if (Test-Path -LiteralPath $responsePath) {
             $response = Get-Content -LiteralPath $responsePath -Raw -Encoding UTF8 | ConvertFrom-Json
             if ($response.nonce -eq $nonce) {
-                if (-not $response.ok) { throw "Release observer failed: $($response.error)" }
+                if (-not $response.ok) {
+                    if ($AllowPendingDesktop -and $Command -eq 'desktop' -and
+                        $response.PSObject.Properties['code'] -and $response.code -eq 'EDT_TIMEOUT' -and
+                        $response.PSObject.Properties['taskStarted'] -and
+                        $response.taskStarted -is [bool] -and -not $response.taskStarted) {
+                        return $response
+                    }
+                    throw "Release observer failed: $($response.error)"
+                }
                 if ($Command -eq 'desktop') {
                     $response | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $ProbeRoot 'desktop.json') -Encoding UTF8
                 }
@@ -89,9 +99,10 @@ function Invoke-ReleaseProbe {
             }
         }
         Assert-ArtifactAlive $Process $Command
-        Start-Sleep -Milliseconds 100
-    } while ([DateTime]::UtcNow -lt $deadline)
-    throw "Release observer did not answer $Command within $TimeoutSeconds seconds"
+        $remaining = ($responseDeadline - [DateTime]::UtcNow).TotalMilliseconds
+        if ($remaining -gt 0) { Start-Sleep -Milliseconds ([int][Math]::Ceiling([Math]::Min(100, $remaining))) }
+    }
+    throw "Release observer did not answer $Command before its deadline (up to $TimeoutSeconds seconds)"
 }
 
 function Connect-ReleaseProbe {
@@ -152,10 +163,13 @@ function Assert-ReleaseStatus {
 function Wait-ReleaseDesktop {
     param($Process, [string]$ProbeRoot, [string]$Provider, [switch]$BootstrapPrompt, [int]$TimeoutSeconds = 180)
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $desktop = $null
     do {
-        $desktop = Invoke-ReleaseProbe $Process $ProbeRoot 'desktop'
-        if (Test-ReleaseDesktopReady $desktop $Provider -BootstrapPrompt:$BootstrapPrompt) { return $desktop }
-        Start-Sleep -Milliseconds 500
+        $desktop = Invoke-ReleaseProbe $Process $ProbeRoot 'desktop' -AllowPendingDesktop -Deadline $deadline
+        if ([DateTime]::UtcNow -ge $deadline) { break }
+        if ($desktop.ok -and (Test-ReleaseDesktopReady $desktop $Provider -BootstrapPrompt:$BootstrapPrompt)) { return $desktop }
+        $remaining = ($deadline - [DateTime]::UtcNow).TotalMilliseconds
+        if ($remaining -gt 0) { Start-Sleep -Milliseconds ([int][Math]::Ceiling([Math]::Min(500, $remaining))) }
     } while ([DateTime]::UtcNow -lt $deadline)
     throw "Desktop did not render the expected provider/prompt: $($desktop | ConvertTo-Json -Compress -Depth 4)"
 }
