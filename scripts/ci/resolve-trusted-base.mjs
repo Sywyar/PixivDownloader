@@ -46,7 +46,10 @@ export function resolveTrustedBase({ repo = '.', candidate, event, before, ref,
     git(repo, ['merge-base', '--is-ancestor', base, tested]);
     git(repo, ['merge-base', '--is-ancestor', base, master]);
     const policy = JSON.parse(git(repo, ['show', base + ':scripts/ci/release-gate-policy.json']));
-    if (![5, 8].includes(policy.gateEpoch)) throw new Error('unsupported predecessor epoch');
+    if (!Number.isSafeInteger(policy.gateEpoch) || policy.gateEpoch < 5
+        || policy.rootTag !== 'refs/tags/release-gate-epoch-' + policy.gateEpoch + '-root') {
+        throw new Error('invalid predecessor epoch');
+    }
     const root = commit('refs/tags/release-gate-epoch-' + policy.gateEpoch + '-root');
     git(repo, ['merge-base', '--is-ancestor', root, base]);
     return { mode: 'NORMAL', base, root };
