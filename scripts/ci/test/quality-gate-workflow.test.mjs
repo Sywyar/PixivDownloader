@@ -162,7 +162,7 @@ test('Quality Gate preserves required roles and the active event contract', () =
     }
     const javaSteps = Object.values(doc.jobs).flatMap(executionSteps);
     const sdkResolve = javaSteps.find((step) => step.env?.INPUT_TRUSTED_BASE_SHA !== undefined);
-    const releaseBuild = javaSteps.find((step) => /\bverify\b.*-Pofficial-surveys/.test(step.run || ''));
+    const releaseBuild = javaSteps.find((step) => /\b(?:verify|install)\b.*-Pofficial-surveys/.test(step.run || ''));
     const releaseBoundary = javaSteps.find((step) => /DistributionPackagingBoundaryTest/.test(step.run || ''));
     const sdkPackage = javaSteps.find((step) => /-DaltDeploymentRepository=/.test(step.run || ''));
     const sdkContract = javaSteps.find((step) => /sdk-contract\.mjs/.test(step.run || ''));
@@ -218,7 +218,7 @@ test('Java tests and ProGuard run independently and both gate the required Java 
         return visited;
     };
     const tests = owner(/\bmvn\b[^\n]*\btest\b[^\n]*-Duser\.language=/u);
-    const build = owner(/\bmvn\b[^\n]*\bverify\b[^\n]*-Pofficial-surveys/u);
+    const build = owner(/\bmvn\b[^\n]*\b(?:verify|install)\b[^\n]*-Pofficial-surveys/u);
     assert.notEqual(tests, build);
     assert.equal(ancestors(tests).has(build), false);
     assert.equal(ancestors(build).has(tests), false);
@@ -242,7 +242,7 @@ test('Java tests and ProGuard run independently and both gate the required Java 
 test('QG 覆盖 Compose、SDK 消费者和两种 PowerShell，并顺序复用构建产物', () => {
     const { jobs } = load('.github/workflows/quality-gate.yml');
     const artifacts = executionSteps(jobs['release-artifacts']);
-    const build = artifacts.findIndex(step => /mvn.*verify.*-Pofficial-surveys/u.test(step.run || ''));
+    const build = artifacts.findIndex(step => /mvn.*(?:verify|install).*-Pofficial-surveys/u.test(step.run || ''));
     const compose = artifacts.findIndex(step => /gradlew(?:\.bat)?.*mavenTest/u.test(step.run || ''));
     const boundaries = artifacts.findIndex(step => /DistributionPackagingBoundaryTest/u.test(step.run || ''));
     assert.ok(build >= 0 && compose > build && boundaries > build);
@@ -301,6 +301,24 @@ test('SDK 发布串行消费本次完整 QG 验证的候选，恢复继续使用
     assert.ok(steps.indexOf(download) < freeze);
     assert.match(steps[freeze].run, /--verify-directory target\/sdk-release --source-sha/u);
     assert.ok(steps.findIndex(step => /pixivdownload-plugin-signature package/u.test(step.run || '')) < freeze);
+});
+
+test('应用资源构建与 SDK 宿主消费者显式取得内置 GitHub 读取令牌', () => {
+    const workflows = ['quality-gate', 'publish-sdk', 'nightly', 'release'];
+    let builds = 0;
+    for (const workflow of workflows) {
+        const doc = load(`.github/workflows/${workflow}.yml`);
+        for (const step of Object.values(doc.jobs).flatMap(executionSteps)) {
+            const command = step.run || '';
+            const appBuild = command.split('\n').some(line => /\bmvn\b.*\b(?:compile|test|verify|install)\b/u.test(line)
+                && !line.includes('surefire:test')
+                && (!line.includes('-pl') || /-pl\s+pixivdownload-(?:app|official-plugins)\b/u.test(line)));
+            if (!appBuild && !command.includes('scripts/ci/sdk-consumer.mjs')) continue;
+            assert.equal(step.env?.GITHUB_TOKEN, '${{ github.token }}', `${workflow}: ${step.name}`);
+            builds++;
+        }
+    }
+    assert.ok(builds > 0);
 });
 
 test('发布链：所有凭据与写权限只在 release Environment 的门禁后使用', () => {
@@ -547,7 +565,7 @@ test('发行候选只来自同次完整 QG，生产应用继续重建并执行�
     const app = load('.github/actions/build-release-java/action.yml').runs.steps;
     assert.ok(app.findIndex(step => step.uses === './.github/actions/restore-release-candidates') <
         app.findIndex(step => step.name === 'Build JAR'));
-    assert.match(app.find(step => step.name === 'Build JAR').run, /-pl pixivdownload-app -am verify/u);
+    assert.match(app.find(step => step.name === 'Build JAR').run, /-pl pixivdownload-app -am (?:verify|install)/u);
     const boundary = app.find(step => step.uses === './.github/actions/verify-release-boundaries');
     assert.equal(boundary.with.require_production_credential_key, 'true');
 });

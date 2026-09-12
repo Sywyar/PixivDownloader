@@ -15,6 +15,7 @@ runs:
     - name: Verify packaged distribution boundaries
       shell: bash
       env:
+        GITHUB_TOKEN: ${{ github.token }}
         REQUIRE_PRODUCTION_CREDENTIAL_KEY: ${{ inputs.require_production_credential_key }}
         ADDITIONAL_TESTS: ${{ inputs.additional_tests }}
       run: |

@@ -2,10 +2,15 @@ import { execFileSync } from 'node:child_process';
 import { readFile, mkdir, rename, writeFile } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { setTimeout as sleep } from 'node:timers/promises';
 
 const API_BASE = 'https://api.github.com';
 const DEFAULT_REPOSITORY = 'Sywyar/PixivDownloader';
 const MAX_AVATAR_BYTES = 1024 * 1024;
+const MAX_API_ATTEMPTS = 3;
+const API_TIMEOUT_MS = 30_000;
+const MAX_RETRY_WAIT_MS = 180_000;
+const MAX_ERROR_BYTES = 64 * 1024;
 const LOGIN_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
 
 function isBot(user) {
@@ -67,29 +72,86 @@ export async function selectMaintainers({ owner, contributors, identities, allow
   return selected;
 }
 
-function headers(withToken = true) {
+function headers() {
   const result = {
     Accept: 'application/vnd.github+json',
     'User-Agent': 'PixivDownloader-maintainer-catalog',
     'X-GitHub-Api-Version': '2022-11-28',
   };
   const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
-  if (withToken && token) result.Authorization = `Bearer ${token}`;
+  if (token) result.Authorization = `Bearer ${token}`;
   return result;
 }
 
+export async function fetchGitHub(path, { fetchImpl = fetch, wait = sleep, now = Date.now, warn = console.warn } = {}) {
+  const url = new URL(path, API_BASE);
+  if (url.origin !== API_BASE || url.username || url.password) throw new Error('GitHub request left api.github.com');
+  const requestHeaders = headers();
+  const safe = (value) => {
+    let text = String(value ?? 'unavailable');
+    for (const token of [process.env.GITHUB_TOKEN, process.env.GH_TOKEN]) {
+      if (token) text = text.replaceAll(token, '[REDACTED]');
+    }
+    return text.replace(/[\r\n\t\x00-\x1f\x7f]/g, ' ').slice(0, 1024);
+  };
+  let waited = 0;
+  for (let attempt = 1; attempt <= MAX_API_ATTEMPTS; attempt++) {
+    let response;
+    let failure;
+    let delay = 1000 * 2 ** (attempt - 1);
+    try {
+      response = await fetchImpl(url, {
+        headers: requestHeaders, redirect: 'error', signal: AbortSignal.timeout(API_TIMEOUT_MS),
+      });
+    } catch (error) {
+      failure = new Error(`GitHub API transport failure: ${url.pathname}; authenticated=${Boolean(requestHeaders.Authorization)}; ${safe(error.cause?.code ?? error.name)}`);
+      if (!(error instanceof TypeError) && error.name !== 'TimeoutError') throw failure;
+    }
+    if (response?.ok) return response;
+    if (response) {
+      let message;
+      try {
+        message = JSON.parse((await readBounded(response, MAX_ERROR_BYTES)).toString('utf8')).message;
+      } catch {
+        // 诊断正文缺失或过大时，仍保留状态码与限流头；不输出原始响应。
+        await response.body?.cancel().catch(() => {});
+      }
+      const remaining = response.headers.get('x-ratelimit-remaining');
+      const reset = response.headers.get('x-ratelimit-reset');
+      const retryAfter = response.headers.get('retry-after');
+      const diagnostic = ['x-github-request-id', 'x-ratelimit-remaining', 'x-ratelimit-reset', 'retry-after']
+        .map((name) => `${name}=${safe(response.headers.get(name))}`).join('; ');
+      failure = new Error(`GitHub API ${response.status}: ${url.pathname}; authenticated=${Boolean(requestHeaders.Authorization)}; ${diagnostic}; message=${safe(message)}`);
+      const rateLimited = response.status === 429 || (response.status === 403
+        && (remaining === '0' || retryAfter !== null || /(?:secondary |API )rate limit/i.test(message ?? '')));
+      if (!rateLimited && ![500, 502, 503, 504].includes(response.status)) throw failure;
+      if (rateLimited) delay = 60_000 * 2 ** (attempt - 1);
+      if (retryAfter !== null) {
+        const seconds = /^\d+(?:\.\d+)?$/.test(retryAfter) ? Number(retryAfter) * 1000 : Date.parse(retryAfter) - now();
+        if (Number.isFinite(seconds)) delay = Math.max(1000, seconds);
+      }
+      if (remaining === '0' && reset !== null && /^\d+$/.test(reset)) {
+        delay = Math.max(delay, Number(reset) * 1000 - now() + 1000);
+      }
+    }
+    if (attempt === MAX_API_ATTEMPTS || waited + delay > MAX_RETRY_WAIT_MS) {
+      throw new Error(`${failure.message}; attempts=${attempt}; retry wait budget=${MAX_RETRY_WAIT_MS}ms`);
+    }
+    warn(`${failure.message}; retry ${attempt + 1}/${MAX_API_ATTEMPTS} after ${delay}ms`);
+    await wait(delay);
+    waited += delay;
+  }
+}
+
 async function fetchJson(path) {
-  const response = await fetch(`${API_BASE}${path}`, { headers: headers() });
-  if (!response.ok) throw new Error(`GitHub API ${response.status}: ${path}`);
-  return response.json();
+  return (await fetchGitHub(path)).json();
 }
 
 async function fetchContributors(repository) {
   const contributors = [];
   let url = `${API_BASE}/repos/${repository}/contributors?per_page=100&anon=false`;
   while (url) {
-    const response = await fetch(url, { headers: headers() });
-    if (!response.ok) throw new Error(`GitHub API ${response.status}: contributors`);
+    const response = await fetchGitHub(url);
     contributors.push(...await response.json());
     const next = response.headers.get('link')?.match(/<([^>]+)>; rel="next"/)?.[1];
     if (next) {

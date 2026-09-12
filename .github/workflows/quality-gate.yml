@@ -57,8 +57,12 @@ jobs:
         with:
           node-version: '24'
       - name: Compile external plugin test fixtures
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: mvn -B -ntp -pl pixivdownload-official-plugins -am compile -Dexec.skip=true
       - name: Run Java tests
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: mvn -B -ntp test -Dexec.skip=true -Duser.language=en -Duser.country=US
 
   sdk-tests:
@@ -141,7 +145,9 @@ jobs:
         with:
           node-version: '24'
       - name: Build release artifacts with ProGuard
-        run: mvn -B -ntp verify -Pofficial-surveys -DskipTests '-Dmaven.javadoc.skip=true' '-Dmaven.source.skip=true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: mvn -B -ntp install -Pofficial-surveys -DskipTests '-Dmaven.javadoc.skip=true' '-Dmaven.source.skip=true'
       - name: Run Windows Compose tests using the compiled plugin
         working-directory: pixivdownload-plugin-gui-compose
         shell: pwsh

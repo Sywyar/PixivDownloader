@@ -51,6 +51,7 @@ runs:
       shell: bash
       env:
         SOURCE_SHA: ${{ inputs.source_sha }}
+        GITHUB_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
         mvn -B -ntp -pl pixivdownload-app,pixivdownload-sdk-tools -am verify \
@@ -81,6 +82,7 @@ runs:
       shell: bash
       env:
         SOURCE_SHA: ${{ inputs.source_sha }}
+        GITHUB_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
         sdk_version="$(node scripts/ci/sdk-version.mjs --repo-root . --json | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')"
