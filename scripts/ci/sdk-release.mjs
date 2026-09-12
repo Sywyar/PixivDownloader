@@ -289,6 +289,10 @@ function renderOverlay(overlay, destination, values) {
             text = text.replaceAll(token, value);
         }
         fs.writeFileSync(file, text, 'utf8');
+        // 仅在 SDK 开发包中生成 IDEA 配置，避免模板被主仓库工程加载。
+        if (relative.endsWith('.run.xml.template')) {
+            fs.renameSync(file, file.slice(0, -'.template'.length));
+        }
     }
 }
 
