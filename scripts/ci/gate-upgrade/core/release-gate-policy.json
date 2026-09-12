@@ -1,0 +1,186 @@
+{
+  "schemaVersion": 1,
+  "gateEpoch": 9,
+  "contractVersion": 10,
+  "rootTag": "refs/tags/release-gate-epoch-9-root",
+  "protectedBranch": "refs/heads/master",
+  "protectedCore": [
+    "scripts/ci/release-gate-trust.mjs",
+    "scripts/ci/release-gate-verifier.mjs",
+    "scripts/ci/resolve-trusted-base.mjs",
+    "scripts/ci/gate-upgrade.mjs",
+    "scripts/ci/gate-credentials.mjs"
+  ],
+  "qualityGate": {
+    "workflow": ".github/workflows/quality-gate.yml",
+    "workflowName": "Quality Gate",
+    "requiredJobs": [
+      "java-tests",
+      "javascript-tests",
+      "signature-guard",
+      "trusted-gate-contract",
+      "i18n-check",
+      "check-shared-snippets"
+    ],
+    "requiredTriggers": [
+      "workflow_call",
+      "workflow_dispatch"
+    ]
+  },
+  "workflows": {
+    ".github/workflows/release.yml": {
+      "workflowName": "Release",
+      "requiredJobs": [
+        "validate-release-tag",
+        "draft-quality-gate",
+        "publish-plugins",
+        "publish-plugin-artifacts",
+        "build-jar",
+        "build-windows-installer",
+        "release",
+        "create-draft-release"
+      ],
+      "requiredTriggers": [
+        "push",
+        "workflow_dispatch"
+      ]
+    },
+    ".github/workflows/nightly.yml": {
+      "workflowName": "Nightly Build",
+      "requiredJobs": [
+        "resolve-version",
+        "publish-plugins",
+        "publish-plugin-artifacts",
+        "build-jar",
+        "build-windows-installer",
+        "release-nightly"
+      ],
+      "requiredTriggers": [
+        "schedule",
+        "workflow_dispatch"
+      ]
+    },
+    ".github/workflows/publish-plugins.yml": {
+      "workflowName": "Publish plugins",
+      "requiredJobs": [
+        "quality-gate",
+        "publish"
+      ],
+      "requiredTriggers": [
+        "workflow_call",
+        "workflow_dispatch"
+      ]
+    },
+    ".github/workflows/build-stable-ffmpeg.yml": {
+      "workflowName": "Build stable FFmpeg",
+      "requiredJobs": [
+        "trusted-base",
+        "quality-gate",
+        "resolve-source",
+        "build",
+        "publish"
+      ],
+      "requiredTriggers": [
+        "workflow_dispatch"
+      ]
+    },
+    ".github/workflows/publish-sdk.yml": {
+      "workflowName": "Publish plugin SDK",
+      "requiredJobs": [
+        "release-plan",
+        "quality-gate",
+        "publish"
+      ],
+      "requiredTriggers": [
+        "push",
+        "workflow_dispatch"
+      ]
+    },
+    ".github/workflows/sdk-repository-ci.yml": {
+      "workflowName": "SDK repository CI",
+      "requiredJobs": [
+        "verify"
+      ],
+      "requiredTriggers": [
+        "workflow_call"
+      ]
+    },
+    ".github/workflows/sdk-pages.yml": {
+      "workflowName": "Build SDK Pages",
+      "requiredJobs": [
+        "build"
+      ],
+      "requiredTriggers": [
+        "workflow_call"
+      ]
+    }
+  },
+  "releaseEnvironment": "release",
+  "ruleset": {
+    "requiredChecks": [
+      "java-tests",
+      "javascript-tests",
+      "signature-guard",
+      "trusted-gate-contract",
+      "i18n-check",
+      "check-shared-snippets"
+    ],
+    "requireStrict": true,
+    "requirePullRequest": true,
+    "minimumApprovals": 0,
+    "allowBypass": false,
+    "allowDeletion": false,
+    "allowNonFastForward": false,
+    "roots": {
+      "refs/tags/i18n-gate-epoch-2-root": {
+        "allowDeletion": false,
+        "allowNonFastForward": false,
+        "allowBypass": false
+      },
+      "refs/tags/i18n-gate-epoch-3-root": {
+        "allowDeletion": false,
+        "allowNonFastForward": false,
+        "allowBypass": false
+      },
+      "refs/tags/i18n-gate-epoch-4-root": {
+        "allowDeletion": false,
+        "allowNonFastForward": false,
+        "allowBypass": false
+      },
+      "refs/tags/release-gate-epoch-5-root": {
+        "allowDeletion": false,
+        "allowNonFastForward": false,
+        "allowBypass": false
+      },
+      "refs/tags/release-gate-epoch-6-root": {
+        "allowDeletion": false,
+        "allowNonFastForward": false,
+        "allowBypass": false
+      },
+      "refs/tags/release-gate-epoch-7-root": {
+        "allowDeletion": false,
+        "allowNonFastForward": false,
+        "allowBypass": false
+      },
+      "refs/tags/release-gate-epoch-8-root": {
+        "allowDeletion": false,
+        "allowNonFastForward": false,
+        "allowBypass": false
+      },
+      "refs/tags/release-gate-epoch-9-root": {
+        "allowDeletion": false,
+        "allowNonFastForward": false,
+        "allowBypass": false
+      }
+    },
+    "requiredCheckSources": {
+      "java-tests": 4837005,
+      "javascript-tests": 4837005,
+      "signature-guard": 4837005,
+      "trusted-gate-contract": 4837005,
+      "i18n-check": 4837005,
+      "check-shared-snippets": 4837005
+    }
+  },
+  "upgradeProtocol": 1
+}

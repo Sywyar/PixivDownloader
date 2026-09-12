@@ -6,6 +6,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { verifyProtectedCandidate } from './trusted-gate-runner.mjs';
 
 const REPO = 'Sywyar/PixivDownloader';
 const REPO_ID = 1089943605;
@@ -342,8 +343,9 @@ async function main() {
     if (process.argv.slice(2).some((arg) => arg !== '--publish')) fail('usage: gate-checks.mjs [--publish]');
     const repo = process.cwd();
     const policy = JSON.parse(fs.readFileSync(path.join(repo, 'scripts/ci/release-gate-policy.json'), 'utf8'));
-    const core = await import(policy.gateEpoch === 5
+    const installedCore = await import(policy.gateEpoch === 5
         ? './gate-admission/release-gate-verifier.mjs' : './release-gate-verifier.mjs');
+    const core = { ...installedCore, verifyCandidate: verifyProtectedCandidate };
     const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
     const evidence = await checkEvent({ repo, event, eventName: process.env.GITHUB_EVENT_NAME, core });
     if (process.env.GITHUB_OUTPUT && !process.argv.includes('--publish')) {

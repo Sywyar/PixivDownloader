@@ -15,8 +15,8 @@ const dispatchRoot = path.resolve(repoIndex >= 0 ? cliArgs[repoIndex + 1] : proc
 if (process.argv.length === 3 && process.argv[2] === '--version') {
     const policy = JSON.parse(fs.readFileSync(new URL('./release-gate-policy.json', import.meta.url), 'utf8'));
     console.log(`gate-contract ${policy.contractVersion}`);
-} else if (!['5', '8'].includes(configuredEpoch(dispatchRoot))) {
-    throw new Error('configured release Gate epoch 5 or 8 is required');
+} else if (!/^[1-9][0-9]*$/u.test(configuredEpoch(dispatchRoot))) {
+    throw new Error('configured release Gate epoch is required');
 } else {
     const args = cliArgs;
     const value = (name) => {
@@ -48,23 +48,23 @@ if (process.argv.length === 3 && process.argv[2] === '--version') {
     let candidateSha = git(repo, ['rev-parse', '--verify', `${candidate}^{commit}`]);
     const trustedSha = git(repo, ['rev-parse', '--verify', `${trusted}^{commit}`]);
     const policy = JSON.parse(git(repo, ['show', `${candidateSha}:scripts/ci/release-gate-policy.json`]));
-    if (!snapshot && process.env.CI !== 'true' && policy.gateEpoch === 8 && configuredEpoch(repo) === '5') {
+    if (!snapshot && process.env.CI !== 'true' && String(policy.gateEpoch) !== configuredEpoch(repo)) {
         // 推送前按精确 tip 的树核对拟合并对象，保留首次准入的核心、根与双亲校验。
         const tip = candidateSha;
         candidateSha = git(repo, ['commit-tree', `${tip}^{tree}`, '-p', trustedSha, '-p', tip], {}, 'local proposed merge\n');
         console.log(`LOCAL MERGE CANDIDATE ${candidateSha} (tip ${tip})`);
     }
-    withTrustedGate(repo, trustedSha, policy.gateEpoch, (directory, env) => {
+    withTrustedGate(repo, trustedSha, candidateSha, (directory, env) => {
         const verifyArgs = [path.join(directory, 'scripts/ci/release-gate-verifier.mjs'),
             '--repo-root', repo, '--candidate-ref', candidateSha];
         if (candidateSha === trustedSha) verifyArgs.push('--invariants');
         else verifyArgs.push('--trusted-ref', trustedSha);
-        if (policy.gateEpoch === 8 && snapshot) verifyArgs.push('--local-feedback');
+        if (snapshot && String(policy.gateEpoch) !== configuredEpoch(repo)) verifyArgs.push('--local-feedback');
         if (args.includes('--signature')) verifyArgs.push('--signature');
         const result = spawnSync(process.execPath, verifyArgs,
             { cwd: repo, env, stdio: 'inherit', windowsHide: true });
         if (result.status !== 0) throw new Error('protected predecessor rejected the candidate');
-    });
+    }, { localFeedback: Boolean(snapshot) && String(policy.gateEpoch) !== configuredEpoch(repo) });
     console.log(`GATE CONTRACT OK (candidate ${candidateSha})`);
 }
 

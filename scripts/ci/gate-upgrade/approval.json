@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "from": {
+    "epoch": 8,
+    "root": "refs/tags/release-gate-epoch-8-root",
+    "rootCommit": "2b6513c3c0ff278a27eb221346a2637e25e456fa"
+  },
+  "to": {
+    "epoch": 9,
+    "root": "refs/tags/release-gate-epoch-9-root"
+  },
+  "files": [
+    {
+      "path": "scripts/ci/release-gate-trust.mjs",
+      "source": "scripts/ci/gate-upgrade/core/release-gate-trust.mjs",
+      "mode": "100644",
+      "blob": "951926b1ca690f9f5dd23328d7c666eee569d3e6"
+    },
+    {
+      "path": "scripts/ci/release-gate-verifier.mjs",
+      "source": "scripts/ci/gate-upgrade/core/release-gate-verifier.mjs",
+      "mode": "100644",
+      "blob": "bae6a95c44ed400aa19e95e13ff5e27c58c93001"
+    },
+    {
+      "path": "scripts/ci/resolve-trusted-base.mjs",
+      "source": "scripts/ci/gate-upgrade/core/resolve-trusted-base.mjs",
+      "mode": "100644",
+      "blob": "c020a77c7afba3cd49c43c0f563dfe2a9336bd63"
+    },
+    {
+      "path": "scripts/ci/gate-upgrade.mjs",
+      "source": "scripts/ci/gate-upgrade.mjs",
+      "mode": "100644",
+      "blob": "4de61edbfbdcc608d35750f1b132e92aea550e9b"
+    },
+    {
+      "path": "scripts/ci/gate-credentials.mjs",
+      "source": "scripts/ci/gate-credentials.mjs",
+      "mode": "100644",
+      "blob": "c910a0c67c7beae12733e1a3be505eabbe5561bf"
+    },
+    {
+      "path": "scripts/ci/release-gate-policy.json",
+      "source": "scripts/ci/gate-upgrade/core/release-gate-policy.json",
+      "mode": "100644",
+      "blob": "944f4f67a3fb1d05009eca31f576d4ff836914b0"
+    },
+    {
+      "path": "package.json",
+      "source": "package.json",
+      "mode": "100644",
+      "blob": "bf6c317450549986509172480717de12336d9b70"
+    },
+    {
+      "path": "package-lock.json",
+      "source": "package-lock.json",
+      "mode": "100644",
+      "blob": "dd931ffe2065fb21e8da5451b977da5facaf2ae5"
+    }
+  ],
+  "changes": [
+    "Classify workflow credentials by source and effective permissions",
+    "Admit exact protected predecessor approvals with a reusable upgrade protocol"
+  ]
+}

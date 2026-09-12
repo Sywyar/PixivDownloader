@@ -101,7 +101,10 @@ function isBranchRulesetFor(rs, ref) {
 function isTagRulesetFor(rs, ref) {
     return rs && rs.target === 'tag' && (rs.conditions || {}).ref_name
         && Array.isArray((rs.conditions.ref_name || {}).include)
-        && rs.conditions.ref_name.include.includes(ref);
+        && !(rs.conditions.ref_name.exclude || []).length
+        && rs.conditions.ref_name.include.some((pattern) => pattern === ref
+            || (pattern === 'refs/tags/release-gate-epoch-*-root'
+                && /^refs\/tags\/release-gate-epoch-[1-9][0-9]*-root$/u.test(ref)));
 }
 
 function active(details, label, problems, report) {

@@ -12,7 +12,7 @@ if (process.argv.length === 3 && process.argv[2] === '--version') {
 } else if (process.argv.includes('--version')) {
     console.error('Usage: trust-gate.mjs --version');
     process.exitCode = 2;
-} else if (['5', '8'].includes(configuredEpoch())) {
+} else if (/^[1-9][0-9]*$/u.test(configuredEpoch())) {
     const repo = git(['rev-parse', '--show-toplevel']);
     const args = process.argv.slice(2);
     const epoch = configuredEpoch();
@@ -26,8 +26,7 @@ if (process.argv.length === 3 && process.argv[2] === '--version') {
             throw new Error('usage: trust-gate.mjs --show | --advance --ref <commit> | --adopt-root --ref <commit>');
         }
         const candidate = git(['rev-parse', '--verify', `${args[2]}^{commit}`]);
-        const policy = JSON.parse(git(['show', `${candidate}:scripts/ci/release-gate-policy.json`]));
-        withTrustedGate(repo, base, policy.gateEpoch, (directory, env) => {
+        withTrustedGate(repo, base, candidate, (directory, env) => {
             const result = spawnSync(process.execPath,
                 [path.join(directory, 'scripts/ci/release-gate-trust.mjs'), args[0], '--ref', candidate],
                 { cwd: repo, env, stdio: 'inherit', windowsHide: true });
@@ -35,7 +34,7 @@ if (process.argv.length === 3 && process.argv[2] === '--version') {
         });
     }
 } else {
-    throw new Error('configured release Gate epoch 5 or 8 is required');
+    throw new Error('configured release Gate epoch is required');
 }
 
 function git(args) {
