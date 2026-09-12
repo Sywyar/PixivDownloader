@@ -8,9 +8,9 @@ $TestDirectory = [IO.Path]::GetFullPath($TestDirectory)
 if (Test-Path -LiteralPath $TestDirectory) { throw 'Test directory must be new.' }
 [IO.Directory]::CreateDirectory($TestDirectory) | Out-Null
 $script = Join-Path $PSScriptRoot '../sdk-runtime-inputs.ps1'
-$inputLock = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../sdk-runtime-input.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-
-function Test-Input([string]$Name, [string[]]$Entries, [string]$Mutation, [bool]$Accept) {
+function Test-Input([string]$Name, [string[]]$Entries, [string]$Mutation, [bool]$Accept, [string]$AssetUrl) {
+    $inputLock = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../sdk-runtime-input.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($AssetUrl) { $inputLock.assetUrl = $AssetUrl }
     $archive = Join-Path $TestDirectory "$Name.zip"
     $zip = [IO.Compression.ZipFile]::Open($archive, [IO.Compression.ZipArchiveMode]::Create)
     try {
@@ -43,6 +43,11 @@ function Test-Input([string]$Name, [string[]]$Entries, [string]$Mutation, [bool]
     } elseif (-not $failure) { throw "Invalid SDK input accepted: $Name" }
 }
 Test-Input 'valid' @('plugins/example.jar', 'plugins/provenance/example.jar.pixiv-plugin-provenance', 'ignored.txt') '' $true
+Test-Input 'main-release' @('plugins/example.jar') '' $true 'https://api.github.com/repos/Sywyar/PixivDownloader/releases/assets/1'
+Test-Input 'sdk-release' @('plugins/example.jar') '' $true 'https://api.github.com/repos/Sywyar/PixivDownloader-Plugin-SDK/releases/assets/1'
+Test-Input 'foreign-repository' @('plugins/example.jar') '' $false 'https://api.github.com/repos/other/PixivDownloader-Plugin-SDK/releases/assets/1'
+Test-Input 'moving-tag' @('plugins/example.jar') '' $false 'https://api.github.com/repos/Sywyar/PixivDownloader-Plugin-SDK/releases/tags/latest'
+Test-Input 'http' @('plugins/example.jar') '' $false 'http://api.github.com/repos/Sywyar/PixivDownloader-Plugin-SDK/releases/assets/1'
 Test-Input 'digest' @('plugins/example.jar') 'digest' $false
 Test-Input 'truncated' @('plugins/example.jar') 'truncated' $false
 Test-Input 'traversal' @('plugins/../escape.jar') '' $false

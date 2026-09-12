@@ -12,7 +12,7 @@ $inputFile = Get-Item -LiteralPath $InputManifest
 if ($inputFile.Length -gt 1MB) { throw 'SDK input metadata is too large.' }
 $inputLock = [IO.File]::ReadAllText($inputFile.FullName, [Text.Encoding]::UTF8) | ConvertFrom-Json
 if ($inputLock.schemaVersion -ne 1 -or
-    $inputLock.assetUrl -cnotmatch '^https://api\.github\.com/repos/Sywyar/PixivDownloader/releases/assets/[1-9][0-9]*$' -or
+    $inputLock.assetUrl -cnotmatch '^https://api\.github\.com/repos/Sywyar/PixivDownloader(?:-Plugin-SDK)?/releases/assets/[1-9][0-9]*$' -or
     $inputLock.sha256 -cnotmatch '^[0-9a-f]{64}$' -or
     $inputLock.size -le 0 -or $inputLock.size -gt 512MB) { throw 'Invalid fixed SDK plugin input.' }
 $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
