@@ -1,13 +1,15 @@
 {
   "schemaVersion": 1,
-  "gateEpoch": 8,
-  "contractVersion": 9,
-  "rootTag": "refs/tags/release-gate-epoch-8-root",
+  "gateEpoch": 9,
+  "contractVersion": 10,
+  "rootTag": "refs/tags/release-gate-epoch-9-root",
   "protectedBranch": "refs/heads/master",
   "protectedCore": [
     "scripts/ci/release-gate-trust.mjs",
     "scripts/ci/release-gate-verifier.mjs",
-    "scripts/ci/resolve-trusted-base.mjs"
+    "scripts/ci/resolve-trusted-base.mjs",
+    "scripts/ci/gate-upgrade.mjs",
+    "scripts/ci/gate-credentials.mjs"
   ],
   "qualityGate": {
     "workflow": ".github/workflows/quality-gate.yml",
@@ -164,6 +166,11 @@
         "allowDeletion": false,
         "allowNonFastForward": false,
         "allowBypass": false
+      },
+      "refs/tags/release-gate-epoch-9-root": {
+        "allowDeletion": false,
+        "allowNonFastForward": false,
+        "allowBypass": false
       }
     },
     "requiredCheckSources": {
@@ -174,5 +181,6 @@
       "i18n-check": 4837005,
       "check-shared-snippets": 4837005
     }
-  }
+  },
+  "upgradeProtocol": 1
 }

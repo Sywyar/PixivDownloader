@@ -7,9 +7,10 @@ import process from 'node:process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
+import { verifyUpgrade } from './gate-upgrade.mjs';
+import { credentialSources, privilegedCredentials, workflowCredentialBindings } from './gate-credentials.mjs';
+
 const POLICY = 'scripts/ci/release-gate-policy.json';
-const ROOT_TAG = 'refs/tags/release-gate-epoch-8-root';
-const ADMISSION = 'scripts/ci/gate-admission/';
 const REPOSITORY = 'Sywyar/PixivDownloader';
 const REPOSITORY_ID = 1089943605;
 const APP_ID = 4837005;
@@ -21,13 +22,15 @@ const CORE = [
     'scripts/ci/release-gate-trust.mjs',
     'scripts/ci/release-gate-verifier.mjs',
     'scripts/ci/resolve-trusted-base.mjs',
+    'scripts/ci/gate-upgrade.mjs',
+    'scripts/ci/gate-credentials.mjs',
 ];
 const FLOOR = {
     checks: ['java-tests', 'javascript-tests', 'signature-guard', 'trusted-gate-contract',
         'i18n-check', 'check-shared-snippets'],
     roots: ['refs/tags/i18n-gate-epoch-2-root', 'refs/tags/i18n-gate-epoch-3-root',
         'refs/tags/i18n-gate-epoch-4-root', 'refs/tags/release-gate-epoch-5-root',
-        'refs/tags/release-gate-epoch-6-root', 'refs/tags/release-gate-epoch-7-root', ROOT_TAG],
+        'refs/tags/release-gate-epoch-6-root', 'refs/tags/release-gate-epoch-7-root', 'refs/tags/release-gate-epoch-8-root'],
     workflows: {
         '.github/workflows/release.yml': ['validate-release-tag', 'draft-quality-gate',
             'publish-plugins', 'publish-plugin-artifacts', 'build-jar',
@@ -91,10 +94,11 @@ function exactIdentity(trusted, candidate, label) {
 }
 
 function validateRootPolicy(policy) {
-    if (policy.schemaVersion !== 1 || policy.gateEpoch !== 8 || policy.contractVersion !== 9) {
-        fail('Epoch 8 policy identity is invalid');
+    if (policy.schemaVersion !== 1 || !Number.isSafeInteger(policy.gateEpoch) || policy.gateEpoch <= 8
+        || !Number.isSafeInteger(policy.contractVersion) || policy.contractVersion < 10 || policy.upgradeProtocol !== 1) {
+        fail('upgradable Gate policy identity is invalid');
     }
-    if (policy.rootTag !== ROOT_TAG || policy.protectedBranch !== BRANCH) {
+    if (policy.rootTag !== `refs/tags/release-gate-epoch-${policy.gateEpoch}-root` || policy.protectedBranch !== BRANCH) {
         fail('protected root or branch identity changed');
     }
     if (!same(policy.protectedCore, CORE)) fail('immutable core declaration differs from verifier');
@@ -123,7 +127,7 @@ function validateRootPolicy(policy) {
             fail(`required check ${context} must be bound to the Gate App`);
         }
     }
-    for (const root of FLOOR.roots) {
+    for (const root of [...FLOOR.roots, policy.rootTag]) {
         if (!rules.roots?.[root]) fail(`Ruleset policy removed historical root ${root}`);
     }
     if (rules.requireStrict !== true || rules.requirePullRequest !== true
@@ -145,7 +149,7 @@ function validateMonotonic(trusted, candidate) {
     validateRootPolicy(trusted);
     validateRootPolicy(candidate);
     for (const key of ['schemaVersion', 'gateEpoch', 'contractVersion', 'rootTag',
-        'protectedBranch', 'protectedCore', 'releaseEnvironment']) {
+        'protectedBranch', 'protectedCore', 'releaseEnvironment', 'upgradeProtocol']) {
         exactIdentity(trusted[key], candidate[key], `policy.${key}`);
     }
     for (const key of ['workflow', 'workflowName']) {
@@ -225,9 +229,7 @@ function dependsOn(jobs, id, roots, seen = new Set()) {
 }
 
 function containsSecret(job) {
-    const expressions = JSON.stringify(job)?.match(/\$\{\{.*?\}\}/gu) || [];
-    return expressions.some((expression) => /\bsecrets\b/iu.test(expression)
-        || /\bgithub\s*(?:\.\s*token|\[\s*\\?['"]token\\?['"]\s*\])/iu.test(expression));
+    return credentialSources(job).has('secret');
 }
 
 function localWorkflow(uses) {
@@ -298,7 +300,7 @@ function validateCheckPublisher(doc) {
             delete inputs['private-key'];
         }
     }
-    if (/\bsecrets\b/iu.test((JSON.stringify(publicDocument).match(/\$\{\{.*?\}\}/gu) || []).join('\n'))) {
+    if (containsSecret(publicDocument)) {
         fail('check publisher cannot consume other release credentials');
     }
 }
@@ -320,6 +322,7 @@ function workflowSecurityProblems(rel, doc, policy, providerPaths) {
         }
     }
     const jobs = doc.jobs;
+    const credentialBindings = workflowCredentialBindings(doc);
     const roots = new Set(Object.entries(jobs)
         .filter(([, job]) => providerPaths.has(localWorkflow(job.uses)))
         .map(([id]) => id));
@@ -327,8 +330,8 @@ function workflowSecurityProblems(rel, doc, policy, providerPaths) {
         if (job.secrets === 'inherit') problems.push(`${rel} job ${id} uses secrets: inherit`);
         const condition = String(job.if || '');
         const provider = roots.has(id);
-        const sensitive = permissionsWrite(job.permissions === undefined ? doc.permissions : job.permissions)
-            || containsSecret(doc.env) || containsSecret(job) || environmentName(job) !== undefined;
+        const sensitive = privilegedCredentials([doc.env, job], doc.permissions, job.permissions, credentialBindings.get(id))
+            || environmentName(job) !== undefined;
         const required = provider || (rel === policy.qualityGate.workflow
             && policy.qualityGate.requiredJobs.some((role) => dependsOn(jobs, role, new Set([id]))));
         if ((required || sensitive) && (/\b(?:always|failure|cancelled)\s*\(/iu.test(condition)
@@ -336,7 +339,7 @@ function workflowSecurityProblems(rel, doc, policy, providerPaths) {
                 && step['continue-on-error'] !== false))) {
             problems.push(`${rel} job ${id} can bypass a failed dependency or suppress a failure`);
         }
-        if (provider && (containsSecret(job) || containsSecret(doc.env))) {
+        if (provider && privilegedCredentials([doc.env, job], doc.permissions, job.permissions, credentialBindings.get(id))) {
             problems.push(`${rel} job ${id} cannot forward credentials into the quality provider`);
         }
         if (!sensitive || provider) continue;
@@ -360,7 +363,33 @@ function validateWorkflows(repo, ref, policy) {
     }
     const names = git(repo, ['ls-tree', '-r', '--name-only', ref, '--', '.github/workflows'])
         .split(/\r?\n/u).filter((name) => /\.ya?ml$/u.test(name));
-    const docs = new Map(names.map((rel) => [rel, parseWorkflow(YAML, repo, ref, rel)]));
+    const expand = (steps, seen = new Set()) => {
+        for (const step of steps || []) {
+            if (!step.uses?.startsWith('./')) continue;
+            const action = step.uses.slice(2);
+            if (!action || path.posix.isAbsolute(action) || path.posix.normalize(action) !== action
+                || action.startsWith('../') || action.includes('\\') || seen.has(action)) {
+                fail('invalid or recursive local action: ' + action);
+            }
+            const files = git(repo, ['ls-tree', '--name-only', ref, '--', action + '/action.yml', action + '/action.yaml'])
+                .trim().split(/\r?\n/u).filter(Boolean);
+            if (files.length !== 1) fail('missing or ambiguous local action: ' + action);
+            if (!/^100(?:644|755) blob /u.test(git(repo, ['ls-tree', ref, '--', files[0]]))) {
+                fail('local action descriptor must be a regular file: ' + action);
+            }
+            const definition = YAML.parse(show(repo, ref, files[0]));
+            if (definition?.runs?.using !== 'composite') continue;
+            const steps = definition.runs.steps;
+            validateActionPins(files[0], { jobs: { action: { steps } } });
+            expand(steps, new Set([...seen, action]));
+            step.gateLocalAction = definition;
+        }
+    };
+    const docs = new Map(names.map((rel) => {
+        const doc = parseWorkflow(YAML, repo, ref, rel);
+        for (const job of Object.values(doc.jobs)) expand(job.steps);
+        return [rel, doc];
+    }));
     const required = new Map([[policy.qualityGate.workflow, policy.qualityGate],
         ...Object.entries(policy.workflows)]);
     for (const [rel, spec] of required) {
@@ -413,58 +442,8 @@ function validateCore(repo, trusted, candidate) {
     }
 }
 
-function validateAdmission(repo, trusted, candidate, localFeedback) {
-    const oldPolicy = json(repo, trusted, POLICY);
-    if (oldPolicy.gateEpoch !== 5) fail('first admission requires an Epoch 5 protected predecessor');
-    const next = json(repo, candidate, POLICY);
-    requireSubset(oldPolicy.qualityGate.requiredJobs, next.qualityGate.requiredJobs, 'admission Quality Gate roles');
-    requireSubset(oldPolicy.ruleset.requiredChecks, next.ruleset.requiredChecks, 'admission required checks');
-    if (next.ruleset.minimumApprovals < oldPolicy.ruleset.minimumApprovals) fail('admission lowered approvals');
-    for (const [rel, spec] of Object.entries(oldPolicy.workflows)) {
-        if (rel === '.github/workflows/shared-snippets-check.yml') continue;
-        const current = next.workflows[rel];
-        if (!current || current.workflowName !== spec.workflowName) fail(`admission removed workflow ${rel}`);
-        requireSubset(spec.requiredJobs, current.requiredJobs, `${rel} admission jobs`);
-        requireSubset(spec.requiredTriggers, current.requiredTriggers, `${rel} admission triggers`);
-    }
-    for (const [root, rules] of Object.entries(oldPolicy.ruleset.roots)) {
-        if (!same(rules, next.ruleset.roots[root])) fail(`admission changed historical root ${root}`);
-    }
-    for (const rel of CORE) {
-        const approved = `${ADMISSION}${path.posix.basename(rel)}`;
-        const entry = (ref, file) => git(repo, ['ls-tree', ref, '--', file]).trim().split(/\s+/u).slice(0, 3);
-        const before = entry(trusted, approved);
-        if (!['100644', '100755'].includes(before[0]) || before[1] !== 'blob'
-            || !same(before, entry(candidate, rel))) fail(`unapproved admission core: ${rel}`);
-    }
-    const ancestor = (older, newer) => spawnSync('git', ['-C', repo, 'merge-base',
-        '--is-ancestor', older, newer], { windowsHide: true, stdio: 'ignore' }).status === 0;
-    if (trusted === candidate || !ancestor(trusted, 'refs/remotes/origin/master')
-        || !ancestor('refs/tags/release-gate-epoch-5-root', trusted) || !ancestor(trusted, candidate)) {
-        fail('admission base must be a protected Epoch 5 predecessor');
-    }
-    if (localFeedback) {
-        if (process.env.CI === 'true') fail('local admission feedback is forbidden in CI');
-        return;
-    }
-    const root = resolveCommit(repo, ROOT_TAG, 'Epoch 8 root');
-    const parents = (sha) => git(repo, ['rev-list', '--parents', '-n', '1', sha]).trim().split(/\s+/u).slice(1);
-    const rootParents = parents(root);
-    if (rootParents.length !== 1 || !ancestor(rootParents[0], trusted)
-        || json(repo, rootParents[0], POLICY).gateEpoch !== 5) {
-        fail('Epoch 8 root must directly descend from a protected Epoch 5 admission base');
-    }
-    validateCore(repo, root, candidate);
-    validateMonotonic(json(repo, root, POLICY), next);
-    const candidateParents = parents(candidate);
-    if (candidate !== root && (candidateParents.length !== 2 || candidateParents[0] !== trusted
-        || !ancestor(root, candidateParents[1]))) {
-        fail('first admission requires the root or a two-parent merge of its unchanged core descendants');
-    }
-}
-
 function validateAncestry(repo, trusted, candidate) {
-    const root = resolveCommit(repo, ROOT_TAG, 'Epoch 8 root');
+    const root = resolveCommit(repo, json(repo, trusted, POLICY).rootTag, 'Gate root');
     if (trusted === candidate) fail('trusted base must be a strict predecessor of the candidate');
     for (const [ancestor, descendant, label] of [
         [root, trusted, 'root to trusted base'],
@@ -511,8 +490,8 @@ export function verifyCandidate({ repo, trusted, candidate, invariants = false,
     const candidatePolicy = json(repo, candidate, POLICY);
     validateRootPolicy(candidatePolicy);
     if (!invariants) {
-        if (json(repo, trusted, POLICY).gateEpoch === 5) {
-            validateAdmission(repo, trusted, candidate, localFeedback);
+        if (json(repo, trusted, POLICY).gateEpoch !== candidatePolicy.gateEpoch) {
+            verifyUpgrade({ repo, trusted, candidate, localFeedback });
         } else {
             validateMonotonic(json(repo, trusted, POLICY), candidatePolicy);
             validateCore(repo, trusted, candidate);
@@ -613,14 +592,14 @@ export function verifyAppChecks({ checks, evidence, requiredChecks = FLOOR.check
 function main() {
     const args = parseArgs(process.argv.slice(2));
     if (args.version) {
-        console.log('release-gate-verifier epoch=8 contract=9 schema=1');
+        console.log('release-gate-verifier upgrade-protocol=1 schema=1');
         return;
     }
     const repo = path.resolve(args.repo);
     const candidate = resolveCommit(repo, args.candidate || 'HEAD', 'candidate');
     const trusted = args.invariants ? null : resolveCommit(repo, args.trusted, 'trusted base');
     verifyCandidate({ ...args, repo, trusted, candidate });
-    console.log(`TRUSTED RELEASE GATE 8 OK (${candidate})`);
+    console.log(`TRUSTED RELEASE GATE ${json(repo, candidate, POLICY).gateEpoch} OK (${candidate})`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
