@@ -20,7 +20,8 @@ import {
 } from '../sdk-release.mjs';
 import { inspectSdkVersion } from '../sdk-version.mjs';
 
-const IDENTITY = inspectSdkVersion(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..'));
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+const IDENTITY = inspectSdkVersion(REPO_ROOT);
 const HOST_VERSION = [IDENTITY.major, IDENTITY.minor, IDENTITY.patch].join('.');
 
 test('SDK 的四个可选工程在归档及初始 Git 树中保留相同的标准标识', () => {
@@ -109,6 +110,35 @@ test('运行附件必须与固定源码、发行地址和实际字节一致', ()
         fs.writeFileSync(archive, 'changed\n', 'utf8');
         assert.throws(read, /bytes do not match/u);
         assert.throws(() => createProjectManifest(IDENTITY, 'a'.repeat(40)), /fixed development runtime/u);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('SDK IDEA 配置只在开发包中生效，源码模板不会注册运行项', () => {
+    const overlay = path.join(REPO_ROOT, 'plugin-templates', 'sdk-package');
+    const templates = fs.readdirSync(path.join(overlay, '.run'));
+    assert.ok(templates.length > 0);
+    assert.ok(templates.every(name => name.endsWith('.run.xml.template')));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv-sdk-idea-'));
+    try {
+        const workspace = path.join(root, 'workspace');
+        stagePluginTemplates(REPO_ROOT, workspace, IDENTITY, 'a'.repeat(40));
+        const archive = path.join(root, 'sdk.zip');
+        createArchive(workspace, archive);
+        execFileSync(process.platform === 'win32' ? 'python' : 'python3', ['-X', 'utf8', '-c', `
+import pathlib, sys, zipfile, xml.etree.ElementTree as ET
+overlay = pathlib.Path(sys.argv[2])
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    names = sorted(name for name in archive.namelist() if name.startswith('.run/'))
+    expected = sorted('.run/' + file.name.removesuffix('.template') for file in (overlay / '.run').iterdir())
+    assert names == expected, (names, expected)
+    for name in names:
+        actual = ET.fromstring(archive.read(name))
+        template = ET.parse(overlay / (name + '.template')).getroot()
+        assert actual.tag == 'component' and actual.get('name') == 'ProjectRunConfigurationManager'
+        assert actual.find('configuration') is not None, name
+        assert ET.tostring(actual) == ET.tostring(template), name
+`, archive, overlay], { windowsHide: true });
+        assert.ok(fs.readFileSync(path.join(workspace, 'README.md'), 'utf8').includes(IDENTITY.version));
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
