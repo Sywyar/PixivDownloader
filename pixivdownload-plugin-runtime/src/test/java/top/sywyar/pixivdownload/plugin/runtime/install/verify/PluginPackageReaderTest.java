@@ -30,6 +30,32 @@ class PluginPackageReaderTest {
     Path tempDir;
 
     @Test
+    @DisplayName("包内能力声明保留缺失、显式空值与未知 token，不从旧权限字段推导")
+    void preservesPackageRiskDeclaration() throws IOException {
+        String base = PluginPackageFixtures.pluginProperties("risk-example", "1.0.0", "1.0", "com.example.P");
+        String[] declarations = {"", "pixiv.permissions=NETWORK\n", "pixiv.risk-signals=\n",
+                "pixiv.risk-signals= FILE_READ, NETWORK, FILE_READ, FUTURE_SIGNAL \n"};
+        for (int i = 0; i < declarations.length; i++) {
+            Path jar = tempDir.resolve("risk-" + i + ".jar");
+            byte[] bytes = (base + declarations[i]).getBytes(StandardCharsets.UTF_8);
+            PluginPackageFixtures.writeZip(jar, Map.of("plugin.properties", bytes));
+            PluginDescriptor descriptor = PluginPackageReader.inspect(jar).descriptor();
+            assertThat(descriptor.riskDeclaration().present()).isEqualTo(i >= 2);
+            assertThat(descriptor.riskDeclaration().signals()).containsExactlyElementsOf(i == 3
+                    ? java.util.List.of("FILE_READ", "FUTURE_SIGNAL", "NETWORK") : java.util.List.of());
+            assertThat(descriptor.externalValidationErrors()).isEmpty();
+            Path exploded = tempDir.resolve("descriptor-" + i + ".properties");
+            Files.write(exploded, bytes);
+            assertThat(PluginPackageReader.inspectDescriptor(exploded).riskDeclaration())
+                    .isEqualTo(descriptor.riskDeclaration());
+            Files.writeString(exploded, base + "pixiv.risk-signals=FILE_DELETE\n", StandardCharsets.UTF_8);
+            assertThat(descriptor.riskDeclaration().signals()).doesNotContain("FILE_DELETE");
+            assertThatThrownBy(() -> descriptor.riskDeclaration().signals().add("OTHER"))
+                    .isInstanceOf(UnsupportedOperationException.class);
+        }
+    }
+
+    @Test
     @DisplayName("显式宿主完全信任的解压目录描述符可读取")
     void readsExplodedDirectoryLayout() {
         Path zip = PluginPackageFixtures.explodedZip(tempDir.resolve("p.zip"),

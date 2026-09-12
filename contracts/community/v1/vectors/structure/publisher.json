@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "publisherId": "example",
+  "displayName": "Example",
+  "githubAccount": {
+    "id": "101",
+    "type": "User",
+    "loginAtRegistration": "example"
+  },
+  "signingKeys": [
+    {
+      "keyId": "Example:Key",
+      "algorithm": "Ed25519",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEA11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
+      "state": "ACTIVE"
+    }
+  ]
+}

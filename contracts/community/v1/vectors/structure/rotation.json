@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "payload": {
+    "publisherId": "example",
+    "githubAccount": {
+      "id": "101",
+      "type": "User"
+    },
+    "publisherRecordSha256": "abababababababababababababababababababababababababababababababab",
+    "oldKeyId": "Previous:Key",
+    "newKey": {
+      "keyId": "Example:Key",
+      "algorithm": "Ed25519",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEA11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo="
+    },
+    "reasonCode": "KEY_LOST",
+    "explanation": "Lost key"
+  },
+  "requestId": "abababababababababababababababababababababababababababababababab",
+  "proofs": {
+    "newKey": {
+      "formatVersion": 1,
+      "algorithm": "Ed25519",
+      "keyId": "Example:Key",
+      "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+    }
+  }
+}

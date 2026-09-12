@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "payload": {
+    "pluginId": "demo",
+    "pluginBindingSha256": "abababababababababababababababababababababababababababababababab",
+    "from": {
+      "accountId": "101",
+      "accountType": "User",
+      "publisherId": "example"
+    },
+    "to": {
+      "accountId": "202",
+      "accountType": "User",
+      "publisherId": "target"
+    },
+    "targetPublisherRecordSha256": null,
+    "targetKey": {
+      "keyId": "Example:Key",
+      "algorithm": "Ed25519",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEA11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo="
+    },
+    "targetPublisherDisplayName": "Target",
+    "mode": "REGULAR",
+    "explanation": "Transfer maintenance"
+  },
+  "requestId": "abababababababababababababababababababababababababababababababab",
+  "proofs": {
+    "targetKey": {
+      "formatVersion": 1,
+      "algorithm": "Ed25519",
+      "keyId": "Example:Key",
+      "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+    }
+  }
+}

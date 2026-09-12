@@ -98,7 +98,7 @@
         <java.version>17</java.version>
         <app.release.version>${project.version}</app.release.version>
         <!-- sdk-info 资源是 SDK 身份事实源；revision 只是 Maven CI-friendly 版本投影名。 -->
-        <revision>1.0.0-rc4</revision>
+        <revision>1.0.0-rc5</revision>
         <pixivdownload.sdk.version>${revision}</pixivdownload.sdk.version>
         <pixivdownload.source.sha>HEAD</pixivdownload.source.sha>
         <flatten.maven.version>1.7.3</flatten.maven.version>

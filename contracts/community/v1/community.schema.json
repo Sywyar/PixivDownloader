@@ -1,0 +1,2932 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:pixivdownloader:community:v1",
+  "$defs": {
+    "machine": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![\\s\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000])(?![\\s\\S]*[\\s\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]$)[^\\u0000-\\u001f\\u007f-\\u009f]+(?![\\s\\S])"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]*(?![\\s\\S])"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}(?![\\s\\S])"
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})(?![\\s\\S])"
+    },
+    "publisherId": {
+      "type": "string",
+      "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,61}[a-z0-9])?(?![\\s\\S])"
+    },
+    "pluginId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*(?![\\s\\S])"
+    },
+    "repositoryId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9._-]{0,63}(?![\\s\\S])",
+      "not": {
+        "enum": [
+          "official",
+          "configured",
+          "community"
+        ]
+      }
+    },
+    "keyId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(?![\\s\\S])"
+    },
+    "version": {
+      "$ref": "#/$defs/machine"
+    },
+    "utc": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z(?![\\s\\S])"
+    },
+    "externalTime": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "url": {
+      "type": "string",
+      "format": "uri",
+      "maxLength": 2048,
+      "pattern": "^[Hh][Tt][Tt][Pp][Ss]://",
+      "allOf": [
+        {
+          "$ref": "#/$defs/machine"
+        }
+      ]
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "allOf": [
+        {
+          "$ref": "#/$defs/machine"
+        }
+      ]
+    },
+    "owner": {
+      "type": "object",
+      "properties": {
+        "accountId": {
+          "$ref": "#/$defs/id"
+        },
+        "accountType": {
+          "type": "string",
+          "enum": [
+            "User",
+            "Organization"
+          ]
+        },
+        "publisherId": {
+          "$ref": "#/$defs/publisherId"
+        }
+      },
+      "required": [
+        "accountId",
+        "accountType",
+        "publisherId"
+      ],
+      "additionalProperties": false
+    },
+    "account": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "User",
+            "Organization"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "reference": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": [
+        "path",
+        "size",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "remoteReference": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "$ref": "#/$defs/url"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": [
+        "url",
+        "size",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "signature": {
+      "type": "object",
+      "properties": {
+        "formatVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "algorithm": {
+          "const": "Ed25519"
+        },
+        "keyId": {
+          "$ref": "#/$defs/keyId"
+        },
+        "value": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]{86}==(?![\\s\\S])"
+        }
+      },
+      "required": [
+        "formatVersion",
+        "algorithm",
+        "keyId",
+        "value"
+      ],
+      "additionalProperties": false
+    },
+    "publicKey": {
+      "type": "object",
+      "properties": {
+        "keyId": {
+          "$ref": "#/$defs/keyId"
+        },
+        "algorithm": {
+          "const": "Ed25519"
+        },
+        "publicKeySpkiBase64": {
+          "$ref": "#/$defs/machine"
+        }
+      },
+      "required": [
+        "keyId",
+        "algorithm",
+        "publicKeySpkiBase64"
+      ],
+      "additionalProperties": false
+    },
+    "signingKey": {
+      "type": "object",
+      "properties": {
+        "keyId": {
+          "$ref": "#/$defs/keyId"
+        },
+        "algorithm": {
+          "const": "Ed25519"
+        },
+        "publicKeySpkiBase64": {
+          "$ref": "#/$defs/machine"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "ACTIVE",
+            "RETIRED",
+            "REVOKED"
+          ]
+        }
+      },
+      "required": [
+        "keyId",
+        "algorithm",
+        "publicKeySpkiBase64",
+        "state"
+      ],
+      "additionalProperties": false
+    },
+    "publisher": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "publisherId": {
+          "$ref": "#/$defs/publisherId"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]*(?![\\s\\S])"
+        },
+        "githubAccount": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "User",
+                "Organization"
+              ]
+            },
+            "loginAtRegistration": {
+              "$ref": "#/$defs/machine"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "loginAtRegistration"
+          ],
+          "additionalProperties": false
+        },
+        "signingKeys": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/signingKey"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "publisherId",
+        "displayName",
+        "githubAccount",
+        "signingKeys"
+      ],
+      "additionalProperties": false
+    },
+    "binding": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "pluginId": {
+          "$ref": "#/$defs/pluginId"
+        },
+        "owner": {
+          "$ref": "#/$defs/owner"
+        },
+        "effectiveRequestId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "updatedAt": {
+          "$ref": "#/$defs/utc"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "pluginId",
+        "owner",
+        "effectiveRequestId",
+        "updatedAt"
+      ],
+      "additionalProperties": false
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "repository": {
+          "$ref": "#/$defs/url"
+        },
+        "commit": {
+          "$ref": "#/$defs/commit"
+        },
+        "previousReviewedCommit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/commit"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "archive": {
+          "$ref": "#/$defs/remoteReference"
+        }
+      },
+      "required": [
+        "repository",
+        "commit",
+        "previousReviewedCommit",
+        "archive"
+      ],
+      "additionalProperties": false
+    },
+    "buildProfile": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "enum": [
+            "maven-java17-v1",
+            "gradle-java17-v1",
+            "sbt-java17-v1"
+          ]
+        },
+        "projectDir": {
+          "$ref": "#/$defs/path"
+        },
+        "artifactPath": {
+          "$ref": "#/$defs/path"
+        }
+      },
+      "required": [
+        "id",
+        "projectDir",
+        "artifactPath"
+      ],
+      "additionalProperties": false
+    },
+    "license": {
+      "type": "object",
+      "properties": {
+        "expression": {
+          "$ref": "#/$defs/machine"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "minItems": 1
+        },
+        "licenseRefs": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^LicenseRef-[A-Za-z0-9.-]+(?![\\s\\S])"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/reference"
+          }
+        }
+      },
+      "required": [
+        "expression",
+        "files"
+      ],
+      "additionalProperties": false
+    },
+    "package": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "$ref": "#/$defs/url"
+        },
+        "expectedSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "signature": {
+          "$ref": "#/$defs/signature"
+        }
+      },
+      "required": [
+        "url",
+        "expectedSize",
+        "sha256",
+        "signature"
+      ],
+      "additionalProperties": false
+    },
+    "imageInput": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "alt": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/machine"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]*(?![\\s\\S])"
+          }
+        }
+      },
+      "required": [
+        "path",
+        "alt"
+      ],
+      "additionalProperties": false
+    },
+    "market": {
+      "type": "object",
+      "properties": {
+        "defaultLocale": {
+          "$ref": "#/$defs/machine"
+        },
+        "displayName": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/machine"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]*(?![\\s\\S])"
+          }
+        },
+        "summary": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/machine"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]*(?![\\s\\S])"
+          }
+        },
+        "description": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/machine"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192,
+            "pattern": "^[^\\u0000-\\u0009\\u000b-\\u001f\\u007f-\\u009f]*(?![\\s\\S])"
+          }
+        },
+        "category": {
+          "$ref": "#/$defs/machine"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/machine"
+          },
+          "maxItems": 8,
+          "uniqueItems": true
+        },
+        "homepageUrl": {
+          "$ref": "#/$defs/url"
+        },
+        "icon": {
+          "$ref": "#/$defs/imageInput"
+        },
+        "screenshots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/imageInput"
+          },
+          "maxItems": 6
+        }
+      },
+      "required": [
+        "defaultLocale",
+        "displayName",
+        "summary",
+        "category",
+        "tags"
+      ],
+      "additionalProperties": false
+    },
+    "submission": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "publisherId": {
+          "$ref": "#/$defs/publisherId"
+        },
+        "pluginId": {
+          "$ref": "#/$defs/pluginId"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "buildProfile": {
+          "$ref": "#/$defs/buildProfile"
+        },
+        "license": {
+          "$ref": "#/$defs/license"
+        },
+        "package": {
+          "$ref": "#/$defs/package"
+        },
+        "market": {
+          "$ref": "#/$defs/market"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "publisherId",
+        "pluginId",
+        "version",
+        "source",
+        "buildProfile",
+        "license",
+        "package",
+        "market"
+      ],
+      "additionalProperties": false
+    },
+    "rotationPayload": {
+      "type": "object",
+      "properties": {
+        "publisherId": {
+          "$ref": "#/$defs/publisherId"
+        },
+        "githubAccount": {
+          "$ref": "#/$defs/account"
+        },
+        "publisherRecordSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "oldKeyId": {
+          "$ref": "#/$defs/keyId"
+        },
+        "newKey": {
+          "$ref": "#/$defs/publicKey"
+        },
+        "reasonCode": {
+          "type": "string",
+          "enum": [
+            "ROUTINE_ROTATION",
+            "KEY_LOST",
+            "KEY_COMPROMISED"
+          ]
+        },
+        "explanation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "pattern": "^[^\\u0000-\\u0009\\u000b-\\u001f\\u007f-\\u009f]*(?![\\s\\S])"
+        }
+      },
+      "required": [
+        "publisherId",
+        "githubAccount",
+        "publisherRecordSha256",
+        "oldKeyId",
+        "newKey",
+        "reasonCode",
+        "explanation"
+      ],
+      "additionalProperties": false
+    },
+    "rotation": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "payload": {
+          "$ref": "#/$defs/rotationPayload"
+        },
+        "requestId": {
+          "$ref": "#/$defs/sha256"
+        },
+        "proofs": {
+          "type": "object",
+          "properties": {
+            "newKey": {
+              "$ref": "#/$defs/signature"
+            },
+            "oldKey": {
+              "$ref": "#/$defs/signature"
+            }
+          },
+          "required": [
+            "newKey"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "payload",
+        "requestId",
+        "proofs"
+      ],
+      "additionalProperties": false
+    },
+    "statusPayload": {
+      "type": "object",
+      "properties": {
+        "owner": {
+          "$ref": "#/$defs/owner"
+        },
+        "requester": {
+          "$ref": "#/$defs/account"
+        },
+        "pluginBindingSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "pluginId": {
+          "$ref": "#/$defs/pluginId"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "packageSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "YANK",
+            "UNYANK",
+            "REVOKE"
+          ]
+        },
+        "reasonCode": {
+          "$ref": "#/$defs/machine"
+        },
+        "explanation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "pattern": "^[^\\u0000-\\u0009\\u000b-\\u001f\\u007f-\\u009f]*(?![\\s\\S])"
+        },
+        "yankedDecisionSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": [
+        "owner",
+        "requester",
+        "pluginBindingSha256",
+        "pluginId",
+        "version",
+        "packageSha256",
+        "action",
+        "reasonCode",
+        "explanation"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "UNYANK"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "yankedDecisionSha256"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "yankedDecisionSha256"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "statusRequest": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "payload": {
+          "$ref": "#/$defs/statusPayload"
+        },
+        "requestId": {
+          "$ref": "#/$defs/sha256"
+        },
+        "proofs": {
+          "type": "object",
+          "properties": {
+            "activeKey": {
+              "$ref": "#/$defs/signature"
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "payload",
+        "requestId",
+        "proofs"
+      ],
+      "additionalProperties": false
+    },
+    "transferPayload": {
+      "type": "object",
+      "properties": {
+        "pluginId": {
+          "$ref": "#/$defs/pluginId"
+        },
+        "pluginBindingSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "from": {
+          "$ref": "#/$defs/owner"
+        },
+        "to": {
+          "$ref": "#/$defs/owner"
+        },
+        "targetPublisherRecordSha256": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "targetKey": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/publicKey"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "keyId": {
+                  "$ref": "#/$defs/keyId"
+                }
+              },
+              "required": [
+                "keyId"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "targetPublisherDisplayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]*(?![\\s\\S])"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "REGULAR",
+            "RECOVERY"
+          ]
+        },
+        "explanation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "pattern": "^[^\\u0000-\\u0009\\u000b-\\u001f\\u007f-\\u009f]*(?![\\s\\S])"
+        },
+        "recoveryEvidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "pluginId",
+        "pluginBindingSha256",
+        "from",
+        "to",
+        "targetPublisherRecordSha256",
+        "targetKey",
+        "mode",
+        "explanation"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "targetPublisherRecordSha256": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "targetPublisherRecordSha256"
+            ]
+          },
+          "then": {
+            "required": [
+              "targetPublisherDisplayName"
+            ],
+            "properties": {
+              "targetKey": {
+                "$ref": "#/$defs/publicKey"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "targetKey": {
+                "type": "object",
+                "properties": {
+                  "keyId": {
+                    "$ref": "#/$defs/keyId"
+                  }
+                },
+                "required": [
+                  "keyId"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "not": {
+              "required": [
+                "targetPublisherDisplayName"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "RECOVERY"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "recoveryEvidence"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "recoveryEvidence"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "transfer": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "payload": {
+          "$ref": "#/$defs/transferPayload"
+        },
+        "requestId": {
+          "$ref": "#/$defs/sha256"
+        },
+        "proofs": {
+          "type": "object",
+          "properties": {
+            "targetKey": {
+              "$ref": "#/$defs/signature"
+            }
+          },
+          "required": [
+            "targetKey"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "payload",
+        "requestId",
+        "proofs"
+      ],
+      "additionalProperties": false
+    },
+    "approval": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "requestId": {
+          "$ref": "#/$defs/sha256"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "FROM",
+            "TO"
+          ]
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "role"
+      ],
+      "additionalProperties": false
+    },
+    "riskDeclaration": {
+      "type": "object",
+      "properties": {
+        "present": {
+          "type": "boolean"
+        },
+        "signals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/machine"
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "present",
+        "signals"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "present": {
+                "const": false
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "signals": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "dependency": {
+      "type": "object",
+      "properties": {
+        "pluginId": {
+          "$ref": "#/$defs/pluginId"
+        },
+        "versionSupport": {
+          "$ref": "#/$defs/machine"
+        },
+        "optional": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "pluginId",
+        "versionSupport",
+        "optional"
+      ],
+      "additionalProperties": false
+    },
+    "descriptor": {
+      "type": "object",
+      "properties": {
+        "requiredSdk": {
+          "$ref": "#/$defs/machine"
+        },
+        "executionMode": {
+          "type": "string",
+          "enum": [
+            "host-process-full-trust",
+            "declarative-process"
+          ]
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/dependency"
+          }
+        },
+        "riskDeclaration": {
+          "$ref": "#/$defs/riskDeclaration"
+        }
+      },
+      "required": [
+        "requiredSdk",
+        "executionMode",
+        "dependencies",
+        "riskDeclaration"
+      ],
+      "additionalProperties": false
+    },
+    "location": {
+      "type": "object",
+      "properties": {
+        "archivePath": {
+          "$ref": "#/$defs/path"
+        },
+        "className": {
+          "$ref": "#/$defs/machine"
+        },
+        "methodName": {
+          "$ref": "#/$defs/machine"
+        },
+        "methodDescriptor": {
+          "$ref": "#/$defs/machine"
+        },
+        "bytecodeOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "sourcePath": {
+          "$ref": "#/$defs/path"
+        },
+        "sourceLine": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "archivePath"
+      ],
+      "additionalProperties": false
+    },
+    "observation": {
+      "type": "object",
+      "properties": {
+        "observationId": {
+          "$ref": "#/$defs/machine"
+        },
+        "signal": {
+          "$ref": "#/$defs/machine"
+        },
+        "origin": {
+          "type": "string",
+          "enum": [
+            "PLUGIN",
+            "DEPENDENCY",
+            "BUILD",
+            "HOST"
+          ]
+        },
+        "location": {
+          "$ref": "#/$defs/location"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "observationId",
+        "signal",
+        "origin",
+        "location",
+        "evidence"
+      ],
+      "additionalProperties": false
+    },
+    "finding": {
+      "type": "object",
+      "properties": {
+        "findingId": {
+          "$ref": "#/$defs/machine"
+        },
+        "ruleId": {
+          "$ref": "#/$defs/machine"
+        },
+        "signal": {
+          "$ref": "#/$defs/machine"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "DECLARATION_MISSING",
+            "POLICY_VIOLATION"
+          ]
+        },
+        "observationIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/machine"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "findingId",
+        "ruleId",
+        "kind",
+        "observationIds",
+        "evidence"
+      ],
+      "additionalProperties": false
+    },
+    "riskReport": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "COMPLETE",
+            "INCOMPLETE"
+          ]
+        },
+        "scannerVersion": {
+          "$ref": "#/$defs/machine"
+        },
+        "rulesSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "runId": {
+          "$ref": "#/$defs/id"
+        },
+        "runAttempt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "headSha": {
+          "$ref": "#/$defs/commit"
+        },
+        "sourceCommit": {
+          "$ref": "#/$defs/commit"
+        },
+        "packageSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "observations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/observation"
+          }
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/finding"
+          }
+        },
+        "failureReason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "pattern": "^[^\\u0000-\\u0009\\u000b-\\u001f\\u007f-\\u009f]*(?![\\s\\S])"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "status",
+        "scannerVersion",
+        "rulesSha256",
+        "runId",
+        "runAttempt",
+        "headSha",
+        "sourceCommit",
+        "packageSha256",
+        "observations",
+        "findings"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "INCOMPLETE"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "failureReason"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "failureReason"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "riskScan": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "COMPLETE",
+            "INCOMPLETE"
+          ]
+        },
+        "scannerVersion": {
+          "$ref": "#/$defs/machine"
+        },
+        "rulesSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "runId": {
+          "$ref": "#/$defs/id"
+        },
+        "runAttempt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "reportRef": {
+          "$ref": "#/$defs/reference"
+        },
+        "decisionRefs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reference"
+          }
+        },
+        "gate": {
+          "type": "string",
+          "enum": [
+            "PASS",
+            "BLOCKED"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "scannerVersion",
+        "rulesSha256",
+        "runId",
+        "runAttempt",
+        "reportRef",
+        "decisionRefs",
+        "gate"
+      ],
+      "additionalProperties": false
+    },
+    "pr": {
+      "type": "object",
+      "properties": {
+        "githubRepositoryId": {
+          "$ref": "#/$defs/id"
+        },
+        "number": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "authorAccountId": {
+          "$ref": "#/$defs/id"
+        },
+        "headRepositoryId": {
+          "$ref": "#/$defs/id"
+        },
+        "headSha": {
+          "$ref": "#/$defs/commit"
+        },
+        "baseSha": {
+          "$ref": "#/$defs/commit"
+        },
+        "mergeSha": {
+          "$ref": "#/$defs/commit"
+        }
+      },
+      "required": [
+        "githubRepositoryId",
+        "number",
+        "authorAccountId",
+        "headRepositoryId",
+        "headSha",
+        "baseSha"
+      ],
+      "additionalProperties": false
+    },
+    "humanReview": {
+      "type": "object",
+      "properties": {
+        "reviewMode": {
+          "type": "string",
+          "enum": [
+            "PEER",
+            "SELF"
+          ]
+        },
+        "selfReview": {
+          "type": "boolean"
+        },
+        "authorAccountId": {
+          "$ref": "#/$defs/id"
+        },
+        "reviewerAccountId": {
+          "$ref": "#/$defs/id"
+        },
+        "headSha": {
+          "$ref": "#/$defs/commit"
+        },
+        "approvedAt": {
+          "$ref": "#/$defs/externalTime"
+        },
+        "evidenceRef": {
+          "$ref": "#/$defs/reference"
+        }
+      },
+      "required": [
+        "reviewMode",
+        "selfReview",
+        "authorAccountId",
+        "reviewerAccountId",
+        "headSha",
+        "approvedAt",
+        "evidenceRef"
+      ],
+      "additionalProperties": false
+    },
+    "buildProof": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "sourceCommit": {
+          "$ref": "#/$defs/commit"
+        },
+        "jdkVersion": {
+          "$ref": "#/$defs/machine"
+        },
+        "buildToolVersion": {
+          "$ref": "#/$defs/machine"
+        },
+        "buildImageSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "dependencyLockRef": {
+          "$ref": "#/$defs/reference"
+        },
+        "sourceObjectsRef": {
+          "$ref": "#/$defs/reference"
+        },
+        "packageSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "packageSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sbomRef": {
+          "$ref": "#/$defs/reference"
+        },
+        "result": {
+          "type": "string",
+          "enum": [
+            "MATCH",
+            "MISMATCH"
+          ]
+        },
+        "buildProfile": {
+          "$ref": "#/$defs/buildProfile"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "sourceCommit",
+        "jdkVersion",
+        "buildToolVersion",
+        "buildImageSha256",
+        "dependencyLockRef",
+        "sourceObjectsRef",
+        "packageSize",
+        "packageSha256",
+        "sbomRef",
+        "result",
+        "buildProfile"
+      ],
+      "additionalProperties": false
+    },
+    "review": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "owner": {
+          "$ref": "#/$defs/owner"
+        },
+        "ownerLoginSnapshot": {
+          "$ref": "#/$defs/machine"
+        },
+        "pluginId": {
+          "$ref": "#/$defs/pluginId"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "packageSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "packageSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "submissionRef": {
+          "$ref": "#/$defs/reference"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "buildProfile": {
+          "$ref": "#/$defs/buildProfile"
+        },
+        "descriptor": {
+          "$ref": "#/$defs/descriptor"
+        },
+        "riskScan": {
+          "$ref": "#/$defs/riskScan"
+        },
+        "sourceDiffRef": {
+          "$ref": "#/$defs/reference"
+        },
+        "sbomRef": {
+          "$ref": "#/$defs/reference"
+        },
+        "dependencyReportRef": {
+          "$ref": "#/$defs/reference"
+        },
+        "licenseReportRef": {
+          "$ref": "#/$defs/reference"
+        },
+        "rebuildProofRef": {
+          "$ref": "#/$defs/reference"
+        },
+        "pr": {
+          "$ref": "#/$defs/pr"
+        },
+        "humanReview": {
+          "$ref": "#/$defs/humanReview"
+        },
+        "publicationApprovalRef": {
+          "$ref": "#/$defs/reference"
+        },
+        "reviewedAt": {
+          "$ref": "#/$defs/utc"
+        },
+        "assuranceLevel": {
+          "type": "string",
+          "enum": [
+            "PUBLISHER_SIGNED",
+            "COMMUNITY_VERIFIED",
+            "SOURCE_REVIEWED"
+          ]
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "owner",
+        "ownerLoginSnapshot",
+        "pluginId",
+        "version",
+        "packageSize",
+        "packageSha256",
+        "submissionRef",
+        "source",
+        "buildProfile",
+        "descriptor",
+        "riskScan",
+        "sourceDiffRef",
+        "sbomRef",
+        "dependencyReportRef",
+        "licenseReportRef",
+        "rebuildProofRef",
+        "pr",
+        "humanReview",
+        "publicationApprovalRef",
+        "reviewedAt",
+        "assuranceLevel"
+      ],
+      "additionalProperties": false
+    },
+    "published": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "owner": {
+          "$ref": "#/$defs/owner"
+        },
+        "pluginId": {
+          "$ref": "#/$defs/pluginId"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "submissionRef": {
+          "$ref": "#/$defs/reference"
+        },
+        "reviewRef": {
+          "$ref": "#/$defs/reference"
+        },
+        "sourceCommit": {
+          "$ref": "#/$defs/commit"
+        },
+        "package": {
+          "$ref": "#/$defs/package"
+        },
+        "historicalPublisherRef": {
+          "$ref": "#/$defs/reference"
+        },
+        "communitySignature": {
+          "$ref": "#/$defs/signature"
+        },
+        "assuranceLevel": {
+          "const": "SOURCE_REVIEWED"
+        },
+        "publishedAt": {
+          "$ref": "#/$defs/utc"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "owner",
+        "pluginId",
+        "version",
+        "submissionRef",
+        "reviewRef",
+        "sourceCommit",
+        "package",
+        "historicalPublisherRef",
+        "communitySignature",
+        "assuranceLevel",
+        "publishedAt"
+      ],
+      "additionalProperties": false
+    },
+    "audit": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "requestId": {
+          "$ref": "#/$defs/sha256"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "PUBLISHER_KEY_ROTATION",
+            "YANK",
+            "UNYANK",
+            "REVOKE",
+            "OWNERSHIP_TRANSFER"
+          ]
+        },
+        "requestRef": {
+          "$ref": "#/$defs/reference"
+        },
+        "beforeRef": {
+          "$ref": "#/$defs/reference"
+        },
+        "afterRef": {
+          "$ref": "#/$defs/reference"
+        },
+        "decisionRef": {
+          "$ref": "#/$defs/reference"
+        },
+        "actorAccountId": {
+          "$ref": "#/$defs/id"
+        },
+        "reviewerAccountIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "prEvidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pr"
+          },
+          "minItems": 1
+        },
+        "recoveryEvidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reference"
+          }
+        },
+        "result": {
+          "const": "APPLIED"
+        },
+        "appliedAt": {
+          "$ref": "#/$defs/utc"
+        },
+        "revocationSequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "relatedRecords": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reference"
+          }
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "action",
+        "requestRef",
+        "beforeRef",
+        "afterRef",
+        "decisionRef",
+        "actorAccountId",
+        "reviewerAccountIds",
+        "prEvidence",
+        "result",
+        "appliedAt",
+        "relatedRecords"
+      ],
+      "additionalProperties": false
+    },
+    "decision": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "FALSE_POSITIVE",
+            "MANUAL_SCAN_ACCEPTED",
+            "SELF_REVIEW_APPROVED",
+            "REVOKE_DECISION"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "pattern": "^[^\\u0000-\\u0009\\u000b-\\u001f\\u007f-\\u009f]*(?![\\s\\S])"
+        },
+        "githubRepositoryId": {
+          "$ref": "#/$defs/id"
+        },
+        "repositoryId": {
+          "$ref": "#/$defs/repositoryId"
+        },
+        "prNumber": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "headRepositoryId": {
+          "$ref": "#/$defs/id"
+        },
+        "headSha": {
+          "$ref": "#/$defs/commit"
+        },
+        "baseSha": {
+          "$ref": "#/$defs/commit"
+        },
+        "submissionSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sourceCommit": {
+          "$ref": "#/$defs/commit"
+        },
+        "packageSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "actorAccountId": {
+          "$ref": "#/$defs/id"
+        },
+        "actorLoginSnapshot": {
+          "$ref": "#/$defs/machine"
+        },
+        "prAuthorAccountId": {
+          "$ref": "#/$defs/id"
+        },
+        "triggeringActorAccountId": {
+          "$ref": "#/$defs/id"
+        },
+        "workflowPath": {
+          "$ref": "#/$defs/path"
+        },
+        "workflowSha": {
+          "$ref": "#/$defs/commit"
+        },
+        "runId": {
+          "$ref": "#/$defs/id"
+        },
+        "runAttempt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "decisionAt": {
+          "$ref": "#/$defs/utc"
+        },
+        "createdAt": {
+          "$ref": "#/$defs/utc"
+        },
+        "scanRunId": {
+          "$ref": "#/$defs/id"
+        },
+        "scanRunAttempt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "scannerVersion": {
+          "$ref": "#/$defs/machine"
+        },
+        "rulesSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "reportRef": {
+          "$ref": "#/$defs/reference"
+        },
+        "findingIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/machine"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "targetDecisionSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "reviewMode": {
+          "const": "SELF"
+        },
+        "selfReview": {
+          "const": true
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "action",
+        "reason",
+        "githubRepositoryId",
+        "repositoryId",
+        "prNumber",
+        "headRepositoryId",
+        "headSha",
+        "baseSha",
+        "actorAccountId",
+        "actorLoginSnapshot",
+        "prAuthorAccountId",
+        "triggeringActorAccountId",
+        "workflowPath",
+        "workflowSha",
+        "runId",
+        "runAttempt",
+        "decisionAt",
+        "createdAt"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "FALSE_POSITIVE"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "scanRunId",
+              "scanRunAttempt",
+              "scannerVersion",
+              "rulesSha256",
+              "reportRef",
+              "findingIds",
+              "submissionSha256",
+              "sourceCommit",
+              "packageSha256"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "targetDecisionSha256"
+                  ]
+                },
+                {
+                  "required": [
+                    "reviewMode"
+                  ]
+                },
+                {
+                  "required": [
+                    "selfReview"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "MANUAL_SCAN_ACCEPTED"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "scanRunId",
+              "scanRunAttempt",
+              "scannerVersion",
+              "rulesSha256",
+              "reportRef",
+              "submissionSha256",
+              "sourceCommit",
+              "packageSha256"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "findingIds"
+                  ]
+                },
+                {
+                  "required": [
+                    "targetDecisionSha256"
+                  ]
+                },
+                {
+                  "required": [
+                    "reviewMode"
+                  ]
+                },
+                {
+                  "required": [
+                    "selfReview"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "SELF_REVIEW_APPROVED"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "reviewMode",
+              "selfReview"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "scanRunId"
+                  ]
+                },
+                {
+                  "required": [
+                    "scanRunAttempt"
+                  ]
+                },
+                {
+                  "required": [
+                    "scannerVersion"
+                  ]
+                },
+                {
+                  "required": [
+                    "rulesSha256"
+                  ]
+                },
+                {
+                  "required": [
+                    "reportRef"
+                  ]
+                },
+                {
+                  "required": [
+                    "findingIds"
+                  ]
+                },
+                {
+                  "required": [
+                    "targetDecisionSha256"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "REVOKE_DECISION"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "targetDecisionSha256"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "scanRunId"
+                  ]
+                },
+                {
+                  "required": [
+                    "scanRunAttempt"
+                  ]
+                },
+                {
+                  "required": [
+                    "scannerVersion"
+                  ]
+                },
+                {
+                  "required": [
+                    "rulesSha256"
+                  ]
+                },
+                {
+                  "required": [
+                    "reportRef"
+                  ]
+                },
+                {
+                  "required": [
+                    "findingIds"
+                  ]
+                },
+                {
+                  "required": [
+                    "reviewMode"
+                  ]
+                },
+                {
+                  "required": [
+                    "selfReview"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "oneOf": [
+            {
+              "required": [
+                "submissionSha256",
+                "sourceCommit",
+                "packageSha256"
+              ]
+            },
+            {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "submissionSha256"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "sourceCommit"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "packageSha256"
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "certifiedKey": {
+      "type": "object",
+      "properties": {
+        "keyId": {
+          "$ref": "#/$defs/keyId"
+        },
+        "spkiSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": [
+        "keyId",
+        "spkiSha256"
+      ],
+      "additionalProperties": false
+    },
+    "directoryEntry": {
+      "type": "object",
+      "properties": {
+        "repositoryId": {
+          "$ref": "#/$defs/repositoryId"
+        },
+        "descriptorUrl": {
+          "$ref": "#/$defs/url"
+        },
+        "descriptorSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "publisher": {
+          "$ref": "#/$defs/owner"
+        },
+        "publisherLoginSnapshot": {
+          "$ref": "#/$defs/machine"
+        },
+        "certificationRef": {
+          "$ref": "#/$defs/reference"
+        },
+        "certifiedKeys": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/certifiedKey"
+          },
+          "maxItems": 4
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "LISTED",
+            "IDENTITY_VERIFIED",
+            "SUSPENDED",
+            "REMOVED"
+          ]
+        },
+        "firstReviewedAt": {
+          "$ref": "#/$defs/utc"
+        },
+        "lastReviewedAt": {
+          "$ref": "#/$defs/utc"
+        },
+        "directorySequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "githubRepositoryId": {
+          "$ref": "#/$defs/id"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "pattern": "^[^\\u0000-\\u0009\\u000b-\\u001f\\u007f-\\u009f]*(?![\\s\\S])"
+        }
+      },
+      "required": [
+        "repositoryId",
+        "descriptorUrl",
+        "descriptorSha256",
+        "publisher",
+        "publisherLoginSnapshot",
+        "certificationRef",
+        "certifiedKeys",
+        "status",
+        "firstReviewedAt",
+        "lastReviewedAt",
+        "directorySequence"
+      ],
+      "additionalProperties": false
+    },
+    "directoryShard": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "prefix": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{2}(?![\\s\\S])"
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/directoryEntry"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "prefix",
+        "entries"
+      ],
+      "additionalProperties": false
+    },
+    "shardReference": {
+      "type": "object",
+      "properties": {
+        "prefix": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{2}(?![\\s\\S])"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri-reference",
+          "maxLength": 2048
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": [
+        "prefix",
+        "url",
+        "size",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "directoryRoot": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "repositoryId": {
+          "$ref": "#/$defs/repositoryId"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "generatedAt": {
+          "$ref": "#/$defs/utc"
+        },
+        "partitioning": {
+          "const": "sha256-repository-id-prefix-2"
+        },
+        "shards": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/shardReference"
+          }
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "repositoryId",
+        "sequence",
+        "generatedAt",
+        "partitioning",
+        "shards"
+      ],
+      "additionalProperties": false
+    },
+    "rebuildProof": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "sourceCommit": {
+          "$ref": "#/$defs/commit"
+        },
+        "jdkVersion": {
+          "$ref": "#/$defs/machine"
+        },
+        "buildToolVersion": {
+          "$ref": "#/$defs/machine"
+        },
+        "buildImageSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "dependencyLockRef": {
+          "$ref": "#/$defs/reference"
+        },
+        "packageSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sbomRef": {
+          "$ref": "#/$defs/reference"
+        },
+        "packageSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "result": {
+          "type": "string",
+          "enum": [
+            "MATCH",
+            "MISMATCH"
+          ]
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "sourceCommit",
+        "jdkVersion",
+        "buildToolVersion",
+        "buildImageSha256",
+        "dependencyLockRef",
+        "packageSha256",
+        "sbomRef",
+        "packageSize",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "toolDigest": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "$ref": "#/$defs/machine"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": [
+        "version",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "bundleManifest": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "toolchain": {
+          "type": "object",
+          "properties": {
+            "sdk": {
+              "$ref": "#/$defs/machine"
+            },
+            "java": {
+              "$ref": "#/$defs/machine"
+            },
+            "maven": {
+              "$ref": "#/$defs/toolDigest"
+            },
+            "gradle": {
+              "$ref": "#/$defs/toolDigest"
+            },
+            "sbt": {
+              "$ref": "#/$defs/toolDigest"
+            },
+            "jsonSchemaValidator": {
+              "$ref": "#/$defs/machine"
+            },
+            "jsonCanonicalization": {
+              "$ref": "#/$defs/machine"
+            },
+            "webpDecoder": {
+              "$ref": "#/$defs/machine"
+            }
+          },
+          "required": [
+            "sdk",
+            "java",
+            "maven",
+            "gradle",
+            "sbt",
+            "jsonSchemaValidator",
+            "jsonCanonicalization",
+            "webpDecoder"
+          ],
+          "additionalProperties": false
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "contractVersion",
+        "toolchain",
+        "files"
+      ],
+      "additionalProperties": false
+    },
+    "signatureMessages": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "formatVersion": {
+          "const": 1
+        },
+        "algorithm": {
+          "const": "Ed25519"
+        },
+        "byteOrder": {
+          "const": "BIG_ENDIAN"
+        },
+        "stringEncoding": {
+          "const": "UTF8_WITH_U32_BYTE_LENGTH"
+        },
+        "digestEncoding": {
+          "const": "RAW_SHA256_32_BYTES"
+        },
+        "base64": {
+          "const": "RFC4648_STANDARD_WITH_PADDING"
+        },
+        "operationBody": {
+          "const": "RFC8785_JCS_SCHEMA_VERSION_AND_PAYLOAD"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/machine"
+              },
+              "domain": {
+                "$ref": "#/$defs/machine"
+              },
+              "fields": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/machine"
+                },
+                "minItems": 1
+              }
+            },
+            "required": [
+              "id",
+              "domain",
+              "fields"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "formatVersion",
+        "algorithm",
+        "byteOrder",
+        "stringEncoding",
+        "digestEncoding",
+        "base64",
+        "operationBody",
+        "messages"
+      ],
+      "additionalProperties": false
+    },
+    "jsonVectors": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "strictJson": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/machine"
+              },
+              "utf8Hex": {
+                "type": "string",
+                "pattern": "^(?:[0-9a-f]{2})*$"
+              },
+              "accepted": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "utf8Hex",
+              "accepted"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "jcs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/machine"
+              },
+              "input": {
+                "type": "string"
+              },
+              "canonical": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "input",
+              "canonical"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "strictJson",
+        "jcs"
+      ],
+      "additionalProperties": false
+    },
+    "sdkDistribution": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "sourceCommit": {
+          "$ref": "#/$defs/commit"
+        },
+        "sdkVersion": {
+          "$ref": "#/$defs/machine"
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "manifestSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "tool": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/reference"
+            },
+            {
+              "properties": {
+                "path": {
+                  "const": "tools/sdk-tools.jar"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "sourceCommit",
+        "sdkVersion",
+        "contractVersion",
+        "manifestSha256",
+        "tool"
+      ],
+      "additionalProperties": false
+    },
+    "stateVectors": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "versionStatus": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/machine"
+              },
+              "before": {
+                "enum": [
+                  "ACTIVE",
+                  "YANKED",
+                  "REVOKED"
+                ]
+              },
+              "decisionSha256": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/sha256"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "action": {
+                "enum": [
+                  "YANK",
+                  "UNYANK",
+                  "REVOKE"
+                ]
+              },
+              "yankedDecisionSha256": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/sha256"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "newDecisionSha256": {
+                "$ref": "#/$defs/sha256"
+              },
+              "after": {
+                "enum": [
+                  "ACTIVE",
+                  "YANKED",
+                  "REVOKED"
+                ]
+              },
+              "error": {
+                "enum": [
+                  "INVALID_STATE_TRANSITION",
+                  "BASELINE_CHANGED"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "before",
+              "decisionSha256",
+              "action",
+              "yankedDecisionSha256",
+              "newDecisionSha256"
+            ],
+            "oneOf": [
+              {
+                "required": [
+                  "after"
+                ],
+                "not": {
+                  "required": [
+                    "error"
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "error"
+                ],
+                "not": {
+                  "required": [
+                    "after"
+                  ]
+                }
+              }
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "versionStatus"
+      ],
+      "additionalProperties": false
+    },
+    "legacyRevocationEntry": {
+      "type": "object",
+      "properties": {
+        "scope": {
+          "enum": [
+            "PACKAGE_SHA256",
+            "PLUGIN_VERSION",
+            "SIGNING_KEY",
+            "PUBLISHER"
+          ]
+        },
+        "pluginId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/pluginId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "version": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/version"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "packageSha256": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "keyId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/keyId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "publisherId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/publisherId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "action": {
+          "enum": [
+            "YANKED",
+            "REVOKED"
+          ]
+        },
+        "reasonCode": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "effectiveTime": {
+          "$ref": "#/$defs/externalTime"
+        }
+      },
+      "required": [
+        "scope",
+        "action",
+        "reasonCode",
+        "effectiveTime"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "scope": {
+                "const": "PACKAGE_SHA256"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "packageSha256"
+            ],
+            "properties": {
+              "packageSha256": {
+                "$ref": "#/$defs/sha256"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "scope": {
+                "const": "PLUGIN_VERSION"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "pluginId",
+              "version"
+            ],
+            "properties": {
+              "pluginId": {
+                "$ref": "#/$defs/pluginId"
+              },
+              "version": {
+                "$ref": "#/$defs/version"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "scope": {
+                "const": "SIGNING_KEY"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "keyId"
+            ],
+            "properties": {
+              "keyId": {
+                "$ref": "#/$defs/keyId"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "scope": {
+                "const": "PUBLISHER"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "publisherId"
+            ],
+            "properties": {
+              "publisherId": {
+                "$ref": "#/$defs/publisherId"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "legacyRevocations": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "repositoryId": {
+          "$ref": "#/$defs/repositoryId"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "generatedTime": {
+          "$ref": "#/$defs/externalTime"
+        },
+        "nextUpdate": {
+          "$ref": "#/$defs/externalTime"
+        },
+        "entries": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {
+            "$ref": "#/$defs/legacyRevocationEntry"
+          }
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "repositoryId",
+        "sequence",
+        "generatedTime",
+        "nextUpdate",
+        "entries"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

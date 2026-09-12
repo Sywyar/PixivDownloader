@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "owner": {
+    "accountId": "101",
+    "accountType": "User",
+    "publisherId": "example"
+  },
+  "ownerLoginSnapshot": "example",
+  "pluginId": "demo",
+  "version": "2.3.4",
+  "packageSize": 1,
+  "packageSha256": "abababababababababababababababababababababababababababababababab",
+  "submissionRef": {
+    "path": "history/submission.json",
+    "size": 1,
+    "sha256": "abababababababababababababababababababababababababababababababab"
+  },
+  "source": {
+    "repository": "https://github.com/example/plugin",
+    "commit": "1212121212121212121212121212121212121212",
+    "previousReviewedCommit": null,
+    "archive": {
+      "url": "https://example.org/source.zip",
+      "size": 1,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    }
+  },
+  "buildProfile": {
+    "id": "maven-java17-v1",
+    "projectDir": ".",
+    "artifactPath": "target/plugin.jar"
+  },
+  "descriptor": {
+    "requiredSdk": "1.0",
+    "executionMode": "declarative-process",
+    "dependencies": [],
+    "riskDeclaration": {
+      "present": false,
+      "signals": []
+    }
+  },
+  "riskScan": {
+    "status": "COMPLETE",
+    "scannerVersion": "scanner-v1",
+    "rulesSha256": "abababababababababababababababababababababababababababababababab",
+    "runId": "10",
+    "runAttempt": 1,
+    "reportRef": {
+      "path": "evidence/scan.json",
+      "size": 1,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    },
+    "decisionRefs": [],
+    "gate": "PASS"
+  },
+  "sourceDiffRef": {
+    "path": "evidence/source.diff",
+    "size": 1,
+    "sha256": "abababababababababababababababababababababababababababababababab"
+  },
+  "sbomRef": {
+    "path": "evidence/sbom.json",
+    "size": 1,
+    "sha256": "abababababababababababababababababababababababababababababababab"
+  },
+  "dependencyReportRef": {
+    "path": "evidence/dependencies.json",
+    "size": 1,
+    "sha256": "abababababababababababababababababababababababababababababababab"
+  },
+  "licenseReportRef": {
+    "path": "evidence/license.json",
+    "size": 1,
+    "sha256": "abababababababababababababababababababababababababababababababab"
+  },
+  "rebuildProofRef": {
+    "path": "evidence/rebuild.json",
+    "size": 1,
+    "sha256": "abababababababababababababababababababababababababababababababab"
+  },
+  "pr": {
+    "githubRepositoryId": "1001",
+    "number": 17,
+    "authorAccountId": "101",
+    "headRepositoryId": "1002",
+    "headSha": "1212121212121212121212121212121212121212",
+    "baseSha": "1212121212121212121212121212121212121212"
+  },
+  "humanReview": {
+    "reviewMode": "PEER",
+    "selfReview": false,
+    "authorAccountId": "101",
+    "reviewerAccountId": "202",
+    "headSha": "1212121212121212121212121212121212121212",
+    "approvedAt": "2026-01-02T03:04:05.123Z",
+    "evidenceRef": {
+      "path": "evidence/approve.json",
+      "size": 1,
+      "sha256": "abababababababababababababababababababababababababababababababab"
+    }
+  },
+  "publicationApprovalRef": {
+    "path": "evidence/publication.json",
+    "size": 1,
+    "sha256": "abababababababababababababababababababababababababababababababab"
+  },
+  "reviewedAt": "2026-01-02T03:04:05Z",
+  "assuranceLevel": "SOURCE_REVIEWED"
+}

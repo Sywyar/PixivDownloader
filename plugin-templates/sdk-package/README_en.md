@@ -8,6 +8,10 @@ The package includes `.git/` with an initial commit on `main` containing all del
 
 ## Start developing
 
+The root Maven project and each of the three `examples/` projects contain a Git-tracked `.pixivdownloader-plugin-project`. It identifies the selected project's format and proves neither identity nor safety; `sdk-project.json` separately pins the development environment. Plugin JARs, `.dev/`, and runtime archives do not contain the project marker.
+
+Declare capabilities with comma-separated tokens in the package's `plugin.properties` field `pixiv.risk-signals`. The root, Gradle, and sbt examples use an explicit empty declaration. The download example declares `HOST_DATA_ACCESS` for its host-provided identity and task contexts. Update the declaration when adding behavior. Missing or empty declarations and scans with no findings are not safety guarantees or permission grants.
+
 Install JDK 17 and Node.js, with `java` and `node` on `PATH`. IDE import only resolves the project. Explicit Run / Debug compiles the current plugin, prepares the pinned runtime, and starts the full application. Build failure stops this sequence. Maven Wrapper obtains the pinned Maven version; no host checkout or manually copied host and plugin JARs are needed. Initial application configuration uses the host's setup flow.
 
 | IDE | Import | Run | Debug |
@@ -81,6 +85,12 @@ Gradle uses `compileOnly("io.github.sywyar.pixivdownloader:pixivdownload-sdk:@SD
 ```
 
 Do not make Ivy's runtime configuration extend this compile configuration. Standard Maven metadata supplies public APIs and PF4J, Spring, Servlet, and Jackson compile dependencies. Produce a thin PF4J JAR without bundling these host-provided classes. Declare test frameworks separately. The three API modules and BOM remain individually available.
+
+## Community formats and resources
+
+`contracts/community/v1/` contains the community JSON Schema, capability tokens, market categories and tags, license templates, and signature and data validation vectors. Consult `catalogs.json` when filling in `pixiv.risk-signals`. Choose a license template that fits your project; license declarations are not restricted to the template list.
+
+`bundle-manifest.json` records each resource's size and SHA-256, along with tool versions. `tools/community-contract.json` records the SDK, source commit, contract version, resource manifest hash, and the size and hash of this `sdk-tools.jar`. Pin the complete release and its hashes when consuming these resources. Update tools and resources from the same release instead of replacing individual catalog files. These files belong to the development package's initial Git commit and stay out of plugin JARs and public Maven compile dependencies.
 
 ## Runtime, cache, and project data
 

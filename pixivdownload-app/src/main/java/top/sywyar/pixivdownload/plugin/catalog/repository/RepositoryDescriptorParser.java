@@ -25,7 +25,7 @@ import java.util.Set;
 public final class RepositoryDescriptorParser {
 
     public static final long MAX_DESCRIPTOR_BYTES = 64L * 1024L;
-    private static final int MAX_URL_CHARS = 2_048;
+    private static final int MAX_URL_CHARS = top.sywyar.pixivdownload.plugin.runtime.http.HttpsLocation.MAX_URL_CHARS;
     private static final Set<String> PROTOCOLS = Set.of("manifest-v1", "paged-v2");
     private static final Set<String> NETWORK_PROFILES = Set.of("DIRECT_STRICT", "GITHUB_RELEASES");
     private static final Set<String> RESERVED_IDS = Set.of(
@@ -172,13 +172,8 @@ public final class RepositoryDescriptorParser {
     static URI publicHttps(String value, boolean noQueryOrFragment, PluginCatalogErrorCode code, String field) {
         String text = requiredText(value, MAX_URL_CHARS, field);
         try {
-            URI uri = new URI(text).normalize();
-            if (!uri.isAbsolute() || !"https".equalsIgnoreCase(uri.getScheme())
-                    || uri.getHost() == null || uri.getHost().isBlank() || uri.getUserInfo() != null
-                    || noQueryOrFragment && (uri.getRawQuery() != null || uri.getRawFragment() != null)) {
-                throw new URISyntaxException(text, "absolute public HTTPS URL required");
-            }
-            return uri;
+            return top.sywyar.pixivdownload.plugin.runtime.http.HttpsLocation
+                    .parse(text, noQueryOrFragment).normalize();
         } catch (URISyntaxException failure) {
             throw new PluginCatalogException(code, field + " is invalid: " + failure.getMessage());
         }

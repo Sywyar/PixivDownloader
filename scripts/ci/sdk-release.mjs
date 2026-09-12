@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
 import { inspectSdkVersion, SDK_ARTIFACTS, SDK_GROUP_ID } from './sdk-version.mjs';
+import { stageCommunityBundle } from './community-contracts.mjs';
 const EXECUTABLE_ENTRIES = ['mvnw', 'examples/gradle-plugin/gradlew', 'run.sh'];
 
 function fail(message) {
@@ -156,7 +157,8 @@ export function assertThinJarEntries(entries) {
         'org/springframework/',
         'com/fasterxml/jackson/',
     ];
-    const violation = entries.find(entry => forbidden.some(prefix => entry.startsWith(prefix)));
+    const violation = entries.find(entry => forbidden.some(prefix => entry.startsWith(prefix))
+            || entry.split('/').at(-1) === '.pixivdownloader-plugin-project');
     if (violation) {
         fail(`SDK template artifact contains forbidden bundled entry: ${violation}`);
     }
@@ -247,6 +249,34 @@ function copyTree(source, destination) {
             return !parts.includes('target') && !parts.includes('.flattened-pom.xml');
         },
     });
+}
+
+export function stagePluginTemplates(root, workspace, identity, sourceSha) {
+    const markerName = '.pixivdownloader-plugin-project';
+    for (const template of ['minimal-feature-plugin', 'download-type-plugin']) {
+        const marker = path.join(root, 'plugin-templates', template, markerName);
+        if (!fs.lstatSync(marker, { throwIfNoEntry: false })?.isFile()
+                || !fs.readFileSync(marker).equals(Buffer.from('pixivdownloader-plugin-project-v1\n', 'ascii'))) {
+            fail(`invalid SDK plugin project marker: ${template}`);
+        }
+    }
+    copyTree(path.join(root, 'plugin-templates', 'minimal-feature-plugin'), workspace);
+    const downloadExample = path.join(workspace, 'examples', 'download-type-plugin');
+    copyTree(path.join(root, 'plugin-templates', 'download-type-plugin'), downloadExample);
+    if (!fs.existsSync(path.join(downloadExample, 'README_en.md'))) {
+        fs.copyFileSync(path.join(downloadExample, 'README.md'), path.join(downloadExample, 'README_en.md'));
+    }
+    renderOverlay(path.join(root, 'plugin-templates', 'sdk-package'), workspace, {
+        '@SDK_VERSION@': identity.version,
+        '@SDK_RELEASE_ID@': identity.releaseId,
+        '@SOURCE_SHA@': sourceSha,
+    });
+    for (const tool of ['gradle', 'sbt']) {
+        const example = path.join(workspace, 'examples', `${tool}-plugin`);
+        copyTree(path.join(root, 'plugin-templates', 'minimal-feature-plugin', 'src', 'main'),
+                path.join(example, 'src', 'main'));
+        fs.copyFileSync(path.join(workspace, markerName), path.join(example, markerName));
+    }
 }
 
 function renderOverlay(overlay, destination, values) {
@@ -413,17 +443,7 @@ export function assembleRelease(options) {
     const work = path.join(output, '.work');
     const workspace = path.join(work, 'workspace');
     fs.mkdirSync(path.dirname(workspace), { recursive: true });
-    copyTree(path.join(root, 'plugin-templates', 'minimal-feature-plugin'), workspace);
-    copyTree(path.join(root, 'plugin-templates', 'download-type-plugin'),
-            path.join(workspace, 'examples', 'download-type-plugin'));
-    const pluginReadme = path.join(workspace, 'examples', 'download-type-plugin', 'README.md');
-    const pluginReadmeEnglish = path.join(workspace, 'examples', 'download-type-plugin', 'README_en.md');
-    if (!fs.existsSync(pluginReadmeEnglish)) fs.copyFileSync(pluginReadme, pluginReadmeEnglish);
-    renderOverlay(path.join(root, 'plugin-templates', 'sdk-package'), workspace, {
-        '@SDK_VERSION@': identity.version,
-        '@SDK_RELEASE_ID@': identity.releaseId,
-        '@SOURCE_SHA@': options.sourceSha,
-    });
+    stagePluginTemplates(root, workspace, identity, options.sourceSha);
     fs.cpSync(path.join(root, '.mvn'), path.join(workspace, '.mvn'), { recursive: true });
     for (const file of ['mvnw', 'mvnw.cmd', 'LICENSE']) {
         fs.copyFileSync(path.join(root, file), path.join(workspace, file));
@@ -432,6 +452,7 @@ export function assembleRelease(options) {
 
     fs.mkdirSync(path.join(workspace, 'tools'), { recursive: true });
     fs.copyFileSync(options.toolsJar, path.join(workspace, 'tools', 'sdk-tools.jar'));
+    stageCommunityBundle(root, workspace, path.join(workspace, 'tools', 'sdk-tools.jar'), options.sourceSha);
     const projectManifest = createProjectManifest(identity, options.sourceSha, options.minimumHostRelease,
             runtime.developmentRuntime);
     writeJson(path.join(workspace, 'sdk-project.json'), projectManifest);
@@ -441,8 +462,6 @@ export function assembleRelease(options) {
     addMavenRuntimeTasks(downloadExample, '../../tools/sdk-tools.jar');
     for (const tool of ['gradle', 'sbt']) {
         const example = path.join(workspace, 'examples', `${tool}-plugin`);
-        copyTree(path.join(root, 'plugin-templates', 'minimal-feature-plugin', 'src', 'main'),
-                path.join(example, 'src', 'main'));
         writeJson(path.join(example, 'sdk-project.json'), projectManifest);
     }
     const gradle = path.join(workspace, 'examples', 'gradle-plugin');

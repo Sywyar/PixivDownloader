@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "versionStatus": [
+    {
+      "id": "active-yank",
+      "before": "ACTIVE",
+      "decisionSha256": null,
+      "action": "YANK",
+      "yankedDecisionSha256": null,
+      "newDecisionSha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "after": "YANKED"
+    },
+    {
+      "id": "active-unyank",
+      "before": "ACTIVE",
+      "decisionSha256": null,
+      "action": "UNYANK",
+      "yankedDecisionSha256": "abababababababababababababababababababababababababababababababab",
+      "newDecisionSha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "error": "INVALID_STATE_TRANSITION"
+    },
+    {
+      "id": "active-revoke",
+      "before": "ACTIVE",
+      "decisionSha256": null,
+      "action": "REVOKE",
+      "yankedDecisionSha256": null,
+      "newDecisionSha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "after": "REVOKED"
+    },
+    {
+      "id": "yanked-yank",
+      "before": "YANKED",
+      "decisionSha256": "abababababababababababababababababababababababababababababababab",
+      "action": "YANK",
+      "yankedDecisionSha256": null,
+      "newDecisionSha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "error": "INVALID_STATE_TRANSITION"
+    },
+    {
+      "id": "yanked-unyank",
+      "before": "YANKED",
+      "decisionSha256": "abababababababababababababababababababababababababababababababab",
+      "action": "UNYANK",
+      "yankedDecisionSha256": "abababababababababababababababababababababababababababababababab",
+      "newDecisionSha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "after": "ACTIVE"
+    },
+    {
+      "id": "yanked-revoke",
+      "before": "YANKED",
+      "decisionSha256": "abababababababababababababababababababababababababababababababab",
+      "action": "REVOKE",
+      "yankedDecisionSha256": null,
+      "newDecisionSha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "after": "REVOKED"
+    },
+    {
+      "id": "revoked-yank",
+      "before": "REVOKED",
+      "decisionSha256": "abababababababababababababababababababababababababababababababab",
+      "action": "YANK",
+      "yankedDecisionSha256": null,
+      "newDecisionSha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "error": "INVALID_STATE_TRANSITION"
+    },
+    {
+      "id": "revoked-unyank",
+      "before": "REVOKED",
+      "decisionSha256": "abababababababababababababababababababababababababababababababab",
+      "action": "UNYANK",
+      "yankedDecisionSha256": "abababababababababababababababababababababababababababababababab",
+      "newDecisionSha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "error": "INVALID_STATE_TRANSITION"
+    },
+    {
+      "id": "revoked-revoke",
+      "before": "REVOKED",
+      "decisionSha256": "abababababababababababababababababababababababababababababababab",
+      "action": "REVOKE",
+      "yankedDecisionSha256": null,
+      "newDecisionSha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "error": "INVALID_STATE_TRANSITION"
+    },
+    {
+      "id": "stale-unyank",
+      "before": "YANKED",
+      "decisionSha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "action": "UNYANK",
+      "yankedDecisionSha256": "abababababababababababababababababababababababababababababababab",
+      "newDecisionSha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "error": "BASELINE_CHANGED"
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "owner": {
+    "accountId": "101",
+    "accountType": "User",
+    "publisherId": "example"
+  },
+  "pluginId": "demo",
+  "version": "2.3.4",
+  "submissionRef": {
+    "path": "history/submission.json",
+    "size": 1,
+    "sha256": "abababababababababababababababababababababababababababababababab"
+  },
+  "reviewRef": {
+    "path": "history/review.json",
+    "size": 1,
+    "sha256": "abababababababababababababababababababababababababababababababab"
+  },
+  "sourceCommit": "1212121212121212121212121212121212121212",
+  "package": {
+    "url": "https://example.org/plugin.jar",
+    "expectedSize": 1,
+    "sha256": "abababababababababababababababababababababababababababababababab",
+    "signature": {
+      "formatVersion": 1,
+      "algorithm": "Ed25519",
+      "keyId": "Example:Key",
+      "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+    }
+  },
+  "historicalPublisherRef": {
+    "path": "history/publisher.json",
+    "size": 1,
+    "sha256": "abababababababababababababababababababababababababababababababab"
+  },
+  "communitySignature": {
+    "formatVersion": 1,
+    "algorithm": "Ed25519",
+    "keyId": "Example:Key",
+    "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+  },
+  "assuranceLevel": "SOURCE_REVIEWED",
+  "publishedAt": "2026-01-02T03:04:05Z"
+}

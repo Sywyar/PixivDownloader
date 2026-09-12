@@ -15,12 +15,50 @@ import {
     initializeProjectGit,
     readRuntimeInput,
     sha256,
+    stagePluginTemplates,
     verifyReleaseDirectory,
 } from '../sdk-release.mjs';
 import { inspectSdkVersion } from '../sdk-version.mjs';
 
 const IDENTITY = inspectSdkVersion(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..'));
 const HOST_VERSION = [IDENTITY.major, IDENTITY.minor, IDENTITY.patch].join('.');
+
+test('SDK 的四个可选工程在归档及初始 Git 树中保留相同的标准标识', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv-sdk-markers-'));
+    try {
+        const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
+        const sourceSha = execFileSync('git', ['-C', repoRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+        const workspace = path.join(root, 'workspace');
+        stagePluginTemplates(repoRoot, workspace, IDENTITY, sourceSha);
+        initializeProjectGit(workspace, { repoRoot, sourceSha, sdkVersion: IDENTITY.version });
+        const archive = path.join(root, 'sdk.zip');
+        createArchive(workspace, archive);
+        const extracted = path.join(root, 'extracted');
+        fs.mkdirSync(extracted);
+        extractArchive(archive, extracted);
+        const git = args => execFileSync('git', ['-C', extracted, ...args]);
+        const markers = ['', 'examples/download-type-plugin/', 'examples/gradle-plugin/', 'examples/sbt-plugin/']
+                .map(prefix => `${prefix}.pixivdownloader-plugin-project`).sort();
+        const tracked = git(['ls-files', '-z']).toString('utf8').split('\0').filter(Boolean);
+        assert.deepEqual(tracked.filter(file => file.endsWith('.pixivdownloader-plugin-project')).sort(), markers);
+        for (const marker of markers) {
+            const bytes = Buffer.from('pixivdownloader-plugin-project-v1\n', 'ascii');
+            assert.deepEqual(fs.readFileSync(path.join(extracted, marker)), bytes);
+            assert.deepEqual(git(['show', `HEAD:${marker}`]), bytes);
+            assert.match(git(['ls-tree', 'HEAD', '--', marker]).toString('utf8'), /^100644 /u);
+        }
+        assert.equal(git(['status', '--porcelain']).toString('utf8'), '');
+        const invalidRoot = path.join(root, 'invalid');
+        const invalid = path.join(invalidRoot, 'plugin-templates', 'minimal-feature-plugin');
+        fs.mkdirSync(invalid, { recursive: true });
+        for (const content of [null, '', '\ufeffpixivdownloader-plugin-project-v1\n',
+            'pixivdownloader-plugin-project-v1', 'pixivdownloader-plugin-project-v2\n']) {
+            if (content !== null) fs.writeFileSync(path.join(invalid, '.pixivdownloader-plugin-project'), content, 'utf8');
+            assert.throws(() => stagePluginTemplates(invalidRoot, path.join(root, 'rejected'), IDENTITY, sourceSha),
+                    /project marker/u);
+        }
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
 
 const runtime = {
     hostVersion: HOST_VERSION, hostSourceCommitSha: 'a'.repeat(40), platforms: ['windows-x64'],
@@ -217,4 +255,6 @@ test('SDK 消费者拒绝打入宿主提供类的非 thin JAR', () => {
             () => assertThinJarEntries(['plugin.properties', 'org/pf4j/Plugin.class']),
             /forbidden bundled entry/u);
     assert.throws(() => assertThinJarEntries(['com/example/ExamplePlugin.class']), /root plugin\.properties/u);
+    assert.throws(() => assertThinJarEntries(['plugin.properties', '.pixivdownloader-plugin-project']),
+            /forbidden bundled entry/u);
 });

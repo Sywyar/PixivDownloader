@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "prefix": "ab",
+  "entries": [
+    {
+      "repositoryId": "demo-repository",
+      "descriptorUrl": "https://example.org/repository.json",
+      "descriptorSha256": "abababababababababababababababababababababababababababababababab",
+      "publisher": {
+        "accountId": "101",
+        "accountType": "User",
+        "publisherId": "example"
+      },
+      "publisherLoginSnapshot": "example",
+      "certificationRef": {
+        "path": "evidence/certification.json",
+        "size": 1,
+        "sha256": "abababababababababababababababababababababababababababababababab"
+      },
+      "certifiedKeys": [
+        {
+          "keyId": "Example:Key",
+          "spkiSha256": "abababababababababababababababababababababababababababababababab"
+        }
+      ],
+      "status": "LISTED",
+      "firstReviewedAt": "2026-01-02T03:04:05Z",
+      "lastReviewedAt": "2026-01-02T03:04:05Z",
+      "directorySequence": 1
+    }
+  ]
+}

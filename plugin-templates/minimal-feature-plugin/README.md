@@ -4,6 +4,10 @@ This directory is a standalone Maven project for a thin external PF4J plugin. It
 
 Build with JDK 17, Maven and Node.js using `mvn clean verify`. The POM declares only `pixivdownload-sdk` with `provided` scope for compilation, plus JUnit for tests. The SDK brings the public contracts and host-provided framework libraries transitively; do not copy them into the output JAR. The configured candidate SDK version must be available in your Maven repository.
 
+Keep `.pixivdownloader-plugin-project` in the selected project directory and track it with Git. Generated markers contain `pixivdownloader-plugin-project-v1` followed by LF; readers also accept a UTF-8 BOM and no line ending or CRLF. The marker identifies the project format and proves neither publisher identity nor code safety. It stays out of the plugin JAR.
+
+The package's `pixiv.risk-signals` field records developer-declared capabilities. This declarative template has an explicit empty declaration. Review it when adding behavior; an empty declaration is not a safety guarantee. Missing declarations remain distinct from empty declarations, and unknown tokens are preserved as metadata.
+
 Replace these values consistently before using the template:
 
 | Template value | Replace with |

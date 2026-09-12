@@ -546,7 +546,8 @@ class PixivPluginDiscoveryBridgeTest {
                 List.of(),
                 top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy.PROCESS_RESTART,
                 top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode.HOST_PROCESS_FULL_TRUST,
-                configurationClassNames);
+                configurationClassNames,
+                top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginRiskDeclaration.absent());
     }
 
     /** 外置插件主类：同时是 PF4J Plugin 与入口契约 PixivPluginProvider（运行期由插件 classloader 创建）。 */

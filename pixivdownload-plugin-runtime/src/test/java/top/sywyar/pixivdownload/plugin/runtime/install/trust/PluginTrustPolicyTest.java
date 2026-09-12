@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginRiskDeclaration;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
@@ -58,7 +59,7 @@ class PluginTrustPolicyTest {
                 "demo", "demo", version, VersionRequirement.unspecified(), List.of(),
                 "com.example.DemoPlugin", null, "demo", null, null, null,
                 PluginKind.FEATURE, List.of(), PluginLifecyclePolicy.HOT_RELOAD,
-                executionMode, List.of());
+                executionMode, List.of(), PluginRiskDeclaration.absent());
     }
 
     private static PluginProvenanceRecord provenance(String artifactSha256) {

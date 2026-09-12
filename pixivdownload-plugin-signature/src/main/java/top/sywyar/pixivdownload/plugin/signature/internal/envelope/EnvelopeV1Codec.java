@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.signature.internal.envelope;
 
+import top.sywyar.pixivdownload.plugin.signature.community.CommunityOperation;
+
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -55,6 +57,49 @@ public final class EnvelopeV1Codec {
     public static byte[] pluginRevocationsMessage(String repositoryId, long sequence,
                                                   long rawLength, byte[] sha256) {
         return signedDocumentMessage(PLUGIN_REVOCATIONS_DOMAIN, repositoryId, sequence, rawLength, sha256);
+    }
+
+    /** 社区复核签名绑定发布者原包、源码及独立存档的审核记录。 */
+    public static byte[] communityPackageMessage(String algorithm, String keyId, String repositoryId,
+            String pluginId, String version, long size, byte[] sha256, String assuranceLevel,
+            String sourceCommit, byte[] reviewRecordSha256) {
+        requireSha256(sha256);
+        requireSha256(reviewRecordSha256);
+        return write(out -> {
+            writeString(out, "pixivdownloader-community-package-v1");
+            out.writeInt(FORMAT_VERSION);
+            writeString(out, algorithm);
+            writeString(out, keyId);
+            writeString(out, repositoryId);
+            writeString(out, pluginId);
+            writeString(out, version);
+            out.writeLong(size);
+            out.write(sha256);
+            writeString(out, assuranceLevel);
+            writeString(out, sourceCommit);
+            out.write(reviewRecordSha256);
+        });
+    }
+
+    /** 目录只签原始 root 字节，shard 的摘要由 root 认证。 */
+    public static byte[] communityDirectoryMessage(String repositoryId, long sequence,
+            long rawLength, byte[] sha256) {
+        return signedDocumentMessage("pixivdownloader-community-directory-root-v1",
+                repositoryId, sequence, rawLength, sha256);
+    }
+
+    /** 输入为数据工具提供的 JCS 正文字节摘要，不在密码学模块解析 JSON。 */
+    public static byte[] communityOperationMessage(CommunityOperation operation, String algorithm,
+            String signingKeyId, long canonicalLength, byte[] canonicalSha256) {
+        requireSha256(canonicalSha256);
+        return write(out -> {
+            writeString(out, operation.domain());
+            out.writeInt(FORMAT_VERSION);
+            writeString(out, algorithm);
+            writeString(out, signingKeyId);
+            out.writeLong(canonicalLength);
+            out.write(canonicalSha256);
+        });
     }
 
     private static byte[] signedDocumentMessage(String domain, String repositoryId, long sequence,

@@ -8,6 +8,10 @@
 
 ## 开始开发
 
+根 Maven 工程和三个 `examples/` 工程各自包含已纳入 Git 的 `.pixivdownloader-plugin-project`。该文件只标识选中工程的格式，不证明身份或安全；`sdk-project.json` 另行固定开发环境。插件 JAR、`.dev/` 和运行附件不包含工程标识。
+
+开发者在包内 `plugin.properties` 的 `pixiv.risk-signals` 中声明能力，使用逗号分隔的 token。根工程、Gradle 和 sbt 示例是显式空声明；下载类型示例声明 `HOST_DATA_ACCESS`，对应其使用的宿主身份与任务上下文。添加行为时一并更新声明；缺失、空值或没有扫描命中均不代表安全，也不授予运行时权限。
+
 安装 JDK 17 和 Node.js，让 `java`、`node` 可从命令行调用。IDE 导入只解析工程。显式 Run / Debug 才编译当前插件、准备固定运行包并启动完整应用；构建失败会中止启动。Maven Wrapper 会取得固定版本的 Maven，无需克隆宿主仓库或手工复制宿主和官方插件。首次应用配置使用宿主自己的 setup 流程。
 
 | IDE | 导入 | 运行 | 调试 |
@@ -81,6 +85,12 @@ Gradle 使用 `compileOnly("io.github.sywyar.pixivdownloader:pixivdownload-sdk:@
 ```
 
 Ivy 的运行配置不要继承此编译配置。标准 Maven 元数据传递公开 API 及 PF4J、Spring、Servlet、Jackson 编译依赖；产物仍是 thin PF4J JAR，不将这些宿主提供类打包。测试框架自行声明，三个 API 模块和 BOM 仍可单独消费。
+
+## 社区格式与资源
+
+`contracts/community/v1/` 提供社区 JSON Schema、能力声明 token、市场分类与标签、许可证模板，以及签名和数据校验向量。填写 `pixiv.risk-signals` 时查阅其中的 `catalogs.json`；许可证模板可按项目需要选用，许可证声明不受模板清单限制。
+
+`bundle-manifest.json` 固定每份资源的大小和 SHA-256，并记录工具版本。`tools/community-contract.json` 记录 SDK、源码提交、合同版本、资源清单摘要及本次 `sdk-tools.jar` 的大小与摘要。消费这些资源时固定完整发行物和摘要；更新时使用同一发行物中的工具与资源，不单独替换目录文件。它们随开发包进入初始 Git 提交，不进入插件 JAR 或公共 Maven 编译依赖。
 
 ## 运行包、缓存和工程数据
 

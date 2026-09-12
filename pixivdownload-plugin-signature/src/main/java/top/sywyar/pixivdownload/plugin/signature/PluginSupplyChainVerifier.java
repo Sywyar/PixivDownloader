@@ -3,6 +3,10 @@ package top.sywyar.pixivdownload.plugin.signature;
 import top.sywyar.pixivdownload.plugin.signature.internal.ed25519.Ed25519Verifier;
 import top.sywyar.pixivdownload.plugin.signature.internal.envelope.EnvelopeV1Codec;
 import top.sywyar.pixivdownload.plugin.signature.internal.envelope.Hashing;
+import top.sywyar.pixivdownload.plugin.signature.internal.trust.KeyParsing;
+import top.sywyar.pixivdownload.plugin.signature.community.CommunityPackageVerificationRequest;
+import top.sywyar.pixivdownload.plugin.signature.community.CommunityDirectoryVerificationRequest;
+import top.sywyar.pixivdownload.plugin.signature.community.CommunityOperationVerificationRequest;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -93,6 +97,119 @@ public final class PluginSupplyChainVerifier {
         Objects.requireNonNull(request, "request");
         return verifySignedDocument(request.documentBytes(), request.repositoryId(), request.sequence(),
                 request.signature(), request.policy(), false);
+    }
+
+    /** 验证社区签名与实际包；不替代发布者原签、审核关联和来源连续性。 */
+    public VerificationResult verifyCommunityPackage(CommunityPackageVerificationRequest request) {
+        Objects.requireNonNull(request, "request");
+        ArtifactVerificationRequest artifact = new ArtifactVerificationRequest(request.artifactPath(),
+                request.pluginId(), request.version(), request.expectedSizeBytes(), request.expectedSha256(),
+                request.signature(), null);
+        if (!hasText(request.repositoryId()) || !hasText(request.pluginId()) || !hasText(request.version())
+                || !hasText(request.assuranceLevel()) || !hasText(request.sourceCommit())
+                || !lowercaseSha256(request.reviewRecordSha256()) || !lowercaseSha256(request.expectedSha256())
+                || request.expectedSizeBytes() <= 0) {
+            return fail(VerificationStatus.IDENTITY_MISMATCH, artifact, request.signature(), 0, null,
+                    "COMMUNITY_PACKAGE_IDENTITY_INVALID");
+        }
+        long size;
+        byte[] hash;
+        try {
+            if (request.artifactPath() == null || !Files.isRegularFile(request.artifactPath())) {
+                return fail(VerificationStatus.IO_ERROR, artifact, request.signature(), 0, null, "ARTIFACT_NOT_FOUND");
+            }
+            size = Files.size(request.artifactPath());
+            hash = Hashing.sha256(request.artifactPath());
+        } catch (IOException e) {
+            return fail(VerificationStatus.IO_ERROR, artifact, request.signature(), 0, null, "ARTIFACT_IO_ERROR");
+        }
+        String hex = Hashing.hex(hash);
+        if (size != request.expectedSizeBytes() || !hex.equals(request.expectedSha256())) {
+            return fail(VerificationStatus.HASH_MISMATCH, artifact, request.signature(), size, hex,
+                    size != request.expectedSizeBytes() ? "SIZE_MISMATCH" : "SHA256_MISMATCH");
+        }
+        return verifyCommunityEnvelope(request.signature(), request.retiredKeysAllowed(), request.pluginId(),
+                request.version(), size, hash, key -> EnvelopeV1Codec.communityPackageMessage(
+                        request.signature().algorithm(), request.signature().keyId(), request.repositoryId(),
+                        request.pluginId(), request.version(), size, hash, request.assuranceLevel(),
+                        request.sourceCommit(), HexFormat.of().parseHex(request.reviewRecordSha256())), artifact);
+    }
+
+    /** 只验证当前提供的目录快照；调用者另行核对单调序号及完整 generation。 */
+    public VerificationResult verifyCommunityDirectory(CommunityDirectoryVerificationRequest request) {
+        Objects.requireNonNull(request, "request");
+        byte[] bytes = request.documentBytes();
+        if (bytes == null) return fail(VerificationStatus.IO_ERROR, null, request.signature(), 0, null, "DOCUMENT_MISSING");
+        byte[] hash = Hashing.sha256(bytes);
+        if (!hasText(request.repositoryId()) || request.sequence() <= 0) {
+            return fail(VerificationStatus.IDENTITY_MISMATCH, null, request.signature(), bytes.length,
+                    Hashing.hex(hash), "DOCUMENT_IDENTITY_INVALID");
+        }
+        return verifyCommunityEnvelope(request.signature(), request.retiredKeysAllowed(), null, null,
+                bytes.length, hash, key -> EnvelopeV1Codec.communityDirectoryMessage(
+                        request.repositoryId(), request.sequence(), bytes.length, hash), null);
+    }
+
+    /** 验证动作专属证明；不会把同一证明用于另一类操作。 */
+    public VerificationResult verifyCommunityOperation(CommunityOperationVerificationRequest request) {
+        Objects.requireNonNull(request, "request");
+        byte[] bytes = request.canonicalBytes();
+        if (bytes == null) return fail(VerificationStatus.IO_ERROR, null, request.signature(), 0, null, "DOCUMENT_MISSING");
+        byte[] hash = Hashing.sha256(bytes);
+        String hex = Hashing.hex(hash);
+        if (request.operation() == null || !lowercaseSha256(request.requestId())) {
+            return fail(VerificationStatus.IDENTITY_MISMATCH, null, request.signature(), bytes.length, hex,
+                    "COMMUNITY_OPERATION_IDENTITY_INVALID");
+        }
+        if (!hex.equals(request.requestId())) {
+            return fail(VerificationStatus.HASH_MISMATCH, null, request.signature(), bytes.length, hex,
+                    "REQUEST_ID_MISMATCH");
+        }
+        return verifyCommunityEnvelope(request.signature(), request.retiredKeysAllowed(), null, null,
+                bytes.length, hash, key -> EnvelopeV1Codec.communityOperationMessage(request.operation(),
+                        request.signature().algorithm(), request.signature().keyId(), bytes.length, hash), null);
+    }
+
+    private VerificationResult verifyCommunityEnvelope(SignatureMetadata metadata, boolean allowRetired,
+            String pluginId, String version, long size, byte[] hash, MessageFactory message,
+            ArtifactVerificationRequest artifact) {
+        String hex = Hashing.hex(hash);
+        if (metadata != null) {
+            if (!SignatureMetadata.ED25519.equals(metadata.algorithm())) {
+                return fail(VerificationStatus.UNSUPPORTED_ALGORITHM, artifact, metadata, size, hex,
+                        "UNSUPPORTED_ALGORITHM");
+            }
+            try {
+                byte[] signature = Base64.getDecoder().decode(metadata.value());
+                if (metadata.formatVersion() != SignatureMetadata.FORMAT_VERSION || signature.length != 64
+                        || !Base64.getEncoder().encodeToString(signature).equals(metadata.value())
+                        || !hasText(metadata.keyId()) || !metadata.keyId().equals(metadata.keyId().trim())) {
+                    throw new IllegalArgumentException("noncanonical signature");
+                }
+            } catch (IllegalArgumentException | NullPointerException e) {
+                return fail(VerificationStatus.MALFORMED_SIGNATURE, artifact, metadata, size, hex,
+                        "MALFORMED_SIGNATURE");
+            }
+            TrustedPluginKey key = trustStore.findByKeyId(metadata.keyId()).orElse(null);
+            if (key != null) {
+                if (OfficialArtifactTrustRoots.isOfficialKey(key)) {
+                    return fail(VerificationStatus.UNKNOWN_KEY, artifact, metadata, size, hex,
+                            "COMMUNITY_KEY_REQUIRED");
+                }
+                try {
+                    KeyParsing.canonicalEd25519PublicKey(key.publicKeySpkiBase64());
+                } catch (IllegalArgumentException e) {
+                    return fail(VerificationStatus.MALFORMED_SIGNATURE, artifact, metadata, size, hex,
+                            "MALFORMED_PUBLIC_KEY");
+                }
+            }
+        }
+        return verifySignedEnvelope(metadata, new VerificationPolicy(true, false, false, allowRetired, "community"),
+                pluginId, version, size, hash, hex, message, artifact);
+    }
+
+    private static boolean lowercaseSha256(String value) {
+        return value != null && value.matches("[0-9a-f]{64}");
     }
 
     private VerificationResult verifySignedDocument(byte[] bytes, String repositoryId, long sequence,

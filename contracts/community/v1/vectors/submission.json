@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "publisherId": "example",
+  "pluginId": "example-minimal",
+  "version": "2.3.4",
+  "source": {
+    "repository": "https://github.com/example/plugin",
+    "commit": "1111111111111111111111111111111111111111",
+    "previousReviewedCommit": null,
+    "archive": {
+      "url": "https://example.org/source.zip",
+      "size": 1,
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  },
+  "buildProfile": {
+    "id": "maven-java17-v1",
+    "projectDir": ".",
+    "artifactPath": "target/plugin.jar"
+  },
+  "license": {
+    "expression": "MIT OR Apache-2.0",
+    "files": [
+      {
+        "path": "LICENSE",
+        "size": 1,
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ]
+  },
+  "package": {
+    "url": "https://example.org/plugin.jar",
+    "expectedSize": 1,
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "signature": {
+      "formatVersion": 1,
+      "algorithm": "Ed25519",
+      "keyId": "Example:Key",
+      "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+    }
+  },
+  "market": {
+    "defaultLocale": "en",
+    "displayName": {
+      "en": "Example",
+      "ar": "مثال"
+    },
+    "summary": {
+      "en": "Example plugin"
+    },
+    "category": "utility",
+    "tags": [
+      "developer-tools"
+    ]
+  }
+}

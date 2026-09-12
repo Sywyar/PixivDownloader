@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin.signature;
 
 import java.util.List;
+import java.util.stream.Stream;
 
 /**
  * 宿主内置的官方产物信任根注册表。
@@ -53,6 +54,13 @@ public final class OfficialArtifactTrustRoots {
 
     public static List<TrustedPluginKey> ffmpegRoots() {
         return List.of(FFMPEG_ROOT);
+    }
+
+    /** 社区隔离同时核对官方标记和规范 SPKI，不依赖可重命名的 keyId。 */
+    static boolean isOfficialKey(TrustedPluginKey key) {
+        return key.official() || Stream.of(pluginRoots(), updateRoots(), ffmpegRoots())
+                .flatMap(List::stream)
+                .anyMatch(root -> root.publicKeySpkiBase64().equals(key.publicKeySpkiBase64()));
     }
 
     private static TrustedPluginKey root(String keyId, String publicKey, String trustLabel) {

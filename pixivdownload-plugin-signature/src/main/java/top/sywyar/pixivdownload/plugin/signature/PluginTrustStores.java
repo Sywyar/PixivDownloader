@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin.signature;
 
 import top.sywyar.pixivdownload.plugin.signature.internal.trust.StaticPluginTrustStore;
+import top.sywyar.pixivdownload.plugin.signature.internal.trust.KeyParsing;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -32,6 +33,16 @@ public final class PluginTrustStores {
 
     public static PluginTrustStore of(Collection<TrustedPluginKey> keys) {
         return new StaticPluginTrustStore(keys);
+    }
+
+    /** 社区输入核对规范 SPKI 并排除官方公钥，历史 key 状态仍由验签策略判断。 */
+    public static PluginTrustStore community(Collection<TrustedPluginKey> keys) {
+        List<TrustedPluginKey> snapshot = List.copyOf(keys);
+        for (TrustedPluginKey key : snapshot) {
+            if (OfficialArtifactTrustRoots.isOfficialKey(key)) throw new IllegalArgumentException("community key must not be official");
+            KeyParsing.canonicalEd25519PublicKey(key.publicKeySpkiBase64());
+        }
+        return of(snapshot);
     }
 
     public static PluginTrustStore withBuiltInOfficialPlugins(Collection<TrustedPluginKey> additionalKeys) {
