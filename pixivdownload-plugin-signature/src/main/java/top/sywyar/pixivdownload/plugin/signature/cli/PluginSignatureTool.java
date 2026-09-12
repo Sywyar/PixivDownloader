@@ -11,15 +11,18 @@ import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
 import top.sywyar.pixivdownload.plugin.signature.VerificationPolicy;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
+import top.sywyar.pixivdownload.plugin.signature.community.CommunityOperation;
 import top.sywyar.pixivdownload.plugin.signature.internal.ed25519.Ed25519Signer;
 import top.sywyar.pixivdownload.plugin.signature.internal.envelope.EnvelopeV1Codec;
 import top.sywyar.pixivdownload.plugin.signature.internal.envelope.Hashing;
 import top.sywyar.pixivdownload.plugin.signature.internal.trust.KeyParsing;
+import top.sywyar.pixivdownload.plugin.signature.internal.trust.SigningKeyFiles;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.security.PrivateKey;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -44,6 +47,19 @@ public final class PluginSignatureTool {
         }
         String command = args[0];
         Map<String, String> options = parseOptions(args);
+        if ("keygen".equals(command)) {
+            onlyOptions(options, "directory");
+            SigningKeyFiles.generate(requiredPath(options, "directory"));
+            return;
+        }
+        if ("public-key".equals(command)) {
+            exportPublicKey(options);
+            return;
+        }
+        if ("community-operation".equals(command)) {
+            signCommunityOperation(options);
+            return;
+        }
         if ("artifact".equals(command)) {
             signArtifact(options);
             return;
@@ -174,12 +190,58 @@ public final class PluginSignatureTool {
                 Ed25519Signer.sign(privateKey(options), message));
     }
 
+    private static void exportPublicKey(Map<String, String> options) throws IOException {
+        onlyOptions(options, "public-key", "key-id", "out");
+        String keyId = communityKeyId(options);
+        String publicKey = SigningKeyFiles.publicKey(requiredPath(options, "public-key"));
+        var key = new TrustedPluginKey(keyId, SignatureMetadata.ED25519, publicKey,
+                TrustedPluginKey.State.ACTIVE, "CLI", "CLI", false);
+        PluginTrustStores.community(List.of(key));
+        String json = "{\"keyId\":\"" + keyId + "\",\"algorithm\":\"Ed25519\","
+                + "\"publicKeySpkiBase64\":\"" + publicKey + "\","
+                + "\"fingerprint\":\"" + key.publicKeyFingerprint() + "\"}\n";
+        Files.writeString(requiredPath(options, "out"), json, StandardCharsets.UTF_8,
+                StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+    }
+
+    private static void signCommunityOperation(Map<String, String> options) throws IOException {
+        onlyOptions(options, "operation", "canonical-body", "request-id", "key-id", "private-key", "out");
+        CommunityOperation operation = CommunityOperation.valueOf(required(options, "operation"));
+        String keyId = communityKeyId(options);
+        // 规范正文由固定 SDK 生成，密码学模块只校验其原始字节摘要，不解析 JSON。
+        byte[] canonical = SigningKeyFiles.read(requiredPath(options, "canonical-body"), 64 * 1024);
+        byte[] digest = Hashing.sha256(canonical);
+        if (canonical.length == 0 || !Hashing.hex(digest).equals(required(options, "request-id"))) {
+            throw new IllegalArgumentException("REQUEST_ID_MISMATCH");
+        }
+        byte[] message = EnvelopeV1Codec.communityOperationMessage(operation, SignatureMetadata.ED25519,
+                keyId, canonical.length, digest);
+        writeMetadata(requiredPath(options, "out"), keyId, Ed25519Signer.sign(privateKey(options), message), true);
+    }
+
+    private static String communityKeyId(Map<String, String> options) {
+        String keyId = required(options, "key-id");
+        if (!keyId.matches("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")) {
+            throw new IllegalArgumentException("INVALID_KEY_ID");
+        }
+        return keyId;
+    }
+
+    private static void onlyOptions(Map<String, String> options, String... allowed) {
+        if (!List.of(allowed).containsAll(options.keySet())) throw new IllegalArgumentException("UNKNOWN_OPTION");
+    }
+
     private static PrivateKey privateKey(Map<String, String> options) throws IOException {
         Path path = requiredPath(options, "private-key");
-        return KeyParsing.ed25519PrivateKey(Files.readString(path, StandardCharsets.UTF_8));
+        return KeyParsing.ed25519PrivateKey(new String(SigningKeyFiles.read(path, SigningKeyFiles.MAX_KEY_BYTES),
+                StandardCharsets.UTF_8));
     }
 
     private static void writeMetadata(Path out, String keyId, byte[] signature) throws IOException {
+        writeMetadata(out, keyId, signature, false);
+    }
+
+    private static void writeMetadata(Path out, String keyId, byte[] signature, boolean createNew) throws IOException {
         SignatureMetadata metadata = new SignatureMetadata(SignatureMetadata.FORMAT_VERSION,
                 SignatureMetadata.ED25519, keyId, Base64.getEncoder().encodeToString(signature));
         String json = "{"
@@ -192,7 +254,12 @@ public final class PluginSignatureTool {
         if (parent != null) {
             Files.createDirectories(parent);
         }
-        Files.writeString(out, json + System.lineSeparator(), StandardCharsets.UTF_8);
+        if (createNew) {
+            Files.writeString(out, json + "\n", StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+        } else {
+            Files.writeString(out, json + System.lineSeparator(), StandardCharsets.UTF_8);
+        }
     }
 
     private static SignatureMetadata readMetadata(Path path) throws IOException {
@@ -265,7 +332,7 @@ public final class PluginSignatureTool {
             if (i + 1 >= args.length || args[i + 1].startsWith("--")) {
                 throw new IllegalArgumentException("missing value for --" + key);
             }
-            options.put(key, args[++i]);
+            if (options.putIfAbsent(key, args[++i]) != null) throw new IllegalArgumentException("DUPLICATE_OPTION");
         }
         return options;
     }
@@ -328,6 +395,11 @@ public final class PluginSignatureTool {
 
     private static void usage() {
         System.out.println("Usage:");
+        System.out.println("  keygen --directory <new-private-directory>");
+        System.out.println("  public-key --public-key <public-key.pem> --key-id <key> --out <public.json>");
+        System.out.println("  community-operation --operation PUBLISHER_KEY_ROTATION|VERSION_STATUS_REQUEST|OWNERSHIP_TRANSFER "
+                + "--canonical-body <jcs.bin> --request-id <sha256> --key-id <key> "
+                + "--private-key <pkcs8.pem> --out <sig.json>");
         System.out.println("  artifact --artifact <jar> --plugin-id <id> --version <version> "
                 + "--key-id <key> --private-key <pkcs8.pem> --out <sig.json>");
         System.out.println("  manifest --manifest <manifest.json> --repository-id <id> "

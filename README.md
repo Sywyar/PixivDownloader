@@ -132,6 +132,14 @@ sh run.sh
 
 插件开发包提供单个 `pixivdownload-sdk` 编译依赖、独立 Maven 工程及 Gradle / sbt 示例。带固定运行清单的 SDK 可通过自带 Run / Debug 入口构建当前插件，自动准备配套宿主和完整官方插件；运行数据保存在各工程的 `.dev/`。可下载版本及具体用法以对应 Release 和包内 README 为准。
 
+发布者签名 CLI 位于 `pixivdownload-plugin-signature`，只需 JDK 17。在仓库根执行 `./mvnw -pl pixivdownload-plugin-signature package` 后，以 `java -cp <该模块生成的JAR> top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool <命令>` 调用：
+
+- `keygen --directory <新目录>`：生成 `private-key.pem`（PKCS#8）和配套 `public-key.pem`（SPKI），目录及私钥仅允许当前用户访问。请选择源码仓库和临时目录之外的位置，备份这两个文件；命令不覆盖已有目录。
+- `public-key --public-key <public-key.pem> --key-id <标识> --out <public.json>`：导出规范 SPKI Base64 和 SHA-256 公钥指纹。此命令读取配套公钥文件，不从私钥推导公钥。
+- `community-operation --operation <PUBLISHER_KEY_ROTATION|VERSION_STATUS_REQUEST|OWNERSHIP_TRANSFER> --canonical-body <规范正文> --request-id <SHA-256> --key-id <标识> --private-key <private-key.pem> --out <sig.json>`：签署固定 SDK 生成的 JCS 正文字节。正文摘要必须与 requestId 一致；输出只含 detached 签名，不包含私钥。
+
+公钥导出和社区操作签名均拒绝覆盖已有输出。插件包继续使用 CLI 的 `artifact` 命令；`--help` 列出完整参数。私钥不得提交到 Git 或放入投稿附件。
+
 ---
 
 ## 免责声明

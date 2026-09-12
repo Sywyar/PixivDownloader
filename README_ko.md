@@ -130,6 +130,16 @@ sh run.sh
 
 ---
 
+## 게시자 서명 도구
+
+서명 CLI는 `pixivdownload-plugin-signature`에 있으며 JDK 17만 있으면 실행할 수 있습니다. 저장소 루트에서 `./mvnw -pl pixivdownload-plugin-signature package`를 실행한 뒤 `java -cp <이 모듈이 생성한 JAR> top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool <명령>`으로 호출합니다.
+
+- `keygen --directory <새 디렉터리>`: `private-key.pem`(PKCS#8)과 해당 `public-key.pem`(SPKI)을 생성합니다. 디렉터리와 개인 키는 현재 사용자만 접근할 수 있습니다. 소스 저장소와 임시 디렉터리 밖의 위치를 선택하고 두 파일을 모두 백업하세요. 기존 디렉터리를 덮어쓰지 않습니다.
+- `public-key --public-key <public-key.pem> --key-id <식별자> --out <public.json>`: 정규화된 SPKI Base64와 SHA-256 공개 키 지문을 내보냅니다. 짝을 이루는 공개 키 파일을 읽으며, 개인 키에서 공개 키를 유도하지 않습니다.
+- `community-operation --operation <PUBLISHER_KEY_ROTATION|VERSION_STATUS_REQUEST|OWNERSHIP_TRANSFER> --canonical-body <정규화된 본문> --request-id <SHA-256> --key-id <식별자> --private-key <private-key.pem> --out <sig.json>`: 고정된 SDK가 생성한 JCS 본문 바이트에 서명합니다. 본문 해시는 requestId와 일치해야 합니다. 출력에는 분리 서명만 포함되며 개인 키는 포함되지 않습니다.
+
+공개 키 내보내기와 커뮤니티 작업 서명은 기존 출력 파일을 덮어쓰지 않습니다. 플러그인 패키지에는 기존 `artifact` 명령을 사용하세요. 전체 인수는 `--help`에서 확인할 수 있습니다. 개인 키를 Git에 커밋하거나 제출 첨부 파일에 넣지 마세요.
+
 ## 면책 조항
 
 - 이 프로젝트는 개인 학습 및 연구용이며 상업적 용도로 사용하지 마세요.

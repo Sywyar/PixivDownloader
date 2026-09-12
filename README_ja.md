@@ -130,6 +130,16 @@ OS またはブラウザーの「自動プロキシ設定スクリプト（PAC�
 
 ---
 
+## 発行者の署名ツール
+
+署名 CLI は `pixivdownload-plugin-signature` にあり、JDK 17 のみで動作します。リポジトリのルートで `./mvnw -pl pixivdownload-plugin-signature package` を実行し、`java -cp <このモジュールが生成したJAR> top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool <コマンド>` で呼び出します。
+
+- `keygen --directory <新規ディレクトリ>`：`private-key.pem`（PKCS#8）と対応する `public-key.pem`（SPKI）を生成します。ディレクトリと秘密鍵へのアクセスは現在のユーザーに限定されます。ソースリポジトリと一時ディレクトリの外を選び、両方のファイルをバックアップしてください。既存のディレクトリは上書きしません。
+- `public-key --public-key <public-key.pem> --key-id <識別子> --out <public.json>`：正規化された SPKI Base64 と SHA-256 公開鍵フィンガープリントを出力します。対応する公開鍵ファイルを読み取り、秘密鍵から公開鍵を導出する処理は行いません。
+- `community-operation --operation <PUBLISHER_KEY_ROTATION|VERSION_STATUS_REQUEST|OWNERSHIP_TRANSFER> --canonical-body <正規化本文> --request-id <SHA-256> --key-id <識別子> --private-key <private-key.pem> --out <sig.json>`：固定された SDK が生成した JCS 本文のバイト列に署名します。本文のダイジェストは requestId と一致する必要があります。出力には分離署名のみが含まれ、秘密鍵は含まれません。
+
+公開鍵の出力とコミュニティ操作の署名では既存の出力ファイルを上書きできません。プラグインパッケージの署名には従来の `artifact` コマンドを使います。引数の一覧は `--help` で確認できます。秘密鍵を Git にコミットしたり、提出ファイルに含めたりしないでください。
+
 ## 免責事項
 
 - 本プロジェクトは個人の学習・研究目的に限り使用してください。商用利用は禁止します。
