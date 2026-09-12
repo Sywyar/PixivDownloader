@@ -89,6 +89,9 @@ jobs:
             echo "release_id=$release_id"
             echo "prerelease=$prerelease"
           } >> "$GITHUB_OUTPUT"
+          if [ "$publish" = false ]; then
+            echo "SDK $release_id unchanged: publication was not attempted; previous failures are not recovered by this run." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   quality-gate:
     needs: release-plan
@@ -96,6 +99,7 @@ jobs:
     uses: ./.github/workflows/quality-gate.yml
     with:
       trusted_base_sha: ${{ needs.release-plan.outputs.trusted_base_sha }}
+      export_sdk_candidates: ${{ needs.release-plan.outputs.mode == 'publish' }}
 
   publish:
     needs: [release-plan, quality-gate]
@@ -159,7 +163,7 @@ jobs:
             esac
           done
           if [ "$central_count" -ne 0 ] && [ "$central_count" -ne "${#artifacts[@]}" ]; then
-            echo "Maven Central contains only part of SDK $SDK_VERSION; refusing to mutate publication history" >&2
+            echo "Maven Central exposes only part of SDK $SDK_VERSION; inspect the original Central deployment and wait for all coordinates before recovery. No upload will be attempted." >&2
             exit 1
           fi
 
@@ -183,31 +187,50 @@ jobs:
             published="$(node -pe '!JSON.parse(process.argv[1])[0].draft' "$releases")"
           fi
 
-          if [ "$PUBLICATION_MODE" = "publish" ]; then
-            if [ "$central_count" -ne 0 ] || [ "$published" = true ] || { [ "$tag_exists" = true ] && [ "$reuse_release" = false ]; }; then
-              echo "SDK $RELEASE_ID already has public artifacts; use exact recovery or a new SDK version" >&2
-              exit 1
-            fi
-          elif [ "$PUBLICATION_MODE" = "recover-release" ]; then
-            if [ "$central_count" -ne "${#artifacts[@]}" ] || [ "$reuse_release" = false ]; then
-              echo "release recovery requires complete Central artifacts and the original frozen SDK Release" >&2
-              exit 1
-            fi
-          else
+          if [ "$PUBLICATION_MODE" != publish ] && [ "$PUBLICATION_MODE" != recover-release ]; then
             echo "unsupported publication mode: $PUBLICATION_MODE" >&2
             exit 1
           fi
+          publish_central=false
+          if [ "$central_count" -eq "${#artifacts[@]}" ]; then
+            if [ "$reuse_release" = false ]; then
+              echo "release recovery requires the original frozen SDK Release" >&2
+              exit 1
+            fi
+            echo "Central is complete; restore and verify the original signed SDK assets without redeploying."
+          elif [ "$reuse_release" = true ]; then
+            echo "SDK $RELEASE_ID already has frozen assets but Central is not publicly readable. A previous upload may still be processing; inspect its deployment ID before retrying. No upload will be attempted." >&2
+            exit 1
+          elif [ "$PUBLICATION_MODE" = recover-release ] || [ "$tag_exists" = true ]; then
+            echo "SDK publication state is incomplete: recovery requires complete Central artifacts and the original frozen SDK Release" >&2
+            exit 1
+          else
+            publish_central=true
+          fi
           echo "reuse_release=$reuse_release" >> "$GITHUB_OUTPUT"
           echo "published=$published" >> "$GITHUB_OUTPUT"
+          echo "publish_central=$publish_central" >> "$GITHUB_OUTPUT"
 
       - name: Install Node.js dependencies
         run: npm ci
 
-      - name: Verify release SDK artifacts
+      - name: Require SDK candidate from this quality gate
         if: ${{ steps.state.outputs.reuse_release == 'false' }}
-        uses: ./.github/actions/verify-sdk
+        env:
+          SDK_CANDIDATE_ID: ${{ needs.quality-gate.outputs.sdk_candidate_id }}
+        run: |
+          if ! [[ "$SDK_CANDIDATE_ID" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Missing verified SDK candidate; rerun the full workflow for this source commit." >&2
+            exit 1
+          fi
+
+      - name: Restore SDK candidate verified by this run
+        if: ${{ steps.state.outputs.reuse_release == 'false' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          source_sha: ${{ github.sha }}
+          artifact-ids: ${{ needs.quality-gate.outputs.sdk_candidate_id }}
+          path: target/sdk-release
+          merge-multiple: true
 
       - name: Restore original frozen SDK Release
         if: ${{ steps.state.outputs.reuse_release == 'true' }}
@@ -222,8 +245,9 @@ jobs:
           done
           cd "$GITHUB_WORKSPACE"
           node scripts/ci/sdk-release.mjs --verify-directory target/sdk-release --source-sha "$GITHUB_SHA"
-          # 消费者仍从同一源码构建；恢复时复用原始宿主、工具和 SDK ZIP。
-          mvn -B -ntp -pl pixivdownload-plugin-signature package -DskipTests -Dexec.skip=true
+
+      - name: Build signature verifier for frozen consumers
+        run: mvn -B -ntp -pl pixivdownload-plugin-signature package -DskipTests -Dexec.skip=true
 
       - name: Freeze signed SDK assets before Central publication
         if: ${{ steps.state.outputs.reuse_release == 'false' }}
@@ -267,7 +291,7 @@ jobs:
           node scripts/ci/sdk-release.mjs --verify-directory target/sdk-frozen-download --source-sha "$GITHUB_SHA"
 
       - name: Publish SDK artifacts to Maven Central
-        if: ${{ needs.release-plan.outputs.mode == 'publish' }}
+        if: ${{ steps.state.outputs.publish_central == 'true' }}
         run: |
           set -euo pipefail
           sdk_modules="$(node scripts/ci/sdk-version.mjs --modules)"
