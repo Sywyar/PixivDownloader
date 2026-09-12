@@ -229,6 +229,15 @@ try {
     Assert-Rejected { Wait-ArtifactProcessExit $child 'stuck child' 1 } 'did not exit'
     if (-not $child.HasExited) { throw 'Timed out child was not cleaned up.' }
     Write-Host 'PASS: release E2E retries queued desktop startup within one deadline; rejects active/stable EDT stalls, early/late exit, dead JVM, stale probes, broken GUI, unexpected recovery and failed shutdown.'
+} catch {
+    Write-Host $_.ScriptStackTrace
+    Get-ChildItem -LiteralPath $context.Session -Recurse -File |
+        Where-Object { $_.Name -in @('edt-timeout.txt', 'probe-error.txt', 'stderr.log') } |
+        ForEach-Object {
+            Write-Host "Fixture diagnostic: $($_.FullName)"
+            Get-Content -LiteralPath $_.FullName -Tail 200 -Encoding UTF8 | ForEach-Object { Write-Host $_ }
+        }
+    throw
 } finally {
     foreach ($child in $children) { Stop-ArtifactProcess $child }
     Remove-TestSessionRoot $context
