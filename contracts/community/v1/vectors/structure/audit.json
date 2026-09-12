@@ -38,5 +38,6 @@
   ],
   "result": "APPLIED",
   "appliedAt": "2026-01-02T03:04:05Z",
-  "revocationSequence": 2
+  "revocationSequence": 2,
+  "relatedRecords": []
 }

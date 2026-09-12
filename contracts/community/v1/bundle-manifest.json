@@ -28,8 +28,8 @@
     },
     {
       "path": "community.schema.json",
-      "size": 61961,
-      "sha256": "b6819f40086b8227307fca53cdc56073450e6f290ff773b9978623d39350a6ed"
+      "size": 66394,
+      "sha256": "1823cc52f75950cefb7f3263addd217ccd42973d06e92932676bae7d2696a4b6"
     },
     {
       "path": "licenses/0BSD.txt",
@@ -147,6 +147,11 @@
       "sha256": "be8585d7f1195f693c143adc104dda04087d40b490317d2375e3e8cf90232747"
     },
     {
+      "path": "vectors/revocation-snapshots.json",
+      "size": 1707,
+      "sha256": "fd0519b54ebb06cb2b0441751dc0c89a413f09c3e9439e6e8b697d8dc3ef04b5"
+    },
+    {
       "path": "vectors/signatures.properties",
       "size": 4172,
       "sha256": "f6dfda14a5894a532efc1467ac364e0e792a8723116dce6c50edc6d54eca24b8"
@@ -163,8 +168,8 @@
     },
     {
       "path": "vectors/structure/audit.json",
-      "size": 1180,
-      "sha256": "bb69b7e7a1765feec9e18c1fe2a9d2fdcca8a9b0850dec61cd73b50123271a9d"
+      "size": 1204,
+      "sha256": "ab3de8ce27720a522c7a174f3682598d2e62f64509c6818732b58c5ea85accce"
     },
     {
       "path": "vectors/structure/binding.json",

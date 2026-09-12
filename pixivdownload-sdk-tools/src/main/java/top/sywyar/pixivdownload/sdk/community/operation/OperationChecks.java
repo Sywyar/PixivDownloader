@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.sdk.community.operation;
 
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
+import top.sywyar.pixivdownload.plugin.signature.PluginTrustStore;
 import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
@@ -39,7 +40,11 @@ final class OperationChecks {
     static void proof(CommunityJson.Document document, CommunityOperation operation,
                       SignatureMetadata signature, TrustedPluginKey key, String field) {
         if (signature == null) throw new ContractException("PROOF_REQUIRED", field);
-        var result = new PluginSupplyChainVerifier(PluginTrustStores.of(List.of(key)))
+        if (key == null || key.official()) throw new ContractException("UNKNOWN_KEY", field);
+        PluginTrustStore trustStore;
+        try { trustStore = PluginTrustStores.community(List.of(key)); }
+        catch (IllegalArgumentException e) { throw new ContractException("MALFORMED_SIGNATURE", field); }
+        var result = new PluginSupplyChainVerifier(trustStore)
                 .verifyCommunityOperation(new CommunityOperationVerificationRequest(operation,
                         CommunityJson.canonicalBody(document), document.value().get("requestId").textValue(), signature, false));
         if (result.status() != VerificationStatus.VERIFIED) {

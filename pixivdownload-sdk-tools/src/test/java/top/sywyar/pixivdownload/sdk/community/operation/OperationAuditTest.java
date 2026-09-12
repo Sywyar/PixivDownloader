@@ -45,7 +45,7 @@ class OperationAuditTest {
             var tree = (ObjectNode) document.value(); tree.put(field, field.equals("requestId") ? "cd".repeat(32) : "999");
             var changed = OperationAudit.read(CommunityJson.parse(CommunityJson.Kind.AUDIT, CommunityJson.encode(tree)));
             assertThatThrownBy(() -> changed.verify(f.request, f.authority, f.before, f.after, List.of(f.pr),
-                    f.recovery, f.sequence, f.evidence)).isInstanceOf(ContractException.class);
+                    f.recovery, f.sequence, List.of(), f.evidence)).isInstanceOf(ContractException.class);
         }
         var tree = (ObjectNode) document.value();
         ((ObjectNode) tree.get("prEvidence").get(0)).remove("mergeSha");
@@ -93,7 +93,7 @@ class OperationAuditTest {
         }
         CommunityJson.Document create() {
             return OperationAudit.create(request, requestRef, before, after, authority, List.of(pr), recovery,
-                    "2025-01-02T03:04:05Z", sequence, evidence);
+                    "2025-01-02T03:04:05Z", sequence, List.of(), evidence);
         }
         Reference put(String path, byte[] bytes) {
             var ref = Reference.of(path, bytes); evidence.put(path, new Evidence(ref, bytes)); return ref;

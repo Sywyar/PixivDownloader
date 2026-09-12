@@ -1716,6 +1716,12 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 9007199254740991
+        },
+        "relatedRecords": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reference"
+          }
         }
       },
       "required": [
@@ -1730,7 +1736,8 @@
         "reviewerAccountIds",
         "prEvidence",
         "result",
-        "appliedAt"
+        "appliedAt",
+        "relatedRecords"
       ],
       "additionalProperties": false
     },
@@ -2715,6 +2722,209 @@
       "required": [
         "schemaVersion",
         "versionStatus"
+      ],
+      "additionalProperties": false
+    },
+    "legacyRevocationEntry": {
+      "type": "object",
+      "properties": {
+        "scope": {
+          "enum": [
+            "PACKAGE_SHA256",
+            "PLUGIN_VERSION",
+            "SIGNING_KEY",
+            "PUBLISHER"
+          ]
+        },
+        "pluginId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/pluginId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "version": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/version"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "packageSha256": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "keyId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/keyId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "publisherId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/publisherId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "action": {
+          "enum": [
+            "YANKED",
+            "REVOKED"
+          ]
+        },
+        "reasonCode": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "effectiveTime": {
+          "$ref": "#/$defs/externalTime"
+        }
+      },
+      "required": [
+        "scope",
+        "action",
+        "reasonCode",
+        "effectiveTime"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "scope": {
+                "const": "PACKAGE_SHA256"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "packageSha256"
+            ],
+            "properties": {
+              "packageSha256": {
+                "$ref": "#/$defs/sha256"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "scope": {
+                "const": "PLUGIN_VERSION"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "pluginId",
+              "version"
+            ],
+            "properties": {
+              "pluginId": {
+                "$ref": "#/$defs/pluginId"
+              },
+              "version": {
+                "$ref": "#/$defs/version"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "scope": {
+                "const": "SIGNING_KEY"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "keyId"
+            ],
+            "properties": {
+              "keyId": {
+                "$ref": "#/$defs/keyId"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "scope": {
+                "const": "PUBLISHER"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "publisherId"
+            ],
+            "properties": {
+              "publisherId": {
+                "$ref": "#/$defs/publisherId"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "legacyRevocations": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "repositoryId": {
+          "$ref": "#/$defs/repositoryId"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "generatedTime": {
+          "$ref": "#/$defs/externalTime"
+        },
+        "nextUpdate": {
+          "$ref": "#/$defs/externalTime"
+        },
+        "entries": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {
+            "$ref": "#/$defs/legacyRevocationEntry"
+          }
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "repositoryId",
+        "sequence",
+        "generatedTime",
+        "nextUpdate",
+        "entries"
       ],
       "additionalProperties": false
     }

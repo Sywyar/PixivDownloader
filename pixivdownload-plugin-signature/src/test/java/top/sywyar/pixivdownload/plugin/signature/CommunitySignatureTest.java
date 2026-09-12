@@ -157,6 +157,33 @@ class CommunitySignatureTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    @DisplayName("社区工厂拒绝非规范公钥和官方标记，保留历史状态及旧工厂行为")
+    void communityTrustStoreUsesCanonicalKeys() {
+        for (var state : TrustedPluginKey.State.values()) {
+            var key = key(false, state);
+            assertThat(PluginTrustStores.community(List.of(key)).findByKeyId(key.keyId())).contains(key);
+        }
+        byte[] canonical = Base64.getDecoder().decode(v("publicKey"));
+        byte[] alternate = new byte[canonical.length + 2];
+        System.arraycopy(canonical, 0, alternate, 0, 9);
+        alternate[1] += 2; alternate[3] += 2;
+        alternate[9] = 5; alternate[10] = 0;
+        System.arraycopy(canonical, 9, alternate, 11, canonical.length - 9);
+        for (String encoded : List.of(v("publicKey").replace("=", ""), Base64.getEncoder().encodeToString(alternate))) {
+            var key = new TrustedPluginKey(v("keyId"), "Ed25519", encoded, TrustedPluginKey.State.ACTIVE, "test", "test", false);
+            assertThat(PluginTrustStores.of(List.of(key)).findByKeyId(key.keyId())).contains(key);
+            assertThatThrownBy(() -> PluginTrustStores.community(List.of(key))).isInstanceOf(IllegalArgumentException.class);
+        }
+        var official = key(true, TrustedPluginKey.State.ACTIVE);
+        assertThat(PluginTrustStores.of(List.of(official)).findByKeyId(official.keyId())).contains(official);
+        assertThatThrownBy(() -> PluginTrustStores.community(List.of(official))).isInstanceOf(IllegalArgumentException.class);
+        var valid = key(false, TrustedPluginKey.State.ACTIVE);
+        assertThatThrownBy(() -> PluginTrustStores.community(List.of(valid, valid))).isInstanceOf(IllegalArgumentException.class);
+        var malformed = new TrustedPluginKey(v("keyId"), "Ed25519", "invalid", TrustedPluginKey.State.ACTIVE, "test", "test", false);
+        assertThatThrownBy(() -> PluginTrustStores.community(List.of(malformed))).isInstanceOf(IllegalArgumentException.class);
+    }
+
     private CommunityPackageVerificationRequest packageRequest(Path artifact, String[] fields, long size,
             String sha, SignatureMetadata signature) {
         return new CommunityPackageVerificationRequest(artifact, fields[0], fields[1], fields[2], size, sha,

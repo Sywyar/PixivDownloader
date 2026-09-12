@@ -66,6 +66,10 @@ class OperationContractsTest {
                 TrustedPluginKey.State.RETIRED, key.publisher(), key.trustLabel(), false);
         assertThatThrownBy(() -> OperationChecks.proof(document, CommunityOperation.PUBLISHER_KEY_ROTATION, signature, retired, "/proofs/newKey"))
                 .isInstanceOf(ContractException.class);
+        var malformed = new TrustedPluginKey(key.keyId(), key.algorithm(), "invalid", key.state(), key.publisher(), key.trustLabel(), false);
+        error("MALFORMED_SIGNATURE", () -> OperationChecks.proof(document, CommunityOperation.PUBLISHER_KEY_ROTATION, signature, malformed, "/proofs/newKey"));
+        var official = new TrustedPluginKey(key.keyId(), key.algorithm(), key.publicKeySpkiBase64(), key.state(), key.publisher(), key.trustLabel(), true);
+        error("UNKNOWN_KEY", () -> OperationChecks.proof(document, CommunityOperation.PUBLISHER_KEY_ROTATION, signature, official, "/proofs/newKey"));
     }
 
     @Test

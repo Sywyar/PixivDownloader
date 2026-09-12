@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin.catalog.trust;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogProperties;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
@@ -18,6 +19,30 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class PluginCatalogRevocationAdmissionPolicyTest {
 
     @TempDir Path tempDir;
+
+    @Test
+    @DisplayName("社区恢复投影可由既有撤销解析器读取且保留独立限制")
+    void readsSharedCommunityRestorationSnapshots() throws Exception {
+        Path root = Path.of("").toAbsolutePath();
+        while (root != null && !Files.isDirectory(root.resolve("contracts/community"))) root = root.getParent();
+        assertThat(root).as("community contract resources").isNotNull();
+        var mapper = PluginCatalogStrictJson.mapper(true);
+        var vectors = mapper.readTree(Files.readAllBytes(root.resolve("contracts/community/v1/vectors/revocation-snapshots.json")));
+        for (var item : vectors.get("cases")) {
+            var document = mapper.treeToValue(item.get("after"), PluginRevocationDocument.class);
+            assertThat(document.schemaVersion()).isEqualTo(1);
+            assertThat(document.sequence()).isEqualTo(3);
+            boolean independentlyRestricted = !item.get("independentAction").isNull();
+            assertThat(document.entries()).hasSize(independentlyRestricted ? 1 : 0);
+            for (var value : document.entries()) {
+                assertThat(value.action()).isIn("YANKED", "REVOKED");
+                var entry = new PluginCatalogTrustStateStore.RevocationEntry(value.scope(), value.pluginId(), value.version(),
+                        value.packageSha256(), value.keyId(), value.publisherId(), value.action(), value.reasonCode(), value.effectiveTime());
+                assertThat(PluginCatalogRevocationService.matches(entry, null, "sample-plugin", "1.0.0", "ab".repeat(32), null)).isTrue();
+                assertThat(PluginCatalogRevocationService.matches(entry, null, "other-plugin", "2.0.0", "cd".repeat(32), null)).isFalse();
+            }
+        }
+    }
 
     @Test
     void rejectsRevokedArtifactAndPersistsHighestSequence() throws Exception {

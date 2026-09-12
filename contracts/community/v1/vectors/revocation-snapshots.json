@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "no-independent",
+      "independentAction": null,
+      "after": {
+        "schemaVersion": 1,
+        "repositoryId": "sample.repo",
+        "sequence": 3,
+        "generatedTime": "2025-02-03T04:05:06Z",
+        "nextUpdate": "2025-02-04T04:05:06Z",
+        "entries": []
+      }
+    },
+    {
+      "id": "independent-yanked",
+      "independentAction": "YANKED",
+      "after": {
+        "schemaVersion": 1,
+        "repositoryId": "sample.repo",
+        "sequence": 3,
+        "generatedTime": "2025-02-03T04:05:06Z",
+        "nextUpdate": "2025-02-04T04:05:06Z",
+        "entries": [
+          {
+            "scope": "PACKAGE_SHA256",
+            "pluginId": "sample-plugin",
+            "version": "1.0.0",
+            "packageSha256": "abababababababababababababababababababababababababababababababab",
+            "action": "YANKED",
+            "reasonCode": "OTHER",
+            "effectiveTime": "2025-02-03T04:05:06Z"
+          }
+        ]
+      }
+    },
+    {
+      "id": "independent-revoked",
+      "independentAction": "REVOKED",
+      "after": {
+        "schemaVersion": 1,
+        "repositoryId": "sample.repo",
+        "sequence": 3,
+        "generatedTime": "2025-02-03T04:05:06Z",
+        "nextUpdate": "2025-02-04T04:05:06Z",
+        "entries": [
+          {
+            "scope": "PACKAGE_SHA256",
+            "pluginId": "sample-plugin",
+            "version": "1.0.0",
+            "packageSha256": "abababababababababababababababababababababababababababababababab",
+            "action": "REVOKED",
+            "reasonCode": "OTHER",
+            "effectiveTime": "2025-02-03T04:05:06Z"
+          }
+        ]
+      }
+    }
+  ]
+}

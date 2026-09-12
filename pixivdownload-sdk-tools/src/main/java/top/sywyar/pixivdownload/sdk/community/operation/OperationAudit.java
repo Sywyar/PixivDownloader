@@ -16,11 +16,13 @@ import java.util.Map;
 public record OperationAudit(int schemaVersion, String requestId, String action, Reference requestRef,
                               Reference beforeRef, Reference afterRef, Reference decisionRef, String actorAccountId,
                               List<String> reviewerAccountIds, List<CommunityPr> prEvidence,
-                              List<Reference> recoveryEvidence, String result, String appliedAt, Long revocationSequence) {
+                              List<Reference> recoveryEvidence, List<Reference> relatedRecords,
+                              String result, String appliedAt, Long revocationSequence) {
     public OperationAudit {
         reviewerAccountIds = List.copyOf(reviewerAccountIds);
         prEvidence = List.copyOf(prEvidence);
         recoveryEvidence = recoveryEvidence == null ? null : List.copyOf(recoveryEvidence);
+        relatedRecords = List.copyOf(relatedRecords);
     }
 
     public static OperationAudit read(CommunityJson.Document document) {
@@ -33,13 +35,14 @@ public record OperationAudit(int schemaVersion, String requestId, String action,
             if (pr.mergeSha() == null) throw new ContractException("REVIEW_MISMATCH", "/prEvidence/mergeSha");
         });
         CommunityValues.unique(audit.prEvidence, pr -> pr.githubRepositoryId() + "/" + pr.number(), "/prEvidence");
+        CommunityValues.unique(audit.relatedRecords, Reference::path, "/relatedRecords");
         return audit;
     }
 
     /** 结构、摘要和实际批准分别核对；有效审计不自行赋予重放或当前管理权。 */
     public void verify(CommunityJson.Document request, OperationAuthority authority, Reference expectedBefore,
                        Reference expectedAfter, List<CommunityPr> expectedPrs, List<Reference> expectedRecovery,
-                       Long expectedSequence, Map<String, Evidence> evidence) {
+                       Long expectedSequence, List<Reference> expectedRelated, Map<String, Evidence> evidence) {
         String expectedId = CommunityJson.sha256(CommunityJson.canonicalBody(request));
         String expectedAction = action(request);
         if (!requestId.equals(expectedId) || !requestId.equals(request.value().get("requestId").textValue())
@@ -61,26 +64,28 @@ public record OperationAudit(int schemaVersion, String requestId, String action,
                 || !reviewerAccountIds.equals(authority.approval().reviewerAccountIds().stream().sorted().toList())
                 || !prEvidence.equals(expectedPrs) || !prEvidence.contains(authority.proposalPr())
                 || !java.util.Objects.equals(recoveryEvidence, expectedRecovery)
+                || !relatedRecords.equals(expectedRelated)
                 || !java.util.Objects.equals(revocationSequence, expectedSequence)) {
             throw new ContractException("REVIEW_MISMATCH", "/audit");
         }
         requestRef.verify(request.bytes());
         for (var ref : List.of(requestRef, beforeRef, afterRef, decisionRef)) CommunityValues.requireEvidence(ref, evidence);
         if (recoveryEvidence != null) recoveryEvidence.forEach(ref -> CommunityValues.requireEvidence(ref, evidence));
+        relatedRecords.forEach(ref -> CommunityValues.requireEvidence(ref, evidence));
     }
 
     public static CommunityJson.Document create(CommunityJson.Document request, Reference requestRef,
                                                 Reference before, Reference after, OperationAuthority authority,
                                                 List<CommunityPr> prs, List<Reference> recovery, String appliedAt,
-                                                Long sequence, Map<String, Evidence> evidence) {
+                                                Long sequence, List<Reference> related, Map<String, Evidence> evidence) {
         String expectedAction = action(request);
         String requestId = request.value().get("requestId").textValue();
         authority.requireApproval(requestId, false);
         var value = new OperationAudit(1, requestId, expectedAction, requestRef, before, after,
                 authority.approval().evidence().reference(), authority.actualAuthor().id(),
-                authority.approval().reviewerAccountIds().stream().sorted().toList(), prs, recovery, "APPLIED", appliedAt, sequence);
+                authority.approval().reviewerAccountIds().stream().sorted().toList(), prs, recovery, related, "APPLIED", appliedAt, sequence);
         var document = CommunityJson.parse(CommunityJson.Kind.AUDIT, CommunityJson.encode(value));
-        read(document).verify(request, authority, before, after, prs, recovery, sequence, evidence);
+        read(document).verify(request, authority, before, after, prs, recovery, sequence, related, evidence);
         return document;
     }
 
