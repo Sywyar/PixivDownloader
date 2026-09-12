@@ -72,7 +72,7 @@ public record PublishedVersion(int schemaVersion, Owner owner, String pluginId, 
         else {
             var previous = read(previousVersion);
             if (!previous.pluginId.equals(submission.pluginId())) throw new ContractException("BINDING_MISMATCH", "/previousVersion");
-            submission.verifyPreviousSource(previous.owner.equals(publisher.owner()) ? previous.sourceCommit : null);
+            submission.verifyPreviousSource(previous.sourceCommit);
         }
         review.verify(submissionDocument, input.reviewFacts, input.evidence, input.maximumReportBytes, input.maximumRebuildBytes);
         var value = new PublishedVersion(1, publisher.owner(), submission.pluginId(), submission.version(),

@@ -113,20 +113,23 @@ class PublishedVersionTest {
                 .extracting("code").isEqualTo("REVIEW_MISMATCH");
     }
 
-    @Test @DisplayName("后续版本核对前次源码而转移后首版要求完整审阅")
-    void requiresPreviousSourceOnlyForSameOwner() throws Exception {
+    @Test @DisplayName("后续版本始终核对前序源码，所有权转移也不能清空或改写历史")
+    void preservesPreviousSourceAcrossOwnershipTransfer() throws Exception {
         var first = new Fixture("1.0.0", null, true);
         var previous = PublishedVersion.publish(first.input(), Map.of(), null).document();
         var next = new Fixture("1.0.1", PublishedVersion.read(previous).sourceCommit(), true);
         assertThat(PublishedVersion.publish(next.input(), Map.of(), previous).replayed()).isFalse();
-        var full = new Fixture("1.0.1", null, true);
-        assertThatThrownBy(() -> PublishedVersion.publish(full.input(), Map.of(), previous)).isInstanceOf(ContractException.class)
+        var missing = new Fixture("1.0.1", null, true);
+        assertThatThrownBy(() -> PublishedVersion.publish(missing.input(), Map.of(), previous)).isInstanceOf(ContractException.class)
                 .extracting("code").isEqualTo("BASELINE_CHANGED");
         var tree = (ObjectNode) previous.value();
         ((ObjectNode) tree.get("owner")).put("accountId", "303").put("publisherId", "predecessor");
         var former = CommunityJson.parse(CommunityJson.Kind.PUBLISHED, CommunityJson.encode(tree));
-        assertThat(PublishedVersion.publish(full.input(), Map.of(), former).replayed()).isFalse();
-        assertThatThrownBy(() -> PublishedVersion.publish(next.input(), Map.of(), former)).isInstanceOf(ContractException.class)
+        assertThat(PublishedVersion.publish(next.input(), Map.of(), former).replayed()).isFalse();
+        assertThatThrownBy(() -> PublishedVersion.publish(missing.input(), Map.of(), former)).isInstanceOf(ContractException.class)
+                .extracting("code").isEqualTo("BASELINE_CHANGED");
+        var wrong = new Fixture("1.0.1", "89".repeat(20), true);
+        assertThatThrownBy(() -> PublishedVersion.publish(wrong.input(), Map.of(), former)).isInstanceOf(ContractException.class)
                 .extracting("code").isEqualTo("BASELINE_CHANGED");
     }
 
