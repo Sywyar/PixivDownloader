@@ -130,6 +130,16 @@ sh run.sh
 
 ---
 
+## 發布者簽名工具
+
+簽名 CLI 位於 `pixivdownload-plugin-signature`，僅需 JDK 17。在儲存庫根目錄執行 `./mvnw -pl pixivdownload-plugin-signature package`，再以 `java -cp <該模組產生的JAR> top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool <命令>` 呼叫：
+
+- `keygen --directory <新目錄>`：產生 `private-key.pem`（PKCS#8）與配套的 `public-key.pem`（SPKI），目錄及私鑰僅允許目前使用者存取。請選擇原始碼儲存庫與暫存目錄以外的位置，備份這兩個檔案；命令不覆寫既有目錄。
+- `public-key --public-key <public-key.pem> --key-id <識別碼> --out <public.json>`：匯出標準化 SPKI Base64 與 SHA-256 公鑰指紋。此命令讀取配套公鑰檔案，不從私鑰推導公鑰。
+- `community-operation --operation <PUBLISHER_KEY_ROTATION|VERSION_STATUS_REQUEST|OWNERSHIP_TRANSFER> --canonical-body <標準化正文> --request-id <SHA-256> --key-id <識別碼> --private-key <private-key.pem> --out <sig.json>`：簽署固定版本 SDK 產生的 JCS 正文字節。正文摘要必須與 requestId 一致；輸出僅含 detached 簽名，不含私鑰。
+
+公鑰匯出與社群操作簽名均拒絕覆寫既有輸出。外掛套件繼續使用 CLI 的 `artifact` 命令；`--help` 列出完整參數。私鑰不得提交至 Git 或放入投稿附件。
+
 ## 免責聲明
 
 - 本項目僅供個人學習和研究使用，請勿用於任何商業用途。

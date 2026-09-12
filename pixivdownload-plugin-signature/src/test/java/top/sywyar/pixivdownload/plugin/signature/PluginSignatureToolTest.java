@@ -4,10 +4,18 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool;
+import top.sywyar.pixivdownload.plugin.signature.community.CommunityOperation;
+import top.sywyar.pixivdownload.plugin.signature.community.CommunityOperationVerificationRequest;
 import top.sywyar.pixivdownload.plugin.signature.internal.envelope.Hashing;
+import top.sywyar.pixivdownload.plugin.signature.internal.trust.SigningKeyFiles;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.AclEntryType;
+import java.nio.file.attribute.AclFileAttributeView;
+import java.nio.file.attribute.PosixFileAttributeView;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.util.Base64;
@@ -23,6 +31,88 @@ class PluginSignatureToolTest {
 
     @TempDir
     Path tempDir;
+
+    @Test
+    @DisplayName("初始化密钥限制文件权限，导出规范公钥并拒绝覆盖或错误参数")
+    void initializesPrivateKeysWithoutOverwriting() throws Exception {
+        Path directory = tempDir.resolve("publisher keys");
+        PluginSignatureTool.main(new String[]{"keygen", "--directory", directory.toString()});
+        Path privateKey = directory.resolve("private-key.pem");
+        byte[] original = Files.readAllBytes(privateKey);
+        assertThatThrownBy(() -> PluginSignatureTool.main(new String[]{"keygen", "--directory", directory.toString()}))
+                .isInstanceOf(java.nio.file.FileAlreadyExistsException.class);
+        assertThat(Files.readAllBytes(privateKey)).isEqualTo(original);
+        if (Files.getFileAttributeView(privateKey, PosixFileAttributeView.class) != null) {
+            assertThat(Files.getPosixFilePermissions(directory)).isEqualTo(PosixFilePermissions.fromString("rwx------"));
+            assertThat(Files.getPosixFilePermissions(privateKey)).isEqualTo(PosixFilePermissions.fromString("rw-------"));
+        } else {
+            var acl = Files.getFileAttributeView(privateKey, AclFileAttributeView.class);
+            assertThat(acl).isNotNull();
+            var owner = privateKey.getFileSystem().getUserPrincipalLookupService()
+                    .lookupPrincipalByName(System.getProperty("user.name"));
+            assertThat(acl.getAcl()).filteredOn(entry -> entry.type() == AclEntryType.ALLOW)
+                    .allMatch(entry -> entry.principal().equals(owner));
+        }
+        Path exported = tempDir.resolve("public.json");
+        String[] export = {"public-key", "--public-key", directory.resolve("public-key.pem").toString(),
+                "--key-id", "test:key", "--out", exported.toString()};
+        PluginSignatureTool.main(export);
+        String json = Files.readString(exported, StandardCharsets.UTF_8);
+        assertThat(json).doesNotContain("PRIVATE KEY", Base64.getEncoder().encodeToString(original));
+        var key = new TrustedPluginKey("test:key", "Ed25519", value(json, "publicKeySpkiBase64"),
+                TrustedPluginKey.State.ACTIVE, "test", "test", false);
+        assertThat(value(json, "fingerprint")).isEqualTo(key.publicKeyFingerprint());
+        Path artifact = Files.writeString(tempDir.resolve("plugin.jar"), "real signature input", StandardCharsets.UTF_8);
+        Path signature = tempDir.resolve("artifact.sig");
+        PluginSignatureTool.main(new String[]{"artifact", "--artifact", artifact.toString(), "--plugin-id", "demo",
+                "--version", "4.5.6", "--key-id", key.keyId(), "--private-key", privateKey.toString(),
+                "--out", signature.toString()});
+        assertThat(new PluginSupplyChainVerifier(PluginTrustStores.community(List.of(key))).verifyArtifact(
+                new ArtifactVerificationRequest(artifact, "demo", "4.5.6", Files.size(artifact),
+                        Hashing.hex(Hashing.sha256(artifact)), readMetadata(signature), VerificationPolicy.customRepository())))
+                .extracting(VerificationResult::accepted).isEqualTo(true);
+        assertThatThrownBy(() -> PluginSignatureTool.main(export)).isInstanceOf(java.nio.file.FileAlreadyExistsException.class);
+        assertThatThrownBy(() -> PluginSignatureTool.main(new String[]{"keygen", "--directory", directory.toString(),
+                "--directory", tempDir.resolve("other").toString()})).hasMessage("DUPLICATE_OPTION");
+        assertThatThrownBy(() -> PluginSignatureTool.main(new String[]{"keygen", "--directory", directory.toString(),
+                "--unknown", "value"})).hasMessage("UNKNOWN_OPTION");
+        Path oversized = Files.write(tempDir.resolve("oversized.pem"), new byte[SigningKeyFiles.MAX_KEY_BYTES + 1]);
+        assertThatThrownBy(() -> SigningKeyFiles.publicKey(oversized)).hasMessage("INPUT_LIMIT_EXCEEDED");
+    }
+
+    @Test
+    @DisplayName("社区 CLI 签名由统一 verifier 验证，拒绝跨域、过期摘要及重复输出")
+    void signsCommunityOperationsWithExactBody() throws Exception {
+        Path directory = tempDir.resolve("keys");
+        PluginSignatureTool.main(new String[]{"keygen", "--directory", directory.toString()});
+        var key = new TrustedPluginKey("operation:key", "Ed25519",
+                SigningKeyFiles.publicKey(directory.resolve("public-key.pem")), TrustedPluginKey.State.ACTIVE,
+                "test", "test", false);
+        var verifier = new PluginSupplyChainVerifier(PluginTrustStores.community(List.of(key)));
+        Path canonical = Files.writeString(tempDir.resolve("body.bin"), "{\"payload\":{},\"schemaVersion\":1}", StandardCharsets.UTF_8);
+        byte[] bytes = Files.readAllBytes(canonical);
+        String requestId = Hashing.hex(Hashing.sha256(bytes));
+        for (var operation : CommunityOperation.values()) {
+            Path signature = tempDir.resolve(operation.name() + ".sig");
+            String[] command = {"community-operation", "--operation", operation.name(),
+                    "--canonical-body", canonical.toString(), "--request-id", requestId, "--key-id", key.keyId(),
+                    "--private-key", directory.resolve("private-key.pem").toString(), "--out", signature.toString()};
+            PluginSignatureTool.main(command);
+            for (var target : CommunityOperation.values()) {
+                assertThat(verifier.verifyCommunityOperation(new CommunityOperationVerificationRequest(
+                        target, bytes, requestId, readMetadata(signature), false)).accepted()).isEqualTo(target == operation);
+            }
+            assertThatThrownBy(() -> PluginSignatureTool.main(command)).isInstanceOf(java.nio.file.FileAlreadyExistsException.class);
+            command[6] = "00".repeat(32);
+            command[12] = tempDir.resolve("must-not-exist.sig").toString();
+            assertThatThrownBy(() -> PluginSignatureTool.main(command)).hasMessage("REQUEST_ID_MISMATCH");
+            assertThat(Path.of(command[12])).doesNotExist();
+            command[6] = requestId;
+            Files.write(canonical, new byte[64 * 1024 + 1]);
+            assertThatThrownBy(() -> PluginSignatureTool.main(command)).hasMessage("INPUT_LIMIT_EXCEEDED");
+            Files.write(canonical, bytes);
+        }
+    }
 
     @Test
     @DisplayName("artifact / manifest 签名 JSON 可被统一 verifier 离线验证")

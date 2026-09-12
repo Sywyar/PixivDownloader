@@ -148,6 +148,14 @@ For detailed installation steps, usage guides, configuration reference, and deve
 
 The plugin SDK provides one `pixivdownload-sdk` compile dependency, an independent Maven project, and Gradle / sbt examples. Packages with a fixed runtime manifest include Run / Debug entries that build the current plugin and prepare its matching host and complete official plugin set. Each project keeps runtime data in `.dev/`. Check the selected Release and its README for availability and instructions.
 
+The publisher signing CLI is in `pixivdownload-plugin-signature` and requires only JDK 17. Run `./mvnw -pl pixivdownload-plugin-signature package` from the repository root, then invoke `java -cp <JAR produced by that module> top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool <command>`:
+
+- `keygen --directory <new-directory>` creates `private-key.pem` (PKCS#8) and its matching `public-key.pem` (SPKI), with access to the directory and private key restricted to the current user. Choose a location outside source repositories and temporary directories, and back up both files. The command never replaces an existing directory.
+- `public-key --public-key <public-key.pem> --key-id <id> --out <public.json>` exports canonical SPKI Base64 and the SHA-256 public key fingerprint. It reads the matching public key file; it does not derive a public key from a private key.
+- `community-operation --operation <PUBLISHER_KEY_ROTATION|VERSION_STATUS_REQUEST|OWNERSHIP_TRANSFER> --canonical-body <canonical-body> --request-id <SHA-256> --key-id <id> --private-key <private-key.pem> --out <sig.json>` signs the JCS body bytes produced by the pinned SDK. The body digest must match requestId. The output contains only the detached signature, with no private key material.
+
+Public key export and community operation signing refuse to overwrite output files. Use the existing `artifact` command to sign plugin packages; `--help` lists all arguments. Never commit private keys to Git or include them in submission attachments.
+
 ---
 
 ## Disclaimer
