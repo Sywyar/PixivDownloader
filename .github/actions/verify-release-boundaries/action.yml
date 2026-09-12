@@ -15,14 +15,18 @@ runs:
     - name: Verify packaged distribution boundaries
       shell: bash
       env:
-        GITHUB_TOKEN: ${{ github.token }}
         REQUIRE_PRODUCTION_CREDENTIAL_KEY: ${{ inputs.require_production_credential_key }}
         ADDITIONAL_TESTS: ${{ inputs.additional_tests }}
       run: |
         set -euo pipefail
         tests="DistributionPackagingBoundaryTest${ADDITIONAL_TESTS:+,$ADDITIONAL_TESTS}"
-        mvn -B -ntp -pl pixivdownload-app -am test "-Dtest=$tests" -Dsurefire.failIfNoSpecifiedTests=false -Ddistribution.packaging.require-artifacts=true "-Ddistribution.packaging.require-production-credential-key=$REQUIRE_PRODUCTION_CREDENTIAL_KEY" -Dexec.skip=true
         IFS=',' read -r -a selectors <<< "$tests"
+        mkdir -p pixivdownload-app/target/surefire-reports
+        for selector in "${selectors[@]}"; do
+          class=${selector%%#*}
+          find pixivdownload-app/target/surefire-reports -name "*$class.txt" -delete
+        done
+        mvn -B -ntp -pl pixivdownload-app -am surefire:test "-Dtest=$tests" -Dsurefire.failIfNoSpecifiedTests=false -Ddistribution.packaging.require-artifacts=true "-Ddistribution.packaging.require-production-credential-key=$REQUIRE_PRODUCTION_CREDENTIAL_KEY" -Dexec.skip=true
         for selector in "${selectors[@]}"; do
           class=${selector%%#*}
           report=$(find pixivdownload-app/target/surefire-reports -name "*$class.txt" -print -quit)

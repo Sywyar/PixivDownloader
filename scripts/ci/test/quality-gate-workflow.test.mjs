@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
@@ -319,6 +320,53 @@ test('应用资源构建与 SDK 宿主消费者显式取得内置 GitHub 读取�
         }
     }
     assert.ok(builds > 0);
+});
+
+test('发行边界命令只执行已编译测试，拒绝旧报告、零测试、失败与跳过', () => {
+    const step = load('.github/actions/verify-release-boundaries/action.yml').runs.steps[0];
+    for (const steps of [load('.github/workflows/quality-gate.yml').jobs['release-artifacts'].steps,
+        load('.github/actions/build-release-java/action.yml').runs.steps]) {
+        const boundary = steps.findIndex(item => item.uses === './.github/actions/verify-release-boundaries');
+        assert.ok(boundary > 0);
+        assert.ok(steps.slice(0, boundary).some(item => /\bmvn\b.*\binstall\b/u.test(item.run || '')),
+            '直接 Surefire 验收前必须安装本次 reactor 依赖，不能依赖 runner 的旧本地缓存');
+    }
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'release-boundary-command-'));
+    const reports = path.join(fixture, 'pixivdownload-app/target/surefire-reports');
+    const invoke = (mode) => execFileSync('bash', ['-e', '-o', 'pipefail', '-c', `
+        mvn() {
+          printf '%s\\n' "$@" > arguments.txt
+          if [ "$MODE" = failure ]; then return 7; fi
+          if [ "$MODE" = missing ]; then return 0; fi
+          tests=1 failures=0 errors=0 skipped=0
+          if [ "$MODE" = zero ]; then tests=0; fi
+          if [ "$MODE" = failed ]; then failures=1; fi
+          if [ "$MODE" = errored ]; then errors=1; fi
+          if [ "$MODE" = skipped ]; then skipped=1; fi
+          for class in DistributionPackagingBoundaryTest ExtraBoundaryTest; do
+            echo "Tests run: $tests, Failures: $failures, Errors: $errors, Skipped: $skipped" > "pixivdownload-app/target/surefire-reports/example.$class.txt"
+          done
+        }
+        ${step.run}
+    `], {
+        cwd: fixture, encoding: 'utf8', stdio: 'pipe',
+        env: { ...process.env, MODE: mode, REQUIRE_PRODUCTION_CREDENTIAL_KEY: 'true', ADDITIONAL_TESTS: 'ExtraBoundaryTest#one+two' },
+    });
+    try {
+        invoke('success');
+        const args = fs.readFileSync(path.join(fixture, 'arguments.txt'), 'utf8').trim().split(/\r?\n/u);
+        assert.ok(args.includes('surefire:test'));
+        assert.ok(!args.includes('test') && !args.includes('verify'));
+        assert.ok(args.includes('-Dtest=DistributionPackagingBoundaryTest,ExtraBoundaryTest#one+two'));
+        assert.ok(args.includes('-Ddistribution.packaging.require-artifacts=true'));
+        assert.ok(args.includes('-Ddistribution.packaging.require-production-credential-key=true'));
+        assert.throws(() => invoke('missing'));
+        assert.equal(fs.readdirSync(reports).length, 0, '旧的成功报告不能替代本次执行');
+        for (const mode of ['zero', 'failed', 'errored', 'skipped']) assert.throws(() => invoke(mode));
+        assert.throws(() => invoke('failure'), (error) => error.status === 7);
+    } finally {
+        fs.rmSync(fixture, { recursive: true, force: true });
+    }
 });
 
 test('发布链：所有凭据与写权限只在 release Environment 的门禁后使用', () => {
