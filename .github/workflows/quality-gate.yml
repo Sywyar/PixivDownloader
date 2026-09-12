@@ -9,6 +9,10 @@ on:
         type: string
   workflow_call:
     inputs:
+      export_sdk_candidates:
+        required: false
+        type: boolean
+        default: false
       export_release_candidates:
         required: false
         type: boolean
@@ -16,6 +20,10 @@ on:
       trusted_base_sha:
         required: false
         type: string
+    outputs:
+      sdk_candidate_id:
+        description: SDK candidate artifact verified in this workflow run
+        value: ${{ jobs.sdk-tests.outputs.candidate_id }}
 
 permissions:
   contents: read
@@ -56,6 +64,8 @@ jobs:
   sdk-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    outputs:
+      candidate_id: ${{ steps.sdk-candidate.outputs.artifact-id }}
     steps:
       - name: Checkout tested commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -99,6 +109,17 @@ jobs:
           node scripts/ci/sdk-api-surface.mjs --module sdk-info=pixivdownload-sdk-info/target --module plugin-api=pixivdownload-plugin-api/target --module core-api=pixivdownload-core-api/target --output "$RUNNER_TEMP/sdk-candidate-surface.txt"
           node scripts/ci/sdk-contract.mjs --repo-root . --base-ref "$SDK_BASE_SHA" --candidate-ref "$GITHUB_SHA" --base-surface "$RUNNER_TEMP/sdk-base-surface.txt" --candidate-surface "$RUNNER_TEMP/sdk-candidate-surface.txt" --base-sdk-root "$BASE_DIR" --candidate-sdk-root . --report "$RUNNER_TEMP/sdk-contract-report.json"
           cat "$RUNNER_TEMP/sdk-contract-report.json"
+
+      - name: Upload verified SDK candidate
+        id: sdk-candidate
+        if: inputs.export_sdk_candidates == true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sdk-candidate-${{ github.sha }}-${{ github.run_attempt }}
+          path: target/sdk-release/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
 
   release-artifacts:
     runs-on: windows-latest

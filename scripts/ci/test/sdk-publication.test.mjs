@@ -13,7 +13,7 @@ const IDENTITY = inspectSdkVersion(ROOT);
 const workflow = YAML.parse(fs.readFileSync(path.join(ROOT, '.github/workflows/publish-sdk.yml'), 'utf8'));
 const script = workflow.jobs.publish.steps.find(step => step.name === 'Check immutable publication state').run;
 
-test('SDK 发布状态实际拒绝部分 Central、冲突公开身份和缺少冻结附件的恢复', () => {
+test('SDK 发布仅在全新身份上传，完整 Central 复用冻结附件，不确定状态拒绝重复上传', () => {
     const work = fs.mkdtempSync(path.join(os.tmpdir(), 'sdk-publication-'));
     try {
         const entry = path.join(work, 'check.sh');
@@ -38,19 +38,25 @@ test('SDK 发布状态实际拒绝部分 Central、冲突公开身份和缺少�
         ].join('\n'), 'utf8');
         for (const [mode, central, release, tag, accept, published] of [
             ['publish', 'empty', 'absent', false, true, false],
-            ['publish', 'empty', 'draft', false, true, false],
-            ['publish', 'empty', 'draft', true, true, false],
+            ['publish', 'empty', 'draft', false, false],
+            ['publish', 'empty', 'draft', true, false],
             ['publish', 'empty', 'published', true, false],
-            ['publish', 'complete', 'draft', true, false],
+            ['publish', 'complete', 'draft', false, true, false],
+            ['publish', 'complete', 'draft', true, true, false],
+            ['publish', 'complete', 'published', true, true, true],
+            ['publish', 'complete', 'absent', false, false],
+            ['publish', 'complete', 'duplicate', true, false],
             ['publish', 'partial', 'draft', true, false],
             ['publish', 'unavailable', 'absent', false, false],
             ['publish', 'empty', 'absent', true, false],
             ['recover-release', 'complete', 'draft', true, true, false],
             ['recover-release', 'complete', 'published', true, true, true],
             ['recover-release', 'complete', 'absent', false, false],
+            ['recover-release', 'empty', 'absent', false, false],
             ['recover-release', 'empty', 'draft', false, false],
             ['recover-release', 'partial', 'draft', true, false],
             ['recover-release', 'complete', 'duplicate', true, false],
+            ['invalid-mode', 'empty', 'absent', false, false],
         ]) {
             const output = path.join(work, 'output.txt');
             fs.writeFileSync(output, '', 'utf8');
@@ -68,7 +74,8 @@ test('SDK 发布状态实际拒绝部分 Central、冲突公开身份和缺少�
             const label = [mode, central, release, tag].join('/');
             assert.equal(result.status === 0, accept, label + ': ' + (result.error ?? result.stderr));
             const outputs = fs.readFileSync(output, 'utf8');
-            const expected = 'reuse_release=' + (release !== 'absent') + '\npublished=' + published + '\n';
+            const expected = 'reuse_release=' + (release !== 'absent') + '\npublished=' + published
+                + '\npublish_central=' + (central === 'empty') + '\n';
             assert.equal(outputs, accept ? expected : '', label);
         }
     } finally {

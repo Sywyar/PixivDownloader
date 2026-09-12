@@ -331,6 +331,7 @@ obfuscate=false
                             <publishingServerId>central</publishingServerId>
                             <autoPublish>true</autoPublish>
                             <waitUntil>PUBLISHED</waitUntil>
+                            <waitMaxTime>3600</waitMaxTime>
                             <checksums>all</checksums>
                             <deploymentName>PixivDownloader Plugin SDK ${pixivdownload.sdk.version}</deploymentName>
                             <excludeArtifacts>

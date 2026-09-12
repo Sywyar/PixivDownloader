@@ -268,17 +268,39 @@ test('QG 覆盖 Compose、SDK 消费者和两种 PowerShell，并顺序复用构
     const scripts = Object.values(jobs).flatMap(executionSteps)
         .filter(step => /check-powershell\.ps1/u.test(step.run || ''));
     assert.deepEqual(scripts.map(step => step.shell).sort(), ['powershell', 'pwsh']);
-    for (const [file, action] of [
-        ['.github/workflows/publish-sdk.yml', './.github/actions/verify-sdk'],
-        ['.github/actions/build-release-java/action.yml', './.github/actions/verify-release-boundaries'],
-    ]) {
-        const doc = load(file);
-        const steps = doc.runs?.steps || Object.values(doc.jobs).flatMap(job => job.steps || []);
-        assert.ok(steps.some(step => step.uses === action), file);
-    }
     const release = load('.github/actions/build-release-java/action.yml').runs.steps
         .find(step => step.uses === './.github/actions/verify-release-boundaries');
+    assert.ok(release);
     assert.equal(release.with.require_production_credential_key, 'true');
+});
+
+test('SDK 发布串行消费本次完整 QG 验证的候选，恢复继续使用原始冻结附件', () => {
+    const qg = load('.github/workflows/quality-gate.yml');
+    const sdk = load('.github/workflows/publish-sdk.yml');
+    const producer = qg.jobs['sdk-tests'];
+    const upload = producer.steps.find(step => step.id === 'sdk-candidate');
+    assert.equal(qg.on.workflow_call.inputs.export_sdk_candidates.default, false);
+    assert.equal(sdk.jobs['quality-gate'].with.export_sdk_candidates,
+        "${{ needs.release-plan.outputs.mode == 'publish' }}");
+    assert.match(upload.uses, /^actions\/upload-artifact@[a-f0-9]{40}$/u);
+    assert.equal(upload.if.replace(/^\$\{\{\s*|\s*\}\}$/gu, ''), 'inputs.export_sdk_candidates == true');
+    assert.equal(upload.with.path, 'target/sdk-release/');
+    assert.equal(upload.with['if-no-files-found'], 'error');
+    assert.equal(producer.outputs.candidate_id, '${{ steps.sdk-candidate.outputs.artifact-id }}');
+    assert.equal(qg.on.workflow_call.outputs.sdk_candidate_id.value,
+        '${{ jobs.sdk-tests.outputs.candidate_id }}');
+    const steps = sdk.jobs.publish.steps;
+    const download = steps.find(step => step.uses?.startsWith('actions/download-artifact@'));
+    assert.deepEqual(download.with, {
+        'artifact-ids': '${{ needs.quality-gate.outputs.sdk_candidate_id }}',
+        path: 'target/sdk-release', 'merge-multiple': true,
+    });
+    assert.equal(download.if, "${{ steps.state.outputs.reuse_release == 'false' }}");
+    assert.ok(!steps.some(step => step.uses === './.github/actions/verify-sdk'));
+    const freeze = steps.findIndex(step => step.name === 'Freeze signed SDK assets before Central publication');
+    assert.ok(steps.indexOf(download) < freeze);
+    assert.match(steps[freeze].run, /--verify-directory target\/sdk-release --source-sha/u);
+    assert.ok(steps.findIndex(step => /pixivdownload-plugin-signature package/u.test(step.run || '')) < freeze);
 });
 
 test('发布链：所有凭据与写权限只在 release Environment 的门禁后使用', () => {
@@ -442,7 +464,7 @@ test('SDK 发布链只在身份变化或显式恢复时通过同 SHA 门禁写�
     const restore = sdk.jobs.publish.steps.find(step => step.name === 'Restore original frozen SDK Release');
     assert.match(restore.run, /gpg --batch --verify/u);
     assert.match(restore.run, /--verify-directory/u);
-    assert.equal(central.if, "${{ needs.release-plan.outputs.mode == 'publish' }}");
+    assert.equal(central.if, "${{ steps.state.outputs.publish_central == 'true' }}");
     assert.match(remote.run, /gh release download/u);
     assert.match(remote.run, /sdk-consumer\.mjs/u);
     assert.doesNotMatch(serialized, /PixivDownloader-Plugin-SDK-Javadocs/u);
