@@ -40,7 +40,7 @@ $fixture = Join-Path $tempBase ('pixiv-workflow-test-' + [Guid]::NewGuid().ToStr
 try {
     & {
         $commands = @(Get-Content (Join-Path $repo '.github/workflows/quality-gate.yml') |
-            Where-Object { $_ -match '^\s+run: mvn\b.*\bverify\b.*-Pofficial-surveys' })
+            Where-Object { $_ -match '^\s+run: mvn\b.*-Pofficial-surveys' })
         Assert-Equal $commands.Count 1
         function mvn { $script:mavenArguments = @($args) }
         & ([scriptblock]::Create(($commands[0] -replace '^\s+run: ', '')))

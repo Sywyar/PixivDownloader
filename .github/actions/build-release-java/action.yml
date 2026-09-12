@@ -41,8 +41,9 @@ runs:
       shell: bash
       env:
         RELEASE_VERSION: ${{ inputs.release_version }}
+        GITHUB_TOKEN: ${{ github.token }}
       run: >
-        mvn -pl pixivdownload-app -am verify -Pofficial-surveys -DskipTests "-Dapp.release.version=$RELEASE_VERSION"
+        mvn -pl pixivdownload-app -am install -Pofficial-surveys -DskipTests "-Dapp.release.version=$RELEASE_VERSION"
         -Dmaven.javadoc.skip=true -Dmaven.source.skip=true
         "-Dplugin.credential.filter=$PLUGIN_CREDENTIAL_FILTER"
 

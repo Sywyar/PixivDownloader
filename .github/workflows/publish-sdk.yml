@@ -346,6 +346,8 @@ jobs:
 
       - name: Verify frozen SDK against public Central
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           node scripts/ci/sdk-consumer.mjs --repo-root . \
@@ -367,6 +369,8 @@ jobs:
 
       - name: Verify public SDK Release and clean consumer
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           public_release="$GITHUB_WORKSPACE/target/sdk-public-release"

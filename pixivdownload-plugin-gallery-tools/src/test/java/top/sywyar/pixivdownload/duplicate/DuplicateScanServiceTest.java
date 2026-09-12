@@ -167,6 +167,7 @@ class DuplicateScanServiceTest {
     void destroyWaitsForSynchronousPreparationAndRestoresInterrupt() throws Exception {
         CountDownLatch countEntered = new CountDownLatch(1);
         CountDownLatch releaseCount = new CountDownLatch(1);
+        CountDownLatch cancellationDelivered = new CountDownLatch(1);
         AtomicReference<Runnable> submitted = new AtomicReference<>();
         AtomicReference<Throwable> startFailure = new AtomicReference<>();
         AtomicBoolean interruptedAfterDestroy = new AtomicBoolean();
@@ -175,7 +176,14 @@ class DuplicateScanServiceTest {
             assertThat(releaseCount.await(2, TimeUnit.SECONDS)).isTrue();
             return 0;
         });
-        DuplicateScanService service = service(submitted::set);
+        DuplicateScanService service = new DuplicateScanService(
+                hashIndexMaintenance, duplicateService, messages, submitted::set) {
+            @Override
+            public void cancelQuiescedTasks() {
+                super.cancelQuiescedTasks();
+                cancellationDelivered.countDown();
+            }
+        };
         Thread starter = new Thread(() -> {
             try {
                 service.startScan(false);
@@ -192,8 +200,7 @@ class DuplicateScanServiceTest {
             interruptedAfterDestroy.set(Thread.currentThread().isInterrupted());
         }, "duplicate-interrupted-destroy-test");
         destroyer.start();
-        QueueTaskTracker tracker = (QueueTaskTracker) field(service, "taskTracker");
-        assertThat(awaitNotAccepting(tracker)).isTrue();
+        assertThat(cancellationDelivered.await(2, TimeUnit.SECONDS)).isTrue();
         assertThat(destroyer.isAlive()).isTrue();
         assertThat(submitted).hasValue(null);
 
@@ -217,13 +224,5 @@ class DuplicateScanServiceTest {
         Field field = target.getClass().getDeclaredField(name);
         field.setAccessible(true);
         return field.get(target);
-    }
-
-    private static boolean awaitNotAccepting(QueueTaskTracker tracker) throws InterruptedException {
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
-        while (tracker.isAccepting() && System.nanoTime() < deadline) {
-            Thread.sleep(1);
-        }
-        return !tracker.isAccepting();
     }
 }
