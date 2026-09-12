@@ -373,7 +373,7 @@ export function initializeProjectGit(workspace, { repoRoot, sourceSha, sdkVersio
             + `- Set up the development workspace for SDK ${sdkVersion}\n`
             + '- Include plugin examples, build tools and API documentation\n'
             + `- Generate the baseline from source commit ${sourceSha}\n`, 'utf8');
-    git(['commit', '--quiet', '-F', message]);
+    git(['-c', 'maintenance.auto=false', 'commit', '--quiet', '-F', message]);
     fs.rmSync(message);
     // 索引只保留提交树，排除构建机的 inode、ctime 等信息。
     git(['read-tree', '--empty']);
