@@ -35,11 +35,11 @@ public final class PluginTrustStores {
         return new StaticPluginTrustStore(keys);
     }
 
-    /** 社区输入在构造时核对规范 SPKI，历史 key 状态仍由验签策略判断。 */
+    /** 社区输入核对规范 SPKI 并排除官方公钥，历史 key 状态仍由验签策略判断。 */
     public static PluginTrustStore community(Collection<TrustedPluginKey> keys) {
         List<TrustedPluginKey> snapshot = List.copyOf(keys);
         for (TrustedPluginKey key : snapshot) {
-            if (key.official()) throw new IllegalArgumentException("community key must not be official");
+            if (OfficialArtifactTrustRoots.isOfficialKey(key)) throw new IllegalArgumentException("community key must not be official");
             KeyParsing.canonicalEd25519PublicKey(key.publicKeySpkiBase64());
         }
         return of(snapshot);

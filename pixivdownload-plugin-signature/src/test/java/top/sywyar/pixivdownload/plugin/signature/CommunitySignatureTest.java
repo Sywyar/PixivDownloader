@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.plugin.signature.internal.trust.KeyParsing;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.HexFormat;
@@ -182,6 +183,43 @@ class CommunitySignatureTest {
         assertThatThrownBy(() -> PluginTrustStores.community(List.of(valid, valid))).isInstanceOf(IllegalArgumentException.class);
         var malformed = new TrustedPluginKey(v("keyId"), "Ed25519", "invalid", TrustedPluginKey.State.ACTIVE, "test", "test", false);
         assertThatThrownBy(() -> PluginTrustStores.community(List.of(malformed))).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("官方公钥改名并去掉官方标记仍不能进入社区工厂及任何社区签名域")
+    void rejectsRelabeledOfficialKeysAcrossCommunityEntrypoints() throws Exception {
+        byte[] raw = hex("rawHex");
+        Path artifact = Files.write(directory.resolve("official-key-test.jar"), raw);
+        String[] fields = {v("repositoryId"), v("pluginId"), v("version"), v("assuranceLevel"),
+                v("sourceCommit"), v("reviewRecordSha256")};
+        for (var roots : List.of(OfficialArtifactTrustRoots.pluginRoots(), OfficialArtifactTrustRoots.updateRoots(),
+                OfficialArtifactTrustRoots.ffmpegRoots())) {
+            for (var root : roots) {
+                for (String keyId : List.of(root.keyId(), "community:alias")) {
+                    var relabeled = new TrustedPluginKey(keyId, root.algorithm(), root.publicKeySpkiBase64(),
+                            TrustedPluginKey.State.ACTIVE, "Community", "community", false);
+                    assertThatThrownBy(() -> PluginTrustStores.community(List.of(relabeled)))
+                            .as("%s -> %s", root.keyId(), keyId).isInstanceOf(IllegalArgumentException.class);
+                    var legacy = PluginTrustStores.of(List.of(relabeled));
+                    assertThat(legacy.findByKeyId(keyId)).contains(relabeled);
+                    var verifier = new PluginSupplyChainVerifier(legacy);
+                    var signature = new SignatureMetadata(1, "Ed25519", keyId,
+                            Base64.getEncoder().encodeToString(new byte[64]));
+                    var results = new ArrayList<VerificationResult>();
+                    results.add(verifier.verifyCommunityPackage(packageRequest(artifact, fields, raw.length,
+                            Hashing.hex(Hashing.sha256(raw)), signature)));
+                    results.add(verifier.verifyCommunityDirectory(directoryRequest(raw, v("repositoryId"), 7, signature, false)));
+                    for (var operation : CommunityOperation.values()) {
+                        results.add(verifier.verifyCommunityOperation(new CommunityOperationVerificationRequest(
+                                operation, hex("canonicalHex"), v("requestId"), signature, false)));
+                    }
+                    for (var result : results) {
+                        assertThat(result.status()).as("%s -> %s", root.keyId(), keyId).isEqualTo(VerificationStatus.UNKNOWN_KEY);
+                        assertThat(result.diagnosticCode()).isEqualTo("COMMUNITY_KEY_REQUIRED");
+                    }
+                }
+            }
+        }
     }
 
     private CommunityPackageVerificationRequest packageRequest(Path artifact, String[] fields, long size,

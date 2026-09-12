@@ -192,7 +192,7 @@ public final class PluginSupplyChainVerifier {
             }
             TrustedPluginKey key = trustStore.findByKeyId(metadata.keyId()).orElse(null);
             if (key != null) {
-                if (key.official()) {
+                if (OfficialArtifactTrustRoots.isOfficialKey(key)) {
                     return fail(VerificationStatus.UNKNOWN_KEY, artifact, metadata, size, hex,
                             "COMMUNITY_KEY_REQUIRED");
                 }
