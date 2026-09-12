@@ -1,23 +1,27 @@
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { historicalGateFile, historicalWorkflows } from './lib/historical-gate.mjs';
 import childProcess, { execFileSync, spawnSync } from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 import { prepare } from '../prepare-pr-gate.mjs';
 import { github, completePages, publishChecks, publishCurrentChecks, inspectRun, inspectFullRun, checkEvent, assertCurrentEvidence } from '../gate-checks.mjs';
 import YAML from 'yaml';
 const SOURCE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-const SOURCE_POLICY = JSON.parse(fs.readFileSync(path.join(SOURCE_ROOT, 'scripts/ci/release-gate-policy.json'), 'utf8'));
-const CORE_DIRECTORY = SOURCE_POLICY.gateEpoch === 5 ? 'scripts/ci/gate-admission' : 'scripts/ci';
-const core = await import(new URL(SOURCE_POLICY.gateEpoch === 5
-    ? '../gate-admission/release-gate-verifier.mjs' : '../release-gate-verifier.mjs', import.meta.url));
+const SOURCE_POLICY = JSON.parse(historicalGateFile(SOURCE_ROOT, 'scripts/ci/release-gate-policy.json', 8));
+const CORE_DIRECTORY = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv historical pr gate '));
+for (const rel of SOURCE_POLICY.protectedCore) fs.writeFileSync(path.join(CORE_DIRECTORY, path.basename(rel)),
+    historicalGateFile(SOURCE_ROOT, rel, 8));
+fs.symlinkSync(path.join(SOURCE_ROOT, 'node_modules'), path.join(CORE_DIRECTORY, 'node_modules'),
+    process.platform === 'win32' ? 'junction' : 'dir');
+after(() => fs.rmSync(CORE_DIRECTORY, { recursive: true, force: true }));
+const core = await import(pathToFileURL(path.join(CORE_DIRECTORY, 'release-gate-verifier.mjs')).href);
 const { parseExecutionProof, verifyRunIdentity, verifyRunResults,
     verifyIntegratedTree, verifyAppChecks, verifyCandidate } = core;
-const { resolveTrustedBase } = await import(new URL(SOURCE_POLICY.gateEpoch === 5
-    ? '../gate-admission/resolve-trusted-base.mjs' : '../resolve-trusted-base.mjs', import.meta.url));
+const { resolveTrustedBase } = await import(pathToFileURL(path.join(CORE_DIRECTORY, 'resolve-trusted-base.mjs')).href);
 
 const B = 'b'.repeat(40), H = 'a'.repeat(40), M = 'c'.repeat(40), T = 'd'.repeat(40);
 const roles = ['java-tests', 'javascript-tests', 'signature-guard', 'trusted-gate-contract',
@@ -359,14 +363,16 @@ test('protected predecessor admits only its approved core, permits ordinary root
         git(['init', '-q']);
         git(['config', 'user.name', 'Gate test']);
         git(['config', 'user.email', 'gate@example.test']);
-        fs.cpSync(path.join(source, '.github/workflows'), path.join(repo, '.github/workflows'), { recursive: true });
-        const policy = JSON.parse(fs.readFileSync(path.join(source, 'scripts/ci/release-gate-policy.json'), 'utf8'));
+        fs.mkdirSync(path.join(repo, '.github/workflows'), { recursive: true });
+        for (const rel of historicalWorkflows(source, 8)) fs.writeFileSync(path.join(repo, rel), historicalGateFile(source, rel, 8));
+        const policy = structuredClone(SOURCE_POLICY);
         for (const rel of [...policy.protectedCore, 'scripts/ci/release-gate-policy.json', 'package.json', 'package-lock.json']) {
             fs.mkdirSync(path.dirname(path.join(repo, rel)), { recursive: true });
-            fs.copyFileSync(path.join(source, rel), path.join(repo, rel));
+            fs.writeFileSync(path.join(repo, rel), rel.startsWith('scripts/ci/')
+                ? historicalGateFile(source, rel, 8) : fs.readFileSync(path.join(source, rel)));
         }
         fs.mkdirSync(path.join(repo, 'scripts/ci/gate-admission'), { recursive: true });
-        for (const rel of policy.protectedCore) fs.copyFileSync(path.join(source, CORE_DIRECTORY, path.basename(rel)),
+        for (const rel of policy.protectedCore) fs.copyFileSync(path.join(CORE_DIRECTORY, path.basename(rel)),
             path.join(repo, 'scripts/ci/gate-admission', path.basename(rel)));
         policy.gateEpoch = 5;
         policy.contractVersion = 6;
@@ -396,7 +402,7 @@ test('protected predecessor admits only its approved core, permits ordinary root
         prepare(repo);
         assert.deepEqual(workflowFiles.map(actionComments), comments, '生成器保留既有 Action 版本注释');
         const preparedPolicy = JSON.parse(fs.readFileSync(path.join(repo, 'scripts/ci/release-gate-policy.json'), 'utf8'));
-        assert.equal(execFileSync(process.execPath, [path.join(source, CORE_DIRECTORY, 'release-gate-verifier.mjs'), '--version'],
+        assert.equal(execFileSync(process.execPath, [path.join(CORE_DIRECTORY, 'release-gate-verifier.mjs'), '--version'],
             { encoding: 'utf8' }).trim(), `release-gate-verifier epoch=${preparedPolicy.gateEpoch} contract=${preparedPolicy.contractVersion} schema=${preparedPolicy.schemaVersion}`);
         const root = commit('approved root');
         git(['tag', 'release-gate-epoch-8-root', root]);
@@ -418,7 +424,7 @@ test('protected predecessor admits only its approved core, permits ordinary root
                 assert.match(fs.readFileSync(path.join(runner, 'env'), 'utf8'), new RegExp(`^GATE_EPOCH=${preparedPolicy.gateEpoch}$`, 'm'));
                 for (const rel of policy.protectedCore) assert.equal(
                     fs.readFileSync(path.join(runner, 'trusted-gate', rel), 'utf8'),
-                    fs.readFileSync(path.join(source, CORE_DIRECTORY, path.basename(rel)), 'utf8'));
+                    fs.readFileSync(path.join(CORE_DIRECTORY, path.basename(rel)), 'utf8'));
             } finally {
                 fs.rmSync(runner, { recursive: true, force: true });
             }
@@ -456,7 +462,7 @@ test('protected predecessor admits only its approved core, permits ordinary root
         git(['config', '--local', 'pixiv.release.trustedGateRef', advancedBase]);
         const adoptionEnv = { ...process.env }; delete adoptionEnv.CI;
         const repairedAdoption = spawnSync(process.execPath,
-            [path.join(source, CORE_DIRECTORY, 'release-gate-trust.mjs'), '--adopt-root', '--ref', repairMerge],
+            [path.join(CORE_DIRECTORY, 'release-gate-trust.mjs'), '--adopt-root', '--ref', repairMerge],
             { cwd: repo, env: adoptionEnv, encoding: 'utf8' });
         assert.equal(repairedAdoption.status, 0, repairedAdoption.stderr || repairedAdoption.stdout);
         assert.equal(git(['config', '--get', 'pixiv.release.trustedGateRef']), repairMerge);
@@ -595,7 +601,7 @@ test('protected predecessor admits only its approved core, permits ordinary root
         const env = { ...process.env };
         delete env.CI;
         const adopted = spawnSync(process.execPath,
-            [path.join(source, CORE_DIRECTORY, 'release-gate-trust.mjs'), '--adopt-root', '--ref', merge],
+            [path.join(CORE_DIRECTORY, 'release-gate-trust.mjs'), '--adopt-root', '--ref', merge],
             { cwd: repo, env, encoding: 'utf8' });
         assert.equal(adopted.status, 0, adopted.stderr || adopted.stdout);
         assert.equal(git(['config', '--get', 'pixiv.release.trustedGateEpoch']), '8');
@@ -636,13 +642,13 @@ test('protected predecessor admits only its approved core, permits ordinary root
         assert.throws(() => verifyCandidate({ repo, trusted: base, candidate: unapproved }), /unapproved admission core/u);
         git(['update-ref', 'refs/remotes/origin/master', unapproved]);
         const rejected = spawnSync(process.execPath,
-            [path.join(source, CORE_DIRECTORY, 'release-gate-trust.mjs'), '--advance', '--ref', unapproved],
+            [path.join(CORE_DIRECTORY, 'release-gate-trust.mjs'), '--advance', '--ref', unapproved],
             { cwd: repo, env, encoding: 'utf8' });
         assert.notEqual(rejected.status, 0);
         assert.equal(git(['config', '--get', 'pixiv.release.trustedGateEpoch']), '8');
         assert.equal(git(['config', '--get', 'pixiv.release.trustedGateRef']), merge);
         fs.writeFileSync(path.join(repo, 'scripts/ci/release-gate-verifier.mjs'),
-            fs.readFileSync(path.join(source, CORE_DIRECTORY, 'release-gate-verifier.mjs')));
+            fs.readFileSync(path.join(CORE_DIRECTORY, 'release-gate-verifier.mjs')));
         git(['update-ref', 'refs/remotes/origin/master', merge]);
         const branch = git(['symbolic-ref', 'HEAD']);
         git(['update-ref', branch, merge]);

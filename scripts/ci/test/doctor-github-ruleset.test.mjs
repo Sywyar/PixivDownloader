@@ -161,6 +161,25 @@ test('doctor：master + root tag detail 完全正确 → success (exit 0)', asyn
     assert.equal(result.exitCode, 0, JSON.stringify(result.problems));
 });
 
+test('doctor：固定 root 通配保护覆盖新增 epoch，但排除项和 bypass 不能放行', async () => {
+    const expected = structuredClone(invariants);
+    expected.roots['refs/tags/release-gate-epoch-19-root'] = {
+        allowDeletion: false, allowNonFastForward: false, allowBypass: false,
+    };
+    const wildcard = validTagDetail('refs/tags/release-gate-epoch-*-root', 919);
+    const details = [validMasterDetail(), ...validTagDetails(), wildcard];
+    const inspect = () => {
+        const { fetchJson } = makeFetch(details.map(summaryOf), Object.fromEntries(details.map((detail) => [detail.id, detail])));
+        return runDoctor({ fetchJson, token: 't', repo: REPO, invariants: expected });
+    };
+    assert.equal((await inspect()).exitCode, 0);
+    wildcard.conditions.ref_name.exclude = ['refs/tags/release-gate-epoch-19-root'];
+    assert.equal((await inspect()).exitCode, 1);
+    wildcard.conditions.ref_name.exclude = [];
+    wildcard.bypass_actors = [{ actor_type: 'RepositoryRole', actor_id: 5, bypass_mode: 'always' }];
+    assert.equal((await inspect()).exitCode, 1);
+});
+
 test('doctor: Rulesets beyond the first page must be read and incomplete pagination cannot pass', async () => {
     const relevant = [validMasterDetail(), ...validTagDetails()];
     const filler = Array.from({ length: 100 }, (_, index) => ({ ...validMasterDetail(), id: 1000 + index,
