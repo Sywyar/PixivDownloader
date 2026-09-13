@@ -12,6 +12,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.regex.Pattern;
 
 /**
  * 生成带颜色的 HTML 日志文件。
@@ -34,6 +35,7 @@ public class HtmlLogLayout extends LayoutBase<ILoggingEvent> {
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
     private static final TargetLengthBasedClassNameAbbreviator LOGGER_ABBREVIATOR =
             new TargetLengthBasedClassNameAbbreviator(36);
+    private static final Pattern ANSI_COLOR = Pattern.compile("\u001b\\[[0-9;:]*m");
 
     // ── 颜色定义（与 MdcColorConverter ANSI 色调对应） ──────────────────────────
     private static final String COLOR_INFO    = "#4ade80"; // ANSI 32 GREEN
@@ -157,7 +159,7 @@ public class HtmlLogLayout extends LayoutBase<ILoggingEvent> {
 
     private static String escapeHtml(String s) {
         if (s == null) return "";
-        return s.replace("&", "&amp;")
+        return ANSI_COLOR.matcher(s).replaceAll("").replace("&", "&amp;")
                 .replace("<", "&lt;")
                 .replace(">", "&gt;")
                 .replace("\"", "&quot;");

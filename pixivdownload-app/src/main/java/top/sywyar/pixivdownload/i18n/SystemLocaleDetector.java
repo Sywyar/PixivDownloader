@@ -32,7 +32,7 @@ import java.util.Locale;
  *
  * <p><strong>实现约束：本类禁止使用 SLF4J 或任何 {@code @Slf4j} 标注的类。</strong>
  * 本类必须能在 logback 初始化之前运行，避免初始化期日志提前固化错误的 UI locale。
- * 早期诊断输出走 {@link System#err}。
+ * 正常检测结果输出走 {@link System#out}。
  */
 public final class SystemLocaleDetector {
 
@@ -64,7 +64,7 @@ public final class SystemLocaleDetector {
     public static Locale detectAndApply() {
         DetectionResult result = detect();
         Locale.setDefault(result.locale());
-        System.err.println("[i18n] System locale resolved: " + result.summary());
+        System.out.println("[i18n] System locale resolved: " + result.summary());
         return result.locale();
     }
 

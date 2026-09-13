@@ -128,33 +128,16 @@ class GuiLauncherLoggingTest {
     @Test
     @DisplayName("生产配置保持控制台文本和 HTML 输出一致")
     void productionConfigurationKeepsConsoleTextAndHtmlOutputsInSync() throws Exception {
-        Path java = Path.of(System.getProperty("java.home"), "bin",
-                System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win") ? "java.exe" : "java");
-        Path logback = Path.of(GuiLauncher.class.getProtectionDomain().getCodeSource().getLocation().toURI())
-                .resolve("logback.xml");
-        String classPath = System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
-        Process process = new ProcessBuilder(java.toString(),
-                "-Dlogback.configurationFile=" + logback,
-                "-cp", classPath,
-                LoggingProbe.class.getName())
-                .directory(tempDir.toFile())
-                .redirectErrorStream(true)
-                .start();
-
-        if (!process.waitFor(30, TimeUnit.SECONDS)) {
-            process.destroyForcibly();
-            throw new AssertionError("logging parity probe did not exit");
-        }
-        String console = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        assertThat(process.exitValue()).as(console).isZero();
+        String console = launchProbe();
 
         String textLatest = Files.readString(tempDir.resolve("log/latest.log"));
         String textSession = Files.readString(sessionFiles(tempDir.resolve("log")).get(0));
         String htmlLatest = Files.readString(tempDir.resolve("log/html/latest.html"));
         String htmlSession = Files.readString(sessionFiles(tempDir.resolve("log/html")).get(0));
 
-        assertThat(textLatest).isEqualTo(textSession);
-        assertThat(htmlLatest).isEqualTo(htmlSession);
+        assertThat(textLatest).isEqualTo(textSession).doesNotContain("\u001b");
+        assertThat(htmlLatest).isEqualTo(htmlSession).doesNotContain("\u001b");
+        assertThat(console).contains("\u001b[32mPARITY_INFO");
         assertThat(eventCount(console, "^\\d{2}:\\d{2}:\\d{2}\\.\\d{3} ")).isEqualTo(6);
         assertThat(eventCount(textLatest, "^\\d{4}-\\d{2}-\\d{2} ")).isEqualTo(6);
         assertThat(eventCount(htmlLatest, "<div class=\"entry ")).isEqualTo(6);
@@ -174,6 +157,54 @@ class GuiLauncherLoggingTest {
         assertThat(htmlLatest).containsOnlyOnce("PARITY_INFO &lt;probe&gt;&amp;&quot; 中文");
     }
 
+    @Test
+    @DisplayName("仅初始化日志而没有事件的进程保留 latest 和全部历史")
+    void silentProcessPreservesLogFiles() throws Exception {
+        launchHelp("previous");
+        Path textDirectory = tempDir.resolve("log");
+        Path htmlDirectory = textDirectory.resolve("html");
+        String latest = Files.readString(textDirectory.resolve("latest.log"));
+        String html = Files.readString(htmlDirectory.resolve("latest.html"));
+        for (int run = 1; run <= 5; run++) {
+            String name = "pixiv-download_2020-01-0" + run + "_000000";
+            Files.writeString(textDirectory.resolve(name + ".log"), "history", StandardCharsets.UTF_8);
+            Files.writeString(htmlDirectory.resolve(name + ".html"), "history", StandardCharsets.UTF_8);
+        }
+        List<Path> textSessions = sessionFiles(textDirectory);
+        List<Path> htmlSessions = sessionFiles(htmlDirectory);
+        launchProbe("--silent");
+        assertThat(Files.readString(textDirectory.resolve("latest.log"))).isEqualTo(latest);
+        assertThat(Files.readString(htmlDirectory.resolve("latest.html"))).isEqualTo(html);
+        assertThat(sessionFiles(textDirectory)).isEqualTo(textSessions);
+        assertThat(sessionFiles(htmlDirectory)).isEqualTo(htmlSessions);
+    }
+
+    private String launchProbe(String... args) throws Exception {
+        Path java = Path.of(System.getProperty("java.home"), "bin",
+                System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win") ? "java.exe" : "java");
+        Path logback = Path.of(GuiLauncher.class.getProtectionDomain().getCodeSource().getLocation().toURI())
+                .resolve("logback.xml");
+        String classPath = System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
+        java.util.ArrayList<String> command = new java.util.ArrayList<>(List.of(java.toString(),
+                "-Dlogback.configurationFile=" + logback,
+                "-cp", classPath,
+                LoggingProbe.class.getName()));
+        command.addAll(List.of(args));
+        Process process = new ProcessBuilder(command)
+                .directory(tempDir.toFile())
+                .redirectErrorStream(true)
+                .start();
+
+        if (!process.waitFor(30, TimeUnit.SECONDS)) {
+            process.destroyForcibly();
+            throw new AssertionError("logging parity probe did not exit");
+        }
+        String console = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertThat(process.exitValue()).as(console).isZero();
+
+        return console;
+    }
+
     private static long eventCount(String output, String regex) {
         return Pattern.compile(regex, Pattern.MULTILINE).matcher(output).results().count();
     }
@@ -187,9 +218,13 @@ class GuiLauncherLoggingTest {
             Utf8ConsoleStreams.install();
             org.slf4j.Logger logger = LoggerFactory.getLogger(
                     "top.sywyar.pixivdownload.logging.ProductionParityProbe");
+            if (List.of(args).contains("--silent")) {
+                ((LoggerContext) LoggerFactory.getILoggerFactory()).stop();
+                return;
+            }
             top.sywyar.pixivdownload.logback.ConsoleLogStreams.install();
             GuiLauncher.installJulBridge();
-            logger.info("PARITY_INFO <probe>&\" 中文");
+            logger.info("\u001b[32mPARITY_INFO <probe>&\" 中文\u001b[0m");
             java.util.logging.Logger.getLogger("parity-jul").info("PARITY_JUL");
 
             IllegalArgumentException cause = new IllegalArgumentException("parity cause");
