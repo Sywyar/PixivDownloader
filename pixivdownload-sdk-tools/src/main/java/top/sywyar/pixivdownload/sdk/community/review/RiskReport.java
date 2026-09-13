@@ -21,7 +21,7 @@ public record RiskReport(int schemaVersion, Status status, String scannerVersion
                          List<Observation> observations, List<Finding> findings,
                          @JsonInclude(JsonInclude.Include.NON_NULL) String failureReason) {
     public enum Status { COMPLETE, INCOMPLETE }
-    public enum Origin { PLUGIN, DEPENDENCY, BUILD, HOST }
+    public enum Origin { PLUGIN, DEPENDENCY, BUILD, HOST, UNKNOWN }
     public enum Kind { DECLARATION_MISSING, POLICY_VIOLATION }
     public RiskReport { observations = List.copyOf(observations); findings = List.copyOf(findings); }
 

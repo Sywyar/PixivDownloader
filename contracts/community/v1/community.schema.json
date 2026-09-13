@@ -1135,7 +1135,8 @@
             "PLUGIN",
             "DEPENDENCY",
             "BUILD",
-            "HOST"
+            "HOST",
+            "UNKNOWN"
           ]
         },
         "location": {
