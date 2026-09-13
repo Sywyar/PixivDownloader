@@ -1,6 +1,9 @@
 package top.sywyar.pixivdownload.plugin.runtime;
 
 import org.pf4j.DefaultPluginManager;
+import org.pf4j.CompoundPluginLoader;
+import org.pf4j.DevelopmentPluginLoader;
+import org.pf4j.PluginLoader;
 import org.pf4j.DefaultVersionManager;
 import org.pf4j.PluginManager;
 import org.pf4j.PluginState;
@@ -9,6 +12,7 @@ import org.pf4j.VersionManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactLoadPlan;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactLoader;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactMaterializer;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactScanner;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactSnapshot;
@@ -240,9 +244,9 @@ public class PluginRuntimeManager {
         Path directory = pluginsRoot.toAbsolutePath().normalize();
         resetPluginManager();
 
-        boolean standaloneDevelopment = PluginDevelopmentArtifacts.enabled()
-                && PluginDevelopmentArtifacts.standaloneProject(directory);
-        if (PluginDevelopmentArtifacts.enabled() && !standaloneDevelopment) {
+        boolean usesInstalledArtifacts = PluginDevelopmentArtifacts.usesInstalledArtifacts(directory);
+        boolean standaloneDevelopment = PluginDevelopmentArtifacts.enabled() && usesInstalledArtifacts;
+        if (!usesInstalledArtifacts) {
             try {
                 beforeProductionScan(directory);
             } catch (IOException | RuntimeException e) {
@@ -1148,6 +1152,13 @@ public class PluginRuntimeManager {
     private void ensureManager(Path root) {
         if (pluginManager == null) {
             pluginManager = new DefaultPluginManager(root) {
+                @Override
+                protected PluginLoader createPluginLoader() {
+                    return new CompoundPluginLoader()
+                            .add(new DevelopmentPluginLoader(this), this::isDevelopment)
+                            .add(new PluginArtifactLoader(this), this::isNotDevelopment);
+                }
+
                 @Override
                 protected VersionManager createVersionManager() {
                     return new DefaultVersionManager() {

@@ -21,7 +21,7 @@ import java.util.UUID;
 import java.util.stream.Stream;
 
 /**
- * 在 Logback 创建文件 appender 前分配日志会话；同一目录只有一个进程能够轮换和写入日志。
+ * 初始化时分配会话名，首条事件到达后锁定目录；同一目录只有一个进程能够轮换和写入日志。
  */
 public final class LogSession extends PropertyDefinerBase implements LifeCycle {
     static final int HISTORY_COUNT = 5;
@@ -32,6 +32,8 @@ public final class LogSession extends PropertyDefinerBase implements LifeCycle {
     private FileChannel channel;
     private FileLock lock;
     private boolean started;
+    private boolean attempted;
+    private boolean filesReady;
 
     @Override
     public void start() {
@@ -39,9 +41,14 @@ public final class LogSession extends PropertyDefinerBase implements LifeCycle {
         started = true;
         context.register(this);
         context.putObject(LogSession.class.getName(), this);
-        context.putProperty("LOG_FILES_ENABLED", "false");
         Path directory = RuntimeFiles.logDirectory();
         context.putProperty("LOG_DIRECTORY", directory.toAbsolutePath().toString());
+    }
+
+    synchronized boolean openFiles() {
+        if (attempted) return filesReady;
+        attempted = true;
+        Path directory = RuntimeFiles.logDirectory();
         try {
             Files.createDirectories(directory);
             channel = FileChannel.open(directory.resolve(".session.lock"),
@@ -49,15 +56,16 @@ public final class LogSession extends PropertyDefinerBase implements LifeCycle {
             try {
                 lock = channel.tryLock();
             } catch (OverlappingFileLockException occupied) {
-                return;
+                return false;
             }
-            if (lock == null) return;
+            if (lock == null) return false;
             Files.createDirectories(directory.resolve("html"));
-            context.putProperty("LOG_FILES_ENABLED", "true");
             cleanHistory(directory);
+            filesReady = true;
         } catch (IOException failure) {
             warnings.add(failure.toString());
         }
+        return filesReady;
     }
 
     private void cleanHistory(Path directory) {

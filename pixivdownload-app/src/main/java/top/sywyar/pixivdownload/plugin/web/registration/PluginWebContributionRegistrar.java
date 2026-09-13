@@ -592,7 +592,7 @@ public class PluginWebContributionRegistrar {
                     userscriptRegistry.register(pluginId, classLoader, contributions.userscripts());
                 }
                 // 脚本聚合先与 userscript 快照对齐；下载扩展 publication 是最后一个可见发布点。
-                scriptRegistry.refresh();
+                scriptRegistry.refreshIfChanged();
                 DownloadExtensionPublication publication = prepared.downloadPublication == null
                         ? null
                         : downloadExtensionRegistry.publish(
@@ -885,7 +885,7 @@ public class PluginWebContributionRegistrar {
         if (registration.cleanupSatisfied(CleanupStep.USERSCRIPT)) {
             cleanupFailure = cleanupStep(
                     registration, CleanupStep.SCRIPT_REFRESH,
-                    scriptRegistry::refresh, cleanupFailure, pluginId, "script-refresh");
+                    scriptRegistry::refreshIfChanged, cleanupFailure, pluginId, "script-refresh");
         }
         return cleanupFailure;
     }

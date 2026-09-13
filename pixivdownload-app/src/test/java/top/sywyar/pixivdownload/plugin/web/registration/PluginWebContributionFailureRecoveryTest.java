@@ -194,7 +194,7 @@ class PluginWebContributionFailureRecoveryTest extends PluginWebContributionRegi
         verify(navigation).unregister("web-demo");
         verify(slots).unregister("web-demo");
         verify(userscripts).unregister("web-demo");
-        verify(scripts).refresh();
+        verify(scripts).refreshIfChanged();
         assertThat(registrar.currentHandle(registered)).containsSame(handle);
 
         assertThat(registrar.unregister(handle)).isTrue();
@@ -205,7 +205,7 @@ class PluginWebContributionFailureRecoveryTest extends PluginWebContributionRegi
         verify(navigation, times(1)).unregister("web-demo");
         verify(slots, times(1)).unregister("web-demo");
         verify(userscripts, times(1)).unregister("web-demo");
-        verify(scripts, times(1)).refresh();
+        verify(scripts, times(1)).refreshIfChanged();
     }
 
     @Test

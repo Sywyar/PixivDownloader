@@ -6,9 +6,11 @@ import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationE
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
@@ -26,11 +28,11 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 
 /**
- * Explicit development-mode adapter for Maven plugin modules.
+ * 显式开发模式的 Maven 插件产物适配器。
  *
- * <p>Production still loads only verified artifacts from {@code plugins/}. When the opt-in JVM property is enabled,
- * sibling modules use their {@code target/classes} output. A standalone plugin project keeps the packaged
- * host plugins and adds its own compiled output. Both use a PF4J layout under the development root's cache.
+ * <p>多模块工程按构建清单选择当前编译输出；普通工程没有清单时发现直接子模块。
+ * 独立 SDK 工程保留已验证的配套插件，并加入自身编译输出。开发产物均物化到独立 PF4J 会话目录，
+ * 正式运行仍只加载安装目录内经过验证的产物。
  */
 public final class PluginDevelopmentArtifacts {
 
@@ -41,6 +43,8 @@ public final class PluginDevelopmentArtifacts {
     private static final String CLASSES_DIR = "classes";
     private static final String LIB_DIR = "lib";
     private static final String CACHE_DIR = "pixivdownload-plugin-dev-runtime";
+    private static final String CLASSPATH_FILE = "pixivdownload-plugin-dev-classpath.txt";
+    private static final int MAX_CLASSPATH_BYTES = 64 * 1024;
     private static final String PLUGIN_PROPERTIES = "plugin.properties";
     private static final String SESSION_MARKER = ".pixiv-plugin-dev-session";
     private static final String SNAPSHOT_MARKER = ".pixiv-plugin-dev-snapshot";
@@ -58,6 +62,11 @@ public final class PluginDevelopmentArtifacts {
         return isPluginProject(developmentRoot(pluginsRoot));
     }
 
+    /** 安装目录只参与正式运行或独立 SDK 工程；多模块开发只使用源码构建产物。 */
+    public static boolean usesInstalledArtifacts(Path pluginsRoot) {
+        return !enabled() || standaloneProject(pluginsRoot);
+    }
+
     private static boolean isPluginProject(Path root) {
         return Files.isRegularFile(root.resolve("src/main/resources/plugin.properties"));
     }
@@ -70,8 +79,7 @@ public final class PluginDevelopmentArtifacts {
             return new DevelopmentDiscovery(developmentRoot, cacheRoot, List.of(), List.of());
         }
         Path ignoredPluginsRoot = pluginsRoot.toAbsolutePath().normalize();
-        try (Stream<Path> stream = isPluginProject(developmentRoot)
-                ? Stream.of(developmentRoot) : Files.list(developmentRoot)) {
+        try (Stream<Path> stream = developmentModules(developmentRoot)) {
             List<Path> moduleRoots = stream
                     .filter(Files::isDirectory)
                     .filter(path -> !path.toAbsolutePath().normalize().equals(ignoredPluginsRoot))
@@ -86,10 +94,46 @@ public final class PluginDevelopmentArtifacts {
                     .flatMap(OptionalStream::stream)
                     .toList();
             return new DevelopmentDiscovery(developmentRoot, cacheRoot, artifacts, sourceOnlyModules);
-        } catch (IOException e) {
+        } catch (IOException | InvalidPathException e) {
             throw new PluginRuntimeOperationException("failed to scan plugin development root "
                     + developmentRoot, e);
         }
+    }
+
+    private static Stream<Path> developmentModules(Path root) throws IOException {
+        if (isPluginProject(root)) {
+            return Stream.of(root);
+        }
+        Path classpath = root.resolve(TARGET_DIR).resolve(CLASSPATH_FILE);
+        if (Files.notExists(classpath)) {
+            return Files.list(root);
+        }
+        byte[] bytes;
+        try (var input = Files.newInputStream(classpath)) {
+            bytes = input.readNBytes(MAX_CLASSPATH_BYTES + 1);
+        }
+        if (bytes.length > MAX_CLASSPATH_BYTES) {
+            throw new IOException("plugin development classpath exceeds " + MAX_CLASSPATH_BYTES + " bytes");
+        }
+        // Maven 的完整 classpath 同时包含仓库依赖；只选择当前根下的直接模块编译输出。
+        List<Path> modules = new ArrayList<>();
+        for (String line : StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString().lines().toList()) {
+            if (line.isBlank()) {
+                continue;
+            }
+            Path entry = Path.of(line.trim());
+            if (!entry.isAbsolute()) {
+                throw new IOException("plugin development classpath entry must be absolute: " + entry);
+            }
+            entry = entry.normalize();
+            if (entry.startsWith(root) && entry.getNameCount() == root.getNameCount() + 3
+                    && (CLASSES_DIR.equals(entry.getFileName().toString())
+                        || entry.getFileName().toString().endsWith(".jar"))
+                    && TARGET_DIR.equals(entry.getParent().getFileName().toString())) {
+                modules.add(entry.getParent().getParent());
+            }
+        }
+        return modules.stream().distinct();
     }
 
     public static List<MaterializedDevelopmentPlugin> dependencyOrder(

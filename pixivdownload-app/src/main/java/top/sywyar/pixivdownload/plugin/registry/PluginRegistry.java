@@ -242,7 +242,7 @@ public class PluginRegistry implements SmartLifecycle {
 
     private static void logExternalDiscovery(PluginDiscoveryResult external) {
         if (!external.discovered().isEmpty()) {
-            log.info("PluginRegistry: bridged {} external feature plugin(s): {}",
+            log.debug("PluginRegistry: bridged {} external feature plugin(s): {}",
                     external.discoveredCount(),
                     external.discovered().stream().map(DiscoveredFeaturePlugin::featurePluginId)
                             .collect(Collectors.joining(", ")));

@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContext;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Properties;
 
@@ -109,6 +110,19 @@ class DownloadWorkbenchRequiredContextTest {
                         "page-batch|classpath:/static/userscripts/Pixiv 页面批量下载器(Page Scrape).user.js",
                         "import-batch|classpath:/static/userscripts/Pixiv URL 批量导入单作品下载器(URL Batch).user.js",
                         "experience-toolbox|classpath:/static/userscripts/Pixiv 体验增强工具箱(Toolbox).user.js");
+    }
+
+    @Test
+    @DisplayName("每项脚本贡献均能从本次构建产物读取完整脚本")
+    void declaredUserscriptsExistInBuildOutput() throws Exception {
+        for (var script : plugin.userscripts()) {
+            String resource = script.classpathResource().substring("classpath:".length());
+            try (InputStream input = plugin.getClass().getResourceAsStream(resource)) {
+                assertThat(input).as("脚本资源 %s", script.id()).isNotNull();
+                assertThat(new String(input.readAllBytes(), StandardCharsets.UTF_8))
+                        .contains("// ==UserScript==", "// ==/UserScript==");
+            }
+        }
     }
 
     @Test

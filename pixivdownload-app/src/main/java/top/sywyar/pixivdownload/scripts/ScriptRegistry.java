@@ -40,6 +40,7 @@ public class ScriptRegistry implements UserscriptCatalog {
     private final UserscriptRegistry userscriptRegistry;
     /** 元数据 + 完整 UTF-8 文本的不可变快照；{@link #refresh()} 整体替换引用（读侧无锁）。 */
     private volatile List<UserscriptArtifact> snapshot;
+    private long materializedRevision = -1;
 
     public ScriptRegistry(AppMessages messages, UserscriptRegistry userscriptRegistry) {
         this.messages = messages;
@@ -53,7 +54,20 @@ public class ScriptRegistry implements UserscriptCatalog {
      * 来源被注销后脚本层不再残留、再注册后恢复——脚本聚合结果不再是构造期一次性缓存。
      */
     public synchronized void refresh() {
-        this.snapshot = List.copyOf(loadScripts(userscriptRegistry));
+        refresh(userscriptRegistry.snapshot());
+    }
+
+    /** 生命周期只在脚本声明变化后重新物化；显式 refresh 仍可重读开发资源。 */
+    public synchronized void refreshIfChanged() {
+        UserscriptRegistry.Snapshot sources = userscriptRegistry.snapshot();
+        if (sources.revision() != materializedRevision) {
+            refresh(sources);
+        }
+    }
+
+    private void refresh(UserscriptRegistry.Snapshot sources) {
+        this.snapshot = List.copyOf(loadScripts(sources.userscripts()));
+        this.materializedRevision = sources.revision();
     }
 
     @Override
@@ -61,10 +75,10 @@ public class ScriptRegistry implements UserscriptCatalog {
         return snapshot;
     }
 
-    private List<UserscriptArtifact> loadScripts(UserscriptRegistry userscriptRegistry) {
+    private List<UserscriptArtifact> loadScripts(List<RegisteredUserscript> sources) {
         List<UserscriptArtifact> result = new ArrayList<>();
         Map<String, String> fileNameById = new LinkedHashMap<>();
-        for (RegisteredUserscript registered : userscriptRegistry.userscripts()) {
+        for (RegisteredUserscript registered : sources) {
             Resource resource = new DefaultResourceLoader(registered.classLoader())
                     .getResource(registered.contribution().classpathResource());
             String fileName = resource.getFilename();
@@ -87,7 +101,7 @@ public class ScriptRegistry implements UserscriptCatalog {
             }
         }
         if (result.isEmpty()) {
-            log.warn(message("script.log.scan.empty"));
+            log.debug(message("script.log.scan.empty"));
         } else {
             log.info(message("script.log.loaded", result.size()));
         }
