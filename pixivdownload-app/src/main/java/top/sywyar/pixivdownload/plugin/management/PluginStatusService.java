@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.plugin.management;
 
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
@@ -117,7 +118,8 @@ public class PluginStatusService {
                                RequiredPluginPolicy requiredPluginPolicy) {
         this.pluginRegistry = pluginRegistry;
         this.pluginInventory = runtimeManager::inspectPlugins;
-        this.installedArtifacts = installer::listInstalled;
+        this.installedArtifacts = () -> PluginDevelopmentArtifacts.usesInstalledArtifacts(installer.pluginsDirectory())
+                ? installer.listInstalled() : List.of();
         this.loadedDescriptors = runtimeManager::loadedDescriptors;
         this.recoveryGate = installer::recoveryGateSnapshot;
         this.runtimeVerifications = () -> runtimeManager.status()

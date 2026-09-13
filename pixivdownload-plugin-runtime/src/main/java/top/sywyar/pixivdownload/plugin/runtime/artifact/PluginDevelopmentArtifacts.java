@@ -58,6 +58,11 @@ public final class PluginDevelopmentArtifacts {
         return isPluginProject(developmentRoot(pluginsRoot));
     }
 
+    /** 安装目录只参与正式运行或独立 SDK 工程；多模块开发只使用源码构建产物。 */
+    public static boolean usesInstalledArtifacts(Path pluginsRoot) {
+        return !enabled() || standaloneProject(pluginsRoot);
+    }
+
     private static boolean isPluginProject(Path root) {
         return Files.isRegularFile(root.resolve("src/main/resources/plugin.properties"));
     }

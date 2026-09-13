@@ -240,9 +240,9 @@ public class PluginRuntimeManager {
         Path directory = pluginsRoot.toAbsolutePath().normalize();
         resetPluginManager();
 
-        boolean standaloneDevelopment = PluginDevelopmentArtifacts.enabled()
-                && PluginDevelopmentArtifacts.standaloneProject(directory);
-        if (PluginDevelopmentArtifacts.enabled() && !standaloneDevelopment) {
+        boolean usesInstalledArtifacts = PluginDevelopmentArtifacts.usesInstalledArtifacts(directory);
+        boolean standaloneDevelopment = PluginDevelopmentArtifacts.enabled() && usesInstalledArtifacts;
+        if (!usesInstalledArtifacts) {
             try {
                 beforeProductionScan(directory);
             } catch (IOException | RuntimeException e) {
