@@ -932,6 +932,9 @@ class PluginRuntimeManagerTest {
             assertThat(pf4jPath.resolve("classes/top/sywyar/pixivdownload/runtimeprobe/"
                     + "BootstrapProbePlugin.class")).exists();
             assertThat(pf4jPath.resolve("lib/private-lib.jar")).exists();
+            try (InputStream resource = firstClassLoader.getResource("private/Marker.txt").openStream()) {
+                assertThat(new String(resource.readAllBytes(), StandardCharsets.UTF_8)).isEqualTo("private-lib");
+            }
             assertThat(manager.loadedDescriptor(PROBE_ID)).get()
                     .extracting(PluginDescriptor::id).isEqualTo(PROBE_ID);
             Path activeCacheMarker = pf4jPath.resolve("active-generation.marker");
