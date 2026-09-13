@@ -146,6 +146,8 @@
                             <goal>exec</goal>
                         </goals>
                         <configuration>
+                            <!-- 脚本是插件必需资源，不能随通用 exec.skip 跳过生成。 -->
+                            <skip>false</skip>
                             <workingDirectory>${maven.multiModuleProjectDirectory}</workingDirectory>
                             <executable>${powershell.executable}</executable>
                             <arguments>
