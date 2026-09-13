@@ -21,6 +21,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -142,6 +143,52 @@ class ScriptRegistryTest {
     }
 
     @Test
+    @DisplayName("无关生命周期不重读脚本或重复尝试缺失资源，注销和重新注册仍刷新")
+    void lifecycleRefreshOnlyReadsChangedContributions() throws Exception {
+        writeScript(tempDir, "Original", "1.0.0", "old");
+        AtomicInteger reads = new AtomicInteger();
+        UserscriptRegistry sources = new UserscriptRegistry(new PluginRegistry(List.of()));
+        List<UserscriptContribution> contributions = List.of(
+                new UserscriptContribution("external", "classpath:/static/userscripts/External.user.js"),
+                new UserscriptContribution("missing", "classpath:/static/userscripts/Missing.user.js"));
+        try (URLClassLoader loader = new URLClassLoader(
+                new URL[]{tempDir.toUri().toURL()}, getClass().getClassLoader()) {
+            @Override
+            public URL getResource(String name) {
+                reads.incrementAndGet();
+                return super.getResource(name);
+            }
+        }) {
+            sources.register("external", loader, contributions);
+            ScriptRegistry registry = new ScriptRegistry(TestI18nBeans.appMessages(), sources);
+            List<UserscriptArtifact> original = registry.scripts();
+            int initialReads = reads.get();
+            assertThat(initialReads).isPositive();
+            for (int i = 0; i < 20; i++) {
+                sources.unregister("unrelated");
+                registry.refreshIfChanged();
+            }
+            assertThat(reads).hasValue(initialReads);
+            assertThat(registry.scripts()).isSameAs(original).hasSize(1);
+
+            sources.unregister("external");
+            registry.refreshIfChanged();
+            assertThat(registry.scripts()).isEmpty();
+            assertThat(reads).hasValue(initialReads);
+
+            writeScript(tempDir, "Replacement", "2.0.0", "new");
+            sources.register("external", loader, contributions);
+            registry.refreshIfChanged();
+            assertThat(reads.get()).isGreaterThan(initialReads);
+            assertThat(registry.scripts()).singleElement()
+                    .satisfies(artifact -> {
+                        assertThat(artifact.displayName()).isEqualTo("Replacement");
+                        assertThat(artifact.content()).contains("// new");
+                    });
+        }
+    }
+
+    @Test
     @DisplayName("并发刷新串行发布且较早物化结果不能覆盖较新声明")
     void concurrentRefreshesPublishLatestSourceInCallOrder() throws Exception {
         Path oldRoot = tempDir.resolve("old");
@@ -163,7 +210,7 @@ class ScriptRegistryTest {
                      newRoot, newScanStarted, new CountDownLatch(0))) {
             sources.register("old", oldLoader, List.of(new UserscriptContribution(
                     "old", "classpath:/static/userscripts/External.user.js")));
-            Future<?> oldRefresh = executor.submit(registry::refresh);
+            Future<?> oldRefresh = executor.submit(registry::refreshIfChanged);
             assertThat(oldScanStarted.await(5, TimeUnit.SECONDS)).isTrue();
 
             sources.unregister("old");
@@ -171,7 +218,7 @@ class ScriptRegistryTest {
                     "new", "classpath:/static/userscripts/External.user.js")));
             Future<?> newRefresh = executor.submit(() -> {
                 secondRefreshInvoked.countDown();
-                registry.refresh();
+                registry.refreshIfChanged();
             });
             assertThat(secondRefreshInvoked.await(5, TimeUnit.SECONDS)).isTrue();
             assertThat(newScanStarted.await(200, TimeUnit.MILLISECONDS))

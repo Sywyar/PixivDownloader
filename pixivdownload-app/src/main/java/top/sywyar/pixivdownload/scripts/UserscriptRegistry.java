@@ -40,7 +40,11 @@ public class UserscriptRegistry {
 
     private final Object lock = new Object();
 
-    private volatile List<RegisteredUserscript> snapshot = List.of();
+    /** 声明与修订号一起发布，物化结果只需保留修订号，无需保留旧 ClassLoader。 */
+    record Snapshot(long revision, List<RegisteredUserscript> userscripts) {
+    }
+
+    private volatile Snapshot snapshot = new Snapshot(0, List.of());
 
     public UserscriptRegistry(PluginRegistry pluginRegistry) {
         pluginRegistry.forEachBootPlugin(registered -> {
@@ -68,14 +72,15 @@ public class UserscriptRegistry {
             throw new IllegalStateException("empty userscript contribution (plugin: " + pluginId + ")");
         }
         synchronized (lock) {
-            if (snapshot.stream().anyMatch(registered -> registered.pluginId().equals(pluginId))) {
+            List<RegisteredUserscript> current = snapshot.userscripts();
+            if (current.stream().anyMatch(registered -> registered.pluginId().equals(pluginId))) {
                 throw new IllegalStateException("userscripts already registered for plugin: " + pluginId);
             }
-            Set<String> ids = snapshot.stream()
+            Set<String> ids = current.stream()
                     .map(registered -> registered.contribution().id())
                     .collect(Collectors.toCollection(HashSet::new));
             Set<String> resources = new HashSet<>();
-            List<RegisteredUserscript> next = new ArrayList<>(snapshot);
+            List<RegisteredUserscript> next = new ArrayList<>(current);
             for (UserscriptContribution contribution : contributions) {
                 validate(contribution, pluginId);
                 if (!ids.add(contribution.id())) {
@@ -88,7 +93,7 @@ public class UserscriptRegistry {
                 }
                 next.add(new RegisteredUserscript(pluginId, contribution, classLoader));
             }
-            snapshot = List.copyOf(next);
+            snapshot = new Snapshot(snapshot.revision() + 1, List.copyOf(next));
         }
     }
 
@@ -98,14 +103,21 @@ public class UserscriptRegistry {
      */
     public void unregister(String pluginId) {
         synchronized (lock) {
-            snapshot = snapshot.stream()
+            List<RegisteredUserscript> next = snapshot.userscripts().stream()
                     .filter(registered -> !registered.pluginId().equals(pluginId))
-                    .collect(Collectors.collectingAndThen(Collectors.toList(), List::copyOf));
+                    .toList();
+            if (next.size() != snapshot.userscripts().size()) {
+                snapshot = new Snapshot(snapshot.revision() + 1, next);
+            }
         }
     }
 
     /** 按注册顺序返回全部已注册油猴脚本声明的不可变快照。 */
     public List<RegisteredUserscript> userscripts() {
+        return snapshot.userscripts();
+    }
+
+    Snapshot snapshot() {
         return snapshot;
     }
 
