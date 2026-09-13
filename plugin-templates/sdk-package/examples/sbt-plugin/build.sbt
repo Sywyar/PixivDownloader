@@ -17,6 +17,8 @@ checkJavaScript := {
   if (result != 0) sys.error("JavaScript check failed")
 }
 
+Test / test := ((Test / test) dependsOn checkJavaScript).value
+
 // 构建失败时不进入此函数；运行与调试共用 SDK 工具的准备、准入和进程管理。
 def sdkCommand(project: File, action: String, artifact: File): Unit = {
   val java = file(sys.props("java.home")) / "bin" / "java"

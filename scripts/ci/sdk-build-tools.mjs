@@ -143,7 +143,7 @@ verifySdk := {
             `-Dsbt.boot.directory=${path.join(work, 'sbt-boot')}`, `-Dsbt.global.base=${path.join(work, 'sbt-global')}`,
             `-Dsbt.ivy.home=${path.join(work, 'ivy')}`, '-Dsbt.supershell=false', '-Dsbt.log.noformat=true',
             '-jar', path.resolve(options['--sbt-launcher']), 'clean',
-            ...(options['--sdk-zip'] ? ['checkJavaScript'] : []), 'verifySdk'], project);
+            ...(options['--sdk-zip'] ? ['test'] : []), 'verifySdk'], project);
         if (options['--sdk-zip']) run('java', ['-jar', path.join(sdkProject, 'tools/sdk-tools.jar'), 'stop', project], project);
         verifyClasspath(path.join(project, 'target/sdk-classpath.txt'));
     }
