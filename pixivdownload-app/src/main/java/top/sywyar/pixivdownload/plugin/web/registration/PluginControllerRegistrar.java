@@ -170,7 +170,8 @@ public class PluginControllerRegistrar {
             if (!registered.isEmpty()) {
                 registeredByPlugin.put(pluginId, List.copyOf(registered));
             }
-            log.info("Registered {} controller mapping(s) for plugin '{}': {}", registered.size(), pluginId, registered);
+            log.info("Registered {} controller mapping(s) for plugin '{}'.", registered.size(), pluginId);
+            log.debug("Controller mappings for plugin '{}': {}", pluginId, registered);
             return registered.size();
         }
     }
