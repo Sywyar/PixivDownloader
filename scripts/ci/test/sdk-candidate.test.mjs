@@ -6,7 +6,30 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 import YAML from 'yaml';
+
+test('源码候选容器在 checkout 前安装 Git，构建前提供归档工具', t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sdk-candidate-prerequisites-'));
+    t.after(() => fs.rmSync(root, { recursive: true }));
+    const workflow = YAML.parse(fs.readFileSync(fileURLToPath(new URL('../../../plugin-templates/sdk-package/.github/workflows/candidate.yml', import.meta.url)), 'utf8'));
+    for (const name of ['projects', 'build']) {
+        const job = workflow.jobs[name];
+        const checkout = job.steps.findIndex(step => step.uses?.startsWith('actions/checkout@'));
+        assert(checkout > 0);
+        const script = job.steps.slice(0, checkout).filter(step => step.run).map(step => step.run).join('\n');
+        // 运行实际安装命令，只替换包管理器，避免在测试机安装软件。
+        const wrapper = 'set -eu\napt-get() { printf "%s\\n" "$*"; }\n' + script;
+        const file = path.join(root, name + '.sh'); fs.writeFileSync(file, wrapper, 'utf8');
+        const output = execFileSync('bash', [file], { encoding: 'utf8', windowsHide: true });
+        const commands = output.trim().split(/\r?\n/u).map(line => line.split(/\s+/u));
+        const update = commands.findIndex(args => args[0] === 'update');
+        const install = commands.findIndex(args => args[0] === 'install');
+        assert(update >= 0 && install > update);
+        assert(commands[install].includes('git'));
+        if (name === 'build') assert(commands[install].includes('unzip'));
+    }
+});
 
 test('源码候选归档执行真实工作流脚本，仅首次写入并拒绝包变化及非默认分支', async t => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sdk-candidate-archive-'));

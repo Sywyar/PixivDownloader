@@ -17,6 +17,10 @@ jobs:
     outputs:
       matrix: ${{ steps.projects.outputs.matrix }}
     steps:
+      - name: Install Git
+        run: |
+          apt-get update
+          apt-get install --yes --no-install-recommends git
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
@@ -38,16 +42,16 @@ jobs:
       image: eclipse-temurin@sha256:fb9701fe3592f88a6158bdea97ee25821fcf1dd8837b08ced2c027ddebad4a34
       options: --cpus=2 --memory=6g --pids-limit=512
     steps:
+      - name: Install build prerequisites
+        run: |
+          apt-get update
+          apt-get install --yes --no-install-recommends git unzip
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '24.21.0'
-      - name: Install archive support
-        run: |
-          apt-get update
-          apt-get install --yes --no-install-recommends unzip
       - name: Build, test and reproduce candidate
         env:
           CANDIDATE_SELECTION: ${{ toJSON(matrix) }}
