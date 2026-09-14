@@ -62,7 +62,7 @@ record SdkRuntimeLock(String sdkVersion, String releaseId, String sourceCommitSh
         String version = requiredText(metadata, "sdkVersion");
         String releaseId = requiredText(metadata, "releaseId");
         String source = requiredText(metadata, "sourceCommitSha");
-        if (!version.matches("[0-9]+\\.[0-9]+\\.[0-9]+(?:-(?:alpha|beta|rc)[0-9]+)?")
+        if (!version.matches("[0-9]+\\.[0-9]+\\.[0-9]+(?:-(?:alpha|beta|rc)\\.?[0-9]+)?")
                 || !releaseId.equals("sdk-api-v" + version) || !source.matches("[0-9a-f]{40}")) {
             throw new IOException("SDK_INVALID_IDENTITY");
         }

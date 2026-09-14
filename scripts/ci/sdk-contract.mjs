@@ -117,6 +117,10 @@ export function evaluateContract({
     if (identityChanged && !baseIdentity.legacyRevision && compareVersions(candidateIdentity, baseIdentity) <= 0) {
         throw new Error(`SDK version must increase from ${baseIdentity.version} to a newer identity`);
     }
+    if (identityChanged && candidateIdentity.prerelease
+            && !candidateIdentity.version.includes(`-${candidateIdentity.prereleaseChannel}.`)) {
+        throw new Error('New SDK prerelease identities must use alpha.N, beta.N or rc.N');
+    }
 
     let stableDiff = null;
     if (stableBaseline) {

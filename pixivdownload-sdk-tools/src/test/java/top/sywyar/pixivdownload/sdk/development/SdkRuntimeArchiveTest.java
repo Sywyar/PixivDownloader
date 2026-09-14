@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.sdk.development;
 
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -90,6 +91,46 @@ class SdkRuntimeArchiveTest {
         assertThatThrownBy(() -> SdkRuntimeArchive.extract(zip, temp.resolve("extract")))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("SDK_UNSAFE_PATH");
         assertThat(temp.resolve("escape")).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("新旧 SDK 后缀均保留原始身份，Release 地址不能换成另一种拼写")
+    void projectMetadataPreservesPrereleaseSpelling() throws Exception {
+        var fixture = fixture();
+        var project = SdkRuntimeLock.JSON.createObjectNode();
+        project.put("schemaVersion", 3);
+        project.put("javaVersion", Integer.parseInt(System.getProperty("sdk.test.java-version")));
+        project.put("sourceCommitSha", fixture.lock.sourceCommitSha());
+        ObjectNode runtime = SdkRuntimeLock.JSON.valueToTree(fixture.lock.runtime());
+        project.set("developmentRuntime", runtime);
+        String core = SdkVersion.MAJOR + "." + SdkVersion.MINOR + "." + SdkVersion.PATCH;
+        Path json = temp.resolve("sdk-project.json");
+        for (String channel : List.of("alpha", "beta", "rc")) {
+            for (String separator : List.of("", ".")) {
+                String raw = core + "-" + channel + separator + "12";
+                String releaseId = "sdk-api-v" + raw;
+                project.put("sdkVersion", raw);
+                project.put("releaseId", releaseId);
+                String url = "https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases/download/"
+                        + releaseId + "/" + fixture.lock.runtime().archive().file();
+                runtime.put("downloadUrl", url);
+                SdkRuntimeLock.JSON.writeValue(json.toFile(), project);
+                var parsed = SdkRuntimeLock.read(temp);
+                assertThat(parsed.sdkVersion()).isEqualTo(raw);
+                assertThat(parsed.releaseId()).isEqualTo(releaseId);
+                assertThat(parsed.runtime().downloadUrl()).isEqualTo(url);
+                String alias = "sdk-api-v" + core + "-" + channel + (separator.isEmpty() ? "." : "") + "12";
+                runtime.put("downloadUrl", url.replace(releaseId, alias));
+                SdkRuntimeLock.JSON.writeValue(json.toFile(), project);
+                assertThatThrownBy(() -> SdkRuntimeLock.read(temp)).isInstanceOf(IOException.class)
+                        .hasMessageContaining("SDK_RUNTIME_URL_IDENTITY_MISMATCH");
+                runtime.put("downloadUrl", url);
+                project.put("releaseId", alias);
+                SdkRuntimeLock.JSON.writeValue(json.toFile(), project);
+                assertThatThrownBy(() -> SdkRuntimeLock.read(temp)).isInstanceOf(IOException.class)
+                        .hasMessageContaining("SDK_INVALID_IDENTITY");
+            }
+        }
     }
 
     @Test

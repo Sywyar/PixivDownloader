@@ -15,7 +15,7 @@ const STABLE = `${CURRENT.major}.${CURRENT.minor}.${CURRENT.patch}`;
 const NEXT_PATCH = `${CURRENT.major}.${CURRENT.minor}.${CURRENT.patch + 1}`;
 const NEXT_MINOR = `${CURRENT.major}.${CURRENT.minor + 1}.${CURRENT.patch}`;
 const SEQUENCE = Math.max(1, CURRENT.prereleaseSequence);
-const rc = (offset = 0) => `${STABLE}-rc${SEQUENCE + offset}`;
+const rc = (offset = 0) => `${STABLE}-rc.${SEQUENCE + offset}`;
 
 const CLI = path.join(ROOT, 'scripts', 'ci', 'sdk-contract.mjs');
 
@@ -196,6 +196,29 @@ test('预发布版本必须单调递增且首次结构化身份可从旧元数�
     }).outcome, 'PUBLISH');
 });
 
+test('新 SDK 身份使用点分后缀，历史维护不发布，换拼写不能冒充升级', () => {
+    const evaluate = (base, candidate) => evaluateContract({
+        baseIdentity: identity(base), candidateIdentity: identity(candidate),
+        baseSurface: 'A\n', candidateSurface: 'A\n'
+    });
+    for (const channel of ['alpha', 'beta', 'rc']) {
+        const compact = `${STABLE}-${channel}${SEQUENCE}`;
+        const dotted = `${STABLE}-${channel}.${SEQUENCE}`;
+        assert.equal(evaluate(compact, compact).outcome, 'NO_PUBLISH');
+        assert.equal(evaluate(dotted, dotted).outcome, 'NO_PUBLISH');
+        assert.throws(() => evaluate(compact, dotted), /must increase/u);
+        assert.throws(() => evaluate(dotted, compact), /must increase/u);
+        assert.throws(() => evaluate(compact, `${STABLE}-${channel}${SEQUENCE + 1}`), /must use alpha\.N/u);
+        assert.equal(evaluate(compact, `${STABLE}-${channel}.${SEQUENCE + 1}`).outcome, 'PUBLISH');
+        assert.equal(evaluate(`${STABLE}-${channel}2`, `${STABLE}-${channel}.10`).outcome, 'PUBLISH');
+        assert.throws(() => evaluate(`${STABLE}-${channel}10`, `${STABLE}-${channel}.2`), /must increase/u);
+    }
+    for (const [base, candidate] of [['alpha.10', 'beta.1'], ['beta10', 'rc.1']]) {
+        assert.equal(evaluate(`${STABLE}-${base}`, `${STABLE}-${candidate}`).outcome, 'PUBLISH');
+    }
+    assert.equal(evaluate(`${STABLE}-rc.10`, STABLE).outcome, 'PUBLISH');
+});
+
 test('Maven 合同比较忽略发布元数据和 SDK 自身版本投影', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pixivdownload-sdk-maven-contract-'));
     const base = path.join(root, 'base');
@@ -256,21 +279,21 @@ test('同主版本稳定基线禁止删除并要求兼容新增提升次版本',
     const stableBaseline = { identity: identity(STABLE), surface: 'A\n' };
     assert.throws(() => evaluateContract({
         baseIdentity: identity(STABLE),
-        candidateIdentity: identity(`${NEXT_MINOR}-rc${SEQUENCE}`),
+        candidateIdentity: identity(`${NEXT_MINOR}-rc.${SEQUENCE}`),
         baseSurface: 'A\n',
         candidateSurface: 'B\n',
         stableBaseline
     }), /removes public API/u);
     assert.throws(() => evaluateContract({
         baseIdentity: identity(STABLE),
-        candidateIdentity: identity(`${NEXT_PATCH}-rc${SEQUENCE}`),
+        candidateIdentity: identity(`${NEXT_PATCH}-rc.${SEQUENCE}`),
         baseSurface: 'A\n',
         candidateSurface: 'A\nB\n',
         stableBaseline
     }), /higher SDK minor/u);
     assert.equal(evaluateContract({
         baseIdentity: identity(STABLE),
-        candidateIdentity: identity(`${NEXT_MINOR}-rc${SEQUENCE}`),
+        candidateIdentity: identity(`${NEXT_MINOR}-rc.${SEQUENCE}`),
         baseSurface: 'A\n',
         candidateSurface: 'A\nB\n',
         stableBaseline
@@ -282,14 +305,14 @@ test('预发布不能建立或改写稳定基线', () => {
     assert.throws(() => evaluateBaselineState({
         base: null,
         candidate: base,
-        candidateIdentity: identity(`${NEXT_MINOR}-rc${SEQUENCE}`),
+        candidateIdentity: identity(`${NEXT_MINOR}-rc.${SEQUENCE}`),
         candidateSurface: 'A\n',
         directory: `sdk-baselines/v${CURRENT.major}`
     }), /cannot establish/u);
     assert.throws(() => evaluateBaselineState({
         base,
         candidate: { ...base, surface: 'A\nB\n' },
-        candidateIdentity: identity(`${NEXT_MINOR}-rc${SEQUENCE}`),
+        candidateIdentity: identity(`${NEXT_MINOR}-rc.${SEQUENCE}`),
         candidateSurface: 'A\nB\n',
         directory: `sdk-baselines/v${CURRENT.major}`
     }), /cannot modify/u);
