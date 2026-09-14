@@ -175,15 +175,19 @@ verbose "Couldn't find MAVEN_HOME, downloading and installing it ..."
 verbose "Downloading from: $distributionUrl"
 verbose "Downloading to: $TMP_DOWNLOAD_DIR/$distributionUrlName"
 
-# select .zip or .tar.gz
+# 保持配置的 ZIP 与摘要对应；没有 unzip 时使用 JDK 自带的 jar。
 if ! command -v unzip >/dev/null; then
-  distributionUrl="${distributionUrl%.zip}.tar.gz"
-  distributionUrlName="${distributionUrl##*/}"
+  if [ -n "${JAVA_HOME-}" ]; then
+    JARCMD="$JAVA_HOME/bin/jar"
+  else
+    JARCMD="$(command -v jar)" || die "Maven ZIP extraction requires unzip or the JDK jar command in PATH or JAVA_HOME/bin."
+  fi
+  [ -x "$JARCMD" ] || die "Maven ZIP extraction requires unzip or an executable JDK jar command at $JARCMD."
 fi
 
 # verbose opt
-__MVNW_QUIET_WGET=--quiet __MVNW_QUIET_CURL=--silent __MVNW_QUIET_UNZIP=-q __MVNW_QUIET_TAR=''
-[ "${MVNW_VERBOSE-}" != true ] || __MVNW_QUIET_WGET='' __MVNW_QUIET_CURL='' __MVNW_QUIET_UNZIP='' __MVNW_QUIET_TAR=v
+__MVNW_QUIET_WGET=--quiet __MVNW_QUIET_CURL=--silent __MVNW_QUIET_UNZIP=-q
+[ "${MVNW_VERBOSE-}" != true ] || __MVNW_QUIET_WGET='' __MVNW_QUIET_CURL='' __MVNW_QUIET_UNZIP=''
 
 # normalize http auth
 case "${MVNW_PASSWORD:+has-password}" in
@@ -253,7 +257,7 @@ fi
 if command -v unzip >/dev/null; then
   unzip ${__MVNW_QUIET_UNZIP:+"$__MVNW_QUIET_UNZIP"} "$TMP_DOWNLOAD_DIR/$distributionUrlName" -d "$TMP_DOWNLOAD_DIR" || die "failed to unzip"
 else
-  tar xzf${__MVNW_QUIET_TAR:+"$__MVNW_QUIET_TAR"} "$TMP_DOWNLOAD_DIR/$distributionUrlName" -C "$TMP_DOWNLOAD_DIR" || die "failed to untar"
+  (cd "$TMP_DOWNLOAD_DIR" && "$JARCMD" xf "$(native_path "$TMP_DOWNLOAD_DIR/$distributionUrlName")") || die "failed to extract Maven ZIP with jar"
 fi
 
 # Find the actual extracted directory name (handles snapshots where filename != directory name)
@@ -288,6 +292,14 @@ if [ -z "$actualDistributionDir" ]; then
 fi
 
 verbose "Found extracted Maven distribution directory: $actualDistributionDir"
+# jar 不恢复 ZIP 的 Unix 权限，补齐 Maven 与 mvnd 启动入口。
+if [ -n "${JARCMD-}" ]; then
+  for launcher in "$MVN_CMD" mvnDebug mvnd; do
+    if [ -f "$TMP_DOWNLOAD_DIR/$actualDistributionDir/bin/$launcher" ]; then
+      chmod +x "$TMP_DOWNLOAD_DIR/$actualDistributionDir/bin/$launcher"
+    fi
+  done
+fi
 printf %s\\n "$distributionUrl" >"$TMP_DOWNLOAD_DIR/$actualDistributionDir/mvnw.url"
 mv -- "$TMP_DOWNLOAD_DIR/$actualDistributionDir" "$MAVEN_HOME" || [ -d "$MAVEN_HOME" ] || die "fail to move MAVEN_HOME"
 
