@@ -6,14 +6,17 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
-import { inspectSdkVersion, SDK_ARTIFACTS } from '../sdk-version.mjs';
+import { inspectSdkVersion, parseSdkVersion, SDK_ARTIFACTS } from '../sdk-version.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const IDENTITY = inspectSdkVersion(ROOT);
 const workflow = YAML.parse(fs.readFileSync(path.join(ROOT, '.github/workflows/publish-sdk.yml'), 'utf8'));
 const script = workflow.jobs.publish.steps.find(step => step.name === 'Check immutable publication state').run;
 
-test('SDK 发布仅在全新身份上传，完整 Central 复用冻结附件，不确定状态拒绝重复上传', () => {
+for (const version of [IDENTITY.version, ...['alpha', 'beta', 'rc']
+    .map(channel => `${IDENTITY.major}.${IDENTITY.minor}.${IDENTITY.patch + 1}-${channel}.12`)]) {
+test(`SDK 发布与恢复按精确身份判断 Central 和冻结附件：${version}`, () => {
+    const identity = parseSdkVersion(version);
     const work = fs.mkdtempSync(path.join(os.tmpdir(), 'sdk-publication-'));
     try {
         const entry = path.join(work, 'check.sh');
@@ -60,13 +63,13 @@ test('SDK 发布仅在全新身份上传，完整 Central 复用冻结附件，�
         ]) {
             const output = path.join(work, 'output.txt');
             fs.writeFileSync(output, '', 'utf8');
-            const frozen = { tag_name: IDENTITY.releaseId, draft: release !== 'published' };
+            const frozen = { tag_name: identity.releaseId, draft: release !== 'published' };
             const releases = release === 'absent' ? [] : [frozen];
             if (release === 'duplicate') releases.push(frozen);
             const result = spawnSync('bash', [entry.replaceAll('\\', '/')], {
                 cwd: ROOT, encoding: 'utf8',
-                env: { ...process.env, PUBLICATION_MODE: mode, SDK_VERSION: IDENTITY.version,
-                    RELEASE_ID: IDENTITY.releaseId, SDK_REPOSITORY: 'fixture/sdk',
+                env: { ...process.env, PUBLICATION_MODE: mode, SDK_VERSION: identity.version,
+                    RELEASE_ID: identity.releaseId, SDK_REPOSITORY: 'fixture/sdk',
                     CENTRAL_BASE_URL: 'https://invalid.example/maven', GITHUB_OUTPUT: output.replaceAll('\\', '/'),
                     SDK_TEST_CENTRAL: central, SDK_TEST_TAG: String(tag),
                     SDK_TEST_FIRST: SDK_ARTIFACTS[0][0], SDK_TEST_RELEASES: JSON.stringify([[], releases]) },
@@ -82,3 +85,4 @@ test('SDK 发布仅在全新身份上传，完整 Central 复用冻结附件，�
         fs.rmSync(work, { recursive: true, force: true });
     }
 });
+}

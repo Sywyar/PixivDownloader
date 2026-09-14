@@ -54,7 +54,7 @@ jobs:
           mapfile -t tags < "$tags_file"
           rm "$tags_file"
           for tag in "${tags[@]}"; do
-            if ! [[ "$tag" =~ ^sdk-api-v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)[1-9][0-9]*)?$ ]]; then
+            if ! [[ "$tag" =~ ^sdk-api-v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.?[1-9][0-9]*)?$ ]]; then
               echo "invalid SDK Release tag: $tag" >&2
               exit 1
             fi

@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
 
 import { inspectSdkVersion, parseSdkVersion, sdkModulesAtRef } from '../sdk-version.mjs';
 
-const CURRENT = inspectSdkVersion(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..'));
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const CURRENT = inspectSdkVersion(ROOT);
 const STABLE = `${CURRENT.major}.${CURRENT.minor}.${CURRENT.patch}`;
 const NEXT = `${CURRENT.major}.${CURRENT.minor}.${CURRENT.patch + 1}`;
 const SEQUENCE = Math.max(1, CURRENT.prereleaseSequence);
@@ -70,10 +73,20 @@ test('版本解析区分稳定版与结构化预发布版', () => {
         releaseId: `sdk-api-v${STABLE}`,
         compatibilityVersion: `${CURRENT.major}.${CURRENT.minor}`
     });
-    assert.equal(parseSdkVersion(`${STABLE}-alpha${SEQUENCE}`).prereleaseSequence, SEQUENCE);
-    assert.equal(parseSdkVersion(`${STABLE}-beta${SEQUENCE}`).prereleaseChannel, 'beta');
-    assert.equal(parseSdkVersion(`${STABLE}-rc${SEQUENCE}`).releaseId, `sdk-api-v${STABLE}-rc${SEQUENCE}`);
-    for (const invalid of [`${STABLE}-r${SEQUENCE}`, `${STABLE}-rc.${SEQUENCE}`, `${STABLE}-rc0`,
+    for (const channel of ['alpha', 'beta', 'rc']) {
+        for (const separator of ['', '.']) {
+            const raw = `${STABLE}-${channel}${separator}${SEQUENCE}`;
+            const parsed = parseSdkVersion(raw);
+            assert.equal(parsed.version, raw);
+            assert.equal(parsed.releaseId, `sdk-api-v${raw}`);
+            assert.equal(parsed.prereleaseChannel, channel);
+            assert.equal(parsed.prereleaseSequence, SEQUENCE);
+        }
+        for (const suffix of ['.0', '.01', '..1', '.1.2', '.1+build', '.', '']) {
+            assert.throws(() => parseSdkVersion(`${STABLE}-${channel}${suffix}`), /Invalid SDK semantic version/u);
+        }
+    }
+    for (const invalid of [`${STABLE}-r${SEQUENCE}`, `${STABLE}-rc0`,
         `0${CURRENT.major + 1}.${CURRENT.minor}.${CURRENT.patch}`, CURRENT.compatibilityVersion]) {
         assert.throws(() => parseSdkVersion(invalid), /Invalid SDK semantic version/u);
     }
@@ -90,6 +103,26 @@ test('SDK 身份事实源与 Maven、BOM 及模板投影必须一致', () => {
         assert.throws(() => inspectSdkVersion(root), error => error.message.includes('minimal-feature-plugin') && error.message.includes(`must be ${CURRENT.version}`));
     } finally {
         fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test('Pages 下载入口的实际 Bash 校验接受两种后缀且拒绝非法标签', () => {
+    const workflow = YAML.parse(fs.readFileSync(path.join(ROOT, '.github/workflows/sdk-pages.yml'), 'utf8'));
+    const download = workflow.jobs.build.steps.find(step => step.name === 'Download every immutable SDK Release');
+    const guard = download.run.match(/if ! \[\[ "\$tag"[\s\S]*?\n\s*fi/u)?.[0];
+    assert.ok(guard);
+    const versions = [STABLE, ...['alpha', 'beta', 'rc'].flatMap(channel =>
+        ['', '.'].map(separator => `${STABLE}-${channel}${separator}${SEQUENCE}`))];
+    for (const [tag, accepted] of [
+        ...versions.map(version => [`sdk-api-v${version}`, true]),
+        ...['rc.0', 'rc.01', 'rc..1', 'rc.1.2', 'rc.1+build', 'rc.', 'RC.1', 'nightly.1']
+            .map(suffix => [`sdk-api-v${STABLE}-${suffix}`, false]),
+        [`sdk-api-v${STABLE}/escape`, false]
+    ]) {
+        const result = spawnSync('bash', ['-c', 'tag="$SDK_TEST_TAG"\n' + guard], {
+            encoding: 'utf8', env: { ...process.env, SDK_TEST_TAG: tag }
+        });
+        assert.equal(result.status === 0, accepted, `${tag}: ${result.error ?? result.stderr}`);
     }
 });
 

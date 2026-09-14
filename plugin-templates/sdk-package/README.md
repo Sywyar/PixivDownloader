@@ -4,6 +4,8 @@
 
 解压后的根目录是独立 Maven 插件工程，源码位于 `src/`。SDK 身份为 `@SDK_RELEASE_ID@`，源码对应主仓库提交 `@SOURCE_SHA@`。API 文档入口为 `docs/javadocs/index.html`。
 
+新 SDK 预发布版本使用 `alpha.N`、`beta.N`、`rc.N`，序号从 1 开始且不补零；工具兼容历史紧连后缀。Maven / Gradle / sbt 依赖版本及运行清单都须保留所选 Release 的原始拼写，不能自行把 `rcN` 改成 `rc.N`。插件版本由插件自身维护，`plugin.requires` 继续声明 SDK 的 `major.minor` 兼容线。
+
 开发包自带 `.git/`，`main` 分支的初始提交包含全部交付文件，可直接用 `git status` 和 `git diff` 查看自己的修改。仓库未配置远端；提交自己的代码前，按需设置 Git 用户名、邮箱和远端地址。构建产物、IDE 本地配置与 `.dev/` 运行数据由 `.gitignore` 排除。
 
 ## 开始开发

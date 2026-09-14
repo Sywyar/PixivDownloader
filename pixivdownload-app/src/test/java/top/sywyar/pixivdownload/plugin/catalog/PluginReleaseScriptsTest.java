@@ -152,7 +152,8 @@ class PluginReleaseScriptsTest {
         Path metadata = tempDir.resolve(
                 "pixivdownload-sdk-info/src/main/resources/META-INF/pixivdownload-sdk.properties");
         Files.createDirectories(metadata.getParent());
-        for (String version : List.of("1.0.0", "1.0.0-alpha1", "1.0.0-beta2", "1.0.0-rc12")) {
+        for (String version : List.of("2.3.4", "2.3.4-alpha1", "2.3.4-beta2", "2.3.4-rc12",
+                "2.3.4-alpha.1", "2.3.4-beta.2", "2.3.4-rc.12")) {
             Files.writeString(metadata, "version=" + version + "\n", StandardCharsets.UTF_8);
             assertThat(runPowerShell(
                     "$ErrorActionPreference='Stop'; "

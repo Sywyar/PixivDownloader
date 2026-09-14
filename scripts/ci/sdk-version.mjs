@@ -20,7 +20,7 @@ const TEMPLATE_POMS = [
     'plugin-templates/download-type-plugin/pom.xml'
 ];
 export const SDK_GROUP_ID = 'io.github.sywyar.pixivdownloader';
-const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(alpha|beta|rc)([1-9]\d*))?$/;
+const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(alpha|beta|rc)\.?([1-9]\d*))?$/;
 
 export function sdkModulesAtRef(repoRoot, ref = '') {
     const pom = readText(repoRoot, 'pom.xml', ref);

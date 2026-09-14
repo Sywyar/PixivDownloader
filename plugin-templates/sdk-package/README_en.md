@@ -4,6 +4,8 @@
 
 The extracted root is a standalone Maven project with sources in `src/`. Its SDK identity is `@SDK_RELEASE_ID@`, built from main-repository commit `@SOURCE_SHA@`. Open `docs/javadocs/index.html` for the API reference.
 
+New SDK prereleases use `alpha.N`, `beta.N`, or `rc.N`, with a positive sequence and no leading zeros. The tools also read historical compact suffixes. Keep the selected Release's exact spelling in Maven / Gradle / sbt dependencies and runtime manifests; do not rename `rcN` to `rc.N`. Plugins maintain their own versions, while `plugin.requires` continues to declare the SDK `major.minor` compatibility line.
+
 The package includes `.git/` with an initial commit on `main` containing all delivered files. Use `git status` and `git diff` to review your changes. Configure your Git name and email before committing your work, and add a remote when you need one. The `.gitignore` excludes build output, local IDE settings, and `.dev/` runtime data.
 
 ## Start developing

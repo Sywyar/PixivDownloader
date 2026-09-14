@@ -38,14 +38,21 @@ class SdkVersionTest {
         String version = SdkVersion.MAJOR + "." + SdkVersion.MINOR + "." + SdkVersion.PATCH;
         int sequence = Math.max(1, SdkVersion.PRERELEASE_SEQUENCE);
         SdkVersion.Metadata stable = SdkVersion.parse(version);
-        SdkVersion.Metadata beta = SdkVersion.parse(version + "-beta" + sequence);
-
         assertThat(stable.prereleaseChannel()).isEmpty();
         assertThat(stable.prereleaseSequence()).isZero();
-        assertThat(beta.prereleaseChannel()).isEqualTo("beta");
-        assertThat(beta.prereleaseSequence()).isEqualTo(sequence);
-        assertThatThrownBy(() -> SdkVersion.parse(version + "-rc." + sequence))
-                .isInstanceOf(IllegalStateException.class);
+        for (String channel : new String[]{"alpha", "beta", "rc"}) {
+            for (String separator : new String[]{"", "."}) {
+                String raw = version + "-" + channel + separator + sequence;
+                var parsed = SdkVersion.parse(raw);
+                assertThat(parsed.version()).isEqualTo(raw);
+                assertThat(parsed.prereleaseChannel()).isEqualTo(channel);
+                assertThat(parsed.prereleaseSequence()).isEqualTo(sequence);
+            }
+            for (String suffix : new String[]{".0", ".01", "..1", ".1.2", ".1+build", ".", ""}) {
+                assertThatThrownBy(() -> SdkVersion.parse(version + "-" + channel + suffix))
+                        .isInstanceOf(IllegalStateException.class);
+            }
+        }
         assertThatThrownBy(() -> SdkVersion.parse(version + "-rc0"))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> SdkVersion.parse(version + "-r" + sequence))

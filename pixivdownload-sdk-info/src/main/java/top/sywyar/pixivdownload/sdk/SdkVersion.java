@@ -17,7 +17,7 @@ public final class SdkVersion {
 
     private static final String RESOURCE = "/META-INF/pixivdownload-sdk.properties";
     private static final Pattern SEMVER = Pattern.compile(
-            "(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-(alpha|beta|rc)([1-9]\\d*))?");
+            "(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-(alpha|beta|rc)\\.?([1-9]\\d*))?");
     private static final Metadata METADATA = load();
 
     /** 当前 SDK 的语义化版本。 */
@@ -48,7 +48,7 @@ public final class SdkVersion {
     /**
      * 返回不可变的 SDK 发布标识。
      *
-     * @return 形如 {@code sdk-api-v1.0.0-rc2} 的发布标识
+     * @return 形如 {@code sdk-api-v1.0.0-rc.2} 的发布标识，保留历史版本的原始拼写
      */
     public static String releaseId() {
         return "sdk-api-v" + VERSION;
@@ -57,7 +57,7 @@ public final class SdkVersion {
     /**
      * 判断当前 SDK 是否为预发布版本。
      *
-     * @return 带有 {@code alphaN}、{@code betaN} 或 {@code rcN} 后缀时返回 {@code true}
+     * @return 带有 {@code alpha.N}、{@code beta.N}、{@code rc.N} 或历史紧连后缀时返回 {@code true}
      */
     public static boolean isPrerelease() {
         return !PRERELEASE_CHANNEL.isEmpty();
