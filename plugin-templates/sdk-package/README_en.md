@@ -16,6 +16,8 @@ Declare capabilities with comma-separated tokens in the package's `plugin.proper
 
 Install JDK 17 and Node.js, with `java` and `node` on `PATH`. IDE import only resolves the project. Explicit Run / Debug compiles the current plugin, prepares the pinned runtime, and starts the full application. Build failure stops this sequence. Maven Wrapper obtains the pinned Maven version; no host checkout or manually copied host and plugin JARs are needed. Initial application configuration uses the host's setup flow.
 
+On Linux / macOS, Maven Wrapper downloads the configured ZIP and verifies its SHA-256. If `unzip` is unavailable, it extracts the ZIP with `JAVA_HOME/bin/jar` or the JDK `jar` on `PATH`. If neither is available, it fails before downloading.
+
 | IDE | Import | Run | Debug |
 | --- | --- | --- | --- |
 | IntelliJ IDEA | Open the root `pom.xml` | Select `Developer Mode` and click Run | Select the same `Developer Mode` and click Debug |

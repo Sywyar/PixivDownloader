@@ -16,6 +16,8 @@
 
 安装 JDK 17 和 Node.js，让 `java`、`node` 可从命令行调用。IDE 导入只解析工程。显式 Run / Debug 才编译当前插件、准备固定运行包并启动完整应用；构建失败会中止启动。Maven Wrapper 会取得固定版本的 Maven，无需克隆宿主仓库或手工复制宿主和官方插件。首次应用配置使用宿主自己的 setup 流程。
 
+Linux / macOS 的 Maven Wrapper 始终下载配置中的 ZIP 并验证 SHA-256。未安装 `unzip` 时，使用 `JAVA_HOME/bin/jar` 或 `PATH` 中的 JDK `jar` 解压；两者都不可用时会在下载前报错。
+
 | IDE | 导入 | 运行 | 调试 |
 | --- | --- | --- | --- |
 | IntelliJ IDEA | 打开根 `pom.xml` | 选择 `Developer Mode`，点击 Run | 选择同一个 `Developer Mode`，点击 Debug |
