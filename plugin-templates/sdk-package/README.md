@@ -96,6 +96,22 @@ Ivy 的运行配置不要继承此编译配置。标准 Maven 元数据传递公
 
 `bundle-manifest.json` 固定每份资源的大小和 SHA-256，并记录工具版本。`tools/community-contract.json` 记录 SDK、源码提交、合同版本、资源清单摘要及本次 `sdk-tools.jar` 的大小与摘要。消费这些资源时固定完整发行物和摘要；更新时使用同一发行物中的工具与资源，不单独替换目录文件。它们随开发包进入初始 Git 提交，不进入插件 JAR 或公共 Maven 编译依赖。
 
+## CI 候选与投稿
+
+将工程推送到公开 GitHub 仓库的默认分支，等待 `Plugin candidate` 工作流全部通过，再按[社区投稿说明](https://github.com/Sywyar/PixivDownloader-community-plugins#投稿与版本管理)运行向导。CI 会测试插件、比较离线重建的包，并自动创建源码仓库的 Draft Release；无需手动下载附件或创建 Release。向导确认后才将候选公开为等待审核的 Pre-release。
+
+CI 默认构建根工程，自动识别 Maven、Gradle 或 sbt。构建模型决定实际版本及安装产物路径。若要投稿某个示例、选择多个工程，或工程有多种构建方式，在 `tools/candidate-projects.json` 中明确选择，例如：
+
+```json
+[
+  { "projectDir": "examples/gradle-plugin", "profileId": "gradle-java17-v1" }
+]
+```
+
+可用配置为 `maven-java17-v1`、`gradle-java17-v1` 和 `sbt-java17-v1`。模型有多个安装产物时，再增加 `artifactPath`，其值相对所选工程目录，必须属于模型的实际输出。一个插件 ID 只能选择一个候选工程。修改配置后提交并推送，等待新 CI 结果。
+
+Draft 中的 `source-candidate.json` 记录源码提交、CI 运行、工程、构建方式及包摘要，与同目录的原始包一起保存。Actions 附件过期不影响该归档；CI 重跑会核对并复用已有字节，不覆盖同一候选。源码候选和社区审核归档分别维护，源码 CI 通过不表示社区已批准。
+
 ## 运行包、缓存和工程数据
 
 `sdk-project.json` 与发行附件 `sdk-release.json` 记录同一套 SDK、宿主、官方插件清单及完整运行 ZIP 的固定身份、大小与 SHA-256。运行 ZIP 是 SDK Release 的独立附件，首次显式准备时下载，后续复用 `~/.cache/pixivdownloader-sdk/` 中的已校验缓存。清空缓存后仍取得相同字节；资源不可用或摘要不符会失败。

@@ -1,0 +1,20 @@
+import groovy.json.JsonOutput
+import org.gradle.api.tasks.bundling.Jar
+
+// 只查询选定工程的有效属性与安装包输出，不触发 jar 任务。
+allprojects { project ->
+    tasks.register('pixivCommunityModel') {
+        doLast {
+            def artifacts = project.tasks.withType(Jar).findAll {
+                !(it.archiveClassifier.getOrElse('') in ['sources', 'javadoc', 'tests'])
+            }.collect { it.archiveFile.get().asFile.absolutePath }
+            def dependencies = project.configurations.findAll { it.name in ['compileOnly', 'implementation', 'api'] }
+                .collectMany { configuration -> configuration.allDependencies.collect {
+                    [group: it.group ?: '', name: it.name, version: it.version ?: '', scope: configuration.name]
+                }}
+            println('PIXIV_COMMUNITY_MODEL=' + JsonOutput.toJson([
+                version: project.version.toString(), artifacts: artifacts, dependencies: dependencies,
+                classDirectories: project.extensions.findByName('sourceSets')?.findByName('main')?.output?.classesDirs?.files?.collect { it.absolutePath } ?: []]))
+        }
+    }
+}
