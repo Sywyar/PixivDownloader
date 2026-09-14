@@ -21,7 +21,9 @@ class PluginSignatureBoundaryTest {
                     .filter(path -> {
                         try {
                             String text = Files.readString(path);
-                            return text.contains("Signature.getInstance") || text.contains("KeyFactory.getInstance");
+                            // SecretKeyFactory 属于密码派生，不是 Ed25519 KeyFactory。
+                            return java.util.regex.Pattern.compile("\\b(?:Signature|KeyFactory)\\.getInstance\\s*\\(")
+                                    .matcher(text).find();
                         } catch (Exception e) {
                             throw new IllegalStateException(e);
                         }

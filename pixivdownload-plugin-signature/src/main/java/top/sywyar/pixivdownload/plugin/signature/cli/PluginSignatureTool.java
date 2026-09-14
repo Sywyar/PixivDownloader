@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.plugin.signature.VerificationPolicy;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 import top.sywyar.pixivdownload.plugin.signature.community.CommunityOperation;
 import top.sywyar.pixivdownload.plugin.signature.internal.ed25519.Ed25519Signer;
+import top.sywyar.pixivdownload.plugin.signature.internal.ed25519.Ed25519Verifier;
 import top.sywyar.pixivdownload.plugin.signature.internal.envelope.EnvelopeV1Codec;
 import top.sywyar.pixivdownload.plugin.signature.internal.envelope.Hashing;
 import top.sywyar.pixivdownload.plugin.signature.internal.trust.KeyParsing;
@@ -48,8 +49,19 @@ public final class PluginSignatureTool {
         String command = args[0];
         Map<String, String> options = parseOptions(args);
         if ("keygen".equals(command)) {
-            onlyOptions(options, "directory");
-            SigningKeyFiles.generate(requiredPath(options, "directory"));
+            onlyOptions(options, "directory", "password-stdin");
+            char[] password = password(options);
+            try { SigningKeyFiles.generate(requiredPath(options, "directory"), password); }
+            finally { if (password != null) java.util.Arrays.fill(password, '\0'); }
+            return;
+        }
+        if ("check-key".equals(command)) {
+            onlyOptions(options, "private-key", "public-key", "password-stdin");
+            var key = privateKey(options);
+            byte[] challenge = new byte[32];
+            new java.security.SecureRandom().nextBytes(challenge);
+            if (!Ed25519Verifier.verify(SigningKeyFiles.publicKey(requiredPath(options, "public-key")), challenge,
+                    Ed25519Signer.sign(key, challenge))) throw new IOException("KEY_PAIR_MISMATCH");
             return;
         }
         if ("public-key".equals(command)) {
@@ -205,7 +217,7 @@ public final class PluginSignatureTool {
     }
 
     private static void signCommunityOperation(Map<String, String> options) throws IOException {
-        onlyOptions(options, "operation", "canonical-body", "request-id", "key-id", "private-key", "out");
+        onlyOptions(options, "operation", "canonical-body", "request-id", "key-id", "private-key", "out", "password-stdin");
         CommunityOperation operation = CommunityOperation.valueOf(required(options, "operation"));
         String keyId = communityKeyId(options);
         // 规范正文由固定 SDK 生成，密码学模块只校验其原始字节摘要，不解析 JSON。
@@ -233,8 +245,22 @@ public final class PluginSignatureTool {
 
     private static PrivateKey privateKey(Map<String, String> options) throws IOException {
         Path path = requiredPath(options, "private-key");
-        return KeyParsing.ed25519PrivateKey(new String(SigningKeyFiles.read(path, SigningKeyFiles.MAX_KEY_BYTES),
-                StandardCharsets.UTF_8));
+        char[] password = password(options);
+        try { return SigningKeyFiles.privateKey(path, password); }
+        finally { if (password != null) java.util.Arrays.fill(password, '\0'); }
+    }
+
+    private static char[] password(Map<String, String> options) throws IOException {
+        if (!options.containsKey("password-stdin")) return null;
+        if (!"true".equals(options.get("password-stdin"))) throw new IOException("PASSWORD_INPUT_INVALID");
+        byte[] bytes = System.in.readNBytes(4097);
+        try {
+            if (bytes.length == 0 || bytes.length > 4096) throw new IOException("PASSWORD_INPUT_INVALID");
+            var characters = StandardCharsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                    .decode(java.nio.ByteBuffer.wrap(bytes));
+            char[] result = new char[characters.remaining()]; characters.get(result);
+            return result;
+        } finally { java.util.Arrays.fill(bytes, (byte) 0); }
     }
 
     private static void writeMetadata(Path out, String keyId, byte[] signature) throws IOException {
@@ -395,7 +421,9 @@ public final class PluginSignatureTool {
 
     private static void usage() {
         System.out.println("Usage:");
-        System.out.println("  keygen --directory <new-private-directory>");
+        System.out.println("  keygen --directory <new-private-directory> [--password-stdin true]");
+        System.out.println("  check-key --private-key <pem> --public-key <pem> [--password-stdin true]");
+        System.out.println("  Signing commands accept --password-stdin true for encrypted PKCS#8 (UTF-8, no trailing newline).");
         System.out.println("  public-key --public-key <public-key.pem> --key-id <key> --out <public.json>");
         System.out.println("  community-operation --operation PUBLISHER_KEY_ROTATION|VERSION_STATUS_REQUEST|OWNERSHIP_TRANSFER "
                 + "--canonical-body <jcs.bin> --request-id <sha256> --key-id <key> "

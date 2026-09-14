@@ -27,10 +27,15 @@ public final class KeyParsing {
                 .replaceAll("\\s+", "");
         try {
             byte[] bytes = Base64.getDecoder().decode(base64);
-            return KeyFactory.getInstance("Ed25519").generatePrivate(new PKCS8EncodedKeySpec(bytes));
+            return ed25519PrivateKey(new PKCS8EncodedKeySpec(bytes));
         } catch (IllegalArgumentException | GeneralSecurityException e) {
             throw new IllegalArgumentException("invalid Ed25519 PKCS#8 private key", e);
         }
+    }
+
+    /** 明文与解密后的 PKCS#8 共用同一密钥解析入口。 */
+    public static PrivateKey ed25519PrivateKey(PKCS8EncodedKeySpec spec) throws GeneralSecurityException {
+        return KeyFactory.getInstance("Ed25519").generatePrivate(spec);
     }
 
     public static PublicKey ed25519PublicKey(String publicKeySpkiBase64) {

@@ -33,6 +33,38 @@ class PluginSignatureToolTest {
     Path tempDir;
 
     @Test
+    @DisplayName("加密私钥支持 Unicode 密码和标准 PKCS8，错误密码及不配套公钥拒绝签名")
+    void protectsKeysWithPassword() throws Exception {
+        Path directory = tempDir.resolve("encrypted");
+        byte[] password = "测试密码-é-🔑".getBytes(StandardCharsets.UTF_8);
+        var previous = System.in;
+        try {
+            System.setIn(new java.io.ByteArrayInputStream(password));
+            PluginSignatureTool.main(new String[]{"keygen", "--directory", directory.toString(), "--password-stdin", "true"});
+            Path keyFile = directory.resolve("private-key.pem");
+            String pem = Files.readString(keyFile);
+            assertThat(pem).startsWith("-----BEGIN ENCRYPTED PRIVATE KEY-----");
+            byte[] encoded = Base64.getDecoder().decode(pem.replace("-----BEGIN ENCRYPTED PRIVATE KEY-----", "")
+                    .replace("-----END ENCRYPTED PRIVATE KEY-----", "").replaceAll("\\s+", ""));
+            assertThat(new javax.crypto.EncryptedPrivateKeyInfo(encoded).getAlgName()).isEqualTo("PBES2");
+            String[] check = {"check-key", "--private-key", keyFile.toString(), "--public-key",
+                    directory.resolve("public-key.pem").toString(), "--password-stdin", "true"};
+            System.setIn(new java.io.ByteArrayInputStream(password));
+            PluginSignatureTool.main(check);
+            System.setIn(new java.io.ByteArrayInputStream("wrong".getBytes(StandardCharsets.UTF_8)));
+            assertThatThrownBy(() -> PluginSignatureTool.main(check)).hasMessage("KEY_PASSWORD_INVALID");
+            assertThatThrownBy(() -> SigningKeyFiles.privateKey(keyFile, null)).hasMessage("KEY_PASSWORD_REQUIRED");
+            Path other = tempDir.resolve("other"); SigningKeyFiles.generate(other);
+            check[4] = other.resolve("public-key.pem").toString();
+            System.setIn(new java.io.ByteArrayInputStream(password));
+            assertThatThrownBy(() -> PluginSignatureTool.main(check)).hasMessage("KEY_PAIR_MISMATCH");
+            assertThat(Files.readString(keyFile)).isEqualTo(pem);
+            System.setIn(new java.io.ByteArrayInputStream(new byte[4097]));
+            assertThatThrownBy(() -> PluginSignatureTool.main(check)).hasMessage("PASSWORD_INPUT_INVALID");
+        } finally { System.setIn(previous); java.util.Arrays.fill(password, (byte) 0); }
+    }
+
+    @Test
     @DisplayName("初始化密钥限制文件权限，导出规范公钥并拒绝覆盖或错误参数")
     void initializesPrivateKeysWithoutOverwriting() throws Exception {
         Path directory = tempDir.resolve("publisher keys");
