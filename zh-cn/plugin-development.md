@@ -172,7 +172,9 @@ pixiv.lifecycle-policy=process-restart
 | `pixiv.replaces` | 可选的被替换插件身份 |
 | `pixiv.lifecycle-policy` | `hot-reload`、`backend-restart` 或 `process-restart`；区分大小写，缺省为 `hot-reload` |
 
-`1.0.0-rcN` 是首个稳定基线建立前的候选版本；稳定 `1.0.0` 只有在应用 `v1.14.0` 正式发布后才会建立主版本 1 的首个冻结基线。兼容判断使用 `requiredMajor == hostMajor && requiredMinor <= hostMinor`，PATCH 和预发布序号不参与准入判断。稳定基线建立后，破坏性契约变更升 MAJOR，向后兼容新增升 MINOR，兼容修复升 PATCH。
+新 SDK 预发布版本采用 `alpha.N`、`beta.N`、`rc.N`，序号从 1 开始且不补零；历史紧连后缀继续按原始发行身份使用。SDK 按渠道和数字序号排序，例如 `rc2 < rc.10`；`rc2` 与 `rc.2` 优先级相同，不能仅换拼写重新发布。依赖坐标、Tag、下载路径及运行清单须与所选 Release 完全一致。已发布的旧 SDK 工具按包内说明使用，新格式支持随新的开发包交付。
+
+SDK 的 RC 是首个稳定基线建立前的候选版本；稳定 `1.0.0` 只有在应用 `v1.14.0` 正式发布后才会建立主版本 1 的首个冻结基线。兼容判断使用 `requiredMajor == hostMajor && requiredMinor <= hostMinor`，PATCH 和预发布序号不参与准入判断。稳定基线建立后，破坏性契约变更升 MAJOR，向后兼容新增升 MINOR，兼容修复升 PATCH。
 
 ### 复用 PostHog 浏览器客户端
 

@@ -173,7 +173,9 @@ Field rules:
 | `pixiv.replaces` | Optional identity of a replaced plugin |
 | `pixiv.lifecycle-policy` | Case-sensitive `hot-reload`, `backend-restart`, or `process-restart`; defaults to `hot-reload` |
 
-`1.0.0-rcN` versions are candidates produced before the first stable baseline. Stable `1.0.0` establishes the first frozen major-1 baseline only after application release `v1.14.0`. Compatibility is `requiredMajor == hostMajor && requiredMinor <= hostMinor`; PATCH and prerelease sequence do not affect admission. After that stable baseline, raise MAJOR for breaking contract changes, MINOR for backward-compatible additions, and PATCH for compatible fixes.
+New SDK prereleases use `alpha.N`, `beta.N`, or `rc.N`, with a positive sequence and no leading zeros. Historical compact suffixes retain their original release identities. SDK ordering compares channels and numeric sequences: for example, `rc2 < rc.10`, while `rc2` and `rc.2` have equal priority and cannot be republished by changing spelling. Dependency coordinates, tags, download paths, and runtime manifests must exactly match the selected Release. Use older SDK tools according to their bundled instructions; support for the new spelling is delivered in a new development package.
+
+SDK RC versions are candidates produced before the first stable baseline. Stable `1.0.0` establishes the first frozen major-1 baseline only after application release `v1.14.0`. Compatibility is `requiredMajor == hostMajor && requiredMinor <= hostMinor`; PATCH and prerelease sequence do not affect admission. After that stable baseline, raise MAJOR for breaking contract changes, MINOR for backward-compatible additions, and PATCH for compatible fixes.
 
 ### Reusing the PostHog browser client
 
