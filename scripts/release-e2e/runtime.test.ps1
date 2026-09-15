@@ -11,9 +11,10 @@ foreach ($definition in $ast.FindAll({param($node)
 . (Join-Path $PSScriptRoot 'scenarios.ps1')
 
 function Assert-Rejected {
-    param([scriptblock]$Action, [string]$Message)
+    param([scriptblock]$Action, [string[]]$Message)
     try { & $Action } catch {
-        if ($_.Exception.Message -notlike "*$Message*") { throw }
+        $failure = $_.Exception.Message
+        if (-not @($Message | Where-Object { $failure -like "*$_*" }).Count) { throw }
         return
     }
     throw "False success: expected $Message"
@@ -83,7 +84,9 @@ try {
     Connect-ReleaseProbe $child $startupProbe
     $desktop = Invoke-ReleaseProbe $child $startupProbe 'desktop'
     if ($desktop.applicationLoaded) { throw 'Observer loaded the application entry prematurely.' }
-    Assert-Rejected { Wait-ReleaseDesktop $child $startupProbe '' -BootstrapPrompt -TimeoutSeconds 1 } 'did not render'
+    # The shared deadline may expire during polling or during the final IPC request.
+    Assert-Rejected { Wait-ReleaseDesktop $child $startupProbe '' -BootstrapPrompt -TimeoutSeconds 1 } @(
+        'Desktop did not render', 'Release observer did not answer desktop before its deadline')
     Assert-Rejected { Invoke-ReleaseProbe $child $startupProbe 'shutdown' } 'Application entry has not loaded'
     New-Item -ItemType File -Path (Join-Path $startupProbe 'load') | Out-Null
     $deadline = [DateTime]::UtcNow.AddSeconds(15)
