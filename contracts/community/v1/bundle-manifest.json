@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "contractVersion": 1,
   "toolchain": {
-    "sdk": "1.0.0-rc.7",
+    "sdk": "1.0.0-rc.8",
     "java": "17",
     "maven": {
       "version": "3.9.11",
