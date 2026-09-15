@@ -96,6 +96,22 @@ Do not make Ivy's runtime configuration extend this compile configuration. Stand
 
 `bundle-manifest.json` records each resource's size and SHA-256, along with tool versions. `tools/community-contract.json` records the SDK, source commit, contract version, resource manifest hash, and the size and hash of this `sdk-tools.jar`. Pin the complete release and its hashes when consuming these resources. Update tools and resources from the same release instead of replacing individual catalog files. These files belong to the development package's initial Git commit and stay out of plugin JARs and public Maven compile dependencies.
 
+## CI candidates and submission
+
+Push the project to a public GitHub repository's default branch, wait for all `Plugin candidate` jobs to pass, then follow the [community submission guide](https://github.com/Sywyar/PixivDownloader-community-plugins/blob/master/README_en.md#submissions-and-version-management). CI tests the plugin, compares the offline rebuild, and creates a source repository Draft Release. You do not need to download artifacts or create a Release manually. The wizard publishes the candidate as a pre-release awaiting review only after confirmation.
+
+CI builds the root project by default and detects Maven, Gradle or sbt. The build model supplies the actual version and installation artifact path. To submit an example, select multiple projects, or choose between build tools in one project, add `tools/candidate-projects.json`, for example:
+
+```json
+[
+  { "projectDir": "examples/gradle-plugin", "profileId": "gradle-java17-v1" }
+]
+```
+
+Supported profiles are `maven-java17-v1`, `gradle-java17-v1` and `sbt-java17-v1`. If the model has multiple installation artifacts, add `artifactPath`, relative to the selected project and matching an actual model output. Select one candidate project per plugin ID. Commit and push configuration changes, then wait for the new CI results.
+
+The draft's `source-candidate.json` records the source commit, CI run, project, build profile and package digest alongside the original package. This archive remains available after Actions artifacts expire. CI reruns verify and reuse existing bytes without replacing a candidate. Source candidates and community review archives are managed separately; passing source CI does not grant community approval.
+
 ## Runtime, cache, and project data
 
 `sdk-project.json` and the release-side `sdk-release.json` record the same SDK, host, official plugin manifest, and runtime ZIP identities, sizes, and SHA-256 hashes. The runtime ZIP is a separate SDK Release attachment. Explicit preparation downloads it once and reuses verified bytes in `~/.cache/pixivdownloader-sdk/`. Clearing the cache still selects the same bytes. Unavailable resources and hash mismatches fail.

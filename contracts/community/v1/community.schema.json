@@ -2,6 +2,31 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:pixivdownloader:community:v1",
   "$defs": {
+    "sourceCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "repositoryId", "repository", "sourceCommit", "runId", "runAttempt", "buildProfile", "pluginId", "version", "artifact"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "repositoryId": { "$ref": "#/$defs/id" },
+        "repository": { "type": "string", "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$" },
+        "sourceCommit": { "$ref": "#/$defs/commit" },
+        "runId": { "$ref": "#/$defs/id" },
+        "runAttempt": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "buildProfile": { "$ref": "#/$defs/buildProfile" },
+        "pluginId": { "$ref": "#/$defs/pluginId" },
+        "version": { "$ref": "#/$defs/version" },
+        "artifact": {
+          "type": "object", "additionalProperties": false,
+          "required": ["file", "size", "sha256"],
+          "properties": {
+            "file": { "type": "string", "pattern": "^pixivdownload-plugin-[A-Za-z0-9._+-]+\\.(jar|zip)$" },
+            "size": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+            "sha256": { "$ref": "#/$defs/sha256" }
+          }
+        }
+      }
+    },
     "machine": {
       "type": "string",
       "minLength": 1,

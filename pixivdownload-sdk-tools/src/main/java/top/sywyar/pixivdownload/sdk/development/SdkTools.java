@@ -50,6 +50,10 @@ public final class SdkTools {
     }
 
     static int execute(String[] args) throws Exception {
+        if (args.length == 2 && args[0].equals("candidate")) {
+            top.sywyar.pixivdownload.sdk.community.candidate.CandidateCommand.execute(Path.of(args[1]));
+            return 0;
+        }
         if (args.length < 2 || !List.of("prepare", "develop", "run", "debug", "stop").contains(args[0])) {
             System.out.println(MessageBundles.get("sdk.usage"));
             return 2;

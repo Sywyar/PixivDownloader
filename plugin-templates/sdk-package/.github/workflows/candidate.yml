@@ -1,0 +1,167 @@
+name: Plugin candidate
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  projects:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    container:
+      image: eclipse-temurin@sha256:fb9701fe3592f88a6158bdea97ee25821fcf1dd8837b08ced2c027ddebad4a34
+      options: --cpus=2 --memory=6g --pids-limit=512
+    outputs:
+      matrix: ${{ steps.projects.outputs.matrix }}
+    steps:
+      - name: Install Git
+        run: |
+          apt-get update
+          apt-get install --yes --no-install-recommends git
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24.21.0'
+      - id: projects
+        run: node tools/candidate.mjs matrix
+
+  build:
+    name: Build candidate (${{ matrix.key }})
+    needs: projects
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.projects.outputs.matrix) }}
+    container:
+      image: eclipse-temurin@sha256:fb9701fe3592f88a6158bdea97ee25821fcf1dd8837b08ced2c027ddebad4a34
+      options: --cpus=2 --memory=6g --pids-limit=512
+    steps:
+      - name: Install build prerequisites
+        run: |
+          apt-get update
+          apt-get install --yes --no-install-recommends git unzip
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24.21.0'
+      - name: Build, test and reproduce candidate
+        env:
+          CANDIDATE_SELECTION: ${{ toJSON(matrix) }}
+        run: node tools/candidate.mjs build
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: source-candidate-${{ github.run_attempt }}-${{ matrix.key }}
+          path: target/community-candidate/
+          if-no-files-found: error
+          retention-days: 7
+
+  archive:
+    needs: build
+    if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+    concurrency:
+      group: source-candidate-${{ github.repository_id }}-${{ github.sha }}
+      cancel-in-progress: false
+    steps:
+      # 写权限任务只读取数据，不 checkout 或执行插件工程、构建脚本及产物。
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: source-candidate-${{ github.run_attempt }}-*
+          path: candidates
+      - name: Archive exact candidate bytes as source drafts
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const crypto = require('node:crypto');
+            const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
+            const maximum = 192 * 1024 * 1024;
+            const read = (file, max) => {
+              const stat = fs.lstatSync(file);
+              if (!stat.isFile() || stat.size > max) throw new Error('CANDIDATE_FILE_INVALID');
+              const bytes = fs.readFileSync(file);
+              if (bytes.length !== stat.size) throw new Error('CANDIDATE_CHANGED');
+              return bytes;
+            };
+            const repo = (await github.rest.repos.get(context.repo)).data;
+            const run = (await github.rest.actions.getWorkflowRun({...context.repo, run_id: context.runId})).data;
+            if (repo.private || String(repo.id) !== String(context.payload.repository.id)
+                || run.event !== 'push' || run.head_sha !== context.sha || run.head_branch !== repo.default_branch
+                || String(run.repository.id) !== String(repo.id)) throw new Error('CANDIDATE_SOURCE_MISMATCH');
+            const folders = fs.readdirSync('candidates', {withFileTypes: true});
+            if (!folders.length || folders.length > 32) throw new Error('CANDIDATE_COUNT_INVALID');
+            const prepared = [];
+            for (const folder of folders) {
+              if (!folder.isDirectory()) throw new Error('CANDIDATE_PATH_INVALID');
+              const directory = path.join('candidates', folder.name);
+              const metadata = read(path.join(directory, 'source-candidate.json'), 64 * 1024);
+              const c = JSON.parse(metadata.toString('utf8'));
+              if (c.schemaVersion !== 1 || c.repository !== repo.full_name || c.repositoryId !== String(repo.id)
+                  || c.sourceCommit !== context.sha || c.runId !== String(context.runId)
+                  || c.runAttempt !== Number(process.env.GITHUB_RUN_ATTEMPT)
+                  || !/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(c.pluginId)
+                  || !/^[A-Za-z0-9._+-]+$/.test(c.version)
+                  || !['maven-java17-v1','gradle-java17-v1','sbt-java17-v1'].includes(c.buildProfile?.id)) throw new Error('CANDIDATE_METADATA_INVALID');
+              const file = c.artifact?.file;
+              if (typeof file !== 'string' || !['jar','zip'].some(ext => file === `pixivdownload-plugin-${c.pluginId}-${c.version}.${ext}`)
+                  || !Number.isSafeInteger(c.artifact.size) || c.artifact.size < 1 || c.artifact.size > maximum
+                  || !/^[a-f0-9]{64}$/.test(c.artifact.sha256)) throw new Error('CANDIDATE_ARTIFACT_INVALID');
+              const bytes = read(path.join(directory, file), maximum);
+              if (bytes.length !== c.artifact.size || digest(bytes) !== c.artifact.sha256
+                  || fs.readdirSync(directory).sort().join('\n') !== [file, 'source-candidate.json'].sort().join('\n')) throw new Error('CANDIDATE_BYTES_CHANGED');
+              prepared.push({c, metadata, file: path.join(directory, file), tag: `candidate-${c.pluginId}-${c.version}-${context.sha}`});
+            }
+            if (new Set(prepared.map(p => p.tag)).size !== prepared.length) throw new Error('CANDIDATE_ID_DUPLICATED');
+            const releases = await github.paginate(github.rest.repos.listReleases, {...context.repo, per_page: 100});
+            for (const {c, metadata, file, tag} of prepared) {
+              // 草稿尚未创建 tag 时允许缺失；现存 tag 必须实际解析到该提交。
+              try {
+                const commit = (await github.rest.repos.getCommit({...context.repo, ref: `refs/tags/${tag}`})).data;
+                if (commit.sha !== context.sha) throw new Error('CANDIDATE_TAG_CHANGED');
+              } catch (error) { if (error.status !== 404) throw error; }
+              const bytes = read(file, maximum);
+              if (bytes.length !== c.artifact.size || digest(bytes) !== c.artifact.sha256) throw new Error('CANDIDATE_BYTES_CHANGED');
+              const matches = releases.filter(release => release.tag_name === tag);
+              if (matches.length > 1) throw new Error('CANDIDATE_RELEASE_CONFLICT');
+              let release = matches[0];
+              if (!release) release = (await github.rest.repos.createRelease({...context.repo, tag_name: tag,
+                target_commitish: context.sha, name: `${repo.owner.login} / ${c.pluginId} ${c.version}`,
+                body: `Source candidate for ${context.sha}. Community review is required.`, draft: true, prerelease: true, make_latest: 'false'})).data;
+              if (release.target_commitish !== context.sha || !release.prerelease) throw new Error('CANDIDATE_RELEASE_CONFLICT');
+              const assets = await github.paginate(github.rest.repos.listReleaseAssets, {...context.repo, release_id: release.id, per_page: 100});
+              if (assets.some(asset => ![c.artifact.file, 'source-candidate.json'].includes(asset.name))) throw new Error('CANDIDATE_ASSET_CONFLICT');
+              for (const [name, data] of [[c.artifact.file, bytes], ['source-candidate.json', metadata]]) {
+                const found = assets.filter(asset => asset.name === name);
+                if (found.length > 1) throw new Error('CANDIDATE_ASSET_CONFLICT');
+                if (found.length) {
+                  // 重跑只复用原有相同字节；元数据中的原 run/attempt 保持不变。
+                  if (name === 'source-candidate.json') {
+                    if (found[0].size < 1 || found[0].size > 64 * 1024) throw new Error('CANDIDATE_METADATA_INVALID');
+                    const response = await github.request('GET /repos/{owner}/{repo}/releases/assets/{asset_id}', {...context.repo, asset_id: found[0].id, headers: {accept: 'application/octet-stream'}});
+                    const old = JSON.parse(Buffer.from(response.data).toString('utf8'));
+                    if (old.repositoryId !== c.repositoryId || old.sourceCommit !== c.sourceCommit || old.pluginId !== c.pluginId
+                        || old.version !== c.version || JSON.stringify(old.buildProfile) !== JSON.stringify(c.buildProfile)
+                        || JSON.stringify(old.artifact) !== JSON.stringify(c.artifact)) throw new Error('CANDIDATE_ASSET_CONFLICT');
+                  } else if (found[0].size !== data.length || found[0].digest !== `sha256:${digest(data)}`) throw new Error('CANDIDATE_ASSET_CONFLICT');
+                  continue;
+                }
+                if (!release.draft) throw new Error('CANDIDATE_ASSET_MISSING');
+                const uploaded = (await github.rest.repos.uploadReleaseAsset({...context.repo, release_id: release.id,
+                  name, data, headers: {'content-type': 'application/octet-stream', 'content-length': data.length}})).data;
+                if (uploaded.size !== data.length || uploaded.digest !== `sha256:${digest(data)}`) throw new Error('CANDIDATE_UPLOAD_CHANGED');
+              }
+              core.info(`Archived ${c.pluginId} ${c.version}: release ${release.id}`);
+            }
