@@ -191,6 +191,8 @@ Mail 插件通过 SMTP 发送配置测试邮件和业务通知。连接会携带
 
 社区 Node 工具下载公开插件包、源码和构建工具时，先匹配 `no_proxy` / `NO_PROXY` 的直连规则，再依次读取 `https_proxy`、`HTTPS_PROXY`、`all_proxy`、`ALL_PROXY`；小写优先。未设置代理变量时，Windows 读取当前用户的系统代理及绕过设置，其它系统直连。显式空代理值或 `NO_PROXY=*` 可选择直连；支持 HTTP / HTTPS 代理，不支持 SOCKS。代理连接失败会停止下载，不自动改走直连。CONNECT 目标仍固定为本次核对的公网 IP，源站 TLS 验证原始主机；显式代理用户名与口令只用于代理认证，不发送到源站，GitHub 凭据和 Cookie 不进入文件下载。系统代理查询在原有六十秒下载期限内完成。以下各行的独立构建容器、GitHub CLI、Git 和 PowerShell 启动器继续使用各自的网络设置。
 
+社区投稿 API 读取与候选二进制下载遇到 HTTP 408/500/502/503/504 时，最多尝试三次，分别等待一秒、两秒；请求、响应体和等待共用六十秒期限。权限、限流、证书及原因不明的传输失败不自动重放。向导提供手动重试和保存退出；fork、候选发布、push 或 PR 的响应丢失时，先读取远端结果并核对身份与原始内容，不盲目重复写入。恢复本地投稿记录仍会重新访问 GitHub 并复核源码和签名，记录本身不授权远端写入。这些请求继续使用 GitHub CLI 和 Git 各自的认证、代理与 TLS 设置。
+
 | 工具/流程 | 目标或来源 | 用途 |
 | --- | --- | --- |
 | 投稿教程的 `irm ... \| iex` | `https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/master/tools/submit.ps1` | 用户在 SDK 工程目录手动执行教程命令，PowerShell 原生 `Invoke-RestMethod` 下载受保护 `master` 当前的 UTF-8 入口，再交 `Invoke-Expression` 执行。入口代码及内置公钥以该主线和 GitHub HTTPS 为信任来源。该次下载遵循 PowerShell 的网络、代理、重定向和超时设置，教程不传入 token、私钥或请求正文；入口执行后才检查工程标识并进入下列固定工具下载路径。不运行命令即可避免访问 |
