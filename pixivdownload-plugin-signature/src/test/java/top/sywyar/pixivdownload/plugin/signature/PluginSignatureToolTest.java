@@ -46,7 +46,9 @@ class PluginSignatureToolTest {
             assertThat(pem).startsWith("-----BEGIN ENCRYPTED PRIVATE KEY-----");
             byte[] encoded = Base64.getDecoder().decode(pem.replace("-----BEGIN ENCRYPTED PRIVATE KEY-----", "")
                     .replace("-----END ENCRYPTED PRIVATE KEY-----", "").replaceAll("\\s+", ""));
-            assertThat(new javax.crypto.EncryptedPrivateKeyInfo(encoded).getAlgName()).isEqualTo("PBES2");
+            var parameters = new javax.crypto.EncryptedPrivateKeyInfo(encoded).getAlgParameters();
+            assertThat(parameters.getAlgorithm()).isEqualTo("PBES2");
+            assertThat(parameters.toString()).isEqualTo("PBEWithHmacSHA256AndAES_256");
             String[] check = {"check-key", "--private-key", keyFile.toString(), "--public-key",
                     directory.resolve("public-key.pem").toString(), "--password-stdin", "true"};
             System.setIn(new java.io.ByteArrayInputStream(password));
