@@ -24,6 +24,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+      - name: Trust the checked out workspace in this container
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '24.21.0'
@@ -49,6 +51,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+      - name: Trust the checked out workspace in this container
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '24.21.0'
@@ -103,10 +107,13 @@ jobs:
                 || String(run.repository.id) !== String(repo.id)) throw new Error('CANDIDATE_SOURCE_MISMATCH');
             const folders = fs.readdirSync('candidates', {withFileTypes: true});
             if (!folders.length || folders.length > 32) throw new Error('CANDIDATE_COUNT_INVALID');
-            const prepared = [];
-            for (const folder of folders) {
+            // 下载 Action 对单个 artifact 直接展开，对多个 artifact 分目录展开。
+            const directories = fs.existsSync('candidates/source-candidate.json') ? ['candidates'] : folders.map(folder => {
               if (!folder.isDirectory()) throw new Error('CANDIDATE_PATH_INVALID');
-              const directory = path.join('candidates', folder.name);
+              return path.join('candidates', folder.name);
+            });
+            const prepared = [];
+            for (const directory of directories) {
               const metadata = read(path.join(directory, 'source-candidate.json'), 64 * 1024);
               const c = JSON.parse(metadata.toString('utf8'));
               if (c.schemaVersion !== 1 || c.repository !== repo.full_name || c.repositoryId !== String(repo.id)
@@ -128,10 +135,15 @@ jobs:
             const releases = await github.paginate(github.rest.repos.listReleases, {...context.repo, per_page: 100});
             for (const {c, metadata, file, tag} of prepared) {
               // 草稿尚未创建 tag 时允许缺失；现存 tag 必须实际解析到该提交。
+              let tagExists = true;
               try {
+                const ref = (await github.rest.git.getRef({...context.repo, ref: `tags/${tag}`})).data;
+                if (ref.ref !== `refs/tags/${tag}`) throw new Error('CANDIDATE_TAG_CHANGED');
+              } catch (error) { if (error.status === 404) tagExists = false; else throw error; }
+              if (tagExists) {
                 const commit = (await github.rest.repos.getCommit({...context.repo, ref: `refs/tags/${tag}`})).data;
                 if (commit.sha !== context.sha) throw new Error('CANDIDATE_TAG_CHANGED');
-              } catch (error) { if (error.status !== 404) throw error; }
+              }
               const bytes = read(file, maximum);
               if (bytes.length !== c.artifact.size || digest(bytes) !== c.artifact.sha256) throw new Error('CANDIDATE_BYTES_CHANGED');
               const matches = releases.filter(release => release.tag_name === tag);
@@ -141,6 +153,7 @@ jobs:
                 target_commitish: context.sha, name: `${repo.owner.login} / ${c.pluginId} ${c.version}`,
                 body: `Source candidate for ${context.sha}. Community review is required.`, draft: true, prerelease: true, make_latest: 'false'})).data;
               if (release.target_commitish !== context.sha || !release.prerelease) throw new Error('CANDIDATE_RELEASE_CONFLICT');
+              if (!release.draft && !tagExists) throw new Error('CANDIDATE_TAG_CHANGED');
               const assets = await github.paginate(github.rest.repos.listReleaseAssets, {...context.repo, release_id: release.id, per_page: 100});
               if (assets.some(asset => ![c.artifact.file, 'source-candidate.json'].includes(asset.name))) throw new Error('CANDIDATE_ASSET_CONFLICT');
               for (const [name, data] of [[c.artifact.file, bytes], ['source-candidate.json', metadata]]) {
