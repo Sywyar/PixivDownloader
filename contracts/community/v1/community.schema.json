@@ -1716,8 +1716,10 @@
           "items": {
             "$ref": "#/$defs/id"
           },
-          "minItems": 1,
           "uniqueItems": true
+        },
+        "authorization": {
+          "const": "SIGNED_OWNER"
         },
         "prEvidence": {
           "type": "array",
@@ -1733,7 +1735,7 @@
           }
         },
         "result": {
-          "const": "APPLIED"
+          "enum": ["APPLIED", "PREPARED"]
         },
         "appliedAt": {
           "$ref": "#/$defs/utc"
@@ -1765,6 +1767,17 @@
         "appliedAt",
         "relatedRecords"
       ],
+      "allOf": [{
+        "if": { "required": ["authorization"] },
+        "then": {
+          "properties": {
+            "action": { "enum": ["YANK", "UNYANK", "REVOKE"] },
+            "reviewerAccountIds": { "maxItems": 0 }
+          },
+          "not": { "required": ["recoveryEvidence"] }
+        },
+        "else": { "properties": { "reviewerAccountIds": { "minItems": 1 } } }
+      }],
       "additionalProperties": false
     },
     "decision": {

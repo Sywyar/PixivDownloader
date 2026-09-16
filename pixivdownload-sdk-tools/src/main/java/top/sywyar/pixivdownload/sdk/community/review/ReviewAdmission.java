@@ -6,6 +6,7 @@ import top.sywyar.pixivdownload.sdk.community.format.CommunityJson;
 import top.sywyar.pixivdownload.sdk.community.format.CommunityValues.Evidence;
 import top.sywyar.pixivdownload.sdk.community.format.CommunityValues.Reference;
 import top.sywyar.pixivdownload.sdk.community.format.ContractException;
+import top.sywyar.pixivdownload.sdk.community.operation.OperationAudit;
 
 import java.util.HashSet;
 import java.util.List;
@@ -20,6 +21,7 @@ public final class ReviewAdmission {
     public enum PrState { OPEN, CLOSED, MERGED }
     public enum ApplyState { WAITING, FAILED, APPLIED }
     public enum Flow { NONE, READY, CLOSED, AWAITING_APPLY, APPLY_FAILED, COMPLETED }
+    public enum Authorization { HUMAN_REVIEW, SIGNED_OWNER }
     public record Scan(String runId, long runAttempt, String scannerVersion, String rulesSha256, Conclusion conclusion) { }
     public record Apply(ApplyState state, String expectedGenerationSha256, String readbackGenerationSha256) { }
     /** version 为空表示已由输入校验确认的非版本操作，此时扫描明确不适用。 */
@@ -38,10 +40,14 @@ public final class ReviewAdmission {
     public record Result(Snapshot snapshot, Reference reportRef, List<Reference> decisionRefs,
                          boolean validationPassed, boolean riskPassed, HumanReviews.Result human,
                          boolean scanIncomplete, boolean manualScanAccepted, List<String> blockingFindingIds,
-                         Flow flow, Set<String> labels) {
+                         Flow flow, Set<String> labels, Authorization authorization) {
         public Result {
             decisionRefs = List.copyOf(decisionRefs);
             blockingFindingIds = List.copyOf(blockingFindingIds); labels = Set.copyOf(labels);
+        }
+        public boolean authorizationPassed() {
+            return human.passed() || authorization == Authorization.SIGNED_OWNER
+                    && human.status() != HumanReviews.Status.CHANGES_REQUESTED;
         }
     }
 
@@ -107,7 +113,26 @@ public final class ReviewAdmission {
             case NONE, CLOSED -> { }
         }
         return new Result(snapshot, reportEvidence == null ? null : reportEvidence.reference(), decisions.references(),
-                validated, riskPassed, human, incomplete, decisions.manualScanAccepted(), blockers, flow, labels);
+                validated, riskPassed, human, incomplete, decisions.manualScanAccepted(), blockers, flow, labels, Authorization.HUMAN_REVIEW);
+    }
+
+    /** 调用方仅可传入由 VersionStatus 对当前受保护状态重新计算的结果，不能读取 PR 自报审计代替验签。 */
+    public static Result authorizeStatus(Result result, CommunityJson.Document verifiedAudit) {
+        var audit = OperationAudit.read(verifiedAudit);
+        if (result.snapshot.version != null || !"SIGNED_OWNER".equals(audit.authorization())
+                || !"PREPARED".equals(audit.result()) || !audit.prEvidence().equals(List.of(result.snapshot.pr))
+                || !audit.actorAccountId().equals(result.snapshot.pr.authorAccountId())) {
+            throw new ContractException("REVIEW_MISMATCH", "/authorization");
+        }
+        boolean authorized = result.human.status() != HumanReviews.Status.CHANGES_REQUESTED;
+        var flow = flow(result.snapshot, result.validationPassed && result.riskPassed && authorized);
+        var labels = new HashSet<>(result.labels);
+        labels.remove("review:pending");
+        labels.remove("state:ready");
+        labels.add("authorization:signed-owner");
+        if (flow == Flow.READY) labels.add("state:ready");
+        return new Result(result.snapshot, result.reportRef, result.decisionRefs, result.validationPassed, result.riskPassed,
+                result.human, result.scanIncomplete, result.manualScanAccepted, result.blockingFindingIds, flow, labels, Authorization.SIGNED_OWNER);
     }
 
     private static Flow flow(Snapshot snapshot, boolean ready) {

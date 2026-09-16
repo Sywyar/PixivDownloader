@@ -20,6 +20,26 @@ import static org.assertj.core.api.Assertions.*;
 class OperationAuditTest {
     private static final String HEAD = "ab".repeat(20);
 
+    @Test @DisplayName("合并前审计显式待生效且确认绑定精确记录和有序父链")
+    void confirmsPreparedAuditWithoutInventingMerge() throws Exception {
+        var f = new Fixture(CommunityJson.Kind.ROTATION);
+        var old = f.pr;
+        f.pr = new CommunityPr(old.githubRepositoryId(), old.number(), old.authorAccountId(),
+                old.headRepositoryId(), old.headSha(), old.baseSha(), null);
+        f.authority = new OperationAuthority(f.pr, f.authority.actualAuthor(), List.of(), f.authority.approval(), java.util.Set.of("202"));
+        var document = f.create();
+        var audit = OperationAudit.read(document);
+        assertThat(audit.result()).isEqualTo("PREPARED");
+        var merged = new CommunityPr(old.githubRepositoryId(), old.number(), old.authorAccountId(),
+                old.headRepositoryId(), "12".repeat(20), old.baseSha(), "34".repeat(20));
+        var exact = Reference.of("audits/" + audit.requestId() + ".json", document.bytes());
+        audit.confirmPreparedMerge(document, merged, exact, List.of(HEAD), List.of(old.baseSha(), merged.headSha()));
+        assertThatThrownBy(() -> audit.confirmPreparedMerge(document, merged, exact,
+                List.of(HEAD, merged.headSha()), List.of(old.baseSha(), merged.headSha()))).isInstanceOf(ContractException.class);
+        assertThatThrownBy(() -> audit.confirmPreparedMerge(document, merged, exact,
+                List.of(HEAD), List.of(merged.headSha(), old.baseSha()))).isInstanceOf(ContractException.class);
+    }
+
     @Test
     @DisplayName("三类操作记录可回读，每份状态和决定必须有完整字节证据")
     void roundTripsAndRequiresEvidence() throws Exception {
@@ -67,7 +87,7 @@ class OperationAuditTest {
         final Map<String, Evidence> evidence = new HashMap<>();
         final CommunityJson.Document request;
         final Reference requestRef, before, after;
-        final CommunityPr pr = new CommunityPr("300", 7, "101", "400", HEAD, HEAD, "cd".repeat(20));
+        CommunityPr pr = new CommunityPr("300", 7, "101", "400", HEAD, HEAD, "cd".repeat(20));
         final Long sequence;
         OperationAuthority authority;
         List<Reference> recovery;
