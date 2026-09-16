@@ -329,7 +329,16 @@ public interface ScheduledTaskStore {
                                   String workType,
                                   String workId);
 
-    /** 在空闲任务的同一次版本 CAS 中保存单作品操作，仅供接下来的一轮执行消费。 */
+    /**
+     * 在空闲任务的同一次版本 CAS 中保存单作品操作，仅供接下来的一轮执行消费。
+     * @param taskId 任务标识
+     * @param expectedStateVersion 管理员读取到的任务状态版本
+     * @param workType 待处理作品类型
+     * @param workId 待处理作品标识
+     * @param userAction 已授权的操作码
+     * @param rememberForRun 是否对本轮后续相同原因的作品复用该操作
+     * @return 更新后的状态版本；任务忙碌或版本不匹配时为空
+     */
     OptionalLong resolvePendingWork(long taskId, long expectedStateVersion, String workType, String workId,
                                     String userAction, boolean rememberForRun);
 }

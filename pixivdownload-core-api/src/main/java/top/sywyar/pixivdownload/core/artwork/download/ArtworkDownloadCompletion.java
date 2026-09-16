@@ -51,6 +51,24 @@ public record ArtworkDownloadCompletion(
         List<WorkTag> tags,
         int fileNameMaxLength) {
 
+    /**
+     * 使用默认的 180 字符文件名上限创建下载事实。
+     * @param artworkId 作品标识
+     * @param title 下载时标题
+     * @param folder 已完成作品目录
+     * @param imageCount 成功写入的图片数
+     * @param extensions 已写入文件扩展名集合
+     * @param recordTime 下载记录时间，单位为 epoch 毫秒
+     * @param restriction 年龄分级
+     * @param aiGenerated 是否为 AI 生成作品
+     * @param authorId 作者标识，可为空
+     * @param description 规范化的作品简介，可为空
+     * @param fileNameTemplate 实际使用的文件名模板
+     * @param normalizedAuthorName 文件名使用的作者名称，可为空
+     * @param seriesId 系列标识，可为空
+     * @param seriesOrder 系列内序号，可为空
+     * @param tags 下载时携带的标签
+     */
     public ArtworkDownloadCompletion(long artworkId, String title, Path folder, int imageCount,
                                      Set<String> extensions, long recordTime, int restriction,
                                      boolean aiGenerated, Long authorId, String description,
@@ -79,6 +97,7 @@ public record ArtworkDownloadCompletion(
      * @param seriesId 系列标识
      * @param seriesOrder 系列顺序
      * @param tags 标签集合
+     * @param fileNameMaxLength 实际使用的基础文件名截断长度
      */
     public ArtworkDownloadCompletion {
         if (fileNameMaxLength < 1 || fileNameMaxLength > PixivWorkFileNameFormatter.MAX_BASENAME_LENGTH) {
