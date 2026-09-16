@@ -58,7 +58,16 @@ try {
             [IO.File]::WriteAllText((Join-Path $probe 'response.json'), '{"nonce":"old-run","ok":true}')
         }
         Assert-Rejected { Invoke-ReleaseProbe $parent $probe 'ping' -TimeoutSeconds 1 } 'did not answer'
+        $pending = [IO.File]::ReadAllText((Join-Path $probe 'request.txt'))
+        Assert-Rejected { Invoke-ReleaseProbe $parent $probe 'ping' -TimeoutSeconds 1 } 'did not answer'
+        if ([IO.File]::ReadAllText((Join-Path $probe 'request.txt')) -cne $pending) {
+            throw 'A subsequent request replaced an unconsumed request.'
+        }
         Remove-Item -LiteralPath (Join-Path $probe 'request.txt')
+    }
+    Assert-Rejected { Invoke-ReleaseProbe $parent $probe 'ping' -Deadline ([DateTime]::UtcNow.AddSeconds(-1)) } 'did not answer'
+    if (Test-Path -LiteralPath (Join-Path $probe 'request.txt')) {
+        throw 'An expired deadline still published a request.'
     }
 
     $agentRoot = Join-Path $context.Session 'startup-agent'
