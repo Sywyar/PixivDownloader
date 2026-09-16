@@ -213,7 +213,7 @@ class PublishedVersionTest {
                     pluginId, publisher.owner(), "ab".repeat(32), TIME)));
             review = new VersionReviewTest.Fixture(submissionDocument,
                     new CommunityPr("1001", 17, "101", "1002", HEAD, HEAD, merged ? "56".repeat(20) : null), binding.sha256(),
-                    DescriptorSnapshot.from(PluginPackageReader.inspect(jar).descriptor(), submission));
+                    DescriptorSnapshot.from(PluginPackageReader.inspect(jar).descriptor(), submission.pluginId(), submission.version()));
             reviewEvidence = evidence("history/review.json", review.reviewDocument.bytes());
             publisherEvidence = evidence("history/publisher.json", publisher.document().bytes());
             review.evidence.put(reviewEvidence.reference().path(), reviewEvidence);

@@ -31,7 +31,8 @@ export function describeCommunityBundle(repoRoot) {
     const gradle = read('pixivdownload-plugin-gui-compose/gradle/wrapper/gradle-wrapper.properties');
     const sbt = read('plugin-templates/sdk-package/examples/sbt-plugin/project/build.properties');
     const toolsPom = read('pixivdownload-sdk-tools/pom.xml');
-    const dependency = id => toolsPom.match(new RegExp(`<artifactId>${id}</artifactId>\\s*<version>([^<]+)</version>`, 'u'))?.[1];
+    const contractPom = read('pixivdownload-community-contract/pom.xml');
+    const dependency = id => (toolsPom + contractPom).match(new RegExp(`<artifactId>${id}</artifactId>\\s*<version>([^<]+)</version>`, 'u'))?.[1];
     const toolchain = {
         sdk: inspectSdkVersion(repoRoot).version,
         java: read('pom.xml').match(/<java.version>([^<]+)<\/java.version>/u)?.[1],
