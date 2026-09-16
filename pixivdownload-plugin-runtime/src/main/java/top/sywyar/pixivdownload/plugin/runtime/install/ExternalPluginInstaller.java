@@ -697,7 +697,8 @@ public class ExternalPluginInstaller implements AutoCloseable {
             return new TrustResolution(candidate.withTrustDecision(
                     PluginTrustPolicy.approve(descriptor, candidate, Instant.now())), null);
         }
-        PluginTrustRequirement requirement = PluginTrustPolicy.requirement(descriptor, candidate);
+        PluginTrustRequirement requirement = PluginTrustPolicy.requirement(descriptor, candidate)
+                .withPrevious(sameId.size() == 1 ? sameId.get(0).descriptor() : null);
         PluginInstallResult rejection = new PluginInstallResult(
                 PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED,
                 descriptor,
