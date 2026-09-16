@@ -133,6 +133,45 @@ class PublishedVersionTest {
                 .extracting("code").isEqualTo("BASELINE_CHANGED");
     }
 
+    @Test @DisplayName("合并前准备保留原审核；只有同 PR 的直接生成子提交真实合并后才能发布")
+    void preparedRecordRequiresActualMergeAndExactParentChain() throws Exception {
+        var f = new Fixture("1.0.0", null, false);
+        var prepared = PublishedVersion.prepare(f.input(), Map.of(), null).document();
+        var value = PublishedVersion.read(prepared);
+        assertThatThrownBy(() -> value.verifyHistory(f.jar, f.publisher.document(), f.verifier,
+                "sample.repo", f.review.evidence)).isInstanceOf(ContractException.class);
+        String generated = "34".repeat(20), merge = "56".repeat(20);
+        var pr = new CommunityPr("1001", 17, "101", "1002", generated, HEAD, merge);
+        var reference = Reference.of("prepared.json", prepared.bytes());
+        var confirmed = new PublishedVersion.PreparedMerge(pr, generated, List.of(HEAD), List.of(HEAD, generated), reference);
+        value.verifyHistory(f.jar, f.publisher.document(), f.verifier, "sample.repo", f.review.evidence, confirmed);
+        for (var invalid : List.of(
+                new PublishedVersion.PreparedMerge(pr, generated, List.of(HEAD, generated), List.of(HEAD, generated), reference),
+                new PublishedVersion.PreparedMerge(pr, generated, List.of(generated), List.of(HEAD, generated), reference),
+                new PublishedVersion.PreparedMerge(pr, generated, List.of(HEAD), List.of(generated, HEAD), reference),
+                new PublishedVersion.PreparedMerge(new CommunityPr("1001", 18, "101", "1002", generated, HEAD, merge),
+                        generated, List.of(HEAD), List.of(HEAD, generated), reference),
+                new PublishedVersion.PreparedMerge(new CommunityPr("1001", 17, "101", "1002", generated, HEAD, null),
+                        generated, List.of(HEAD), List.of(HEAD, generated), reference),
+                new PublishedVersion.PreparedMerge(pr, generated, List.of(HEAD), List.of(HEAD, generated),
+                        Reference.of("prepared.json", new byte[]{1})))) {
+            assertThatThrownBy(() -> value.verifyHistory(f.jar, f.publisher.document(), f.verifier,
+                    "sample.repo", f.review.evidence, invalid)).isInstanceOf(ContractException.class);
+        }
+        assertThatThrownBy(() -> PublishedVersion.prepare(new Fixture("1.0.0", null, true).input(), Map.of(), null))
+                .isInstanceOf(ContractException.class);
+        var original = f.communitySignature;
+        f.communitySignature = new SignatureMetadata(1, "Ed25519", "community:key", Base64.getEncoder().encodeToString(new byte[64]));
+        assertThatThrownBy(() -> PublishedVersion.prepare(f.input(), Map.of(), null)).isInstanceOf(ContractException.class)
+                .extracting("code").isEqualTo("INVALID_SIGNATURE");
+        f.communitySignature = original;
+        for (String file : List.copyOf(f.review.evidence.keySet())) {
+            var removed = f.review.evidence.remove(file);
+            assertThatThrownBy(() -> PublishedVersion.prepare(f.input(), Map.of(), null)).as(file).isInstanceOf(ContractException.class);
+            f.review.evidence.put(file, removed);
+        }
+    }
+
     private final class Fixture {
         final Path jar;
         final Publisher publisher;
