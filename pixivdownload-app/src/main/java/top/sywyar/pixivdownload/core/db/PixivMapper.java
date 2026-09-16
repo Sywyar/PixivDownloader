@@ -8,6 +8,15 @@ import java.util.List;
 @Mapper
 public interface PixivMapper {
 
+    @Update("UPDATE artworks SET file_name_max_length = #{length} WHERE artwork_id = #{id}")
+    void updateFileNameMaxLength(@Param("id") long id, @Param("length") int length);
+
+    @Select("SELECT file_name_max_length FROM artworks WHERE artwork_id = #{id}")
+    Integer findFileNameMaxLength(long id);
+
+    @Select("SELECT file_name_max_length FROM novels WHERE novel_id = #{id}")
+    Integer findNovelFileNameMaxLength(long id);
+
     String SELECT_ARTWORK = "SELECT artwork_id, title, folder, count, extensions, time, moved,"
             + " move_folder, move_time, \"R18\" AS x_restrict, is_ai, author_id, description, file_name, file_author_name_id,"
             + " series_id, series_order, deleted, upload_time, is_original FROM artworks";

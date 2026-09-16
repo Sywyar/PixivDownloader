@@ -57,6 +57,7 @@ async function bindScheduleCredential(taskId, sourceType, credential) {
 
 async function scheduleVerb(task, verb) {
     try {
+        if (verb === 'resume' && !await resolveSchedulePathActions(task)) return;
         await schedulePost(task, verb);
         abToast('success', bt('schedule.feedback.saved', '操作成功'));
     } catch (e) {
@@ -140,6 +141,7 @@ async function loadScheduleQueue(task, quiet) {
 }
 
 const SCHEDULE_QUEUE_STATUS = {
+    'paused': ['batch:path.overflow.waiting', ''],
     'pending': ['queue.status.pending', '待处理'],
     'downloaded': ['queue.status.downloaded', '已下载'],
     'skipped-downloaded': ['queue.status.skipped-downloaded', '已存在跳过'],

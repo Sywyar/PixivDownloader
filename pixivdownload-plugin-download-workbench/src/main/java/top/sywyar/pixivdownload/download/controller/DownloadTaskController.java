@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathPlan;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 import top.sywyar.pixivdownload.download.response.error.ErrorResponse;
 import top.sywyar.pixivdownload.download.response.status.DownloadResponse;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaReservation;
@@ -73,6 +75,7 @@ public class DownloadTaskController {
         RequestOwnerIdentity identity = requestOwnerIdentityResolver.resolve(httpRequest);
         String userUuid = null;
         boolean isAdmin = identity.admin();
+        if (!isAdmin) request.getOther().setPathOverflowAction(null);
         stripUnauthorizedCollectionSelection(request, mode, isAdmin);
         if (!isAdmin && "multi".equals(mode)) {
             userUuid = identity.ownerUuid();
@@ -132,4 +135,21 @@ public class DownloadTaskController {
     public ResponseEntity<ErrorResponse> handleLocalized(LocalizedException failure, Locale locale) {
         return WorkbenchErrorResponses.localized(failure, messages, locale);
     }
+
+    @ExceptionHandler(DownloadPathPlan.NeedsAction.class)
+    public ResponseEntity<PathActionResponse> pathAction(DownloadPathPlan.NeedsAction failure,
+                                                        HttpServletRequest request) {
+        boolean admin = requestOwnerIdentityResolver.resolve(request).admin();
+        return ResponseEntity.status(409).body(new PathActionResponse("DOWNLOAD_PATH_ACTION_REQUIRED",
+                messages.get("download.path.action-required"), admin ? failure.problem() : null));
+    }
+
+    @ExceptionHandler(java.util.concurrent.CancellationException.class)
+    public ResponseEntity<ErrorResponse> pathCancelled() {
+        return ResponseEntity.status(409).body(new ErrorResponse("DOWNLOAD_PATH_CANCELLED",
+                messages.get("download.cancelled")));
+    }
+
+    public record PathActionResponse(String code, String error, DownloadPathPlan.Problem pathProblem)
+            implements ApiErrorResponse {}
 }

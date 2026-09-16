@@ -200,9 +200,11 @@ public class LocalWorkAssetService implements WorkAssetService {
                 ? ""
                 : pixivDatabase.getFileAuthorName(novel.fileAuthorNameId());
         if (authorName == null) authorName = "";
+        int maxLength = pixivDatabase.getFileNameMaxLength(novel.novelId(), true);
         List<String> names = PixivWorkFileNameFormatter.formatAll(
                 template, novel.novelId(), novel.title(), novel.authorId(), authorName,
-                novel.time(), 1, novel.isAi(), novel.xRestrict());
+                novel.time(), 1, novel.isAi(), novel.xRestrict(),
+                maxLength > 0 ? maxLength : PixivWorkFileNameFormatter.MAX_BASENAME_LENGTH);
         return names.isEmpty() ? String.valueOf(novel.novelId()) : names.get(0);
     }
 

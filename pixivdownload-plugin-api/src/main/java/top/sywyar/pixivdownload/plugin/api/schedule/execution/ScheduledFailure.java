@@ -11,6 +11,8 @@ public record ScheduledFailure(
 
     /** 计划任务失败类别。 */
     public enum Category {
+        /** 当前作品需要用户选择；宿主保留 pending 并暂停任务，不计重试失败。 */
+        USER_ACTION_REQUIRED,
         /**
          * 表示 {@code CANCELLED} 状态。
          */

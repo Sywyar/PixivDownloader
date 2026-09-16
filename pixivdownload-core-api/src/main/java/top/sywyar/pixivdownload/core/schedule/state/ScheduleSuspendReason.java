@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.core.schedule.state;
 
 /** 计划任务不能开始新一轮运行的机器可判定原因。 */
 public enum ScheduleSuspendReason {
+    /** 已保留待处理作品，等待管理员选择后显式恢复。 */
+    USER_ACTION_REQUIRED,
     /**
      * 表示 {@code MANUAL} 状态。
      */

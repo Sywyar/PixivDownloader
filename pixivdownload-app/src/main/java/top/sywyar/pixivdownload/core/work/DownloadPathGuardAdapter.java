@@ -4,6 +4,7 @@ import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.common.SafePathSegment;
 import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
 import top.sywyar.pixivdownload.core.work.service.DownloadPathRejectedException;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathLimits;
 
 import java.nio.file.Path;
 
@@ -12,6 +13,16 @@ import java.nio.file.Path;
  */
 @Component
 public class DownloadPathGuardAdapter implements DownloadPathGuard {
+
+    @Override
+    public DownloadPathLimits limits(Path directory) {
+        return FileSystemPathLimits.read(directory);
+    }
+
+    @Override
+    public java.util.function.Predicate<Path> pathSupport(Path directory) {
+        return FileSystemPathLimits.support(directory);
+    }
 
     @Override
     public String requireSafeDirectoryName(String value) {

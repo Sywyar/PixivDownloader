@@ -181,6 +181,19 @@ class ScheduleExecutorRunTimingTest {
     }
 
     @Test
+    @DisplayName("待用户选择挂起整个任务且不推进检查点")
+    void userActionSuspendsTaskWithoutCheckpoint() throws Exception {
+        ScheduledTask task = task(2L, "user-new", userDefinition("100"), null, null, null);
+        ScheduleExecutionEngine engine = mock(ScheduleExecutionEngine.class);
+        when(engine.execute(eq(task), any(), any())).thenThrow(new ScheduledExecutionException(
+                ScheduledFailure.Category.USER_ACTION_REQUIRED, "DOWNLOAD_PATH_ACTION_REQUIRED"));
+        genericExecutor(engine).runTaskAndRecord(task);
+        verify(store).suspend(eq(2L), eq(2L), eq(ScheduleSuspendReason.USER_ACTION_REQUIRED),
+                eq("DOWNLOAD_PATH_ACTION_REQUIRED"), isNull());
+        verify(store, never()).completeRun(eq(2L), any(), any());
+    }
+
+    @Test
     @DisplayName("作品执行器缺席时挂起为 EXECUTOR_UNAVAILABLE")
     void executorUnavailableSuspendsWithoutPartialExecution() throws Exception {
         ScheduledTask task = task(3L, "user-new", userDefinition("100"), null, null, null);

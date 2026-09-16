@@ -464,4 +464,20 @@ class ScheduledTaskStoreTest {
                 "fixture.payload", 1, "{\"fixture\":true}", "[]", "{}",
                 "retry", "{}", 0, 2_000L, 2_000L);
     }
+
+    @Test
+    @DisplayName("作品选择绑定版本，持久保存并与任务认领互斥")
+    void pendingChoiceIsVersionedAndCannotChangeDuringRun() {
+        long id = store.create(create("路径选择"));
+        store.upsertPendingWork(pending(id, "fixture", "same/id"));
+        assertThat(store.resolvePendingWork(id, 0, "fixture", "same/id", "TRUNCATE", true)).hasValue(1);
+        assertThat(store.listPendingWork(id).get(0).reasonDetailJson())
+                .isEqualTo("{\"requiresUserAction\":false,\"userAction\":\"TRUNCATE\",\"rememberForRun\":true}");
+        assertThat(store.resolvePendingWork(id, 0, "fixture", "same/id", "CANCEL", false)).isEmpty();
+        assertThatThrownBy(() -> store.resolvePendingWork(id, 1, "fixture", "missing", "CANCEL", false))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(store.findById(id).stateVersion()).isEqualTo(1);
+        assertThat(store.tryQueueNow(id, 1, "claim")).isPresent();
+        assertThat(store.resolvePendingWork(id, 2, "fixture", "same/id", "CANCEL", false)).isEmpty();
+    }
 }

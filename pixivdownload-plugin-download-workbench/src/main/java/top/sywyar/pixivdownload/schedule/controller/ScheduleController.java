@@ -27,6 +27,7 @@ import top.sywyar.pixivdownload.schedule.dto.ScheduleCredentialBindRequest;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleCredentialPolicyActionRequest;
 import top.sywyar.pixivdownload.schedule.dto.SchedulePendingDeleteRequest;
 import top.sywyar.pixivdownload.schedule.dto.SchedulePendingView;
+import top.sywyar.pixivdownload.schedule.dto.SchedulePendingResolveRequest;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleQueueView;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleSourceManifestView;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskRequest;
@@ -149,6 +150,13 @@ public class ScheduleController {
      * 再触发一次后台运行立刻跑起来。{@code runOnce} 在 resume 事务提交后调用，异步执行线程读到的是已清挂起的状态；
      * 即时触发若因竞态被跳过，调度 tick 也会兜底捡起。返回刷新后的视图以即时反映「排队中」运行态。
      */
+    @PostMapping("/tasks/{id}/pending/resolve")
+    public ScheduleTaskView resolvePending(@PathVariable long id,
+            @Valid @RequestBody SchedulePendingResolveRequest request) {
+        return scheduleService.resolvePending(id, request.expectedStateVersion(), request.workType(),
+                request.workId(), request.userAction(), request.rememberForRun());
+    }
+
     @PostMapping("/tasks/{id}/resume")
     public ScheduleTaskView resume(@PathVariable long id) {
         ScheduleTaskView view = scheduleService.resume(id);

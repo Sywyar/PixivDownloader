@@ -32,6 +32,9 @@ function loadSettings() {
     } catch {
     }
     state.settings.fileNameTemplate = normalizeFileNameTemplate(state.settings.fileNameTemplate);
+    if (!['ASK', 'TRUNCATE', 'DEFAULT_NAME', 'CANCEL'].includes(state.settings.pathOverflowAction)) {
+        state.settings.pathOverflowAction = 'ASK';
+    }
 }
 
 /* ============================================================
@@ -357,6 +360,28 @@ function buildSettingsDrawerBody() {
         bt('settings.filename.help', '生成不含扩展名的文件名主干；重复名称自动追加页码。点击变量插入。')));
     body.appendChild(varChips);
     body.appendChild(namePreview);
+
+    if (isAdmin) {
+        const pathAction = el('select', 'ab-input');
+        pathAction.id = 's-path-overflow-action';
+        pathAction.setAttribute('aria-label', bt('batch:path.overflow.label', null));
+        pathAction.setAttribute('aria-describedby', 'ab-path-overflow-hint');
+        [['ASK', 'ask'], ['TRUNCATE', 'truncate'], ['DEFAULT_NAME', 'default'], ['CANCEL', 'cancel']]
+            .forEach(([value, key]) => {
+                const option = el('option', '', bt('batch:path.overflow.' + key, null));
+                option.value = value;
+                pathAction.appendChild(option);
+            });
+        pathAction.value = s.pathOverflowAction || 'ASK';
+        pathAction.addEventListener('change', () => {
+            s.pathOverflowAction = pathAction.value;
+            saveSettings();
+        });
+        const row = settingsRow(bt('batch:path.overflow.label', null), pathAction,
+            bt('batch:path.overflow.hint', null));
+        row.querySelector('.ab-field-note').id = 'ab-path-overflow-hint';
+        body.appendChild(row);
+    }
 
     // —— 小说 ——
     // 本分组即小说 typed settings 声明的 cardId（novel-settings-card）在 alt 的原生实现：

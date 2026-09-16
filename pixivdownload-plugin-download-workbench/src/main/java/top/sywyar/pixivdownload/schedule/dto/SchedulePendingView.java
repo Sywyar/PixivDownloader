@@ -20,10 +20,10 @@ public record SchedulePendingView(
         Long firstSeenTime,
         Long lastAttemptTime
 ) {
-    public static SchedulePendingView of(ScheduledPendingWork p, int maxAttempts) {
+    public static SchedulePendingView of(ScheduledPendingWork p, int maxAttempts, boolean requiresUserAction) {
         return new SchedulePendingView(
                 p.taskId(), p.workType(), p.workId(), p.presentationJson(),
                 p.reasonCode(), p.reasonDetailJson(), p.attempts(),
-                p.attempts() >= maxAttempts, p.firstSeenTime(), p.lastAttemptTime());
+                requiresUserAction || p.attempts() >= maxAttempts, p.firstSeenTime(), p.lastAttemptTime());
     }
 }

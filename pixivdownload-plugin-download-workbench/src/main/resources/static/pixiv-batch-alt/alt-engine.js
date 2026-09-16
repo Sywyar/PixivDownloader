@@ -81,7 +81,7 @@ async function recoverArtworkMetadata(artworkId, meta) {
 /* ============================================================
    下载提交（POST /api/download/pixiv，payload 与现行引擎一致）
    ============================================================ */
-async function sendDownload(artworkId, imageUrls, title, isUserDownload, username, authorId, authorName, xRestrict, isAi, ugoiraData, description, tags, seriesInfo, illustType, rawMetaJson) {
+async function sendDownload(artworkId, imageUrls, title, isUserDownload, username, authorId, authorName, xRestrict, isAi, ugoiraData, description, tags, seriesInfo, illustType, rawMetaJson, invocation) {
     const delayMs = getImageDelayMs();
     const collectionId = state.settings.collectionId;
     const fileNameTemplate = normalizeFileNameTemplate(state.settings.fileNameTemplate);
@@ -137,13 +137,7 @@ async function sendDownload(artworkId, imageUrls, title, isUserDownload, usernam
         cookie: getCookie(),
         other
     };
-    const res = await fetch(`${BASE}/api/download/pixiv`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        credentials: 'same-origin',
-        body: JSON.stringify(payload)
-    });
-    const data = await res.json();
+    const {res, data} = await submitWithPathAction(`${BASE}/api/download/pixiv`, payload, invocation);
     if (res.status === 429 && data.quotaExceeded) {
         if (!quotaExceededHandled) {
             quotaExceededHandled = true;

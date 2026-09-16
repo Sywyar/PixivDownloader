@@ -46,7 +46,8 @@ final class LegacyDdlBaseline {
                     + "move_time INTEGER,"
                     + "deleted INTEGER NOT NULL DEFAULT 0,"
                     + "upload_time INTEGER,"
-                    + "is_original INTEGER)",
+                    + "is_original INTEGER,"
+                    + "file_name_max_length INTEGER NOT NULL DEFAULT 180)",
             "CREATE TABLE IF NOT EXISTS statistics ("
                     + "id INTEGER PRIMARY KEY CHECK (id = 1),"
                     + "total_artworks INTEGER DEFAULT 0,"
@@ -172,7 +173,8 @@ final class LegacyDdlBaseline {
                     + "raw_content TEXT DEFAULT NULL,"
                     + "cover_ext TEXT DEFAULT NULL,"
                     + "deleted INTEGER NOT NULL DEFAULT 0,"
-                    + "upload_time INTEGER)",
+                    + "upload_time INTEGER,"
+                    + "file_name_max_length INTEGER NOT NULL DEFAULT 180)",
             "CREATE INDEX IF NOT EXISTS idx_novels_author_id ON novels(author_id)",
             "CREATE INDEX IF NOT EXISTS idx_novels_series_order ON novels(series_id, series_order)",
             "CREATE TABLE IF NOT EXISTS novel_series ("

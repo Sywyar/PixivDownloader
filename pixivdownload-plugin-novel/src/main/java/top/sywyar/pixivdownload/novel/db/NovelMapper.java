@@ -16,6 +16,9 @@ import java.util.List;
 @Mapper
 public interface NovelMapper {
 
+    @Update("UPDATE novels SET file_name_max_length = #{length} WHERE novel_id = #{id}")
+    void updateFileNameMaxLength(@Param("id") long id, @Param("length") int length);
+
     String SELECT_NOVEL = "SELECT novel_id AS novelId, title, folder, count, extensions, time,"
             + " \"R18\" AS xRestrict, is_ai AS isAi, author_id AS authorId, description,"
             + " file_name AS fileName, file_author_name_id AS fileAuthorNameId,"

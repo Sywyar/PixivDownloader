@@ -328,4 +328,8 @@ public interface ScheduledTaskStore {
                                   long expectedStateVersion,
                                   String workType,
                                   String workId);
+
+    /** 在空闲任务的同一次版本 CAS 中保存单作品操作，仅供接下来的一轮执行消费。 */
+    OptionalLong resolvePendingWork(long taskId, long expectedStateVersion, String workType, String workId,
+                                    String userAction, boolean rememberForRun);
 }

@@ -98,6 +98,7 @@ public class ArtworkDownloadHistoryAdapter implements ArtworkDownloadHistory {
                 .map(tag -> new TagDto(tag.tagId(), tag.name(), tag.translatedName()))
                 .toList();
         pixivDatabase.replaceArtworkTagsAfterDownload(completion.artworkId(), tags);
+        pixivDatabase.updateFileNameMaxLength(completion.artworkId(), completion.fileNameMaxLength());
     }
 
     private static <T> T valueOrPrevious(T value, T previous) {

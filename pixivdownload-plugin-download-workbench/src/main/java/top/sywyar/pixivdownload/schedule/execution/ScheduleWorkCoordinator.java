@@ -79,6 +79,8 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
     private final BatchBarrier batchBarrier;
     private final Consumer<ScheduleExecutionResult.PendingExhausted> pendingExhaustedListener;
     private final Map<ScheduledWorkKey, ScheduledPendingWork> pending = new LinkedHashMap<>();
+    private final Map<ScheduledWorkKey, Map<String, String>> userActions = new HashMap<>();
+    private final Map<String, String> runUserActions = new HashMap<>();
     private final Set<ScheduledWorkKey> seen = new HashSet<>();
     private final Map<String, MutableStatistics> statistics = new LinkedHashMap<>();
     private final List<ScheduleExecutionResult.PendingExhausted> pendingExhausted = new ArrayList<>();
@@ -177,6 +179,24 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
                         ScheduledFailure.Category.PAYLOAD_UNSUPPORTED,
                         "schedule.pending.work-type-unplanned");
             }
+            try {
+                var detail = objectMapper.readTree(row.reasonDetailJson() == null ? "{}" : row.reasonDetailJson());
+                String action = detail == null ? "" : detail.path("userAction").asText("");
+                if (action.matches("[A-Z][A-Z0-9_]{0,63}")) {
+                    userActions.put(work.key(), Map.of(row.reasonCode(), action));
+                    if (detail.path("rememberForRun").asBoolean(false)) {
+                        runUserActions.merge(row.reasonCode(), action, (old, next) -> old.equals(next) ? old : "");
+                    }
+                    // 先消费耐久授权，再执行作品；崩溃或下一轮重试不得沿用本轮批次选择。
+                    row = new ScheduledPendingWork(row.taskId(), row.workType(), row.workId(), row.payloadSchema(),
+                            row.payloadVersion(), row.payloadJson(), row.relationsJson(), row.presentationJson(),
+                            row.reasonCode(), "{\"requiresUserAction\":true}", row.attempts(), row.firstSeenTime(), row.lastAttemptTime());
+                    store.upsertPendingWork(row);
+                }
+            } catch (com.fasterxml.jackson.core.JsonProcessingException invalid) {
+                throw new ScheduledExecutionException(ScheduledFailure.Category.PAYLOAD_UNSUPPORTED,
+                        "schedule.pending.payload-invalid");
+            }
             pending.put(work.key(), row);
         }
     }
@@ -197,7 +217,7 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
                 continue;
             }
             discover(work);
-            if (row.attempts() >= pendingMaxAttempts) {
+            if (row.attempts() >= pendingMaxAttempts && !hasUserAction(work.key(), row.reasonCode())) {
                 seen.add(work.key());
                 runQueue.mark(work.key(),
                         ScheduleRunQueue.STATUS_FAILED, row.reasonCode());
@@ -211,6 +231,11 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
         return pending.containsKey(key);
     }
 
+    private boolean hasUserAction(ScheduledWorkKey key, String reason) {
+        return userActions.getOrDefault(key, Map.of()).containsKey(reason)
+                || !runUserActions.getOrDefault(reason, "").isEmpty();
+    }
+
     @Override
     public void submit(ScheduledWork submitted) throws ScheduledExecutionException {
         ensureAcceptingAndNotCancelled();
@@ -221,7 +246,8 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
                 : persistenceCodec.fromPendingWork(pendingRow);
         validateSubmittedWork(work);
         discover(work);
-        if (pendingRow != null && pendingRow.attempts() >= pendingMaxAttempts) {
+        if (pendingRow != null && pendingRow.attempts() >= pendingMaxAttempts
+                && !hasUserAction(work.key(), pendingRow.reasonCode())) {
             seen.add(work.key());
             runQueue.mark(work.key(),
                     ScheduleRunQueue.STATUS_FAILED, pendingRow.reasonCode());
@@ -276,8 +302,11 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
         ScheduleWorkConcurrencyLimiter.Permit concurrencyPermit =
                 concurrencyLimiter.acquire(
                         workType, maxInFlightByType.get(workType), cancellation);
+        Map<String, String> actions = new HashMap<>(runUserActions);
+        actions.putAll(userActions.getOrDefault(work.key(), Map.of()));
+        Map<String, String> actionSnapshot = Map.copyOf(actions);
         TrackedWorkFuture future = new TrackedWorkFuture(
-                () -> executeOne(work, executor, retry), completions,
+                () -> executeOne(work, executor, retry, actionSnapshot), completions,
                 concurrencyPermit::close);
         MutableStatistics typeStatistics = statistics.get(workType);
         typeStatistics.attempted++;
@@ -327,11 +356,15 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
     private Completion executeOne(
             ScheduledWork work,
             ScheduledWorkExecutor executor,
-            boolean retry) {
+            boolean retry, Map<String, String> userActions) {
         try {
             cancellation.throwIfCancellationRequested();
             try (var handle = credential.openHandle()) {
                 ScheduledWorkContext context = new ScheduledWorkContext() {
+                    @Override
+                    public java.util.Optional<String> userAction(String reasonCode) {
+                        return java.util.Optional.ofNullable(userActions.get(reasonCode)).filter(value -> !value.isEmpty());
+                    }
                     @Override
                     public ScheduledTaskDefinition task() {
                         return task;
@@ -582,19 +615,20 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
 
         long now = System.currentTimeMillis();
         ScheduledPendingWork previous = pending.get(work.key());
-        int attempts = completion.retry() && previous != null
+        boolean requiresAction = failure.category() == ScheduledFailure.Category.USER_ACTION_REQUIRED;
+        int attempts = requiresAction ? (previous == null ? 0 : previous.attempts()) : completion.retry() && previous != null
                 ? previous.attempts() + 1
                 : 0;
         Long firstSeen = previous == null ? now : previous.firstSeenTime();
         ScheduledPendingWork durable = persistenceCodec.toPendingWork(
-                taskId, work, failure.code(), "{}", attempts, firstSeen,
+                taskId, work, failure.code(), requiresAction ? "{\"requiresUserAction\":true}" : "{}", attempts, firstSeen,
                 completion.retry() ? now : null);
         store.upsertPendingWork(durable);
         pending.put(work.key(), durable);
         typeStatistics.pending++;
         runQueue.mark(work.key(),
-                ScheduleRunQueue.STATUS_FAILED, failure.code());
-        if (completion.retry() && attempts == pendingMaxAttempts) {
+                requiresAction ? ScheduleRunQueue.STATUS_PAUSED : ScheduleRunQueue.STATUS_FAILED, failure.code());
+        if (!requiresAction && completion.retry() && attempts == pendingMaxAttempts) {
             ScheduledWorkNotificationPresentation presentation =
                     safeNotificationPresentation(work);
             ScheduleExecutionResult.PendingExhausted event =
@@ -609,6 +643,8 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
             }
         }
         switch (failure.category()) {
+            case USER_ACTION_REQUIRED -> setTerminalFailure(new ScheduledExecutionException(
+                    failure.category(), failure.code()));
             case CREDENTIAL_INVALID -> {
                 int failureCount = consecutiveCredentialFailures.merge(
                         workType, 1, Integer::sum);

@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.core.artwork.download;
 
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
+import top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter;
 
 import java.nio.file.Path;
 import java.util.Collections;
@@ -30,6 +31,7 @@ import java.util.Set;
  * @param seriesId             系列 id，可为 {@code null}
  * @param seriesOrder          系列内序号，可为 {@code null}
  * @param tags                 下载时携带的标签
+ * @param fileNameMaxLength    实际使用的基础文件名截断长度
  */
 public record ArtworkDownloadCompletion(
         long artworkId,
@@ -46,7 +48,18 @@ public record ArtworkDownloadCompletion(
         String normalizedAuthorName,
         Long seriesId,
         Long seriesOrder,
-        List<WorkTag> tags) {
+        List<WorkTag> tags,
+        int fileNameMaxLength) {
+
+    public ArtworkDownloadCompletion(long artworkId, String title, Path folder, int imageCount,
+                                     Set<String> extensions, long recordTime, int restriction,
+                                     boolean aiGenerated, Long authorId, String description,
+                                     String fileNameTemplate, String normalizedAuthorName,
+                                     Long seriesId, Long seriesOrder, List<WorkTag> tags) {
+        this(artworkId, title, folder, imageCount, extensions, recordTime, restriction, aiGenerated,
+                authorId, description, fileNameTemplate, normalizedAuthorName, seriesId, seriesOrder, tags,
+                top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter.MAX_BASENAME_LENGTH);
+    }
 
     /**
      * 创建 {@code ArtworkDownloadCompletion} 实例。
@@ -68,6 +81,9 @@ public record ArtworkDownloadCompletion(
      * @param tags 标签集合
      */
     public ArtworkDownloadCompletion {
+        if (fileNameMaxLength < 1 || fileNameMaxLength > PixivWorkFileNameFormatter.MAX_BASENAME_LENGTH) {
+            throw new IllegalArgumentException("Invalid filename length");
+        }
         folder = Objects.requireNonNull(folder, "folder");
         fileNameTemplate = Objects.requireNonNull(fileNameTemplate, "fileNameTemplate");
         normalizedAuthorName = normalizedAuthorName == null || normalizedAuthorName.isBlank()

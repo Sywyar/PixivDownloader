@@ -43,6 +43,7 @@ import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathPlan;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
@@ -91,6 +92,23 @@ public class NovelDownloadController {
     private final MessageResolver messages;
     private final NovelBrowserFetchTicketStore browserFetchTicketStore;
 
+    @ExceptionHandler(DownloadPathPlan.NeedsAction.class)
+    public ResponseEntity<PathActionResponse> pathAction(DownloadPathPlan.NeedsAction failure,
+                                                        HttpServletRequest request) {
+        boolean admin = requestOwnerIdentityResolver.isAdminAuthenticated(request);
+        return ResponseEntity.status(409).body(new PathActionResponse("DOWNLOAD_PATH_ACTION_REQUIRED",
+                messages.get("download.path.action-required"), admin ? failure.problem() : null, null));
+    }
+
+    @ExceptionHandler(java.util.concurrent.CancellationException.class)
+    public ResponseEntity<NovelErrorResponse> pathCancelled() {
+        return ResponseEntity.status(409).body(new NovelErrorResponse("DOWNLOAD_PATH_CANCELLED",
+                messages.get("download.cancelled")));
+    }
+
+    public record PathActionResponse(String code, String error, DownloadPathPlan.Problem pathProblem, String retryToken)
+            implements ApiErrorResponse {}
+
     @PostMapping("/novel/download")
     public ResponseEntity<?> downloadNovel(
             @Valid @RequestBody NovelDownloadCommand command,
@@ -116,6 +134,7 @@ public class NovelDownloadController {
 
         RequestOwnerIdentity ownerIdentity = requestOwnerIdentityResolver.resolve(httpRequest);
         boolean isAdmin = requestOwnerIdentityResolver.isAdminAuthenticated(httpRequest);
+        if (!isAdmin) command.getOther().setPathOverflowAction(null);
         stripUnauthorizedCollectionSelection(command, mode, isAdmin);
         stripUnauthorizedAutoTranslate(command, mode, isAdmin);
 
@@ -124,9 +143,9 @@ public class NovelDownloadController {
             return proxyDeny;
         }
 
-        NovelDownloadRequest request;
+        ResolvedDownload resolved;
         try {
-            request = resolveDownloadRequest(command, httpRequest, ownerIdentity);
+            resolved = resolveDownloadRequest(command, httpRequest, ownerIdentity);
         } catch (IllegalArgumentException invalid) {
             String detail = invalid.getMessage();
             return ResponseEntity.badRequest().body(ApiErrorResponse.of(
@@ -159,7 +178,25 @@ public class NovelDownloadController {
             }
         }
 
-        novelDownloadService.download(request, userUuid);
+        try {
+            novelDownloadService.download(resolved.request(), userUuid);
+        } catch (DownloadPathPlan.NeedsAction needed) {
+            String retryToken = null;
+            var imported = resolved.imported();
+            if (isAdmin && imported != null) {
+                // 已消费的票据不复用；维持原来源和身份绑定，为确认后的单次重试签发新票据。
+                retryToken = imported.origin() == NovelBrowserFetchTicketStore.FetchOrigin.LOCAL_BROWSER_IMPORT
+                        ? browserFetchTicketStore.issueBrowserFetchTicket(command.getNovelId(),
+                                imported.metadata(), imported.rawMetaJson())
+                        : browserFetchTicketStore.issuePreviewFetchTicket(command.getNovelId(),
+                                imported.metadata(), imported.rawMetaJson(), ownerIdentity,
+                                AcquisitionCredentialResolver.resolve(httpRequest.getHeader(
+                                        AcquisitionCredentialResolver.HEADER_NAME), null));
+            }
+            return ResponseEntity.status(409).cacheControl(CacheControl.noStore()).body(new PathActionResponse(
+                    "DOWNLOAD_PATH_ACTION_REQUIRED", messages.get("download.path.action-required"),
+                    isAdmin ? needed.problem() : null, retryToken));
+        }
 
         return ResponseEntity.ok(NovelDownloadResponse.builder()
                 .success(true)
@@ -183,7 +220,9 @@ public class NovelDownloadController {
         };
     }
 
-    private NovelDownloadRequest resolveDownloadRequest(
+    private record ResolvedDownload(NovelDownloadRequest request, NovelBrowserFetchTicketStore.ImportedNovel imported) {}
+
+    private ResolvedDownload resolveDownloadRequest(
             NovelDownloadCommand command,
             HttpServletRequest httpRequest,
             RequestOwnerIdentity ownerIdentity) throws IOException {
@@ -210,7 +249,7 @@ public class NovelDownloadController {
             NovelDownloadRequest request = NovelDownloadRequestFactory.fromPixiv(
                     imported.metadata(), series, fromPreview ? credential : null, imported.rawMetaJson());
             command.getOther().applyTo(request.getOther());
-            return request;
+            return new ResolvedDownload(request, imported);
         }
         long novelId = command.getNovelId();
         URI uri = UriComponentsBuilder
@@ -226,7 +265,7 @@ public class NovelDownloadController {
                 metadata, series, credential,
                 NovelDownloadRequestFactory.boundedRawMetadata(objectMapper, body));
         command.getOther().applyTo(request.getOther());
-        return request;
+        return new ResolvedDownload(request, null);
     }
 
     private PixivNovelMetadata.SeriesMetadata fetchSeriesBestEffort(Long seriesId, String credential) {

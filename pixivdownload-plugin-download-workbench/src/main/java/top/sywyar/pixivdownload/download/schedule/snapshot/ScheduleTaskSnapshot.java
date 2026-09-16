@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.download.schedule.snapshot;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathAction;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -74,7 +75,8 @@ public record ScheduleTaskSnapshot(
                 download.path("novelMergeFormat").asText("epub"),
                 download.path("novelAutoTranslate").asBoolean(false),
                 download.path("novelTranslateLanguage").asText(""),
-                intOrNull(download.path("novelTranslateSegmentSize")));
+                intOrNull(download.path("novelTranslateSegmentSize")),
+                DownloadPathAction.parse(download.path("pathOverflowAction").asText(null)));
     }
 
     /**
@@ -153,6 +155,6 @@ public record ScheduleTaskSnapshot(
                            boolean redownloadDeleted,
                            String novelFormat, boolean novelMerge, String novelMergeFormat,
                            boolean novelAutoTranslate, String novelTranslateLanguage,
-                           Integer novelTranslateSegmentSize) {
+                           Integer novelTranslateSegmentSize, DownloadPathAction pathOverflowAction) {
     }
 }

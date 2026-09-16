@@ -248,6 +248,7 @@ class ArtworkDownloadExecutorTest {
         @SuppressWarnings("unchecked")
         @DisplayName("提交后状态创建前 quiesce 应取消宿主任务且不发布残留状态")
         void shouldCancelPendingTaskBeforeStatusCreation() {
+            when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
             AtomicReference<Runnable> submitted = new AtomicReference<>();
             ArtworkDownloadExecutor executor = newExecutor(submitted::set);
 
@@ -272,6 +273,7 @@ class ArtworkDownloadExecutorTest {
         @Test
         @DisplayName("父执行器拒绝提交时应归还 permit")
         void shouldReleasePermitWhenExecutorRejects() {
+            when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
             RejectedExecutionException rejected = new RejectedExecutionException("full");
             ArtworkDownloadExecutor executor = newExecutor(task -> { throw rejected; });
 
@@ -287,6 +289,7 @@ class ArtworkDownloadExecutorTest {
         @Test
         @DisplayName("运行中的插画任务协作取消后必须等执行线程退出")
         void shouldWaitForRunningDownloadToExit() throws Exception {
+            when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
             CountDownLatch entered = new CountDownLatch(1);
             CountDownLatch release = new CountDownLatch(1);
             java.util.concurrent.atomic.AtomicBoolean blockFirstEvent =
@@ -1102,6 +1105,27 @@ class ArtworkDownloadExecutorTest {
     @Nested
     @DisplayName("下载历史兼容容错")
     class DownloadHistoryCompatibilityTests {
+
+        @Test
+        @DisplayName("授权前不提交下载，截断后记录可重建的实际长度")
+        void pathChoicePrecedesDownloadAndRecordsLength() {
+            when(downloadPathGuard.pathSupport(any())).thenReturn(
+                    new top.sywyar.pixivdownload.core.work.service.DownloadPathLimits(90, 0, true)::accepts);
+            DownloadRequest.Other other = new DownloadRequest.Other();
+            other.setFileNameTemplate("{artwork_title}");
+            other.setUgoira(true);
+            other.setUgoiraZipUrl("https://public-img-zip.pximg.net/test.zip");
+            other.setUgoiraDelays(List.of(100));
+            String title = "作品".repeat(90);
+            assertThatThrownBy(() -> artworkDownloadExecutor.downloadImagesBlocking(
+                    52347L, title, List.of(other.getUgoiraZipUrl()), "https://www.pixiv.net/", other, null, null))
+                    .isInstanceOf(top.sywyar.pixivdownload.core.work.service.DownloadPathPlan.NeedsAction.class);
+            verify(artworkDownloadHistory, never()).record(any());
+            other.setPathOverflowAction("TRUNCATE");
+            assertThat(artworkDownloadExecutor.downloadImagesBlocking(
+                    52347L, title, List.of(other.getUgoiraZipUrl()), "https://www.pixiv.net/", other, null, null)).isTrue();
+            assertThat(capturedDownloadCompletion().fileNameMaxLength()).isBetween(1, 90);
+        }
 
         @BeforeEach
         void setupDownloadPath() {

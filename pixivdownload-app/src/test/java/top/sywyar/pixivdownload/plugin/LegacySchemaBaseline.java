@@ -55,7 +55,8 @@ final class LegacySchemaBaseline {
                         column("move_time", "INTEGER", false, null, 0),
                         column("deleted", "INTEGER", true, "0", 0),
                         column("upload_time", "INTEGER", false, null, 0),
-                        column("is_original", "INTEGER", false, null, 0)
+                        column("is_original", "INTEGER", false, null, 0),
+                        column("file_name_max_length", "INTEGER", true, "180", 0)
                 ),
                 List.of(
                         uniqueConstraint("time"),
@@ -288,7 +289,8 @@ final class LegacySchemaBaseline {
                         column("raw_content", "TEXT", false, null, 0),
                         column("cover_ext", "TEXT", false, null, 0),
                         column("deleted", "INTEGER", true, "0", 0),
-                        column("upload_time", "INTEGER", false, null, 0)
+                        column("upload_time", "INTEGER", false, null, 0),
+                        column("file_name_max_length", "INTEGER", true, "180", 0)
                 ),
                 List.of(
                         uniqueConstraint("time"),

@@ -38,6 +38,26 @@ class UgoiraServiceTest {
     Path tempDir;
 
     @Test
+    @DisplayName("长作品目录从可启动的父目录运行子进程")
+    void launchesProcessForLongArtworkDirectory() throws Exception {
+        Path artwork = tempDir.toAbsolutePath();
+        while (artwork.toString().length() < 300) artwork = artwork.resolve("directory-123456789");
+        Files.createDirectories(artwork);
+        Path working = UgoiraService.ffmpegWorkingDirectory(artwork);
+        assertThat(working.resolve(working.relativize(artwork))).isEqualTo(artwork);
+        boolean windows = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).startsWith("windows");
+        Path executable = Path.of(System.getProperty("java.home"), "bin", windows ? "java.exe" : "java");
+        Process process = new ProcessBuilder(executable.toString(), "-version").directory(working.toFile())
+                .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
+        try {
+            assertThat(process.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(process.exitValue()).isZero();
+        } finally {
+            if (process.isAlive()) process.destroyForcibly();
+        }
+    }
+
+    @Test
     @DisplayName("Ugoira 资源预算保持为显式固定值")
     void resourceBudgetsRemainExplicit() {
         assertThat(UgoiraService.MAX_ZIP_BYTES).isEqualTo(100L * 1024 * 1024);
@@ -454,7 +474,7 @@ class UgoiraServiceTest {
         @Override
         Process startFfmpeg(ProcessBuilder processBuilder) throws IOException {
             List<String> command = processBuilder.command();
-            Path partialOutput = Path.of(command.get(command.size() - 1));
+            Path partialOutput = processBuilder.directory().toPath().resolve(command.get(command.size() - 1));
             return new ProcessBuilder(
                     javaCommand(),
                     "-cp",

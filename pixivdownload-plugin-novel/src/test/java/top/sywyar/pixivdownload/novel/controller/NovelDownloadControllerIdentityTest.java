@@ -68,6 +68,33 @@ class NovelDownloadControllerIdentityTest {
     @Mock private HttpServletRequest httpRequest;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    @Test
+    @DisplayName("路径确认重试保留浏览器取得的正文并签发新一次性票据")
+    void pathConfirmationRenewsBrowserTicketWithoutRefetch() throws Exception {
+        when(applicationModeProvider.getMode()).thenReturn("solo");
+        when(requestOwnerIdentityResolver.resolve(httpRequest)).thenReturn(RequestOwnerIdentity.adminScope());
+        when(requestOwnerIdentityResolver.isAdminAuthenticated(httpRequest)).thenReturn(true);
+        when(httpRequest.getRemoteAddr()).thenReturn("127.0.0.1");
+        when(httpRequest.getHeader("Host")).thenReturn("localhost:6999");
+        PixivNovelMetadata metadata = PixivNovelMetadata.parse(123L, objectMapper.readTree(
+                "{\"title\":\"private novel\",\"content\":\"retained content\",\"userId\":\"42\",\"userName\":\"author\"}"));
+        String token = "a".repeat(43);
+        when(browserFetchTicketStore.consumeFetchTicket(token, 123L, RequestOwnerIdentity.adminScope(), null, true))
+                .thenReturn(java.util.Optional.of(new NovelBrowserFetchTicketStore.ImportedNovel(
+                        metadata, "{}", NovelBrowserFetchTicketStore.FetchOrigin.LOCAL_BROWSER_IMPORT)));
+        when(browserFetchTicketStore.issueBrowserFetchTicket(123L, metadata, "{}")).thenReturn("fresh-ticket");
+        var problem = new top.sywyar.pixivdownload.core.work.service.DownloadPathPlan.Problem("/long", "/short", "/id");
+        org.mockito.Mockito.doThrow(new top.sywyar.pixivdownload.core.work.service.DownloadPathPlan.NeedsAction(problem))
+                .when(novelDownloadService).download(any(), isNull());
+        NovelDownloadCommand command = requestWithAdminOptions();
+        command.setFetchToken(token);
+        var response = controller().downloadNovel(command, httpRequest);
+        assertThat(response.getStatusCode().value()).isEqualTo(409);
+        assertThat(response.getBody()).isEqualTo(new NovelDownloadController.PathActionResponse(
+                "DOWNLOAD_PATH_ACTION_REQUIRED", null, problem, "fresh-ticket"));
+        verifyNoInteractions(pixivAjaxClient);
+    }
+
     @BeforeEach
     void allowAuthoritativePixivFetch() {
         lenient().when(pixivProxyAccessPolicy.evaluate(any(), anyBoolean()))

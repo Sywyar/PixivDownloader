@@ -38,6 +38,7 @@ import java.util.concurrent.ConcurrentMap;
 public class ScheduleRunQueue {
 
     public static final String STATUS_PENDING = "pending";
+    public static final String STATUS_PAUSED = "paused";
     public static final String STATUS_DOWNLOADED = "downloaded";
     public static final String STATUS_SKIPPED_DOWNLOADED = "skipped-downloaded";
     public static final String STATUS_SKIPPED_FILTER = "skipped-filter";

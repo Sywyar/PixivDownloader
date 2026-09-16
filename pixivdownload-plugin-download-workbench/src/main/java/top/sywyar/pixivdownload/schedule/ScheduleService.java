@@ -760,13 +760,14 @@ public class ScheduleService implements DesktopAutomationSource {
         if (task == null) {
             throw LocalizedException.badRequest("schedule.error.not-found", "计划任务不存在: {0}", id);
         }
-        if (task.suspendReason() != ScheduleSuspendReason.MANUAL) {
+        if (task.suspendReason() != ScheduleSuspendReason.MANUAL
+                && task.suspendReason() != ScheduleSuspendReason.USER_ACTION_REQUIRED) {
             throw LocalizedException.badRequest(
                     "schedule.error.resume-not-paused", "任务未处于手动暂停状态，无法恢复");
         }
         requireNotBusy(task);
         requireChanged(store.resume(
-                id, task.stateVersion(), ScheduleSuspendReason.MANUAL,
+                id, task.stateVersion(), task.suspendReason(),
                 task.suspendCode(), System.currentTimeMillis()));
         return get(id);
     }
@@ -776,8 +777,28 @@ public class ScheduleService implements DesktopAutomationSource {
         requireExisting(id);
         int max = config.getPendingMaxAttempts();
         return store.listPendingWork(id).stream()
-                .map(p -> SchedulePendingView.of(p, max))
+                .map(p -> SchedulePendingView.of(p, max, requiresUserAction(p.reasonDetailJson())))
                 .toList();
+    }
+
+    /** 保存管理员对单件作品的本轮授权；不改写任务定义中的默认行为。 */
+    @Transactional
+    public ScheduleTaskView resolvePending(long id, long expectedVersion, String workType,
+                                           String workId, String userAction, boolean rememberForRun) {
+        ScheduledTask task = requireExisting(id);
+        requireNotBusy(task);
+        if (task.stateVersion() != expectedVersion
+                || task.suspendReason() != ScheduleSuspendReason.USER_ACTION_REQUIRED) {
+            throw concurrentChange();
+        }
+        boolean exists = store.listPendingWork(id).stream().anyMatch(p ->
+                p.workType().equals(workType) && p.workId().equals(workId)
+                        && requiresUserAction(p.reasonDetailJson()));
+        if (!exists) {
+            throw concurrentChange();
+        }
+        requireChanged(store.resolvePendingWork(id, expectedVersion, workType, workId, userAction, rememberForRun));
+        return get(id);
     }
 
     /** 手动清除隔离表中某个「需人工」条目（运行 / 排队中拒绝，避免与本轮的隔离表读写竞态）。 */
@@ -787,6 +808,15 @@ public class ScheduleService implements DesktopAutomationSource {
         requireNotBusy(task);
         requireChanged(store.clearPendingWork(
                 id, task.stateVersion(), workType, workId));
+    }
+
+    private boolean requiresUserAction(String detailJson) {
+        try {
+            var detail = objectMapper.readTree(detailJson == null ? "{}" : detailJson);
+            return detail != null && detail.path("requiresUserAction").asBoolean(false);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException malformed) {
+            return false;
+        }
     }
 
     private static Long nextRunFor(ScheduledTask task) {

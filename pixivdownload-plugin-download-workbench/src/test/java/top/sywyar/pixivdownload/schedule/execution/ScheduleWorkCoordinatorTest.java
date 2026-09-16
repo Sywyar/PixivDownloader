@@ -56,6 +56,47 @@ import static org.mockito.Mockito.when;
 class ScheduleWorkCoordinatorTest {
 
     private static final String ILLUST = "illust";
+
+    @Test
+    @DisplayName("路径待处理不消耗重试次数，整轮停止且作品保持耐久记录")
+    void userActionSuspendsWithoutSpendingRetryBudget() throws Exception {
+        ScheduledTaskStore store = store();
+        ScheduleWorkCoordinator coordinator = coordinator(store,
+                Map.of("illust", executor("illust", (work, context) -> {
+                    throw new ScheduledExecutionException(ScheduledFailure.Category.USER_ACTION_REQUIRED,
+                            "DOWNLOAD_PATH_ACTION_REQUIRED");
+                })), new SyncTaskExecutor(), 5);
+        coordinator.submit(work("illust", "1"));
+        assertThatThrownBy(coordinator::drain).isInstanceOfSatisfying(ScheduledExecutionException.class,
+                failure -> assertThat(failure.category()).isEqualTo(ScheduledFailure.Category.USER_ACTION_REQUIRED));
+        verify(store).upsertPendingWork(org.mockito.ArgumentMatchers.argThat(row ->
+                row.attempts() == 0 && row.reasonDetailJson().equals("{\"requiresUserAction\":true}")));
+    }
+
+    @Test
+    @DisplayName("记住的选择只作用于当前运行，先消费耐久授权再执行")
+    void rememberedChoiceIsConsumedAndDoesNotLeakToNextRun() throws Exception {
+        ScheduledTaskStore store = store();
+        List<String> actions = new ArrayList<>();
+        var executors = Map.of("illust", executor("illust", (work, context) -> {
+            actions.add(context.userAction("DOWNLOAD_PATH_ACTION_REQUIRED").orElse("ASK"));
+            return ScheduledWorkResult.completed();
+        }));
+        var row = new ScheduleWorkPersistenceCodec(new ObjectMapper()).toPendingWork(1L, work("illust", "1"),
+                "DOWNLOAD_PATH_ACTION_REQUIRED", "{\"requiresUserAction\":false,\"userAction\":\"TRUNCATE\",\"rememberForRun\":true}",
+                0, 1L, null);
+        ScheduleWorkCoordinator first = coordinator(store, executors, new SyncTaskExecutor(), 5);
+        first.loadPending(List.of(row));
+        verify(store).upsertPendingWork(org.mockito.ArgumentMatchers.argThat(consumed ->
+                consumed.reasonDetailJson().equals("{\"requiresUserAction\":true}")));
+        first.submit(work("illust", "1"));
+        first.submit(work("illust", "2"));
+        first.drain();
+        ScheduleWorkCoordinator next = coordinator(store, executors, new SyncTaskExecutor(), 5);
+        next.submit(work("illust", "3"));
+        next.drain();
+        assertThat(actions).containsExactly("TRUNCATE", "TRUNCATE", "ASK");
+    }
     private static final String NOVEL = "novel";
     private static final ScheduleCapabilityOwner WORK_OWNER =
             new ScheduleCapabilityOwner("fixture", "fixture", 1L);

@@ -536,6 +536,10 @@ public class ScheduleExecutor {
             message = e.code();
             retryAfterMillis = e.retryAfterMillis();
             switch (e.category()) {
+                case USER_ACTION_REQUIRED -> {
+                    requestedSuspend = ScheduleSuspendReason.USER_ACTION_REQUIRED;
+                    suspendCode = e.code();
+                }
                 case CANCELLED -> outcome = ScheduleLastOutcome.CANCELLED;
                 case CREDENTIAL_INVALID -> {
                     requestedSuspend = ScheduleSuspendReason.CREDENTIAL;

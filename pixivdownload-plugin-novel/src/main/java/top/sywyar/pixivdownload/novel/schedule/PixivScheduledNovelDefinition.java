@@ -76,7 +76,9 @@ record PixivScheduledNovelDefinition(
                 download.path("novelMergeFormat").asText("epub"),
                 download.path("novelAutoTranslate").asBoolean(false),
                 download.path("novelTranslateLanguage").asText(""),
-                intOrNull(download.path("novelTranslateSegmentSize")));
+                intOrNull(download.path("novelTranslateSegmentSize")),
+                top.sywyar.pixivdownload.core.work.service.DownloadPathAction.parse(
+                        download.path("pathOverflowAction").asText(null)));
     }
 
     private static List<String> loweredList(JsonNode node) {
@@ -142,6 +144,7 @@ record PixivScheduledNovelDefinition(
             String novelMergeFormat,
             boolean novelAutoTranslate,
             String novelTranslateLanguage,
-            Integer novelTranslateSegmentSize) {
+            Integer novelTranslateSegmentSize,
+            top.sywyar.pixivdownload.core.work.service.DownloadPathAction pathOverflowAction) {
     }
 }

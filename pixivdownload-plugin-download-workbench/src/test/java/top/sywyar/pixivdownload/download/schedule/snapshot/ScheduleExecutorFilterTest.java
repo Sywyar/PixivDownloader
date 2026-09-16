@@ -169,6 +169,10 @@ class ScheduleExecutorFilterTest {
             assertThat(snapshot.source().path("word").asText()).isEqualTo("cat");
             assertThat(snapshot.filters().content()).isEqualTo("safe");
             assertThat(snapshot.download().concurrent()).isEqualTo(3);
+            assertThat(snapshot.download().pathOverflowAction().name()).isEqualTo("ASK");
+            ScheduleTaskSnapshot configured = ScheduleTaskSnapshot.parse(MAPPER,
+                    "{\"download\":{\"pathOverflowAction\":\"DEFAULT_NAME\"}}");
+            assertThat(configured.download().pathOverflowAction().name()).isEqualTo("DEFAULT_NAME");
             assertThat(snapshot.fetchLimit()).isZero();
             assertThat(snapshot.cookieDependent()).isTrue();
         }

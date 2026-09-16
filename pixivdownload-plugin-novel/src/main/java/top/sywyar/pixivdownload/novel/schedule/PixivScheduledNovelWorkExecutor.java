@@ -234,12 +234,19 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
         PixivNovelMetadata.SeriesMetadata series = fetchSeriesBestEffort(
                 context.task(), metadata.seriesId(), cookie);
         NovelDownloadRequest request = createRequest(metadata, series, definition.download(), cookie);
+        request.getOther().setPathOverflowAction(context.userAction("DOWNLOAD_PATH_ACTION_REQUIRED")
+                .orElse(definition.download().pathOverflowAction().name()));
         context.cancellation().throwIfCancellationRequested();
         boolean downloaded;
         try {
             downloaded = novelDownloader.downloadBlocking(request, null);
         } catch (CancellationException e) {
+            if ("DOWNLOAD_PATH_CANCELLED".equals(e.getMessage())) {
+                return new ScheduledWorkResult(ScheduledWorkResult.Outcome.SKIPPED, "DOWNLOAD_PATH_CANCELLED", Map.of());
+            }
             throw ScheduledExecutionException.cancelled();
+        } catch (top.sywyar.pixivdownload.core.work.service.DownloadPathPlan.NeedsAction needed) {
+            throw failure(ScheduledFailure.Category.USER_ACTION_REQUIRED, "DOWNLOAD_PATH_ACTION_REQUIRED");
         } catch (RuntimeException e) {
             throw failure(ScheduledFailure.Category.RETRYABLE_NETWORK, "pixiv.novel.download-retryable");
         }

@@ -607,6 +607,16 @@
                         </div>
                         <div class="filename-help-note" data-i18n="filename.help.note">格式生成的是不含扩展名的文件名主干，重复名称会自动追加页码。</div>
                     </details>
+                    <div class="setting-item filename-setting path-overflow-setting" hidden>
+                        <label for="s-path-overflow-action" data-i18n="path.overflow.label"></label>
+                        <select id="s-path-overflow-action" aria-describedby="path-overflow-hint">
+                            <option value="ASK" data-i18n="path.overflow.ask"></option>
+                            <option value="TRUNCATE" data-i18n="path.overflow.truncate"></option>
+                            <option value="DEFAULT_NAME" data-i18n="path.overflow.default"></option>
+                            <option value="CANCEL" data-i18n="path.overflow.cancel"></option>
+                        </select>
+                        <div id="path-overflow-hint" class="schedule-field-hint" data-i18n="path.overflow.hint"></div>
+                    </div>
                 </div>
             </div>
 
@@ -806,6 +816,7 @@
 <script src="/pixiv-batch/batch-sse.js"></script>
 <script src="/pixiv-batch/batch-download-quota.js"></script>
 <script src="/pixiv-batch/batch-download-artwork.js"></script>
+<script src="/pixiv-batch/batch-path-actions.js"></script>
 <script src="/pixiv-batch/batch-download-workers.js"></script>
 <script src="/pixiv-batch/batch-download.js"></script>
 <script src="/pixiv-batch/modes/quick-fetch-core.js"></script>

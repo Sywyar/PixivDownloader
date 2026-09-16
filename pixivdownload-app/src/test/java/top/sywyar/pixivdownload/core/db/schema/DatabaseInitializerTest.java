@@ -49,6 +49,25 @@ class DatabaseInitializerTest {
     }
 
     @Test
+    @DisplayName("旧插画和小说记录补列后保留 180 字符命名规则")
+    void existingRowsKeepOriginalFilenameLength() {
+        SingleConnectionDataSource ds = newDataSource();
+        try {
+            newInitializer(ds).initialize();
+            JdbcTemplate jdbc = new JdbcTemplate(ds);
+            for (String table : List.of("artworks", "novels")) {
+                jdbc.execute("ALTER TABLE " + table + " DROP COLUMN file_name_max_length");
+                jdbc.execute("INSERT INTO " + table + "(title,folder,count,extensions,time) VALUES('title','{0}/123',1,'txt',1)");
+            }
+            newInitializer(ds).initialize();
+            assertThat(jdbc.queryForObject("SELECT file_name_max_length FROM artworks", Integer.class)).isEqualTo(180);
+            assertThat(jdbc.queryForObject("SELECT file_name_max_length FROM novels", Integer.class)).isEqualTo(180);
+        } finally {
+            ds.destroy();
+        }
+    }
+
+    @Test
     @DisplayName("全新库执行后应与受管 schema 完全匹配")
     void shouldCreateFreshDatabaseMatchingManagedSchema() throws Exception {
         SingleConnectionDataSource ds = newDataSource();

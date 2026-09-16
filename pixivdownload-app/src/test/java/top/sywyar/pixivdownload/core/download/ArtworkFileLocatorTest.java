@@ -53,6 +53,20 @@ class ArtworkFileLocatorTest {
     }
 
     @Test
+    @DisplayName("截断后的名称可重新定位并随作品删除")
+    void locatesAndDeletesTruncatedFilename() throws Exception {
+        Path dir = Files.createDirectories(tempDir.resolve("101"));
+        Path saved = Files.writeString(dir.resolve("101_p0.jpg"), "image");
+        when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+        when(pixivDatabase.getFileNameTemplate(anyLong())).thenReturn("{artwork_id}_p{page}_long-title");
+        when(pixivDatabase.getFileNameMaxLength(101L, false)).thenReturn(6);
+        ArtworkRecord record = artwork(101L, dir.toString(), 1);
+        assertTrue(saved.toFile().equals(locator.resolveImageFile(record, 0)));
+        assertTrue(locator.deleteArtworkFiles(record));
+        assertFalse(Files.exists(saved));
+    }
+
+    @Test
     @DisplayName("删除作品时一并清除 {id}.meta.json sidecar")
     void shouldDeleteSidecarWithArtwork() throws Exception {
         Path dir = Files.createDirectories(tempDir.resolve("100"));

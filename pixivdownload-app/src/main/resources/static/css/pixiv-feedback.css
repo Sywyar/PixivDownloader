@@ -55,6 +55,24 @@
     outline-offset: 2px;
 }
 
+.pixiv-feedback-choices {
+    display: grid;
+    gap: var(--space-3, 12px);
+    margin: var(--space-4, 16px) 0;
+}
+
+.pixiv-feedback-choice {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2, 8px);
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+.pixiv-feedback-message {
+    overflow-wrap: anywhere;
+}
+
 .pixiv-feedback-actions {
     display: flex;
     justify-content: flex-end;

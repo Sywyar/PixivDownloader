@@ -22,6 +22,8 @@
     }
 
     function localizeScheduleMachineCode(value, sourceType) {
+        if (value === 'DOWNLOAD_PATH_ACTION_REQUIRED') return bt('path.overflow.waiting', null);
+        if (value === 'DOWNLOAD_PATH_CANCELLED') return bt('path.overflow.cancelled', null);
         const code = safeScheduleMachineCode(value);
         if (!code) return null;
         if (code.startsWith('schedule.')) {
@@ -121,6 +123,9 @@
             };
         }
         // 挂起态优先于中断结果：挂起任务不会被自动重排，不能显示「已重新排期补齐」。
+        if (t.suspendReason === 'USER_ACTION_REQUIRED') {
+            return {tone: 'yellow', live: false, text: bt('path.overflow.waiting', null)};
+        }
         if (t.suspendReason && t.suspendReason !== 'MANUAL') {
             const reason = localizeScheduleMachineCode(
                 t.suspendCode, t.sourceType || t.type);
