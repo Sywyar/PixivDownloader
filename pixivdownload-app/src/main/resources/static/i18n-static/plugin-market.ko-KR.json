@@ -191,6 +191,7 @@
     "sort.recommended": "추천",
     "sort.updated": "최근 업데이트",
     "toolbar.count": "플러그인 {n}개",
+    "trust.facts": "출처 및 기능 선언",
     "verification.hash-mismatch": "해시 불일치",
     "verification.invalid-signature": "서명 유효하지 않음",
     "verification.not-installed": "설치되지 않음",
@@ -199,6 +200,7 @@
     "verification.unknown-key": "알 수 없는 게시자 키",
     "verification.unsigned-allowed": "서명 없이 허용됨",
     "verification.unverified-local": "검증되지 않은 로컬 플러그인",
+    "verification.verified-community": "커뮤니티 서명",
     "verification.verified-custom": "사용자 지정 저장소에서 검증됨",
     "verification.verified-official": "공식 플러그인으로 검증됨"
   }

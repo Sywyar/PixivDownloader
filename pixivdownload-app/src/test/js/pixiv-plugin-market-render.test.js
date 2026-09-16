@@ -45,7 +45,7 @@ function entry(id, { category = 'utility', defaultInstalled = false } = {}) {
     };
 }
 
-async function mountMarket() {
+async function mountMarket({ community = false } = {}) {
     const errors = [];
     const document = { createElement: tag => node(tag), addEventListener() {}, removeEventListener() {}, body: { style: {} } };
     const sandbox = { document, console: { warn: (...args) => errors.push(args), error: (...args) => errors.push(args) } };
@@ -82,18 +82,33 @@ async function mountMarket() {
     const market = sandbox.PixivPluginMarket;
     market.state.i18n.client = { lang: 'en-US', t: (key, fallback, vars) => key + (vars ? JSON.stringify(vars) : '') };
     const entries = [entry('visible'), entry('bundled', { defaultInstalled: true }), entry('dependency', { category: 'dependency' })];
+    if (community) {
+        entries[0].assuranceLevel = 'SOURCE_REVIEWED';
+        entries[0].market.sourceType = 'community';
+        entries[0].packages.forEach(pkg => {
+            pkg.verification = { status: 'VERIFIED_THIRD_PARTY', repositoryTrustSource: 'COMMUNITY',
+                assuranceLevel: pkg.version === '2.0.0' ? 'SOURCE_REVIEWED' : 'PUBLISHER_SIGNED' };
+        });
+    }
     const catalog = { repositoryId: 'repo', entries, installedCount: 2, categories: [{ category: 'all', count: 3 }] };
     let status = { recoveryMode: false };
     let enabled = true;
     let failCatalog = false;
     let finishInstall;
     const installCalls = [];
+    const factCalls = [];
     market.api = {
         fetchRepositories: async () => ({ enabled, sdkVersion: '1.0.0', defaultRepositoryId: 'repo',
             repositories: [{ repositoryId: 'repo', enabled: true, official: true }] }),
         fetchPluginStatus: async () => status,
         fetchCatalog: async () => { if (failCatalog) throw new Error('offline'); return catalog; },
-        fetchPluginDetail: async (repositoryId, pluginId) => entries.find(e => e.pluginId === pluginId)
+        fetchPluginDetail: async (repositoryId, pluginId) => entries.find(e => e.pluginId === pluginId),
+        fetchPackageFacts: async (repositoryId, pluginId, version) => {
+            factCalls.push([repositoryId, pluginId, version]);
+            const pkg = entries.find(e => e.pluginId === pluginId).packages.find(p => p.version === version);
+            return { ...pkg.verification, executionMode: 'declarative-process', revocationStatus: 'CLEAR',
+                riskDeclaration: { present: true, signals: version === '2.0.0' ? ['network'] : [] } };
+        }
     };
     market.installPluginWithConfirmation = (...args) => {
         installCalls.push(args);
@@ -104,7 +119,7 @@ async function mountMarket() {
     assert.equal(await market.vue.tryMount(root), true, JSON.stringify(errors));
     async function flush() { await new Promise(resolve => setImmediate(resolve)); await Vue.nextTick(); }
     await flush();
-    return { root, market, errors, document, flush, installCalls,
+    return { root, market, errors, document, flush, installCalls, factCalls,
         completeInstall: body => finishInstall({ kind: 'install', body }),
         async reload(options) {
             if (options.status) status = options.status;
@@ -192,5 +207,27 @@ test('无动态编译时仍能显示恢复模式、禁用状态和目录错误',
     await page.reload({ enabled: true, failCatalog: true });
     assert.match(textOf(page.root), /plugin-market:error.catalog.title/);
     assert.equal(elements(page.root, 'pmk-body').length, 0);
+    assert.deepEqual(page.errors, []);
+});
+
+test('社区版本保障与包内声明在 CSP 渲染中展示并随版本切换更新', async () => {
+    const page = await mountMarket({ community: true });
+    const { root, flush } = page;
+    assert.match(textOf(elements(root, 'pmk-badge--community')[0]), /assurance.SOURCE_REVIEWED/);
+    elements(root, 'pmk-card-name')[0].props.onClick();
+    await flush();
+    const modal = elements(root, 'pmk-modal')[0];
+    assert.match(textOf(modal), /identity.COMMUNITY/);
+    assert.match(textOf(modal), /signal.network/);
+    assert.match(textOf(modal), /review-note/);
+    assert.match(textOf(modal), /execution.DECLARATIVE_PROCESS/);
+    const select = elements(root, 'pmk-version-select')[0];
+    select.options.forEach(option => { option.selected = option.value === '1.0.0'; });
+    select.listeners.change();
+    await flush();
+    assert.deepEqual(page.factCalls, [['repo', 'visible', '2.0.0'], ['repo', 'visible', '1.0.0']]);
+    assert.match(textOf(elements(root, 'pmk-hero-pill')[0]), /assurance.PUBLISHER_SIGNED/);
+    assert.match(textOf(modal), /plugin-trust.empty/);
+    assert.doesNotMatch(textOf(modal), /signal.network|review-note/);
     assert.deepEqual(page.errors, []);
 });

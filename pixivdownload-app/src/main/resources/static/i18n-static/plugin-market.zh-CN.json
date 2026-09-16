@@ -191,6 +191,7 @@
     "sort.recommended": "推荐",
     "sort.updated": "最近更新",
     "toolbar.count": "{n} 款插件",
+    "trust.facts": "来源与能力声明",
     "verification.hash-mismatch": "摘要不符",
     "verification.invalid-signature": "签名无效",
     "verification.not-installed": "未安装",
@@ -199,6 +200,7 @@
     "verification.unknown-key": "未知发布者",
     "verification.unsigned-allowed": "用户放行未签名",
     "verification.unverified-local": "本地未验证",
+    "verification.verified-community": "社区签名",
     "verification.verified-custom": "自定义仓库签名",
     "verification.verified-official": "官方签名"
   }

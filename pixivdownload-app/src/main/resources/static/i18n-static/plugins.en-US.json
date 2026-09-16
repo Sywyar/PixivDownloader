@@ -162,6 +162,7 @@
     "trust.confirm.unsigned-risk": "This plugin has no publisher signature. PixivDownloader cannot prove who published it or whether future updates still come from the same author.",
     "trust.error.failed": "Failed to update plugin execution trust: {message}",
     "trust.error.generic": "Failed to update plugin execution trust",
+    "trust.facts": "Origin and capability declarations",
     "trust.revoke.cancel": "Cancel",
     "trust.revoke.confirm": "Revoke execution trust",
     "trust.revoke.message": "After revoking execution trust for “{plugin}”, the currently running instance will not be forcibly terminated. Its next load, reload, or start will be blocked until you approve the exact installed artifact again.",
@@ -188,6 +189,7 @@
     "verification.unknown-key": "Unknown publisher",
     "verification.unsigned-allowed": "Unsigned allowed by user",
     "verification.unverified-local": "Unverified local source",
+    "verification.verified-community": "Community signature",
     "verification.verified-custom": "Custom repository signature",
     "verification.verified-official": "Official signature"
   }

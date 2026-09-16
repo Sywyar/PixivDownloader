@@ -162,6 +162,7 @@
     "trust.confirm.unsigned-risk": "이 플러그인에는 게시자 서명이 없습니다. PixivDownloader는 게시자가 누구인지, 이후 업데이트가 같은 작성자에게서 왔는지 증명할 수 없습니다.",
     "trust.error.failed": "플러그인 실행 신뢰 업데이트 실패: {message}",
     "trust.error.generic": "플러그인 실행 신뢰 업데이트 실패",
+    "trust.facts": "출처 및 기능 선언",
     "trust.revoke.cancel": "취소",
     "trust.revoke.confirm": "실행 신뢰 취소",
     "trust.revoke.message": "“{plugin}”의 실행 신뢰를 취소해도 현재 실행 중인 인스턴스는 강제로 종료되지 않습니다. 현재 설치된 정확한 아티팩트를 다시 승인할 때까지 다음 로드, 리로드 또는 시작이 차단됩니다.",
@@ -188,6 +189,7 @@
     "verification.unknown-key": "알 수 없는 게시자",
     "verification.unsigned-allowed": "사용자 허용 미서명",
     "verification.unverified-local": "로컬 미검증",
+    "verification.verified-community": "커뮤니티 서명",
     "verification.verified-custom": "사용자 지정 저장소 서명",
     "verification.verified-official": "공식 서명"
   }

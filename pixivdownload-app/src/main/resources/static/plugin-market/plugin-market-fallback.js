@@ -63,7 +63,7 @@
     function cardHtml(card) {
         var badges = card.official
             ? '<span class="pmk-badge pmk-badge--official">' + esc(t('badge.official', '官方')) + '</span>'
-            : '<span class="pmk-badge pmk-badge--community">' + esc(t('badge.publisher-signed', '发布者签名')) + '</span>';
+            : '<span class="pmk-badge pmk-badge--community">' + esc(card.assuranceLabel) + '</span>';
         if (card.recommended) badges += '<span class="pmk-badge pmk-badge--recommended">' + esc(t('badge.recommended', '推荐')) + '</span>';
         badges += verificationBadgeHtml(card.verificationBadge);
         var rating = '';
@@ -91,6 +91,10 @@
             tags +
             (meta ? '<div class="pmk-card-meta">' + esc(meta) + '</div>' : '') +
             compat +
+            '<details><summary data-pmk-facts="' + esc(card.pluginId) + '" data-pmk-version="' + esc(card.latestVersion) + '">'
+                + esc(t('trust.facts', '来源与能力声明')) + '</summary><div data-pmk-facts-content>'
+                + global.PixivPluginPresentationTokens.trustLines(card.verification, PMK.state.i18n.client)
+                    .map(function (line) { return '<p>' + esc(line) + '</p>'; }).join('') + '</div></details>' +
             '<div class="pmk-card-actions">' + installControl(card) + '</div>' +
             '</div></article>';
     }
@@ -329,8 +333,20 @@
 
     function wire() {
         rootEl.addEventListener('click', function (e) {
+            var facts = e.target.closest('[data-pmk-facts]');
+            if (facts) {
+                var target = facts.parentElement.querySelector('[data-pmk-facts-content]');
+                PMK.api.fetchPackageFacts(state.activeRepositoryId, facts.getAttribute('data-pmk-facts'),
+                    facts.getAttribute('data-pmk-version')).then(function (data) {
+                    target.innerHTML = global.PixivPluginPresentationTokens.trustLines(data, PMK.state.i18n.client)
+                        .map(function (line) { return '<p>' + esc(line) + '</p>'; }).join('');
+                }).catch(function () {
+                    PMK.toast(t('error.detail', '无法加载插件详情，请稍后重试。'), 'error');
+                });
+                return;
+            }
             var repo = e.target.closest('[data-pmk-repo]');
-            if (repo) {
+            if (repo && !repo.hasAttribute('data-pmk-install')) {
                 var id = repo.getAttribute('data-pmk-repo');
                 if (id !== state.activeRepositoryId) {
                     state.activeRepositoryId = id; state.category = 'all'; state.search = '';
