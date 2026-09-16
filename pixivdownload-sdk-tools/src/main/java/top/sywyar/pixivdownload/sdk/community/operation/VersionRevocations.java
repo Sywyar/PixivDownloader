@@ -36,6 +36,15 @@ public final class VersionRevocations {
             return "PACKAGE_SHA256".equals(scope) && state.pluginId().equals(pluginId)
                     && state.version().equals(version) && state.packageSha256().equals(packageSha256);
         }
+        boolean affects(VersionState state) {
+            return switch (scope) {
+                case "PLUGIN_VERSION" -> state.pluginId().equals(pluginId) && state.version().equals(version);
+                case "PACKAGE_SHA256" -> state.packageSha256().equals(packageSha256);
+                // 当前管理权不证明历史签名归属；涉及历史密钥或发布者的独立限制须人工复核。
+                case "SIGNING_KEY", "PUBLISHER" -> true;
+                default -> throw new ContractException("SCHEMA_INVALID", "/scope");
+            };
+        }
     }
 
     private VersionRevocations(Evidence archive, List<Restriction> restrictions) {

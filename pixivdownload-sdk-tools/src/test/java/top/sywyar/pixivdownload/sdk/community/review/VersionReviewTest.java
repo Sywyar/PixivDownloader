@@ -88,10 +88,10 @@ class VersionReviewTest {
                 new ReviewDecision.Version("cd".repeat(32), HEAD, HASH), s.inputSha256(), s.bindingSha256(), s.policySha256(),
                 s.state(), s.draft(), s.scan(), s.apply());
         f.admission = new ReviewAdmission.Result(wrongSnapshot, admitted.reportRef(), admitted.decisionRefs(), true, true,
-                admitted.human(), false, false, List.of(), admitted.flow(), admitted.labels());
+                admitted.human(), false, false, List.of(), admitted.flow(), admitted.labels(), admitted.authorization());
         assertThatThrownBy(() -> f.verify(f.review)).isInstanceOf(ContractException.class);
         f.admission = new ReviewAdmission.Result(s, admitted.reportRef(), admitted.decisionRefs(), true, true,
-                new HumanReviews.Result(HumanReviews.Status.PENDING, null, List.of()), false, false, List.of(), ReviewAdmission.Flow.NONE, Set.of());
+                new HumanReviews.Result(HumanReviews.Status.PENDING, null, List.of()), false, false, List.of(), ReviewAdmission.Flow.NONE, Set.of(), admitted.authorization());
         assertThatThrownBy(() -> f.verify(f.review)).isInstanceOf(ContractException.class);
     }
 

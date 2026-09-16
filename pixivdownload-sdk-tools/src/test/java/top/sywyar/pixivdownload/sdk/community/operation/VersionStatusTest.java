@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.sdk.community.format.CommunityJson;
 import top.sywyar.pixivdownload.sdk.community.format.CommunityValues.*;
 import top.sywyar.pixivdownload.sdk.community.format.ContractException;
+import top.sywyar.pixivdownload.sdk.community.format.CommunityPr;
 import top.sywyar.pixivdownload.sdk.community.identity.PluginBinding;
 
 import java.security.KeyPair;
@@ -18,6 +19,52 @@ import static top.sywyar.pixivdownload.sdk.community.operation.OperationTestInpu
 
 class VersionStatusTest {
     private static final String NEXT = "2025-02-04T04:05:06Z";
+
+    @Test @DisplayName("活动密钥授权三种状态操作且不伪造人工批准或已发生的合并")
+    void signedOwnerPreparesStatusWithExplicitAuthorization() throws Exception {
+        var f = new Fixture();
+        for (var action : VersionStatusRequest.Action.values()) {
+            var doc = f.request(action, action == VersionStatusRequest.Action.UNYANK ? f.state.decisionSha256() : null, action.name());
+            var context = f.signedContext(doc);
+            var outcome = VersionStatus.apply(context, f.binding, f.publisher, f.state, f.current,
+                    f.current.document().sequence() + 1, NEXT);
+            var audit = OperationAudit.read(outcome.operation().result().audit());
+            assertThat(audit.result()).isEqualTo("PREPARED");
+            assertThat(audit.authorization()).isEqualTo("SIGNED_OWNER");
+            assertThat(audit.reviewerAccountIds()).isEmpty();
+            assertThat(audit.prEvidence().get(0).mergeSha()).isNull();
+            f.state = outcome.state(); f.current = outcome.revocations();
+            f.evidence.putAll(outcome.operation().result().evidence());
+        }
+        var request = f.request(VersionStatusRequest.Action.UNYANK, f.state.decisionSha256(), "irreversible");
+        assertThatThrownBy(() -> VersionStatus.apply(f.signedContext(request), f.binding, f.publisher, f.state, f.current, 5, NEXT))
+                .isInstanceOf(ContractException.class).extracting("code").isEqualTo("INVALID_STATE_TRANSITION");
+    }
+
+    @Test @DisplayName("自动处置拒绝缺失或错误签名、过期授权及社区独立限制")
+    void signedStatusDoesNotFallBackToApproval() throws Exception {
+        var f = new Fixture();
+        var request = f.request(VersionStatusRequest.Action.YANK, null, "signed");
+        var wrong = proof(request, "activeKey", "current:key", KeyPairGenerator.getInstance("Ed25519").generateKeyPair());
+        assertThatThrownBy(() -> VersionStatus.apply(f.signedContext(wrong), f.binding, f.publisher, f.state, f.current, 2, NEXT))
+                .isInstanceOf(ContractException.class).extracting("code").isEqualTo("INVALID_SIGNATURE");
+        var tree = (com.fasterxml.jackson.databind.node.ObjectNode) request.value();
+        ((com.fasterxml.jackson.databind.node.ObjectNode) tree.get("proofs")).remove("activeKey");
+        var missing = CommunityJson.parse(request.kind(), CommunityJson.encode(tree));
+        assertThatThrownBy(() -> VersionStatus.apply(f.signedContext(missing), f.binding, f.publisher, f.state, f.current, 2, NEXT))
+                .isInstanceOf(ContractException.class).extracting("code").isEqualTo("APPROVAL_REQUIRED");
+        var authority = f.signedContext(request).authority();
+        assertThatThrownBy(() -> authority.requireAuthorization(CommunityJson.Kind.ROTATION, authority.signedStatus().requestId(), false))
+                .isInstanceOf(ContractException.class).extracting("code").isEqualTo("APPROVAL_REQUIRED");
+        assertThatThrownBy(() -> authority.requireAuthorization(request.kind(), "cd".repeat(32), false))
+                .isInstanceOf(ContractException.class).extracting("code").isEqualTo("REVIEW_MISMATCH");
+        f.current = VersionRevocations.generate("sample.repo", 1, NOW, NEXT, List.of(f.independent("YANKED")));
+        f.apply(VersionStatusRequest.Action.YANK, null, "author yank");
+        var unyank = f.request(VersionStatusRequest.Action.UNYANK, f.state.decisionSha256(), "restore");
+        assertThatThrownBy(() -> VersionStatus.apply(f.signedContext(unyank), f.binding, f.publisher, f.state, f.current, 3, NEXT))
+                .isInstanceOf(ContractException.class).extracting("code").isEqualTo("COMMUNITY_RESTRICTION_REVIEW_REQUIRED");
+        assertThat(f.apply(unyank, false).revocations().restrictions()).hasSize(1);
+    }
 
     @Test @DisplayName("恢复快照与旧客户端共用向量且仅含既有撤销状态")
     void sharesSnapshotVectorsWithExistingClient() throws Exception {
@@ -145,6 +192,15 @@ class VersionStatusTest {
                     + doc.value().get("requestId").textValue() + ".json", "202", recovery);
             var records = new HashMap<>(evidence); records.putAll(c.evidence());
             return new OperationContext(c.request(), c.authority(), c.recoveryEvidence(), c.appliedAt(), records, Map.of());
+        }
+        OperationContext signedContext(CommunityJson.Document doc) {
+            var c = context(doc, false);
+            var old = c.authority().proposalPr();
+            var pr = new CommunityPr(old.githubRepositoryId(), old.number(), old.authorAccountId(),
+                    old.headRepositoryId(), old.headSha(), old.baseSha(), null);
+            var authority = new OperationAuthority(pr, c.authority().actualAuthor(), List.of(), null, java.util.Set.of(),
+                    new OperationAuthority.SignedStatus(doc.value().get("requestId").textValue(), pr.headSha(), c.authority().decisionEvidence()));
+            return new OperationContext(c.request(), authority, null, c.appliedAt(), c.evidence(), Map.of());
         }
         VersionStatus.Outcome apply(VersionStatusRequest.Action action, String yank, String explanation) throws Exception {
             return apply(request(action, yank, explanation), false);

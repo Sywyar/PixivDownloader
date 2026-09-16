@@ -17,7 +17,7 @@ public record OperationAudit(int schemaVersion, String requestId, String action,
                               Reference beforeRef, Reference afterRef, Reference decisionRef, String actorAccountId,
                               List<String> reviewerAccountIds, List<CommunityPr> prEvidence,
                               List<Reference> recoveryEvidence, List<Reference> relatedRecords,
-                              String result, String appliedAt, Long revocationSequence) {
+                              String result, String appliedAt, Long revocationSequence, String authorization) {
     public OperationAudit {
         reviewerAccountIds = List.copyOf(reviewerAccountIds);
         prEvidence = List.copyOf(prEvidence);
@@ -30,10 +30,19 @@ public record OperationAudit(int schemaVersion, String requestId, String action,
         var audit = document.as(OperationAudit.class);
         boolean status = List.of("YANK", "UNYANK", "REVOKE").contains(audit.action);
         if (status != (audit.revocationSequence != null)) throw new ContractException("SCHEMA_INVALID", "/revocationSequence");
+        if ("SIGNED_OWNER".equals(audit.authorization) ? !status || !audit.reviewerAccountIds.isEmpty()
+                || audit.recoveryEvidence != null : audit.reviewerAccountIds.isEmpty()) {
+            throw new ContractException("REVIEW_MISMATCH", "/authorization");
+        }
         audit.prEvidence.forEach(pr -> {
             pr.validate();
-            if (pr.mergeSha() == null) throw new ContractException("REVIEW_MISMATCH", "/prEvidence/mergeSha");
+            if (pr.mergeSha() == null && !"PREPARED".equals(audit.result)) {
+                throw new ContractException("REVIEW_MISMATCH", "/prEvidence/mergeSha");
+            }
         });
+        if ("PREPARED".equals(audit.result) && audit.prEvidence.stream().filter(pr -> pr.mergeSha() == null).count() != 1) {
+            throw new ContractException("REVIEW_MISMATCH", "/prEvidence/mergeSha");
+        }
         CommunityValues.unique(audit.prEvidence, pr -> pr.githubRepositoryId() + "/" + pr.number(), "/prEvidence");
         CommunityValues.unique(audit.relatedRecords, Reference::path, "/relatedRecords");
         return audit;
@@ -54,14 +63,15 @@ public record OperationAudit(int schemaVersion, String requestId, String action,
             case TRANSFER -> "RECOVERY".equals(data.get("payload").get("mode").textValue());
             default -> throw new ContractException("SCHEMA_INVALID", "/requestRef");
         };
-        authority.requireApproval(requestId, recovery);
+        authority.requireAuthorization(request.kind(), requestId, recovery);
         if (recovery && (expectedRecovery == null || expectedRecovery.isEmpty())) {
             throw new ContractException("RECOVERY_REVIEW_REQUIRED", "/recoveryEvidence");
         }
         if (!beforeRef.equals(expectedBefore) || !afterRef.equals(expectedAfter)
                 || !actorAccountId.equals(authority.actualAuthor().id())
-                || !decisionRef.equals(authority.approval().evidence().reference())
-                || !reviewerAccountIds.equals(authority.approval().reviewerAccountIds().stream().sorted().toList())
+                || !decisionRef.equals(authority.decisionEvidence().reference())
+                || !reviewerAccountIds.equals(authority.reviewerIds())
+                || !java.util.Objects.equals(authorization, authority.signedStatus() == null ? null : "SIGNED_OWNER")
                 || !prEvidence.equals(expectedPrs) || !prEvidence.contains(authority.proposalPr())
                 || !java.util.Objects.equals(recoveryEvidence, expectedRecovery)
                 || !relatedRecords.equals(expectedRelated)
@@ -80,13 +90,32 @@ public record OperationAudit(int schemaVersion, String requestId, String action,
                                                 Long sequence, List<Reference> related, Map<String, Evidence> evidence) {
         String expectedAction = action(request);
         String requestId = request.value().get("requestId").textValue();
-        authority.requireApproval(requestId, false);
+        authority.requireAuthorization(request.kind(), requestId, false);
         var value = new OperationAudit(1, requestId, expectedAction, requestRef, before, after,
-                authority.approval().evidence().reference(), authority.actualAuthor().id(),
-                authority.approval().reviewerAccountIds().stream().sorted().toList(), prs, recovery, related, "APPLIED", appliedAt, sequence);
+                authority.decisionEvidence().reference(), authority.actualAuthor().id(),
+                authority.reviewerIds(), prs, recovery, related, prs.stream().anyMatch(pr -> pr.mergeSha() == null) ? "PREPARED" : "APPLIED",
+                appliedAt, sequence, authority.signedStatus() == null ? null : "SIGNED_OWNER");
         var document = CommunityJson.parse(CommunityJson.Kind.AUDIT, CommunityJson.encode(value));
         read(document).verify(request, authority, before, after, prs, recovery, sequence, related, evidence);
         return document;
+    }
+
+    /** 平台须另外核实受保护生成来源和完整树差异；父链本身不授予执行权限。 */
+    public void confirmPreparedMerge(CommunityJson.Document document, CommunityPr merged, Reference exactRecord,
+                                     List<String> generatedParents, List<String> mergeParents) {
+        merged.validate();
+        exactRecord.verify(document.bytes());
+        var original = prEvidence.stream().filter(pr -> pr.mergeSha() == null).findFirst()
+                .orElseThrow(() -> new ContractException("REVIEW_MISMATCH", "/preparedMerge"));
+        if (!equals(read(document)) || !"PREPARED".equals(result) || merged.mergeSha() == null
+                || !original.githubRepositoryId().equals(merged.githubRepositoryId())
+                || original.number() != merged.number() || !original.authorAccountId().equals(merged.authorAccountId())
+                || !original.headRepositoryId().equals(merged.headRepositoryId())
+                || !original.baseSha().equals(merged.baseSha()) || original.headSha().equals(merged.headSha())
+                || !generatedParents.equals(List.of(original.headSha()))
+                || !mergeParents.equals(List.of(original.baseSha(), merged.headSha()))) {
+            throw new ContractException("REVIEW_MISMATCH", "/preparedMerge");
+        }
     }
 
     private static String action(CommunityJson.Document request) {

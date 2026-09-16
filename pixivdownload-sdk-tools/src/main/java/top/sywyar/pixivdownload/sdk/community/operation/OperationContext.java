@@ -36,7 +36,7 @@ public record OperationContext(Evidence request, OperationAuthority authority, L
                                     List<CommunityPr> prs, Long sequence) {
         var records = new HashMap<>(evidence);
         put(records, request); put(records, before); put(records, after);
-        put(records, authority.approval().evidence());
+        put(records, authority.decisionEvidence());
         for (var representation : authority.representations()) put(records, representation.evidence());
         for (var item : additional) put(records, item);
         var related = new LinkedHashMap<String, Reference>();

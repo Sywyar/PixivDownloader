@@ -34,12 +34,21 @@ public final class VersionStatus {
             throw new ContractException("BINDING_MISMATCH", "/payload/requester");
         }
         var authority = context.authority();
-        authority.requireApproval(request.requestId(), request.proofs().activeKey() == null);
+        authority.requireAuthorization(document.kind(), request.requestId(), request.proofs().activeKey() == null);
         authority.requireRepresentative(binding.owner(), authority.actualAuthor().id());
+        if (authority.signedStatus() != null && (!"User".equals(binding.owner().accountType())
+                || !binding.owner().accountId().equals(authority.actualAuthor().id()))) {
+            throw new ContractException("APPROVAL_REQUIRED", "/payload/owner");
+        }
         if (request.proofs().activeKey() != null) OperationChecks.proof(document, CommunityOperation.VERSION_STATUS_REQUEST,
                 request.proofs().activeKey(), publisher.activeKey().trusted(publisher.displayName()), "/proofs/activeKey");
         var managed = current.managed(state);
-        var decision = authority.approval().evidence();
+        if (authority.signedStatus() != null && p.action() == VersionStatusRequest.Action.UNYANK
+                && current.restrictions().stream().anyMatch(r -> r.communityIndependent()
+                    && r.entry().affects(state))) {
+            throw new ContractException("COMMUNITY_RESTRICTION_REVIEW_REQUIRED", "/payload/action");
+        }
+        var decision = authority.decisionEvidence();
         var next = state.transition(request, decision.reference().sha256());
         if (sequence <= current.document().sequence()) throw new ContractException("REVOCATION_REJECTED", "/sequence");
         var restrictions = new ArrayList<>(current.restrictions());
