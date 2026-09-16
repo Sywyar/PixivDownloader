@@ -98,7 +98,7 @@ Ivy 的运行配置不要继承此编译配置。标准 Maven 元数据传递公
 
 ## CI 候选与投稿
 
-将工程推送到公开 GitHub 仓库的默认分支，等待 `Plugin candidate` 工作流全部通过，再按[社区投稿说明](https://github.com/Sywyar/PixivDownloader-community-plugins#投稿与版本管理)运行向导。CI 会测试插件、比较离线重建的包，并自动创建源码仓库的 Draft Release；无需手动下载附件或创建 Release。向导确认后才将候选公开为等待审核的 Pre-release。
+将工程推送到公开 GitHub 仓库的默认分支，等待 `Plugin candidate` 工作流全部通过，再按[社区投稿说明](https://github.com/Sywyar/PixivDownloader-community-plugins#投稿与版本管理)运行向导。CI 会测试插件、比较离线重建的包，并为每个插件复用一个 Draft Release，覆盖其中的候选产物；无需手动下载附件或创建 Release。向导确认投稿后，将已核对的包保存为绑定源码提交的 Pre-release，等待社区审核。
 
 CI 默认构建根工程，自动识别 Maven、Gradle 或 sbt。构建模型决定实际版本及安装产物路径。若要投稿某个示例、选择多个工程，或工程有多种构建方式，在 `tools/candidate-projects.json` 中明确选择，例如：
 
@@ -110,7 +110,7 @@ CI 默认构建根工程，自动识别 Maven、Gradle 或 sbt。构建模型决
 
 可用配置为 `maven-java17-v1`、`gradle-java17-v1` 和 `sbt-java17-v1`。模型有多个安装产物时，再增加 `artifactPath`，其值相对所选工程目录，必须属于模型的实际输出。一个插件 ID 只能选择一个候选工程。修改配置后提交并推送，等待新 CI 结果。
 
-Draft 中的 `source-candidate.json` 记录源码提交、CI 运行、工程、构建方式及包摘要，与同目录的原始包一起保存。Actions 附件过期不影响该归档；CI 重跑会核对并复用已有字节，不覆盖同一候选。源码候选和社区审核归档分别维护，源码 CI 通过不表示社区已批准。
+Draft 使用 `candidate-<插件ID>`，其中的 `source-candidate.json` 记录源码提交、CI 运行、工程、构建方式及包摘要。默认分支的新构建会替换包和元数据，旧提交的迟到运行不会覆盖较新的候选。Actions 附件过期不影响 Draft；需要恢复归档时须使用默认分支当前提交。确认投稿后生成的固定 Pre-release 不随 CI 覆盖，正在审核的包保持不变。源码 CI 通过不表示社区已批准。
 
 ## 运行包、缓存和工程数据
 
