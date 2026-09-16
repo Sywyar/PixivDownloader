@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.plugin.catalog.repository;
 
 import top.sywyar.pixivdownload.common.AppVersion;
 import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
+import top.sywyar.pixivdownload.plugin.signature.CommunityPluginTrustRoots;
 import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
 
 import java.util.List;
@@ -103,8 +104,23 @@ public record PluginRepository(
     /** 由旧版单一 {@code manifest-url} 折出的兼容仓库 id（见 {@link PluginRepositoryRegistry}）。 */
     public static final String LEGACY_CONFIGURED_ID = "configured";
 
-    /** 官方社区目录保留 id；认证目录实现前不得由普通配置占用。 */
-    public static final String COMMUNITY_ID = "community";
+    /** 受保护社区生成器使用的签名仓库身份。 */
+    public static final String COMMUNITY_ID = "pixivdownloader-community";
+    public static final String COMMUNITY_BASE_URL =
+            "https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/master/";
+
+    public static PluginRepository community(boolean enabled, long connectTimeoutMs, long readTimeoutMs,
+                                               long maxManifestBytes, long maxPackageBytes) {
+        String endpoint = COMMUNITY_BASE_URL + "generated/catalog.json";
+        return new PluginRepository(COMMUNITY_ID, "plugin.market.repository.community.name", endpoint,
+                enabled, false, true, RepositoryProxyPolicy.GITHUB_RELEASES, "github-releases",
+                false, true, false, true, connectTimeoutMs, readTimeoutMs, maxManifestBytes, maxPackageBytes,
+                CommunityPluginTrustRoots.roots(), COMMUNITY_BASE_URL + "generated/repository.json", null,
+                null, "community", "PixivDownloader Community", "manifest-v1", endpoint,
+                COMMUNITY_BASE_URL + "revocations.json", null, "COMMUNITY", null, null);
+    }
+
+    public boolean community() { return builtIn && !official && COMMUNITY_ID.equals(repositoryId); }
 
     /** 兼容仓库展示名 i18n key。 */
     public static final String LEGACY_DISPLAY_NAME_KEY = "plugin.market.repository.configured.name";

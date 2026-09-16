@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.plugin.catalog.repository;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
+import top.sywyar.pixivdownload.plugin.catalog.community.CommunityDirectoryService;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.gui.config.PluginRepositoryConfigEditor;
 import top.sywyar.pixivdownload.plugin.api.gui.RepositoryConfigEntry;
@@ -38,26 +40,67 @@ public final class PluginRepositoryImportService {
     private final PluginRepositoryRegistry registry;
     private final PluginCatalogClientProvider clients;
     private final PluginCatalogTrustStateStore stateStore;
+    private final CommunityDirectoryService directory;
     private final RepositoryDescriptorParser parser = new RepositoryDescriptorParser();
     private final ObjectMapper mapper = PluginCatalogStrictJson.mapper(true);
 
     public PluginRepositoryImportService(PluginRepositoryRegistry registry,
                                          PluginCatalogClientProvider clients,
                                          PluginCatalogTrustStateStore stateStore) {
+        this(registry, clients, stateStore, null);
+    }
+
+    @Autowired
+    public PluginRepositoryImportService(PluginRepositoryRegistry registry, PluginCatalogClientProvider clients,
+                                         PluginCatalogTrustStateStore stateStore, CommunityDirectoryService directory) {
         this.registry = registry;
         this.clients = clients;
         this.stateStore = stateStore;
+        this.directory = directory;
+    }
+
+    /** 内置社区使用同一描述符合同，只有目录中的精确快照才可提供市场来源。 */
+    public PluginRepository authenticateCommunity(PluginRepository repository) {
+        if (!repository.community()) return repository;
+        if (directory == null) throw updateInvalid("community directory verifier is unavailable");
+        var lookup = directory.lookup(repository.repositoryId());
+        var parsed = parser.parse(repository.descriptorUrl(), clients.clientFor(repository)
+                .fetchBytes(repository.descriptorUrl(), RepositoryDescriptorParser.MAX_DESCRIPTOR_BYTES), true);
+        if (!lookup.certifies(repository.repositoryId(), parsed.descriptorUrl(), parsed.descriptorSha256(), parsed.trustedKeys())
+                || parsed.descriptor().revocationsUrl() == null) throw updateInvalid("community descriptor is not certified");
+        var descriptor = parsed.descriptor();
+        return new PluginRepository(repository.repositoryId(), repository.displayNameKey(), descriptor.catalog().endpoint(),
+                repository.enabled(), false, true, RepositoryProxyPolicy.fromConfig(parsed.effectiveProxyPolicy()),
+                parsed.effectiveProxyPolicy(), false, true, false, "github-releases".equals(parsed.effectiveProxyPolicy()),
+                repository.connectTimeoutMs(), repository.readTimeoutMs(), repository.maxManifestBytes(), repository.maxPackageBytes(),
+                parsed.trustedKeys(), parsed.descriptorUrl(), parsed.descriptorSha256(), descriptor.displayName(),
+                descriptor.publisher().id(), descriptor.publisher().displayName(), descriptor.catalog().protocol(),
+                descriptor.catalog().endpoint(), descriptor.revocationsUrl(), descriptor.updateProofUrl(),
+                "COMMUNITY", lookup.sequence(), top.sywyar.pixivdownload.sdk.community.format.CommunityJson.sha256(
+                        top.sywyar.pixivdownload.sdk.community.format.CommunityJson.encode(lookup.entry())));
+    }
+
+    private CommunityDirectoryService.Lookup certification(ParsedRepositoryDescriptor parsed) {
+        if (directory == null) return null;
+        try { return directory.lookup(parsed.descriptor().repositoryId()); }
+        catch (RuntimeException unavailable) { return null; }
+    }
+
+    private static boolean certified(ParsedRepositoryDescriptor parsed, CommunityDirectoryService.Lookup lookup) {
+        return lookup != null && lookup.certifies(parsed.descriptor().repositoryId(), parsed.descriptorUrl(),
+                parsed.descriptorSha256(), parsed.trustedKeys());
     }
 
     public RepositoryImportPreview preview(String descriptorUrl) {
         ParsedRepositoryDescriptor parsed = fetch(descriptorUrl);
+        var certification = certification(parsed);
         PluginRepository existing = registry.find(parsed.descriptor().repositoryId()).orElse(null);
         boolean conflict = existing != null && (existing.builtIn() || existing.descriptorUrl() == null
                 || !existing.descriptorUrl().equals(parsed.descriptorUrl()));
         boolean keysChanged = existing != null && !fingerprints(existing.trustedKeys())
                 .equals(fingerprints(parsed.trustedKeys()));
         boolean networkExpanded = existing != null && !knownHosts(existing).containsAll(parsed.networkHosts());
-        String proofStatus = existing == null || !keysChanged && !networkExpanded
+        String proofStatus = certified(parsed, certification) ? "COMMUNITY_VERIFIED" : existing == null || !keysChanged && !networkExpanded
                 && equalsIgnoreCase(existing.descriptorSha256(), parsed.descriptorSha256())
                 ? "NOT_REQUIRED" : updateProofStatus(existing, parsed);
         RepositoryDescriptor descriptor = parsed.descriptor();
@@ -69,7 +112,12 @@ public final class PluginRepositoryImportService {
                 descriptor.revocationsUrl(), host(descriptor.revocationsUrl()),
                 descriptor.updateProofUrl(), host(descriptor.updateProofUrl()), parsed.networkHosts(),
                 descriptor.networkProfile(), parsed.effectiveProxyPolicy(), parsed.redirectBoundary(),
-                parsed.keyPreviews(), "NOT_AVAILABLE", null, List.of(), existing != null, conflict,
+                parsed.keyPreviews(), certified(parsed, certification) ? "IDENTITY_VERIFIED"
+                        : certification != null && "IDENTITY_VERIFIED".equals(certification.status()) ? "MISMATCH"
+                        : certification != null ? certification.status() : "NOT_AVAILABLE",
+                certification != null ? certification.sequence() : null,
+                certification != null && certification.entry() != null ? certification.entry().certifiedKeys().stream()
+                        .map(key -> "sha256:" + key.spkiSha256()).toList() : List.of(), existing != null, conflict,
                 keysChanged, networkExpanded, proofStatus, true,
                 "import.executable-warning");
     }
@@ -99,8 +147,10 @@ public final class PluginRepositoryImportService {
                 existing.descriptorSha256(), parsed.descriptorSha256())
                 || !fingerprints(existing.trustedKeys()).equals(fingerprints(parsed.trustedKeys()))
                 || !knownHosts(existing).containsAll(parsed.networkHosts()));
-        RepositoryUpdateDocument proof = updateRequired ? verifiedUpdateProof(existing, parsed, true) : null;
-        writeConfiguration(parsed);
+        var certification = certification(parsed);
+        boolean communityCertified = certified(parsed, certification);
+        RepositoryUpdateDocument proof = updateRequired && !communityCertified ? verifiedUpdateProof(existing, parsed, true) : null;
+        writeConfiguration(parsed, communityCertified ? certification : null);
         if (proof != null) {
             try {
                 stateStore.acceptUpdateSequence(parsed.descriptor().repositoryId(), proof.sequence());
@@ -110,7 +160,7 @@ public final class PluginRepositoryImportService {
             }
         }
         return new RepositoryTrustResult(parsed.descriptor().repositoryId(), parsed.descriptorSha256(),
-                true, true, "SELF_TRUSTED");
+                true, true, communityCertified ? "COMMUNITY_VERIFIED" : "SELF_TRUSTED");
     }
 
     private ParsedRepositoryDescriptor fetch(String descriptorUrl) {
@@ -194,7 +244,7 @@ public final class PluginRepositoryImportService {
         }
     }
 
-    private void writeConfiguration(ParsedRepositoryDescriptor parsed) {
+    private void writeConfiguration(ParsedRepositoryDescriptor parsed, CommunityDirectoryService.Lookup certification) {
         RepositoryDescriptor descriptor = parsed.descriptor();
         PluginRepository baseline = registry.find(descriptor.repositoryId())
                 .orElseGet(() -> registry.repositories().get(0));
@@ -208,7 +258,12 @@ public final class PluginRepositoryImportService {
         extra.put("catalog-endpoint", descriptor.catalog().endpoint());
         if (descriptor.revocationsUrl() != null) extra.put("revocations-url", descriptor.revocationsUrl());
         if (descriptor.updateProofUrl() != null) extra.put("update-proof-url", descriptor.updateProofUrl());
-        extra.put("trust-source", "SELF_TRUSTED");
+        extra.put("trust-source", certification == null ? "SELF_TRUSTED" : "COMMUNITY_VERIFIED");
+        if (certification != null) {
+            extra.put("directory-sequence", certification.sequence());
+            extra.put("directory-entry-sha256", top.sywyar.pixivdownload.sdk.community.format.CommunityJson.sha256(
+                    top.sywyar.pixivdownload.sdk.community.format.CommunityJson.encode(certification.entry())));
+        }
         List<TrustedKeyConfigEntry> keys = parsed.trustedKeys().stream().map(key -> TrustedKeyConfigEntry.create(
                 key.keyId(), key.algorithm(), key.publicKeySpkiBase64(), key.state().name(),
                 key.publisher(), key.trustLabel())).toList();

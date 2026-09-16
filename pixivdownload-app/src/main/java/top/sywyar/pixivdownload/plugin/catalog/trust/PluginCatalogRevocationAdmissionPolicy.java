@@ -5,6 +5,7 @@ import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegist
 import top.sywyar.pixivdownload.plugin.runtime.admission.PluginArtifactAdmissionPolicy;
 import top.sywyar.pixivdownload.plugin.runtime.admission.PluginArtifactAdmissionRequest;
 import top.sywyar.pixivdownload.plugin.runtime.admission.PluginArtifactAdmissionResult;
+import top.sywyar.pixivdownload.sdk.community.review.CommunityReview;
 
 import java.time.Instant;
 
@@ -24,6 +25,17 @@ public final class PluginCatalogRevocationAdmissionPolicy implements PluginArtif
     public PluginArtifactAdmissionResult evaluate(PluginArtifactAdmissionRequest request) {
         PluginRepository repository = repositories.find(request.repositoryId()).orElse(null);
         if (repository == null || !repository.revocationsRequired()) return PluginArtifactAdmissionResult.allow();
+        String publisherId = repository.publisherId();
+        if (request.communityEvidence() != null) {
+            try {
+                var review = CommunityReview.read(request.communityEvidence());
+                if (!review.pluginId().equals(request.pluginId()) || !review.version().equals(request.version())
+                        || !review.packageSha256().equals(request.sha256())) throw new IllegalArgumentException();
+                publisherId = review.owner().publisherId();
+            } catch (RuntimeException invalid) {
+                return PluginArtifactAdmissionResult.reject("COMMUNITY_REVIEW_INVALID", "community review binding is invalid");
+            }
+        }
         PluginCatalogTrustStateStore.RevocationSnapshot snapshot = stateStore
                 .revocations(repository.repositoryId()).orElse(null);
         if (snapshot == null) {
@@ -32,7 +44,7 @@ public final class PluginCatalogRevocationAdmissionPolicy implements PluginArtif
         }
         for (PluginCatalogTrustStateStore.RevocationEntry entry : snapshot.entries()) {
             if ("REVOKED".equals(entry.action()) && effective(entry.effectiveTime())
-                    && matches(entry, repository, request)) {
+                    && matches(entry, publisherId, request)) {
                 return PluginArtifactAdmissionResult.reject("PLUGIN_REVOKED",
                         entry.scope() + ": " + entry.reasonCode());
             }
@@ -50,13 +62,13 @@ public final class PluginCatalogRevocationAdmissionPolicy implements PluginArtif
     }
 
     private static boolean matches(PluginCatalogTrustStateStore.RevocationEntry entry,
-                                   PluginRepository repository, PluginArtifactAdmissionRequest request) {
+                                   String publisherId, PluginArtifactAdmissionRequest request) {
         return switch (entry.scope()) {
             case "PACKAGE_SHA256" -> equalIgnoreCase(entry.packageSha256(), request.sha256());
             case "PLUGIN_VERSION" -> equal(entry.pluginId(), request.pluginId())
                     && equal(entry.version(), request.version());
             case "SIGNING_KEY" -> equal(entry.keyId(), request.keyId());
-            case "PUBLISHER" -> equal(entry.publisherId(), repository.publisherId());
+            case "PUBLISHER" -> equal(entry.publisherId(), publisherId);
             default -> false;
         };
     }

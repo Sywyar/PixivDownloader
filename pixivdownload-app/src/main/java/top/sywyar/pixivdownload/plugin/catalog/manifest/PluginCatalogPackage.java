@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.plugin.catalog.manifest;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
+import top.sywyar.pixivdownload.sdk.community.format.CommunityValues;
 
 import java.util.List;
 import java.util.Map;
@@ -37,13 +38,25 @@ public record PluginCatalogPackage(
         String releasedTime,
         List<String> changeNotes,
         String channel,
-        boolean deprecated) {
+        boolean deprecated,
+        String assuranceLevel,
+        String sourceCommit,
+        CommunityValues.Reference reviewRef,
+        CommunityValues.Owner historicalOwner) {
 
     public PluginCatalogPackage {
         identityMigrationSignatures = identityMigrationSignatures != null
                 ? Map.copyOf(identityMigrationSignatures) : Map.of();
         dependencies = dependencies != null ? List.copyOf(dependencies) : List.of();
         changeNotes = changeNotes != null ? List.copyOf(changeNotes) : List.of();
+    }
+
+    public PluginCatalogPackage(
+            String version, String packageUrl, Long expectedSizeBytes, String sha256, SignatureMetadata signature,
+            Map<String, SignatureMetadata> identityMigrationSignatures, String signatureUrl, String requiredSdk,
+            List<String> dependencies, String releasedTime, List<String> changeNotes, String channel, boolean deprecated) {
+        this(version, packageUrl, expectedSizeBytes, sha256, signature, identityMigrationSignatures, signatureUrl,
+                requiredSdk, dependencies, releasedTime, changeNotes, channel, deprecated, null, null, null, null);
     }
 
     public PluginCatalogPackage(

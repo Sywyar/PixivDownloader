@@ -101,7 +101,7 @@ public record PluginMarketEntryView(
                 updateAvailable,
                 compatible,
                 compatibilityReason,
-                repository.official() ? "OFFICIAL" : "PUBLISHER_SIGNED",
+                target != null ? target.verification().assuranceLevel() : "UNVERIFIED",
                 null, null, null, false);
     }
 

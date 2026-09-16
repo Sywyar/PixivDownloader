@@ -157,6 +157,13 @@ public class PluginMarketController {
         return ResponseEntity.status(ex.status()).body(body);
     }
 
+    /** 所选版本的独立信任维度及包内声明；沿用市场 ADMIN 路由。 */
+    @GetMapping("/plugins/{repositoryId}/{pluginId}/{version}/facts")
+    public top.sywyar.pixivdownload.plugin.verification.PluginVerificationView packageFacts(
+            @PathVariable String repositoryId, @PathVariable String pluginId, @PathVariable String version) {
+        return marketService.packageFacts(repositoryId, pluginId, version);
+    }
+
     public record RepositoryPreviewRequest(String descriptorUrl) { }
 
     public record RepositoryTrustRequest(String descriptorUrl, String expectedDescriptorSha256,

@@ -71,9 +71,10 @@ public final class PluginVerificationProjector {
         String status = statusFrom(effectiveStatus, record.officialRepository(), record.source());
         boolean offlineOk = offline == VerificationStatus.VERIFIED || offline == VerificationStatus.UNSIGNED_ALLOWED;
         Instant verifiedAt = record.offlineVerifiedAt() != null ? record.offlineVerifiedAt() : record.verifiedAt();
-        return new PluginVerificationView(status, source(record), record.keyId(), record.publisher(),
+        var view = new PluginVerificationView(status, source(record), record.keyId(), record.publisher(),
                 record.trustLabel(), verifiedAt != null ? verifiedAt.toString() : null, offlineOk,
                 diagnosticCode(record, offline));
+        return record.communityEvidence() != null ? view.withCommunity(record.communityEvidence().assuranceLevel()) : view;
     }
 
     /** 投影本次启动对当前冻结字节得到的结构化结果，优先级高于安装时 / sidecar 历史结果。 */
@@ -108,7 +109,7 @@ public final class PluginVerificationProjector {
         keyId = keyId != null ? keyId : provenance.keyId();
         publisher = publisher != null ? publisher : provenance.publisher();
         trustLabel = trustLabel != null ? trustLabel : provenance.trustLabel();
-        return new PluginVerificationView(
+        var view = new PluginVerificationView(
                 statusFrom(result.status(), official, source),
                 source(source, official),
                 keyId,
@@ -118,6 +119,7 @@ public final class PluginVerificationProjector {
                 result.accepted(),
                 result.diagnosticCode() != null && !result.diagnosticCode().isBlank()
                         ? result.diagnosticCode() : result.status().name());
+        return provenance.communityEvidence() != null ? view.withCommunity(provenance.communityEvidence().assuranceLevel()) : view;
     }
 
     static boolean hasCompatibleStatusSemantics(PluginPackageSource source, boolean signed,
@@ -173,8 +175,9 @@ public final class PluginVerificationProjector {
                     signature.keyId(), key.publisher(), key.trustLabel(), null, false, "OFFICIAL_KEY_REQUIRED");
         }
         String status = official ? VERIFIED_OFFICIAL : VERIFIED_CUSTOM;
-        return new PluginVerificationView(status, official ? "official" : "custom",
+        var view = new PluginVerificationView(status, official ? "official" : "custom",
                 signature.keyId(), key.publisher(), key.trustLabel(), null, false, "SIGNATURE_DECLARED");
+        return repository.community() ? view.withCommunity(pkg.assuranceLevel()) : view;
     }
 
     private static String statusFrom(VerificationStatus status, boolean official, PluginPackageSource source) {

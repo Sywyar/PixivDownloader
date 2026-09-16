@@ -37,6 +37,14 @@ public final class PluginCatalogRevocationService {
     private final PluginCatalogClientProvider clients;
     private final PluginCatalogTrustStateStore stateStore;
     private final ObjectMapper mapper = PluginCatalogStrictJson.mapper(true);
+    private top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry repositories;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public PluginCatalogRevocationService(PluginCatalogClientProvider clients, PluginCatalogTrustStateStore stateStore,
+            top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry repositories) {
+        this(clients, stateStore);
+        this.repositories = repositories;
+    }
 
     public PluginCatalogRevocationService(PluginCatalogClientProvider clients,
                                           PluginCatalogTrustStateStore stateStore) {
@@ -100,7 +108,7 @@ public final class PluginCatalogRevocationService {
         if (snapshot == null) return;
         String keyId = pkg.signature() != null ? pkg.signature().keyId() : null;
         for (PluginCatalogTrustStateStore.RevocationEntry entry : snapshot.entries()) {
-            if (matches(entry, repository, pluginId, pkg.version(), pkg.sha256(), keyId)) {
+            if (matches(entry, repository, pluginId, pkg.version(), pkg.sha256(), keyId, publisherId(repository, pkg))) {
                 throw new PluginCatalogException(PluginCatalogErrorCode.REVOCATION_REJECTED, pluginId, pkg.version(),
                         "plugin package is " + entry.action().toLowerCase(Locale.ROOT)
                                 + " by verified revocation document: " + entry.reasonCode());
@@ -115,18 +123,65 @@ public final class PluginCatalogRevocationService {
         return stateStore.revocations(repository.repositoryId()).stream()
                 .flatMap(snapshot -> snapshot.entries().stream())
                 .anyMatch(entry -> "YANKED".equals(entry.action())
-                        && matches(entry, repository, pluginId, pkg.version(), pkg.sha256(), keyId));
+                        && matches(entry, repository, pluginId, pkg.version(), pkg.sha256(), keyId, publisherId(repository, pkg)));
     }
 
     public static boolean matches(PluginCatalogTrustStateStore.RevocationEntry entry, PluginRepository repository,
                                   String pluginId, String version, String sha256, String keyId) {
+        return matches(entry, repository, pluginId, version, sha256, keyId, repository != null ? repository.publisherId() : null);
+    }
+
+    /** 只投影已有验证快照；没有新鲜快照时明确保持未知。 */
+    public String status(PluginRepository repository, String pluginId, PluginCatalogPackage pkg) {
+        if (!repository.revocationsRequired()) return "NOT_PROVIDED";
+        return status(repository, pluginId, pkg.version(), pkg.sha256(),
+                pkg.signature() != null ? pkg.signature().keyId() : null, publisherId(repository, pkg));
+    }
+
+    public String status(top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord provenance,
+                         String pluginId, String version) {
+        if (provenance == null) return "NOT_CHECKED";
+        if (provenance.repositoryId() == null) return "NOT_PROVIDED";
+        var repository = repositories != null ? repositories.find(provenance.repositoryId()).orElse(null) : null;
+        if (repository == null) return "NOT_CHECKED";
+        if (!repository.revocationsRequired()) return "NOT_PROVIDED";
+        String publisherId = repository.publisherId();
+        if (provenance.communityEvidence() != null) {
+            try { publisherId = top.sywyar.pixivdownload.sdk.community.review.CommunityReview
+                    .read(provenance.communityEvidence()).owner().publisherId(); }
+            catch (RuntimeException invalid) { return "NOT_CHECKED"; }
+        }
+        return status(repository, pluginId, version, provenance.artifactSha256(), provenance.keyId(), publisherId);
+    }
+
+    private String status(PluginRepository repository, String pluginId, String version, String sha256,
+                          String keyId, String publisherId) {
+        var snapshot = stateStore.revocations(repository.repositoryId()).orElse(null);
+        if (snapshot == null) return "NOT_CHECKED";
+        var actions = snapshot.entries().stream().filter(entry -> matches(entry, repository, pluginId,
+                version, sha256, keyId, publisherId)).map(PluginCatalogTrustStateStore.RevocationEntry::action).toList();
+        if (actions.contains("REVOKED")) return "REVOKED";
+        if (actions.contains("YANKED")) return "YANKED";
+        try {
+            return Instant.now().isBefore(Instant.parse(snapshot.nextUpdate())) ? "CLEAR" : "STALE";
+        } catch (DateTimeParseException invalid) {
+            return "STALE";
+        }
+    }
+
+    private static String publisherId(PluginRepository repository, PluginCatalogPackage pkg) {
+        return repository.community() && pkg.historicalOwner() != null ? pkg.historicalOwner().publisherId() : repository.publisherId();
+    }
+
+    private static boolean matches(PluginCatalogTrustStateStore.RevocationEntry entry, PluginRepository repository,
+                                   String pluginId, String version, String sha256, String keyId, String publisherId) {
         if (entry == null || !"REVOKED".equals(entry.action()) && !"YANKED".equals(entry.action())
                 || !isEffective(entry.effectiveTime())) return false;
         return switch (entry.scope()) {
             case "PACKAGE_SHA256" -> equalsIgnoreCase(entry.packageSha256(), sha256);
             case "PLUGIN_VERSION" -> equals(entry.pluginId(), pluginId) && equals(entry.version(), version);
             case "SIGNING_KEY" -> equals(entry.keyId(), keyId);
-            case "PUBLISHER" -> equals(entry.publisherId(), repository.publisherId());
+            case "PUBLISHER" -> equals(entry.publisherId(), publisherId);
             default -> false;
         };
     }

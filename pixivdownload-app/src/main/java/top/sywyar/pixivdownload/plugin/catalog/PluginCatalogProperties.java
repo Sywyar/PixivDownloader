@@ -38,6 +38,9 @@ public class PluginCatalogProperties {
     /** 内嵌官方默认仓库是否启用（默认启用；官方仓库地址内嵌于程序，此项可单独禁用它）。 */
     private boolean officialRepositoryEnabled = true;
 
+    /** 社区目录仅在管理员浏览或安装时读取，不自动安装社区插件。 */
+    private boolean communityRepositoryEnabled = true;
+
     /** 旧版单一受信 catalog 清单地址（兼容入口；必须 https；非空时折成一个启用的直连兼容仓库 {@code configured}）。 */
     private String manifestUrl = "";
 
