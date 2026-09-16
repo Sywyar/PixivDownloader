@@ -5,6 +5,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReade
 import top.sywyar.pixivdownload.plugin.signature.*;
 import top.sywyar.pixivdownload.plugin.signature.community.CommunityPackageVerificationRequest;
 import top.sywyar.pixivdownload.sdk.community.format.CommunityJson;
+import top.sywyar.pixivdownload.sdk.community.format.CommunityPr;
 import top.sywyar.pixivdownload.sdk.community.format.CommunityValues;
 import top.sywyar.pixivdownload.sdk.community.format.CommunityValues.*;
 import top.sywyar.pixivdownload.sdk.community.format.ContractException;
@@ -45,6 +46,17 @@ public record PublishedVersion(int schemaVersion, Owner owner, String pluginId, 
 
     public static Outcome publish(Publication input, Map<Key, CommunityJson.Document> published,
                                    CommunityJson.Document previousVersion) {
+        return create(input, published, previousVersion, false);
+    }
+
+    /** 生成供原 PR 审阅的候选记录；不能据此公开 Release，必须再确认真实合并。 */
+    public static Outcome prepare(Publication input, Map<Key, CommunityJson.Document> published,
+                                  CommunityJson.Document previousVersion) {
+        return create(input, published, previousVersion, true);
+    }
+
+    private static Outcome create(Publication input, Map<Key, CommunityJson.Document> published,
+                                   CommunityJson.Document previousVersion, boolean preparing) {
         var submissionDocument = CommunityJson.parse(CommunityJson.Kind.SUBMISSION, input.submission.bytes());
         var submission = VersionSubmission.read(submissionDocument);
         var existing = published.get(new Key(submission.pluginId(), submission.version()));
@@ -65,7 +77,10 @@ public record PublishedVersion(int schemaVersion, Owner owner, String pluginId, 
         binding.requireOwner(publisher.owner());
         if (!binding.owner().equals(review.owner()) || !review.submissionRef().equals(input.submission.reference())
                 || !input.currentBinding.sha256().equals(input.reviewFacts.admission().snapshot().bindingSha256())
-                || review.pr().mergeSha() == null || input.reviewFacts.admission().snapshot().state() != ReviewAdmission.PrState.MERGED) {
+                || (preparing ? review.pr().mergeSha() != null
+                    || input.reviewFacts.admission().snapshot().state() != ReviewAdmission.PrState.OPEN
+                    : review.pr().mergeSha() == null
+                    || input.reviewFacts.admission().snapshot().state() != ReviewAdmission.PrState.MERGED)) {
             throw new ContractException("REVIEW_MISMATCH", "/review");
         }
         if (previousVersion == null) submission.verifyPreviousSource(null);
@@ -79,7 +94,7 @@ public record PublishedVersion(int schemaVersion, Owner owner, String pluginId, 
                 input.submission.reference(), input.review.reference(), submission.source().commit(), submission.artifact(),
                 input.currentPublisher.reference(), input.communitySignature, "SOURCE_REVIEWED", input.publishedAt);
         var document = CommunityJson.parse(CommunityJson.Kind.PUBLISHED, CommunityJson.encode(value));
-        var records = value.verifyRecords(input.evidence);
+        var records = value.verifyRecords(input.evidence, !preparing);
         value.verifyPackage(input.frozenPackage, publisher.trustStore(), input.communityVerifier, input.repositoryId, false, records);
         return new Outcome(document, false);
     }
@@ -88,7 +103,42 @@ public record PublishedVersion(int schemaVersion, Owner owner, String pluginId, 
     public void verifyHistory(Path frozenPackage, CommunityJson.Document currentHistoricalPublisher,
                                PluginSupplyChainVerifier communityVerifier, String repositoryId,
                                Map<String, Evidence> evidence) {
-        var records = verifyRecords(evidence);
+        verifyHistory(frozenPackage, currentHistoricalPublisher, communityVerifier, repositoryId, evidence, null);
+    }
+
+    /** 原生平台核验的合并事实；生成提交的来源及完整字节由受保护适配器另行验证。 */
+    public record PreparedMerge(CommunityPr pr, String generatedHead, List<String> generatedParents,
+                                List<String> mergeParents, Reference preparedRecord) {
+        public PreparedMerge {
+            generatedParents = List.copyOf(generatedParents);
+            mergeParents = List.copyOf(mergeParents);
+        }
+
+        private void verify(PublishedVersion value, VersionReview review) {
+            pr.validate();
+            if (generatedHead == null || !generatedHead.matches("[a-f0-9]{40}")) {
+                throw new ContractException("PREPARED_MERGE_MISMATCH", "/generatedHead");
+            }
+            preparedRecord.verify(CommunityJson.encode(value));
+            var original = review.pr();
+            if (original.mergeSha() != null || pr.mergeSha() == null || !generatedHead.equals(pr.headSha())
+                    || !generatedParents.equals(List.of(original.headSha()))
+                    || !mergeParents.equals(List.of(original.baseSha(), generatedHead))
+                    || !pr.baseSha().equals(original.baseSha())
+                    || !pr.githubRepositoryId().equals(original.githubRepositoryId()) || pr.number() != original.number()
+                    || !pr.authorAccountId().equals(original.authorAccountId())
+                    || !pr.headRepositoryId().equals(original.headRepositoryId())) {
+                throw new ContractException("PREPARED_MERGE_MISMATCH", "/merge");
+            }
+        }
+    }
+
+    /** 合并后复核候选原字节、真实父链、双签和当前历史 key 状态，不修改已签审核。 */
+    public void verifyHistory(Path frozenPackage, CommunityJson.Document currentHistoricalPublisher,
+                               PluginSupplyChainVerifier communityVerifier, String repositoryId,
+                               Map<String, Evidence> evidence, PreparedMerge preparedMerge) {
+        var records = verifyRecords(evidence, preparedMerge == null);
+        if (preparedMerge != null) preparedMerge.verify(this, records.review);
         var current = Publisher.read(currentHistoricalPublisher);
         if (!owner.equals(current.owner())) throw new ContractException("BINDING_MISMATCH", "/historicalPublisherRef");
         var originalKey = records.publisher.trustStore().findByKeyId(artifact.signature().keyId())
@@ -103,7 +153,7 @@ public record PublishedVersion(int schemaVersion, Owner owner, String pluginId, 
 
     private record Records(Publisher publisher, VersionReview review, VersionSubmission submission) { }
 
-    private Records verifyRecords(Map<String, Evidence> evidence) {
+    private Records verifyRecords(Map<String, Evidence> evidence, boolean requireMerged) {
         var submission = VersionSubmission.read(CommunityJson.parse(CommunityJson.Kind.SUBMISSION,
                 CommunityValues.requireEvidence(submissionRef, evidence).bytes()));
         var review = VersionReview.read(CommunityJson.parse(CommunityJson.Kind.REVIEW,
@@ -116,7 +166,7 @@ public record PublishedVersion(int schemaVersion, Owner owner, String pluginId, 
                 || !sourceCommit.equals(submission.source().commit()) || !review.source().equals(submission.source())
                 || !artifact.equals(submission.artifact()) || !artifact.sha256().equals(review.packageSha256())
                 || artifact.expectedSize() != review.packageSize() || !submissionRef.equals(review.submissionRef())
-                || !assuranceLevel.equals(review.assuranceLevel()) || review.pr().mergeSha() == null) {
+                || !assuranceLevel.equals(review.assuranceLevel()) || requireMerged && review.pr().mergeSha() == null) {
             throw new ContractException("REVIEW_MISMATCH", "/published");
         }
         for (var ref : List.of(review.sourceDiffRef(), review.sbomRef(), review.dependencyReportRef(), review.licenseReportRef(),
