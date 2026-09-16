@@ -38,6 +38,9 @@ public class NovelDownloadCommand {
         @Size(max = 512)
         private String fileNameTemplate;
 
+        @Pattern(regexp = "ASK|TRUNCATE|DEFAULT_NAME|CANCEL")
+        private String pathOverflowAction;
+
         private boolean bookmark;
 
         @Positive
@@ -62,6 +65,7 @@ public class NovelDownloadCommand {
 
         public void applyTo(NovelDownloadRequest.Other target) {
             target.setFileNameTemplate(fileNameTemplate);
+            target.setPathOverflowAction(pathOverflowAction);
             target.setBookmark(bookmark);
             target.setCollectionId(collectionId);
             target.setFormat(format);

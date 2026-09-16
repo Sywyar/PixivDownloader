@@ -102,6 +102,23 @@ public class NovelDatabase {
         syncNovelFts(novelId, rawContent);
     }
 
+    /** 保存下载事实及实际使用的文件名长度，供后续定位、导出与删除重建相同名称。 */
+    @Transactional
+    public void insertNovel(long novelId, String title, String folder, int count,
+                            String extensions, long time, Integer xRestrict, Boolean isAi,
+                            Long authorId, String description, long fileName, Long fileAuthorNameId,
+                            Long seriesId, Long seriesOrder, Integer wordCount, Integer textLength,
+                            Integer readingTimeSeconds, Integer pageCount, Boolean isOriginal, String xLanguage,
+                            String rawContent, String coverExt, int maxLength) {
+        if (maxLength < 1 || maxLength > top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter.MAX_BASENAME_LENGTH) {
+            throw new IllegalArgumentException("Invalid filename length");
+        }
+        insertNovel(novelId, title, folder, count, extensions, time, xRestrict, isAi, authorId, description,
+                fileName, fileAuthorNameId, seriesId, seriesOrder, wordCount, textLength, readingTimeSeconds,
+                pageCount, isOriginal, xLanguage, rawContent, coverExt);
+        novelMapper.updateFileNameMaxLength(novelId, maxLength);
+    }
+
     /** 重建单本小说的全文索引行；正文索引是辅助数据，失败仅记日志、不影响下载落库。 */
     private void syncNovelFts(long novelId, String rawContent) {
         try {

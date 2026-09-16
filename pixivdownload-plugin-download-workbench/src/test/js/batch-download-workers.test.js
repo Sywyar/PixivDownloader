@@ -9,7 +9,7 @@ const {isMainThread, parentPort, workerData, Worker} = require('node:worker_thre
 
 const STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch');
 const DOWNLOAD_SOURCE = [
-    'batch-download-quota.js', 'batch-download-artwork.js',
+    'batch-download-quota.js', 'batch-download-artwork.js', 'batch-path-actions.js',
     'batch-download-workers.js', 'batch-download.js'
 ].map(file => fs.readFileSync(path.join(STATIC, file), 'utf8')).join('\n');
 const SCENARIO_TIMEOUT_MS = 2000;

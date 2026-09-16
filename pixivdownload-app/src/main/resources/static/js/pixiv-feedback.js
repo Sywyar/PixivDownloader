@@ -34,6 +34,7 @@
 
     function openDialog(kind, options) {
         return enqueue(function () {
+            if (options.signal && options.signal.aborted) return null;
             return new Promise(function (resolve) {
                 const dialogId = ++dialogSequence;
                 const previousFocus = document.activeElement;
@@ -67,6 +68,42 @@
                 panel.appendChild(message);
 
                 let input = null;
+                const choices = [];
+                let remember = null;
+                if (kind === 'choice') {
+                    const group = document.createElement('div');
+                    group.className = 'pixiv-feedback-choices';
+                    group.setAttribute('role', 'radiogroup');
+                    group.setAttribute('aria-labelledby', messageId);
+                    (options.choices || []).forEach(function (choice) {
+                        const label = document.createElement('label');
+                        label.className = 'pixiv-feedback-choice';
+                        const radio = document.createElement('input');
+                        radio.type = 'radio';
+                        radio.name = 'pixiv-feedback-choice-' + dialogId;
+                        radio.value = requiredText(choice.value, 'choice value');
+                        radio.disabled = !!choice.disabled;
+                        radio.checked = !radio.disabled && !choices.some(function (item) { return item.checked; });
+                        choices.push(radio);
+                        label.appendChild(radio);
+                        const caption = document.createElement('span');
+                        caption.textContent = requiredText(choice.label, 'choice label');
+                        label.appendChild(caption);
+                        group.appendChild(label);
+                    });
+                    panel.appendChild(group);
+                    if (options.rememberLabel) {
+                        const label = document.createElement('label');
+                        label.className = 'pixiv-feedback-choice';
+                        remember = document.createElement('input');
+                        remember.type = 'checkbox';
+                        label.appendChild(remember);
+                        const caption = document.createElement('span');
+                        caption.textContent = options.rememberLabel;
+                        label.appendChild(caption);
+                        panel.appendChild(label);
+                    }
+                }
                 if (kind === 'prompt') {
                     input = document.createElement('input');
                     input.className = 'pixiv-feedback-input';
@@ -91,6 +128,7 @@
                     options.danger ? 'pixiv-feedback-button--danger' : 'pixiv-feedback-button--primary',
                     'accept'
                 );
+                if (kind === 'choice') acceptButton.disabled = !choices.some(function (item) { return !item.disabled; });
                 actions.appendChild(acceptButton);
                 panel.appendChild(actions);
                 backdrop.appendChild(panel);
@@ -100,6 +138,7 @@
                     if (settled) return;
                     settled = true;
                     document.removeEventListener('keydown', onKeyDown, true);
+                    if (options.signal) options.signal.removeEventListener('abort', cancel);
                     backdrop.remove();
                     document.body.classList.remove('pixiv-feedback-open');
                     if (previousFocus && typeof previousFocus.focus === 'function' && document.contains(previousFocus)) {
@@ -115,6 +154,10 @@
                 function accept() {
                     if (kind === 'confirm') finish(true);
                     else if (kind === 'prompt') finish(input.value);
+                    else if (kind === 'choice') {
+                        const selected = choices.find(function (item) { return item.checked && !item.disabled; });
+                        if (selected) finish({value: selected.value, remember: !!(remember && remember.checked)});
+                    }
                     else finish(undefined);
                 }
 
@@ -166,6 +209,7 @@
                 document.body.appendChild(backdrop);
                 document.body.classList.add('pixiv-feedback-open');
                 document.addEventListener('keydown', onKeyDown, true);
+                if (options.signal) options.signal.addEventListener('abort', cancel, {once: true});
                 (input || cancelButton || acceptButton || panel).focus();
             });
         });
@@ -276,6 +320,7 @@
         alert: function (options) { return openDialog('alert', options || {}); },
         confirm: function (options) { return openDialog('confirm', options || {}); },
         prompt: function (options) { return openDialog('prompt', options || {}); },
+        choose: function (options) { return openDialog('choice', options || {}); },
         toast: toast,
         confirmExternalLink: confirmExternalLink,
         followLink: followLink

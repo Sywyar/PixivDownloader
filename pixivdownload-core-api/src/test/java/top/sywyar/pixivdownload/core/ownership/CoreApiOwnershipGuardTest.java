@@ -59,6 +59,8 @@ import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;
 import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathLimits;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathPlan;
 import top.sywyar.pixivdownload.core.work.service.DownloadPathRejectedException;
 import top.sywyar.pixivdownload.core.work.service.WorkFileNameCatalog;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
@@ -185,6 +187,8 @@ class CoreApiOwnershipGuardTest {
                             "AuthorQuery", "AuthorSummary", "SeriesNeighbors", "TagOption", "TagQuery", "WorkQuery"),
                     types("top.sywyar.pixivdownload.core.work.service",
                             "AuthorObservationService", "DownloadPathGuard", "DownloadPathRejectedException",
+                            // 宿主查询卷能力，插画和小说共用授权码与命名规划，不包含插件目录布局。
+                            "DownloadPathAction", "DownloadPathLimits", "DownloadPathPlan",
                             "WorkAssetService",
                             "WorkDeletionException", "WorkDeletionService", "WorkFileNameCatalog",
                             "WorkMetadataCapture", "WorkMetadataRepository", "WorkQueryService", "WorkTagCatalog",
@@ -212,6 +216,8 @@ class CoreApiOwnershipGuardTest {
             "top.sywyar.pixivdownload.core.work.query.SeriesNeighbors$Neighbor",
             "top.sywyar.pixivdownload.core.work.query.WorkQuery$Builder",
             "top.sywyar.pixivdownload.core.work.service.WorkDeletionException$Reason",
+            "top.sywyar.pixivdownload.core.work.service.DownloadPathPlan$Problem",
+            "top.sywyar.pixivdownload.core.work.service.DownloadPathPlan$NeedsAction",
             "top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand$Source",
             "top.sywyar.pixivdownload.push.PushResult$Status"
     );
@@ -236,6 +242,9 @@ class CoreApiOwnershipGuardTest {
                     1024L * 1024L * 1024L),
             Map.entry("top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter#DEFAULT_TEMPLATE:java.lang.String",
                     "{artwork_id}_p{page}"),
+            Map.entry("top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter#MAX_BASENAME_LENGTH:int", 180),
+            Map.entry("top.sywyar.pixivdownload.core.work.service.DownloadPathLimits#UNKNOWN:top.sywyar.pixivdownload.core.work.service.DownloadPathLimits",
+                    new DownloadPathLimits(0, 0, false)),
             Map.entry("top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarFiles#SIDECAR_SUFFIX:java.lang.String",
                     ".meta.json"),
             Map.entry("top.sywyar.pixivdownload.core.work.WorkActionResult#SUCCESS:java.lang.String", "success"),
@@ -283,8 +292,10 @@ class CoreApiOwnershipGuardTest {
             Map.entry("top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState",
                     List.of("QUEUED", "RUNNING", "CANCEL_REQUESTED")),
             Map.entry("top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason",
-                    List.of("MANUAL", "CREDENTIAL", "POLICY", "SOURCE_UNAVAILABLE", "EXECUTOR_UNAVAILABLE",
+                    List.of("USER_ACTION_REQUIRED", "MANUAL", "CREDENTIAL", "POLICY", "SOURCE_UNAVAILABLE", "EXECUTOR_UNAVAILABLE",
                             "QUIESCED", "MIGRATION_ERROR")),
+            Map.entry("top.sywyar.pixivdownload.core.work.service.DownloadPathAction",
+                    List.of("ASK", "TRUNCATE", "DEFAULT_NAME", "CANCEL")),
             Map.entry("top.sywyar.pixivdownload.core.work.model.WorkType",
                     List.of("ARTWORK", "NOVEL")),
             Map.entry("top.sywyar.pixivdownload.core.work.service.WorkDeletionException$Reason",
@@ -536,10 +547,19 @@ class CoreApiOwnershipGuardTest {
         assertRecordShape(ArtworkDownloadCompletion.class,
                 List.of("artworkId", "title", "folder", "imageCount", "extensions", "recordTime",
                         "restriction", "aiGenerated", "authorId", "description", "fileNameTemplate",
-                        "normalizedAuthorName", "seriesId", "seriesOrder", "tags"),
+                        "normalizedAuthorName", "seriesId", "seriesOrder", "tags", "fileNameMaxLength"),
                 List.of(long.class, String.class, Path.class, int.class, Set.class, long.class,
                         int.class, boolean.class, Long.class, String.class, String.class,
-                        String.class, Long.class, Long.class, List.class));
+                        String.class, Long.class, Long.class, List.class, int.class));
+        assertRecordShape(DownloadPathLimits.class,
+                List.of("componentLength", "pathLength", "utf8Bytes"),
+                List.of(int.class, int.class, boolean.class));
+        assertRecordShape(DownloadPathPlan.class,
+                List.of("baseNames", "maxLength", "defaultName"),
+                List.of(List.class, int.class, boolean.class));
+        assertRecordShape(DownloadPathPlan.Problem.class,
+                List.of("originalPath", "truncatedPath", "defaultPath"),
+                List.of(String.class, String.class, String.class));
         assertRecordShape(ArtworkSeriesObservation.class,
                 List.of("artworkId", "lookupWhenMissing", "seriesId", "title", "authorId",
                         "description", "coverUrl"),
@@ -624,6 +644,8 @@ class CoreApiOwnershipGuardTest {
                 .containsExactly("public abstract observe(top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObservation,java.lang.String):void");
         assertThat(publicDeclaredMethodSignatures(DownloadPathGuard.class))
                 .containsExactlyInAnyOrder(
+                        "public limits(java.nio.file.Path):top.sywyar.pixivdownload.core.work.service.DownloadPathLimits",
+                        "public pathSupport(java.nio.file.Path):java.util.function.Predicate",
                         "public abstract requireSafeDirectoryName(java.lang.String):java.lang.String",
                         "public abstract requireWithinRoot(java.nio.file.Path,java.nio.file.Path):void");
         assertThat(publicDeclaredMethodSignatures(DownloadPathRejectedException.class)).isEmpty();

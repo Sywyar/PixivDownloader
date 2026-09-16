@@ -42,6 +42,7 @@ public class NovelDownloadRequest {
         /** 系列标签；下载时整体替换 novel_series_tags。 */
         private List<WorkTag> seriesTags;
         private String fileNameTemplate;
+        private String pathOverflowAction;
         private String fileName;
         private Long fileNameTimestamp;
         private boolean bookmark;

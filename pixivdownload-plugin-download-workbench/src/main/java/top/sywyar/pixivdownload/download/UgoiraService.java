@@ -199,7 +199,8 @@ public class UgoiraService {
                     if (declaredSize > 0 && declaredSize > MAX_ZIP_UNCOMPRESSED_BYTES - totalUncompressedBytes) {
                         throw resourceLimit("ugoira.log.limit.zip.total-bytes", MAX_ZIP_UNCOMPRESSED_BYTES / MIB);
                     }
-                    Path framePath = normalizedTempDir.resolve(entry.getName()).normalize();
+                    String extension = entry.getName().substring(entry.getName().lastIndexOf('.'));
+                    Path framePath = normalizedTempDir.resolve(frameFiles.size() + extension).normalize();
                     if (!framePath.startsWith(normalizedTempDir)) {
                         throw new ZipException(message("ugoira.log.zip-entry.unsafe", id(artworkId), entry.getName()));
                     }
@@ -309,7 +310,7 @@ public class UgoiraService {
         Path listFile = tempDir.resolve("frames.txt");
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < orderedFrames.size(); i++) {
-            String fp = orderedFrames.get(i).getValue().toAbsolutePath()
+            String fp = orderedFrames.get(i).getValue().getFileName()
                     .toString().replace("\\", "/");
             sb.append("file '").append(fp).append("'\n");
             sb.append("duration ").append(delays.get(i) / 1000.0).append("\n");
@@ -317,7 +318,7 @@ public class UgoiraService {
         // ffmpeg concat 需要重复最后一帧才能正确应用末帧时长
         sb.append("file '").append(
                 orderedFrames.get(orderedFrames.size() - 1).getValue()
-                        .toAbsolutePath().toString().replace("\\", "/"))
+                        .getFileName().toString().replace("\\", "/"))
                 .append("'\n");
         Files.writeString(listFile, sb.toString(), StandardCharsets.UTF_8);
 
@@ -343,20 +344,25 @@ public class UgoiraService {
             Files.deleteIfExists(partialOutput);
             Files.deleteIfExists(progressFile);
             Files.createFile(progressFile);
+            String command = detectFfmpegCommand();
+            Path executable = Path.of(command);
+            if (executable.getParent() != null) command = executable.toAbsolutePath().toString();
+            Path workingDirectory = ffmpegWorkingDirectory(downloadPath);
             ProcessBuilder processBuilder = new ProcessBuilder(
-                    detectFfmpegCommand(), "-y",
+                    command, "-y",
                     "-nostats",
                     "-stats_period", "0.5",
                     "-progress", "pipe:1",
                     "-f", "concat", "-safe", "0",
-                    "-i", listFile.toAbsolutePath().toString(),
+                    "-i", workingDirectory.relativize(listFile.toAbsolutePath()).toString(),
                     "-vcodec", "libwebp",
                     "-quality", "90",
                     "-loop", "0",
                     "-an",
                     "-f", "webp",
-                    partialOutput.toAbsolutePath().toString()
+                    workingDirectory.relativize(partialOutput.toAbsolutePath()).toString()
             );
+            processBuilder.directory(workingDirectory.toFile());
             processBuilder.redirectOutput(ProcessBuilder.Redirect.appendTo(progressFile.toFile()));
             processBuilder.redirectError(ProcessBuilder.Redirect.DISCARD);
             process = startFfmpeg(processBuilder);
@@ -667,6 +673,17 @@ public class UgoiraService {
                 throw new CancellationException("download cancelled");
             }
         }
+    }
+
+    static Path ffmpegWorkingDirectory(Path directory) {
+        Path working = directory.toAbsolutePath().normalize();
+        // CreateProcess 的工作目录仍受 258 字符限制，与 NIO 文件路径支持分开处理。
+        if (System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).startsWith("windows")) {
+            while (working.toString().length() > 258 && working.getParent() != null) {
+                working = working.getParent();
+            }
+        }
+        return working;
     }
 
     Process startFfmpeg(ProcessBuilder processBuilder) throws IOException {

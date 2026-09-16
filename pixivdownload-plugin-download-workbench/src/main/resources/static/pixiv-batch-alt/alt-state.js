@@ -46,6 +46,7 @@ let state = {
         bookmark: false,
         collectionId: null,
         fileNameTemplate: DEFAULT_FILE_NAME_TEMPLATE,
+        pathOverflowAction: 'ASK',
         userKind: 'illust',
         searchKind: 'illust',
         novelFormat: 'txt',

@@ -160,7 +160,7 @@ class NovelDownloadServiceTest {
         verify(novelDatabase).insertNovel(
                 eq(120L), any(), any(), anyInt(), eq(format), anyLong(), any(), any(),
                 any(), any(), anyLong(), any(), any(), any(), any(), any(), any(), any(),
-                any(), any(), any(), any());
+                any(), any(), any(), any(), eq(180));
     }
 
     @Test
@@ -214,7 +214,7 @@ class NovelDownloadServiceTest {
         verify(novelDatabase).insertNovel(
                 eq(108L), any(), any(), anyInt(), any(), anyLong(), rating.capture(), any(),
                 any(), any(), anyLong(), any(), any(), any(), any(), any(), any(), any(),
-                any(), any(), any(), any());
+                any(), any(), any(), any(), eq(180));
         assertThat(rating.getValue()).isEqualTo(2);
     }
 
@@ -313,13 +313,13 @@ class NovelDownloadServiceTest {
         Path root = tempDir.toAbsolutePath().normalize();
         Path downloadPath = root.resolve("reader").resolve("novel-109");
         verify(downloadPathGuard, times(2)).requireSafeDirectoryName("reader");
-        verify(downloadPathGuard).requireWithinRoot(root, downloadPath);
+        verify(downloadPathGuard, times(2)).requireWithinRoot(root, downloadPath);
         verify(workFileNameCatalog).getOrCreateTemplateId("{author_name}_{artwork_id}");
         verify(workFileNameCatalog).getOrCreateAuthorNameId("Writer");
         verify(novelDatabase).insertNovel(
                 eq(109L), any(), eq(downloadPath.toString()), anyInt(), any(), anyLong(), any(), any(),
                 eq(42L), any(), eq(17L), eq(23L), any(), any(), any(), any(), any(), any(),
-                any(), any(), any(), any());
+                any(), any(), any(), any(), eq(180));
     }
 
     @Test
@@ -449,10 +449,10 @@ class NovelDownloadServiceTest {
     void shouldWaitForRunningDownloadToExit() throws Exception {
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
-        lenient().when(downloadConfig.getRootFolder()).thenAnswer(invocation -> {
+        when(workFileNameCatalog.getOrCreateTemplateId(any())).thenAnswer(invocation -> {
             entered.countDown();
             release.await();
-            return tempDir.toString();
+            return 1L;
         });
         NovelDownloadService running = newService(task -> {
             Thread worker = new Thread(task, "novel-drain-test");

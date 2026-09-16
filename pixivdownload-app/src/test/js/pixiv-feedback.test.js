@@ -189,6 +189,33 @@ function clickEvent(target, values) {
 
     {
         const {document, feedback} = loadFeedback();
+        const controller = new AbortController();
+        const pending = feedback.choose({
+            message: 'Choose a path action', confirmLabel: 'Continue', cancelLabel: 'Wait',
+            choices: [{value: 'TRUNCATE', label: 'Truncate', disabled: true},
+                {value: 'DEFAULT_NAME', label: 'Default name'}, {value: 'CANCEL', label: 'Cancel work'}],
+            rememberLabel: 'Use for the rest of this batch', signal: controller.signal
+        });
+        await nextTurn();
+        const remember = find(document.body, node => node.type === 'checkbox');
+        remember.checked = true;
+        const accept = actionButton(document, 'accept');
+        actionContainer(accept).emit('click', {target: accept});
+        const result = await pending;
+        ok(result.value === 'DEFAULT_NAME' && result.remember,
+            'choice returns an enabled action and explicit batch preference');
+        const waiting = feedback.choose({message: 'Another work', confirmLabel: 'Continue', cancelLabel: 'Wait',
+            choices: [{value: 'CANCEL', label: 'Cancel work'}], signal: controller.signal});
+        await nextTurn();
+        controller.abort();
+        ok(await waiting === null && document.body.children.length === 0,
+            'aborting closes the active dialog without authorizing an action');
+        ok(await feedback.choose({signal: controller.signal}) === null,
+            'an expired queued dialog never opens');
+    }
+
+    {
+        const {document, feedback} = loadFeedback();
         const pending = feedback.confirm({
             title: 'Confirm title',
             message: 'Confirm message',

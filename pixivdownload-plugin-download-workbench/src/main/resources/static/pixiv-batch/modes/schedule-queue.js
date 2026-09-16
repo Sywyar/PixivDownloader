@@ -146,6 +146,8 @@
     // 不在这里 bake bt() 结果：模型会落到 localStorage 与跨语言切换的渲染轮次，bake 后无法跟随语言变化。
     function scheduleStatusToQueue(it) {
         switch (it.status) {
+            case 'paused':
+                return {status: 'paused', rawStatus: 'paused'};
             case 'downloaded':
                 return {status: 'completed', rawStatus: 'downloaded'};
             case 'skipped-downloaded':
@@ -241,6 +243,9 @@
         let lastMessage;
         const rawStatus = q.status === 'failed' ? 'failed' : q.rawStatus;
         switch (rawStatus) {
+            case 'paused':
+                lastMessage = bt('path.overflow.waiting', null);
+                break;
             case 'skipped-downloaded':
                 lastMessage = bt('schedule.queue.status.skipped-downloaded', '已存在，跳过');
                 break;

@@ -105,6 +105,8 @@ class NovelPluginContributionTest {
                 "novel.epub.chapter",
                 "novel.series.log.refresh.failed.exception",
                 "download.path.segment.invalid",
+                "download.path.action-required",
+                "download.cancelled",
                 "pixiv.proxy.novel.id.invalid",
                 "pixiv.proxy.novel.response.invalid",
                 "pixiv.proxy.novel.series.id.invalid",

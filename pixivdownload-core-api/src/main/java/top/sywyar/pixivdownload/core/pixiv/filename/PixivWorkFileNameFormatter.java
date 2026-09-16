@@ -20,7 +20,8 @@ public final class PixivWorkFileNameFormatter {
      */
     public static final String DEFAULT_TEMPLATE = "{artwork_id}_p{page}";
 
-    private static final int MAX_BASENAME_LENGTH = 180;
+    /** 默认文件名主干的最大 UTF-16 长度，不含扩展名。 */
+    public static final int MAX_BASENAME_LENGTH = 180;
     private static final Pattern VARIABLE_PATTERN = Pattern.compile(
             "\\{(artwork_id|artwork_title|author_id|author_name|timestamp|page|count|ai\\+?|R18\\+?)}");
     private static final Pattern INVALID_FILE_NAME_CHARS = Pattern.compile("[\\\\/:*?\"<>|\\p{Cntrl}]");
@@ -66,13 +67,39 @@ public final class PixivWorkFileNameFormatter {
                                          int count,
                                          Boolean isAi,
                                          Integer xRestrict) {
+        return formatAll(template, artworkId, artworkTitle, authorId, authorName,
+                timestamp, count, isAi, xRestrict, MAX_BASENAME_LENGTH);
+    }
+
+    /**
+     * 按已授权并记录的长度截断；旧记录仍使用默认的 180 字符上限。
+     * @param template 文件名模板
+     * @param artworkId 作品标识
+     * @param artworkTitle 作品标题
+     * @param authorId 作者标识
+     * @param authorName 作者名称
+     * @param timestamp 文件名时间戳
+     * @param count 作品页数
+     * @param isAi 是否为 AI 生成作品
+     * @param xRestrict 年龄分级
+     * @param maxLength 包含消歧页码后缀的主干长度上限
+     * @return 按页排列且互不重复的文件名主干
+     * @throws IllegalArgumentException 长度无效或不足以保留合法文件名与页码
+     */
+    public static List<String> formatAll(String template, long artworkId, String artworkTitle,
+                                         Long authorId, String authorName, long timestamp, int count,
+                                         Boolean isAi, Integer xRestrict, int maxLength) {
+        if (maxLength < 1 || maxLength > MAX_BASENAME_LENGTH) {
+            throw new IllegalArgumentException("Invalid filename length");
+        }
         int safeCount = Math.max(1, count);
         List<String> names = new ArrayList<>(safeCount);
         for (int page = 0; page < safeCount; page++) {
-            names.add(format(template, artworkId, artworkTitle, authorId, authorName,
-                    timestamp, page, safeCount, isAi, xRestrict));
+            String name = format(template, artworkId, artworkTitle, authorId, authorName,
+                    timestamp, page, safeCount, isAi, xRestrict);
+            names.add(maxLength == MAX_BASENAME_LENGTH ? name : truncate(name, maxLength));
         }
-        return ensureUnique(names);
+        return ensureUnique(names, maxLength);
     }
 
     /**
@@ -191,6 +218,10 @@ public final class PixivWorkFileNameFormatter {
     }
 
     private static List<String> ensureUnique(List<String> names) {
+        return ensureUnique(names, MAX_BASENAME_LENGTH);
+    }
+
+    private static List<String> ensureUnique(List<String> names, int maxLength) {
         List<String> result = new ArrayList<>(names.size());
         Map<String, Integer> baseCounts = new HashMap<>();
         Set<String> used = new HashSet<>();
@@ -204,7 +235,9 @@ public final class PixivWorkFileNameFormatter {
                 String candidateKey;
                 do {
                     String suffix = "_p" + page + (suffixIndex > 1 ? "_" + suffixIndex : "");
-                    candidate = appendSuffix(base, suffix);
+                    if (suffix.length() >= maxLength) throw new IllegalArgumentException("Filename cannot retain page suffix");
+                    candidate = maxLength == MAX_BASENAME_LENGTH ? appendSuffix(base, suffix)
+                            : truncate(base, maxLength - suffix.length()) + suffix;
                     candidateKey = key(candidate);
                     suffixIndex++;
                 } while (used.contains(candidateKey));
@@ -248,6 +281,16 @@ public final class PixivWorkFileNameFormatter {
             return value;
         }
         return value.substring(0, maxLength);
+    }
+
+    private static String truncate(String value, int maxLength) {
+        int end = Math.min(value.length(), maxLength);
+        if (end > 0 && Character.isHighSurrogate(value.charAt(end - 1))) end--;
+        String result = sanitize(value.substring(0, end));
+        if (result.isBlank() || result.length() > maxLength) {
+            throw new IllegalArgumentException("Filename cannot fit");
+        }
+        return result;
     }
 
     private static String fallbackBaseName(long artworkId, int page) {

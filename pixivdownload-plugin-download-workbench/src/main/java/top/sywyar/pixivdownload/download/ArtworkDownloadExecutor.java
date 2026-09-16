@@ -43,6 +43,9 @@ import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;
 import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathAction;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathPlan;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathLimits;
 import top.sywyar.pixivdownload.core.work.service.DownloadPathRejectedException;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
@@ -149,9 +152,11 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
     public void downloadImages(Long artworkId, String title, List<String> imageUrls,
                                String referer, DownloadRequest.Other other, String cookie,
                                String userUuid) {
+        FileNamePlan plan = buildFileNamePlan(artworkId, title, imageUrls.size(),
+                other == null ? new DownloadRequest.Other() : other);
         QueueTaskTracker.Task task = taskTracker.prepareQueued(userUuid);
         task.bind(() -> downloadImagesTracked(task, artworkId, title, imageUrls,
-                referer, other, cookie, userUuid));
+                referer, other, cookie, userUuid, plan));
         try {
             interactiveDownloadExecutionLane.execute(task);
         } catch (RuntimeException | Error failure) {
@@ -164,9 +169,11 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
     public boolean downloadImagesBlocking(Long artworkId, String title, List<String> imageUrls,
                                           String referer, DownloadRequest.Other other, String cookie,
                                           String userUuid) {
+        FileNamePlan plan = buildFileNamePlan(artworkId, title, imageUrls.size(),
+                other == null ? new DownloadRequest.Other() : other);
         QueueTaskTracker.Task task = taskTracker.beginRunning(userUuid);
         try {
-            return downloadImagesTracked(task, artworkId, title, imageUrls, referer, other, cookie, userUuid);
+            return downloadImagesTracked(task, artworkId, title, imageUrls, referer, other, cookie, userUuid, plan);
         } finally {
             task.completeRunning();
         }
@@ -175,7 +182,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
     private boolean downloadImagesTracked(QueueTaskTracker.Task task,
                                           Long artworkId, String title, List<String> imageUrls,
                                           String referer, DownloadRequest.Other other, String cookie,
-                                          String userUuid) {
+                                          String userUuid, FileNamePlan fileNamePlan) {
         boolean succeeded = false;
         if (other == null) {
             other = new DownloadRequest.Other();
@@ -193,24 +200,9 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
 
         try {
             ensureNotCancelled(status);
-            FileNamePlan fileNamePlan = buildFileNamePlan(artworkId, title, imageUrls.size(), other);
             other.setFileNames(fileNamePlan.baseNames());
-            String folderName = String.valueOf(artworkId);
-
-            // 创建文件夹结构
-            validateUserDownloadFolder(other);
-            Path downloadRoot = resolveEffectiveDownloadRoot(other).toAbsolutePath().normalize();
-            Path downloadPath = downloadRoot;
-            if (other.isUserDownload() && other.getUsername() != null && !downloadSettings.isUserFlatFolder()) {
-                downloadPath = downloadPath.resolve(requireSafeDirectoryName(other.getUsername()));
-
-                if (other.getXRestrict() == 2) {
-                    downloadPath = downloadPath.resolve("R18G");
-                } else if (other.getXRestrict() == 1) {
-                    downloadPath = downloadPath.resolve("R18");
-                }
-            }
-            downloadPath = downloadPath.resolve(folderName).normalize();
+            Path downloadRoot = fileNamePlan.root();
+            Path downloadPath = fileNamePlan.directory();
             requireWithinDownloadRoot(downloadRoot, downloadPath);
             status.setFolderName(displayFolderName(downloadRoot, downloadPath));
             Files.createDirectories(downloadPath);
@@ -308,7 +300,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
             recordDownload(artworkId, title, status.getDownloadPath(), fileExtensions,
                     successCount.get(), other.getXRestrict(), other.isAi(), other.getAuthorId(), other.getDescription(), other.getTags(),
                     fileNamePlan.template(), fileNamePlan.recordTime(), fileNamePlan.normalizedAuthorName(),
-                    other.getSeriesId(), other.getSeriesOrder());
+                    other.getSeriesId(), other.getSeriesOrder(), fileNamePlan.maxLength());
 
             recordAuthorInfo(artworkId, other, cookie);
             recordSeriesInfo(artworkId, other, cookie);
@@ -995,36 +987,47 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
     }
 
     private FileNamePlan buildFileNamePlan(Long artworkId, String title, int count, DownloadRequest.Other other) {
+        validateUserDownloadFolder(other);
+        Path root = resolveEffectiveDownloadRoot(other).toAbsolutePath().normalize();
+        Path directory = root;
+        if (other.isUserDownload() && other.getUsername() != null && !downloadSettings.isUserFlatFolder()) {
+            directory = directory.resolve(requireSafeDirectoryName(other.getUsername()));
+            if (other.getXRestrict() == 2) directory = directory.resolve("R18G");
+            else if (other.getXRestrict() == 1) directory = directory.resolve("R18");
+        }
+        directory = directory.resolve(String.valueOf(artworkId)).normalize();
+        requireWithinDownloadRoot(root, directory);
         String template = PixivWorkFileNameFormatter.normalizeTemplate(other.getFileNameTemplate());
         long preferredTime = EpochMillisNormalizer.normalize(other.getFileNameTimestamp());
         long recordTime = artworkDownloadHistory.allocateRecordTime(preferredTime);
         String sanitizedAuthorName = PixivWorkFileNameFormatter.sanitize(other.getAuthorName());
-        List<String> computed = PixivWorkFileNameFormatter.formatAll(
-                template,
-                artworkId,
-                title,
-                other.getAuthorId(),
-                other.getAuthorName(),
-                recordTime,
-                count,
-                other.isAi(),
-                other.getXRestrict()
-        );
+        var supported = downloadPathGuard.pathSupport(directory);
+        DownloadPathPlan resolved = DownloadPathPlan.resolve(directory,
+                supported == null ? DownloadPathLimits.UNKNOWN::accepts : supported,
+                length -> PixivWorkFileNameFormatter.formatAll(template, artworkId, title, other.getAuthorId(),
+                        other.getAuthorName(), recordTime, count, other.isAi(), other.getXRestrict(), length),
+                PixivWorkFileNameFormatter.formatAll(PixivWorkFileNameFormatter.DEFAULT_TEMPLATE, artworkId,
+                        title, other.getAuthorId(), other.getAuthorName(), recordTime, count, other.isAi(), other.getXRestrict()),
+                other.isUgoira() ? List.of(".webp", ".webp.part", "_thumb.jpg")
+                        : List.of(".jpg", ".image-download.part"),
+                other.isUgoira() ? List.of("_ugoira_frames.zip.part", "_frames_tmp/ffmpeg-progress.log") : List.of(),
+                DownloadPathAction.parse(other.getPathOverflowAction()));
+        List<String> computed = resolved.baseNames();
         List<String> provided = PixivWorkFileNameFormatter.normalizeProvidedBaseNames(other.getFileNames(), count, artworkId);
         if (!provided.isEmpty() && !provided.equals(computed)) {
             log.debug(logMessage("download.log.filename-mismatch", artworkId));
         }
         return new FileNamePlan(
-                template,
+                resolved.defaultName() ? PixivWorkFileNameFormatter.DEFAULT_TEMPLATE : template,
                 recordTime,
                 sanitizedAuthorName.isEmpty() ? null : sanitizedAuthorName,
-                provided.equals(computed) ? provided : computed);
+                provided.equals(computed) ? provided : computed, root, directory, resolved.maxLength());
     }
 
     private void recordDownload(Long artworkId, String title, String folderPath, HashSet<String> fileExtensions,
                                 int count, int xRestrict, boolean isAi, Long authorId, String description, List<WorkTag> tags,
                                 String fileNameTemplate, long recordTime, String normalizedAuthorName,
-                                Long seriesId, Long seriesOrder) {
+                                Long seriesId, Long seriesOrder, int maxLength) {
         artworkDownloadHistory.record(new ArtworkDownloadCompletion(
                 artworkId,
                 title,
@@ -1040,7 +1043,8 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                 normalizedAuthorName,
                 seriesId,
                 seriesOrder,
-                tags
+                tags,
+                maxLength
         ));
     }
 
@@ -1064,7 +1068,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
             String template,
             long recordTime,
             String normalizedAuthorName,
-            List<String> baseNames) {
+            List<String> baseNames, Path root, Path directory, int maxLength) {
         String baseName(int page) {
             if (page >= 0 && page < baseNames.size()) {
                 return baseNames.get(page);

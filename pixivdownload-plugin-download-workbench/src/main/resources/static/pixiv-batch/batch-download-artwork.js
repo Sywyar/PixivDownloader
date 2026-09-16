@@ -285,15 +285,7 @@
             cookie: getCookie(),
             other
         };
-        const res = await fetch(`${BASE}/api/download/pixiv`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            credentials: 'same-origin',
-            signal: processSignal(invocation),
-            body: JSON.stringify(payload)
-        });
-        assertProcessInvocation(invocation);
-        const data = await res.json();
+        const {res, data} = await submitWithPathAction(`${BASE}/api/download/pixiv`, payload, invocation);
         assertProcessInvocation(invocation);
         if (res.status === 429 && data.quotaExceeded) {
             if (!quotaExceededHandled) {

@@ -324,6 +324,23 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
         return value == null ? OptionalLong.empty() : OptionalLong.of(value);
     }
 
+    @Override
+    @Transactional
+    public OptionalLong resolvePendingWork(long taskId, long expectedStateVersion, String workType, String workId,
+                                           String userAction, boolean rememberForRun) {
+        if (userAction == null || !userAction.matches("[A-Z][A-Z0-9_]{0,63}")) {
+            throw new IllegalArgumentException("Invalid user action");
+        }
+        Long version = mapper.advanceIdleStateVersion(taskId, expectedStateVersion);
+        if (version == null) return OptionalLong.empty();
+        String detail = "{\"requiresUserAction\":false,\"userAction\":\"" + userAction
+                + "\",\"rememberForRun\":" + rememberForRun + "}";
+        if (mapper.resolvePendingWork(taskId, workType, workId, detail) != 1) {
+            throw new IllegalArgumentException("Pending work does not exist");
+        }
+        return OptionalLong.of(version);
+    }
+
     private static void requireTokenState(ScheduleRunToken token, ScheduleRunState expected) {
         Objects.requireNonNull(token, "token");
         if (token.runState() != expected) {

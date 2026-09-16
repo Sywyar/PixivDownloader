@@ -39,6 +39,7 @@
             bookmark: false,
             collectionId: null,
             fileNameTemplate: DEFAULT_FILE_NAME_TEMPLATE,
+            pathOverflowAction: 'ASK',
             novelFormat: 'txt',
             mergeNovelSeries: false,
             mergeNovelFormat: 'epub',

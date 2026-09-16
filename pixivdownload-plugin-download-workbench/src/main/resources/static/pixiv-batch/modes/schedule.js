@@ -70,6 +70,7 @@
 
     async function resumeScheduleTask(id) {
         try {
+            if (!await resolveSchedulePathActions(scheduleTaskById(id))) return;
             const res = await fetch(`${BASE}/api/schedule/tasks/${id}/resume`, {method: 'POST', credentials: 'same-origin'});
             if (res.ok) {
                 setScheduleCardTip(id, bt('schedule.status.resumed', '已恢复该任务'), 'success');

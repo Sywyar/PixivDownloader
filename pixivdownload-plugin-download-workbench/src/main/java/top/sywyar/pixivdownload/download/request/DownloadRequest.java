@@ -43,6 +43,7 @@ public class DownloadRequest {
         private String description;
         private List<WorkTag> tags;
         private String fileNameTemplate;
+        private String pathOverflowAction;
         private List<String> fileNames;
         /** Filename template timestamp, in epoch milliseconds. */
         private Long fileNameTimestamp;

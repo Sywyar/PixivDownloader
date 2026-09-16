@@ -20,6 +20,10 @@ import java.util.List;
 /** 核心计划任务 Store 的 MyBatis 实现细节；插件代码不得直接依赖本 mapper。 */
 @Mapper
 public interface ScheduledTaskMapper {
+    @Update("UPDATE scheduled_task_pending_work SET reason_detail_json = #{detail}"
+            + " WHERE task_id = #{taskId} AND work_type = #{workType} AND work_id = #{workId}")
+    int resolvePendingWork(@Param("taskId") long taskId, @Param("workType") String workType,
+                           @Param("workId") String workId, @Param("detail") String detail);
 
     /** 不含任何 credential secret 的任务投影。 */
     String SELECT_TASK = "SELECT t.id, t.name, t.enabled,"

@@ -109,9 +109,15 @@ public class ArtworkFileLocator {
                 artwork.time(),
                 count,
                 artwork.isAi(),
-                artwork.xRestrict()
+                artwork.xRestrict(),
+                storedMaxLength(artwork.artworkId())
         );
         return baseNames.get(page);
+    }
+
+    private int storedMaxLength(long artworkId) {
+        int length = pixivDatabase.getFileNameMaxLength(artworkId, false);
+        return length > 0 ? length : PixivWorkFileNameFormatter.MAX_BASENAME_LENGTH;
     }
 
     private String logMessage(String code, Object... args) {

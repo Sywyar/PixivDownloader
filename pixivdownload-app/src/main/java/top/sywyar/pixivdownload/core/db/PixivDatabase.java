@@ -106,6 +106,19 @@ public class PixivDatabase {
         return PixivWorkFileNameFormatter.normalizeTemplate(template);
     }
 
+    public int getFileNameMaxLength(long id, boolean novel) {
+        Integer length = novel ? pixivMapper.findNovelFileNameMaxLength(id) : pixivMapper.findFileNameMaxLength(id);
+        return length == null || length < 1 || length > PixivWorkFileNameFormatter.MAX_BASENAME_LENGTH
+                ? PixivWorkFileNameFormatter.MAX_BASENAME_LENGTH : length;
+    }
+
+    public void updateFileNameMaxLength(long id, int length) {
+        if (length < 1 || length > PixivWorkFileNameFormatter.MAX_BASENAME_LENGTH) {
+            throw new IllegalArgumentException("Invalid filename length");
+        }
+        pixivMapper.updateFileNameMaxLength(id, length);
+    }
+
     public Map<Long, String> getFileNameTemplates(Collection<Long> ids) {
         if (ids == null || ids.isEmpty()) {
             return Map.of();

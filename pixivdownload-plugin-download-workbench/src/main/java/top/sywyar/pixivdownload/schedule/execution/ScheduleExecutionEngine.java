@@ -904,7 +904,8 @@ public final class ScheduleExecutionEngine {
                         0L);
             }
             if (!fatalFailures.hasFailure()
-                    && safeFailure.category() != ScheduledFailure.Category.CANCELLED) {
+                    && safeFailure.category() != ScheduledFailure.Category.CANCELLED
+                    && safeFailure.category() != ScheduledFailure.Category.USER_ACTION_REQUIRED) {
                 guardDecision = guardInvoker.invokeFailureOnce(
                         attempted, safeFailure, fatalFailures);
             }

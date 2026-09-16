@@ -107,7 +107,7 @@ public record ScheduleTaskView(
         ScheduleSuspendReason reason = task.suspendReason();
         if (reason != null) {
             return switch (reason) {
-                case MANUAL -> STATUS_PAUSED;
+                case MANUAL, USER_ACTION_REQUIRED -> STATUS_PAUSED;
                 case CREDENTIAL, POLICY -> policyStatusCode == null
                         ? reason.name() : policyStatusCode;
                 case SOURCE_UNAVAILABLE, EXECUTOR_UNAVAILABLE, QUIESCED, MIGRATION_ERROR ->

@@ -36,6 +36,7 @@
             return;
         }
         state.isRunning = true;
+        beginPathActionBatch();
 
         updateStats();
         updateButtonsState();
@@ -78,6 +79,7 @@
     }
 
     function finishBatch() {
+        endPathActionBatch();
         closeAllSSE();
         state.isRunning = false;
         saveQueue();
@@ -417,7 +419,9 @@
             }
         } catch (e) {
             assertProcessInvocation(invocation);
-            if (e.message === 'quota_exceeded') {
+            if (handlePathActionError(item, e)) {
+                // 用户取消只跳过此作品，关闭弹窗则保留为待处理。
+            } else if (e.message === 'quota_exceeded') {
                 // 已在 handleQuotaExceeded 中处理，item 已标记为失败，不需要重复处理
                 item.status = 'failed';
                 item.lastMessage = bt('queue.message.failed-quota', '失败 - 达到限额');

@@ -285,6 +285,9 @@
             align-items: center;
         }
 
+        .path-overflow-setting { flex-wrap: wrap; }
+        .path-overflow-setting[hidden] { display: none; }
+
         #s-file-name-template {
             flex: 1 1 320px;
             max-width: 560px;

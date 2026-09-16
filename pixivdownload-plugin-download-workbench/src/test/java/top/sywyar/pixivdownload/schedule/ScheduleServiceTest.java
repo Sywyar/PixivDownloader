@@ -920,6 +920,19 @@ class ScheduleServiceTest {
     }
 
     @Test
+    @DisplayName("可精确恢复待用户处理的挂起")
+    void resumesUserActionSuspension() {
+        when(store.findById(15L)).thenReturn(task(
+                15L, true, null, ScheduleSuspendReason.USER_ACTION_REQUIRED,
+                "DOWNLOAD_PATH_ACTION_REQUIRED", null, null, null, false));
+        when(store.resume(eq(15L), eq(STATE_VERSION), eq(ScheduleSuspendReason.USER_ACTION_REQUIRED),
+                eq("DOWNLOAD_PATH_ACTION_REQUIRED"), anyLong())).thenReturn(OptionalLong.of(STATE_VERSION + 1));
+        newService().resume(15L);
+        verify(store).resume(eq(15L), eq(STATE_VERSION), eq(ScheduleSuspendReason.USER_ACTION_REQUIRED),
+                eq("DOWNLOAD_PATH_ACTION_REQUIRED"), anyLong());
+    }
+
+    @Test
     @DisplayName("queue：按任意作品类型投影中性展示结果并只读取显式开放的实时状态")
     void queueProjectsNeutralLiveStatusForArbitraryWorkType() {
         String workType = "third.party.text";

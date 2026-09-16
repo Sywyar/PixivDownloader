@@ -127,6 +127,13 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
                     executeScoped(id, artworkId, cookie, snapshot, context));
         } catch (ScheduledExecutionException failure) {
             throw failure;
+        } catch (top.sywyar.pixivdownload.core.work.service.DownloadPathPlan.NeedsAction needed) {
+            throw failure(ScheduledFailure.Category.USER_ACTION_REQUIRED, "DOWNLOAD_PATH_ACTION_REQUIRED");
+        } catch (java.util.concurrent.CancellationException cancelled) {
+            if ("DOWNLOAD_PATH_CANCELLED".equals(cancelled.getMessage())) {
+                return new ScheduledWorkResult(ScheduledWorkResult.Outcome.SKIPPED, "DOWNLOAD_PATH_CANCELLED", Map.of());
+            }
+            throw ScheduledExecutionException.cancelled();
         } catch (PixivAjaxException failure) {
             if (failure.failure() == PixivAjaxFailure.HTTP_STATUS) {
                 int status = failure.statusCode();
@@ -217,6 +224,8 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
         other.setSeriesOrder(meta.seriesOrder());
         other.setIllustType(meta.illustType());
         other.setFileNameTemplate(download.fileNameTemplate());
+        other.setPathOverflowAction(context.userAction("DOWNLOAD_PATH_ACTION_REQUIRED")
+                .orElse(download.pathOverflowAction().name()));
         other.setBookmark(download.bookmark());
         other.setCollectionId(download.collectionId());
         other.setDelayMs(download.imageDelayMs() == null

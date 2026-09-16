@@ -177,6 +177,7 @@
     function snapshotDownload() {
         return {
             fileNameTemplate: state.settings.fileNameTemplate,
+            pathOverflowAction: state.settings.pathOverflowAction || 'ASK',
             bookmark: !!state.settings.bookmark,
             collectionId: state.settings.collectionId,
             concurrent: Math.max(1, parseInt(state.settings.concurrent, 10) || 1),
@@ -274,6 +275,9 @@
 
     function applyDownload(value) {
         const download = value || {};
+        state.settings.pathOverflowAction = download.pathOverflowAction || 'ASK';
+        const pathAction = document.getElementById('s-path-overflow-action');
+        if (pathAction) pathAction.value = download.pathOverflowAction || 'ASK';
         if (typeof download.fileNameTemplate === 'string' && download.fileNameTemplate) {
             const field = document.getElementById('s-file-name-template');
             if (field) field.value = download.fileNameTemplate;
@@ -553,6 +557,10 @@
             [bt('label.settings.skip', '跳过已下载作品'), bt('schedule.snapshot.value.always-on', '始终开启')],
             [bt('label.settings.redownload-deleted', '允许已删除的作品被重新下载'), boolLabel(!!download.redownloadDeleted)],
             [bt('label.settings.filename-template', '文件名格式:'), valueOrUnset(download.fileNameTemplate)],
+            [bt('batch:path.overflow.label', null), mapped(download.pathOverflowAction, 'ASK', {
+                ASK: bt('batch:path.overflow.ask', null), TRUNCATE: bt('batch:path.overflow.truncate', null),
+                DEFAULT_NAME: bt('batch:path.overflow.default', null), CANCEL: bt('batch:path.overflow.cancel', null)
+            })],
             [bt('label.settings.bookmark', '下载后自动收藏'), boolLabel(!!download.bookmark)],
             [bt('label.settings.collection', '收藏到:'), collectionLabel(download.collectionId)],
             [bt('label.settings.concurrent', '最大并发数:'), concurrent],

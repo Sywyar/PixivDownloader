@@ -60,6 +60,7 @@ function scheduleTaskCredentialPresentation(task) {
 }
 
 function scheduleStatusLabel(task) {
+    if (task && task.suspendReason === 'USER_ACTION_REQUIRED') return bt('batch:path.overflow.waiting', null);
     const credentialPresentation = scheduleTaskCredentialPresentation(task);
     if (credentialPresentation && credentialPresentation.statusLabel) {
         return credentialPresentation.statusLabel;
@@ -85,6 +86,7 @@ function safeScheduleMachineCode(value) {
 }
 
 function localizeScheduleMachineCode(value, sourceType) {
+    if (value === 'DOWNLOAD_PATH_ACTION_REQUIRED') return bt('batch:path.overflow.waiting', null);
     const code = safeScheduleMachineCode(value);
     if (!code) return null;
     if (code.startsWith('schedule.')) {
@@ -130,6 +132,9 @@ function scheduleStatusLight(t) {
     }
     if (!t.enabled) {
         return {tone: 'gray', live: false, text: bt('schedule.light.disabled', '已停用，不会自动运行')};
+    }
+    if (t.suspendReason === 'USER_ACTION_REQUIRED') {
+        return {tone: 'yellow', live: false, text: bt('batch:path.overflow.waiting', null)};
     }
     if (t.suspendReason === 'SOURCE_UNAVAILABLE') {
         return {tone: 'red', live: false, text: bt('schedule.light.source-unavailable', '来源能力当前不可用，等待插件恢复')};
@@ -441,7 +446,9 @@ function scheduleTaskCard(task, idx) {
     metaGrid.appendChild(scheduleMetaItem('schedule.meta.next-run', '下次运行',
         task.nextRunTime
             ? fmtScheduleTime(task.nextRunTime)
-            : (task.suspendReason
+            : (task.suspendReason === 'USER_ACTION_REQUIRED'
+                ? bt('batch:path.overflow.waiting', null)
+                : task.suspendReason
                 ? bt('schedule.next-run.capability', '等待插件能力恢复后自动重试')
                 : (task.lastStatus === 'PAUSED' || task.lastStatus === 'OVERUSE_PAUSED')
                     ? bt('schedule.next-run.suspended', '需人工恢复后才会继续')
@@ -463,8 +470,8 @@ function scheduleTaskCard(task, idx) {
                 ? bt('schedule.action-disabled.disabled', '已停用')
                 : bt('schedule.action-disabled.suspended', '插件能力不可用 / 暂停中'),
         () => scheduleVerb(task, 'run')));
-    if (suspended && !task.suspendReason) {
-        actions.appendChild(scheduleActionBtn('refresh', 'schedule.actions.resume', '恢复', false, '',
+    if (suspended && (!task.suspendReason || ['MANUAL', 'USER_ACTION_REQUIRED'].includes(task.suspendReason))) {
+        actions.appendChild(scheduleActionBtn('refresh', 'schedule.actions.resume', '恢复', busy, '',
             () => scheduleVerb(task, 'resume')));
     } else {
         actions.appendChild(scheduleActionBtn('pause', 'schedule.actions.pause', '暂停',

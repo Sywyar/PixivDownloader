@@ -3,7 +3,7 @@
     const scopedBatchCollectionsRefreshPromises = new WeakMap();
     const AUTO_SAVE_SETTING_IDS = new Set([
         's-interval', 's-image-delay', 's-concurrent', 's-skip', 's-verify-files',
-        's-redownload-deleted', 's-bookmark', 's-collection', 's-file-name-template',
+        's-redownload-deleted', 's-bookmark', 's-collection', 's-file-name-template', 's-path-overflow-action',
         's-novel-format', 's-novel-merge', 's-novel-merge-format',
         's-novel-auto-translate', 's-novel-translate-lang', 's-novel-translate-seg'
     ]);
@@ -121,6 +121,12 @@
         document.getElementById('s-image-delay').value = state.settings.imageDelay ?? 0;
         state.settings.fileNameTemplate = normalizeFileNameTemplate(state.settings.fileNameTemplate);
         document.getElementById('s-file-name-template').value = state.settings.fileNameTemplate;
+        const pathAction = document.getElementById('s-path-overflow-action');
+        if (pathAction) {
+            pathAction.value = state.settings.pathOverflowAction || 'ASK';
+            if (!pathAction.value) pathAction.value = 'ASK';
+            pathAction.closest('.filename-setting').hidden = !isAdmin;
+        }
         const unit = state.settings.intervalUnit || 's';
         state.settings.intervalUnit = unit;
         document.getElementById('s-interval-unit').textContent = unit;
@@ -256,6 +262,7 @@
         state.settings.redownloadDeleted = document.getElementById('s-redownload-deleted').checked;
         state.settings.bookmark = document.getElementById('s-bookmark').checked;
         state.settings.fileNameTemplate = normalizeFileNameTemplate(document.getElementById('s-file-name-template').value);
+        state.settings.pathOverflowAction = (document.getElementById('s-path-overflow-action') || {}).value || 'ASK';
         const sel = document.getElementById('s-collection');
         state.settings.collectionId = sel.value ? Number(sel.value) : null;
         const fmtEl = document.getElementById('s-novel-format');

@@ -164,15 +164,8 @@ const {
             };
             item.lastMessage = bt('queue.message.waiting-completion', '下载中，等待完成...');
             renderQueue();
-            const dlRes = await fetch(`${BASE}/api/novel/download`, {
-                method: 'POST',
-                headers: {...headers, 'Content-Type': 'application/json'},
-                credentials: 'same-origin',
-                signal: invocation.signal,
-                body: JSON.stringify(body)
-            });
-            assertNovelProcess(invocation);
-            const dlData = await dlRes.json().catch(() => ({}));
+            const {res: dlRes, data: dlData} = await window.PixivBatch.pathActions.submit(
+                `${BASE}/api/novel/download`, body, invocation, headers);
             assertNovelProcess(invocation);
             if (dlRes.status === 429 && dlData.quotaExceeded) {
                 if (!quotaExceededHandled) {
@@ -246,6 +239,12 @@ const {
             renderQueue();
         } catch (e) {
             assertNovelProcess(invocation);
+            if (window.PixivBatch.pathActions.handleError(item, e)) {
+                updateStats();
+                saveQueue();
+                renderQueue();
+                return;
+            }
             item.status = 'failed';
             item.lastMessage = bt('queue.message.failed', '失败 — {message}', {message: e.message || String(e)});
             item.endTime = new Date().toISOString();

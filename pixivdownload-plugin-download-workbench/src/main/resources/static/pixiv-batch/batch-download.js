@@ -44,6 +44,7 @@
     }
 
     function stopAndClear() {
+        endPathActionBatch();
         state.stopRequested = true;
         state.isRunning = false;
         state.isPaused = false;

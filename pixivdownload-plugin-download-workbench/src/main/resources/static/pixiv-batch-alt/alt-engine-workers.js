@@ -39,6 +39,7 @@ async function start() {
         return;
     }
     state.isRunning = true;
+    beginPathActionBatch();
 
     updateStats();
     updateButtonsState();
@@ -80,6 +81,7 @@ function handleWorkerExit() {
 }
 
 function finishBatch() {
+    endPathActionBatch();
     closeAllSSE();
     state.isRunning = false;
     saveQueue();
@@ -129,6 +131,7 @@ function getNextPending() {
     const idx = state.queue.findIndex(q => q.status === 'pending' && !downloadingIds.has(q.id));
     if (idx === -1) return null;
     state.queue[idx].status = 'downloading';
+    state.queue[idx].statusMessageKey = null;
     state.queue[idx].startTime = new Date().toISOString();
     saveQueue();
     renderQueue();
@@ -165,7 +168,7 @@ async function processSingle(item) {
 }
 
 // 插画 / 漫画 / 动图下载流程（逐字移植 processIllustItem，UI 门面换新坞）。
-async function processIllustItem(item) {
+async function processIllustItem(item, invocation) {
     item.lastMessage = bt('queue.message.checking-history', '正在检查历史记录...');
     renderQueue();
 
@@ -289,7 +292,8 @@ async function processIllustItem(item) {
             Array.isArray(meta.tags) ? meta.tags : [],
             seriesInfo,
             meta.illustType ?? null,
-            meta.rawMetaJson || null
+            meta.rawMetaJson || null,
+            invocation
         );
         if (dlData && dlData.alreadyDownloaded) {
             item.status = 'skipped';
@@ -376,6 +380,7 @@ async function processIllustItem(item) {
             }
         }
     } catch (e) {
+        if (handlePathActionError(item, e)) return;
         if (e.message === 'quota_exceeded') {
             // 已在 handleQuotaExceeded 中处理，item 已标记为失败，不需要重复处理
             item.status = 'failed';
@@ -438,6 +443,7 @@ function forceClearBackendQueue() {
 }
 
 function stopAndClear() {
+    endPathActionBatch();
     state.stopRequested = true;
     state.isRunning = false;
     state.isPaused = false;

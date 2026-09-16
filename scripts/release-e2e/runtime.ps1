@@ -71,12 +71,22 @@ function Invoke-ReleaseProbe {
     $responseDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     if ($Deadline -lt $responseDeadline) { $responseDeadline = $Deadline }
     Assert-ArtifactAlive $Process $Command
+    $request = Join-Path $ProbeRoot 'request.txt'
+    # A timed-out caller may leave a request that the observer has not consumed yet.
+    while (Test-Path -LiteralPath $request) {
+        Assert-ArtifactAlive $Process $Command
+        $remaining = ($responseDeadline - [DateTime]::UtcNow).TotalMilliseconds
+        if ($remaining -le 0) { break }
+        Start-Sleep -Milliseconds ([int][Math]::Ceiling([Math]::Min(100, $remaining)))
+    }
+    if ([DateTime]::UtcNow -ge $responseDeadline) {
+        throw "Release observer did not answer $Command before its deadline (up to $TimeoutSeconds seconds)"
+    }
     $nonce = [Guid]::NewGuid().ToString('N')
     $responsePath = Join-Path $ProbeRoot 'response.json'
     # A single in-flight request owns the response; avoid replacing a file while Windows reads it.
     if (Test-Path -LiteralPath $responsePath) { Remove-Item -LiteralPath $responsePath }
     $temporary = Join-Path $ProbeRoot 'request.tmp'
-    $request = Join-Path $ProbeRoot 'request.txt'
     [IO.File]::WriteAllText($temporary, "$nonce`n$Command`n$Target`n", [Text.UTF8Encoding]::new($false))
     [IO.File]::Move($temporary, $request)
     while ([DateTime]::UtcNow -lt $responseDeadline) {
