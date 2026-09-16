@@ -76,7 +76,7 @@ jobs:
       actions: read
       contents: write
     concurrency:
-      group: source-candidate-${{ github.repository_id }}-${{ github.sha }}
+      group: source-candidate-${{ github.repository_id }}
       cancel-in-progress: false
     steps:
       # 写权限任务只读取数据，不 checkout 或执行插件工程、构建脚本及产物。
@@ -84,7 +84,7 @@ jobs:
         with:
           pattern: source-candidate-${{ github.run_attempt }}-*
           path: candidates
-      - name: Archive exact candidate bytes as source drafts
+      - name: Update rolling source drafts
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
@@ -105,6 +105,8 @@ jobs:
             if (repo.private || String(repo.id) !== String(context.payload.repository.id)
                 || run.event !== 'push' || run.head_sha !== context.sha || run.head_branch !== repo.default_branch
                 || String(run.repository.id) !== String(repo.id)) throw new Error('CANDIDATE_SOURCE_MISMATCH');
+            const current = async () => (await github.rest.repos.getCommit({...context.repo, ref: repo.default_branch})).data.sha === context.sha;
+            if (!await current()) { core.info('Superseded source commit; rolling drafts unchanged.'); return; }
             const folders = fs.readdirSync('candidates', {withFileTypes: true});
             if (!folders.length || folders.length > 32) throw new Error('CANDIDATE_COUNT_INVALID');
             // 下载 Action 对单个 artifact 直接展开，对多个 artifact 分目录展开。
@@ -129,49 +131,43 @@ jobs:
               const bytes = read(path.join(directory, file), maximum);
               if (bytes.length !== c.artifact.size || digest(bytes) !== c.artifact.sha256
                   || fs.readdirSync(directory).sort().join('\n') !== [file, 'source-candidate.json'].sort().join('\n')) throw new Error('CANDIDATE_BYTES_CHANGED');
-              prepared.push({c, metadata, file: path.join(directory, file), tag: `candidate-${c.pluginId}-${c.version}-${context.sha}`});
+              prepared.push({c, metadata, file: path.join(directory, file), tag: `candidate-${c.pluginId}`});
             }
             if (new Set(prepared.map(p => p.tag)).size !== prepared.length) throw new Error('CANDIDATE_ID_DUPLICATED');
             const releases = await github.paginate(github.rest.repos.listReleases, {...context.repo, per_page: 100});
             for (const {c, metadata, file, tag} of prepared) {
-              // 草稿尚未创建 tag 时允许缺失；现存 tag 必须实际解析到该提交。
-              let tagExists = true;
+              // 滚动入口只允许未发布草稿；不移动已存在的 Git tag。
               try {
-                const ref = (await github.rest.git.getRef({...context.repo, ref: `tags/${tag}`})).data;
-                if (ref.ref !== `refs/tags/${tag}`) throw new Error('CANDIDATE_TAG_CHANGED');
-              } catch (error) { if (error.status === 404) tagExists = false; else throw error; }
-              if (tagExists) {
-                const commit = (await github.rest.repos.getCommit({...context.repo, ref: `refs/tags/${tag}`})).data;
-                if (commit.sha !== context.sha) throw new Error('CANDIDATE_TAG_CHANGED');
-              }
+                await github.rest.git.getRef({...context.repo, ref: `tags/${tag}`});
+                throw new Error('CANDIDATE_TAG_CHANGED');
+              } catch (error) { if (error.status !== 404) throw error; }
               const bytes = read(file, maximum);
               if (bytes.length !== c.artifact.size || digest(bytes) !== c.artifact.sha256) throw new Error('CANDIDATE_BYTES_CHANGED');
               const matches = releases.filter(release => release.tag_name === tag);
               if (matches.length > 1) throw new Error('CANDIDATE_RELEASE_CONFLICT');
               let release = matches[0];
-              if (!release) release = (await github.rest.repos.createRelease({...context.repo, tag_name: tag,
-                target_commitish: context.sha, name: `${repo.owner.login} / ${c.pluginId} ${c.version}`,
-                body: `Source candidate for ${context.sha}. Community review is required.`, draft: true, prerelease: true, make_latest: 'false'})).data;
-              if (release.target_commitish !== context.sha || !release.prerelease) throw new Error('CANDIDATE_RELEASE_CONFLICT');
-              if (!release.draft && !tagExists) throw new Error('CANDIDATE_TAG_CHANGED');
-              const assets = await github.paginate(github.rest.repos.listReleaseAssets, {...context.repo, release_id: release.id, per_page: 100});
-              if (assets.some(asset => ![c.artifact.file, 'source-candidate.json'].includes(asset.name))) throw new Error('CANDIDATE_ASSET_CONFLICT');
+              if (release && (!release.draft || !release.prerelease)) throw new Error('CANDIDATE_RELEASE_CONFLICT');
+              const assets = release ? await github.paginate(github.rest.repos.listReleaseAssets, {...context.repo, release_id: release.id, per_page: 100}) : [];
+              const packageName = new RegExp(`^pixivdownload-plugin-${c.pluginId}-[A-Za-z0-9._+-]+\\.(jar|zip)$`);
+              if (assets.length > 2 || new Set(assets.map(asset => asset.name)).size !== assets.length
+                  || assets.some(asset => asset.name !== 'source-candidate.json' && !packageName.test(asset.name))) throw new Error('CANDIDATE_ASSET_CONFLICT');
+              const same = release?.target_commitish === context.sha && assets.length === 2
+                && [[c.artifact.file, bytes], ['source-candidate.json', metadata]].every(([name, data]) =>
+                  assets.some(asset => asset.name === name && asset.state === 'uploaded' && asset.size === data.length && asset.digest === `sha256:${digest(data)}`));
+              if (same) continue;
+              if (!await current()) { core.info('Superseded source commit; remaining rolling drafts unchanged.'); return; }
+              // 先撤下完成标记，再替换包；最后上传元数据，半成品不能成为投稿候选。
+              for (const asset of [...assets].sort((a, b) => Number(b.name === 'source-candidate.json') - Number(a.name === 'source-candidate.json'))) {
+                await github.rest.repos.deleteReleaseAsset({...context.repo, asset_id: asset.id});
+              }
+              const fields = {...context.repo, tag_name: tag, target_commitish: context.sha,
+                name: `${repo.owner.login} / ${c.pluginId} candidate`,
+                body: `Rolling source candidate for ${context.sha}. Replaced by successful default-branch builds. Community review is required.`,
+                draft: true, prerelease: true, make_latest: 'false'};
+              release = (release ? await github.rest.repos.updateRelease({...fields, release_id: release.id})
+                : await github.rest.repos.createRelease(fields)).data;
+              if (!release.draft || !release.prerelease || release.tag_name !== tag || release.target_commitish !== context.sha) throw new Error('CANDIDATE_RELEASE_CONFLICT');
               for (const [name, data] of [[c.artifact.file, bytes], ['source-candidate.json', metadata]]) {
-                const found = assets.filter(asset => asset.name === name);
-                if (found.length > 1) throw new Error('CANDIDATE_ASSET_CONFLICT');
-                if (found.length) {
-                  // 重跑只复用原有相同字节；元数据中的原 run/attempt 保持不变。
-                  if (name === 'source-candidate.json') {
-                    if (found[0].size < 1 || found[0].size > 64 * 1024) throw new Error('CANDIDATE_METADATA_INVALID');
-                    const response = await github.request('GET /repos/{owner}/{repo}/releases/assets/{asset_id}', {...context.repo, asset_id: found[0].id, headers: {accept: 'application/octet-stream'}});
-                    const old = JSON.parse(Buffer.from(response.data).toString('utf8'));
-                    if (old.repositoryId !== c.repositoryId || old.sourceCommit !== c.sourceCommit || old.pluginId !== c.pluginId
-                        || old.version !== c.version || JSON.stringify(old.buildProfile) !== JSON.stringify(c.buildProfile)
-                        || JSON.stringify(old.artifact) !== JSON.stringify(c.artifact)) throw new Error('CANDIDATE_ASSET_CONFLICT');
-                  } else if (found[0].size !== data.length || found[0].digest !== `sha256:${digest(data)}`) throw new Error('CANDIDATE_ASSET_CONFLICT');
-                  continue;
-                }
-                if (!release.draft) throw new Error('CANDIDATE_ASSET_MISSING');
                 const uploaded = (await github.rest.repos.uploadReleaseAsset({...context.repo, release_id: release.id,
                   name, data, headers: {'content-type': 'application/octet-stream', 'content-length': data.length}})).data;
                 if (uploaded.size !== data.length || uploaded.digest !== `sha256:${digest(data)}`) throw new Error('CANDIDATE_UPLOAD_CHANGED');

@@ -98,7 +98,7 @@ Do not make Ivy's runtime configuration extend this compile configuration. Stand
 
 ## CI candidates and submission
 
-Push the project to a public GitHub repository's default branch, wait for all `Plugin candidate` jobs to pass, then follow the [community submission guide](https://github.com/Sywyar/PixivDownloader-community-plugins/blob/master/README_en.md#submissions-and-version-management). CI tests the plugin, compares the offline rebuild, and creates a source repository Draft Release. You do not need to download artifacts or create a Release manually. The wizard publishes the candidate as a pre-release awaiting review only after confirmation.
+Push the project to a public GitHub repository's default branch, wait for all `Plugin candidate` jobs to pass, then follow the [community submission guide](https://github.com/Sywyar/PixivDownloader-community-plugins/blob/master/README_en.md#submissions-and-version-management). CI tests the plugin, compares the offline rebuild, and reuses one Draft Release per plugin, replacing its candidate assets. You do not need to download artifacts or create a Release manually. After submission confirmation, the wizard saves the verified package in a pre-release tied to the source commit, awaiting community review.
 
 CI builds the root project by default and detects Maven, Gradle or sbt. The build model supplies the actual version and installation artifact path. To submit an example, select multiple projects, or choose between build tools in one project, add `tools/candidate-projects.json`, for example:
 
@@ -110,7 +110,7 @@ CI builds the root project by default and detects Maven, Gradle or sbt. The buil
 
 Supported profiles are `maven-java17-v1`, `gradle-java17-v1` and `sbt-java17-v1`. If the model has multiple installation artifacts, add `artifactPath`, relative to the selected project and matching an actual model output. Select one candidate project per plugin ID. Commit and push configuration changes, then wait for the new CI results.
 
-The draft's `source-candidate.json` records the source commit, CI run, project, build profile and package digest alongside the original package. This archive remains available after Actions artifacts expire. CI reruns verify and reuse existing bytes without replacing a candidate. Source candidates and community review archives are managed separately; passing source CI does not grant community approval.
+The Draft uses `candidate-<plugin-id>`. Its `source-candidate.json` records the source commit, CI run, project, build profile and package digest. New default-branch builds replace the package and metadata; a late run for an older commit cannot overwrite a newer candidate. The Draft remains available after Actions artifacts expire. Archive recovery requires the current default-branch commit. The fixed pre-release created after submission confirmation is preserved across later builds, keeping the package under review unchanged. Passing source CI does not grant community approval.
 
 ## Runtime, cache, and project data
 

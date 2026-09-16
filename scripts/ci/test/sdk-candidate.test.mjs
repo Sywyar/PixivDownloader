@@ -56,7 +56,7 @@ test('源码候选容器的后续 Git 进程只信任本次检出的工程', t =
     }
 });
 
-for (const flat of [false, true]) test(`源码候选${flat ? '直接展开' : '分目录'}归档仅首次写入并拒绝包变化及非默认分支`, async t => {
+for (const flat of [false, true]) test(`源码候选${flat ? '直接展开' : '分目录'}复用草稿，拒绝过期构建并恢复中断覆盖`, async t => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sdk-candidate-archive-'));
     t.after(() => fs.rmSync(root, { recursive: true }));
     const workflow = YAML.parse(fs.readFileSync(fileURLToPath(new URL('../../../plugin-templates/sdk-package/.github/workflows/candidate.yml', import.meta.url)), 'utf8'));
@@ -77,21 +77,21 @@ for (const flat of [false, true]) test(`源码候选${flat ? '直接展开' : '�
     const run = { repository, head_sha: candidate.sourceCommit, head_branch: 'main', event: 'push' };
     const context = { repo: { owner: 'owner', repo: 'source' }, payload: { repository }, sha: candidate.sourceCommit, runId: 5678 };
     const releases = []; const assets = []; const mutations = [];
-    let tagCommit = candidate.sourceCommit;
-    let tagExists = false; let refError; let commitError;
+    let tip = candidate.sourceCommit;
+    let tagExists = false; let refError; let failUpload = false; let assetId = 0;
     const api = {
-        getCommit: async () => {
-            if (!tagExists) throw Object.assign(new Error('No commit found'), { status: 422 });
-            if (commitError) throw commitError;
-            return { data: { sha: tagCommit } };
-        },
+        getCommit: async args => { assert.equal(args.ref, 'main'); return { data: { sha: tip } }; },
         get: async () => ({ data: repository }), listReleases: () => {}, listReleaseAssets: () => {},
         createRelease: async args => { mutations.push(args); const release = { ...args, id: 9 }; releases.push(release); return { data: release }; },
-        uploadReleaseAsset: async args => { mutations.push(args); const asset = { id: assets.length + 1, name: args.name, size: args.data.length,
+        updateRelease: async args => { mutations.push(args); Object.assign(releases[0], args); return { data: releases[0] }; },
+        deleteReleaseAsset: async args => { mutations.push(args); assets.splice(assets.findIndex(a => a.id === args.asset_id), 1); },
+        uploadReleaseAsset: async args => {
+            if (failUpload && args.name === 'source-candidate.json') throw new Error('UPLOAD_INTERRUPTED');
+            mutations.push(args); const asset = { id: ++assetId, state: 'uploaded', name: args.name, size: args.data.length,
             digest: 'sha256:' + hash(args.data), bytes: Buffer.from(args.data) }; assets.push(asset); return { data: asset }; },
     };
     const github = { rest: { repos: api, actions: { getWorkflowRun: async () => ({ data: run }) }, git: { getRef: async args => {
-        assert.equal(args.ref, `tags/candidate-${candidate.pluginId}-${candidate.version}-${candidate.sourceCommit}`);
+        assert.equal(args.ref, `tags/candidate-${candidate.pluginId}`);
         if (refError) throw refError;
         if (!tagExists) throw Object.assign(new Error('Not Found'), { status: 404 });
         return { data: { ref: 'refs/' + args.ref } };
@@ -106,25 +106,36 @@ for (const flat of [false, true]) test(`源码候选${flat ? '直接展开' : '�
     await archive(); assert.equal(mutations.length, 3);
     candidate.runAttempt = 2; process.env.GITHUB_RUN_ATTEMPT = '2';
     fs.writeFileSync(path.join(directory, 'source-candidate.json'), JSON.stringify(candidate));
-    await archive(); assert.equal(mutations.length, 3);
-    assert.equal(JSON.parse(assets.find(asset => asset.name === 'source-candidate.json').bytes).runAttempt, 1);
+    const marker = assets.find(asset => asset.name === 'source-candidate.json').id;
+    await archive(); assert.equal(mutations[3].asset_id, marker);
+    assert.equal(JSON.parse(assets.find(asset => asset.name === 'source-candidate.json').bytes).runAttempt, 2);
+    assert.equal(releases.length, 1);
     refError = Object.assign(new Error('Reference query failed'), { status: 422 });
     await assert.rejects(archive(), /Reference query failed/u); refError = undefined;
-    releases[0].draft = false; await assert.rejects(archive(), /CANDIDATE_TAG_CHANGED/u); releases[0].draft = true;
+    releases[0].draft = false; await assert.rejects(archive(), /CANDIDATE_RELEASE_CONFLICT/u); releases[0].draft = true;
     tagExists = true;
-    commitError = Object.assign(new Error('Existing tag cannot resolve'), { status: 404 });
-    await assert.rejects(archive(), /Existing tag cannot resolve/u); commitError = undefined;
-    await archive(); assert.equal(mutations.length, 3);
-    tagCommit = 'b'.repeat(40); await assert.rejects(archive(), /CANDIDATE_TAG_CHANGED/u);
-    tagCommit = candidate.sourceCommit;
+    await assert.rejects(archive(), /CANDIDATE_TAG_CHANGED/u); tagExists = false;
+    let count = mutations.length;
     fs.writeFileSync(path.join(directory, candidate.artifact.file), 'changed');
-    await assert.rejects(archive(), /CANDIDATE_BYTES_CHANGED/u); assert.equal(mutations.length, 3);
+    await assert.rejects(archive(), /CANDIDATE_BYTES_CHANGED/u); assert.equal(mutations.length, count);
     fs.writeFileSync(path.join(directory, candidate.artifact.file), bytes);
     run.head_branch = 'feature'; await assert.rejects(archive(), /CANDIDATE_SOURCE_MISMATCH/u);
     run.head_branch = 'main'; run.event = 'pull_request'; await assert.rejects(archive(), /CANDIDATE_SOURCE_MISMATCH/u);
-    assert.equal(mutations.length, 3);
+    assert.equal(mutations.length, count);
     run.event = 'push';
+    tip = 'b'.repeat(40); await archive(); assert.equal(mutations.length, count);
+    context.sha = tip; run.head_sha = tip; candidate.sourceCommit = tip;
+    fs.writeFileSync(path.join(directory, 'source-candidate.json'), JSON.stringify(candidate));
+    failUpload = true; await assert.rejects(archive(), /UPLOAD_INTERRUPTED/u);
+    assert.equal(assets.length, 1); assert.notEqual(assets[0].name, 'source-candidate.json');
+    failUpload = false; await archive();
+    assert.equal(releases.length, 1); assert.equal(releases[0].id, 9); assert.equal(releases[0].target_commitish, tip);
+    assert.equal(assets.length, 2); assert.equal(JSON.parse(assets.find(a => a.name === 'source-candidate.json').bytes).sourceCommit, tip);
+    count = mutations.length;
+    context.sha = 'a'.repeat(40); run.head_sha = context.sha;
+    await archive(); assert.equal(mutations.length, count); assert.equal(releases[0].target_commitish, tip);
+    context.sha = tip; run.head_sha = tip;
     fs.writeFileSync(path.join(root, 'candidates/unexpected.txt'), 'unexpected');
     await assert.rejects(archive(), /CANDIDATE_(?:PATH_INVALID|BYTES_CHANGED)/u);
-    assert.equal(mutations.length, 3);
+    assert.equal(mutations.length, count);
 });
