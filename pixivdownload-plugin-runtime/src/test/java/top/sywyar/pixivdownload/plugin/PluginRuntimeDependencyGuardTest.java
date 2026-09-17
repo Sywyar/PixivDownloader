@@ -100,6 +100,7 @@ class PluginRuntimeDependencyGuardTest {
                         "top.sywyar.pixivdownload.plugin.api..",
                         "top.sywyar.pixivdownload.sdk..",
                         "top.sywyar.pixivdownload.plugin.signature",
+                        "top.sywyar.pixivdownload.plugin.signature.community",
                         "top.sywyar.pixivdownload.core.schedule.capability..",
                         "top.sywyar.pixivdownload.core.schedule.migration..",
                         "java..", "org.springframework..", "org.pf4j..", "org.slf4j..")
