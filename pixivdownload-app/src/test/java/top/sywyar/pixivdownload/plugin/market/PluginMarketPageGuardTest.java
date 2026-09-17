@@ -222,9 +222,7 @@ class PluginMarketPageGuardTest {
                 .contains("filter.hide-default-installed", "filter.hide-dependencies",
                         "hideDefaultInstalled: true", "hideDependencies: true",
                         "hideDefaultInstalled: this.hideDefaultInstalled",
-                        "hideDependencies: this.hideDependencies",
-                        ":aria-label=\"t(\\'filter.hide-default-installed\\'",
-                        ":aria-label=\"t(\\'filter.hide-dependencies\\'");
+                        "hideDependencies: this.hideDependencies");
         assertThat(fallback).as("基础回退视图应提供同名、同默认值的筛选并传给共享数据层")
                 .contains("filter.hide-default-installed", "filter.hide-dependencies",
                         "hideDefaultInstalled: true", "hideDependencies: true",
@@ -257,7 +255,7 @@ class PluginMarketPageGuardTest {
         String fallback = read(FALLBACK);
         String css = read("static/plugin-market/plugin-market.css");
         assertThat(core).contains("'download-type'", "dependency", "PMK.categoryDescription");
-        assertThat(vue).contains("pmk-toolbar-title-row", "pmk-toolbar-description", "{{ categoryDescription }}");
+        assertThat(vue).contains("pmk-toolbar-title-row", "pmk-toolbar-description");
         assertThat(fallback).contains(
                 "pmk-toolbar-title-row",
                 "esc(PMK.categoryDescription(state.category))",

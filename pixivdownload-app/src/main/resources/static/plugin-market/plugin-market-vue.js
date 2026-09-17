@@ -4,312 +4,275 @@
  * （标题区 + 分段控件 + 受信仓库行 + 分类侧栏 + 筛选 / 搜索 / 排序 + 卡片网格 + 详情弹窗 + 安装状态）渲染为
  * 数据驱动的 reactive 组件。Vue 缺失 / 加载失败 / 挂载抛错时 tryMount 收敛为返回 false，由 init 回退命令式渲染。
  *
- * 安全：模板只用 {{ }} 文本插值（Vue 自动转义）与 :class（取自 core 的受控 token 白名单），<b>不内联任意 HTML</b>
- * （无 HTML 注入指令）；主页外链已由后端净化为 http/https，再以 :href 绑定 + rel="noopener"。安装只按受控 repositoryId+pluginId+version
+ * 安全：使用原生 VNode 文本子节点与 class（取自 core 的受控 token 白名单），不内联任意 HTML；
+ * 主页外链已由后端净化为 http/https，再以 href 绑定 + rel="noopener"。安装只按受控 repositoryId+pluginId+version
  * 发起，绝不传任意 URL；安装结果一律以后端响应为准（前端只投影「安装中 / 已激活 / 待重启 / 恢复阻断」状态）。
  */
 (function (global) {
     var PMK = global.PixivPluginMarket;
     var VUE = PMK.vue = {};
 
-    var TEMPLATE = [
-'<div class="pmk-page">',
-'  <div class="pmk-titlebar">',
-'    <div>',
-'      <h1 class="pmk-title"><i class="fa-solid fa-store"></i><span>{{ t(\'page.heading\', \'插件市场\') }}</span></h1>',
-'      <p class="pmk-subtitle">{{ t(\'page.subtitle\', \'从受信仓库浏览并安装插件\') }}</p>',
-'    </div>',
-'    <div class="pmk-titlebar-actions">',
-'      <div class="pmk-seg" role="tablist">',
-'        <span class="pmk-seg-item active"><i class="fa-solid fa-store"></i><span>{{ t(\'seg.market\', \'市场\') }}</span></span>',
-'        <a class="pmk-seg-item" href="/plugin-manage.html">',
-'          <i class="fa-solid fa-puzzle-piece"></i><span>{{ t(\'seg.installed\', \'已安装\') }}</span>',
-'          <span class="pmk-seg-count">{{ installedCount }}</span>',
-'        </a>',
-'      </div>',
-'      <button class="pmk-btn pmk-btn--teal" @click="reload" :disabled="loading">',
-'        <i class="fa-solid fa-rotate"></i><span>{{ t(\'refresh\', \'刷新\') }}</span>',
-'      </button>',
-'    </div>',
-'  </div>',
-'',
-'  <div v-if="loading" class="pmk-state"><i class="fa-solid fa-spinner fa-spin"></i><span>{{ t(\'loading\', \'正在加载…\') }}</span></div>',
-'  <div v-else-if="error" class="pmk-banner pmk-banner--error"><i class="fa-solid fa-triangle-exclamation"></i><div class="pmk-banner-body">{{ error }}</div></div>',
-'',
-'  <template v-else>',
-'    <div v-if="recoveryMode" class="pmk-banner pmk-banner--error">',
-'      <i class="fa-solid fa-triangle-exclamation"></i>',
-'      <div class="pmk-banner-body">',
-'        <div class="pmk-banner-title">{{ t(\'recovery.banner.title\', \'当前正处于恢复模式\') }}</div>',
-'        <div>{{ t(\'recovery.banner.desc\', \'正常功能已暂停。请根据下列原因安装、修复或重新安装插件，完成后重启程序。\') }}</div>',
-'        <ul v-if="hasRecoveryReasons"><li v-for="reason in recoveryReasons" :key="reason">{{ reason }}</li></ul>',
-'      </div>',
-'    </div>',
-'',
-'    <div v-if="!masterEnabled" class="pmk-banner pmk-banner--warn">',
-'      <i class="fa-solid fa-circle-exclamation"></i>',
-'      <div class="pmk-banner-body">',
-'        <div class="pmk-banner-title">{{ t(\'master.disabled.title\', \'插件市场未开启\') }}</div>',
-'        <div>{{ t(\'master.disabled.desc\', \'请在配置中开启受信 catalog 后再浏览仓库与安装插件。\') }}</div>',
-'      </div>',
-'    </div>',
-'',
-'    <div v-if="repositories.length" class="pmk-repos">',
-'      <span class="pmk-repos-label">{{ t(\'section.repositories\', \'受信仓库\') }}</span>',
-'      <button v-for="repo in repositories" :key="repo.repositoryId" class="pmk-repo-chip"',
-'              :class="{active: repo.repositoryId === activeRepositoryId}" :disabled="!repo.enabled"',
-'              :title="repoTitle(repo)" @click="switchRepository(repo)">',
-'        <i class="fa-solid" :class="repo.official ? \'fa-circle-check\' : \'fa-folder\'"></i>',
-'        <span class="pmk-repo-chip-name">{{ repo.displayName || repo.repositoryId }}</span>',
-'        <span v-if="repo.repositoryId === activeRepositoryId" class="pmk-repo-chip-meta">{{ t(\'repo.active\', \'当前\') }}</span>',
-'        <span v-else-if="!repo.enabled" class="pmk-repo-chip-meta">{{ t(\'repo.disabled\', \'已禁用\') }}</span>',
-'        <span v-else-if="!repo.proxyPolicySupported" class="pmk-repo-chip-meta">{{ t(\'repo.proxy.unsupported\', \'代理不支持\') }}</span>',
-'      </button>',
-'    </div>',
-'',
-'    <div v-if="hostElevated" class="pmk-banner pmk-banner--warn">',
-'      <i class="fa-solid fa-triangle-exclamation"></i>',
-'      <div class="pmk-banner-body">{{ t(\'host.elevated.notice\', \'宿主正在以高权限运行；所有宿主进程完全信任插件都会继承当前高权限。\') }}</div>',
-'    </div>',
-'',
-'    <div class="pmk-banner pmk-banner--warn pmk-security-notice">',
-'      <i class="fa-solid fa-shield-halved"></i>',
-'      <div class="pmk-banner-body">{{ t(\'security.notice\', \'插件执行与签名说明：宿主进程完全信任插件与主程序运行在同一 JVM；声明式插件进入使用同一系统账号的有限隔离 worker。签名只证明来源与内容完整性，不代表安全审查；请仅安装你信任的插件。\') }}</div>',
-'    </div>',
-'',
-'    <div v-if="showCatalogLoading" class="pmk-state"><i class="fa-solid fa-spinner fa-spin"></i><span>{{ t(\'loading\', \'正在加载…\') }}</span></div>',
-'    <div v-else-if="showCatalogError" class="pmk-banner pmk-banner--error">',
-'      <i class="fa-solid fa-triangle-exclamation"></i>',
-'      <div class="pmk-banner-body"><div class="pmk-banner-title">{{ t(\'error.catalog.title\', \'无法加载插件清单\') }}</div><div>{{ catalogError }}</div></div>',
-'    </div>',
-'',
-'    <div v-else-if="showBody" class="pmk-body">',
-'      <aside class="pmk-sidebar">',
-'        <div class="pmk-side-card">',
-'          <div class="pmk-side-label">{{ t(\'sidebar.browse\', \'浏览分类\') }}</div>',
-'          <div class="pmk-cat-list">',
-'            <button v-for="cat in categoryList" :key="cat.id" class="pmk-cat" :class="{active: cat.id === category}" @click="setCategory(cat.id)">',
-'              <i :class="cat.icon"></i><span class="pmk-cat-name">{{ cat.label }}</span><span class="pmk-cat-count">{{ cat.count }}</span>',
-'            </button>',
-'          </div>',
-'          <div class="pmk-side-divider"></div>',
-'          <div class="pmk-side-label">{{ t(\'sidebar.filter\', \'筛选\') }}</div>',
-'          <div class="pmk-filter">',
-'            <span class="pmk-filter-label"><i class="fa-solid fa-box-archive pmk-fi-default"></i>{{ t(\'filter.hide-default-installed\', \'隐藏默认安装插件\') }}</span>',
-'            <button type="button" class="pmk-switch" :class="{on: hideDefaultInstalled}" :aria-pressed="hideDefaultInstalled" :aria-label="t(\'filter.hide-default-installed\', \'隐藏默认安装插件\')" @click="hideDefaultInstalled = !hideDefaultInstalled"></button>',
-'          </div>',
-'          <div class="pmk-filter">',
-'            <span class="pmk-filter-label"><i class="fa-solid fa-layer-group pmk-fi-dependency"></i>{{ t(\'filter.hide-dependencies\', \'隐藏依赖插件\') }}</span>',
-'            <button type="button" class="pmk-switch" :class="{on: hideDependencies}" :aria-pressed="hideDependencies" :aria-label="t(\'filter.hide-dependencies\', \'隐藏依赖插件\')" @click="hideDependencies = !hideDependencies"></button>',
-'          </div>',
-'          <div class="pmk-filter">',
-'            <span class="pmk-filter-label"><i class="fa-solid fa-circle-check pmk-fi-official"></i>{{ t(\'filter.official\', \'仅官方插件\') }}</span>',
-'            <button class="pmk-switch" :class="{on: onlyOfficial}" :aria-pressed="onlyOfficial" @click="onlyOfficial = !onlyOfficial"></button>',
-'          </div>',
-'          <div class="pmk-filter">',
-'            <span class="pmk-filter-label"><i class="fa-solid fa-plug-circle-check pmk-fi-compat"></i>{{ t(\'filter.compatible\', \'仅兼容当前版本\') }}</span>',
-'            <button class="pmk-switch" :class="{on: onlyCompatible}" :aria-pressed="onlyCompatible" @click="onlyCompatible = !onlyCompatible"></button>',
-'          </div>',
-'        </div>',
-'        <div class="pmk-version-card">',
-'          <div class="pmk-version-label">{{ t(\'sidebar.sdk\', \'SDK 版本\') }}</div>',
-'          <div class="pmk-version-num">v{{ sdkVersion }}</div>',
-'          <div class="pmk-version-hint">{{ t(\'sidebar.sdk.hint\', \'标记为「不兼容」的插件需要更新应用后才能安装。\') }}</div>',
-'        </div>',
-'      </aside>',
-'',
-'      <div class="pmk-main">',
-'        <div class="pmk-toolbar">',
-'          <div class="pmk-toolbar-head">',
-'            <div class="pmk-toolbar-title-row">',
-'              <span class="pmk-toolbar-title">{{ categoryLabel }}</span>',
-'              <span class="pmk-toolbar-count">{{ t(\'toolbar.count\', \'{n} 款插件\', {n: cards.length}) }}</span>',
-'            </div>',
-'            <p class="pmk-toolbar-description">{{ categoryDescription }}</p>',
-'          </div>',
-'          <div class="pmk-search">',
-'            <i class="fa-solid fa-magnifying-glass"></i>',
-'            <input type="text" v-model="search" :placeholder="t(\'search.placeholder\', \'搜索插件、作者或标签…\')" autocomplete="off">',
-'          </div>',
-'          <span class="pmk-sort-label">{{ t(\'sort.label\', \'排序\') }}</span>',
-'          <select class="pmk-sort" v-model="sort">',
-'            <option v-for="opt in sortOptions" :key="opt" :value="opt">{{ t(\'sort.\' + opt, opt) }}</option>',
-'          </select>',
-'        </div>',
-'',
-'        <div v-if="cards.length" class="pmk-grid">',
-'          <article v-for="card in cards" :key="card.pluginId" class="pmk-card" :class="card.colorClass">',
-'            <div class="pmk-card-banner" @click="openDetail(card.pluginId)">',
-'              <i class="pmk-card-banner-glyph" :class="card.iconClass"></i>',
-'              <i class="pmk-card-banner-bg" :class="card.iconClass"></i>',
-'              <span class="pmk-card-banner-cat"><i :class="card.categoryIcon"></i>{{ card.categoryLabel }}</span>',
-'            </div>',
-'            <div class="pmk-card-body">',
-'              <div class="pmk-card-head">',
-'                <span class="pmk-card-icon"><i :class="card.iconClass"></i></span>',
-'                <div class="pmk-card-titleblock">',
-'                  <div class="pmk-card-name-row">',
-'                    <span class="pmk-card-name" @click="openDetail(card.pluginId)">{{ card.name }}</span>',
-'                    <span v-if="card.official" class="pmk-badge pmk-badge--official">{{ t(\'badge.official\', \'官方\') }}</span>',
-'                    <span v-else class="pmk-badge pmk-badge--community">{{ t(\'badge.publisher-signed\', \'发布者签名\') }}</span>',
-'                    <span v-if="card.recommended" class="pmk-badge pmk-badge--recommended">{{ t(\'badge.recommended\', \'推荐\') }}</span>',
-'                    <span v-if="showCardVerification(card)" class="pmk-verification-badge" :class="\'pmk-verification-badge--\' + card.verificationBadge.tone" :title="card.verificationBadge.title || null"><i class="fa-solid" :class="card.verificationBadge.icon"></i><span>{{ t(card.verificationBadge.labelKey, card.verificationBadge.status) }}</span></span>',
-'                  </div>',
-'                  <div class="pmk-card-sub">{{ card.sub }}</div>',
-'                </div>',
-'              </div>',
-'              <div v-if="showCardRating(card)" class="pmk-rating">',
-'                <span v-if="card.ratingStars" class="pmk-stars">',
-'                  <i v-for="n in card.ratingStars.full" :key="\'f\'+n" class="fa-solid fa-star"></i>',
-'                  <i v-for="n in card.ratingStars.half" :key="\'h\'+n" class="fa-solid fa-star-half-stroke"></i>',
-'                  <i v-for="n in card.ratingStars.empty" :key="\'e\'+n" class="fa-regular fa-star"></i>',
-'                </span>',
-'                <span v-if="card.ratingNum" class="pmk-rating-num">{{ card.ratingNum }}</span>',
-'                <span v-if="card.downloadsLabel" class="pmk-rating-dl"><i class="fa-solid fa-download"></i>{{ card.downloadsLabel }}</span>',
-'              </div>',
-'              <p v-if="card.desc" class="pmk-card-desc">{{ card.desc }}</p>',
-'              <div v-if="card.tags.length" class="pmk-tags"><span v-for="tag in card.tags.slice(0,4)" :key="tag" class="pmk-tag">#{{ tag }}</span></div>',
-'              <div v-if="showCardMeta(card)" class="pmk-card-meta">',
-'                {{ [card.versionLabel, card.sizeLabel, card.dateLabel].filter(Boolean).join(\' · \') }}',
-'              </div>',
-'              <div v-if="showCardCompat(card)" class="pmk-card-compat">',
-'                <i class="fa-solid fa-triangle-exclamation"></i>{{ t(\'compat.needs\', \'需要SDK v{v}+（当前 v{cur}）\', {v: card.compatibilityReason, cur: sdkVersion}) }}',
-'              </div>',
-'              <div class="pmk-card-actions">',
-'                <div v-if="cardStatus(card) === \'INSTALLING\'" class="pmk-install-progress">',
-'                  <div class="pmk-install-progress-label"><i class="fa-solid fa-spinner fa-spin"></i>{{ t(\'install.state.installing\', \'安装中…\') }}</div>',
-'                  <div class="pmk-progressbar"><span></span></div>',
-'                </div>',
-'                <button v-else class="pmk-btn pmk-install" :class="\'pmk-btn--\' + cardMeta(card).variant"',
-'                        :disabled="cardMeta(card).disabled" @click="install(card)">',
-'                  <i class="fa-solid" :class="\'fa-\' + cardMeta(card).icon"></i><span>{{ cardLabel(card) }}</span>',
-'                </button>',
-'                <button class="pmk-btn pmk-btn--gray pmk-btn--sm" @click="openDetail(card.pluginId)">',
-'                  <i class="fa-solid fa-circle-info"></i><span>{{ t(\'card.detail\', \'详情\') }}</span>',
-'                </button>',
-'              </div>',
-'            </div>',
-'          </article>',
-'        </div>',
-'        <div v-if="catalog && catalog.nextCursor" class="pmk-load-more"><button class="pmk-btn pmk-btn--gray" :disabled="loadingMore" @click="loadMore"><i class="fa-solid" :class="loadingMore ? \'fa-spinner fa-spin\' : \'fa-chevron-down\'"></i><span>{{ t(\'pagination.more\', \'加载更多\') }}</span></button></div>',
-'        <div v-if="!cards.length" class="pmk-empty">',
-'          <i class="fa-solid fa-store-slash"></i>',
-'          <div class="pmk-empty-title">{{ t(\'empty.title\', \'没有匹配的插件\') }}</div>',
-'          <div class="pmk-empty-hint">{{ t(\'empty.hint\', \'试试切换分类、关闭筛选，或更换搜索关键词。\') }}</div>',
-'        </div>',
-'      </div>',
-'    </div>',
-'  </template>',
-'',
-'  <div class="pmk-disclaimer">{{ t(\'disclaimer\', \'插件运行于本地，仅供个人学习与研究使用；无法验证、未签名或用户放行的插件请自行确认来源与安全性，我们无法保证未验证插件的安全；请尊重创作者版权 · 本工具与 Pixiv 无任何关联\') }}</div>',
-'',
-'  <div v-if="detail" class="pmk-modal" @click.self="closeDetail">',
-'    <div class="pmk-modal-panel" :class="detail.colorClass">',
-'      <div class="pmk-hero">',
-'        <i class="pmk-hero-bg" :class="detail.iconClass"></i>',
-'        <span class="pmk-hero-cat"><i :class="detail.categoryIcon"></i>{{ detail.categoryLabel }}</span>',
-'        <button class="pmk-hero-close" :aria-label="t(\'modal.close\', \'关闭\')" @click="closeDetail"><i class="fa-solid fa-xmark"></i></button>',
-'        <span class="pmk-hero-icon"><i :class="detail.iconClass"></i></span>',
-'        <div class="pmk-hero-titleblock">',
-'          <div class="pmk-hero-name"><span>{{ detail.name }}</span><span class="pmk-hero-pill">{{ detail.official ? t(\'badge.official\', \'官方\') : t(\'badge.publisher-signed\', \'发布者签名\') }}</span></div>',
-'          <div class="pmk-hero-sub">{{ detail.sub }}</div>',
-'        </div>',
-'      </div>',
-'      <div class="pmk-modal-actionbar">',
-'        <div class="pmk-modal-actionbar-stats">',
-'          <span v-if="detail.ratingStars" class="pmk-stars">',
-'            <i v-for="n in detail.ratingStars.full" :key="\'F\'+n" class="fa-solid fa-star"></i>',
-'            <i v-for="n in detail.ratingStars.half" :key="\'H\'+n" class="fa-solid fa-star-half-stroke"></i>',
-'            <i v-for="n in detail.ratingStars.empty" :key="\'E\'+n" class="fa-regular fa-star"></i>',
-'          </span>',
-'          <span v-if="detail.ratingNum" class="pmk-rating-num">{{ detail.ratingNum }}</span>',
-'          <span v-if="detail.downloadsLabel"><i class="fa-solid fa-download"></i> {{ detail.downloadsLabel }}</span>',
-'        </div>',
-'        <div class="pmk-modal-actionbar-right">',
-'          <select v-if="showVersionSelect" class="pmk-version-select" v-model="selectedVersion">',
-'            <option v-for="v in detail.versions" :key="v.version" :value="v.version">v{{ v.version }}{{ v.channel && v.channel !== \'stable\' ? \' · \' + v.channel : \'\' }}</option>',
-'          </select>',
-'          <div v-if="modalStatus === \'INSTALLING\'" class="pmk-install-progress" style="min-width:200px">',
-'            <div class="pmk-install-progress-label"><i class="fa-solid fa-spinner fa-spin"></i>{{ t(\'install.state.installing\', \'安装中…\') }}</div>',
-'            <div class="pmk-progressbar"><span></span></div>',
-'          </div>',
-'          <button v-else class="pmk-btn" :class="\'pmk-btn--\' + modalMeta.variant" :disabled="modalMeta.disabled" @click="installModal">',
-'            <i class="fa-solid" :class="\'fa-\' + modalMeta.icon"></i><span>{{ modalLabel }}</span>',
-'          </button>',
-'        </div>',
-'      </div>',
-'      <div class="pmk-modal-body">',
-'        <div class="pmk-modal-col">',
-'          <div>',
-'            <div class="pmk-section-label">{{ t(\'detail.about\', \'简介\') }}</div>',
-'            <div class="pmk-section-text">{{ detail.description || t(\'detail.no-description\', \'该插件暂无简介。\') }}</div>',
-'          </div>',
-'          <div v-if="installResultFor">',
-'            <div class="pmk-section-label">{{ t(\'detail.install-result\', \'安装结果\') }}</div>',
-'            <div class="pmk-install-result"><div class="pmk-install-result-box" :class="\'pmk-install-result-box--\' + installResultFor.tone">',
-'              <div class="pmk-install-result-head">',
-'                <i class="fa-solid" :class="installResultIcon(installResultFor)"></i>',
-'                <span class="pmk-install-result-msg">{{ installResultFor.message }}</span>',
-'                <span v-if="installResultFor.outcome" class="pmk-install-code">{{ installResultFor.outcome }}</span>',
-'              </div>',
-'              <div v-if="showRestartHint" class="pmk-install-restart">',
-'                <i class="fa-solid fa-power-off"></i><span>{{ t(\'install.restart-hint\', \'需重启应用后生效。\') }}</span>',
-'                <a href="/plugin-manage.html">{{ t(\'install.goto-manage\', \'前往插件管理\') }}</a>',
-'              </div>',
-'              <div v-if="installResultFor.warnings.length" class="pmk-install-list">',
-'                <span>{{ t(\'install.unmet-deps\', \'尚未满足的依赖：\') }}</span>',
-'                <ul><li v-for="w in installResultFor.warnings" :key="w">{{ w }}</li></ul>',
-'              </div>',
-'            </div></div>',
-'          </div>',
-'          <div>',
-'            <div class="pmk-section-label">{{ t(\'detail.changelog\', \'更新日志\') }}</div>',
-'            <div v-if="detail.versions.length" class="pmk-versions">',
-'              <div v-for="v in detail.versions" :key="v.version" class="pmk-version-row">',
-'                <div class="pmk-version-col"><span class="pmk-version-tag">v{{ v.version }}</span><div v-if="v.dateLabel" class="pmk-version-date">{{ v.dateLabel }}</div></div>',
-'                <ul v-if="v.notes.length" class="pmk-version-notes"><li v-for="(note, i) in v.notes" :key="i">{{ note }}</li></ul>',
-'                <div v-else class="pmk-version-notes pmk-version-empty">{{ t(\'detail.no-notes\', \'无更新说明。\') }}</div>',
-'              </div>',
-'            </div>',
-'            <div v-else class="pmk-version-empty">{{ t(\'detail.no-versions\', \'暂无版本信息。\') }}</div>',
-'            <button v-if="detail.nextVersionCursor" class="pmk-btn pmk-btn--gray pmk-btn--sm" @click="loadMoreVersions" :disabled="detailLoadingMore">{{ t(\'pagination.more-versions\', \'加载更多版本\') }}</button>',
-'          </div>',
-'          <div v-if="detail.dependencies.length">',
-'            <div class="pmk-section-label">{{ t(\'detail.dependencies\', \'依赖\') }}</div>',
-'            <div class="pmk-deps"><span v-for="dep in detail.dependencies" :key="dep" class="pmk-dep">{{ dep }}</span></div>',
-'          </div>',
-'        </div>',
-'        <div class="pmk-modal-col">',
-'          <div v-if="showDetailVerification" class="pmk-detail-verification" :class="\'pmk-detail-verification--\' + detail.verificationBadge.tone" :title="detail.verificationBadge.title || null">',
-'            <i class="fa-solid" :class="detail.verificationBadge.icon"></i>',
-'            <div>',
-'              <div class="pmk-detail-verification-title">{{ t(\'detail.verification\', \'来源验证\') }}</div>',
-'              <div class="pmk-detail-verification-text">{{ t(detail.verificationBadge.labelKey, detail.verificationBadge.status) }}</div>',
-'            </div>',
-'          </div>',
-'          <div class="pmk-info-panel">',
-'            <div v-for="row in detail.infoRows" :key="row.key" class="pmk-info-row">',
-'              <span class="pmk-info-key">{{ t(row.key, row.key) }}</span>',
-'              <span class="pmk-info-val" :class="{\'pmk-info-val--mono\': row.mono, \'pmk-info-val--danger\': row.danger}" :title="row.title || null">',
-'                <a v-if="row.href" :href="row.href" target="_blank" rel="noopener noreferrer">{{ row.val }}</a>',
-'                <template v-else>{{ row.val }}</template>',
-'              </span>',
-'            </div>',
-'          </div>',
-'          <div v-if="detail.tags.length">',
-'            <div class="pmk-section-label">{{ t(\'detail.tags\', \'标签\') }}</div>',
-'            <div class="pmk-tags"><span v-for="tag in detail.tags" :key="tag" class="pmk-tag">#{{ tag }}</span></div>',
-'          </div>',
-'        </div>',
-'      </div>',
-'    </div>',
-'  </div>',
-'</div>'
-    ].join('\n');
+    // 直接构造 VNode，避免模板运行时编译触发 CSP 禁止的动态代码执行。
+    function renderMarket(Vue, vm) {
+        var h = Vue.h;
+        var t = vm.t;
+        function icon(cls) { return h('i', { class: cls }); }
+        function stars(rating) {
+            if (!rating) return null;
+            return h('span', { class: 'pmk-stars' }, [
+                Array.from({ length: rating.full }, function () { return icon('fa-solid fa-star'); }),
+                Array.from({ length: rating.half }, function () { return icon('fa-solid fa-star-half-stroke'); }),
+                Array.from({ length: rating.empty }, function () { return icon('fa-regular fa-star'); })
+            ]);
+        }
+        function progress(modal) {
+            return h('div', { class: 'pmk-install-progress', style: modal ? { minWidth: '200px' } : null }, [
+                h('div', { class: 'pmk-install-progress-label' }, [icon('fa-solid fa-spinner fa-spin'), t('install.state.installing', '安装中…')]),
+                h('div', { class: 'pmk-progressbar' }, [h('span')])
+            ]);
+        }
+        function loading() {
+            return h('div', { class: 'pmk-state' }, [icon('fa-solid fa-spinner fa-spin'), h('span', t('loading', '正在加载…'))]);
+        }
+        function filter(field, cls, key, fallback) {
+            var label = t(key, fallback);
+            return h('div', { class: 'pmk-filter' }, [
+                h('span', { class: 'pmk-filter-label' }, [icon(cls), label]),
+                h('button', { type: 'button', class: ['pmk-switch', { on: vm[field] }],
+                    'aria-pressed': vm[field], 'aria-label': label,
+                    onClick: function () { vm[field] = !vm[field]; } })
+            ]);
+        }
+        function cardView(card) {
+            var meta = vm.cardMeta(card);
+            var badge = card.verificationBadge;
+            function open() { vm.openDetail(card.pluginId); }
+            return h('article', { key: card.pluginId, class: ['pmk-card', card.colorClass] }, [
+                h('div', { class: 'pmk-card-banner', onClick: open }, [
+                    icon(['pmk-card-banner-glyph', card.iconClass]), icon(['pmk-card-banner-bg', card.iconClass]),
+                    h('span', { class: 'pmk-card-banner-cat' }, [icon(card.categoryIcon), card.categoryLabel])
+                ]),
+                h('div', { class: 'pmk-card-body' }, [
+                    h('div', { class: 'pmk-card-head' }, [
+                        h('span', { class: 'pmk-card-icon' }, [icon(card.iconClass)]),
+                        h('div', { class: 'pmk-card-titleblock' }, [
+                            h('div', { class: 'pmk-card-name-row' }, [
+                                h('span', { class: 'pmk-card-name', onClick: open }, card.name),
+                                h('span', { class: 'pmk-badge pmk-badge--' + (card.official ? 'official' : 'community') },
+                                    card.official ? t('badge.official', '官方') : t('badge.publisher-signed', '发布者签名')),
+                                card.recommended ? h('span', { class: 'pmk-badge pmk-badge--recommended' }, t('badge.recommended', '推荐')) : null,
+                                vm.showCardVerification(card) ? h('span', { class: ['pmk-verification-badge', 'pmk-verification-badge--' + badge.tone], title: badge.title || null },
+                                    [icon(['fa-solid', badge.icon]), h('span', t(badge.labelKey, badge.status))]) : null
+                            ]),
+                            h('div', { class: 'pmk-card-sub' }, card.sub)
+                        ])
+                    ]),
+                    vm.showCardRating(card) ? h('div', { class: 'pmk-rating' }, [
+                        stars(card.ratingStars),
+                        card.ratingNum ? h('span', { class: 'pmk-rating-num' }, card.ratingNum) : null,
+                        card.downloadsLabel ? h('span', { class: 'pmk-rating-dl' }, [icon('fa-solid fa-download'), card.downloadsLabel]) : null
+                    ]) : null,
+                    card.desc ? h('p', { class: 'pmk-card-desc' }, card.desc) : null,
+                    card.tags.length ? h('div', { class: 'pmk-tags' }, card.tags.slice(0, 4).map(function (tag) {
+                        return h('span', { key: tag, class: 'pmk-tag' }, '#' + tag);
+                    })) : null,
+                    vm.showCardMeta(card) ? h('div', { class: 'pmk-card-meta' }, [card.versionLabel, card.sizeLabel, card.dateLabel].filter(Boolean).join(' · ')) : null,
+                    vm.showCardCompat(card) ? h('div', { class: 'pmk-card-compat' }, [icon('fa-solid fa-triangle-exclamation'),
+                        t('compat.needs', '需要SDK v{v}+（当前 v{cur}）', { v: card.compatibilityReason, cur: vm.sdkVersion })]) : null,
+                    h('div', { class: 'pmk-card-actions' }, [
+                        vm.cardStatus(card) === 'INSTALLING' ? progress(false) : h('button', {
+                            class: ['pmk-btn pmk-install', 'pmk-btn--' + meta.variant], disabled: meta.disabled,
+                            onClick: function () { vm.install(card); }
+                        }, [icon('fa-solid fa-' + meta.icon), h('span', vm.cardLabel(card))]),
+                        h('button', { class: 'pmk-btn pmk-btn--gray pmk-btn--sm', onClick: open },
+                            [icon('fa-solid fa-circle-info'), h('span', t('card.detail', '详情'))])
+                    ])
+                ])
+            ]);
+        }
+        function body() {
+            return h('div', { class: 'pmk-body' }, [
+                h('aside', { class: 'pmk-sidebar' }, [
+                    h('div', { class: 'pmk-side-card' }, [
+                        h('div', { class: 'pmk-side-label' }, t('sidebar.browse', '浏览分类')),
+                        h('div', { class: 'pmk-cat-list' }, vm.categoryList.map(function (cat) {
+                            return h('button', { key: cat.id, class: ['pmk-cat', { active: cat.id === vm.category }], onClick: function () { vm.setCategory(cat.id); } },
+                                [icon(cat.icon), h('span', { class: 'pmk-cat-name' }, cat.label), h('span', { class: 'pmk-cat-count' }, String(cat.count))]);
+                        })),
+                        h('div', { class: 'pmk-side-divider' }),
+                        h('div', { class: 'pmk-side-label' }, t('sidebar.filter', '筛选')),
+                        filter('hideDefaultInstalled', 'fa-solid fa-box-archive pmk-fi-default', 'filter.hide-default-installed', '隐藏默认安装插件'),
+                        filter('hideDependencies', 'fa-solid fa-layer-group pmk-fi-dependency', 'filter.hide-dependencies', '隐藏依赖插件'),
+                        filter('onlyOfficial', 'fa-solid fa-circle-check pmk-fi-official', 'filter.official', '仅官方插件'),
+                        filter('onlyCompatible', 'fa-solid fa-plug-circle-check pmk-fi-compat', 'filter.compatible', '仅兼容当前版本')
+                    ]),
+                    h('div', { class: 'pmk-version-card' }, [
+                        h('div', { class: 'pmk-version-label' }, t('sidebar.sdk', 'SDK 版本')),
+                        h('div', { class: 'pmk-version-num' }, 'v' + vm.sdkVersion),
+                        h('div', { class: 'pmk-version-hint' }, t('sidebar.sdk.hint', '标记为「不兼容」的插件需要更新应用后才能安装。'))
+                    ])
+                ]),
+                h('div', { class: 'pmk-main' }, [
+                    h('div', { class: 'pmk-toolbar' }, [
+                        h('div', { class: 'pmk-toolbar-head' }, [
+                            h('div', { class: 'pmk-toolbar-title-row' }, [
+                                h('span', { class: 'pmk-toolbar-title' }, vm.categoryLabel),
+                                h('span', { class: 'pmk-toolbar-count' }, t('toolbar.count', '{n} 款插件', { n: vm.cards.length }))
+                            ]),
+                            h('p', { class: 'pmk-toolbar-description' }, vm.categoryDescription)
+                        ]),
+                        h('div', { class: 'pmk-search' }, [icon('fa-solid fa-magnifying-glass'),
+                            Vue.withDirectives(h('input', { type: 'text', placeholder: t('search.placeholder', '搜索插件、作者或标签…'), autocomplete: 'off',
+                                'onUpdate:modelValue': function (value) { vm.search = value; } }), [[Vue.vModelText, vm.search]])
+                        ]),
+                        h('span', { class: 'pmk-sort-label' }, t('sort.label', '排序')),
+                        Vue.withDirectives(h('select', { class: 'pmk-sort', 'onUpdate:modelValue': function (value) { vm.sort = value; } },
+                            vm.sortOptions.map(function (opt) { return h('option', { key: opt, value: opt }, t('sort.' + opt, opt)); })), [[Vue.vModelSelect, vm.sort]])
+                    ]),
+                    vm.cards.length ? h('div', { class: 'pmk-grid' }, vm.cards.map(cardView)) : null,
+                    vm.catalog && vm.catalog.nextCursor ? h('div', { class: 'pmk-load-more' }, [
+                        h('button', { class: 'pmk-btn pmk-btn--gray', disabled: vm.loadingMore, onClick: vm.loadMore },
+                            [icon('fa-solid ' + (vm.loadingMore ? 'fa-spinner fa-spin' : 'fa-chevron-down')), h('span', t('pagination.more', '加载更多'))])
+                    ]) : null,
+                    !vm.cards.length ? h('div', { class: 'pmk-empty' }, [
+                        icon('fa-solid fa-store-slash'),
+                        h('div', { class: 'pmk-empty-title' }, t('empty.title', '没有匹配的插件')),
+                        h('div', { class: 'pmk-empty-hint' }, t('empty.hint', '试试切换分类、关闭筛选，或更换搜索关键词。'))
+                    ]) : null
+                ])
+            ]);
+        }
+        function modal() {
+            var detail = vm.detail;
+            if (!detail) return null;
+            var result = vm.installResultFor;
+            var badge = detail.verificationBadge;
+            return h('div', { class: 'pmk-modal', onClick: Vue.withModifiers(vm.closeDetail, ['self']) }, [
+                h('div', { class: ['pmk-modal-panel', detail.colorClass] }, [
+                    h('div', { class: 'pmk-hero' }, [
+                        icon(['pmk-hero-bg', detail.iconClass]),
+                        h('span', { class: 'pmk-hero-cat' }, [icon(detail.categoryIcon), detail.categoryLabel]),
+                        h('button', { class: 'pmk-hero-close', 'aria-label': t('modal.close', '关闭'), onClick: vm.closeDetail }, [icon('fa-solid fa-xmark')]),
+                        h('span', { class: 'pmk-hero-icon' }, [icon(detail.iconClass)]),
+                        h('div', { class: 'pmk-hero-titleblock' }, [
+                            h('div', { class: 'pmk-hero-name' }, [h('span', detail.name), h('span', { class: 'pmk-hero-pill' },
+                                detail.official ? t('badge.official', '官方') : t('badge.publisher-signed', '发布者签名'))]),
+                            h('div', { class: 'pmk-hero-sub' }, detail.sub)
+                        ])
+                    ]),
+                    h('div', { class: 'pmk-modal-actionbar' }, [
+                        h('div', { class: 'pmk-modal-actionbar-stats' }, [
+                            stars(detail.ratingStars), detail.ratingNum ? h('span', { class: 'pmk-rating-num' }, detail.ratingNum) : null,
+                            detail.downloadsLabel ? h('span', [icon('fa-solid fa-download'), ' ' + detail.downloadsLabel]) : null
+                        ]),
+                        h('div', { class: 'pmk-modal-actionbar-right' }, [
+                            vm.showVersionSelect ? Vue.withDirectives(h('select', { class: 'pmk-version-select',
+                                'onUpdate:modelValue': function (value) { vm.selectedVersion = value; } }, detail.versions.map(function (v) {
+                                return h('option', { key: v.version, value: v.version }, 'v' + v.version + (v.channel && v.channel !== 'stable' ? ' · ' + v.channel : ''));
+                            })), [[Vue.vModelSelect, vm.selectedVersion]]) : null,
+                            vm.modalStatus === 'INSTALLING' ? progress(true) : h('button', {
+                                class: ['pmk-btn', 'pmk-btn--' + vm.modalMeta.variant], disabled: vm.modalMeta.disabled, onClick: vm.installModal
+                            }, [icon('fa-solid fa-' + vm.modalMeta.icon), h('span', vm.modalLabel)])
+                        ])
+                    ]),
+                    h('div', { class: 'pmk-modal-body' }, [
+                        h('div', { class: 'pmk-modal-col' }, [
+                            h('div', [h('div', { class: 'pmk-section-label' }, t('detail.about', '简介')),
+                                h('div', { class: 'pmk-section-text' }, detail.description || t('detail.no-description', '该插件暂无简介。'))]),
+                            result ? h('div', [h('div', { class: 'pmk-section-label' }, t('detail.install-result', '安装结果')),
+                                h('div', { class: 'pmk-install-result' }, [h('div', { class: ['pmk-install-result-box', 'pmk-install-result-box--' + result.tone] }, [
+                                    h('div', { class: 'pmk-install-result-head' }, [icon(['fa-solid', vm.installResultIcon(result)]),
+                                        h('span', { class: 'pmk-install-result-msg' }, result.message),
+                                        result.outcome ? h('span', { class: 'pmk-install-code' }, result.outcome) : null]),
+                                    vm.showRestartHint ? h('div', { class: 'pmk-install-restart' }, [icon('fa-solid fa-power-off'),
+                                        h('span', t('install.restart-hint', '需重启应用后生效。')),
+                                        h('a', { href: '/plugin-manage.html' }, t('install.goto-manage', '前往插件管理'))]) : null,
+                                    result.warnings.length ? h('div', { class: 'pmk-install-list' }, [h('span', t('install.unmet-deps', '尚未满足的依赖：')),
+                                        h('ul', result.warnings.map(function (w) { return h('li', { key: w }, w); }))]) : null
+                                ])])]) : null,
+                            h('div', [
+                                h('div', { class: 'pmk-section-label' }, t('detail.changelog', '更新日志')),
+                                detail.versions.length ? h('div', { class: 'pmk-versions' }, detail.versions.map(function (v) {
+                                    return h('div', { key: v.version, class: 'pmk-version-row' }, [
+                                        h('div', { class: 'pmk-version-col' }, [h('span', { class: 'pmk-version-tag' }, 'v' + v.version),
+                                            v.dateLabel ? h('div', { class: 'pmk-version-date' }, v.dateLabel) : null]),
+                                        v.notes.length ? h('ul', { class: 'pmk-version-notes' }, v.notes.map(function (note, i) { return h('li', { key: i }, note); }))
+                                            : h('div', { class: 'pmk-version-notes pmk-version-empty' }, t('detail.no-notes', '无更新说明。'))
+                                    ]);
+                                })) : h('div', { class: 'pmk-version-empty' }, t('detail.no-versions', '暂无版本信息。')),
+                                detail.nextVersionCursor ? h('button', { class: 'pmk-btn pmk-btn--gray pmk-btn--sm', onClick: vm.loadMoreVersions, disabled: vm.detailLoadingMore }, t('pagination.more-versions', '加载更多版本')) : null
+                            ]),
+                            detail.dependencies.length ? h('div', [h('div', { class: 'pmk-section-label' }, t('detail.dependencies', '依赖')),
+                                h('div', { class: 'pmk-deps' }, detail.dependencies.map(function (dep) { return h('span', { key: dep, class: 'pmk-dep' }, dep); }))]) : null
+                        ]),
+                        h('div', { class: 'pmk-modal-col' }, [
+                            vm.showDetailVerification ? h('div', { class: ['pmk-detail-verification', 'pmk-detail-verification--' + badge.tone], title: badge.title || null }, [
+                                icon(['fa-solid', badge.icon]), h('div', [h('div', { class: 'pmk-detail-verification-title' }, t('detail.verification', '来源验证')),
+                                    h('div', { class: 'pmk-detail-verification-text' }, t(badge.labelKey, badge.status))])
+                            ]) : null,
+                            h('div', { class: 'pmk-info-panel' }, detail.infoRows.map(function (row) {
+                                return h('div', { key: row.key, class: 'pmk-info-row' }, [h('span', { class: 'pmk-info-key' }, t(row.key, row.key)),
+                                    h('span', { class: ['pmk-info-val', { 'pmk-info-val--mono': row.mono, 'pmk-info-val--danger': row.danger }], title: row.title || null },
+                                        row.href ? [h('a', { href: row.href, target: '_blank', rel: 'noopener noreferrer' }, row.val)] : row.val)]);
+                            })),
+                            detail.tags.length ? h('div', [h('div', { class: 'pmk-section-label' }, t('detail.tags', '标签')),
+                                h('div', { class: 'pmk-tags' }, detail.tags.map(function (tag) { return h('span', { key: tag, class: 'pmk-tag' }, '#' + tag); }))]) : null
+                        ])
+                    ])
+                ])
+            ]);
+        }
+        return h('div', { class: 'pmk-page' }, [
+            h('div', { class: 'pmk-titlebar' }, [
+                h('div', [h('h1', { class: 'pmk-title' }, [icon('fa-solid fa-store'), h('span', t('page.heading', '插件市场'))]),
+                    h('p', { class: 'pmk-subtitle' }, t('page.subtitle', '从受信仓库浏览并安装插件'))]),
+                h('div', { class: 'pmk-titlebar-actions' }, [
+                    h('div', { class: 'pmk-seg', role: 'tablist' }, [
+                        h('span', { class: 'pmk-seg-item active' }, [icon('fa-solid fa-store'), h('span', t('seg.market', '市场'))]),
+                        h('a', { class: 'pmk-seg-item', href: '/plugin-manage.html' }, [icon('fa-solid fa-puzzle-piece'),
+                            h('span', t('seg.installed', '已安装')), h('span', { class: 'pmk-seg-count' }, String(vm.installedCount))])
+                    ]),
+                    h('button', { class: 'pmk-btn pmk-btn--teal', onClick: vm.reload, disabled: vm.loading }, [icon('fa-solid fa-rotate'), h('span', t('refresh', '刷新'))])
+                ])
+            ]),
+            vm.loading ? loading() : vm.error ? h('div', { class: 'pmk-banner pmk-banner--error' },
+                [icon('fa-solid fa-triangle-exclamation'), h('div', { class: 'pmk-banner-body' }, vm.error)]) : [
+                vm.recoveryMode ? h('div', { class: 'pmk-banner pmk-banner--error' }, [icon('fa-solid fa-triangle-exclamation'), h('div', { class: 'pmk-banner-body' }, [
+                    h('div', { class: 'pmk-banner-title' }, t('recovery.banner.title', '当前正处于恢复模式')),
+                    h('div', t('recovery.banner.desc', '正常功能已暂停。请根据下列原因安装、修复或重新安装插件，完成后重启程序。')),
+                    vm.hasRecoveryReasons ? h('ul', vm.recoveryReasons.map(function (reason) { return h('li', { key: reason }, reason); })) : null
+                ])]) : null,
+                !vm.masterEnabled ? h('div', { class: 'pmk-banner pmk-banner--warn' }, [icon('fa-solid fa-circle-exclamation'), h('div', { class: 'pmk-banner-body' }, [
+                    h('div', { class: 'pmk-banner-title' }, t('master.disabled.title', '插件市场未开启')),
+                    h('div', t('master.disabled.desc', '请在配置中开启受信 catalog 后再浏览仓库与安装插件。'))
+                ])]) : null,
+                vm.repositories.length ? h('div', { class: 'pmk-repos' }, [h('span', { class: 'pmk-repos-label' }, t('section.repositories', '受信仓库')),
+                    vm.repositories.map(function (repo) {
+                        return h('button', { key: repo.repositoryId, class: ['pmk-repo-chip', { active: repo.repositoryId === vm.activeRepositoryId }],
+                            disabled: !repo.enabled, title: vm.repoTitle(repo), onClick: function () { vm.switchRepository(repo); } }, [
+                            icon('fa-solid ' + (repo.official ? 'fa-circle-check' : 'fa-folder')), h('span', { class: 'pmk-repo-chip-name' }, repo.displayName || repo.repositoryId),
+                            repo.repositoryId === vm.activeRepositoryId ? h('span', { class: 'pmk-repo-chip-meta' }, t('repo.active', '当前'))
+                                : !repo.enabled ? h('span', { class: 'pmk-repo-chip-meta' }, t('repo.disabled', '已禁用'))
+                                    : !repo.proxyPolicySupported ? h('span', { class: 'pmk-repo-chip-meta' }, t('repo.proxy.unsupported', '代理不支持')) : null
+                        ]);
+                    })]) : null,
+                vm.hostElevated ? h('div', { class: 'pmk-banner pmk-banner--warn' }, [icon('fa-solid fa-triangle-exclamation'),
+                    h('div', { class: 'pmk-banner-body' }, t('host.elevated.notice', '宿主正在以高权限运行；所有宿主进程完全信任插件都会继承当前高权限。'))]) : null,
+                h('div', { class: 'pmk-banner pmk-banner--warn pmk-security-notice' }, [icon('fa-solid fa-shield-halved'),
+                    h('div', { class: 'pmk-banner-body' }, t('security.notice', '插件执行与签名说明：宿主进程完全信任插件与主程序运行在同一 JVM；声明式插件进入使用同一系统账号的有限隔离 worker。签名只证明来源与内容完整性，不代表安全审查；请仅安装你信任的插件。'))]),
+                vm.showCatalogLoading ? loading() : vm.showCatalogError ? h('div', { class: 'pmk-banner pmk-banner--error' }, [icon('fa-solid fa-triangle-exclamation'),
+                    h('div', { class: 'pmk-banner-body' }, [h('div', { class: 'pmk-banner-title' }, t('error.catalog.title', '无法加载插件清单')), h('div', vm.catalogError)])])
+                    : vm.showBody ? body() : null
+            ],
+            h('div', { class: 'pmk-disclaimer' }, t('disclaimer', '插件运行于本地，仅供个人学习与研究使用；无法验证、未签名或用户放行的插件请自行确认来源与安全性，我们无法保证未验证插件的安全；请尊重创作者版权 · 本工具与 Pixiv 无任何关联')),
+            modal()
+        ]);
+    }
 
-    function component() {
+
+    function component(Vue) {
         return {
-            template: TEMPLATE,
+            render: function () { return renderMarket(Vue, this); },
             data: function () {
                 return {
                     i18nRev: 0,
@@ -397,8 +360,6 @@
                     if (!this.selectedPluginId) return null;
                     return this.installResults[this.installKey(this.activeCatalogRepositoryId, this.selectedPluginId)] || null;
                 },
-                // 模板 v-if / v-else-if 条件一律走方法 / 计算属性（规避 vue.global.prod 编译器对成员链 && / || 条件的
-                // 静态折叠崩溃，详见 docs/claude/gui.md「Vue 全局 prod 构建模板编译器」一节）。
                 showCatalogLoading: function () { return this.masterEnabled && this.catalogLoading; },
                 showCatalogError: function () { return this.masterEnabled && !!this.catalogError; },
                 showBody: function () { return this.masterEnabled && !!this.catalog; },
@@ -559,7 +520,6 @@
                     return PMK.data.installResultStatus(this.installResults[key], card.installStatus);
                 },
                 cardMeta: function (card) { return PMK.installMeta(this.cardStatus(card)); },
-                // 卡片 v-if 条件走方法（同上，规避 prod 编译器成员链 && / || 静态折叠崩溃）。
                 showCardRating: function (card) { return !!(card.ratingStars || card.downloadsLabel); },
                 showCardMeta: function (card) { return !!(card.versionLabel || card.sizeLabel || card.dateLabel); },
                 showCardCompat: function (card) { return !card.compatible && !!card.compatibilityReason; },
@@ -735,7 +695,7 @@
     VUE.tryMount = function (rootEl) {
         if (!rootEl || !global.PixivVue) return Promise.resolve(false);
         return global.PixivVue.ensure().then(function (Vue) {
-            var app = Vue.createApp(component());
+            var app = Vue.createApp(component(Vue));
             var vm = app.mount(rootEl);
             PMK.state.activeView = {
                 reload: function () { vm.reload(); },
