@@ -103,19 +103,45 @@ const I18N = {
     onLanguageChange() {}
 };
 
-// mock Vue：reactive 返回同一对象（属性置换对组件闭包可见）；nextTick 立即 resolve；createApp.mount 记录。
+// 使用真实 Vue 并禁止动态编译，避免模板在严格 CSP 下挂载失败却被桩掩盖。
 function makeVue() {
-    return { reactive: o => o, nextTick: () => Promise.resolve(), createApp: () => ({ mount: () => ({}) }) };
+    const sandbox = {};
+    vm.createContext(sandbox, { codeGeneration: { strings: false, wasm: false } });
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '../../main/resources/static/vendor/vue/vue.global.prod.js'), 'utf8'), sandbox);
+    return sandbox.Vue;
 }
 
-// mock PixivVue：ensure 解析为 mock Vue；mountOn 记录 (el, comp) 并返回成功句柄（不真正渲染 DOM）。
+// 仅替代 DOM 存储；组件初始化与渲染实际执行。
 function makePixivVue(record, ensureRejects) {
     const vue = makeVue();
+    function remove(child) {
+        if (child.parent) child.parent.children.splice(child.parent.children.indexOf(child), 1);
+        child.parent = null;
+    }
+    const renderer = vue.createRenderer({
+        createElement: tag => new El(tag),
+        createText: text => Object.assign(new El('#text'), { text }),
+        createComment: () => new El('#comment'),
+        setText(el, text) { el.text = text; },
+        setElementText(el, text) { el.text = text; el.children = []; },
+        patchProp(el, key, previous, value) { el.attrs[key] = value; },
+        parentNode: el => el.parent,
+        nextSibling: el => el.parent?.children[el.parent.children.indexOf(el) + 1] || null,
+        insert(el, parent, anchor = null) {
+            remove(el);
+            parent.children.splice(anchor ? parent.children.indexOf(anchor) : parent.children.length, 0, el);
+            el.parent = parent;
+        },
+        remove
+    });
     return {
         ensure: () => ensureRejects ? Promise.reject(new Error('vue load failed')) : Promise.resolve(vue),
         mountOn: (el, comp) => {
+            el.innerHTML = '';
+            const app = renderer.createApp(comp);
+            const instance = app.mount(el);
             record.mounts.push({ el, comp });
-            return Promise.resolve({ app: { unmount() {} }, vm: {}, el });
+            return Promise.resolve({ app, vm: instance, el });
         }
     };
 }
@@ -161,8 +187,10 @@ async function main() {
         await PixivNav.ready();
 
         ok('1: 为 2 个 [data-nav-slot] 各经 mountOn 挂 Vue app（Vue 主路径）', record.mounts.length === 2);
-        ok('1: 每个 mountOn 收到的是 slot 元素 + 组件（含 setup/template）',
-            record.mounts.every(m => m.el && m.comp && typeof m.comp.setup === 'function' && typeof m.comp.template === 'string'));
+        const links = top.children.filter(el => el.tag === 'a' || el.tag === 'span');
+        ok('1: 严格 CSP 下实际渲染链接与当前项', links.length === 2
+            && links[0].tag === 'a' && links[0].attrs.href === '/pixiv-gallery.html?view=all'
+            && links[1].tag === 'span' && links[1].attrs['aria-current'] === 'page');
         ok('1: 至少派发一次 pixivnav:rendered', renderedCount(record) >= 1);
 
         // 组件渲染逻辑（app.top）：navItems 按 placement 过滤、href 由贡献方声明、内层含图标 SVG + i18n label、当前项 active。

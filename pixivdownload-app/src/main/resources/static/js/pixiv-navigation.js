@@ -213,7 +213,7 @@
         return opt.linkClass + (isCurrent ? (opt.linkClass ? ' ' : '') + opt.activeClass : '');
     }
 
-    // 某导航项的内层 HTML（图标 + 文字 span），命令式与 Vue 共用（Vue 经 v-html 注入这段，外层 <a>/<span>
+    // 某导航项的内层 HTML（图标 + 文字 span），命令式与 Vue 共用（Vue 经 innerHTML 注入这段，外层 <a>/<span>
     // 仍是真实 Vue 元素，故 label 经 escapeText、图标为受信任内联 SVG）。
     function itemInnerHtml(item, label, opt) {
         var iconHtml = '';
@@ -271,17 +271,6 @@
 
     // —— Vue 主渲染 ——
 
-    // 单个导航项模板：外层 <a>/<span> 为真实 Vue 元素（成为 slot 的直接子节点，保持既有相邻 / flex CSS），
-    // 图标 + 文字内层经 v-html 注入（label 已 escapeText、图标为受信任 SVG）。属性为 null 时 Vue 自动省略。
-    var NAV_ITEM_TEMPLATE =
-        '<template v-for="it in navItems()" :key="it.id">'
-        + '<span v-if="isCur(it)" :class="clsOf(it)" aria-current="page" :data-nav-markers="markersOf(it)" :role="roleAttr"'
-        + ' :aria-selected="selOf(it)" :aria-label="iconLabelOf(it)" v-html="innerOf(it)"></span>'
-        + '<a v-else :class="clsOf(it)" :href="hrefOf(it)" :role="roleAttr" :aria-selected="selOf(it)"'
-        + ' :data-nav-markers="markersOf(it)" :target="targetAttr" :rel="relAttr" :title="iconLabelOf(it)" :aria-label="iconLabelOf(it)"'
-        + ' v-html="innerOf(it)"></a>'
-        + '</template>';
-
     // 据 slot 构造其 Vue 组件：读取一次该 slot 的 opt / placement / 当前项判定，渲染读共享 reactive 状态
     //（vueState.items / vueState.i18n）——列表或语言变化即自动重渲染。
     function buildSlotComponent(slot) {
@@ -309,7 +298,27 @@
                     relAttr: opt.rel || null
                 };
             },
-            template: NAV_ITEM_TEMPLATE
+            // 原生 VNode 无需动态编译模板，兼容禁用 unsafe-eval 的 CSP。
+            render: function () {
+                var view = this;
+                return view.navItems().map(function (it) {
+                    var current = view.isCur(it);
+                    return vueRuntime.h(current ? 'span' : 'a', {
+                        key: it.id,
+                        class: view.clsOf(it),
+                        'aria-current': current ? 'page' : null,
+                        'data-nav-markers': view.markersOf(it),
+                        role: view.roleAttr,
+                        'aria-selected': view.selOf(it),
+                        'aria-label': view.iconLabelOf(it),
+                        href: current ? null : view.hrefOf(it),
+                        target: current ? null : view.targetAttr,
+                        rel: current ? null : view.relAttr,
+                        title: current ? null : view.iconLabelOf(it),
+                        innerHTML: view.innerOf(it)
+                    });
+                });
+            }
         };
     }
 
