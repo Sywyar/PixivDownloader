@@ -99,6 +99,8 @@ class RegisteredPluginsTest {
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.catalog.PluginCatalogService.class))
             .withBean(top.sywyar.pixivdownload.plugin.catalog.PluginCatalogAcquisitionService.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.catalog.PluginCatalogAcquisitionService.class))
+            .withBean(top.sywyar.pixivdownload.plugin.catalog.community.CommunityPackageService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.catalog.community.CommunityPackageService.class))
             .withBean(top.sywyar.pixivdownload.plugin.install.PluginInstallResponseMapper.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.install.PluginInstallResponseMapper.class))
             // 插件市场服务现额外只读 PluginStatusService（投影安装状态），本切片 mock 兜底。
