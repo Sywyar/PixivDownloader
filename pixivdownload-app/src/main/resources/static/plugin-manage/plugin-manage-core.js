@@ -142,6 +142,7 @@
     var VERIFICATION_META = {
         VERIFIED_OFFICIAL: { key: 'verification.verified-official', tone: 'ok' },
         VERIFIED_CUSTOM: { key: 'verification.verified-custom', tone: 'ok' },
+        VERIFIED_COMMUNITY: { key: 'verification.verified-community', tone: 'ok' },
         UNVERIFIED_LOCAL: { key: 'verification.unverified-local', tone: 'warn' },
         UNSIGNED_ALLOWED: { key: 'verification.unsigned-allowed', tone: 'warn' },
         SIGNATURE_REQUIRED: { key: 'verification.signature-required', tone: 'bad' },
@@ -287,6 +288,8 @@
             enabled: enabled,
             configuredEnabled: configuredEnabled,
             executionMode: executionMode,
+            trustFacts: verification,
+            trustLines: global.PixivPluginPresentationTokens.trustLines(verification, i18n.client),
             executionLabel: t(executionInfo.key, executionInfo.fallback),
             executionTone: executionInfo.tone,
             showExecutionTag: source === 'external',
@@ -543,7 +546,7 @@
             });
         return {
             title: t('trust.confirm.title', '确认插件执行信任'),
-            message: message,
+            message: message + '\n\n' + global.PixivPluginPresentationTokens.trustLines(r, i18n.client).join('\n'),
             confirmLabel: t('trust.confirm.allow', '我信任此插件并允许运行'),
             cancelLabel: t('trust.confirm.cancel', '取消')
         };

@@ -38,9 +38,10 @@ public class PluginMarketPluginConfiguration {
                                                    PluginCatalogService catalogService,
                                                    PluginCatalogAcquisitionService acquisitionService,
                                                    PluginStatusService pluginStatusService,
-                                                   PluginCatalogRevocationService revocations) {
+                                                   PluginCatalogRevocationService revocations,
+                                                   top.sywyar.pixivdownload.plugin.catalog.community.CommunityPackageService communityPackages) {
         return new PluginMarketService(repositoryRegistry, catalogService, acquisitionService,
-                pluginStatusService, revocations);
+                pluginStatusService, revocations, communityPackages);
     }
 
     @Bean

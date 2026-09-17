@@ -19,7 +19,12 @@ public final class PluginTrustPolicy {
         return new PluginTrustRequirement(
                 descriptor.id(), descriptor.version(), provenance.source(), provenance.repositoryId(),
                 provenance.officialRepository(), provenance.signature() != null, provenance.publisher(),
-                provenance.publisherKeyFingerprint(), provenance.artifactSha256(), descriptor.executionMode());
+                provenance.publisherKeyFingerprint(), provenance.artifactSha256(), descriptor.executionMode(),
+                descriptor.riskDeclaration(), null, null,
+                provenance.communityEvidence() != null ? "COMMUNITY" : provenance.officialRepository() ? "OFFICIAL"
+                        : provenance.repositoryId() == null ? "LOCAL" : "SELF_TRUSTED",
+                provenance.communityEvidence() != null ? provenance.communityEvidence().assuranceLevel()
+                        : provenance.officialRepository() ? "OFFICIAL" : provenance.signature() != null ? "PUBLISHER_SIGNED" : "UNVERIFIED");
     }
 
     public static PluginTrustDecision approve(

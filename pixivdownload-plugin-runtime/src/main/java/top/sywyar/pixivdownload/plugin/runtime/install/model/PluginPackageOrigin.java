@@ -43,10 +43,16 @@ public record PluginPackageOrigin(
         String expectedRequiredSdk,
         List<String> expectedDependencies,
         Map<String, SignatureMetadata> identityMigrationSignatures,
-        String trustConfirmationSha256) {
+        String trustConfirmationSha256,
+        CommunityPackageEvidence communityEvidence) {
 
     public PluginPackageOrigin {
         Objects.requireNonNull(source, "source");
+        if (communityEvidence != null && (source != PluginPackageSource.MARKET_CATALOG || officialRepository
+                || developmentOnly || signature == null || expectedSizeBytes == null || expectedSizeBytes <= 0
+                || expectedSha256 == null || repositoryId == null)) {
+            throw new IllegalArgumentException("community evidence requires a signed community catalog binding");
+        }
         Map<String, SignatureMetadata> migrations = identityMigrationSignatures == null
                 ? Map.of() : identityMigrationSignatures;
         if (source == PluginPackageSource.LOCAL_UPLOAD
@@ -81,6 +87,22 @@ public record PluginPackageOrigin(
             throw new IllegalArgumentException("identity migration authorizations require a signed candidate artifact");
         }
         identityMigrationSignatures = Map.copyOf(migrations);
+    }
+
+    public PluginPackageOrigin(PluginPackageSource source, String repositoryId, boolean officialRepository,
+                               boolean developmentOnly, Long expectedSizeBytes, String expectedSha256,
+                               SignatureMetadata signature, String expectedPluginId, String expectedVersion,
+                               String expectedRequiredSdk, List<String> expectedDependencies,
+                               Map<String, SignatureMetadata> identityMigrationSignatures, String trustConfirmationSha256) {
+        this(source, repositoryId, officialRepository, developmentOnly, expectedSizeBytes, expectedSha256, signature,
+                expectedPluginId, expectedVersion, expectedRequiredSdk, expectedDependencies, identityMigrationSignatures,
+                trustConfirmationSha256, null);
+    }
+
+    public PluginPackageOrigin withCommunityEvidence(CommunityPackageEvidence evidence) {
+        return new PluginPackageOrigin(source, repositoryId, officialRepository, developmentOnly, expectedSizeBytes,
+                expectedSha256, signature, expectedPluginId, expectedVersion, expectedRequiredSdk, expectedDependencies,
+                identityMigrationSignatures, trustConfirmationSha256, Objects.requireNonNull(evidence, "evidence"));
     }
 
     public PluginPackageOrigin(

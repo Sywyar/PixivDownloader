@@ -191,6 +191,7 @@
     "sort.recommended": "Recommended",
     "sort.updated": "Recently updated",
     "toolbar.count": "{n} plugins",
+    "trust.facts": "Origin and capability declarations",
     "verification.hash-mismatch": "Hash mismatch",
     "verification.invalid-signature": "Invalid signature",
     "verification.not-installed": "Not installed",
@@ -199,6 +200,7 @@
     "verification.unknown-key": "Unknown publisher",
     "verification.unsigned-allowed": "Unsigned allowed by user",
     "verification.unverified-local": "Unverified local source",
+    "verification.verified-community": "Community signature",
     "verification.verified-custom": "Custom repository signature",
     "verification.verified-official": "Official signature"
   }

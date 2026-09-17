@@ -17,11 +17,16 @@
         <pixivdownload.proguard.skip>false</pixivdownload.proguard.skip>
         <pixivdownload.proguard.additionalProgramPath>${project.build.directory}/proguard/program-dependencies</pixivdownload.proguard.additionalProgramPath>
         <pixivdownload.proguard.preservedContractsPath>${project.build.directory}/proguard/preserved-contracts</pixivdownload.proguard.preservedContractsPath>
-        <pixivdownload.proguard.libraryExcludeArtifactIds>mybatis-spring-boot-starter,pixivdownload-plugin-signature,pixivdownload-plugin-worker,pixivdownload-plugin-runtime</pixivdownload.proguard.libraryExcludeArtifactIds>
+        <pixivdownload.proguard.libraryExcludeArtifactIds>mybatis-spring-boot-starter,pixivdownload-plugin-signature,pixivdownload-plugin-worker,pixivdownload-plugin-runtime,pixivdownload-community-contract</pixivdownload.proguard.libraryExcludeArtifactIds>
         <pixivdownload.jar.classesDirectory>${pixivdownload.proguard.outputDirectory}</pixivdownload.jar.classesDirectory>
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>top.sywyar.lovepopup</groupId>
+            <artifactId>pixivdownload-community-contract</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>io.github.sywyar.pixivdownloader</groupId>
             <artifactId>pixivdownload-sdk-info</artifactId>
@@ -207,7 +212,7 @@
                             <goal>unpack-dependencies</goal>
                         </goals>
                         <configuration>
-                            <includeArtifactIds>pixivdownload-plugin-signature,pixivdownload-plugin-worker,pixivdownload-plugin-runtime</includeArtifactIds>
+                            <includeArtifactIds>pixivdownload-plugin-signature,pixivdownload-plugin-worker,pixivdownload-plugin-runtime,pixivdownload-community-contract</includeArtifactIds>
                             <outputDirectory>${pixivdownload.proguard.additionalProgramPath}</outputDirectory>
                             <excludes>META-INF/MANIFEST.MF,META-INF/maven/**</excludes>
                             <overWriteReleases>true</overWriteReleases>
@@ -339,6 +344,10 @@
                         <exclude>
                             <groupId>top.sywyar.lovepopup</groupId>
                             <artifactId>pixivdownload-plugin-runtime</artifactId>
+                        </exclude>
+                        <exclude>
+                            <groupId>top.sywyar.lovepopup</groupId>
+                            <artifactId>pixivdownload-community-contract</artifactId>
                         </exclude>
                     </excludes>
                 </configuration>

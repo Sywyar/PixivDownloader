@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.PluginTrustStore;
 import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
+import top.sywyar.pixivdownload.plugin.signature.CommunityPluginTrustRoots;
 
 import java.util.List;
 import java.util.Objects;
@@ -32,7 +33,10 @@ public final class PluginCatalogTrustStores {
         if (repository != null && repository.official()) {
             return PluginTrustStores.builtInOfficialPlugins();
         }
-        return PluginTrustStores.of(repository != null ? repository.trustedKeys() : List.of());
+        if (repository != null && repository.community()) return CommunityPluginTrustRoots.trustStore();
+        // 用户配置不能借用社区根取得通用 artifact 域或仓库认证身份。
+        return PluginTrustStores.of(repository != null ? repository.trustedKeys().stream()
+                .filter(key -> !CommunityPluginTrustRoots.contains(key)).toList() : List.of());
     }
 
     public static PluginSupplyChainVerifier verifierForRepository(PluginRepository repository) {
@@ -53,8 +57,9 @@ public final class PluginCatalogTrustStores {
         if (origin.officialRepository()) {
             return PluginTrustStores.builtInOfficialPlugins();
         }
+        if (origin.communityEvidence() != null) return CommunityPluginTrustRoots.trustStore();
         return registry.find(origin.repositoryId())
-                .filter(repository -> !repository.official())
+                .filter(repository -> !repository.official() && !repository.community())
                 .map(PluginCatalogTrustStores::forRepository)
                 .orElseGet(() -> PluginTrustStores.of(List.of()));
     }

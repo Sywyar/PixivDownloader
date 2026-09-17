@@ -184,7 +184,7 @@ public record PublishedVersion(int schemaVersion, Owner owner, String pluginId, 
                 historical ? VerificationPolicy.installedCustom() : VerificationPolicy.customRepository()));
         requireVerified(original, "/package/signature");
         var descriptor = PluginPackageReader.inspect(path).descriptor();
-        if (!records.review.descriptor().equals(DescriptorSnapshot.from(descriptor, records.submission))) {
+        if (!records.review.descriptor().equals(DescriptorSnapshot.from(descriptor, records.submission.pluginId(), records.submission.version()))) {
             throw new ContractException("DESCRIPTOR_MISMATCH", "/package");
         }
         var community = communityVerifier.verifyCommunityPackage(new CommunityPackageVerificationRequest(path, repositoryId,

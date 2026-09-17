@@ -61,6 +61,8 @@ public class PluginRepositoryRegistry {
         // 1) 内嵌官方默认仓库——始终在列，enabled 由配置决定（可禁用）。
         result.add(PluginRepository.official(properties.isOfficialRepositoryEnabled(),
                 connectTimeout, readTimeout, maxManifest, maxPackage));
+        result.add(PluginRepository.community(properties.isCommunityRepositoryEnabled(),
+                connectTimeout, readTimeout, maxManifest, maxPackage));
 
         // 2) 旧版单一 manifest-url 的兼容仓库（仅当非空）。
         if (properties.hasManifestUrl()) {
@@ -95,7 +97,7 @@ public class PluginRepositoryRegistry {
         String normalizedId = id.toLowerCase(Locale.ROOT);
         if (PluginRepository.OFFICIAL_ID.equals(normalizedId)
                 || PluginRepository.LEGACY_CONFIGURED_ID.equals(normalizedId)
-                || PluginRepository.COMMUNITY_ID.equals(normalizedId)) {
+                || PluginRepository.COMMUNITY_ID.equals(normalizedId) || "community".equals(normalizedId)) {
             throw new IllegalStateException("plugin-catalog.repositories[*].id '" + id
                     + "' is reserved for a built-in repository");
         }
@@ -208,6 +210,7 @@ public class PluginRepositoryRegistry {
     public Optional<PluginRepository> defaultRepository() {
         return find(PluginRepository.LEGACY_CONFIGURED_ID).filter(PluginRepository::enabled)
                 .or(() -> find(PluginRepository.OFFICIAL_ID).filter(PluginRepository::enabled))
-                .or(() -> enabledRepositories().stream().findFirst());
+                .or(() -> enabledRepositories().stream().filter(repository -> !repository.community()).findFirst())
+                .or(() -> find(PluginRepository.COMMUNITY_ID).filter(PluginRepository::enabled));
     }
 }

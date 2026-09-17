@@ -1017,6 +1017,9 @@ public class GuiLauncher {
         properties.setOfficialRepositoryEnabled(booleanValue(
                 catalogValue(root, catalog, "official-repository-enabled"),
                 properties.isOfficialRepositoryEnabled()));
+        properties.setCommunityRepositoryEnabled(booleanValue(
+                catalogValue(root, catalog, "community-repository-enabled"),
+                properties.isCommunityRepositoryEnabled()));
         properties.setManifestUrl(stringValue(catalogValue(root, catalog, "manifest-url"), properties.getManifestUrl()));
         properties.setConnectTimeoutMs((int) longValue(catalogValue(root, catalog, "connect-timeout-ms"),
                 properties.getConnectTimeoutMs()));

@@ -32,6 +32,23 @@ class CommunitySignatureTest {
     private final Properties vector = readVector();
 
     @Test
+    @DisplayName("客户端社区根与三类官方用途根彼此独立")
+    void builtInCommunityRootsRemainSeparate() {
+        var community = CommunityPluginTrustRoots.trustStore();
+        for (var key : CommunityPluginTrustRoots.roots()) {
+            assertThat(key.official()).isFalse();
+            assertThat(community.findByKeyId(key.keyId())).contains(key);
+            assertThat(PluginTrustStores.builtInOfficialPlugins().findByKeyId(key.keyId())).isEmpty();
+            assertThat(PluginTrustStores.builtInOfficialUpdates().findByKeyId(key.keyId())).isEmpty();
+            assertThat(PluginTrustStores.builtInOfficialFfmpeg().findByKeyId(key.keyId())).isEmpty();
+        }
+        for (var keys : List.of(OfficialArtifactTrustRoots.pluginRoots(),
+                OfficialArtifactTrustRoots.updateRoots(), OfficialArtifactTrustRoots.ffmpegRoots())) {
+            for (var key : keys) assertThat(community.findByKeyId(key.keyId())).isEmpty();
+        }
+    }
+
+    @Test
     @DisplayName("Java 与独立 Node 消费同一固定消息及签名，旧消息保持兼容")
     void matchesIndependentVectors() {
         byte[] raw = hex("rawHex");

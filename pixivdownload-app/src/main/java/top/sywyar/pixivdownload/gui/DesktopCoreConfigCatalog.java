@@ -135,6 +135,16 @@ final class DesktopCoreConfigCatalog {
                 order++
         ));
         fields.add(core(
+                "plugin-catalog.community-repository-enabled",
+                GuiConfigGroups.PLUGINS,
+                GuiConfigFieldType.BOOL,
+                "true",
+                GuiConfigEffect.BACKEND_RESTART,
+                null,
+                null,
+                order++
+        ));
+        fields.add(core(
                 "plugin-catalog.read-timeout-ms",
                 GuiConfigGroups.PLUGINS,
                 GuiConfigFieldType.INT,

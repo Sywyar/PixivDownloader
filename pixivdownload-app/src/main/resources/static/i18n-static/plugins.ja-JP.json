@@ -162,6 +162,7 @@
     "trust.confirm.unsigned-risk": "このプラグインには発行者署名がありません。PixivDownloader は発行者を証明できず、今後の更新が同じ作者によるものかも確認できません。",
     "trust.error.failed": "プラグイン実行の信頼を更新できませんでした：{message}",
     "trust.error.generic": "プラグイン実行の信頼を更新できませんでした",
+    "trust.facts": "出所と機能宣言",
     "trust.revoke.cancel": "キャンセル",
     "trust.revoke.confirm": "実行の信頼を取り消す",
     "trust.revoke.message": "「{plugin}」の実行の信頼を取り消しても、現在実行中のインスタンスは強制終了されません。現在の正確な成果物を再承認するまで、次回の読み込み、再読み込み、または起動はブロックされます。",
@@ -188,6 +189,7 @@
     "verification.unknown-key": "不明な配布元",
     "verification.unsigned-allowed": "ユーザーが未署名を許可",
     "verification.unverified-local": "ローカル未検証",
+    "verification.verified-community": "コミュニティの署名",
     "verification.verified-custom": "カスタムリポジトリの署名",
     "verification.verified-official": "公式署名"
   }

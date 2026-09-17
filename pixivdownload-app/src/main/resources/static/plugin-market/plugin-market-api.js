@@ -53,6 +53,10 @@
         return getJson(url);
     };
 
+    API.fetchPackageFacts = function (repositoryId, pluginId, version) {
+        return getJson('/api/plugin-market/plugins/' + enc(repositoryId) + '/' + enc(pluginId) + '/' + enc(version) + '/facts');
+    };
+
     function postJson(url, body) {
         return fetch(url, {
             method: 'POST', credentials: 'same-origin',

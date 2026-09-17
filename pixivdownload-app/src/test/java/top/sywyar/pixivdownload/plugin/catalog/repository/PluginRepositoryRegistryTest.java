@@ -30,7 +30,11 @@ class PluginRepositoryRegistryTest {
         PluginRepositoryRegistry registry = new PluginRepositoryRegistry(new PluginCatalogProperties());
 
         assertThat(registry.featureEnabled()).as("主开关默认开启").isTrue();
-        assertThat(registry.repositories()).hasSize(1);
+        assertThat(registry.find(PluginRepository.COMMUNITY_ID)).get().satisfies(community -> {
+            assertThat(community.enabled()).isTrue();
+            assertThat(community.community()).isTrue();
+            assertThat(community.official()).isFalse();
+        });
         PluginRepository official = registry.repositories().get(0);
         assertThat(official.repositoryId()).isEqualTo(PluginRepository.OFFICIAL_ID);
         assertThat(official.official()).isTrue();
@@ -46,6 +50,7 @@ class PluginRepositoryRegistryTest {
     void officialCanBeDisabled() {
         PluginCatalogProperties props = new PluginCatalogProperties();
         props.setOfficialRepositoryEnabled(false);
+        props.setCommunityRepositoryEnabled(false);
         PluginRepositoryRegistry registry = new PluginRepositoryRegistry(props);
 
         assertThat(registry.find(PluginRepository.OFFICIAL_ID)).isPresent();
@@ -95,7 +100,7 @@ class PluginRepositoryRegistryTest {
         PluginRepositoryRegistry registry = new PluginRepositoryRegistry(props);
 
         assertThat(registry.repositories()).extracting(PluginRepository::repositoryId)
-                .containsExactly(PluginRepository.OFFICIAL_ID, "alpha", "beta");
+                .containsExactly(PluginRepository.OFFICIAL_ID, PluginRepository.COMMUNITY_ID, "alpha", "beta");
         PluginRepository alpha = registry.find("ALPHA").orElseThrow();
         assertThat(alpha.enabled()).isTrue();
         assertThat(alpha.official()).isFalse();

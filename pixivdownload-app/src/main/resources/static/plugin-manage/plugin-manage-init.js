@@ -173,6 +173,10 @@
                 publisherKeyFingerprint: vm.trustPublisherKeyFingerprint,
                 artifactSha256: vm.trustArtifactSha256,
                 executionMode: vm.executionMode,
+                riskDeclaration: vm.trustFacts.riskDeclaration,
+                repositoryTrustSource: vm.trustFacts.repositoryTrustSource,
+                assuranceLevel: vm.trustFacts.assuranceLevel,
+                revocationStatus: vm.trustFacts.revocationStatus,
                 executionLabel: vm.executionLabel,
                 hostElevated: !!(PM.state.report && PM.state.report.hostElevated)
             }));

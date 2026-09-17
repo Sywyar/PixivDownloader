@@ -62,6 +62,7 @@ class PluginCatalogServiceTest {
         PluginCatalogProperties props = new PluginCatalogProperties();
         props.setEnabled(true);
         props.setOfficialRepositoryEnabled(false);
+        props.setCommunityRepositoryEnabled(false);
         PluginCatalogService service = new PluginCatalogService(props, relaxed);
         assertThat(service.isEnabled()).isFalse();
         assertCode(service, PluginCatalogErrorCode.CATALOG_DISABLED);

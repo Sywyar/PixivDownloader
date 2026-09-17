@@ -16,8 +16,8 @@ public record DescriptorSnapshot(String requiredSdk, String executionMode, List<
                                  PluginRiskDeclaration riskDeclaration) {
     public DescriptorSnapshot { dependencies = List.copyOf(dependencies); }
 
-    public static DescriptorSnapshot from(PluginDescriptor descriptor, VersionSubmission submission) {
-        if (!descriptor.id().equals(submission.pluginId()) || !descriptor.version().equals(submission.version())
+    public static DescriptorSnapshot from(PluginDescriptor descriptor, String pluginId, String version) {
+        if (!descriptor.id().equals(pluginId) || !descriptor.version().equals(version)
                 || !descriptor.externalValidationErrors().isEmpty()) {
             throw new ContractException("DESCRIPTOR_MISMATCH", "/package");
         }

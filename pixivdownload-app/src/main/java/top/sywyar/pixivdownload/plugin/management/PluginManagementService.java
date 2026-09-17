@@ -79,6 +79,7 @@ public class PluginManagementService {
     private final PluginToggleProperties pluginToggles;
     private final ExternalPluginLifecycleCoordinator coordinator;
     private final ExternalPluginInstaller installer;
+    private top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationService revocations;
 
     public PluginManagementService(PluginStatusService pluginStatusService,
                                    PluginLifecycleService pluginLifecycleService,
@@ -102,7 +103,6 @@ public class PluginManagementService {
         this.installer = null;
     }
 
-    @Autowired
     public PluginManagementService(PluginStatusService pluginStatusService,
                                    PluginLifecycleService pluginLifecycleService,
                                    RequiredPluginPolicy requiredPluginPolicy,
@@ -117,6 +117,15 @@ public class PluginManagementService {
         this.pluginToggles = pluginToggles;
         this.coordinator = coordinator;
         this.installer = installer;
+    }
+
+    @Autowired
+    public PluginManagementService(PluginStatusService status, PluginLifecycleService lifecycle,
+            RequiredPluginPolicy required, RecoveryModeService recovery, ExternalPluginLifecycleCoordinator coordinator,
+            ExternalPluginInstaller installer, PluginToggleProperties toggles,
+            top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationService revocations) {
+        this(status, lifecycle, required, recovery, coordinator, installer, toggles);
+        this.revocations = revocations;
     }
 
     /**
@@ -225,7 +234,7 @@ public class PluginManagementService {
                 availableActions(managed, phase, allowDisable, installedOnly),
                 List.copyOf(diagnostic.messages()),
                 verificationOf(id, descriptor, phase, installedArtifacts, runtimeVerifications,
-                        expectedGate, allowProvenanceReads, allowLifecycleReads),
+                        expectedGate, allowProvenanceReads, allowLifecycleReads).withDescriptor(descriptor),
                 trustOf(id, descriptor, installedArtifacts, allowProvenanceReads, allowLifecycleReads),
                 allowLifecycleReads ? pluginLifecycleService.generation(id).orElse(null) : null,
                 operation != null ? operation.operation() : ExternalPluginOperation.IDLE,
@@ -375,16 +384,22 @@ public class PluginManagementService {
             if (!currentProvenance) {
                 return PluginVerificationProjector.invalidProvenance();
             }
-            return PluginVerificationProjector.fromRuntimeVerification(runtimeVerification);
+            return withRevocations(PluginVerificationProjector.fromRuntimeVerification(runtimeVerification),
+                    runtimeVerification.provenance(), descriptor);
         }
         return switch (snapshot.provenanceState()) {
             case PRESENT -> snapshot.provenance().artifactSizeBytes() == snapshot.artifactSizeBytes()
                     && snapshot.provenance().artifactSha256().equals(snapshot.artifactSha256())
-                    ? PluginVerificationProjector.fromProvenance(snapshot.provenance())
+                    ? withRevocations(PluginVerificationProjector.fromProvenance(snapshot.provenance()), snapshot.provenance(), descriptor)
                     : PluginVerificationProjector.invalidProvenance();
             case ABSENT -> PluginVerificationProjector.missingProvenance();
             case INVALID, BUDGET_EXHAUSTED -> PluginVerificationProjector.invalidProvenance();
         };
+    }
+
+    private PluginVerificationView withRevocations(PluginVerificationView view, PluginProvenanceRecord provenance,
+                                                   PluginDescriptor descriptor) {
+        return revocations == null ? view : view.withRevocation(revocations.status(provenance, descriptor.id(), descriptor.version()));
     }
 
     private Map<String, List<InstalledPluginSnapshot>> installedArtifactsById() {

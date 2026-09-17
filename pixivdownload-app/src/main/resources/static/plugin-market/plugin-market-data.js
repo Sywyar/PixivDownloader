@@ -32,8 +32,7 @@
         return (m && m.category) || 'utility';
     };
     D.entryOfficial = function (entry) {
-        var m = market(entry);
-        return entry && entry.assuranceLevel === 'OFFICIAL' || !!(m && m.sourceType === 'official');
+        return !!entry && entry.assuranceLevel === 'OFFICIAL';
     };
     D.entryRecommended = function (entry) {
         var m = market(entry);
@@ -78,6 +77,7 @@
     var VERIFICATION_BADGE_META = {
         VERIFIED_OFFICIAL: { labelKey: 'verification.verified-official', tone: 'ok', icon: 'fa-circle-check' },
         VERIFIED_CUSTOM: { labelKey: 'verification.verified-custom', tone: 'ok', icon: 'fa-circle-check' },
+        VERIFIED_COMMUNITY: { labelKey: 'verification.verified-community', tone: 'ok', icon: 'fa-circle-check' },
         UNVERIFIED_LOCAL: { labelKey: 'verification.unverified-local', tone: 'warn', icon: 'fa-triangle-exclamation' },
         UNSIGNED_ALLOWED: { labelKey: 'verification.unsigned-allowed', tone: 'warn', icon: 'fa-triangle-exclamation' },
         SIGNATURE_REQUIRED: { labelKey: 'verification.signature-required', tone: 'danger', icon: 'fa-circle-exclamation' },
@@ -127,7 +127,8 @@
             categoryLabel: PMK.categoryLabel(category),
             categoryIcon: PMK.iconClass(PMK.CATEGORY_ICON[category] || 'screwdriver-wrench'),
             official: D.entryOfficial(entry),
-            assuranceLevel: entry.assuranceLevel || 'PUBLISHER_SIGNED',
+            assuranceLevel: entry.assuranceLevel || 'UNVERIFIED',
+            assuranceLabel: D.assuranceLabel(entry.assuranceLevel),
             recommended: D.entryRecommended(entry),
             ratingStars: ratingVal != null ? PMK.stars(ratingVal) : null,
             ratingNum: ratingVal != null ? ratingVal.toFixed(1) : null,
@@ -146,6 +147,12 @@
             verification: verification,
             verificationBadge: D.verificationBadge(verification)
         };
+    };
+
+    D.assuranceLabel = function (level) {
+        var client = PMK.state.i18n.client;
+        return client ? client.t('common:plugin-trust.assurance.' + (level || 'UNVERIFIED'), level || 'UNVERIFIED')
+            : level || 'UNVERIFIED';
     };
 
     function latestSize(entry) {

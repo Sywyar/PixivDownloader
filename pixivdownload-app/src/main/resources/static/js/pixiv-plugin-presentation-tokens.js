@@ -110,7 +110,48 @@
         return String(prefix || '') + colorToken(token);
     }
 
+    // 各来源共用同一声明语义；只返回文本，渲染器负责转义。
+    function trustLines(facts, client) {
+        var f = facts || {};
+        function t(key, fallback) {
+            return client ? client.t('common:plugin-trust.' + key, fallback) : fallback;
+        }
+        function value(group, token) {
+            return t(group + '.' + token, token || t('unknown', 'Not read'));
+        }
+        function risk(declaration) {
+            if (!declaration) return t('unknown', 'Not read');
+            if (!declaration.present) return t('undeclared', 'Not declared');
+            if (!declaration.signals.length) return t('empty', 'Explicitly empty; does not mean safe');
+            return declaration.signals.map(function (token) { return value('signal', token); }).join(', ');
+        }
+        var lines = [
+            t('identity', 'Repository identity') + ': ' + value('identity', f.repositoryTrustSource),
+            t('assurance', 'Version assurance') + ': ' + value('assurance', f.assuranceLevel),
+            t('revocation', 'Revocation status') + ': ' + value('revocation', f.revocationStatus || 'NOT_CHECKED'),
+            t('execution', 'Execution mode') + ': ' + value('execution', String(f.executionMode || '').replace(/-/g, '_').toUpperCase()),
+            t('declaration', 'Declared capabilities') + ': ' + risk(f.riskDeclaration)
+        ];
+        if (f.previousRiskDeclaration) {
+            var previous = f.previousRiskDeclaration.signals || [];
+            var next = f.riskDeclaration ? f.riskDeclaration.signals : [];
+            lines.push(t('previous', 'Previously declared') + ': ' + risk(f.previousRiskDeclaration));
+            if (f.riskDeclaration) {
+                var added = next.filter(function (token) { return previous.indexOf(token) === -1; });
+                var removed = previous.filter(function (token) { return next.indexOf(token) === -1; });
+                if (added.length) lines.push(t('added', 'Added declarations') + ': ' + added.map(function (token) { return value('signal', token); }).join(', '));
+                if (removed.length) lines.push(t('removed', 'Removed declarations') + ': ' + removed.map(function (token) { return value('signal', token); }).join(', '));
+            }
+        }
+        if (f.previousExecutionMode) lines.push(t('previous-execution', 'Previous execution mode') + ': '
+            + value('execution', String(f.previousExecutionMode).replace(/-/g, '_').toUpperCase()));
+        lines.push(t('declaration-note', 'Capability declarations do not grant or restrict permissions and are not a safety guarantee.'));
+        if (f.assuranceLevel === 'SOURCE_REVIEWED') lines.push(t('review-note', 'Source review applies only to this version and does not guarantee safety.'));
+        return lines;
+    }
+
     global.PixivPluginPresentationTokens = {
+        trustLines: trustLines,
         DEFAULT_ICON_KEY: DEFAULT_ICON_KEY,
         DEFAULT_COLOR_TOKEN: DEFAULT_COLOR_TOKEN,
         iconToken: iconToken,

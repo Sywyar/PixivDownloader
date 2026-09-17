@@ -29,10 +29,14 @@ public final class RepositoryDescriptorParser {
     private static final Set<String> PROTOCOLS = Set.of("manifest-v1", "paged-v2");
     private static final Set<String> NETWORK_PROFILES = Set.of("DIRECT_STRICT", "GITHUB_RELEASES");
     private static final Set<String> RESERVED_IDS = Set.of(
-            PluginRepository.OFFICIAL_ID, PluginRepository.LEGACY_CONFIGURED_ID, PluginRepository.COMMUNITY_ID);
+            PluginRepository.OFFICIAL_ID, PluginRepository.LEGACY_CONFIGURED_ID, PluginRepository.COMMUNITY_ID, "community");
     private final ObjectMapper mapper = PluginCatalogStrictJson.mapper(true);
 
     ParsedRepositoryDescriptor parse(String descriptorUrl, byte[] bytes) {
+        return parse(descriptorUrl, bytes, false);
+    }
+
+    ParsedRepositoryDescriptor parse(String descriptorUrl, byte[] bytes, boolean authenticatedCommunity) {
         URI descriptorUri = publicHttps(descriptorUrl, false,
                 PluginCatalogErrorCode.REPOSITORY_DESCRIPTOR_URL_INVALID, "descriptorUrl");
         if (bytes == null || bytes.length == 0 || bytes.length > MAX_DESCRIPTOR_BYTES) {
@@ -48,7 +52,7 @@ public final class RepositoryDescriptorParser {
             throw new PluginCatalogException(PluginCatalogErrorCode.REPOSITORY_DESCRIPTOR_INVALID,
                     "malformed repository descriptor: " + failure.getMessage());
         }
-        validateDescriptor(descriptor);
+        validateDescriptor(descriptor, authenticatedCommunity);
 
         URI catalogUri = publicHttps(descriptor.catalog().endpoint(), false,
                 PluginCatalogErrorCode.REPOSITORY_DESCRIPTOR_INVALID, "catalog.endpoint");
@@ -109,13 +113,14 @@ public final class RepositoryDescriptorParser {
         node.elements().forEachRemaining(RepositoryDescriptorParser::validateArrayBounds);
     }
 
-    private static void validateDescriptor(RepositoryDescriptor descriptor) {
+    private static void validateDescriptor(RepositoryDescriptor descriptor, boolean authenticatedCommunity) {
         if (descriptor == null || descriptor.schemaVersion() == null || descriptor.schemaVersion() != 1) {
             invalid("schemaVersion must be integer 1");
         }
         String id = requiredText(descriptor.repositoryId(), 64, "repositoryId");
         String canonical = id.toLowerCase(Locale.ROOT);
-        if (!id.equals(canonical) || !id.matches("[a-z][a-z0-9._-]{0,63}") || RESERVED_IDS.contains(id)) {
+        if (!id.equals(canonical) || !id.matches("[a-z][a-z0-9._-]{0,63}")
+                || RESERVED_IDS.contains(id) && !(authenticatedCommunity && PluginRepository.COMMUNITY_ID.equals(id))) {
             invalid("repositoryId is not canonical or is reserved");
         }
         requiredText(descriptor.displayName(), 128, "displayName");

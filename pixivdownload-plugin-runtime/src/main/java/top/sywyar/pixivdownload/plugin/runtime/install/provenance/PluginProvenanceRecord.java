@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin.runtime.install.provenance;
 
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.CommunityPackageEvidence;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource;
 import top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustDecision;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
@@ -35,11 +36,15 @@ public record PluginProvenanceRecord(
         Instant offlineVerifiedAt,
         String diagnosticCode,
         PluginTrustDecision trustDecision,
-        Instant trustRevokedAt) {
+        Instant trustRevokedAt,
+        CommunityPackageEvidence communityEvidence) {
 
     public PluginProvenanceRecord {
         source = Objects.requireNonNull(source, "source");
         status = Objects.requireNonNull(status, "status");
+        if (communityEvidence != null && (source != PluginPackageSource.MARKET_CATALOG || officialRepository || signature == null)) {
+            throw new IllegalArgumentException("community provenance requires a signed non-official catalog");
+        }
         if (artifactSizeBytes <= 0L) {
             throw new IllegalArgumentException("artifactSizeBytes must be positive");
         }
@@ -142,6 +147,17 @@ public record PluginProvenanceRecord(
         }
     }
 
+    public PluginProvenanceRecord(PluginPackageSource source, String repositoryId, boolean officialRepository,
+                                  boolean developmentOnly, Long expectedSizeBytes, String expectedSha256,
+                                  long artifactSizeBytes, String artifactSha256, SignatureMetadata signature,
+                                  VerificationStatus status, String keyId, String publisher, String trustLabel,
+                                  String publisherKeyFingerprint, Instant verifiedAt, VerificationStatus offlineStatus,
+                                  Instant offlineVerifiedAt, String diagnosticCode, PluginTrustDecision trustDecision, Instant trustRevokedAt) {
+        this(source, repositoryId, officialRepository, developmentOnly, expectedSizeBytes, expectedSha256, artifactSizeBytes,
+                artifactSha256, signature, status, keyId, publisher, trustLabel, publisherKeyFingerprint, verifiedAt,
+                offlineStatus, offlineVerifiedAt, diagnosticCode, trustDecision, trustRevokedAt, null);
+    }
+
     /** 兼容既有来源记录与测试夹具；新增信任字段初始为空。 */
     public PluginProvenanceRecord(
             PluginPackageSource source,
@@ -168,8 +184,9 @@ public record PluginProvenanceRecord(
 
     public PluginPackageOrigin originForOfflineVerification() {
         if (source == PluginPackageSource.MARKET_CATALOG) {
-            return PluginPackageOrigin.forTrustedCatalog(repositoryId, officialRepository, expectedSizeBytes,
+            var origin = PluginPackageOrigin.forTrustedCatalog(repositoryId, officialRepository, expectedSizeBytes,
                     expectedSha256, signature);
+            return communityEvidence == null ? origin : origin.withCommunityEvidence(communityEvidence);
         }
         if (signature != null) {
             return PluginPackageOrigin.localUpload(signature);
@@ -199,7 +216,8 @@ public record PluginProvenanceRecord(
                 null,
                 result.diagnosticCode(),
                 null,
-                null);
+                null,
+                origin.communityEvidence());
     }
 
     public PluginProvenanceRecord withOfflineResult(
@@ -226,14 +244,14 @@ public record PluginProvenanceRecord(
                 result.publisherKeyFingerprint() != null
                         ? result.publisherKeyFingerprint() : publisherKeyFingerprint,
                 verifiedAt, result.status(), result.verifiedAt(), result.diagnosticCode(),
-                trustDecision, trustRevokedAt);
+                trustDecision, trustRevokedAt, communityEvidence);
     }
 
     public PluginProvenanceRecord withTrustDecision(PluginTrustDecision decision) {
         return new PluginProvenanceRecord(source, repositoryId, officialRepository, developmentOnly,
                 expectedSizeBytes, expectedSha256, artifactSizeBytes, artifactSha256, signature, status,
                 keyId, publisher, trustLabel, publisherKeyFingerprint, verifiedAt, offlineStatus,
-                offlineVerifiedAt, diagnosticCode, Objects.requireNonNull(decision, "decision"), null);
+                offlineVerifiedAt, diagnosticCode, Objects.requireNonNull(decision, "decision"), null, communityEvidence);
     }
 
     public PluginProvenanceRecord withTrustRevokedAt(Instant revokedAt) {
@@ -241,7 +259,7 @@ public record PluginProvenanceRecord(
                 expectedSizeBytes, expectedSha256, artifactSizeBytes, artifactSha256, signature, status,
                 keyId, publisher, trustLabel, publisherKeyFingerprint, verifiedAt, offlineStatus,
                 offlineVerifiedAt, diagnosticCode, trustDecision,
-                Objects.requireNonNull(revokedAt, "revokedAt"));
+                Objects.requireNonNull(revokedAt, "revokedAt"), communityEvidence);
     }
 
     private static void validateDiagnosticCode(VerificationStatus status, String diagnosticCode) {

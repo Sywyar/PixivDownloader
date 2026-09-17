@@ -210,6 +210,11 @@ public final class RuntimeFiles {
         return stateDirectory().resolve(PLUGIN_CATALOG_TRUST_STATE_FILE).normalize();
     }
 
+    /** 已认证社区目录根及最近一次查询的分片；不包含撤销状态。 */
+    public static Path resolveCommunityDirectoryStatePath() {
+        return stateDirectory().resolve("community-directory.bin").normalize();
+    }
+
     /**
      * 安装身份标识文件：{@code data/install_identity.txt}。首次运行生成后永久保留，不随
      * {@code state/} 丢弃重建；本方法只解析路径、不创建文件，创建由 {@link InstallIdentity} 负责。

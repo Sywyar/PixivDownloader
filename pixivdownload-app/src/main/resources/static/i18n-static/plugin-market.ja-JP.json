@@ -191,6 +191,7 @@
     "sort.recommended": "おすすめ",
     "sort.updated": "最近の更新",
     "toolbar.count": "{n} 個のプラグイン",
+    "trust.facts": "出所と機能宣言",
     "verification.hash-mismatch": "ハッシュが一致しません",
     "verification.invalid-signature": "署名が無効です",
     "verification.not-installed": "未インストール",
@@ -199,6 +200,7 @@
     "verification.unknown-key": "不明な配布元",
     "verification.unsigned-allowed": "ユーザーが未署名を許可",
     "verification.unverified-local": "ローカル未検証",
+    "verification.verified-community": "コミュニティの署名",
     "verification.verified-custom": "カスタムリポジトリの署名",
     "verification.verified-official": "公式署名"
   }

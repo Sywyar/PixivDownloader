@@ -88,42 +88,60 @@ public final class DirectoryGeneration {
 
     public static DirectoryGeneration verify(Candidate candidate, URI rootUrl, String expectedRepositoryId,
                                              SignatureMetadata signature, PluginSupplyChainVerifier verifier) {
-        Root root = validateData(candidate, rootUrl);
-        if (!root.repositoryId.equals(expectedRepositoryId)) throw new ContractException("IDENTITY_MISMATCH", "/repositoryId");
-        var verified = verifier.verifyCommunityDirectory(new CommunityDirectoryVerificationRequest(candidate.root.bytes(),
-                root.repositoryId, root.sequence, signature, false));
-        if (verified.status() != VerificationStatus.VERIFIED) throw new ContractException(verified.status().name(), "/signature");
+        Root root = verifyRoot(candidate.root, rootUrl, expectedRepositoryId, signature, verifier);
+        validateData(candidate, rootUrl);
         return new DirectoryGeneration(candidate, root, signature);
     }
 
+    /** 客户端先认证小目录根，再按其固定引用按需取得分片。 */
+    public static Root verifyRoot(CommunityJson.Document document, URI rootUrl, String expectedRepositoryId,
+                                  SignatureMetadata signature, PluginSupplyChainVerifier verifier) {
+        Root root = validateRoot(document, rootUrl);
+        if (!root.repositoryId.equals(expectedRepositoryId)) throw new ContractException("IDENTITY_MISMATCH", "/repositoryId");
+        var verified = verifier.verifyCommunityDirectory(new CommunityDirectoryVerificationRequest(document.bytes(),
+                root.repositoryId, root.sequence, signature, false));
+        if (verified.status() != VerificationStatus.VERIFIED) throw new ContractException(verified.status().name(), "/signature");
+        return root;
+    }
+
     private static Root validateData(Candidate candidate, URI rootUrl) {
+        Root root = validateRoot(candidate.root, rootUrl);
+        if (candidate.shards.size() != root.shards.size()) throw new ContractException("REVIEW_MISMATCH", "/shards");
+        for (var reference : root.shards) validateShard(root, reference, candidate.shards.get(reference.sha256));
+        return root;
+    }
+
+    private static Root validateRoot(CommunityJson.Document document, URI rootUrl) {
         CommunityValues.https(rootUrl.toString(), false, "/rootUrl");
-        if (candidate.root.kind() != CommunityJson.Kind.DIRECTORY_ROOT) throw new ContractException("SCHEMA_INVALID", "/root");
-        Root root = candidate.root.as(Root.class);
+        if (document.kind() != CommunityJson.Kind.DIRECTORY_ROOT) throw new ContractException("SCHEMA_INVALID", "/root");
+        Root root = document.as(Root.class);
         CommunityValues.unique(root.shards, ShardReference::prefix, "/shards/prefix");
         CommunityValues.unique(root.shards, ShardReference::sha256, "/shards/sha256");
-        if (!root.shards.equals(root.shards.stream().sorted(Comparator.comparing(ShardReference::prefix)).toList())
-                || candidate.shards.size() != root.shards.size()) throw new ContractException("REVIEW_MISMATCH", "/shards");
-        for (var reference : root.shards) {
-            reference.resolve(rootUrl);
-            var document = candidate.shards.get(reference.sha256);
-            if (document == null || document.kind() != CommunityJson.Kind.DIRECTORY_SHARD) throw new ContractException("REVIEW_MISMATCH", "/shards");
-            CommunityValues.verifyBytes(document.bytes(), reference.size, reference.sha256, "/shards");
-            var shard = document.as(Shard.class);
-            if (!shard.prefix.equals(reference.prefix)) throw new ContractException("REVIEW_MISMATCH", "/shards/prefix");
-            CommunityValues.unique(shard.entries, DirectoryEntry::repositoryId, "/entries");
-            if (!shard.entries.equals(shard.entries.stream().sorted(Comparator.comparing(DirectoryEntry::repositoryId)).toList())) {
+        if (!root.shards.equals(root.shards.stream().sorted(Comparator.comparing(ShardReference::prefix)).toList()))
+            throw new ContractException("REVIEW_MISMATCH", "/shards");
+        for (var reference : root.shards) reference.resolve(rootUrl);
+        return root;
+    }
+
+    /** 只消费已认证根中的精确引用，校验字节、桶号及记录的审核序号。 */
+    public static Shard validateShard(Root root, ShardReference reference, CommunityJson.Document document) {
+        if (!root.shards.contains(reference) || document == null
+                || document.kind() != CommunityJson.Kind.DIRECTORY_SHARD) throw new ContractException("REVIEW_MISMATCH", "/shards");
+        CommunityValues.verifyBytes(document.bytes(), reference.size, reference.sha256, "/shards");
+        var shard = document.as(Shard.class);
+        if (!shard.prefix.equals(reference.prefix)) throw new ContractException("REVIEW_MISMATCH", "/shards/prefix");
+        CommunityValues.unique(shard.entries, DirectoryEntry::repositoryId, "/entries");
+        if (!shard.entries.equals(shard.entries.stream().sorted(Comparator.comparing(DirectoryEntry::repositoryId)).toList())) {
+            throw new ContractException("REVIEW_MISMATCH", "/entries");
+        }
+        for (var entry : shard.entries) {
+            entry.validate();
+            if (!prefix(entry.repositoryId()).equals(shard.prefix) || entry.directorySequence() > root.sequence
+                    || Instant.parse(entry.lastReviewedAt()).isAfter(Instant.parse(root.generatedAt))
+                    || entry.status() == DirectoryEntry.Status.REMOVED) {
                 throw new ContractException("REVIEW_MISMATCH", "/entries");
             }
-            for (var entry : shard.entries) {
-                entry.validate();
-                if (!prefix(entry.repositoryId()).equals(shard.prefix) || entry.directorySequence() > root.sequence
-                        || Instant.parse(entry.lastReviewedAt()).isAfter(Instant.parse(root.generatedAt))
-                        || entry.status() == DirectoryEntry.Status.REMOVED) {
-                    throw new ContractException("REVIEW_MISMATCH", "/entries");
-                }
-            }
         }
-        return root;
+        return shard;
     }
 }

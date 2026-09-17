@@ -145,6 +145,24 @@ class DirectoryGenerationTest {
                 .isEqualTo("version=1");
     }
 
+    @Test
+    @DisplayName("按需读取单桶仍绑定已认证根，拒绝其它根引用与篡改字节")
+    void authenticatedLazyShard() throws Exception {
+        var f = new Fixture();
+        var candidate = generate(2, List.of(entry("alpha", DirectoryEntry.Status.LISTED, null),
+                entry("beta", DirectoryEntry.Status.LISTED, null)));
+        var root = DirectoryGeneration.verifyRoot(candidate.root(), ROOT_URL, "test-catalog", f.sign(candidate), f.verifier);
+        var ref = root.shards().get(0);
+        var document = candidate.shards().get(ref.sha256());
+        assertThat(DirectoryGeneration.validateShard(root, ref, document).entries()).hasSize(1);
+        var foreign = new DirectoryGeneration.ShardReference(ref.prefix(), "other.json", ref.size(), ref.sha256());
+        assertThatThrownBy(() -> DirectoryGeneration.validateShard(root, foreign, document)).isInstanceOf(ContractException.class);
+        assertThatThrownBy(() -> DirectoryGeneration.validateShard(root, ref,
+                candidate.shards().get(root.shards().get(1).sha256()))).isInstanceOf(ContractException.class);
+        assertThatThrownBy(() -> DirectoryGeneration.verifyRoot(candidate.root(), ROOT_URL, "another", f.sign(candidate), f.verifier))
+                .isInstanceOf(ContractException.class);
+    }
+
     private static DirectoryGeneration.Candidate generate(long sequence, List<DirectoryEntry> entries) {
         return DirectoryGeneration.generate("test-catalog", sequence, TIME, entries);
     }
@@ -161,10 +179,12 @@ class DirectoryGenerationTest {
     private static final class Fixture {
         final KeyPair pair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final DirectoryGenerations store;
+        final PluginSupplyChainVerifier verifier;
         Fixture() throws Exception {
             var key = new TrustedPluginKey("Test:Directory", "Ed25519", Base64.getEncoder().encodeToString(pair.getPublic().getEncoded()),
                     TrustedPluginKey.State.ACTIVE, "example", "community", false);
-            store = new DirectoryGenerations("test-catalog", ROOT_URL, new PluginSupplyChainVerifier(PluginTrustStores.of(List.of(key))));
+            verifier = new PluginSupplyChainVerifier(PluginTrustStores.of(List.of(key)));
+            store = new DirectoryGenerations("test-catalog", ROOT_URL, verifier);
         }
         SignatureMetadata sign(DirectoryGeneration.Candidate candidate) throws Exception {
             var root = candidate.root().as(DirectoryGeneration.Root.class);

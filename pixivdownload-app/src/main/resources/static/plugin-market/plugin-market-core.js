@@ -73,7 +73,7 @@
             });
         return {
             title: PMK.t('install.trust.title', '确认插件执行信任'),
-            message: message,
+            message: message + '\n\n' + global.PixivPluginPresentationTokens.trustLines(r, PMK.state.i18n.client).join('\n'),
             confirmLabel: PMK.t('install.trust.confirm', '我信任此插件并允许运行'),
             cancelLabel: PMK.t('install.trust.cancel', '取消安装')
         };

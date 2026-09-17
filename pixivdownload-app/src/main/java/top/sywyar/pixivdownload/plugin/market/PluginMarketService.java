@@ -52,6 +52,7 @@ public class PluginMarketService {
     private final PluginCatalogAcquisitionService acquisitionService;
     private final PluginStatusService pluginStatusService;
     private final PluginCatalogRevocationService revocations;
+    private top.sywyar.pixivdownload.plugin.catalog.community.CommunityPackageService communityPackages;
 
     @Autowired
     public PluginMarketService(PluginRepositoryRegistry repositoryRegistry,
@@ -71,6 +72,33 @@ public class PluginMarketService {
                                PluginCatalogAcquisitionService acquisitionService,
                                PluginStatusService pluginStatusService) {
         this(repositoryRegistry, catalogService, acquisitionService, pluginStatusService, null);
+    }
+
+    public PluginMarketService(PluginRepositoryRegistry repositoryRegistry, PluginCatalogService catalogService,
+                               PluginCatalogAcquisitionService acquisitionService, PluginStatusService pluginStatusService,
+                               PluginCatalogRevocationService revocations,
+                               top.sywyar.pixivdownload.plugin.catalog.community.CommunityPackageService communityPackages) {
+        this(repositoryRegistry, catalogService, acquisitionService, pluginStatusService, revocations);
+        this.communityPackages = communityPackages;
+    }
+
+    /** 按选择的确切版本读取一份审核记录，避免浏览版本页时批量下载审核文件。 */
+    public top.sywyar.pixivdownload.plugin.verification.PluginVerificationView packageFacts(
+            String repositoryId, String pluginId, String version) {
+        var resolved = catalogService.resolvePackage(repositoryId, pluginId, version);
+        var repository = resolved.repository();
+        var pkg = resolved.pkg();
+        var view = top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector.forCatalogPackage(repository, pkg);
+        var previous = pluginStatusService.report().diagnostics().stream()
+                .filter(item -> pluginId.equals(item.id())).map(PluginDiagnostic::descriptor)
+                .filter(java.util.Objects::nonNull).findFirst().orElse(null);
+        String revocation = revocations != null ? revocations.status(repository, pluginId, pkg) : "NOT_CHECKED";
+        if (!repository.community()) return view.withFacts(revocation, null, null, previous);
+        if (communityPackages == null) throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE,
+                "community package verifier is unavailable");
+        var review = top.sywyar.pixivdownload.sdk.community.review.CommunityReview.read(
+                communityPackages.review(repository, pluginId, pkg));
+        return view.withFacts(revocation, review.descriptor().executionMode(), review.descriptor().riskDeclaration(), previous);
     }
 
     /**

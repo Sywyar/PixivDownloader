@@ -162,6 +162,7 @@
     "trust.confirm.unsigned-risk": "此外掛程式沒有發佈者簽章。PixivDownloader 無法證明它來自誰，也無法確認後續更新是否仍由同一作者發佈。",
     "trust.error.failed": "更新外掛程式執行信任失敗：{message}",
     "trust.error.generic": "更新外掛程式執行信任失敗",
+    "trust.facts": "來源與能力宣告",
     "trust.revoke.cancel": "取消",
     "trust.revoke.confirm": "撤銷執行信任",
     "trust.revoke.message": "撤銷「{plugin}」的執行信任後，目前已執行的實例不會被強制終止，但下次載入、重新載入或啟動時會被阻擋，直到你重新批准目前的精確成品。",
@@ -188,6 +189,7 @@
     "verification.unknown-key": "未知發佈者",
     "verification.unsigned-allowed": "使用者放行未簽章",
     "verification.unverified-local": "本機未驗證",
+    "verification.verified-community": "社群簽署",
     "verification.verified-custom": "自訂儲存庫簽章",
     "verification.verified-official": "官方簽章"
   }

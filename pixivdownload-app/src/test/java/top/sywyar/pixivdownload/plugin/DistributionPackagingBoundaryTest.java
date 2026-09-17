@@ -492,6 +492,42 @@ class DistributionPackagingBoundaryTest {
     }
 
     @Test
+    @DisplayName("最终宿主产物独立类加载器可读取社区合同资源并解析审核及发布者事实")
+    void bootJarLoadsCommunityContracts(@TempDir Path tempDir) throws Exception {
+        Path bootJar = locateBootJar();
+        requireAvailable(bootJar != null, "需要本次构建的宿主 boot JAR");
+        List<URL> urls = new ArrayList<>();
+        Path classes = tempDir.resolve("BOOT-INF/classes");
+        Files.createDirectories(classes);
+        urls.add(classes.toUri().toURL());
+        try (JarFile archive = new JarFile(bootJar.toFile())) {
+            for (JarEntry entry : archive.stream().filter(item -> !item.isDirectory()
+                    && (item.getName().startsWith("BOOT-INF/classes/") || item.getName().startsWith("BOOT-INF/lib/"))).toList()) {
+                Path output = tempDir.resolve(entry.getName()).normalize();
+                assertThat(output.startsWith(tempDir)).isTrue();
+                Files.createDirectories(output.getParent());
+                try (InputStream input = archive.getInputStream(entry)) { Files.copy(input, output); }
+                if (entry.getName().startsWith("BOOT-INF/lib/")) urls.add(output.toUri().toURL());
+            }
+        }
+        try (URLClassLoader loader = new URLClassLoader(urls.toArray(URL[]::new), ClassLoader.getPlatformClassLoader())) {
+            String prefix = "top.sywyar.pixivdownload.sdk.community.";
+            Class<?> json = loader.loadClass(prefix + "format.CommunityJson");
+            Class<?> kind = loader.loadClass(prefix + "format.CommunityJson$Kind");
+            Class<?> document = loader.loadClass(prefix + "format.CommunityJson$Document");
+            for (String name : List.of("review", "publisher")) {
+                byte[] bytes = Files.readAllBytes(Path.of("../contracts/community/v1/vectors/structure/" + name + ".json"));
+                Object parsed = json.getMethod("parse", kind, byte[].class)
+                        .invoke(null, kind.getField(name.toUpperCase(java.util.Locale.ROOT)).get(null), bytes);
+                Class<?> model = loader.loadClass(prefix + (name.equals("review") ? "review.CommunityReview" : "identity.Publisher"));
+                Object value = model.getMethod("read", document).invoke(null, parsed);
+                assertThat(model.getMethod("owner").invoke(value)).isNotNull();
+            }
+            assertThat(java.util.Collections.list(loader.getResources("community/v1/catalogs.json"))).hasSize(1);
+        }
+    }
+
+    @Test
     @DisplayName("download-workbench 以 thin 外置插件形态打包：根部 plugin.properties + 外置主类，无契约 / 宿主 / 框架类泄漏")
     void downloadWorkbenchPackagesAsThinExternalPlugin() {
         assertThinExternalPlugin(DOWNLOAD_WORKBENCH_CLASSES_PROPERTY, "pixivdownload-plugin-download-workbench",

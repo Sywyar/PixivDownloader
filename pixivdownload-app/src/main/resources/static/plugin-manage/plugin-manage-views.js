@@ -206,6 +206,12 @@
             }).join('') + '</div>');
         }
 
+        if (vm.showExecutionTag) {
+            parts.push('<details class="pm-notes"><summary>' + E(PM.t('trust.facts', '来源与能力声明')) + '</summary>'
+                + vm.trustLines.map(function (line) { return '<div class="pm-note">' + E(line) + '</div>'; }).join('')
+                + '</details>');
+        }
+
         // 底栏：轻量元信息（执行信任级别 / 生命周期 / SDK / 依赖数 / 验签）+ 浮层操作菜单。
         parts.push('<div class="pm-card-foot">');
         parts.push('<div class="pm-meta">');

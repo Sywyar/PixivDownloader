@@ -59,7 +59,7 @@
                             h('div', { class: 'pmk-card-name-row' }, [
                                 h('span', { class: 'pmk-card-name', onClick: open }, card.name),
                                 h('span', { class: 'pmk-badge pmk-badge--' + (card.official ? 'official' : 'community') },
-                                    card.official ? t('badge.official', '官方') : t('badge.publisher-signed', '发布者签名')),
+                                    card.official ? t('badge.official', '官方') : card.assuranceLabel),
                                 card.recommended ? h('span', { class: 'pmk-badge pmk-badge--recommended' }, t('badge.recommended', '推荐')) : null,
                                 vm.showCardVerification(card) ? h('span', { class: ['pmk-verification-badge', 'pmk-verification-badge--' + badge.tone], title: badge.title || null },
                                     [icon(['fa-solid', badge.icon]), h('span', t(badge.labelKey, badge.status))]) : null
@@ -156,7 +156,7 @@
                         h('span', { class: 'pmk-hero-icon' }, [icon(detail.iconClass)]),
                         h('div', { class: 'pmk-hero-titleblock' }, [
                             h('div', { class: 'pmk-hero-name' }, [h('span', detail.name), h('span', { class: 'pmk-hero-pill' },
-                                detail.official ? t('badge.official', '官方') : t('badge.publisher-signed', '发布者签名'))]),
+                                detail.assuranceLabel)]),
                             h('div', { class: 'pmk-hero-sub' }, detail.sub)
                         ])
                     ]),
@@ -167,7 +167,7 @@
                         ]),
                         h('div', { class: 'pmk-modal-actionbar-right' }, [
                             vm.showVersionSelect ? Vue.withDirectives(h('select', { class: 'pmk-version-select',
-                                'onUpdate:modelValue': function (value) { vm.selectedVersion = value; } }, detail.versions.map(function (v) {
+                                'onUpdate:modelValue': function (value) { vm.selectedVersion = value; vm.loadPackageFacts(); } }, detail.versions.map(function (v) {
                                 return h('option', { key: v.version, value: v.version }, 'v' + v.version + (v.channel && v.channel !== 'stable' ? ' · ' + v.channel : ''));
                             })), [[Vue.vModelSelect, vm.selectedVersion]]) : null,
                             vm.modalStatus === 'INSTALLING' ? progress(true) : h('button', {
@@ -210,6 +210,9 @@
                                 icon(['fa-solid', badge.icon]), h('div', [h('div', { class: 'pmk-detail-verification-title' }, t('detail.verification', '来源验证')),
                                     h('div', { class: 'pmk-detail-verification-text' }, t(badge.labelKey, badge.status))])
                             ]) : null,
+                            h('div', { class: 'pmk-section-text' }, detail.trustLines.map(function (line) {
+                                return h('p', { key: line }, line);
+                            })),
                             h('div', { class: 'pmk-info-panel' }, detail.infoRows.map(function (row) {
                                 return h('div', { key: row.key, class: 'pmk-info-row' }, [h('span', { class: 'pmk-info-key' }, t(row.key, row.key)),
                                     h('span', { class: ['pmk-info-val', { 'pmk-info-val--mono': row.mono, 'pmk-info-val--danger': row.danger }], title: row.title || null },
@@ -305,6 +308,7 @@
                     selectedPluginId: null,
                     selectedDetail: null,
                     selectedVersion: null,
+                    selectedFacts: null,
                     detailLoadingMore: false,
                     installing: {},
                     installResults: {},
@@ -470,13 +474,30 @@
                     var entry = this.selectedEntry;
                     this.selectedDetail = entry;
                     this.selectedVersion = entry ? entry.latestVersion : null;
+                    this.selectedFacts = null;
                     document.body.style.overflow = 'hidden';
                     PMK.api.fetchPluginDetail(this.activeCatalogRepositoryId, pluginId).then(function (detail) {
                         if (self.selectedPluginId !== pluginId) return;
                         self.selectedDetail = detail;
                         self.selectedVersion = detail.latestVersion || self.selectedVersion;
+                        self.loadPackageFacts();
                     }).catch(function () {
                         PMK.toast(self.t('error.detail', '无法加载插件详情，请稍后重试。'), 'error');
+                    });
+                },
+                loadPackageFacts: function () {
+                    var self = this;
+                    var repository = this.activeCatalogRepositoryId;
+                    var plugin = this.selectedPluginId;
+                    var version = this.selectedVersion;
+                    this.selectedFacts = null;
+                    if (!plugin || !version) return;
+                    PMK.api.fetchPackageFacts(repository, plugin, version).then(function (facts) {
+                        if (self.activeCatalogRepositoryId === repository && self.selectedPluginId === plugin
+                            && self.selectedVersion === version) self.selectedFacts = facts;
+                    }).catch(function () {
+                        if (self.selectedPluginId === plugin && self.selectedVersion === version)
+                            PMK.toast(self.t('error.detail', '无法加载插件详情，请稍后重试。'), 'error');
                     });
                 },
                 loadMoreVersions: function () {
@@ -658,8 +679,11 @@
                         pluginId: entry.pluginId,
                         name: card.name, sub: card.sub, iconClass: card.iconClass, colorClass: card.colorClass,
                         categoryLabel: card.categoryLabel, categoryIcon: card.categoryIcon, official: card.official,
+                        assuranceLabel: PMK.data.assuranceLabel(pkg && pkg.verification && pkg.verification.assuranceLevel),
                         ratingStars: card.ratingStars, ratingNum: card.ratingNum, downloadsLabel: card.downloadsLabel,
                         description: PMK.data.entryDescription(entry), tags: card.tags,
+                        trustLines: global.PixivPluginPresentationTokens.trustLines(
+                            this.selectedFacts || (pkg && pkg.verification), PMK.state.i18n.client),
                         versions: versions, dependencies: deps, infoRows: rows, verificationBadge: verificationBadge
                     };
                 },

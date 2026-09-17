@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.plugin.runtime.install.provenance;
 
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeLayout;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.CommunityPackageEvidence;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode;
 import top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustDecision;
@@ -344,6 +345,13 @@ public final class PluginProvenanceStore {
     public void write(Path artifact, PluginProvenanceRecord record) throws IOException {
         Properties props = new Properties();
         props.setProperty("formatVersion", "3");
+        if (record.communityEvidence() != null) {
+            var evidence = record.communityEvidence();
+            put(props, "community.assuranceLevel", evidence.assuranceLevel());
+            put(props, "community.sourceCommit", evidence.sourceCommit());
+            put(props, "community.reviewSha256", evidence.reviewSha256());
+            put(props, "community.reviewJson", evidence.reviewJson());
+        }
         props.setProperty("source", record.source().name());
         put(props, "repositoryId", record.repositoryId());
         props.setProperty("officialRepository", Boolean.toString(record.officialRepository()));
@@ -631,7 +639,8 @@ public final class PluginProvenanceStore {
                 "offlineStatus", "offlineVerifiedAt", "diagnosticCode", "trust.pluginId",
                 "trust.publisherKeyFingerprint", "trust.repositoryId", "trust.repositoryOfficial",
                 "trust.artifactSha256", "trust.executionMode",
-                "trust.approvedAt", "trust.approvedAppSdkMajor", "trust.approvalType", "trustRevokedAt");
+                "trust.approvedAt", "trust.approvedAppSdkMajor", "trust.approvalType", "trustRevokedAt",
+                "community.assuranceLevel", "community.sourceCommit", "community.reviewSha256", "community.reviewJson");
         for (String key : props.stringPropertyNames()) {
             if (!allowedKeys.contains(key)) {
                 throw new IllegalArgumentException("unknown provenance property: " + key);
@@ -644,7 +653,7 @@ public final class PluginProvenanceStore {
         if (!"3".equals(formatVersion) && props.stringPropertyNames().stream().anyMatch(key ->
                 "publisherKeyFingerprint".equals(key)
                         || key.startsWith("trust.")
-                        || "trustRevokedAt".equals(key))) {
+                        || "trustRevokedAt".equals(key) || key.startsWith("community."))) {
             throw new IllegalArgumentException("legacy provenance must not contain v3 trust properties");
         }
         PluginPackageSource source = PluginPackageSource.valueOf(requiredText(props, "source"));
@@ -754,7 +763,11 @@ public final class PluginProvenanceStore {
                 offlineVerifiedAt,
                 text(props, "diagnosticCode"),
                 trustDecision,
-                strictInstantOrNull(props.getProperty("trustRevokedAt")));
+                strictInstantOrNull(props.getProperty("trustRevokedAt")),
+                props.stringPropertyNames().stream().noneMatch(key -> key.startsWith("community.")) ? null
+                        : new CommunityPackageEvidence(requiredText(props, "community.assuranceLevel"),
+                                requiredText(props, "community.sourceCommit"), requiredText(props, "community.reviewSha256"),
+                                props.getProperty("community.reviewJson")));
     }
 
     private static String requiredText(Properties props, String key) {

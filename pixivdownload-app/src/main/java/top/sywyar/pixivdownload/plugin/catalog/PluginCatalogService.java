@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginCatalogClientProvider;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
+import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryImportService;
 import top.sywyar.pixivdownload.plugin.signature.ManifestVerificationRequest;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
@@ -67,6 +68,7 @@ public class PluginCatalogService {
     private final ObjectMapper objectMapper;
     private final ObjectMapper strictObjectMapper = PluginCatalogStrictJson.mapper(false);
     private final Function<PluginRepository, PluginSupplyChainVerifier> verifierResolver;
+    private PluginRepositoryImportService imports;
     private final Map<String, CachedPage> pageCache = new LinkedHashMap<>(64, 0.75f, true) {
         @Override protected boolean removeEldestEntry(Map.Entry<String, CachedPage> eldest) {
             return size() > 64;
@@ -80,10 +82,16 @@ public class PluginCatalogService {
     private final Map<String, String> generations = new java.util.concurrent.ConcurrentHashMap<>();
     private final Semaphore pagedRequests = new Semaphore(4);
 
-    @Autowired
     public PluginCatalogService(PluginRepositoryRegistry repositoryRegistry,
                                 PluginCatalogClientProvider clientProvider) {
         this(repositoryRegistry, clientProvider, PluginCatalogTrustStores::verifierForRepository);
+    }
+
+    @Autowired
+    public PluginCatalogService(PluginRepositoryRegistry repositories, PluginCatalogClientProvider clients,
+                                PluginRepositoryImportService imports) {
+        this(repositories, clients);
+        this.imports = imports;
     }
 
     public PluginCatalogService(PluginRepositoryRegistry repositoryRegistry,
@@ -239,7 +247,7 @@ public class PluginCatalogService {
     }
 
     /** 安装路径在下载前按协议重新解析版本，绝不信任浏览页缓存或客户端 URL。 */
-    ResolvedPackage resolvePackage(String repositoryId, String pluginId, String version) {
+    public ResolvedPackage resolvePackage(String repositoryId, String pluginId, String version) {
         PluginRepository repository = resolveRepository(repositoryId);
         if (!repository.pagedCatalog()) {
             PluginCatalogEntry entry = loadRepository(repository).findEntry(pluginId)
@@ -301,6 +309,11 @@ public class PluginCatalogService {
             throw new PluginCatalogException(PluginCatalogErrorCode.REPOSITORY_DISABLED,
                     "plugin repository is disabled: " + repository.repositoryId());
         }
+        if (repository.community()) {
+            if (imports == null) throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE,
+                    "community directory verifier is unavailable");
+            return imports.authenticateCommunity(repository);
+        }
         return repository;
     }
 
@@ -352,7 +365,7 @@ public class PluginCatalogService {
     record ResolvedCatalog(PluginRepository repository, PluginCatalogManifest manifest) {
     }
 
-    record ResolvedPackage(PluginRepository repository, PluginCatalogEntry entry, PluginCatalogPackage pkg) { }
+    public record ResolvedPackage(PluginRepository repository, PluginCatalogEntry entry, PluginCatalogPackage pkg) { }
 
     private PluginCatalogPage loadPaged(PluginRepository repository, PluginCatalogPageQuery query) {
         String url = pageUrl(repository, query);
@@ -607,6 +620,15 @@ public class PluginCatalogService {
                     "catalog package identity or publisher signature is missing: " + pluginId);
         }
         requirePathToken(pkg.version(), "version");
+        if (repository.community()) {
+            if (!pkg.hasSignature() || !"SOURCE_REVIEWED".equals(pkg.assuranceLevel()) || pkg.reviewRef() == null
+                    || pkg.historicalOwner() == null || pkg.sourceCommit() == null
+                    || !pkg.sourceCommit().matches("[0-9a-f]{40}")) {
+                throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE,
+                        "community package assurance binding is missing: " + pluginId);
+            }
+            pkg.reviewRef().validate();
+        }
     }
 
     private static void validateFacets(Map<String, Long> facets) {

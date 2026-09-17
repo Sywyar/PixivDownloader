@@ -17,6 +17,7 @@ import top.sywyar.pixivdownload.plugin.install.PluginInstallReport;
 import top.sywyar.pixivdownload.plugin.install.PluginInstallService;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 import top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationService;
+import top.sywyar.pixivdownload.plugin.catalog.community.CommunityPackageService;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService.PluginDependencyView;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
@@ -52,8 +53,8 @@ public class PluginCatalogAcquisitionService {
     private final PluginInstallService installService;
     private final PluginDependencyResolver dependencyResolver;
     private final PluginCatalogRevocationService revocations;
+    private CommunityPackageService communityPackages;
 
-    @Autowired
     public PluginCatalogAcquisitionService(PluginCatalogService catalogService,
                                            PluginPackageDownloader downloader,
                                            PluginInstallService installService,
@@ -64,6 +65,14 @@ public class PluginCatalogAcquisitionService {
         this.installService = installService;
         this.dependencyResolver = dependencyResolver;
         this.revocations = revocations;
+    }
+
+    @Autowired
+    public PluginCatalogAcquisitionService(PluginCatalogService catalogService, PluginPackageDownloader downloader,
+                                           PluginInstallService installService, PluginDependencyResolver dependencyResolver,
+                                           PluginCatalogRevocationService revocations, CommunityPackageService communityPackages) {
+        this(catalogService, downloader, installService, dependencyResolver, revocations);
+        this.communityPackages = communityPackages;
     }
 
     public PluginCatalogAcquisitionService(PluginCatalogService catalogService,
@@ -272,6 +281,11 @@ public class PluginCatalogAcquisitionService {
                     repository.pagedCatalog() ? (pkg.requiredSdk() != null ? pkg.requiredSdk() : "*") : null,
                     repository.pagedCatalog() ? pkg.dependencies() : null,
                     pkg.identityMigrationSignatures(), confirmedTrustSha256);
+            if (repository.community()) {
+                if (communityPackages == null) throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE,
+                        "community package verifier is unavailable");
+                origin = origin.withCommunityEvidence(communityPackages.verify(temp, repository, pluginId, pkg));
+            }
             return installService.installTrustedFile(temp, false, origin);
         } finally {
             deleteQuietly(temp);

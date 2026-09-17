@@ -141,7 +141,7 @@ class VersionSubmissionTest {
         for (String declaration : List.of("", "pixiv.risk-signals=\n", "pixiv.risk-signals=FILE_WRITE,NETWORK\n")) {
             writePackage(artifact, declaration);
             var descriptor = top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader.inspect(artifact).descriptor();
-            var snapshot = DescriptorSnapshot.from(descriptor, submission);
+            var snapshot = DescriptorSnapshot.from(descriptor, submission.pluginId(), submission.version());
             assertThat(snapshot.riskDeclaration().present()).isEqualTo(!declaration.isEmpty());
             assertThat(snapshot.requiredSdk()).isEqualTo("1.0");
             assertThat(snapshot.dependencies()).extracting(top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef::pluginId)
@@ -150,7 +150,7 @@ class VersionSubmissionTest {
         writePackage(artifact, "pixiv.risk-signals=FUTURE_TOKEN\n");
         var descriptor = top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader.inspect(artifact).descriptor();
         assertThat(descriptor.riskDeclaration().signals()).containsExactly("FUTURE_TOKEN");
-        assertThatThrownBy(() -> DescriptorSnapshot.from(descriptor, submission)).isInstanceOf(ContractException.class);
+        assertThatThrownBy(() -> DescriptorSnapshot.from(descriptor, submission.pluginId(), submission.version())).isInstanceOf(ContractException.class);
     }
 
     @Test

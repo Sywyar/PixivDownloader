@@ -1250,7 +1250,8 @@ public class PluginRuntimeManager {
             if (admissionProvenance != null && admissionProvenance.repositoryId() != null) {
                 PluginArtifactAdmissionResult admission = admissionPolicy.evaluate(
                         new PluginArtifactAdmissionRequest(admissionProvenance.repositoryId(), inspection.descriptor().id(),
-                                inspection.descriptor().version(), result.sha256(), result.keyId(), result.publisher()));
+                                inspection.descriptor().version(), result.sha256(), result.keyId(), result.publisher(),
+                                admissionProvenance.communityEvidence()));
                 if (admission == null || !admission.allowed()) {
                     throw new PluginRuntimeOperationException("plugin admission rejected before load: "
                             + (admission != null ? admission.code() + ": " + admission.detail() : "null result"));

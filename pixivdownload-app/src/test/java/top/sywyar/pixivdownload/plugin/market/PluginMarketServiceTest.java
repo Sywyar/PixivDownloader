@@ -73,7 +73,7 @@ class PluginMarketServiceTest {
         assertThat(view.sdkVersion()).isEqualTo(SdkVersion.VERSION);
         assertThat(view.defaultRepositoryId()).isEqualTo(PluginRepository.LEGACY_CONFIGURED_ID);
         assertThat(view.repositories()).extracting(PluginMarketRepositoryView::repositoryId)
-                .containsExactly(PluginRepository.OFFICIAL_ID, PluginRepository.LEGACY_CONFIGURED_ID,
+                .containsExactly(PluginRepository.OFFICIAL_ID, PluginRepository.COMMUNITY_ID, PluginRepository.LEGACY_CONFIGURED_ID,
                         "community-demo");
 
         PluginMarketRepositoryView official = view.repositories().get(0);
@@ -82,11 +82,11 @@ class PluginMarketServiceTest {
         assertThat(official.defaultRepository()).isFalse();
         assertThat(official.proxyPolicySupported()).isTrue();
 
-        PluginMarketRepositoryView configured = view.repositories().get(1);
+        PluginMarketRepositoryView configured = view.repositories().stream().filter(PluginMarketRepositoryView::legacy).findFirst().orElseThrow();
         assertThat(configured.legacy()).isTrue();
         assertThat(configured.defaultRepository()).isTrue();
 
-        PluginMarketRepositoryView community = view.repositories().get(2);
+        PluginMarketRepositoryView community = view.repositories().stream().filter(item -> "community-demo".equals(item.repositoryId())).findFirst().orElseThrow();
         assertThat(community.official()).isFalse();
         assertThat(community.builtIn()).isFalse();
         assertThat(community.enabled()).isFalse();

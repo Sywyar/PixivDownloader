@@ -191,6 +191,7 @@
     "sort.recommended": "推薦",
     "sort.updated": "最近更新",
     "toolbar.count": "{n} 個外掛程式",
+    "trust.facts": "來源與能力宣告",
     "verification.hash-mismatch": "雜湊不符",
     "verification.invalid-signature": "簽章無效",
     "verification.not-installed": "未安裝",
@@ -199,6 +200,7 @@
     "verification.unknown-key": "未知發佈者",
     "verification.unsigned-allowed": "使用者放行未簽章",
     "verification.unverified-local": "本機未驗證",
+    "verification.verified-community": "社群簽署",
     "verification.verified-custom": "自訂儲存庫簽章",
     "verification.verified-official": "官方簽章"
   }

@@ -4,6 +4,7 @@ import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifac
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.signature.ArtifactVerificationRequest;
+import top.sywyar.pixivdownload.plugin.signature.community.CommunityPackageVerificationRequest;
 import top.sywyar.pixivdownload.plugin.signature.IdentityMigrationVerificationRequest;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
@@ -41,6 +42,7 @@ public final class PluginArtifactVerificationService {
 
     public VerificationResult verifyForInstall(Path artifact, PluginDescriptor descriptor, PluginPackageOrigin origin) {
         PluginPackageOrigin effectiveOrigin = origin != null ? origin : PluginPackageOrigin.localUpload();
+        if (effectiveOrigin.communityEvidence() != null) return verifyCommunity(artifact, descriptor, effectiveOrigin, false);
         return verifierFor(effectiveOrigin).verifyArtifact(new ArtifactVerificationRequest(
                 artifact,
                 descriptor.id(),
@@ -64,6 +66,7 @@ public final class PluginArtifactVerificationService {
                     VerificationPolicy.installedCustom()));
         }
         PluginPackageOrigin origin = provenance.originForOfflineVerification();
+        if (origin.communityEvidence() != null) return verifyCommunity(artifact, descriptor, origin, true);
         return verifierFor(origin).verifyArtifact(new ArtifactVerificationRequest(
                 artifact,
                 descriptor.id(),
@@ -72,6 +75,13 @@ public final class PluginArtifactVerificationService {
                 provenance.artifactSha256(),
                 origin.signature(),
                 origin.installedVerificationPolicy(developmentModeEnabled.getAsBoolean())));
+    }
+
+    private VerificationResult verifyCommunity(Path artifact, PluginDescriptor descriptor, PluginPackageOrigin origin, boolean installed) {
+        var evidence = origin.communityEvidence();
+        return verifierFor(origin).verifyCommunityPackage(new CommunityPackageVerificationRequest(artifact,
+                origin.repositoryId(), descriptor.id(), descriptor.version(), origin.expectedSizeBytes(), origin.expectedSha256(),
+                evidence.assuranceLevel(), evidence.sourceCommit(), evidence.reviewSha256(), origin.signature(), installed));
     }
 
     public VerificationResult verifyIdentityMigration(

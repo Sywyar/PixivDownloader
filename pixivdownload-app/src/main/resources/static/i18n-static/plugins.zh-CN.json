@@ -162,6 +162,7 @@
     "trust.confirm.unsigned-risk": "此插件没有发布者签名。PixivDownloader 无法证明它来自谁，也无法确认后续更新是否仍由同一作者发布。",
     "trust.error.failed": "更新插件执行信任失败：{message}",
     "trust.error.generic": "更新插件执行信任失败",
+    "trust.facts": "来源与能力声明",
     "trust.revoke.cancel": "取消",
     "trust.revoke.confirm": "撤销执行信任",
     "trust.revoke.message": "撤销“{plugin}”的执行信任后，当前已经运行的实例不会被强制终止，但下次加载、重载或启动时会被阻止，直到你重新批准当前精确制品。",
@@ -188,6 +189,7 @@
     "verification.unknown-key": "未知发布者",
     "verification.unsigned-allowed": "用户放行未签名",
     "verification.unverified-local": "本地未验证",
+    "verification.verified-community": "社区签名",
     "verification.verified-custom": "自定义仓库签名",
     "verification.verified-official": "官方签名"
   }
