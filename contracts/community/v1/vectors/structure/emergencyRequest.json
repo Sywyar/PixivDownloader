@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "requestId": "abababababababababababababababababababababababababababababababab",
+  "payload": {
+    "operation": "DECLARE_KEY_COMPROMISE",
+    "owner": { "accountId": "101", "accountType": "User", "publisherId": "example" },
+    "publisherRecordSha256": "abababababababababababababababababababababababababababababababab",
+    "keys": [
+      { "keyId": "example-key", "fingerprint": "abababababababababababababababababababababababababababababababab" }
+    ]
+  }
+}

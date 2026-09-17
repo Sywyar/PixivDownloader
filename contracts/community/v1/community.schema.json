@@ -2,6 +2,52 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:pixivdownloader:community:v1",
   "$defs": {
+    "emergencyState": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaVersion", "repositoryId", "kind"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "repositoryId": { "$ref": "#/$defs/id" },
+        "kind": { "const": "community-emergency-state" }
+      }
+    },
+    "emergencyKey": {
+      "type": "object", "additionalProperties": false,
+      "required": ["keyId", "fingerprint"],
+      "properties": {
+        "keyId": { "$ref": "#/$defs/keyId" },
+        "fingerprint": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "emergencyRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaVersion", "payload", "requestId"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "requestId": { "$ref": "#/$defs/sha256" },
+        "payload": {
+          "type": "object", "additionalProperties": false,
+          "required": ["operation", "owner", "publisherRecordSha256", "keys"],
+          "properties": {
+            "operation": { "const": "DECLARE_KEY_COMPROMISE" },
+            "owner": { "$ref": "#/$defs/owner" },
+            "publisherRecordSha256": { "$ref": "#/$defs/sha256" },
+            "keys": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/emergencyKey" } }
+          }
+        }
+      }
+    },
+    "emergencyKeyBlock": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaVersion", "owner", "key", "requestRef", "pr"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "owner": { "$ref": "#/$defs/owner" },
+        "key": { "$ref": "#/$defs/emergencyKey" },
+        "requestRef": { "$ref": "#/$defs/reference" },
+        "pr": { "$ref": "#/$defs/pr" }
+      }
+    },
     "sourceCandidate": {
       "type": "object",
       "additionalProperties": false,
@@ -1771,7 +1817,7 @@
         "if": { "required": ["authorization"] },
         "then": {
           "properties": {
-            "action": { "enum": ["YANK", "UNYANK", "REVOKE"] },
+            "action": { "enum": ["YANK", "UNYANK", "REVOKE", "PUBLISHER_KEY_ROTATION"] },
             "reviewerAccountIds": { "maxItems": 0 }
           },
           "not": { "required": ["recoveryEvidence"] }

@@ -38,29 +38,32 @@ class ReviewAdmissionTest {
 
     @Test @DisplayName("签名授权保持人工待审事实且不能覆盖人工拒绝、失败检查或不同请求")
     void signedAuthorizationPreservesHumanFacts() throws Exception {
-        var f = new Fixture(); f.version = null; f.reviews.clear();
-        ObjectNode data;
-        try (var in = getClass().getResourceAsStream("/community/v1/vectors/structure/audit.json")) {
-            data = (ObjectNode) CommunityJson.read(CommunityJson.Kind.AUDIT, in).value();
-        }
-        data.put("action", "YANK").put("authorization", "SIGNED_OWNER").put("result", "PREPARED")
-                .put("actorAccountId", PR.authorAccountId()).put("revocationSequence", 2);
-        data.remove("recoveryEvidence"); data.putArray("reviewerAccountIds");
-        data.putArray("prEvidence").add(CommunityJson.strictTree(CommunityJson.encode(PR), 1024));
-        var audit = CommunityJson.parse(CommunityJson.Kind.AUDIT, CommunityJson.encode(data));
-        var result = ReviewAdmission.authorizeStatus(f.evaluate(), audit);
-        assertThat(result.human().status()).isEqualTo(HumanReviews.Status.PENDING);
-        assertThat(result.authorizationPassed()).isTrue();
-        assertThat(result.flow()).isEqualTo(Flow.READY);
-        assertThat(result.labels()).contains("authorization:signed-owner").doesNotContain("review:approved", "review:self-approved", "review:pending");
-        f.reviews.add(f.review("20", "3", CHANGES_REQUESTED, HEAD, null));
-        result = ReviewAdmission.authorizeStatus(f.evaluate(), audit);
-        assertThat(result.authorizationPassed()).isFalse();
-        assertThat(result.flow()).isEqualTo(Flow.NONE);
-        f.reviews.clear(); f.conclusion = Conclusion.FAILURE;
-        assertThat(ReviewAdmission.authorizeStatus(f.evaluate(), audit).flow()).isEqualTo(Flow.NONE);
-        f.pr = new CommunityPr(PR.githubRepositoryId(), PR.number(), PR.authorAccountId(), PR.headRepositoryId(), SOURCE, BASE, null);
-        assertThatThrownBy(() -> ReviewAdmission.authorizeStatus(f.evaluate(), audit)).isInstanceOf(ContractException.class);
+        for (var action : List.of("YANK", "PUBLISHER_KEY_ROTATION")) {
+            var f = new Fixture(); f.version = null; f.reviews.clear();
+            ObjectNode data;
+            try (var in = getClass().getResourceAsStream("/community/v1/vectors/structure/audit.json")) {
+                data = (ObjectNode) CommunityJson.read(CommunityJson.Kind.AUDIT, in).value();
+            }
+            data.put("action", action).put("authorization", "SIGNED_OWNER").put("result", "PREPARED")
+                    .put("actorAccountId", PR.authorAccountId());
+            if (action.equals("YANK")) data.put("revocationSequence", 2); else data.remove("revocationSequence");
+            data.remove("recoveryEvidence"); data.putArray("reviewerAccountIds");
+            data.putArray("prEvidence").add(CommunityJson.strictTree(CommunityJson.encode(PR), 1024));
+            var audit = CommunityJson.parse(CommunityJson.Kind.AUDIT, CommunityJson.encode(data));
+            var result = ReviewAdmission.authorizeStatus(f.evaluate(), audit);
+            assertThat(result.human().status()).isEqualTo(HumanReviews.Status.PENDING);
+            assertThat(result.authorizationPassed()).isTrue();
+            assertThat(result.flow()).isEqualTo(Flow.READY);
+            assertThat(result.labels()).contains("authorization:signed-owner").doesNotContain("review:approved", "review:self-approved", "review:pending");
+            f.reviews.add(f.review("20", "3", CHANGES_REQUESTED, HEAD, null));
+            result = ReviewAdmission.authorizeStatus(f.evaluate(), audit);
+            assertThat(result.authorizationPassed()).isFalse();
+            assertThat(result.flow()).isEqualTo(Flow.NONE);
+            f.reviews.clear(); f.conclusion = Conclusion.FAILURE;
+            assertThat(ReviewAdmission.authorizeStatus(f.evaluate(), audit).flow()).isEqualTo(Flow.NONE);
+            f.pr = new CommunityPr(PR.githubRepositoryId(), PR.number(), PR.authorAccountId(), PR.headRepositoryId(), SOURCE, BASE, null);
+            assertThatThrownBy(() -> ReviewAdmission.authorizeStatus(f.evaluate(), audit)).isInstanceOf(ContractException.class);
+            }
     }
 
     @Test

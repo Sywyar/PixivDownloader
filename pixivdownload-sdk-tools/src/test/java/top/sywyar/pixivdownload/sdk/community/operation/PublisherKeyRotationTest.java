@@ -38,7 +38,7 @@ class PublisherKeyRotationTest {
             assertThat(updated.signingKeys()).hasSize(3).contains(retired);
             assertThat(updated.activeKey().keyId()).isEqualTo("new");
             assertThat(updated.signingKeys().stream().filter(key -> key.keyId().equals("old")).findFirst().orElseThrow().state())
-                    .isEqualTo(reason == KeyRotationRequest.Reason.KEY_COMPROMISED ? TrustedPluginKey.State.REVOKED : TrustedPluginKey.State.RETIRED);
+                    .isEqualTo(TrustedPluginKey.State.RETIRED);
             assertThat(OperationAudit.read(outcome.result().audit()).beforeRef().sha256()).isEqualTo(current.sha256());
         }
     }
@@ -59,6 +59,44 @@ class PublisherKeyRotationTest {
         error("SCHEMA_INVALID", () -> PublisherKeyRotation.apply(contextFor(reused, "101", true), current));
         var invalidNew = proof(request, "newKey", "new", old);
         error("INVALID_SIGNATURE", () -> PublisherKeyRotation.apply(contextFor(invalidNew, "101", true), current));
+    }
+
+    @Test
+    @DisplayName("个人例行换钥以新旧密钥证明自动授权，其它原因和身份不能套用")
+    void authorizesOnlyProvenPersonalRoutineRotation() throws Exception {
+        var old = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        var next = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        var current = publisher("101", "example", "old", old).document();
+        var request = proof(rotation(current, KeyRotationRequest.Reason.ROUTINE_ROTATION, next, "new"), "oldKey", "old", old);
+        var result = PublisherKeyRotation.apply(signedContext(request), current).result();
+        assertThat(result.audit().value().get("authorization").textValue()).isEqualTo("SIGNED_OWNER");
+        assertThat(result.audit().value().get("reviewerAccountIds")).isEmpty();
+        assertThat(Publisher.read(result.written(Publisher.read(current).path(), CommunityJson.Kind.PUBLISHER)).activeKey().keyId()).isEqualTo("new");
+        var invalidOld = proof(request, "oldKey", "old", next);
+        error("INVALID_SIGNATURE", () -> PublisherKeyRotation.apply(signedContext(invalidOld), current));
+        var invalidNew = proof(request, "newKey", "new", old);
+        error("INVALID_SIGNATURE", () -> PublisherKeyRotation.apply(signedContext(invalidNew), current));
+        var missingOld = rotation(current, KeyRotationRequest.Reason.ROUTINE_ROTATION, next, "new");
+        error("APPROVAL_REQUIRED", () -> PublisherKeyRotation.apply(signedContext(missingOld), current));
+        for (var reason : List.of(KeyRotationRequest.Reason.KEY_LOST, KeyRotationRequest.Reason.KEY_COMPROMISED)) {
+            var recovery = proof(rotation(current, reason, next, "new"), "oldKey", "old", old);
+            error("APPROVAL_REQUIRED", () -> PublisherKeyRotation.apply(signedContext(recovery), current));
+        }
+        var reused = proof(rotation(current, KeyRotationRequest.Reason.ROUTINE_ROTATION, old, "another-id"), "oldKey", "old", old);
+        error("SCHEMA_INVALID", () -> PublisherKeyRotation.apply(signedContext(reused), current));
+        var organization = (ObjectNode) current.value();
+        ((ObjectNode) organization.get("githubAccount")).put("type", "Organization");
+        var organizationDocument = CommunityJson.parse(CommunityJson.Kind.PUBLISHER, CommunityJson.encode(organization));
+        var organizationRequest = proof(rotation(organizationDocument, KeyRotationRequest.Reason.ROUTINE_ROTATION, next, "new"), "oldKey", "old", old);
+        error("APPROVAL_REQUIRED", () -> signedContext(organizationRequest).authority().requireAuthorization(organizationRequest, false));
+    }
+
+    private static OperationContext signedContext(CommunityJson.Document request) {
+        var context = contextFor(request, "101", false);
+        var authority = context.authority();
+        var signed = new OperationAuthority(authority.proposalPr(), authority.actualAuthor(), List.of(), null, java.util.Set.of(),
+                new OperationAuthority.SignedStatus(request.value().get("requestId").textValue(), HEAD, authority.approval().evidence()));
+        return new OperationContext(context.request(), signed, null, NOW, context.evidence(), Map.of());
     }
 
     @Test
