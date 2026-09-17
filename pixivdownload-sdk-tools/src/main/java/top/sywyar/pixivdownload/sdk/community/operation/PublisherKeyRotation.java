@@ -28,8 +28,11 @@ public final class PublisherKeyRotation {
         if (publisher.signingKeys().stream().anyMatch(key -> key.keyId().equals(p.newKey().keyId()))) {
             throw ContractException.invalid("KEY_ID_REUSED", "/payload/newKey/keyId");
         }
+        if (publisher.signingKeys().stream().anyMatch(key -> key.publicKeySpkiBase64().equals(p.newKey().publicKeySpkiBase64()))) {
+            throw ContractException.invalid("KEY_PUBLIC_REUSED", "/payload/newKey/publicKeySpkiBase64");
+        }
         var authority = context.authority();
-        authority.requireApproval(request.requestId(), request.proofs().oldKey() == null);
+        authority.requireAuthorization(document, request.proofs().oldKey() == null);
         authority.requireRepresentative(publisher.owner(), authority.actualAuthor().id());
         OperationChecks.proof(document, CommunityOperation.PUBLISHER_KEY_ROTATION, request.proofs().newKey(),
                 p.newKey().trusted(publisher.displayName()), "/proofs/newKey");
@@ -37,8 +40,7 @@ public final class PublisherKeyRotation {
                 request.proofs().oldKey(), publisher.activeKey().trusted(publisher.displayName()), "/proofs/oldKey");
         var next = new ArrayList<Publisher.SigningKey>();
         for (var key : publisher.signingKeys()) next.add(key.keyId().equals(p.oldKeyId())
-                ? key.withState(p.reasonCode() == KeyRotationRequest.Reason.KEY_COMPROMISED
-                    ? TrustedPluginKey.State.REVOKED : TrustedPluginKey.State.RETIRED) : key);
+                ? key.withState(TrustedPluginKey.State.RETIRED) : key);
         next.add(new Publisher.SigningKey(p.newKey().keyId(), p.newKey().algorithm(), p.newKey().publicKeySpkiBase64(), TrustedPluginKey.State.ACTIVE));
         var updated = new Publisher(1, publisher.publisherId(), publisher.displayName(), publisher.githubAccount(), next).document();
         var before = OperationContext.archive(currentPublisher.bytes());

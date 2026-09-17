@@ -30,7 +30,7 @@ public record OperationAudit(int schemaVersion, String requestId, String action,
         var audit = document.as(OperationAudit.class);
         boolean status = List.of("YANK", "UNYANK", "REVOKE").contains(audit.action);
         if (status != (audit.revocationSequence != null)) throw new ContractException("SCHEMA_INVALID", "/revocationSequence");
-        if ("SIGNED_OWNER".equals(audit.authorization) ? !status || !audit.reviewerAccountIds.isEmpty()
+        if ("SIGNED_OWNER".equals(audit.authorization) ? !(status || "PUBLISHER_KEY_ROTATION".equals(audit.action)) || !audit.reviewerAccountIds.isEmpty()
                 || audit.recoveryEvidence != null : audit.reviewerAccountIds.isEmpty()) {
             throw new ContractException("REVIEW_MISMATCH", "/authorization");
         }
@@ -63,7 +63,7 @@ public record OperationAudit(int schemaVersion, String requestId, String action,
             case TRANSFER -> "RECOVERY".equals(data.get("payload").get("mode").textValue());
             default -> throw new ContractException("SCHEMA_INVALID", "/requestRef");
         };
-        authority.requireAuthorization(request.kind(), requestId, recovery);
+        authority.requireAuthorization(request, recovery);
         if (recovery && (expectedRecovery == null || expectedRecovery.isEmpty())) {
             throw new ContractException("RECOVERY_REVIEW_REQUIRED", "/recoveryEvidence");
         }
@@ -90,7 +90,7 @@ public record OperationAudit(int schemaVersion, String requestId, String action,
                                                 Long sequence, List<Reference> related, Map<String, Evidence> evidence) {
         String expectedAction = action(request);
         String requestId = request.value().get("requestId").textValue();
-        authority.requireAuthorization(request.kind(), requestId, false);
+        authority.requireAuthorization(request, false);
         var value = new OperationAudit(1, requestId, expectedAction, requestRef, before, after,
                 authority.decisionEvidence().reference(), authority.actualAuthor().id(),
                 authority.reviewerIds(), prs, recovery, related, prs.stream().anyMatch(pr -> pr.mergeSha() == null) ? "PREPARED" : "APPLIED",

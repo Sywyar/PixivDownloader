@@ -25,7 +25,7 @@ public record OperationAuthority(CommunityPr proposalPr, Account actualAuthor, L
         authorizedReviewers = Set.copyOf(authorizedReviewers);
     }
     public record Representation(Owner subject, String personAccountId, Evidence evidence) { }
-    /** 来自受保护执行器的签名处置授权；实际活动密钥证明仍由 VersionStatus 验证。 */
+    /** 来自受保护执行器的签名授权；实际密钥证明由对应操作归约器验证。 */
     public record SignedStatus(String requestId, String headSha, Evidence evidence) { }
     public record Approval(String requestId, String headSha, Set<String> reviewerAccountIds,
                            boolean recoveryApproved, Evidence evidence) {
@@ -47,10 +47,33 @@ public record OperationAuthority(CommunityPr proposalPr, Account actualAuthor, L
 
     public void requireAuthorization(CommunityJson.Kind kind, String requestId, boolean recovery) {
         if (signedStatus == null) { requireApproval(requestId, recovery); return; }
-        proposalPr.requireHuman(actualAuthor);
-        if (kind != CommunityJson.Kind.STATUS_REQUEST || approval != null || recovery) {
+        if (kind != CommunityJson.Kind.STATUS_REQUEST) {
             throw new ContractException("APPROVAL_REQUIRED", "/authorization");
         }
+        requireSigned(requestId, recovery);
+    }
+
+    /** 换钥的自动授权必须检查请求内容，不能仅凭操作种类放行。 */
+    public void requireAuthorization(CommunityJson.Document request, boolean recovery) {
+        String requestId = request.value().get("requestId").textValue();
+        if (request.kind() != CommunityJson.Kind.ROTATION || signedStatus == null) {
+            requireAuthorization(request.kind(), requestId, recovery);
+            return;
+        }
+        var payload = request.value().get("payload");
+        var account = payload.get("githubAccount");
+        if (!"ROUTINE_ROTATION".equals(payload.get("reasonCode").textValue())
+                || !request.value().get("proofs").hasNonNull("oldKey")
+                || !"User".equals(account.get("type").textValue())
+                || !actualAuthor.id().equals(account.get("id").textValue()) || !representations.isEmpty()) {
+            throw new ContractException("APPROVAL_REQUIRED", "/authorization");
+        }
+        requireSigned(requestId, recovery);
+    }
+
+    private void requireSigned(String requestId, boolean recovery) {
+        proposalPr.requireHuman(actualAuthor);
+        if (approval != null || recovery) throw new ContractException("APPROVAL_REQUIRED", "/authorization");
         if (!requestId.equals(signedStatus.requestId) || !proposalPr.headSha().equals(signedStatus.headSha)
                 || signedStatus.evidence == null) throw new ContractException("REVIEW_MISMATCH", "/authorization");
     }

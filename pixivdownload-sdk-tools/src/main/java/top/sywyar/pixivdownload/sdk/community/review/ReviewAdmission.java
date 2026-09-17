@@ -116,7 +116,7 @@ public final class ReviewAdmission {
                 validated, riskPassed, human, incomplete, decisions.manualScanAccepted(), blockers, flow, labels, Authorization.HUMAN_REVIEW);
     }
 
-    /** 调用方仅可传入由 VersionStatus 对当前受保护状态重新计算的结果，不能读取 PR 自报审计代替验签。 */
+    /** 仅接受操作归约器对当前受保护状态重新验签的结果，不能读取 PR 自报审计代替验证。 */
     public static Result authorizeStatus(Result result, CommunityJson.Document verifiedAudit) {
         var audit = OperationAudit.read(verifiedAudit);
         if (result.snapshot.version != null || !"SIGNED_OWNER".equals(audit.authorization())

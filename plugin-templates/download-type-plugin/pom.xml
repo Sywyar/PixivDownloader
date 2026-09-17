@@ -15,7 +15,7 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
-        <pixivdownload.sdk.version>1.0.0-rc.12</pixivdownload.sdk.version>
+        <pixivdownload.sdk.version>1.0.0-rc.13</pixivdownload.sdk.version>
         <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
         <maven.compiler.version>3.13.0</maven.compiler.version>
         <maven.jar.version>3.4.2</maven.jar.version>

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "contractVersion": 1,
   "toolchain": {
-    "sdk": "1.0.0-rc.12",
+    "sdk": "1.0.0-rc.13",
     "java": "17",
     "maven": {
       "version": "3.9.11",
@@ -28,8 +28,8 @@
     },
     {
       "path": "community.schema.json",
-      "size": 68104,
-      "sha256": "beeaac99d42a105e2c09444c2e80d7cf446d978de92cd6ed0836f0324e1be900"
+      "size": 69894,
+      "sha256": "011af0a1fc1c3e1986df5cc3233801ad677a7bcff7c12c150186c15be7645872"
     },
     {
       "path": "licenses/0BSD.txt",
@@ -190,6 +190,21 @@
       "path": "vectors/structure/directoryShard.json",
       "size": 956,
       "sha256": "1531fefff38e94d72b0280b3a039c59861d91123eddff094989723d1495130f7"
+    },
+    {
+      "path": "vectors/structure/emergencyKeyBlock.json",
+      "size": 700,
+      "sha256": "8fe42cb7c090df8d58d71a6572c71bb867c5e9dc6937588b5b38a1058c4a7f55"
+    },
+    {
+      "path": "vectors/structure/emergencyRequest.json",
+      "size": 490,
+      "sha256": "a6ac6415d56e48ac5495a3778dc618a7a4a99282ba7e88879dee88e4bcee64a0"
+    },
+    {
+      "path": "vectors/structure/emergencyState.json",
+      "size": 90,
+      "sha256": "0d7bfa8a437a9bf24bb64bab3fca92f9f24e69397f0054995403cd1593f2d18d"
     },
     {
       "path": "vectors/structure/published.json",

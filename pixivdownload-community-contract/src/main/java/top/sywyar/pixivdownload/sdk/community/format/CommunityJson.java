@@ -48,6 +48,7 @@ public final class CommunityJson {
     public enum Kind {
         SUBMISSION("submission", 64), PUBLISHER("publisher", 256), BINDING("binding", 64),
         ROTATION("rotation", 64), STATUS_REQUEST("statusRequest", 64), TRANSFER("transfer", 64),
+        EMERGENCY_REQUEST("emergencyRequest", 64), EMERGENCY_KEY_BLOCK("emergencyKeyBlock", 64), EMERGENCY_STATE("emergencyState", 64),
         APPROVAL("approval", 64), REVIEW("review", 256), PUBLISHED("published", 64), AUDIT("audit", 256),
         DECISION("decision", 64), DIRECTORY_ROOT("directoryRoot", 256), DIRECTORY_SHARD("directoryShard", 1024);
         private final String definition;

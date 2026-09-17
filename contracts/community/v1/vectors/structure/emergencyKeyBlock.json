@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "owner": { "accountId": "101", "accountType": "User", "publisherId": "example" },
+  "key": { "keyId": "example-key", "fingerprint": "abababababababababababababababababababababababababababababababab" },
+  "requestRef": {
+    "path": "requests/101/example/abababababababababababababababababababababababababababababababab.json",
+    "size": 1,
+    "sha256": "abababababababababababababababababababababababababababababababab"
+  },
+  "pr": {
+    "githubRepositoryId": "1001",
+    "number": 17,
+    "authorAccountId": "101",
+    "headRepositoryId": "1002",
+    "headSha": "abababababababababababababababababababab",
+    "baseSha": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+  }
+}
