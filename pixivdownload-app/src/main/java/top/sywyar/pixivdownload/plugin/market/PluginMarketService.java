@@ -16,6 +16,7 @@ import top.sywyar.pixivdownload.plugin.market.presentation.PluginCatalogCategory
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
 import top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationService;
+import top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogTrustStateStore.RevocationSnapshot;
 import org.springframework.beans.factory.annotation.Autowired;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginDiagnostic;
 
@@ -88,11 +89,12 @@ public class PluginMarketService {
         var resolved = catalogService.resolvePackage(repositoryId, pluginId, version);
         var repository = resolved.repository();
         var pkg = resolved.pkg();
+        var snapshot = refreshRevocations(repository);
         var view = top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector.forCatalogPackage(repository, pkg);
         var previous = pluginStatusService.report().diagnostics().stream()
                 .filter(item -> pluginId.equals(item.id())).map(PluginDiagnostic::descriptor)
                 .filter(java.util.Objects::nonNull).findFirst().orElse(null);
-        String revocation = revocations != null ? revocations.status(repository, pluginId, pkg) : "NOT_CHECKED";
+        String revocation = revocations != null ? revocations.status(repository, pluginId, pkg, snapshot) : "NOT_CHECKED";
         if (!repository.community()) return view.withFacts(revocation, null, null, previous);
         if (communityPackages == null) throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE,
                 "community package verifier is unavailable");
@@ -129,21 +131,26 @@ public class PluginMarketService {
             return PluginMarketView.disabled();
         }
         PluginRepository repository = resolveRepository(repositoryId);
+        query = query == null ? PluginCatalogPageQuery.first() : query;
+        RevocationSnapshot snapshot = refreshRevocations(repository);
         PluginCatalogPage page = catalogService.loadPage(repository.repositoryId(), query);
         Map<String, String> installed = installedVersionsById();
+        List<PluginMarketEntryView> entries = page.items().stream()
+                .map(entry -> projectEntry(repository, entry, installed, snapshot))
+                .filter(entry -> entry.packages().isEmpty() || entry.latestVersion() != null)
+                .toList();
+        var visibleIds = entries.stream().map(PluginMarketEntryView::pluginId).collect(java.util.stream.Collectors.toSet());
         List<PluginCatalogEntry> visible = page.items().stream()
-                .filter(entry -> !isYanked(repository, entry))
-                .toList();
-        List<PluginMarketEntryView> entries = visible.stream()
-                .map(entry -> projectEntry(repository, entry, installed))
-                .toList();
+                .filter(entry -> visibleIds.contains(entry.pluginId())).toList();
         int installedCount = (int) entries.stream()
                 .filter(entry -> entry.installStatus() == MarketInstallStatus.INSTALLED
                         || entry.installStatus() == MarketInstallStatus.UPDATE_AVAILABLE)
                 .count();
         return new PluginMarketView(repository.repositoryId(), true, SdkVersion.VERSION,
                 installedCount, categoryCounts(visible), entries, page.generation(), page.nextCursor(),
-                page.totalApproximate(), page.facets(), page.stale());
+                entries.size() == page.items().size() ? page.totalApproximate()
+                        : query.cursor() == null && page.nextCursor() == null ? (long) entries.size() : null,
+                entries.size() == page.items().size() ? page.facets() : Map.of(), page.stale());
     }
 
     /**
@@ -156,17 +163,23 @@ public class PluginMarketService {
 
     public PluginMarketEntryView pluginDetail(String repositoryId, String pluginId, String cursor, int limit) {
         PluginRepository repository = resolveRepository(repositoryId);
+        RevocationSnapshot snapshot = refreshRevocations(repository);
         PluginCatalogDetailPage page = catalogService.loadEntryPage(
                 repository.repositoryId(), pluginId, cursor, limit);
-        return projectEntry(repository, page.item(), installedVersionsById())
+        return projectEntry(repository, page.item(), installedVersionsById(), snapshot)
                 .withVersionPage(page.generation(), page.nextCursor(), page.totalApproximate(), page.stale());
     }
 
     /** 据已安装快照把一个 catalog 条目投影为市场视图条目（含安装状态机推导）。 */
     private PluginMarketEntryView projectEntry(PluginRepository repository, PluginCatalogEntry entry,
-                                               Map<String, String> installedVersions) {
+                                               Map<String, String> installedVersions, RevocationSnapshot snapshot) {
         boolean installed = installedVersions.containsKey(entry.pluginId());
-        return PluginMarketEntryView.from(repository, entry, installed, installedVersions.get(entry.pluginId()));
+        var packages = entry.packages().stream().map(pkg -> revocations == null
+                ? PluginMarketPackageView.from(repository, pkg)
+                : PluginMarketPackageView.from(repository, pkg,
+                    revocations.status(repository, entry.pluginId(), pkg, snapshot),
+                    revocations.allowsInstall(repository, entry.pluginId(), pkg, snapshot))).toList();
+        return PluginMarketEntryView.from(entry, installed, installedVersions.get(entry.pluginId()), packages);
     }
 
     /**
@@ -203,17 +216,18 @@ public class PluginMarketService {
      */
     private PluginRepository resolveRepository(String repositoryId) {
         if (repositoryId == null || repositoryId.isBlank()) {
-            return repositoryRegistry.defaultRepository().orElseThrow(() ->
-                    new PluginCatalogException(PluginCatalogErrorCode.CATALOG_DISABLED, "no enabled plugin repository"));
+            repositoryId = repositoryRegistry.defaultRepository().orElseThrow(() ->
+                    new PluginCatalogException(PluginCatalogErrorCode.CATALOG_DISABLED, "no enabled plugin repository")).repositoryId();
         }
+        final String selectedId = repositoryId;
         PluginRepository repository = repositoryRegistry.find(repositoryId).orElseThrow(() ->
                 new PluginCatalogException(PluginCatalogErrorCode.UNKNOWN_REPOSITORY,
-                        "unknown plugin repository: " + repositoryId));
+                        "unknown plugin repository: " + selectedId));
         if (!repository.enabled()) {
             throw new PluginCatalogException(PluginCatalogErrorCode.REPOSITORY_DISABLED,
                     "plugin repository is disabled: " + repository.repositoryId());
         }
-        return repository;
+        return repository.community() ? catalogService.resolveRepository(repository.repositoryId()) : repository;
     }
 
     /**
@@ -248,11 +262,8 @@ public class PluginMarketService {
         return repositoryRegistry.featureEnabled();
     }
 
-    private boolean isYanked(PluginRepository repository, PluginCatalogEntry entry) {
-        if (revocations == null || entry.packages().isEmpty()) return false;
-        var latest = entry.market() != null ? entry.market().latestVersion() : null;
-        var pkg = latest != null ? entry.findPackage(latest).orElse(entry.packages().get(0)) : entry.packages().get(0);
-        return revocations.isYanked(repository, entry.pluginId(), pkg);
+    private RevocationSnapshot refreshRevocations(PluginRepository repository) {
+        return revocations == null ? null : revocations.refreshForBrowsing(repository);
     }
 
     /** 默认仓库 id（无可用默认仓库时为空）。 */

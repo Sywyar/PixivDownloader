@@ -68,6 +68,38 @@ import top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector;
 @DisplayName("PluginManagementService 插件管理后端服务")
 class PluginManagementServiceTest {
 
+    @Test
+    @DisplayName("已知撤销移除执行入口但保留清理动作，隐藏版本不改变运行期动作")
+    void revocationControlsExecutionActions() {
+        var descriptor = descriptor(EXTERNAL_ID, PluginKind.FEATURE);
+        var artifact = Path.of("plugins", "demo-ext.jar").toAbsolutePath().normalize();
+        var status = mock(PluginStatusService.class);
+        var lifecycle = mock(PluginLifecycleService.class);
+        var installer = mock(ExternalPluginInstaller.class);
+        var coordinator = mock(ExternalPluginLifecycleCoordinator.class);
+        var revocations = mock(top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationService.class);
+        var provenance = new PluginProvenanceRecord(PluginPackageSource.LOCAL_UPLOAD, null, false, true,
+                null, null, 1L, "a".repeat(64), null, VerificationStatus.UNSIGNED_ALLOWED,
+                null, null, null, Instant.now(), null, null, "UNSIGNED_ALLOWED");
+        when(status.recoveryGateSnapshot()).thenReturn(safeRecoveryGate());
+        when(status.report()).thenReturn(new PluginStatusReport(List.of(
+                new PluginDiagnostic(EXTERNAL_ID, PluginStatus.STOPPED, descriptor, false, List.of()))));
+        when(lifecycle.managedPluginIds()).thenReturn(Set.of(EXTERNAL_ID));
+        when(lifecycle.phase(EXTERNAL_ID)).thenReturn(Optional.of(PluginRuntimePhase.STOPPED));
+        when(lifecycle.artifactPath(EXTERNAL_ID)).thenReturn(Optional.of(artifact));
+        when(installer.snapshotInstalledWithProvenance(512, 64L * 1024L * 1024L)).thenReturn(
+                new InstalledPluginInventorySnapshot(List.of(new InstalledPluginSnapshot(
+                        new InstalledPlugin(descriptor, artifact), 1L, "a".repeat(64),
+                        ProvenanceSnapshotState.PRESENT, provenance, 0L)), false));
+        var service = new PluginManagementService(status, lifecycle, RequiredPluginPolicy.empty(),
+                mock(RecoveryModeService.class), coordinator, installer, new PluginToggleProperties(), revocations);
+        when(revocations.status(provenance, EXTERNAL_ID, descriptor.version())).thenReturn("REVOKED");
+        assertThat(entry(service.list(), EXTERNAL_ID).availableActions()).contains("remove", "unload")
+                .doesNotContain("load", "start", "restart", "reload");
+        when(revocations.status(provenance, EXTERNAL_ID, descriptor.version())).thenReturn("YANKED");
+        assertThat(entry(service.list(), EXTERNAL_ID).availableActions()).contains("start", "restart", "reload");
+    }
+
     private static final String BUILT_IN_ID = "core";      // 真实内置插件 id（BuiltInPlugins.isBuiltIn 为真）
     private static final String EXTERNAL_ID = "demo-ext";  // 非内置：视作外置
     private static final String REQUIRED_EXTERNAL_ID = "req-ext";

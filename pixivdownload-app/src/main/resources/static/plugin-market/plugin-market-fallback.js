@@ -336,8 +336,19 @@
             var facts = e.target.closest('[data-pmk-facts]');
             if (facts) {
                 var target = facts.parentElement.querySelector('[data-pmk-facts-content]');
-                PMK.api.fetchPackageFacts(state.activeRepositoryId, facts.getAttribute('data-pmk-facts'),
-                    facts.getAttribute('data-pmk-version')).then(function (data) {
+                var catalog = state.catalog;
+                var pluginId = facts.getAttribute('data-pmk-facts');
+                var version = facts.getAttribute('data-pmk-version');
+                PMK.api.fetchPackageFacts(catalog.repositoryId, pluginId, version).then(function (data) {
+                    if (state.catalog !== catalog) return;
+                    var entry = catalog.entries.find(function (item) { return item.pluginId === pluginId; });
+                    var pkg = entry && PMK.data.packageOf(entry, version);
+                    if (pkg) {
+                        pkg.verification = data;
+                        var card = PMK.data.cardModel(entry);
+                        card.repositoryId = catalog.repositoryId;
+                        facts.closest('.pmk-card').querySelector('.pmk-card-actions').innerHTML = installControl(card);
+                    }
                     target.innerHTML = global.PixivPluginPresentationTokens.trustLines(data, PMK.state.i18n.client)
                         .map(function (line) { return '<p>' + esc(line) + '</p>'; }).join('');
                 }).catch(function () {

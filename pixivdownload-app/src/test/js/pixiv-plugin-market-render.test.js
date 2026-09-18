@@ -45,7 +45,7 @@ function entry(id, { category = 'utility', defaultInstalled = false } = {}) {
     };
 }
 
-async function mountMarket({ community = false } = {}) {
+async function mountMarket({ community = false, revocation = null } = {}) {
     const errors = [];
     const document = { createElement: tag => node(tag), addEventListener() {}, removeEventListener() {}, body: { style: {} } };
     const sandbox = { document, console: { warn: (...args) => errors.push(args), error: (...args) => errors.push(args) } };
@@ -86,11 +86,15 @@ async function mountMarket({ community = false } = {}) {
         entries[0].assuranceLevel = 'SOURCE_REVIEWED';
         entries[0].market.sourceType = 'community';
         entries[0].packages.forEach(pkg => {
-            pkg.verification = { status: 'VERIFIED_THIRD_PARTY', repositoryTrustSource: 'COMMUNITY',
+            pkg.verification = { status: 'VERIFIED_COMMUNITY', repositoryTrustSource: 'COMMUNITY',
                 assuranceLevel: pkg.version === '2.0.0' ? 'SOURCE_REVIEWED' : 'PUBLISHER_SIGNED' };
         });
     }
     const catalog = { repositoryId: 'repo', entries, installedCount: 2, categories: [{ category: 'all', count: 3 }] };
+    if (revocation) {
+        entries[0].packages[1].verification.revocationStatus = revocation;
+        entries[0].packages[1].installable = false;
+    }
     let status = { recoveryMode: false };
     let enabled = true;
     let failCatalog = false;
@@ -106,7 +110,7 @@ async function mountMarket({ community = false } = {}) {
         fetchPackageFacts: async (repositoryId, pluginId, version) => {
             factCalls.push([repositoryId, pluginId, version]);
             const pkg = entries.find(e => e.pluginId === pluginId).packages.find(p => p.version === version);
-            return { ...pkg.verification, executionMode: 'declarative-process', revocationStatus: 'CLEAR',
+            return { ...pkg.verification, executionMode: 'declarative-process', revocationStatus: pkg.verification.revocationStatus || 'CLEAR',
                 riskDeclaration: { present: true, signals: version === '2.0.0' ? ['network'] : [] } };
         }
     };
@@ -195,6 +199,25 @@ test('市场在禁止动态代码编译时挂载，筛选、详情、安装结�
     assert.deepEqual(page.errors, []);
 });
 
+test('历史版本的隐藏、撤销、未知及过期状态禁用真实详情安装控件', async () => {
+    for (const revocation of ['YANKED', 'REVOKED', 'NOT_CHECKED', 'STALE']) {
+        const page = await mountMarket({ revocation });
+        const { root, flush } = page;
+        elements(root, 'pmk-card-name')[0].props.onClick();
+        await flush();
+        const select = elements(root, 'pmk-version-select')[0];
+        select.options.forEach(option => { option.selected = option.value === '1.0.0'; });
+        select.listeners.change();
+        await flush();
+        const button = elements(root, 'pmk-modal-actionbar-right')[0].children.find(n => n.tagName === 'BUTTON');
+        assert.equal(button.props.disabled, true, revocation);
+        if (revocation === 'YANKED' || revocation === 'REVOKED') {
+            assert.match(textOf(button), new RegExp('common:plugin-trust.revocation.' + revocation));
+        }
+        assert.equal(page.installCalls.length, 0);
+    }
+});
+
 test('无动态编译时仍能显示恢复模式、禁用状态和目录错误', async () => {
     const page = await mountMarket();
     await page.reload({ status: { recoveryMode: true, hostElevated: true,
@@ -230,4 +253,45 @@ test('社区版本保障与包内声明在 CSP 渲染中展示并随版本切换
     assert.match(textOf(modal), /plugin-trust.empty/);
     assert.doesNotMatch(textOf(modal), /signal.network|review-note/);
     assert.deepEqual(page.errors, []);
+});
+
+test('基础视图取回新撤销事实后立即禁用原可安装控件', async () => {
+    const handlers = {};
+    const root = { innerHTML: '', addEventListener(name, callback) { handlers[name] = callback; } };
+    const sandbox = { document: {}, console };
+    sandbox.window = sandbox;
+    vm.createContext(sandbox, { codeGeneration: { strings: false, wasm: false } });
+    for (const resource of ['js/pixiv-plugin-presentation-tokens.js', 'plugin-market/plugin-market-core.js',
+        'plugin-market/plugin-market-data.js', 'plugin-market/plugin-market-fallback.js']) {
+        vm.runInContext(fs.readFileSync(path.join(staticRoot, resource), 'utf8'), sandbox, { filename: resource });
+    }
+    const market = sandbox.PixivPluginMarket;
+    market.state.i18n.client = { lang: 'en-US', t: key => key };
+    const plugin = entry('visible');
+    market.api = {
+        fetchRepositories: async () => ({ enabled: true, defaultRepositoryId: 'repo',
+            repositories: [{ repositoryId: 'repo', enabled: true }] }),
+        fetchPluginStatus: async () => ({ recoveryMode: false }),
+        fetchCatalog: async () => ({ repositoryId: 'repo', entries: [plugin], categories: [] }),
+        fetchPackageFacts: async () => ({ status: 'VERIFIED_OFFICIAL', revocationStatus: 'REVOKED' })
+    };
+    const errors = [];
+    market.toast = message => errors.push(message);
+    market.fallback.render(root);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.match(root.innerHTML, /data-pmk-install="visible"/);
+    const actions = { innerHTML: '' };
+    const details = { innerHTML: '' };
+    const facts = {
+        parentElement: { querySelector: () => details },
+        getAttribute: name => name === 'data-pmk-facts' ? 'visible' : '2.0.0',
+        closest: () => ({ querySelector: () => actions })
+    };
+    handlers.click({ target: { closest: () => facts } });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.match(actions.innerHTML, / disabled/);
+    assert.doesNotMatch(actions.innerHTML, /data-pmk-install/);
+    assert.match(actions.innerHTML, /common:plugin-trust.revocation.REVOKED/);
+    assert.match(details.innerHTML, /revocation.REVOKED/);
+    assert.deepEqual(errors, []);
 });

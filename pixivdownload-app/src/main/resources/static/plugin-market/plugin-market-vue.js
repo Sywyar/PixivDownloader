@@ -605,13 +605,13 @@
                     var entry = this.selectedEntry;
                     if (!entry) return 'NOT_INSTALLED';
                     var result = this.installResults[this.installKey(this.activeCatalogRepositoryId, entry.pluginId)];
-                    var resultStatus = PMK.data.installResultStatus(result, null);
-                    if (resultStatus) return resultStatus;
                     var pkg = PMK.data.packageOf(entry, this.selectedVersion);
                     if (!pkg) return entry.installStatus;   // 无可安装版本制品 → 沿用后端状态（UNAVAILABLE / 已安装）
-                    var verificationStatus = this.packageVerificationInstallStatus(pkg);
+                    var verificationStatus = PMK.data.packageInstallBlock(pkg, this.selectedFacts);
                     if (verificationStatus) return verificationStatus;
                     if (!pkg.compatible) return 'INCOMPATIBLE';
+                    var resultStatus = PMK.data.installResultStatus(result, null);
+                    if (resultStatus) return resultStatus;
                     if (entry.installedVersion && entry.installedVersion === this.selectedVersion) return 'INSTALLED';
                     return entry.installStatus === 'UPDATE_AVAILABLE' ? 'UPDATE_AVAILABLE' : 'NOT_INSTALLED';
                 },
@@ -686,16 +686,6 @@
                             this.selectedFacts || (pkg && pkg.verification), PMK.state.i18n.client),
                         versions: versions, dependencies: deps, infoRows: rows, verificationBadge: verificationBadge
                     };
-                },
-                packageVerificationInstallStatus: function (pkg) {
-                    var v = pkg && pkg.verification;
-                    if (!v || !v.status) return null;
-                    if (v.status === 'VERIFIED_OFFICIAL' || v.status === 'VERIFIED_CUSTOM') return null;
-                    if (['SIGNATURE_REQUIRED', 'UNKNOWN_KEY', 'REVOKED_KEY', 'INVALID_SIGNATURE', 'HASH_MISMATCH']
-                            .indexOf(v.status) !== -1) {
-                        return v.status;
-                    }
-                    return null;
                 },
                 verificationLabel: function (verification) {
                     if (!verification || !verification.status) return this.t('verification.unverified-local', '本地未验证');

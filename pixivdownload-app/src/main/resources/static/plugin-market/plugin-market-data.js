@@ -166,20 +166,20 @@
     }
 
     function installStatusWithVerification(entry) {
-        var verification = packageVerification(entry);
-        if (!verification || !verification.status) return entry.installStatus;
-        if (verification.status === 'VERIFIED_OFFICIAL' || verification.status === 'VERIFIED_CUSTOM') {
-            return entry.installStatus;
-        }
-        if (verification.status === 'SIGNATURE_REQUIRED'
-                || verification.status === 'UNKNOWN_KEY'
-                || verification.status === 'REVOKED_KEY'
-                || verification.status === 'INVALID_SIGNATURE'
-                || verification.status === 'HASH_MISMATCH') {
-            return verification.status;
-        }
-        return entry.installStatus;
+        return D.packageInstallBlock(D.packageOf(entry, entry.latestVersion)) || entry.installStatus;
     }
+
+    // 卡片、所选历史版本和新取回的事实共用后端禁用原因，不从签名有效推断未被撤销。
+    D.packageInstallBlock = function (pkg, facts) {
+        var verification = facts || (pkg && pkg.verification);
+        var revocation = verification && verification.revocationStatus;
+        if (revocation === 'REVOKED' || revocation === 'YANKED') return revocation;
+        if (pkg && pkg.installable === false || revocation === 'NOT_CHECKED') return 'UNAVAILABLE';
+        if (!verification || !verification.status) return null;
+        if (['VERIFIED_OFFICIAL', 'VERIFIED_CUSTOM', 'VERIFIED_COMMUNITY', 'UNVERIFIED_LOCAL', 'UNSIGNED_ALLOWED']
+                .indexOf(verification.status) !== -1) return null;
+        return PMK.INSTALL_META[verification.status] ? verification.status : 'UNAVAILABLE';
+    };
 
     // —— 筛选 + 搜索 + 排序 ——
     function matches(entry, opts) {
@@ -306,6 +306,9 @@
     D.installResultStatus = function (result, fallbackStatus) {
         var r = result || {};
         if (r.recoveryBlocked) return 'RECOVERY_BLOCKED';
+        // 当前限制优先于此前安装回执；回执仍保留在结果区供查看。
+        if (fallbackStatus && ['NOT_INSTALLED', 'UPDATE_AVAILABLE', 'INSTALLED'].indexOf(fallbackStatus) === -1)
+            return fallbackStatus;
         if (r.activated) return 'ACTIVATED';
         if (r.accepted && r.effectiveAfterRestart) return 'PENDING_RESTART';
         return fallbackStatus;

@@ -26,6 +26,7 @@ import java.util.List;
  * @param channel               发布通道（{@code stable} / {@code beta}；{@code null} 视为 stable）
  * @param deprecated            该版本是否已下架 / 不建议（页面可置灰；不阻断安装）
  * @param verification          后端验签状态投影（市场页不得自行推断可信来源）
+ * @param installable           当前撤销快照是否允许尝试安装；兼容性、签名与实际安装仍分别校验
  */
 public record PluginMarketPackageView(
         String version,
@@ -40,9 +41,16 @@ public record PluginMarketPackageView(
         List<String> changeNotes,
         String channel,
         boolean deprecated,
-        PluginVerificationView verification) {
+        PluginVerificationView verification,
+        boolean installable) {
 
     static PluginMarketPackageView from(PluginRepository repository, PluginCatalogPackage pkg) {
+        return from(repository, pkg, repository.revocationsRequired() ? "NOT_CHECKED" : "NOT_PROVIDED",
+                !repository.revocationsRequired());
+    }
+
+    static PluginMarketPackageView from(PluginRepository repository, PluginCatalogPackage pkg,
+                                         String revocationStatus, boolean installable) {
         boolean compatible = VersionRequirement.parse(pkg.requiredSdk()).isSatisfiedByCurrentSdk();
         return new PluginMarketPackageView(
                 pkg.version(),
@@ -57,6 +65,7 @@ public record PluginMarketPackageView(
                 pkg.changeNotes(),
                 pkg.channel(),
                 pkg.deprecated(),
-                PluginVerificationProjector.forCatalogPackage(repository, pkg));
+                PluginVerificationProjector.forCatalogPackage(repository, pkg).withRevocation(revocationStatus),
+                installable);
     }
 }

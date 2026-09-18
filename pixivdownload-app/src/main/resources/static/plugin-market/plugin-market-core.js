@@ -29,7 +29,7 @@
     PMK.t = function (key, fallback, vars) {
         var client = PMK.state.i18n.client;
         if (client) {
-            return client.t('plugin-market:' + key, fallback, vars);
+            return client.t(key.indexOf(':') === -1 ? 'plugin-market:' + key : key, fallback, vars);
         }
         return interpolate(fallback != null ? fallback : key, vars);
     };
@@ -230,6 +230,8 @@
         REVOKED_KEY:     { labelKey: 'install.state.revoked-key', icon: 'shield-halved', variant: 'gray', disabled: true },
         INVALID_SIGNATURE:{ labelKey: 'install.state.invalid-signature', icon: 'shield-halved', variant: 'gray', disabled: true },
         HASH_MISMATCH:   { labelKey: 'install.state.hash-mismatch', icon: 'shield-halved', variant: 'gray', disabled: true },
+        YANKED:         { labelKey: 'common:plugin-trust.revocation.YANKED', icon: 'ban', variant: 'gray', disabled: true },
+        REVOKED:        { labelKey: 'common:plugin-trust.revocation.REVOKED', icon: 'ban', variant: 'gray', disabled: true },
         // 无任何可安装版本制品的条目（后端 UNAVAILABLE）：稳定降级为不可点击的不可安装态，绝不渲染可点击但无响应的安装按钮。
         UNAVAILABLE:     { labelKey: 'install.state.unavailable', icon: 'ban',    variant: 'gray', disabled: true },
         // 前端本地请求态（安装 POST 在途）：不来自后端，安装结果仍以后端响应为准。
@@ -239,7 +241,7 @@
         ACTIVATED:       { labelKey: 'install.state.activated', icon: 'circle-check', variant: 'success-outline', disabled: true }
     };
     PMK.installMeta = function (status) {
-        var normalized = PMK.INSTALL_META[status] ? status : 'NOT_INSTALLED';
+        var normalized = PMK.INSTALL_META[status] ? status : 'UNAVAILABLE';
         var meta = PMK.INSTALL_META[normalized];
         return {
             status: normalized,

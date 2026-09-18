@@ -40,6 +40,29 @@ vm.runInContext(DATA_SRC, sandbox);
 vm.runInContext(API_SRC, sandbox);
 
 const PMK = sandbox.window.PixivPluginMarket;
+for (const state of ['YANKED', 'REVOKED']) {
+    const pkg = { installable: false, verification: { status: 'VERIFIED_COMMUNITY', revocationStatus: state } };
+    const card = PMK.data.cardModel({ pluginId: 'sample', latestVersion: '2.0.0', installStatus: 'UPDATE_AVAILABLE',
+        packages: [{ ...pkg, version: '2.0.0' }] });
+    eq('撤销状态优先于有效签名与更新提示', card.installStatus, state);
+    eq('所选版本与卡片共享撤销判断', PMK.data.packageInstallBlock(pkg), state);
+    ok('撤销状态禁用安装', PMK.installMeta(state).disabled);
+}
+eq('未取得快照不能安装', PMK.data.packageInstallBlock({
+    installable: false, verification: { status: 'VERIFIED_COMMUNITY', revocationStatus: 'NOT_CHECKED' }
+}), 'UNAVAILABLE');
+eq('过期宽限期内仍由后端决定可否尝试安装', PMK.data.packageInstallBlock({
+    installable: true, verification: { status: 'VERIFIED_COMMUNITY', revocationStatus: 'STALE' }
+}), null);
+eq('过期超过宽限期禁止安装', PMK.data.packageInstallBlock({
+    installable: false, verification: { status: 'VERIFIED_COMMUNITY', revocationStatus: 'STALE' }
+}), 'UNAVAILABLE');
+for (const state of ['IO_ERROR', 'PROVENANCE_INVALID', 'FUTURE_STATE']) {
+    ok('未知或失败验证状态不能变成安装入口', PMK.installMeta(PMK.data.packageInstallBlock({
+        installable: true, verification: { status: state }
+    })).disabled);
+}
+ok('未知安装状态禁用控件', PMK.installMeta('FUTURE_STATE').disabled);
 ok('PixivPluginMarket 已挂载（core+data）', PMK
     && typeof PMK.iconClass === 'function'
     && PMK.data
@@ -190,6 +213,10 @@ ok('市场结果映射 recoveryBlocked', blockedResult.recoveryBlocked === true)
 eq('市场 recoveryBlocked 优先覆盖 accepted/activated 成功色调', blockedResult.tone, 'bad');
 eq('市场 recoveryBlocked 优先映射禁用恢复态',
     PMK.data.installResultStatus(blockedResult, 'NOT_INSTALLED'), 'RECOVERY_BLOCKED');
+for (const restriction of ['YANKED', 'REVOKED', 'UNAVAILABLE', 'UNKNOWN_KEY', 'INVALID_SIGNATURE']) {
+    eq('当前限制优先于历史成功回执: ' + restriction,
+        PMK.data.installResultStatus({activated: true, accepted: true}, restriction), restriction);
+}
 eq('市场恢复态按钮不使用绿色成功 variant', PMK.installMeta('RECOVERY_BLOCKED').variant, 'gray');
 ok('市场恢复态按钮保持禁用', PMK.installMeta('RECOVERY_BLOCKED').disabled === true);
 const blockedFeedback = PMK.data.installFeedback(blockedResult);

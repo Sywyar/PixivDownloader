@@ -300,7 +300,8 @@ public class PluginCatalogService {
                 new PluginCatalogException(PluginCatalogErrorCode.CATALOG_DISABLED, "no enabled plugin repository"));
     }
 
-    private PluginRepository resolveRepository(String repositoryId) {
+    /** 解析当前已启用且通过来源认证的仓库，供清单和状态读取共用。 */
+    public PluginRepository resolveRepository(String repositoryId) {
         requireFeatureEnabled();
         PluginRepository repository = repositoryRegistry.find(repositoryId).orElseThrow(() ->
                 new PluginCatalogException(PluginCatalogErrorCode.UNKNOWN_REPOSITORY,
