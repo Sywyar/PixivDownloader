@@ -55,14 +55,21 @@ public final class PluginCatalogRevocationService {
     /** 安装前刷新必选吊销源；首拉取失败或快照过期超过宽限期时 fail-closed。 */
     public PluginCatalogTrustStateStore.RevocationSnapshot requireCurrent(PluginRepository repository) {
         if (!repository.revocationsRequired()) return null;
+        var snapshot = refreshForBrowsing(repository);
+        if (snapshot != null && withinGrace(snapshot)) return snapshot;
+        throw new PluginCatalogException(PluginCatalogErrorCode.REVOCATION_UNAVAILABLE,
+                "no current verified revocation snapshot for " + repository.repositoryId());
+    }
+
+    /** 浏览时每轮刷新一次；失败保留已验证快照供诊断，不能把未知或过期状态伪装为无撤销。 */
+    public PluginCatalogTrustStateStore.RevocationSnapshot refreshForBrowsing(PluginRepository repository) {
+        if (!repository.revocationsRequired()) return null;
         try {
             return refresh(repository);
-        } catch (RuntimeException failure) {
-            return stateStore.revocations(repository.repositoryId())
-                    .filter(this::withinGrace)
-                    .orElseThrow(() -> new PluginCatalogException(PluginCatalogErrorCode.REVOCATION_UNAVAILABLE,
-                            "no current verified revocation snapshot for " + repository.repositoryId()
-                                    + ": " + failure.getMessage()));
+        } catch (PluginCatalogException failure) {
+            org.slf4j.LoggerFactory.getLogger(PluginCatalogRevocationService.class).warn(
+                    "Failed to refresh plugin revocations for {}: {}", repository.repositoryId(), failure.code());
+            return stateStore.revocations(repository.repositoryId()).orElse(null);
         }
     }
 
@@ -116,14 +123,16 @@ public final class PluginCatalogRevocationService {
         }
     }
 
-    /** 已验证最后有效快照中的 YANKED 项不进入默认市场推荐页；详情仍可诊断，安装仍由上面的强制门裁定。 */
-    public boolean isYanked(PluginRepository repository, String pluginId, PluginCatalogPackage pkg) {
-        if (repository == null || pkg == null) return false;
-        String keyId = pkg.signature() != null ? pkg.signature().keyId() : null;
-        return stateStore.revocations(repository.repositoryId()).stream()
-                .flatMap(snapshot -> snapshot.entries().stream())
-                .anyMatch(entry -> "YANKED".equals(entry.action())
-                        && matches(entry, repository, pluginId, pkg.version(), pkg.sha256(), keyId, publisherId(repository, pkg)));
+    /** 展示与依赖候选使用同一安装边界；真正安装仍须重新取回并验证。 */
+    public boolean allowsInstall(PluginRepository repository, String pluginId, PluginCatalogPackage pkg,
+                                 PluginCatalogTrustStateStore.RevocationSnapshot snapshot) {
+        if (!repository.revocationsRequired()) return true;
+        String status = status(repository, pluginId, pkg, snapshot);
+        return snapshot != null && withinGrace(snapshot) && !isWithdrawn(status);
+    }
+
+    public static boolean isWithdrawn(String status) {
+        return "YANKED".equals(status) || "REVOKED".equals(status);
     }
 
     public static boolean matches(PluginCatalogTrustStateStore.RevocationEntry entry, PluginRepository repository,
@@ -133,9 +142,15 @@ public final class PluginCatalogRevocationService {
 
     /** 只投影已有验证快照；没有新鲜快照时明确保持未知。 */
     public String status(PluginRepository repository, String pluginId, PluginCatalogPackage pkg) {
+        return status(repository, pluginId, pkg, stateStore.revocations(repository.repositoryId()).orElse(null));
+    }
+
+    /** 一份响应内所有版本使用同一个已验签快照。 */
+    public String status(PluginRepository repository, String pluginId, PluginCatalogPackage pkg,
+                         PluginCatalogTrustStateStore.RevocationSnapshot snapshot) {
         if (!repository.revocationsRequired()) return "NOT_PROVIDED";
         return status(repository, pluginId, pkg.version(), pkg.sha256(),
-                pkg.signature() != null ? pkg.signature().keyId() : null, publisherId(repository, pkg));
+                pkg.signature() != null ? pkg.signature().keyId() : null, publisherId(repository, pkg), snapshot);
     }
 
     public String status(top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord provenance,
@@ -151,12 +166,12 @@ public final class PluginCatalogRevocationService {
                     .read(provenance.communityEvidence()).owner().publisherId(); }
             catch (RuntimeException invalid) { return "NOT_CHECKED"; }
         }
-        return status(repository, pluginId, version, provenance.artifactSha256(), provenance.keyId(), publisherId);
+        return status(repository, pluginId, version, provenance.artifactSha256(), provenance.keyId(), publisherId,
+                stateStore.revocations(repository.repositoryId()).orElse(null));
     }
 
     private String status(PluginRepository repository, String pluginId, String version, String sha256,
-                          String keyId, String publisherId) {
-        var snapshot = stateStore.revocations(repository.repositoryId()).orElse(null);
+                          String keyId, String publisherId, PluginCatalogTrustStateStore.RevocationSnapshot snapshot) {
         if (snapshot == null) return "NOT_CHECKED";
         var actions = snapshot.entries().stream().filter(entry -> matches(entry, repository, pluginId,
                 version, sha256, keyId, publisherId)).map(PluginCatalogTrustStateStore.RevocationEntry::action).toList();

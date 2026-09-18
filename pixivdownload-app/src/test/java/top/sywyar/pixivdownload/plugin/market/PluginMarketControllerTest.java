@@ -106,7 +106,7 @@ class PluginMarketControllerTest {
                 List.of(new PluginMarketCategoryCount("all", 1)),
                 List.of(new PluginMarketEntryView("stats", "stats", "plugin.name", "plugin.summary", "1.2.3", null,
                         List.of(new PluginMarketPackageView("1.2.3", 4096L, "abcdef", false, "1.0",
-                                true, false, List.of(), null, List.of(), null, false, verification())),
+                                true, false, List.of(), null, List.of(), null, false, verification(), true)),
                         MarketInstallStatus.UPDATE_AVAILABLE, "1.2.0", true, true, null))));
 
         mockMvc.perform(get("/api/plugin-market/catalog"))
@@ -168,7 +168,7 @@ class PluginMarketControllerTest {
                 "stats", "stats", "plugin.name", "plugin.summary", "1.2.3", null,
                 List.of(new PluginMarketPackageView("1.2.3", 4096L, "abcdef", false, "1.0",
                         true, true, List.of(), "2026-06-01", List.of("first release"), "stable", false,
-                        verification())),
+                        verification(), true)),
                 MarketInstallStatus.NOT_INSTALLED, null, false, true, null));
 
         mockMvc.perform(get("/api/plugin-market/plugins/official/stats"))

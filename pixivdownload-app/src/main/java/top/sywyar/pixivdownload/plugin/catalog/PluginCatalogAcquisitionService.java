@@ -151,6 +151,8 @@ public class PluginCatalogAcquisitionService {
         PluginCatalogService.ResolvedPackage selected = catalogService.resolvePackage(
                 repository.repositoryId(), pluginId, version);
         PluginCatalogPackage pkg = selected.pkg();
+        repository = selected.repository();
+        if (revocations != null) revocations.requireInstallAllowed(repository, pluginId, pkg);
 
         stack.addLast(pluginId);
         try {
@@ -219,7 +221,7 @@ public class PluginCatalogAcquisitionService {
                 continue;
             }
             Optional<PluginCatalogPackage> dependencyPackage =
-                    selectDependencyPackage(dependencyEntry.get(), dependency);
+                    selectDependencyPackage(repository, dependencyEntry.get(), dependency);
             if (dependencyPackage.isEmpty()) {
                 if (authoritative) {
                     problems.add(PluginDependencyProblem.catalogVersionUnsatisfied(dependency));
@@ -269,7 +271,9 @@ public class PluginCatalogAcquisitionService {
     private PluginInstallReport downloadAndInstall(PluginRepository repository, String pluginId, String version,
                                                    String confirmedTrustSha256) {
 
-        PluginCatalogPackage pkg = catalogService.resolvePackage(repository.repositoryId(), pluginId, version).pkg();
+        var resolved = catalogService.resolvePackage(repository.repositoryId(), pluginId, version);
+        repository = resolved.repository();
+        PluginCatalogPackage pkg = resolved.pkg();
         if (revocations != null) revocations.requireInstallAllowed(repository, pluginId, pkg);
 
         // throws PROXY_POLICY_UNSUPPORTED / INSECURE_URL / BLOCKED_ADDRESS / TOO_LARGE / FAILED / INVALID
@@ -286,6 +290,7 @@ public class PluginCatalogAcquisitionService {
                         "community package verifier is unavailable");
                 origin = origin.withCommunityEvidence(communityPackages.verify(temp, repository, pluginId, pkg));
             }
+            if (revocations != null) revocations.requireInstallAllowed(repository, pluginId, pkg);
             return installService.installTrustedFile(temp, false, origin);
         } finally {
             deleteQuietly(temp);
@@ -301,9 +306,11 @@ public class PluginCatalogAcquisitionService {
         }
     }
 
-    private static Optional<PluginCatalogPackage> selectDependencyPackage(PluginCatalogEntry entry,
+    private Optional<PluginCatalogPackage> selectDependencyPackage(PluginRepository repository, PluginCatalogEntry entry,
                                                                           PluginDependencyRef dependency) {
+        var snapshot = revocations != null ? revocations.requireCurrent(repository) : null;
         return entry.packages().stream()
+                .filter(pkg -> revocations == null || revocations.allowsInstall(repository, entry.pluginId(), pkg, snapshot))
                 .filter(pkg -> dependencyVersionSatisfied(dependency, pkg.version()))
                 .max(Comparator.comparing(pkg -> PluginPackageVersion.parse(pkg.version())));
     }

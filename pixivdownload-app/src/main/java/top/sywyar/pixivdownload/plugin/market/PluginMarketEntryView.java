@@ -76,15 +76,23 @@ public record PluginMarketEntryView(
         List<PluginMarketPackageView> packages = entry.packages().stream()
                 .map(pkg -> PluginMarketPackageView.from(repository, pkg))
                 .toList();
+        return from(entry, installed, installedVersion, packages);
+    }
+
+    static PluginMarketEntryView from(PluginCatalogEntry entry, boolean installed, String installedVersion,
+                                      List<PluginMarketPackageView> packages) {
         PluginMarketMetaView market = PluginMarketMetaView.from(entry.market());
-        String latestVersion = resolveLatestVersion(market, packages);
-        PluginMarketPackageView target = installTarget(packages, latestVersion);
-        boolean installable = target != null;
+        List<PluginMarketPackageView> available = packages.stream()
+                .filter(pkg -> !top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationService
+                        .isWithdrawn(pkg.verification().revocationStatus())).toList();
+        String latestVersion = resolveLatestVersion(market, available);
+        PluginMarketPackageView target = installTarget(available, latestVersion);
+        boolean installable = target != null && target.installable();
         boolean compatible = target == null || target.compatible();
         String compatibilityReason = (target != null && !target.compatible()) ? target.requiredSdk() : null;
         // 仅当市场最新版本「严格高于」已安装版本（按 SemanticVersion 语义比较）才算有更新：语义等价版本
         // （如 1.2 与 1.2.0）不提示更新，本机版本更高时也不提示（保持已安装）。
-        boolean updateAvailable = installed && compatible && installedVersion != null
+        boolean updateAvailable = installed && installable && compatible && installedVersion != null
                 && latestVersion != null
                 && SemanticVersion.compare(latestVersion, installedVersion) > 0;
         MarketInstallStatus status = MarketInstallStatus.resolve(installed, installable, updateAvailable, compatible);
@@ -129,7 +137,8 @@ public record PluginMarketEntryView(
 
     /** 最新版本：优先市场元数据声明的 {@code latestVersion}，否则取首个版本制品的版本（清单约定新版本在前），都无则 {@code null}。 */
     private static String resolveLatestVersion(PluginMarketMetaView market, List<PluginMarketPackageView> packages) {
-        if (market != null && market.latestVersion() != null && !market.latestVersion().isBlank()) {
+        if (market != null && market.latestVersion() != null
+                && packages.stream().anyMatch(pkg -> market.latestVersion().equals(pkg.version()))) {
             return market.latestVersion();
         }
         return packages.isEmpty() ? null : packages.get(0).version();
