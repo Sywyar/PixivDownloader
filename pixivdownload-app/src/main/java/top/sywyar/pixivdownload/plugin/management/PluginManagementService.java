@@ -214,6 +214,12 @@ public class PluginManagementService {
         boolean toggleable = descriptor != null && !builtIn && !requiredPluginPolicy.isRequired(id);
         ExternalPluginOperationSnapshot operation = allowLifecycleReads && coordinator != null
                 ? coordinator.operation(id).orElse(null) : null;
+        PluginVerificationView verification = verificationOf(id, descriptor, phase, installedArtifacts,
+                runtimeVerifications, expectedGate, allowProvenanceReads, allowLifecycleReads).withDescriptor(descriptor);
+        List<String> actions = availableActions(managed, phase, allowDisable, installedOnly);
+        if ("REVOKED".equals(verification.revocationStatus())) {
+            actions = actions.stream().filter(action -> !List.of("load", "start", "restart", "reload").contains(action)).toList();
+        }
         return new PluginManagementEntry(
                 id,
                 descriptor != null ? descriptor.displayNamespace() : null,
@@ -231,10 +237,9 @@ public class PluginManagementService {
                 managed,
                 diagnostic.requiredByPolicy(),
                 allowDisable,
-                availableActions(managed, phase, allowDisable, installedOnly),
+                actions,
                 List.copyOf(diagnostic.messages()),
-                verificationOf(id, descriptor, phase, installedArtifacts, runtimeVerifications,
-                        expectedGate, allowProvenanceReads, allowLifecycleReads).withDescriptor(descriptor),
+                verification,
                 trustOf(id, descriptor, installedArtifacts, allowProvenanceReads, allowLifecycleReads),
                 allowLifecycleReads ? pluginLifecycleService.generation(id).orElse(null) : null,
                 operation != null ? operation.operation() : ExternalPluginOperation.IDLE,

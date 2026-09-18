@@ -165,6 +165,47 @@ class PluginRuntimeManagerTest {
     }
     private static final String PROBE_VERSION = "1.0.0";
 
+    @Test
+    @DisplayName("仓库策略更新后拒绝已加载插件初始化和重新启动，保留当前运行实例")
+    void rechecksRepositoryAdmissionBeforeExecution() throws IOException {
+        Path plugins = tempDir.resolve("admission-changes");
+        Path artifact = plugins.resolve("probe.jar");
+        writeDependencyOrderProbeJarWithMarker(artifact, PROBE_ID, "admission-changes");
+        writeCatalogProvenance(plugins, artifact, PROBE_ID, PROBE_VERSION);
+        var provenanceStore = new PluginProvenanceStore(plugins);
+        var provenance = provenanceStore.readRequiredForRecovery(artifact);
+        provenanceStore.write(artifact, provenance.withTrustDecision(
+                top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustPolicy.approve(
+                        top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader.inspect(artifact).descriptor(),
+                        provenance, Instant.now())));
+        PluginSupplyChainVerifier verifier = mock(PluginSupplyChainVerifier.class);
+        when(verifier.verifyArtifact(any())).thenAnswer(invocation -> {
+            ArtifactVerificationRequest request = invocation.getArgument(0);
+            return new VerificationResult(VerificationStatus.VERIFIED, request.pluginId(), request.version(),
+                    "test-key", SignatureMetadata.ED25519, "Test Publisher", "Test Trust", Instant.now(),
+                    Files.size(request.artifactPath()), PluginPackageIntegrity.sha256Hex(request.artifactPath()),
+                    "VERIFIED");
+        });
+        var manager = new top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager(plugins, ignored -> verifier);
+        try {
+            manager.loadPlugin(artifact);
+            manager.updateAdmissionPolicy(ignored -> PluginArtifactAdmissionResult.reject("PLUGIN_REVOKED", "test"));
+            assertThatThrownBy(() -> manager.initializePlugin(PROBE_ID)).rootCause().hasMessageContaining("PLUGIN_REVOKED");
+            assertThatThrownBy(() -> manager.startPlugin(PROBE_ID)).hasMessageContaining("PLUGIN_REVOKED");
+            assertThat(manager.packagePhases().get(PROBE_ID)).isEqualTo(PluginRuntimePackagePhase.LOADED);
+            manager.updateAdmissionPolicy(ignored -> PluginArtifactAdmissionResult.allow());
+            manager.startPlugin(PROBE_ID);
+            manager.updateAdmissionPolicy(ignored -> PluginArtifactAdmissionResult.reject("PLUGIN_REVOKED", "test"));
+            manager.startPlugin(PROBE_ID);
+            assertThat(manager.packagePhases().get(PROBE_ID)).isEqualTo(PluginRuntimePackagePhase.STARTED);
+            manager.stopPlugin(PROBE_ID);
+            assertThatThrownBy(() -> manager.startPlugin(PROBE_ID)).hasMessageContaining("PLUGIN_REVOKED");
+            assertThat(manager.packagePhases().get(PROBE_ID)).isEqualTo(PluginRuntimePackagePhase.STOPPED);
+        } finally {
+            manager.shutdown();
+        }
+    }
+
     @TempDir
     Path tempDir;
 

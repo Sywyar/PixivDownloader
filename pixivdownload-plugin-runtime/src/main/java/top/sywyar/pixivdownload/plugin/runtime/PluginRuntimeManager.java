@@ -1247,20 +1247,7 @@ public class PluginRuntimeManager {
                 throw new PluginRuntimeOperationException(
                         "plugin verification failed before load: " + result.status());
             }
-            if (admissionProvenance != null && admissionProvenance.repositoryId() != null) {
-                PluginArtifactAdmissionResult admission = admissionPolicy.evaluate(
-                        new PluginArtifactAdmissionRequest(admissionProvenance.repositoryId(), inspection.descriptor().id(),
-                                inspection.descriptor().version(), result.sha256(), result.keyId(), result.publisher(),
-                                admissionProvenance.communityEvidence()));
-                if (admission == null || !admission.allowed()) {
-                    throw new PluginRuntimeOperationException("plugin admission rejected before load: "
-                            + (admission != null ? admission.code() + ": " + admission.detail() : "null result"));
-                }
-                if (admission.warning()) {
-                    log.warn("Plugin admission warning before load for {}: {}: {}",
-                            inspection.descriptor().id(), admission.code(), admission.detail());
-                }
-            }
+            requireRepositoryAdmission(inspection.descriptor(), admissionProvenance, result);
             requireExecutionAdmission(inspection.descriptor(), admissionProvenance, result);
             return new PreparedPluginArtifact(snapshot, inspection, result.sha256());
         } catch (Throwable failure) {
@@ -1320,7 +1307,25 @@ public class PluginRuntimeManager {
             throw new PluginRuntimeOperationException(
                     "plugin verification failed before execution: " + result.status());
         }
+        requireRepositoryAdmission(entry.descriptor(), provenance, result);
         requireExecutionAdmission(entry.descriptor(), provenance, result);
+    }
+
+    /** 每次加载、初始化和重新启动都复核同一代的仓库策略；不强制停止已运行实例。 */
+    private void requireRepositoryAdmission(PluginDescriptor descriptor, PluginProvenanceRecord provenance,
+                                             VerificationResult result) {
+        if (provenance == null || provenance.repositoryId() == null) return;
+        PluginArtifactAdmissionResult admission = admissionPolicy.evaluate(new PluginArtifactAdmissionRequest(
+                provenance.repositoryId(), descriptor.id(), descriptor.version(), result.sha256(), result.keyId(),
+                result.publisher(), provenance.communityEvidence()));
+        if (admission == null || !admission.allowed()) {
+            throw new PluginRuntimeOperationException("plugin admission rejected before execution: "
+                    + (admission != null ? admission.code() + ": " + admission.detail() : "null result"));
+        }
+        if (admission.warning()) {
+            log.warn("Plugin admission warning before execution for {}: {}: {}",
+                    descriptor.id(), admission.code(), admission.detail());
+        }
     }
 
     private void requireDevelopmentExecutionAdmission(PluginDescriptor descriptor) {
