@@ -92,7 +92,7 @@ class UgoiraServiceTest {
             return true;
         };
         TestUgoiraService service = service(downloader, fallbackResolver());
-        Path zipPath = tempDir.resolve("_ugoira_frames.zip");
+        Path zipPath = UgoiraTempPaths.zip(tempDir, 100L);
         List<UgoiraProgress> progress = new ArrayList<>();
 
         boolean downloaded = service.downloadZip(
@@ -137,7 +137,7 @@ class UgoiraServiceTest {
 
         assertThat(service.downloadZip(
                 "https://public-img-zip.pximg.net/img-zip-ugoira/retry.zip",
-                tempDir.resolve("_ugoira_frames.zip"),
+                UgoiraTempPaths.zip(tempDir, 100L),
                 "https://www.pixiv.net/artworks/100",
                 null,
                 1,
@@ -167,7 +167,7 @@ class UgoiraServiceTest {
 
         assertThat(service.downloadZip(
                 "https://public-img-zip.pximg.net/img-zip-ugoira/retry.zip",
-                tempDir.resolve("_ugoira_frames.zip"),
+                UgoiraTempPaths.zip(tempDir, 100L),
                 "https://www.pixiv.net/artworks/100",
                 null,
                 1,
@@ -188,7 +188,7 @@ class UgoiraServiceTest {
             return true;
         };
         TestUgoiraService service = service(downloader, fallbackResolver());
-        Path framesDir = tempDir.resolve("_frames_tmp");
+        Path framesDir = UgoiraTempPaths.framesDir(tempDir, 100L);
         Files.createDirectories(framesDir);
         Files.writeString(framesDir.resolve("stale-frame.jpg"), "stale");
         DownloadRequest.Other other = new DownloadRequest.Other();
@@ -206,7 +206,7 @@ class UgoiraServiceTest {
                 null,
                 cancellation
         )).isInstanceOf(CancellationException.class);
-        assertThat(tempDir.resolve("_ugoira_frames.zip")).doesNotExist();
+        assertThat(UgoiraTempPaths.zip(tempDir, 100L)).doesNotExist();
         assertThat(framesDir).doesNotExist();
     }
 
@@ -223,7 +223,7 @@ class UgoiraServiceTest {
 
         assertThatThrownBy(() -> service.downloadZip(
                 "https://public-img-zip.pximg.net/img-zip-ugoira/oversized.zip",
-                tempDir.resolve("_ugoira_frames.zip"),
+                UgoiraTempPaths.zip(tempDir, 100L),
                 "https://www.pixiv.net/artworks/100",
                 null,
                 1,
@@ -255,8 +255,8 @@ class UgoiraServiceTest {
                 null
         )).isZero();
         assertThat(resolverCalls).hasValue(0);
-        assertThat(tempDir.resolve("_ugoira_frames.zip")).doesNotExist();
-        assertThat(tempDir.resolve("_frames_tmp")).doesNotExist();
+        assertThat(UgoiraTempPaths.zip(tempDir, 100L)).doesNotExist();
+        assertThat(UgoiraTempPaths.framesDir(tempDir, 100L)).doesNotExist();
         assertThat(tempDir.resolve("zip-bomb.webp.part")).doesNotExist();
     }
 
@@ -281,8 +281,8 @@ class UgoiraServiceTest {
                 null
         )).isZero();
         assertThat(resolverCalls).hasValue(0);
-        assertThat(tempDir.resolve("_ugoira_frames.zip")).doesNotExist();
-        assertThat(tempDir.resolve("_frames_tmp")).doesNotExist();
+        assertThat(UgoiraTempPaths.zip(tempDir, 100L)).doesNotExist();
+        assertThat(UgoiraTempPaths.framesDir(tempDir, 100L)).doesNotExist();
         assertThat(tempDir.resolve("oversized-frame.webp.part")).doesNotExist();
     }
 
@@ -332,8 +332,8 @@ class UgoiraServiceTest {
         assertThat(childPidFile).exists();
         long childPid = Long.parseLong(Files.readString(childPidFile).trim());
         assertThat(awaitProcessExit(childPid, Duration.ofSeconds(5))).isTrue();
-        assertThat(tempDir.resolve("_ugoira_frames.zip")).doesNotExist();
-        assertThat(tempDir.resolve("_frames_tmp")).doesNotExist();
+        assertThat(UgoiraTempPaths.zip(tempDir, 100L)).doesNotExist();
+        assertThat(UgoiraTempPaths.framesDir(tempDir, 100L)).doesNotExist();
         assertThat(tempDir.resolve("ffmpeg-timeout.webp.part")).doesNotExist();
         assertThat(tempDir.resolve("ffmpeg-timeout.webp")).doesNotExist();
         assertThat(tempDir.resolve("ffmpeg-timeout_thumb.jpg")).doesNotExist();

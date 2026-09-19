@@ -1004,7 +1004,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                         title, other.getAuthorId(), other.getAuthorName(), recordTime, count, other.isAi(), other.getXRestrict()),
                 other.isUgoira() ? List.of(".webp", ".webp.part", "_thumb.jpg")
                         : List.of(".jpg", ".image-download.part"),
-                other.isUgoira() ? List.of("_ugoira_frames.zip.part", "_frames_tmp/ffmpeg-progress.log") : List.of(),
+                other.isUgoira() ? UgoiraTempPaths.pathSentinels(artworkId) : List.of(),
                 DownloadPathAction.parse(other.getPathOverflowAction()));
         List<String> computed = resolved.baseNames();
         List<String> provided = PixivWorkFileNameFormatter.normalizeProvidedBaseNames(other.getFileNames(), count, artworkId);
