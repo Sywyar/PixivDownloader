@@ -989,17 +989,11 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
     private FileNamePlan buildFileNamePlan(Long artworkId, String title, int count, DownloadRequest.Other other) {
         validateUserDownloadFolder(other);
         Path root = resolveEffectiveDownloadRoot(other).toAbsolutePath().normalize();
-        Path directory = root;
-        if (other.isUserDownload() && other.getUsername() != null && !downloadSettings.isUserFlatFolder()) {
-            directory = directory.resolve(requireSafeDirectoryName(other.getUsername()));
-            if (other.getXRestrict() == 2) directory = directory.resolve("R18G");
-            else if (other.getXRestrict() == 1) directory = directory.resolve("R18");
-        }
-        directory = directory.resolve(String.valueOf(artworkId)).normalize();
-        requireWithinDownloadRoot(root, directory);
         String template = PixivWorkFileNameFormatter.normalizeTemplate(other.getFileNameTemplate());
         long preferredTime = EpochMillisNormalizer.normalize(other.getFileNameTimestamp());
         long recordTime = artworkDownloadHistory.allocateRecordTime(preferredTime);
+        Path directory = resolveArtworkDirectory(root, artworkId, title, count, recordTime, other);
+        requireWithinDownloadRoot(root, directory);
         String sanitizedAuthorName = PixivWorkFileNameFormatter.sanitize(other.getAuthorName());
         var supported = downloadPathGuard.pathSupport(directory);
         DownloadPathPlan resolved = DownloadPathPlan.resolve(directory,
@@ -1010,9 +1004,22 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                         title, other.getAuthorId(), other.getAuthorName(), recordTime, count, other.isAi(), other.getXRestrict()),
                 other.isUgoira() ? List.of(".webp", ".webp.part", "_thumb.jpg")
                         : List.of(".jpg", ".image-download.part"),
-                other.isUgoira() ? List.of("_ugoira_frames.zip.part", "_frames_tmp/ffmpeg-progress.log") : List.of(),
+                other.isUgoira() ? UgoiraTempPaths.pathSentinels(artworkId) : List.of(),
                 DownloadPathAction.parse(other.getPathOverflowAction()));
         List<String> computed = resolved.baseNames();
+        // 仅当启用共享目录（download.artwork-folder-template 非空）时才要求文件名唯一。
+        // 独占目录（{root}/{artworkId}/）下即使文件名不含 {artwork_id} 也不会跨作品冲突，
+        // 必须保持既有行为，否则会误拒现有用户的模板。
+        String folderTemplate = downloadSettings.getArtworkFolderTemplate();
+        if (folderTemplate != null && !folderTemplate.isBlank()
+                && !SharedDirectoryNameGuard.isSafeInSharedDirectory(template, artworkId, computed)) {
+            throw LocalizedException.badRequest(
+                    "download.filename-template.shared-directory-needs-artwork-id",
+                    "配置了作品目录模板（共享目录）时，文件名模板必须包含 {artwork_id}，"
+                            + "否则同一目录下不同作品会互相覆盖、并在删除时误删对方文件。当前模板: {0}",
+                    template
+            );
+        }
         List<String> provided = PixivWorkFileNameFormatter.normalizeProvidedBaseNames(other.getFileNames(), count, artworkId);
         if (!provided.isEmpty() && !provided.equals(computed)) {
             log.debug(logMessage("download.log.filename-mismatch", artworkId));
@@ -1022,6 +1029,42 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                 recordTime,
                 sanitizedAuthorName.isEmpty() ? null : sanitizedAuthorName,
                 provided.equals(computed) ? provided : computed, root, directory, resolved.maxLength());
+    }
+
+    /**
+     * 解析作品落盘目录。
+     *
+     * <p>配置了 {@code download.artwork-folder-template}（变量与文件名模板一致、可用 {@code /} 分层）时，
+     * 作品直接落在 {@code {下载根}/{渲染结果}/}，<b>不再追加 {@code {artworkId}} 层级</b>，
+     * 于是同一作者的作品会共用同一个目录。
+     *
+     * <p>共享目录是应用已支持的结构：删除作品时 {@code ArtworkFileLocator} 按本作品的文件名前缀
+     * （stems）做非递归精确匹配，只会触碰本作品命名空间内的文件；目录也仅在名称等于 {@code artworkId}
+     * 且为空时才被移除。移动作品只写 {@code artworks.move_folder}，不搬目录。
+     *
+     * <p>模板为空、全空白或渲染后不含任何有效段时回退内置结构
+     * {@code {下载根}[/{username}[/R18G|R18]]/{artworkId}/}，避免把作品直接落进下载根。
+     */
+    private Path resolveArtworkDirectory(Path root, Long artworkId, String title, int count,
+                                         long recordTime, DownloadRequest.Other other) {
+        List<String> segments = ArtworkFolderTemplate.segments(
+                downloadSettings.getArtworkFolderTemplate(),
+                artworkId, title, other.getAuthorId(), other.getAuthorName(),
+                recordTime, count, other.isAi(), other.getXRestrict());
+        if (!segments.isEmpty()) {
+            Path directory = root;
+            for (String segment : segments) {
+                directory = directory.resolve(segment);
+            }
+            return directory.normalize();
+        }
+        Path directory = root;
+        if (other.isUserDownload() && other.getUsername() != null && !downloadSettings.isUserFlatFolder()) {
+            directory = directory.resolve(requireSafeDirectoryName(other.getUsername()));
+            if (other.getXRestrict() == 2) directory = directory.resolve("R18G");
+            else if (other.getXRestrict() == 1) directory = directory.resolve("R18");
+        }
+        return directory.resolve(String.valueOf(artworkId)).normalize();
     }
 
     private void recordDownload(Long artworkId, String title, String folderPath, HashSet<String> fileExtensions,

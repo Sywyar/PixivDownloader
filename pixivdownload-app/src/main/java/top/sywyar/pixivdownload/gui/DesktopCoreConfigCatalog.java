@@ -92,6 +92,16 @@ final class DesktopCoreConfigCatalog {
                 order++
         ));
         fields.add(core(
+                "download.artwork-folder-template",
+                GuiConfigGroups.DOWNLOAD,
+                GuiConfigFieldType.STRING,
+                "",
+                GuiConfigEffect.HOT_RELOAD,
+                null,
+                null,
+                order++
+        ));
+        fields.add(core(
                 "download.max-concurrent",
                 GuiConfigGroups.DOWNLOAD,
                 GuiConfigFieldType.INT,

@@ -14,7 +14,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DownloadSettingsContractTest {
 
     @Test
-    @DisplayName("只暴露跨插件共享的下载根目录、扁平布局与通用并发")
+    @DisplayName("只暴露跨插件共享的下载根目录、扁平布局、作品目录模板与通用并发")
     void exposesOnlySharedHostDownloadSettings() {
         Method[] methods = DownloadSettings.class.getDeclaredMethods();
 
@@ -24,6 +24,7 @@ class DownloadSettingsContractTest {
                 .containsExactlyInAnyOrderEntriesOf(Map.of(
                         "getRootFolder", String.class,
                         "isUserFlatFolder", boolean.class,
+                        "getArtworkFolderTemplate", String.class,
                         "getMaxConcurrent", int.class));
     }
 }
