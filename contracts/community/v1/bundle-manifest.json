@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "contractVersion": 1,
   "toolchain": {
-    "sdk": "1.0.0-rc.13",
+    "sdk": "1.0.0-rc.14",
     "java": "17",
     "maven": {
       "version": "3.9.11",
@@ -28,8 +28,8 @@
     },
     {
       "path": "community.schema.json",
-      "size": 69894,
-      "sha256": "011af0a1fc1c3e1986df5cc3233801ad677a7bcff7c12c150186c15be7645872"
+      "size": 69916,
+      "sha256": "a9668f84a10caa65c48cc91a004f2d94e6d685890f495201a32023d3a8adfac7"
     },
     {
       "path": "licenses/0BSD.txt",

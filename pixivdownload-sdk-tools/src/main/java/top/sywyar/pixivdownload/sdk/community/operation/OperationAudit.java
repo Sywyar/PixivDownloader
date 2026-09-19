@@ -30,7 +30,7 @@ public record OperationAudit(int schemaVersion, String requestId, String action,
         var audit = document.as(OperationAudit.class);
         boolean status = List.of("YANK", "UNYANK", "REVOKE").contains(audit.action);
         if (status != (audit.revocationSequence != null)) throw new ContractException("SCHEMA_INVALID", "/revocationSequence");
-        if ("SIGNED_OWNER".equals(audit.authorization) ? !(status || "PUBLISHER_KEY_ROTATION".equals(audit.action)) || !audit.reviewerAccountIds.isEmpty()
+        if ("SIGNED_OWNER".equals(audit.authorization) ? !(status || List.of("PUBLISHER_KEY_ROTATION", "OWNERSHIP_TRANSFER").contains(audit.action)) || !audit.reviewerAccountIds.isEmpty()
                 || audit.recoveryEvidence != null : audit.reviewerAccountIds.isEmpty()) {
             throw new ContractException("REVIEW_MISMATCH", "/authorization");
         }

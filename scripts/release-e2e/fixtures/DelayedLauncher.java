@@ -9,6 +9,7 @@ import java.awt.Graphics;
 import java.awt.Label;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.awt.image.BufferedImage;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicReference;
@@ -64,6 +65,12 @@ public final class DelayedLauncher {
                 }
                 dialog.setSize(300, 160);
                 dialog.setVisible(true);
+                // 先完成夹具的首次字体绘制，再注入 EDT 阻塞；恢复检查只测队列与取消行为。
+                for (var component : dialog.getComponents()) {
+                    var graphics = new BufferedImage(component.getWidth(), component.getHeight(),
+                            BufferedImage.TYPE_INT_ARGB).createGraphics();
+                    try { component.paint(graphics); } finally { graphics.dispose(); }
+                }
             }
             Files.createFile(directory.resolve("blocked"));
             awaitRelease(directory);

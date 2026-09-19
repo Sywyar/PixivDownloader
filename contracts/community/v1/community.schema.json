@@ -1817,7 +1817,7 @@
         "if": { "required": ["authorization"] },
         "then": {
           "properties": {
-            "action": { "enum": ["YANK", "UNYANK", "REVOKE", "PUBLISHER_KEY_ROTATION"] },
+            "action": { "enum": ["YANK", "UNYANK", "REVOKE", "PUBLISHER_KEY_ROTATION", "OWNERSHIP_TRANSFER"] },
             "reviewerAccountIds": { "maxItems": 0 }
           },
           "not": { "required": ["recoveryEvidence"] }
