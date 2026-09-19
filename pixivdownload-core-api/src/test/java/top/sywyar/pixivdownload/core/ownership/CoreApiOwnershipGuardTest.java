@@ -241,7 +241,7 @@ class CoreApiOwnershipGuardTest {
             Map.entry("top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver#MAX_TASK_BYTES:long",
                     1024L * 1024L * 1024L),
             Map.entry("top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter#DEFAULT_TEMPLATE:java.lang.String",
-                    "{artwork_id}_p{page}"),
+                    "({artwork_id}){artwork_title}_p{page}"),
             Map.entry("top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter#MAX_BASENAME_LENGTH:int", 180),
             Map.entry("top.sywyar.pixivdownload.core.work.service.DownloadPathLimits#UNKNOWN:top.sywyar.pixivdownload.core.work.service.DownloadPathLimits",
                     new DownloadPathLimits(0, 0, false)),
