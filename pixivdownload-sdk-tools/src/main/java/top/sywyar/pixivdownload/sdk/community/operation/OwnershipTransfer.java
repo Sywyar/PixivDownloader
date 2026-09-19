@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.sdk.community.operation;
 
 import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
+import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.community.CommunityOperation;
 import top.sywyar.pixivdownload.sdk.community.format.CommunityJson;
 import top.sywyar.pixivdownload.sdk.community.format.CommunityPr;
@@ -22,6 +23,13 @@ public final class OwnershipTransfer {
     public static OperationResult.Outcome apply(OperationContext context, CommunityJson.Document currentBinding,
                                                 CommunityJson.Document targetPublisher, String targetLoginAtRegistration,
                                                 List<TransferApproval.Input> approvals) {
+        return apply(context, currentBinding, targetPublisher, targetLoginAtRegistration, approvals, null);
+    }
+
+    /** 自动转移另读原发布者当前活动密钥；原生确认与双方请求签名必须同时有效。 */
+    public static OperationResult.Outcome apply(OperationContext context, CommunityJson.Document currentBinding,
+                                                CommunityJson.Document targetPublisher, String targetLoginAtRegistration,
+                                                List<TransferApproval.Input> approvals, CommunityJson.Document sourcePublisher) {
         var document = context.document(CommunityJson.Kind.TRANSFER);
         var request = OwnershipTransferRequest.read(document, context.request().reference().path());
         var replay = context.replay(document);
@@ -33,7 +41,7 @@ public final class OwnershipTransfer {
         binding.requireOwner(p.from());
         var authority = context.authority();
         boolean recovery = p.mode() == OwnershipTransferRequest.Mode.RECOVERY;
-        authority.requireApproval(request.requestId(), recovery);
+        authority.requireAuthorization(document, recovery);
         if (!authority.represents(p.from(), authority.actualAuthor().id())
                 && !authority.represents(p.to(), authority.actualAuthor().id())) {
             throw new ContractException("BINDING_MISMATCH", "/proposalPr/authorAccountId");
@@ -42,6 +50,24 @@ public final class OwnershipTransfer {
             throw new ContractException("REVIEW_MISMATCH", "/recoveryEvidence");
         }
         TransferApproval.requireApprovals(approvals, request, authority);
+        if (authority.signedStatus() != null && approvals.stream().anyMatch(input -> !input.pr().equals(authority.proposalPr()))) {
+            throw new ContractException("REVIEW_MISMATCH", "/approvals/pr");
+        }
+        var signedApprovals = approvals.stream().filter(input -> input.ownerProof() != null).toList();
+        if (authority.signedStatus() != null && signedApprovals.isEmpty()) {
+            throw new ContractException("PROOF_REQUIRED", "/approvals/ownerProof");
+        }
+        if (!signedApprovals.isEmpty()) {
+            if (sourcePublisher == null) throw new ContractException("UNKNOWN_KEY", "/sourcePublisher");
+            var source = Publisher.read(sourcePublisher);
+            if (!source.owner().equals(p.from())) throw new ContractException("BINDING_MISMATCH", "/sourcePublisher");
+            for (var input : signedApprovals) {
+                var proof = CommunityJson.decode("signature", input.ownerProof().getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                        CommunityJson.Kind.APPROVAL.maximumBytes(), SignatureMetadata.class);
+                OperationChecks.proof(document, CommunityOperation.OWNERSHIP_TRANSFER, proof,
+                        source.activeKey().trusted(source.displayName()), "/approvals/ownerProof");
+            }
+        }
         boolean register = p.targetPublisherRecordSha256() == null;
         Publisher target;
         if (register) {
@@ -68,10 +94,14 @@ public final class OwnershipTransfer {
         var outputs = new LinkedHashMap<String, Evidence>(); outputs.put(bindingPath, after);
         if (register) outputs.put(target.path(), frozenTarget);
         var records = new ArrayList<Evidence>(); records.add(frozenTarget);
+        if (!signedApprovals.isEmpty()) records.add(OperationContext.archive(sourcePublisher.bytes()));
         var prs = new LinkedHashMap<String, CommunityPr>(); putPr(prs, authority.proposalPr());
         for (var approval : approvals) {
-            records.add(new Evidence(top.sywyar.pixivdownload.sdk.community.format.CommunityValues.Reference.of(
+            // Review 派生的角色说明只归档为证据，不能伪装成申请者提交的批准文件。
+            records.add(approval.review() != null ? OperationContext.archive(approval.document().bytes())
+                    : new Evidence(top.sywyar.pixivdownload.sdk.community.format.CommunityValues.Reference.of(
                     approval.path(), approval.document().bytes()), approval.document().bytes()));
+            if (approval.review() != null) records.add(approval.review().evidence());
             putPr(prs, approval.pr());
         }
         return context.finish(document, before, after, outputs, records, List.copyOf(prs.values()), null);

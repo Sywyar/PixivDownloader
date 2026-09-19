@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.sdk.community.format.CommunityValues.*;
 import top.sywyar.pixivdownload.sdk.community.format.ContractException;
 import top.sywyar.pixivdownload.sdk.community.identity.PluginBinding;
 import top.sywyar.pixivdownload.sdk.community.identity.Publisher;
+import top.sywyar.pixivdownload.sdk.community.review.HumanReviews;
 
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -19,6 +20,78 @@ import static top.sywyar.pixivdownload.sdk.community.operation.OperationTestInpu
 
 @DisplayName("所有权转移的完整身份、目标公钥、独立批准与写入范围")
 class OwnershipTransferTest {
+    @Test
+    @DisplayName("接收方的原申请与所有者原生 Review 在一个 PR 内生效，旧 head、撤回与伪造作者均拒绝")
+    void confirmsBothPartiesOnOriginalRequest() throws Exception {
+        var binding = binding(new Owner("101", "User", "original"));
+        var pair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        var target = publisher("202", "target", "target-key", pair);
+        var request = transfer(binding, target, target.document(), pair, OwnershipTransferRequest.Mode.REGULAR, null);
+        var base = contextFor(request, "202", false);
+        var original = base.authority().proposalPr();
+        var pr = new top.sywyar.pixivdownload.sdk.community.format.CommunityPr(original.githubRepositoryId(), original.number(),
+                original.authorAccountId(), original.headRepositoryId(), original.headSha(), original.baseSha(), null);
+        var authority = new OperationAuthority(pr, base.authority().actualAuthor(), List.of(), base.authority().approval(), base.authority().authorizedReviewers());
+        var context = new OperationContext(base.request(), authority, null, NOW, base.evidence(), Map.of());
+        var bytes = CommunityJson.encode(Map.of("id", 70, "state", "APPROVED", "commit_id", HEAD, "user", Map.of("id", 101, "type", "User")));
+        var evidence = new Evidence(Reference.of("records/" + CommunityJson.sha256(bytes) + ".json", bytes), bytes);
+        var review = new HumanReviews.NativeReview("70", pr.githubRepositoryId(), pr.number(), new Account("101", "User"),
+                HEAD, HumanReviews.NativeState.APPROVED, NOW, evidence, null);
+        var previous = approvals(request, "101", "202", false);
+        var from = new TransferApproval.Input(previous.get(0).document(), previous.get(0).path(), pr, review.reviewer(), true, review);
+        var to = new TransferApproval.Input(previous.get(1).document(), previous.get(1).path(), pr, new Account("202", "User"), true);
+        var result = OwnershipTransfer.apply(context, binding, target.document(), null, List.of(from, to)).result();
+        var audit = OperationAudit.read(result.audit());
+        assertThat(audit.result()).isEqualTo("PREPARED");
+        assertThat(audit.prEvidence()).containsExactly(pr);
+        assertThat(audit.relatedRecords()).contains(evidence.reference());
+        assertThat(result.evidence().get(evidence.reference().path()).bytes()).isEqualTo(bytes);
+        for (var state : List.of(HumanReviews.NativeState.COMMENTED, HumanReviews.NativeState.CHANGES_REQUESTED, HumanReviews.NativeState.DISMISSED)) {
+            var invalid = new HumanReviews.NativeReview("70", pr.githubRepositoryId(), pr.number(), review.reviewer(), HEAD, state, NOW, evidence, null);
+            var input = new TransferApproval.Input(from.document(), from.path(), pr, review.reviewer(), true, invalid);
+            error("REVIEW_MISMATCH", () -> OwnershipTransfer.apply(context, binding, target.document(), null, List.of(input, to)));
+        }
+        var stale = new HumanReviews.NativeReview("70", pr.githubRepositoryId(), pr.number(), review.reviewer(), "ff".repeat(20),
+                HumanReviews.NativeState.APPROVED, NOW, evidence, null);
+        error("REVIEW_MISMATCH", () -> OwnershipTransfer.apply(context, binding, target.document(), null,
+                List.of(new TransferApproval.Input(from.document(), from.path(), pr, review.reviewer(), true, stale), to)));
+        error("BINDING_MISMATCH", () -> OwnershipTransfer.apply(context, binding, target.document(), null,
+                List.of(new TransferApproval.Input(from.document(), from.path(), pr, review.reviewer(), true), to)));
+        error("REVIEW_MISMATCH", () -> OwnershipTransfer.apply(context, binding, target.document(), null,
+                List.of(new TransferApproval.Input(from.document(), from.path(), pr, new Account("202", "User"), true, review), to)));
+        var sourcePair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        var source = publisher("101", "original", "source-key", sourcePair).document();
+        var ownerProof = new String(CommunityJson.encode(proof(request, "targetKey", "source-key", sourcePair)
+                .value().get("proofs").get("targetKey")), java.nio.charset.StandardCharsets.UTF_8);
+        var signedFrom = new TransferApproval.Input(from.document(), from.path(), pr, review.reviewer(), true, review, ownerProof);
+        var automatic = new OperationAuthority(pr, authority.actualAuthor(), List.of(), null, java.util.Set.of(),
+                new OperationAuthority.SignedStatus(request.value().get("requestId").textValue(), HEAD, evidence));
+        var automaticContext = new OperationContext(base.request(), automatic, null, NOW, base.evidence(), Map.of());
+        var signed = OwnershipTransfer.apply(automaticContext, binding, target.document(), null, List.of(signedFrom, to), source).result();
+        assertThat(OperationAudit.read(signed.audit()).authorization()).isEqualTo("SIGNED_OWNER");
+        assertThat(OperationAudit.read(signed.audit()).reviewerAccountIds()).isEmpty();
+        assertThat(OperationAudit.read(signed.audit()).relatedRecords()).anyMatch(ref -> ref.sha256().equals(source.sha256()));
+        error("PROOF_REQUIRED", () -> OwnershipTransfer.apply(automaticContext, binding, target.document(), null, List.of(from, to), source));
+        error("UNKNOWN_KEY", () -> OwnershipTransfer.apply(automaticContext, binding, target.document(), null, List.of(signedFrom, to)));
+        var rotated = publisher("101", "original", "rotated-key", KeyPairGenerator.getInstance("Ed25519").generateKeyPair()).document();
+        error("UNKNOWN_KEY", () -> OwnershipTransfer.apply(automaticContext, binding, target.document(), null, List.of(signedFrom, to), rotated));
+        var wrongSource = publisher("303", "original", "source-key", sourcePair).document();
+        error("BINDING_MISMATCH", () -> OwnershipTransfer.apply(automaticContext, binding, target.document(), null, List.of(signedFrom, to), wrongSource));
+        var broken = new TransferApproval.Input(from.document(), from.path(), pr, review.reviewer(), true, review,
+                ownerProof.replace("source-key", "target-key"));
+        error("UNKNOWN_KEY", () -> OwnershipTransfer.apply(automaticContext, binding, target.document(), null, List.of(broken, to), source));
+        var forged = new TransferApproval.Input(from.document(), from.path(), pr, review.reviewer(), true, review,
+                new String(CommunityJson.encode(proof(request, "targetKey", "source-key", pair).value().get("proofs").get("targetKey")),
+                        java.nio.charset.StandardCharsets.UTF_8));
+        error("INVALID_SIGNATURE", () -> OwnershipTransfer.apply(automaticContext, binding, target.document(), null, List.of(forged, to), source));
+        var padded = new TransferApproval.Input(from.document(), from.path(), pr, review.reviewer(), true, review,
+                ownerProof + " ".repeat((int) CommunityJson.Kind.APPROVAL.maximumBytes() - ownerProof.length()));
+        assertThat(OwnershipTransfer.apply(automaticContext, binding, target.document(), null, List.of(padded, to), source).replayed()).isFalse();
+        var oversized = new TransferApproval.Input(from.document(), from.path(), pr, review.reviewer(), true, review, padded.ownerProof() + " ");
+        error("LIMIT_EXCEEDED", () -> OwnershipTransfer.apply(automaticContext, binding, target.document(), null, List.of(oversized, to), source));
+        error("REVIEW_MISMATCH", () -> OwnershipTransfer.apply(automaticContext, binding, target.document(), null, List.of(signedFrom, previous.get(1)), source));
+    }
+
     @Test
     @DisplayName("跨账号使用独立双方批准，只替换 binding，已有目标变化使请求过期")
     void transfersToExistingPublisher() throws Exception {

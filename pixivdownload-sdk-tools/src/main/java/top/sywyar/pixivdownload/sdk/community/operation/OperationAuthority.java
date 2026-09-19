@@ -53,9 +53,22 @@ public record OperationAuthority(CommunityPr proposalPr, Account actualAuthor, L
         requireSigned(requestId, recovery);
     }
 
-    /** 换钥的自动授权必须检查请求内容，不能仅凭操作种类放行。 */
+    /** 换钥和转移的自动授权必须检查请求内容，不能仅凭操作种类放行。 */
     public void requireAuthorization(CommunityJson.Document request, boolean recovery) {
         String requestId = request.value().get("requestId").textValue();
+        if (request.kind() == CommunityJson.Kind.TRANSFER && signedStatus != null) {
+            var payload = request.value().get("payload");
+            var from = payload.get("from");
+            var to = payload.get("to");
+            if (!"REGULAR".equals(payload.get("mode").textValue())
+                    || !"User".equals(from.get("accountType").textValue()) || !"User".equals(to.get("accountType").textValue())
+                    || !actualAuthor.id().equals(to.get("accountId").textValue())
+                    || from.get("accountId").equals(to.get("accountId")) || !representations.isEmpty()) {
+                throw new ContractException("APPROVAL_REQUIRED", "/authorization");
+            }
+            requireSigned(requestId, recovery);
+            return;
+        }
         if (request.kind() != CommunityJson.Kind.ROTATION || signedStatus == null) {
             requireAuthorization(request.kind(), requestId, recovery);
             return;
