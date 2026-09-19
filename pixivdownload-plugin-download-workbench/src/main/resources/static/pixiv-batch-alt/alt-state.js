@@ -5,7 +5,7 @@
    storeGet/storeSet/storeRemove 逐字移植自 batch-storage.js：
    solo 读写服务器 /api/batch/state，multi 读写 localStorage。
    ============================================================ */
-const DEFAULT_FILE_NAME_TEMPLATE = '{artwork_id}_p{page}';
+const DEFAULT_FILE_NAME_TEMPLATE = '({artwork_id}){artwork_title}_p{page}';
 const QUICK_FETCH_MODE = 'quick-fetch';
 const SINGLE_IMPORT_MODE = 'single-import';
 

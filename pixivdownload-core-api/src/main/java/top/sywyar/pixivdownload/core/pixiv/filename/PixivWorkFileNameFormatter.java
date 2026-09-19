@@ -17,8 +17,12 @@ public final class PixivWorkFileNameFormatter {
 
     /**
      * 默认模板。
+     *
+     * <p>默认值采用带标题的形式，使默认产物即为「作者目录 + 可读文件名」的归档结构，
+     * 无需再手工设置文件名模板。
+     * 历史记录各自持有自己的模板 id（见 {@code file_name_templates}），已有作品文件名不受影响。
      */
-    public static final String DEFAULT_TEMPLATE = "{artwork_id}_p{page}";
+    public static final String DEFAULT_TEMPLATE = "({artwork_id}){artwork_title}_p{page}";
 
     /** 默认文件名主干的最大 UTF-16 长度，不含扩展名。 */
     public static final int MAX_BASENAME_LENGTH = 180;

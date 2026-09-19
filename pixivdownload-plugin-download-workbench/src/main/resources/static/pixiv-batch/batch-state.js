@@ -2,7 +2,7 @@
     /* ============================================================
        状态
     ============================================================ */
-    const DEFAULT_FILE_NAME_TEMPLATE = '{artwork_id}_p{page}';
+    const DEFAULT_FILE_NAME_TEMPLATE = '({artwork_id}){artwork_title}_p{page}';
     const QUICK_FETCH_MODE = 'quick-fetch';
     const SINGLE_IMPORT_MODE = 'single-import';
     const SINGLE_IMPORT_NOVEL_SOURCE = 'single-import-novel';
