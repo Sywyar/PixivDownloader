@@ -256,7 +256,10 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     }
 
     /** 带标题的分组容器。 */
-    record Group(String id, TextToken title, DesktopUiNode content) implements DesktopUiNode {
+    record Group(String id, TextToken title, DesktopUiNode content, boolean collapsible) implements DesktopUiNode {
+        public Group(String id, TextToken title, DesktopUiNode content) {
+            this(id, title, content, false);
+        }
         /**
          * @param id 稳定节点标识
          * @param title 已本地化的分组标题
@@ -300,7 +303,11 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     }
 
     /** 标签页容器。 */
-    record Tabs(String id, List<Tab> tabs) implements DesktopUiNode {
+    record Tabs(String id, List<Tab> tabs, String initialSelectedId) implements DesktopUiNode {
+        public Tabs(String id, List<Tab> tabs) {
+            this(id, tabs, null);
+        }
+
         /**
          * @param id 稳定节点标识
          * @param tabs 有序标签页描述
@@ -804,7 +811,11 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
     /** 触发激活事件的命令按钮。 */
     record Button(String id, String actionId, TextToken label, TextToken help,
-                  ButtonStyle buttonStyle, boolean enabled) implements DesktopUiNode {
+                  ButtonStyle buttonStyle, boolean enabled, DesktopUiIcon icon) implements DesktopUiNode {
+        public Button(String id, String actionId, TextToken label, TextToken help,
+                      ButtonStyle buttonStyle, boolean enabled) {
+            this(id, actionId, label, help, buttonStyle, enabled, null);
+        }
         /**
          * @param id 稳定节点标识
          * @param actionId 稳定的激活事件目标

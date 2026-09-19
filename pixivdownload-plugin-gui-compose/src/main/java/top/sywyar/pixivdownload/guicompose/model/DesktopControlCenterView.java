@@ -62,28 +62,6 @@ final class DesktopControlCenterView {
     DesktopUiDocument.Page homePage(Map<String, Runnable> nextActions) {
         List<DesktopUiHost.GuiValue> runningTasks = values(owner.controlCenterSnapshot().path(
                 "runningTasks"));
-        DesktopUiNode heroContent = runningTasks.isEmpty() ? text(
-                "home.hero.empty",
-                "desktop.ui.home.running.empty",
-                TextStyle.CAPTION
-        ) : runningTask("home.hero", runningTasks.get(0));
-        DesktopUiNode hero = new DesktopUiNode.Surface(
-                "home.hero",
-                DesktopUiNode.SurfaceStyle.CARD,
-                new DesktopUiNode.Insets(
-                        18,
-                        20,
-                        18,
-                        20
-                ),
-                true,
-                column(
-                        "home.hero.content",
-                        text("home.hero.title", "desktop.ui.home.hero.title", TextStyle.HEADING),
-                        heroContent
-                )
-        );
-
         long startedPlugins = owner.startedPluginCount();
         String applicationVersion = host.applicationVersion();
         String version = applicationVersion.isBlank()
@@ -91,82 +69,14 @@ final class DesktopControlCenterView {
                 : applicationVersion;
         String connectivityAction = "home.system.connectivity.check";
         nextActions.put(connectivityAction, owner::checkPixivConnectivity);
-        DesktopUiNode system = new DesktopUiNode.Surface(
-                "home.system",
-                DesktopUiNode.SurfaceStyle.CARD,
-                new DesktopUiNode.Insets(
-                        18,
-                        20,
-                        18,
-                        20
-                ),
-                true,
-                column(
-                        "home.system.content",
-                        new DesktopUiNode.Dock(
-                                "home.system.header",
-                                8,
-                                null,
-                                null,
-                                null,
-                                text(
-                                        "home.system.title",
-                                        "desktop.ui.home.system.title",
-                                        TextStyle.HEADING
-                                ),
-                                new DesktopUiNode.Text(
-                                        "home.system.version",
-                                        appToken(
-                                                "gui.about.version",
-                                                version
-                                        ),
-                                        TextStyle.CAPTION,
-                                        false,
-                                        false,
-                                        DesktopUiNode.TextAlignment.END
-                                )
-                        ),
-                        raw(
-                                "home.system.backend",
-                                owner.backendMessage(),
-                                owner.backendTextStyle()
-                        ),
-                        new DesktopUiNode.Container(
-                                "home.system.connectivity",
-                                ContainerLayout.ROW,
-                                1,
-                                8,
-                                Alignment.CENTER,
-                                List.of(
-                                        new DesktopUiNode.Text(
-                                                "home.system.connectivity.label",
-                                                key("gui.status.label.pixiv-connectivity"),
-                                                TextStyle.CAPTION,
-                                                true,
-                                                false
-                                        ),
-                                        new DesktopUiNode.Link(
-                                                "home.system.connectivity.value",
-                                                connectivityAction,
-                                                TextToken.raw(owner.pixivConnectivityDetails()),
-                                                key("gui.status.pixiv-connectivity.tooltip"),
-                                                owner.canCheckPixivConnectivity()
-                                        )
-                                )
-                        ),
-                        new DesktopUiNode.Text(
-                                "home.system.plugins",
-                                appToken(
-                                        "desktop.ui.home.system.plugins",
-                                        startedPlugins,
-                                        owner.pluginCount()
-                                ),
-                                TextStyle.CAPTION,
-                                true,
-                                false
-                        )
-                )
-        );
+        DesktopUiNode system = new DesktopUiNode.Group("home.system",
+                key("desktop.ui.home.system.title"), column("home.system.content",
+                        new DesktopUiNode.Link("home.system.connectivity.value", connectivityAction,
+                                TextToken.raw(owner.pixivConnectivityDetails()), key("gui.status.pixiv-connectivity.tooltip"),
+                                owner.canCheckPixivConnectivity()),
+                        new DesktopUiNode.Text("home.system.plugins", appToken("desktop.ui.home.system.plugins", startedPlugins, owner.pluginCount()),
+                                TextStyle.CAPTION, true, false),
+                        new DesktopUiNode.Text("home.system.version", appToken("gui.about.version", version), TextStyle.CAPTION, true, false)), true);
 
         List<DesktopUiNode> metrics = new ArrayList<>();
         for (DesktopUiHost.GuiValue owned : owner.controlCenterSnapshot().path("cards")) {
@@ -188,37 +98,12 @@ final class DesktopControlCenterView {
             String base = "home.quick-start." + safeId(entry.owner()) + "." + safeId(navigation.id());
             String action = base + ".open";
             nextActions.put(action, () -> owner.openWeb(navigation.href()));
-            quickStarts.add(new DesktopUiNode.Container(
-                    base,
-                    ContainerLayout.ROW,
-                    1,
-                    8,
-                    Alignment.CENTER,
-                    List.of(
-                            new DesktopUiNode.Icon(
-                                    base + ".icon",
-                                    quickStartIcon(navigation.icon()),
-                                    DesktopUiTone.INFO,
-                                    token(
-                                            navigation.labelNamespace(),
-                                            navigation.labelI18nKey(),
-                                            navigation.id()
-                                    )
-                            ),
-                            new DesktopUiNode.Button(
-                                    base + ".button",
-                                    action,
-                                    token(
-                                            navigation.labelNamespace(),
-                                            navigation.labelI18nKey(),
-                                            navigation.id()
-                                    ),
-                                    null,
-                                    ButtonStyle.NORMAL,
-                                    true
-                            )
-                    )
-            ));
+            TextToken label = token(navigation.labelNamespace(), navigation.labelI18nKey(), navigation.id());
+            if (quickStartIcon(navigation.icon()) == DesktopUiIcon.DOWNLOAD)
+                label = new TextToken("gui-compose", "gui.compose.home.open-workbench", "", List.of());
+            quickStarts.add(new DesktopUiNode.Button(base + ".button", action, label, null,
+                    quickStarts.isEmpty() ? ButtonStyle.PRIMARY : ButtonStyle.NORMAL, true,
+                    quickStartIcon(navigation.icon())));
         }
         DesktopUiNode quickStartContent = quickStarts.isEmpty() ? text(
                 "home.quick-start.empty",
@@ -226,78 +111,41 @@ final class DesktopControlCenterView {
                 TextStyle.CAPTION
         ) : new DesktopUiNode.Container(
                 "home.quick-start.grid",
-                ContainerLayout.GRID,
-                2,
+                ContainerLayout.FLOW,
+                1,
                 12,
-                Alignment.STRETCH,
+                Alignment.START,
                 quickStarts
         );
 
         List<DesktopUiNode> taskNodes = new ArrayList<>();
         for (DesktopUiHost.GuiValue task : runningTasks)
             taskNodes.add(runningTask("home.running", task));
-        DesktopUiNode runningContent = taskNodes.isEmpty() ? text(
-                "home.running.empty",
-                "desktop.ui.home.running.empty",
-                TextStyle.CAPTION
-        ) : column(
+        DesktopUiNode runningContent = taskNodes.isEmpty() ? new DesktopUiNode.Text("home.running.empty",
+                new TextToken("gui-compose", "gui.compose.home.task-empty", "", List.of()), TextStyle.BODY, true, false) : column(
                 "home.running.list",
                 taskNodes
         );
 
-        int hour = LocalTime.now().getHour();
-        String greeting = hour < 12 ? "morning" : hour < 18 ? "afternoon" : "evening";
         DesktopUiNode content = scroll(
                 "home.scroll",
                 column(
                         "home.content",
-                        text(
-                                "home.greeting",
-                                "desktop.ui.home.greeting." + greeting,
-                                TextStyle.TITLE
-                        ),
-                        new DesktopUiNode.AdaptiveGrid(
-                                "home.overview",
-                                280,
-                                2,
-                                14,
-                                14,
-                                List.of(system, hero)
-                        ),
-                        group(
+
+                        text("home.title", "desktop.ui.page.home", TextStyle.TITLE),
+                        quickStartContent,
+                        raw("home.system.backend", owner.backendMessage(), owner.backendTextStyle()),
+                        group("home.running", "desktop.ui.home.running.title", runningContent),
+                        system,
+                        new DesktopUiNode.Group(
                                 "home.metrics-section",
-                                "desktop.ui.home.metrics.title",
-                                new DesktopUiNode.PagedRow(
-                                        "home.metrics",
-                                        DesktopUiNode.PagedRow.FIXED_ITEMS_PER_PAGE,
-                                        12,
-                                        metrics
-                                )
-                        ),
-                        group("home.running", "desktop.ui.home.running.title", runningContent)
+                                key("desktop.ui.home.metrics.title"),
+                                column("home.metrics", metrics), true
+                        )
                 )
         );
-        DesktopUiNode floatingAction = column(
-                "home.quick-start",
-                text(
-                        "home.quick-start.title",
-                        "desktop.ui.home.quick-start.title",
-                        TextStyle.HEADING
-                ),
-                quickStartContent
-        );
-        return owner.page(
-                "home",
-                DesktopUiIcon.HOME,
-                content,
-                new DesktopUiNode.Insets(
-                        16,
-                        24,
-                        16,
-                        24
-                ),
-                floatingAction
-        );
+        return owner.page("home", DesktopUiIcon.HOME, content,
+                new DesktopUiNode.Insets(20, 24, 20, 24), null);
     }
 
     private DesktopUiNode dashboardCard(
@@ -319,16 +167,20 @@ final class DesktopControlCenterView {
         );
     }
 
-    DesktopUiNode automationPage() {
+    DesktopUiNode automationPage(Map<String, Runnable> nextActions) {
         DesktopUiHost.GuiValue controlCenter = owner.controlCenterSnapshot();
         List<DesktopUiNode> sources = new ArrayList<>();
         List<DesktopUiNode> tasks = new ArrayList<>();
         List<AutomationRun> runs = new ArrayList<>();
+        boolean unavailable = false;
+        boolean stale = false;
         for (DesktopUiHost.GuiValue owned : controlCenter.path("automations")) {
             String owner = safeId(owned.path("owner").path("pluginId").asText("unknown"));
             DesktopUiHost.GuiValue automation = owned.path("snapshot");
             DesktopControlCenterAvailability availability = availability(automation.path(
                     "availability").asText("UNAVAILABLE"));
+            unavailable |= availability == DesktopControlCenterAvailability.UNAVAILABLE;
+            stale |= availability == DesktopControlCenterAvailability.STALE;
             sources.add(dashboardCard(
                     "automation.source." + owner,
                     appToken("desktop.ui.automation.source.title", owner),
@@ -360,44 +212,35 @@ final class DesktopControlCenterView {
 
         DesktopUiNode timeline = automationTimeline(controlCenter, runs);
 
-        return scroll(
-                "automation.scroll",
-                column(
-                        "automation.content",
-                        text("automation.title", "desktop.ui.automation.title", TextStyle.TITLE),
-                        text("automation.intro", "desktop.ui.automation.intro", TextStyle.CAPTION),
-                        group(
-                                "automation.sources",
-                                "desktop.ui.automation.scheduler.title",
-                                sources.isEmpty() ? text(
-                                        "automation.sources.empty",
-                                        "desktop.ui.automation.empty",
-                                        TextStyle.CAPTION
-                                ) : new DesktopUiNode.AdaptiveGrid(
-                                        "automation.sources.grid",
-                                        240,
-                                        2,
-                                        12,
-                                        12,
-                                        sources
-                                )
-                        ),
-                        group(
-                                "automation.timeline",
-                                "desktop.ui.automation.timeline.title",
-                                timeline
-                        ),
-                        group(
-                                "automation.tasks",
-                                "desktop.ui.automation.tasks.title",
-                                tasks.isEmpty() ? text(
-                                        "automation.tasks.empty",
-                                        "desktop.ui.automation.empty",
-                                        TextStyle.CAPTION
-                                ) : column("automation.tasks.list", tasks)
-                        )
-                )
-        );
+        List<DesktopUiNode> content = new ArrayList<>();
+        content.add(text("automation.title", "desktop.ui.automation.title", TextStyle.TITLE));
+        content.add(composeText("automation.intro", "automation.intro", TextStyle.CAPTION));
+        for (QuickStartEntry entry : quickStartEntries()) {
+            if (quickStartIcon(entry.navigation().icon()) != DesktopUiIcon.DOWNLOAD) continue;
+            String action = "automation.workbench.open";
+            nextActions.put(action, () -> owner.openWeb(entry.navigation().href()));
+            content.add(new DesktopUiNode.Button(action, action, composeToken("home.open-workbench"), null,
+                    ButtonStyle.NORMAL, true, DesktopUiIcon.OPEN));
+            break;
+        }
+        if (!sources.isEmpty()) content.add(column("automation.sources", sources));
+        if (tasks.isEmpty()) {
+            String empty = sources.isEmpty() ? "no-source" : unavailable ? "unavailable" : stale ? "stale" : "no-tasks";
+            content.add(composeText("automation.tasks.empty", "automation." + empty,
+                    unavailable || stale ? TextStyle.WARNING : TextStyle.BODY));
+        } else {
+            content.add(group("automation.tasks", "desktop.ui.automation.tasks.title", column("automation.tasks.list", tasks)));
+            content.add(new DesktopUiNode.Group("automation.timeline", key("desktop.ui.automation.timeline.title"), timeline, true));
+        }
+        return scroll("automation.scroll", column("automation.content", content));
+    }
+
+    private static TextToken composeToken(String key) {
+        return new TextToken("gui-compose", "gui.compose." + key, "", List.of());
+    }
+
+    private static DesktopUiNode composeText(String id, String key, TextStyle style) {
+        return new DesktopUiNode.Text(id, composeToken(key), style, true, false);
     }
 
     private DesktopUiNode automationTimeline(
@@ -444,7 +287,7 @@ final class DesktopControlCenterView {
                 DesktopControlCenterView::parseInstant).flatMap(Optional::stream).min(Comparator.naturalOrder());
         return new DesktopUiNode.Surface(
                 base,
-                DesktopUiNode.SurfaceStyle.CARD,
+                DesktopUiNode.SurfaceStyle.PLAIN,
                 new DesktopUiNode.Insets(
                         12,
                         14,
@@ -580,76 +423,12 @@ final class DesktopControlCenterView {
             DesktopControlCenterAvailability availability,
             DesktopUiNode summaryGraphic
     ) {
-        DesktopUiNode.SurfaceStyle style = switch (availability) {
-            case UNAVAILABLE -> DesktopUiNode.SurfaceStyle.MUTED;
-            case STALE -> DesktopUiNode.SurfaceStyle.WARNING;
-            case AVAILABLE -> switch (tone) {
-                case SUCCESS -> DesktopUiNode.SurfaceStyle.SUCCESS;
-                case INFO -> DesktopUiNode.SurfaceStyle.INFO;
-                case WARNING -> DesktopUiNode.SurfaceStyle.WARNING;
-                case ERROR -> DesktopUiNode.SurfaceStyle.ERROR;
-                case DEFAULT -> DesktopUiNode.SurfaceStyle.CARD;
-            };
-        };
-        DesktopUiNode primaryContent = new DesktopUiNode.Text(
-                base + ".primary",
-                primary,
-                TextStyle.TITLE,
-                true,
-                false
-        );
-        if (summaryGraphic != null) {
-            primaryContent = new DesktopUiNode.Container(
-                    base + ".summary",
-                    ContainerLayout.ROW,
-                    1,
-                    12,
-                    Alignment.CENTER,
-                    List.of(summaryGraphic, primaryContent)
-            );
-        }
-        return new DesktopUiNode.Surface(
-                base,
-                style,
-                new DesktopUiNode.Insets(
-                        18,
-                        20,
-                        18,
-                        20
-                ),
-                true,
-                column(
-                        base + ".content",
-                        new DesktopUiNode.Dock(
-                                base + ".header",
-                                8,
-                                null,
-                                null,
-                                null,
-                                new DesktopUiNode.Text(
-                                        base + ".title",
-                                        title,
-                                        TextStyle.CAPTION,
-                                        true,
-                                        false
-                                ),
-                                new DesktopUiNode.Icon(
-                                        base + ".icon",
-                                        icon,
-                                        tone,
-                                        title
-                                )
-                        ),
-                        primaryContent,
-                        new DesktopUiNode.Text(
-                                base + ".supporting",
-                                supporting,
-                                availability == DesktopControlCenterAvailability.AVAILABLE ? TextStyle.CAPTION : TextStyle.WARNING,
-                                true,
-                                false
-                        )
-                )
-        );
+        List<DesktopUiNode> content = new ArrayList<>();
+        content.add(new DesktopUiNode.Text(base + ".title", title, TextStyle.EMPHASIS, true, false));
+        content.add(new DesktopUiNode.Text(base + ".primary", primary, TextStyle.BODY, true, false));
+        content.add(new DesktopUiNode.Text(base + ".supporting", supporting,
+                availability == DesktopControlCenterAvailability.AVAILABLE ? TextStyle.CAPTION : TextStyle.WARNING, true, false));
+        return new DesktopUiNode.Container(base, ContainerLayout.FLOW, 1, 12, Alignment.START, content);
     }
 
     private DesktopUiNode storageCard() {
@@ -671,7 +450,7 @@ final class DesktopControlCenterView {
                             formatCompactBinarySize(used),
                             formatCompactBinarySize(total)
                     ),
-                    key("desktop.ui.home.storage.supporting"),
+                    new TextToken("gui-compose", "gui.compose.home.storage", "", List.of(rootFolder)),
                     DesktopUiIcon.STORAGE,
                     DesktopUiTone.INFO,
                     DesktopControlCenterAvailability.AVAILABLE,
@@ -735,7 +514,7 @@ final class DesktopControlCenterView {
         }
         return new DesktopUiNode.Surface(
                 base,
-                DesktopUiNode.SurfaceStyle.CARD,
+                DesktopUiNode.SurfaceStyle.PLAIN,
                 new DesktopUiNode.Insets(
                         10,
                         12,

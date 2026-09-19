@@ -98,63 +98,21 @@ final class DesktopConfigurationView {
         );
         DesktopUiNode.Tab selected = tabs.stream().filter(tab -> tab.id().equals(selectedId)).findFirst().orElse(
                 tabs.get(0));
-        DesktopUiNode categories = new DesktopUiNode.Surface(
-                "settings.categories.surface",
-                DesktopUiNode.SurfaceStyle.CARD,
-                DesktopUiNode.Insets.all(14),
-                true,
-                column(
-                        "settings.categories.content",
-                        text(
-                                "settings.categories.title",
-                                "desktop.ui.settings.categories.title",
-                                TextStyle.HEADING
-                        ),
-                        new DesktopUiNode.Tree(
-                                "settings.categories",
-                                "settings.category",
-                                tabs.stream().map(tab -> new DesktopUiNode.TreeItem(
-                                        tab.id(),
-                                        tab.title(),
-                                        List.of()
-                                )).toList(),
-                                SelectionMode.SINGLE,
-                                List.of(selected.id()),
-                                true
-                        )
-                )
-        );
-        DesktopUiNode content = new DesktopUiNode.Surface(
-                "settings.content",
-                DesktopUiNode.SurfaceStyle.CARD,
-                DesktopUiNode.Insets.all(14),
-                true,
-                selected.content() instanceof DesktopUiNode.Scroll scroll ? scroll.content() : selected.content()
-        );
-        DesktopUiNode summary = new DesktopUiNode.Surface(
-                "settings.summary",
-                DesktopUiNode.SurfaceStyle.CARD,
-                DesktopUiNode.Insets.all(14),
-                true,
-                column("settings.summary.content", configFooterNodes(nextActions))
-        );
-        return scroll(
-                "settings.scroll",
-                column(
-                        "settings.root",
-                        new DesktopUiNode.AdaptiveGrid(
-                                "settings.layout",
-                                280,
-                                2,
-                                16,
-                                16,
-                                List.of(
-                                        column("settings.sidebar", categories, summary),
-                                        column("settings.content.height", content)
-                                )
-                        )
-                )
-        );
+        DesktopUiNode categories = new DesktopUiNode.Choice(
+                "settings.categories", "settings.category", key("desktop.ui.settings.categories.title"), null,
+                ChoiceStyle.LIST, SelectionMode.SINGLE,
+                tabs.stream().map(tab -> new DesktopUiNode.Option(tab.id(), tab.title(), true)).toList(),
+                List.of(selected.id()), true);
+        DesktopUiNode content = selected.content() instanceof DesktopUiNode.Scroll
+                ? selected.content() : scroll("settings.content.scroll", selected.content());
+        DesktopUiNode summary = new DesktopUiNode.Container("settings.summary.content", ContainerLayout.COLUMN,
+                1, 2, Alignment.STRETCH, configFooterNodes(nextActions));
+        DesktopUiNode workspace = new DesktopUiNode.Split("settings.panes", DesktopUiNode.Axis.HORIZONTAL,
+                .22, scroll("settings.categories.scroll", categories), content);
+        return new DesktopUiNode.Surface("settings.workspace", DesktopUiNode.SurfaceStyle.PLAIN,
+                new DesktopUiNode.Insets(24, 28, 20, 28), true, true, null,
+                new DesktopUiNode.Dock("settings.layout", 16,
+                        text("settings.title", "desktop.ui.page.settings", TextStyle.TITLE), workspace, summary, null, null));
     }
 
     private List<DesktopUiNode.Tab> configTabs(
@@ -292,50 +250,25 @@ final class DesktopConfigurationView {
     private List<DesktopUiNode> configFooterNodes(Map<String, Runnable> nextActions) {
         List<DesktopUiNode> bottom = new ArrayList<>();
         int pendingChanges = model.pendingConfigurationChangeCount();
-        bottom.add(new DesktopUiNode.Text(
-                "settings.unsaved-count",
-                appToken("gui.config.notice.unsaved-count", pendingChanges),
-                TextStyle.CAPTION,
-                true,
-                false
-        ));
-        if (pendingChanges > 0)
-            bottom.add(effectNode("settings.impact", model.pendingConfigurationEffect()));
-        bottom.add(row(
-                "config.actions",
-                button(
-                        "config.open",
-                        "config.open",
-                        "gui.button.open-config",
-                        !owner.busy(),
-                        nextActions,
-                        model::openConfigFile
-                ),
-                button(
-                        "config.save",
-                        "config.save",
-                        "gui.button.save",
-                        !owner.busy(),
-                        nextActions,
-                        model::saveConfiguration
-                ),
-                button(
-                        "config.reset",
-                        "config.reset",
-                        "gui.button.reset-defaults",
-                        !owner.busy(),
-                        nextActions,
-                        model::requestConfigurationReset
-                ),
-                button(
-                        "config.reload",
-                        "config.reload",
-                        "desktop.ui.action.reload",
-                        !owner.busy(),
-                        nextActions,
-                        model::reloadConfiguration
-                )
-        ));
+        List<DesktopUiNode> actions = new ArrayList<>();
+        nextActions.put("config.save", model::saveConfiguration);
+        actions.add(new DesktopUiNode.Button("config.save", "config.save", key("gui.button.save"), null,
+                ButtonStyle.PRIMARY, !owner.busy() && pendingChanges > 0));
+        if (pendingChanges > 0) {
+            actions.add(new DesktopUiNode.Text("settings.unsaved-count",
+                    appToken("gui.config.notice.unsaved-count", pendingChanges), TextStyle.BODY, true, false));
+            nextActions.put("config.reload", model::reloadConfiguration);
+            actions.add(new DesktopUiNode.Button("config.discard", "config.reload",
+                    composeToken("gui.compose.settings.discard"), null, ButtonStyle.NORMAL, !owner.busy()));
+            actions.add(effectNode("settings.impact", model.pendingConfigurationEffect()));
+        }
+        bottom.add(new DesktopUiNode.Separator("settings.save.separator", DesktopUiNode.Axis.HORIZONTAL));
+        actions.add(new DesktopUiNode.Group("config.maintenance", composeToken("gui.compose.settings.maintenance"),
+                row("config.maintenance.actions",
+                        button("config.open", "config.open", "gui.button.open-config", !owner.busy(), nextActions, model::openConfigFile),
+                        button("config.reset", "config.reset", "gui.button.reset-defaults", !owner.busy(), nextActions, model::requestConfigurationReset),
+                        button("config.reload", "config.reload", "desktop.ui.action.reload", !owner.busy(), nextActions, model::reloadConfiguration)), true));
+        bottom.add(new DesktopUiNode.Container("config.actions", ContainerLayout.FLOW, 1, 12, Alignment.START, actions));
         if (model.configNoticeToken != null) {
             bottom.add(new DesktopUiNode.Text(
                     "config.notice.plugin",
@@ -410,7 +343,7 @@ final class DesktopConfigurationView {
                         new DesktopUiNode.Surface(
                                 "config.category." + id + ".padding",
                                 DesktopUiNode.SurfaceStyle.PLAIN,
-                                DesktopUiNode.Insets.all(16),
+                                DesktopUiNode.Insets.all(8),
                                 true,
                                 column("config.category." + id + ".content", content)
                         )
@@ -465,21 +398,12 @@ final class DesktopConfigurationView {
                 pluginTabs.add(configGroupTab(group, nodes));
             }
         }
-        DesktopUiNode pluginSettings = pluginTabs.isEmpty() ? text(
-                "config.category.plugins.settings.empty",
-                "gui.config.scope.plugins.empty",
-                TextStyle.BODY
-        ) : new DesktopUiNode.Tabs("config.category.plugins.settings.tabs", pluginTabs);
-        scopes.add(new DesktopUiNode.Tab(
-                "plugin-settings",
-                key("gui.config.scope.plugins"),
-                pluginSettings
-        ));
-        tabs.add(new DesktopUiNode.Tab(
-                "plugins",
-                key("gui.config.group.plugins"),
-                new DesktopUiNode.Tabs("config.category.plugins.scopes", scopes)
-        ));
+        tabs.addAll(scopes);
+        tabs.addAll(pluginTabs);
+    }
+
+    private static TextToken composeToken(String key) {
+        return new TextToken("gui-compose", key, "", List.of());
     }
 
     private static DesktopUiNode configGroupContent(
@@ -491,7 +415,7 @@ final class DesktopConfigurationView {
                 new DesktopUiNode.Surface(
                         id + ".padding",
                         DesktopUiNode.SurfaceStyle.PLAIN,
-                        DesktopUiNode.Insets.all(16),
+                        DesktopUiNode.Insets.all(8),
                         true,
                         new DesktopUiNode.Container(
                                 id + ".content",

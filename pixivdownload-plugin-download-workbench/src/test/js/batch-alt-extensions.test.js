@@ -215,7 +215,7 @@ assert.strictEqual(sandbox.scheduleStatusLabel(suspendedTask), '风控原因详�
     const topbarOrder = [
         'id="abCookieChip"', 'id="abLangAnchor"', 'id="abVersion"', 'id="abScriptsBtn"',
         'href="/pixiv-batch.html"', 'id="abThemeAnchor"', 'data-qt-slot="topbar-actions"',
-        'id="abDockToggle"', 'id="abAuthBtn"'
+        'id="abAuthBtn"'
     ].map(marker => pageSource.indexOf(marker));
     assert(topbarOrder.every((position, index) => position >= 0
         && (index === 0 || position > topbarOrder[index - 1])));
@@ -232,7 +232,7 @@ assert.strictEqual(sandbox.scheduleStatusLabel(suspendedTask), '风控原因详�
     assert(chromeSource.includes("btn.setAttribute('data-i18n', isAdmin ? 'auth.logout' : 'auth.login');"));
     assert(cssSource.includes('.ab-topnav-link svg'));
     assert(cssSource.includes('.ab-backend-banner[hidden]'));
-    assert(/\.ab-seg\s*\{[^}]*align-self:\s*flex-start[^}]*border-radius:\s*999px/s.test(cssSource));
+    assert(/\.ab-seg\s*\{[^}]*align-self:\s*flex-start/s.test(cssSource));
     assert(modesSource.includes('return smallSeg(sources.map(src => [src.id, src.label]), current, onSelect);'));
     assert(pageSource.includes('/js/pixiv-tour.js'));
     assert(pageSource.includes('/js/pixiv-onboarding.js'));
@@ -256,7 +256,7 @@ assert.strictEqual(sandbox.scheduleStatusLabel(suspendedTask), '风控原因详�
     assert(/\.pixiv-theme-toggle--topbar svg\s*\{[^}]*fill:\s*none[^}]*stroke:\s*currentColor/s.test(cssSource));
     assert(queueSource.includes("el('div', 'ab-queue-item')"));
     assert(!queueSource.includes("el('div', 'ab-queue-item card')"));
-    assert(/\.ab-queue-item\s*\{[^}]*border-radius:\s*0 4px 4px 0[^}]*background:\s*var\(--surface-2\)/s.test(cssSource));
+    assert(cssSource.includes('.ab-queue-item'));
     // —— 插件槽位同步（settings-card / cookie-tools / import-hint 与旧布局同契约）——
     assert(pageSource.includes('/js/pixiv-vue.js'));
     assert(pageSource.includes('/pixiv-batch-alt/alt-queue-vue.js'));

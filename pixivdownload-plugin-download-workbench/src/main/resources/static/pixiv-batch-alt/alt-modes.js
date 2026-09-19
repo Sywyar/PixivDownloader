@@ -65,69 +65,85 @@ function renderRail() {
     const rail = document.getElementById('abRailModes');
     if (!rail) return;
     rail.innerHTML = '';
-    AB_MODES.forEach((mode, idx) => {
-        if (mode.adminOnly && !isAdmin) return;
+    AB_MODES.forEach(mode => {
+        if (mode.adminOnly) return;
         const btn = el('button', 'ab-rail-item' + (state.mode === mode.id ? ' is-active' : ''));
         btn.type = 'button';
-        btn.role = 'tab';
+        btn.setAttribute('role', 'tab');
+        btn.id = 'abMode-' + mode.id;
+        btn.setAttribute('aria-controls', 'abModePanel');
+        btn.tabIndex = state.mode === mode.id ? 0 : -1;
         btn.setAttribute('aria-selected', state.mode === mode.id ? 'true' : 'false');
         btn.dataset.mode = mode.id;
-        btn.style.setProperty('--stagger', String(idx + 1));
         btn.appendChild(abIconEl(mode.icon));
         btn.appendChild(el('span', 'ab-rail-label', bt(mode.titleKey, mode.titleFallback)));
-        if (mode.adminOnly) {
-            const lock = el('span', 'ab-rail-lock');
-            lock.appendChild(abIconEl('shield'));
-            lock.title = bt('modes.schedule.admin', '仅管理员');
-            btn.appendChild(lock);
-        }
         btn.addEventListener('click', () => switchMode(mode.id));
+        btn.addEventListener('keydown', event => {
+            const tabs = Array.from(rail.querySelectorAll('[role="tab"]'));
+            const index = tabs.indexOf(btn);
+            const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
+                : event.key === 'ArrowRight' ? (index + 1) % tabs.length
+                : event.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : -1;
+            if (next < 0) return;
+            event.preventDefault();
+            tabs[next].click();
+            tabs[next].focus();
+        });
         rail.appendChild(btn);
     });
-    // 滑动指示器
-    const indicator = el('span', 'ab-rail-indicator');
-    indicator.setAttribute('aria-hidden', 'true');
-    rail.appendChild(indicator);
-    requestAnimationFrame(moveRailIndicator);
+    const scheduleTab = document.getElementById('abScheduleTab');
+    if (scheduleTab) scheduleTab.hidden = !isAdmin;
 }
 
-function moveRailIndicator() {
-    const rail = document.getElementById('abRailModes');
-    if (!rail) return;
-    const indicator = rail.querySelector('.ab-rail-indicator');
-    const active = rail.querySelector('.ab-rail-item.is-active');
-    if (!indicator || !active) {
-        if (indicator) indicator.hidden = true;
-        return;
-    }
-    indicator.hidden = false;
-    indicator.style.transform = `translateY(${active.offsetTop}px)`;
-    indicator.style.height = active.offsetHeight + 'px';
+const modeDrafts = new Map();
+let lastAcquisitionMode = QUICK_FETCH_MODE;
+
+function rememberModeDraft(panel) {
+    if (!panel || !panel.dataset.mode) return;
+    const fields = Array.from(panel.querySelectorAll('input[id], textarea[id]'))
+        .filter(field => !['password', 'file', 'checkbox', 'radio', 'hidden', 'button', 'submit'].includes(field.type))
+        .map(field => ({id: field.id, value: field.value, checked: field.checked,
+            start: field.selectionStart, end: field.selectionEnd}));
+    modeDrafts.set(panel.dataset.mode, {fields, scroll: dockState.open ? acquisitionScroll : window.scrollY,
+        focus: panel.contains(document.activeElement) ? document.activeElement.id : null});
+}
+
+function restoreModeDraft(panel, restoreFocus) {
+    const draft = modeDrafts.get(state.mode);
+    if (!draft) return;
+    draft.fields.forEach(saved => {
+        const field = document.getElementById(saved.id);
+        if (!field || !panel.contains(field)) return;
+        if (field.tagName !== 'SELECT' || Array.from(field.options).some(option => option.value === saved.value)) {
+            field.value = saved.value;
+        }
+        if (field.type === 'checkbox' || field.type === 'radio') field.checked = saved.checked;
+        if (saved.start != null && typeof field.setSelectionRange === 'function') {
+            field.setSelectionRange(saved.start, saved.end);
+        }
+    });
+    if (restoreFocus && draft.focus) document.getElementById(draft.focus)?.focus({preventScroll: true});
+    if (!dockState.open) window.scrollTo({top: draft.scroll, behavior: 'instant'});
 }
 
 function switchMode(mode) {
     let normalized = mode;
     if (normalized === 'schedule' && !isAdmin) normalized = QUICK_FETCH_MODE;
-    if (state.mode === normalized) return;
+    if (!AB_MODES.some(item => item.id === normalized)) normalized = QUICK_FETCH_MODE;
+    if (normalized !== 'schedule') lastAcquisitionMode = normalized;
+    const changed = state.mode !== normalized;
+    if (changed) rememberModeDraft(document.getElementById('abModePanel'));
     state.mode = normalized;
     storeSet('pixiv_mode', normalized);
-    const panel = document.getElementById('abModePanel');
     document.querySelectorAll('#abRailModes .ab-rail-item').forEach(btn => {
         const active = btn.dataset.mode === normalized;
         btn.classList.toggle('is-active', active);
         btn.setAttribute('aria-selected', active ? 'true' : 'false');
+        btn.tabIndex = active ? 0 : -1;
     });
-    moveRailIndicator();
-    if (panel) {
-        panel.classList.add('is-leaving');
-        setTimeout(() => {
-            renderStage();
-            panel.classList.remove('is-leaving');
-        }, 160);
-    } else {
-        renderStage();
-    }
-    if (normalized === 'schedule') {
+    toggleDock(false);
+    if (changed) renderStage();
+    if (changed && normalized === 'schedule') {
         enterScheduleMode();
     }
 }
@@ -135,8 +151,12 @@ function switchMode(mode) {
 function renderStage() {
     const panel = document.getElementById('abModePanel');
     if (!panel) return;
+    const restoreFocus = panel.dataset.mode === state.mode && panel.contains(document.activeElement);
+    if (panel.dataset.mode === state.mode) rememberModeDraft(panel);
     panel.innerHTML = '';
     const mode = state.mode;
+    panel.dataset.mode = mode;
+    panel.setAttribute('aria-labelledby', mode === 'schedule' ? 'abScheduleTab' : 'abMode-' + mode);
     if (mode === QUICK_FETCH_MODE) renderQuickMode(panel);
     else if (mode === SINGLE_IMPORT_MODE) renderImportMode(panel);
     else if (mode === 'user') renderUserMode(panel);
@@ -147,6 +167,8 @@ function renderStage() {
     if (pageI18n) pageI18n.apply(panel);
     // 舞台重建后槽位锚点（如 import-hint）随之重建，经共享 renderSlots 重挂插件贡献片段。
     refreshAltSlots();
+    restoreModeDraft(panel, restoreFocus);
+    syncWorkspaceNavigation();
 }
 
 /* ============================================================
@@ -258,6 +280,7 @@ function workCard(item, opts) {
 
     const enqueueBtn = el('button', 'ab-work-enqueue');
     enqueueBtn.type = 'button';
+    enqueueBtn.setAttribute('aria-pressed', 'false');
     enqueueBtn.setAttribute('aria-label', bt('card.enqueue', '加入队列'));
     enqueueBtn.appendChild(abIconEl('plus'));
     enqueueBtn.addEventListener('click', event => {
@@ -278,7 +301,6 @@ function workCard(item, opts) {
     if (authorName) info.appendChild(el('div', 'ab-work-author', authorName));
     card.appendChild(info);
 
-    card.addEventListener('click', () => toggleWorkInQueue(item, kind, options));
     return card;
 }
 
@@ -453,6 +475,8 @@ function syncAllResultsQueueState() {
         const btn = card.querySelector('.ab-work-enqueue');
         if (btn) {
             btn.classList.toggle('is-queued', inQueue);
+            btn.setAttribute('aria-pressed', String(inQueue));
+            btn.setAttribute('aria-label', bt(inQueue ? 'queue.remove' : 'card.enqueue', inQueue ? '从队列移除' : '加入队列'));
             btn.innerHTML = abIcon(inQueue ? 'check' : 'plus');
         }
     });

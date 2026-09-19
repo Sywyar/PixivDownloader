@@ -36,20 +36,8 @@ final class DesktopPluginStatusController {
         if (statuses.isEmpty() && notice.isBlank()) {
             cards.add(text("plugins.empty", "gui.plugins.state.empty", TextStyle.CAPTION));
         }
-        DesktopUiNode installed = new DesktopUiNode.Surface(
-                "plugins.installed",
-                DesktopUiNode.SurfaceStyle.CARD,
-                DesktopUiNode.Insets.all(14),
-                true,
-                new DesktopUiNode.AdaptiveGrid(
-                        "plugins.grid",
-                        260,
-                        2,
-                        12,
-                        12,
-                        cards
-                )
-        );
+        DesktopUiNode installed = new DesktopUiNode.AdaptiveGrid(
+                "plugins.grid", 300, 2, 12, 12, cards);
 
         List<DesktopUiNode> details = new ArrayList<>();
         if (!observedAt.isBlank()) {
@@ -82,27 +70,14 @@ final class DesktopPluginStatusController {
                     "desktop.ui.plugins.intro",
                     TextStyle.CAPTION
             ));
-        DesktopUiNode status = new DesktopUiNode.Surface(
-                "plugins.summary",
-                DesktopUiNode.SurfaceStyle.CARD,
-                DesktopUiNode.Insets.all(14),
-                true,
-                column("plugins.summary.content", details)
-        );
         return scroll(
                 "plugins.scroll",
                 column(
                         "plugins.read-only",
                         text("plugins.title", "desktop.ui.page.plugins", TextStyle.TITLE),
                         text("plugins.intro", "desktop.ui.plugins.intro", TextStyle.CAPTION),
-                        new DesktopUiNode.AdaptiveGrid(
-                                "plugins.layout",
-                                300,
-                                2,
-                                16,
-                                16,
-                                List.of(installed, status)
-                        )
+                        column("plugins.summary.content", details),
+                        installed
                 )
         );
     }

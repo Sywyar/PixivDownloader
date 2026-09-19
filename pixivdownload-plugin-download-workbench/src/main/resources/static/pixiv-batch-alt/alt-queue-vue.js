@@ -106,32 +106,6 @@ function aqvBuildStore() {
     });
 }
 
-/* —— 统计数字滚动（与命令式 animateCount 同参数：420ms、ease 1-(1-t)^3、token 取消） —— */
-const aqvStatTweens = {};
-
-function aqvTweenStat(key, to) {
-    if (!aqvStore) return;
-    const target = Number(to) || 0;
-    const from = Number(aqvStore.stats[key] || 0);
-    const token = String(Math.random());
-    aqvStatTweens[key] = token;
-    if (from === target) {
-        aqvStore.stats[key] = target;
-        return;
-    }
-    const duration = 420;
-    const start = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-    const step = () => {
-        if (aqvStatTweens[key] !== token || !aqvStore) return;
-        const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-        const t = Math.min(1, (now - start) / duration);
-        const eased = 1 - Math.pow(1 - t, 3);
-        aqvStore.stats[key] = Math.round(from + (target - from) * eased);
-        if (t < 1) aqvRaf(step);
-    };
-    aqvRaf(step);
-}
-
 /* —— 展示模型派生：一次渲染内一次性算出该行全部展示字段，模板只读字段、显隐走方法 —— */
 function aqvExtrasHtml(q) {
     if (typeof progressExtras !== 'function') return '';
@@ -390,7 +364,9 @@ function aqvIsCurrentActive() {
 function aqvSyncStats(counts) {
     aqvSchedule('stats', () => {
         if (!aqvStore || !counts) return;
-        ['pending', 'success', 'failed', 'active', 'skipped'].forEach(key => aqvTweenStat(key, counts[key]));
+        ['pending', 'success', 'failed', 'active', 'skipped'].forEach(key => {
+            aqvStore.stats[key] = Number(counts[key]) || 0;
+        });
     });
 }
 

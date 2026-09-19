@@ -32,53 +32,6 @@ final class DesktopToolsView {
         this.model = model;
     }
 
-    DesktopUiDocument.Dialog dialog(
-            DesktopToolsController.ToolDialog value,
-            Map<String, Runnable> nextActions
-    ) {
-        String base = value == DesktopToolsController.ToolDialog.IMAGE_CLASSIFIER ? "classifier.dialog" : "folder.dialog";
-        String dismissAction = base + ".dismiss";
-        Runnable dismiss = () -> {
-            model.toolDialog = null;
-            if (value == DesktopToolsController.ToolDialog.FOLDER_CHECKER)
-                model.closeFolderCheckerDialog();
-            else model.closeImageClassifierDialog();
-        };
-        nextActions.put(dismissAction, dismiss);
-        DesktopUiNode content = value == DesktopToolsController.ToolDialog.IMAGE_CLASSIFIER ? classifierDialogContent(
-                nextActions) : folderDialogContent(nextActions);
-        String title = value == DesktopToolsController.ToolDialog.IMAGE_CLASSIFIER ? "gui.tools.card.image-classifier.title" : "gui.tools.card.folder-checker.title";
-        return new DesktopUiDocument.Dialog(
-                base,
-                key(title),
-                DesktopUiDocument.DialogStyle.INFO,
-                new DesktopUiNode.Dock(
-                        base + ".layout",
-                        12,
-                        null,
-                        scroll(base + ".scroll", content),
-                        row(
-                                base + ".actions",
-                                button(
-                                        base + ".close",
-                                        dismissAction,
-                                        "desktop.ui.action.close",
-                                        !model.owner.busy(),
-                                        nextActions,
-                                        dismiss
-                                )
-                        ),
-                        null,
-                        null
-                ),
-                dismissAction,
-                !model.owner.busy(),
-                0,
-                0,
-                true
-        );
-    }
-
     private DesktopUiNode classifierDialogContent(Map<String, Runnable> nextActions) {
         DesktopUiNode top = row(
                 "classifier.top",
@@ -342,11 +295,6 @@ final class DesktopToolsView {
                 model.selectedFolderRow);
         return column(
                 "folder.dialog.content",
-                text(
-                        "tools.folder.help",
-                        "desktop.ui.tools.folder.description",
-                        TextStyle.CAPTION
-                ),
                 input(
                         "tools.folder.db",
                         "tools.folder.db",
@@ -367,11 +315,9 @@ final class DesktopToolsView {
                         nextActions,
                         model::checkFolders
                 ),
-                status(
-                        "tools.folder.notice",
-                        model.folderNotice.isBlank() ? model.host.message(
-                                "gui.tools.folder-checker.status.preparing") : model.folderNotice
-                ),
+                model.folderNotice.isBlank()
+                        ? composeText("tools.folder.notice", "tools.folder-ready", TextStyle.CAPTION)
+                        : status("tools.folder.notice", model.folderNotice),
                 model.folderTable(),
                 row(
                         "tools.folder.selected",
@@ -413,97 +359,59 @@ final class DesktopToolsView {
     }
 
     DesktopUiNode controlCenterPage(Map<String, Runnable> nextActions) {
+        if (model.toolDialog != null) {
+            boolean folder = model.toolDialog == DesktopToolsController.ToolDialog.FOLDER_CHECKER;
+            String title = folder ? "gui.tools.card.folder-checker.title" : "gui.tools.card.image-classifier.title";
+            Runnable close = () -> {
+                model.toolDialog = null;
+                if (folder) model.closeFolderCheckerDialog();
+                else model.closeImageClassifierDialog();
+            };
+            return new DesktopUiNode.Dock("tools.active", 12,
+                    column("tools.active.heading", text("tools.active.title", title, TextStyle.TITLE),
+                            folder ? composeText("tools.active.impact", "tools.folder-impact", TextStyle.WARNING)
+                                    : composeText("tools.active.description", "tools.classifier-description", TextStyle.CAPTION),
+                            button("tools.active.close", "tools.active.close", "desktop.ui.action.close",
+                                    !model.owner.busy(), nextActions, close)),
+                    folder ? scroll("tools.active.scroll", folderDialogContent(nextActions)) : classifierDialogContent(nextActions),
+                    null, null, null);
+        }
         List<DesktopUiNode> cards = toolCards(nextActions);
-        DesktopUiNode quick = new DesktopUiNode.AdaptiveGrid(
-                "tools.quick.row",
-                360,
-                2,
-                16,
-                16,
-                List.of(
-                        column(
-                                "tools.quick.grid",
-                                cards.get(2),
-                                cards.get(3)
-                        ),
-                        cards.get(0)
-                )
-        );
-        DesktopUiNode maintenance = new DesktopUiNode.AdaptiveGrid(
-                "tools.maintenance.row",
-                360,
-                2,
-                16,
-                16,
-                List.of(
-                        column(
-                                "tools.maintenance.grid",
-                                cards.get(4),
-                                cards.get(5)
-                        ),
-                        cards.get(1)
-                )
-        );
-        return scroll(
-                "tools.scroll",
-                column(
-                        "tools.layout",
-                        text(
-                                "tools.quick.title",
-                                "desktop.ui.tools.quick.title",
-                                TextStyle.HEADING
-                        ),
-                        quick,
-                        text(
-                                "tools.maintenance.title",
-                                "desktop.ui.tools.maintenance.title",
-                                TextStyle.HEADING
-                        ),
-                        maintenance
-                )
-        );
+        String[] ids = {"classifier", "folder", "backfill", "migration"};
+        List<DesktopUiNode.Tab> tabs = new ArrayList<>();
+        for (int i = 0; i < ids.length; i++) {
+            List<DesktopUiNode> content = new ArrayList<>();
+            if (i > 0) content.add(composeText("tools." + ids[i] + ".impact",
+                    i == 1 ? "tools.folder-impact" : i == 2 ? "tools.backfill-impact" : "tools.maintenance-impact", TextStyle.WARNING));
+            content.add(cards.get(i));
+            tabs.add(new DesktopUiNode.Tab(ids[i], composeToken("tools." + ids[i]),
+                    scroll("tools." + ids[i] + ".scroll", column("tools." + ids[i] + ".workspace", content))));
+        }
+        return new DesktopUiNode.Dock("tools.workspace", 12,
+                column("tools.heading", text("tools.title", "desktop.ui.page.tools", TextStyle.TITLE),
+                        raw("tools.backend", model.host.message("gui.tools.backend-status", model.owner.backendMessage()), TextStyle.CAPTION)),
+                new DesktopUiNode.Tabs("tools.catalog", tabs, model.lastOpenedTool),
+                new DesktopUiNode.Group("tools.history", key("gui.tools.history.title"), toolHistoryContent(), true), null, null);
+    }
+
+    private static TextToken composeToken(String key) {
+        return new TextToken("gui-compose", "gui.compose." + key, "", List.of());
+    }
+
+    private static DesktopUiNode composeText(String id, String key, TextStyle style) {
+        return new DesktopUiNode.Text(id, composeToken(key), style, true, false);
     }
 
     private List<DesktopUiNode> toolCards(Map<String, Runnable> nextActions) {
         List<DesktopUiNode> cards = new ArrayList<>();
         cards.add(group(
-                "tools.overview",
-                "gui.tools.card.overview.title",
-                column(
-                        "tools.overview.content",
-                        raw(
-                                "tools.backend",
-                                model.host.message(
-                                        "gui.tools.backend-status",
-                                        model.owner.backendMessage()
-                                ),
-                                TextStyle.BODY
-                        ),
-                        raw(
-                                "tools.exclusive",
-                                model.host.message(
-                                        "gui.tools.exclusive-tool",
-                                        model.exclusiveToolName.isBlank() ? model.host.message(
-                                                "gui.value.none") : model.exclusiveToolName
-                                ),
-                                TextStyle.BODY
-                        ),
-                        text(
-                                "tools.overview.hint",
-                                "gui.tools.card.overview.hint",
-                                TextStyle.CAPTION
-                        )
-                )
-        ));
-        cards.add(maintenanceSummaryCard());
-        cards.add(group(
                 "tools.image-classifier",
                 "gui.tools.card.image-classifier.title",
                 column(
                         "tools.image-classifier.summary",
-                        text(
+                        composeText(
                                 "tools.image-classifier.description",
-                                "gui.tools.card.image-classifier.description",
+                                "tools.classifier-description",
                                 TextStyle.CAPTION
                         ),
                         row(
@@ -524,9 +432,9 @@ final class DesktopToolsView {
                 "gui.tools.card.folder-checker.title",
                 column(
                         "tools.folder-checker.summary",
-                        text(
+                        composeText(
                                 "tools.folder-checker.description",
-                                "gui.tools.card.folder-checker.description",
+                                "tools.folder-description",
                                 TextStyle.CAPTION
                         ),
                         row(
@@ -787,91 +695,6 @@ final class DesktopToolsView {
                 )
         ));
         return List.copyOf(cards);
-    }
-
-    private DesktopUiNode maintenanceSummaryCard() {
-        return group(
-                "tools.maintenance.summary",
-                "gui.tools.interlock.title",
-                column(
-                        "tools.maintenance.summary.content",
-                        text(
-                                "tools.interlock.description",
-                                "gui.tools.interlock.description",
-                                TextStyle.CAPTION
-                        ),
-                        interlockTimeline(),
-                        new DesktopUiNode.Separator(
-                                "tools.interlock.history.separator",
-                                DesktopUiNode.Axis.HORIZONTAL
-                        ),
-                        text(
-                                "tools.history.title",
-                                "gui.tools.history.title",
-                                TextStyle.HEADING
-                        ),
-                        toolHistoryContent()
-                )
-        );
-    }
-
-    private DesktopUiNode interlockTimeline() {
-        boolean toolActive = !model.exclusiveToolName.isBlank();
-        DesktopUiHost.BackendState backendState = model.owner.backendSnapshot().state();
-        DesktopUiNode.TimelineState resourceState = toolActive
-                || backendState == DesktopUiHost.BackendState.RUNNING
-                || backendState == DesktopUiHost.BackendState.STOPPED
-                ? DesktopUiNode.TimelineState.COMPLETE
-                : DesktopUiNode.TimelineState.IDLE;
-        DesktopUiNode.TimelineState stopState = !toolActive
-                ? DesktopUiNode.TimelineState.IDLE
-                : switch (backendState) {
-                    case STOPPING -> DesktopUiNode.TimelineState.ACTIVE;
-                    case STOPPED -> DesktopUiNode.TimelineState.COMPLETE;
-                    default -> DesktopUiNode.TimelineState.IDLE;
-                };
-        DesktopUiNode.TimelineState runState = toolActive
-                && (backendState == DesktopUiHost.BackendState.RUNNING
-                || backendState == DesktopUiHost.BackendState.STOPPED)
-                ? DesktopUiNode.TimelineState.ACTIVE
-                : DesktopUiNode.TimelineState.IDLE;
-        return new DesktopUiNode.Timeline(
-                "tools.interlock.timeline",
-                List.of(
-                        new DesktopUiNode.TimelineItem(
-                                key("gui.tools.interlock.step.check.title"),
-                                key("gui.tools.interlock.step.check.description"),
-                                key(resourceState == DesktopUiNode.TimelineState.COMPLETE
-                                        ? "gui.tools.interlock.status.passed"
-                                        : "desktop.ui.automation.status.idle"),
-                                resourceState
-                        ),
-                        new DesktopUiNode.TimelineItem(
-                                key("gui.tools.interlock.step.stop.title"),
-                                key("gui.tools.interlock.step.stop.description"),
-                                key(stopState == DesktopUiNode.TimelineState.ACTIVE
-                                        ? "gui.backend.state.stopping"
-                                        : stopState == DesktopUiNode.TimelineState.COMPLETE
-                                                ? "gui.backend.state.stopped"
-                                                : "gui.tools.interlock.status.as-needed"),
-                                stopState
-                        ),
-                        new DesktopUiNode.TimelineItem(
-                                key("gui.tools.interlock.step.run.title"),
-                                key("gui.tools.interlock.step.run.description"),
-                                key(runState == DesktopUiNode.TimelineState.ACTIVE
-                                        ? "desktop.ui.home.task.status.running"
-                                        : "desktop.ui.automation.status.idle"),
-                                runState
-                        ),
-                        new DesktopUiNode.TimelineItem(
-                                key("gui.tools.interlock.step.restore.title"),
-                                key("gui.tools.interlock.step.restore.description"),
-                                key("gui.tools.interlock.status.automatic"),
-                                DesktopUiNode.TimelineState.IDLE
-                        )
-                )
-        );
     }
 
     private DesktopUiNode toolHistoryContent() {

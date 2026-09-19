@@ -5,6 +5,13 @@
 .pixiv-feedback-backdrop {
     position: fixed;
     inset: 0;
+    margin: 0;
+    width: 100vw;
+    height: 100dvh;
+    max-width: none;
+    max-height: none;
+    box-sizing: border-box;
+    border: none;
     z-index: 10000;
     display: flex;
     align-items: center;
@@ -12,6 +19,8 @@
     padding: var(--space-4, 16px);
     background: var(--overlay-bg, color-mix(in srgb, CanvasText 55%, transparent));
 }
+
+.pixiv-feedback-backdrop::backdrop { background: transparent; }
 
 .pixiv-feedback-dialog {
     width: min(440px, 100%);
@@ -114,6 +123,12 @@
 }
 
 .pixiv-feedback-toast-host {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    inset: auto 18px 18px auto;
+    overflow: visible;
     position: fixed;
     right: var(--space-4, 16px);
     bottom: var(--space-4, 16px);

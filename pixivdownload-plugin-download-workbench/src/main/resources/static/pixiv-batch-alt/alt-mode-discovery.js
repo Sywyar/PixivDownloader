@@ -459,9 +459,14 @@ function smallSeg(options, current, onSelect) {
     options.forEach(([value, label]) => {
         const btn = el('button', 'ab-seg-item' + (current === value ? ' is-active' : ''), label);
         btn.type = 'button';
+        btn.setAttribute('aria-pressed', String(current === value));
         btn.addEventListener('click', () => {
-            seg.querySelectorAll('.ab-seg-item').forEach(b => b.classList.remove('is-active'));
+            seg.querySelectorAll('.ab-seg-item').forEach(b => {
+                b.classList.remove('is-active');
+                b.setAttribute('aria-pressed', 'false');
+            });
             btn.classList.add('is-active');
+            btn.setAttribute('aria-pressed', 'true');
             onSelect(value);
         });
         seg.appendChild(btn);

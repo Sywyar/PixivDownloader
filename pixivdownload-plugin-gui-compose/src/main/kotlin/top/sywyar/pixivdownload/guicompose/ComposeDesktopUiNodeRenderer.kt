@@ -1,13 +1,12 @@
 package top.sywyar.pixivdownload.guicompose
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.LocalScrollbarStyle
@@ -51,6 +50,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CheckCircle
@@ -110,6 +110,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -139,6 +140,9 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.error
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -199,22 +203,7 @@ object ComposeDesktopUiNodeRenderer {
             is DesktopUiNode.PagedRow -> PagedRow(node, text, emit, modifier)
             is DesktopUiNode.Dock -> Dock(node, text, emit, modifier)
             is DesktopUiNode.Surface -> SurfaceNode(node, text, emit, modifier)
-            is DesktopUiNode.Group -> OutlinedCard(
-                modifier = modifier.animateContentSize(tween(180)),
-                shape = MaterialTheme.shapes.large,
-                colors = CardDefaults.outlinedCardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                ),
-            ) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        resolve(node.title(), text),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Node(node.content(), text, emit, Modifier.fillMaxWidth())
-                }
-            }
+            is DesktopUiNode.Group -> Group(node, text, emit, modifier)
             is DesktopUiNode.Form -> Form(node, text, emit, modifier)
             is DesktopUiNode.Tabs -> Tabs(node, text, emit, modifier)
             is DesktopUiNode.Scroll -> ScrollNode(node, text, emit, modifier)
@@ -413,10 +402,10 @@ object ComposeDesktopUiNodeRenderer {
             Box(interactive) { Node(node.content(), text, emit, contentModifier) }
             return
         }
-        val cardModifier = interactive.animateContentSize(tween(180))
+        val cardModifier = interactive
         val content: @Composable () -> Unit = { Node(node.content(), text, emit, contentModifier) }
         val containerColor = when (node.style()) {
-            DesktopUiNode.SurfaceStyle.CARD -> MaterialTheme.colorScheme.surfaceContainerLow
+            DesktopUiNode.SurfaceStyle.CARD -> MaterialTheme.colorScheme.surface
             DesktopUiNode.SurfaceStyle.MUTED -> MaterialTheme.colorScheme.surfaceContainerHighest
             else -> MaterialTheme.colorScheme.surfaceContainerHigh
         }
@@ -425,7 +414,7 @@ object ComposeDesktopUiNodeRenderer {
             contentColor = MaterialTheme.colorScheme.onSurface,
         )
         when (node.style()) {
-            DesktopUiNode.SurfaceStyle.CARD -> ElevatedCard(
+            DesktopUiNode.SurfaceStyle.CARD -> OutlinedCard(
                 modifier = cardModifier,
                 shape = MaterialTheme.shapes.large,
                 colors = colors,
@@ -458,7 +447,10 @@ object ComposeDesktopUiNodeRenderer {
                 modifier,
                 verticalArrangement = Arrangement.spacedBy(gap),
                 horizontalAlignment = horizontal(node.alignment()),
-            ) { node.children().forEach { child(it, childModifier(node.alignment())) } }
+            ) { node.children().forEach {
+                child(it, if (it is DesktopUiNode.Button || it is DesktopUiNode.Link) Modifier
+                    else childModifier(node.alignment()))
+            } }
             DesktopUiNode.ContainerLayout.ROW -> Row(
                 modifier,
                 horizontalArrangement = Arrangement.spacedBy(gap),
@@ -596,73 +588,68 @@ object ComposeDesktopUiNodeRenderer {
         .coerceIn(1, minOf(maximumColumns, itemCount))
 
     @Composable
+    private fun Group(node: DesktopUiNode.Group, text: (DesktopUiNode.TextToken) -> String,
+                      emit: (DesktopUiNode.Event) -> Unit, modifier: Modifier) {
+        var expanded by rememberSaveable(node.id()) { mutableStateOf(!node.collapsible()) }
+        Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (node.collapsible()) {
+                TextButton(onClick = { expanded = !expanded }, contentPadding = PaddingValues(0.dp),
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
+                    modifier = Modifier.semantics { stateDescription = text(DesktopUiNode.TextToken(
+                        GuiComposePlugin.ID, if (expanded) "gui.compose.expanded" else "gui.compose.collapsed", "", emptyList())) }) {
+                    Text(if (expanded) "▾" else "▸", Modifier.padding(end = 8.dp))
+                    Text(resolve(node.title(), text), style = MaterialTheme.typography.titleMedium)
+                }
+            } else Text(resolve(node.title(), text), style = MaterialTheme.typography.titleMedium)
+            if (expanded) Node(node.content(), text, emit, Modifier.fillMaxWidth())
+        }
+    }
+
+    @Composable
     private fun Form(
         node: DesktopUiNode.Form,
         text: (DesktopUiNode.TextToken) -> String,
         emit: (DesktopUiNode.Event) -> Unit,
         modifier: Modifier,
     ) {
-        val suffix = node.labelSuffix()?.let { resolve(it, text) }.orEmpty()
-        BoxWithConstraints(modifier) {
-            val narrow = when (node.formStyle()) {
-                DesktopUiNode.FormStyle.RESPONSIVE,
-                DesktopUiNode.FormStyle.COMPACT -> maxWidth < 760.dp
-                DesktopUiNode.FormStyle.KEY_VALUE -> false
-            }
-            val labelWidth = when (node.formStyle()) {
-                DesktopUiNode.FormStyle.RESPONSIVE -> 164.dp
-                DesktopUiNode.FormStyle.COMPACT -> 132.dp
-                DesktopUiNode.FormStyle.KEY_VALUE -> 126.dp
-            }
-            val labelWeight = if (node.formStyle() == DesktopUiNode.FormStyle.KEY_VALUE)
-                FontWeight.Normal else FontWeight.Medium
-            val labelColor = if (node.formStyle() == DesktopUiNode.FormStyle.KEY_VALUE)
-                MaterialTheme.colorScheme.onSurface.copy(alpha = .6f) else Color.Unspecified
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                node.rows().forEach { row ->
-                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Box(modifier) {
+            BoxWithConstraints(Modifier.widthIn(max = DesktopLayout.formWidth).fillMaxWidth()) {
+                val narrow = maxWidth < 540.dp
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    node.rows().forEach { row ->
                         val help = row.help()?.let { resolve(it, text) }.orEmpty()
-                        val stacked = narrow && !usesCompactFormRow(row.content())
-                        if (stacked) {
-                            HintedTitle(help) {
-                                Text(
-                                    resolve(row.label(), text) + suffix,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = labelWeight,
-                                    color = labelColor,
-                                )
+                        @Composable fun label() {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(resolve(row.label(), text), style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Medium)
+                                if (help.isNotBlank()) Text(help, style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                Box(Modifier.weight(1f)) {
-                                    FormContent(row.content(), text, emit, Modifier.fillMaxWidth())
-                                }
-                                row.trailing()?.let { Node(it, text, emit) }
-                            }
-                        } else {
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                Box(Modifier.width(labelWidth)) {
-                                    HintedTitle(help) {
-                                        Text(
-                                            resolve(row.label(), text) + suffix,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = labelWeight,
-                                            color = labelColor,
-                                        )
+                        }
+                        @Composable fun field() {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                val width = when (val content = row.content()) {
+                                    is DesktopUiNode.TextInput -> when (content.inputKind()) {
+                                        DesktopUiNode.InputKind.NUMBER, DesktopUiNode.InputKind.TIME -> DesktopLayout.numberWidth
+                                        DesktopUiNode.InputKind.PASSWORD -> DesktopLayout.choiceWidth
+                                        else -> DesktopLayout.formWidth
                                     }
+                                    is DesktopUiNode.Choice -> if (content.choiceStyle() == DesktopUiNode.ChoiceStyle.COMBO_BOX)
+                                        DesktopLayout.choiceWidth else DesktopLayout.formWidth
+                                    is DesktopUiNode.NumberInput -> if (content.numberStyle() == DesktopUiNode.NumberStyle.SPINNER)
+                                        DesktopLayout.numberWidth else DesktopLayout.formWidth
+                                    else -> DesktopLayout.formWidth
                                 }
-                                Box(Modifier.weight(1f)) {
-                                    FormContent(row.content(), text, emit, Modifier.fillMaxWidth())
-                                }
+                                FormContent(row.content(), text, emit, Modifier.widthIn(max = width).fillMaxWidth())
                                 row.trailing()?.let { Node(it, text, emit) }
                             }
+                        }
+                        if (narrow) Column(Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)) { label(); field() }
+                        else Row(Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.Top) {
+                            Box(Modifier.width(240.dp)) { label() }
+                            Box(Modifier.weight(1f)) { field() }
                         }
                     }
                 }
@@ -705,9 +692,18 @@ object ComposeDesktopUiNodeRenderer {
         modifier: Modifier,
     ) {
         val tabIds = node.tabs().map { it.id() }
-        var selectedId by rememberSaveable(node.id()) { mutableStateOf(tabIds.first()) }
+        var selectedId by rememberSaveable(node.id()) {
+            mutableStateOf(node.initialSelectedId()?.takeIf { it in tabIds } ?: tabIds.first())
+        }
         val activeTabId = selectedIdOrFirst(selectedId, tabIds)
         val selectedIndex = tabIds.indexOf(activeTabId)
+        val tabStates = rememberSaveableStateHolder()
+        val retainedIds = remember(node.id()) { linkedSetOf<String>() }
+        LaunchedEffect(tabIds) {
+            removedPageIds(retainedIds, tabIds).forEach(tabStates::removeState)
+            retainedIds.clear()
+            retainedIds.addAll(tabIds)
+        }
         LaunchedEffect(activeTabId) { selectedId = activeTabId }
         BoxWithConstraints(modifier) {
             val boundedHeight = constraints.hasBoundedHeight
@@ -731,22 +727,14 @@ object ComposeDesktopUiNodeRenderer {
                         })
                     }
                 }
-                AnimatedContent(
-                    targetState = activeTabId,
-                    modifier = (if (boundedHeight) Modifier.weight(1f) else Modifier)
-                        .fillMaxWidth().padding(top = 12.dp),
-                    transitionSpec = {
-                        val direction = if (tabIds.indexOf(targetState) >= tabIds.indexOf(initialState)) 1 else -1
-                        (fadeIn(tween(180)) + slideInHorizontally(tween(220)) { direction * it / 24 })
-                            .togetherWith(fadeOut(tween(120)) +
-                                    slideOutHorizontally(tween(180)) { -direction * it / 30 })
-                    },
-                    contentKey = { it },
-                ) { tabId ->
-                    Node(
-                        node.tabs().first { it.id() == tabId }.content(), text, emit,
-                        if (boundedHeight) Modifier.fillMaxSize() else Modifier.fillMaxWidth(),
-                    )
+                Box((if (boundedHeight) Modifier.weight(1f) else Modifier)
+                    .fillMaxWidth().padding(top = 12.dp)) {
+                    tabStates.SaveableStateProvider(activeTabId) {
+                        Node(
+                            node.tabs().first { it.id() == activeTabId }.content(), text, emit,
+                            if (boundedHeight) Modifier.fillMaxSize() else Modifier.fillMaxWidth(),
+                        )
+                    }
                 }
             }
         }
@@ -813,17 +801,16 @@ object ComposeDesktopUiNodeRenderer {
     ) {
         val style = when (node.style()) {
             DesktopUiNode.TextStyle.TITLE -> MaterialTheme.typography.headlineSmall
-            DesktopUiNode.TextStyle.HEADING -> MaterialTheme.typography.titleLarge
+            DesktopUiNode.TextStyle.HEADING -> MaterialTheme.typography.titleMedium
             DesktopUiNode.TextStyle.EMPHASIS -> MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold)
             DesktopUiNode.TextStyle.ERROR -> MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold)
             DesktopUiNode.TextStyle.CAPTION -> MaterialTheme.typography.bodySmall
             DesktopUiNode.TextStyle.CODE -> MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace)
             else -> MaterialTheme.typography.bodyMedium
         }
-        val dark = MaterialTheme.colorScheme.background.luminance() < .5f
         val color = when (node.style()) {
-            DesktopUiNode.TextStyle.SUCCESS -> if (dark) Color(0xFF70D7B5) else Color(0xFF168262)
-            DesktopUiNode.TextStyle.WARNING -> if (dark) Color(0xFFFFC56B) else Color(0xFF9A6500)
+            DesktopUiNode.TextStyle.SUCCESS -> MaterialTheme.colorScheme.tertiary
+            DesktopUiNode.TextStyle.WARNING -> MaterialTheme.colorScheme.secondary
             DesktopUiNode.TextStyle.ERROR -> MaterialTheme.colorScheme.error
             DesktopUiNode.TextStyle.SECONDARY,
             DesktopUiNode.TextStyle.CAPTION -> MaterialTheme.colorScheme.onSurfaceVariant
@@ -1163,31 +1150,46 @@ object ComposeDesktopUiNodeRenderer {
     ) {
         val documentRevision = LocalDocumentRevision.current
         val password = node.inputKind() == DesktopUiNode.InputKind.PASSWORD
-        var value by remember(textInputStateKey(node)) { mutableStateOf(if (password) "" else node.value()) }
-        if (!password) LaunchedEffect(documentRevision, node.value()) { value = node.value() }
-        fun update(next: String) {
+        val inputState = if (password) {
+            remember(textInputStateKey(node)) { mutableStateOf(TextFieldValue()) }
+        } else {
+            rememberSaveable(node.id(), stateSaver = TextFieldValue.Saver) {
+                mutableStateOf(TextFieldValue(node.value()))
+            }
+        }
+        var value by inputState
+        if (!password) LaunchedEffect(documentRevision, node.value()) {
+            if (value.text != node.value()) {
+                val length = node.value().length
+                value = TextFieldValue(node.value(), TextRange(
+                    value.selection.start.coerceAtMost(length), value.selection.end.coerceAtMost(length)))
+            }
+        }
+        fun update(next: TextFieldValue) {
+            val changed = value.text != next.text
             value = next
-            emit(change(node.id(), node.bindingId(), DesktopUiNode.Value.text(next)))
+            if (changed) emit(change(node.id(), node.bindingId(), DesktopUiNode.Value.text(next.text)))
         }
         val content: @Composable () -> Unit = {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
+                CompactTextInput(
                     value = value,
                     onValueChange = ::update,
                     enabled = node.enabled(),
                     singleLine = node.inputKind() != DesktopUiNode.InputKind.MULTILINE,
                     visualTransformation = if (node.inputKind() == DesktopUiNode.InputKind.PASSWORD)
                         PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
-                    textStyle = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.weight(1f)
-                        .widthIn(min = (node.columns() * 8).coerceAtMost(320).dp)
+                        .semantics { contentDescription = resolve(node.label(), text) }
                         .then(if (node.inputKind() == DesktopUiNode.InputKind.MULTILINE)
-                            Modifier.heightIn(min = 88.dp) else Modifier.height(48.dp)),
+                            Modifier.heightIn(min = 88.dp) else Modifier.heightIn(min = DesktopLayout.controlHeight)),
                 )
                 if (node.inputKind() == DesktopUiNode.InputKind.FILE
                     || node.inputKind() == DesktopUiNode.InputKind.DIRECTORY) {
                     OutlinedButton(
-                        onClick = { choosePath(node.inputKind(), value)?.let(::update) },
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                        shape = MaterialTheme.shapes.small,
+                        onClick = { choosePath(node.inputKind(), value.text)?.let { update(TextFieldValue(it, TextRange(it.length))) } },
                         enabled = node.enabled(),
                         modifier = Modifier.padding(start = 8.dp).hand(node.enabled()),
                     ) { Text(text(DesktopUiNode.TextToken(
@@ -1198,6 +1200,30 @@ object ComposeDesktopUiNodeRenderer {
         }
         if (includeLabel) Labeled(resolve(node.label(), text), help(node.help(), text), modifier, content)
         else Box(modifier) { content() }
+    }
+
+    @Composable
+    private fun CompactTextInput(value: TextFieldValue, onValueChange: (TextFieldValue) -> Unit,
+                                 enabled: Boolean, singleLine: Boolean,
+                                 visualTransformation: androidx.compose.ui.text.input.VisualTransformation,
+                                 modifier: Modifier, invalid: Boolean = false,
+                                 keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+                                 errorMessage: String = "") {
+        val interaction = remember { MutableInteractionSource() }
+        val focused by interaction.collectIsFocusedAsState()
+        BasicTextField(value = value, onValueChange = onValueChange, enabled = enabled,
+            singleLine = singleLine, visualTransformation = visualTransformation,
+            interactionSource = interaction,
+            keyboardOptions = keyboardOptions,
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = if (enabled)
+                MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            modifier = modifier.semantics { if (invalid && errorMessage.isNotEmpty()) error(errorMessage) }
+                .border(if (focused) 2.dp else 1.dp,
+                if (invalid) MaterialTheme.colorScheme.error else if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                MaterialTheme.shapes.small).background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.small),
+            decorationBox = { inner -> Box(Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                contentAlignment = Alignment.CenterStart) { inner() } })
     }
 
     internal fun textInputStateKey(node: DesktopUiNode.TextInput): Pair<String, Long?> =
@@ -1224,9 +1250,11 @@ object ComposeDesktopUiNodeRenderer {
                 emit(change(node.id(), node.bindingId(), DesktopUiNode.Value.bool(it)))
             }
             if (node.toggleStyle() == DesktopUiNode.ToggleStyle.SWITCH) {
-                Switch(checked, update, enabled = node.enabled())
+                Switch(checked, update, enabled = node.enabled(),
+                    modifier = Modifier.semantics { contentDescription = resolve(node.label(), text) })
             } else {
-                Checkbox(checked, update, enabled = node.enabled())
+                Checkbox(checked, update, enabled = node.enabled(),
+                    modifier = Modifier.semantics { contentDescription = resolve(node.label(), text) })
             }
             if (includeLabel) HintedTitle(help(node.help(), text)) {
                 Text(resolve(node.label(), text), style = MaterialTheme.typography.bodyMedium)
@@ -1268,7 +1296,8 @@ object ComposeDesktopUiNodeRenderer {
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             RadioButton(selected.contains(option.id()), { choose(option.id()) },
-                                enabled = node.enabled() && option.enabled())
+                                enabled = node.enabled() && option.enabled(),
+                                modifier = Modifier.semantics { contentDescription = resolve(option.label(), text) })
                             Text(resolve(option.label(), text), style = MaterialTheme.typography.bodyMedium)
                         }
                     }
@@ -1280,7 +1309,8 @@ object ComposeDesktopUiNodeRenderer {
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Checkbox(selected.contains(option.id()), { choose(option.id()) },
-                                enabled = node.enabled() && option.enabled())
+                                enabled = node.enabled() && option.enabled(),
+                                modifier = Modifier.semantics { contentDescription = resolve(option.label(), text) })
                             Text(resolve(option.label(), text), style = MaterialTheme.typography.bodyMedium)
                         }
                     }
@@ -1288,22 +1318,14 @@ object ComposeDesktopUiNodeRenderer {
                 DesktopUiNode.ChoiceStyle.LIST -> Column {
                     node.options().forEach { option ->
                         val active = selected.contains(option.id())
-                        ListItem(
-                            headlineContent = {
-                                Text(
-                                    resolve(option.label(), text),
-                                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-                                    color = if (option.enabled()) Color.Unspecified
-                                        else MaterialTheme.colorScheme.onSurface.copy(alpha = .38f),
-                                )
-                            },
-                            modifier = Modifier.fillMaxWidth().hand(node.enabled() && option.enabled())
-                                .clickable(enabled = node.enabled() && option.enabled()) { choose(option.id()) },
-                            colors = ListItemDefaults.colors(
-                                containerColor = if (active) MaterialTheme.colorScheme.primaryContainer
-                                    else Color.Transparent,
-                            ),
-                        )
+                        Row(Modifier.fillMaxWidth().heightIn(min = DesktopLayout.navigationHeight)
+                            .clip(MaterialTheme.shapes.small)
+                            .background(if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                            .selectable(active, enabled = node.enabled() && option.enabled(), role = Role.Tab) { choose(option.id()) }
+                            .padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(resolve(option.label(), text), style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (active) FontWeight.Medium else FontWeight.Normal)
+                        }
                     }
                 }
             }
@@ -1323,18 +1345,22 @@ object ComposeDesktopUiNodeRenderer {
         val label = node.options().firstOrNull { it.id() == selectedId }?.let { resolve(it.label(), text) }.orEmpty()
         Box {
             OutlinedButton(
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                shape = MaterialTheme.shapes.small,
                 onClick = { expanded = true },
                 enabled = node.enabled(),
-                modifier = Modifier.widthIn(min = 180.dp, max = 360.dp).hand(node.enabled()),
+                modifier = Modifier.widthIn(max = DesktopLayout.choiceWidth).fillMaxWidth().heightIn(min = DesktopLayout.controlHeight)
+                    .hand(node.enabled()).semantics {
+                        contentDescription = resolve(node.label(), text)
+                        stateDescription = label
+                    },
             ) {
                 Text(
                     label.ifBlank { "…" },
                     Modifier.weight(1f),
                     style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
-                Text("⌄", Modifier.padding(start = 10.dp), color = MaterialTheme.colorScheme.primary)
+                Icon(Icons.Default.ArrowDropDown, contentDescription = null, modifier = Modifier.padding(start = 8.dp).size(18.dp))
             }
             DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
                 node.options().forEach { option ->
@@ -1376,34 +1402,41 @@ object ComposeDesktopUiNodeRenderer {
                         steps = ((lastAligned.toLong() - node.minimum()) / node.step() - 1)
                             .coerceIn(0, Int.MAX_VALUE.toLong()).toInt(),
                         enabled = node.enabled() && lastAligned > node.minimum(),
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f)
+                            .semantics { contentDescription = resolve(node.label(), text) },
                     )
                     Text(value.toString(), Modifier.padding(start = 8.dp))
                 }
             } else {
-                var draft by remember(node.id()) { mutableStateOf(node.value().toString()) }
-                LaunchedEffect(node.value()) { draft = node.value().toString() }
-                OutlinedTextField(
+                var draft by remember(node.id()) { mutableStateOf(TextFieldValue(node.value().toString())) }
+                LaunchedEffect(node.value()) {
+                    if (draft.text != node.value().toString()) draft = TextFieldValue(node.value().toString())
+                }
+                CompactTextInput(
                     draft,
                     onValueChange = { next ->
-                        if (!isIntegerDraft(next, node.minimum())) return@OutlinedTextField
+                        if (!isIntegerDraft(next.text, node.minimum())) return@CompactTextInput
                         draft = next
-                        numericInputValue(next, node.minimum(), node.maximum(), node.step())?.let {
+                        numericInputValue(next.text, node.minimum(), node.maximum(), node.step())?.let {
                             value = it
                             emit(change(node.id(), node.bindingId(), DesktopUiNode.Value.number(it)))
                         }
                     },
                     enabled = node.enabled(),
-                    isError = draft.isNotEmpty() &&
-                        numericInputValue(draft, node.minimum(), node.maximum(), node.step()) == null,
+                    invalid = draft.text.isNotEmpty() &&
+                        numericInputValue(draft.text, node.minimum(), node.maximum(), node.step()) == null,
                     singleLine = true,
+                    visualTransformation = androidx.compose.ui.text.input.VisualTransformation.None,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    errorMessage = text(DesktopUiNode.TextToken(GuiComposePlugin.ID, "gui.compose.number-invalid", "",
+                        listOf(node.minimum().toString(), node.maximum().toString(), node.step().toString()))),
                     modifier = Modifier
-                        .widthIn(min = 120.dp, max = 220.dp)
+                        .widthIn(max = DesktopLayout.numberWidth).fillMaxWidth().heightIn(min = DesktopLayout.controlHeight)
+                        .semantics { contentDescription = resolve(node.label(), text) }
                         .onFocusChanged {
                             if (!it.isFocused &&
-                                numericInputValue(draft, node.minimum(), node.maximum(), node.step()) == null
-                            ) draft = node.value().toString()
+                                numericInputValue(draft.text, node.minimum(), node.maximum(), node.step()) == null
+                            ) draft = TextFieldValue(node.value().toString())
                         },
                 )
             }
@@ -1639,30 +1672,38 @@ object ComposeDesktopUiNodeRenderer {
     ) {
         val click = { emit(activate(node.id(), node.actionId())) }
         val content: @Composable RowScope.() -> Unit = {
+            node.icon()?.let { Icon(desktopIcon(it), null, Modifier.padding(end = 7.dp).size(18.dp)) }
             Text(
                 resolve(node.label(), text),
                 style = MaterialTheme.typography.labelLarge,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
         }
         when (node.buttonStyle()) {
-            DesktopUiNode.ButtonStyle.NORMAL -> FilledTonalButton(
-                modifier = modifier.heightIn(min = 40.dp).hand(node.enabled()),
+            DesktopUiNode.ButtonStyle.NORMAL -> OutlinedButton(
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                shape = MaterialTheme.shapes.small,
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
+                modifier = modifier.heightIn(min = DesktopLayout.controlHeight).hand(node.enabled()),
                 enabled = node.enabled(),
                 onClick = click,
                 content = content,
             )
             DesktopUiNode.ButtonStyle.PRIMARY -> Button(
-                modifier = modifier.heightIn(min = 40.dp).hand(node.enabled()),
+                shape = MaterialTheme.shapes.small,
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
+                modifier = modifier.heightIn(min = DesktopLayout.controlHeight).hand(node.enabled()),
                 enabled = node.enabled(),
                 onClick = click,
                 content = content,
             )
             DesktopUiNode.ButtonStyle.DANGER -> Button(
-                modifier = modifier.heightIn(min = 40.dp).hand(node.enabled()),
+                shape = MaterialTheme.shapes.small,
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
+                modifier = modifier.heightIn(min = DesktopLayout.controlHeight).hand(node.enabled()),
                 enabled = node.enabled(),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError),
                 onClick = click,
                 content = content,
             )

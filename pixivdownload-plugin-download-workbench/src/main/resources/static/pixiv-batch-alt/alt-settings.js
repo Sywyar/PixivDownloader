@@ -171,13 +171,32 @@ function normalizeBatchCollectionId(value) {
 /* ============================================================
    设置抽屉 UI
    ============================================================ */
+let settingsLabelSequence = 0;
 function settingsRow(labelText, control, helpText) {
     const row = el('div', 'ab-setting-row');
     const head = el('div', 'ab-setting-head');
-    head.appendChild(el('span', 'ab-setting-label', labelText));
+    const label = el('span', 'ab-setting-label', labelText);
+    label.id = 'ab-setting-label-' + (++settingsLabelSequence);
+    head.appendChild(label);
     row.appendChild(head);
-    if (control) row.appendChild(control);
-    if (helpText) row.appendChild(el('p', 'ab-field-note', helpText));
+    if (control) {
+        const selector = 'input, select, textarea, button';
+        const controls = control.matches(selector) ? [control] : Array.from(control.querySelectorAll(selector));
+        controls.forEach(input => {
+            if (!input.hasAttribute('aria-label') && !input.hasAttribute('aria-labelledby')) {
+                if (input.classList.contains('ab-unit-toggle')) {
+                    input.setAttribute('aria-label', bt('settings.unit-switch', '切换时间单位'));
+                } else input.setAttribute('aria-labelledby', label.id);
+            }
+            if (helpText) input.setAttribute('aria-describedby', label.id + '-help');
+        });
+        row.appendChild(control);
+    }
+    if (helpText) {
+        const note = el('p', 'ab-field-note', helpText);
+        note.id = label.id + '-help';
+        row.appendChild(note);
+    }
     return row;
 }
 
@@ -230,6 +249,7 @@ function numberWithUnit(value, unit, onValue, onUnit) {
 function buildSettingsDrawerBody() {
     const s = state.settings;
     const body = el('div', 'ab-settings');
+    body.appendChild(el('p', 'ab-field-note', bt('settings.scope', '更改会立即保存在此浏览器中，供后续下载使用；不会修改桌面的全局配置。')));
 
     // —— 节奏 ——
     body.appendChild(el('h4', 'ab-settings-group', bt('settings.group.pace', '下载节奏')));

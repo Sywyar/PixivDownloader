@@ -37,7 +37,7 @@
     font-size: 0.75rem;
     font-weight: 600;
     padding: 4px 11px;
-    border-radius: 999px;
+    border-radius: var(--r-sm);
     flex: none;
 }
 
@@ -68,9 +68,6 @@
     background: var(--surface-3);
 }
 
-.ab-lamp.is-live .ab-lamp-dot {
-    animation: ab-pulse 1.6s ease-in-out infinite;
-}
 
 .ab-schedule-meta {
     display: flex;

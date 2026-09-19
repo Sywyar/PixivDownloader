@@ -1,108 +1,57 @@
-
-/* ============================================================
-   响应式
-   ============================================================ */
-@media (max-width: 80em) {
-    .ab-shell {
-        grid-template-columns: 92px minmax(0, 1fr);
-
-    max-width: none;
-    }
-
-    .ab-dock {
-        position: fixed;
-        top: 0;
-        right: 0;
-        bottom: 0;
-        width: min(400px, 94vw);
-        max-height: none;
-        z-index: 90;
-        border-radius: 0;
-        transform: translateX(103%); visibility: hidden;
-        transition: transform var(--motion-med) var(--motion-ease-out);
-    }
-
-    .ab-dock.is-open {
-                visibility: visible;
-        transform: translateX(0);
-        box-shadow: var(--shadow-3);
-    }
-
-    .ab-dock-close {
-        display: inline-flex;
-    }
-
-    .ab-dock-toggle {
-        display: inline-flex;
-    }
-
-    .ab-dock-scrim {
-        display: block;
-        position: fixed;
-        inset: 0;
-        z-index: 80;
-        background: var(--scrim);
-        opacity: 0;
-        transition: opacity var(--motion-med) var(--motion-ease-standard);
-    }
-
-    .ab-dock-scrim[hidden] {
-        display: none;
-    }
-
-    .ab-dock-scrim.is-open {
-        opacity: 1;
-    }
+@media (max-width: 68.75em) {
+    .ab-topnav { order: 3; flex-basis: 100%; justify-content: flex-start; }
+    .ab-topbar-actions { margin-left: auto; flex-wrap: wrap; }
+    .ab-dock-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
-
 @media (max-width: 56.25em) {
-    .ab-topbar-actions {
-        flex: 1 1 100%;
-        min-width: 0;
+    .ab-topbar-actions { flex: 1 1 100%; min-width: 0; }
+    .ab-version { position: static; }
+}
+@media (max-width: 40.625em) {
+    .ab-shell { padding: 0 var(--layout-inset-right) 24px var(--layout-inset-left); gap: 20px; }
+    .ab-topbar { padding: 12px var(--layout-inset-right) 12px var(--layout-inset-left); gap: 12px; }
+    .ab-topbar-actions { flex: 1 1 100%; margin: 0; gap: 6px; }
+    .ab-topnav { order: 0; }
+    .ab-workspaces { gap: 16px; flex-wrap: wrap; }
+    .ab-workspace { padding: 12px 0; gap: 6px; font-size: 0.8125rem; }
+    .ab-workspace .ab-icon { display: none; }
+    .ab-rail-item { padding: 8px 10px; }
+    .ab-mode-actions { width: 100%; }
+    .ab-mode-title, .ab-dock-title { font-size: 1.25rem; }
+    .ab-composer { padding: 14px; }
+    .ab-composer-row .ab-input { flex-basis: 100%; }
+    .ab-account-warn { min-width: 0; }
+    .ab-dock-controls { align-items: stretch; }
+    .ab-dock-btns { width: 100%; }
+    .ab-queue-ops { gap: 8px; }
+    .ab-pagination { flex-wrap: wrap; }
+    .ab-import-row { flex-wrap: wrap; }
+    .ab-import-title { flex-basis: 60%; }
+    .ab-artist, .ab-series-head { flex-wrap: wrap; }
+    .ab-setting-head { flex-wrap: wrap; }
+    .ab-archive-countdown { overflow-wrap: anywhere; }
+}
+@media (pointer: coarse) {
+    .ab-app :is(button, .ab-btn, .ab-iconbtn, .ab-page-btn, select, input:not([type="checkbox"])) { min-height: 44px; }
+    .ab-app .ab-iconbtn { min-width: 44px; }
+    .ab-work-enqueue { width: 44px; height: 44px; }
+}
+@media (forced-colors: active) {
+    :root.ab-workbench {
+        --bg: Canvas; --surface: Canvas; --surface-2: Canvas; --surface-3: Canvas;
+        --text: CanvasText; --muted: CanvasText; --faint: GrayText;
+        --line: ButtonBorder; --line-strong: ButtonBorder;
+        --brand: Highlight; --brand-strong: LinkText; --brand-soft: Canvas; --brand-grad: Highlight;
+        --on-brand: HighlightText; --control-bg: ButtonFace; --control-muted-bg: Canvas;
+        --ok: CanvasText; --warn: CanvasText; --danger: LinkText;
+        --ok-soft: Canvas; --warn-soft: Canvas; --danger-soft: Canvas;
     }
-
-    .ab-version {
-        position: static;
+    .ab-btn--primary, .ab-workspace.is-active {
+        forced-color-adjust: none;
+        background: Highlight;
+        color: HighlightText;
+        border-color: Highlight;
     }
-
-    .ab-shell {
-        grid-template-columns: 1fr;
-        padding: 14px var(--layout-inset-right) 32px var(--layout-inset-left);
-        max-width: none;
-    }
-
-    .ab-rail {
-        position: static;
-        flex-direction: row;
-        overflow-x: auto;
-        padding: 8px;
-    }
-
-    .ab-rail-modes {
-        flex-direction: row;
-    }
-
-    .ab-rail-item {
-        padding: 8px 12px;
-        flex-direction: row;
-        flex-shrink: 0;
-        white-space: nowrap;
-        gap: 7px;
-    }
-
-    .ab-rail-indicator {
-        display: none;
-    }
-
-    .ab-rail-item.is-active {
-        background: var(--brand-soft);
-    }
-
-    .ab-brand-sub {
-        display: none;
-    }
-
-    .ab-topnav {
-        display: none;
-    }
+    .ab-work-enqueue.is-queued { outline: 2px solid Highlight; }
+    .ab-mini-prog-fill { forced-color-adjust: none; background: Highlight; }
 }

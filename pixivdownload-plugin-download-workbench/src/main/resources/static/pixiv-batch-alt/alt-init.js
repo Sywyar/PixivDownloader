@@ -72,8 +72,7 @@ function setupTour(auto) {
         steps: [
             {target: '#abCookieChip', titleKey: 'tour:batch.cookie.title', bodyKey: 'tour:batch.cookie.body'},
             {target: '#abRail', titleKey: 'tour:batch.mode.title', bodyKey: 'tour:batch.mode.body'},
-            {target: '#abBtnStart', titleKey: 'tour:batch.start.title', bodyKey: 'tour:batch.start.body'},
-            {target: '#abDock', titleKey: 'tour:batch.queue.title', bodyKey: 'tour:batch.queue.body'},
+            {target: '#abDockToggle', titleKey: 'tour:batch.queue.title', bodyKey: 'tour:batch.queue.body'},
             {
                 target: 'a.ab-topnav-link[data-nav-markers~="first-download-result"]',
                 titleKey: 'tour:batch.gallery.title',
@@ -177,17 +176,17 @@ async function init() {
     }
 
     // 模式（恢复上次；计划任务仅管理员）
-    let savedMode = storeGet('pixiv_mode') || QUICK_FETCH_MODE;
+    let savedMode = storeGet('pixiv_mode') || (hasPixivCookie() ? QUICK_FETCH_MODE : SINGLE_IMPORT_MODE);
     if (!AB_MODES.some(m => m.id === savedMode)) savedMode = QUICK_FETCH_MODE;
     if (savedMode === 'schedule' && !isAdmin) savedMode = QUICK_FETCH_MODE;
     state.mode = savedMode;
+    if (savedMode !== 'schedule') lastAcquisitionMode = savedMode;
     renderRail();
     renderStage();
     if (savedMode === 'schedule') enterScheduleMode();
 
     renderBackendBanner();
     syncFilterButtonBadge();
-    window.addEventListener('resize', debounce(moveRailIndicator, 120));
     try {
         window.dispatchEvent(new CustomEvent('pixivbatchalt:ready'));
     } catch {}

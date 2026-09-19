@@ -53,6 +53,7 @@ final class DesktopToolsController {
     volatile int classifierGroupIndex;
     volatile String selectedFolderRow;
     volatile ToolDialog toolDialog;
+    String lastOpenedTool = "classifier";
     private volatile boolean folderCheckerRestartBackend;
     private volatile long classifierToolStartedAt;
     volatile String exclusiveToolName = "";
@@ -77,13 +78,6 @@ final class DesktopToolsController {
         selectedFolderRow = value.isBlank() ? null : value;
     }
 
-    Optional<DesktopUiDocument.Dialog> dialog(Map<String, Runnable> nextActions) {
-        return toolDialog == null ? Optional.empty() : Optional.of(view.dialog(
-                toolDialog,
-                nextActions
-        ));
-    }
-
     DesktopUiNode controlCenterPage(Map<String, Runnable> nextActions) {
         return view.controlCenterPage(nextActions);
     }
@@ -99,6 +93,7 @@ final class DesktopToolsController {
     void openToolDialog(ToolDialog value) {
         if (owner.busy()) return;
         toolDialog = value;
+        lastOpenedTool = value == ToolDialog.FOLDER_CHECKER ? "folder" : "classifier";
         if (value == ToolDialog.IMAGE_CLASSIFIER)
             classifierToolStartedAt = System.currentTimeMillis();
         owner.rebuild();
@@ -121,6 +116,8 @@ final class DesktopToolsController {
             return;
         }
         folderCheckerRestartBackend = owner.backendSnapshot().state() == DesktopUiHost.BackendState.RUNNING;
+        lastOpenedTool = "folder";
+        folderNotice = "";
         exclusiveToolName = host.message("gui.tools.card.folder-checker.title");
         exclusiveToolStartedAt = System.currentTimeMillis();
         if (!folderCheckerRestartBackend) {
@@ -133,7 +130,7 @@ final class DesktopToolsController {
         if (!host.stopBackend(() -> {
             owner.setBusy(false);
             toolDialog = ToolDialog.FOLDER_CHECKER;
-            folderNotice = host.message("gui.tools.folder-checker.status.opened");
+            folderNotice = "";
             owner.rebuild();
         })) {
             owner.setBusy(false);

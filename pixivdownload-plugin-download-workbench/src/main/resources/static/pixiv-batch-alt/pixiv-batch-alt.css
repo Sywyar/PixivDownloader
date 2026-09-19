@@ -1,96 +1,54 @@
 /* ============================================================
-   pixiv-batch-alt — 下载工作台（设计候选）主样式
+   pixiv-batch-alt — 下载工作台主样式
    颜色字面量只允许出现在自定义属性定义行；组件一律引用语义变量，
    深色模式经 html[data-theme="dark"] 覆盖同一组变量。
    ============================================================ */
-:root {
-    --bg: #f2f5f9;
-    --surface: #ffffff;
-    --surface-2: #f6f8fb;
-    --surface-3: #eef2f7;
-    --line: #e2e8f0;
-    --line-strong: #cbd5e1;
-    --text: #1a2331;
-    --muted: #67748c;
-    --faint: #96a2b6;
-    --brand: #0096fa;
-    --brand-strong: #0079d6;
-    --brand-soft: #e3f2fe;
-    --brand-2: #6a5cff;
-    --brand-grad: linear-gradient(135deg, #0096fa, #6a5cff);
-    --ok: #189a63;
-    --ok-soft: #e2f6ec;
-    --warn: #c87f14;
-    --warn-soft: #fbf0da;
-    --danger: #d84a42;
-    --danger-soft: #fbe7e5;
-    --r18: #d6456c;
-    --r18-soft: #fbe4ec;
-    --r18g: #7e1f31;
-    --r18g-soft: #f3dde1;
-    --ai: #7257e8;
-    --ai-soft: #ece7fd;
-    --control-bg: #ffffff;
-    --control-muted-bg: #eef2f7;
-    --hover-bg: #eef3f9;
-    --shadow-1: 0 1px 2px rgba(15, 28, 48, .05), 0 2px 8px rgba(15, 28, 48, .05);
-    --shadow-2: 0 4px 14px rgba(15, 28, 48, .09), 0 1px 4px rgba(15, 28, 48, .06);
-    --shadow-3: 0 16px 44px rgba(15, 28, 48, .16);
-    --topbar-bg: rgba(255, 255, 255, .78);
-    --scrim: rgba(13, 20, 32, .42);
-    --on-brand: #ffffff;
-    --r-sm: 9px;
-    --r-md: 14px;
-    --r-lg: 20px;
-    --font: "Inter", "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
-    --mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+:root.ab-workbench {
+    --bg: var(--exp-background);
+    --surface: var(--exp-surface);
+    --surface-2: var(--exp-secondary-surface);
+    --surface-3: var(--exp-secondary-surface);
+    --line: var(--exp-separator);
+    --line-strong: var(--exp-control-border);
+    --text: var(--exp-text);
+    --muted: var(--exp-secondary-text);
+    --faint: var(--exp-secondary-text);
+    --brand: var(--exp-accent);
+    --brand-strong: var(--exp-link);
+    --brand-soft: var(--exp-selection);
+    --brand-2: var(--exp-accent);
+    --brand-grad: var(--exp-accent);
+    --ok: var(--exp-success);
+    --ok-soft: var(--exp-success-surface);
+    --warn: var(--exp-warning);
+    --warn-soft: var(--exp-warning-surface);
+    --danger: var(--exp-error);
+    --danger-soft: var(--exp-error-surface);
+    --r18: var(--exp-error);
+    --r18-soft: var(--exp-error-surface);
+    --r18g: var(--exp-error);
+    --r18g-soft: var(--exp-error-surface);
+    --ai: var(--exp-secondary-text);
+    --ai-soft: var(--exp-secondary-surface);
+    --control-bg: var(--exp-surface);
+    --control-muted-bg: var(--exp-secondary-surface);
+    --hover-bg: var(--exp-secondary-surface);
+    --topbar-bg: var(--exp-surface);
+    --on-brand: var(--exp-on-accent);
+    --shadow-1: none;
+    --shadow-2: 0 1px 3px #00000014;
+    --shadow-3: 0 12px 32px #00000033;
+    --scrim: #00000066;
+    --r-sm: 6px;
+    --r-md: 8px;
+    --r-lg: 12px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    --mono: "Cascadia Code", Consolas, monospace;
+    color-scheme: light;
 }
+:root.ab-workbench[data-theme="dark"] { color-scheme: dark; }
 
-html[data-theme="dark"] {
-    --bg: #0d1219;
-    --surface: #151c26;
-    --surface-2: #192130;
-    --surface-3: #1f2939;
-    --line: #26303f;
-    --line-strong: #374355;
-    --text: #e3eaf3;
-    --muted: #8d99ad;
-    --faint: #5f6c81;
-    --brand: #3aa7ff;
-    --brand-strong: #5cb5ff;
-    --brand-soft: #12283c;
-    --brand-2: #8b7dff;
-    --brand-grad: linear-gradient(135deg, #1e8fe8, #7a68f5);
-    --ok: #2fbf83;
-    --ok-soft: #123026;
-    --warn: #e0a23f;
-    --warn-soft: #33270f;
-    --danger: #e06a61;
-    --danger-soft: #3a1b18;
-    --r18: #e76f92;
-    --r18-soft: #391b26;
-    --r18g: #c05a6c;
-    --r18g-soft: #33161c;
-    --ai: #9a86f2;
-    --ai-soft: #251d44;
-    --control-bg: #1c2534;
-    --control-muted-bg: #1c2534;
-    --hover-bg: #1e2938;
-    --shadow-1: 0 1px 2px rgba(0, 0, 0, .3), 0 2px 8px rgba(0, 0, 0, .28);
-    --shadow-2: 0 4px 14px rgba(0, 0, 0, .42), 0 1px 4px rgba(0, 0, 0, .3);
-    --shadow-3: 0 16px 44px rgba(0, 0, 0, .55);
-    --topbar-bg: rgba(13, 18, 25, .78);
-    --scrim: rgba(2, 6, 12, .6);
-}
-
-html[data-theme="dark"] .ab-thumb,
-html[data-theme="dark"] .ab-avatar,
-html[data-theme="dark"] .ab-collection-cover,
-html[data-theme="dark"] .ab-series-cover {
-    --thumb-grad: linear-gradient(150deg, hsl(var(--thumb-h, 205) 58% 44%), hsl(calc(var(--thumb-h, 205) + 42) 55% 30%));
-}
-
-* {
+.ab-app, .ab-app * {
     box-sizing: border-box;
 }
 
@@ -106,17 +64,18 @@ body {
     color: var(--text);
     background: var(--bg);
     min-height: 100vh;
+    overflow-wrap: anywhere;
 }
 
 body.ab-no-scroll {
     overflow: hidden;
 }
 
-h1, h2, h3, h4, p {
+.ab-app :is(h1, h2, h3, h4, p) {
     margin: 0;
 }
 
-button {
+:where(.ab-app) button {
     font-family: inherit;
     font-size: inherit;
     color: inherit;
@@ -126,19 +85,19 @@ button {
     cursor: pointer;
 }
 
-button:disabled {
+:where(.ab-app) button:disabled {
     cursor: not-allowed;
     opacity: .5;
 }
 
-input, select, textarea {
+:where(.ab-app) :is(input, select, textarea) {
     font-family: inherit;
     font-size: inherit;
     color: var(--text);
 }
 
-a {
-    color: var(--brand);
+:where(.ab-app) a {
+    color: var(--brand-strong);
     text-decoration: none;
 }
 
@@ -169,8 +128,7 @@ a {
    顶栏
    ============================================================ */
 .ab-topbar {
-    position: sticky;
-    top: 0;
+    position: relative;
     z-index: 60;
     display: flex;
     flex-wrap: wrap;
@@ -178,8 +136,6 @@ a {
     gap: 18px;
     padding: 10px var(--layout-inset-right) 10px var(--layout-inset-left);
     background: var(--topbar-bg);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
     border-bottom: 1px solid var(--line);
 }
 
@@ -248,7 +204,7 @@ a {
     gap: 6px;
     flex: none;
     padding: 7px 10px;
-    border-radius: 999px;
+    border-radius: var(--r-sm);
     color: var(--muted);
     font-size: 0.75rem;
     font-weight: 600;
@@ -426,7 +382,7 @@ a {
     align-items: center;
     gap: 7px;
     padding: 6px 12px;
-    border-radius: 999px;
+    border-radius: var(--r-sm);
     font-size: 0.75rem;
     font-weight: 600;
     border: 1px solid var(--line);
@@ -466,9 +422,9 @@ a {
     min-width: 17px;
     height: 17px;
     padding: 0 5px;
-    border-radius: 999px;
-    background: var(--danger);
-    color: var(--on-brand);
+    border-radius: var(--r-sm);
+    background: var(--brand-soft);
+    color: var(--text);
     font-size: 0.625rem;
     font-weight: 700;
     display: inline-flex;
@@ -496,7 +452,7 @@ a {
     align-items: center;
     gap: 4px;
     padding: 2px 9px;
-    border-radius: 999px;
+    border-radius: var(--r-sm);
     font-size: 0.6875rem;
     font-weight: 600;
 }
@@ -523,14 +479,14 @@ a {
     gap: 2px;
     padding: 3px;
     border: 1px solid var(--line);
-    border-radius: 999px;
+    border-radius: var(--r-sm);
     background: var(--control-muted-bg);
     flex-wrap: wrap;
 }
 
 .ab-seg-item {
     padding: 7px 13px;
-    border-radius: 999px;
+    border-radius: var(--r-sm);
     font-size: 0.75rem;
     font-weight: 600;
     color: var(--muted);
@@ -557,7 +513,7 @@ a {
     width: 100%;
     padding: 9px 12px;
     border-radius: var(--r-sm);
-    border: 1px solid var(--line);
+    border: 1px solid var(--line-strong);
     background: var(--control-bg);
     outline: none;
     transition: border-color var(--motion-fast) var(--motion-ease-standard),
@@ -596,7 +552,7 @@ textarea.ab-input {
     position: relative;
     width: 40px;
     height: 22px;
-    border-radius: 999px;
+    border-radius: var(--r-sm);
     background: var(--control-muted-bg);
     border: 1px solid var(--line-strong);
     transition: background-color var(--motion-fast) var(--motion-ease-standard),
@@ -670,7 +626,7 @@ textarea.ab-input {
     line-height: 1.8;
 }
 
-.card {
+.ab-app .card {
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: var(--r-md);
@@ -752,3 +708,16 @@ textarea.ab-input {
 .ab-skeleton-line--short {
     width: 55%;
 }
+
+.ab-app [hidden] { display: none !important; }
+.ab-app :is(button, a, input, select, textarea, summary):focus-visible {
+    outline: 2px solid var(--brand-strong);
+    outline-offset: 3px;
+}
+.ab-app :is(button, a, input, select, textarea) { scroll-margin: 20px; }
+.ab-app :is(input, textarea)::placeholder { color: var(--muted); opacity: 1; }
+.ab-app .ab-btn, .ab-app .ab-iconbtn, .ab-app .ab-page-btn { min-height: 32px; }
+.ab-app .ab-iconbtn--xs { width: 32px; height: 32px; }
+.ab-app ::selection { background: var(--brand-soft); color: var(--text); }
+
+.ab-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }

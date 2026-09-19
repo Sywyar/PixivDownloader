@@ -93,7 +93,7 @@ final class DesktopConfigurationFieldView {
         nodes.add(formField(
                 "interface.language",
                 key("gui.interface.language.label"),
-                key("gui.interface.language.help"),
+                new TextToken("gui-compose", "gui.compose.settings.language-help", "", List.of()),
                 choice(
                         "interface.language.input",
                         "interface.language",
@@ -108,7 +108,7 @@ final class DesktopConfigurationFieldView {
         nodes.add(formField(
                 "interface.provider",
                 key("gui.interface.provider.label"),
-                key("gui.interface.provider.help"),
+                new TextToken("gui-compose", "gui.compose.settings.provider-help", "", List.of()),
                 choice(
                         "interface.provider.input",
                         "interface.provider",
@@ -138,7 +138,7 @@ final class DesktopConfigurationFieldView {
         nodes.add(formField(
                 "interface.config-menu-expand-all",
                 key("gui.interface.config-menu-expand-all.label"),
-                key("gui.interface.config-menu-expand-all.help"),
+                new TextToken("gui-compose", "gui.compose.settings.config-menu-expand-all-help", "", List.of()),
                 new DesktopUiNode.Toggle(
                         "interface.config-menu-expand-all.input",
                         "interface.config-menu-expand-all",
@@ -156,12 +156,17 @@ final class DesktopConfigurationFieldView {
                 ),
                 GuiConfigEffect.HOT_RELOAD
         ));
+        nodes.add(new DesktopUiNode.Group("interface.details",
+                new TextToken("gui-compose", "gui.compose.settings.option-details", "", List.of()),
+                column("interface.details.content",
+                        text("interface.provider.details", "gui.interface.provider.help", TextStyle.BODY),
+                        text("interface.expand.details", "gui.interface.config-menu-expand-all.help", TextStyle.BODY)), true));
         return scroll(
                 "interface.scroll",
                 new DesktopUiNode.Surface(
                         "interface.padding",
                         DesktopUiNode.SurfaceStyle.PLAIN,
-                        DesktopUiNode.Insets.all(16),
+                        DesktopUiNode.Insets.all(8),
                         true,
                         column("interface.content", nodes)
                 )
@@ -380,18 +385,14 @@ final class DesktopConfigurationFieldView {
 
     static DesktopUiNode.Text effectNode(String id, GuiConfigEffect effect) {
         String key = switch (effect) {
-            case HOT_RELOAD -> "gui.label.hot-reload";
-            case BACKEND_RESTART -> "gui.label.restart-required";
-            case PROCESS_RESTART -> "gui.label.process-restart-required";
+            case HOT_RELOAD -> "gui.compose.settings.effect.immediate";
+            case BACKEND_RESTART -> "gui.compose.settings.effect.backend";
+            case PROCESS_RESTART -> "gui.compose.settings.effect.process";
         };
-        TextStyle style = switch (effect) {
-            case HOT_RELOAD -> TextStyle.SUCCESS;
-            case BACKEND_RESTART -> TextStyle.WARNING;
-            case PROCESS_RESTART -> TextStyle.ERROR;
-        };
+        TextStyle style = TextStyle.CAPTION;
         return new DesktopUiNode.Text(
                 id + ".effect",
-                key(key),
+                new TextToken("gui-compose", key, "", List.of()),
                 style,
                 false,
                 false

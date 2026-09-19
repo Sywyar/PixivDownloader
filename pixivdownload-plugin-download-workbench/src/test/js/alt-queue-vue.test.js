@@ -147,7 +147,7 @@ function loadVue(opts) {
         document, console: { warn() {}, log() {}, error() {} },
         Map, Set, Promise, setTimeout, clearTimeout,
         // 默认捕获 rAF 回调而不自动执行：测试经 queueVue.flush() 确定性 flush；
-        // 统计滚动 tween 经 drainRaf() 用推进的假时钟跑到终点。
+        // 待处理合批回调由 drainRaf() 排空。
         requestAnimationFrame: cb => { record.rafQueued++; (record.rafCallbacks = record.rafCallbacks || []).push(cb); return record.rafQueued; },
         performance: { _now: 0, now() { this._now += 17; return this._now; } },
         // 共享格式化 / 门面桩（alt-queue.js 顶层函数；此处隔离注入）。
@@ -222,7 +222,7 @@ function loadVue(opts) {
         api: sandbox.window.PixivBatchAlt.queueVue };
 }
 
-// 把捕获的 rAF 回调一直跑到没有下一次调度为止（统计滚动 tween 到终点）。
+// 把捕获的 rAF 回调一直跑到没有下一次调度为止。
 function drainRaf(record) {
     let guard = 0;
     while (record.rafCallbacks && record.rafCallbacks.length) {
@@ -240,7 +240,7 @@ async function main() {
         const { api, record } = loadVue({ state: st });
         ok('1: 初始未激活', api.isActive() === false);
         const active = await api.ensure();
-        drainRaf(record);   // 统计滚动 tween 跑完
+        drainRaf(record);   // 完成待处理合批
         ok('1: Vue 成功 → 激活', active === true && api.isActive() === true);
         ok('1: 挂载 3 个 app（.ab-dock-stats / #abCurrentCard / #abQueueList）', record.mounts.length === 3);
         const targets = record.mounts.map(m => m.el.getAttribute('class') || m.el.getAttribute('id'));
@@ -291,6 +291,7 @@ async function main() {
         api.syncStats({ pending: 9, success: 1, failed: 2, active: 3, skipped: 4 });
         ok('4: flush 前统计未更新', store.stats.pending !== 9);
         api.flush();
+        ok('4: 合批后立即显示真实计数，不依赖补间帧', store.stats.pending === 9 && store.stats.failed === 2);
         drainRaf(record);
         ok('4: flush 后统计取最后一次（pending=9, failed=2）', store.stats.pending === 9 && store.stats.failed === 2);
     }

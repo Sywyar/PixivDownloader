@@ -47,13 +47,26 @@ function bindVersionMenu() {
     const btn = document.getElementById('abVersionBtn');
     const menu = document.getElementById('abVersionMenu');
     if (!btn || !menu) return;
+    btn.setAttribute('aria-controls', menu.id);
+    const show = open => {
+        menu.hidden = !open;
+        btn.setAttribute('aria-expanded', String(open));
+    };
+    show(false);
     btn.addEventListener('click', event => {
         event.stopPropagation();
-        menu.hidden = !menu.hidden;
+        show(menu.hidden);
+    });
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && !menu.hidden) {
+            show(false);
+            btn.focus();
+            event.preventDefault();
+        }
     });
     document.addEventListener('click', event => {
         if (!menu.hidden && !menu.contains(event.target) && event.target !== btn) {
-            menu.hidden = true;
+            show(false);
         }
     });
 }
@@ -125,8 +138,12 @@ function cookieFormatSeg(current) {
         const btn = el('button', 'ab-seg-item' + (current === value ? ' is-active' : ''), label);
         btn.type = 'button';
         btn.dataset.value = value;
+        btn.setAttribute('aria-pressed', String(current === value));
         btn.addEventListener('click', () => {
-            seg.querySelectorAll('.ab-seg-item').forEach(b => b.classList.remove('is-active'));
+            seg.querySelectorAll('.ab-seg-item').forEach(b => {
+                b.classList.remove('is-active');
+                b.setAttribute('aria-pressed', String(b === btn));
+            });
             btn.classList.add('is-active');
             storeSet('pixiv_cookie_fmt', value);
         });
@@ -153,6 +170,8 @@ function openCookieModal() {
     const inputWrap = el('div', 'ab-cookie-input-wrap');
     const input = el('textarea', 'ab-input ab-cookie-input');
     input.id = 'abCookieInput';
+    input.setAttribute('aria-label', bt('cookie.title', 'Pixiv Cookie'));
+    input.setAttribute('aria-describedby', 'abCookieParseArea');
     input.rows = 5;
     input.spellcheck = false;
     input.placeholder = bt('cookie.placeholder', '粘贴 Cookie（支持 Header String / JSON / Netscape 三种格式）');
@@ -189,6 +208,7 @@ function openCookieModal() {
 
     const parseArea = el('div', 'ab-cookie-parse');
     parseArea.id = 'abCookieParseArea';
+    parseArea.setAttribute('role', 'status');
     parseArea.hidden = true;
     body.appendChild(parseArea);
 
@@ -412,24 +432,44 @@ function renderBackendBanner() {
 function bindDockToggle() {
     const toggle = document.getElementById('abDockToggle');
     const close = document.getElementById('abDockClose');
-    const scrim = document.getElementById('abDockScrim');
-    if (toggle) toggle.addEventListener('click', () => toggleDock());
-    if (close) close.addEventListener('click', () => toggleDock(false));
-    if (scrim) scrim.addEventListener('click', () => toggleDock(false));
+    if (toggle) toggle.addEventListener('click', openDock);
+    if (close) close.addEventListener('click', () => switchMode(lastAcquisitionMode));
+    document.getElementById('abPrepareTab')?.addEventListener('click', () => switchMode(lastAcquisitionMode));
+    document.getElementById('abScheduleTab')?.addEventListener('click', () => switchMode('schedule'));
 }
 
-function toggleDock(force) {
+function syncWorkspaceNavigation() {
+    const downloads = dockState.open;
+    const scheduled = !downloads && state.mode === 'schedule';
+    const stage = document.getElementById('abStage');
     const dock = document.getElementById('abDock');
-    const scrim = document.getElementById('abDockScrim');
-    if (!dock) return;
-    const open = force !== undefined ? force : !dock.classList.contains('is-open');
-    dockState.open = open;
-    dock.classList.toggle('is-open', open);
-    if (scrim) {
-        scrim.hidden = !open;
-        if (open) requestAnimationFrame(() => scrim.classList.add('is-open'));
-        else scrim.classList.remove('is-open');
+    const rail = document.getElementById('abRail');
+    if (stage) stage.hidden = downloads;
+    if (dock) dock.hidden = !downloads;
+    if (rail) rail.hidden = scheduled;
+    [['abPrepareTab', !downloads && !scheduled], ['abDockToggle', downloads], ['abScheduleTab', scheduled]]
+        .forEach(([id, active]) => {
+            const tab = document.getElementById(id);
+            if (!tab) return;
+            tab.classList.toggle('is-active', active);
+            if (active) tab.setAttribute('aria-current', 'page');
+            else tab.removeAttribute('aria-current');
+        });
+}
+
+let acquisitionScroll = 0;
+let downloadsScroll = 0;
+
+function toggleDock(force) {
+    const open = force !== undefined ? force : !dockState.open;
+    const changed = open !== dockState.open;
+    if (changed) {
+        if (open) acquisitionScroll = window.scrollY;
+        else downloadsScroll = window.scrollY;
     }
+    dockState.open = open;
+    syncWorkspaceNavigation();
+    if (changed) window.scrollTo({top: open ? downloadsScroll : acquisitionScroll, behavior: 'instant'});
 }
 
 function openDock() {

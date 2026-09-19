@@ -322,7 +322,6 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
             appendHostPages(pages, nextSelections, nextActions);
             List<DesktopUiDocument.Dialog> dialogs = new ArrayList<>();
             if (dialogState != null) dialogs.add(dialog(dialogState, nextActions));
-            tools.dialog(nextActions).ifPresent(dialogs::add);
             long candidateRevision = snapshot == null ? 1L : snapshot.revision() + 1L;
             DesktopUiDocument.Tray tray = navigation.tray(nextActions);
             nextActions.put("debug.unlock", configuration::unlockDebug);
@@ -414,7 +413,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         pages.add(page(
                 "automation",
                 DesktopUiIcon.AUTOMATION,
-                controlCenterView.automationPage()
+                controlCenterView.automationPage(nextActions)
         ));
         pages.add(page(
                 "plugins",
@@ -654,7 +653,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         configuration.load();
     }
 
-    String themePreference() {
+    public String themePreference() {
         return configuration.themePreference();
     }
 

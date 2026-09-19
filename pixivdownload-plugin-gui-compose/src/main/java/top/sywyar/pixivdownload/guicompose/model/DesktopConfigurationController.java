@@ -832,9 +832,35 @@ final class DesktopConfigurationController {
     }
 
     void reloadConfiguration() {
+        if (pendingConfigurationChangeCount() == 0) {
+            discardAndReloadConfiguration();
+            return;
+        }
+        owner.showDialog(
+                "config.reload.dialog", "desktop.ui.action.reload", DesktopUiDocument.DialogStyle.QUESTION,
+                (nextActions, dismissAction, dismiss) -> column(
+                        "config.reload.content",
+                        new DesktopUiNode.Text("config.reload.message",
+                                new TextToken("gui-compose", "gui.compose.settings.reload-warning", "", List.of()),
+                                TextStyle.BODY, true, false),
+                        row("config.reload.actions",
+                                button("config.reload.cancel", dismissAction, "desktop.ui.action.cancel",
+                                        true, nextActions, dismiss),
+                                button("config.reload.confirm", "config.reload.confirm", "desktop.ui.action.reload",
+                                        true, nextActions, () -> {
+                                            owner.closeDialog();
+                                            discardAndReloadConfiguration();
+                                        }))
+                ), 480, 0
+        );
+    }
+
+    private void discardAndReloadConfiguration() {
+        List.of("interface.language", "interface.provider", "interface.theme", "interface.config-menu-expand-all")
+                .forEach(formValues::remove);
         load();
         setConfigNotice("");
-        owner.rebuild();
+        applyLocale(selected("app.language", "follow-system"));
     }
 
     private Map<String, String> pendingInterfaceValues() {

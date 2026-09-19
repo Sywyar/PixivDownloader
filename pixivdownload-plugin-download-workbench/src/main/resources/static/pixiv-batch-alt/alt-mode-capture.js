@@ -721,6 +721,8 @@ function renderImportMode(panel) {
     const composer = el('div', 'ab-composer card');
     const textarea = el('textarea', 'ab-input ab-import-input');
     textarea.id = 'abImportInput';
+    textarea.setAttribute('aria-label', bt('modes.import', '批量导入'));
+    textarea.setAttribute('aria-describedby', 'abImportResult');
     textarea.rows = 8;
     textarea.spellcheck = false;
     textarea.placeholder = bt('batch:input.single-import.placeholder',
@@ -775,6 +777,10 @@ function renderImportMode(panel) {
 
     const result = el('div', 'ab-import-result');
     result.id = 'abImportResult';
+    const announcement = el('p', 'ab-sr-only');
+    announcement.id = 'abImportAnnouncement';
+    announcement.setAttribute('role', 'status');
+    panel.appendChild(announcement);
     composer.appendChild(result);
     panel.appendChild(composer);
 }
@@ -854,6 +860,10 @@ function runImportParse(clearFirst) {
     const textarea = document.getElementById('abImportInput');
     const result = document.getElementById('abImportResult');
     if (!textarea || !result) return;
+    const announce = message => {
+        const live = document.getElementById('abImportAnnouncement');
+        if (live) live.textContent = message;
+    };
     const parsed = parseImportText(textarea.value);
     importState.parsed = parsed.items;
     result.innerHTML = '';
@@ -864,12 +874,16 @@ function runImportParse(clearFirst) {
                 ? bt('status.single-import-ambiguous', '已拒绝 {count} 个归属不明确的单作品输入', {count: parsed.rejected.length})
                 : bt('status.single-import-none', '未解析到任何单作品链接');
         result.appendChild(el('p', 'ab-import-summary ab-import-summary--error', msg));
+        announce(msg);
+        textarea.setAttribute('aria-invalid', 'true');
         return;
     }
     const summary = el('p', 'ab-import-summary');
     summary.textContent = bt('status.parsed-summary', '解析完成：共 {total} 个，新增 {added} 个',
         {total: parsed.items.length, added: parsed.items.filter(i => !queueHas(i.id)).length});
     result.appendChild(summary);
+    announce(summary.textContent);
+    textarea.removeAttribute('aria-invalid');
     const preview = el('div', 'ab-import-preview');
     parsed.items.slice(0, 60).forEach(item => {
         const row = el('div', 'ab-import-row');
