@@ -37910,6 +37910,14 @@
       "locale": "en-US",
       "module": "pixivdownload-plugin-download-workbench",
       "baseName": "workbench/messages",
+      "key": "download.filename-template.shared-directory-needs-artwork-id",
+      "acceptedSourceHash": "e7cd6cda05003cc9361788b47722a1ceb303c9c693aad0aeee3f774cee82741d",
+      "acceptedTranslationHash": "851e9daae3605f4a2a4c85bb8432b5fe34a689331bd643184f5736e88ab56f71"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-download-workbench",
+      "baseName": "workbench/messages",
       "key": "download.image.transfer-unsuccessful",
       "acceptedSourceHash": "66208c71f7530a9b18219dd4700ef830e0237854c536336d6cf2e182f45664ae",
       "acceptedTranslationHash": "aa5a49131b06f81ac2f66b64b107cd18455fa5a644259129586c5fd99e73044f"
@@ -98305,6 +98313,14 @@
       "key": "download.download-path.pending",
       "acceptedSourceHash": "c09226edf9c22e1001c710052057b3bb31088dc46ca4adfbb290ef7a656328af",
       "acceptedTranslationHash": "f65beabd4e962ce816ec21f980b43043adb6c72e1cfc8de125a1ee067fa42ba7"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-plugin-download-workbench",
+      "baseName": "workbench/messages",
+      "key": "download.filename-template.shared-directory-needs-artwork-id",
+      "acceptedSourceHash": "e7cd6cda05003cc9361788b47722a1ceb303c9c693aad0aeee3f774cee82741d",
+      "acceptedTranslationHash": "871b25a8d254757fdbea9c12ab930c69a4246c2ab555371ceb3921180a20cc46"
     },
     {
       "locale": "ja-JP",
@@ -158710,6 +158726,14 @@
       "locale": "ko-KR",
       "module": "pixivdownload-plugin-download-workbench",
       "baseName": "workbench/messages",
+      "key": "download.filename-template.shared-directory-needs-artwork-id",
+      "acceptedSourceHash": "e7cd6cda05003cc9361788b47722a1ceb303c9c693aad0aeee3f774cee82741d",
+      "acceptedTranslationHash": "319fe1ddc8454c8118fb651ba26abc2adc30e9e1704dedd0301e41e7ab409754"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-plugin-download-workbench",
+      "baseName": "workbench/messages",
       "key": "download.image.transfer-unsuccessful",
       "acceptedSourceHash": "66208c71f7530a9b18219dd4700ef830e0237854c536336d6cf2e182f45664ae",
       "acceptedTranslationHash": "d26c040085bdd0cf5eeb4820dfd96cab67c1ec0936120a5410c58cf101123d99"
@@ -219105,6 +219129,14 @@
       "key": "download.download-path.pending",
       "acceptedSourceHash": "c09226edf9c22e1001c710052057b3bb31088dc46ca4adfbb290ef7a656328af",
       "acceptedTranslationHash": "4a6cc6fede1b032c7669f6d04e49322f15d12c19dbd2619db16fbe42529cb084"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-plugin-download-workbench",
+      "baseName": "workbench/messages",
+      "key": "download.filename-template.shared-directory-needs-artwork-id",
+      "acceptedSourceHash": "e7cd6cda05003cc9361788b47722a1ceb303c9c693aad0aeee3f774cee82741d",
+      "acceptedTranslationHash": "4b10faa6747fac54ab6c4fca3f086dbb69ff09e3b152a880a607a25e357fb0d5"
     },
     {
       "locale": "zh-Hant",

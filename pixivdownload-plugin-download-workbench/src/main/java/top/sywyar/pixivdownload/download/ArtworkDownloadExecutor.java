@@ -1007,6 +1007,19 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                 other.isUgoira() ? UgoiraTempPaths.pathSentinels(artworkId) : List.of(),
                 DownloadPathAction.parse(other.getPathOverflowAction()));
         List<String> computed = resolved.baseNames();
+        // 仅当启用共享目录（download.artwork-folder-template 非空）时才要求文件名唯一。
+        // 独占目录（{root}/{artworkId}/）下即使文件名不含 {artwork_id} 也不会跨作品冲突，
+        // 必须保持既有行为，否则会误拒现有用户的模板。
+        String folderTemplate = downloadSettings.getArtworkFolderTemplate();
+        if (folderTemplate != null && !folderTemplate.isBlank()
+                && !SharedDirectoryNameGuard.isSafeInSharedDirectory(template, artworkId, computed)) {
+            throw LocalizedException.badRequest(
+                    "download.filename-template.shared-directory-needs-artwork-id",
+                    "配置了作品目录模板（共享目录）时，文件名模板必须包含 {artwork_id}，"
+                            + "否则同一目录下不同作品会互相覆盖、并在删除时误删对方文件。当前模板: {0}",
+                    template
+            );
+        }
         List<String> provided = PixivWorkFileNameFormatter.normalizeProvidedBaseNames(other.getFileNames(), count, artworkId);
         if (!provided.isEmpty() && !provided.equals(computed)) {
             log.debug(logMessage("download.log.filename-mismatch", artworkId));
