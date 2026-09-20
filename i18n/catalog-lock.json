@@ -37911,8 +37911,8 @@
       "module": "pixivdownload-plugin-download-workbench",
       "baseName": "workbench/messages",
       "key": "download.filename-template.shared-directory-needs-artwork-id",
-      "acceptedSourceHash": "e7cd6cda05003cc9361788b47722a1ceb303c9c693aad0aeee3f774cee82741d",
-      "acceptedTranslationHash": "851e9daae3605f4a2a4c85bb8432b5fe34a689331bd643184f5736e88ab56f71"
+      "acceptedSourceHash": "2d67039cc3baae9e46a253c3a9bac6e40209a873ab39a74f11ec1290bbdb2287",
+      "acceptedTranslationHash": "cfae20f68b81a4adf759daaf9583246a48da723764a656a973eda29b5d36a469"
     },
     {
       "locale": "en-US",
@@ -98319,8 +98319,8 @@
       "module": "pixivdownload-plugin-download-workbench",
       "baseName": "workbench/messages",
       "key": "download.filename-template.shared-directory-needs-artwork-id",
-      "acceptedSourceHash": "e7cd6cda05003cc9361788b47722a1ceb303c9c693aad0aeee3f774cee82741d",
-      "acceptedTranslationHash": "871b25a8d254757fdbea9c12ab930c69a4246c2ab555371ceb3921180a20cc46"
+      "acceptedSourceHash": "2d67039cc3baae9e46a253c3a9bac6e40209a873ab39a74f11ec1290bbdb2287",
+      "acceptedTranslationHash": "50c83dff130d672b6a435ec2fce66a9e15178db483e796ea3089587fb9a683ff"
     },
     {
       "locale": "ja-JP",
@@ -158727,8 +158727,8 @@
       "module": "pixivdownload-plugin-download-workbench",
       "baseName": "workbench/messages",
       "key": "download.filename-template.shared-directory-needs-artwork-id",
-      "acceptedSourceHash": "e7cd6cda05003cc9361788b47722a1ceb303c9c693aad0aeee3f774cee82741d",
-      "acceptedTranslationHash": "319fe1ddc8454c8118fb651ba26abc2adc30e9e1704dedd0301e41e7ab409754"
+      "acceptedSourceHash": "2d67039cc3baae9e46a253c3a9bac6e40209a873ab39a74f11ec1290bbdb2287",
+      "acceptedTranslationHash": "de156a3a66caa3d05b74483a1ff41f81b77d3c55ee1b6fd184d3c36c3229d009"
     },
     {
       "locale": "ko-KR",
@@ -219135,8 +219135,8 @@
       "module": "pixivdownload-plugin-download-workbench",
       "baseName": "workbench/messages",
       "key": "download.filename-template.shared-directory-needs-artwork-id",
-      "acceptedSourceHash": "e7cd6cda05003cc9361788b47722a1ceb303c9c693aad0aeee3f774cee82741d",
-      "acceptedTranslationHash": "4b10faa6747fac54ab6c4fca3f086dbb69ff09e3b152a880a607a25e357fb0d5"
+      "acceptedSourceHash": "2d67039cc3baae9e46a253c3a9bac6e40209a873ab39a74f11ec1290bbdb2287",
+      "acceptedTranslationHash": "121ba3f30cba01d8aa8d8c0881359a55ab2e3f9b7839acdd3bab761f13b03c43"
     },
     {
       "locale": "zh-Hant",
