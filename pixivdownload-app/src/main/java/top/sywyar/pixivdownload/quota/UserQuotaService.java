@@ -10,6 +10,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
+import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
+import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarFiles;
@@ -33,17 +35,28 @@ public class UserQuotaService {
     private final PixivDatabase pixivDatabase;
     private final AppMessages messages;
     private final TaskExecutor archiveTaskExecutor;
+    /**
+     * 作品文件级删除入口：与核心删除链路（{@code LocalWorkAssetService} / {@code CoreWorkDeletionService}）
+     * 复用同一条「原子删除 + 失败回滚」能力，避免配额链路自成一套安全语义。
+     */
+    private final ArtworkFileLocator artworkFileLocator;
+    /** 按下载目录删除（小说目录 / 共享目录等无作品记录的场景）时的文件级原子删除能力。 */
+    private final StagedFileDeletion stagedFileDeletion;
 
     public UserQuotaService(MultiModeConfig config,
                             DownloadConfig downloadConfig,
                             PixivDatabase pixivDatabase,
                             AppMessages messages,
-                            @Qualifier("archiveTaskExecutor") TaskExecutor archiveTaskExecutor) {
+                            @Qualifier("archiveTaskExecutor") TaskExecutor archiveTaskExecutor,
+                            ArtworkFileLocator artworkFileLocator,
+                            StagedFileDeletion stagedFileDeletion) {
         this.config = config;
         this.downloadConfig = downloadConfig;
         this.pixivDatabase = pixivDatabase;
         this.messages = messages;
         this.archiveTaskExecutor = archiveTaskExecutor;
+        this.artworkFileLocator = artworkFileLocator;
+        this.stagedFileDeletion = stagedFileDeletion;
     }
 
     /** UUID → 用户配额信息 */
@@ -313,12 +326,18 @@ public class UserQuotaService {
             // pack-and-delete 模式：打包后立即删除源文件及下载历史记录
             // never-delete / timed-delete 模式：保留源文件，不删除历史记录
             String pdMode = config.getPostDownloadMode();
+            List<Path> removableFolders = new ArrayList<>(folders.size());
             if (!"never-delete".equals(pdMode) && !"timed-delete".equals(pdMode)) {
+                // 删除失败的目录保留在配额中，下次打包时重试；无论成败都不会出现「文件没了记录还在 / 记录删了文件还在」
                 for (Path folder : folders) {
-                    deleteArtworkFolder(folder);
+                    if (deleteArchivedFolder(folder)) {
+                        removableFolders.add(folder);
+                    }
                 }
+            } else {
+                removableFolders.addAll(folders);
             }
-            quota.getDownloadedFolders().removeAll(folders);
+            quota.getDownloadedFolders().removeAll(removableFolders);
 
         } catch (Exception e) {
             entry.setStatus("error");
@@ -589,57 +608,150 @@ public class UserQuotaService {
         if (oldArtworks.isEmpty()) return;
         log.info(message("quota.log.timed-delete.started", oldArtworks.size()));
         for (ArtworkRecord artwork : oldArtworks) {
-            deleteArtworkFolder(artwork);
+            // 直接按记录删除：记录已在手上，不需要（也不允许）用目录名反推作品 ID。
+            // 删除同时按该作品自己的文件名主干做非递归精确匹配，共享目录里不会删到其它作品的文件。
+            // 删除失败时记录保留，下一次扫描会自然重试。
+            deleteArtworkFilesAndRecord(artwork);
         }
     }
 
-    /** 删除作品文件夹及其下载历史记录（统计数据不受影响）。*/
-    private void deleteArtworkFolder(Path folder) {
-        deleteArtworkFolder(folder, tryParseArtworkId(folder));
-    }
-
-    /** 删除作品文件夹及其下载历史记录（统计数据不受影响）。*/
-    private void deleteArtworkFolder(ArtworkRecord artwork) {
+    /**
+     * 按记录删除一个作品在磁盘上的留存文件及其下载历史记录（统计数据不受影响）。
+     *
+     * <p>失败一致性：文件删除复用核心链路同一条 {@link ArtworkFileLocator#deleteArtworkFiles(ArtworkRecord)}
+     * （内部走 {@link StagedFileDeletion#deleteAtomically}，任一文件失败即回滚到删除前状态），
+     * <b>只有文件确实全部删除成功时才删除数据库记录</b>；文件删除失败时记录原样保留并记日志，
+     * 因此任何时刻文件与记录要么都在、要么都不在，不会出现单边残留。
+     *
+     * @return {@code true} 表示文件与记录都已清理（或本来就没有可删的文件）；{@code false} 表示删除失败、记录已保留
+     */
+    private boolean deleteArtworkFilesAndRecord(ArtworkRecord artwork) {
         if (artwork == null) {
-            return;
+            return false;
         }
-        deleteArtworkFolder(resolveArtworkFolder(artwork), artwork.artworkId());
-    }
-
-    /** 删除作品文件夹及其下载历史记录（统计数据不受影响）。*/
-    private void deleteArtworkFolder(Path folder, Long artworkId) {
+        long artworkId = artwork.artworkId();
+        boolean filesDeleted;
         try {
-            if (folder != null && Files.exists(folder)) {
-                try (var stream = Files.walk(folder)) {
-                    stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
-                }
-                log.info(message("quota.log.folder.deleted", folder));
-            }
+            filesDeleted = artworkFileLocator.deleteArtworkFiles(artwork);
         } catch (Exception e) {
-            log.warn(message("quota.log.folder.delete.failed", folder), e);
+            // 目录不安全 / 不可读等：文件未被删除，记录必须保留
+            log.warn(message("work.delete.file-failed", message("work.type.artwork"), artworkId), e);
+            return false;
+        }
+        if (!filesDeleted) {
+            // 复用核心删除链路的同一条失败语义文案：已中止数据库清理
+            log.warn(message("work.delete.file-failed", message("work.type.artwork"), artworkId));
+            return false;
         }
         try {
-            if (artworkId == null) {
-                return;
-            }
             pixivDatabase.deleteArtwork(artworkId);
             log.info(message("quota.log.history.deleted", artworkId));
+            return true;
         } catch (Exception e) {
-            log.warn(message("quota.log.history.delete.failed", folder), e);
+            log.warn(message("quota.log.history.delete.failed", artworkFileLocator.resolveArtworkDirectory(artwork)), e);
+            return false;
         }
     }
 
-    private Path resolveArtworkFolder(ArtworkRecord artwork) {
-        if (artwork == null) {
+    /**
+     * 归档后按下载目录删除（{@code pack-and-delete} 专用）。
+     *
+     * <p>该入口手上只有「下载目录」而没有作品记录（{@code recordFolder} 记录的就是目录），因此：
+     * <ul>
+     *   <li>目录确实属于某个作品记录（标准 {@code {root}/{artworkId}} 布局或分类后 {@code move_folder}）
+     *       时，走 {@link #deleteArtworkFilesAndRecord(ArtworkRecord)}：只删该作品自己的文件，文件全删成功才删记录；</li>
+     *   <li>否则（小说目录、共享 / 作者目录、归属未确认）沿用「清空目录内文件」的既有语义，
+     *       改为文件级原子删除，且<b>不</b>删除任何数据库记录——避免用目录名反推出的 ID 误删无关记录。</li>
+     * </ul>
+     *
+     * @return {@code true} 表示目录内文件已全部删除（或目录本就不存在）；{@code false} 表示删除失败、调用方应保留该目录
+     */
+    private boolean deleteArchivedFolder(Path folder) {
+        if (folder == null) {
+            return true;
+        }
+        try {
+            ArtworkRecord owner = findOwningArtwork(folder);
+            if (owner != null) {
+                return deleteArtworkFilesAndRecord(owner);
+            }
+            return deleteFolderFiles(folder);
+        } catch (Exception e) {
+            // 任何意外（含记录查询失败）都视为删除失败：目录保留在配额中待下次打包重试，且不删除任何记录
+            log.warn(message("quota.log.folder.delete.failed", folder), e);
+            return false;
+        }
+    }
+
+    /** 仅当目录名反推出的作品 ID 对应的记录<b>确实落在该目录</b>时才认账，避免纯数字的共享 / 作者目录误删无关记录。 */
+    private ArtworkRecord findOwningArtwork(Path folder) {
+        Long artworkId = tryParseArtworkId(folder);
+        if (artworkId == null) {
             return null;
         }
-        String folder = artwork.moved() && artwork.moveFolder() != null && !artwork.moveFolder().isBlank()
-                ? artwork.moveFolder()
-                : artwork.folder();
-        if (folder == null || folder.isBlank()) {
+        ArtworkRecord record = pixivDatabase.getArtwork(artworkId);
+        // 用与文件删除同一条目录解析（优先 move_folder）判断归属，保证「被认账的目录」==「会被删文件的目录」
+        String owned = record == null ? null : artworkFileLocator.resolveArtworkDirectory(record);
+        if (owned == null || owned.isBlank()) {
             return null;
         }
-        return Paths.get(folder);
+        try {
+            return Paths.get(owned).toAbsolutePath().normalize()
+                    .equals(folder.toAbsolutePath().normalize()) ? record : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 原子删除目录内的全部常规文件（不递归跟随符号链接，也不删除符号链接本身）。
+     * 任一文件删除失败时 {@link StagedFileDeletion#deleteAtomically} 会把已删文件复原，故不会留下半删状态。
+     *
+     * @return {@code true} 表示文件已全部删除；{@code false} 表示删除失败、文件已回滚复原
+     */
+    private boolean deleteFolderFiles(Path folder) {
+        if (Files.notExists(folder, LinkOption.NOFOLLOW_LINKS)) {
+            return true;
+        }
+        boolean filesDeleted;
+        try {
+            Set<Path> files = new LinkedHashSet<>();
+            try (var stream = Files.walk(folder)) {
+                stream.filter(path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
+                        .forEach(files::add);
+            }
+            filesDeleted = stagedFileDeletion.deleteAtomically(files);
+        } catch (Exception e) {
+            log.warn(message("quota.log.folder.delete.failed", folder), e);
+            return false;
+        }
+        if (!filesDeleted) {
+            log.warn(message("quota.log.folder.delete.failed", folder));
+            return false;
+        }
+        removeEmptyDirectories(folder);
+        log.info(message("quota.log.folder.deleted", folder));
+        return true;
+    }
+
+    /**
+     * 回收删除后留下的空目录壳：自底向上只删空目录（{@code Files.delete} 对非空目录抛
+     * {@link DirectoryNotEmptyException}），因此仍含其它作品文件的共享目录不会被移除。
+     */
+    private void removeEmptyDirectories(Path folder) {
+        try (var stream = Files.walk(folder)) {
+            stream.sorted(Comparator.reverseOrder())
+                    .filter(path -> Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS))
+                    .forEach(path -> {
+                        try {
+                            Files.delete(path);
+                        } catch (IOException ignored) {
+                            // 目录非空（仍有其它作品的文件）或被占用：保留
+                        }
+                    });
+        } catch (IOException e) {
+            log.warn(message("download.file.log.remove-empty-dir-failed", folder), e);
+        }
     }
 
     private Long tryParseArtworkId(Path folder) {

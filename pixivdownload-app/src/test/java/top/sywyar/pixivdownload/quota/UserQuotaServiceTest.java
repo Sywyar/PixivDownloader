@@ -11,6 +11,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
+import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
+import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
@@ -24,6 +26,7 @@ import java.util.zip.ZipInputStream;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -39,6 +42,11 @@ class UserQuotaServiceTest {
     private DownloadConfig downloadConfig;
     @Mock
     private PixivDatabase pixivDatabase;
+    @Mock
+    private ArtworkFileLocator artworkFileLocator;
+
+    /** 按下载目录删除用的原子删除能力：本测试类只验证编排，注入真实实现即可（不会被触发）。 */
+    private final StagedFileDeletion stagedFileDeletion = new StagedFileDeletion(TestI18nBeans.appMessages());
 
     private MultiModeConfig multiModeConfig;
     private UserQuotaService userQuotaService;
@@ -57,7 +65,9 @@ class UserQuotaServiceTest {
                 downloadConfig,
                 pixivDatabase,
                 TestI18nBeans.appMessages(),
-                DIRECT_EXECUTOR
+                DIRECT_EXECUTOR,
+                artworkFileLocator,
+                stagedFileDeletion
         );
     }
 
@@ -118,7 +128,9 @@ class UserQuotaServiceTest {
                     downloadConfig,
                     pixivDatabase,
                     TestI18nBeans.appMessages(),
-                    DIRECT_EXECUTOR
+                    DIRECT_EXECUTOR,
+                    artworkFileLocator,
+                    stagedFileDeletion
             );
         }
 
@@ -316,7 +328,9 @@ class UserQuotaServiceTest {
                     downloadConfig,
                     pixivDatabase,
                     TestI18nBeans.appMessages(),
-                    submitted::add
+                    submitted::add,
+                    artworkFileLocator,
+                    stagedFileDeletion
             );
             queuedService.checkAndReserve("user1", 1);
 
@@ -378,7 +392,7 @@ class UserQuotaServiceTest {
     }
 
     @Test
-    @DisplayName("timed-delete 应优先删除 moveFolder 并按 artworkId 删库")
+    @DisplayName("timed-delete 应把记录（含 moveFolder）交给统一删除入口，文件删除成功后再删库")
     void shouldDeleteMovedFolderAndRecordDuringTimedCleanup() throws Exception {
         multiModeConfig.setPostDownloadMode("timed-delete");
         multiModeConfig.setDeleteAfterHours(1);
@@ -404,12 +418,36 @@ class UserQuotaServiceTest {
                 null
         );
         when(pixivDatabase.getArtworksOlderThan(anyLong())).thenReturn(List.of(artwork));
+        when(artworkFileLocator.deleteArtworkFiles(artwork)).thenReturn(true);
 
         userQuotaService.cleanupTimedDeleteArtworks();
 
-        assertThat(Files.exists(movedFolder)).isFalse();
+        // 删除入口收口到统一的作品文件删除（按记录，含 move_folder），配额链路不再自己递归删目录
+        verify(artworkFileLocator).deleteArtworkFiles(artwork);
+        assertThat(Files.exists(movedFolder)).isTrue();
         assertThat(Files.exists(originalFolder)).isTrue();
+        // 只有文件删除成功才删库
         verify(pixivDatabase).deleteArtwork(12345L);
+    }
+
+    @Test
+    @DisplayName("timed-delete 文件删除失败时必须保留下载历史记录")
+    void shouldKeepRecordWhenTimedCleanupFileDeletionFails() throws Exception {
+        multiModeConfig.setPostDownloadMode("timed-delete");
+        multiModeConfig.setDeleteAfterHours(1);
+
+        Path folder = Files.createDirectories(tempDir.resolve("12346"));
+        Files.writeString(folder.resolve("12346_p0.jpg"), "img");
+        ArtworkRecord artwork = new ArtworkRecord(
+                12346L, "测试", folder.toString(), 1, "jpg", 100L,
+                false, null, null, 0, null, null, null
+        );
+        when(pixivDatabase.getArtworksOlderThan(anyLong())).thenReturn(List.of(artwork));
+        when(artworkFileLocator.deleteArtworkFiles(artwork)).thenReturn(false);
+
+        userQuotaService.cleanupTimedDeleteArtworks();
+
+        verify(pixivDatabase, never()).deleteArtwork(anyLong());
     }
 
     // ========== UserQuota inner class ==========
