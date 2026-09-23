@@ -81,7 +81,7 @@ export function consumerPomSurface(pom, sdkVersion) {
     ].sort().join('\n');
 }
 
-function compareVersions(left, right) {
+export function compareVersions(left, right) {
     for (const key of ['major', 'minor', 'patch']) {
         if (left[key] !== right[key]) {
             return left[key] < right[key] ? -1 : 1;
@@ -103,15 +103,16 @@ export function evaluateContract({
     baseSurface,
     candidateSurface,
     mavenContractChanges = [],
-    stableBaseline = null
+    stableBaseline = null,
+    requireReleaseIdentity = false
 }) {
     const predecessorDiff = compareSurfaces(baseSurface, candidateSurface);
     const surfaceChanged = predecessorDiff.additions.length > 0 || predecessorDiff.removals.length > 0;
     const identityChanged = baseIdentity.releaseId !== candidateIdentity.releaseId;
-    if (surfaceChanged && !identityChanged) {
+    if (requireReleaseIdentity && surfaceChanged && !identityChanged) {
         throw new Error('Public SDK surface changed without a new SDK release identity');
     }
-    if (mavenContractChanges.length > 0 && !identityChanged) {
+    if (requireReleaseIdentity && mavenContractChanges.length > 0 && !identityChanged) {
         throw new Error(`Maven SDK consumer contract changed without a new SDK release identity: ${mavenContractChanges.join(', ')}`);
     }
     if (identityChanged && !baseIdentity.legacyRevision && compareVersions(candidateIdentity, baseIdentity) <= 0) {
@@ -123,7 +124,7 @@ export function evaluateContract({
     }
 
     let stableDiff = null;
-    if (stableBaseline) {
+    if (stableBaseline && requireReleaseIdentity) {
         if (stableBaseline.identity.major !== candidateIdentity.major) {
             throw new Error('Stable SDK baseline major does not match the candidate major');
         }
@@ -227,7 +228,7 @@ function stableBaseline(repoRoot, candidateIdentity, baseRef, candidateRef, cand
 
 function parseArguments(argv) {
     const options = { repoRoot: '.', baseRef: '', candidateRef: '', baseSurface: '', candidateSurface: '',
-        baseSdkRoot: '', candidateSdkRoot: '', report: '' };
+        baseSdkRoot: '', candidateSdkRoot: '', report: '', requireReleaseIdentity: 'false' };
     for (let index = 0; index < argv.length; index += 1) {
         const argument = argv[index];
         const key = {
@@ -238,7 +239,8 @@ function parseArguments(argv) {
             '--candidate-surface': 'candidateSurface',
             '--base-sdk-root': 'baseSdkRoot',
             '--candidate-sdk-root': 'candidateSdkRoot',
-            '--report': 'report'
+            '--report': 'report',
+            '--require-release-identity': 'requireReleaseIdentity'
         }[argument];
         if (!key) throw new Error(`Unknown argument: ${argument}`);
         options[key] = argv[++index] ?? '';
@@ -257,13 +259,17 @@ function main() {
     const candidateIdentity = inspectSdkVersion(repoRoot, options.candidateRef);
     const baseSurface = fs.readFileSync(path.resolve(options.baseSurface), 'utf8');
     const candidateSurface = fs.readFileSync(path.resolve(options.candidateSurface), 'utf8');
-    const baseline = stableBaseline(
+    if (!['true', 'false'].includes(options.requireReleaseIdentity)) {
+        throw new Error('--require-release-identity must be true or false');
+    }
+    const requireReleaseIdentity = options.requireReleaseIdentity === 'true';
+    const baseline = requireReleaseIdentity ? stableBaseline(
             repoRoot,
             candidateIdentity,
             options.baseRef,
             options.candidateRef,
             candidateSurface
-    );
+    ) : null;
     const result = evaluateContract({ baseIdentity, candidateIdentity, baseSurface, candidateSurface,
         mavenContractChanges: changedMavenContracts(
                 path.resolve(options.baseSdkRoot),
@@ -271,7 +277,7 @@ function main() {
                 baseIdentity.version,
                 candidateIdentity.version,
                 Boolean(baseIdentity.legacyRevision), sdkModulesAtRef(repoRoot, options.baseRef)),
-        stableBaseline: baseline });
+        stableBaseline: baseline, requireReleaseIdentity });
     const report = {
         schemaVersion: 2,
         baseReleaseId: baseIdentity.releaseId,

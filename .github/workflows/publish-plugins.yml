@@ -15,6 +15,10 @@ on:
         description: '由调用方在自己的 release Environment job 中执行实际发布'
         required: true
         type: boolean
+      sdk_publication_mode:
+        required: false
+        type: string
+        default: current
       publish_args:
         description: '可选发布参数；填写 -f 时强制重编译并覆盖上传所有插件资产'
         required: false
@@ -71,6 +75,7 @@ jobs:
     with:
       trusted_base_sha: ${{ needs.trusted-base.outputs.sha }}
       export_release_candidates: true
+      sdk_publication_mode: ${{ inputs.sdk_publication_mode || 'current' }}
 
   publish:
     needs: quality-gate

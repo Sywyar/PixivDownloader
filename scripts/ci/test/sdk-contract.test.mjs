@@ -90,12 +90,21 @@ function copy(root, relativePath) {
     fs.copyFileSync(path.join(ROOT, ...relativePath.split('/')), target);
 }
 
-test('公开表面变化必须同时更新 SDK 身份', () => {
-    assert.throws(() => evaluateContract({
+test('日常维护记录公开表面变化，发行时要求更新 SDK 身份', () => {
+    const maintenance = evaluateContract({
         baseIdentity: identity(rc()),
         candidateIdentity: identity(rc()),
         baseSurface: 'A\n',
         candidateSurface: 'A\nB\n'
+    });
+    assert.equal(maintenance.outcome, 'NO_PUBLISH');
+    assert.equal(maintenance.surfaceChanged, true);
+    assert.throws(() => evaluateContract({
+        baseIdentity: identity(rc()),
+        candidateIdentity: identity(rc()),
+        baseSurface: 'A\n',
+        candidateSurface: 'A\nB\n',
+        requireReleaseIdentity: true
     }), /without a new SDK release identity/u);
     assert.equal(evaluateContract({
         baseIdentity: identity(rc()),
@@ -162,14 +171,20 @@ test('Wrapper 纯权限变化不属于 SDK 语义合同', () => {
     }
 });
 
-test('Maven 消费语义变化必须同时更新 SDK 身份', () => {
+test('日常维护记录 Maven 合同变化，发行时要求更新 SDK 身份', () => {
     const identity = parseSdkVersion(STABLE);
+    assert.equal(evaluateContract({
+        baseIdentity: identity, candidateIdentity: identity,
+        baseSurface: 'type A', candidateSurface: 'type A',
+        mavenContractChanges: ['pixivdownload-plugin-api/maven-consumer-contract']
+    }).outcome, 'NO_PUBLISH');
     assert.throws(() => evaluateContract({
         baseIdentity: identity,
         candidateIdentity: identity,
         baseSurface: 'type A',
         candidateSurface: 'type A',
         mavenContractChanges: ['pixivdownload-plugin-api/maven-consumer-contract'],
+        requireReleaseIdentity: true
     }), /Maven SDK consumer contract changed without a new SDK release identity/u);
     const result = evaluateContract({
         baseIdentity: identity,
@@ -282,21 +297,21 @@ test('同主版本稳定基线禁止删除并要求兼容新增提升次版本',
         candidateIdentity: identity(`${NEXT_MINOR}-rc.${SEQUENCE}`),
         baseSurface: 'A\n',
         candidateSurface: 'B\n',
-        stableBaseline
+        stableBaseline, requireReleaseIdentity: true
     }), /removes public API/u);
     assert.throws(() => evaluateContract({
         baseIdentity: identity(STABLE),
         candidateIdentity: identity(`${NEXT_PATCH}-rc.${SEQUENCE}`),
         baseSurface: 'A\n',
         candidateSurface: 'A\nB\n',
-        stableBaseline
+        stableBaseline, requireReleaseIdentity: true
     }), /higher SDK minor/u);
     assert.equal(evaluateContract({
         baseIdentity: identity(STABLE),
         candidateIdentity: identity(`${NEXT_MINOR}-rc.${SEQUENCE}`),
         baseSurface: 'A\n',
         candidateSurface: 'A\nB\n',
-        stableBaseline
+        stableBaseline, requireReleaseIdentity: true
     }).outcome, 'PUBLISH');
 });
 

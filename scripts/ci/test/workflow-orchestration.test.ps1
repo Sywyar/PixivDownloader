@@ -135,6 +135,7 @@ try {
             [IO.File]::WriteAllText($descriptor, 'plugin.version=1.0.0')
         }
         function Resolve-SignatureToolJar { return 'fixture' }
+        function Get-PixivDownloadSdkVersion { return '1.0.0' }
         function Get-OfficialDistributionPlugins { param([switch]$IncludeOptional) return $plugins }
         function Get-MavenCommand { return 'Invoke-FakeMaven' }
         function Invoke-FakeMaven {
@@ -146,7 +147,11 @@ try {
         function Assert-ProguardProcessedArtifact { }
         function Get-OfficialPluginArtifactName { param($Plugin, $Version) return "$($Plugin.Id)-$Version.jar" }
         function Get-NightlyPluginVersion { param($SourceVersion, $Suffix) return "$SourceVersion-$Suffix" }
-        function Set-StagedPluginVersion { }
+        $script:requiredSdkValues = [Collections.Generic.List[string]]::new()
+        function Set-StagedPluginVersion {
+            param($StagedArtifact, $Plugin, $Version, $RequiredSdk)
+            $script:requiredSdkValues.Add($RequiredSdk)
+        }
         function Write-StagedCompanionFiles {
             param($StagedArtifact)
             return @{Sha='fixture'; ShaFile="$StagedArtifact.sha256"; SigFile="$StagedArtifact.sig"}
@@ -162,6 +167,7 @@ try {
         }
         foreach ($mode in @('nightly', 'force', 'stable', 'skip', 'failure', 'prebuilt')) {
             $script:builds.Clear(); $script:writes.Clear()
+            $script:requiredSdkValues.Clear()
             $script:existing = $mode -eq 'skip'
             $script:buildExit = if ($mode -eq 'failure') { 1 } else { 0 }
             $parameters = @{ProjectRoot=$fixture; OfficialKeyId='fixture'; PrivateKeyFile=(Join-Path $fixture 'input')}
@@ -175,11 +181,40 @@ try {
                 & $program.Main @parameters
                 Assert-Equal $script:builds.Count $(if ($mode -in @('skip', 'prebuilt')) { 0 } elseif ($mode -eq 'stable') { 2 } else { 1 })
                 Assert-Equal $script:writes.Count $(if ($mode -eq 'skip') { 0 } elseif ($mode -in @('nightly', 'prebuilt')) { 2 } else { 4 })
+                if ($mode -in @('nightly', 'prebuilt')) {
+                    Assert-Equal $script:requiredSdkValues @('1.0.0-nightly.20260909.1.1', '1.0.0-nightly.20260909.1.1')
+                }
                 if ($mode -in @('nightly', 'force')) {
                     Assert-Equal $script:builds[0] @('-Pofficial-surveys', '-pl', 'first,second', '-am', 'verify', '-DskipTests')
                 }
             }
         }
+    }
+    & {
+        $program = Read-Program (Join-Path $repo 'scripts/publish-plugin-releases.ps1')
+        $rewrite = @($program.Functions | Where-Object { $_.Name -eq 'Set-StagedPluginVersion' })
+        Assert-Equal $rewrite.Count 1
+        . ([scriptblock]::Create($rewrite[0].Extent.Text))
+        $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+        $source = Join-Path $fixture 'nightly-descriptor-source'
+        $check = Join-Path $fixture 'nightly-descriptor-check'
+        [IO.Directory]::CreateDirectory($source) | Out-Null
+        [IO.Directory]::CreateDirectory($check) | Out-Null
+        [IO.File]::WriteAllText((Join-Path $source 'plugin.properties'), "plugin.id=first`nplugin.version=1.0.0`nplugin.requires=1.0`n")
+        $artifact = Join-Path $fixture 'nightly-descriptor.jar'
+        $jar = (Get-Command jar).Source
+        & $jar --create --file $artifact -C $source plugin.properties
+        if ($LASTEXITCODE -ne 0) { throw 'Could not create Nightly descriptor fixture.' }
+        function Assert-OfficialPluginArtifact {
+            return @{'plugin.version'='1.0.0-nightly.20260909.1.1'; 'plugin.requires'='1.0.0-nightly.20260909.1.1'}
+        }
+        Set-StagedPluginVersion -StagedArtifact $artifact -Plugin @{Id='first'} -Version '1.0.0-nightly.20260909.1.1' -RequiredSdk '1.0.0-nightly.20260909.1.1'
+        Push-Location $check
+        try {
+            & $jar --extract --file $artifact plugin.properties
+            if ($LASTEXITCODE -ne 0) { throw 'Could not inspect rewritten Nightly descriptor.' }
+        } finally { Pop-Location }
+        Assert-Equal @(Get-Content -LiteralPath (Join-Path $check 'plugin.properties') | Where-Object { $_ -match '^plugin\.(version|requires)=' }) @('plugin.version=1.0.0-nightly.20260909.1.1', 'plugin.requires=1.0.0-nightly.20260909.1.1')
     }
     & {
         $program = Read-Program (Join-Path $repo 'scripts/ci/release-build-candidates.ps1')

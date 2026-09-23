@@ -17,6 +17,10 @@ on:
         required: false
         type: boolean
         default: false
+      sdk_publication_mode:
+        required: false
+        type: string
+        default: none
       trusted_base_sha:
         required: false
         type: string
@@ -97,9 +101,22 @@ jobs:
           EVENT_MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           INPUT_TRUSTED_BASE_SHA: ${{ inputs.trusted_base_sha }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          SDK_PUBLICATION_MODE: ${{ inputs.sdk_publication_mode || 'none' }}
         run: |
+          case "$SDK_PUBLICATION_MODE" in
+            none|current|latest) ;;
+            *) echo "Unsupported SDK publication mode: $SDK_PUBLICATION_MODE" >&2; exit 1 ;;
+          esac
           node scripts/ci/resolve-trusted-base.mjs --repo-root . --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --before "$EVENT_BEFORE" --ref "$GITHUB_REF" --pr-head "$EVENT_PR_HEAD_SHA" --pr-base "$EVENT_PR_BASE_SHA" --merge-group-base "$EVENT_MERGE_GROUP_BASE_SHA" --input-base "$INPUT_TRUSTED_BASE_SHA" --default-branch "$DEFAULT_BRANCH" --mode > "$RUNNER_TEMP/sdk-gate-base.json"
           node -e 'const j=require(process.argv[1]); console.log(`SDK_BASE_SHA=${j.base}`)' "$RUNNER_TEMP/sdk-gate-base.json" >> "$GITHUB_ENV"
+      - name: Resolve published SDK baseline
+        if: inputs.sdk_publication_mode == 'current' || inputs.sdk_publication_mode == 'latest'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SDK_PUBLICATION_MODE: ${{ inputs.sdk_publication_mode }}
+        run: |
+          published_source="$(node scripts/ci/sdk-published-base.mjs "$SDK_PUBLICATION_MODE" .)"
+          echo "SDK_BASE_SHA=$published_source" >> "$GITHUB_ENV"
       - name: Verify SDK, templates and isolated consumers
         uses: ./.github/actions/verify-sdk
         with:
@@ -113,8 +130,10 @@ jobs:
           mvn -B -ntp -f "$BASE_DIR/pom.xml" -pl "$SDK_BASE_MODULES" -am package -Dmaven.test.skip=true -Dmaven.javadoc.skip=true -Dmaven.source.skip=true -Dexec.skip=true
           node scripts/ci/sdk-api-surface.mjs --module "sdk-info=$BASE_DIR/pixivdownload-sdk-info/target" --module "plugin-api=$BASE_DIR/pixivdownload-plugin-api/target" --module "core-api=$BASE_DIR/pixivdownload-core-api/target" --output "$RUNNER_TEMP/sdk-base-surface.txt"
           node scripts/ci/sdk-api-surface.mjs --module sdk-info=pixivdownload-sdk-info/target --module plugin-api=pixivdownload-plugin-api/target --module core-api=pixivdownload-core-api/target --output "$RUNNER_TEMP/sdk-candidate-surface.txt"
-          node scripts/ci/sdk-contract.mjs --repo-root . --base-ref "$SDK_BASE_SHA" --candidate-ref "$GITHUB_SHA" --base-surface "$RUNNER_TEMP/sdk-base-surface.txt" --candidate-surface "$RUNNER_TEMP/sdk-candidate-surface.txt" --base-sdk-root "$BASE_DIR" --candidate-sdk-root . --report "$RUNNER_TEMP/sdk-contract-report.json"
+          node scripts/ci/sdk-contract.mjs --repo-root . --base-ref "$SDK_BASE_SHA" --candidate-ref "$GITHUB_SHA" --base-surface "$RUNNER_TEMP/sdk-base-surface.txt" --candidate-surface "$RUNNER_TEMP/sdk-candidate-surface.txt" --base-sdk-root "$BASE_DIR" --candidate-sdk-root . --report "$RUNNER_TEMP/sdk-contract-report.json" --require-release-identity "$SDK_RELEASE_IDENTITY_REQUIRED"
           cat "$RUNNER_TEMP/sdk-contract-report.json"
+        env:
+          SDK_RELEASE_IDENTITY_REQUIRED: ${{ inputs.sdk_publication_mode == 'current' || inputs.sdk_publication_mode == 'latest' }}
 
       - name: Upload verified SDK candidate
         id: sdk-candidate

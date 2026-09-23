@@ -83,6 +83,7 @@ $nightlySuffix = if ([string]::IsNullOrWhiteSpace($NightlyBuildVersion)) {
 } else {
     ($NightlyBuildVersion -split '-', 2)[1]
 }
+$nightlySdkVersion = if ($nightlySuffix) { (Get-PixivDownloadSdkVersion -ProjectRoot $ProjectRoot) + "-$nightlySuffix" } else { $null }
 $SignatureToolJar = Resolve-SignatureToolJar $ProjectRoot $SignatureToolJar
 
 function Read-SourceVersion([string]$module) {
@@ -175,7 +176,8 @@ function Set-StagedPluginVersion {
     param(
         [Parameter(Mandatory = $true)][string]$StagedArtifact,
         [Parameter(Mandatory = $true)]$Plugin,
-        [Parameter(Mandatory = $true)][string]$Version
+        [Parameter(Mandatory = $true)][string]$Version,
+        [Parameter(Mandatory = $true)][string]$RequiredSdk
     )
 
     $jarCommand = Get-Command "jar" -ErrorAction SilentlyContinue
@@ -195,8 +197,14 @@ function Set-StagedPluginVersion {
         if ($versionLines.Count -ne 1) {
             throw "Expected exactly one plugin.version in $StagedArtifact; found $($versionLines.Count)."
         }
+        $requiresLines = @($lines | Where-Object { $_ -match '^\s*plugin\.requires\s*=' })
+        if ($requiresLines.Count -ne 1) {
+            throw "Expected exactly one plugin.requires in $StagedArtifact; found $($requiresLines.Count)."
+        }
         $rewritten = @($lines | ForEach-Object {
-            if ($_ -match '^\s*plugin\.version\s*=') { "plugin.version=$Version" } else { $_ }
+            if ($_ -match '^\s*plugin\.version\s*=') { "plugin.version=$Version" }
+            elseif ($_ -match '^\s*plugin\.requires\s*=') { "plugin.requires=$RequiredSdk" }
+            else { $_ }
         })
         [System.IO.File]::WriteAllText($descriptorPath, (($rewritten -join "`n") + "`n"), $Utf8NoBom)
         & $jarCommand.Source "--update" "--file" $StagedArtifact "plugin.properties"
@@ -209,6 +217,9 @@ function Set-StagedPluginVersion {
     $descriptor = Assert-OfficialPluginArtifact $StagedArtifact $Plugin
     if ($descriptor["plugin.version"] -ne $Version) {
         throw "Staged plugin.version '$($descriptor["plugin.version"])' != Nightly version '$Version' for $($Plugin.Id)."
+    }
+    if ($descriptor["plugin.requires"] -ne $RequiredSdk) {
+        throw "Staged plugin.requires does not match the Nightly SDK build for $($Plugin.Id)."
     }
 }
 
@@ -224,7 +235,7 @@ function Build-StagedNightlyPluginArtifact {
     $sourceArtifact = Build-StagedPluginArtifact -Plugin $Plugin -Version $SourceVersion -AssetName $sourceAssetName
     $stagedArtifact = Join-Path $stageDir $AssetName
     Move-Item -LiteralPath $sourceArtifact -Destination $stagedArtifact -Force
-    Set-StagedPluginVersion -StagedArtifact $stagedArtifact -Plugin $Plugin -Version $Version
+    Set-StagedPluginVersion -StagedArtifact $stagedArtifact -Plugin $Plugin -Version $Version -RequiredSdk $nightlySdkVersion
     return $stagedArtifact
 }
 

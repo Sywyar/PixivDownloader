@@ -55,6 +55,20 @@ class PluginDescriptorTest {
     }
 
     @Test
+    @DisplayName("旧 Nightly 包即使只声明稳定 SDK 要求也不能绕过同批校验")
+    void nightlyPluginMustDeclareMatchingNightlySdk() {
+        String nightlyVersion = "1.0.0-nightly.20260923.42.1";
+        PluginDescriptor oldPackage = external("ext-stats", nightlyVersion,
+                SdkVersion.MAJOR + "." + SdkVersion.MINOR,
+                "com.example.ExtStatsPlugin", "ext.label", PluginKind.FEATURE, List.of());
+        assertThat(oldPackage.isSdkCompatible()).isFalse();
+        assertThat(external("ext-stats", nightlyVersion,
+                SdkVersion.VERSION + "-nightly.20260923.43.1",
+                "com.example.ExtStatsPlugin", "ext.label", PluginKind.FEATURE, List.of())
+                .isSdkCompatible()).isFalse();
+    }
+
+    @Test
     @DisplayName("非法 id / 空 displayName / null kind 均被通用校验拒绝")
     void rejectsInvalidIdentityFields() {
         assertThat(external("Bad_Id", "1.0", "1.0", "com.example.P", "x.label", PluginKind.FEATURE, List.of())

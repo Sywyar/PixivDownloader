@@ -181,6 +181,12 @@ public record PluginDescriptor(
 
     /** 该描述符声明的 SDK 版本要求是否被当前宿主 SDK 满足（{@code requires} 兼容性）。 */
     public boolean isSdkCompatible() {
+        if (version != null && version.contains("-nightly.")) {
+            String suffix = VersionRequirement.nightlySuffix(version);
+            if (suffix == null || !suffix.equals(VersionRequirement.nightlySuffix(requires.raw()))) {
+                return false;
+            }
+        }
         return requires.isSatisfiedByCurrentSdk();
     }
 

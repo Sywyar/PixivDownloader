@@ -1296,7 +1296,6 @@ class PluginRuntimeManagerTest {
     @ParameterizedTest
     @CsvSource({
             "1.0.0, 1.0, true",
-            "1.0.0-nightly.20260908.125.1, 1.0, true",
             "1.2.3, 1.1, true",
             "1.2.3-beta.1, >=1.1, true",
             "2.0.0, 1.0, false",
@@ -1332,6 +1331,25 @@ class PluginRuntimeManagerTest {
                 assertThat(status.failures()).singleElement().satisfies(failure ->
                         assertThat(failure.reason()).contains("required dependency provider needs version"));
             }
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("旧 Nightly 插件在 PF4J 加载前因缺少同批 SDK 身份被拒绝")
+    void rejectsLegacyNightlyPackageBeforeLoading() throws IOException {
+        Path plugins = tempDir.resolve("legacy-nightly");
+        Path artifact = plugins.resolve("provider.jar");
+        String version = "1.0.0-nightly.20260908.125.1";
+        writeDependencyOrderProbeJar(artifact, "provider", version, List.of());
+        writeLocalProvenance(plugins, artifact, "provider", version);
+        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+        try {
+            assertThatThrownBy(() -> manager.loadPlugin(artifact))
+                    .isInstanceOf(PluginRuntimeOperationException.class)
+                    .hasMessageContaining("incompatible SDK");
+            assertThat(manager.pluginManagerForTest()).isEmpty();
         } finally {
             manager.shutdown();
         }

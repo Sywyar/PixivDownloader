@@ -120,4 +120,23 @@ class VersionRequirementTest {
         assertThat(VersionRequirement.of(SdkVersion.MAJOR + 1, 0)
                 .isSatisfiedByCurrentSdk()).isFalse();
     }
+
+    @Test
+    @DisplayName("Nightly SDK 要求仅接受同批宿主，稳定要求继续按主次版本兼容")
+    void nightlySdkRequiresMatchingBuild() {
+        String suffix = "nightly.20260923.42.1";
+        String required = SdkVersion.VERSION + "-" + suffix;
+        VersionRequirement nightly = VersionRequirement.parse(required);
+
+        assertThat(nightly.valid()).isTrue();
+        assertThat(nightly.isSatisfiedByNightlyBuild("1.14.0-" + suffix)).isTrue();
+        assertThat(nightly.isSatisfiedByNightlyBuild("1.14.0-nightly.20260923.43.1")).isFalse();
+        assertThat(nightly.isSatisfiedByNightlyBuild("1.14.0")).isFalse();
+        assertThat(nightly.isSatisfiedByNightlyBuild(null)).isFalse();
+        assertThat(nightly.display()).isEqualTo(required);
+        assertThat(VersionRequirement.parse(SdkVersion.MAJOR + "." + SdkVersion.MINOR)
+                .isSatisfiedByCurrentSdk()).isTrue();
+        assertThat(VersionRequirement.parse(">= " + required)
+                .isSatisfiedByNightlyBuild("1.14.0-" + suffix)).isFalse();
+    }
 }

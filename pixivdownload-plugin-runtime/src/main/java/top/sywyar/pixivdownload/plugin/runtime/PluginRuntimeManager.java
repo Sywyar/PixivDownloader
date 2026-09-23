@@ -538,6 +538,11 @@ public class PluginRuntimeManager {
     private LoadedPluginPackage loadPreparedPlugin(Path artifactPath, Path pf4jLoadPath, Path pluginManagerRoot,
                                                     PluginDescriptor packageDescriptor,
                                                     PluginArtifactSnapshot productionSnapshot) {
+        if (!packageDescriptor.isSdkCompatible()) {
+            workspaceOwner.discard(productionSnapshot);
+            throw new PluginRuntimeOperationException("plugin requires incompatible SDK: "
+                    + packageDescriptor.id() + " requires " + packageDescriptor.requires().display());
+        }
         if (productionSnapshot == null) {
             packageDescriptor = developmentExecutionDescriptor(packageDescriptor);
         }

@@ -217,13 +217,14 @@ public final class PixivPluginDiscoveryBridge {
         org.pf4j.PluginDescriptor pf4jDescriptor = wrapper.getDescriptor();
         VersionRequirement requires = VersionRequirement.parse(
                 pf4jDescriptor != null ? pf4jDescriptor.getRequires() : null);
+        PluginDescriptor packageDescriptor = packageDescriptor(sourcePluginId, pf4jDescriptor, requires);
 
         // 先校SDK 兼容：不兼容的插件包不提取贡献，仅记一条 INCOMPATIBLE 安装条目（拒绝接入）。
-        if (!requires.isSatisfiedByCurrentSdk()) {
+        if (!packageDescriptor.isSdkCompatible()) {
             log.warn("External plugin {} is incompatible with SDK {}: requires {}",
                     sourcePluginId, top.sywyar.pixivdownload.sdk.SdkVersion.VERSION, requires.display());
             installations.add(new PluginInstallation(
-                    packageDescriptor(sourcePluginId, pf4jDescriptor, requires),
+                    packageDescriptor,
                     PluginStatus.INCOMPATIBLE, classLoader, null));
             return;
         }
