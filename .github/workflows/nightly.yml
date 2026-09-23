@@ -94,6 +94,7 @@ jobs:
     uses: ./.github/workflows/publish-plugins.yml
     with:
       publish_in_caller: true
+      sdk_publication_mode: none
 
   publish-plugin-artifacts:
     needs: [resolve-version, publish-plugins]

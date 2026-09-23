@@ -2,13 +2,15 @@ package top.sywyar.pixivdownload.plugin.runtime.descriptor;
 
 import top.sywyar.pixivdownload.sdk.SdkVersion;
 
+import java.io.InputStream;
+import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
  * 一个对某个 semver 提供方（SDK 或被依赖插件）的版本要求，由插件描述符的 {@code requires} /
- * 依赖的 {@code versionSupport} 字段解析而来。只保留参与兼容判定的 {@code major.minor}（PATCH 不参与，
- * 见 {@link SdkVersion}）。
+ * 依赖的 {@code versionSupport} 字段解析而来。稳定要求按 {@code major.minor} 判定；
+ * Nightly SDK 要求与宿主构建身份精确匹配。PATCH 不参与稳定兼容判定，见 {@link SdkVersion}。
  *
  * <p>三态：
  * <ul>
@@ -41,6 +43,8 @@ public record VersionRequirement(int major, int minor, boolean present, boolean 
             "(?:>=\\s*)?[vV]?(\\d+)(?:\\.(\\d+))?(?:\\.(\\d+))?"
                     + "(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?"
                     + "(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?");
+    private static final Pattern NIGHTLY_SUFFIX = Pattern.compile(
+            "-nightly\\.[0-9]{8}\\.[1-9][0-9]{0,8}\\.[1-9][0-9]{0,8}$");
 
     /** 未声明任何版本要求（兼容任何版本）。 */
     public static VersionRequirement unspecified() {
@@ -55,7 +59,8 @@ public record VersionRequirement(int major, int minor, boolean present, boolean 
     /**
      * 解析 {@code requires} / {@code versionSupport} 声明。{@code null} / 空白 / {@code *}（不限版本标记）
      * → {@link #unspecified()}；其它声明必须完整匹配 {@code [>=][v]MAJOR[.MINOR[.PATCH]][-PRERELEASE][+BUILD]}，
-     * 其中 {@code >=}、{@code v}、预发布段与构建元数据均可省略，PATCH 及其后缀只校验形态、不参与兼容判定。
+     * 其中 {@code >=}、{@code v}、预发布段与构建元数据均可省略。稳定要求只比较主次版本；
+     * Nightly SDK 要求保留完整声明用于宿主构建身份校验。
      *
      * <p>当前兼容规则无法表达上界、排除、精确相等或复合范围，因此 {@code <} / {@code >} / {@code <=} /
      * {@code =} / {@code ~} / {@code ^} / {@code !} 以及 {@code 1.0 & <2.0} 等声明一律判为无效；尾随文字、
@@ -106,7 +111,35 @@ public record VersionRequirement(int major, int minor, boolean present, boolean 
 
     /** 当前 SDK（{@link SdkVersion#MAJOR}/{@link SdkVersion#MINOR}）是否满足本要求。 */
     public boolean isSatisfiedByCurrentSdk() {
+        if (present && valid && raw != null && raw.contains("-nightly.")) {
+            return isSatisfiedByNightlyBuild(readAppVersion());
+        }
         return isSatisfiedBy(SdkVersion.MAJOR, SdkVersion.MINOR);
+    }
+
+    boolean isSatisfiedByNightlyBuild(String appVersion) {
+        if (!present || !valid || raw == null || appVersion == null) {
+            return false;
+        }
+        String suffix = nightlySuffix(appVersion);
+        return suffix != null && raw.equals(SdkVersion.VERSION + suffix);
+    }
+
+    static String nightlySuffix(String version) {
+        if (version == null) return null;
+        Matcher matcher = NIGHTLY_SUFFIX.matcher(version);
+        return matcher.find() ? matcher.group() : null;
+    }
+
+    private static String readAppVersion() {
+        try (InputStream stream = VersionRequirement.class.getResourceAsStream("/app-version.properties")) {
+            if (stream == null) return null;
+            Properties properties = new Properties();
+            properties.load(stream);
+            return properties.getProperty("app.version");
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     /** 人类可读的版本要求（未声明时为 {@code "(unspecified)"}，无效时回显原始串）。 */
@@ -116,6 +149,9 @@ public record VersionRequirement(int major, int minor, boolean present, boolean 
         }
         if (!valid) {
             return raw + " (unparseable)";
+        }
+        if (raw != null && raw.contains("-nightly.")) {
+            return raw;
         }
         return major + "." + minor;
     }

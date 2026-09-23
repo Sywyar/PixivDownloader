@@ -100,6 +100,7 @@ jobs:
     with:
       trusted_base_sha: ${{ needs.release-plan.outputs.trusted_base_sha }}
       export_sdk_candidates: ${{ needs.release-plan.outputs.mode == 'publish' }}
+      sdk_publication_mode: latest
 
   publish:
     needs: [release-plan, quality-gate]

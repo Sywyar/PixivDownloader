@@ -129,7 +129,8 @@ class PluginReleaseScriptsTest {
                 "$version = Get-NightlyPluginVersion $sourceVersion $nightlySuffix",
                 "$tag = \"$($plugin.Id)-nightly\"",
                 "$title = \"Nightly Build $($plugin.Id)-v$version\"",
-                "Set-StagedPluginVersion -StagedArtifact $stagedArtifact -Plugin $Plugin -Version $Version",
+                "Set-StagedPluginVersion -StagedArtifact $stagedArtifact -Plugin $Plugin -Version $Version -RequiredSdk $nightlySdkVersion",
+                "elseif ($_ -match '^\\s*plugin\\.requires\\s*=') { \"plugin.requires=$RequiredSdk\" }",
                 "\"--update\" \"--file\" $StagedArtifact \"plugin.properties\"",
                 "Remove-ExistingReleaseAssets -Tag $tag -AssetNames $assetNames",
                 "gh release edit $tag --repo $Repo --title $title",
@@ -814,7 +815,7 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("市场清单从 descriptor 投影 SDK 要求并保留旧 wire alias")
+    @DisplayName("市场清单从 descriptor 投影稳定 SDK 要求，Nightly 使用完整构建身份")
     void marketManifestProjectsInitialSdkAndLegacyAlias() throws Exception {
         String descriptor = pluginDescriptor("pixivdownload-plugin-download-workbench");
 
@@ -825,9 +826,10 @@ class PluginReleaseScriptsTest {
                         "plugin.requires=1.2",
                         "plugin.requires=1.3");
         assertThat(script("generate-market-manifest.ps1")).contains(
-                "$requires = $d[\"plugin.requires\"]",
-                "requiredSdk       = (Get-RequiredSdk $requires)",
-                "requiredCoreApi   = (Get-RequiredSdk $requires)");
+                "$requires = if ($isNightly) { $nightlySdkVersion } else { $d[\"plugin.requires\"] }",
+                "$manifestRequiredSdk = if ($isNightly) { $requires } else { Get-RequiredSdk $requires }",
+                "requiredSdk       = $manifestRequiredSdk",
+                "requiredCoreApi   = $manifestRequiredSdk");
         assertThat(script("stage-official-plugin-inputs-from-catalog.ps1")).contains(
                 "Get-Prop $Package \"requiredSdk\"",
                 "Get-Prop $Package \"requiredCoreApi\"");

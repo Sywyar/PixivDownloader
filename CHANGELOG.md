@@ -27,6 +27,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - 下载页支持新版工作台、横屏三栏和竖屏单列经典布局，记住当前浏览器选择，并可折叠预览结果。Pixiv 体验增强工具箱可为已删除作品显示独立或继承已下载样式的边框。
 
 ### Changed
+- 每夜构建版只加载与当前构建同批发布的 Nightly 插件；稳定插件仍按 SDK 主次版本判断兼容性。升级每夜版后，旧 Nightly 插件需随新构建更新。
 - AI 配置可使用当前未保存的地址、密钥和代理读取服务实际可见模型；Gemini、xAI、Groq、Moonshot、Doubao、ERNIE 与 MiniMax 的默认模型已更新。
 - 未绑定 Cookie 的公开 Pixiv 计划任务改用受限模式运行；账号专属来源仍要求凭证。两个下载工作台都会显示提供者给出的挂起或过度访问保护原因。
 - 应用日志固定使用英文，HTML 日志固定声明英文文档语言。

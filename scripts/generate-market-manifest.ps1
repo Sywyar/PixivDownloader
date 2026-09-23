@@ -66,6 +66,7 @@ if (-not [string]::IsNullOrWhiteSpace($NightlyBuildVersion) -and
 }
 $isNightly = -not [string]::IsNullOrWhiteSpace($NightlyBuildVersion)
 $nightlySuffix = if ($isNightly) { ($NightlyBuildVersion -split '-', 2)[1] } else { $null }
+$nightlySdkVersion = if ($isNightly) { (Get-PixivDownloadSdkVersion -ProjectRoot $ProjectRoot) + "-$nightlySuffix" } else { $null }
 $manifestName = if ($isNightly) { "nightly-manifest.json" } else { "manifest.json" }
 $channel = if ($isNightly) { "nightly" } else { "stable" }
 $SignatureToolJar = Resolve-SignatureToolJar $ProjectRoot $SignatureToolJar
@@ -198,7 +199,8 @@ try {
         } else {
             $sourceVersion
         }
-        $requires = $d["plugin.requires"]
+        $requires = if ($isNightly) { $nightlySdkVersion } else { $d["plugin.requires"] }
+        $manifestRequiredSdk = if ($isNightly) { $requires } else { Get-RequiredSdk $requires }
         $dependencies = @(Get-PluginDependencies $d["plugin.dependencies"])
         if ($id -ne $plugin.Id) {
             throw "plugin.id '$id' in module $($plugin.Module) does not match expected '$($plugin.Id)'."
@@ -300,9 +302,9 @@ try {
             sha256            = $sha256
             signature         = $signature
             signatureUrl      = "$packageUrl.sig"
-            requiredSdk       = (Get-RequiredSdk $requires)
+            requiredSdk       = $manifestRequiredSdk
             # Legacy wire alias retained so existing released clients can still read new manifests.
-            requiredCoreApi   = (Get-RequiredSdk $requires)
+            requiredCoreApi   = $manifestRequiredSdk
             dependencies      = @($dependencies)
             releasedTime      = $releasedTime
             changeNotes       = $changeNotes

@@ -595,6 +595,28 @@ test('发行构建与插件发布并行，分发产物依赖完整且全部 E2E 
     assert.equal(evidence.with['if-no-files-found'], 'error');
 });
 
+test('日常与 Nightly 延后 SDK 发行身份校验，正式产物使用已发布基线', () => {
+    const qualityGate = load('.github/workflows/quality-gate.yml');
+    const sdk = load('.github/workflows/publish-sdk.yml');
+    const plugins = load('.github/workflows/publish-plugins.yml');
+    const nightly = load('.github/workflows/nightly.yml');
+    const release = load('.github/workflows/release.yml');
+    const sdkSteps = qualityGate.jobs['sdk-tests'].steps;
+    const predecessor = sdkSteps.find(step => step.name === 'Resolve SDK contract predecessor');
+    const published = sdkSteps.find(step => step.name === 'Resolve published SDK baseline');
+    const contract = sdkSteps.find(step => step.name === 'Compare SDK public contract');
+
+    assert.equal(qualityGate.on.workflow_call.inputs.sdk_publication_mode.default, 'none');
+    assert.equal(predecessor.env.SDK_PUBLICATION_MODE, "${{ inputs.sdk_publication_mode || 'none' }}");
+    assert.match(predecessor.run, /none\|current\|latest/u);
+    assert.match(published.run, /sdk-published-base\.mjs/u);
+    assert.match(contract.run, /--require-release-identity/u);
+    assert.equal(sdk.jobs['quality-gate'].with.sdk_publication_mode, 'latest');
+    assert.equal(plugins.on.workflow_call.inputs.sdk_publication_mode.default, 'current');
+    assert.equal(nightly.jobs['publish-plugins'].with.sdk_publication_mode, 'none');
+    assert.equal(release.jobs['publish-plugins'].with.sdk_publication_mode, undefined);
+});
+
 test('发行候选只来自同次完整 QG，生产应用继续重建并执行完整发行边界', () => {
     const qg = load('.github/workflows/quality-gate.yml');
     const steps = qg.jobs['release-artifacts'].steps;
