@@ -61,7 +61,10 @@ runs:
       shell: pwsh
       run: |
         ./scripts/ci/test/sdk-runtime-input.test.ps1 -TestDirectory target/sdk-runtime-input-tests
-        ./scripts/ci/sdk-runtime-inputs.ps1 -OutputDirectory target/sdk-runtime-inputs
+        $signatures = @(Get-ChildItem pixivdownload-plugin-signature/target/pixivdownload-plugin-signature-*.jar -File)
+        if ($signatures.Count -ne 1) { throw 'Expected one plugin signature tool JAR.' }
+        ./scripts/ci/sdk-runtime-inputs.ps1 -OutputDirectory target/sdk-runtime-inputs `
+          -SignatureToolJar $signatures[0].FullName
 
     - name: Assemble fixed complete development runtime
       shell: bash

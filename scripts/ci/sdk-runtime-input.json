@@ -1,6 +1,4 @@
 {
-  "schemaVersion": 1,
-  "assetUrl": "https://api.github.com/repos/Sywyar/PixivDownloader-Plugin-SDK/releases/assets/557298186",
-  "size": 150708972,
-  "sha256": "841a7f9c513dfbc6d4d5c3adf7bc91df30259c2a8a31895c37fbf26ed0b3ceca"
+  "schemaVersion": 2,
+  "catalogCommitSha": "63537dd855b2eccfa213b3f5ff583effeba2a171"
 }
