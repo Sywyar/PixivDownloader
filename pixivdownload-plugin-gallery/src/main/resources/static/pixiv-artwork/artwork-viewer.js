@@ -55,8 +55,11 @@
     }
 
     let expanded = false;
+    let expansionPromise = null;
 
-    async function expandAll(count) {
+    function expandAll(count) {
+        if (expanded) return Promise.resolve();
+        if (expansionPromise) return expansionPromise;
         const btn = document.getElementById('expandBtn');
         const collapseBtn = document.getElementById('collapseBtn');
         btn.disabled = true;
@@ -80,10 +83,12 @@
             promises.push(promise);
         }
         
-        await Promise.all(promises);
-        btn.style.display = 'none';
-        collapseBtn.style.display = '';
-        expanded = true;
+        expansionPromise = Promise.all(promises).then(() => {
+            btn.style.display = 'none';
+            collapseBtn.style.display = '';
+            expanded = true;
+        }).finally(() => { expansionPromise = null; });
+        return expansionPromise;
     }
 
     function collapseAll() {
