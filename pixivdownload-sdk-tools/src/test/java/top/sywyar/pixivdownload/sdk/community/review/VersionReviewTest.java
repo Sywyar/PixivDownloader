@@ -135,7 +135,7 @@ class VersionReviewTest {
                     submissionDocument.sha256(), bindingSha256, HASH,
                     pr.mergeSha() == null ? ReviewAdmission.PrState.OPEN : ReviewAdmission.PrState.MERGED, false,
                     new ReviewAdmission.Scan("300", 1, "test-scanner", HASH, ReviewAdmission.Conclusion.SUCCESS), null);
-            var validation = new ReviewAdmission.Validation(ReviewAdmission.Conclusion.SUCCESS, "90", HEAD, HEAD,
+            var validation = new ReviewAdmission.Validation(ReviewAdmission.Conclusion.SUCCESS, "90", pr.headSha(), pr.baseSha(),
                     submissionDocument.sha256(), bindingSha256, HASH);
             var policy = new ReviewPolicy(Set.of("202"), Set.of("202"), "workflows/review.yml", Set.of(HEAD));
             var nativeReview = new HumanReviews.NativeReview("20", "1001", 17, new Account("202", "User"), HEAD,

@@ -23,6 +23,7 @@ class OperationAuditTest {
     @Test @DisplayName("合并前审计显式待生效且确认绑定精确记录和有序父链")
     void confirmsPreparedAuditWithoutInventingMerge() throws Exception {
         var f = new Fixture(CommunityJson.Kind.ROTATION);
+        f.pr = new CommunityPr("300", 7, "101", "400", HEAD, "ef".repeat(20), null);
         var old = f.pr;
         f.pr = new CommunityPr(old.githubRepositoryId(), old.number(), old.authorAccountId(),
                 old.headRepositoryId(), old.headSha(), old.baseSha(), null);
@@ -34,6 +35,9 @@ class OperationAuditTest {
                 old.headRepositoryId(), "12".repeat(20), old.baseSha(), "34".repeat(20));
         var exact = Reference.of("audits/" + audit.requestId() + ".json", document.bytes());
         audit.confirmPreparedMerge(document, merged, exact, List.of(HEAD), List.of(old.baseSha(), merged.headSha()));
+        audit.confirmPreparedMerge(document, merged, exact, List.of(HEAD, old.baseSha()), List.of(old.baseSha(), merged.headSha()));
+        assertThatThrownBy(() -> audit.confirmPreparedMerge(document, merged, exact,
+                List.of(old.baseSha(), HEAD), List.of(old.baseSha(), merged.headSha()))).isInstanceOf(ContractException.class);
         assertThatThrownBy(() -> audit.confirmPreparedMerge(document, merged, exact,
                 List.of(HEAD, merged.headSha()), List.of(old.baseSha(), merged.headSha()))).isInstanceOf(ContractException.class);
         assertThatThrownBy(() -> audit.confirmPreparedMerge(document, merged, exact,

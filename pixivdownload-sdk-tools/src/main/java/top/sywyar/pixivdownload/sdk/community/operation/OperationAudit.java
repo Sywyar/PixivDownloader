@@ -112,7 +112,7 @@ public record OperationAudit(int schemaVersion, String requestId, String action,
                 || original.number() != merged.number() || !original.authorAccountId().equals(merged.authorAccountId())
                 || !original.headRepositoryId().equals(merged.headRepositoryId())
                 || !original.baseSha().equals(merged.baseSha()) || original.headSha().equals(merged.headSha())
-                || !generatedParents.equals(List.of(original.headSha()))
+                || !original.hasGeneratedParents(generatedParents)
                 || !mergeParents.equals(List.of(original.baseSha(), merged.headSha()))) {
             throw new ContractException("REVIEW_MISMATCH", "/preparedMerge");
         }

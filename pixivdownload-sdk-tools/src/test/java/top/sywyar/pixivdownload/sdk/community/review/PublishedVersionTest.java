@@ -172,6 +172,25 @@ class PublishedVersionTest {
         }
     }
 
+    @Test @DisplayName("生成提交纳入最新主线且原审核、签名及最终合并父链保持绑定")
+    void confirmsIntegrationWithoutChangingReviewedHead() throws Exception {
+        String base = "78".repeat(20), generated = "34".repeat(20), merge = "56".repeat(20);
+        var f = new Fixture("1.0.0", null, false, base);
+        var prepared = PublishedVersion.prepare(f.input(), Map.of(), null).document();
+        var value = PublishedVersion.read(prepared);
+        var pr = new CommunityPr("1001", 17, "101", "1002", generated, base, merge);
+        var reference = Reference.of("prepared.json", prepared.bytes());
+        var confirmed = new PublishedVersion.PreparedMerge(pr, generated, List.of(HEAD, base), List.of(base, generated), reference);
+        value.verifyHistory(f.jar, f.publisher.document(), f.verifier, "sample.repo", f.review.evidence, confirmed);
+        var refreshed = new PublishedVersion.PreparedMerge(pr, generated, List.of(HEAD, base, "90".repeat(20)), List.of(base, generated), reference);
+        value.verifyHistory(f.jar, f.publisher.document(), f.verifier, "sample.repo", f.review.evidence, refreshed);
+        for (var parents : List.of(List.of(base, HEAD), List.of(HEAD, merge), List.of(HEAD, base, HEAD), List.of(HEAD, base, "invalid"))) {
+            var invalid = new PublishedVersion.PreparedMerge(pr, generated, parents, List.of(base, generated), reference);
+            assertThatThrownBy(() -> value.verifyHistory(f.jar, f.publisher.document(), f.verifier,
+                    "sample.repo", f.review.evidence, invalid)).isInstanceOf(ContractException.class);
+        }
+    }
+
     private final class Fixture {
         final Path jar;
         final Publisher publisher;
@@ -184,6 +203,9 @@ class PublishedVersionTest {
         CommunityJson.Document binding;
 
         Fixture(String version, String previous, boolean merged) throws Exception {
+            this(version, previous, merged, HEAD);
+        }
+        Fixture(String version, String previous, boolean merged, String base) throws Exception {
             var publisherKey = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
             var communityKey = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
             publisher = new Publisher(1, "example", "Publisher", new Publisher.GithubAccount("101", "User", "example"),
@@ -212,7 +234,7 @@ class PublishedVersionTest {
             binding = CommunityJson.parse(CommunityJson.Kind.BINDING, CommunityJson.encode(new PluginBinding(1,
                     pluginId, publisher.owner(), "ab".repeat(32), TIME)));
             review = new VersionReviewTest.Fixture(submissionDocument,
-                    new CommunityPr("1001", 17, "101", "1002", HEAD, HEAD, merged ? "56".repeat(20) : null), binding.sha256(),
+                    new CommunityPr("1001", 17, "101", "1002", HEAD, base, merged ? "56".repeat(20) : null), binding.sha256(),
                     DescriptorSnapshot.from(PluginPackageReader.inspect(jar).descriptor(), submission.pluginId(), submission.version()));
             reviewEvidence = evidence("history/review.json", review.reviewDocument.bytes());
             publisherEvidence = evidence("history/publisher.json", publisher.document().bytes());

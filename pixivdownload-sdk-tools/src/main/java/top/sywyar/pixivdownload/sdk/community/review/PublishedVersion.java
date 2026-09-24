@@ -122,7 +122,7 @@ public record PublishedVersion(int schemaVersion, Owner owner, String pluginId, 
             preparedRecord.verify(CommunityJson.encode(value));
             var original = review.pr();
             if (original.mergeSha() != null || pr.mergeSha() == null || !generatedHead.equals(pr.headSha())
-                    || !generatedParents.equals(List.of(original.headSha()))
+                    || !original.hasGeneratedParents(generatedParents)
                     || !mergeParents.equals(List.of(original.baseSha(), generatedHead))
                     || !pr.baseSha().equals(original.baseSha())
                     || !pr.githubRepositoryId().equals(original.githubRepositoryId()) || pr.number() != original.number()
