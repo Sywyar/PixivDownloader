@@ -215,7 +215,7 @@ class PluginCatalogHttpClientTest {
             byte[] body = "trimmed-ok".getBytes(StandardCharsets.UTF_8);
             CatalogTestSupport.serveBytes(server, "/manifest.json", body);
 
-            // 旧实现 verifyUrlAllowed trim 校验、send 却用原始串 URI.create → 首尾空白即抛 IllegalArgumentException → 500。
+            // 宽松客户端的 URL 校验与发送必须使用同一规范化值。
             byte[] got = relaxed.fetchBytes(
                     "  " + CatalogTestSupport.loopbackUrl(server, "/manifest.json") + "  ", 1024);
 

@@ -1706,7 +1706,7 @@ class PluginReleaseScriptsTest {
                     StandardCharsets.UTF_8);
             assertThat(runGate(repo, script, "nightly")).isEqualTo("true");
 
-            // 4. 只删除一行：true（旧实现按新增行判定会误报 false）
+            // 4. 只删除一行：true
             Files.writeString(changelog, baseline.replace("- entry two\n", ""), StandardCharsets.UTF_8);
             assertThat(runGate(repo, script, "nightly")).isEqualTo("true");
 
@@ -1818,7 +1818,7 @@ class PluginReleaseScriptsTest {
         assertThat(releaseIndex).as("发布步骤必须在清理之后").isGreaterThan(deleteIndex);
         assertThat(advanceIndex).as("标签步骤必须在发布之后").isGreaterThan(releaseIndex);
 
-        // Release action 之前不存在任何更新 nightly 标签的步骤，旧步骤名已删除。
+        // Release action 之前不得更新 nightly 标签。
         assertThat(releaseJob.substring(0, releaseIndex)).doesNotContain("git tag -f nightly");
         assertThat(releaseJob).doesNotContain("name: Update nightly tag");
         // 标签指向当前提交 SHA，失败不被吞掉。

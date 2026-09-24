@@ -18,8 +18,8 @@ import java.util.stream.Collectors;
  * {@link WebUiSlotContribution}，按 pluginId 可逆注册（{@link #register} / {@link #unregister}），
  * 读路径走不可变快照：注册变更时整体替换快照引用、读侧无锁（如下载工作台扩展点在每次请求上读取）。
  * <p>
- * 镜像 {@link NavigationRegistry} / {@link PageSectionRegistry} 的注册形态，把此前仅存在于前端 JS 的「页面槽位」
- * 机制提升为后端可追踪、可随插件生命周期动态注册 / 注销的契约：让宿主页面只声明稳定的槽位锚点，锚点内容
+ * 与 {@link NavigationRegistry} / {@link PageSectionRegistry} 一样按插件生命周期注册 / 注销：
+ * 宿主页面只声明稳定的槽位锚点，锚点内容
  * （是否渲染、由哪个模块渲染、叠放顺序）全部来自活动插件——禁用 / 停用 / 卸载插件后其槽位自然从快照消失。
  * 本注册中心只持有纯数据 record，不持插件 Bean / classloader / 子 context 引用。
  */

@@ -2,14 +2,12 @@
 /*
  * batch-queue.js 队列变更后预览同步的运行态测试。
  *
- * 背景修复：清除队列 / 移除单项 / 入队后，下载页四个模式预览网格（快捷获取 / User / Search / 系列）
- * 的「✓ 在队列中」标记应与最新 state.queue 对齐。此前清除队列（stopAndClear）只同步 Search、增删
- * （addItemsToQueue / removeFromQueue）只同步 Search/Series/User，均漏了「快捷获取」，导致其预览残留
- * 过期标记。修复引入聚合函数 syncAllResultsQueueState() 统一回调四个 sync，并接到三处队列变更入口。
+ * 清除队列 / 移除单项 / 入队后，四个模式预览网格（快捷获取 / User / Search / 系列）
+ * 的「✓ 在队列中」标记应与最新 state.queue 对齐。
  *
  * 无浏览器 / 无 jsdom：在 Node 的 vm 沙箱里加载**真实**的 batch-queue 职责模块，用四个 sync 函数 spy + 最小
  * 宿主桩驱动**真实**的 syncAllResultsQueueState / addItemsToQueue / removeFromQueue，断言四个模式预览
- * 同步都被回调（重点守卫此前缺席的「快捷获取」）。stopAndClear 同样调用聚合函数，其断言由此一并覆盖。
+ * 同步都被回调。stopAndClear 同样调用聚合函数，其断言由此一并覆盖。
  *
  * 运行： node src/test/js/batch-queue-sync.test.js
  */
@@ -105,7 +103,7 @@ function relationMergeBehavior(reasons) {
     ok('1: facade 暴露 syncAllResultsQueueState', typeof queue.syncAllResultsQueueState === 'function');
 }
 
-// ===== 2) syncAllResultsQueueState() 一次性回调四个模式预览同步（含此前缺席的 quick）=====
+// ===== 2) syncAllResultsQueueState() 一次性回调四个模式预览同步 =====
 {
     const {queue, calls} = load();
     queue.syncAllResultsQueueState();

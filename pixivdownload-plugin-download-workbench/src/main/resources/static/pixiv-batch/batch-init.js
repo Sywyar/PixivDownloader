@@ -101,7 +101,7 @@
         await detectMode();
         // 下载页扩展点（取得侧 UI 动态装配）：先拉取已启用作品类型、加载其行为模块、把各类型贡献的取得侧
         // 控件（kind 单选 / 设置卡 / 专属筛选 / 入口按钮）注入宿主锚点，使后续 init 的事件绑定 / 设置加载在
-        // 「静态 HTML + 已注入槽位」的完整 DOM 上进行（与这些控件曾经写死在 HTML 时同序）。拉取失败 → 不注入
+        // 「静态 HTML + 已注入槽位」的完整 DOM 上进行。拉取失败 → 不注入
         // 任何插件槽位（插画内置照常）；某类型禁用 → 其槽位缺席（取得侧入口自然消失，残留队列项由 processSingle 暂停）。
         await window.PixivBatch.queueTypes.bootstrap();
         window.PixivBatch.modeControls.bind();

@@ -158,14 +158,9 @@
         refreshCurrentCard();
     }
 
-    // ----- 高频刷新防卡死：当前下载卡改 Vue 响应式挂载（与 #queue-list 同手法）-----
-    // 此前每个进度 SSE 事件、每个 worker 启停都 setCurrent → 整卡 innerHTML 重建；并发下载时 setCurrent
-    // 被不同作品反复调用，卡片在不同作品间闪烁、高度反复跳动（操作不一致）。改为：当前卡恒显示「队列最前面
-    // 的未完成项」状态（按队列顺序稳定，不再随事件到达顺序跳变），下方追加剩余计数行；队首作品切换时直接替换
-    //（不再回归「无」，仅在队列真正空闲或暂停时显示「无」）。Vue 挂载后当前卡由响应式派生（batch-queue-vue.js
-    // 从 reactive 队列镜像 + 暂停标志调用本段派生函数，Vue 只 patch 单卡）；Vue 不可用 / 挂载失败时退回命令式
-    // 派生（refreshCurrentCard 每次重建单卡，但内容稳定、不再跨作品闪烁）。formatCurrentCardHtml 与计划任务
-    // 本轮队列详情共用，故计数行另起、不烘焙进 formatCurrentCardHtml。
+    // 当前卡按队列顺序展示最前面的未完成项，避免并发进度事件改变卡片归属。
+    // Vue 从队列镜像和暂停状态派生单卡；挂载失败时由 refreshCurrentCard 命令式刷新。
+    // formatCurrentCardHtml 也供计划任务详情使用，因此剩余计数行在这里单独附加。
 
     // 队首未完成项 = 队列镜像中第一个 status 属于 downloading/pending/paused 的项（completed/failed/skipped/idle
     // 视为已结束）。含 pending/paused 是为了避免并发=1 时「上一项完成 → 下一项被认领」的间隙短暂闪「无」：该间隙

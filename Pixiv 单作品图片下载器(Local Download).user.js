@@ -1005,7 +1005,7 @@
 
             // 优先用原生 <a download> 触发浏览器下载（对 blob: 最可靠、跨管理器一致）；
             // 失败再回退 GM_download。GM_download 对 blob: URL 在多数管理器下会静默失败，
-            // 之前 onerror/ontimeout 也 resolve 导致“假成功”，这里改为真实判定。
+            // GM_download 的 onerror/ontimeout 必须拒绝，避免把失败报告为成功。
             let triggered = false;
             try {
                 const a = document.createElement('a');

@@ -150,15 +150,14 @@ async function resolveSeriesIdFromNovel(novelId, hookContext) {
 }
 
 /* —— Search 模式：小说搜索结果网格 + 队列态同步 ——
-   Vue reactive 渲染：搜索结果网格改用 Vue（reactive 数据驱动）渲染，
-   卡片列表 / in-queue 高亮 / 点击入队由 Vue 模板绑定，去掉手动 innerHTML 重建 + 逐卡 DOM 同步。
+   Vue reactive 状态驱动搜索结果网格、in-queue 高亮和点击入队。
    - 运行时单一来源：核心 Vue 全局构建版（经共享 helper window.PixivVue.ensure() 按需懒加载，不全站加载；
      具体运行时路径只由 helper 解析、本模块不硬编码）。
-   - 优雅缺席 / 回退：window.PixivVue 缺失（运行时未接线）或 Vue 运行时加载 / 挂载失败时，逐字回退到
-     命令式渲染 applyNovelSearchImperative（旧实现原样保留），绝不向宿主 init 抛异常；小说插件被禁用 →
-     本模块不加载 → 这两个钩子缺席 → 宿主回退插画内置路径（既有行为不变）。
-   - 与 descriptor.slots / renderSlots 正交：当前实现只改 acquisition.search 的渲染钩子（渲染进宿主提供的
-     #search-results-area），不碰 NOVEL_SLOTS 的 <template data-qt-slot> 片段注入路径与其锚点顺序。
+   - 回退：window.PixivVue 缺失或 Vue 运行时加载 / 挂载失败时，由
+     applyNovelSearchImperative 渲染，且不向宿主 init 抛异常；小说插件被禁用时，
+     本模块不加载，宿主使用插画内置路径。
+   - acquisition.search 渲染进宿主提供的 #search-results-area；NOVEL_SLOTS 的
+     <template data-qt-slot> 片段注入及其锚点顺序独立于该路径。
    - 模型不 bake 翻译：reactive 模型只存原始码 / 原始数据（item 标题 / userName / 字数 / 收藏数等），
      显示文案在模板渲染期经 bt() 派生（{{ t(...) }} 方法绑定），跟随语言切换重新派生。summary 头部为
      每次 render 重算的瞬时输出（语言切换会触发 render 重算），不是跨语言复用的长生命周期模型。 */

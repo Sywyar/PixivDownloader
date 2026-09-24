@@ -310,7 +310,7 @@ class PluginRepositoryConfigEditorTest {
         String content = Files.readString(file, StandardCharsets.UTF_8);
         // 后续顶层键既未被并入仓库块、也未被覆盖
         assertThat(new ConfigFileEditor(file).read("proxy.enabled")).isEqualTo("true");
-        // beta 只出现一次（旧 bug 会在空行后遗留一份重复 / 悬挂 beta 块）
+        // 空行后的 beta 只出现一次，不能遗留重复或悬挂的仓库块。
         int firstBeta = content.indexOf("id: beta");
         assertThat(firstBeta).isGreaterThanOrEqualTo(0);
         assertThat(content.indexOf("id: beta", firstBeta + 1)).isEqualTo(-1);
@@ -372,7 +372,7 @@ class PluginRepositoryConfigEditorTest {
                 "  - id: alpha",
                 "    manifest-url: https://a.example/manifest.json",
                 "    enabled: true",
-                "# 第二个仓库（项间顶层注释，旧实现会在此提前结束块、悬挂 beta）",
+                "# 第二个仓库（项间顶层注释）",
                 "  - id: beta",
                 "    manifest-url: https://b.example/manifest.json",
                 "    enabled: true",
@@ -384,7 +384,7 @@ class PluginRepositoryConfigEditorTest {
 
         assertThat(editor.read()).extracting(RepositoryConfigEntry::id).containsExactly("alpha", "beta");
         String content = Files.readString(file, StandardCharsets.UTF_8);
-        // beta 只出现一次（旧 bug 会遗留一份悬挂 / 重复 beta 块）
+        // beta 只出现一次，项间注释不能导致重复仓库块。
         int firstBeta = content.indexOf("id: beta");
         assertThat(firstBeta).isGreaterThanOrEqualTo(0);
         assertThat(content.indexOf("id: beta", firstBeta + 1)).isEqualTo(-1);
@@ -449,7 +449,7 @@ class PluginRepositoryConfigEditorTest {
                 "plugin-catalog.repositories:",
                 "  - id: a",
                 "    manifest-url: https://a.example/manifest.json",
-                "# 中间注释（旧实现会在此提前结束块、删全部后遗留 b）",
+                "# 中间注释（删除全部时须一并清理后续仓库项）",
                 "  - id: b",
                 "    manifest-url: https://b.example/manifest.json",
                 "proxy.enabled: true");

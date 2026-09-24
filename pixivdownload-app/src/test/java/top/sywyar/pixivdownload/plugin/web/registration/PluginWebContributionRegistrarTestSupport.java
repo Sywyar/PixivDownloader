@@ -339,7 +339,7 @@ abstract class PluginWebContributionRegistrarTestSupport {
         }
     }
 
-    /** 覆盖四类此前只在启动期聚合、现在必须随外置 serving 可逆接入的 web 贡献。 */
+    /** 覆盖四类必须随外置 serving 可逆接入的 web 贡献。 */
     protected record LifecycleWebPlugin(String id, String sectionId) implements PixivFeaturePlugin {
         @Override public String displayName() { return "lifecycle.plugin.name"; }
         @Override public String description() { return "lifecycle.plugin.summary"; }

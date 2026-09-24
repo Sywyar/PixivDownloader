@@ -331,8 +331,7 @@ public class NovelTranslationService {
 
     /**
      * skip 模式下判断该语言是否已"满足"用户勾选的全部翻译范围：每个被勾选字段都已有非空译文。
-     * 仅在用户既要翻译正文、又勾选了标题 / 简介时，会出现「正文已译但标题缺失」这类需要继续 AI 调用的情形——
-     * 旧逻辑只看行存在与否，会误把该情况判为「整行已译」直接跳过。
+     * 正文已译但勾选的标题 / 简介缺失时仍需继续 AI 调用，不能只根据翻译行是否存在来跳过。
      */
     private boolean isAllRequestedFieldsTranslated(long novelId, String langCode,
                                                    boolean translateBody, boolean translateTitle,

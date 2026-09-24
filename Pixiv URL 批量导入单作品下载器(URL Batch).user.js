@@ -1934,7 +1934,7 @@
                             } else {
                                 // 漫画系列元数据在 body.illustSeries[0]。漫画系列在 Pixiv 数据结构里
                                 // 通常没有独立封面字段（Pixiv UI 上展示的"封面"是作者指定的某话首图），
-                                // _pn_extractSeriesCoverUrl 大概率返回空串，与之前后端代理路径行为一致；
+                                // _pn_extractSeriesCoverUrl 大概率返回空串；
                                 // caption 字段则存在且能取到（直连后受限作品也能拿到）。
                                 const arr = data.body && data.body.illustSeries;
                                 meta = Array.isArray(arr) && arr.length > 0 ? arr[0] : null;
@@ -2823,7 +2823,7 @@
         }
 
         // 下载成功后由脚本端直连 Pixiv 发 bookmark；失败仅记录到 item.bookmarkResult，
-        // 不阻断下载完成流程（与之前后端 best-effort 行为一致）。
+        // 不阻断下载完成流程。
         async _maybeBookmarkAfterDownload(item, kind) {
             if (!this.bookmark) return;
             const id = kind === 'novel'

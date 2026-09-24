@@ -2,9 +2,8 @@
 // ============================================================
 //  PixivBatch.queueVue —— 下载工作台「队列 / 统计 / 速度」与计划任务「本轮队列详情」的 Vue reactive 岛。
 //
-//  目标：把下载页高频刷新热点（普通下载队列、5 张统计卡 + 总下载速度、计划任务展开后的本轮队列详情）从
-//  「每个进度事件整块 innerHTML 重建」改为 reactive 数据驱动——更新只改 reactive store，Vue 据 :key 与
-//  v-html 仅 patch 发生变化的单行 / 单字段，避免整队列 / 整块详情重建造成的主线程卡顿（INP 飙高）。
+//  下载队列、统计、速度及计划任务详情的高频更新只改 reactive store；Vue 据 :key 与 v-html
+//  仅 patch 变化的单行 / 单字段，避免整块 DOM 重建造成的主线程卡顿。
 //
 //  共享口径（不分叉、不复制第二套 HTML 语义）：行 HTML 仍由 batch-queue.js 的 buildQueueItemHtml 生成、
 //  当前下载卡由 batch-queue.js 的 computeCurrentCardHtml 从 reactive 队列镜像派生（内部复用 formatCurrentCardHtml

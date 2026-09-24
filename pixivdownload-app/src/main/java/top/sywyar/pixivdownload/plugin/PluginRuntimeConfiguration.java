@@ -37,14 +37,13 @@ import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.storage.AppPluginDataSource;
 
 /**
- * 核心壳侧装配 PF4J 外置插件运行时。本配置不再自行 {@code new PluginRuntimeManager} / 调用
- * {@code recoverPendingTransactions()} / 调用 {@code start()}——恢复 + 构造唯一管理器 + 一次扫描 start 已收口到
- * {@link PluginBootstrapSession}（住 {@code pixivdownload-plugin-runtime} 模块、Spring-free、对 app 不可见地封装 PF4J）。
+ * 核心壳侧装配 PF4J 外置插件运行时。{@link PluginBootstrapSession} 负责恢复、构造唯一管理器与一次扫描启动；
+ * 该会话位于 {@code pixivdownload-plugin-runtime} 模块，独立于 Spring 并封装 PF4J。
  *
  * <p>两条启动路径都经同一会话取得 manager / installer / status，避免重复扫描 / 启动 / 第二套 classloader：
  * <ul>
  *   <li>GUI 路径：进程在 Spring 启动前创建 PROCESS 拥有的会话（已 start），经 {@link PluginBootstrapSessionHandoff}
- *       交接给 Spring——本配置检测到交接载体即直接复用，不再 recover / start。</li>
+ *       交接给 Spring；本配置检测到交接载体即直接复用。</li>
  *   <li>headless 路径：无交接载体，本配置创建 CONTEXT 拥有的会话并 start（恢复事务 + 一次扫描）。</li>
  * </ul>
  *

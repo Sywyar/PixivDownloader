@@ -33,9 +33,8 @@ public class PixivDatabase {
 
     /**
      * 进程内已分配但可能尚未持久化的最大时间戳。
-     * 用于在并发下载时避免多个 worker 同时拿到相同的 unique time —— DB 行尚未写入前，
-     * 仅依赖 {@code countByTime} 的旧实现会让所有并发调用拿到同一秒，
-     * 后续 {@code INSERT OR IGNORE} 静默丢弃冲突行，导致下载成功但记录丢失。
+     * 在数据库写入前为并发 worker 分配唯一时间戳，避免 {@code INSERT OR IGNORE}
+     * 静默丢弃冲突行，导致下载成功但记录丢失。
      */
     private final AtomicLong lastIssuedTime = new AtomicLong(0);
 

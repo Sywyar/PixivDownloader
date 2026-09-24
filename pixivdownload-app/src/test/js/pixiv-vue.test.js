@@ -3,10 +3,9 @@
  * 共享 Vue 挂载 helper（/js/pixiv-vue.js, window.PixivVue）的运行态测试。
  *
  * 无浏览器 / 无 jsdom：用最小 DOM 在 Node 的 vm 沙箱里加载真实的 pixiv-vue.js，验证「为已开出的
- * data-qt-slot 槽位准备稳定 Vue 挂载宿主」这条补强契约的几条不变量。**关键修订**：宿主必须落在
- * `<template data-qt-slot>` 的**原开槽位置**（insertBefore 到模板之前，模板随后移除），使非空 Vue
- * 组件挂载后出现在该 slot 的真实位置——**不再**统一 append 到父容器末尾（旧实现会把 settings-card
- * 等挪到容器末尾、偏离原槽位）。
+ * data-qt-slot 槽位准备稳定 Vue 挂载宿主」的几条不变量。宿主必须落在
+ * `<template data-qt-slot>` 的开槽位置（insertBefore 到模板之前，模板随后移除），使非空 Vue
+ * 组件挂载后出现在该 slot 的真实位置。
  *
  * 覆盖下载页全部 9 个 UI 槽位（与 /api/download/extensions 暴露的 target 一一对应）：
  *   cookie-tools / quick-actions-bookmarks / quick-actions-mine / kind-option-quick / import-hint /
