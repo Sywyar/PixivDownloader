@@ -1,5 +1,7 @@
 # PixivDownloader
 
+![](./image/pixivdownloader.png)
+
 [简体中文](./README.md) | [繁體中文](./README_zh-Hant.md) | 日本語 | [한국어](./README_ko.md) | [English](./README_en.md)
 
 > [!NOTE]
