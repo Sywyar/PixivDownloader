@@ -1,11 +1,11 @@
 /*
  * 下载工作台布局偏好调查（PostHog API Survey 自定义单屏弹窗）。
  *
- * 触发时机：仅新版工作台（pixiv-batch-alt.html）在本页面会话中第一个下载项
- * 完成时弹出一次；经典下载页（pixiv-batch.html）不参与调查，不再加载本模块。
+ * 触发时机：仅 pixiv-batch-alt.html 在本页面会话中第一个下载项
+ * 完成时弹出一次；pixiv-batch.html 不参与调查。
  * alt 下载引擎在首个作品完成时派发 pixiv:first-download-completed 事件，本模块
  * 在事件到达时评估状态门禁（submitted / never / 未到期 snoozed 不展示）并启动
- * 展示流程；不再使用延迟定时器 / 布局体验数量阈值 / 页面可见性等自动展示门禁。
+ * 展示流程。
  *
  * 顶层加载无副作用；只有官方发行激活位为 true 且调用 init() 后才创建客户端与操作 DOM。
  * 调查初始化不阻塞页面核心初始化；调查的任何异常都不得中断下载功能。

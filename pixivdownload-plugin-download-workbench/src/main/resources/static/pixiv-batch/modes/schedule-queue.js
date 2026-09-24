@@ -82,9 +82,8 @@
     const scheduleQueueWasRunning = new Set();
 
     // ── 「本轮队列详情」高频刷新合批 ─────────────────────────────────────────────
-    // 并发下载时 SSE 逐图进度事件会高频到达。若每个事件都整块重建 .schedule-queue-body 的 innerHTML
-    //（含全部队列行），主线程会被反复的 DOM 拆建占满，交互延迟（INP）随之飙高。
-    // 改为：SSE 只 patch 内存模型 + 标记脏行 id，再用节流合批，只替换发生变化的单行 outerHTML；
+    // SSE 逐图进度事件只更新内存模型并标记脏行；节流合批后仅替换变化的单行 outerHTML，
+    // 避免高并发时反复重建整个队列占满主线程。
     // 统计栏 / 当前下载项区域用更低频的独立节流刷新。折叠 / 解绑 / 整块重渲染时清理待执行刷新与脏集合。
     const scheduleQueueDirtyRows = new Map();        // taskId → Set<queueId>：待局部刷新的脏行
     const scheduleQueueRowFlushHandles = new Map();  // taskId → setTimeout 句柄：脏行合批刷新

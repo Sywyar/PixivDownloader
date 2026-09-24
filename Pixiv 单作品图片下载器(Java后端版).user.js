@@ -1368,7 +1368,7 @@
     // 单次脚本生命周期的系列元数据缓存。插画系列：直连 Pixiv（与 fetchNovelSeriesEnrichment
     // 同理，避免后端代理 + document.cookie 取不到 HttpOnly PHPSESSID 导致受限漫画系列 caption
     // 缺失）。漫画系列通常没有独立封面字段（Pixiv UI 展示的"封面"是作者指定某话首图），
-    // _pn_extractSeriesCoverUrl 大概率返回空串，与之前后端代理路径行为一致。
+    // _pn_extractSeriesCoverUrl 大概率返回空串。
     const seriesEnrichmentCache = new Map();
     function fetchSeriesEnrichment(seriesId) {
         const sid = Number(seriesId);

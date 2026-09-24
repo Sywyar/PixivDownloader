@@ -28,7 +28,7 @@
 
     function phaseGallery() {
         patchState({phase: 'gallery'});
-        // 进入画廊讲解即视为「画廊操作指引」已抵达，通知后端供 GUI 引导推进（取代旧版画廊指引的信号）
+        // 进入画廊讲解即视为「画廊操作指引」已抵达，通知后端供 GUI 引导推进。
         notifyCompletionStepDone();
         // 先逐区域认识画廊（视图 / 搜索 / 筛选 / 作品网格），再高亮刚下载的作品卡片
         runGalleryRegions(highlightExampleCard);

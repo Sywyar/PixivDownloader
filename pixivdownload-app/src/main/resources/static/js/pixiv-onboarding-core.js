@@ -100,7 +100,7 @@
     };
 
     // ── 右下角「操作指引」FAB（仅下载页注册；复用 pixiv-tour.css 的 .pt-help-fab 样式） ────────
-    // 取代旧版 PixivTour 的 FAB：点击重跑跨页新手向导（已保存称呼则直接跳到连通性检测）。
+    // 点击此 FAB 重跑跨页新手向导；已保存称呼时直接跳到连通性检测。
     var fabEl = null;
 
     function ensureFab() {

@@ -19,8 +19,8 @@ import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 
 /**
  * 导航接口：返回 {@link NavigationRegistry} 合并后、按当前请求<b>身份</b>可见性过滤并按
- * 「来源层级 → placement 内 priority → id」三级排序的导航项，供页面动态渲染跨插件导航
- * （取代 HTML 中的硬编码入口）。每项带 {@link NavigationView#placements()}，前端据此把它渲染进对应的空 slot。
+ * 「来源层级 → placement 内 priority → id」三级排序的导航项，供页面动态渲染跨插件导航。
+ * 每项带 {@link NavigationView#placements()}，前端据此把它渲染进对应的空 slot。
  * <p>
  * 可见性以请求身份（{@link Audience}）为准，经 {@link AccessPolicy#isVisibleTo(Audience)} 投影——某导航项
  * 可见当且仅当其 {@code visibleTo} 策略对当前页面身份可见（{@code PUBLIC} 项对所有人可见）。流程专用策略在
@@ -39,8 +39,7 @@ import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
  * 访客身份从请求上下文的 {@link GuestInviteSession#REQUEST_ATTR} 读取（由 {@code AuthFilter} 在非公开请求上
  * 解析挂载）。本端点 {@code /api/navigation} 由 {@code CorePlugin.routes()} 以
  * {@link AccessPolicy#VISITOR_AND_INVITED_GUEST} 声明：multi 普通访客与受邀访客均可只读（各自得到对应身份
- * 可见导航）、solo 未登录 401、不入 monitor。<b>受邀访客现可真实读取本端点</b>（历史上曾以 {@code VISITOR}
- * 声明而被 {@code AuthFilter} 挡成 403，现改为放行使其页面能拉取动态导航），故上面「访客邀请会话」一档现已生效。
+ * 可见导航）、solo 未登录 401、不入 monitor。受邀访客可读取本端点并取得对应的导航项。
  * <p>
  * 响应只暴露渲染所需字段（不含 {@code visibleTo}），不泄露内部访问策略模型；标签只返回 i18n key，
  * 文案由前端按当前语言解析。

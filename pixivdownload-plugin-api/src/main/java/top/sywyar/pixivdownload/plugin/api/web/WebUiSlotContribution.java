@@ -3,9 +3,8 @@ package top.sywyar.pixivdownload.plugin.api.web;
 import java.util.Map;
 
 /**
- * 插件向某个宿主页面 <b>UI 槽位</b>（mount point）贡献的内容声明。把此前仅存在于前端 JS 的「页面槽位」
- * 机制（宿主页声明稳定的槽位锚点、活动插件把片段注入同名锚点）提升为后端可追踪、可随插件生命周期
- * <b>动态注册 / 注销</b>的契约：每个槽位由其所属插件声明一条本记录，宿主聚合流程
+ * 插件向某个宿主页面 <b>UI 槽位</b>（mount point）贡献的内容声明。宿主页声明稳定的槽位锚点，
+ * 活动插件通过本记录声明挂载内容；每个槽位可随插件生命周期<b>动态注册 / 注销</b>。宿主聚合流程
  * 合并各<b>活动</b>插件的声明并以不可变快照对外暴露。
  * <p>
  * 与 {@link NavigationContribution}（一条导航链接）/ {@link PageSectionContribution}（带标题 / 操作 / 内嵌导航的

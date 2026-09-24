@@ -159,7 +159,7 @@ function buildNovelSearchComponent(reactiveState) {
     };
 }
 
-// 命令式回退渲染（旧实现逐字保留）：Vue 不可用 / 加载失败时使用，并兼作 Vue 挂载前的首屏即时占位。
+// 命令式回退渲染：Vue 不可用 / 加载失败时使用，并兼作 Vue 挂载前的首屏即时占位。
 function applyNovelSearchImperative(area, view) {
     view = view || getSearchView();
     const inQueue = new Set(state.queue.map(q => q.id));

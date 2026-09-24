@@ -262,7 +262,6 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
     private void upsertSeries(long seriesId, String title, Long authorId) throws SQLException {
         long nowMillis = System.currentTimeMillis();
         // 与 MangaSeriesService.observe 对齐：title 或 author 任一变化都触发 update。
-        // 之前 WHERE 含 `AND title <> ?` 会让仅 author 变化的场景无更新，导致回填工具落后于运行时。
         try (PreparedStatement insertSeries = connection.prepareStatement(
                 "INSERT OR IGNORE INTO manga_series(series_id, title, author_id, updated_time) VALUES(?, ?, ?, ?)");
              PreparedStatement updateSeries = connection.prepareStatement(

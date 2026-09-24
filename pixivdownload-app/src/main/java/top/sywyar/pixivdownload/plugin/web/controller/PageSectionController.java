@@ -19,8 +19,7 @@ import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 
 /**
  * 页面区块接口：返回 {@link PageSectionRegistry} 合并后、按当前请求<b>身份</b>可见性过滤并排序的页面区块，
- * 供宿主页面把活动插件贡献的区块渲染进对应的空 section slot——取代页面里硬编码、按插件 id 显隐的业务块
- * （宿主不再需要知道是哪个插件、是否启用）。
+ * 供宿主页面把活动插件贡献的区块渲染进对应的空 section slot；宿主不需要知道具体插件及其启用状态。
  * <p>
  * 可见性与排序口径同 {@link NavigationController}：复用 {@link AccessPolicy#isVisibleTo(Audience)} 的页面身份投影，
  * 按「来源层级（内置先于第三方）→ placement 内 {@link PageSectionContribution#priority()} → id」三级稳定排序。

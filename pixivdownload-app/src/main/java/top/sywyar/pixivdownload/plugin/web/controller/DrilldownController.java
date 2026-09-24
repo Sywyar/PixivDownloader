@@ -20,8 +20,8 @@ import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 
 /**
  * 下钻接口：返回 {@link DrilldownRegistry} 合并后、按当前请求<b>身份</b>可见性过滤并排序的「下钻链接模板」，
- * 供宿主页面在某语义 placement 上以运行期变量解析出可点击的下钻 href——取代页面里硬编码、按插件 id 拼接的跨插件
- * 下钻链接（宿主不再需要知道是哪个插件、目标页面路径或查询参数名）。
+ * 供宿主页面在某语义 placement 上以运行期变量解析出可点击的下钻 href；宿主不需要知道具体插件、
+ * 目标页面路径或查询参数名。
  * <p>
  * 可见性与排序口径同 {@link NavigationController} / {@link PageSectionController}：复用
  * {@link AccessPolicy#isVisibleTo(Audience)} 的页面身份投影，按「来源层级（内置先于第三方）→ placement 内

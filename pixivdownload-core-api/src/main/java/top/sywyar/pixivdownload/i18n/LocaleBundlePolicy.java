@@ -23,7 +23,7 @@ import java.util.Locale;
 public interface LocaleBundlePolicy {
 
     /**
-     * 本策略正式支持的语言。旧实现默认只声明当前归一化语言；host catalog 实现返回全部可见语言。
+     * 本策略正式支持的语言。默认方法只声明当前归一化语言；host catalog 实现返回全部可见语言。
      *
      * @return 方法返回的列表
      */
@@ -32,7 +32,7 @@ public interface LocaleBundlePolicy {
     }
 
     /**
-     * 返回用于缺省输出的全局回退语言。旧实现保持当前语言，host catalog 与 legacy 策略提供明确值。
+     * 返回用于缺省输出的全局回退语言。默认方法保持当前语言，host catalog 与 legacy 策略提供明确值。
      *
      * @return 全局回退语言
      */

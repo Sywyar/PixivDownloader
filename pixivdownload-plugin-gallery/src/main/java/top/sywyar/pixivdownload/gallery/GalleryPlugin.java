@@ -123,7 +123,7 @@ public class GalleryPlugin implements PixivFeaturePlugin {
         // nav.type-illust=漫画而非页面名 nav.label=画廊，href 显式带 ?view=all。
         //
         // 统计页画廊视图快捷入口：向 stats.gallery-links 注册「全部 / 按作者 / 按系列」三条画廊视图链接——
-        // 取代统计页此前硬编码这些 href 的做法。这三条链接作为「视图」区块（见 pageSections()）内嵌导航 slot 的内容；
+        // 这三条链接作为「视图」区块（见 pageSections()）内嵌导航 slot 的内容；
         // priority 31/32/33 仅决定三者相对顺序。全部 INVITED_GUEST，禁用画廊后这些入口（含疑似重复页图标）一并消失。
         return List.of(
                 new NavigationContribution(
