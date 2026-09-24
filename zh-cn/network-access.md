@@ -66,14 +66,16 @@ AI 插件使用 OpenAI 兼容协议。连接测试、翻译或其他 AI 功能�
 | 智谱 | `https://open.bigmodel.cn/api/paas/v4` |
 | Moonshot | `https://api.moonshot.cn/v1` |
 | 豆包/火山方舟 | `https://ark.cn-beijing.volces.com/api/v3` |
-| 腾讯混元 | `https://api.hunyuan.cloud.tencent.com/v1` |
+| 腾讯混元 / TokenHub | `https://tokenhub.tencentmaas.com/v1` |
 | 百度千帆/ERNIE | `https://qianfan.baidubce.com/v2` |
 | 讯飞星火 | `https://spark-api-open.xf-yun.com/v1` |
-| MiniMax | `https://api.minimaxi.com/v1` |
+| MiniMax | `https://api.minimax.cn/v1` |
 | OpenRouter | `https://openrouter.ai/api/v1` |
 | SiliconFlow | `https://api.siliconflow.cn/v1` |
 | Ollama | `http://localhost:11434/v1` |
 | LM Studio | `http://localhost:1234/v1` |
+
+主动选择预设时才会回填建议模型和基础地址；已保存的配置不会自动迁移。腾讯混元预设使用 TokenHub，需要在该平台创建 API Key 并开通模型，旧混元平台的密钥不能沿用。旧配置仍使用原地址，迁移时请重新选择预设、填写新密钥并保存。
 
 AI 基础地址可配置为其他兼容服务，因此完整目标范围取决于实际配置。自定义目标会收到相应请求参数和 API Key，也可能访问本机或内网；聊天请求还会收到待处理文本。只应配置为管理员信任的本地、自建或第三方服务。包括模型列表请求在内，携带凭据的 AI 请求不保存 Cookie，也不跟随 HTTP 重定向，避免把凭据转发到跳转目标；直连或代理同样由当前 AI 配置决定。删除 API Key、停用或清空配置，或者禁用 `ai` 插件，可停止相关请求。
 

@@ -66,14 +66,16 @@ The AI plugin uses the OpenAI-compatible protocol. Connection tests, translation
 | Zhipu | `https://open.bigmodel.cn/api/paas/v4` |
 | Moonshot | `https://api.moonshot.cn/v1` |
 | Doubao/Volcengine Ark | `https://ark.cn-beijing.volces.com/api/v3` |
-| Tencent Hunyuan | `https://api.hunyuan.cloud.tencent.com/v1` |
+| Tencent Hunyuan / TokenHub | `https://tokenhub.tencentmaas.com/v1` |
 | Baidu Qianfan/ERNIE | `https://qianfan.baidubce.com/v2` |
 | iFlytek Spark | `https://spark-api-open.xf-yun.com/v1` |
-| MiniMax | `https://api.minimaxi.com/v1` |
+| MiniMax | `https://api.minimax.cn/v1` |
 | OpenRouter | `https://openrouter.ai/api/v1` |
 | SiliconFlow | `https://api.siliconflow.cn/v1` |
 | Ollama | `http://localhost:11434/v1` |
 | LM Studio | `http://localhost:1234/v1` |
+
+Selecting a preset fills in its suggested model and base URL; saved settings are not migrated automatically. The Tencent Hunyuan preset uses TokenHub, which requires a new API key and model access from the TokenHub console. Keys from the old Hunyuan platform cannot be reused. Existing settings continue to use their saved URL; to migrate, select the preset again, enter the new key, and save.
 
 An administrator may replace the AI base URL with any compatible service, so the full destination range depends on the current settings. A custom target receives the relevant request parameters and API key and may point to the local machine or intranet; chat requests also include the processed text. Use only a trusted local, self-hosted, or third-party service. Credential-bearing AI requests, including model-list requests, do not store cookies or follow HTTP redirects, preventing credentials from being forwarded to a redirect target. Direct or proxied transport is selected by the current AI settings. Remove the API key, clear/disable the settings, or disable `ai` to stop these requests.
 
