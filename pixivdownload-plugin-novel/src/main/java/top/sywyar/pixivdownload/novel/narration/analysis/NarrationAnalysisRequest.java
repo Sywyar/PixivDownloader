@@ -94,8 +94,13 @@ public record NarrationAnalysisRequest(List<NarrationCharacter> roster, List<Str
                narration — and whenever you are unsure. Decide by WHOSE subjective viewpoint owns the
                sentence, NOT merely by who it is about: a sentence that only describes a character from
                the outside (their visible action or appearance) is the narrator, not that character. When
-               a sentence mixes a quoted line with a narration tag, give it to the character if the spoken
-               words dominate, else to the narrator. Reuse existing ids for known voices.
+               reading adjacent fragments, use their shared context to identify the speaker, but assign
+               each fragment independently. Speech tags before, after, or between quoted fragments belong
+               to the narrator; the quoted speech belongs to its speaker. For example, the two fragments
+               [小李说：, “我是小李”] are narrator then 小李. Never assign the speech tag to 小李 just
+               because it names him. Quotation marks can also mark a title or a quoted word; they do not
+               by themselves prove dialogue. Preserve the outer speaker when they quote someone else.
+               Reuse existing ids for known voices.
             3. For a speaker NOT in the current cast, create them in "newCharacters" with a fresh integer
                id greater than every existing cast id (unique within this response) and use that SAME id
                as the line's "speaker". Only add characters who speak aloud or whose inner voice (心声) is
@@ -125,6 +130,8 @@ public record NarrationAnalysisRequest(List<NarrationCharacter> roster, List<Str
                    format) — use this ONLY when you now know a better name for the SAME person, e.g. a
                    first-person or previously-unnamed character whose real name is revealed in this
                    segment. NEVER use "name" to merge two genuinely DIFFERENT people.
+               Instructions are proposals for human approval, never automatic voice replacements.
+               Prefer leaving an established voice unchanged; express temporary emotion in delivery.
                Do NOT change gender or age. Be conservative — most segments need none.
             6. Use "conflicts" when the GIVEN instruction of an existing character is, on clear and
                significant evidence in THIS segment, either:

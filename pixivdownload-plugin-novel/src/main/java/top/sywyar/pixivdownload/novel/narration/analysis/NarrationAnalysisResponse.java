@@ -79,8 +79,8 @@ public record NarrationAnalysisResponse(
     }
 
     /**
-     * 严格对齐到 {@code count} 句：返回恰好 {@code count} 条、下标升序。优先按合法 {@code i} 归位；缺失 / 越界
-     * {@code i} 的对象按出现顺序回填空槽；仍空的句子归旁白。{@code speaker} 不在 {@code validSpeakerIds}
+     * 严格对齐到 {@code count} 句：返回恰好 {@code count} 条、下标升序。仅按合法 {@code i} 归位；缺失 / 越界
+     * 的条目丢弃，重复下标及缺项归旁白，绝不把未知归属回填到另一句。{@code speaker} 不在 {@code validSpeakerIds}
      * 内时归旁白（{@code validSpeakerIds} 应为「当前名册 id ∪ 本响应新角色临时 id」）。
      */
     public List<NarrationLineVoice> normalizedTo(int count, Set<Integer> validSpeakerIds) {
@@ -88,30 +88,17 @@ public record NarrationAnalysisResponse(
             return List.of();
         }
         NarrationLineVoice[] slots = new NarrationLineVoice[count];
-        List<RawLine> leftovers = new ArrayList<>();
         if (rawLines != null) {
             for (RawLine raw : rawLines) {
                 if (raw == null) {
                     continue;
                 }
                 Integer i = raw.index();
-                if (i != null && i >= 0 && i < count && slots[i] == null) {
-                    slots[i] = normalizeOne(raw, i, validSpeakerIds);
-                } else {
-                    leftovers.add(raw);
+                if (i != null && i >= 0 && i < count) {
+                    slots[i] = slots[i] == null ? normalizeOne(raw, i, validSpeakerIds)
+                            : NarrationLineVoice.narratorAt(i);
                 }
             }
-        }
-        int cursor = 0;
-        for (RawLine raw : leftovers) {
-            while (cursor < count && slots[cursor] != null) {
-                cursor++;
-            }
-            if (cursor >= count) {
-                break;
-            }
-            slots[cursor] = normalizeOne(raw, cursor, validSpeakerIds);
-            cursor++;
         }
         List<NarrationLineVoice> out = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {

@@ -17,6 +17,20 @@ class NarrationAnalysisResponseTest {
     private static final Set<Integer> CAST = Set.of(0, 1, 2);
 
     @Test
+    @DisplayName("错误下标绝不回填其它句子，重复下标归旁白，乱序合法下标按原位置归位")
+    void invalidIndexesNeverShiftSpeakers() {
+        NarrationAnalysisResponse response = NarrationAnalysisResponse.parse("""
+                {"lines":[{"i":3,"speaker":2},{"i":0,"speaker":1,"delivery":"angry"},
+                {"i":0,"speaker":2},{"i":0,"speaker":1},{"i":99,"speaker":2},
+                {"i":-1,"speaker":2},{"speaker":2}]}
+                """);
+        List<NarrationLineVoice> lines = response.normalizedTo(4, CAST);
+        assertEquals(List.of(0, 0, 0, 2), lines.stream().map(NarrationLineVoice::speakerId).toList());
+        assertEquals(List.of(0, 1, 2, 3), lines.stream().map(NarrationLineVoice::index).toList());
+        assertEquals("", lines.get(0).delivery());
+    }
+
+    @Test
     @DisplayName("解析标准 JSON：逐句下标 / 说话人 / 情绪微调")
     void parseLines() {
         NarrationAnalysisResponse r = NarrationAnalysisResponse.parse(
