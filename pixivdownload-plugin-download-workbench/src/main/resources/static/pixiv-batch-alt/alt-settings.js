@@ -201,19 +201,15 @@ function settingsRow(labelText, control, helpText) {
 }
 
 function switchControl(checked, onChange, disabled) {
-    const btn = el('button', 'ab-switch' + (checked ? ' is-on' : ''));
-    btn.type = 'button';
-    btn.setAttribute('role', 'switch');
-    btn.setAttribute('aria-checked', checked ? 'true' : 'false');
-    if (disabled) btn.disabled = true;
-    btn.appendChild(el('span', 'ab-switch-knob'));
-    btn.addEventListener('click', () => {
-        const next = !btn.classList.contains('is-on');
-        btn.classList.toggle('is-on', next);
-        btn.setAttribute('aria-checked', next ? 'true' : 'false');
-        onChange(next);
-    });
-    return btn;
+    const label = el('label', 'toggle ab-switch');
+    const input = el('input');
+    input.type = 'checkbox';
+    input.setAttribute('role', 'switch');
+    input.checked = !!checked;
+    input.disabled = !!disabled;
+    input.addEventListener('change', () => onChange(input.checked));
+    label.append(input, el('span', 'toggle-icon'));
+    return label;
 }
 
 function numberWithUnit(value, unit, onValue, onUnit) {

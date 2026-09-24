@@ -8,6 +8,35 @@ const {execFileSync} = require('node:child_process');
 const vm = require('node:vm');
 const {MiniElement} = require('./pixiv-layout-feedback-test-dom');
 
+test('Cupertino 控件使用原生开关状态并保留业务回调和禁用属性', () => {
+    const document = {
+        addEventListener() {},
+        createElement(tag) {
+            const node = new MiniElement(tag);
+            node.append = (...children) => children.forEach(child => node.appendChild(child));
+            return node;
+        },
+    };
+    const context = vm.createContext({document});
+    context.window = context;
+    for (const name of ['alt-core.js', 'alt-settings.js']) {
+        vm.runInContext(readFileSync(resolve(__dirname, '../../main/resources/static/pixiv-batch-alt', name), 'utf8'), context);
+    }
+    const changes = [];
+    const control = context.switchControl(true, value => changes.push(value), false);
+    const input = control.querySelector('input');
+    assert.equal(input.type, 'checkbox');
+    assert.equal(input.checked, true);
+    assert.equal(input.getAttribute('role'), 'switch');
+    input.checked = false;
+    input.dispatchEvent({type: 'change'});
+    assert.deepEqual(changes, [false]);
+    assert.equal(context.switchControl(false, () => {}, true).querySelector('input').disabled, true);
+    const action = context.el('button', 'ab-btn ab-btn--primary', '操作');
+    assert.ok(action.classList.contains('button-fill'));
+    assert.equal(action.textContent, '操作');
+});
+
 test('工作区保留各自滚动位置，草稿只保存非敏感输入与光标', () => {
     const root = new MiniElement('body');
     const document = {

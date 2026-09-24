@@ -81,6 +81,8 @@ function renderAuthButton() {
     btn.textContent = isAdmin ? bt('auth.logout', '退出') : bt('auth.login', '登录');
     btn.classList.toggle('ab-btn--primary', !isAdmin);
     btn.classList.toggle('ab-btn--ghost', isAdmin);
+    btn.classList.toggle('button-fill', !isAdmin);
+    btn.classList.toggle('button-tonal', isAdmin);
 }
 
 function bindAuthButton() {

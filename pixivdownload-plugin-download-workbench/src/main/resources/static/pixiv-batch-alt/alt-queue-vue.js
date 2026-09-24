@@ -13,8 +13,7 @@
    init 抛异常。
 
    约定（同「Vue 运行时与槽位挂载约定」）：
-   - 模板 v-if / v-for 条件一律走 setup 暴露的 computed / 方法（规避
-     vue.global.prod.js 运行时编译器对成员链 && / || 的静态折叠崩溃）。
+   - 组件直接使用 Vue.h 渲染，遵守 script-src self，不在浏览器编译字符串模板。
    - 模型只存 raw 字段，文案渲染期经 bt() 派生；语言切换经 renderDock()
      重建挂载点后由 ensure() 重挂，渲染期重新派生。
    - 结构逐字镜像命令式 renderDock / renderCurrent / queueItemRow /
@@ -165,36 +164,28 @@ function aqvStatsComponent() {
         setup() {
             return {store: aqvStore, t: aqvT, icon: aqvIcon};
         },
-        template:
-            '<div class="ab-stat stat-card"><span class="ab-icon ab-stat-icon" v-html="icon(\'clock\')"></span>'
-            + '<strong class="ab-stat-value" id="abStatPending">{{ store.stats.pending }}</strong>'
-            + '<span class="ab-stat-label">{{ t(\'stats.queued\', \'队列\') }}</span></div>'
-            + '<div class="ab-stat stat-card"><span class="ab-icon ab-stat-icon" v-html="icon(\'check\')"></span>'
-            + '<strong class="ab-stat-value" id="abStatSuccess">{{ store.stats.success }}</strong>'
-            + '<span class="ab-stat-label">{{ t(\'stats.success\', \'成功\') }}</span></div>'
-            + '<div class="ab-stat stat-card"><span class="ab-icon ab-stat-icon" v-html="icon(\'x\')"></span>'
-            + '<strong class="ab-stat-value" id="abStatFailed">{{ store.stats.failed }}</strong>'
-            + '<span class="ab-stat-label">{{ t(\'stats.failed\', \'失败\') }}</span></div>'
-            + '<div class="ab-stat stat-card"><span class="ab-icon ab-stat-icon" v-html="icon(\'download\')"></span>'
-            + '<strong class="ab-stat-value" id="abStatActive">{{ store.stats.active }}</strong>'
-            + '<span class="ab-stat-label">{{ t(\'stats.active\', \'进行中\') }}</span></div>'
-            + '<div class="ab-stat stat-card"><span class="ab-icon ab-stat-icon" v-html="icon(\'chevron-right\')"></span>'
-            + '<strong class="ab-stat-value" id="abStatSkipped">{{ store.stats.skipped }}</strong>'
-            + '<span class="ab-stat-label">{{ t(\'stats.skipped\', \'跳过\') }}</span></div>'
-            + '<div class="ab-stat stat-card ab-stat--speed"><span class="ab-icon ab-stat-icon" v-html="icon(\'gauge\')"></span>'
-            + '<strong class="ab-stat-value" id="abStatSpeed">{{ store.speed.value }}</strong>'
-            + '<span class="ab-stat-label" id="abStatSpeedUnit">{{ store.speed.unit }}</span></div>'
+        render() {
+            const h = aqvVue.h;
+            return [
+                ['Pending', 'pending', 'clock', 'stats.queued', '队列'],
+                ['Success', 'success', 'check', 'stats.success', '成功'],
+                ['Failed', 'failed', 'x', 'stats.failed', '失败'],
+                ['Active', 'active', 'download', 'stats.active', '进行中'],
+                ['Skipped', 'skipped', 'chevron-right', 'stats.skipped', '跳过'],
+                ['Speed', null, 'gauge', null, null]
+            ].map(([id, key, icon, label, fallback]) => h('div', {key: id, class: 'ab-stat stat-card' + (key ? '' : ' ab-stat--speed')}, [
+                h('span', {class: 'ab-icon ab-stat-icon', 'aria-hidden': 'true', innerHTML: aqvIcon(icon)}),
+                h('strong', {class: 'ab-stat-value', id: 'abStat' + id}, key ? aqvStore.stats[key] : aqvStore.speed.value),
+                h('span', {class: 'ab-stat-label', id: key ? undefined : 'abStatSpeedUnit'}, key ? aqvT(label, fallback) : aqvStore.speed.unit)
+            ]));
+        }
     };
 }
 
 function aqvCurrentComponent() {
     return {
         setup() {
-            // 当前卡内容由 alt-queue.js 的 computeCurrentCardHtml 从 reactive 队列镜像 + 暂停标志派生
-            //（与 pixiv-batch.html 的 computeCurrentCardHtml 同手法：内容节点构建 + 剩余计数行，含进度环 /
-            // 流式图片进度条 / 附加进度）。任何列表同步或暂停 / 恢复同步都会让 Vue 重算本函数并只 patch 这一张
-            // 卡；文案在渲染期经 bt 派生（跟随语言切换）。单 v-html 模板（无 v-if / 成员链条件）规避 prod 模板
-            // 编译器的静态折叠崩溃，与命令式回退共用同一派生口径。
+            // 当前卡沿用同一安全 HTML 派生，响应式更新队列镜像和暂停状态。
             return {
                 store: aqvStore,
                 currentHtml() {
@@ -204,7 +195,9 @@ function aqvCurrentComponent() {
                 }
             };
         },
-        template: '<span style="display:contents" v-html="currentHtml()"></span>'
+        render() {
+            return aqvVue.h('span', {style: {display: 'contents'}, innerHTML: this.currentHtml()});
+        }
     };
 }
 
@@ -237,38 +230,35 @@ function aqvListComponent() {
                 }
             };
         },
-        template:
-            '<div v-if="isEmpty" class="ab-empty ab-empty--dock">'
-            + '<span class="ab-icon" v-html="icon(\'download\')"></span>'
-            + '<p>{{ t(\'status.queue-empty\', \'队列为空\') }}</p>'
-            + '</div>'
-            + '<template v-else>'
-            + '<div class="ab-queue-item" v-for="r in rows" :key="r.key"'
-            + ' :data-queue-id="r.queueId" :data-status="r.status">'
-            + '<div class="ab-queue-title">'
-            + '<span class="ab-queue-name">{{ r.title }}</span>'
-            + '<a class="ab-iconbtn ab-iconbtn--xs" :href="r.url" target="_blank" rel="noopener"'
-            + ' :title="t(\'queue.open-artwork\', \'打开作品页面\')" @click.stop="noop">'
-            + '<span class="ab-icon" v-html="icon(\'external\')"></span></a>'
-            + '<button v-if="showCancel(r)" type="button" class="ab-iconbtn ab-iconbtn--xs"'
-            + ' :title="t(\'queue.cancel\', \'取消下载\')" @click.stop="cancelRow(r)">'
-            + '<span class="ab-icon" v-html="icon(\'stop\')"></span></button>'
-            + '<button v-if="showRemove(r)" type="button" class="ab-iconbtn ab-iconbtn--xs"'
-            + ' :title="t(\'queue.remove\', \'移除\')" @click.stop="removeRow(r)">'
-            + '<span class="ab-icon" v-html="icon(\'x\')"></span></button>'
-            + '</div>'
-            + '<div class="ab-queue-tags">'
-            + '<span v-for="tag in rowTags(r)" :key="tag.key" class="ab-queue-tag" :class="tag.cls">{{ tag.text }}</span>'
-            + '</div>'
-            + '<div class="ab-queue-meta">{{ r.idLine }}<span class="ab-queue-status" :data-status="r.status">{{ r.message }}</span></div>'
-            + '<div v-if="showProgress(r)" class="ab-mini-prog">'
-            + '<div class="ab-mini-prog-label"><span>{{ r.progress.label }}</span><span>{{ r.progress.text }}</span></div>'
-            + '<div class="ab-mini-prog-bar"><div class="ab-mini-prog-fill" :class="r.progress.cls"'
-            + ' :style="{ width: r.progress.width }"></div></div>'
-            + '</div>'
-            + '<span v-if="showExtras(r)" class="ab-flatten" v-html="r.extrasHtml"></span>'
-            + '</div>'
-            + '</template>'
+        render() {
+            const h = aqvVue.h;
+            const icon = name => h('span', {class: 'ab-icon', 'aria-hidden': 'true', innerHTML: aqvIcon(name)});
+            const action = (r, name, label, callback) => h('button', {
+                type: 'button', class: 'ab-iconbtn ab-iconbtn--xs button', title: label, 'aria-label': label,
+                onClick: event => { event.stopPropagation(); callback(r); }
+            }, [icon(name)]);
+            if (this.isEmpty) return h('div', {class: 'ab-empty ab-empty--dock'}, [icon('download'), h('p', aqvT('status.queue-empty', '队列为空'))]);
+            return this.rows.map(r => h('div', {key: r.key, class: 'ab-queue-item', 'data-queue-id': r.queueId, 'data-status': r.status}, [
+                h('div', {class: 'ab-queue-title'}, [
+                    h('span', {class: 'ab-queue-name'}, r.title),
+                    h('a', {class: 'ab-iconbtn ab-iconbtn--xs button', href: r.url, target: '_blank', rel: 'noopener',
+                        title: aqvT('queue.open-artwork', '打开作品页面'), 'aria-label': aqvT('queue.open-artwork', '打开作品页面'),
+                        onClick: event => event.stopPropagation()}, [icon('external')]),
+                    r.canCancel ? action(r, 'stop', aqvT('queue.cancel', '取消下载'), this.cancelRow) : null,
+                    r.removable ? action(r, 'x', aqvT('queue.remove', '移除'), this.removeRow) : null
+                ]),
+                h('div', {class: 'ab-queue-tags'}, r.tags.map(tag => h('span', {key: tag.key, class: ['ab-queue-tag', tag.cls]}, tag.text))),
+                h('div', {class: 'ab-queue-meta'}, [r.idLine, h('span', {class: 'ab-queue-status', 'data-status': r.status}, r.message)]),
+                r.progress ? h('div', {class: 'ab-mini-prog'}, [
+                    h('div', {class: 'ab-mini-prog-label'}, [h('span', r.progress.label), h('span', r.progress.text)]),
+                    h('div', {class: 'ab-mini-prog-bar progressbar', role: 'progressbar', 'aria-label': r.title,
+                        'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': Number.parseFloat(r.progress.width)}, [
+                        h('span', {class: ['ab-mini-prog-fill', r.progress.cls], style: {transform: 'translate3d(' + (Number.parseFloat(r.progress.width) - 100) + '%, 0, 0)'}})
+                    ])
+                ]) : null,
+                r.extrasHtml ? h('span', {class: 'ab-flatten', innerHTML: r.extrasHtml}) : null
+            ]));
+        }
     };
 }
 
@@ -428,19 +418,23 @@ function aqvSchedComponent(entry) {
         setup() {
             return {store: entry.store, t: aqvT};
         },
-        template:
-            '<div class="ab-round-head"><span class="ab-muted">{{ store.startedText }}</span>'
-            + '<span class="ab-muted">{{ store.statsText }}</span></div>'
-            + '<p v-if="store.truncated" class="ab-field-note">{{ store.truncatedText }}</p>'
-            + '<p v-if="store.empty" class="ab-empty-line">{{ store.emptyText }}</p>'
-            + '<template v-else>'
-            + '<div class="ab-round-list">'
-            + '<div class="ab-round-item" v-for="row in store.rows" :key="row.key" :data-status="row.status">'
-            + '<span class="ab-round-title">{{ row.title }}</span>'
-            + '<span class="ab-round-right">'
-            + '<span v-if="row.showTranslate" class="ab-mini-badge ab-mini-badge--ai">{{ row.translateText }}</span>'
-            + '<span class="ab-round-status">{{ row.statusText }}</span>'
-            + '</span></div></div></template>'
+        render() {
+            const h = aqvVue.h;
+            const store = entry.store;
+            return [
+                h('div', {class: 'ab-round-head'}, [h('span', {class: 'ab-muted'}, store.startedText), h('span', {class: 'ab-muted'}, store.statsText)]),
+                store.truncated ? h('p', {class: 'ab-field-note'}, store.truncatedText) : null,
+                store.empty ? h('p', {class: 'ab-empty-line'}, store.emptyText) : h('div', {class: 'ab-round-list'}, store.rows.map(row =>
+                    h('div', {key: row.key, class: 'ab-round-item', 'data-status': row.status}, [
+                        h('span', {class: 'ab-round-title'}, row.title),
+                        h('span', {class: 'ab-round-right'}, [
+                            row.showTranslate ? h('span', {class: 'ab-mini-badge ab-mini-badge--ai'}, row.translateText) : null,
+                            h('span', {class: 'ab-round-status'}, row.statusText)
+                        ])
+                    ])
+                ))
+            ];
+        }
     };
 }
 

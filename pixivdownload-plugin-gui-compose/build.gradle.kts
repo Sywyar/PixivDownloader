@@ -43,7 +43,8 @@ abstract class VerifyPluginArtifact : DefaultTask() {
                 "PF4J entry class is missing"
             }
             check(entries.any { it.startsWith("lib/ui-desktop-") }) { "Compose UI runtime is missing" }
-            check(entries.any { it.startsWith("lib/material3-desktop-") }) { "Material 3 runtime is missing" }
+            check(entries.any { it.startsWith("lib/cupertino-desktop-") }) { "Cupertino runtime is missing" }
+            check(entries.any { it.startsWith("lib/cupertino-core-desktop-") }) { "Cupertino theme runtime is missing" }
             check(entries.any { it.startsWith("lib/material-icons-extended-desktop-") }) {
                 "Material icon runtime is missing"
             }
@@ -208,8 +209,7 @@ dependencies {
     }
     implementation(compose.desktop.currentOs)
     implementation(compose.materialIconsExtended)
-    val material3Version = providers.gradleProperty("composeMaterial3Version").get()
-    implementation("org.jetbrains.compose.material3:material3:$material3Version")
+    implementation("io.github.robinpcrd:cupertino:3.3.1")
     implementation("net.java.dev.jna:jna:5.17.0")
     implementation("net.java.dev.jna:jna-platform:5.17.0")
     implementation("com.fasterxml.jackson.core:jackson-databind:2.19.2")

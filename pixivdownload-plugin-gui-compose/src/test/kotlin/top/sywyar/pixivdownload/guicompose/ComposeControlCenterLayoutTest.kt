@@ -8,9 +8,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
+import io.github.robinpcrd.cupertino.theme.CupertinoTheme
+import io.github.robinpcrd.cupertino.theme.darkColorScheme
+import io.github.robinpcrd.cupertino.theme.lightColorScheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -27,6 +27,7 @@ import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
@@ -71,7 +72,7 @@ class ComposeControlCenterLayoutTest {
                 DesktopUiNode.ButtonStyle.PRIMARY, false), null, null)
         setContent {
             CompositionLocalProvider(LocalDensity provides Density(1f, 1.5f)) {
-                MaterialTheme {
+                PixivDownloaderTheme("light") {
                     Box(Modifier.size(480.dp, 400.dp)) {
                         ComposeDesktopUiNodeRenderer.Render(content,
                             { if (it.key() == "gui.compose.number-invalid") "Number outside allowed range" else it.fallback() }, {})
@@ -88,7 +89,7 @@ class ComposeControlCenterLayoutTest {
     }
 
     @Test
-    @DisplayName("工具弹窗沿用父窗口尺寸，普通弹窗使用声明尺寸")
+    @DisplayName("弹窗使用声明尺寸且不超出主窗口可用区域")
     fun sizesDocumentDialogs() {
         val parentSize = DpSize(1120.dp, 760.dp)
         val content = text("content", "Content")
@@ -103,6 +104,8 @@ class ComposeControlCenterLayoutTest {
 
         assertEquals(parentSize, dialogWindowSize(toolDialog, parentSize))
         assertEquals(DpSize(440.dp, 300.dp), dialogWindowSize(compactDialog, parentSize))
+        val smallViewport = DpSize(320.dp, 240.dp)
+        assertEquals(smallViewport, dialogWindowSize(compactDialog, smallViewport))
     }
 
     @Test
@@ -111,12 +114,12 @@ class ComposeControlCenterLayoutTest {
         for (dark in listOf(false, true)) for (contrast in listOf(false, true)) {
             val colors = desktopColorScheme(dark, contrast)
             val palette = experiencePalette(dark, contrast)
-            assertEquals(palette.surface, colors.surface)
-            assertEquals(palette.success, colors.tertiary)
-            assertEquals(palette.warning, colors.secondary)
-            for (foreground in listOf(colors.onSurface, colors.onSurfaceVariant, colors.primary,
-                colors.tertiary, colors.secondary, colors.error)) {
-                for (background in listOf(colors.surface, colors.background, colors.surfaceVariant)) {
+            assertEquals(palette.surface, colors.systemBackground)
+            assertEquals(palette.text, colors.label)
+            assertEquals(palette.secondaryText, colors.secondaryLabel)
+            for (foreground in listOf(colors.label, colors.secondaryLabel, colors.accent,
+                palette.success, palette.warning, palette.error)) {
+                for (background in listOf(colors.systemBackground, colors.secondarySystemBackground, colors.tertiarySystemBackground)) {
                     val levels = listOf(foreground.luminance(), background.luminance()).sorted()
                     assertTrue((levels.last() + .05f) / (levels.first() + .05f) >= 4.5f)
                 }
@@ -133,7 +136,7 @@ class ComposeControlCenterLayoutTest {
             listOf(text("one", "One"), text("two", "Two"), text("three", "Three")),
         )
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 Box(Modifier.width(width)) {
                     ComposeDesktopUiNodeRenderer.Render(grid, { it.fallback() }, {})
                 }
@@ -154,7 +157,7 @@ class ComposeControlCenterLayoutTest {
     fun shrinksGridRowsWhenContentShrinks() = runComposeUiTest {
         var expanded by mutableStateOf(true)
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 val value = if (expanded) "Tall\nline 2\nline 3\nline 4\nline 5" else "Short"
                 val card = DesktopUiNode.Surface(
                     "dynamic", DesktopUiNode.SurfaceStyle.PLAIN, DesktopUiNode.Insets.all(8),
@@ -194,7 +197,7 @@ class ComposeControlCenterLayoutTest {
             ),
         )
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 Box(Modifier.width(800.dp)) {
                     ComposeDesktopUiNodeRenderer.Render(row, { it.fallback() }, {})
                 }
@@ -229,7 +232,7 @@ class ComposeControlCenterLayoutTest {
             "home", DesktopUiIcon.HOME, DesktopUiTone.INFO, DesktopUiNode.TextToken.raw("Home"),
         )
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 ComposeDesktopUiNodeRenderer.Render(icon, { it.fallback() }, {})
             }
         }
@@ -271,7 +274,7 @@ class ComposeControlCenterLayoutTest {
         )
         val events = mutableListOf<DesktopUiNode.Event>()
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 ComposeDesktopUiNodeRenderer.Render(
                     action,
                     { token ->
@@ -301,7 +304,7 @@ class ComposeControlCenterLayoutTest {
                 text("content", "Visible content"))),
         )
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 ComposeDesktopUiNodeRenderer.Render(tabs, { it.fallback() }, {})
             }
         }
@@ -320,7 +323,7 @@ class ComposeControlCenterLayoutTest {
             ),
         )
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 ComposeDesktopUiNodeRenderer.Render(content, { it.fallback() }, {})
             }
         }
@@ -345,7 +348,7 @@ class ComposeControlCenterLayoutTest {
             ),
         )
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 ComposeDesktopUiNodeRenderer.Render(content, { it.fallback() }, {})
             }
         }
@@ -365,7 +368,7 @@ class ComposeControlCenterLayoutTest {
             DesktopUiNode.NumberStyle.SPINNER, 6999, 1, 65535, 1, true,
         )
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 ComposeDesktopUiNodeRenderer.Render(input, { it.fallback() }, events::add)
             }
         }
@@ -406,7 +409,7 @@ class ComposeControlCenterLayoutTest {
             true,
         )
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 Box(Modifier.width(620.dp)) {
                     ComposeDesktopUiNodeRenderer.Render(
                         if (compactOnly) compact else form,
@@ -427,6 +430,7 @@ class ComposeControlCenterLayoutTest {
 
         onNodeWithText("Compact setting").performMouseInput { moveTo(center) }
         waitForIdle()
+        waitUntil(timeoutMillis = 2_000) { onAllNodesWithText("Compact hint").fetchSemanticsNodes().isNotEmpty() }
         onNodeWithText("Compact hint").assertExists()
     }
 
@@ -485,7 +489,7 @@ class ComposeControlCenterLayoutTest {
             ),
         )
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 Box(Modifier.width(620.dp)) {
                     ComposeDesktopUiNodeRenderer.Render(form, { it.fallback() }, {})
                 }
@@ -511,7 +515,7 @@ class ComposeControlCenterLayoutTest {
             "storage", .25, false, null, DesktopUiNode.ProgressStyle.CIRCULAR,
         )
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 Box(Modifier.width(200.dp)) {
                     ComposeDesktopUiNodeRenderer.Render(progress, { it.fallback() }, {})
                 }
@@ -551,7 +555,7 @@ class ComposeControlCenterLayoutTest {
             ),
         )
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 Box(Modifier.width(420.dp)) {
                     ComposeDesktopUiNodeRenderer.Render(timeline, { it.fallback() }, {})
                 }
@@ -586,7 +590,7 @@ class ComposeControlCenterLayoutTest {
             ),
         )
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 Box(Modifier.width(600.dp)) {
                     ComposeDesktopUiNodeRenderer.Render(
                         timeline,

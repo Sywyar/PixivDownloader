@@ -393,10 +393,38 @@ document.addEventListener('click', event => {
 });
 
 /* ---- 小构件 ---- */
+// Framework7 的 CSS 组件由现有渲染入口统一创建，行为仍由原生控件和业务事件负责。
+function altComponentClasses(tag, classes) {
+    const tokens = classes.split(/\s+/);
+    const button = tag === 'button' || (tag === 'a' && tokens.includes('ab-iconbtn'));
+    if (button) {
+        classes += ' button';
+        if (tokens.includes('ab-btn--primary') || tokens.includes('ab-btn--danger')) classes += ' button-fill';
+        else if (tokens.includes('ab-btn--ghost')) classes += ' button-tonal';
+    }
+    if (tokens.includes('ab-seg')) classes += ' segmented';
+    return classes.trim();
+}
+
 function el(tag, className, text) {
     const node = document.createElement(tag);
-    if (className) node.className = className;
+    node.className = altComponentClasses(tag, className || '');
     if (text !== undefined && text !== null) node.textContent = text;
+    if ((className || '').split(/\s+/).includes('ab-loading-line')) {
+        const spinner = document.createElement('span');
+        spinner.className = 'preloader';
+        spinner.setAttribute('aria-hidden', 'true');
+        const inner = document.createElement('span');
+        inner.className = 'preloader-inner';
+        for (let i = 0; i < 8; i++) {
+            const line = document.createElement('span');
+            line.className = 'preloader-inner-line';
+            inner.appendChild(line);
+        }
+        spinner.appendChild(inner);
+        node.prepend(spinner);
+        node.setAttribute('role', 'status');
+    }
     return node;
 }
 

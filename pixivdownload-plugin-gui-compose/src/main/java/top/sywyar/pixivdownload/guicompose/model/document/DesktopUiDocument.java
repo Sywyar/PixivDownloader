@@ -174,7 +174,7 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
 
     /**
      * 已打开的模态对话框描述。按钮仍是 {@code content} 中的普通节点；允许关闭时，
-     * 通过窗口装饰关闭会发出 {@code dismissActionId}。
+     * 通过关闭按钮或 Escape 关闭会发出 {@code dismissActionId}。
      */
     public record Dialog(String id, DesktopUiNode.TextToken title, DialogStyle style,
                          DesktopUiNode content, String dismissActionId, boolean dismissible,
@@ -187,10 +187,10 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
          * @param style 对话框语义角色
          * @param content 完整对话框内容树
          * @param dismissActionId 对话框关闭时发出的动作
-         * @param dismissible 是否允许通过窗口装饰关闭
+         * @param dismissible 是否允许通过关闭按钮或 Escape 关闭
          * @param preferredWidth 首选逻辑宽度，零表示使用工具包默认值
          * @param preferredHeight 首选逻辑高度，零表示使用工具包默认值
-         * @param parentSized 是否始终与父窗口保持同等大小
+         * @param parentSized 是否填满父窗口内的可用弹窗区域
          */
         public Dialog {
             if (id == null || !id.matches("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")) {

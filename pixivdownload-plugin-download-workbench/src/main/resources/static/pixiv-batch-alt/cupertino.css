@@ -1,0 +1,92 @@
+/* Framework7 iOS 组件使用共享语义色；原生输入、dialog 与桌面布局沿用同一套令牌。 */
+:root.ab-workbench.ios {
+    --f7-theme-color: var(--exp-link);
+    --f7-text-color: var(--exp-text);
+    --f7-font-family: var(--font);
+    --f7-font-size: 14px;
+    --f7-button-height: 36px;
+    --f7-button-font-size: 14px;
+    --f7-button-font-weight: 500;
+    --f7-button-border-radius: 8px;
+    --f7-button-text-color: var(--exp-link);
+    --f7-button-fill-text-color: var(--exp-on-accent);
+    --f7-button-fill-bg-color: var(--exp-link);
+    --f7-button-tonal-bg-color: var(--exp-secondary-surface);
+    --f7-button-tonal-text-color: var(--exp-text);
+    --f7-button-outline-border-color: var(--exp-control-border);
+    --f7-segmented-bg-color: var(--exp-secondary-surface);
+    --f7-segmented-border-radius: 10px;
+    --f7-toggle-width: 52px;
+    --f7-toggle-height: 28px;
+    --f7-toggle-active-bg-color: var(--exp-link);
+    --f7-toggle-inactive-bg-color: var(--exp-control-border);
+    --f7-toggle-inactive-border-color: var(--exp-control-border);
+    --f7-toggle-inactive-knob-bg-color: var(--exp-surface);
+    --f7-toggle-active-knob-bg-color: var(--exp-on-accent);
+    --f7-progressbar-progress-color: var(--exp-link);
+    --f7-progressbar-bg-color: var(--exp-separator);
+    --f7-preloader-color: var(--exp-link);
+}
+html.ab-workbench, .ab-workbench body { height: auto; overflow-x: clip; }
+.ab-workbench body { overflow-y: auto; scrollbar-width: auto; }
+.ab-workbench [hidden] { display: none !important; }
+.ab-app .button {
+    font-family: inherit;
+    text-transform: none;
+    letter-spacing: normal;
+    white-space: normal;
+    height: auto;
+    min-height: var(--f7-button-height);
+    line-height: 1.4;
+    gap: 7px;
+    width: auto;
+    flex-shrink: 0;
+}
+.ab-app .button > span + span { margin-inline-start: 0; }
+.ab-app .ab-btn {
+    border-radius: var(--f7-button-border-radius);
+    font-weight: var(--f7-button-font-weight);
+    padding: 8px 14px;
+    box-shadow: none;
+}
+.ab-app .ab-btn--primary { background: var(--f7-button-fill-bg-color); color: var(--f7-button-fill-text-color); }
+.ab-app .ab-btn--ghost { background: var(--f7-button-tonal-bg-color); color: var(--f7-button-tonal-text-color); border-color: transparent; }
+.ab-app .ab-btn--danger { --f7-button-fill-bg-color: var(--exp-error); background: var(--exp-error); color: var(--exp-error-surface); }
+.ab-app .ab-iconbtn { min-width: 36px; padding: 6px; border-radius: 8px; }
+.ab-app .ab-chip { border-radius: 20px; white-space: nowrap; }
+.ab-app .ab-unit-toggle { flex: none; min-width: 44px; }
+.ab-app .ab-workspace, .ab-app .ab-rail-item { justify-content: flex-start; }
+.ab-app .ab-seg { padding: 3px; gap: 3px; border: none; border-radius: var(--f7-segmented-border-radius); }
+.ab-app .ab-seg .button { border-radius: 8px; flex: 1 1 auto; width: auto; padding: 7px 12px; }
+.ab-app .ab-seg-item.is-active { color: var(--exp-text); background: var(--exp-surface); box-shadow: var(--shadow-2); }
+.ab-app .ab-input { min-height: 36px; border-radius: 8px; color: var(--exp-text); background: var(--exp-surface); }
+.ab-app .ab-input:focus { border-color: var(--exp-link); outline: 2px solid var(--exp-link); outline-offset: 2px; box-shadow: none; }
+.ab-app .ab-switch { flex: none; margin: 6px 0; }
+/* 原库隐藏 checkbox；保留可聚焦的真实输入，让 Space、辅助技术与 disabled 使用浏览器语义。 */
+.ab-app .toggle input[type="checkbox"] { display: block; position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; margin: 0; z-index: 2; cursor: pointer; }
+.ab-app .toggle:has(input:disabled) { opacity: .5; cursor: not-allowed; }
+.ab-app .toggle input:disabled { cursor: not-allowed; }
+.ab-app .toggle:has(input:focus-visible) { outline: 2px solid var(--exp-link); outline-offset: 5px; border-radius: 20px; }
+.ab-app :is(.button, input, select, textarea):focus-visible { outline: 2px solid var(--exp-link); outline-offset: 3px; }
+.ab-app :is(input[type="checkbox"], input[type="radio"], input[type="range"]) { accent-color: var(--exp-link); }
+.ab-app :is(.ab-modal, .ab-drawer) { border-radius: 16px; }
+.ab-app .ab-setting-row { padding-block: 14px; border-bottom: 1px solid var(--exp-separator); }
+.ab-app .progressbar .ab-mini-prog-fill { transition-property: transform; }
+.ab-app .ab-loading-line { display: flex; align-items: center; gap: 8px; }
+.ab-app .ab-loading-line .preloader { width: 20px; height: 20px; flex: none; }
+@media (pointer: coarse) {
+    :root.ab-workbench.ios { --f7-button-height: 44px; }
+    .ab-app .ab-input { min-height: 44px; font-size: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .ab-app .button, .ab-app .toggle-icon, .ab-app .toggle-icon::before, .ab-app .toggle-icon::after { transition: none; animation: none; }
+    .ab-app .preloader-inner-line { animation: none; }
+}
+@media (forced-colors: active) {
+    .ab-app .button { border: 1px solid ButtonText; }
+    .ab-app .toggle { outline: 1px solid ButtonText; forced-color-adjust: none; }
+    .ab-app .toggle::before, .ab-app .toggle::after { background: Canvas; }
+    .ab-app .toggle .toggle-icon { background: ButtonText; }
+    .ab-app .toggle:has(input:checked)::before, .ab-app .toggle:has(input:checked)::after { background: Highlight; }
+    .ab-app .toggle input:checked + .toggle-icon { background: HighlightText; }
+}

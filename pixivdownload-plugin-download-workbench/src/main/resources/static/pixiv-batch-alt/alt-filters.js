@@ -347,9 +347,14 @@ function filterSegment(name, options, current) {
         btn.type = 'button';
         btn.textContent = opt.label;
         btn.dataset.value = opt.value;
+        btn.setAttribute('aria-pressed', String(current === opt.value));
         btn.addEventListener('click', () => {
-            wrap.querySelectorAll('.ab-seg-item').forEach(b => b.classList.remove('is-active'));
+            wrap.querySelectorAll('.ab-seg-item').forEach(b => {
+                b.classList.remove('is-active');
+                b.setAttribute('aria-pressed', 'false');
+            });
             btn.classList.add('is-active');
+            btn.setAttribute('aria-pressed', 'true');
         });
         wrap.appendChild(btn);
     });

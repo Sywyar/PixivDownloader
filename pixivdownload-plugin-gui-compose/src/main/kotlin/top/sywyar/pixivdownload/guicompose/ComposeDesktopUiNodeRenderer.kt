@@ -1,10 +1,17 @@
+@file:OptIn(io.github.robinpcrd.cupertino.ExperimentalCupertinoApi::class)
+
 package top.sywyar.pixivdownload.guicompose
+
+import io.github.robinpcrd.cupertino.*
+import io.github.robinpcrd.cupertino.theme.*
 
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.TooltipArea
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.ui.semantics.selected
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.foundation.BorderStroke
@@ -65,40 +72,6 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ElevatedCard
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PlainTooltip
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.SecondaryScrollableTabRow
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Tab
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TooltipAnchorPosition
-import androidx.compose.material3.TooltipBox
-import androidx.compose.material3.TooltipDefaults
-import androidx.compose.material3.VerticalDivider
-import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -169,7 +142,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /** Compose 插件私有页面节点的 Compose Multiplatform renderer。 */
-@OptIn(ExperimentalComposeUiApi::class, ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalComposeUiApi::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class, ExperimentalCupertinoApi::class)
 object ComposeDesktopUiNodeRenderer {
     // ponytail: 单路预览解码控制累计缓冲；提高并发前需重新测量整页内存。
     private val previewDispatcher = Dispatchers.IO.limitedParallelism(1)
@@ -213,9 +186,9 @@ object ComposeDesktopUiNodeRenderer {
             is DesktopUiNode.Image -> ImageNode(node, text, modifier)
             is DesktopUiNode.LocalImage -> LocalImageNode(node, text, modifier)
             is DesktopUiNode.Separator -> if (node.axis() == DesktopUiNode.Axis.HORIZONTAL) {
-                HorizontalDivider(modifier.fillMaxWidth())
+                CupertinoHorizontalDivider(modifier.fillMaxWidth())
             } else {
-                VerticalDivider(modifier.fillMaxHeight().width(1.dp))
+                CupertinoVerticalDivider(modifier.fillMaxHeight().width(1.dp))
             }
             is DesktopUiNode.Spacer -> Spacer(modifier.size(node.width().dp, node.height().dp))
             is DesktopUiNode.Progress -> Progress(node, text, modifier)
@@ -228,16 +201,16 @@ object ComposeDesktopUiNodeRenderer {
             is DesktopUiNode.Table -> Table(node, text, emit, modifier)
             is DesktopUiNode.Tree -> Tree(node, text, emit, modifier)
             is DesktopUiNode.Button -> ActionButton(node, text, emit, modifier)
-            is DesktopUiNode.Link -> Text(
+            is DesktopUiNode.Link -> CupertinoText(
                 resolve(node.label(), text),
                 modifier = modifier.hand(node.enabled()).clickable(
                     enabled = node.enabled(),
                     role = Role.Button,
                     onClick = { emit(activate(node.id(), node.actionId())) },
                 ),
-                color = if (node.enabled()) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurface.copy(alpha = .38f),
-                style = MaterialTheme.typography.bodyMedium,
+                color = if (node.enabled()) LocalExperiencePalette.current.link
+                    else LocalExperiencePalette.current.text.copy(alpha = .38f),
+                style = CupertinoTheme.typography.body,
                 textDecoration = TextDecoration.Underline,
             )
         }
@@ -280,8 +253,8 @@ object ComposeDesktopUiNodeRenderer {
                     style = LocalScrollbarStyle.current.copy(
                         thickness = 7.dp,
                         shape = RoundedCornerShape(4.dp),
-                        unhoverColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .6f),
-                        hoverColor = MaterialTheme.colorScheme.primary.copy(alpha = .72f),
+                        unhoverColor = LocalExperiencePalette.current.separator.copy(alpha = .6f),
+                        hoverColor = LocalExperiencePalette.current.link.copy(alpha = .72f),
                     ),
                 )
             }
@@ -405,28 +378,19 @@ object ComposeDesktopUiNodeRenderer {
         val cardModifier = interactive
         val content: @Composable () -> Unit = { Node(node.content(), text, emit, contentModifier) }
         val containerColor = when (node.style()) {
-            DesktopUiNode.SurfaceStyle.CARD -> MaterialTheme.colorScheme.surface
-            DesktopUiNode.SurfaceStyle.MUTED -> MaterialTheme.colorScheme.surfaceContainerHighest
-            else -> MaterialTheme.colorScheme.surfaceContainerHigh
+            DesktopUiNode.SurfaceStyle.CARD -> LocalExperiencePalette.current.surface
+            DesktopUiNode.SurfaceStyle.MUTED -> LocalExperiencePalette.current.secondarySurface
+            else -> LocalExperiencePalette.current.secondarySurface
         }
-        val colors = CardDefaults.cardColors(
-            containerColor = containerColor,
-            contentColor = MaterialTheme.colorScheme.onSurface,
+        CupertinoSurface(
+            modifier = if (node.style() == DesktopUiNode.SurfaceStyle.CARD)
+                cardModifier.border(1.dp, LocalExperiencePalette.current.separator, CupertinoTheme.shapes.large)
+                else cardModifier,
+            shape = CupertinoTheme.shapes.large,
+            color = containerColor,
+            contentColor = LocalExperiencePalette.current.text,
+            content = content,
         )
-        when (node.style()) {
-            DesktopUiNode.SurfaceStyle.CARD -> OutlinedCard(
-                modifier = cardModifier,
-                shape = MaterialTheme.shapes.large,
-                colors = colors,
-                content = { content() },
-            )
-            else -> Card(
-                modifier = cardModifier,
-                shape = MaterialTheme.shapes.large,
-                colors = colors,
-                content = { content() },
-            )
-        }
     }
 
     @Composable
@@ -593,14 +557,14 @@ object ComposeDesktopUiNodeRenderer {
         var expanded by rememberSaveable(node.id()) { mutableStateOf(!node.collapsible()) }
         Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (node.collapsible()) {
-                TextButton(onClick = { expanded = !expanded }, contentPadding = PaddingValues(0.dp),
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
+                CupertinoButton(onClick = { expanded = !expanded }, contentPadding = PaddingValues(0.dp),
+                    colors = CupertinoButtonDefaults.plainButtonColors(contentColor = LocalExperiencePalette.current.text),
                     modifier = Modifier.semantics { stateDescription = text(DesktopUiNode.TextToken(
                         GuiComposePlugin.ID, if (expanded) "gui.compose.expanded" else "gui.compose.collapsed", "", emptyList())) }) {
-                    Text(if (expanded) "▾" else "▸", Modifier.padding(end = 8.dp))
-                    Text(resolve(node.title(), text), style = MaterialTheme.typography.titleMedium)
+                    CupertinoText(if (expanded) "▾" else "▸", Modifier.padding(end = 8.dp))
+                    CupertinoText(resolve(node.title(), text), style = CupertinoTheme.typography.headline)
                 }
-            } else Text(resolve(node.title(), text), style = MaterialTheme.typography.titleMedium)
+            } else CupertinoText(resolve(node.title(), text), style = CupertinoTheme.typography.headline)
             if (expanded) Node(node.content(), text, emit, Modifier.fillMaxWidth())
         }
     }
@@ -620,10 +584,10 @@ object ComposeDesktopUiNodeRenderer {
                         val help = row.help()?.let { resolve(it, text) }.orEmpty()
                         @Composable fun label() {
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(resolve(row.label(), text), style = MaterialTheme.typography.bodyLarge,
+                                CupertinoText(resolve(row.label(), text), style = CupertinoTheme.typography.body,
                                     fontWeight = FontWeight.Medium)
-                                if (help.isNotBlank()) Text(help, style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (help.isNotBlank()) CupertinoText(help, style = CupertinoTheme.typography.footnote,
+                                    color = LocalExperiencePalette.current.secondaryText)
                             }
                         }
                         @Composable fun field() {
@@ -708,23 +672,25 @@ object ComposeDesktopUiNodeRenderer {
         BoxWithConstraints(modifier) {
             val boundedHeight = constraints.hasBoundedHeight
             Column(if (boundedHeight) Modifier.fillMaxSize() else Modifier.fillMaxWidth()) {
-                SecondaryScrollableTabRow(
+                CupertinoSegmentedControl(
                     selectedTabIndex = selectedIndex,
-                    edgePadding = 4.dp,
-                    containerColor = Color.Transparent,
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    divider = {},
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CupertinoSegmentedControlDefaults.colors(
+                        containerColor = LocalExperiencePalette.current.secondarySurface,
+                        indicatorColor = LocalExperiencePalette.current.surface,
+                    ),
                 ) {
                     node.tabs().forEach { tab ->
-                        Tab(activeTabId == tab.id(), onClick = { selectedId = tab.id() }, text = {
-                            Text(
-                                resolve(tab.title(), text),
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = if (activeTabId == tab.id()) FontWeight.SemiBold else FontWeight.Medium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        })
+                        CupertinoSegmentedControlTab(
+                            onClick = { selectedId = tab.id() },
+                            isSelected = activeTabId == tab.id(),
+                            modifier = Modifier.heightIn(min = DesktopLayout.controlHeight)
+                                .semantics { selected = activeTabId == tab.id() },
+                        ) {
+                            CupertinoText(resolve(tab.title(), text), Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                style = CupertinoTheme.typography.subhead,
+                                fontWeight = if (activeTabId == tab.id()) FontWeight.SemiBold else FontWeight.Medium)
+                        }
                     }
                 }
                 Box((if (boundedHeight) Modifier.weight(1f) else Modifier)
@@ -756,7 +722,7 @@ object ComposeDesktopUiNodeRenderer {
             if (node.axis() == DesktopUiNode.Axis.HORIZONTAL) {
                 Row(Modifier.fillMaxSize()) {
                     Box(Modifier.weight(firstWeight)) { Node(node.first(), text, emit, Modifier.fillMaxSize()) }
-                    VerticalDivider(
+                    CupertinoVerticalDivider(
                         Modifier.fillMaxHeight().width(9.dp)
                             .pointerInput(node.id(), splitWidth) {
                                 detectDragGestures { change, drag ->
@@ -765,7 +731,7 @@ object ComposeDesktopUiNodeRenderer {
                                 }
                             }
                             .padding(horizontal = 4.dp, vertical = 8.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant,
+                        color = LocalExperiencePalette.current.separator,
                     )
                     Box(Modifier.weight(1f - firstWeight)) {
                         Node(node.second(), text, emit, Modifier.fillMaxSize())
@@ -774,7 +740,7 @@ object ComposeDesktopUiNodeRenderer {
             } else {
                 Column(Modifier.fillMaxSize()) {
                     Box(Modifier.weight(firstWeight)) { Node(node.first(), text, emit, Modifier.fillMaxSize()) }
-                    HorizontalDivider(
+                    CupertinoHorizontalDivider(
                         Modifier.fillMaxWidth().height(9.dp)
                             .pointerInput(node.id(), splitHeight) {
                                 detectDragGestures { change, drag ->
@@ -783,7 +749,7 @@ object ComposeDesktopUiNodeRenderer {
                                 }
                             }
                             .padding(horizontal = 8.dp, vertical = 4.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant,
+                        color = LocalExperiencePalette.current.separator,
                     )
                     Box(Modifier.weight(1f - firstWeight)) {
                         Node(node.second(), text, emit, Modifier.fillMaxSize())
@@ -800,27 +766,27 @@ object ComposeDesktopUiNodeRenderer {
         modifier: Modifier,
     ) {
         val style = when (node.style()) {
-            DesktopUiNode.TextStyle.TITLE -> MaterialTheme.typography.headlineSmall
-            DesktopUiNode.TextStyle.HEADING -> MaterialTheme.typography.titleMedium
-            DesktopUiNode.TextStyle.EMPHASIS -> MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold)
-            DesktopUiNode.TextStyle.ERROR -> MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold)
-            DesktopUiNode.TextStyle.CAPTION -> MaterialTheme.typography.bodySmall
-            DesktopUiNode.TextStyle.CODE -> MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace)
-            else -> MaterialTheme.typography.bodyMedium
+            DesktopUiNode.TextStyle.TITLE -> CupertinoTheme.typography.title1
+            DesktopUiNode.TextStyle.HEADING -> CupertinoTheme.typography.headline
+            DesktopUiNode.TextStyle.EMPHASIS -> CupertinoTheme.typography.body.copy(fontWeight = FontWeight.SemiBold)
+            DesktopUiNode.TextStyle.ERROR -> CupertinoTheme.typography.headline.copy(fontWeight = FontWeight.SemiBold)
+            DesktopUiNode.TextStyle.CAPTION -> CupertinoTheme.typography.footnote
+            DesktopUiNode.TextStyle.CODE -> CupertinoTheme.typography.body.copy(fontFamily = FontFamily.Monospace)
+            else -> CupertinoTheme.typography.body
         }
         val color = when (node.style()) {
-            DesktopUiNode.TextStyle.SUCCESS -> MaterialTheme.colorScheme.tertiary
-            DesktopUiNode.TextStyle.WARNING -> MaterialTheme.colorScheme.secondary
-            DesktopUiNode.TextStyle.ERROR -> MaterialTheme.colorScheme.error
+            DesktopUiNode.TextStyle.SUCCESS -> LocalExperiencePalette.current.success
+            DesktopUiNode.TextStyle.WARNING -> LocalExperiencePalette.current.warning
+            DesktopUiNode.TextStyle.ERROR -> LocalExperiencePalette.current.error
             DesktopUiNode.TextStyle.SECONDARY,
-            DesktopUiNode.TextStyle.CAPTION -> MaterialTheme.colorScheme.onSurfaceVariant
+            DesktopUiNode.TextStyle.CAPTION -> LocalExperiencePalette.current.secondaryText
             else -> Color.Unspecified
         }
         val content: @Composable () -> Unit = {
             val value = resolve(node.text(), text).let {
                 if (node.style() == DesktopUiNode.TextStyle.BULLET) "• $it" else it
             }
-            Text(value, modifier = modifier, style = style, color = color,
+            CupertinoText(value, modifier = modifier, style = style, color = color,
                 softWrap = node.wrap(), textAlign = when (node.textAlignment()) {
                     DesktopUiNode.TextAlignment.START -> TextAlign.Start
                     DesktopUiNode.TextAlignment.CENTER -> TextAlign.Center
@@ -836,7 +802,7 @@ object ComposeDesktopUiNodeRenderer {
         text: (DesktopUiNode.TextToken) -> String,
         modifier: Modifier,
     ) {
-        Icon(
+        DesktopIcon(
             desktopIcon(node.icon()),
             contentDescription = resolve(node.accessibleLabel(), text),
             modifier = modifier,
@@ -846,11 +812,11 @@ object ComposeDesktopUiNodeRenderer {
 
     @Composable
     private fun toneColor(tone: DesktopUiTone): Color = when (tone) {
-        DesktopUiTone.DEFAULT -> MaterialTheme.colorScheme.onSurface
-        DesktopUiTone.SUCCESS -> MaterialTheme.colorScheme.tertiary
-        DesktopUiTone.INFO -> MaterialTheme.colorScheme.primary
-        DesktopUiTone.WARNING -> MaterialTheme.colorScheme.secondary
-        DesktopUiTone.ERROR -> MaterialTheme.colorScheme.error
+        DesktopUiTone.DEFAULT -> LocalExperiencePalette.current.text
+        DesktopUiTone.SUCCESS -> LocalExperiencePalette.current.success
+        DesktopUiTone.INFO -> LocalExperiencePalette.current.link
+        DesktopUiTone.WARNING -> LocalExperiencePalette.current.warning
+        DesktopUiTone.ERROR -> LocalExperiencePalette.current.error
     }
 
     @Composable
@@ -891,7 +857,7 @@ object ComposeDesktopUiNodeRenderer {
     ) {
         val source = remember(node.image()) { runCatching { SkiaImage.makeFromEncoded(node.image().bytes()) }.getOrNull() }
         if (source == null) {
-            Text(resolve(node.altText(), text), modifier = modifier)
+            CupertinoText(resolve(node.altText(), text), modifier = modifier)
             return
         }
         DisposableEffect(source) { onDispose(source::close) }
@@ -921,31 +887,24 @@ object ComposeDesktopUiNodeRenderer {
     ) {
         if (node.progressStyle() == DesktopUiNode.ProgressStyle.CIRCULAR) {
             Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-                if (node.indeterminate()) CircularProgressIndicator(Modifier.size(44.dp))
-                else CircularProgressIndicator(
-                    { node.progress().toFloat() },
+                if (node.indeterminate()) CupertinoActivityIndicator(Modifier.size(44.dp))
+                else DesktopCircularProgress(
+                    node.progress().toFloat(),
                     Modifier.size(44.dp),
                 )
                 node.text()?.let {
-                    Text(
+                    CupertinoText(
                         resolve(it, text),
                         Modifier.padding(start = 8.dp),
-                        style = MaterialTheme.typography.bodySmall,
+                        style = CupertinoTheme.typography.footnote,
                     )
                 }
             }
         } else {
             Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (node.indeterminate()) LinearProgressIndicator(
-                    Modifier.fillMaxWidth().height(5.dp),
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                )
-                else LinearProgressIndicator(
-                    { node.progress().toFloat() },
-                    Modifier.fillMaxWidth().height(5.dp),
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                )
-                node.text()?.let { Text(resolve(it, text), style = MaterialTheme.typography.bodySmall) }
+                if (node.indeterminate()) CupertinoActivityIndicator(Modifier.size(20.dp))
+                else DesktopLinearProgress(node.progress().toFloat(), Modifier.fillMaxWidth().height(5.dp))
+                node.text()?.let { CupertinoText(resolve(it, text), style = CupertinoTheme.typography.footnote) }
             }
         }
     }
@@ -962,20 +921,20 @@ object ComposeDesktopUiNodeRenderer {
             ) {
                 Spacer(
                     Modifier.fillMaxHeight().width(2.dp)
-                        .background(MaterialTheme.colorScheme.outlineVariant),
+                        .background(LocalExperiencePalette.current.separator),
                 )
             }
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 node.items().forEachIndexed { index, item ->
                     val markerBackground = when (item.state()) {
-                        DesktopUiNode.TimelineState.COMPLETE -> MaterialTheme.colorScheme.tertiaryContainer
-                        DesktopUiNode.TimelineState.ACTIVE -> MaterialTheme.colorScheme.primaryContainer
-                        DesktopUiNode.TimelineState.IDLE -> MaterialTheme.colorScheme.surfaceContainerHighest
+                        DesktopUiNode.TimelineState.COMPLETE -> LocalExperiencePalette.current.successSurface
+                        DesktopUiNode.TimelineState.ACTIVE -> LocalExperiencePalette.current.selection
+                        DesktopUiNode.TimelineState.IDLE -> LocalExperiencePalette.current.secondarySurface
                     }
                     val markerForeground = when (item.state()) {
-                        DesktopUiNode.TimelineState.COMPLETE -> MaterialTheme.colorScheme.onTertiaryContainer
-                        DesktopUiNode.TimelineState.ACTIVE -> MaterialTheme.colorScheme.onPrimaryContainer
-                        DesktopUiNode.TimelineState.IDLE -> MaterialTheme.colorScheme.onSurfaceVariant
+                        DesktopUiNode.TimelineState.COMPLETE -> LocalExperiencePalette.current.success
+                        DesktopUiNode.TimelineState.ACTIVE -> LocalExperiencePalette.current.text
+                        DesktopUiNode.TimelineState.IDLE -> LocalExperiencePalette.current.secondaryText
                     }
                     Row(
                         Modifier.fillMaxWidth().heightIn(min = 54.dp)
@@ -987,10 +946,10 @@ object ComposeDesktopUiNodeRenderer {
                                 .background(markerBackground),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text(
+                            CupertinoText(
                                 (index + 1).toString(),
                                 color = markerForeground,
-                                style = MaterialTheme.typography.labelMedium,
+                                style = CupertinoTheme.typography.caption1,
                                 fontWeight = FontWeight.SemiBold,
                             )
                         }
@@ -998,22 +957,22 @@ object ComposeDesktopUiNodeRenderer {
                             Modifier.weight(1f).padding(start = 10.dp),
                             verticalArrangement = Arrangement.spacedBy(2.dp),
                         ) {
-                            Text(
+                            CupertinoText(
                                 resolve(item.title(), text),
-                                style = MaterialTheme.typography.bodyMedium,
+                                style = CupertinoTheme.typography.body,
                                 fontWeight = FontWeight.SemiBold,
                             )
-                            Text(
+                            CupertinoText(
                                 resolve(item.detail(), text),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.bodySmall,
+                                color = LocalExperiencePalette.current.secondaryText,
+                                style = CupertinoTheme.typography.footnote,
                             )
                         }
-                        Text(
+                        CupertinoText(
                             resolve(item.status(), text),
                             Modifier.padding(start = 8.dp),
                             color = markerForeground,
-                            style = MaterialTheme.typography.labelSmall,
+                            style = CupertinoTheme.typography.caption2,
                             maxLines = 1,
                         )
                     }
@@ -1055,54 +1014,55 @@ object ComposeDesktopUiNodeRenderer {
                 val tickX = axisWidth * fraction
                 val labelX = (tickX - tickLabelWidth / 2f)
                     .coerceIn(0.dp, timelineWidth - tickLabelWidth)
-                Text(
+                CupertinoText(
                     scheduleTimeFormatter.format(
                         Instant.ofEpochMilli(node.startAt() + index * (24L * 60L * 60L * 1_000L / tickCount)),
                     ),
                     Modifier.offset(x = labelX).width(tickLabelWidth),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelSmall,
+                    color = LocalExperiencePalette.current.secondaryText,
+                    style = CupertinoTheme.typography.caption2,
                     textAlign = TextAlign.Center,
                     maxLines = 1,
                 )
                 Spacer(
                     Modifier.offset(x = tickX.coerceAtMost(timelineWidth - 1.dp), y = axisY - 3.dp)
-                        .width(1.dp).height(7.dp).background(MaterialTheme.colorScheme.outlineVariant),
+                        .width(1.dp).height(7.dp).background(LocalExperiencePalette.current.separator),
                 )
             }
             Spacer(
                 Modifier.offset(y = axisY).width(axisWidth).height(1.dp)
-                    .background(MaterialTheme.colorScheme.outlineVariant),
+                    .background(LocalExperiencePalette.current.separator),
             )
             val nowFraction = ((node.nowAt() - node.startAt()).toDouble() /
                 (node.endAt() - node.startAt()).toDouble()).toFloat().coerceIn(0f, 1f)
             val nowX = axisWidth * nowFraction
             Spacer(
                 Modifier.offset(x = nowX, y = axisY).width(2.dp).height(168.dp)
-                    .background(MaterialTheme.colorScheme.primary),
+                    .background(LocalExperiencePalette.current.link),
             )
             Spacer(
                 Modifier.offset(
                     x = (nowX - 3.dp).coerceIn(0.dp, timelineWidth - 7.dp),
                     y = axisY - 3.dp,
-                ).size(7.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary),
+                ).size(7.dp).clip(CircleShape).background(LocalExperiencePalette.current.link),
             )
             node.items().forEachIndexed { index, item ->
                 val placement = placements[index]
                 val containerColor = when (placement.lane) {
-                    0 -> MaterialTheme.colorScheme.primaryContainer
-                    1 -> MaterialTheme.colorScheme.secondaryContainer
-                    else -> MaterialTheme.colorScheme.tertiaryContainer
+                    0 -> LocalExperiencePalette.current.selection
+                    1 -> LocalExperiencePalette.current.warningSurface
+                    else -> LocalExperiencePalette.current.successSurface
                 }
                 val contentColor = when (placement.lane) {
-                    0 -> MaterialTheme.colorScheme.onPrimaryContainer
-                    1 -> MaterialTheme.colorScheme.onSecondaryContainer
-                    else -> MaterialTheme.colorScheme.onTertiaryContainer
+                    0 -> LocalExperiencePalette.current.text
+                    1 -> LocalExperiencePalette.current.warning
+                    else -> LocalExperiencePalette.current.success
                 }
-                Card(
+                CupertinoSurface(
                     Modifier.offset(x = placement.left, y = 42.dp + 52.dp * placement.lane.toFloat())
                         .width(itemWidth).semantics(mergeDescendants = true) {},
-                    colors = CardDefaults.cardColors(containerColor = containerColor),
+                    color = containerColor,
+                    shape = CupertinoTheme.shapes.medium,
                 ) {
                     Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
                         Row(
@@ -1110,27 +1070,27 @@ object ComposeDesktopUiNodeRenderer {
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text(
+                            CupertinoText(
                                 resolve(item.time(), text),
                                 color = contentColor,
-                                style = MaterialTheme.typography.labelMedium,
+                                style = CupertinoTheme.typography.caption1,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                             )
-                            Text(
+                            CupertinoText(
                                 resolve(item.title(), text),
                                 Modifier.weight(1f),
                                 color = contentColor,
-                                style = MaterialTheme.typography.bodySmall,
+                                style = CupertinoTheme.typography.footnote,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
-                        Text(
+                        CupertinoText(
                             resolve(item.detail(), text),
                             color = contentColor.copy(alpha = .78f),
-                            style = MaterialTheme.typography.labelSmall,
+                            style = CupertinoTheme.typography.caption2,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -1186,13 +1146,14 @@ object ComposeDesktopUiNodeRenderer {
                 )
                 if (node.inputKind() == DesktopUiNode.InputKind.FILE
                     || node.inputKind() == DesktopUiNode.InputKind.DIRECTORY) {
-                    OutlinedButton(
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                        shape = MaterialTheme.shapes.small,
+                    CupertinoButton(
+                colors = CupertinoButtonDefaults.grayButtonColors(contentColor = LocalExperiencePalette.current.text),
+                border = BorderStroke(1.dp, LocalExperiencePalette.current.controlBorder),
+                        shape = CupertinoTheme.shapes.small,
                         onClick = { choosePath(node.inputKind(), value.text)?.let { update(TextFieldValue(it, TextRange(it.length))) } },
                         enabled = node.enabled(),
                         modifier = Modifier.padding(start = 8.dp).hand(node.enabled()),
-                    ) { Text(text(DesktopUiNode.TextToken(
+                    ) { CupertinoText(text(DesktopUiNode.TextToken(
                         GuiComposePlugin.ID, "gui.compose.browse", "Browse...", emptyList(),
                     ))) }
                 }
@@ -1211,19 +1172,19 @@ object ComposeDesktopUiNodeRenderer {
                                  errorMessage: String = "") {
         val interaction = remember { MutableInteractionSource() }
         val focused by interaction.collectIsFocusedAsState()
-        BasicTextField(value = value, onValueChange = onValueChange, enabled = enabled,
+        CupertinoTextField(value = value, onValueChange = onValueChange, enabled = enabled,
             singleLine = singleLine, visualTransformation = visualTransformation,
             interactionSource = interaction,
             keyboardOptions = keyboardOptions,
-            textStyle = MaterialTheme.typography.bodyLarge.copy(color = if (enabled)
-                MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant),
-            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            isError = invalid,
+            textStyle = CupertinoTheme.typography.body.copy(color = if (enabled)
+                LocalExperiencePalette.current.text else LocalExperiencePalette.current.secondaryText),
             modifier = modifier.semantics { if (invalid && errorMessage.isNotEmpty()) error(errorMessage) }
                 .border(if (focused) 2.dp else 1.dp,
-                if (invalid) MaterialTheme.colorScheme.error else if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                MaterialTheme.shapes.small).background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.small),
-            decorationBox = { inner -> Box(Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                contentAlignment = Alignment.CenterStart) { inner() } })
+                    if (invalid) LocalExperiencePalette.current.error else if (focused) LocalExperiencePalette.current.link
+                    else LocalExperiencePalette.current.controlBorder, CupertinoTheme.shapes.small)
+                .background(LocalExperiencePalette.current.surface, CupertinoTheme.shapes.small),
+        )
     }
 
     internal fun textInputStateKey(node: DesktopUiNode.TextInput): Pair<String, Long?> =
@@ -1250,14 +1211,19 @@ object ComposeDesktopUiNodeRenderer {
                 emit(change(node.id(), node.bindingId(), DesktopUiNode.Value.bool(it)))
             }
             if (node.toggleStyle() == DesktopUiNode.ToggleStyle.SWITCH) {
-                Switch(checked, update, enabled = node.enabled(),
+                CupertinoSwitch(checked, update, enabled = node.enabled(),
+                    colors = CupertinoSwitchDefaults.colors(
+                        thumbColor = LocalExperiencePalette.current.onAccent,
+                        checkedTrackColor = LocalExperiencePalette.current.link,
+                        uncheckedTrackColor = LocalExperiencePalette.current.controlBorder,
+                    ),
                     modifier = Modifier.semantics { contentDescription = resolve(node.label(), text) })
             } else {
-                Checkbox(checked, update, enabled = node.enabled(),
+                CupertinoCheckBox(checked, update, enabled = node.enabled(),
                     modifier = Modifier.semantics { contentDescription = resolve(node.label(), text) })
             }
             if (includeLabel) HintedTitle(help(node.help(), text)) {
-                Text(resolve(node.label(), text), style = MaterialTheme.typography.bodyMedium)
+                CupertinoText(resolve(node.label(), text), style = CupertinoTheme.typography.body)
             }
         }
     }
@@ -1295,10 +1261,10 @@ object ComposeDesktopUiNodeRenderer {
                             Modifier.fillMaxWidth().hand(node.enabled() && option.enabled()),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            RadioButton(selected.contains(option.id()), { choose(option.id()) },
+                            DesktopRadioButton(selected.contains(option.id()), { choose(option.id()) },
                                 enabled = node.enabled() && option.enabled(),
                                 modifier = Modifier.semantics { contentDescription = resolve(option.label(), text) })
-                            Text(resolve(option.label(), text), style = MaterialTheme.typography.bodyMedium)
+                            CupertinoText(resolve(option.label(), text), style = CupertinoTheme.typography.body)
                         }
                     }
                 }
@@ -1308,10 +1274,10 @@ object ComposeDesktopUiNodeRenderer {
                             Modifier.fillMaxWidth().hand(node.enabled() && option.enabled()),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Checkbox(selected.contains(option.id()), { choose(option.id()) },
+                            CupertinoCheckBox(selected.contains(option.id()), { choose(option.id()) },
                                 enabled = node.enabled() && option.enabled(),
                                 modifier = Modifier.semantics { contentDescription = resolve(option.label(), text) })
-                            Text(resolve(option.label(), text), style = MaterialTheme.typography.bodyMedium)
+                            CupertinoText(resolve(option.label(), text), style = CupertinoTheme.typography.body)
                         }
                     }
                 }
@@ -1319,11 +1285,11 @@ object ComposeDesktopUiNodeRenderer {
                     node.options().forEach { option ->
                         val active = selected.contains(option.id())
                         Row(Modifier.fillMaxWidth().heightIn(min = DesktopLayout.navigationHeight)
-                            .clip(MaterialTheme.shapes.small)
-                            .background(if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                            .clip(CupertinoTheme.shapes.small)
+                            .background(if (active) LocalExperiencePalette.current.selection else Color.Transparent)
                             .selectable(active, enabled = node.enabled() && option.enabled(), role = Role.Tab) { choose(option.id()) }
                             .padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(resolve(option.label(), text), style = MaterialTheme.typography.bodyMedium,
+                            CupertinoText(resolve(option.label(), text), style = CupertinoTheme.typography.body,
                                 fontWeight = if (active) FontWeight.Medium else FontWeight.Normal)
                         }
                     }
@@ -1344,9 +1310,10 @@ object ComposeDesktopUiNodeRenderer {
         var expanded by remember(node.id()) { mutableStateOf(false) }
         val label = node.options().firstOrNull { it.id() == selectedId }?.let { resolve(it.label(), text) }.orEmpty()
         Box {
-            OutlinedButton(
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                shape = MaterialTheme.shapes.small,
+            CupertinoButton(
+                colors = CupertinoButtonDefaults.grayButtonColors(contentColor = LocalExperiencePalette.current.text),
+                border = BorderStroke(1.dp, LocalExperiencePalette.current.controlBorder),
+                shape = CupertinoTheme.shapes.small,
                 onClick = { expanded = true },
                 enabled = node.enabled(),
                 modifier = Modifier.widthIn(max = DesktopLayout.choiceWidth).fillMaxWidth().heightIn(min = DesktopLayout.controlHeight)
@@ -1355,17 +1322,18 @@ object ComposeDesktopUiNodeRenderer {
                         stateDescription = label
                     },
             ) {
-                Text(
+                CupertinoText(
                     label.ifBlank { "…" },
                     Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = CupertinoTheme.typography.body,
                 )
-                Icon(Icons.Default.ArrowDropDown, contentDescription = null, modifier = Modifier.padding(start = 8.dp).size(18.dp))
+                DesktopIcon(Icons.Default.ArrowDropDown, contentDescription = null, modifier = Modifier.padding(start = 8.dp).size(18.dp))
             }
-            DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
+            CupertinoDropdownMenu(expanded, onDismissRequest = { expanded = false }) {
                 node.options().forEach { option ->
-                    DropdownMenuItem(
-                        text = { Text(resolve(option.label(), text)) },
+                    MenuPickerAction(
+                        isSelected = selectedId == option.id(),
+                        title = { CupertinoText(resolve(option.label(), text)) },
                         enabled = option.enabled(),
                         onClick = { choose(option.id()); expanded = false },
                     )
@@ -1394,7 +1362,7 @@ object ComposeDesktopUiNodeRenderer {
                 val lastAligned = alignedNumberValue(
                     node.maximum().toLong(), node.minimum(), node.maximum(), node.step())
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Slider(
+                    CupertinoSlider(
                         value.toFloat(),
                         onValueChange = { update(it.roundToInt().toLong()) },
                         valueRange = node.minimum().toFloat()..
@@ -1405,7 +1373,7 @@ object ComposeDesktopUiNodeRenderer {
                         modifier = Modifier.weight(1f)
                             .semantics { contentDescription = resolve(node.label(), text) },
                     )
-                    Text(value.toString(), Modifier.padding(start = 8.dp))
+                    CupertinoText(value.toString(), Modifier.padding(start = 8.dp))
                 }
             } else {
                 var draft by remember(node.id()) { mutableStateOf(TextFieldValue(node.value().toString())) }
@@ -1473,19 +1441,18 @@ object ComposeDesktopUiNodeRenderer {
                 )
             emit(selection(node.id(), node.bindingId(), value))
         }
-        androidx.compose.material3.Surface(
-            modifier = modifier,
-            shape = MaterialTheme.shapes.medium,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        CupertinoSurface(
+            modifier = modifier.border(1.dp, LocalExperiencePalette.current.separator, CupertinoTheme.shapes.medium),
+            shape = CupertinoTheme.shapes.medium,
+            color = LocalExperiencePalette.current.surface,
         ) {
             Column(Modifier.horizontalScroll(rememberScrollState()).width(tableWidth)) {
-                Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh)) {
+                Row(Modifier.fillMaxWidth().background(LocalExperiencePalette.current.secondarySurface)) {
                     node.columns().forEach { column ->
-                        Text(
+                        CupertinoText(
                             resolve(column.label(), text),
                             Modifier.width(columnWidth(column)).padding(horizontal = 10.dp, vertical = 9.dp),
-                            style = MaterialTheme.typography.labelLarge,
+                            style = CupertinoTheme.typography.subhead,
                             fontWeight = FontWeight.SemiBold,
                         )
                     }
@@ -1496,16 +1463,16 @@ object ComposeDesktopUiNodeRenderer {
                             val active = selected.contains(row.id())
                             Row(
                                 Modifier.fillMaxWidth().background(if (active)
-                                    MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                                    LocalExperiencePalette.current.selection else Color.Transparent)
                                     .hand(node.enabled())
                                     .clickable(enabled = node.enabled()) { choose(row.id()) },
                             ) {
                                 row.cells().forEachIndexed { index, cell ->
-                                    Text(
+                                    CupertinoText(
                                         cell,
                                         Modifier.width(columnWidth(node.columns()[index]))
                                             .padding(horizontal = 10.dp, vertical = 9.dp),
-                                        style = MaterialTheme.typography.bodyMedium,
+                                        style = CupertinoTheme.typography.body,
                                         fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
                                     )
                                 }
@@ -1553,8 +1520,8 @@ object ComposeDesktopUiNodeRenderer {
         }
         Column(
             modifier = modifier.background(
-                MaterialTheme.colorScheme.surfaceContainerLow,
-                MaterialTheme.shapes.medium,
+                LocalExperiencePalette.current.background,
+                CupertinoTheme.shapes.medium,
             ).padding(4.dp),
         ) {
             node.items().forEach {
@@ -1580,33 +1547,29 @@ object ComposeDesktopUiNodeRenderer {
         val expanded = expandedIds.contains(item.id())
         val leading: (@Composable () -> Unit)? = if (!hasDisclosureColumn) null else ({
             if (branch) {
-                IconButton(
+                CupertinoIconButton(
                     onClick = { toggle(item.id()) },
                     enabled = enabled,
                     modifier = Modifier.size(36.dp).semantics {
                         contentDescription = label
                         stateDescription = if (expanded) "−" else "+"
                     },
-                ) { Text(if (expanded) "▾" else "▸", textAlign = TextAlign.Center) }
+                ) { CupertinoText(if (expanded) "▾" else "▸", textAlign = TextAlign.Center) }
             } else {
                 Spacer(Modifier.size(36.dp))
             }
         })
-        ListItem(
-            headlineContent = {
-                Text(
-                    label,
-                    fontWeight = if (selected.contains(item.id())) FontWeight.SemiBold else FontWeight.Normal,
-                )
-            },
+        Row(
             modifier = Modifier.fillMaxWidth().padding(start = (depth * 18).dp)
-                .hand(enabled).clickable(enabled) { choose(item.id()) },
-            leadingContent = leading,
-            colors = ListItemDefaults.colors(
-                containerColor = if (selected.contains(item.id())) MaterialTheme.colorScheme.primaryContainer
-                    else Color.Transparent,
-            ),
-        )
+                .clip(CupertinoTheme.shapes.small)
+                .background(if (selected.contains(item.id())) LocalExperiencePalette.current.selection else Color.Transparent)
+                .hand(enabled).selectable(selected.contains(item.id()), enabled = enabled, role = Role.Tab) { choose(item.id()) }
+                .heightIn(min = DesktopLayout.navigationHeight).padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            leading?.invoke()
+            CupertinoText(label, fontWeight = if (selected.contains(item.id())) FontWeight.SemiBold else FontWeight.Normal)
+        }
         if (expanded) item.children().forEach {
             TreeItem(it, depth + 1, hasDisclosureColumn, selected, expandedIds, enabled, text, choose, toggle)
         }
@@ -1672,38 +1635,40 @@ object ComposeDesktopUiNodeRenderer {
     ) {
         val click = { emit(activate(node.id(), node.actionId())) }
         val content: @Composable RowScope.() -> Unit = {
-            node.icon()?.let { Icon(desktopIcon(it), null, Modifier.padding(end = 7.dp).size(18.dp)) }
-            Text(
+            node.icon()?.let { DesktopIcon(desktopIcon(it), null, Modifier.padding(end = 7.dp).size(18.dp)) }
+            CupertinoText(
                 resolve(node.label(), text),
-                style = MaterialTheme.typography.labelLarge,
+                style = CupertinoTheme.typography.subhead,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
         }
         when (node.buttonStyle()) {
-            DesktopUiNode.ButtonStyle.NORMAL -> OutlinedButton(
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                shape = MaterialTheme.shapes.small,
+            DesktopUiNode.ButtonStyle.NORMAL -> CupertinoButton(
+                colors = CupertinoButtonDefaults.grayButtonColors(contentColor = LocalExperiencePalette.current.text),
+                border = BorderStroke(1.dp, LocalExperiencePalette.current.controlBorder),
+                shape = CupertinoTheme.shapes.small,
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
                 modifier = modifier.heightIn(min = DesktopLayout.controlHeight).hand(node.enabled()),
                 enabled = node.enabled(),
                 onClick = click,
                 content = content,
             )
-            DesktopUiNode.ButtonStyle.PRIMARY -> Button(
-                shape = MaterialTheme.shapes.small,
+            DesktopUiNode.ButtonStyle.PRIMARY -> CupertinoButton(
+                colors = CupertinoButtonDefaults.filledButtonColors(contentColor = LocalExperiencePalette.current.onAccent),
+                shape = CupertinoTheme.shapes.small,
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
                 modifier = modifier.heightIn(min = DesktopLayout.controlHeight).hand(node.enabled()),
                 enabled = node.enabled(),
                 onClick = click,
                 content = content,
             )
-            DesktopUiNode.ButtonStyle.DANGER -> Button(
-                shape = MaterialTheme.shapes.small,
+            DesktopUiNode.ButtonStyle.DANGER -> CupertinoButton(
+                shape = CupertinoTheme.shapes.small,
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
                 modifier = modifier.heightIn(min = DesktopLayout.controlHeight).hand(node.enabled()),
                 enabled = node.enabled(),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError),
+                colors = CupertinoButtonDefaults.filledButtonColors(containerColor = LocalExperiencePalette.current.error, contentColor = LocalExperiencePalette.current.errorSurface),
                 onClick = click,
                 content = content,
             )
@@ -1713,12 +1678,12 @@ object ComposeDesktopUiNodeRenderer {
     @Composable
     private fun Labeled(label: String, help: String, modifier: Modifier, content: @Composable () -> Unit) {
         Column(modifier, verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+            CupertinoText(label, style = CupertinoTheme.typography.body, fontWeight = FontWeight.Medium)
             content()
-            if (help.isNotBlank()) Text(
+            if (help.isNotBlank()) CupertinoText(
                 help,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = CupertinoTheme.typography.footnote,
+                color = LocalExperiencePalette.current.secondaryText,
             )
         }
     }
@@ -1729,12 +1694,17 @@ object ComposeDesktopUiNodeRenderer {
             content()
             return
         }
-        TooltipBox(
-            positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-            tooltip = { PlainTooltip { Text(help) } },
-            state = rememberTooltipState(isPersistent = true),
-            content = content,
-        )
+        TooltipArea(
+            tooltip = {
+                CupertinoSurface(shape = CupertinoTheme.shapes.small, shadowElevation = 4.dp) {
+                    CupertinoText(help, Modifier.widthIn(max = 320.dp).padding(8.dp))
+                }
+            },
+        ) {
+            Box(Modifier.semantics { contentDescription = help }) {
+                content()
+            }
+        }
     }
 
     private fun resolve(token: DesktopUiNode.TextToken, resolver: (DesktopUiNode.TextToken) -> String): String =
