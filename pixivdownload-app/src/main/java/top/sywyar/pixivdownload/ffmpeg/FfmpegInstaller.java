@@ -21,8 +21,9 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
-import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
@@ -121,7 +122,8 @@ public final class FfmpegInstaller {
             ExtractedFiles extractedFiles = extractRequiredFiles(archive, extracted);
 
             Path toolsDir = FfmpegLocator.managedToolsDir();
-            Files.createDirectories(toolsDir);
+            // 下载后、真正写入前复核一次，覆盖校验与写入之间的竞态窗口。
+            requirePlainManagedDirectory(toolsDir);
             Files.copy(extractedFiles.ffmpeg(), toolsDir.resolve(FfmpegLocator.executableName()),
                     StandardCopyOption.REPLACE_EXISTING);
             Files.copy(extractedFiles.ffprobe(), toolsDir.resolve(FfmpegLocator.probeExecutableName()),
@@ -130,7 +132,7 @@ public final class FfmpegInstaller {
             makeExecutable(toolsDir.resolve(FfmpegLocator.probeExecutableName()));
 
             Path licenseDir = FfmpegLocator.managedLicenseDir();
-            Files.createDirectories(licenseDir);
+            requirePlainManagedDirectory(licenseDir);
             Files.copy(extractedFiles.ffmpegLicense(), licenseDir.resolve(FFMPEG_LICENSE),
                     StandardCopyOption.REPLACE_EXISTING);
             Files.copy(extractedFiles.libwebpLicense(), licenseDir.resolve(LIBWEBP_LICENSE),
@@ -276,24 +278,64 @@ public final class FfmpegInstaller {
     }
 
     /**
-     * 安装目标必须是普通目录，任何一级父目录也不能是链接 / Junction。
+     * 确保安装目标是可以安全写入的普通目录：安全创建缺失层级，并拒绝任何已有但不安全的节点。
      *
-     * <p>软件目录被链接到别处时，复制会顺着链接写进被指向的目录、覆盖其中的同名文件；
-     * 因此这里在下载任何字节之前失败关闭，不使用该目录写入。
+     * <p>软件目录被链接到别处时，复制会顺着链接写进被指向的目录、覆盖其中的同名文件；因此这里在
+     * 下载任何字节之前失败关闭。但「尚未创建的普通目录层级」不是不安全节点——首次自动安装时
+     * {@code tools}、{@code tools/ffmpeg} 本来就不存在，必须允许创建，否则安装永远无法开始。
+     *
+     * <p>逐级检查已有祖先节点，拒绝符号链接、Junction 和非目录节点；只创建确实缺失的层级。
+     * 创建后再复核一次，覆盖判定与创建之间的竞态窗口。
+     *
+     * @param directory 安装要写入的目录
+     * @throws IOException 任一已有节点不安全、创建失败或权限不足
      */
     static void requirePlainManagedDirectory(Path directory) throws IOException {
-        String rejection = message("gui.ffmpeg.install.managed-linked", directory);
-        if (Files.exists(directory, LinkOption.NOFOLLOW_LINKS)) {
-            if (!PlainFilePathGuard.isPlainDirectory(directory)) {
-                throw new IOException(rejection);
-            }
+        PlainFilePathGuard.DirectoryOpenPrecondition precondition =
+                PlainFilePathGuard.requireDirectoryOpenPrecondition(directory);
+        PlainFilePathGuard.RejectedNode rejected = precondition.rejectedNode();
+        if (rejected != null) {
+            throw new IOException(linkRejection(rejected));
+        }
+        if (precondition.ready()) {
             return;
         }
-        try {
-            PlainFilePathGuard.requirePlainParent(directory, false);
-        } catch (IOException rejected) {
-            throw new IOException(rejection, rejected);
+        for (Path level : precondition.missingLevels()) {
+            try {
+                Files.createDirectory(level);
+            } catch (FileAlreadyExistsException raced) {
+                PlainFilePathGuard.DirectoryOpenPrecondition current =
+                        PlainFilePathGuard.requireDirectoryOpenPrecondition(level);
+                if (current.rejectedNode() != null) {
+                    throw new IOException(linkRejection(current.rejectedNode()), raced);
+                }
+                if (!current.ready()) {
+                    throw new IOException(message("gui.ffmpeg.install.managed-create-failed", directory), raced);
+                }
+            } catch (AccessDeniedException denied) {
+                throw new IOException(message("gui.ffmpeg.install.managed-not-writable", directory), denied);
+            } catch (IOException failure) {
+                throw new IOException(message("gui.ffmpeg.install.managed-create-failed", directory), failure);
+            }
         }
+        PlainFilePathGuard.DirectoryOpenPrecondition created =
+                PlainFilePathGuard.requireDirectoryOpenPrecondition(directory);
+        if (created.rejectedNode() != null) {
+            throw new IOException(linkRejection(created.rejectedNode()));
+        }
+        if (!created.ready()) {
+            throw new IOException(message("gui.ffmpeg.install.managed-create-failed", directory));
+        }
+    }
+
+    /** 按节点类型区分链接 / Junction / 非目录的拒绝文案，不再把未创建的普通目录说成链接。 */
+    private static String linkRejection(PlainFilePathGuard.RejectedNode rejected) {
+        String code = switch (rejected.kind()) {
+            case SYMBOLIC_LINK -> "gui.ffmpeg.install.managed-symbolic-link";
+            case OTHER_REPARSE_POINT -> "gui.ffmpeg.install.managed-linked";
+            case NOT_A_DIRECTORY -> "gui.ffmpeg.install.managed-not-directory";
+        };
+        return message(code, rejected.path());
     }
 
     private static long contentLength(HttpResponse<?> response) {
