@@ -86,7 +86,7 @@ class DesktopOnboardingControllerTest {
             assertTrue(configured.get());
             assertFalse(model.snapshot().document().navigationVisible());
             var page = assertInstanceOf(DesktopUiNode.Surface.class, model.snapshot().document().pages().get(0).content());
-            assertEquals("welcome.proxy.layout", page.content().id());
+            assertInstanceOf(DesktopUiNode.OnboardingHub.class, page.content());
         } finally {
             releaseRequest.countDown();
         }

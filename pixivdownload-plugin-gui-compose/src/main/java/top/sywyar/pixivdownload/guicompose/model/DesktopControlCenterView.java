@@ -93,7 +93,7 @@ final class DesktopControlCenterView {
         metrics.add(storageCard());
 
         List<DesktopUiNode> quickStarts = new ArrayList<>();
-        for (QuickStartEntry entry : quickStartEntries()) {
+        for (QuickStartEntry entry : quickStartEntries(owner.currentSources())) {
             NavigationContribution navigation = entry.navigation();
             String base = "home.quick-start." + safeId(entry.owner()) + "." + safeId(navigation.id());
             String action = base + ".open";
@@ -215,7 +215,7 @@ final class DesktopControlCenterView {
         List<DesktopUiNode> content = new ArrayList<>();
         content.add(text("automation.title", "desktop.ui.automation.title", TextStyle.TITLE));
         content.add(composeText("automation.intro", "automation.intro", TextStyle.CAPTION));
-        for (QuickStartEntry entry : quickStartEntries()) {
+        for (QuickStartEntry entry : quickStartEntries(owner.currentSources())) {
             if (quickStartIcon(entry.navigation().icon()) != DesktopUiIcon.DOWNLOAD) continue;
             String action = "automation.workbench.open";
             nextActions.put(action, () -> owner.openWeb(entry.navigation().href()));
@@ -526,9 +526,9 @@ final class DesktopControlCenterView {
         );
     }
 
-    private List<QuickStartEntry> quickStartEntries() {
+    static List<QuickStartEntry> quickStartEntries(List<DesktopUiPluginSnapshot> sources) {
         List<QuickStartEntry> entries = new ArrayList<>();
-        for (DesktopUiPluginSnapshot source : owner.currentSources()) {
+        for (DesktopUiPluginSnapshot source : sources) {
             try {
                 List<WebRouteContribution> routes = source.routes();
                 for (NavigationContribution navigation : source.navigation()) {
@@ -595,7 +595,7 @@ final class DesktopControlCenterView {
     ) {
     }
 
-    private record QuickStartEntry(
+    record QuickStartEntry(
             String owner,
             NavigationContribution navigation
     ) {

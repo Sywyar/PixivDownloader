@@ -4,6 +4,9 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone;
 
 import java.math.BigDecimal;
+import java.net.IDN;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -25,7 +28,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         DesktopUiNode.Timeline, DesktopUiNode.ScheduleTimeline,
         DesktopUiNode.TextInput, DesktopUiNode.Toggle, DesktopUiNode.Choice,
         DesktopUiNode.NumberInput, DesktopUiNode.Table, DesktopUiNode.Tree,
-        DesktopUiNode.Button, DesktopUiNode.Link, DesktopUiNode.AccountSetup {
+        DesktopUiNode.Button, DesktopUiNode.Link, DesktopUiNode.AccountSetup, DesktopUiNode.OnboardingHub {
 
     /** @return 单份文档内稳定的节点标识 */
     String id();
@@ -615,6 +618,89 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         }
     }
 
+    /** Compose 引导中的可选任务及其详情。 */
+    record OnboardingHub(
+            String id,
+            List<OnboardingCard> cards,
+            Button next,
+            Text notice
+    ) implements DesktopUiNode {
+        public OnboardingHub {
+            id = requireId(id, "id");
+            cards = List.copyOf(cards);
+            Objects.requireNonNull(next, "next");
+        }
+
+        @Override public Kind kind() { return Kind.ONBOARDING_HUB; }
+        @Override public List<DesktopUiNode> childNodes() {
+            List<DesktopUiNode> nodes = new ArrayList<>();
+            for (OnboardingCard card : cards) {
+                nodes.add(card.open());
+                if (card.settings() != null) {
+                    nodes.add(card.settings().enabled());
+                    nodes.add(card.settings().host());
+                    nodes.add(card.settings().port());
+                }
+            }
+            nodes.add(next);
+            if (notice != null) nodes.add(notice);
+            return List.copyOf(nodes);
+        }
+    }
+
+    record OnboardingCard(
+            String id,
+            OnboardingTopic topic,
+            TextToken title,
+            TextToken summary,
+            TextToken description,
+            Button open,
+            OnboardingProxySettings settings,
+            boolean opened
+    ) {
+        public OnboardingCard {
+            id = requireId(id, "id");
+            Objects.requireNonNull(topic, "topic");
+            Objects.requireNonNull(title, "title");
+            Objects.requireNonNull(summary, "summary");
+            Objects.requireNonNull(description, "description");
+            Objects.requireNonNull(open, "open");
+        }
+    }
+
+    enum OnboardingTopic { NETWORK, DOWNLOAD, GUIDE }
+
+    /** 代理草稿和提交校验反馈，仅供 Compose 引导使用。 */
+    record OnboardingProxySettings(Toggle enabled, TextInput host, TextInput port, int validationAttempt) {
+        public static boolean validHost(String value) {
+            String host = value.trim();
+            if (host.isEmpty()) return false;
+            try {
+                if (!host.contains(":")) {
+                    host = IDN.toASCII(host, IDN.USE_STD3_ASCII_RULES);
+                    // 纯数字仍可能是未输完的 IPv4，要求使用完整的点分地址。
+                    if (host.chars().allMatch(Character::isDigit)) return false;
+                }
+                return new URI(null, null, host, -1, null, null, null).getHost() != null;
+            } catch (IllegalArgumentException | URISyntaxException invalid) {
+                return false;
+            }
+        }
+
+        public static boolean validPort(String value) {
+            try {
+                int port = Integer.parseInt(value.trim());
+                return port >= 1 && port <= 65_535;
+            } catch (NumberFormatException invalid) {
+                return false;
+            }
+        }
+
+        public boolean invalid() {
+            return enabled.selected() && (!validHost(host.value()) || !validPort(port.value()));
+        }
+    }
+
     /** 文本型输入，包括密码、多行、搜索、时间、文件和目录变体。 */
     record TextInput(String id, String bindingId, TextToken label, TextToken help,
                      InputKind inputKind, String value, int columns, int rows,
@@ -1183,6 +1269,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     /** 支持的节点类型。 */
     enum Kind {
         /** 首次账户设置。 */ ACCOUNT_SETUP,
+        /** 首次使用任务选择。 */ ONBOARDING_HUB,
         /** 通用容器。 */ CONTAINER,
         /** 可按宽度自适应列数的网格。 */ ADAPTIVE_GRID,
         /** 固定页容量的吸附横向区域。 */ PAGED_ROW,

@@ -228,6 +228,12 @@ class DesktopConfigurationControllerTest {
 
     static ComposeDesktopUiModel model(Map<String, String> stored,
             Map<String, java.util.function.Function<Object[], Object>> overrides) {
+        return model(stored, overrides, List::of);
+    }
+
+    static ComposeDesktopUiModel model(Map<String, String> stored,
+            Map<String, java.util.function.Function<Object[], Object>> overrides,
+            java.util.function.Supplier<List<DesktopUiPluginSnapshot>> sources) {
         DesktopUiHost.ConfigFile config = new DesktopUiHost.ConfigFile() {
             @Override
             public Map<String, String> readAll(Collection<String> keys) {
@@ -301,7 +307,8 @@ class DesktopConfigurationControllerTest {
                 List.of(), List.of(), List.of(), List.of(), List.of()
         );
         ComposeDesktopUiModel model = new ComposeDesktopUiModel(
-                8080, ".", Path.of("config.yaml"), "compose", host, () -> List.of(provider, alternate)
+                8080, ".", Path.of("config.yaml"), "compose", host,
+                () -> java.util.stream.Stream.concat(java.util.stream.Stream.of(provider, alternate), sources.get().stream()).toList()
         );
         awaitReady(model);
         return model;
