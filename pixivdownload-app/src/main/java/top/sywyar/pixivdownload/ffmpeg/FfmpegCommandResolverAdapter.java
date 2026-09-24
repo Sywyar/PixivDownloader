@@ -41,7 +41,8 @@ public class FfmpegCommandResolverAdapter implements FfmpegCommandResolver {
 
     private static ResolvedFfmpegCommand resolved(FfmpegInstallation installation) {
         ResolvedFfmpegCommand.Source source = switch (installation.source()) {
-            case CUSTOM -> ResolvedFfmpegCommand.Source.CUSTOM;
+            // 自定义路径属于本机外部安装；稳定插件可能只识别既有的四种命令来源。
+            case CUSTOM -> ResolvedFfmpegCommand.Source.SYSTEM;
             case MANAGED -> ResolvedFfmpegCommand.Source.MANAGED;
             case BUNDLED -> ResolvedFfmpegCommand.Source.BUNDLED;
             case SYSTEM -> ResolvedFfmpegCommand.Source.SYSTEM;
