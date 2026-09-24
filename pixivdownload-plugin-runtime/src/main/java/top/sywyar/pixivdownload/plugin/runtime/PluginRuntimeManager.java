@@ -538,11 +538,6 @@ public class PluginRuntimeManager {
     private LoadedPluginPackage loadPreparedPlugin(Path artifactPath, Path pf4jLoadPath, Path pluginManagerRoot,
                                                     PluginDescriptor packageDescriptor,
                                                     PluginArtifactSnapshot productionSnapshot) {
-        if (!packageDescriptor.isSdkCompatible()) {
-            workspaceOwner.discard(productionSnapshot);
-            throw new PluginRuntimeOperationException("plugin requires incompatible SDK: "
-                    + packageDescriptor.id() + " requires " + packageDescriptor.requires().display());
-        }
         if (productionSnapshot == null) {
             packageDescriptor = developmentExecutionDescriptor(packageDescriptor);
         }
@@ -1270,6 +1265,7 @@ public class PluginRuntimeManager {
             PluginDescriptor descriptor,
             PluginProvenanceRecord provenance,
             VerificationResult result) {
+        requireSdkCompatibility(descriptor);
         String trustDenial = PluginTrustPolicy.executionDenial(
                 descriptor, provenance, developmentModeEnabled.getAsBoolean());
         if (trustDenial != null) {
@@ -1333,7 +1329,15 @@ public class PluginRuntimeManager {
         }
     }
 
+    private static void requireSdkCompatibility(PluginDescriptor descriptor) {
+        if (!descriptor.isSdkCompatible()) {
+            throw new PluginRuntimeOperationException("plugin requires incompatible SDK: "
+                    + descriptor.id() + " requires " + descriptor.requires().display());
+        }
+    }
+
     private void requireDevelopmentExecutionAdmission(PluginDescriptor descriptor) {
+        requireSdkCompatibility(descriptor);
         if (!developmentModeEnabled.getAsBoolean()) {
             throw new PluginRuntimeOperationException(
                     "development plugin execution requires active development mode: " + descriptor.id());
