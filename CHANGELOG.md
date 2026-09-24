@@ -26,6 +26,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - 新增 Compose Multiplatform 桌面界面和七页 Material 3 控制中心；Swing 与 Compose 分别拥有完整 UI，通过相同业务语义协作。配置页新增语言、主题、界面提供者和末级菜单展开偏好。
 - 新增 `-Dpixivdownload.plugin-dev.enabled=true` 插件开发模式，以及 `config.yaml` 的 `plugins.<插件 id>.enabled` 可选插件开关。
 - 下载页支持新版工作台、横屏三栏和竖屏单列经典布局，记住当前浏览器选择，并可折叠预览结果。Pixiv 体验增强工具箱可为已删除作品显示独立或继承已下载样式的边框。
+- 新增可选配置 `download.artwork-folder-template`：用与文件名模板相同的变量（`{artwork_id}`、`{artwork_title}`、`{author_id}`、`{author_name}`、`{timestamp}`、`{page}`、`{count}`、`{ai}`、`{R18}` 等）渲染作品目录，可用 `/` 分层。非空时作品直接落在 `{下载根}/{渲染结果}/`，不再追加作品 ID 层级，因此同一作者的作品可以共用一个目录、便于本地归档；留空则完全保持原有结构。每一段沿用文件名级安全清理（非法字符、首尾点与空格、Windows 保留名），数据中的 `/` 会被替换为 `_`，路径越界仍由 `DownloadPathGuard` 复核。可在桌面配置页修改并热重载。
 
 ### Changed
 - 每夜构建版只加载与当前构建同批发布的 Nightly 插件；稳定插件仍按 SDK 主次版本判断兼容性。升级每夜版后，旧 Nightly 插件需随新构建更新。

@@ -148,6 +148,11 @@ public class RuntimeConfigReloadService {
                 downloadConfig.isUserFlatFolder(),
                 next.isUserFlatFolder(),
                 () -> downloadConfig.setUserFlatFolder(next.isUserFlatFolder()));
+        applyIfChanged(applied,
+                "download.artwork-folder-template",
+                downloadConfig.getArtworkFolderTemplate(),
+                next.getArtworkFolderTemplate(),
+                () -> downloadConfig.setArtworkFolderTemplate(next.getArtworkFolderTemplate()));
     }
 
     private void applyMultiModeConfig(MultiModeConfig next, List<String> applied) {

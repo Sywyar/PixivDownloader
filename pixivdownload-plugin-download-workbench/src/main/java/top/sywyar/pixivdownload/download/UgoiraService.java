@@ -84,8 +84,10 @@ public class UgoiraService {
         ArtworkDownloadExecutor.validatePixivUrl(other.getUgoiraZipUrl());
         String outputBaseName = resolveOutputBaseName(artworkId, other);
 
-        Path zipPath = downloadPath.resolve("_ugoira_frames.zip");
-        Path tempDir = downloadPath.resolve("_frames_tmp");
+        // 临时产物必须带作品 ID：共享目录（download.artwork-folder-template）下
+        // 固定名会让并发的两个作品互相覆盖、并被对方的 cleanup 删掉解帧目录。
+        Path zipPath = UgoiraTempPaths.zip(downloadPath, artworkId);
+        Path tempDir = UgoiraTempPaths.framesDir(downloadPath, artworkId);
         Path partialOutput = partialOutputPath(downloadPath, outputBaseName);
         int maxAttempts = 3;
         cleanup(zipPath, tempDir, partialOutput);
