@@ -25,7 +25,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         DesktopUiNode.Timeline, DesktopUiNode.ScheduleTimeline,
         DesktopUiNode.TextInput, DesktopUiNode.Toggle, DesktopUiNode.Choice,
         DesktopUiNode.NumberInput, DesktopUiNode.Table, DesktopUiNode.Tree,
-        DesktopUiNode.Button, DesktopUiNode.Link {
+        DesktopUiNode.Button, DesktopUiNode.Link, DesktopUiNode.AccountSetup {
 
     /** @return 单份文档内稳定的节点标识 */
     String id();
@@ -586,6 +586,32 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
             time = Objects.requireNonNull(time, "time");
             title = Objects.requireNonNull(title, "title");
             detail = Objects.requireNonNull(detail, "detail");
+        }
+    }
+
+    /** Compose 首次账户设置；密码草稿与展开动画只保存在组件内。 */
+    record AccountSetup(
+            String id,
+            TextInput username,
+            TextInput password,
+            Button submit,
+            int minimumPasswordLength,
+            int recommendedPasswordLength,
+            boolean submitting,
+            boolean confirmWeakPassword,
+            Text notice
+    ) implements DesktopUiNode {
+        public AccountSetup {
+            id = requireId(id, "id");
+            Objects.requireNonNull(username, "username");
+            Objects.requireNonNull(password, "password");
+            Objects.requireNonNull(submit, "submit");
+        }
+
+        @Override public Kind kind() { return Kind.ACCOUNT_SETUP; }
+        @Override public List<DesktopUiNode> childNodes() {
+            return notice == null ? List.of(username, password, submit)
+                    : List.of(username, password, submit, notice);
         }
     }
 
@@ -1156,6 +1182,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
     /** 支持的节点类型。 */
     enum Kind {
+        /** 首次账户设置。 */ ACCOUNT_SETUP,
         /** 通用容器。 */ CONTAINER,
         /** 可按宽度自适应列数的网格。 */ ADAPTIVE_GRID,
         /** 固定页容量的吸附横向区域。 */ PAGED_ROW,

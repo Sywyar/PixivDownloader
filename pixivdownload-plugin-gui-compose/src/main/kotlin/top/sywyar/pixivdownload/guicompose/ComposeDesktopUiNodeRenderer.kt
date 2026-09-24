@@ -132,6 +132,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode
 import top.sywyar.pixivdownload.guicompose.model.DesktopImageClassifierSupport
+import top.sywyar.pixivdownload.guicompose.onboarding.OnboardingAccountForm
 import javax.swing.JFileChooser
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -172,6 +173,7 @@ object ComposeDesktopUiNodeRenderer {
         modifier: Modifier = Modifier,
     ) {
         when (node) {
+            is DesktopUiNode.AccountSetup -> OnboardingAccountForm(node, text, emit, modifier)
             is DesktopUiNode.Container -> Container(node, text, emit, modifier)
             is DesktopUiNode.AdaptiveGrid -> AdaptiveGrid(node, text, emit, modifier)
             is DesktopUiNode.PagedRow -> PagedRow(node, text, emit, modifier)

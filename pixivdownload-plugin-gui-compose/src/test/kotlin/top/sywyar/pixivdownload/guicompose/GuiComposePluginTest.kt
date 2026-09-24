@@ -335,6 +335,14 @@ class GuiComposePluginTest {
         "root", DesktopUiNode.ContainerLayout.COLUMN, 1, 4, DesktopUiNode.Alignment.STRETCH,
         listOf(
             DesktopUiNode.Dock("dock", 4, text("dock.top"), text("dock.center"), null, null, null),
+            DesktopUiNode.AccountSetup(
+                "account",
+                input("account.username", DesktopUiNode.InputKind.TEXT),
+                input("account.password", DesktopUiNode.InputKind.PASSWORD),
+                DesktopUiNode.Button("account.finish", "account.finish", raw("Finish"), null,
+                    DesktopUiNode.ButtonStyle.PRIMARY, true),
+                8, 12, false, false, null,
+            ),
             DesktopUiNode.AdaptiveGrid("adaptive", 160, 4, 8, 8, listOf(text("adaptive.text"))),
             DesktopUiNode.PagedRow("paged", 4, 8, listOf(text("paged.text"))),
             DesktopUiNode.Surface("surface", DesktopUiNode.SurfaceStyle.CARD,

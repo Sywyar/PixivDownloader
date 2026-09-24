@@ -61,8 +61,9 @@ final class DesktopOnboardingController {
         this.welcomeStep = initialWelcomeStep();
     }
 
-    void passwordChanged() {
+    void credentialsChanged() {
         weakPasswordConfirmationPending = false;
+        welcomeNotice = "";
     }
 
     DesktopUiNode controlCenterPage(
@@ -129,88 +130,55 @@ final class DesktopOnboardingController {
     }
 
     private DesktopUiNode welcomeConfigStep(Map<String, Runnable> nextActions) {
-        DesktopUiHost.OnboardingSnapshot onboarding = host.onboardingState(rootFolder);
-        List<DesktopUiNode> content = new ArrayList<>();
-        DesktopUiNode actions;
-        if (onboarding.setupComplete()) {
-            content.add(text(
-                    "welcome.config.done",
-                    "gui.welcome.config.done",
-                    TextStyle.SUCCESS
-            ));
-            actions = endRow(
-                    "welcome.config.actions",
-                    backWelcomeButton("welcome.config.back", 1, nextActions),
-                    nextWelcomeButton("welcome.config.next", 3, nextActions)
-            );
-        } else {
-            content.add(bullet(
-                    "welcome.config.account",
-                    "desktop.ui.onboarding.account.point.credentials"
-            ));
-            content.add(new DesktopUiNode.Form(
-                    "welcome.config.form",
-                    DesktopUiNode.FormStyle.COMPACT,
-                    null,
-                    List.of(
-                            new DesktopUiNode.FormRow(
-                                    "welcome.config.username",
-                                    key("gui.welcome.config.username"),
-                                    null,
-                                    input(
-                                            "welcome.username.input",
-                                            "welcome.username",
-                                            "gui.welcome.config.username",
-                                            null,
-                                            InputKind.TEXT,
-                                            form("welcome.username", ""),
-                                            !owner.busy()
-                                    ),
-                                    null
-                            ),
-                            new DesktopUiNode.FormRow(
-                                    "welcome.config.password",
-                                    key("gui.welcome.config.password"),
-                                    null,
-                                    new DesktopUiNode.TextInput(
-                                            "welcome.password.input",
-                                            "welcome.password",
-                                            key("gui.welcome.config.password"),
-                                            null,
-                                            InputKind.PASSWORD,
-                                            "",
-                                            18,
-                                            1,
-                                            !owner.busy() && owner.backendSnapshot().state() == DesktopUiHost.BackendState.RUNNING,
-                                            welcomeFormRevision
-                                    ),
-                                    null
-                            )
-                    )
-            ));
-            content.add(secondary(
-                    "welcome.config.change",
-                    "desktop.ui.onboarding.account.point.change"
-            ));
-            actions = endRow(
-                    "welcome.config.actions",
-                    backWelcomeButton("welcome.config.back", 1, nextActions),
-                    button(
-                            "welcome.config.submit",
-                            "welcome.config.submit",
-                            "gui.welcome.config.submit",
-                            !owner.busy() && owner.backendSnapshot().state() == DesktopUiHost.BackendState.RUNNING,
-                            nextActions,
-                            this::submitSetup
-                    )
+        if (host.onboardingState(rootFolder).setupComplete()) {
+            return welcomeStep(
+                    "welcome.config",
+                    "desktop.ui.onboarding.account.title",
+                    "desktop.ui.onboarding.account.body",
+                    List.of(text("welcome.config.done", "gui.welcome.config.done", TextStyle.SUCCESS)),
+                    nextWelcomeButton("welcome.config.next", STEP_PROXY, nextActions)
             );
         }
-        return welcomeStep(
+        boolean enabled = !owner.busy()
+                && owner.backendSnapshot().state() == DesktopUiHost.BackendState.RUNNING;
+        nextActions.put("welcome.config.submit", this::submitSetup);
+        return new DesktopUiNode.AccountSetup(
                 "welcome.config",
-                "desktop.ui.onboarding.account.title",
-                "desktop.ui.onboarding.account.body",
-                content,
-                actions
+                input(
+                        "welcome.username.input",
+                        "welcome.username",
+                        "gui.welcome.config.username",
+                        null,
+                        InputKind.TEXT,
+                        form("welcome.username", ""),
+                        enabled
+                ),
+                new DesktopUiNode.TextInput(
+                        "welcome.password.input",
+                        "welcome.password",
+                        key("gui.welcome.config.password"),
+                        null,
+                        InputKind.PASSWORD,
+                        "",
+                        18,
+                        1,
+                        enabled,
+                        welcomeFormRevision
+                ),
+                new DesktopUiNode.Button(
+                        "welcome.config.submit",
+                        "welcome.config.submit",
+                        token("gui-compose", "gui.compose.onboarding.account.finish", ""),
+                        null,
+                        DesktopUiNode.ButtonStyle.PRIMARY,
+                        enabled
+                ),
+                host.minimumPasswordLength(),
+                host.recommendedPasswordLength(),
+                owner.busy(),
+                weakPasswordConfirmationPending,
+                welcomeNotice.isBlank() || owner.busy() || weakPasswordConfirmationPending ? null
+                        : raw("welcome.config.notice", welcomeNotice, welcomeNoticeStyle)
         );
     }
 
@@ -548,6 +516,7 @@ final class DesktopOnboardingController {
     }
 
     private void submitSetup() {
+        if (owner.busy() || owner.backendSnapshot().state() != DesktopUiHost.BackendState.RUNNING) return;
         String username = form("welcome.username", "").trim();
         String password = form("welcome.password", "");
         if (username.isBlank()) {
@@ -572,18 +541,27 @@ final class DesktopOnboardingController {
         weakPasswordConfirmationPending = false;
         setWelcomeNotice(host.message("gui.welcome.config.submitting"), TextStyle.EMPHASIS);
         owner.runBusy(() -> {
-            DesktopUiHost.GuiResponse response = host.guiPostJson(
-                    "setup/init",
-                    Map.of(
-                            "username",
-                            username,
-                            "password",
-                            password,
-                            "mode",
-                            "solo"
-                    ),
-                    5_000
-            );
+            DesktopUiHost.GuiResponse response;
+            try {
+                response = host.guiPostJson(
+                        "setup/init",
+                        Map.of(
+                                "username",
+                                username,
+                                "password",
+                                password,
+                                "mode",
+                                "solo"
+                        ),
+                        5_000
+                );
+            } catch (RuntimeException failure) {
+                setWelcomeNotice(
+                        host.message("gui.welcome.config.failed", host.message("desktop.ui.action.failed")),
+                        TextStyle.ERROR
+                );
+                return;
+            }
             if (response.is2xx()) {
                 formValues.remove("welcome.password");
                 welcomeFormRevision++;

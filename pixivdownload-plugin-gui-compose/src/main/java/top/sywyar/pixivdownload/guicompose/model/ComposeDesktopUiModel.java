@@ -274,7 +274,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         }
         formValues.put(targetId, value);
         switch (targetId) {
-            case "welcome.password" -> onboarding.passwordChanged();
+            case "welcome.username", "welcome.password" -> onboarding.credentialsChanged();
             case "folder.selected" -> tools.selectFolder(value);
             default -> {
             }

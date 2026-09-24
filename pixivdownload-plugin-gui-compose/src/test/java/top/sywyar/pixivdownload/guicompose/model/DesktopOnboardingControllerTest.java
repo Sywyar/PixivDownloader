@@ -12,6 +12,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -22,6 +25,105 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @DisplayName("Compose 首次引导")
 class DesktopOnboardingControllerTest {
+    @Test
+    @DisplayName("渐进表单保留最短密码和弱密码二次确认，失败后可重试且密码不进入快照")
+    void validatesCredentialsAndRecoversFromSubmissionFailure() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        AtomicBoolean configured = new AtomicBoolean();
+        CountDownLatch firstRequest = new CountDownLatch(1);
+        CountDownLatch releaseRequest = new CountDownLatch(1);
+        try (ComposeDesktopUiModel model = DesktopConfigurationControllerTest.model(new HashMap<>(), Map.of(
+                "backendSnapshot", args -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null),
+                "onboardingState", args -> new DesktopUiHost.OnboardingSnapshot(configured.get(), false, 2, false, false),
+                "minimumPasswordLength", args -> 8,
+                "recommendedPasswordLength", args -> 12,
+                "guiPostJson", args -> {
+                    assertEquals("setup/init", args[0]);
+                    if (requests.incrementAndGet() == 1) {
+                        firstRequest.countDown();
+                        try {
+                            assertTrue(releaseRequest.await(5, TimeUnit.SECONDS));
+                        } catch (InterruptedException interrupted) {
+                            throw new AssertionError(interrupted);
+                        }
+                        throw new IllegalStateException("private transport diagnostic");
+                    }
+                    configured.set(true);
+                    return new DesktopUiHost.GuiResponse(true, 200, null, "", false);
+                }
+        ))) {
+            submitAccount(model);
+            assertEquals("gui.welcome.config.invalid.username", account(model).notice().text().fallback());
+            changeAccount(model, "welcome.username.input", "Admin");
+            changeAccount(model, "welcome.password.input", "short");
+            submitAccount(model);
+            assertEquals(0, requests.get());
+            assertEquals("gui.welcome.config.invalid.password", account(model).notice().text().fallback());
+
+            changeAccount(model, "welcome.password.input", "testpass");
+            submitAccount(model);
+            assertTrue(account(model).confirmWeakPassword());
+            assertEquals(0, requests.get());
+            changeAccount(model, "welcome.username.input", "Administrator");
+            assertFalse(account(model).confirmWeakPassword());
+            submitAccount(model);
+            assertTrue(account(model).confirmWeakPassword());
+            submitAccount(model);
+            assertTrue(firstRequest.await(5, TimeUnit.SECONDS));
+            assertTrue(account(model).submitting());
+            submitAccount(model);
+            assertEquals(1, requests.get());
+            assertEquals("", account(model).password().value());
+            releaseRequest.countDown();
+            awaitNotBusy(model);
+            assertEquals("gui.welcome.config.failed", account(model).notice().text().fallback());
+            assertEquals("Administrator", account(model).username().value());
+            submitAccount(model);
+            assertTrue(account(model).confirmWeakPassword());
+            submitAccount(model);
+            awaitNotBusy(model);
+            assertEquals(2, requests.get());
+            assertTrue(configured.get());
+            assertFalse(model.snapshot().document().navigationVisible());
+            var page = assertInstanceOf(DesktopUiNode.Surface.class, model.snapshot().document().pages().get(0).content());
+            assertEquals("welcome.proxy.layout", page.content().id());
+        } finally {
+            releaseRequest.countDown();
+        }
+    }
+
+    private static DesktopUiNode.AccountSetup account(ComposeDesktopUiModel model) {
+        var surface = assertInstanceOf(DesktopUiNode.Surface.class, model.snapshot().document().pages().get(0).content());
+        return assertInstanceOf(DesktopUiNode.AccountSetup.class, surface.content());
+    }
+
+    private static void changeAccount(ComposeDesktopUiModel model, String id, String value) {
+        synchronized (model) {
+            model.dispatch(model.snapshot(), new DesktopUiNode.Event(
+                    DesktopUiNode.EventType.CHANGE, id, DesktopUiNode.Value.text(value)
+            ));
+        }
+    }
+
+    private static void submitAccount(ComposeDesktopUiModel model) {
+        synchronized (model) {
+            model.dispatch(model.snapshot(), new DesktopUiNode.Event(
+                    DesktopUiNode.EventType.ACTIVATE, "welcome.config.submit", DesktopUiNode.Value.empty()
+            ));
+        }
+    }
+
+    private static void awaitNotBusy(ComposeDesktopUiModel model) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (accountBusy(model) && System.nanoTime() < deadline) Thread.sleep(10);
+        assertFalse(accountBusy(model));
+    }
+
+    private static boolean accountBusy(ComposeDesktopUiModel model) {
+        var surface = (DesktopUiNode.Surface) model.snapshot().document().pages().get(0).content();
+        return model.busy() || surface.content() instanceof DesktopUiNode.AccountSetup setup && setup.submitting();
+    }
+
     @Test
     @DisplayName("引导首屏只显示居中等待提示，完成后恢复导航")
     void hidesNavigationUntilOnboardingCompletes() throws Exception {
