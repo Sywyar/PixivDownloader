@@ -623,7 +623,8 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
             String id,
             List<OnboardingCard> cards,
             Button next,
-            Text notice
+            Text notice,
+            boolean submitting
     ) implements DesktopUiNode {
         public OnboardingHub {
             id = requireId(id, "id");
@@ -668,7 +669,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         }
     }
 
-    enum OnboardingTopic { NETWORK, DOWNLOAD, GUIDE }
+    enum OnboardingTopic { NETWORK, DOWNLOAD, GUIDE, ANIMATION }
 
     /** 代理草稿和提交校验反馈，仅供 Compose 引导使用。 */
     record OnboardingProxySettings(Toggle enabled, TextInput host, TextInput port, int validationAttempt) {

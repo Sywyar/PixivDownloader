@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -103,12 +104,13 @@ internal fun OnboardingGuideHub(
     ) {
         CupertinoText(
             message("title"),
+            modifier = Modifier.hubEntrance(0, reducedMotion),
             fontSize = 26.sp,
             fontWeight = FontWeight.SemiBold,
             color = palette.text,
         )
         Spacer(Modifier.height(8.dp))
-        CupertinoText(message("intro"), fontSize = 13.sp, color = palette.secondaryText)
+        CupertinoText(message("intro"), modifier = Modifier.hubEntrance(40, reducedMotion), fontSize = 13.sp, color = palette.secondaryText)
         Spacer(Modifier.height(16.dp))
         BoxWithConstraints(Modifier.weight(1f).widthIn(max = 1040.dp).fillMaxWidth()) {
             val compact = maxWidth < 780.dp
@@ -137,7 +139,8 @@ internal fun OnboardingGuideHub(
                             text,
                             ::select,
                             Modifier.fillMaxSize(),
-                            cardWidth
+                            reducedMotion,
+                            cardWidth,
                         )
                     } else {
                         GuideDetail(card, text, emit, reducedMotion, ::back, Modifier.fillMaxSize())
@@ -153,6 +156,7 @@ internal fun OnboardingGuideHub(
                     Modifier.zIndex(1f).fillMaxHeight().offset {
                         IntOffset((((maxWidth - cardWidth) / 2) * (1 - expansion)).roundToPx(), 0)
                     }.width(cardWidth + (expandedWidth - cardWidth) * expansion),
+                    reducedMotion,
                 )
                 androidx.compose.animation.AnimatedVisibility(
                     expanded,
@@ -169,14 +173,18 @@ internal fun OnboardingGuideHub(
             }
         }
         Row(
-            Modifier.widthIn(max = 1040.dp).fillMaxWidth().padding(top = 12.dp),
+            Modifier.widthIn(max = 1040.dp).fillMaxWidth().padding(top = 12.dp).hubEntrance(160, reducedMotion),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.weight(1f)) {
-                node.notice()?.let { render(it, Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+            Box(Modifier.weight(1f).animateContentSize(tween(180))) {
+                Crossfade(node.notice(), animationSpec = tween(160), label = "hub-notice") { notice ->
+                    notice?.let { render(it, Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+                }
             }
-            HubButton(node.next(), text, emit, Modifier.testTag(node.next().id()))
+            HubButton(node.next(), text, emit,
+                Modifier.widthIn(min = 96.dp).testTag(node.next().id()).semantics { liveRegion = LiveRegionMode.Polite },
+                busy = node.submitting(), reducedMotion = reducedMotion)
         }
     }
 }
@@ -189,6 +197,7 @@ private fun CardList(
     text: (DesktopUiNode.TextToken) -> String,
     select: (String) -> Unit,
     modifier: Modifier,
+    reducedMotion: Boolean,
     cardWidth: androidx.compose.ui.unit.Dp? = null,
 ) {
     BoxWithConstraints(modifier) {
@@ -198,7 +207,7 @@ private fun CardList(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
         ) {
-            cards.forEach { card ->
+            cards.forEachIndexed { index, card ->
                 key(card.id()) {
                     GuideCard(
                         card,
@@ -206,6 +215,7 @@ private fun CardList(
                         text,
                         { select(card.id()) },
                         Modifier.widthIn(max = maximumCardWidth).fillMaxWidth()
+                            .hubEntrance(60 + index * 40, reducedMotion)
                             .focusRequester(focus.getValue(card.id()))
                     )
                 }
@@ -250,6 +260,7 @@ private fun GuideCard(
                 DesktopUiNode.OnboardingTopic.NETWORK -> Icons.Default.Language
                 DesktopUiNode.OnboardingTopic.DOWNLOAD -> Icons.Default.Download
                 DesktopUiNode.OnboardingTopic.GUIDE -> Icons.Default.GridView
+                DesktopUiNode.OnboardingTopic.ANIMATION -> Icons.Default.Movie
             },
             null,
             Modifier.size(28.dp),
@@ -302,7 +313,7 @@ private fun GuideDetail(
                     Spacer(Modifier.width(6.dp))
                     CupertinoText(text(hubToken("back")), fontSize = 13.sp)
                 }
-                if (card.opened()) {
+                AnimatedVisibility(card.opened(), enter = fadeIn(tween(160)) + scaleIn(tween(220), initialScale = .9f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         DesktopIcon(Icons.Default.Check, null, Modifier.size(14.dp), palette.secondaryText)
                         Spacer(Modifier.width(4.dp))
@@ -335,6 +346,8 @@ private fun HubButton(
     emit: (DesktopUiNode.Event) -> Unit,
     modifier: Modifier,
     external: Boolean = false,
+    busy: Boolean = false,
+    reducedMotion: Boolean = false,
 ) {
     val palette = LocalExperiencePalette.current
     CupertinoButton(
@@ -345,11 +358,32 @@ private fun HubButton(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
         modifier = modifier.heightIn(min = 40.dp),
     ) {
-        CupertinoText(text(button.label()), fontSize = 14.sp)
+        if (busy && !reducedMotion) {
+            CupertinoActivityIndicator(Modifier.size(14.dp))
+            Spacer(Modifier.width(8.dp))
+        }
+        Crossfade(button.label(), animationSpec = tween(140), label = "hub-button-label") {
+            CupertinoText(text(it), fontSize = 14.sp)
+        }
         if (external) {
             Spacer(Modifier.width(8.dp))
             DesktopIcon(Icons.AutoMirrored.Filled.OpenInNew, null, Modifier.size(15.dp), palette.onAccent)
         }
+    }
+}
+
+@Composable
+private fun Modifier.hubEntrance(delay: Int, reducedMotion: Boolean): Modifier {
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { visible = true }
+    val appearance by animateFloatAsState(
+        if (visible) 1f else 0f,
+        if (reducedMotion) snap() else tween(300, delayMillis = delay, easing = FastOutSlowInEasing),
+        label = "hub-entrance",
+    )
+    return graphicsLayer {
+        alpha = appearance
+        translationY = if (reducedMotion) 0f else (1 - appearance) * 12.dp.toPx()
     }
 }
 

@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.guicompose.model;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiDocument;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPluginSnapshot;
@@ -12,11 +13,15 @@ import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 
 import java.net.URI;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -44,19 +49,21 @@ class DesktopOnboardingHubTest {
     }
 
     @Test
-    @DisplayName("代理、下载和插件引导进度均恢复为卡片页，只能手动继续")
+    @DisplayName("旧引导进度均恢复为卡片页，手动继续后直接完成")
     void resumesAtHubAndDoesNotAutomaticallyAdvance() throws Exception {
-        for (int progress : List.of(3, 4, 5)) {
+        for (int progress : List.of(3, 4, 5, 6, 7)) {
             AtomicInteger savedProgress = new AtomicInteger(progress);
+            AtomicBoolean finished = new AtomicBoolean();
             Map<String, String> config = new HashMap<>(Map.of("proxy.enabled", "false", "proxy.host", "saved-proxy", "proxy.port", "8181"));
             try (var model = DesktopConfigurationControllerTest.model(config, Map.of(
                     "backendSnapshot", args -> running(),
-                    "onboardingState", args -> onboarding(savedProgress.get()),
+                    "onboardingState", args -> onboarding(savedProgress.get(), finished.get()),
+                    "markOnboardingFinished", args -> { finished.set(true); return true; },
                     "saveOnboardingProgress", args -> { savedProgress.set((int) args[0]); return true; },
                     "guiPostJson", args -> new DesktopUiHost.GuiResponse(true, 200, null, "", false),
                     "guiGet", args -> { assertNotEquals("onboarding", args[0]); return DesktopUiHost.GuiResponse.unreachable(); }
             ))) {
-                assertEquals(2, hub(model).cards().size());
+                assertEquals(3, hub(model).cards().size());
                 assertFalse(hub(model).cards().get(1).open().enabled());
                 model.refreshOnboarding();
                 model.rebuild();
@@ -64,11 +71,10 @@ class DesktopOnboardingHubTest {
                 assertEquals("saved-proxy", ((DesktopUiNode.TextInput) descendant(hub(model), "welcome.proxy.host.input")).value());
                 activate(model, "welcome.hub.next");
                 awaitReady(model);
-                assertEquals(6, savedProgress.get());
+                assertTrue(finished.get());
+                assertFalse(page(model) instanceof DesktopUiNode.OnboardingHub);
+                assertTrue(model.snapshot().document().navigationVisible());
                 assertEquals("false", config.get("proxy.enabled"));
-                activate(model, "welcome.advanced.back");
-                assertEquals(3, savedProgress.get());
-                assertInstanceOf(DesktopUiNode.OnboardingHub.class, page(model));
             }
         }
     }
@@ -77,16 +83,22 @@ class DesktopOnboardingHubTest {
     @DisplayName("继续时校验并保存代理，保存后推进，重载失败明确提示")
     void validatesAndSavesProxyBeforeContinuing() throws Exception {
         for (String outcome : List.of("success", "unreachable", "throw")) {
+            CountDownLatch reloading = new CountDownLatch(1);
+            CountDownLatch releaseReload = new CountDownLatch(1);
             Map<String, String> config = new HashMap<>(Map.of("proxy.enabled", "true", "proxy.host", "proxy.local", "proxy.port", "8080"));
             AtomicInteger reloads = new AtomicInteger();
             AtomicInteger progress = new AtomicInteger(3);
+            AtomicBoolean finished = new AtomicBoolean();
             try (var model = DesktopConfigurationControllerTest.model(config, Map.of(
                     "backendSnapshot", args -> running(),
-                    "onboardingState", args -> onboarding(progress.get()),
+                    "onboardingState", args -> onboarding(progress.get(), finished.get()),
+                    "markOnboardingFinished", args -> { finished.set(true); return true; },
                     "saveOnboardingProgress", args -> { progress.set((int) args[0]); return true; },
                     "markOnboardingProxyConfigured", args -> true,
                     "guiPostJson", args -> {
                         reloads.incrementAndGet();
+                        reloading.countDown();
+                        assertDoesNotThrow(() -> assertTrue(releaseReload.await(5, TimeUnit.SECONDS)));
                         if (outcome.equals("throw")) throw new IllegalStateException("reload transport failed");
                         return outcome.equals("unreachable") ? DesktopUiHost.GuiResponse.unreachable()
                                 : new DesktopUiHost.GuiResponse(true, 200, null, "", false);
@@ -116,17 +128,32 @@ class DesktopOnboardingHubTest {
                 change(model, "welcome.proxy.host.input", "edited.proxy");
                 assertEquals("proxy.local", config.get("proxy.host"));
                 activate(model, "welcome.hub.next");
+                try {
+                    assertTrue(reloading.await(5, TimeUnit.SECONDS));
+                    assertTrue(hub(model).submitting());
+                    assertFalse(hub(model).next().enabled());
+                    assertEquals("gui.compose.onboarding.hub.saving", hub(model).next().label().key());
+                    activate(model, "welcome.hub.next");
+                    assertEquals(1, reloads.get());
+                } finally {
+                    releaseReload.countDown();
+                }
                 awaitReady(model);
                 assertEquals("edited.proxy", config.get("proxy.host"));
                 assertEquals("8181", config.get("proxy.port"));
                 assertEquals(1, reloads.get());
-                assertEquals(6, progress.get());
-                assertNotNull(descendant(page(model), "welcome.advanced.next"));
-                var notice = (DesktopUiNode.Text) descendant(page(model), "welcome.advanced.notice");
-                if (outcome.equals("success")) assertNull(notice);
+                assertTrue(finished.get());
+                assertFalse(page(model) instanceof DesktopUiNode.OnboardingHub);
+                var dialogs = model.snapshot().document().dialogs();
+                if (outcome.equals("success")) assertTrue(dialogs.isEmpty());
                 else {
-                    assertEquals(DesktopUiNode.TextStyle.WARNING, notice.style());
+                    assertEquals(1, dialogs.size());
+                    assertEquals(DesktopUiDocument.DialogStyle.WARNING, dialogs.get(0).style());
+                    var notice = (DesktopUiNode.Text) descendant(
+                            dialogs.get(0).content(), "welcome.proxy.reload-failed.message");
                     assertEquals("gui.compose.onboarding.hub.network.reload-failed", notice.text().key());
+                    activate(model, "welcome.proxy.reload-failed.close");
+                    assertTrue(model.snapshot().document().dialogs().isEmpty());
                 }
             }
         }
@@ -137,6 +164,7 @@ class DesktopOnboardingHubTest {
     void retainsDraftAfterSaveFailureAndAllowsDisablingProxy() throws Exception {
         AtomicInteger writes = new AtomicInteger();
         AtomicInteger progress = new AtomicInteger(3);
+        AtomicBoolean finished = new AtomicBoolean();
         Map<String, String> config = new HashMap<>(Map.of("proxy.enabled", "true", "proxy.host", "proxy.local", "proxy.port", "8080")) {
             @Override public void putAll(Map<? extends String, ? extends String> values) {
                 if (writes.incrementAndGet() == 1) throw new IllegalStateException("write failed");
@@ -145,7 +173,8 @@ class DesktopOnboardingHubTest {
         };
         try (var model = DesktopConfigurationControllerTest.model(config, Map.of(
                 "backendSnapshot", args -> running(),
-                "onboardingState", args -> onboarding(progress.get()),
+                "onboardingState", args -> onboarding(progress.get(), finished.get()),
+                "markOnboardingFinished", args -> { finished.set(true); return true; },
                 "saveOnboardingProgress", args -> { progress.set((int) args[0]); return true; },
                 "defaultProxyHost", args -> "fallback.proxy",
                 "defaultProxyPort", args -> 8080,
@@ -155,9 +184,12 @@ class DesktopOnboardingHubTest {
             activate(model, "welcome.hub.next");
             awaitReady(model);
             assertEquals(3, progress.get());
+            assertFalse(finished.get());
             assertEquals("proxy.local", config.get("proxy.host"));
             assertEquals("edited.proxy", hub(model).cards().get(0).settings().host().value());
             assertEquals(DesktopUiNode.TextStyle.ERROR, hub(model).notice().style());
+            assertFalse(hub(model).submitting());
+            assertEquals("gui.compose.onboarding.hub.finish", hub(model).next().label().key());
             change(model, "welcome.proxy.host.input", "");
             change(model, "welcome.proxy.port.input", "invalid");
             model.dispatch(model.snapshot(), new DesktopUiNode.Event(
@@ -168,7 +200,8 @@ class DesktopOnboardingHubTest {
             assertFalse(hub(model).cards().get(0).settings().enabled().selected());
             activate(model, "welcome.hub.next");
             awaitReady(model);
-            assertEquals(6, progress.get());
+            assertTrue(finished.get());
+            assertFalse(page(model) instanceof DesktopUiNode.OnboardingHub);
             assertEquals("false", config.get("proxy.enabled"));
             assertEquals("fallback.proxy", config.get("proxy.host"));
             assertEquals("8080", config.get("proxy.port"));
@@ -190,7 +223,7 @@ class DesktopOnboardingHubTest {
                     return null;
                 }
         ), sources::get)) {
-            assertEquals(3, hub(model).cards().size());
+            assertEquals(4, hub(model).cards().size());
             activate(model, "welcome.hub.download.open");
             awaitReady(model);
             assertFalse(hub(model).cards().get(1).opened());
@@ -208,8 +241,42 @@ class DesktopOnboardingHubTest {
             assertInstanceOf(DesktopUiNode.OnboardingHub.class, page(model));
             sources.set(List.of());
             model.rebuild();
-            assertEquals(2, hub(model).cards().size());
+            assertEquals(3, hub(model).cards().size());
             assertFalse(hub(model).cards().get(1).open().enabled());
+        }
+    }
+
+    @Test
+    @DisplayName("动图卡片显示宿主检测结果，安装说明可打开且不会完成引导")
+    void animationCardUsesFfmpegStatusAndOpensGuide() throws Exception {
+        for (boolean installed : List.of(false, true)) {
+            var opened = new AtomicReference<URI>();
+            Thread inputThread = Thread.currentThread();
+            try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), Map.of(
+                    "backendSnapshot", args -> running(),
+                    "onboardingState", args -> onboarding(3),
+                    "locateFfmpeg", args -> {
+                        assertNotSame(inputThread, Thread.currentThread(), "FFmpeg lookup must not block input");
+                        return installed ? Optional.of(new DesktopUiHost.FfmpegInstallation(
+                                Path.of("ffmpeg"), Path.of("ffprobe"), Path.of("."), DesktopUiHost.FfmpegSource.CUSTOM
+                        )) : Optional.empty();
+                    },
+                    "openExternalUri", args -> { opened.set((URI) args[0]); return null; },
+                    "markOnboardingFinished", args -> { fail("opening documentation must not complete onboarding"); return false; }
+            ))) {
+                awaitReady(model);
+                change(model, "welcome.proxy.host.input", "edited.proxy");
+                var card = hub(model).cards().stream().filter(c -> c.topic() == DesktopUiNode.OnboardingTopic.ANIMATION)
+                        .findFirst().orElseThrow();
+                assertTrue(card.open().enabled());
+                assertEquals("gui.compose.onboarding.hub.animation." + (installed ? "ready" : "body"), card.description().key());
+                activate(model, card.open().id());
+                awaitReady(model);
+                assertEquals("https", opened.get().getScheme());
+                assertEquals("sywyar.github.io", opened.get().getHost());
+                assertTrue(opened.get().getFragment().contains("/installation?id="));
+                assertInstanceOf(DesktopUiNode.OnboardingHub.class, page(model));
+            }
         }
     }
 
@@ -218,7 +285,11 @@ class DesktopOnboardingHubTest {
     }
 
     private static DesktopUiHost.OnboardingSnapshot onboarding(int progress) {
-        return new DesktopUiHost.OnboardingSnapshot(false, true, progress, false, true);
+        return onboarding(progress, false);
+    }
+
+    private static DesktopUiHost.OnboardingSnapshot onboarding(int progress, boolean finished) {
+        return new DesktopUiHost.OnboardingSnapshot(finished, true, progress, finished, true);
     }
 
     private static DesktopUiPluginSnapshot source() {

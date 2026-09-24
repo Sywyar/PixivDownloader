@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.guicompose.model;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPluginSnapshot;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiOnboardingStepContribution;
+import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiDocument;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.InputKind;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.TextStyle;
@@ -25,8 +26,6 @@ final class DesktopOnboardingController {
     private static final int STEP_SERVICE = 1;
     private static final int STEP_CONFIG = 2;
     private static final int STEP_HUB = 3;
-    private static final int STEP_ADVANCED = 6;
-    private static final int STEP_DONE = 7;
 
     private final ComposeDesktopUiModel owner;
     private final DesktopUiHost host;
@@ -34,12 +33,13 @@ final class DesktopOnboardingController {
     private final Map<String, String> formValues;
 
     private volatile String welcomeNotice = "";
-    private volatile TextToken hubNotice;
     private volatile TextStyle welcomeNoticeStyle = TextStyle.ERROR;
     private volatile long welcomeFormRevision;
     private volatile int proxyValidationAttempt;
     private volatile int welcomeStep;
     private volatile boolean weakPasswordConfirmationPending;
+    private volatile boolean ffmpegReady;
+    private volatile boolean submitting;
     private final Set<String> openedCards = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     DesktopOnboardingController(
@@ -72,7 +72,6 @@ final class DesktopOnboardingController {
     }
 
     void proxyChanged() {
-        hubNotice = null;
         welcomeNotice = "";
     }
 
@@ -82,9 +81,7 @@ final class DesktopOnboardingController {
         return switch (welcomeStep) {
             case STEP_SERVICE -> welcomeServiceStep();
             case STEP_CONFIG -> welcomeConfigStep(nextActions);
-            case STEP_HUB -> welcomeHub(nextActions);
-            case STEP_ADVANCED -> welcomeAdvancedStep(nextActions);
-            default -> welcomeDoneStep(nextActions);
+            default -> welcomeHub(nextActions);
         };
     }
 
@@ -249,6 +246,24 @@ final class DesktopOnboardingController {
                     openedCards.contains("guide." + step.stepId())
             ));
         }
+        cards.add(new DesktopUiNode.OnboardingCard(
+                "animation",
+                DesktopUiNode.OnboardingTopic.ANIMATION,
+                hubText("animation.title"),
+                hubText("animation.summary"),
+                hubText(ffmpegReady ? "animation.ready" : "animation.body"),
+                hubOpenButton(
+                        "animation",
+                        hubText("animation.open"),
+                        nextActions,
+                        URI.create("https://sywyar.github.io/PixivDownloader/#/" +
+                                (java.util.Locale.getDefault().getLanguage().equals("zh")
+                                        ? "zh-cn/installation?id=安装-ffmpeg（可选）"
+                                        : "en/installation?id=installing-ffmpeg-optional"))
+                ),
+                null,
+                openedCards.contains("animation")
+        ));
         nextActions.put("welcome.hub.next", this::saveWelcomeProxy);
         return new DesktopUiNode.OnboardingHub(
                 "welcome.hub",
@@ -256,18 +271,13 @@ final class DesktopOnboardingController {
                 new DesktopUiNode.Button(
                         "welcome.hub.next",
                         "welcome.hub.next",
-                        hubText("continue"),
+                        hubText(submitting ? "saving" : "finish"),
                         null,
                         DesktopUiNode.ButtonStyle.PRIMARY,
                         !owner.busy()
                 ),
-                hubNotice != null ? new DesktopUiNode.Text(
-                        "welcome.hub.notice",
-                        hubNotice,
-                        welcomeNoticeStyle,
-                        true,
-                        false
-                ) : welcomeNotice.isBlank() ? null : raw("welcome.hub.notice", welcomeNotice, welcomeNoticeStyle)
+                welcomeNotice.isBlank() ? null : raw("welcome.hub.notice", welcomeNotice, welcomeNoticeStyle),
+                submitting
         );
     }
 
@@ -281,7 +291,6 @@ final class DesktopOnboardingController {
         if (target != null) nextActions.put(
                 id,
                 () -> owner.runBusy(() -> {
-                    hubNotice = null;
                     try {
                         host.openExternalUri(target);
                         openedCards.add(cardId);
@@ -340,73 +349,6 @@ final class DesktopOnboardingController {
         return token("gui-compose", "gui.compose.onboarding.hub." + key, "");
     }
 
-
-    private DesktopUiNode welcomeAdvancedStep(Map<String, Runnable> nextActions) {
-        boolean ffmpegReady = host.locateFfmpeg().isPresent();
-        return welcomeStep(
-                "welcome.advanced",
-                "gui.welcome.advanced.title",
-                "gui.welcome.advanced.body",
-                List.of(
-                        text("welcome.advanced.scripts.title", "gui.welcome.scripts.title", TextStyle.HEADING),
-                        text("welcome.advanced.scripts.intro", "gui.welcome.scripts.intro", TextStyle.BODY),
-                        bullet("welcome.advanced.scripts.page", "gui.welcome.scripts.point.page"),
-                        bullet("welcome.advanced.scripts.toolbox", "gui.welcome.scripts.point.toolbox"),
-                        text("welcome.advanced.scripts.install", "gui.welcome.scripts.install", TextStyle.BODY),
-                        text("welcome.advanced.ffmpeg.title", "gui.welcome.ffmpeg.title", TextStyle.HEADING),
-                        text("welcome.advanced.ffmpeg.intro", "gui.welcome.ffmpeg.intro", TextStyle.BODY),
-                        new DesktopUiNode.Text(
-                                "welcome.advanced.ffmpeg.state",
-                                appToken(
-                                        "gui.welcome.ffmpeg.state",
-                                        host.message(ffmpegReady
-                                                ? "gui.welcome.ffmpeg.state.ready"
-                                                : "gui.welcome.ffmpeg.state.missing")
-                                ),
-                                ffmpegReady ? TextStyle.SUCCESS : TextStyle.WARNING,
-                                true,
-                                false
-                        ),
-                        text("welcome.advanced.ffmpeg.install", "gui.welcome.ffmpeg.install", TextStyle.BODY),
-                        text("welcome.advanced.reopen.title", "gui.welcome.done.reopen.title", TextStyle.HEADING),
-                        text("welcome.advanced.reopen", "gui.welcome.done.reopen", TextStyle.BODY)
-                ),
-                endRow(
-                        "welcome.advanced.actions",
-                        backWelcomeButton(
-                                "welcome.advanced.back",
-                                STEP_HUB,
-                                nextActions
-                        ),
-                        nextWelcomeButton("welcome.advanced.next", STEP_DONE, nextActions)
-                )
-        );
-    }
-
-    private DesktopUiNode welcomeDoneStep(Map<String, Runnable> nextActions) {
-        return welcomeStep(
-                    "welcome.done",
-                    "gui.welcome.done.title",
-                    "gui.welcome.done.body",
-                    List.of(
-                            bullet("welcome.done.start", "gui.welcome.done.point.start"),
-                            bullet("welcome.done.advanced", "gui.welcome.done.point.advanced")
-                    ),
-                    endRow(
-                            "welcome.done.actions",
-                            backWelcomeButton("welcome.done.back", STEP_ADVANCED, nextActions),
-                            button(
-                                    "welcome.done.finish",
-                                    "welcome.done.finish",
-                                    "gui.welcome.done.button",
-                                    !owner.busy(),
-                                    nextActions,
-                                    this::finishOnboarding
-                            )
-                    )
-        );
-    }
-
     private DesktopUiNode welcomeStep(
             String id,
             String titleKey,
@@ -460,31 +402,11 @@ final class DesktopOnboardingController {
     }
 
     private DesktopUiNode welcomeFooter(String id, DesktopUiNode actions) {
-        if (hubNotice != null) return column(
-                id + ".footer",
-                new DesktopUiNode.Text(id + ".notice", hubNotice, welcomeNoticeStyle, true, false),
-                actions
-        );
         if (welcomeNotice.isBlank()) return actions;
         return column(
                 id + ".footer",
                 raw(id + ".notice", welcomeNotice, welcomeNoticeStyle),
                 actions
-        );
-    }
-
-    private DesktopUiNode.Button backWelcomeButton(
-            String id,
-            int target,
-            Map<String, Runnable> nextActions
-    ) {
-        return button(
-                id,
-                id,
-                "gui.welcome.nav.prev",
-                !owner.busy(),
-                nextActions,
-                () -> goWelcomeStep(target)
         );
     }
 
@@ -506,7 +428,6 @@ final class DesktopOnboardingController {
     private void goWelcomeStep(int target) {
         welcomeStep = normalizeStep(target);
         welcomeNotice = "";
-        hubNotice = null;
         welcomeNoticeStyle = TextStyle.ERROR;
         host.saveOnboardingProgress(welcomeStep);
         owner.rebuild();
@@ -526,8 +447,7 @@ final class DesktopOnboardingController {
     }
 
     private static int normalizeStep(int step) {
-        return step >= STEP_HUB && step < STEP_ADVANCED ? STEP_HUB
-                : Math.max(STEP_SERVICE, Math.min(STEP_DONE, step));
+        return Math.max(STEP_SERVICE, Math.min(STEP_HUB, step));
     }
 
     private void submitSetup() {
@@ -592,7 +512,6 @@ final class DesktopOnboardingController {
 
     private void saveWelcomeProxy() {
         if (owner.busy()) return;
-        hubNotice = null;
         welcomeNotice = "";
         String hostValue = form("welcome.proxy.host", "").trim();
         int port = intForm("welcome.proxy.port", 0);
@@ -606,42 +525,51 @@ final class DesktopOnboardingController {
         if (!enabled && (port < 1 || port > 65_535)) port = host.defaultProxyPort();
         String savedHost = hostValue;
         int savedPort = port;
+        submitting = true;
         owner.runBusy(() -> {
             try {
-                host.applicationConfig().writeAll(Map.of(
-                        "proxy.enabled",
-                        Boolean.toString(enabled),
-                        "proxy.host",
-                        savedHost,
-                        "proxy.port",
-                        Integer.toString(savedPort)
-                ));
-                host.markOnboardingProxyConfigured();
-            } catch (Exception failure) {
-                setWelcomeNotice(
-                        host.message("gui.welcome.proxy.failed", safeMessage(failure)),
-                        TextStyle.ERROR
-                );
-                return;
-            }
-            boolean reloaded;
-            try {
-                DesktopUiHost.GuiResponse response = host.guiPostJson(
-                        "config/reload",
-                        Map.of(
-                                "changedKeys",
-                                List.of("proxy.enabled", "proxy.host", "proxy.port")
-                        ),
-                        5_000
-                );
-                reloaded = response.is2xx();
-            } catch (Exception failure) {
-                reloaded = false;
-            }
-            goWelcomeStep(STEP_ADVANCED);
-            if (!reloaded) {
-                hubNotice = hubText("network.reload-failed");
-                welcomeNoticeStyle = TextStyle.WARNING;
+                try {
+                    host.applicationConfig().writeAll(Map.of(
+                            "proxy.enabled",
+                            Boolean.toString(enabled),
+                            "proxy.host",
+                            savedHost,
+                            "proxy.port",
+                            Integer.toString(savedPort)
+                    ));
+                    host.markOnboardingProxyConfigured();
+                } catch (Exception failure) {
+                    setWelcomeNotice(
+                            host.message("gui.welcome.proxy.failed", safeMessage(failure)),
+                            TextStyle.ERROR
+                    );
+                    return;
+                }
+                boolean reloaded;
+                try {
+                    DesktopUiHost.GuiResponse response = host.guiPostJson(
+                            "config/reload",
+                            Map.of(
+                                    "changedKeys",
+                                    List.of("proxy.enabled", "proxy.host", "proxy.port")
+                            ),
+                            5_000
+                    );
+                    reloaded = response.is2xx();
+                } catch (Exception failure) {
+                    reloaded = false;
+                }
+                finishOnboarding();
+                if (!reloaded) {
+                    owner.showDialog(
+                            "welcome.proxy.reload-failed",
+                            "gui.dialog.warning.title",
+                            hubText("network.reload-failed"),
+                            DesktopUiDocument.DialogStyle.WARNING
+                    );
+                }
+            } finally {
+                submitting = false;
             }
         });
     }
@@ -650,21 +578,24 @@ final class DesktopOnboardingController {
         if (!host.onboardingState(rootFolder).setupComplete()) {
             setWelcomeNotice(host.message("gui.welcome.config.waiting"), TextStyle.ERROR);
             welcomeStep = STEP_CONFIG;
-            owner.rebuild();
             return;
         }
         host.markOnboardingSeen();
         host.markOnboardingFinished();
-        owner.rebuild();
     }
 
     void refreshState() {
-        if (host.onboardingState(rootFolder).finished() || welcomeStep != STEP_SERVICE) return;
-        int next = hostSetupWelcomeStep(host.onboardingState(rootFolder));
-        if (next != welcomeStep) {
-            welcomeStep = next;
-            host.saveOnboardingProgress(next);
+        DesktopUiHost.OnboardingSnapshot onboarding = host.onboardingState(rootFolder);
+        if (onboarding.complete()) return;
+        if (welcomeStep == STEP_SERVICE) {
+            int next = hostSetupWelcomeStep(onboarding);
+            if (next != welcomeStep) {
+                welcomeStep = next;
+                host.saveOnboardingProgress(next);
+            }
         }
+        // 检测可能启动系统命令，复用后台刷新，避免阻塞表单输入。
+        if (welcomeStep == STEP_HUB) ffmpegReady = host.locateFfmpeg().isPresent();
     }
 
     private GuiOnboardingStepContribution guideStep() {

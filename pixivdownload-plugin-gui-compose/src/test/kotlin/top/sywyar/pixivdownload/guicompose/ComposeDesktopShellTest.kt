@@ -16,6 +16,7 @@ import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiDocument
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode
 import java.util.Optional
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 @DisplayName("Compose 根页面外壳")
@@ -72,6 +73,34 @@ class ComposeDesktopShellTest {
         onNodeWithText("Wizard").assertDoesNotExist()
         onNodeWithText("Account setup").assertExists()
         onNodeWithText("Settings").assertDoesNotExist()
+    }
+
+    @Test
+    @DisplayName("完成引导时淡出卡片页并展开导航，减少动态效果时直接到位")
+    fun animatesCompletionAndHonorsReducedMotion() {
+        for (scale in listOf(1f, 0f)) runComposeUiTest(
+            effectContext = object : androidx.compose.ui.MotionDurationScale { override val scaleFactor = scale },
+        ) {
+            mainClock.autoAdvance = false
+            var current by mutableStateOf(document(false))
+            setContent {
+                PixivDownloaderTheme("light") {
+                    Box(Modifier.size(600.dp, 400.dp)) {
+                        DesktopShell(current, 1L, { it.fallback() }, {})
+                    }
+                }
+            }
+            mainClock.advanceTimeBy(32)
+            runOnIdle { current = document(true, text("home.ready", "Ready")) }
+            mainClock.advanceTimeBy(80)
+            val inset = onNodeWithText("Ready").fetchSemanticsNode().boundsInRoot.left
+            if (scale > 0) assertTrue(inset > 0 && inset < DesktopLayout.sidebarWidth.value)
+            else assertEquals(DesktopLayout.sidebarWidth.value, inset, 1f)
+            mainClock.advanceTimeBy(400)
+            onNodeWithText("Wizard").assertDoesNotExist()
+            onNodeWithText("Settings").assertExists()
+            assertEquals(DesktopLayout.sidebarWidth.value, onNodeWithText("Ready").fetchSemanticsNode().boundsInRoot.left, 1f)
+        }
     }
 
     private fun document(

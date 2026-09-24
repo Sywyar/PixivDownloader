@@ -3,6 +3,11 @@
 package top.sywyar.pixivdownload.guicompose
 
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
@@ -609,7 +614,11 @@ internal fun DesktopShell(
 
     CupertinoSurface(Modifier.fillMaxSize(), color = LocalExperiencePalette.current.surface) {
         Row(Modifier.fillMaxSize()) {
-            if (document.navigationVisible()) {
+            AnimatedVisibility(
+                document.navigationVisible(),
+                enter = expandHorizontally(tween(280)) + fadeIn(tween(180, delayMillis = 80)),
+                exit = shrinkHorizontally(tween(220)) + fadeOut(tween(150)),
+            ) {
                 NavigationPanel(
                     document = document,
                     selected = activePage,
@@ -630,8 +639,7 @@ internal fun DesktopShell(
                             documentRevision,
                         )
                     }
-                    if (document.navigationVisible()) renderContent(currentPage.content())
-                    else updateTransition(
+                    updateTransition(
                         targetState = currentPage.content(),
                         label = "onboarding-step",
                     ).Crossfade(

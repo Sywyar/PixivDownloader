@@ -38,7 +38,7 @@ class OnboardingGuideHubTest {
         mainClock.autoAdvance = false
         val events = mutableListOf<DesktopUiNode.Event>()
         setContent { Preview("light", 1120, hub(), events::add) }
-        mainClock.advanceTimeBy(32)
+        mainClock.advanceTimeBy(600)
         val initial = onNodeWithTag("hub.card.network").fetchSemanticsNode().boundsInRoot
         assertEquals(onNodeWithTag("preview").fetchSemanticsNode().boundsInRoot.center.x, initial.center.x, 1f)
         screenshot("overview")
@@ -98,9 +98,9 @@ class OnboardingGuideHubTest {
         mainClock.autoAdvance = false
         setContent { Preview("light", 1120, hub()) }
         mainClock.advanceTimeBy(32)
-        onNodeWithTag("hub.card.guide").performClick()
+        onNodeWithTag("hub.card.animation").performClick()
         mainClock.advanceTimeBy(32)
-        onNodeWithTag("hub.detail.guide").assertIsDisplayed()
+        onNodeWithTag("hub.detail.animation").assertIsDisplayed()
         onNodeWithTag("hub.demo.playback").assertDoesNotExist()
         screenshot("reduced-motion")
     }
@@ -112,16 +112,85 @@ class OnboardingGuideHubTest {
         val events = mutableListOf<DesktopUiNode.Event>()
         setContent { Preview("light", 1120, hub(), events::add) }
         mainClock.advanceTimeBy(32)
-        onNodeWithTag("hub.card.download").performClick()
+        onNodeWithTag("hub.card.animation").performClick()
         mainClock.advanceTimeBy(600)
         onNodeWithContentDescription(resolve(hubToken("pause"))).performClick()
         mainClock.advanceTimeBy(4000)
         onNodeWithContentDescription(resolve(hubToken("play"))).assertExists().performClick()
-        mainClock.advanceTimeBy(4000)
+        mainClock.advanceTimeBy(7000)
         onNodeWithContentDescription(resolve(hubToken("replay"))).assertExists().performClick()
         mainClock.advanceTimeBy(32)
         onNodeWithContentDescription(resolve(hubToken("pause"))).assertExists()
         assertTrue(events.isEmpty())
+    }
+
+    @Test
+    @DisplayName("四段演示依次展示完整流程，失焦与暂停保持进度，完成后停留且支持重播")
+    fun demonstratesEveryFlowAndSuspendsWhenInactive() {
+        for (topic in DesktopUiNode.OnboardingTopic.entries) runComposeUiTest {
+            mainClock.autoAdvance = false
+            var focused by mutableStateOf(true)
+            setContent {
+                CompositionLocalProvider(LocalWindowInfo provides object : WindowInfo {
+                    override val isWindowFocused = focused
+                }) {
+                    PixivDownloaderTheme("light") {
+                        Box(Modifier.size(560.dp, 300.dp).testTag("preview")) {
+                            OnboardingDemo(topic, ::resolve, false, Modifier.fillMaxSize())
+                        }
+                    }
+                }
+            }
+            mainClock.advanceTimeBy(1000)
+            fun progress() = onNodeWithTag("hub.demo.scene").fetchSemanticsNode()
+                .config[SemanticsProperties.ProgressBarRangeInfo].current
+            fun stage(number: Int) = onNodeWithTag("hub.demo.scene").assert(SemanticsMatcher.expectValue(
+                SemanticsProperties.StateDescription, resolve(hubToken("demo.${topic.name.lowercase()}.$number")),
+            ))
+            stage(1)
+            runOnIdle { focused = false }
+            mainClock.advanceTimeBy(32)
+            val paused = progress()
+            mainClock.advanceTimeBy(8000)
+            assertEquals(paused, progress())
+            runOnIdle { focused = true }
+            mainClock.advanceTimeBy(2000)
+            stage(2)
+            onNodeWithContentDescription(resolve(hubToken("pause"))).performClick()
+            mainClock.advanceTimeBy(32)
+            val manualPause = progress()
+            mainClock.advanceTimeBy(8000)
+            assertEquals(manualPause, progress())
+            screenshot("demo-${topic.name.lowercase()}-middle")
+            onNodeWithContentDescription(resolve(hubToken("play"))).performClick()
+            mainClock.advanceTimeBy(5000)
+            stage(3)
+            assertEquals(1f, progress())
+            screenshot("demo-${topic.name.lowercase()}-end")
+            mainClock.advanceTimeBy(8000)
+            assertEquals(1f, progress())
+            onNodeWithContentDescription(resolve(hubToken("replay"))).performClick()
+            mainClock.advanceTimeBy(100)
+            stage(1)
+            assertTrue(progress() < .1f)
+        }
+    }
+
+    @Test
+    @DisplayName("完成按钮显示保存状态并阻止重复提交，失败恢复后可以重试")
+    fun showsSavingStateAndRestoresFinishAction() = runComposeUiTest {
+        var submitting by mutableStateOf(false)
+        val events = mutableListOf<DesktopUiNode.Event>()
+        setContent { Preview("light", 1120, hub(submitting = submitting), events::add) }
+        onNodeWithTag("next").assertIsEnabled()
+        onNodeWithText(resolve(hubToken("finish"))).assertExists()
+        runOnIdle { submitting = true }
+        onNodeWithTag("next").assertIsNotEnabled().performClick()
+        onNodeWithText(resolve(hubToken("saving"))).assertExists()
+        assertTrue(events.isEmpty())
+        runOnIdle { submitting = false }
+        onNodeWithTag("next").assertIsEnabled().performClick()
+        assertEquals(listOf("next"), events.map { it.nodeId() })
     }
 
     @Test
@@ -136,7 +205,7 @@ class OnboardingGuideHubTest {
         runOnIdle { node = hub() }
         mainClock.advanceTimeBy(32)
         onNodeWithTag("hub.detail.guide").assertExists()
-        runOnIdle { node = DesktopUiNode.OnboardingHub("hub", hub().cards().take(2), hub().next(), null) }
+        runOnIdle { node = DesktopUiNode.OnboardingHub("hub", hub().cards().take(2), hub().next(), null, false) }
         mainClock.advanceTimeBy(700)
         onNodeWithTag("hub.detail.guide").assertDoesNotExist()
         onNodeWithTag("hub.card.network").assertIsDisplayed()
@@ -246,6 +315,22 @@ class OnboardingGuideHubTest {
         screenshot("network-invalid")
     }
 
+    @Test
+    @DisplayName("动图卡片在宽窄窗口和大字号下均可打开，说明与继续按钮保持可达")
+    fun opensAnimationCardAcrossWindowSizes() {
+        for (width in listOf(1120, 700)) for (fontScale in listOf(1f, 1.5f)) runComposeUiTest {
+            val events = mutableListOf<DesktopUiNode.Event>()
+            setContent { Preview("light", width, hub(), events::add, fontScale) }
+            onNodeWithTag("hub.card.animation").performScrollTo().assertIsDisplayed().performClick()
+            mainClock.advanceTimeBy(600)
+            onNodeWithTag("hub.detail.animation").assertIsDisplayed()
+            onNodeWithTag("open.animation").performScrollTo().assertIsDisplayed().performClick()
+            onNodeWithTag("next").assertIsDisplayed().performClick()
+            assertEquals(listOf("open.animation", "next"), events.map { it.nodeId() })
+            if (width == 1120 && fontScale == 1f) screenshot("animation")
+        }
+    }
+
     @Composable
     private fun Preview(
         theme: String,
@@ -285,7 +370,7 @@ class OnboardingGuideHubTest {
     private fun resolve(token: DesktopUiNode.TextToken) =
         messages.getProperty(token.key(), coreMessages.getProperty(token.key(), token.fallback()))
 
-    private fun hub(proxyHost: String = "localhost", proxyPort: String = "8080", attempt: Int = 0) = DesktopUiNode.OnboardingHub(
+    private fun hub(proxyHost: String = "localhost", proxyPort: String = "8080", attempt: Int = 0, submitting: Boolean = false) = DesktopUiNode.OnboardingHub(
         "hub",
         DesktopUiNode.OnboardingTopic.entries.map { topic ->
             val id = topic.name.lowercase()
@@ -297,8 +382,9 @@ class OnboardingGuideHubTest {
                 if (topic == DesktopUiNode.OnboardingTopic.NETWORK) proxySettings(proxyHost, proxyPort, attempt) else null, false,
             )
         },
-        DesktopUiNode.Button("next", "next", hubToken("continue"), null, DesktopUiNode.ButtonStyle.PRIMARY, true),
+        DesktopUiNode.Button("next", "next", hubToken(if (submitting) "saving" else "finish"), null, DesktopUiNode.ButtonStyle.PRIMARY, !submitting),
         null,
+        submitting,
     )
 
     private fun proxySettings(
