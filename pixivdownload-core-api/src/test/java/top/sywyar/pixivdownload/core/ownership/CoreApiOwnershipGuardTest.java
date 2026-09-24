@@ -280,7 +280,7 @@ class CoreApiOwnershipGuardTest {
 
     private static final Map<String, List<String>> APPROVED_ENUM_CONSTANTS_BY_TYPE = Map.ofEntries(
             Map.entry("top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand$Source",
-                    List.of("MANAGED", "BUNDLED", "SYSTEM", "FALLBACK")),
+                    List.of("CUSTOM", "MANAGED", "BUNDLED", "SYSTEM", "FALLBACK")),
             Map.entry("top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFailure",
                     List.of("INVALID_TARGET", "HTTP_STATUS", "TRANSPORT")),
             Map.entry("top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessOutcome",
