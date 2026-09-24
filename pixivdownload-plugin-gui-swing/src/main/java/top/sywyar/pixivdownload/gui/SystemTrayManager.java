@@ -12,6 +12,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 import java.net.URI;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 系统托盘图标管理器。
@@ -24,6 +25,7 @@ public final class SystemTrayManager {
 
     /** 已安装的托盘图标，供热重载语言时刷新文案。 */
     private static volatile TrayIcon installedTrayIcon;
+    private static final AtomicBoolean folderOpening = new AtomicBoolean();
 
     private SystemTrayManager() {}
 
@@ -182,12 +184,15 @@ public final class SystemTrayManager {
     }
 
     private static void openFolder(String rootFolder) {
+        if (!folderOpening.compareAndSet(false, true)) return;
         // 与状态页「打开下载目录」同一动作：交给宿主的受限打开动作，避免系统壳在 EDT 上阻塞。
         Thread worker = new Thread(() -> {
             try {
                 SwingHost.host().openLocalPath(java.nio.file.Path.of(rootFolder));
             } catch (Exception e) {
                 log.warn(logMessage("gui.tray.log.open-folder.failed", e.getMessage()));
+            } finally {
+                folderOpening.set(false);
             }
         }, "gui-tray-open-folder");
         worker.setDaemon(true);

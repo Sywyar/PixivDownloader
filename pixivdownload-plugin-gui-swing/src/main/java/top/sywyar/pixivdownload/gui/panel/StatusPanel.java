@@ -28,6 +28,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 /**
@@ -66,6 +67,7 @@ public class StatusPanel extends JPanel {
     private final JButton ffmpegActionButton = new JButton(message("gui.ffmpeg.action.download"));
     private final JButton openFfmpegDirButton = new JButton(message("gui.ffmpeg.action.open-dir"));
     private final JProgressBar ffmpegProgress = new JProgressBar();
+    private final AtomicBoolean shellActionInFlight = new AtomicBoolean();
 
     private final Runnable themeChangeListener = this::applyUpdateBannerColors;
     private GuiThemeListenerSession themeListenerSession = GuiThemeListenerSession.none();
@@ -1038,11 +1040,14 @@ public class StatusPanel extends JPanel {
      * {@code ShellExecute} 中无限阻塞；在 EDT 上执行会连带冻结窗口、托盘菜单与退出路径。
      */
     private void runShellAction(String threadName, ShellAction action, Consumer<Exception> reportFailure) {
+        if (!shellActionInFlight.compareAndSet(false, true)) return;
         Thread worker = new Thread(() -> {
             try {
                 action.run();
             } catch (Exception failure) {
                 SwingUtilities.invokeLater(() -> reportFailure.accept(failure));
+            } finally {
+                shellActionInFlight.set(false);
             }
         }, threadName);
         worker.setDaemon(true);

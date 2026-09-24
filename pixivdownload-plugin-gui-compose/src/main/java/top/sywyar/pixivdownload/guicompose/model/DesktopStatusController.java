@@ -16,6 +16,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,6 +45,7 @@ final class DesktopStatusController {
     private volatile boolean connectivityChecking;
     private volatile long lastConnectivityCheckAt;
     private volatile boolean ffmpegInstalling;
+    private final AtomicBoolean ffmpegDirectoryOpening = new AtomicBoolean();
     private volatile double ffmpegProgress;
 
     DesktopStatusController(
@@ -583,18 +585,26 @@ final class DesktopStatusController {
 
     private void openFfmpegDirectory() {
         // 与下载目录一致：异步执行、不占忙锁；重解析点由宿主在打开前解析为真实目标。
-        owner.executeAsync(() -> {
-            try {
-                Path directory = host.locateFfmpeg().map(DesktopUiHost.FfmpegInstallation::homeDir).filter(
-                        Objects::nonNull).filter(Files::isDirectory).orElse(null);
-                host.openLocalPath(directory == null ? host.prepareManagedFfmpegDirectory() : directory);
-            } catch (Exception failure) {
-                owner.statusNotice = host.message(
-                        "gui.ffmpeg.dialog.open-dir-failed.message",
-                        safeMessage(failure)
-                );
-            }
-        });
+        if (!ffmpegDirectoryOpening.compareAndSet(false, true)) return;
+        try {
+            owner.executeAsync(() -> {
+                try {
+                    Path directory = host.locateFfmpeg().map(DesktopUiHost.FfmpegInstallation::homeDir).filter(
+                            Objects::nonNull).filter(Files::isDirectory).orElse(null);
+                    host.openLocalPath(directory == null ? host.prepareManagedFfmpegDirectory() : directory);
+                } catch (Exception failure) {
+                    owner.statusNotice = host.message(
+                            "gui.ffmpeg.dialog.open-dir-failed.message",
+                            safeMessage(failure)
+                    );
+                } finally {
+                    ffmpegDirectoryOpening.set(false);
+                }
+            });
+        } catch (RuntimeException rejected) {
+            ffmpegDirectoryOpening.set(false);
+            throw rejected;
+        }
     }
 
     void restartApplication() {
