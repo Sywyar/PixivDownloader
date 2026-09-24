@@ -156,6 +156,15 @@ public interface DesktopUiHost extends DesktopUiToolHost {
     String requireSafeConfigValue(String value) throws java.io.IOException;
 
     /**
+     * 保存前校验宿主拥有的配置字段；不适用的字段无需额外校验。
+     *
+     * @param key 配置键
+     * @param value 待保存的值
+     * @throws java.io.IOException 值不符合宿主约束时
+     */
+    void validateCoreConfigValue(String key, String value) throws java.io.IOException;
+
+    /**
      * 从宿主拥有的配置文件读取结构化插件仓库。
      *
      * @param configFile 宿主拥有的配置文件

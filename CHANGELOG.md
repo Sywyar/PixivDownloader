@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 ## [Unreleased]
 
 ### Features
+- 桌面配置可指定 FFmpeg 可执行文件或所在目录的绝对路径，转换任务优先使用该路径；留空时继续自动查找。
 - 插画与小说下载遇到路径过长时，可按作品选择截断文件名、使用默认短文件名或取消；支持本次下载记住选择、保存默认行为，计划任务可暂停等待处理。
 - 插件 SDK 开发工程新增 Git 跟踪的工程标识和包内能力声明，并随开发包提供固定版本的社区格式、目录资源与许可证模板。
 - 完成应用插件化：主程序收敛为核心壳；下载工作台、桌面 GUI、画廊、小说、统计与重复检测、通知、推送、邮件、TTS 和 AI 等能力改为独立外置插件。插件通过稳定的 `plugin-api` / `core-api`、owner-scoped 存储与 capability 协作，并由统一安装和生命周期管理。

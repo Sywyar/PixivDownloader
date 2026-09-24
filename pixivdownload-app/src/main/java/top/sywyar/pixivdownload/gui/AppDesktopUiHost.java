@@ -113,6 +113,9 @@ final class AppDesktopUiHost implements DesktopUiHost {
     }
     @Override public String requireSafeConfigKey(String key)throws java.io.IOException{return top.sywyar.pixivdownload.gui.config.ConfigFileEditor.requireSafeKey(key);}
     @Override public String requireSafeConfigValue(String value)throws java.io.IOException{return top.sywyar.pixivdownload.gui.config.ConfigFileEditor.requireSafeValue(value);}
+    @Override public void validateCoreConfigValue(String key, String value) throws IOException {
+        if (FfmpegLocator.CONFIG_KEY.equals(key)) FfmpegLocator.validateConfiguredPath(value);
+    }
     private static UiLocale mapLocale(top.sywyar.pixivdownload.i18n.LocaleDescriptor descriptor){
         return new UiLocale(descriptor.tag(),descriptor.nativeName(),descriptor.resourceSuffix());
     }
@@ -220,6 +223,7 @@ final class AppDesktopUiHost implements DesktopUiHost {
 
     private static FfmpegSource map(top.sywyar.pixivdownload.ffmpeg.FfmpegInstallation.Source source) {
         return switch (source) {
+            case CUSTOM -> FfmpegSource.CUSTOM;
             case MANAGED -> FfmpegSource.MANAGED;
             case BUNDLED -> FfmpegSource.BUNDLED;
             case SYSTEM -> FfmpegSource.SYSTEM;

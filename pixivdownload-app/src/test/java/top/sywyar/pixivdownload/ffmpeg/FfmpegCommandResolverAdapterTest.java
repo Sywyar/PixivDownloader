@@ -52,6 +52,7 @@ class FfmpegCommandResolverAdapterTest {
 
     private static ResolvedFfmpegCommand.Source expectedSource(FfmpegInstallation.Source source) {
         return switch (source) {
+            case CUSTOM -> ResolvedFfmpegCommand.Source.CUSTOM;
             case MANAGED -> ResolvedFfmpegCommand.Source.MANAGED;
             case BUNDLED -> ResolvedFfmpegCommand.Source.BUNDLED;
             case SYSTEM -> ResolvedFfmpegCommand.Source.SYSTEM;

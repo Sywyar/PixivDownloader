@@ -176,6 +176,8 @@ public interface DesktopUiToolHost {
      * FFmpeg 安装的稳定来源。
      */
     enum FfmpegSource {
+        /** 用户在应用配置中指定。 */
+        CUSTOM,
         /**
          * 安装在宿主管理的存储中。
          */

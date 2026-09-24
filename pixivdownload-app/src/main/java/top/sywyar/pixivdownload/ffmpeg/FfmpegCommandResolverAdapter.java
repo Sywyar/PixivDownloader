@@ -41,6 +41,7 @@ public class FfmpegCommandResolverAdapter implements FfmpegCommandResolver {
 
     private static ResolvedFfmpegCommand resolved(FfmpegInstallation installation) {
         ResolvedFfmpegCommand.Source source = switch (installation.source()) {
+            case CUSTOM -> ResolvedFfmpegCommand.Source.CUSTOM;
             case MANAGED -> ResolvedFfmpegCommand.Source.MANAGED;
             case BUNDLED -> ResolvedFfmpegCommand.Source.BUNDLED;
             case SYSTEM -> ResolvedFfmpegCommand.Source.SYSTEM;

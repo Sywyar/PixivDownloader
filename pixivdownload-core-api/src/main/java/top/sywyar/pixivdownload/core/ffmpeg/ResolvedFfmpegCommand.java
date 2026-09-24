@@ -25,6 +25,8 @@ public record ResolvedFfmpegCommand(String command, Source source) {
      * 表示 {@code 该枚举值} 状态。
      */
     public enum Source {
+        /** 用户指定的路径。 */
+        CUSTOM,
         /**
          * 表示 {@code MANAGED} 状态。
          */

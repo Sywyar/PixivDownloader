@@ -1654,6 +1654,14 @@
       "locale": "en-US",
       "module": "pixivdownload-app",
       "baseName": "messages",
+      "key": "config.template.ffmpeg.executable-path.comment",
+      "acceptedSourceHash": "8f0bb601ee1399af299b2fdb8a40b5d11f60d5867bdee3b33572cc3a1df6b72f",
+      "acceptedTranslationHash": "147e74d3a45cc974b4762ce80bb7b1823346c0611d20f67ab6ae77456081d21f"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
       "key": "config.template.guest-invite.request-limit-minute.comment",
       "acceptedSourceHash": "dc2f8b1496feb8bc1aef211e041cbd967c3c639c221e6adbc2cb9470f8fca166",
       "acceptedTranslationHash": "8fb394c65afeb331c0f632713b8a9b053c43283353e0c3234bca80cefd3ac80f"
@@ -4222,6 +4230,14 @@
       "locale": "en-US",
       "module": "pixivdownload-app",
       "baseName": "messages",
+      "key": "ffmpeg.source.custom",
+      "acceptedSourceHash": "9d2fb46c0ba890b9bc52018702748779c9854518a18caafefb5f34706edc6840",
+      "acceptedTranslationHash": "260f308a01fb58a69bc468f0206fee15d68b41581aeb4f73013195badd4030c6"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
       "key": "ffmpeg.source.managed",
       "acceptedSourceHash": "d04b989b2bbc72cd08ceb9825d14ec693578e5b7d0ec4f6f7ecede7ada4fc373",
       "acceptedTranslationHash": "cc23a107be2df71341f0741bac24e57855fdc61f435ce2999d78d547aa7ed383"
@@ -4721,6 +4737,22 @@
       "key": "gui.config.field.download.user-flat-folder.label",
       "acceptedSourceHash": "cf734a51a777f46b969d8cea5c235fd15710343850e79a38b5efa4608d73d1d6",
       "acceptedTranslationHash": "bbbcd83e4f3e6dd03444097cdf3c7345843636e5c02157633c340663cb19409a"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "gui.config.field.ffmpeg.executable-path.help",
+      "acceptedSourceHash": "9a17305a6612ca50ce049b64ee1df0d0ba2526d4bd60701640bf89e9205f2d4e",
+      "acceptedTranslationHash": "7f7d7b818bfcc91af202c701aa468116dbd955575efe203ac42d8a14e3be4fb6"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "gui.config.field.ffmpeg.executable-path.label",
+      "acceptedSourceHash": "34d927976006b9e1988345cc4ef6df67fdad39cc2c1cc930a97ee75598f0b93a",
+      "acceptedTranslationHash": "bb0c4d02d164bf0db68d72ba66125bcc2547acfb545b0fac46a8ea988202b427"
     },
     {
       "locale": "en-US",
@@ -6801,6 +6833,14 @@
       "key": "gui.ffmpeg.badge.ready",
       "acceptedSourceHash": "04685a5963ffc7ec94245d8aab1b1355871b0c7d3623d2882e8f9d288a410922",
       "acceptedTranslationHash": "5f5310bbd9cf8bdd5487466aee3212c4aae8488effba4dbe5e40ea02e5e6f96a"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "gui.ffmpeg.config.path-invalid",
+      "acceptedSourceHash": "3ffa992cc7a57f4c525b248ae3a351239ad7054483f289d6c5219d2a60863cd9",
+      "acceptedTranslationHash": "8e9ef0287b2aa1016ea1b2b9672b8bc6c7a77f6291f31a4561a14f2b1d037c78"
     },
     {
       "locale": "en-US",
@@ -38246,6 +38286,14 @@
       "locale": "en-US",
       "module": "pixivdownload-plugin-download-workbench",
       "baseName": "workbench/messages",
+      "key": "ffmpeg.source.custom",
+      "acceptedSourceHash": "9d2fb46c0ba890b9bc52018702748779c9854518a18caafefb5f34706edc6840",
+      "acceptedTranslationHash": "260f308a01fb58a69bc468f0206fee15d68b41581aeb4f73013195badd4030c6"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-download-workbench",
+      "baseName": "workbench/messages",
       "key": "ffmpeg.source.managed",
       "acceptedSourceHash": "d04b989b2bbc72cd08ceb9825d14ec693578e5b7d0ec4f6f7ecede7ada4fc373",
       "acceptedTranslationHash": "cc23a107be2df71341f0741bac24e57855fdc61f435ce2999d78d547aa7ed383"
@@ -44014,6 +44062,14 @@
       "locale": "en-US",
       "module": "pixivdownload-plugin-gui-swing",
       "baseName": "gui",
+      "key": "ffmpeg.source.custom",
+      "acceptedSourceHash": "9d2fb46c0ba890b9bc52018702748779c9854518a18caafefb5f34706edc6840",
+      "acceptedTranslationHash": "260f308a01fb58a69bc468f0206fee15d68b41581aeb4f73013195badd4030c6"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-gui-swing",
+      "baseName": "gui",
       "key": "ffmpeg.source.managed",
       "acceptedSourceHash": "d04b989b2bbc72cd08ceb9825d14ec693578e5b7d0ec4f6f7ecede7ada4fc373",
       "acceptedTranslationHash": "cc23a107be2df71341f0741bac24e57855fdc61f435ce2999d78d547aa7ed383"
@@ -44521,6 +44577,22 @@
       "key": "gui.config.field.download.user-flat-folder.label",
       "acceptedSourceHash": "cf734a51a777f46b969d8cea5c235fd15710343850e79a38b5efa4608d73d1d6",
       "acceptedTranslationHash": "bbbcd83e4f3e6dd03444097cdf3c7345843636e5c02157633c340663cb19409a"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-gui-swing",
+      "baseName": "gui",
+      "key": "gui.config.field.ffmpeg.executable-path.help",
+      "acceptedSourceHash": "9a17305a6612ca50ce049b64ee1df0d0ba2526d4bd60701640bf89e9205f2d4e",
+      "acceptedTranslationHash": "7f7d7b818bfcc91af202c701aa468116dbd955575efe203ac42d8a14e3be4fb6"
+    },
+    {
+      "locale": "en-US",
+      "module": "pixivdownload-plugin-gui-swing",
+      "baseName": "gui",
+      "key": "gui.config.field.ffmpeg.executable-path.label",
+      "acceptedSourceHash": "34d927976006b9e1988345cc4ef6df67fdad39cc2c1cc930a97ee75598f0b93a",
+      "acceptedTranslationHash": "bb0c4d02d164bf0db68d72ba66125bcc2547acfb545b0fac46a8ea988202b427"
     },
     {
       "locale": "en-US",
@@ -62110,6 +62182,14 @@
       "locale": "ja-JP",
       "module": "pixivdownload-app",
       "baseName": "messages",
+      "key": "config.template.ffmpeg.executable-path.comment",
+      "acceptedSourceHash": "8f0bb601ee1399af299b2fdb8a40b5d11f60d5867bdee3b33572cc3a1df6b72f",
+      "acceptedTranslationHash": "26d641c01ccdff6f21d473523a7299e33f093859ee9a0a22f0cdcbe498ffbae0"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
       "key": "config.template.guest-invite.request-limit-minute.comment",
       "acceptedSourceHash": "dc2f8b1496feb8bc1aef211e041cbd967c3c639c221e6adbc2cb9470f8fca166",
       "acceptedTranslationHash": "7b94cf41ef8fad12123ede14fc06c40fb5c9aacd13ef2d276be2849c2be5edc5"
@@ -64678,6 +64758,14 @@
       "locale": "ja-JP",
       "module": "pixivdownload-app",
       "baseName": "messages",
+      "key": "ffmpeg.source.custom",
+      "acceptedSourceHash": "9d2fb46c0ba890b9bc52018702748779c9854518a18caafefb5f34706edc6840",
+      "acceptedTranslationHash": "f6c1313dd875e60e6a2cca34a3fceac80577810567bd795fe32dfef39d320cf3"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
       "key": "ffmpeg.source.managed",
       "acceptedSourceHash": "d04b989b2bbc72cd08ceb9825d14ec693578e5b7d0ec4f6f7ecede7ada4fc373",
       "acceptedTranslationHash": "426be6ab4a79eac6a86337c7b7b90276a988b1cbee61379fd716221a0b0524c3"
@@ -65177,6 +65265,22 @@
       "key": "gui.config.field.download.user-flat-folder.label",
       "acceptedSourceHash": "cf734a51a777f46b969d8cea5c235fd15710343850e79a38b5efa4608d73d1d6",
       "acceptedTranslationHash": "a91b9144aa3be0dcc93e711a64ef44e84d79aa802616d30e66bc63c907ba9f6b"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "gui.config.field.ffmpeg.executable-path.help",
+      "acceptedSourceHash": "9a17305a6612ca50ce049b64ee1df0d0ba2526d4bd60701640bf89e9205f2d4e",
+      "acceptedTranslationHash": "d60ca01f8c9a88c8b58fbf5b075da3d57eaab12da727409de4615b2fefbcb245"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "gui.config.field.ffmpeg.executable-path.label",
+      "acceptedSourceHash": "34d927976006b9e1988345cc4ef6df67fdad39cc2c1cc930a97ee75598f0b93a",
+      "acceptedTranslationHash": "a963f0eacf7ad4186492d259d33a4cf819731e8d86669cb17d24b80462b8483f"
     },
     {
       "locale": "ja-JP",
@@ -67257,6 +67361,14 @@
       "key": "gui.ffmpeg.badge.ready",
       "acceptedSourceHash": "04685a5963ffc7ec94245d8aab1b1355871b0c7d3623d2882e8f9d288a410922",
       "acceptedTranslationHash": "e7fa72b328d9182ffd9f8d5636ce33bcfe8a705b8a5d4e4e37b84a0d5c6626c8"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "gui.ffmpeg.config.path-invalid",
+      "acceptedSourceHash": "3ffa992cc7a57f4c525b248ae3a351239ad7054483f289d6c5219d2a60863cd9",
+      "acceptedTranslationHash": "bfd2a20a6221cf0c3a9557cc0910f38db07ac5cdd111c3d23111ecc73755fa1d"
     },
     {
       "locale": "ja-JP",
@@ -98702,6 +98814,14 @@
       "locale": "ja-JP",
       "module": "pixivdownload-plugin-download-workbench",
       "baseName": "workbench/messages",
+      "key": "ffmpeg.source.custom",
+      "acceptedSourceHash": "9d2fb46c0ba890b9bc52018702748779c9854518a18caafefb5f34706edc6840",
+      "acceptedTranslationHash": "f6c1313dd875e60e6a2cca34a3fceac80577810567bd795fe32dfef39d320cf3"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-plugin-download-workbench",
+      "baseName": "workbench/messages",
       "key": "ffmpeg.source.managed",
       "acceptedSourceHash": "d04b989b2bbc72cd08ceb9825d14ec693578e5b7d0ec4f6f7ecede7ada4fc373",
       "acceptedTranslationHash": "426be6ab4a79eac6a86337c7b7b90276a988b1cbee61379fd716221a0b0524c3"
@@ -104470,6 +104590,14 @@
       "locale": "ja-JP",
       "module": "pixivdownload-plugin-gui-swing",
       "baseName": "gui",
+      "key": "ffmpeg.source.custom",
+      "acceptedSourceHash": "9d2fb46c0ba890b9bc52018702748779c9854518a18caafefb5f34706edc6840",
+      "acceptedTranslationHash": "f6c1313dd875e60e6a2cca34a3fceac80577810567bd795fe32dfef39d320cf3"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-plugin-gui-swing",
+      "baseName": "gui",
       "key": "ffmpeg.source.managed",
       "acceptedSourceHash": "d04b989b2bbc72cd08ceb9825d14ec693578e5b7d0ec4f6f7ecede7ada4fc373",
       "acceptedTranslationHash": "426be6ab4a79eac6a86337c7b7b90276a988b1cbee61379fd716221a0b0524c3"
@@ -104977,6 +105105,22 @@
       "key": "gui.config.field.download.user-flat-folder.label",
       "acceptedSourceHash": "cf734a51a777f46b969d8cea5c235fd15710343850e79a38b5efa4608d73d1d6",
       "acceptedTranslationHash": "a91b9144aa3be0dcc93e711a64ef44e84d79aa802616d30e66bc63c907ba9f6b"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-plugin-gui-swing",
+      "baseName": "gui",
+      "key": "gui.config.field.ffmpeg.executable-path.help",
+      "acceptedSourceHash": "9a17305a6612ca50ce049b64ee1df0d0ba2526d4bd60701640bf89e9205f2d4e",
+      "acceptedTranslationHash": "d60ca01f8c9a88c8b58fbf5b075da3d57eaab12da727409de4615b2fefbcb245"
+    },
+    {
+      "locale": "ja-JP",
+      "module": "pixivdownload-plugin-gui-swing",
+      "baseName": "gui",
+      "key": "gui.config.field.ffmpeg.executable-path.label",
+      "acceptedSourceHash": "34d927976006b9e1988345cc4ef6df67fdad39cc2c1cc930a97ee75598f0b93a",
+      "acceptedTranslationHash": "a963f0eacf7ad4186492d259d33a4cf819731e8d86669cb17d24b80462b8483f"
     },
     {
       "locale": "ja-JP",
@@ -122566,6 +122710,14 @@
       "locale": "ko-KR",
       "module": "pixivdownload-app",
       "baseName": "messages",
+      "key": "config.template.ffmpeg.executable-path.comment",
+      "acceptedSourceHash": "8f0bb601ee1399af299b2fdb8a40b5d11f60d5867bdee3b33572cc3a1df6b72f",
+      "acceptedTranslationHash": "1b0ced5b610e428711c9566238f0828cc5cd6094ec9e7fd5d061bedae08890b4"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
       "key": "config.template.guest-invite.request-limit-minute.comment",
       "acceptedSourceHash": "dc2f8b1496feb8bc1aef211e041cbd967c3c639c221e6adbc2cb9470f8fca166",
       "acceptedTranslationHash": "a174470dd2dfed9c521ba4a763dfca3cd091b18f8cbc3937b1267380937d8a9b"
@@ -125134,6 +125286,14 @@
       "locale": "ko-KR",
       "module": "pixivdownload-app",
       "baseName": "messages",
+      "key": "ffmpeg.source.custom",
+      "acceptedSourceHash": "9d2fb46c0ba890b9bc52018702748779c9854518a18caafefb5f34706edc6840",
+      "acceptedTranslationHash": "d9fb1925b3edf5345e05dcf1fe99a50139192e26a589db90096fb4c54019214b"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
       "key": "ffmpeg.source.managed",
       "acceptedSourceHash": "d04b989b2bbc72cd08ceb9825d14ec693578e5b7d0ec4f6f7ecede7ada4fc373",
       "acceptedTranslationHash": "d000b01560fe81c80fc343ebbb9b4c1562c2f728d73fa927177d9bd41e265e3a"
@@ -125633,6 +125793,22 @@
       "key": "gui.config.field.download.user-flat-folder.label",
       "acceptedSourceHash": "cf734a51a777f46b969d8cea5c235fd15710343850e79a38b5efa4608d73d1d6",
       "acceptedTranslationHash": "9c51144e471ef67a49db254ff2e08543022370459e49a5c3e4203e00969cbf39"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "gui.config.field.ffmpeg.executable-path.help",
+      "acceptedSourceHash": "9a17305a6612ca50ce049b64ee1df0d0ba2526d4bd60701640bf89e9205f2d4e",
+      "acceptedTranslationHash": "fcc263ac6a7fc2fc6aef6dc879e4bc2b178330f436ebd48a1f66421f003b5ec1"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "gui.config.field.ffmpeg.executable-path.label",
+      "acceptedSourceHash": "34d927976006b9e1988345cc4ef6df67fdad39cc2c1cc930a97ee75598f0b93a",
+      "acceptedTranslationHash": "34208d7d89e1b7347cacbac10c4c01c0b9662e20b14a741ed72411f3f392ccfe"
     },
     {
       "locale": "ko-KR",
@@ -127713,6 +127889,14 @@
       "key": "gui.ffmpeg.badge.ready",
       "acceptedSourceHash": "04685a5963ffc7ec94245d8aab1b1355871b0c7d3623d2882e8f9d288a410922",
       "acceptedTranslationHash": "9d29942a5bacd81360d786c2ac88fb37c3ef05a492a5152eb25f7d973f54c496"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "gui.ffmpeg.config.path-invalid",
+      "acceptedSourceHash": "3ffa992cc7a57f4c525b248ae3a351239ad7054483f289d6c5219d2a60863cd9",
+      "acceptedTranslationHash": "3990cbf96ecd3eb507d4b3b9f73d330fc038fa17c229d8eaab5a53f60f7cb283"
     },
     {
       "locale": "ko-KR",
@@ -159158,6 +159342,14 @@
       "locale": "ko-KR",
       "module": "pixivdownload-plugin-download-workbench",
       "baseName": "workbench/messages",
+      "key": "ffmpeg.source.custom",
+      "acceptedSourceHash": "9d2fb46c0ba890b9bc52018702748779c9854518a18caafefb5f34706edc6840",
+      "acceptedTranslationHash": "d9fb1925b3edf5345e05dcf1fe99a50139192e26a589db90096fb4c54019214b"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-plugin-download-workbench",
+      "baseName": "workbench/messages",
       "key": "ffmpeg.source.managed",
       "acceptedSourceHash": "d04b989b2bbc72cd08ceb9825d14ec693578e5b7d0ec4f6f7ecede7ada4fc373",
       "acceptedTranslationHash": "483e0b57b4889f1440cac2164b01fa14f0fdf97a078c993e507b1f21dc7a3e27"
@@ -164926,6 +165118,14 @@
       "locale": "ko-KR",
       "module": "pixivdownload-plugin-gui-swing",
       "baseName": "gui",
+      "key": "ffmpeg.source.custom",
+      "acceptedSourceHash": "9d2fb46c0ba890b9bc52018702748779c9854518a18caafefb5f34706edc6840",
+      "acceptedTranslationHash": "d9fb1925b3edf5345e05dcf1fe99a50139192e26a589db90096fb4c54019214b"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-plugin-gui-swing",
+      "baseName": "gui",
       "key": "ffmpeg.source.managed",
       "acceptedSourceHash": "d04b989b2bbc72cd08ceb9825d14ec693578e5b7d0ec4f6f7ecede7ada4fc373",
       "acceptedTranslationHash": "d000b01560fe81c80fc343ebbb9b4c1562c2f728d73fa927177d9bd41e265e3a"
@@ -165433,6 +165633,22 @@
       "key": "gui.config.field.download.user-flat-folder.label",
       "acceptedSourceHash": "cf734a51a777f46b969d8cea5c235fd15710343850e79a38b5efa4608d73d1d6",
       "acceptedTranslationHash": "9c51144e471ef67a49db254ff2e08543022370459e49a5c3e4203e00969cbf39"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-plugin-gui-swing",
+      "baseName": "gui",
+      "key": "gui.config.field.ffmpeg.executable-path.help",
+      "acceptedSourceHash": "9a17305a6612ca50ce049b64ee1df0d0ba2526d4bd60701640bf89e9205f2d4e",
+      "acceptedTranslationHash": "fcc263ac6a7fc2fc6aef6dc879e4bc2b178330f436ebd48a1f66421f003b5ec1"
+    },
+    {
+      "locale": "ko-KR",
+      "module": "pixivdownload-plugin-gui-swing",
+      "baseName": "gui",
+      "key": "gui.config.field.ffmpeg.executable-path.label",
+      "acceptedSourceHash": "34d927976006b9e1988345cc4ef6df67fdad39cc2c1cc930a97ee75598f0b93a",
+      "acceptedTranslationHash": "34208d7d89e1b7347cacbac10c4c01c0b9662e20b14a741ed72411f3f392ccfe"
     },
     {
       "locale": "ko-KR",
@@ -183022,6 +183238,14 @@
       "locale": "zh-Hant",
       "module": "pixivdownload-app",
       "baseName": "messages",
+      "key": "config.template.ffmpeg.executable-path.comment",
+      "acceptedSourceHash": "8f0bb601ee1399af299b2fdb8a40b5d11f60d5867bdee3b33572cc3a1df6b72f",
+      "acceptedTranslationHash": "04463f68fde9cb4281257e604fc35ec07bb98b65a3654af9747a50cadfd612a9"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
       "key": "config.template.guest-invite.request-limit-minute.comment",
       "acceptedSourceHash": "dc2f8b1496feb8bc1aef211e041cbd967c3c639c221e6adbc2cb9470f8fca166",
       "acceptedTranslationHash": "a08c20847e96fbaa84b8ee3463d5d6547b5b1e8538799499c44f60565254c7c7"
@@ -185590,6 +185814,14 @@
       "locale": "zh-Hant",
       "module": "pixivdownload-app",
       "baseName": "messages",
+      "key": "ffmpeg.source.custom",
+      "acceptedSourceHash": "9d2fb46c0ba890b9bc52018702748779c9854518a18caafefb5f34706edc6840",
+      "acceptedTranslationHash": "e19599222f443a004f505931fb5c88c7779231e93721d61106ba15763aafeeba"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
       "key": "ffmpeg.source.managed",
       "acceptedSourceHash": "d04b989b2bbc72cd08ceb9825d14ec693578e5b7d0ec4f6f7ecede7ada4fc373",
       "acceptedTranslationHash": "2715823d04ec4649aeca16903e54945341150b61170124ea03177282f4067953"
@@ -186089,6 +186321,22 @@
       "key": "gui.config.field.download.user-flat-folder.label",
       "acceptedSourceHash": "cf734a51a777f46b969d8cea5c235fd15710343850e79a38b5efa4608d73d1d6",
       "acceptedTranslationHash": "e8b78b8c00863223e0f759228a017f901654ffd1c7d113fe1864178b31e86ea3"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "gui.config.field.ffmpeg.executable-path.help",
+      "acceptedSourceHash": "9a17305a6612ca50ce049b64ee1df0d0ba2526d4bd60701640bf89e9205f2d4e",
+      "acceptedTranslationHash": "9a966adeccf33b781c84419b0cbc344a761e2a69f3bf5d49e20e2db1d8edb72d"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "gui.config.field.ffmpeg.executable-path.label",
+      "acceptedSourceHash": "34d927976006b9e1988345cc4ef6df67fdad39cc2c1cc930a97ee75598f0b93a",
+      "acceptedTranslationHash": "b6664a09e8ae75f2238d7c3d3d5d8a06aae168d9dd4cd5a4436fee73cb95206c"
     },
     {
       "locale": "zh-Hant",
@@ -188169,6 +188417,14 @@
       "key": "gui.ffmpeg.badge.ready",
       "acceptedSourceHash": "04685a5963ffc7ec94245d8aab1b1355871b0c7d3623d2882e8f9d288a410922",
       "acceptedTranslationHash": "e2df69bdcae50e1c3a6b5fedb6cb4fb8e2a7fee10df4cbb9d2a10153bd4defd6"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-app",
+      "baseName": "messages",
+      "key": "gui.ffmpeg.config.path-invalid",
+      "acceptedSourceHash": "3ffa992cc7a57f4c525b248ae3a351239ad7054483f289d6c5219d2a60863cd9",
+      "acceptedTranslationHash": "240523ec4ce22e3d8a9c500248854d1b36c641b45c0eb855f831a006f47a05e8"
     },
     {
       "locale": "zh-Hant",
@@ -219614,6 +219870,14 @@
       "locale": "zh-Hant",
       "module": "pixivdownload-plugin-download-workbench",
       "baseName": "workbench/messages",
+      "key": "ffmpeg.source.custom",
+      "acceptedSourceHash": "9d2fb46c0ba890b9bc52018702748779c9854518a18caafefb5f34706edc6840",
+      "acceptedTranslationHash": "e19599222f443a004f505931fb5c88c7779231e93721d61106ba15763aafeeba"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-plugin-download-workbench",
+      "baseName": "workbench/messages",
       "key": "ffmpeg.source.managed",
       "acceptedSourceHash": "d04b989b2bbc72cd08ceb9825d14ec693578e5b7d0ec4f6f7ecede7ada4fc373",
       "acceptedTranslationHash": "2715823d04ec4649aeca16903e54945341150b61170124ea03177282f4067953"
@@ -225382,6 +225646,14 @@
       "locale": "zh-Hant",
       "module": "pixivdownload-plugin-gui-swing",
       "baseName": "gui",
+      "key": "ffmpeg.source.custom",
+      "acceptedSourceHash": "9d2fb46c0ba890b9bc52018702748779c9854518a18caafefb5f34706edc6840",
+      "acceptedTranslationHash": "e19599222f443a004f505931fb5c88c7779231e93721d61106ba15763aafeeba"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-plugin-gui-swing",
+      "baseName": "gui",
       "key": "ffmpeg.source.managed",
       "acceptedSourceHash": "d04b989b2bbc72cd08ceb9825d14ec693578e5b7d0ec4f6f7ecede7ada4fc373",
       "acceptedTranslationHash": "2715823d04ec4649aeca16903e54945341150b61170124ea03177282f4067953"
@@ -225889,6 +226161,22 @@
       "key": "gui.config.field.download.user-flat-folder.label",
       "acceptedSourceHash": "cf734a51a777f46b969d8cea5c235fd15710343850e79a38b5efa4608d73d1d6",
       "acceptedTranslationHash": "e8b78b8c00863223e0f759228a017f901654ffd1c7d113fe1864178b31e86ea3"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-plugin-gui-swing",
+      "baseName": "gui",
+      "key": "gui.config.field.ffmpeg.executable-path.help",
+      "acceptedSourceHash": "9a17305a6612ca50ce049b64ee1df0d0ba2526d4bd60701640bf89e9205f2d4e",
+      "acceptedTranslationHash": "9a966adeccf33b781c84419b0cbc344a761e2a69f3bf5d49e20e2db1d8edb72d"
+    },
+    {
+      "locale": "zh-Hant",
+      "module": "pixivdownload-plugin-gui-swing",
+      "baseName": "gui",
+      "key": "gui.config.field.ffmpeg.executable-path.label",
+      "acceptedSourceHash": "34d927976006b9e1988345cc4ef6df67fdad39cc2c1cc930a97ee75598f0b93a",
+      "acceptedTranslationHash": "b6664a09e8ae75f2238d7c3d3d5d8a06aae168d9dd4cd5a4436fee73cb95206c"
     },
     {
       "locale": "zh-Hant",

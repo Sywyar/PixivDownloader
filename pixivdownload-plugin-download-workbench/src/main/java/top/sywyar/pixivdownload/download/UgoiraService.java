@@ -295,6 +295,7 @@ public class UgoiraService {
 
     private String ffmpegSourceMessageCode(ResolvedFfmpegCommand.Source source) {
         return switch (source) {
+            case CUSTOM -> "ffmpeg.source.custom";
             case MANAGED -> "ffmpeg.source.managed";
             case BUNDLED -> "ffmpeg.source.bundled";
             case SYSTEM -> "ffmpeg.source.system";
