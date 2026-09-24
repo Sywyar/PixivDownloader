@@ -525,7 +525,7 @@ test('lock 结构校验：重复条目 / 非法 hash / 未知版本 / 未知 loc
     try {
         runAccept(root, { bootstrap: true });
         const lockPath = path.join(root, 'i18n', 'catalog-lock.json');
-        const lock = staleLock.load(root);
+        const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
 
         // 重复条目
         const dup = JSON.parse(JSON.stringify(lock));
@@ -533,9 +533,14 @@ test('lock 结构校验：重复条目 / 非法 hash / 未知版本 / 未知 loc
         fs.writeFileSync(lockPath, JSON.stringify(dup), 'utf8');
         assert.throws(() => runCheck(root), /duplicate lock entry/);
 
+        const dupLocale = JSON.parse(JSON.stringify(lock));
+        dupLocale.entries[0].translations.push(dupLocale.entries[0].translations[0]);
+        fs.writeFileSync(lockPath, JSON.stringify(dupLocale), 'utf8');
+        assert.throws(() => runCheck(root), /duplicate lock entry/);
+
         // 非法 hash
         const badHash = JSON.parse(JSON.stringify(lock));
-        badHash.entries[0].acceptedSourceHash = 'zzz';
+        badHash.entries[0].translations[0][1] = 'zzz';
         fs.writeFileSync(lockPath, JSON.stringify(badHash), 'utf8');
         assert.throws(() => runCheck(root), /64-digit hex/);
 
@@ -547,11 +552,38 @@ test('lock 结构校验：重复条目 / 非法 hash / 未知版本 / 未知 loc
 
         // 未知 locale
         const unknownLocale = JSON.parse(JSON.stringify(lock));
-        unknownLocale.entries[0].locale = 'fr-FR';
+        unknownLocale.entries[0].translations[0][0] = 'fr-FR';
         fs.writeFileSync(lockPath, JSON.stringify(unknownLocale), 'utf8');
         const report = runCheck(root);
         assert.ok(report.issues.some((i) => i.type === 'invalid-lock-entry'));
         assert.ok(report.issues.some((i) => i.type === 'orphan-lock-entry'));
+    } finally {
+        cleanRepo(root);
+    }
+});
+
+test('lock 聚合存储保留各语言独立的源文与译文审核哈希', () => {
+    const root = makeRepo({ 'web/common.properties': OK_ZH, 'web/common_en.properties': OK_EN });
+    try {
+        const lockPath = path.join(root, 'i18n', 'catalog-lock.json');
+        const base = { module: 'pixivdownload-app', baseName: 'web/common', key: 'greeting' };
+        const en = {
+            locale: 'en-US', ...base,
+            acceptedSourceHash: '1'.repeat(64), acceptedTranslationHash: '2'.repeat(64),
+        };
+        const ja = {
+            locale: 'ja-JP', ...base,
+            acceptedSourceHash: '3'.repeat(64), acceptedTranslationHash: '4'.repeat(64),
+        };
+        fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+        fs.writeFileSync(lockPath, JSON.stringify({ version: 1, entries: [ja, en] }), 'utf8');
+        assert.deepEqual(staleLock.load(root).entries, [ja, en]);
+        staleLock.save(root, staleLock.load(root));
+        const saved = fs.readFileSync(lockPath, 'utf8');
+        assert.equal(JSON.parse(saved).entries.length, 1);
+        assert.deepEqual(staleLock.load(root).entries, [en, ja]);
+        staleLock.save(root, staleLock.load(root));
+        assert.equal(fs.readFileSync(lockPath, 'utf8'), saved);
     } finally {
         cleanRepo(root);
     }
