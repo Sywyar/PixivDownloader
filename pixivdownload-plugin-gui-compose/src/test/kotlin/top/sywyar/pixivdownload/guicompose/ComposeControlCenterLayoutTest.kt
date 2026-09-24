@@ -1,6 +1,8 @@
 package top.sywyar.pixivdownload.guicompose
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.CompositionLocalProvider
@@ -15,13 +17,19 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.graphics.asSkiaBitmap
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
@@ -86,6 +94,33 @@ class ComposeControlCenterLayoutTest {
             onNodeWithContentDescription("Amount").fetchSemanticsNode().config[SemanticsProperties.Error])
         onNodeWithText("Last field").performScrollTo().assertIsDisplayed()
         onNodeWithText("Save").assertIsDisplayed()
+    }
+
+    @Test
+    @DisplayName("流式容器居中时主轴与交叉轴同时居中")
+    fun centersFlowContainerOnBothAxes() = runComposeUiTest {
+        val content = DesktopUiNode.Container(
+            "centered", DesktopUiNode.ContainerLayout.FLOW, 1, 12, DesktopUiNode.Alignment.CENTER,
+            listOf(text("first", "First"), text("second", "Second")),
+        )
+        setContent {
+            PixivDownloaderTheme("light") {
+                Box(Modifier.size(600.dp, 400.dp)) {
+                    ComposeDesktopUiNodeRenderer.Render(
+                        content,
+                        { it.fallback() },
+                        {},
+                        Modifier.fillMaxSize(),
+                    )
+                }
+            }
+        }
+        val first = onNodeWithText("First").fetchSemanticsNode().boundsInRoot
+        val second = onNodeWithText("Second").fetchSemanticsNode().boundsInRoot
+
+        assertEquals(200f, first.center.y, 1f)
+        assertEquals(200f, second.center.y, 1f)
+        assertEquals(first.left, 600f - second.right, 1f)
     }
 
     @Test
@@ -526,6 +561,125 @@ class ComposeControlCenterLayoutTest {
             SemanticsMatcher.keyIsDefined(SemanticsProperties.ProgressBarRangeInfo),
         ).fetchSemanticsNode().boundsInRoot
         assertEquals(bounds.width, bounds.height)
+    }
+
+    @Test
+    @DisplayName("等待标题保持静态，细进度条向右连续移出并从左侧出现且遵循动画开关")
+    fun keepsWaitingTextStaticWhileProgressMoves() {
+        for ((theme, scale) in listOf("light" to 1f, "dark" to 1f, "light" to 0f, "dark" to 0f)) {
+            runComposeUiTest(effectContext = object : MotionDurationScale {
+                override val scaleFactor = scale
+            }) {
+                mainClock.autoAdvance = false
+                val background = if (theme == "light") ExperienceTokens.light.background else ExperienceTokens.dark.background
+                val message = DesktopUiNode.Text(
+                    "waiting",
+                    DesktopUiNode.TextToken.raw("Almost ready"),
+                    DesktopUiNode.TextStyle.WAITING,
+                    true,
+                    false,
+                    DesktopUiNode.TextAlignment.CENTER,
+                )
+                val status = DesktopUiNode.Text(
+                    "status",
+                    DesktopUiNode.TextToken.raw("Preparing the local service"),
+                    DesktopUiNode.TextStyle.SECONDARY,
+                    true,
+                    false,
+                    DesktopUiNode.TextAlignment.CENTER,
+                )
+                val progress = DesktopUiNode.Progress(
+                    "progress", 0.0, true, null, DesktopUiNode.ProgressStyle.COMPACT_LINEAR,
+                )
+                val content = DesktopUiNode.Container(
+                    "waiting-page",
+                    DesktopUiNode.ContainerLayout.FLOW,
+                    1,
+                    12,
+                    DesktopUiNode.Alignment.CENTER,
+                    listOf(DesktopUiNode.Container(
+                        "stack",
+                        DesktopUiNode.ContainerLayout.COLUMN,
+                        1,
+                        16,
+                        DesktopUiNode.Alignment.CENTER,
+                        listOf(message, status, progress),
+                    )),
+                )
+                setContent {
+                    CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                        PixivDownloaderTheme(theme) {
+                            Box(Modifier.size(600.dp, 400.dp).background(background).testTag("waiting-preview")) {
+                                ComposeDesktopUiNodeRenderer.Render(content, { it.fallback() }, {}, Modifier.fillMaxSize())
+                            }
+                        }
+                    }
+                }
+                mainClock.advanceTimeBy(32)
+                val title = onNodeWithText("Almost ready")
+                val titleBounds = title.fetchSemanticsNode().boundsInRoot
+                val statusBounds = onNodeWithText("Preparing the local service").fetchSemanticsNode().boundsInRoot
+                val indicator = onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.ProgressBarRangeInfo))
+                val progressBounds = indicator.fetchSemanticsNode().boundsInRoot
+                assertEquals(300f, titleBounds.center.x, 1f)
+                assertEquals(300f, statusBounds.center.x, 1f)
+                assertEquals(300f, progressBounds.center.x, 1f)
+                assertEquals(200f, (titleBounds.top + progressBounds.bottom) / 2, 1f)
+                assertTrue(titleBounds.bottom < statusBounds.top)
+                assertTrue(statusBounds.bottom < progressBounds.top)
+                assertTrue(progressBounds.width < 300f && progressBounds.height <= 5f)
+                val layouts = mutableListOf<TextLayoutResult>()
+                title.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+                assertTrue(layouts.single().layoutInput.style.fontSize.value >= 34f)
+                assertEquals(
+                    ProgressBarRangeInfo.Indeterminate,
+                    indicator.fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo],
+                )
+                fun progressPixels(): List<androidx.compose.ui.graphics.Color> {
+                    val pixels = indicator.captureToImage().toPixelMap()
+                    return (0 until pixels.width).map { pixels[it, pixels.height / 2] }
+                }
+                fun segmentPixels(pixels: List<androidx.compose.ui.graphics.Color>): List<Int> =
+                    pixels.mapIndexedNotNull { index, color ->
+                        index.takeIf { color.blue > color.red + .1f }
+                    }
+                val titleBefore = title.captureToImage().toPixelMap()
+                val initial = progressPixels()
+                mainClock.advanceTimeBy(800)
+                val shifted = progressPixels()
+                if (scale > 0f) {
+                    assertTrue(segmentPixels(shifted).average() > segmentPixels(initial).average())
+                    mainClock.advanceTimeBy(400)
+                    val entering = segmentPixels(progressPixels())
+                    val midpoint = initial.size / 2
+                    assertTrue(entering.any { it < midpoint } && entering.any { it >= midpoint })
+                    mainClock.advanceTimeBy(160)
+                    val exiting = segmentPixels(progressPixels())
+                    assertTrue(exiting.count { it < midpoint } > entering.count { it < midpoint })
+                    assertTrue(exiting.count { it >= midpoint } < entering.count { it >= midpoint })
+                    assertEquals(segmentPixels(initial).size.toDouble(), exiting.size.toDouble(), 2.0)
+                    mainClock.advanceTimeBy(240)
+                    val nextCycle = segmentPixels(progressPixels())
+                    assertEquals(segmentPixels(initial).average(), nextCycle.average(), 2.0)
+                    mainClock.advanceTimeBy(400)
+                    assertTrue(segmentPixels(progressPixels()).average() > nextCycle.average())
+                } else assertEquals(initial, shifted)
+                val titleAfter = title.captureToImage().toPixelMap()
+                for (y in 0 until titleBefore.height) for (x in 0 until titleBefore.width) {
+                    assertEquals(titleBefore[x, y], titleAfter[x, y])
+                }
+                if (scale > 0f) {
+                    val output = java.io.File("build/reports/ui/waiting-$theme.png")
+                    output.parentFile.mkdirs()
+                    val bitmap = onNodeWithTag("waiting-preview").captureToImage()
+                    org.jetbrains.skia.Image.makeFromBitmap(bitmap.asSkiaBitmap()).use { image ->
+                        image.encodeToData(org.jetbrains.skia.EncodedImageFormat.PNG)!!.use { data ->
+                            output.writeBytes(data.bytes)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     @Test

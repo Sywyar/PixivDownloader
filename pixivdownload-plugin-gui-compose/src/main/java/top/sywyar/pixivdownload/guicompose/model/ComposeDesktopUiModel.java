@@ -318,8 +318,9 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         try {
             Map<String, Consumer<List<String>>> nextSelections = new LinkedHashMap<>();
             Map<String, Runnable> nextActions = new LinkedHashMap<>();
+            DesktopUiHost.OnboardingSnapshot onboardingState = host.onboardingState(rootFolder);
             List<DesktopUiDocument.Page> pages = new ArrayList<>();
-            appendHostPages(pages, nextSelections, nextActions);
+            appendHostPages(pages, nextSelections, nextActions, onboardingState);
             List<DesktopUiDocument.Dialog> dialogs = new ArrayList<>();
             if (dialogState != null) dialogs.add(dialog(dialogState, nextActions));
             long candidateRevision = snapshot == null ? 1L : snapshot.revision() + 1L;
@@ -347,7 +348,8 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
                             "debug.unlock",
                             false
                     )),
-                    Optional.of(tray)
+                    Optional.of(tray),
+                    onboardingState.complete()
             );
             Map<String, EventEndpoint> nextEventEndpoints = DesktopUiEventProtocol.index(
                     nextDocument);
@@ -394,18 +396,19 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
     private void appendHostPages(
             List<DesktopUiDocument.Page> pages,
             Map<String, Consumer<List<String>>> nextSelections,
-            Map<String, Runnable> nextActions
+            Map<String, Runnable> nextActions,
+            DesktopUiHost.OnboardingSnapshot onboardingState
     ) {
-        appendControlCenterPages(pages, nextSelections, nextActions);
+        appendControlCenterPages(pages, nextSelections, nextActions, onboardingState);
     }
 
     private void appendControlCenterPages(
             List<DesktopUiDocument.Page> pages,
             Map<String, Consumer<List<String>>> nextSelections,
-            Map<String, Runnable> nextActions
+            Map<String, Runnable> nextActions,
+            DesktopUiHost.OnboardingSnapshot onboardingState
     ) {
-        DesktopUiHost.OnboardingSnapshot onboarding = host.onboardingState(rootFolder);
-        pages.add(onboarding.complete() ? controlCenterView.homePage(nextActions) : page(
+        pages.add(onboardingState.complete() ? controlCenterView.homePage(nextActions) : page(
                 "home",
                 DesktopUiIcon.HOME,
                 this.onboarding.controlCenterPage(nextActions)

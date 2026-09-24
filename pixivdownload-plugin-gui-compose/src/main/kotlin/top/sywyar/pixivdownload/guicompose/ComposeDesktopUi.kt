@@ -2,6 +2,10 @@
 
 package top.sywyar.pixivdownload.guicompose
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
 import io.github.robinpcrd.cupertino.*
 import io.github.robinpcrd.cupertino.theme.*
 
@@ -563,42 +567,12 @@ private fun ComposeDesktopRoot(
     messages: ComposeMessages,
 ) {
     val document = snapshot.document()
-    val documentRevision = snapshot.revision()
-    val pageIds = document.pages().map { it.id() }
-    var selected by rememberSaveable { mutableStateOf(pageIds.first()) }
-    val activePage = selectedIdOrFirst(selected, pageIds)
-    val pageStates = rememberSaveableStateHolder()
-    val retainedPageIds = remember { linkedSetOf<String>() }
-    LaunchedEffect(activePage) { selected = activePage }
-    LaunchedEffect(pageIds) {
-        removedPageIds(retainedPageIds, pageIds).forEach(pageStates::removeState)
-        retainedPageIds.clear()
-        retainedPageIds.addAll(pageIds)
-    }
-
-    CupertinoSurface(Modifier.fillMaxSize(), color = LocalExperiencePalette.current.surface) {
-        Row(Modifier.fillMaxSize()) {
-            NavigationPanel(
-                document = document,
-                selected = activePage,
-                messages = messages,
-                modifier = Modifier.width(DesktopLayout.sidebarWidth).fillMaxHeight(),
-                onSelect = { selected = it },
-            )
-            val currentPage = document.pages().first { it.id() == activePage }
-            Column(Modifier.weight(1f).fillMaxHeight()) {
-                pageStates.SaveableStateProvider(activePage) {
-                    ComposeDesktopUiNodeRenderer.Render(
-                        currentPage.content(),
-                        messages::resolve,
-                        { event -> model.dispatch(snapshot, event) },
-                        Modifier.fillMaxSize(),
-                        documentRevision,
-                    )
-                }
-            }
-        }
-    }
+    DesktopShell(
+        document = document,
+        documentRevision = snapshot.revision(),
+        resolveText = messages::resolve,
+        dispatch = { event -> model.dispatch(snapshot, event) },
+    )
     document.dialogs().forEach { dialog ->
         DocumentDialog(
             dialog = dialog,
@@ -610,6 +584,72 @@ private fun ComposeDesktopRoot(
     }
 }
 
+/**
+ * 根页面外壳：导航与当前页面。文档关闭导航时只渲染首个页面，使引导向导独占窗口。
+ */
+@OptIn(ExperimentalComposeUiApi::class, ExperimentalAnimationApi::class)
+@Composable
+internal fun DesktopShell(
+    document: DesktopUiDocument,
+    documentRevision: Long,
+    resolveText: (DesktopUiNode.TextToken) -> String,
+    dispatch: (DesktopUiNode.Event) -> Unit,
+) {
+    val pageIds = document.pages().map { it.id() }
+    var selected by rememberSaveable { mutableStateOf(pageIds.first()) }
+    val activePage = activePageId(document, selected)
+    val pageStates = rememberSaveableStateHolder()
+    val retainedPageIds = remember { linkedSetOf<String>() }
+    LaunchedEffect(activePage) { selected = activePage }
+    LaunchedEffect(pageIds) {
+        removedPageIds(retainedPageIds, pageIds).forEach(pageStates::removeState)
+        retainedPageIds.clear()
+        retainedPageIds.addAll(pageIds)
+    }
+
+    CupertinoSurface(Modifier.fillMaxSize(), color = LocalExperiencePalette.current.surface) {
+        Row(Modifier.fillMaxSize()) {
+            if (document.navigationVisible()) {
+                NavigationPanel(
+                    document = document,
+                    selected = activePage,
+                    resolveText = resolveText,
+                    modifier = Modifier.width(DesktopLayout.sidebarWidth).fillMaxHeight(),
+                    onSelect = { selected = it },
+                )
+            }
+            val currentPage = document.pages().first { it.id() == activePage }
+            Column(Modifier.weight(1f).fillMaxHeight()) {
+                pageStates.SaveableStateProvider(activePage) {
+                    val renderContent: @Composable (DesktopUiNode) -> Unit = { content ->
+                        ComposeDesktopUiNodeRenderer.Render(
+                            content,
+                            resolveText,
+                            dispatch,
+                            Modifier.fillMaxSize(),
+                            documentRevision,
+                        )
+                    }
+                    if (document.navigationVisible()) renderContent(currentPage.content())
+                    else updateTransition(
+                        targetState = currentPage.content(),
+                        label = "onboarding-step",
+                    ).Crossfade(
+                        modifier = Modifier.fillMaxSize(),
+                        animationSpec = tween(180),
+                        contentKey = { (it as? DesktopUiNode.Surface)?.content()?.id() ?: it.id() },
+                        content = renderContent,
+                    )
+                }
+            }
+        }
+    }
+}
+
+internal fun activePageId(document: DesktopUiDocument, selectedId: String): String =
+    if (document.navigationVisible()) selectedIdOrFirst(selectedId, document.pages().map { it.id() })
+    else document.pages().first().id()
+
 internal fun selectedIdOrFirst(selectedId: String, orderedIds: List<String>): String =
     selectedId.takeIf(orderedIds::contains) ?: orderedIds.first()
 
@@ -620,7 +660,7 @@ internal fun removedPageIds(previousIds: Set<String>, currentIds: Collection<Str
 private fun NavigationPanel(
     document: DesktopUiDocument,
     selected: String,
-    messages: ComposeMessages,
+    resolveText: (DesktopUiNode.TextToken) -> String,
     modifier: Modifier,
     onSelect: (String) -> Unit,
 ) {
@@ -637,7 +677,7 @@ private fun NavigationPanel(
                 Row(Modifier.heightIn(min = DesktopLayout.navigationHeight).padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     DesktopIcon(desktopIcon(page.icon()), null, Modifier.size(18.dp))
-                    CupertinoText(messages.resolve(page.title()), style = CupertinoTheme.typography.body)
+                    CupertinoText(resolveText(page.title()), style = CupertinoTheme.typography.body)
                 }
             }
         }

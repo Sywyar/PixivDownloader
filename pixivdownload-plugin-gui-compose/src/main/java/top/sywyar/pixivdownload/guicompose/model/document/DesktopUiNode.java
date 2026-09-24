@@ -1226,6 +1226,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         /** 项目符号正文。 */ BULLET,
         /** 小号说明文本。 */ CAPTION,
         /** 页面标题。 */ TITLE,
+        /** 突出显示的等待标题。 */ WAITING,
         /** 区块标题。 */ HEADING,
         /** 等宽代码文本。 */ CODE,
         /** 成功文本。 */ SUCCESS,
@@ -1287,6 +1288,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     /** 进度呈现样式。 */
     enum ProgressStyle {
         /** 线性进度条。 */ LINEAR,
+        /** 紧凑宽度的线性进度条。 */ COMPACT_LINEAR,
         /** 环形进度条。 */ CIRCULAR
     }
     /** 时间线项目的语义状态。 */

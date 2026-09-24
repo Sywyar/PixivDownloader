@@ -14,16 +14,18 @@ import java.util.Optional;
  * @param dialogs 有序的已打开模态对话框
  * @param shortcuts 当前文档启用的应用快捷键
  * @param tray 可选系统托盘结构
+ * @param navigationVisible 是否渲染根页面导航；引导向导进行中为 false，使向导独占窗口
  */
 public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
-                                List<KeyboardShortcut> shortcuts, Optional<Tray> tray) {
+                                List<KeyboardShortcut> shortcuts, Optional<Tray> tray,
+                                boolean navigationVisible) {
     /**
      * 创建没有已打开对话框或快捷键的文档。
      *
      * @param pages 有序根页面
      */
     public DesktopUiDocument(List<Page> pages) {
-        this(pages, List.of(), List.of(), Optional.empty());
+        this(pages, List.of(), List.of(), Optional.empty(), true);
     }
 
     /**
@@ -33,7 +35,7 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
      * @param dialogs 有序的已打开模态对话框
      */
     public DesktopUiDocument(List<Page> pages, List<Dialog> dialogs) {
-        this(pages, dialogs, List.of(), Optional.empty());
+        this(pages, dialogs, List.of(), Optional.empty(), true);
     }
 
     /**
@@ -45,7 +47,7 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
      */
     public DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
                              List<KeyboardShortcut> shortcuts) {
-        this(pages, dialogs, shortcuts, Optional.empty());
+        this(pages, dialogs, shortcuts, Optional.empty(), true);
     }
 
     /**
@@ -55,6 +57,7 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
      * @param dialogs 有序的已打开模态对话框
      * @param shortcuts 当前文档启用的应用快捷键
      * @param tray 可选系统托盘结构
+     * @param navigationVisible 是否渲染根页面导航
      */
     public DesktopUiDocument {
         pages = List.copyOf(Objects.requireNonNull(pages, "pages"));

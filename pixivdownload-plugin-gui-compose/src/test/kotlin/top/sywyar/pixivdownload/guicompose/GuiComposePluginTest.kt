@@ -30,6 +30,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Base64
 import java.util.Locale
+import java.util.Optional
 import java.util.ResourceBundle
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
@@ -303,6 +304,22 @@ class GuiComposePluginTest {
         assertEquals("details", selectedIdOrFirst("details", listOf("details", "overview")))
         assertEquals("overview", selectedIdOrFirst("removed", listOf("overview", "details")))
         assertEquals(setOf("removed"), removedPageIds(setOf("overview", "removed"), listOf("overview", "added")))
+    }
+
+    @Test
+    @DisplayName("关闭导航时始终停留在首个引导页")
+    fun keepsFirstPageWhileNavigationIsHidden() {
+        val pages = listOf(
+            DesktopUiDocument.Page("home", raw("Home"), text("wizard")),
+            DesktopUiDocument.Page("settings", raw("Settings"), text("settings")),
+        )
+
+        val wizard = DesktopUiDocument(pages, listOf(), listOf(), Optional.empty(), false)
+        val ready = DesktopUiDocument(pages, listOf(), listOf(), Optional.empty(), true)
+
+        assertFalse(wizard.navigationVisible())
+        assertEquals("home", activePageId(wizard, "settings"))
+        assertEquals("settings", activePageId(ready, "settings"))
     }
 
     @Test

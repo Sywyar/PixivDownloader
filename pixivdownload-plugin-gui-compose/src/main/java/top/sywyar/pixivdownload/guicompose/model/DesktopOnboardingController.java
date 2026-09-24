@@ -69,7 +69,7 @@ final class DesktopOnboardingController {
             Map<String, Runnable> nextActions
     ) {
         return switch (welcomeStep) {
-            case STEP_SERVICE -> welcomeServiceStep(nextActions);
+            case STEP_SERVICE -> welcomeServiceStep();
             case STEP_CONFIG -> welcomeConfigStep(nextActions);
             case STEP_PROXY -> welcomeProxyStep(nextActions);
             case STEP_START -> welcomeStartStep(nextActions);
@@ -79,32 +79,52 @@ final class DesktopOnboardingController {
         };
     }
 
-    private DesktopUiNode welcomeServiceStep(Map<String, Runnable> nextActions) {
-        List<DesktopUiNode> content = new ArrayList<>(List.of(
-                raw(
-                        "welcome.service.state",
-                        owner.backendMessage(),
-                        owner.backendSnapshot().state() == DesktopUiHost.BackendState.RUNNING ? TextStyle.SUCCESS : owner.backendSnapshot().state() == DesktopUiHost.BackendState.FAILED ? TextStyle.ERROR : TextStyle.WARNING
+    private DesktopUiNode welcomeServiceStep() {
+        boolean failed = owner.backendSnapshot().state() == DesktopUiHost.BackendState.FAILED;
+        List<DesktopUiNode> content = new ArrayList<>();
+        content.add(new DesktopUiNode.Text(
+                "welcome.service.message",
+                token(
+                        "gui-compose",
+                        failed ? "gui.compose.onboarding.failed" : "gui.compose.onboarding.preparing",
+                        ""
                 ),
-                bullet("welcome.service.point1", "gui.welcome.status.point1"),
-                bullet("welcome.service.point2", "gui.welcome.status.point2")
+                failed ? TextStyle.ERROR : TextStyle.WAITING,
+                true,
+                false,
+                DesktopUiNode.TextAlignment.CENTER
         ));
-        return welcomeStep(
+        if (!failed) {
+            content.add(new DesktopUiNode.Text(
+                    "welcome.service.status",
+                    token("gui-compose", "gui.compose.onboarding.service-preparing", ""),
+                    TextStyle.SECONDARY,
+                    true,
+                    false,
+                    DesktopUiNode.TextAlignment.CENTER
+            ));
+            content.add(new DesktopUiNode.Progress(
+                    "welcome.service.progress",
+                    0,
+                    true,
+                    null,
+                    DesktopUiNode.ProgressStyle.COMPACT_LINEAR
+            ));
+        }
+        return new DesktopUiNode.Container(
                 "welcome.service",
-                "gui.welcome.status.title",
-                "gui.welcome.status.subtitle",
-                content,
-                endRow(
-                        "welcome.service.actions",
-                        button(
-                                "welcome.service.next",
-                                "welcome.service.next",
-                                "gui.welcome.nav.next",
-                                owner.backendSnapshot().state() == DesktopUiHost.BackendState.RUNNING,
-                                nextActions,
-                                () -> goWelcomeStep(2)
-                        )
-                )
+                DesktopUiNode.ContainerLayout.FLOW,
+                1,
+                12,
+                DesktopUiNode.Alignment.CENTER,
+                List.of(new DesktopUiNode.Container(
+                        "welcome.service.content",
+                        DesktopUiNode.ContainerLayout.COLUMN,
+                        1,
+                        16,
+                        DesktopUiNode.Alignment.CENTER,
+                        content
+                ))
         );
     }
 

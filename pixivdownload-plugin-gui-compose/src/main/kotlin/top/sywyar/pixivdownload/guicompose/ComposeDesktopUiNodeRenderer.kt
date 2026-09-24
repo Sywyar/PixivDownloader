@@ -93,6 +93,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toComposeImageBitmap
@@ -423,7 +424,7 @@ object ComposeDesktopUiNodeRenderer {
             DesktopUiNode.ContainerLayout.FLOW -> FlowRow(
                 modifier,
                 horizontalArrangement = Arrangement.spacedBy(gap, horizontal(node.alignment())),
-                verticalArrangement = Arrangement.spacedBy(gap),
+                verticalArrangement = Arrangement.spacedBy(gap, vertical(node.alignment())),
                 itemVerticalAlignment = vertical(node.alignment()),
             ) { node.children().forEach { child(it) } }
             DesktopUiNode.ContainerLayout.GRID -> Column(
@@ -767,6 +768,11 @@ object ComposeDesktopUiNodeRenderer {
     ) {
         val style = when (node.style()) {
             DesktopUiNode.TextStyle.TITLE -> CupertinoTheme.typography.title1
+            DesktopUiNode.TextStyle.WAITING -> CupertinoTheme.typography.title1.copy(
+                fontSize = 40.sp,
+                lineHeight = 48.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
             DesktopUiNode.TextStyle.HEADING -> CupertinoTheme.typography.headline
             DesktopUiNode.TextStyle.EMPHASIS -> CupertinoTheme.typography.body.copy(fontWeight = FontWeight.SemiBold)
             DesktopUiNode.TextStyle.ERROR -> CupertinoTheme.typography.headline.copy(fontWeight = FontWeight.SemiBold)
@@ -902,8 +908,12 @@ object ComposeDesktopUiNodeRenderer {
             }
         } else {
             Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (node.indeterminate()) CupertinoActivityIndicator(Modifier.size(20.dp))
-                else DesktopLinearProgress(node.progress().toFloat(), Modifier.fillMaxWidth().height(5.dp))
+                DesktopLinearProgress(
+                    if (node.indeterminate()) null else node.progress().toFloat(),
+                    if (node.progressStyle() == DesktopUiNode.ProgressStyle.COMPACT_LINEAR)
+                        Modifier.width(240.dp).height(4.dp)
+                    else Modifier.fillMaxWidth().height(5.dp),
+                )
                 node.text()?.let { CupertinoText(resolve(it, text), style = CupertinoTheme.typography.footnote) }
             }
         }
