@@ -186,7 +186,17 @@ final class DesktopShellOpen {
                 throw new IOException(MessageBundles.get("gui.desktop.open-timeout", target));
             }
             return call.call();
-        });
+        }) {
+            @Override
+            public void run() {
+                try {
+                    super.run();
+                } finally {
+                    // cancel 会立即完成 Future，但原生调用可能仍在运行。
+                    IN_FLIGHT.remove(key, this);
+                }
+            }
+        };
         FutureTask<Void> existing = IN_FLIGHT.putIfAbsent(key, task);
         if (existing != null) {
             // 同一目标已有未完成请求：合并等待，不重复提交。
@@ -223,10 +233,6 @@ final class DesktopShellOpen {
             task.cancel(true);
             Thread.currentThread().interrupt();
             throw new IOException(MessageBundles.get("gui.desktop.open-timeout", target), interrupted);
-        } finally {
-            if (task.isDone()) {
-                IN_FLIGHT.remove(key, task);
-            }
         }
     }
 
