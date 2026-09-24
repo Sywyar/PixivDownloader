@@ -4,6 +4,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import top.sywyar.pixivdownload.ai.AiChatClient;
+import top.sywyar.pixivdownload.ai.model.AiChatResult;
+import top.sywyar.pixivdownload.novel.narration.analysis.NarrationScriptService;
+import top.sywyar.pixivdownload.novel.narration.analysis.NarrationSentence;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationCharacter;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelMapper;
@@ -26,12 +30,76 @@ import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
 @DisplayName("AI 听小说脚本编排 / 持久化服务")
 class NovelNarrationScriptServiceTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Test
+    @DisplayName("混合句从拆分、分析、持久化到合成保持旁白与小李各自的音色")
+    void dialogueKeepsItsSpeakerThroughSynthesis() throws Exception {
+        NovelNarrationCastService castService = mock(NovelNarrationCastService.class);
+        NovelDatabase db = mock(NovelDatabase.class);
+        NovelMapper mapper = mock(NovelMapper.class);
+        NarrationAudioService audio = mock(NarrationAudioService.class);
+        AiChatClient ai = mock(AiChatClient.class);
+        var roster = List.of(NarrationCharacter.defaultNarrator(),
+                new NarrationCharacter(1, "小李", "male", "young", "A clear young male voice", false, false));
+        when(ai.chat(any(), any(), any())).thenReturn(new AiChatResult("""
+                {"lines":[{"i":0,"speaker":0},{"i":1,"speaker":1}]}
+                """, "stop", null, null, null));
+        var analyzer = new NarrationScriptService(ai);
+        when(db.getNovel(7L)).thenReturn(novel(7L, "小李说：“我是小李”"));
+        when(castService.analyzeChapter(eq(7L), any(), eq(0), nullable(Long.class))).thenAnswer(invocation -> {
+            List<NarrationSentence> sentences = invocation.getArgument(1);
+            var texts = sentences.stream().map(NarrationSentence::text).toList();
+            assertEquals(List.of("小李说：", "“我是小李”"), texts);
+            var analysis = analyzer.analyzeSegment(roster, texts, 2);
+            return new ChapterNarration(analyzer.buildScript(roster, texts, analysis.lines()), List.of(), 5L);
+        });
+        when(castService.voices(5L)).thenReturn(roster);
+        var service = new NovelNarrationScriptService(castService, db, mapper, audio,
+                mock(NarrationReferenceVoiceService.class), objectMapper);
+        var result = service.getOrAnalyze(7L, "", 0, true, 0);
+        assertEquals(List.of(0, 1), result.lines().stream()
+                .map(NovelNarrationScriptService.ScriptLine::speakerId).toList());
+        ArgumentCaptor<String> saved = ArgumentCaptor.forClass(String.class);
+        verify(mapper).upsertNarrationScript(eq(7L), eq(""), eq(5L), eq(0), anyLong(), saved.capture());
+        when(mapper.findNarrationScript(7L, "")).thenReturn(
+                new NovelNarrationScriptRow(7L, "", 5L, 0, result.analyzedTime(), saved.getValue()));
+        service.synthesizeLine(7L, "", 0);
+        service.synthesizeLine(7L, "", 1);
+        ArgumentCaptor<NarrationScript.Line> spoken = ArgumentCaptor.forClass(NarrationScript.Line.class);
+        verify(audio, times(2)).synthesizeLine(spoken.capture(), any());
+        assertEquals(List.of("小李说：", "“我是小李”"), spoken.getAllValues().stream()
+                .map(NarrationScript.Line::text).toList());
+        assertEquals(NarrationScriptService.combine(roster.get(0).controlInstruction(), ""),
+                spoken.getAllValues().get(0).controlInstruction());
+        assertEquals(roster.get(1).controlInstruction(), spoken.getAllValues().get(1).controlInstruction());
+    }
+
+    @Test
+    @DisplayName("超短句仅合并同角色、同表达、同段片段，重排下标且保留拉丁词间空格")
+    void tinyLinesKeepVoiceAndParagraphBoundaries() {
+        var lines = List.of(
+                new NovelNarrationScriptService.ScriptLine(0, 0, "旁白", "", 0, "小李点头。"),
+                new NovelNarrationScriptService.ScriptLine(1, 1, "小李", "", 0, "“嗯。”"),
+                new NovelNarrationScriptService.ScriptLine(2, 0, "旁白", "", 0, "小王转身。"),
+                new NovelNarrationScriptService.ScriptLine(3, 1, "小李", "", 0, "A?"),
+                new NovelNarrationScriptService.ScriptLine(4, 1, "小李", "", 0, "Next."),
+                new NovelNarrationScriptService.ScriptLine(5, 1, "小李", "angry", 0, "啊！"),
+                new NovelNarrationScriptService.ScriptLine(6, 1, "小李", "angry", 1, "去吧。"));
+        var merged = NovelNarrationScriptService.mergeTinyLines(lines, "小李点头。“嗯。”小王转身。A?  Next.啊！\n\n去吧。");
+        assertEquals(List.of("小李点头。", "“嗯。”", "小王转身。", "A?  Next.", "啊！", "去吧。"),
+                merged.stream().map(NovelNarrationScriptService.ScriptLine::text).toList());
+        assertEquals(List.of(0, 1, 0, 1, 1, 1),
+                merged.stream().map(NovelNarrationScriptService.ScriptLine::speakerId).toList());
+        assertEquals(List.of(0, 1, 2, 3, 4, 5),
+                merged.stream().map(NovelNarrationScriptService.ScriptLine::index).toList());
+    }
 
     private NovelRecord novel(long id, String raw) {
         return new NovelRecord(id, "标题", "f", 1, "txt", 1L, null, null, null, null,

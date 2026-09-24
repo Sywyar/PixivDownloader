@@ -69,29 +69,40 @@ class NarrationSentenceSplitterTest {
     }
 
     @Test
-    @DisplayName("split：单字超短句并入同段前一句（前句优先），段首短句并入后一句")
-    void mergesTinySentencesIntoNeighbor() {
-        // 「吗？」（仅 1 可发音字）并入同段前一句
-        assertThat(NarrationSentenceSplitter.split("你说得对。吗？后面继续。"))
-                .extracting(NarrationSentence::text)
-                .containsExactly("你说得对。吗？", "后面继续。");
-        // 段首单字句无前句 → 并入同段后一句
-        assertThat(NarrationSentenceSplitter.split("啊。这是正文。"))
-                .extracting(NarrationSentence::text)
-                .containsExactly("啊。这是正文。");
+    @DisplayName("引号边界拆开前置、后置和插入旁白，单字回答保留独立归属")
+    void separatesDialogueFromSpeechTags() {
+        assertThat(NarrationSentenceSplitter.splitSentences("小李说：“我是小李”"))
+                .containsExactly("小李说：", "“我是小李”");
+        assertThat(NarrationSentenceSplitter.splitSentences("小李说：‘你好’小王点头。"))
+                .containsExactly("小李说：", "‘你好’", "小王点头。");
+        assertThat(NarrationSentenceSplitter.splitSentences("小李说：“我是小李。”"))
+                .containsExactly("小李说：", "“我是小李。”");
+        assertThat(NarrationSentenceSplitter.splitSentences("“我是小李。”小李说。"))
+                .containsExactly("“我是小李。”", "小李说。");
+        assertThat(NarrationSentenceSplitter.splitSentences("“走！”小李说，“马上出发。”"))
+                .containsExactly("“走！”", "小李说，", "“马上出发。”");
+        assertThat(NarrationSentenceSplitter.split("小李点头。“嗯。”小王转身。"))
+                .extracting(NarrationSentence::text).containsExactly("小李点头。", "“嗯。”", "小王转身。");
+        assertThat(NarrationSentenceSplitter.splitSentences("Li said: \"I am Li.\" Wang said: \"I am Wang.\""))
+                .containsExactly("Li said:", "\"I am Li.\"", "Wang said:", "\"I am Wang.\"");
     }
 
     @Test
-    @DisplayName("split：英文 / 拉丁超短句合并按边界补空格，避免单词粘连")
-    void mergesLatinTinySentencesWithSpace() {
-        // 段首单字母句 "A?" 并入后一同段句，边界补空格 → "A? Next."（而非粘连成 "A?Next."）
-        assertThat(NarrationSentenceSplitter.split("A? Next."))
-                .extracting(NarrationSentence::text)
-                .containsExactly("A? Next.");
-        // 换行分隔的单字母短句 "I" 并入前句，补空格不粘连 → "Really? I"（而非 "Really?I"）
-        assertThat(NarrationSentenceSplitter.split("Really?\nI\nagree."))
-                .extracting(NarrationSentence::text)
-                .containsExactly("Really? I", "agree.");
+    @DisplayName("嵌套引号、撇号、未闭合引号及标题保留文本与段落，不凭引号指定角色")
+    void preservesNestedQuotesAndText() {
+        for (String raw : List.of("小李说：「他叫我『小李』。」旁白。",
+                "Li said: 'Don't touch John's book.' Then left.",
+                "小李说：“未说完", "这是“特殊”的标题。", "“你好”小李说。",
+                "他说：“John’s book.”然后离开。")) {
+            assertThat(String.join("", NarrationSentenceSplitter.splitSentences(raw)).replaceAll("\\s", ""))
+                    .isEqualTo(raw.replaceAll("\\s", ""));
+        }
+        assertThat(NarrationSentenceSplitter.splitSentences("小李说：「他叫我『小李』。」旁白。"))
+                .containsExactly("小李说：", "「他叫我『小李』。」", "旁白。");
+        assertThat(NarrationSentenceSplitter.splitSentences("Li said: 'Don't touch John's book.' Then left."))
+                .containsExactly("Li said:", "'Don't touch John's book.'", "Then left.");
+        assertThat(NarrationSentenceSplitter.split("啊。这是正文。\n\n“嗯。”"))
+                .extracting(NarrationSentence::paragraphIndex).containsExactly(0, 0, 1);
     }
 
     @Test

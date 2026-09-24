@@ -128,22 +128,23 @@ class NovelNarrationCastServiceTest {
     }
 
     @Test
-    @DisplayName("兼容性补充：AI 生成角色刷新画像；用户锁定角色忽略")
+    @DisplayName("兼容性补充：保留已有音色并返回建议；用户锁定角色忽略")
     void updatedCharactersRoutedByEditedFlag() {
         NovelMapper mapper = mock(NovelMapper.class);
         List<NarrationCharacter> roster = List.of(narrator("N"), aiChar(1, "甲", "V1"), lockedChar(2, "乙", "LOCKED"));
 
-        service(mapper).processSegmentRoster(5L, roster,
+        NovelNarrationCastService.SegmentRosterResult res = service(mapper).processSegmentRoster(5L, roster,
                 analysis(List.of(), Map.of(1, "refined-1", 2, "refined-2"), List.of()));
 
-        // id 1（AI 生成）画像被刷新，仍记为 AI 生成
-        verify(mapper).updateNarrationVoiceInstruction(eq(5L), eq(1), eq("refined-1"), eq(false));
-        // id 2（用户锁定）忽略，绝不写入
-        verify(mapper, never()).updateNarrationVoiceInstruction(eq(5L), eq(2), any(), anyBoolean());
+        verify(mapper, never()).updateNarrationVoiceInstruction(anyLong(), anyInt(), any(), anyBoolean());
+        verify(mapper, never()).touchNarrationCast(anyLong(), anyLong());
+        assertEquals(1, res.unresolvedConflicts().size());
+        assertEquals("V1", res.unresolvedConflicts().get(0).currentInstruction());
+        assertEquals("refined-1", res.unresolvedConflicts().get(0).suggestion());
     }
 
     @Test
-    @DisplayName("冲突路由：AI 生成角色自动采纳建议覆盖；用户锁定角色保留原值、收集为待处理冲突")
+    @DisplayName("冲突路由：AI 生成和用户锁定角色都保留原值、收集为待处理冲突")
     void conflictsRoutedByEditedFlag() {
         NovelMapper mapper = mock(NovelMapper.class);
         List<NarrationCharacter> roster = List.of(
@@ -151,16 +152,14 @@ class NovelNarrationCastServiceTest {
 
         NovelNarrationCastService.SegmentRosterResult res = service(mapper).processSegmentRoster(3L, roster,
                 analysis(List.of(), Map.of(), List.of(
-                        new NarrationConflict(1, NarrationConflict.TYPE_CONTRADICTION, "r1", "auto-applied"),
+                        new NarrationConflict(1, NarrationConflict.TYPE_CONTRADICTION, "r1", "suggested-1"),
                         new NarrationConflict(2, NarrationConflict.TYPE_INCOMPLETE, "r2", "suggested-2"))));
 
-        // id 1（AI 生成）自动采纳建议覆盖画像
-        verify(mapper).updateNarrationVoiceInstruction(eq(3L), eq(1), eq("auto-applied"), eq(false));
-        // id 2（用户锁定）绝不覆盖
-        verify(mapper, never()).updateNarrationVoiceInstruction(eq(3L), eq(2), any(), anyBoolean());
-        // 用户锁定角色的冲突收集为待处理项，携带 name / 当前画像 / 建议
-        assertEquals(1, res.unresolvedConflicts().size());
-        NarrationConflictReport report = res.unresolvedConflicts().get(0);
+        verify(mapper, never()).updateNarrationVoiceInstruction(anyLong(), anyInt(), any(), anyBoolean());
+        verify(mapper, never()).touchNarrationCast(anyLong(), anyLong());
+        assertEquals(2, res.unresolvedConflicts().size());
+        assertEquals("V1", res.unresolvedConflicts().get(0).currentInstruction());
+        NarrationConflictReport report = res.unresolvedConflicts().get(1);
         assertEquals(2, report.characterId());
         assertEquals("乙", report.name());
         assertEquals(NarrationConflict.TYPE_INCOMPLETE, report.type());

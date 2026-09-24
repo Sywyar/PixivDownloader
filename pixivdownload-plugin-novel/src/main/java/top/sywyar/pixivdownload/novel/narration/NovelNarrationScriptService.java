@@ -11,15 +11,18 @@ import top.sywyar.pixivdownload.novel.db.NovelMapper;
 import top.sywyar.pixivdownload.novel.db.NovelNarrationCast;
 import top.sywyar.pixivdownload.novel.db.NovelNarrationScriptRow;
 import top.sywyar.pixivdownload.novel.db.NovelRecord;
+import top.sywyar.pixivdownload.novel.download.NovelMarkupParser;
 import top.sywyar.pixivdownload.novel.narration.audio.NarrationAudioService;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationScript;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationScriptService;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationSentence;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationSentenceSplitter;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationSpeechText;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 「AI 听小说」整章脚本编排 + 持久化服务：负责断句、按分段字数驱动 {@link NovelNarrationCastService} 分析、把
@@ -67,7 +70,7 @@ public class NovelNarrationScriptService {
     /**
      * 一次 {@link #getOrAnalyze} 的结果。
      *
-     * @param lines           逐句脚本（与正文句子等长、按下标升序）
+     * @param lines           播放脚本（归属后合并同角色超短片段，按下标升序）
      * @param castId          所用花名册 ID（{@code 0} 表示纯旁白 / 无花名册）
      * @param castUpdatedTime 花名册 {@code updated_time}（供前端音频缓存键失效）
      * @param segmentSize     本次分析所用分段字数
@@ -181,6 +184,7 @@ public class NovelNarrationScriptService {
             conflicts = narration.conflicts();
         }
 
+        lines = mergeTinyLines(lines, raw);
         long now = System.currentTimeMillis();
         novelMapper.upsertNarrationScript(novelId, langKey, resolvedCastId, normalizedSegment, now, writeLines(lines));
         log.info("narration script persisted: novelId={}, lang='{}', castId={}, lines={}, conflicts={}",
@@ -259,6 +263,45 @@ public class NovelNarrationScriptService {
     }
 
     // ── 内部 ─────────────────────────────────────────────────────────────────
+
+    /** 超短片段只在归属确定后合并，不能跨角色、表达方式或渲染段落；孤立短句仍交给引擎短输入保护。 */
+    static List<ScriptLine> mergeTinyLines(List<ScriptLine> lines, String raw) {
+        List<ScriptLine> result = new ArrayList<>();
+        var blocks = NovelMarkupParser.textBlocks(raw);
+        int paragraph = -1;
+        int cursor = 0;
+        int previousStart = -1;
+        for (ScriptLine line : lines) {
+            if (paragraph != line.paragraphIndex()) {
+                paragraph = line.paragraphIndex();
+                cursor = 0;
+                previousStart = -1;
+            }
+            String source = paragraph >= 0 && paragraph < blocks.size() ? blocks.get(paragraph).text() : "";
+            int start = source.indexOf(line.text(), cursor);
+            int end = start < 0 ? cursor : start + line.text().length();
+            if (!result.isEmpty()) {
+                ScriptLine previous = result.get(result.size() - 1);
+                if (previousStart >= 0 && start >= cursor && source.substring(cursor, start).isBlank()
+                        && previous.paragraphIndex() == line.paragraphIndex()
+                        && previous.speakerId() == line.speakerId()
+                        && Objects.equals(previous.delivery(), line.delivery())
+                        && (NarrationSpeechText.isShortInput(previous.text(), 1)
+                            || NarrationSpeechText.isShortInput(line.text(), 1))) {
+                    result.set(result.size() - 1, new ScriptLine(previous.index(), previous.speakerId(),
+                            previous.speakerName(), previous.delivery(), previous.paragraphIndex(),
+                            source.substring(previousStart, end)));
+                    cursor = end;
+                    continue;
+                }
+            }
+            result.add(new ScriptLine(result.size(), line.speakerId(), line.speakerName(), line.delivery(),
+                    line.paragraphIndex(), line.text()));
+            previousStart = start;
+            cursor = end;
+        }
+        return result;
+    }
 
     /** 把逐句脚本转成持久化行，paragraphIndex 由对应输入句补齐（越界归 -1）。 */
     private static List<ScriptLine> toScriptLines(NarrationScript script, List<NarrationSentence> sentences) {

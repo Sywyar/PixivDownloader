@@ -44,9 +44,9 @@ import java.util.Set;
  *
  * <p><b>入册与冲突路由</b>（{@code edited_by_user} 标记 0=AI 生成 / 1=用户手改锁定）：
  * <ul>
- *   <li>{@code updatedCharacters}（兼容性补充）：仅对 {@code edited_by_user=0} 的角色刷新画像；用户锁定的<b>忽略</b>。</li>
- *   <li>{@code conflicts}（完全相反 / 明显不完整）：对 {@code edited_by_user=0} 的角色<b>自动采纳建议</b>覆盖画像；
- *       对用户锁定角色<b>绝不覆盖</b>，收集成 {@link NarrationConflictReport} 待用户处理。</li>
+ *   <li>{@code updatedCharacters}（兼容性补充）：未锁定角色返回修改建议，用户锁定的忽略。</li>
+ *   <li>{@code conflicts}（完全相反 / 明显不完整）：保留已有音色，收集成
+ *       {@link NarrationConflictReport} 待用户处理；AI 生成与手工锁定的音色均不自动覆盖。</li>
  * </ul>
  *
  * <p>持久化与 AI 编排解耦：本服务持有 DB + 按段编排，{@link NarrationScriptService} 仍是纯 AI 分析器
@@ -422,8 +422,8 @@ public class NovelNarrationCastService {
 
     /**
      * 把一段分析结果落库并路由：① 新角色按名字 putIfAbsent 入册（{@code edited_by_user=0}）、建立临时 id → 真实
-     * id 映射；② 兼容性补充仅对未锁定角色刷新画像；③ 冲突对未锁定角色自动采纳建议、对用户锁定角色收集为待处理
-     * 冲突（绝不覆盖）。返回临时 id 映射与未解决冲突供编排层重映射逐句 speaker / 提示用户。
+     * id 映射；② 音色补充和冲突均收集为待处理建议，不自动覆盖已有画像。
+     * 返回临时 id 映射与未解决冲突供编排层重映射逐句 speaker / 提示用户。
      */
     SegmentRosterResult processSegmentRoster(long castId, List<NarrationCharacter> roster,
                                              NarrationSegmentAnalysis analysis) {
@@ -485,28 +485,23 @@ public class NovelNarrationCastService {
             changed = true;
         }
 
-        // ② 兼容性补充：仅刷新 AI 生成（未锁定）的已有角色画像；用户锁定的忽略。
+        // 已建立的音色跨章保持稳定；即使模型认为是兼容性补充，也交给用户决定。
+        List<NarrationConflictReport> unresolved = new ArrayList<>();
         for (Map.Entry<Integer, String> e : analysis.updatedCharacters().entrySet()) {
             NarrationCharacter ex = byId.get(e.getKey());
             if (ex == null || ex.editedByUser()) continue;
             String instr = e.getValue();
-            if (instr == null || instr.isBlank()) continue;
-            novelMapper.updateNarrationVoiceInstruction(castId, ex.id(), instr.trim(), false);
-            changed = true;
+            if (instr == null || instr.isBlank() || instr.trim().equals(ex.controlInstruction())) continue;
+            unresolved.add(new NarrationConflictReport(ex.id(), ex.name(), NarrationConflict.TYPE_INCOMPLETE,
+                    "", ex.controlInstruction(), instr.trim()));
         }
 
-        // ③ 冲突路由：AI 生成角色自动采纳建议覆盖；用户锁定角色保留原值、收集为待处理冲突。
-        List<NarrationConflictReport> unresolved = new ArrayList<>();
+        // 明确冲突同样不得自动换声，含 AI 生成但已用于其它章节的角色。
         for (NarrationConflict conflict : analysis.conflicts()) {
             NarrationCharacter ex = byId.get(conflict.characterId());
             if (ex == null) continue;
-            if (ex.editedByUser()) {
-                unresolved.add(new NarrationConflictReport(ex.id(), ex.name(), conflict.type(),
-                        conflict.reason(), ex.controlInstruction(), conflict.suggestion()));
-            } else {
-                novelMapper.updateNarrationVoiceInstruction(castId, ex.id(), conflict.suggestion(), false);
-                changed = true;
-            }
+            unresolved.add(new NarrationConflictReport(ex.id(), ex.name(), conflict.type(),
+                    conflict.reason(), ex.controlInstruction(), conflict.suggestion()));
         }
 
         if (changed) {
