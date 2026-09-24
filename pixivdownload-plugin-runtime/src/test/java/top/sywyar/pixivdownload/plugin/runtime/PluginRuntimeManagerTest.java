@@ -25,6 +25,7 @@ import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageException;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageFixtures;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageVerifier;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
@@ -33,6 +34,8 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginArtifactVerificationService;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
+import top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustPolicy;
+import top.sywyar.pixivdownload.sdk.SdkVersion;
 import top.sywyar.pixivdownload.plugin.runtime.isolation.IsolatedPluginSession;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
@@ -51,6 +54,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.FileSystems;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -229,9 +233,9 @@ class PluginRuntimeManagerTest {
         Path plugins = tempDir.resolve("plugins-isolated-default");
         Path jar = plugins.resolve("bootstrap-probe-1.0.0.jar");
         writeDeclarativeProbeJar(jar);
-        writeLocalProvenance(plugins, jar);
+        writeConfirmedLocalProvenance(plugins, jar);
         top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager manager =
-                new top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager(plugins, () -> true);
+                new top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager(plugins, () -> false);
         Path hostMarker = tempDir.resolve("isolated-host-marker.log");
         System.setProperty("bootstrap.probe.marker", hostMarker.toString());
         try {
@@ -1336,19 +1340,52 @@ class PluginRuntimeManagerTest {
         }
     }
 
-    @Test
-    @DisplayName("旧 Nightly 插件在 PF4J 加载前因缺少同批 SDK 身份被拒绝")
-    void rejectsLegacyNightlyPackageBeforeLoading() throws IOException {
-        Path plugins = tempDir.resolve("legacy-nightly");
-        Path artifact = plugins.resolve("provider.jar");
-        String version = "1.0.0-nightly.20260908.125.1";
-        writeDependencyOrderProbeJar(artifact, "provider", version, List.of());
-        writeLocalProvenance(plugins, artifact, "provider", version);
-        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+    @ParameterizedTest
+    @CsvSource({
+            "host-process-full-trust, stable", "declarative-process, stable",
+            "host-process-full-trust, nightly", "declarative-process, nightly",
+            "host-process-full-trust, legacy-nightly", "declarative-process, legacy-nightly"
+    })
+    @DisplayName("两种执行模式均在单包加载和启动扫描时拒绝 SDK 不兼容的生产包")
+    void rejectsIncompatibleSdkBeforeLoading(String executionMode, String requirement) throws IOException {
+        Path plugins = tempDir.resolve("incompatible-sdk");
+        Path artifact = plugins.resolve("probe.jar");
+        writeDeclarativeProbeJar(artifact);
+        try (var zip = FileSystems.newFileSystem(artifact)) {
+            Path descriptorPath = zip.getPath("/plugin.properties");
+            var properties = new java.util.Properties();
+            try (var reader = Files.newBufferedReader(descriptorPath, StandardCharsets.UTF_8)) {
+                properties.load(reader);
+            }
+            properties.setProperty("pixiv.execution-mode", executionMode);
+            String requires = switch (requirement) {
+                case "stable" -> (SdkVersion.MAJOR + 1) + ".0";
+                case "nightly" -> SdkVersion.VERSION + "-nightly.20000101.1.1";
+                default -> SdkVersion.MAJOR + "." + SdkVersion.MINOR;
+            };
+            properties.setProperty("plugin.requires", requires);
+            if (requirement.equals("legacy-nightly")) {
+                properties.setProperty("plugin.version", PROBE_VERSION + "-nightly.20000101.1.1");
+            }
+            try (var writer = Files.newBufferedWriter(descriptorPath, StandardCharsets.UTF_8)) {
+                properties.store(writer, null);
+            }
+        }
+        assertThat(PluginPackageReader.inspect(artifact).descriptor().isSdkCompatible()).isFalse();
+        writeConfirmedLocalProvenance(plugins, artifact);
+        var manager = new top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager(plugins, () -> false);
         try {
             assertThatThrownBy(() -> manager.loadPlugin(artifact))
                     .isInstanceOf(PluginRuntimeOperationException.class)
                     .hasMessageContaining("incompatible SDK");
+            assertThat(manager.generation(PROBE_ID)).isEmpty();
+            assertThat(manager.isolatedWorkerAliveForTest(PROBE_ID)).isFalse();
+
+            PluginRuntimeStatus status = manager.start();
+            assertThat(status.failures()).singleElement()
+                    .satisfies(failure -> assertThat(failure.reason()).contains("incompatible SDK"));
+            assertThat(manager.generation(PROBE_ID)).isEmpty();
+            assertThat(manager.isolatedWorkerAliveForTest(PROBE_ID)).isFalse();
             assertThat(manager.pluginManagerForTest()).isEmpty();
         } finally {
             manager.shutdown();
@@ -2468,6 +2505,17 @@ class PluginRuntimeManagerTest {
 
     private static void writeLocalProvenance(Path pluginsDir, Path artifact) throws IOException {
         writeLocalProvenance(pluginsDir, artifact, PROBE_ID, PROBE_VERSION);
+    }
+
+    private static void writeConfirmedLocalProvenance(Path pluginsDir, Path artifact) throws IOException {
+        PluginDescriptor descriptor = PluginPackageReader.inspect(artifact).descriptor();
+        VerificationResult result = new VerificationResult(VerificationStatus.UNSIGNED_ALLOWED,
+                descriptor.id(), descriptor.version(), null, null, null, null, Instant.now(), Files.size(artifact),
+                PluginPackageIntegrity.sha256Hex(artifact), "UNSIGNED_ALLOWED");
+        PluginProvenanceRecord provenance = PluginProvenanceRecord.from(
+                PluginPackageOrigin.localUnsignedUpload(null), result);
+        new PluginProvenanceStore(pluginsDir).write(artifact, provenance.withTrustDecision(
+                PluginTrustPolicy.approve(descriptor, provenance, Instant.now())));
     }
 
     private static void writeLocalProvenance(Path pluginsDir, Path artifact, String pluginId, String version)
