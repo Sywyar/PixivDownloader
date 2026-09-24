@@ -26,7 +26,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Consumer;
 
 /**
  * “状态”页：展示服务状态，并提供桌面侧的快捷操作。
@@ -1029,14 +1031,37 @@ public class StatusPanel extends JPanel {
         return (value == null || value.isBlank()) ? fallback : value;
     }
 
+    /**
+     * 把可能长时间阻塞的 Shell 打开动作移出 EDT，失败后再回到 EDT 报告。
+     *
+     * <p>Windows 上把目录重解析点（符号链接 / Junction）直接交给 {@code Desktop.open} 会在原生
+     * {@code ShellExecute} 中无限阻塞；在 EDT 上执行会连带冻结窗口、托盘菜单与退出路径。
+     */
+    private void runShellAction(String threadName, ShellAction action, Consumer<Exception> reportFailure) {
+        Thread worker = new Thread(() -> {
+            try {
+                action.run();
+            } catch (Exception failure) {
+                SwingUtilities.invokeLater(() -> reportFailure.accept(failure));
+            }
+        }, threadName);
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    @FunctionalInterface
+    private interface ShellAction {
+        void run() throws Exception;
+    }
+
     private void openWebPage(String path) {
-        try {
-            Desktop.getDesktop().browse(new URI(getWebUrl(path)));
-        } catch (Exception e) {
-            log.warn(logMessage("gui.status.log.open-browser-failed", path, e.getMessage()), e);
-            GuiErrorDialog.show(this, message("gui.dialog.error.title"),
-                    message("gui.error.open-browser", e.getMessage()));
-        }
+        runShellAction("gui-open-web-page",
+                () -> SwingHost.host().openExternalUri(new URI(getWebUrl(path))),
+                failure -> {
+                    log.warn(logMessage("gui.status.log.open-browser-failed", path, failure.getMessage()), failure);
+                    GuiErrorDialog.show(this, message("gui.dialog.error.title"),
+                            message("gui.error.open-browser", failure.getMessage()));
+                });
     }
 
     private void openDownloadFolder() {
@@ -1046,37 +1071,38 @@ public class StatusPanel extends JPanel {
                     message("gui.dialog.info.title"), JOptionPane.WARNING_MESSAGE);
             return;
         }
-        try {
-            Desktop.getDesktop().open(folder);
-        } catch (Exception e) {
-            log.warn(logMessage("gui.status.log.open-download-folder-failed",
-                    folder.getAbsolutePath(), e.getMessage()), e);
-            GuiErrorDialog.show(this, message("gui.dialog.error.title"),
-                    message("gui.error.open-folder", e.getMessage()));
-        }
+        runShellAction("gui-open-download-folder",
+                () -> SwingHost.host().openLocalPath(folder.toPath()),
+                failure -> {
+                    log.warn(logMessage("gui.status.log.open-download-folder-failed",
+                            folder.getAbsolutePath(), failure.getMessage()), failure);
+                    GuiErrorDialog.show(this, message("gui.dialog.error.title"),
+                            message("gui.error.open-folder", failure.getMessage()));
+                });
     }
 
     private void openFfmpegDirectory() {
-        try {
-            Path dir = SwingHost.host().locateFfmpeg()
-                    .map(installation -> {
-                        Path homeDir = installation.homeDir();
-                        if (homeDir != null && Files.isDirectory(homeDir)) {
-                            return homeDir;
-                        }
-                        Path ffmpegPath = installation.ffmpegPath();
-                        return ffmpegPath == null ? null : ffmpegPath.getParent();
-                    })
-                    .filter(path -> path != null)
-                    .orElseGet(() -> SwingHost.host().managedFfmpegDirectory());
+        runShellAction("gui-open-ffmpeg-dir",
+                () -> SwingHost.host().openLocalPath(ffmpegDirectoryToOpen()),
+                failure -> {
+                    log.warn(logMessage("gui.status.log.open-ffmpeg-dir-failed", failure.getMessage()), failure);
+                    GuiErrorDialog.show(this, message("gui.dialog.error.title"),
+                            message("gui.ffmpeg.dialog.open-dir-failed.message", failure.getMessage()));
+                });
+    }
 
-            dir = SwingHost.host().prepareManagedFfmpegDirectory();
-            Desktop.getDesktop().open(dir.toFile());
-        } catch (Exception e) {
-            log.warn(logMessage("gui.status.log.open-ffmpeg-dir-failed", e.getMessage()), e);
-            GuiErrorDialog.show(this, message("gui.dialog.error.title"),
-                    message("gui.ffmpeg.dialog.open-dir-failed.message", e.getMessage()));
-        }
+    /**
+     * 返回「打开 FFmpeg 目录」的目标：优先已检测安装所在目录，其次软件目录（缺失时创建）。
+     *
+     * <p>重解析点由宿主在真正打开前解析为真实目标。
+     */
+    private Path ffmpegDirectoryToOpen() throws Exception {
+        Path detected = SwingHost.host().locateFfmpeg()
+                .map(DesktopUiHost.FfmpegInstallation::homeDir)
+                .filter(Objects::nonNull)
+                .filter(Files::isDirectory)
+                .orElse(null);
+        return detected != null ? detected : SwingHost.host().prepareManagedFfmpegDirectory();
     }
 
     private void restartService() {

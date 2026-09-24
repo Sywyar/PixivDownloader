@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.ffmpeg;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -157,6 +158,42 @@ class FfmpegInstallerTest {
                 .hasMessageContaining("ASSET_SHA256_MISMATCH");
         assertThat(existing).hasContent("existing");
         assertThat(tempDir.resolve("extracted")).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("软件目录是链接或 Junction 时拒绝安装而不写入被指向的目录")
+    void rejectsManagedDirectoryBehindReparsePoint(@TempDir Path tempDir) throws Exception {
+        Path plain = Files.createDirectories(tempDir.resolve("plain/tools/ffmpeg"));
+        FfmpegInstaller.requirePlainManagedDirectory(plain);
+        FfmpegInstaller.requirePlainManagedDirectory(tempDir.resolve("plain/tools/ffmpeg/licenses"));
+
+        Path outsideDir = Files.createDirectories(tempDir.resolve("outside"));
+        Path outsideFile = Files.writeString(outsideDir.resolve("ffmpeg"), "third-party");
+        Path junction = tempDir.resolve("linked-ffmpeg");
+        Assumptions.assumeTrue(createJunction(junction, outsideDir), "当前 Windows 环境无法创建 Junction");
+        try {
+            assertThatThrownBy(() -> FfmpegInstaller.requirePlainManagedDirectory(junction))
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining(junction.toString());
+            assertThatThrownBy(() -> FfmpegInstaller.requirePlainManagedDirectory(junction.resolve("licenses")))
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining(junction.toString());
+            assertThat(outsideFile).hasContent("third-party");
+        } finally {
+            Files.deleteIfExists(junction);
+        }
+    }
+
+    private static boolean createJunction(Path link, Path target) throws IOException, InterruptedException {
+        if (!FfmpegLocator.isWindows()) {
+            return false;
+        }
+        Process process = new ProcessBuilder("cmd.exe", "/c", "mklink", "/J",
+                link.toString(), target.toString())
+                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .redirectErrorStream(true)
+                .start();
+        return process.waitFor() == 0;
     }
 
     private static void assertAsset(String osName, String osArch, String asset) {

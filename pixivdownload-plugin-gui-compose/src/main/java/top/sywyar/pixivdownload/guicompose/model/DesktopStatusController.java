@@ -512,7 +512,8 @@ final class DesktopStatusController {
     }
 
     void openDownloadDirectory() {
-        owner.runBusy(() -> {
+        // 打开目录是瞬时动作：走异步执行但不进入忙锁，避免一次等待把整个界面长期置忙。
+        owner.executeAsync(() -> {
             try {
                 Path directory = Path.of(rootFolder).toAbsolutePath().normalize();
                 if (!Files.isDirectory(directory)) {
@@ -581,7 +582,8 @@ final class DesktopStatusController {
     }
 
     private void openFfmpegDirectory() {
-        owner.runBusy(() -> {
+        // 与下载目录一致：异步执行、不占忙锁；重解析点由宿主在打开前解析为真实目标。
+        owner.executeAsync(() -> {
             try {
                 Path directory = host.locateFfmpeg().map(DesktopUiHost.FfmpegInstallation::homeDir).filter(
                         Objects::nonNull).filter(Files::isDirectory).orElseGet(host::managedFfmpegDirectory);

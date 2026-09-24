@@ -182,11 +182,16 @@ public final class SystemTrayManager {
     }
 
     private static void openFolder(String rootFolder) {
-        try {
-            Desktop.getDesktop().open(new java.io.File(rootFolder));
-        } catch (Exception e) {
-            log.warn(logMessage("gui.tray.log.open-folder.failed", e.getMessage()));
-        }
+        // 与状态页「打开下载目录」同一动作：交给宿主的受限打开动作，避免系统壳在 EDT 上阻塞。
+        Thread worker = new Thread(() -> {
+            try {
+                SwingHost.host().openLocalPath(java.nio.file.Path.of(rootFolder));
+            } catch (Exception e) {
+                log.warn(logMessage("gui.tray.log.open-folder.failed", e.getMessage()));
+            }
+        }, "gui-tray-open-folder");
+        worker.setDaemon(true);
+        worker.start();
     }
 
     /**

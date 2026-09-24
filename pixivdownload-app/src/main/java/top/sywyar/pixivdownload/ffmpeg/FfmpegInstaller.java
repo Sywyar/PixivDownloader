@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.ffmpeg;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import top.sywyar.pixivdownload.common.AppInfo;
+import top.sywyar.pixivdownload.common.PlainFilePathGuard;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.plugin.signature.ManifestVerificationRequest;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
@@ -21,6 +22,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
@@ -104,6 +106,8 @@ public final class FfmpegInstaller {
         Path archive = tempDir.resolve("ffmpeg.zip");
         Path extracted = tempDir.resolve("extract");
         try {
+            requirePlainManagedDirectory(FfmpegLocator.managedToolsDir());
+            requirePlainManagedDirectory(FfmpegLocator.managedLicenseDir());
             progress.onProgress(ProgressStage.CONNECTING, 0L, -1L);
             byte[] manifest = downloadMetadata(URI.create(RELEASE_BASE_URL + RELEASE_MANIFEST_NAME), settings);
             byte[] signature = downloadMetadata(
@@ -269,6 +273,27 @@ public final class FfmpegInstaller {
 
     private static IOException integrityFailure(String diagnosticCode) {
         return new IOException(message("gui.ffmpeg.install.integrity-error", diagnosticCode));
+    }
+
+    /**
+     * 安装目标必须是普通目录，任何一级父目录也不能是链接 / Junction。
+     *
+     * <p>软件目录被链接到别处时，复制会顺着链接写进被指向的目录、覆盖其中的同名文件；
+     * 因此这里在下载任何字节之前失败关闭，不使用该目录写入。
+     */
+    static void requirePlainManagedDirectory(Path directory) throws IOException {
+        String rejection = message("gui.ffmpeg.install.managed-linked", directory);
+        if (Files.exists(directory, LinkOption.NOFOLLOW_LINKS)) {
+            if (!PlainFilePathGuard.isPlainDirectory(directory)) {
+                throw new IOException(rejection);
+            }
+            return;
+        }
+        try {
+            PlainFilePathGuard.requirePlainParent(directory, false);
+        } catch (IOException rejected) {
+            throw new IOException(rejection, rejected);
+        }
     }
 
     private static long contentLength(HttpResponse<?> response) {

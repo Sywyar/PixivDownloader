@@ -21,7 +21,6 @@ import java.io.IOException;
 import java.awt.datatransfer.StringSelection;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.awt.Desktop;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -165,10 +164,10 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override public String readDownloadRootFromConfig(Path path, String fallback) { return RuntimeFiles.readDownloadRootFromConfig(path, fallback); }
     @Override public String normalizeRootFolder(String rootFolder) { return RuntimeFiles.normalizeRootFolder(rootFolder); }
     @Override public void openExternalUri(java.net.URI uri) throws Exception {
-        Desktop.getDesktop().browse(uri);
+        DesktopShellOpen.openExternalUri(uri);
     }
     @Override public void openLocalPath(Path path) throws Exception {
-        Desktop.getDesktop().open(path.toFile());
+        DesktopShellOpen.openLocalPath(path);
     }
     @Override public void copyText(String text) {
         java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(text), null);
