@@ -684,6 +684,9 @@ final class DesktopConfigurationController {
             String value = values.getOrDefault(field.key(), "");
             host.requireSafeConfigKey(spec.key());
             host.requireSafeConfigValue(value);
+            if (field.owner() == null) {
+                host.validateCoreConfigValue(spec.key(), value);
+            }
             if (spec.type() == GuiConfigFieldType.PORT) {
                 int port = Integer.parseInt(value);
                 if (port < 1 || port > 65_535) throw new IllegalArgumentException(spec.key());

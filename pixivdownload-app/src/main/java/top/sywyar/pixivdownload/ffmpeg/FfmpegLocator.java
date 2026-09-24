@@ -1,7 +1,11 @@
 package top.sywyar.pixivdownload.ffmpeg;
 
 import top.sywyar.pixivdownload.common.AppInfo;
+import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
+import top.sywyar.pixivdownload.i18n.MessageBundles;
 
+import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -15,6 +19,7 @@ import java.util.Optional;
  */
 public final class FfmpegLocator {
 
+    public static final String CONFIG_KEY = "ffmpeg.executable-path";
     private static final String OS_NAME = System.getProperty("os.name", "");
     private static final boolean WINDOWS = OS_NAME.toLowerCase(Locale.ROOT).contains("win");
 
@@ -37,6 +42,18 @@ public final class FfmpegLocator {
     }
 
     public static Optional<FfmpegInstallation> locate() {
+        return locate(RuntimeFiles.resolveConfigYamlPath());
+    }
+
+    static Optional<FfmpegInstallation> locate(Path configFile) {
+        try {
+            String configured = new ConfigFileEditor(configFile).read(CONFIG_KEY);
+            if (configured != null && !configured.isBlank()) {
+                return Optional.of(requireConfiguredInstallation(configured));
+            }
+        } catch (IOException | RuntimeException invalid) {
+            // 手工编辑后配置可能失效；保留既有自动查找能力。
+        }
         Optional<FfmpegInstallation> managed = managedInstallation();
         if (managed.isPresent()) {
             return managed;
@@ -48,6 +65,37 @@ public final class FfmpegLocator {
         }
 
         return systemInstallation();
+    }
+
+    /** GUI 保存前校验；空值表示恢复自动查找。 */
+    public static void validateConfiguredPath(String value) throws IOException {
+        if (value != null && !value.isBlank()) {
+            requireConfiguredInstallation(value);
+        }
+    }
+
+    static FfmpegInstallation requireConfiguredInstallation(String value) throws IOException {
+        try {
+            Path selected = Path.of(value.trim());
+            if (!selected.isAbsolute()) {
+                throw new IOException("relative FFmpeg path");
+            }
+            Path executable = Files.isDirectory(selected) ? selected.resolve(executableName()) : selected;
+            String name = executable.getFileName() == null ? "" : executable.getFileName().toString();
+            boolean matchingName = WINDOWS ? executableName().equalsIgnoreCase(name) : executableName().equals(name);
+            if (!matchingName || !Files.isRegularFile(executable)) {
+                throw new IOException("FFmpeg executable is missing");
+            }
+            Path realExecutable = executable.toRealPath();
+            Path directory = realExecutable.getParent();
+            Path probe = directory.resolve(probeExecutableName());
+            return new FfmpegInstallation(realExecutable,
+                    Files.isRegularFile(probe) ? probe : null,
+                    directory,
+                    FfmpegInstallation.Source.CUSTOM);
+        } catch (IOException | RuntimeException invalid) {
+            throw new IOException(MessageBundles.get("gui.ffmpeg.config.path-invalid", value, executableName()), invalid);
+        }
     }
 
     public static String resolveFfmpegCommand() {

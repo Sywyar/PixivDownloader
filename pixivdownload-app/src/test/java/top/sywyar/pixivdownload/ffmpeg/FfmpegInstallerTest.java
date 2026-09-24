@@ -1,9 +1,11 @@
 package top.sywyar.pixivdownload.ffmpeg;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.plugin.signature.OfficialArtifactTrustRoots;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
@@ -157,6 +159,174 @@ class FfmpegInstallerTest {
                 .hasMessageContaining("ASSET_SHA256_MISMATCH");
         assertThat(existing).hasContent("existing");
         assertThat(tempDir.resolve("extracted")).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("首次自动安装的三种初始化状态都能安全建立目录")
+    void preparesManagedDirectoryForEveryFirstInstallState(@TempDir Path tempDir) throws IOException {
+        // 状态一：没有 tools —— 真正的首次安装，必须允许逐级创建。
+        Path rootWithoutTools = Files.createDirectories(tempDir.resolve("no-tools"));
+        Path toolsMissingAll = rootWithoutTools.resolve("tools").resolve("ffmpeg");
+        FfmpegInstaller.requirePlainManagedDirectory(toolsMissingAll);
+        assertThat(toolsMissingAll).isDirectory();
+        FfmpegInstaller.requirePlainManagedDirectory(toolsMissingAll.resolve("licenses"));
+        assertThat(toolsMissingAll.resolve("licenses")).isDirectory();
+
+        // 状态二：只有 tools —— 上一轮在中途失败后重试。
+        Path rootWithToolsOnly = Files.createDirectories(tempDir.resolve("tools-only"));
+        Files.createDirectory(rootWithToolsOnly.resolve("tools"));
+        Path toolsMissingLeaf = rootWithToolsOnly.resolve("tools").resolve("ffmpeg");
+        FfmpegInstaller.requirePlainManagedDirectory(toolsMissingLeaf);
+        assertThat(toolsMissingLeaf).isDirectory();
+        FfmpegInstaller.requirePlainManagedDirectory(toolsMissingLeaf.resolve("licenses"));
+        assertThat(toolsMissingLeaf.resolve("licenses")).isDirectory();
+
+        // 状态三：只有 tools/ffmpeg —— 既有安装目录，保持可用且补齐许可证目录。
+        Path rootWithTools = Files.createDirectories(tempDir.resolve("ffmpeg-only"));
+        Path toolsPresent = Files.createDirectories(rootWithTools.resolve("tools").resolve("ffmpeg"));
+        FfmpegInstaller.requirePlainManagedDirectory(toolsPresent);
+        FfmpegInstaller.requirePlainManagedDirectory(toolsPresent.resolve("licenses"));
+        assertThat(toolsPresent.resolve("licenses")).isDirectory();
+    }
+
+    @Test
+    @DisplayName("已有同名普通文件时拒绝安装，且不覆盖该文件")
+    void rejectsManagedDirectoryOccupiedByRegularFile(@TempDir Path tempDir) throws IOException {
+        Path tools = Files.createDirectories(tempDir.resolve("tools"));
+        Path occupied = Files.writeString(tools.resolve("ffmpeg"), "third-party");
+
+        assertThatThrownBy(() -> FfmpegInstaller.requirePlainManagedDirectory(occupied))
+                .isInstanceOf(IOException.class)
+                .hasMessage(MessageBundles.get("gui.ffmpeg.install.managed-not-directory", occupied));
+        assertThat(occupied).hasContent("third-party");
+
+        // 祖先节点是普通文件时同样拒绝，不把它当成可创建的缺失目录。
+        Path ancestorFile = Files.writeString(tempDir.resolve("file-tools"), "third-party");
+        assertThatThrownBy(() -> FfmpegInstaller.requirePlainManagedDirectory(
+                ancestorFile.resolve("ffmpeg")))
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining(ancestorFile.toString());
+        assertThat(ancestorFile).hasContent("third-party");
+    }
+
+    @Test
+    @DisplayName("软件目录是链接或 Junction 时拒绝安装而不写入被指向的目录")
+    void rejectsManagedDirectoryBehindReparsePoint(@TempDir Path tempDir) throws Exception {
+        Path plain = Files.createDirectories(tempDir.resolve("plain/tools/ffmpeg"));
+        FfmpegInstaller.requirePlainManagedDirectory(plain);
+        FfmpegInstaller.requirePlainManagedDirectory(tempDir.resolve("plain/tools/ffmpeg/licenses"));
+
+        Path outsideDir = Files.createDirectories(tempDir.resolve("outside"));
+        Path outsideFile = Files.writeString(outsideDir.resolve("ffmpeg"), "third-party");
+        Path junction = tempDir.resolve("linked-ffmpeg");
+        Assumptions.assumeTrue(createJunction(junction, outsideDir), "当前 Windows 环境无法创建 Junction");
+        try {
+            assertThatThrownBy(() -> FfmpegInstaller.requirePlainManagedDirectory(junction))
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining(junction.toString());
+            assertThatThrownBy(() -> FfmpegInstaller.requirePlainManagedDirectory(junction.resolve("licenses")))
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining(junction.toString());
+            assertThat(outsideFile).hasContent("third-party");
+        } finally {
+            Files.deleteIfExists(junction);
+        }
+    }
+
+    @Test
+    @DisplayName("已有祖先目录是 Junction 时拒绝安装，不顺着链接创建目录")
+    void rejectsReparsePointInAncestorChain(@TempDir Path tempDir) throws Exception {
+        Path realTools = Files.createDirectories(tempDir.resolve("real-tools"));
+        Path linkTools = tempDir.resolve("tools");
+        Assumptions.assumeTrue(createJunction(linkTools, realTools), "当前 Windows 环境无法创建 Junction");
+        try {
+            assertThatThrownBy(() -> FfmpegInstaller.requirePlainManagedDirectory(
+                    linkTools.resolve("ffmpeg")))
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining(linkTools.toString());
+            assertThat(realTools.resolve("ffmpeg")).doesNotExist();
+
+            assertThatThrownBy(() -> FfmpegInstaller.requirePlainManagedDirectory(linkTools))
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining(linkTools.toString());
+        } finally {
+            Files.deleteIfExists(linkTools);
+        }
+    }
+
+    @Test
+    @DisplayName("软件目录是目录符号链接时拒绝安装，且文案区分于 Junction")
+    void rejectsManagedDirectoryBehindDirectorySymlink(@TempDir Path tempDir) throws Exception {
+        Path realTools = Files.createDirectories(tempDir.resolve("real/tools/ffmpeg"));
+        Path outsideFile = Files.writeString(realTools.resolve("ffmpeg"), "third-party");
+
+        Path symlink = tempDir.resolve("linked-ffmpeg");
+        Assumptions.assumeTrue(createDirectorySymlink(symlink, realTools),
+                "当前环境无法创建目录符号链接");
+
+        try {
+            // 目标本身就是目录符号链接：必须拒绝，且文案只说符号链接、不混入 Junction。
+            assertThatThrownBy(() -> FfmpegInstaller.requirePlainManagedDirectory(symlink))
+                    .isInstanceOf(IOException.class)
+                    .hasMessage(MessageBundles.get("gui.ffmpeg.install.managed-symbolic-link", symlink));
+
+            // 祖先链上的目录符号链接：同样拒绝，并把出问题的层级如实报出来。
+            assertThatThrownBy(() -> FfmpegInstaller.requirePlainManagedDirectory(
+                    symlink.resolve("tools").resolve("ffmpeg")))
+                    .isInstanceOf(IOException.class)
+                    .hasMessage(MessageBundles.get("gui.ffmpeg.install.managed-symbolic-link", symlink));
+
+            assertThat(realTools.resolve("tools")).doesNotExist();
+            assertThat(outsideFile).hasContent("third-party");
+        } finally {
+            Files.deleteIfExists(symlink);
+        }
+    }
+
+    @Test
+    @DisplayName("含空格、括号与中文的目录符号链接同样被拒绝")
+    void rejectsDirectorySymlinkWithAwkwardPathSegments(@TempDir Path tempDir) throws Exception {
+        Path realTools = Files.createDirectories(tempDir.resolve("真实 tools (v1)/ffmpeg"));
+        Path outsideFile = Files.writeString(realTools.resolve("ffmpeg"), "third-party");
+        Path symlink = tempDir.resolve("链接 tools (v2)");
+        Assumptions.assumeTrue(createDirectorySymlink(symlink, realTools),
+                "当前环境无法创建目录符号链接");
+
+        try {
+            assertThatThrownBy(() -> FfmpegInstaller.requirePlainManagedDirectory(symlink))
+                    .isInstanceOf(IOException.class)
+                    .hasMessage(MessageBundles.get("gui.ffmpeg.install.managed-symbolic-link", symlink));
+            assertThat(outsideFile).hasContent("third-party");
+        } finally {
+            Files.deleteIfExists(symlink);
+        }
+    }
+
+    /**
+     * 创建目录符号链接（{@code mklink /D} 的等价物）。
+     *
+     * <p>Windows 上创建符号链接可能「报告成功但磁盘上没有条目」，因此不能只看返回值，
+     * 必须回读确认链接真的存在；确认不了就返回 {@code false}，由调用方跳过该用例。
+     */
+    private static boolean createDirectorySymlink(Path link, Path target) {
+        try {
+            Files.createSymbolicLink(link, target);
+        } catch (IOException | UnsupportedOperationException unavailable) {
+            return false;
+        }
+        return Files.isSymbolicLink(link);
+    }
+
+    private static boolean createJunction(Path link, Path target) throws IOException, InterruptedException {
+        if (!FfmpegLocator.isWindows()) {
+            return false;
+        }
+        Process process = new ProcessBuilder("cmd.exe", "/c", "mklink", "/J",
+                link.toString(), target.toString())
+                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .redirectErrorStream(true)
+                .start();
+        return process.waitFor() == 0;
     }
 
     private static void assertAsset(String osName, String osArch, String asset) {

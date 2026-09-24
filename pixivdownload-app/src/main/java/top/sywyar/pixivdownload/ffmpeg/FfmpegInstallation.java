@@ -17,6 +17,7 @@ public record FfmpegInstallation(Path ffmpegPath, Path ffprobePath, Path homeDir
     }
 
     public enum Source {
+        CUSTOM,
         MANAGED,
         BUNDLED,
         SYSTEM

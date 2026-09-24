@@ -233,6 +233,16 @@ public final class ConfigFieldRegistry {
     }
 
     private static ConfigFieldSpec.Validator coreValidator(GuiConfigFieldContribution field) {
+        if (field.type() == GuiConfigFieldType.PATH_DIR || field.type() == GuiConfigFieldType.PATH_FILE) {
+            return value -> {
+                try {
+                    SwingHost.host().validateCoreConfigValue(field.key(), value);
+                    return null;
+                } catch (java.io.IOException invalid) {
+                    return invalid.getMessage();
+                }
+            };
+        }
         if (field.type() == GuiConfigFieldType.PORT) {
             return value -> {
                 try {

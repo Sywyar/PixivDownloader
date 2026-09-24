@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.gui;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroupContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
@@ -34,6 +35,21 @@ class DesktopCoreConfigCatalogTest {
                 .allSatisfy(field -> {
                     assertThat(field.type()).isEqualTo(GuiConfigFieldType.TIME);
                     assertThat(field.defaultValue()).isEqualTo("10:00");
+                });
+    }
+
+    @Test
+    @DisplayName("FFmpeg 自定义路径使用目录选择并在下次使用时生效")
+    void declaresCustomFfmpegPathAsLiveDirectoryField() {
+        DesktopUiHost host = mock(DesktopUiHost.class);
+
+        assertThat(DesktopCoreConfigCatalog.fields(host))
+                .filteredOn(field -> field.key().equals("ffmpeg.executable-path"))
+                .singleElement()
+                .satisfies(field -> {
+                    assertThat(field.type()).isEqualTo(GuiConfigFieldType.PATH_DIR);
+                    assertThat(field.defaultValue()).isEmpty();
+                    assertThat(field.effect()).isEqualTo(GuiConfigEffect.HOT_RELOAD);
                 });
     }
 }

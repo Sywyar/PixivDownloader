@@ -19,9 +19,7 @@ import top.sywyar.pixivdownload.update.UpdateConfig;
 import javax.sql.DataSource;
 import java.io.IOException;
 import java.awt.datatransfer.StringSelection;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.awt.Desktop;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -114,6 +112,9 @@ final class AppDesktopUiHost implements DesktopUiHost {
     }
     @Override public String requireSafeConfigKey(String key)throws java.io.IOException{return top.sywyar.pixivdownload.gui.config.ConfigFileEditor.requireSafeKey(key);}
     @Override public String requireSafeConfigValue(String value)throws java.io.IOException{return top.sywyar.pixivdownload.gui.config.ConfigFileEditor.requireSafeValue(value);}
+    @Override public void validateCoreConfigValue(String key, String value) throws IOException {
+        if (FfmpegLocator.CONFIG_KEY.equals(key)) FfmpegLocator.validateConfiguredPath(value);
+    }
     private static UiLocale mapLocale(top.sywyar.pixivdownload.i18n.LocaleDescriptor descriptor){
         return new UiLocale(descriptor.tag(),descriptor.nativeName(),descriptor.resourceSuffix());
     }
@@ -165,10 +166,10 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override public String readDownloadRootFromConfig(Path path, String fallback) { return RuntimeFiles.readDownloadRootFromConfig(path, fallback); }
     @Override public String normalizeRootFolder(String rootFolder) { return RuntimeFiles.normalizeRootFolder(rootFolder); }
     @Override public void openExternalUri(java.net.URI uri) throws Exception {
-        Desktop.getDesktop().browse(uri);
+        DesktopShellOpen.openExternalUri(uri);
     }
     @Override public void openLocalPath(Path path) throws Exception {
-        Desktop.getDesktop().open(path.toFile());
+        DesktopShellOpen.openLocalPath(path);
     }
     @Override public void copyText(String text) {
         java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(text), null);
@@ -209,7 +210,9 @@ final class AppDesktopUiHost implements DesktopUiHost {
     }
     @Override public Path managedFfmpegDirectory() { return FfmpegLocator.managedToolsDir(); }
     @Override public Path prepareManagedFfmpegDirectory() throws IOException {
-        return Files.createDirectories(managedFfmpegDirectory());
+        Path directory = managedFfmpegDirectory();
+        FfmpegInstaller.requirePlainManagedDirectory(directory);
+        return directory;
     }
     @Override public boolean supportsManagedFfmpegInstall() { return FfmpegInstaller.supportsManagedDownload(); }
     @Override public FfmpegInstallation installManagedFfmpeg(FfmpegProxy proxy, FfmpegProgressListener listener)
@@ -221,6 +224,7 @@ final class AppDesktopUiHost implements DesktopUiHost {
 
     private static FfmpegSource map(top.sywyar.pixivdownload.ffmpeg.FfmpegInstallation.Source source) {
         return switch (source) {
+            case CUSTOM -> FfmpegSource.CUSTOM;
             case MANAGED -> FfmpegSource.MANAGED;
             case BUNDLED -> FfmpegSource.BUNDLED;
             case SYSTEM -> FfmpegSource.SYSTEM;

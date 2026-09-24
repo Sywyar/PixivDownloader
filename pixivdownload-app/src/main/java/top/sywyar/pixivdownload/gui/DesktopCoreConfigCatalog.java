@@ -102,6 +102,16 @@ final class DesktopCoreConfigCatalog {
                 order++
         ));
         fields.add(core(
+                "ffmpeg.executable-path",
+                GuiConfigGroups.DOWNLOAD,
+                GuiConfigFieldType.PATH_DIR,
+                "",
+                GuiConfigEffect.HOT_RELOAD,
+                null,
+                null,
+                order++
+        ));
+        fields.add(core(
                 "plugin-catalog.enabled",
                 GuiConfigGroups.PLUGINS,
                 GuiConfigFieldType.BOOL,
