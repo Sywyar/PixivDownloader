@@ -27,13 +27,13 @@ public class AiPresetRegistry {
     public AiPresetRegistry() {
         this.presets = List.of(
                 // ── 海外（墙内一般需代理）────────────────────────────────────────
-                preset("openai", "https://api.openai.com/v1", "gpt-5.4-mini", true,
+                preset("openai", "https://api.openai.com/v1", "gpt-6-luna", true,
                         "ai.preset.help.api-key"),
                 preset("anthropic", "https://api.anthropic.com/v1", "claude-haiku-4-5", true,
                         "ai.preset.help.anthropic"),
                 preset("gemini", "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-3.7-flash", true,
                         "ai.preset.help.gemini"),
-                preset("xai", "https://api.x.ai/v1", "grok-4.6", true,
+                preset("xai", "https://api.x.ai/v1", "grok-4.7", true,
                         "ai.preset.help.api-key"),
                 preset("mistral", "https://api.mistral.ai/v1", "mistral-large-latest", true,
                         "ai.preset.help.api-key"),
@@ -41,7 +41,7 @@ public class AiPresetRegistry {
                         "ai.preset.help.api-key"),
 
                 // ── 国内（一般无需代理）──────────────────────────────────────────
-                preset("deepseek", "https://api.deepseek.com", "deepseek-v4-flash", false,
+                preset("deepseek", "https://api.deepseek.com", "deepseek-flash", false,
                         "ai.preset.help.api-key"),
                 preset("qwen", "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus", false,
                         "ai.preset.help.dashscope"),
@@ -49,15 +49,15 @@ public class AiPresetRegistry {
                         "ai.preset.help.api-key"),
                 preset("moonshot", "https://api.moonshot.cn/v1", "kimi-k3", false,
                         "ai.preset.help.api-key"),
-                preset("doubao", "https://ark.cn-beijing.volces.com/api/v3", "doubao-seed-2-1-pro-260628", false,
+                preset("doubao", "https://ark.cn-beijing.volces.com/api/v3", "doubao-seed-2-1-pro-260915", false,
                         "ai.preset.help.doubao"),
-                preset("hunyuan", "https://api.hunyuan.cloud.tencent.com/v1", "hunyuan-turbos-latest", false,
-                        "ai.preset.help.api-key"),
+                preset("hunyuan", "https://tokenhub.tencentmaas.com/v1", "hy3", false,
+                        "ai.preset.help.hunyuan"),
                 preset("ernie", "https://qianfan.baidubce.com/v2", "ernie-5.1", false,
                         "ai.preset.help.ernie"),
-                preset("spark", "https://spark-api-open.xf-yun.com/v1", "generalv3.5", false,
+                preset("spark", "https://spark-api-open.xf-yun.com/v1", "4.0Ultra", false,
                         "ai.preset.help.spark"),
-                preset("minimax", "https://api.minimaxi.com/v1", "MiniMax-M2.7", false,
+                preset("minimax", "https://api.minimax.cn/v1", "MiniMax-M3", false,
                         "ai.preset.help.minimax"),
 
                 // ── 本地 / 自托管（无需代理；自定义模型如 MiMo 等开源模型走这里）────
@@ -67,7 +67,7 @@ public class AiPresetRegistry {
                         "ai.preset.help.local"),
 
                 // ── 聚合平台 ──────────────────────────────────────────────────────
-                preset("openrouter", "https://openrouter.ai/api/v1", "openai/gpt-4o-mini", true,
+                preset("openrouter", "https://openrouter.ai/api/v1", "openai/gpt-6-luna", true,
                         "ai.preset.help.aggregator"),
                 preset("siliconflow", "https://api.siliconflow.cn/v1", "Qwen/Qwen2.5-7B-Instruct", false,
                         "ai.preset.help.aggregator"),

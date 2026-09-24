@@ -84,29 +84,16 @@ class AiPresetRegistryTest {
     }
 
     @Test
-    @DisplayName("预设的 base-url / 默认模型与设计一致")
-    void presetFieldsMatchDesign() {
-        AiPreset deepseek = registry.findById("deepseek").orElseThrow();
-        assertThat(deepseek.baseUrl()).isEqualTo("https://api.deepseek.com");
-        assertThat(deepseek.defaultModel()).isEqualTo("deepseek-v4-flash");
-
-        assertThat(registry.findById("gemini").orElseThrow().defaultModel())
-                .isEqualTo("gemini-3.7-flash");
-        assertThat(registry.findById("xai").orElseThrow().defaultModel())
-                .isEqualTo("grok-4.6");
-        assertThat(registry.findById("groq").orElseThrow().defaultModel())
-                .isEqualTo("openai/gpt-oss-120b");
-        assertThat(registry.findById("moonshot").orElseThrow().defaultModel())
-                .isEqualTo("kimi-k3");
-        assertThat(registry.findById("doubao").orElseThrow().defaultModel())
-                .isEqualTo("doubao-seed-2-1-pro-260628");
-        assertThat(registry.findById("ernie").orElseThrow().defaultModel())
-                .isEqualTo("ernie-5.1");
-        assertThat(registry.findById("minimax").orElseThrow().defaultModel())
-                .isEqualTo("MiniMax-M2.7");
-
+    @DisplayName("预设地址可反查，模型标识无空白，自定义预设不预填")
+    void presetFieldsRemainUsable() {
+        for (AiPreset preset : registry.all()) {
+            if (preset.isCustom()) continue;
+            assertThat(registry.findByBaseUrl(preset.baseUrl() + "/")).contains(preset);
+            assertThat(preset.defaultModel()).doesNotContainPattern("\\s");
+        }
         AiPreset custom = registry.custom();
         assertThat(custom.isCustom()).isTrue();
         assertThat(custom.baseUrl()).isEmpty();
+        assertThat(custom.defaultModel()).isEmpty();
     }
 }

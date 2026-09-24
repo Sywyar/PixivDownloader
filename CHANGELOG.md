@@ -30,7 +30,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 ### Changed
 - AI 多角色朗读保留已建立的角色音色，后续分析提出的音色调整需手动采纳。
 - 每夜构建版只加载与当前构建同批发布的 Nightly 插件；稳定插件仍按 SDK 主次版本判断兼容性。升级每夜版后，旧 Nightly 插件需随新构建更新。
-- AI 配置可使用当前未保存的地址、密钥和代理读取服务实际可见模型；Gemini、xAI、Groq、Moonshot、Doubao、ERNIE 与 MiniMax 的默认模型已更新。
+- AI 配置可使用当前未保存的地址、密钥和代理读取服务实际可见模型；更新内置服务商的默认模型，腾讯混元预设改用 TokenHub。已保存的配置保持原值，迁移混元需填写 TokenHub API Key。
 - 未绑定 Cookie 的公开 Pixiv 计划任务改用受限模式运行；账号专属来源仍要求凭证。两个下载工作台都会显示提供者给出的挂起或过度访问保护原因。
 - 应用日志固定使用英文，HTML 日志固定声明英文文档语言。
 - FFmpeg 自动安装改用项目从官方最新稳定源码构建的固定 Release，按 Windows x64、Linux x64/arm64 和 macOS x64/arm64 选择资产，不再使用每日构建。

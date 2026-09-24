@@ -132,6 +132,11 @@ class AiPluginGuiConfigContributionTest {
         assertThat(section.presets())
                 .filteredOn(preset -> !preset.values().isEmpty())
                 .allSatisfy(preset -> {
+                    AiPreset source = new AiPresetRegistry().findById(preset.presetId()).orElseThrow();
+                    assertThat(preset.values().get("ai.model")).isEqualTo(source.defaultModel());
+                    assertThat(preset.values().get("ai.base-url")).isEqualTo(source.baseUrl());
+                    assertThat(preset.values().get("ai.use-proxy"))
+                            .isEqualTo(Boolean.toString(source.defaultUseProxy()));
                     assertThat(preset.matchFieldKey()).isEqualTo("ai.base-url");
                     assertThat(preset.values().keySet()).isEqualTo(Set.of(
                             "ai.base-url", "ai.model", "ai.use-proxy"));

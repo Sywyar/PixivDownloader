@@ -203,7 +203,14 @@ public class OpenAiCompatibleAiClient implements AiChatClient {
 
     private ChatRequest buildRequest(String model, List<AiChatMessage> chatMessages, AiChatOptions opts) {
         ResponseFormat responseFormat = opts.jsonObject() ? new ResponseFormat("json_object") : null;
-        return new ChatRequest(model, chatMessages, opts.temperature(), opts.maxTokens(), responseFormat, false);
+        boolean luna = "gpt-6-luna".equals(model);
+        boolean routedLuna = "openai/gpt-6-luna".equals(model);
+        // Luna 关闭推理才接受调用方的 temperature；直连接口使用新的输出上限字段。
+        // MiniMax 必须分离思考内容，避免 <think> 标签混入翻译正文和结构化分析结果。
+        return new ChatRequest(model, chatMessages, opts.temperature(),
+                luna ? null : opts.maxTokens(), luna ? opts.maxTokens() : null,
+                luna || routedLuna ? "none" : null,
+                "MiniMax-M3".equals(model) ? Boolean.TRUE : null, responseFormat, false);
     }
 
     private static HttpHeaders buildHeaders(String apiKey) {
@@ -366,6 +373,9 @@ public class OpenAiCompatibleAiClient implements AiChatClient {
             List<AiChatMessage> messages,
             Double temperature,
             @JsonProperty("max_tokens") Integer maxTokens,
+            @JsonProperty("max_completion_tokens") Integer maxCompletionTokens,
+            @JsonProperty("reasoning_effort") String reasoningEffort,
+            @JsonProperty("reasoning_split") Boolean reasoningSplit,
             @JsonProperty("response_format") ResponseFormat responseFormat,
             boolean stream
     ) {
