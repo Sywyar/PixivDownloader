@@ -586,8 +586,8 @@ final class DesktopStatusController {
         owner.executeAsync(() -> {
             try {
                 Path directory = host.locateFfmpeg().map(DesktopUiHost.FfmpegInstallation::homeDir).filter(
-                        Objects::nonNull).filter(Files::isDirectory).orElseGet(host::managedFfmpegDirectory);
-                host.openLocalPath(Files.createDirectories(directory));
+                        Objects::nonNull).filter(Files::isDirectory).orElse(null);
+                host.openLocalPath(directory == null ? host.prepareManagedFfmpegDirectory() : directory);
             } catch (Exception failure) {
                 owner.statusNotice = host.message(
                         "gui.ffmpeg.dialog.open-dir-failed.message",

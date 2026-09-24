@@ -19,7 +19,6 @@ import top.sywyar.pixivdownload.update.UpdateConfig;
 import javax.sql.DataSource;
 import java.io.IOException;
 import java.awt.datatransfer.StringSelection;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.List;
@@ -211,7 +210,9 @@ final class AppDesktopUiHost implements DesktopUiHost {
     }
     @Override public Path managedFfmpegDirectory() { return FfmpegLocator.managedToolsDir(); }
     @Override public Path prepareManagedFfmpegDirectory() throws IOException {
-        return Files.createDirectories(managedFfmpegDirectory());
+        Path directory = managedFfmpegDirectory();
+        FfmpegInstaller.requirePlainManagedDirectory(directory);
+        return directory;
     }
     @Override public boolean supportsManagedFfmpegInstall() { return FfmpegInstaller.supportsManagedDownload(); }
     @Override public FfmpegInstallation installManagedFfmpeg(FfmpegProxy proxy, FfmpegProgressListener listener)

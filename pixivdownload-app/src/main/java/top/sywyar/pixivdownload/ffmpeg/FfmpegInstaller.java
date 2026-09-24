@@ -278,7 +278,7 @@ public final class FfmpegInstaller {
     }
 
     /**
-     * 确保安装目标是可以安全写入的普通目录：安全创建缺失层级，并拒绝任何已有但不安全的节点。
+     * 确保受管 FFmpeg 目录是普通目录：安全创建缺失层级，并拒绝任何已有但不安全的节点。
      *
      * <p>软件目录被链接到别处时，复制会顺着链接写进被指向的目录、覆盖其中的同名文件；因此这里在
      * 下载任何字节之前失败关闭。但「尚未创建的普通目录层级」不是不安全节点——首次自动安装时
@@ -287,10 +287,10 @@ public final class FfmpegInstaller {
      * <p>逐级检查已有祖先节点，拒绝符号链接、Junction 和非目录节点；只创建确实缺失的层级。
      * 创建后再复核一次，覆盖判定与创建之间的竞态窗口。
      *
-     * @param directory 安装要写入的目录
+     * @param directory 安装或桌面打开要使用的受管目录
      * @throws IOException 任一已有节点不安全、创建失败或权限不足
      */
-    static void requirePlainManagedDirectory(Path directory) throws IOException {
+    public static void requirePlainManagedDirectory(Path directory) throws IOException {
         PlainFilePathGuard.DirectoryOpenPrecondition precondition =
                 PlainFilePathGuard.requireDirectoryOpenPrecondition(directory);
         PlainFilePathGuard.RejectedNode rejected = precondition.rejectedNode();
