@@ -10,6 +10,7 @@
  * hash 基于解析、反转义后的规范值（仅 CRLF → LF，不 trim）：
  * 前导 / 尾随空白、转义空格与换行都保留，仅空白变化不会被错误视为相同翻译。
  *
+ * 磁盘按 (module, baseName, key) 聚合；每个翻译三元组依次是 locale、源 hash、译文 hash。
  * 读取时严格校验：version、字段、64 位十六进制 hash、重复 entry 全部 fail-fast；
  * 保存时确定性排序 + 临时文件原子替换（避免写一半损坏）。
  */
@@ -20,7 +21,7 @@ import crypto from 'crypto';
 import { canonicalValue } from './properties-parser.mjs';
 
 const LOCK_PATH = path.join('i18n', 'catalog-lock.json');
-const LOCK_VERSION = 1;
+const LOCK_VERSION = 2;
 
 const REQUIRED_FIELDS = [
     'locale', 'module', 'baseName', 'key', 'acceptedSourceHash', 'acceptedTranslationHash',
@@ -87,34 +88,96 @@ function load(repoRoot) {
     } catch (e) {
         throw new Error('cannot parse i18n/catalog-lock.json: ' + e.message);
     }
-    validateStructure(parsed);
-    return parsed;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('catalog-lock.json: root must be a JSON object');
+    }
+    if (parsed.version === 1) {
+        const lock = { version: LOCK_VERSION, entries: parsed.entries };
+        validateStructure(lock);
+        return lock;
+    }
+    if (parsed.version !== LOCK_VERSION) {
+        throw new Error('catalog-lock.json: unsupported lock version ' + parsed.version
+            + ' (expected ' + LOCK_VERSION + ')');
+    }
+    if (!Array.isArray(parsed.entries)) {
+        throw new Error('catalog-lock.json: entries must be an array');
+    }
+    const entries = [];
+    const seenGroups = new Set();
+    for (const group of parsed.entries) {
+        if (!group || typeof group !== 'object' || Array.isArray(group)
+            || !['module', 'baseName', 'key'].every((field) => typeof group[field] === 'string' && group[field].trim())
+            || !Array.isArray(group.translations) || group.translations.length === 0) {
+            throw new Error('catalog-lock.json: invalid grouped entry');
+        }
+        const groupKey = JSON.stringify([group.module, group.baseName, group.key]);
+        if (seenGroups.has(groupKey)) {
+            throw new Error('catalog-lock.json: duplicate lock entry for '
+                + group.module + ' / ' + group.baseName + ' / ' + group.key);
+        }
+        seenGroups.add(groupKey);
+        for (const hashes of group.translations) {
+            if (!Array.isArray(hashes) || hashes.length !== 3) {
+                throw new Error('catalog-lock.json: translation entry must contain locale and two hashes');
+            }
+            entries.push({
+                locale: hashes[0], module: group.module, baseName: group.baseName, key: group.key,
+                acceptedSourceHash: hashes[1], acceptedTranslationHash: hashes[2],
+            });
+        }
+    }
+    const lock = { version: LOCK_VERSION, entries };
+    validateStructure(lock);
+    return lock;
 }
 
 function save(repoRoot, lock) {
     validateStructure(lock);
     const file = path.join(repoRoot, LOCK_PATH);
     fs.mkdirSync(path.dirname(file), { recursive: true });
+    const groups = new Map();
+    for (const entry of lock.entries) {
+        const groupKey = JSON.stringify([entry.module, entry.baseName, entry.key]);
+        if (!groups.has(groupKey)) {
+            groups.set(groupKey, {
+                module: entry.module, baseName: entry.baseName, key: entry.key, translations: [],
+            });
+        }
+        groups.get(groupKey).translations.push([
+            entry.locale, entry.acceptedSourceHash, entry.acceptedTranslationHash,
+        ]);
+    }
+    const entries = [...groups.values()].sort((a, b) =>
+        a.module.localeCompare(b.module) || a.baseName.localeCompare(b.baseName)
+            || a.key.localeCompare(b.key));
+    for (const group of entries) {
+        group.translations.sort((a, b) => a[0].localeCompare(b[0]));
+    }
     const payload = {
         version: LOCK_VERSION,
         note: '已审核翻译基线：accept 同时记录 acceptedSourceHash 与 acceptedTranslationHash，二者都匹配当前内容才算 accepted。',
-        entries: [...lock.entries].sort(compareEntries),
+        entries,
     };
+    // 每个 key 单独一行，保留可定位的 Git diff，避免数组缩进放大生成文件。
+    const serialized = [
+        '{',
+        '  "version": ' + payload.version + ',',
+        '  "note": ' + JSON.stringify(payload.note) + ',',
+        '  "entries": [',
+        ...entries.map((entry, i) => '    ' + JSON.stringify(entry) + (i < entries.length - 1 ? ',' : '')),
+        '  ]',
+        '}',
+        '',
+    ].join('\n');
     const tmp = path.join(path.dirname(file), '.catalog-lock.json.tmp-' + process.pid);
-    fs.writeFileSync(tmp, JSON.stringify(payload, null, 2) + '\n', 'utf8');
+    fs.writeFileSync(tmp, serialized, 'utf8');
     try {
         fs.renameSync(tmp, file);
     } catch (e) {
         fs.rmSync(tmp, { force: true });
         throw e;
     }
-}
-
-function compareEntries(a, b) {
-    return String(a.locale).localeCompare(String(b.locale))
-        || String(a.module).localeCompare(String(b.module))
-        || String(a.baseName).localeCompare(String(b.baseName))
-        || String(a.key).localeCompare(String(b.key));
 }
 
 function entryKey(entry) {
