@@ -21,13 +21,9 @@ public final class ImageThumbnailScaler {
      * @throws IOException 源图片无法安全解码时抛出
      */
     public static BufferedImage scale(Path source, int maximumWidth, int maximumHeight) throws IOException {
-        BufferedImage image = BoundedImageDecoder.read(source);
-        if (image == null) throw new IOException("Cannot decode image: " + source);
-        int width = maximumWidth < 0 ? image.getWidth() / 3 : maximumWidth;
-        int height = maximumHeight < 0 ? image.getHeight() / 3 : maximumHeight;
-        double ratio = Math.min((double) width / image.getWidth(), (double) height / image.getHeight());
-        return scale(image, Math.max(1, (int) Math.round(image.getWidth() * ratio)),
-                Math.max(1, (int) Math.round(image.getHeight() * ratio)));
+        BoundedImageDecoder.Decoded decoded = BoundedImageDecoder.read(source, maximumWidth, maximumHeight);
+        if (decoded == null) throw new IOException("Cannot decode image: " + source);
+        return scale(decoded.image(), decoded.targetWidth(), decoded.targetHeight());
     }
 
     private static BufferedImage scale(BufferedImage source, int targetWidth, int targetHeight) {

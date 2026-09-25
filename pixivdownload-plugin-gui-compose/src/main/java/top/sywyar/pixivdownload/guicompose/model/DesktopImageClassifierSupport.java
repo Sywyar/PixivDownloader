@@ -2,13 +2,10 @@ package top.sywyar.pixivdownload.guicompose.model;
 
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
-import top.sywyar.pixivdownload.guicompose.model.BoundedImageDecoder;
+import top.sywyar.pixivdownload.core.asset.ImageThumbnailScaler;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode;
 
 import javax.imageio.ImageIO;
-import java.awt.Color;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.nio.file.Files;
@@ -55,43 +52,7 @@ final class DesktopImageClassifierSupport {
                 ) + "_thumb.jpg");
                 if (Files.isRegularFile(thumbnail)) source = thumbnail;
             }
-            BufferedImage original = BoundedImageDecoder.read(source);
-            if (original == null) return Optional.empty();
-            double scale = Math.min(
-                    1d,
-                    Math.min(1600d / original.getWidth(), 1600d / original.getHeight())
-            );
-            int width = Math.max(1, (int) Math.round(original.getWidth() * scale));
-            int height = Math.max(1, (int) Math.round(original.getHeight() * scale));
-            BufferedImage rendered = new BufferedImage(
-                    width,
-                    height,
-                    BufferedImage.TYPE_INT_RGB
-            );
-            Graphics2D graphics = rendered.createGraphics();
-            try {
-                graphics.setColor(Color.WHITE);
-                graphics.fillRect(
-                        0,
-                        0,
-                        width,
-                        height
-                );
-                graphics.setRenderingHint(
-                        RenderingHints.KEY_INTERPOLATION,
-                        RenderingHints.VALUE_INTERPOLATION_BICUBIC
-                );
-                graphics.drawImage(
-                        original,
-                        0,
-                        0,
-                        width,
-                        height,
-                        null
-                );
-            } finally {
-                graphics.dispose();
-            }
+            BufferedImage rendered = ImageThumbnailScaler.scale(source, 1600, 1600);
             ByteArrayOutputStream output = new ByteArrayOutputStream();
             if (!ImageIO.write(rendered, "jpg", output)) return Optional.empty();
             DesktopUiNode.ImageData data = new DesktopUiNode.ImageData(

@@ -3,6 +3,9 @@ package top.sywyar.pixivdownload.core.asset;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -37,21 +40,30 @@ class BoundedImageDecoderTest {
     }
 
     @Test
-    @DisplayName("压缩体积很小但总像素超限的图片在像素分配前被拒绝")
-    void rejectsTinyEncodedImageWithExcessivePixels() throws Exception {
+    @DisplayName("大尺寸但缺少像素数据的截断图片仍然被拒绝")
+    void rejectsTruncatedLargeImage() throws Exception {
         Path image = writePngHeader("pixel-bomb.png", 6_000, 5_000);
 
         assertThat(Files.size(image)).isLessThan(100);
         assertThatThrownBy(() -> BoundedImageDecoder.read(image))
-                .isInstanceOf(IOException.class)
-                .hasMessageContaining("pixel count");
+                .isInstanceOf(IOException.class);
+    }
+
+    @Test
+    @DisplayName("可能分配完整帧的 GIF 解码器仍受源像素预算保护")
+    void rejectsOversizedGifBeforeReadingFrame() throws Exception {
+        Path image = tempDir.resolve("large.gif");
+        ImageIO.write(new BufferedImage(6000, 5000, BufferedImage.TYPE_BYTE_BINARY), "gif", image.toFile());
+
+        assertThatThrownBy(() -> BoundedImageDecoder.read(image))
+                .isInstanceOf(IOException.class).hasMessageContaining("pixel count");
     }
 
     @Test
     @DisplayName("宽度和高度分别受独立上限保护")
     void rejectsExcessiveWidthAndHeight() throws Exception {
-        Path wide = writePngHeader("wide.png", 25_001, 1);
-        Path tall = writePngHeader("tall.png", 1, 25_001);
+        Path wide = writePngHeader("wide.png", BoundedImageDecoder.MAX_WIDTH + 1, 1);
+        Path tall = writePngHeader("tall.png", 1, BoundedImageDecoder.MAX_HEIGHT + 1);
 
         assertThatThrownBy(() -> BoundedImageDecoder.read(wide))
                 .isInstanceOf(IOException.class)
@@ -66,12 +78,49 @@ class BoundedImageDecoderTest {
     void rejectsExcessiveSourceBytes() throws Exception {
         Path image = tempDir.resolve("oversized.png");
         try (RandomAccessFile file = new RandomAccessFile(image.toFile(), "rw")) {
-            file.setLength(100L * 1024L * 1024L + 1L);
+            file.setLength(PixivImageTransferObserver.MAX_IMAGE_BYTES + 1L);
         }
 
         assertThatThrownBy(() -> BoundedImageDecoder.read(image))
                 .isInstanceOf(IOException.class)
                 .hasMessageContaining("source byte");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"png", "jpg"})
+    @DisplayName("36712368 像素原图在解码预算内读取并按原始尺寸生成缩略图")
+    void subsamplesLargeImageAndPreservesThumbnailSize(String format) throws Exception {
+        Path image = tempDir.resolve("large." + format);
+        BufferedImage original = new BufferedImage(6192, 5929, BufferedImage.TYPE_BYTE_GRAY);
+        original.getRaster().setSample(0, 0, 0, 255);
+        assertThat(ImageIO.write(original, format, image.toFile())).isTrue();
+
+        BufferedImage decoded = BoundedImageDecoder.read(image);
+        assertThat(decoded).isNotNull();
+        assertThat((long) decoded.getWidth() * decoded.getHeight()).isLessThanOrEqualTo(BoundedImageDecoder.MAX_PIXELS);
+        assertThat(decoded.getWidth()).isLessThan(original.getWidth());
+
+        BufferedImage thumbnail = ImageThumbnailScaler.scale(image, -1, -1);
+        assertThat(thumbnail.getWidth()).isEqualTo(2064);
+        assertThat(thumbnail.getHeight()).isEqualTo(1976);
+        BufferedImage preview = ImageThumbnailScaler.scale(image, 1600, 1600);
+        assertThat(preview.getWidth()).isEqualTo(1600);
+        assertThat(preview.getHeight()).isEqualTo(1532);
+    }
+
+    @Test
+    @DisplayName("小图不放大且透明像素在缩略图中合成为白色")
+    void keepsSmallImageSizeAndFlattensAlpha() throws Exception {
+        Path image = tempDir.resolve("transparent.png");
+        ImageIO.write(new BufferedImage(2, 1, BufferedImage.TYPE_INT_ARGB), "png", image.toFile());
+
+        BufferedImage decoded = BoundedImageDecoder.read(image);
+        assertThat(decoded.getRGB(0, 0)).isZero();
+        BufferedImage thumbnail = ImageThumbnailScaler.scale(image, 1600, 1600);
+        assertThat(thumbnail.getWidth()).isEqualTo(2);
+        assertThat(thumbnail.getHeight()).isEqualTo(1);
+        assertThat(thumbnail.getRGB(0, 0)).isEqualTo(0xffffffff);
+        assertThat(ImageThumbnailScaler.scale(image, -1, -1).getHeight()).isEqualTo(1);
     }
 
     private Path writePngHeader(String fileName, int width, int height) throws Exception {

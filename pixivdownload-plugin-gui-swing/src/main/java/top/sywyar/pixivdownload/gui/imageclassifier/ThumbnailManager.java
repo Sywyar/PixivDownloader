@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.gui.imageclassifier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import top.sywyar.pixivdownload.core.asset.BoundedImageDecoder;
+import top.sywyar.pixivdownload.core.asset.ImageThumbnailScaler;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 
 import javax.swing.*;
@@ -106,10 +106,7 @@ public class ThumbnailManager {
 
 
     public static BufferedImage getThumbnail(File image, int thumbW, int thumbH) throws IOException {
-        BufferedImage src = BoundedImageDecoder.read(image.toPath());
-        if (src == null) throw new IOException("Cannot decode image: " + image);
-
-        return getThumbnail(src, thumbW, thumbH);
+        return ImageThumbnailScaler.scale(image.toPath(), thumbW, thumbH);
     }
 
     public static BufferedImage getThumbnail(BufferedImage src, int thumbW, int thumbH) {
@@ -239,7 +236,7 @@ public class ThumbnailManager {
     private static int[] fitTo(int srcW, int srcH, int maxW, int maxH) {
         double wr = (double) maxW / srcW;
         double hr = (double) maxH / srcH;
-        double r = Math.min(wr, hr);
+        double r = Math.min(1d, Math.min(wr, hr));
         int w = (int) Math.max(1, Math.round(srcW * r));
         int h = (int) Math.max(1, Math.round(srcH * r));
         return new int[]{w, h};

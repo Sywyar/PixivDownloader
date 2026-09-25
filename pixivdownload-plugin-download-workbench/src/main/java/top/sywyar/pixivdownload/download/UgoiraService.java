@@ -42,7 +42,6 @@ public class UgoiraService {
     static final int MAX_ZIP_ENTRIES = MAX_FRAME_COUNT;
     static final long MAX_ZIP_ENTRY_BYTES = 32L * MIB;
     static final long MAX_ZIP_UNCOMPRESSED_BYTES = 2L * MAX_ZIP_BYTES;
-    static final long MAX_ZIP_COMPRESSION_RATIO = 100L;
     static final long MAX_FRAME_PIXELS = 25_000_000L;
     static final Duration FFMPEG_TIMEOUT = Duration.ofMinutes(10);
     static final long MAX_FFMPEG_OUTPUT_BYTES = MAX_ZIP_BYTES;
@@ -225,12 +224,7 @@ public class UgoiraService {
                         }
                     }
                     zis.closeEntry();
-                    long compressedBytes = entry.getCompressedSize();
-                    if (entryBytes > 0 && (compressedBytes <= 0
-                            || entryBytes > compressedBytes * MAX_ZIP_COMPRESSION_RATIO)) {
-                        throw resourceLimit(
-                                "ugoira.log.limit.zip.ratio", MAX_ZIP_COMPRESSION_RATIO);
-                    }
+                    // 纯色 PNG 在 ZIP 中仍可能高度压缩；解压预算按实际写出字节执行。
                     validateFrame(framePath);
                     frameFiles.put(entry.getName(), framePath);
                     Integer progress = expectedFrames > 0
