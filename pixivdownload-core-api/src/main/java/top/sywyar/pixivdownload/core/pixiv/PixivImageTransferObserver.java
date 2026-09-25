@@ -6,11 +6,11 @@ package top.sywyar.pixivdownload.core.pixiv;
 public interface PixivImageTransferObserver {
 
     /**
-     * 图片允许占用的最大 UTF-8 字节数。
+     * 单张图片的本地传输字节预算，不代表 Pixiv 投稿限制。
      */
     long MAX_IMAGE_BYTES = 100L * 1024L * 1024L;
     /**
-     * 任务允许占用的最大 UTF-8 字节数。
+     * 单个任务的本地累计传输字节预算。
      */
     long MAX_TASK_BYTES = 1024L * 1024L * 1024L;
 

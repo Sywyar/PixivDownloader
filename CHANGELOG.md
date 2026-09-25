@@ -53,11 +53,11 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - 外置插件先验证并冻结包描述符和加载树，再初始化宿主进程插件；支持 JAR、ZIP 与 `lib/*.jar` 私有依赖布局。更新及跨 ID 替换冻结仓库、发布者和签名 key 身份，只有旧 key 对新身份、版本、大小与 SHA-256 制品签署迁移授权后才能变更所有者。
 - FFmpeg 自动安装、Windows 安装器与离线包构建现在会先验证内置官方信任根签发的发行清单，再严格核对目标资产名、长度和 SHA-256；清单缺失、签名无效或资产被篡改时会在解压及替换既有工具前失败。
 - 反向代理转发头只在来源命中 `server.trusted-proxy-cidrs` 的显式 CIDR 时生效（默认受信 CIDR 数为 0）；受信代理必须完整提供 RFC `Forwarded`，或 `X-Forwarded-For` / `X-Forwarded-Proto` / `X-Forwarded-Host`（`X-Forwarded-Port` 可选），两套头混用、链错位、缺失、畸形、端口不在 1–65535 或全链均为受信代理时返回 400，并在鉴权和同源校验前统一规范化客户端地址、外部协议、主机与端口。
-- 本地图片缩略图、相似度与分类工具会在解码前把源文件限制为 100 MiB、宽和高分别不超过 25,000 像素且总像素不超过 25,000,000；画廊图片接口改为直接流式返回文件，避免 Base64 JSON 放大内存。
+- 本地图片缩略图、相似度与分类工具限制源文件为 100 MiB、宽和高各 25,000 像素。大尺寸 PNG / JPEG 在解码时降采样，解码结果不超过 25,000,000 像素；其它格式仍限制源像素数。画廊图片接口改为直接流式返回文件，避免 Base64 JSON 放大内存。
 - Web 页面统一设置 CSP（普通页面 `frame-ancestors 'none'`，同源 iframe 为 `'self'`）、`X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`，并关闭 accelerometer、camera、geolocation、gyroscope、magnetometer、microphone、payment、usb 共 8 项浏览器能力；TRACE 请求统一返回 405，并移除内联事件执行路径。
 - Docker 默认以 UID/GID 10001 的非特权用户和只读根文件系统运行，仅绑定 `127.0.0.1:6999`，收回全部 Linux capabilities、启用 `no-new-privileges`，并限制为 256 个进程、2 GiB 内存、2.0 CPU 与 256 MiB 的 `noexec,nosuid,nodev` 临时目录；持久卷只开放插件、配置、状态、数据、下载与日志目录。
 - 小说正文中的 `jumpuri` 只有无用户凭据的绝对 HTTP(S) 地址会生成可点击链接；阅读页、HTML / EPUB 导出与独立下载脚本会把其它协议、相对地址和畸形地址降级为普通文本。
-- Ugoira 处理把 ZIP 下载限制为 100 MiB、最多 500 个条目 / 500 帧、单条目展开 32 MiB、总展开 200 MiB、压缩比 100:1、单帧 25,000,000 像素；ffmpeg 同时最多运行 1 个进程，最长 10 分钟且输出最多 100 MiB，超限会结束进程树并清理临时文件与部分输出。
+- Ugoira 处理把 ZIP 下载限制为 100 MiB、最多 500 个条目 / 500 帧、单条目展开 32 MiB、总展开 200 MiB、单帧 25,000,000 像素；ffmpeg 同时最多运行 1 个进程，最长 10 分钟且输出最多 100 MiB，超限会结束进程树并清理临时文件与部分输出。
 - Pixiv 图片的最终扩展名只从 JPEG（`.jpg` / `.jpeg`）、PNG、WebP、GIF 四种已验证格式中选择，并同时核对 URL 路径、响应 `Content-Type` 与文件头；查询参数不会进入文件名，响应类型与内容不一致或文件头不受支持时拒绝落盘。
 - Pixiv 作品图片、小说封面与内嵌图现在同时校验响应声明长度和实际解码流；单张最多 100 MiB，单个作品下载任务累计最多 1 GiB，超限会中止传输并删除部分文件。
 - 图片与作品下载执行器最多保留 100 个排队任务，容量耗尽时同步拒绝新任务并返回本地化 429，避免突发提交形成无界内存队列。
@@ -82,6 +82,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - 分发脚本拒绝删除与任何输入路径或仓库源码重叠的输出目录，避免递归清理误伤输入或源码。
 
 ### Bug Fixes
+- 修复图片分类器处理小于预览区域的图片时，缩略图缩放可能陷入循环的问题。
 - 修复 AI 多角色朗读将对话与旁白混为一句、单字回答并入其他角色，以及异常分析编号造成说话人错位的问题。已有脚本需重新分析后生效。
 - 修复画廊作品大图在后续页面尚未加载完成时连续翻页，会重复展开同一组页面的问题。
 - SDK 的 Maven 示例固定归档时间戳，相同源码和构建输入可生成字节一致的插件包。

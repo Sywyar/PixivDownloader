@@ -11,6 +11,7 @@ import top.sywyar.pixivdownload.download.testsupport.WorkbenchTestMessages;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URI;
@@ -26,6 +27,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -64,7 +66,6 @@ class UgoiraServiceTest {
         assertThat(UgoiraService.MAX_ZIP_ENTRIES).isEqualTo(500);
         assertThat(UgoiraService.MAX_ZIP_ENTRY_BYTES).isEqualTo(32L * 1024 * 1024);
         assertThat(UgoiraService.MAX_ZIP_UNCOMPRESSED_BYTES).isEqualTo(200L * 1024 * 1024);
-        assertThat(UgoiraService.MAX_ZIP_COMPRESSION_RATIO).isEqualTo(100L);
         assertThat(UgoiraService.MAX_FRAME_COUNT).isEqualTo(500);
         assertThat(UgoiraService.MAX_FRAME_PIXELS).isEqualTo(25_000_000L);
         assertThat(UgoiraService.FFMPEG_TIMEOUT).isEqualTo(Duration.ofMinutes(10));
@@ -235,9 +236,9 @@ class UgoiraServiceTest {
     }
 
     @Test
-    @DisplayName("高压缩比 ZIP bomb 在启动 ffmpeg 前终止并清理")
+    @DisplayName("解压字节超限的 ZIP 在启动 ffmpeg 前终止并清理")
     void zipBombStopsBeforeFfmpegAndCleansTemporaryFiles() throws IOException {
-        byte[] archive = zip("000000.jpg", new byte[1024 * 1024]);
+        byte[] archive = zip("000000.jpg", new byte[Math.toIntExact(UgoiraService.MAX_ZIP_ENTRY_BYTES + 1)]);
         AtomicInteger resolverCalls = new AtomicInteger();
         TestUgoiraService service = service(
                 archiveDownloader(archive),
@@ -258,6 +259,31 @@ class UgoiraServiceTest {
         assertThat(tempDir.resolve("_ugoira_frames.zip")).doesNotExist();
         assertThat(tempDir.resolve("_frames_tmp")).doesNotExist();
         assertThat(tempDir.resolve("zip-bomb.webp.part")).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("合法高压缩比 PNG 帧可以通过解压校验进入转码")
+    void highlyCompressiblePngReachesFfmpeg() throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        ImageIO.write(new BufferedImage(6000, 4000, BufferedImage.TYPE_INT_RGB), "png", bytes);
+        byte[] archive = zip("000000.png", bytes.toByteArray());
+        try (ZipInputStream input = new ZipInputStream(new ByteArrayInputStream(archive))) {
+            ZipEntry entry = input.getNextEntry();
+            input.transferTo(java.io.OutputStream.nullOutputStream());
+            input.closeEntry();
+            assertThat(entry.getSize()).isGreaterThan(entry.getCompressedSize() * 100);
+        }
+        AtomicInteger resolverCalls = new AtomicInteger();
+        TestUgoiraService service = service(archiveDownloader(archive), () -> {
+            resolverCalls.incrementAndGet();
+            throw new CancellationException("stop after validated frames reach the encoder");
+        });
+
+        assertThatThrownBy(() -> service.processUgoira(100L, ugoiraRequest("solid-frame"), tempDir,
+                "https://www.pixiv.net/artworks/100", null)).isInstanceOf(CancellationException.class);
+        assertThat(resolverCalls).hasValue(1);
+        assertThat(tempDir.resolve("_frames_tmp")).doesNotExist();
+        assertThat(tempDir.resolve("solid-frame.webp.part")).doesNotExist();
     }
 
     @Test

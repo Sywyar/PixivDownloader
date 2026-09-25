@@ -55,8 +55,19 @@ class ImageHasherTest {
         Optional<ImageHasher.Hashes> invalid = ImageHasher.hash(text);
 
         assertThat(hashes).isPresent();
-        assertThat(hashes.orElseThrow().aHash()).isNotNull();
+        assertThat(hashes.orElseThrow().aHash()).isEqualTo(ImageHasher.aHash(horizontalGradient(false)).orElseThrow());
+        assertThat(hashes.orElseThrow().dHash()).isEqualTo(ImageHasher.dHash(horizontalGradient(false)).orElseThrow());
         assertThat(invalid).isEmpty();
+    }
+
+    @Test
+    @DisplayName("超过旧像素上限的图片仍生成哈希")
+    void hashesLargeImage() throws Exception {
+        Path image = testTempDir().resolve("large.png");
+        BufferedImage original = new BufferedImage(5001, 5000, BufferedImage.TYPE_BYTE_GRAY);
+        ImageIO.write(original, "png", image.toFile());
+
+        assertThat(ImageHasher.hash(image)).isPresent();
     }
 
     private static BufferedImage horizontalGradient(boolean descending) {
