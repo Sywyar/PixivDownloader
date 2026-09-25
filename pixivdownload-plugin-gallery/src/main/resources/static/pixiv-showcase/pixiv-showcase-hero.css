@@ -312,7 +312,7 @@
         .artwork-frame {
             position: relative;
             z-index: 1;
-            max-width: 900px;
+            max-width: min(1600px, calc(100vw - 48px));
             max-height: 85vh;
             border-radius: 12px;
             overflow: hidden;
@@ -328,7 +328,7 @@
 
         .artwork-frame img {
             display: block;
-            max-width: 900px;
+            max-width: min(1600px, calc(100vw - 48px));
             max-height: 85vh;
             object-fit: contain;
         }
