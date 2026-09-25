@@ -3,7 +3,9 @@
 package top.sywyar.pixivdownload.guicompose
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -50,13 +52,16 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.robinpcrd.cupertino.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.time.LocalTime
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode
 
 @Composable
@@ -71,6 +76,17 @@ internal fun HomeOverview(
     var tasksExpanded by rememberSaveable { mutableStateOf(false) }
     var systemExpanded by rememberSaveable { mutableStateOf(false) }
     var entered by rememberSaveable { mutableStateOf(false) }
+    var tip by rememberSaveable { mutableStateOf(HomeTips.keys.randomOrNull()) }
+    var hour by remember { mutableIntStateOf(LocalTime.now().hour) }
+    val windowFocused = LocalWindowInfo.current.isWindowFocused
+    LaunchedEffect(windowFocused) {
+        hour = LocalTime.now().hour
+        while (windowFocused) {
+            delay(60_000)
+            hour = LocalTime.now().hour
+            HomeTips.keys.filter { it != tip }.randomOrNull()?.let { tip = it }
+        }
+    }
     LaunchedEffect(Unit) { entered = true }
     fun label(suffix: String, vararg args: Any) =
         text(DesktopUiNode.TextToken("gui-compose", "gui.compose.home.$suffix", "", args.map(Any::toString)))
@@ -89,12 +105,39 @@ internal fun HomeOverview(
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                            CupertinoText(text(DesktopUiNode.TextToken.key("desktop.ui.page.home")),
-                                Modifier.weight(1f).semantics { heading() },
-                                fontSize = 30.sp, fontWeight = FontWeight.Bold, color = palette.text)
+                            Crossfade(
+                                targetState = label(homeGreetingKey(hour)),
+                                modifier = Modifier.weight(1f).testTag("home.greeting")
+                                    .semantics(mergeDescendants = true) { heading() },
+                                animationSpec = tween(180),
+                                label = "home-greeting",
+                            ) { greeting ->
+                                CupertinoText(
+                                    text = greeting,
+                                    fontSize = 30.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = palette.text,
+                                )
+                            }
                             if (!narrow) BackendStatus(node.backend(), text)
                         }
-                        CupertinoText(label("subtitle"), color = palette.secondaryText, fontSize = 14.sp)
+                        tip?.let { key ->
+                            Crossfade(
+                                targetState = text(DesktopUiNode.TextToken(HomeTips.NAMESPACE, key, "", emptyList())),
+                                modifier = Modifier.testTag("home.tip")
+                                    .semantics(mergeDescendants = true) {}
+                                    .animateContentSize(tween(250)),
+                                animationSpec = tween(300),
+                                label = "home-tip",
+                            ) { message ->
+                                CupertinoText(
+                                    text = message,
+                                    color = palette.secondaryText,
+                                    fontSize = 14.sp,
+                                    lineHeight = 21.sp,
+                                )
+                            }
+                        }
                         if (narrow) BackendStatus(node.backend(), text)
                     }
                 }
@@ -183,6 +226,14 @@ internal fun HomeOverview(
         }
         VerticalScrollbar(rememberScrollbarAdapter(scroll), Modifier.align(Alignment.CenterEnd).fillMaxHeight())
     }
+}
+
+internal fun homeGreetingKey(hour: Int): String = when (hour) {
+    in 5..10 -> "greeting.morning"
+    in 11..12 -> "greeting.noon"
+    in 13..17 -> "greeting.afternoon"
+    in 18..23 -> "greeting.evening"
+    else -> "greeting.night"
 }
 
 @Composable

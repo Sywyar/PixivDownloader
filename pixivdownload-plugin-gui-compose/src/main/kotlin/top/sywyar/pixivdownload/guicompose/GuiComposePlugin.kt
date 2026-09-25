@@ -18,7 +18,10 @@ class GuiComposePlugin : PixivFeaturePlugin, DesktopUiProvider {
     override fun launch(context: DesktopUiContext): DesktopUiSession = ComposeDesktopUi.launch(context)
 
     override fun i18n(): List<I18nContribution> =
-        listOf(I18nContribution(ID, "i18n.web.gui-compose", 8))
+        listOf(
+            I18nContribution(ID, "i18n.web.gui-compose", 8),
+            I18nContribution(HomeTips.NAMESPACE, HomeTips.BASE_NAME),
+        )
 
     companion object {
         const val ID = "gui-compose"

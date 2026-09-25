@@ -4,9 +4,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.WindowInfo
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.v2.runComposeUiTest
 import androidx.compose.ui.unit.dp
@@ -14,15 +18,126 @@ import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode
 import java.io.File
+import java.io.StringReader
 import java.text.MessageFormat
+import java.util.Locale
 import java.util.Properties
+import java.util.ResourceBundle
 import javax.imageio.ImageIO
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 @DisplayName("Compose 首页概览")
 class HomeOverviewTest {
+    @Test
+    @DisplayName("提示每分钟淡入淡出轮换且不连续重复，失焦暂停并支持减少动态效果")
+    fun rotatesTipsEveryMinuteWhileFocused() {
+        for (scale in listOf(1f, 0f)) runComposeUiTest(
+            effectContext = object : androidx.compose.ui.MotionDurationScale { override val scaleFactor = scale },
+        ) {
+            mainClock.autoAdvance = false
+            var focused by mutableStateOf(true)
+            val window = object : WindowInfo { override val isWindowFocused get() = focused }
+            setContent {
+                CompositionLocalProvider(LocalWindowInfo provides window) {
+                    PixivDownloaderTheme("light") {
+                        Box(Modifier.size(1000.dp, 800.dp)) {
+                            HomeOverview(home(empty = true), ::resolve, {})
+                        }
+                    }
+                }
+            }
+            fun visibleTips() = onNodeWithTag("home.tip").fetchSemanticsNode()
+                .config[SemanticsProperties.Text].map { it.text }
+            mainClock.advanceTimeBy(600)
+            val first = visibleTips().single()
+            mainClock.advanceTimeBy(59_000)
+            assertEquals(listOf(first), visibleTips())
+            mainClock.advanceTimeBy(448)
+            assertEquals(if (scale == 0f) 1 else 2, visibleTips().size)
+            mainClock.advanceTimeBy(400)
+            val second = visibleTips().single()
+            assertNotEquals(first, second)
+            runOnIdle { focused = false }
+            mainClock.advanceTimeBy(120_000)
+            assertEquals(listOf(second), visibleTips())
+            runOnIdle { focused = true }
+            mainClock.advanceTimeBy(32)
+            assertEquals(listOf(second), visibleTips())
+            mainClock.advanceTimeBy(60_400)
+            assertNotEquals(second, visibleTips().single())
+        }
+    }
+
+    @Test
+    @DisplayName("提示自动读取非空条目，新增键无需连续编号或修改代码列表")
+    fun discoversTipsFromProperties() {
+        val source = """
+            # A comment is not a tip.
+            tip.named=An ordinary tip
+            tip.42=A sparse numbered tip
+            tip.empty=
+            metadata=Not a tip
+        """.trimIndent()
+        assertEquals(setOf("tip.named", "tip.42"), HomeTips.readKeys(StringReader(source)).toSet())
+        assertEquals(setOf("tip.named", "tip.42", "tip.new"),
+            HomeTips.readKeys(StringReader(source + "\ntip.new=A new tip")).toSet())
+        assertTrue(HomeTips.readKeys(StringReader("# No tips\ntip.empty= ")).isEmpty())
+    }
+
+    @Test
+    @DisplayName("独立提示资源可以翻译，切页返回与切换语言保留同一条提示")
+    fun preservesSelectedTipAcrossNavigationAndLanguageChanges() = runComposeUiTest {
+        var visible by mutableStateOf(true)
+        var language by mutableStateOf(Locale.US)
+        var selectedKey: String? = null
+        val bundleName = GuiComposePlugin().i18n().single { it.namespace() == HomeTips.NAMESPACE }.baseName()
+        setContent {
+            val stateHolder = rememberSaveableStateHolder()
+            PixivDownloaderTheme("light") {
+                Box(Modifier.size(1000.dp, 800.dp)) {
+                    if (visible) stateHolder.SaveableStateProvider("home") {
+                        HomeOverview(
+                            node = home(empty = true),
+                            text = { token ->
+                                if (token.namespace() == HomeTips.NAMESPACE) {
+                                    selectedKey = token.key()
+                                    ResourceBundle.getBundle(bundleName, language).getString(token.key())
+                                } else resolve(token)
+                            },
+                            emit = {},
+                        )
+                    }
+                }
+            }
+        }
+        onNodeWithTag("home.tip").assertIsDisplayed()
+        val initialKey = checkNotNull(selectedKey)
+        assertTrue(initialKey in HomeTips.keys)
+        onNodeWithTag("home.tip").assertTextEquals(ResourceBundle.getBundle(bundleName, Locale.US).getString(initialKey))
+        runOnIdle { visible = false }
+        onNodeWithTag("home.tip").assertDoesNotExist()
+        runOnIdle { language = Locale.JAPAN; visible = true }
+        onNodeWithTag("home.tip").assertTextEquals(ResourceBundle.getBundle(bundleName, Locale.JAPAN).getString(initialKey))
+        assertEquals(initialKey, selectedKey)
+    }
+
+    @Test
+    @DisplayName("问候语覆盖全天，并在各时段边界切换")
+    fun selectsGreetingForEachTimeOfDay() {
+        for (hour in 0..23) {
+            val expected = listOf(
+                "night", "night", "night", "night", "night",
+                "morning", "morning", "morning", "morning", "morning", "morning",
+                "noon", "noon", "afternoon", "afternoon", "afternoon", "afternoon", "afternoon",
+                "evening", "evening", "evening", "evening", "evening", "evening",
+            )[hour]
+            assertEquals("greeting.$expected", homeGreetingKey(hour), "hour=$hour")
+        }
+    }
+
     @Test
     @DisplayName("快捷入口鼠标点击后释放焦点，键盘切换与激活保留焦点提示")
     fun releasesPointerFocusAndPreservesKeyboardNavigation() = runComposeUiTest {
@@ -65,12 +180,16 @@ class HomeOverviewTest {
         onNodeWithText("Task 3").assertDoesNotExist()
         onNodeWithTag("home.tasks.expand").performClick()
         onNodeWithText("Task 3").assertExists()
-        val titleLeft = onNodeWithText("Home").fetchSemanticsNode().boundsInRoot.left
+        val titleLeft = onNodeWithTag("home.greeting").fetchSemanticsNode().boundsInRoot.left
+        val tipText = onNodeWithTag("home.tip").fetchSemanticsNode()
+            .config[androidx.compose.ui.semantics.SemanticsProperties.Text].single().text
+        assertTrue(HomeTips.keys.any { tips.getString(it) == tipText })
         runOnIdle { current = home(progress = .73) }
         onNodeWithText("Task 3").assertExists()
         onAllNodes(hasProgressBarRangeInfo(androidx.compose.ui.semantics.ProgressBarRangeInfo(.73f, 0f..1f)))
             .assertCountEquals(3)
-        assertEquals(titleLeft, onNodeWithText("Home").fetchSemanticsNode().boundsInRoot.left)
+        assertEquals(titleLeft, onNodeWithTag("home.greeting").fetchSemanticsNode().boundsInRoot.left)
+        onNodeWithTag("home.tip").assertTextEquals(tipText)
         onNodeWithTag("shortcut.download").performClick()
         assertEquals("shortcut.download", events.single().nodeId())
         onNodeWithTag("home.system.expand").performScrollTo().performClick()
@@ -228,6 +347,7 @@ class HomeOverviewTest {
     }
 
     companion object {
+        private val tips = ResourceBundle.getBundle(HomeTips.BASE_NAME, Locale.US)
         private val messages = Properties().apply {
             HomeOverviewTest::class.java.getResourceAsStream("/i18n/web/gui-compose_en.properties")!!
                 .reader(Charsets.UTF_8).use(::load)
@@ -235,6 +355,7 @@ class HomeOverviewTest {
 
         fun resolve(token: DesktopUiNode.TextToken): String =
             if (token.key().isBlank()) token.fallback()
+            else if (token.namespace() == HomeTips.NAMESPACE) tips.getString(token.key())
             else if (token.key() == "desktop.ui.page.home") "Home"
             else MessageFormat.format(messages.getProperty(token.key(), token.key()), *token.arguments().toTypedArray())
 
