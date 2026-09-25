@@ -12,7 +12,6 @@ import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.Alignment;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.ButtonStyle;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.ContainerLayout;
-import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.ProgressStyle;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.TextStyle;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.TextToken;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
@@ -60,39 +59,21 @@ final class DesktopControlCenterView {
     }
 
     DesktopUiDocument.Page homePage(Map<String, Runnable> nextActions) {
-        List<DesktopUiHost.GuiValue> runningTasks = values(owner.controlCenterSnapshot().path(
-                "runningTasks"));
-        long startedPlugins = owner.startedPluginCount();
-        String applicationVersion = host.applicationVersion();
-        String version = applicationVersion.isBlank()
-                ? host.message("app.version.unknown")
-                : applicationVersion;
-        String connectivityAction = "home.system.connectivity.check";
-        nextActions.put(connectivityAction, owner::checkPixivConnectivity);
-        DesktopUiNode system = new DesktopUiNode.Group("home.system",
-                key("desktop.ui.home.system.title"), column("home.system.content",
-                        new DesktopUiNode.Link("home.system.connectivity.value", connectivityAction,
-                                TextToken.raw(owner.pixivConnectivityDetails()), key("gui.status.pixiv-connectivity.tooltip"),
-                                owner.canCheckPixivConnectivity()),
-                        new DesktopUiNode.Text("home.system.plugins", appToken("desktop.ui.home.system.plugins", startedPlugins, owner.pluginCount()),
-                                TextStyle.CAPTION, true, false),
-                        new DesktopUiNode.Text("home.system.version", appToken("gui.about.version", version), TextStyle.CAPTION, true, false)), true);
+        DesktopUiHost.GuiValue snapshot = owner.controlCenterSnapshot();
 
-        List<DesktopUiNode> metrics = new ArrayList<>();
-        for (DesktopUiHost.GuiValue owned : owner.controlCenterSnapshot().path("cards")) {
+        List<DesktopUiNode.HomeMetric> metrics = new ArrayList<>();
+        for (DesktopUiHost.GuiValue owned : snapshot.path("cards")) {
             DesktopUiHost.GuiValue card = owned.path("card");
-            String owner = safeId(owned.path("owner").path("pluginId").asText("unknown"));
-            String cardId = safeId(card.path("cardId").asText("unknown"));
-            metrics.add(dashboardCard(
-                    "home.metrics." + owner + "." + cardId,
-                    card,
-                    icon(card.path("icon").asText("INFO")),
-                    tone(card.path("tone").asText("DEFAULT"))
-            ));
+            String base = "home.metrics." + safeId(owned.path("owner").path("pluginId").asText("unknown"))
+                    + "." + safeId(card.path("cardId").asText("unknown"));
+            metrics.add(new DesktopUiNode.HomeMetric(base, guiToken(card.path("title")),
+                    availability(card.path("availability").asText("UNAVAILABLE")) == DesktopControlCenterAvailability.UNAVAILABLE
+                            ? TextToken.raw("—") : guiToken(card.path("primaryValue")), null,
+                    guiToken(card.path("supportingText")), freshness(card)));
         }
         metrics.add(storageCard());
 
-        List<DesktopUiNode> quickStarts = new ArrayList<>();
+        List<DesktopUiNode.HomeShortcut> shortcuts = new ArrayList<>();
         for (QuickStartEntry entry : quickStartEntries(owner.currentSources())) {
             NavigationContribution navigation = entry.navigation();
             String base = "home.quick-start." + safeId(entry.owner()) + "." + safeId(navigation.id());
@@ -100,71 +81,64 @@ final class DesktopControlCenterView {
             nextActions.put(action, () -> owner.openWeb(navigation.href()));
             TextToken label = token(navigation.labelNamespace(), navigation.labelI18nKey(), navigation.id());
             if (quickStartIcon(navigation.icon()) == DesktopUiIcon.DOWNLOAD)
-                label = new TextToken("gui-compose", "gui.compose.home.open-workbench", "", List.of());
-            quickStarts.add(new DesktopUiNode.Button(base + ".button", action, label, null,
-                    quickStarts.isEmpty() ? ButtonStyle.PRIMARY : ButtonStyle.NORMAL, true,
-                    quickStartIcon(navigation.icon())));
+                label = composeToken("home.open-workbench");
+            String summary = switch (nullToEmpty(navigation.icon())) {
+                case "download" -> "shortcut.download";
+                case "images" -> "shortcut.images";
+                case "book" -> "shortcut.book";
+                default -> "shortcut.open";
+            };
+            shortcuts.add(new DesktopUiNode.HomeShortcut(
+                    new DesktopUiNode.Button(base + ".button", action, label, composeToken("home." + summary),
+                            ButtonStyle.NORMAL, true, quickStartIcon(navigation.icon())), navigation.icon()));
         }
-        DesktopUiNode quickStartContent = quickStarts.isEmpty() ? text(
-                "home.quick-start.empty",
-                "desktop.ui.home.quick-start.empty",
-                TextStyle.CAPTION
-        ) : new DesktopUiNode.Container(
-                "home.quick-start.grid",
-                ContainerLayout.FLOW,
-                1,
-                12,
-                Alignment.START,
-                quickStarts
-        );
 
-        List<DesktopUiNode> taskNodes = new ArrayList<>();
-        for (DesktopUiHost.GuiValue task : runningTasks)
-            taskNodes.add(runningTask("home.running", task));
-        DesktopUiNode runningContent = taskNodes.isEmpty() ? new DesktopUiNode.Text("home.running.empty",
-                new TextToken("gui-compose", "gui.compose.home.task-empty", "", List.of()), TextStyle.BODY, true, false) : column(
-                "home.running.list",
-                taskNodes
-        );
-
-        DesktopUiNode content = scroll(
-                "home.scroll",
-                column(
-                        "home.content",
-
-                        text("home.title", "desktop.ui.page.home", TextStyle.TITLE),
-                        quickStartContent,
-                        raw("home.system.backend", owner.backendMessage(), owner.backendTextStyle()),
-                        group("home.running", "desktop.ui.home.running.title", runningContent),
-                        system,
-                        new DesktopUiNode.Group(
-                                "home.metrics-section",
-                                key("desktop.ui.home.metrics.title"),
-                                column("home.metrics", metrics), true
-                        )
-                )
-        );
-        return owner.page("home", DesktopUiIcon.HOME, content,
-                new DesktopUiNode.Insets(20, 24, 20, 24), null);
+        List<DesktopUiNode.HomeTask> tasks = new ArrayList<>();
+        for (DesktopUiHost.GuiValue owned : snapshot.path("runningTasks")) {
+            DesktopUiHost.GuiValue task = owned.path("task");
+            String base = "home.running." + safeId(owned.path("owner").path("pluginId").asText("unknown"))
+                    + "." + safeId(task.path("taskId").asText("unknown"));
+            double progress = parseDouble(task.path("progress").asText(""), -1d);
+            var available = availability(task.path("availability").asText("UNAVAILABLE"));
+            tasks.add(new DesktopUiNode.HomeTask(base, guiToken(task.path("title")),
+                    guiToken(task.path("supportingText")),
+                    key("desktop.ui.home.task.status." + task.path("status").asText("UNKNOWN").toLowerCase(Locale.ROOT)),
+                    available == DesktopControlCenterAvailability.AVAILABLE && progress >= 0 && progress <= 1
+                            ? progress : null,
+                    freshness(task)));
+        }
+        DesktopUiNode content = new DesktopUiNode.HomeOverview("home.overview", shortcuts, tasks, metrics,
+                snapshot.path("runningTasks").isArray(),
+                new DesktopUiNode.Text("home.system.backend", TextToken.raw(owner.backendMessage()),
+                        owner.backendTextStyle(), true, false), systemStatus());
+        return owner.page("home", DesktopUiIcon.HOME, content, new DesktopUiNode.Insets(0, 0, 0, 0), null);
     }
 
-    private DesktopUiNode dashboardCard(
-            String base,
-            DesktopUiHost.GuiValue card,
-            DesktopUiIcon icon,
-            DesktopUiTone tone
-    ) {
-        DesktopControlCenterAvailability availability = availability(card.path("availability").asText(
-                "UNAVAILABLE"));
-        return dashboardCard(
-                base,
-                guiToken(card.path("title")),
-                guiToken(card.path("primaryValue")),
-                guiToken(card.path("supportingText")),
-                icon,
-                tone,
-                availability
-        );
+    private DesktopUiNode.HomeSystem systemStatus() {
+        TextToken proxy = composeToken("home.freshness.unavailable");
+        TextToken endpoint = null;
+        try {
+            Map<String, String> config = host.applicationConfig().readAll(
+                    List.of("proxy.enabled", "proxy.host", "proxy.port"));
+            boolean enabled = Boolean.parseBoolean(config.getOrDefault("proxy.enabled", "false"));
+            if (enabled) {
+                String address = config.getOrDefault("proxy.host", host.defaultProxyHost());
+                String port = config.getOrDefault("proxy.port", Integer.toString(host.defaultProxyPort()));
+                if (address.contains(":") && !address.startsWith("[")) address = "[" + address + "]";
+                endpoint = TextToken.raw(address + ":" + port);
+            }
+            proxy = composeToken(enabled ? "home.proxy.enabled" : "home.proxy.disabled");
+        } catch (Exception ignored) {
+            // 无法读取配置时保留未知状态，不把读取失败解释为已关闭代理。
+        }
+        return new DesktopUiNode.HomeSystem(proxy, endpoint, owner.pluginSummary());
+    }
+
+    private static TextToken freshness(DesktopUiHost.GuiValue fact) {
+        var state = availability(fact.path("availability").asText("UNAVAILABLE"));
+        return state == DesktopControlCenterAvailability.AVAILABLE ? null
+                : new TextToken("gui-compose", "gui.compose.home.freshness." + state.name().toLowerCase(Locale.ROOT),
+                        "", List.of(formatTimestamp(fact.path("observedAt").asText(""))));
     }
 
     DesktopUiNode automationPage(Map<String, Runnable> nextActions) {
@@ -389,7 +363,7 @@ final class DesktopControlCenterView {
                 "%.1f",
                 value
         );
-        return number + units[unit];
+        return number + " " + units[unit];
     }
 
     private DesktopUiNode dashboardCard(
@@ -431,7 +405,8 @@ final class DesktopControlCenterView {
         return new DesktopUiNode.Container(base, ContainerLayout.FLOW, 1, 12, Alignment.START, content);
     }
 
-    private DesktopUiNode storageCard() {
+    private DesktopUiNode.HomeMetric storageCard() {
+        TextToken title = composeToken("home.storage-available");
         try {
             Path path = Path.of(rootFolder).toAbsolutePath().normalize();
             while (path != null && !Files.exists(path)) path = path.getParent();
@@ -439,91 +414,16 @@ final class DesktopControlCenterView {
             FileStore store = Files.getFileStore(path);
             long total = store.getTotalSpace();
             long available = store.getUsableSpace();
-            if (total <= 0L || available < 0L || available > total)
-                throw new IOException("invalid file store");
-            long used = total - available;
-            return dashboardCard(
-                    "home.storage",
-                    key("desktop.ui.home.storage.title"),
-                    appToken(
-                            "desktop.ui.home.storage.value",
-                            formatCompactBinarySize(used),
-                            formatCompactBinarySize(total)
-                    ),
+            if (total <= 0L || available < 0L || available > total) throw new IOException("invalid file store");
+            String[] capacity = formatCompactBinarySize(available).split(" ", 2);
+            return new DesktopUiNode.HomeMetric("home.storage", title,
+                    TextToken.raw(capacity[0]), TextToken.raw(capacity[1]),
                     new TextToken("gui-compose", "gui.compose.home.storage", "", List.of(rootFolder)),
-                    DesktopUiIcon.STORAGE,
-                    DesktopUiTone.INFO,
-                    DesktopControlCenterAvailability.AVAILABLE,
-                    new DesktopUiNode.Progress(
-                            "home.storage.usage",
-                            (double) used / total,
-                            false,
-                            null,
-                            ProgressStyle.CIRCULAR
-                    )
-            );
+                    null);
         } catch (Exception ignored) {
-            return dashboardCard(
-                    "home.storage",
-                    key("desktop.ui.home.storage.title"),
-                    TextToken.raw("—"),
-                    key("desktop.ui.home.storage.unavailable"),
-                    DesktopUiIcon.STORAGE,
-                    DesktopUiTone.DEFAULT,
-                    DesktopControlCenterAvailability.UNAVAILABLE
-            );
+            return new DesktopUiNode.HomeMetric("home.storage", title, TextToken.raw("—"), null,
+                    key("desktop.ui.home.storage.unavailable"), null);
         }
-    }
-
-    private DesktopUiNode runningTask(
-            String section,
-            DesktopUiHost.GuiValue owned
-    ) {
-        DesktopUiHost.GuiValue task = owned.path("task");
-        String base = section + "." + safeId(owned.path("owner").path("pluginId").asText("unknown")) + "." + safeId(
-                task.path("taskId").asText("unknown"));
-        List<DesktopUiNode> content = new ArrayList<>();
-        content.add(new DesktopUiNode.Text(
-                base + ".title",
-                guiToken(task.path("title")),
-                TextStyle.EMPHASIS,
-                true,
-                false
-        ));
-        content.add(new DesktopUiNode.Text(
-                base + ".supporting",
-                guiToken(task.path("supportingText")),
-                TextStyle.CAPTION,
-                true,
-                false
-        ));
-        String status = task.path("status").asText("UNKNOWN").toLowerCase(Locale.ROOT);
-        content.add(text(
-                base + ".status",
-                "desktop.ui.home.task.status." + status,
-                TextStyle.CAPTION
-        ));
-        double progress = parseDouble(task.path("progress").asText(""), -1d);
-        if (progress >= 0d && progress <= 1d) {
-            content.add(new DesktopUiNode.Progress(
-                    base + ".progress",
-                    progress,
-                    false,
-                    appToken("desktop.ui.home.task.progress", Math.round(progress * 100d))
-            ));
-        }
-        return new DesktopUiNode.Surface(
-                base,
-                DesktopUiNode.SurfaceStyle.PLAIN,
-                new DesktopUiNode.Insets(
-                        10,
-                        12,
-                        10,
-                        12
-                ),
-                true,
-                column(base + ".content", content)
-        );
     }
 
     static List<QuickStartEntry> quickStartEntries(List<DesktopUiPluginSnapshot> sources) {

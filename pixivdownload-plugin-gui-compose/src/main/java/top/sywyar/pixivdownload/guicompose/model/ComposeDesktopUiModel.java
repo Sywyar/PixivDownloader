@@ -677,12 +677,8 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         return pluginStatus.localizedCode(prefix, code);
     }
 
-    long startedPluginCount() {
-        return pluginStatus.startedCount();
-    }
-
-    int pluginCount() {
-        return pluginStatus.count();
+    DesktopUiNode.TextToken pluginSummary() {
+        return pluginStatus.summary();
     }
 
     boolean busy() {

@@ -174,6 +174,7 @@ object ComposeDesktopUiNodeRenderer {
         modifier: Modifier = Modifier,
     ) {
         when (node) {
+            is DesktopUiNode.HomeOverview -> HomeOverview(node, text, emit, modifier)
             is DesktopUiNode.OnboardingHub -> OnboardingGuideHub(node, text, emit, modifier) { child, childModifier ->
                 Node(child, text, emit, childModifier)
             }
@@ -1705,7 +1706,7 @@ object ComposeDesktopUiNodeRenderer {
     }
 
     @Composable
-    private fun HintedTitle(help: String, content: @Composable () -> Unit) {
+    internal fun HintedTitle(help: String, content: @Composable () -> Unit) {
         if (help.isBlank()) {
             content()
             return

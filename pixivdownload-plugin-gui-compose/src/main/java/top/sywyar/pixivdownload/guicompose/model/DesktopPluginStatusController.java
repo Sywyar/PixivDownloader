@@ -234,6 +234,13 @@ final class DesktopPluginStatusController {
         return statuses.size();
     }
 
+    DesktopUiNode.TextToken summary() {
+        return observedAt.isBlank()
+                ? new DesktopUiNode.TextToken("gui-compose", "gui.compose.home.freshness.unavailable", "", List.of())
+                : new DesktopUiNode.TextToken("gui-compose", "gui.compose.home.plugins-count", "",
+                        List.of(Long.toString(startedCount()), Integer.toString(count())));
+    }
+
     private record PluginStatusRow(
             String id,
             String name,

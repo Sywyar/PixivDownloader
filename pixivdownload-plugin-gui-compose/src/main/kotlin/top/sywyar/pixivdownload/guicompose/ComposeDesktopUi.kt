@@ -2,7 +2,7 @@
 
 package top.sywyar.pixivdownload.guicompose
 
-import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.shrinkHorizontally
@@ -44,12 +44,14 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -58,14 +60,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.awt.ComposeWindow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -604,12 +612,14 @@ internal fun DesktopShell(
     var selected by rememberSaveable { mutableStateOf(pageIds.first()) }
     val activePage = activePageId(document, selected)
     val pageStates = rememberSaveableStateHolder()
-    val retainedPageIds = remember { linkedSetOf<String>() }
+    val sceneIds = document.pages().map(::pageSceneId)
+    val retainedSceneIds = remember { linkedSetOf<String>() }
+    val focusManager = LocalFocusManager.current
     LaunchedEffect(activePage) { selected = activePage }
-    LaunchedEffect(pageIds) {
-        removedPageIds(retainedPageIds, pageIds).forEach(pageStates::removeState)
-        retainedPageIds.clear()
-        retainedPageIds.addAll(pageIds)
+    LaunchedEffect(sceneIds) {
+        removedPageIds(retainedSceneIds, sceneIds).forEach(pageStates::removeState)
+        retainedSceneIds.clear()
+        retainedSceneIds.addAll(sceneIds)
     }
 
     CupertinoSurface(Modifier.fillMaxSize(), color = LocalExperiencePalette.current.surface) {
@@ -624,35 +634,48 @@ internal fun DesktopShell(
                     selected = activePage,
                     resolveText = resolveText,
                     modifier = Modifier.width(DesktopLayout.sidebarWidth).fillMaxHeight(),
-                    onSelect = { selected = it },
+                    onSelect = { focusManager.clearFocus(); selected = it },
                 )
             }
             val currentPage = document.pages().first { it.id() == activePage }
-            Column(Modifier.weight(1f).fillMaxHeight()) {
-                pageStates.SaveableStateProvider(activePage) {
-                    val renderContent: @Composable (DesktopUiNode) -> Unit = { content ->
-                        ComposeDesktopUiNodeRenderer.Render(
-                            content,
-                            resolveText,
-                            dispatch,
-                            Modifier.fillMaxSize(),
-                            documentRevision,
-                        )
+            val transition = updateTransition(currentPage, label = "desktop-page")
+            Box(Modifier.weight(1f).fillMaxHeight()) {
+                // 保留退场的向导步骤；其它页面只在可见或退场时组合内容。
+                (document.pages() + transition.currentState).distinctBy(::pageSceneId).forEach { page ->
+                    val sceneId = pageSceneId(page)
+                    val active = sceneId == pageSceneId(currentPage)
+                    key(sceneId) {
+                        transition.AnimatedVisibility(
+                            visible = { pageSceneId(it) == sceneId },
+                            modifier = Modifier.fillMaxSize().zIndex(if (active) 1f else 0f),
+                            enter = fadeIn(tween(180)),
+                            exit = fadeOut(tween(180)),
+                        ) {
+                            pageStates.SaveableStateProvider(sceneId) {
+                                // 退场页面只保留画面，不能向新文档派发旧操作。
+                                val interaction = if (active) Modifier else Modifier
+                                    .clearAndSetSemantics {}
+                                    .onPreviewKeyEvent { true }
+                                    .pointerInput(Unit) {
+                                        awaitPointerEventScope {
+                                            while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                                        }
+                                    }
+                                ComposeDesktopUiNodeRenderer.Render(
+                                    page.content(), resolveText, { if (active) dispatch(it) },
+                                    Modifier.fillMaxSize().focusProperties { canFocus = active }.then(interaction), documentRevision,
+                                )
+                            }
+                        }
                     }
-                    updateTransition(
-                        targetState = currentPage.content(),
-                        label = "onboarding-step",
-                    ).Crossfade(
-                        modifier = Modifier.fillMaxSize(),
-                        animationSpec = tween(180),
-                        contentKey = { (it as? DesktopUiNode.Surface)?.content()?.id() ?: it.id() },
-                        content = renderContent,
-                    )
                 }
             }
         }
     }
 }
+
+private fun pageSceneId(page: DesktopUiDocument.Page): String =
+    page.id() + ":" + ((page.content() as? DesktopUiNode.Surface)?.content()?.id() ?: page.content().id())
 
 internal fun activePageId(document: DesktopUiDocument, selectedId: String): String =
     if (document.navigationVisible()) selectedIdOrFirst(selectedId, document.pages().map { it.id() })
@@ -679,8 +702,12 @@ private fun NavigationPanel(
         document.pages().forEachIndexed { index, page ->
             if (index == 4) CupertinoHorizontalDivider(Modifier.padding(vertical = 8.dp))
             val active = page.id() == selected
+            val background by animateColorAsState(
+                if (active) LocalExperiencePalette.current.selection else Color.Transparent,
+                tween(140), label = "navigation-selection",
+            )
             CupertinoSurface(shape = CupertinoTheme.shapes.small,
-                color = if (active) LocalExperiencePalette.current.selection else Color.Transparent,
+                color = background,
                 modifier = Modifier.fillMaxWidth().selectable(active, role = Role.Tab) { onSelect(page.id()) }) {
                 Row(Modifier.heightIn(min = DesktopLayout.navigationHeight).padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {

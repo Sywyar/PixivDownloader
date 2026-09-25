@@ -28,7 +28,8 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         DesktopUiNode.Timeline, DesktopUiNode.ScheduleTimeline,
         DesktopUiNode.TextInput, DesktopUiNode.Toggle, DesktopUiNode.Choice,
         DesktopUiNode.NumberInput, DesktopUiNode.Table, DesktopUiNode.Tree,
-        DesktopUiNode.Button, DesktopUiNode.Link, DesktopUiNode.AccountSetup, DesktopUiNode.OnboardingHub {
+        DesktopUiNode.Button, DesktopUiNode.Link, DesktopUiNode.AccountSetup, DesktopUiNode.OnboardingHub,
+        DesktopUiNode.HomeOverview {
 
     /** @return 单份文档内稳定的节点标识 */
     String id();
@@ -618,7 +619,72 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         }
     }
 
-    /** Compose 引导中的可选任务及其详情。 */
+    /** Compose 首页的任务、指标与系统状态。 */
+    record HomeOverview(
+            String id,
+            List<HomeShortcut> shortcuts,
+            List<HomeTask> tasks,
+            List<HomeMetric> metrics,
+            boolean tasksKnown,
+            Text backend,
+            HomeSystem system
+    ) implements DesktopUiNode {
+        public HomeOverview {
+            id = requireId(id, "id");
+            shortcuts = copyBounded(shortcuts, "shortcuts");
+            tasks = copyBounded(tasks, "tasks");
+            metrics = copyBounded(metrics, "metrics");
+            requireUnique(tasks.stream().map(HomeTask::id).toList(), "task id");
+            requireUnique(metrics.stream().map(HomeMetric::id).toList(), "metric id");
+            Objects.requireNonNull(backend, "backend");
+            Objects.requireNonNull(system, "system");
+        }
+
+        @Override public Kind kind() { return Kind.HOME_OVERVIEW; }
+        @Override public List<DesktopUiNode> childNodes() {
+            List<DesktopUiNode> nodes = new ArrayList<>();
+            shortcuts.forEach(shortcut -> nodes.add(shortcut.button()));
+            nodes.add(backend);
+            return List.copyOf(nodes);
+        }
+    }
+
+    record HomeSystem(TextToken proxy, TextToken endpoint, TextToken plugins) {
+        public HomeSystem {
+            Objects.requireNonNull(proxy, "proxy");
+            Objects.requireNonNull(plugins, "plugins");
+        }
+    }
+
+    record HomeShortcut(Button button, String symbol) {
+        public HomeShortcut {
+            Objects.requireNonNull(button, "button");
+            symbol = boundedText(symbol, "symbol");
+        }
+    }
+
+    record HomeTask(String id, TextToken title, TextToken supporting, TextToken status,
+                    Double progress, TextToken freshness) {
+        public HomeTask {
+            id = requireId(id, "id");
+            Objects.requireNonNull(title, "title");
+            Objects.requireNonNull(supporting, "supporting");
+            Objects.requireNonNull(status, "status");
+            if (progress != null && (!Double.isFinite(progress) || progress < 0 || progress > 1))
+                throw new IllegalArgumentException("invalid task progress");
+        }
+    }
+
+    record HomeMetric(String id, TextToken title, TextToken value, TextToken unit,
+                      TextToken supporting, TextToken freshness) {
+        public HomeMetric {
+            id = requireId(id, "id");
+            Objects.requireNonNull(title, "title");
+            Objects.requireNonNull(value, "value");
+            Objects.requireNonNull(supporting, "supporting");
+        }
+    }
+
     record OnboardingHub(
             String id,
             List<OnboardingCard> cards,
@@ -1269,6 +1335,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
     /** 支持的节点类型。 */
     enum Kind {
+        /** 首页概览。 */ HOME_OVERVIEW,
         /** 首次账户设置。 */ ACCOUNT_SETUP,
         /** 首次使用任务选择。 */ ONBOARDING_HUB,
         /** 通用容器。 */ CONTAINER,

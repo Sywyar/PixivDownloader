@@ -8,6 +8,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.v2.runComposeUiTest
 import androidx.compose.ui.unit.dp
 import org.junit.jupiter.api.DisplayName
@@ -101,6 +106,44 @@ class ComposeDesktopShellTest {
             onNodeWithText("Settings").assertExists()
             assertEquals(DesktopLayout.sidebarWidth.value, onNodeWithText("Ready").fetchSemanticsNode().boundsInRoot.left, 1f)
         }
+    }
+
+    @Test
+    @DisplayName("连续切页可中断过渡，返回后保留展开状态且刷新不重建首页")
+    fun preservesStateThroughInterruptedNavigationAndRefresh() = runComposeUiTest {
+        mainClock.autoAdvance = false
+        var current by mutableStateOf(document(true, HomeOverviewTest.home()))
+        setContent {
+            PixivDownloaderTheme("light") {
+                Box(Modifier.size(1200.dp, 1000.dp)) {
+                    DesktopShell(current, 1L, HomeOverviewTest::resolve, {})
+                }
+            }
+        }
+        mainClock.advanceTimeBy(600)
+        onNodeWithTag("home.tasks.expand").performTouchInput { click() }
+        mainClock.advanceTimeBy(600)
+        onNodeWithText("Task 3").assertExists()
+        onNodeWithText("Settings").performClick()
+        mainClock.advanceTimeBy(48)
+        onNodeWithText("Settings body").assertExists()
+        onNodeWithText("Task 3").assertDoesNotExist()
+        onNodeWithText("Home").performClick()
+        mainClock.advanceTimeBy(48)
+        onNodeWithText("Task 3").assertExists()
+        onNodeWithTag("home.tasks.expand").performTouchInput { click() }
+        mainClock.advanceTimeBy(600)
+        onNodeWithText("Task 3").assertDoesNotExist()
+        onNodeWithTag("home.tasks.expand").performClick()
+        mainClock.advanceTimeBy(600)
+        onNodeWithText("Settings").performClick()
+        mainClock.advanceTimeBy(240)
+        onNodeWithText("Home").performClick()
+        mainClock.advanceTimeBy(240)
+        onNodeWithText("Task 3").assertExists()
+        runOnIdle { current = document(true, HomeOverviewTest.home(progress = .68)) }
+        mainClock.advanceTimeByFrame()
+        onNodeWithText("Task 3").assertExists()
     }
 
     private fun document(
