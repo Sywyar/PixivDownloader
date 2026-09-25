@@ -3,6 +3,7 @@
         .topbar {
             padding: 16px 32px;
             display: flex; align-items: center; gap: 16px;
+            flex-wrap: wrap;
             border-bottom: 1px solid var(--line);
             background: var(--surface);
             position: sticky; top: 0; z-index: 5;

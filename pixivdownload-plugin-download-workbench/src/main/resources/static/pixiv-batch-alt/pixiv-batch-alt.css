@@ -173,6 +173,7 @@ a {
     top: 0;
     z-index: 60;
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 18px;
     padding: 10px 22px;
@@ -269,6 +270,8 @@ a {
 
 .ab-topbar-actions {
     display: flex;
+    flex-wrap: wrap;
+    max-width: 100%;
     align-items: center;
     gap: 8px;
     flex: none;

@@ -159,6 +159,7 @@
         }
 
         .side-col {
+            min-width: 0;
             display: flex;
             flex-direction: column;
             gap: 16px;
@@ -281,6 +282,12 @@
             color: var(--brand);
         }
 
+        .expand-btn svg {
+            width: 16px;
+            height: 16px;
+            flex-shrink: 0;
+        }
+
         .heart-btn {
             display: inline-flex;
             align-items: center;
@@ -378,6 +385,9 @@
 
         .tag {
             display: inline-flex;
+            flex-wrap: wrap;
+            max-width: 100%;
+            overflow-wrap: anywhere;
             padding: 4px 10px;
             border-radius: 999px;
             background: var(--control-muted-bg);

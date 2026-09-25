@@ -733,6 +733,7 @@
         }
 
         .import-example-code {
+            overflow-wrap: anywhere;
             font-family: monospace;
             background: var(--fixed-white);
             border-radius: 4px;

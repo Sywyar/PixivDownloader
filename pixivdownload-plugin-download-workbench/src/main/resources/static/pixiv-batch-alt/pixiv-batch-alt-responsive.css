@@ -53,6 +53,15 @@
 }
 
 @media (max-width: 900px) {
+    .ab-topbar-actions {
+        flex: 1 1 100%;
+        min-width: 0;
+    }
+
+    .ab-version {
+        position: static;
+    }
+
     .ab-shell {
         grid-template-columns: 1fr;
         padding: 14px 14px 32px;
@@ -72,6 +81,8 @@
     .ab-rail-item {
         padding: 8px 12px;
         flex-direction: row;
+        flex-shrink: 0;
+        white-space: nowrap;
         gap: 7px;
     }
 

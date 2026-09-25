@@ -270,6 +270,7 @@ textarea {
 
 .pm-titlebar-actions {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 10px;
 }
@@ -277,6 +278,8 @@ textarea {
 /* ── 市场 / 已安装 分段控件（与市场页互链；由中性导航 placement 驱动，无贡献时整体隐藏） ── */
 .pm-seg {
     display: inline-flex;
+    flex-wrap: wrap;
+    max-width: 100%;
     align-items: center;
     background: var(--control-muted-bg);
     border: 1px solid var(--border);

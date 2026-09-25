@@ -46,6 +46,7 @@
             border-bottom: 1px solid var(--line);
             padding: 12px 24px;
             display: flex;
+            flex-wrap: wrap;
             align-items: center;
             gap: 16px;
             position: sticky;
@@ -55,6 +56,8 @@
         .topbar-actions {
             margin-left: auto;
             display: flex;
+            flex-wrap: wrap;
+            min-width: 0;
             gap: 8px;
             align-items: center;
         }
@@ -113,6 +116,7 @@
         }
 
         .meta-card {
+            overflow-wrap: anywhere;
             background: var(--surface);
             border: 1px solid var(--line);
             border-radius: 12px;
@@ -146,6 +150,7 @@
         .title { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
         .by-author {
             display: inline-flex;
+            max-width: 100%;
             align-items: center;
             gap: 6px;
             color: var(--text-secondary);
