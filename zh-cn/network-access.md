@@ -190,6 +190,8 @@ Mail 插件通过 SMTP 发送配置测试邮件和业务通知。连接会携带
 
 ## 开发、构建和发布流程的网络访问
 
+向导展示已登记版本时，会通过 GitHub CLI 查询社区仓库的 `GET /repos/Sywyar/PixivDownloader-community-plugins/releases/tags/<tag>` 与 `GET /repos/Sywyar/PixivDownloader-community-plugins/releases/<id>/assets`。tag 来自受保护发布记录中的原发布者、插件 ID 和版本；请求使用当前 GitHub CLI 认证、代理及既有六十秒和 32 MiB 预算。检查仅比较 Release 公开标志及包资产名称、大小和摘要，不下载包、不发布 Draft。查不到对象或读取失败时显示尚无法确认，不据此推断发布失败。恢复旧请求及浏览转移申请时，还会读取当前归属、发布者和紧急封禁状态；过时申请只显示原因与原 PR 链接。
+
 以下目标不属于已安装应用的常规运行时请求：
 
 社区 Node 工具下载公开插件包、源码和构建工具时，先匹配 `no_proxy` / `NO_PROXY` 的直连规则，再依次读取 `https_proxy`、`HTTPS_PROXY`、`all_proxy`、`ALL_PROXY`；小写优先。未设置代理变量时，Windows 读取当前用户的系统代理及绕过设置，其它系统直连。显式空代理值或 `NO_PROXY=*` 可选择直连；支持 HTTP / HTTPS 代理，不支持 SOCKS。代理连接失败会停止下载，不自动改走直连。CONNECT 目标仍固定为本次核对的公网 IP，源站 TLS 验证原始主机；显式代理用户名与口令只用于代理认证，不发送到源站，GitHub 凭据和 Cookie 不进入文件下载。系统代理查询在原有六十秒下载期限内完成。以下各行的独立构建容器、GitHub CLI、Git 和 PowerShell 启动器继续使用各自的网络设置。
