@@ -28,7 +28,7 @@ body {
 
 .gallery-header,
 main {
-    width: min(72rem, calc(100% - 2rem));
+    width: calc(100% - var(--layout-inset-left) - var(--layout-inset-right));
     margin-inline: auto;
 }
 
@@ -94,7 +94,7 @@ button:hover {
 
 .gallery-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 12rem), 1fr));
     gap: 1rem;
     padding-bottom: 2rem;
 }

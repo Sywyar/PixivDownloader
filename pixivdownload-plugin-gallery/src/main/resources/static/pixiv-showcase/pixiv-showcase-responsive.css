@@ -1,4 +1,4 @@
-        @media (max-width: 1024px) {
+        @media (max-width: 56.25em) {
             .hero-content {
                 flex-direction: column;
                 gap: 32px;
@@ -12,7 +12,7 @@
             }
 
             .hero-title {
-                font-size: 28px;
+                font-size: 1.75rem;
             }
 
             .hero-tags {
@@ -37,7 +37,7 @@
             }
 
             .details-title {
-                font-size: 24px;
+                font-size: 1.5rem;
             }
 
             .artist-layout {
@@ -79,21 +79,21 @@
             }
         }
 
-        @media (max-width: 640px) {
+        @media (max-width: 37.5em), (max-height: 35em) {
             .scroll-container {
                 scroll-snap-type: none;
             }
 
             .section {
                 height: auto;
-                min-height: 100vh;
+                min-height: 100svh;
                 overflow: visible;
-                padding: 72px 0 40px;
+                padding: calc(var(--layout-header-height) + 1rem) 0 2.5rem;
             }
 
             .section-inner {
                 height: auto;
-                min-height: calc(100vh - 112px);
+                min-height: 0;
             }
 
             .side-nav {
@@ -105,7 +105,7 @@
                 min-height: 56px;
                 flex-wrap: wrap;
                 gap: 8px;
-                padding: 10px 14px;
+                padding: 10px var(--layout-inset-right) 10px var(--layout-inset-left);
             }
 
             .top-bar-logo {
@@ -139,7 +139,7 @@
             }
 
             .hero-title {
-                font-size: 22px;
+                font-size: 1.375rem;
             }
 
             .details-layout {

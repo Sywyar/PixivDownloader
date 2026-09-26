@@ -23,7 +23,7 @@
 }
 
 .ab-dock-title {
-    font-size: 15px;
+    font-size: 0.9375rem;
     font-weight: 800;
 }
 
@@ -63,14 +63,14 @@
 }
 
 .ab-stat-value {
-    font-size: 18px;
+    font-size: 1.125rem;
     font-weight: 800;
     font-variant-numeric: tabular-nums;
     line-height: 1.2;
 }
 
 .ab-stat-label {
-    font-size: 10.5px;
+    font-size: 0.65625rem;
     color: var(--muted);
 }
 
@@ -79,7 +79,7 @@
 }
 
 .ab-dock-status {
-    font-size: 12.5px;
+    font-size: 0.78125rem;
     min-height: 20px;
     margin-bottom: 10px;
 }
@@ -123,7 +123,7 @@
 
 .ab-current-idle {
     color: var(--faint);
-    font-size: 12.5px;
+    font-size: 0.78125rem;
 }
 
 .ab-current-row {
@@ -165,7 +165,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 13px;
+    font-size: 0.8125rem;
     font-weight: 800;
     font-variant-numeric: tabular-nums;
 }
@@ -176,7 +176,7 @@
 }
 
 .ab-current-title {
-    font-size: 13px;
+    font-size: 0.8125rem;
     font-weight: 700;
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -185,7 +185,7 @@
 }
 
 .ab-current-detail {
-    font-size: 11.5px;
+    font-size: 0.71875rem;
     color: var(--muted);
     margin-top: 4px;
     font-variant-numeric: tabular-nums;
@@ -194,7 +194,7 @@
 /* 队首进度卡下方的剩余计数行（「还有 X 个正在下载、Y 个排队中…」）；var(--muted) 自动适配深色模式。 */
 .ab-current-remaining {
     margin-top: 8px;
-    font-size: 11.5px;
+    font-size: 0.71875rem;
     color: var(--muted);
 }
 
@@ -218,7 +218,7 @@
     margin-bottom: 4px;
     border-radius: 0 4px 4px 0;
     background: var(--surface-2);
-    font-size: 11px;
+    font-size: 0.6875rem;
 }
 
 .ab-queue-item[data-status="downloading"] {
@@ -251,7 +251,7 @@
 .ab-queue-name {
     flex: 1;
     min-width: 0;
-    font-size: 12px;
+    font-size: 0.75rem;
     font-weight: 700;
     white-space: nowrap;
     overflow: hidden;
@@ -273,7 +273,7 @@
     padding: 1px 5px;
     border: 1px solid transparent;
     border-radius: 3px;
-    font-size: 10px;
+    font-size: 0.625rem;
     font-weight: 600;
     line-height: 1.2;
 }
@@ -316,7 +316,7 @@
 }
 
 .ab-queue-meta {
-    font-size: 11px;
+    font-size: 0.6875rem;
     color: var(--faint);
     font-family: var(--mono);
 }
@@ -345,7 +345,7 @@
 .ab-mini-prog-label {
     display: flex;
     justify-content: space-between;
-    font-size: 10.5px;
+    font-size: 0.65625rem;
     color: var(--muted);
     margin-bottom: 3px;
     font-variant-numeric: tabular-nums;
@@ -398,7 +398,7 @@
 }
 
 .ab-progress-note {
-    font-size: 10.5px;
+    font-size: 0.65625rem;
     color: var(--muted);
     margin-top: 5px;
 }
@@ -416,7 +416,7 @@
     align-items: center;
     gap: 8px;
     margin-bottom: 8px;
-    font-size: 13px;
+    font-size: 0.8125rem;
 }
 
 .ab-quota-head .ab-icon {
@@ -424,7 +424,7 @@
 }
 
 .ab-quota-line {
-    font-size: 12.5px;
+    font-size: 0.78125rem;
     font-variant-numeric: tabular-nums;
     margin-bottom: 6px;
 }
@@ -437,7 +437,7 @@
 }
 
 .ab-archive-countdown {
-    font-size: 11.5px;
+    font-size: 0.71875rem;
     color: var(--warn);
     font-variant-numeric: tabular-nums;
 }

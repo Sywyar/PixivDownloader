@@ -28,7 +28,7 @@
             display: flex; align-items: center; justify-content: center;
         }
         .sidebar-logo svg { width: 18px; height: 18px; fill: var(--gallery-fixed-white); }
-        .sidebar-brand { font-size: 16px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; }
+        .sidebar-brand { font-size: 1rem; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; }
         .sidebar.collapsed .sidebar-brand { display: none; }
         .sidebar-nav { padding: 0 8px; }
         .nav-item {
@@ -54,7 +54,7 @@
             flex-shrink: 0; color: var(--gallery-fixed-muted);
         }
         .nav-icon svg { width: 16px; height: 16px; }
-        .nav-label { font-size: 14px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; }
+        .nav-label { font-size: 0.875rem; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; }
         .sidebar.collapsed .nav-label { display: none; }
 
         .sidebar-divider { height: 1px; background: var(--line); margin: 8px 16px; }
@@ -66,7 +66,7 @@
         }
         .sidebar.collapsed .section-header { justify-content: center; padding: 16px 0 8px; }
         .section-title {
-            font-size: 11px; font-weight: 600;
+            font-size: 0.6875rem; font-weight: 600;
             color: var(--muted-2);
             text-transform: uppercase; letter-spacing: 0.08em;
         }
@@ -107,9 +107,9 @@
         }
         .collection-icon img { width: 100%; height: 100%; object-fit: cover; }
         .collection-icon svg { width: 14px; height: 14px; }
-        .collection-label { flex: 1; font-size: 14px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; }
+        .collection-label { flex: 1; font-size: 0.875rem; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; }
         .sidebar.collapsed .collection-label { display: none; }
-        .collection-count { font-size: 12px; color: var(--muted-2); flex-shrink: 0; }
+        .collection-count { font-size: 0.75rem; color: var(--muted-2); flex-shrink: 0; }
         .sidebar.collapsed .collection-count { display: none; }
 
         .sidebar-footer { margin-top: auto; padding: 16px; border-top: 1px solid var(--line); }
@@ -121,9 +121,9 @@
             background: linear-gradient(135deg, var(--gallery-gradient-start), var(--gallery-gradient-end));
             flex-shrink: 0;
             display: flex; align-items: center; justify-content: center;
-            color: var(--gallery-fixed-white); font-size: 13px; font-weight: 600;
+            color: var(--gallery-fixed-white); font-size: 0.8125rem; font-weight: 600;
         }
         .user-info { overflow: hidden; }
         .sidebar.collapsed .user-info { display: none; }
-        .user-name { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .user-status { font-size: 11px; color: var(--muted); }
+        .user-name { font-size: 0.8125rem; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .user-status { font-size: 0.6875rem; color: var(--muted); }

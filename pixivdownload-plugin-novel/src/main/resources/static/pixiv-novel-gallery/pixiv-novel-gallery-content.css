@@ -1,7 +1,7 @@
         /* Main content */
         .main-content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
         .topbar {
-            padding: 16px 32px;
+            padding: 16px var(--layout-inset-right) 16px var(--layout-inset-left);
             display: flex; align-items: center; gap: 16px;
             flex-wrap: wrap;
             border-bottom: 1px solid var(--line);
@@ -23,18 +23,18 @@
         .search-box svg { width: 16px; height: 16px; color: var(--muted); flex-shrink: 0; }
         .search-box input {
             flex: 1; border: none; outline: none; background: transparent;
-            font-size: 13px; font-family: inherit; color: var(--text);
+            font-size: 0.8125rem; font-family: inherit; color: var(--text);
         }
         .search-box input::placeholder { color: var(--muted); }
 
         .search-type-select {
-            height: 40px;
+            min-height: max(2.5rem, var(--layout-control-height));
             padding: 0 30px 0 14px;
             border-radius: 999px;
             border: 1px solid var(--line);
             background: var(--control-bg);
             color: var(--text-secondary);
-            font-size: 13px;
+            font-size: 0.8125rem;
             font-family: inherit;
             cursor: pointer;
             outline: none;
@@ -78,11 +78,11 @@
 
         .filter-btn {
             display: inline-flex; align-items: center; gap: 6px;
-            height: 40px; padding: 0 14px;
+            min-height: max(2.5rem, var(--layout-control-height)); padding: 0 14px;
             border-radius: 999px;
             border: 1px solid var(--line);
             background: var(--gallery-fixed-white);
-            font-size: 13px; color: var(--text-secondary);
+            font-size: 0.8125rem; color: var(--text-secondary);
             cursor: pointer; position: relative;
         }
         .filter-btn:hover { border-color: var(--brand); color: var(--brand); }
@@ -93,7 +93,7 @@
             min-width: 16px; height: 16px;
             border-radius: 8px;
             background: var(--danger); color: var(--gallery-fixed-white);
-            font-size: 10px; font-weight: 700;
+            font-size: 0.625rem; font-weight: 700;
             padding: 0 4px;
             display: none;
             align-items: center; justify-content: center;
@@ -122,7 +122,7 @@
             border-radius: 999px;
             background: transparent;
             color: var(--text-secondary);
-            font-size: 13px;
+            font-size: 0.8125rem;
             font-family: inherit;
             font-weight: 500;
             line-height: 1;
@@ -158,7 +158,7 @@
         .filter-panel.open { display: flex; }
         .filter-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
         .filter-row-label {
-            font-size: 12px; font-weight: 600;
+            font-size: 0.75rem; font-weight: 600;
             color: var(--muted);
             text-transform: uppercase; letter-spacing: 0.05em;
             min-width: 64px;
@@ -169,7 +169,7 @@
             border-radius: 999px;
             border: 1px solid var(--line);
             background: var(--gallery-fixed-white);
-            font-size: 12px; color: var(--text-secondary);
+            font-size: 0.75rem; color: var(--text-secondary);
             cursor: pointer; transition: all 0.15s;
         }
         .chip:hover { border-color: var(--brand); color: var(--brand); }
@@ -177,8 +177,8 @@
         .chip.filter-selected.mode-must { border-color: var(--filter-must); color: var(--filter-must); background: var(--filter-must-bg); font-weight: 500; }
         .chip.filter-selected.mode-not { border-color: var(--filter-not); color: var(--filter-not); background: var(--filter-not-bg); font-weight: 500; }
         .chip.filter-selected.mode-or { border-color: var(--filter-or); color: var(--filter-or); background: var(--filter-or-bg); font-weight: 500; }
-        .chip-count { color: var(--muted); margin-left: 4px; font-size: 11px; }
-        .chip .tag-trans { color: var(--muted); margin-left: 4px; font-size: 11px; }
+        .chip-count { color: var(--muted); margin-left: 4px; font-size: 0.6875rem; }
+        .chip .tag-trans { color: var(--muted); margin-left: 4px; font-size: 0.6875rem; }
         .chip .chip-icon {
             width: 16px; height: 16px;
             border-radius: 4px;
@@ -193,7 +193,7 @@
         html[data-theme="dark"] .chip .chip-icon { background: var(--pink-soft-bg); }
 
         .filter-chip-list { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; }
-        .filter-chip-list .chip-empty { font-size: 12px; color: var(--muted); }
+        .filter-chip-list .chip-empty { font-size: 0.75rem; color: var(--muted); }
         .filter-tags-row { align-items: flex-start; }
         #filterTagsRow, #filterSeriesRow { margin-top: 8px; }
         #filterAuthorsRow { margin-top: 12px; padding-top: 20px; border-top: 1px solid var(--line); }
@@ -202,11 +202,11 @@
         .filter-mode-group { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
         .filter-mode-btn {
             display: inline-flex; align-items: center; justify-content: center;
-            height: 28px; padding: 0 12px;
+            min-height: max(1.75rem, var(--layout-control-height)); padding: 0 12px;
             border-radius: 999px;
             border: 1px solid var(--line);
             background: var(--gallery-fixed-white); color: var(--text-secondary);
-            font-size: 12px; cursor: pointer;
+            font-size: 0.75rem; cursor: pointer;
         }
         .filter-mode-btn.active { font-weight: 600; }
         .filter-mode-btn.mode-must.active { border-color: var(--filter-must); color: var(--filter-must); background: var(--filter-must-bg); }
@@ -223,7 +223,7 @@
         .tag-search-box svg { width: 12px; height: 12px; color: var(--muted); flex-shrink: 0; }
         .tag-search-box input {
             border: none; outline: none; background: transparent;
-            font-size: 12px; font-family: inherit; color: var(--text);
+            font-size: 0.75rem; font-family: inherit; color: var(--text);
             width: 160px;
         }
         .tag-search-box input::placeholder { color: var(--muted); }
@@ -240,7 +240,7 @@
             border: 1px solid var(--line);
             background: var(--gallery-fixed-white);
             color: var(--text-secondary);
-            font-size: 12px; cursor: pointer;
+            font-size: 0.75rem; cursor: pointer;
         }
         .filter-reset:hover { border-color: var(--danger); color: var(--danger); }
 
@@ -255,23 +255,23 @@
             background: var(--gallery-light-summary-bg);
         }
         .filter-summary-bar.visible { display: flex; }
-        .filter-summary-bar .label { font-size: 12px; color: var(--brand); }
-        .filter-summary-bar .name { font-size: 14px; font-weight: 600; color: var(--text-secondary); }
+        .filter-summary-bar .label { font-size: 0.75rem; color: var(--brand); }
+        .filter-summary-bar .name { font-size: 0.875rem; font-weight: 600; color: var(--text-secondary); }
         .filter-summary-bar .clear {
             margin-left: auto;
             border: 1px solid var(--line); background: var(--gallery-fixed-white);
             color: var(--text-secondary);
             border-radius: 999px;
-            padding: 4px 12px; font-size: 12px;
+            padding: 4px 12px; font-size: 0.75rem;
             cursor: pointer;
         }
         html[data-theme="dark"] .filter-summary-bar { background: var(--soft-bg); }
 
         /* Gallery */
-        .gallery-wrapper { padding: 24px 32px; flex: 1; }
+        .gallery-wrapper { padding: 24px var(--layout-inset-right) 24px var(--layout-inset-left); flex: 1; }
         .grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(min(100%, 12rem), 1fr));
             gap: 16px;
         }
         .card {
@@ -324,7 +324,7 @@
         html[data-theme="dark"] .thumb-heart svg { stroke: var(--text-secondary); }
         .work-collections {
             min-width: 0;
-            font-size: 11px;
+            font-size: 0.6875rem;
             line-height: 1.3;
             color: var(--gallery-pink);
             white-space: nowrap;
@@ -340,15 +340,15 @@
         }
         .card-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
         .card-title {
-            font-size: 15px; font-weight: 600;
+            font-size: 0.9375rem; font-weight: 600;
             color: var(--text); line-height: 1.4;
             display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
         }
-        .card-author { color: var(--text-secondary); font-size: 13px; }
-        .card-meta { color: var(--muted); font-size: 12px; display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+        .card-author { color: var(--text-secondary); font-size: 0.8125rem; }
+        .card-meta { color: var(--muted); font-size: 0.75rem; display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
         .badges { display: flex; flex-wrap: wrap; gap: 4px; }
         .badge {
-            font-size: 11px; padding: 2px 8px;
+            font-size: 0.6875rem; padding: 2px 8px;
             border-radius: 999px;
             background: var(--control-muted-bg);
             color: var(--text-secondary);
@@ -361,7 +361,7 @@
         .badge.original { background: var(--gallery-badge-success-bg); color: var(--gallery-badge-success-text); border-color: transparent; }
         html[data-theme="dark"] .badge.original { background: var(--gallery-badge-success-dark-bg); color: var(--gallery-badge-success-dark-border); }
 
-        .empty { text-align: center; color: var(--muted); padding: 60px 0; font-size: 14px; }
+        .empty { text-align: center; color: var(--muted); padding: 60px 0; font-size: 0.875rem; }
         .empty-cta { display: flex; flex-direction: column; align-items: center; gap: 16px; }
 
         .pagination {
@@ -369,25 +369,25 @@
             display: flex; justify-content: center; gap: 6px; flex-wrap: wrap;
         }
         .pagination button {
-            min-width: 36px; height: 32px;
+            min-width: 36px; min-height: max(2rem, var(--layout-control-height));
             padding: 0 10px;
             border-radius: 8px;
             border: 1px solid var(--line);
             background: var(--control-bg);
             color: var(--text-secondary);
-            cursor: pointer; font-size: 13px;
+            cursor: pointer; font-size: 0.8125rem;
         }
         .pagination button.active { background: var(--brand); color: var(--gallery-fixed-white); border-color: var(--brand); }
         .pagination button[disabled] { opacity: .4; cursor: not-allowed; }
         .pagination .page-jump-input {
-            width: 54px; height: 32px;
+            width: 54px; min-height: max(2rem, var(--layout-control-height));
             padding: 0 8px;
             border-radius: 8px;
             border: 1px solid var(--line);
             background: var(--control-bg);
             color: var(--text-secondary);
             font-family: inherit;
-            font-size: 13px;
+            font-size: 0.8125rem;
             text-align: center;
         }
         .pagination .page-jump-input:focus {
@@ -420,25 +420,25 @@
             padding-right: 16px;
         }
         .author-row-name {
-            font-size: 16px; font-weight: 600;
+            font-size: 1rem; font-weight: 600;
             color: var(--text);
             cursor: pointer;
             word-break: break-all;
             transition: color .15s;
         }
         .author-row-name:hover { color: var(--brand); }
-        .author-row-count { font-size: 12px; color: var(--muted); }
+        .author-row-count { font-size: 0.75rem; color: var(--muted); }
         .author-row-actions {
             margin-top: 4px;
             display: flex; gap: 6px; flex-wrap: wrap;
         }
         .author-row-btn {
             display: inline-flex; align-items: center; gap: 4px;
-            height: 26px; padding: 0 10px;
+            min-height: max(1.625rem, var(--layout-control-height)); padding: 0 10px;
             border-radius: 999px;
             border: 1px solid var(--line);
             background: var(--control-bg);
-            font-size: 11px;
+            font-size: 0.6875rem;
             color: var(--text-secondary);
             cursor: pointer;
             transition: all .15s;
@@ -475,7 +475,7 @@
             object-fit: cover; display: block;
         }
         .author-work-thumb-placeholder {
-            font-size: 11px; color: var(--muted);
+            font-size: 0.6875rem; color: var(--muted);
             padding: 8px; text-align: center;
             line-height: 1.3;
             overflow: hidden; display: -webkit-box;
@@ -488,7 +488,7 @@
         }
         .author-work-title {
             margin-top: 6px;
-            font-size: 12px; line-height: 1.3;
+            font-size: 0.75rem; line-height: 1.3;
             color: var(--text);
             overflow: hidden; text-overflow: ellipsis;
             display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
@@ -500,7 +500,7 @@
             border-radius: 4px;
             background: var(--gallery-overlay-60);
             color: var(--gallery-fixed-white);
-            font-size: 10px; font-weight: 700;
+            font-size: 0.625rem; font-weight: 700;
         }
         .author-works-arrow {
             position: absolute;
@@ -523,7 +523,7 @@
         .author-works-arrow.left { left: 0; }
         .author-works-arrow.right { right: 0; }
         .author-works-empty, .author-works-loading {
-            padding: 24px; font-size: 13px;
+            padding: 24px; font-size: 0.8125rem;
             color: var(--muted); text-align: center;
         }
         html[data-theme="dark"] .author-row-btn,
@@ -552,7 +552,7 @@
             align-items: center;
             justify-content: center;
             color: var(--muted);
-            font-size: 11px;
+            font-size: 0.6875rem;
             text-align: center;
             padding: 6px;
             line-height: 1.35;
@@ -621,7 +621,7 @@
         }
         .series-row-tag {
             font-family: inherit;
-            font-size: 11px;
+            font-size: 0.6875rem;
             line-height: 1.3;
             padding: 2px 8px;
             border-radius: 999px;
@@ -641,7 +641,7 @@
             color: var(--brand);
         }
         .series-row-tag-more {
-            font-size: 11px;
+            font-size: 0.6875rem;
             color: var(--muted);
             padding: 2px 4px;
         }

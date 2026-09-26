@@ -75,7 +75,7 @@
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
             color: var(--text);
             background: var(--bg);
-            overflow-x: hidden;
+
         }
 
         a {
@@ -150,7 +150,7 @@
         }
 
         .sidebar-brand {
-            font-size: 16px;
+            font-size: 1rem;
             font-weight: 700;
             color: var(--text);
             white-space: nowrap;
@@ -174,7 +174,7 @@
         }
 
         .section-title {
-            font-size: 11px;
+            font-size: 0.6875rem;
             font-weight: 600;
             color: var(--muted-2);
             text-transform: uppercase;
@@ -250,7 +250,7 @@
         }
 
         .nav-label {
-            font-size: 14px;
+            font-size: 0.875rem;
             color: var(--text-secondary);
             overflow: hidden;
             text-overflow: ellipsis;
@@ -341,7 +341,7 @@
         .collection-label {
             flex: 1;
             min-width: 0;
-            font-size: 14px;
+            font-size: 0.875rem;
             color: var(--text-secondary);
             overflow: hidden;
             text-overflow: ellipsis;
@@ -356,7 +356,7 @@
         }
 
         .collection-count {
-            font-size: 12px;
+            font-size: 0.75rem;
             color: var(--muted-2);
             flex-shrink: 0;
         }
@@ -367,7 +367,7 @@
 
         .collection-empty {
             padding: 8px 16px;
-            font-size: 12px;
+            font-size: 0.75rem;
             color: var(--muted);
         }
 
@@ -419,7 +419,7 @@
             align-items: center;
             justify-content: center;
             color: var(--on-brand);
-            font-size: 13px;
+            font-size: 0.8125rem;
             font-weight: 600;
         }
 
@@ -432,7 +432,7 @@
         }
 
         .user-name {
-            font-size: 13px;
+            font-size: 0.8125rem;
             font-weight: 600;
             color: var(--text);
             white-space: nowrap;
@@ -441,7 +441,7 @@
         }
 
         .user-status {
-            font-size: 11px;
+            font-size: 0.6875rem;
             color: var(--muted);
         }
 
@@ -453,7 +453,7 @@
         }
 
         .topbar {
-            padding: 16px 32px;
+            padding: 16px var(--layout-inset-right) 16px var(--layout-inset-left);
             display: flex;
             align-items: center;
             gap: 16px;
@@ -462,12 +462,13 @@
             position: sticky;
             top: 0;
             z-index: 5;
+            flex-wrap: wrap;
         }
 
         .mobile-menu-btn {
             display: none;
             width: 36px;
-            height: 36px;
+            min-height: max(2.25rem, var(--layout-control-height));
             border: none;
             background: var(--control-muted-bg);
             border-radius: 8px;
@@ -522,7 +523,7 @@
             border: none;
             outline: none;
             background: transparent;
-            font-size: 13px;
+            font-size: 0.8125rem;
             color: var(--text);
         }
 
@@ -537,4 +538,3 @@
             gap: 8px;
             flex-shrink: 0;
         }
-

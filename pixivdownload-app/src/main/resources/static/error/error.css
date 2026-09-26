@@ -182,15 +182,15 @@ body {
 body {
     min-height: 100vh;
     display: flex;
-    align-items: center;
+    align-items: safe center;
     justify-content: center;
-    padding: 72px 24px 56px;
+    padding: 72px var(--layout-inset-right) 56px var(--layout-inset-left);
     background-color: var(--err-bg);
     background-image: radial-gradient(circle, var(--err-dot) 1px, var(--err-none) 1.4px);
     background-size: 26px 26px;
     color: var(--err-text);
     font-family: var(--err-font-body);
-    font-size: 16px;
+    font-size: 1rem;
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
 }
@@ -221,7 +221,7 @@ body::before {
     margin: 0;
     font-family: var(--err-font-mono);
     font-weight: 800;
-    font-size: clamp(72px, 17vw, 128px);
+    font-size: clamp(4.5rem, 17vw, 8rem);
     line-height: 1;
     letter-spacing: -0.04em;
     color: var(--err-code);
@@ -264,7 +264,7 @@ body::before {
 .err-eyebrow {
     margin: 10px 0 0;
     font-family: var(--err-font-mono);
-    font-size: 12px;
+    font-size: 0.75rem;
     font-weight: 500;
     letter-spacing: 0.22em;
     text-transform: uppercase;
@@ -273,7 +273,7 @@ body::before {
 
 .err-title {
     margin: 10px 0 0;
-    font-size: clamp(24px, 4.5vw, 32px);
+    font-size: clamp(1.5rem, 4.5vw, 2rem);
     font-weight: 650;
     line-height: 1.35;
     letter-spacing: -0.01em;
@@ -291,7 +291,7 @@ body::before {
 .err-desc {
     margin: 14px auto 0;
     max-width: 46ch;
-    font-size: 15px;
+    font-size: 0.9375rem;
     line-height: 1.8;
     color: var(--err-muted);
 }
@@ -307,7 +307,7 @@ body::before {
 .err-hints-lead {
     margin: 0 0 8px;
     font-family: var(--err-font-mono);
-    font-size: 12px;
+    font-size: 0.75rem;
     letter-spacing: 0.14em;
     color: var(--err-faint);
 }
@@ -322,7 +322,7 @@ body::before {
     position: relative;
     margin: 6px 0;
     padding-left: 20px;
-    font-size: 14px;
+    font-size: 0.875rem;
     line-height: 1.7;
     color: var(--err-muted);
 }
@@ -356,7 +356,7 @@ body::before {
     border-radius: 12px;
     border: 1px solid var(--err-none);
     font-family: var(--err-font-body);
-    font-size: 14px;
+    font-size: 0.875rem;
     font-weight: 600;
     line-height: 1;
     text-decoration: none;
@@ -405,14 +405,14 @@ body::before {
 }
 
 .pixiv-lang-switcher--error .pixiv-lang-switcher__select {
-    height: 34px;
+    min-height: max(2.125rem, var(--layout-control-height));
     padding: 0 10px;
     border: 1px solid var(--err-line-strong);
     border-radius: 9px;
     background: var(--err-select-bg);
     color: var(--err-muted);
     font-family: var(--err-font-body);
-    font-size: 12px;
+    font-size: 0.75rem;
     cursor: pointer;
     transition: border-color 0.15s, color 0.15s;
 }
@@ -621,9 +621,10 @@ body::before {
 
 /* ── 窄屏适配 ─────────────────────────────────────────────────────────── */
 
-@media (max-width: 560px) {
+@media (max-width: 37.5em) {
     body {
-        padding: 84px 20px 40px;
+        padding: 84px var(--layout-inset-right) 40px var(--layout-inset-left);
+        align-items: safe center;
     }
 
     .err-controls {

@@ -83,7 +83,7 @@ html[data-theme="dark"] .plf-backdrop {
     border-radius: 50%;
     background: transparent;
     color: var(--muted, var(--plf-muted));
-    font-size: 20px;
+    font-size: 1.25rem;
     line-height: 1;
     cursor: pointer;
 }
@@ -95,14 +95,14 @@ html[data-theme="dark"] .plf-backdrop {
 
 .plf-title {
     margin: 0;
-    font-size: 18px;
+    font-size: 1.125rem;
     font-weight: 600;
     color: var(--heading, var(--plf-heading));
 }
 
 .plf-description {
     margin: 0;
-    font-size: 13px;
+    font-size: 0.8125rem;
     line-height: 1.6;
     color: var(--muted, var(--plf-muted));
 }
@@ -142,13 +142,13 @@ html[data-theme="dark"] .plf-backdrop {
 }
 
 .plf-card-name {
-    font-size: 14px;
+    font-size: 0.875rem;
     font-weight: 600;
     color: var(--text, var(--plf-text));
 }
 
 .plf-card-desc {
-    font-size: 12px;
+    font-size: 0.75rem;
     line-height: 1.5;
     color: var(--muted, var(--plf-muted));
 }
@@ -157,7 +157,7 @@ html[data-theme="dark"] .plf-backdrop {
     align-self: flex-start;
     padding: 2px 8px;
     border-radius: 999px;
-    font-size: 11px;
+    font-size: 0.6875rem;
     background: var(--brand-soft, var(--plf-brand-soft));
     color: var(--brand, var(--plf-brand));
 }
@@ -169,7 +169,7 @@ html[data-theme="dark"] .plf-backdrop {
 }
 
 .plf-suggestion-label {
-    font-size: 13px;
+    font-size: 0.8125rem;
     font-weight: 600;
     color: var(--text, var(--plf-text));
 }
@@ -185,7 +185,7 @@ html[data-theme="dark"] .plf-backdrop {
     background: var(--control-bg, var(--plf-control-bg));
     color: var(--text, var(--plf-text));
     font: inherit;
-    font-size: 13px;
+    font-size: 0.8125rem;
     line-height: 1.5;
 }
 
@@ -196,20 +196,20 @@ html[data-theme="dark"] .plf-backdrop {
 
 .plf-suggestion-counter {
     align-self: flex-end;
-    font-size: 11px;
+    font-size: 0.6875rem;
     color: var(--muted, var(--plf-muted));
 }
 
 .plf-privacy {
     margin: 0;
-    font-size: 11px;
+    font-size: 0.6875rem;
     line-height: 1.5;
     color: var(--muted, var(--plf-muted));
 }
 
 .plf-error {
     margin: 0;
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--danger-text, var(--plf-danger));
 }
 
@@ -247,7 +247,7 @@ html[data-theme="dark"] .plf-backdrop {
     border: 1px solid transparent;
     border-radius: var(--radius, 8px);
     font: inherit;
-    font-size: 13px;
+    font-size: 0.8125rem;
     cursor: pointer;
 }
 

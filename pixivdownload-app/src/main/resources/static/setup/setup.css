@@ -38,13 +38,13 @@
   html { min-width: 0; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: var(--page-bg); color: var(--text); font-size: 14px;
-    line-height: 1.4; overflow-x: hidden;
+    background: var(--page-bg); color: var(--text); font-size: 0.875rem;
+    line-height: 1.4;
   }
   button, input, select, textarea { max-width: 100%; }
   header {
     background: #28a745; color: white;
-    padding: 14px 20px; font-size: 18px; font-weight: bold; letter-spacing: .5px;
+    padding: 14px var(--layout-inset-right) 14px var(--layout-inset-left); font-size: 1.125rem; font-weight: bold; letter-spacing: .5px;
     display: flex; align-items: center; gap: 12px;
   }
   .header-title { flex: 1; min-width: 0; }
@@ -55,10 +55,10 @@
     display: inline-flex; align-items: center;
   }
   .pixiv-lang-switcher--setup .pixiv-lang-switcher__select {
-    min-height: 30px; padding: 4px 8px;
+    min-height: max(1.875rem, var(--layout-control-height)); padding: 4px 8px;
     border: 1px solid rgba(255,255,255,.5); border-radius: 4px;
     background: transparent; color: white; cursor: pointer;
-    font-size: 12px; font-family: inherit;
+    font-size: 0.75rem; font-family: inherit;
   }
   .pixiv-lang-switcher--setup .pixiv-lang-switcher__select:hover {
     background: rgba(255,255,255,.15); border-color: rgba(255,255,255,.75);
@@ -81,35 +81,38 @@
     fill: none; stroke: currentColor; stroke-width: 2;
     stroke-linecap: round; stroke-linejoin: round;
   }
-  .page { max-width: 600px; margin: 28px auto; padding: 0 16px 40px; }
+  .page {
+    max-width: none; margin: 28px auto; padding: 0 0 2.5rem;
+    width: min(var(--layout-form-wide), calc(100% - var(--layout-inset-left) - var(--layout-inset-right)));
+}
   .card {
     background: var(--surface); border-radius: 8px;
     box-shadow: var(--shadow);
     padding: 20px; margin-bottom: 14px;
   }
   .card-title {
-    font-weight: bold; font-size: 13px; color: var(--heading);
+    font-weight: bold; font-size: 0.8125rem; color: var(--heading);
     margin-bottom: 14px; text-transform: uppercase; letter-spacing: .4px;
   }
-  .welcome-text { color: var(--heading); font-size: 13px; line-height: 1.6; }
+  .welcome-text { color: var(--heading); font-size: 0.8125rem; line-height: 1.6; }
 
   /* Form fields */
   .field { margin-bottom: 12px; }
-  .field label { display: block; font-size: 12px; color: var(--heading); margin-bottom: 4px; font-weight: bold; }
+  .field label { display: block; font-size: 0.75rem; color: var(--heading); margin-bottom: 4px; font-weight: bold; }
   .field input[type=text],
   .field input[type=password] {
     width: 100%; padding: 8px 10px;
     border: 1px solid var(--line); border-radius: 5px;
     background: var(--control-bg); color: var(--text);
-    font-size: 13px; transition: border-color .15s;
+    font-size: 0.8125rem; transition: border-color .15s;
   }
   .field input:focus { outline: none; border-color: var(--brand); }
 
   /* Proxy settings */
-  .proxy-hint { font-size: 12px; color: var(--muted); line-height: 1.5; margin-bottom: 12px; }
+  .proxy-hint { font-size: 0.75rem; color: var(--muted); line-height: 1.5; margin-bottom: 12px; }
   .proxy-toggle {
     display: flex; align-items: center; gap: 8px; cursor: pointer;
-    font-weight: bold; font-size: 13px; color: var(--heading); margin-bottom: 12px;
+    font-weight: bold; font-size: 0.8125rem; color: var(--heading); margin-bottom: 12px;
   }
   .proxy-toggle input[type=checkbox] { width: 15px; height: 15px; cursor: pointer; }
   .field input:disabled { opacity: .5; cursor: not-allowed; }
@@ -118,7 +121,7 @@
   .btn {
     display: block; width: 100%; padding: 10px;
     border: none; border-radius: 5px; cursor: pointer;
-    font-size: 14px; font-weight: bold; color: white; transition: opacity .15s;
+    font-size: 0.875rem; font-weight: bold; color: white; transition: opacity .15s;
   }
   .btn:hover { opacity: .85; }
   .btn:disabled { opacity: .45; cursor: not-allowed; }
@@ -126,7 +129,7 @@
 
   /* Status message */
   #status-msg {
-    text-align: center; font-size: 13px;
+    text-align: center; font-size: 0.8125rem;
     min-height: 20px; margin-bottom: 10px;
     padding: 6px 0;
     color: var(--status-muted);
@@ -136,12 +139,12 @@
   #status-msg[data-tone="warning"] { color: var(--warning); }
   #status-msg[data-tone="success"] { color: var(--brand); }
 
-  @media (max-width: 560px) {
+  @media (max-width: 37.5em) {
     header {
       flex-wrap: wrap;
       gap: 8px;
-      padding: 12px 14px;
-      font-size: 16px;
+      padding: 12px var(--layout-inset-right) 12px var(--layout-inset-left);
+      font-size: 1rem;
     }
 
     .header-title { flex: 1 1 100%; }
@@ -153,7 +156,9 @@
 
     .page {
       margin: 18px auto;
-      padding: 0 12px 28px;
+      padding: 0 0 2.5rem;
+      width: min(var(--layout-form-wide), calc(100% - var(--layout-inset-left) - var(--layout-inset-right)));
+      max-width: none;
     }
 
     .card {

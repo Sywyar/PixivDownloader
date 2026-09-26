@@ -11,7 +11,7 @@
 
         .card-title {
             font-weight: bold;
-            font-size: 13px;
+            font-size: 0.8125rem;
             color: var(--heading);
             margin-bottom: 10px;
             text-transform: uppercase;
@@ -44,12 +44,12 @@
             padding: 7px 10px;
             border: 1px solid var(--line);
             border-radius: 5px;
-            font-size: 13px;
+            font-size: 0.8125rem;
             font-family: monospace;
         }
 
         .cookie-hint {
-            font-size: 11px;
+            font-size: 0.6875rem;
             color: var(--muted-2);
             margin-top: 6px;
         }
@@ -60,7 +60,7 @@
         }
 
         .cookie-status {
-            font-size: 12px;
+            font-size: 0.75rem;
             margin-top: 8px;
             min-height: 16px;
             line-height: 1.5;
@@ -83,7 +83,7 @@
         .plugin-cookie-title {
             margin-bottom: 8px;
             color: var(--heading, var(--heading));
-            font-size: 12px;
+            font-size: 0.75rem;
             font-weight: 700;
         }
 
@@ -116,7 +116,7 @@
         .cookie-fmt button {
             flex: 1;
             padding: 5px 0;
-            font-size: 12px;
+            font-size: 0.75rem;
             font-weight: bold;
             border: 1px solid var(--line-strong);
             background: var(--page-bg);
@@ -159,7 +159,7 @@
             border: none;
             background: transparent;
             cursor: pointer;
-            font-size: 13px;
+            font-size: 0.8125rem;
             font-weight: 600;
             border-radius: 5px;
             color: var(--heading);
@@ -190,7 +190,7 @@
             padding: 8px;
             border: 1px solid var(--line);
             border-radius: 5px;
-            font-size: 12px;
+            font-size: 0.75rem;
             resize: vertical;
             margin-bottom: 8px;
         }
@@ -207,7 +207,7 @@
             padding: 7px 10px;
             border: 1px solid var(--line);
             border-radius: 5px;
-            font-size: 13px;
+            font-size: 0.8125rem;
         }
 
         /* ---- Kind switcher (插画/小说) ---- */
@@ -223,7 +223,7 @@
         .kind-switcher label {
             cursor: pointer;
             padding: 6px 14px;
-            font-size: 12px;
+            font-size: 0.75rem;
             font-weight: 600;
             color: var(--muted, var(--muted));
             transition: background .15s, color .15s;
@@ -254,7 +254,7 @@
         }
 
         #user-info-display {
-            font-size: 12px;
+            font-size: 0.75rem;
             color: var(--primary);
             font-weight: bold;
             padding: 4px 0;
@@ -275,7 +275,7 @@
         }
 
         .setting-item label {
-            font-size: 12px;
+            font-size: 0.75rem;
             color: var(--heading);
             white-space: nowrap;
         }
@@ -296,12 +296,12 @@
             border: 1px solid var(--line);
             border-radius: 4px;
             font-family: Consolas, Monaco, monospace;
-            font-size: 12px;
+            font-size: 0.75rem;
         }
 
         .filename-help {
             flex: 1 1 100%;
-            font-size: 11px;
+            font-size: 0.6875rem;
             color: var(--heading);
         }
 
@@ -343,7 +343,7 @@
             border: 1px solid var(--muted-4);
             border-radius: 50%;
             color: var(--muted);
-            font-size: 10px;
+            font-size: 0.625rem;
             font-weight: 700;
             line-height: 1;
             cursor: help;
@@ -356,7 +356,7 @@
             padding: 4px 6px;
             border: 1px solid var(--line);
             border-radius: 4px 0 0 4px;
-            font-size: 13px;
+            font-size: 0.8125rem;
         }
 
         .setting-item input[type=checkbox] {
@@ -373,7 +373,7 @@
             padding: 4px 6px;
             border: 1px solid var(--line);
             border-radius: 4px;
-            font-size: 13px;
+            font-size: 0.8125rem;
             max-width: 160px;
         }
 
@@ -387,7 +387,7 @@
 
         .unit-toggle {
             padding: 4px 7px;
-            font-size: 12px;
+            font-size: 0.75rem;
             font-weight: bold;
             border: 1px solid var(--line);
             border-left: none;
@@ -414,7 +414,7 @@
             border: none;
             border-radius: 5px;
             cursor: pointer;
-            font-size: 13px;
+            font-size: 0.8125rem;
             font-weight: bold;
             line-height: 1.25;
             color: var(--fixed-white);
@@ -462,14 +462,14 @@
 
         /* ---- Status（顶部主操作条内的运行状态文本；setStatus 维护文案 / 颜色） ---- */
         #status-bar {
-            font-size: 13px;
+            font-size: 0.8125rem;
             font-weight: 700;
             color: var(--muted);
         }
 
         #stats-bar {
             text-align: center;
-            font-size: 12px;
+            font-size: 0.75rem;
             color: var(--primary);
             font-weight: bold;
             padding: 2px 0;
@@ -481,17 +481,17 @@
             border-left: 4px solid var(--primary);
             padding: 10px 14px;
             border-radius: 0 6px 6px 0;
-            font-size: 12px;
+            font-size: 0.75rem;
         }
 
         #current-card strong {
-            font-size: 13px;
+            font-size: 0.8125rem;
         }
 
         /* 队首进度卡下方的剩余计数行（「还有 X 个正在下载、Y 个排队中…」）；var(--muted) 自动适配深色模式。 */
         #current-card .current-remaining {
             margin-top: 6px;
-            font-size: 11px;
+            font-size: 0.6875rem;
             color: var(--muted);
         }
 
@@ -505,13 +505,13 @@
             color: var(--muted-5);
             text-align: center;
             padding: 16px 0;
-            font-size: 13px;
+            font-size: 0.8125rem;
         }
 
         .queue-detail-note {
             margin-top: 4px;
             color: var(--muted);
-            font-size: 10px;
+            font-size: 0.625rem;
         }
 
         .queue-detail-note--error {
@@ -523,7 +523,7 @@
             padding: 0 2px;
             border: 0;
             background: none;
-            font-size: 13px;
+            font-size: 0.8125rem;
             line-height: 1;
             text-decoration: none;
         }
@@ -543,7 +543,7 @@
             margin-bottom: 4px;
             background: var(--surface-muted);
             border-radius: 0 4px 4px 0;
-            font-size: 11px;
+            font-size: 0.6875rem;
         }
 
         .queue-item .q-title {
@@ -551,7 +551,7 @@
             align-items: center;
             gap: 2px;
             font-weight: bold;
-            font-size: 12px;
+            font-size: 0.75rem;
             margin-bottom: 2px;
             min-width: 0;
         }
@@ -570,7 +570,7 @@
             background: none;
             color: var(--danger-bg);
             cursor: pointer;
-            font-size: 13px;
+            font-size: 0.8125rem;
             line-height: 1;
         }
 
@@ -589,7 +589,7 @@
             padding: 1px 5px;
             border: 1px solid transparent;
             border-radius: 3px;
-            font-size: 10px;
+            font-size: 0.625rem;
             font-weight: 600;
             line-height: 1.2;
         }
@@ -648,7 +648,7 @@
         .prog-label {
             display: flex;
             justify-content: space-between;
-            font-size: 10px;
+            font-size: 0.625rem;
             color: var(--muted);
             margin-bottom: 2px;
         }
@@ -673,7 +673,7 @@
         /* Small utility */
         .btn-sm {
             padding: 5px 10px;
-            font-size: 12px;
+            font-size: 0.75rem;
             border: 1px solid var(--line-strong);
             border-radius: 4px;
             background: var(--control-bg);
@@ -686,7 +686,7 @@
 
         .btn-cookie-save {
             padding: 5px 10px;
-            font-size: 12px;
+            font-size: 0.75rem;
             border: 1px solid var(--brand);
             border-radius: 4px;
             background: var(--success-bg);
@@ -698,7 +698,7 @@
 
         .btn-cookie-clear {
             padding: 5px 10px;
-            font-size: 12px;
+            font-size: 0.75rem;
             border: 1px solid var(--danger-bg);
             border-radius: 4px;
             background: var(--danger-soft-bg);
@@ -723,7 +723,7 @@
             background: var(--warning-strong-bg);
             border-radius: 8px;
             color: var(--warning-deep-text);
-            font-size: 13px;
+            font-size: 0.8125rem;
             line-height: 1.6;
         }
         html[data-theme="dark"] .import-format-box {
@@ -766,7 +766,7 @@
             box-shadow: 0 1px 4px var(--shadow-md);
             padding: 10px 16px;
             margin-bottom: 14px;
-            font-size: 12px;
+            font-size: 0.75rem;
             color: var(--heading);
         }
 
@@ -804,7 +804,7 @@
         }
 
         #quota-bar .qb-reset {
-            font-size: 11px;
+            font-size: 0.6875rem;
             color: var(--muted-2);
             margin-top: 3px;
         }
@@ -821,25 +821,25 @@
 
         #archive-card .ac-title {
             font-weight: bold;
-            font-size: 13px;
+            font-size: 0.8125rem;
             color: var(--warning-text);
             margin-bottom: 8px;
         }
 
         #archive-card .ac-status {
-            font-size: 12px;
+            font-size: 0.75rem;
             color: var(--muted);
             margin-bottom: 8px;
         }
 
         #archive-card .ac-countdown {
-            font-size: 11px;
+            font-size: 0.6875rem;
             color: var(--muted-2);
             margin-top: 6px;
         }
 
         #archive-card .ac-expired {
-            font-size: 13px;
+            font-size: 0.8125rem;
             color: var(--danger-bg);
             font-weight: bold;
         }
@@ -852,7 +852,7 @@
             border: none;
             border-radius: 5px;
             cursor: pointer;
-            font-size: 13px;
+            font-size: 0.8125rem;
             font-weight: bold;
             text-decoration: none;
         }
@@ -883,16 +883,16 @@
         }
 
         .userscript-card-title {
-            font-size: 13px;
+            font-size: 0.8125rem;
         }
 
         .userscript-card-version {
-            font-size: 11px;
+            font-size: 0.6875rem;
             color: var(--muted-2);
         }
 
         .userscript-card-desc {
-            font-size: 12px;
+            font-size: 0.75rem;
             color: var(--heading);
             margin-bottom: 8px;
         }
@@ -906,7 +906,7 @@
         .userscripts-hint,
         .userscripts-host-hint {
             margin-bottom: 10px;
-            font-size: 12px;
+            font-size: 0.75rem;
         }
 
         .userscripts-hint {
@@ -919,6 +919,6 @@
 
         .userscript-card-btn {
             padding: 3px 12px;
-            font-size: 12px;
+            font-size: 0.75rem;
             text-decoration: none;
         }

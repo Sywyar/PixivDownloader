@@ -10,6 +10,7 @@
     <script src="/js/pixiv-theme.js"></script>
     <script src="/js/pixiv-vue.js"></script>
     <script src="/js/pixiv-navigation.js"></script>
+    <link rel="stylesheet" href="/css/pixiv-layout.css">
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
     <link rel="stylesheet" href="/css/lang-theme-switcher.css">
     <!-- 全站共享动效层：统一动效令牌与通用微交互，页面自有样式在其后加载、可按需覆盖。 -->
@@ -17,8 +18,9 @@
     <link rel="stylesheet" href="/css/pixiv-feedback.css">
     <link rel="stylesheet" href="/css/pixiv-scrollbar.css">
     <link rel="stylesheet" href="/pixiv-douyin-gallery/pixiv-douyin-gallery.css">
+    <script src="/js/pixiv-layout.js" defer></script>
 </head>
-<body>
+<body class="layout-flow">
 <div class="douyin-gallery-shell">
     <aside class="douyin-gallery-sidebar" id="douyinGallerySidebar">
         <div class="douyin-gallery-brand">
@@ -73,7 +75,7 @@
             data-i18n-aria-label="douyin:gallery.sidebar.close"></button>
 
     <main class="douyin-gallery-main">
-        <header class="douyin-gallery-topbar">
+        <header class="layout-sticky douyin-gallery-topbar" data-layout-height="--layout-header-height">
             <button class="douyin-gallery-menu" id="douyinGalleryMenu" type="button"
                     data-i18n-aria-label="douyin:gallery.sidebar.open">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

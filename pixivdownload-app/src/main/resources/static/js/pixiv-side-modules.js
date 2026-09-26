@@ -93,7 +93,7 @@
     }
 
     function isMobile() {
-        return window.matchMedia('(max-width: 768px)').matches;
+        return window.matchMedia('(max-width: 56.25em)').matches;
     }
 
     function isAdmin() {

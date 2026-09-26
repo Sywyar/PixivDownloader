@@ -1,0 +1,51 @@
+:root {
+    --layout-gutter: clamp(1rem, 4vw, 6rem);
+    --layout-inset-left: max(var(--layout-gutter), env(safe-area-inset-left));
+    --layout-inset-right: max(var(--layout-gutter), env(safe-area-inset-right));
+    --layout-gap: clamp(1rem, 2vw, 1.5rem);
+    --layout-panel-padding: clamp(.875rem, 2vw, 1.25rem);
+    --layout-sidebar: 17.5rem;
+    --layout-form: 32rem;
+    --layout-form-wide: 48rem;
+    --layout-reading: 46rem;
+    --layout-header-height: 4rem;
+    --layout-control-height: 2rem;
+}
+
+.layout-inset {
+    padding-left: var(--layout-inset-left);
+    padding-right: var(--layout-inset-right);
+}
+
+.layout-flow {
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+}
+
+.layout-flow :focus-visible {
+    scroll-margin-block: calc(var(--layout-header-height) + 1rem) 1rem;
+}
+
+.layout-flow .layout-dialog {
+    max-inline-size: calc(100vw - 2rem);
+    max-block-size: calc(100dvh - 2rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+@media (max-height: 35em) {
+    .layout-flow .layout-sticky {
+        position: static;
+    }
+}
+
+@media (pointer: coarse) {
+    :root {
+        --layout-control-height: 2.75rem;
+    }
+
+    .layout-flow .layout-touch {
+        min-inline-size: 2.75rem;
+        min-block-size: 2.75rem;
+    }
+}

@@ -10,6 +10,7 @@
     <script src="/js/pixiv-navigation.js"></script>
     <script src="/js/pixiv-feedback.js"></script>
     <script src="/js/pixiv-actions.js"></script>
+    <link rel="stylesheet" href="/css/pixiv-layout.css">
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
     <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
     <link rel="stylesheet" href="/css/pixiv-feedback.css">
@@ -27,10 +28,11 @@
     <script src="/plugin-manage/plugin-manage-api.js"></script>
     <script src="/plugin-manage/plugin-manage-views.js"></script>
     <script src="/plugin-manage/plugin-manage-init.js"></script>
+    <script src="/js/pixiv-layout.js" defer></script>
 </head>
-<body>
+<body class="layout-flow">
 
-<nav class="app-nav">
+<nav class="layout-sticky app-nav" data-layout-height="--layout-header-height">
     <div class="app-nav-brand-wrap">
         <span class="app-nav-logo"><i class="fa-solid fa-cloud-arrow-down"></i></span>
         <span class="app-nav-brand" data-i18n="nav.brand">Pixiv 下载助手</span>
@@ -124,7 +126,7 @@
      删除由插件卡片的 remove 生命周期动作处理。 -->
 <div class="pm-modal" id="pm-install-modal" hidden role="dialog" aria-modal="true" aria-labelledby="pm-install-title">
     <div class="pm-modal-backdrop" data-pm-install-dismiss></div>
-    <div class="pm-modal-card" role="document">
+    <div class="pm-modal-card layout-dialog" role="document">
         <div class="pm-modal-head">
             <h2 class="pm-modal-title" id="pm-install-title">
                 <i class="fa-solid fa-box-open"></i><span data-i18n="install.title">安装本地插件包</span>

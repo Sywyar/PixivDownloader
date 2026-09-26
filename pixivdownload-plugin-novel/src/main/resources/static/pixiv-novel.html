@@ -12,6 +12,7 @@
     <script src="/js/pixiv-vue.js"></script>
     <script src="/js/pixiv-ui-slots.js"></script>
     <script src="/js/pixiv-actions.js"></script>
+    <link rel="stylesheet" href="/css/pixiv-layout.css">
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
     <link rel="stylesheet" href="/css/lang-theme-switcher.css">
     <!-- 全站共享动效层：统一动效令牌与通用微交互，页面自有样式在其后加载、可按需覆盖。 -->
@@ -19,22 +20,23 @@
     <link rel="stylesheet" href="/css/pixiv-feedback.css">
     <link rel="stylesheet" href="/css/pixiv-scrollbar.css">
     <link rel="stylesheet" href="/pixiv-novel/pixiv-novel.css">
+    <script src="/js/pixiv-layout.js" defer></script>
 </head>
-<body>
-<div class="topbar">
-    <a class="btn" id="backToGalleryLink" href="/pixiv-novel-gallery.html?view=all"
+<body class="layout-flow">
+<div class="layout-sticky topbar" data-layout-height="--layout-header-height">
+    <a class="btn layout-touch" id="backToGalleryLink" href="/pixiv-novel-gallery.html?view=all"
        data-i18n="button.back">返回画廊</a>
     <div class="topbar-actions">
         <span id="langSwitcherAnchor"></span>
         <span id="contentLangAnchor"></span>
         <span class="topbar-slot"><template data-qt-slot="novel-detail-tts"></template></span>
         <span class="topbar-slot"><template data-qt-slot="novel-detail-ai-translate"></template></span>
-        <button class="heart-btn" id="heartBtn" type="button" style="display:none">
+        <button class="heart-btn layout-touch" id="heartBtn" type="button" style="display:none">
             <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
             <span id="heartLabel" data-i18n="button.favorite">收藏</span>
         </button>
-        <a class="btn" id="btn-pixiv" href="#" target="_blank" rel="noopener" data-i18n="button.pixiv-novel">Pixiv 原小说链接</a>
-        <button class="btn btn-danger" id="deleteNovelBtn" type="button" style="display:none" data-i18n="button.delete" data-i18n-title="button.delete">删除</button>
+        <a class="btn layout-touch" id="btn-pixiv" href="#" target="_blank" rel="noopener" data-i18n="button.pixiv-novel">Pixiv 原小说链接</a>
+        <button class="btn btn-danger layout-touch" id="deleteNovelBtn" type="button" style="display:none" data-i18n="button.delete" data-i18n-title="button.delete">删除</button>
     </div>
 </div>
 
@@ -54,52 +56,52 @@
         </div>
 
         <div class="series-nav" id="series-nav" style="display:none;">
-            <a class="btn" id="series-prev" href="#" data-i18n="series.prev">上一章</a>
-            <a class="btn" id="series-index" href="#" data-i18n="series.index">目录</a>
-            <a class="btn" id="series-next" href="#" data-i18n="series.next">下一章</a>
+            <a class="btn layout-touch" id="series-prev" href="#" data-i18n="series.prev">上一章</a>
+            <a class="btn layout-touch" id="series-index" href="#" data-i18n="series.index">目录</a>
+            <a class="btn layout-touch" id="series-next" href="#" data-i18n="series.next">下一章</a>
         </div>
 
         <div class="content-card" id="content-card"></div>
 
         <div class="series-nav series-nav-bottom" id="series-nav-bottom" style="display:none;">
-            <a class="btn" id="series-prev-bottom" href="#" data-i18n="series.prev">上一章</a>
-            <a class="btn" id="series-index-bottom" href="#" data-i18n="series.index">目录</a>
-            <a class="btn" id="series-next-bottom" href="#" data-i18n="series.next">下一章</a>
+            <a class="btn layout-touch" id="series-prev-bottom" href="#" data-i18n="series.prev">上一章</a>
+            <a class="btn layout-touch" id="series-index-bottom" href="#" data-i18n="series.index">目录</a>
+            <a class="btn layout-touch" id="series-next-bottom" href="#" data-i18n="series.next">下一章</a>
         </div>
     </div>
 </div>
 
 <div class="modal-backdrop" id="modalAddToCollection">
-    <div class="modal">
+    <div class="modal layout-dialog">
         <div class="modal-head">
             <span class="modal-title" data-i18n="panel.add-to-collection">添加到收藏夹</span>
-            <button class="modal-close" id="addToCollectionClose" type="button">×</button>
+            <button class="modal-close layout-touch" id="addToCollectionClose" type="button">×</button>
         </div>
         <div class="modal-body">
             <div style="display:flex; gap:6px; margin-bottom:16px">
                 <input class="form-input" id="quickCreateName" data-i18n-placeholder="placeholder.quick-create" placeholder="快速新建收藏夹" maxlength="40" style="flex:1">
-                <button class="btn" id="quickCreateBtn" data-i18n="common:button.create" type="button">新建</button>
+                <button class="btn layout-touch" id="quickCreateBtn" data-i18n="common:button.create" type="button">新建</button>
             </div>
             <div class="collection-list" id="addToCollectionList"></div>
         </div>
         <div class="modal-foot">
-            <button class="btn" id="addToCollectionDone" data-i18n="common:button.done" type="button">完成</button>
+            <button class="btn layout-touch" id="addToCollectionDone" data-i18n="common:button.done" type="button">完成</button>
         </div>
     </div>
 </div>
 
 <div class="modal-backdrop" id="modalDeleteNovel">
-    <div class="modal">
+    <div class="modal layout-dialog">
         <div class="modal-head">
             <span class="modal-title" data-i18n="delete.title">删除小说</span>
-            <button class="modal-close" id="deleteNovelClose" type="button">×</button>
+            <button class="modal-close layout-touch" id="deleteNovelClose" type="button">×</button>
         </div>
         <div class="modal-body">
             <p class="delete-modal-text" data-i18n="delete.message">确定要删除这本小说吗？小说正文、封面等文件会被永久删除且无法恢复；下载记录将保留删除标记，默认不会被重新下载。</p>
         </div>
         <div class="modal-foot">
-            <button class="btn" id="deleteNovelCancel" type="button" data-i18n="delete.cancel">取消</button>
-            <button class="btn btn-danger" id="deleteNovelConfirm" type="button" data-i18n="delete.confirm">删除</button>
+            <button class="btn layout-touch" id="deleteNovelCancel" type="button" data-i18n="delete.cancel">取消</button>
+            <button class="btn btn-danger layout-touch" id="deleteNovelConfirm" type="button" data-i18n="delete.confirm">删除</button>
         </div>
     </div>
 </div>

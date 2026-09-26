@@ -12,6 +12,7 @@
     <script src="/js/pixiv-vue.js"></script>
     <script src="/js/pixiv-navigation.js"></script>
     <script src="/js/pixiv-actions.js"></script>
+    <link rel="stylesheet" href="/css/pixiv-layout.css">
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
     <link href="/vendor/bootstrap/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
@@ -25,12 +26,13 @@
     <link rel="stylesheet" href="/monitor/monitor-overlays.css">
     <link rel="stylesheet" href="/monitor/monitor-responsive.css">
     <link rel="stylesheet" href="/monitor/monitor-navigation.css">
+    <script src="/js/pixiv-layout.js" defer></script>
 </head>
-<body>
+<body class="layout-flow">
 
 <!-- ═══════════════════════════════ HEADER ═══════════════════════════════ -->
-<header class="site-header">
-    <div class="container-fluid px-4">
+<header class="layout-sticky site-header" data-layout-height="--layout-header-height">
+    <div class="container-fluid layout-inset">
         <div class="d-flex justify-content-between align-items-center">
             <div>
                 <h1 class="header-title">
@@ -58,7 +60,7 @@
     </div>
 </header>
 
-<div class="container-fluid px-4">
+<div class="container-fluid layout-inset">
 
     <!-- ════════════ STAT CARDS ════════════ -->
     <div class="stats-grid">
@@ -195,7 +197,7 @@
 <!-- ═══════════════════════════ ARTWORK MODAL ═══════════════════════════ -->
 <div class="modal fade" id="artworkModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg">
-        <div class="modal-content">
+        <div class="modal-content layout-dialog">
             <div class="modal-header">
                 <h5 class="modal-title"><i class="fas fa-file-image me-2"></i><span data-i18n="modal.artwork-detail">ARTWORK DETAIL</span></h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" data-i18n-aria-label="common:button.close" aria-label="Close"></button>
@@ -208,7 +210,7 @@
 <!-- ════════════════════════ IMAGE PREVIEW MODAL ════════════════════════ -->
 <div class="modal fade image-modal" id="imageModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-fullscreen m-0">
-        <div class="modal-content">
+        <div class="modal-content layout-dialog">
             <div class="modal-body">
                 <div id="imgCounter" class="img-counter"></div>
                 <button type="button" class="btn-close img-close-btn" data-bs-dismiss="modal" aria-label="Close"></button>

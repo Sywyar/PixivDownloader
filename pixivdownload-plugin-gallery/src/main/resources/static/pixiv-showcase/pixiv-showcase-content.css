@@ -59,7 +59,7 @@
         }
 
         .details-section-label {
-            font-size: 11px;
+            font-size: 0.6875rem;
             font-weight: 600;
             color: var(--brand);
             text-transform: uppercase;
@@ -68,7 +68,7 @@
         }
 
         .details-title {
-            font-size: 32px;
+            font-size: 2rem;
             font-weight: 800;
             line-height: 1.2;
             letter-spacing: -0.02em;
@@ -89,26 +89,27 @@
         }
 
         .details-stat-value {
-            font-size: 20px;
+            font-size: 1.25rem;
             font-weight: 700;
             color: var(--text);
         }
 
         .details-stat-label {
-            font-size: 11px;
+            font-size: 0.6875rem;
             color: var(--muted);
             text-transform: uppercase;
             letter-spacing: 0.06em;
         }
 
         .details-desc {
-            font-size: 14px;
+            font-size: 0.875rem;
             line-height: 1.8;
             color: var(--text-secondary);
             margin-bottom: 28px;
             max-height: 120px;
             overflow-y: auto;
             word-break: break-word;
+            max-width: var(--layout-reading);
         }
 
         .details-desc a {
@@ -116,7 +117,7 @@
         }
 
         .details-tags-label {
-            font-size: 11px;
+            font-size: 0.6875rem;
             font-weight: 600;
             color: var(--muted);
             text-transform: uppercase;
@@ -137,7 +138,7 @@
             background: var(--glass-bg);
             border: 1px solid var(--line);
             color: var(--text-secondary);
-            font-size: 12px;
+            font-size: 0.75rem;
             transition: all 0.2s;
         }
 
@@ -149,7 +150,7 @@
         .details-tag .tag-trans {
             color: var(--muted);
             margin-left: 4px;
-            font-size: 11px;
+            font-size: 0.6875rem;
         }
 
         .section-artist {
@@ -182,7 +183,7 @@
             align-items: center;
             justify-content: center;
             color: var(--on-accent);
-            font-size: 40px;
+            font-size: 2.5rem;
             font-weight: 800;
             margin-bottom: 20px;
             box-shadow: 0 16px 48px var(--brand-shadow);
@@ -198,13 +199,13 @@
         }
 
         .artist-name {
-            font-size: 24px;
+            font-size: 1.5rem;
             font-weight: 700;
             margin-bottom: 6px;
         }
 
         .artist-id {
-            font-size: 13px;
+            font-size: 0.8125rem;
             color: var(--muted);
             margin-bottom: 24px;
         }
@@ -223,12 +224,12 @@
         }
 
         .artist-stat-value {
-            font-size: 22px;
+            font-size: 1.375rem;
             font-weight: 700;
         }
 
         .artist-stat-label {
-            font-size: 11px;
+            font-size: 0.6875rem;
             color: var(--muted);
             text-transform: uppercase;
             letter-spacing: 0.06em;
@@ -238,13 +239,13 @@
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            height: 40px;
+            min-height: max(2.5rem, var(--layout-control-height));
             padding: 0 20px;
             border-radius: 999px;
             border: 1px solid var(--brand);
             background: var(--brand-hover-bg);
             color: var(--brand);
-            font-size: 13px;
+            font-size: 0.8125rem;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.2s;
@@ -270,7 +271,7 @@
         }
 
         .artist-works-label {
-            font-size: 11px;
+            font-size: 0.6875rem;
             font-weight: 600;
             color: var(--muted);
             text-transform: uppercase;
@@ -322,7 +323,7 @@
         }
 
         .artist-work-card-title {
-            font-size: 11px;
+            font-size: 0.6875rem;
             font-weight: 600;
             color: var(--on-accent);
             overflow: hidden;
@@ -350,7 +351,7 @@
         }
 
         .related-title {
-            font-size: 28px;
+            font-size: 1.75rem;
             font-weight: 800;
             letter-spacing: -0.02em;
         }
@@ -366,7 +367,7 @@
 
         .related-nav-btn {
             width: 40px;
-            height: 40px;
+            min-height: max(2.5rem, var(--layout-control-height));
             border-radius: 50%;
             border: 1px solid var(--line);
             background: var(--glass-bg-subtle);
@@ -446,7 +447,7 @@
         }
 
         .related-card-title {
-            font-size: 12px;
+            font-size: 0.75rem;
             font-weight: 600;
             color: var(--on-accent);
             display: -webkit-box;
@@ -457,7 +458,7 @@
         }
 
         .related-card-author {
-            font-size: 11px;
+            font-size: 0.6875rem;
             color: var(--overlay-muted);
         }
 
@@ -499,7 +500,7 @@
         }
 
         .pages-label {
-            font-size: 11px;
+            font-size: 0.6875rem;
             font-weight: 600;
             color: var(--brand);
             text-transform: uppercase;
@@ -508,14 +509,14 @@
         }
 
         .pages-title {
-            font-size: 36px;
+            font-size: 2.25rem;
             font-weight: 800;
             letter-spacing: -0.03em;
             margin-bottom: 12px;
         }
 
         .pages-subtitle {
-            font-size: 15px;
+            font-size: 0.9375rem;
             color: var(--muted);
             margin-bottom: 40px;
         }
@@ -561,7 +562,7 @@
             background: var(--scrim-label);
             backdrop-filter: blur(4px);
             color: var(--on-accent);
-            font-size: 11px;
+            font-size: 0.6875rem;
             font-weight: 700;
             display: flex;
             align-items: center;
@@ -576,7 +577,7 @@
         }
 
         .pages-strip-more-text {
-            font-size: 13px;
+            font-size: 0.8125rem;
             color: var(--muted);
         }
 
@@ -590,10 +591,10 @@
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            height: 44px;
+            min-height: max(2.75rem, var(--layout-control-height));
             padding: 0 24px;
             border-radius: 999px;
-            font-size: 14px;
+            font-size: 0.875rem;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.2s;

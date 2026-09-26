@@ -121,7 +121,7 @@
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
             color: var(--text);
             background: var(--bg);
-            overflow-x: hidden;
+
         }
 
         a {
@@ -196,7 +196,7 @@
         }
 
         .sidebar-brand {
-            font-size: 16px;
+            font-size: 1rem;
             font-weight: 700;
             color: var(--text);
             white-space: nowrap;
@@ -278,7 +278,7 @@
         }
 
         .nav-label {
-            font-size: 14px;
+            font-size: 0.875rem;
             color: var(--text-secondary);
             overflow: hidden;
             text-overflow: ellipsis;
@@ -311,7 +311,7 @@
         }
 
         .section-title {
-            font-size: 11px;
+            font-size: 0.6875rem;
             font-weight: 600;
             color: var(--muted-2);
             text-transform: uppercase;
@@ -411,7 +411,7 @@
 
         .collection-label {
             flex: 1;
-            font-size: 14px;
+            font-size: 0.875rem;
             color: var(--text-secondary);
             overflow: hidden;
             text-overflow: ellipsis;
@@ -422,7 +422,7 @@
         }
 
         .collection-count {
-            font-size: 12px;
+            font-size: 0.75rem;
             color: var(--muted-2);
             flex-shrink: 0;
         }
@@ -498,7 +498,7 @@
             align-items: center;
             justify-content: center;
             color: var(--on-accent);
-            font-size: 13px;
+            font-size: 0.8125rem;
             font-weight: 600;
         }
 
@@ -511,7 +511,7 @@
         }
 
         .user-name {
-            font-size: 13px;
+            font-size: 0.8125rem;
             font-weight: 600;
             color: var(--text);
             white-space: nowrap;
@@ -520,7 +520,6 @@
         }
 
         .user-status {
-            font-size: 11px;
+            font-size: 0.6875rem;
             color: var(--muted);
         }
-

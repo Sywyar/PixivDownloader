@@ -1,7 +1,7 @@
 
 /* ===== Quick-fetch tab ===== */
 .quick-intro {
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--muted);
     line-height: 1.6;
     margin-bottom: 10px;
@@ -20,7 +20,7 @@
 }
 
 .data-source-label {
-    font-size: 13px;
+    font-size: 0.8125rem;
     font-weight: 600;
     line-height: 30px;
     color: var(--text);
@@ -29,7 +29,7 @@
 .supported-data-sources {
     margin-bottom: 10px;
     color: var(--muted);
-    font-size: 13px;
+    font-size: 0.8125rem;
     line-height: 1.6;
 }
 
@@ -52,7 +52,7 @@
 
 .series-source-browser-title {
     color: var(--text);
-    font-size: 13px;
+    font-size: 0.8125rem;
     font-weight: 700;
 }
 
@@ -60,7 +60,7 @@
     min-height: 18px;
     margin-top: 6px;
     color: var(--muted);
-    font-size: 12px;
+    font-size: 0.75rem;
 }
 
 .series-source-browser-list {
@@ -95,7 +95,7 @@
     gap: 10px;
     margin-top: 10px;
     color: var(--muted);
-    font-size: 12px;
+    font-size: 0.75rem;
 }
 
 .quick-account {
@@ -103,7 +103,7 @@
     align-items: center;
     gap: 8px;
     flex-wrap: wrap;
-    font-size: 13px;
+    font-size: 0.8125rem;
     padding: 6px 10px;
     background: var(--surface-muted);
     border: 1px solid var(--line, var(--line-soft));
@@ -119,7 +119,7 @@
 }
 
 .quick-account-hint {
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--danger-bg, var(--danger-bg));
 }
 
@@ -132,7 +132,7 @@
 
 .quick-actions .quick-action {
     padding: 8px 10px;
-    font-size: 13px;
+    font-size: 0.8125rem;
     text-align: left;
 }
 
@@ -158,7 +158,7 @@
 
 .quick-preview-title {
     font-weight: 700;
-    font-size: 14px;
+    font-size: 0.875rem;
     color: var(--text);
     flex: 1 1 auto;
     min-width: 200px;
@@ -177,7 +177,7 @@
     border-radius: 4px;
     background: var(--surface, var(--fixed-white));
     color: var(--text);
-    font-size: 13px;
+    font-size: 0.8125rem;
     min-width: 200px;
 }
 
@@ -186,7 +186,7 @@
     border: 1px solid var(--line, var(--line));
     border-radius: 4px;
     overflow: hidden;
-    font-size: 12px;
+    font-size: 0.75rem;
 }
 
 .quick-kind-switcher label {
@@ -223,7 +223,7 @@
     text-align: center;
     color: var(--muted);
     padding: 24px 0;
-    font-size: 13px;
+    font-size: 0.8125rem;
 }
 
 .quick-following-grid {
@@ -271,7 +271,7 @@
 }
 
 .quick-following-name {
-    font-size: 13px;
+    font-size: 0.8125rem;
     font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -280,7 +280,7 @@
 }
 
 .quick-following-uid {
-    font-size: 11px;
+    font-size: 0.6875rem;
     color: var(--muted);
     font-family: monospace;
 }
@@ -341,7 +341,7 @@
     gap: 10px;
     padding: 30px 0;
     color: var(--muted);
-    font-size: 13px;
+    font-size: 0.8125rem;
 }
 
 .quick-spinner {
@@ -394,7 +394,7 @@
 }
 
 .quick-collection-name {
-    font-size: 13px;
+    font-size: 0.8125rem;
     font-weight: 600;
     color: var(--text);
     overflow: hidden;
@@ -403,7 +403,7 @@
 }
 
 .quick-collection-count {
-    font-size: 11px;
+    font-size: 0.6875rem;
     color: var(--muted);
     margin-top: 2px;
 }

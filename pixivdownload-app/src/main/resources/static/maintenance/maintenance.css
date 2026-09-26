@@ -39,10 +39,12 @@ body {
     color: var(--text);
     background: var(--bg);
     display: flex;
-    align-items: center;
+    align-items: safe center;
     justify-content: center;
     min-width: 0;
-    overflow-x: hidden;
+    min-height: 100svh;
+    height: auto;
+    padding-block: 1rem;
 }
 
 button,
@@ -54,8 +56,10 @@ textarea {
 
 .maintenance-container {
     text-align: center;
-    max-width: 520px;
-    padding: 48px 32px;
+    max-width: none;
+    padding: 2rem var(--layout-panel-padding);
+    width: min(var(--layout-form), calc(100% - var(--layout-inset-left) - var(--layout-inset-right)));
+    margin: auto;
 }
 
 .maintenance-icon {
@@ -76,7 +80,7 @@ textarea {
 }
 
 .maintenance-title {
-    font-size: 28px;
+    font-size: 1.75rem;
     font-weight: 700;
     color: var(--text);
     margin-bottom: 12px;
@@ -84,7 +88,7 @@ textarea {
 }
 
 .maintenance-description {
-    font-size: 15px;
+    font-size: 0.9375rem;
     color: var(--muted);
     line-height: 1.6;
     margin-bottom: 32px;
@@ -103,7 +107,7 @@ textarea {
     align-items: center;
     gap: 8px;
     padding: 10px 24px;
-    font-size: 14px;
+    font-size: 0.875rem;
     font-weight: 600;
     color: #ffffff;
     background: var(--brand);
@@ -133,7 +137,7 @@ textarea {
 }
 
 .maintenance-auto-retry {
-    font-size: 13px;
+    font-size: 0.8125rem;
     color: var(--muted);
 }
 
@@ -146,9 +150,8 @@ textarea {
     gap: 8px;
 }
 
-@media (max-width: 560px) {
+@media (max-width: 37.5em) {
     body {
-        align-items: stretch;
         justify-content: flex-start;
     }
 
@@ -159,9 +162,7 @@ textarea {
     }
 
     .maintenance-container {
-        width: 100%;
-        max-width: none;
-        padding: 40px 22px 28px;
+        padding-bottom: 1.75rem;
     }
 
     .maintenance-icon {
@@ -171,11 +172,11 @@ textarea {
     }
 
     .maintenance-title {
-        font-size: 24px;
+        font-size: 1.5rem;
     }
 
     .maintenance-description {
-        font-size: 14px;
+        font-size: 0.875rem;
         margin-bottom: 24px;
     }
 

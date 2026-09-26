@@ -1,10 +1,8 @@
 (() => {
-  // ---------- deck controller ----------
+  // 原生滚动允许长内容、文字缩放与窗口重排共用同一组页面。
   const deck = document.getElementById('deck');
   const slides = [...document.querySelectorAll('.slide')];
   const dotsWrap = document.getElementById('dots');
-  const isMobile = matchMedia('(max-width:760px)').matches;
-  let current = 0, locked = false;
 
   slides.forEach((s, i) => {
     const b = document.createElement('button');
@@ -16,46 +14,21 @@
 
   function go(i) {
     i = Math.max(0, Math.min(slides.length - 1, i));
-    if (i === current) return;
-    current = i;
-    if (!isMobile) deck.style.transform = `translateY(-${i * 100}vh)`;
-    slides.forEach((s, idx) => s.classList.toggle('active', idx === i));
-    dots.forEach((d, idx) => d.classList.toggle('active', idx === i));
-    locked = true;
-    setTimeout(() => { locked = false; }, 900);
+    slides[i].scrollIntoView({behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'});
   }
 
   slides[0].classList.add('active');
   dots[0].classList.add('active');
 
-  if (!isMobile) {
-    let wheelAccum = 0, wheelTimer;
-    window.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      if (locked) return;
-      wheelAccum += e.deltaY;
-      clearTimeout(wheelTimer);
-      wheelTimer = setTimeout(() => (wheelAccum = 0), 160);
-      if (wheelAccum > 40) { go(current + 1); wheelAccum = 0; }
-      else if (wheelAccum < -40) { go(current - 1); wheelAccum = 0; }
-    }, { passive: false });
-
-    window.addEventListener('keydown', (e) => {
-      if (['ArrowDown','PageDown',' '].includes(e.key)) { e.preventDefault(); go(current + 1); }
-      else if (['ArrowUp','PageUp'].includes(e.key)) { e.preventDefault(); go(current - 1); }
-      else if (e.key === 'Home') { e.preventDefault(); go(0); }
-      else if (e.key === 'End') { e.preventDefault(); go(slides.length - 1); }
-    });
-
-    let touchStart = null;
-    window.addEventListener('touchstart', (e) => { touchStart = e.touches[0].clientY; });
-    window.addEventListener('touchend', (e) => {
-      if (touchStart == null) return;
-      const dy = touchStart - e.changedTouches[0].clientY;
-      if (Math.abs(dy) > 60) go(current + (dy > 0 ? 1 : -1));
-      touchStart = null;
-    });
-  }
+  const slideObserver = new IntersectionObserver(entries => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      const index = slides.indexOf(entry.target);
+      entry.target.classList.add('active');
+      dots.forEach((dot, i) => dot.classList.toggle('active', i === index));
+    }
+  }, {root: deck, rootMargin: '-40% 0px -40% 0px'});
+  slides.forEach(slide => slideObserver.observe(slide));
 
   document.querySelectorAll('[data-goto]').forEach((el) => {
     el.addEventListener('click', (e) => { e.preventDefault(); go(+el.dataset.goto); });

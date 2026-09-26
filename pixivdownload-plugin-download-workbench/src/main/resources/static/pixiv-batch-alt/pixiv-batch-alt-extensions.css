@@ -22,7 +22,7 @@
 }
 
 .plugin-cookie-title {
-    font-size: 12.5px;
+    font-size: 0.78125rem;
     font-weight: 600;
     color: var(--muted);
     margin-bottom: 8px;
@@ -41,7 +41,7 @@
     padding: 7px 10px;
     border: 1px solid var(--line);
     border-radius: var(--r-sm);
-    font-size: 12px;
+    font-size: 0.75rem;
     font-family: var(--mono);
     background: var(--control-bg);
     color: var(--text);
@@ -51,7 +51,7 @@
 .cookie-row .btn-cookie-save,
 .cookie-row .btn-cookie-clear {
     padding: 6px 10px;
-    font-size: 12px;
+    font-size: 0.75rem;
     border-radius: var(--r-sm);
     border: 1px solid var(--line-strong);
     background: var(--control-bg);
@@ -79,7 +79,7 @@
 }
 
 .cookie-status {
-    font-size: 12px;
+    font-size: 0.75rem;
     margin-top: 8px;
     min-height: 16px;
     color: var(--muted);
@@ -103,21 +103,21 @@
 }
 
 .cookie-hint {
-    font-size: 11.5px;
+    font-size: 0.71875rem;
     color: var(--faint);
     margin-top: 6px;
 }
 
 /* —— 导入示例（import-hint 槽位贡献） —— */
 .ab-import-help [data-vue-slot] > div {
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--muted);
     line-height: 1.8;
 }
 
 .import-example-code {
     font-family: var(--mono);
-    font-size: 11.5px;
+    font-size: 0.71875rem;
     background: var(--surface-2);
     border: 1px solid var(--line);
     border-radius: var(--r-sm);
@@ -134,7 +134,7 @@
     margin-top: 14px;
     padding-top: 14px;
     border-top: 1px solid var(--line);
-    font-size: 13px;
+    font-size: 0.8125rem;
 }
 
 .ab-settings [data-vue-slot] > section > label {
@@ -147,10 +147,10 @@
     border-radius: var(--r-sm);
     background: var(--control-bg);
     color: var(--text);
-    font-size: 13px;
+    font-size: 0.8125rem;
 }
 
 .ab-settings [data-vue-slot] > section > small {
     color: var(--muted);
-    font-size: 12px;
+    font-size: 0.75rem;
 }

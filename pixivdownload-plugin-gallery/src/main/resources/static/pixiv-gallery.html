@@ -19,6 +19,7 @@
     <script src="/js/pixiv-onboarding-download.js"></script>
     <script src="/js/pixiv-onboarding-gallery.js"></script>
     <script src="/js/pixiv-onboarding.js"></script>
+    <link rel="stylesheet" href="/css/pixiv-layout.css">
     <link rel="stylesheet" href="/css/admin-visibility.css">
     <link rel="stylesheet" href="/css/pixiv-onboarding.css">
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
@@ -35,8 +36,9 @@
     <link rel="stylesheet" href="/pixiv-gallery/pixiv-gallery-responsive.css">
     <!-- 画廊动效增强层：作品卡片阶梯入场等本页专属动效。 -->
     <link rel="stylesheet" href="/pixiv-gallery/pixiv-gallery-motion.css">
+    <script src="/js/pixiv-layout.js" defer></script>
 </head>
-<body>
+<body class="layout-flow">
 <div class="app-shell">
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
@@ -141,7 +143,7 @@
     <div class="mobile-overlay" id="mobileOverlay" data-pixiv-click="closeMobileSidebar()"></div>
 
     <main class="main-content">
-        <div class="topbar">
+        <div class="layout-sticky topbar" data-layout-height="--layout-header-height">
             <button class="mobile-menu-btn" data-pixiv-click="openMobileSidebar()">
                 <svg viewBox="0 0 24 24">
                     <line x1="3" y1="12" x2="21" y2="12"/>
@@ -320,10 +322,10 @@
 </div>
 
 <div class="modal-backdrop" id="modalCollectionForm">
-    <div class="modal">
+    <div class="modal layout-dialog">
         <div class="modal-head">
             <span class="modal-title" id="collectionFormTitle" data-i18n="collection.form.create">新建收藏夹</span>
-            <button class="modal-close" data-pixiv-click="closeCollectionFormModal()">×</button>
+            <button class="modal-close layout-touch" data-pixiv-click="closeCollectionFormModal()">×</button>
         </div>
         <div class="modal-body">
             <div class="form-field">
@@ -340,10 +342,10 @@
                         </svg>
                     </div>
                     <div style="flex:1">
-                        <button class="btn" data-pixiv-click="openCollectionIconPicker()" data-i18n="button.choose-image">
+                        <button class="btn layout-touch" data-pixiv-click="openCollectionIconPicker()" data-i18n="button.choose-image">
                             选择图片
                         </button>
-                        <button class="btn" id="collectionFormIconClear" style="display:none; margin-left:8px" data-i18n="button.clear">清除
+                        <button class="btn layout-touch" id="collectionFormIconClear" style="display:none; margin-left:8px" data-i18n="button.clear">清除
                         </button>
                         <input type="file" id="collectionFormIconFile" accept="image/png,image/jpeg,image/webp">
                         <div class="form-hint" data-i18n="form.icon.hint">支持 PNG / JPG / WEBP，最大 1MB</div>
@@ -375,30 +377,30 @@
             </div>
         </div>
         <div class="modal-foot">
-            <button class="btn" data-pixiv-click="closeCollectionFormModal()" data-i18n="common:button.cancel">取消</button>
-            <button class="btn btn-primary" id="collectionFormSubmit" data-i18n="common:button.save">保存</button>
+            <button class="btn layout-touch" data-pixiv-click="closeCollectionFormModal()" data-i18n="common:button.cancel">取消</button>
+            <button class="btn btn-primary layout-touch" id="collectionFormSubmit" data-i18n="common:button.save">保存</button>
         </div>
     </div>
 </div>
 
 <div class="modal-backdrop" id="modalAddToCollection">
-    <div class="modal">
+    <div class="modal layout-dialog">
         <div class="modal-head">
             <span class="modal-title" data-i18n="collection.add">添加到收藏夹</span>
-            <button class="modal-close" data-pixiv-click="closeAddToCollectionModal()">×</button>
+            <button class="modal-close layout-touch" data-pixiv-click="closeAddToCollectionModal()">×</button>
         </div>
         <div class="modal-body">
             <div class="form-field" style="margin-bottom:16px">
                 <div style="display:flex; gap:6px">
                     <input class="form-input" id="quickCreateName" data-i18n-placeholder="collection.quick-create" placeholder="快速新建收藏夹" maxlength="40"
                            style="flex:1">
-                    <button class="btn" id="quickCreateBtn" data-i18n="common:button.create">新建</button>
+                    <button class="btn layout-touch" id="quickCreateBtn" data-i18n="common:button.create">新建</button>
                 </div>
             </div>
             <div class="collection-list" id="addToCollectionList"></div>
         </div>
         <div class="modal-foot">
-            <button class="btn" data-pixiv-click="closeAddToCollectionModal()" data-i18n="common:button.done">完成</button>
+            <button class="btn layout-touch" data-pixiv-click="closeAddToCollectionModal()" data-i18n="common:button.done">完成</button>
         </div>
     </div>
 </div>
@@ -410,41 +412,41 @@
 
 <div class="batch-action-bar" id="batchActionBar">
     <span class="batch-count" id="batchCount"></span>
-    <button class="btn" id="batchSelectAll" type="button" data-i18n="manage.select-all">全选本页</button>
-    <button class="btn" id="batchSelectAllResults" type="button" data-i18n="manage.select-all-results">全选所有结果</button>
-    <button class="btn" id="batchClear" type="button" data-i18n="manage.clear">清除选择</button>
+    <button class="btn layout-touch" id="batchSelectAll" type="button" data-i18n="manage.select-all">全选本页</button>
+    <button class="btn layout-touch" id="batchSelectAllResults" type="button" data-i18n="manage.select-all-results">全选所有结果</button>
+    <button class="btn layout-touch" id="batchClear" type="button" data-i18n="manage.clear">清除选择</button>
     <div class="batch-menu-wrap">
-        <button class="btn btn-primary" id="batchActionMenuToggle" type="button" data-i18n="manage.action-menu">操作</button>
+        <button class="btn btn-primary layout-touch" id="batchActionMenuToggle" type="button" data-i18n="manage.action-menu">操作</button>
         <div class="batch-menu" id="batchActionMenu">
             <button type="button" data-action="export" data-i18n="manage.export">导出</button>
             <button type="button" data-action="collect" data-i18n="manage.collect">添加到收藏夹</button>
             <button type="button" data-action="delete" class="danger" data-i18n="manage.delete">删除</button>
         </div>
     </div>
-    <button class="btn" id="batchExit" type="button" data-i18n="manage.exit">退出管理</button>
+    <button class="btn layout-touch" id="batchExit" type="button" data-i18n="manage.exit">退出管理</button>
 </div>
 
 <div class="modal-backdrop" id="modalBatchDelete">
-    <div class="modal">
+    <div class="modal layout-dialog">
         <div class="modal-head">
             <span class="modal-title" data-i18n="manage.confirm-title">删除选中的作品</span>
-            <button class="modal-close" id="batchDeleteClose" type="button">×</button>
+            <button class="modal-close layout-touch" id="batchDeleteClose" type="button">×</button>
         </div>
         <div class="modal-body">
             <p class="delete-modal-text" id="batchDeleteMessage"></p>
         </div>
         <div class="modal-foot">
-            <button class="btn" id="batchDeleteCancel" type="button" data-i18n="manage.confirm-cancel">取消</button>
-            <button class="btn btn-danger" id="batchDeleteConfirm" type="button" data-i18n="manage.confirm-delete">删除</button>
+            <button class="btn layout-touch" id="batchDeleteCancel" type="button" data-i18n="manage.confirm-cancel">取消</button>
+            <button class="btn btn-danger layout-touch" id="batchDeleteConfirm" type="button" data-i18n="manage.confirm-delete">删除</button>
         </div>
     </div>
 </div>
 
 <div class="modal-backdrop" id="modalBatchExport">
-    <div class="modal">
+    <div class="modal layout-dialog">
         <div class="modal-head">
             <span class="modal-title" data-i18n="manage.export-title">导出选中的作品</span>
-            <button class="modal-close" id="batchExportClose" type="button">×</button>
+            <button class="modal-close layout-touch" id="batchExportClose" type="button">×</button>
         </div>
         <div class="modal-body">
             <div class="export-option-row">
@@ -468,23 +470,23 @@
                data-i18n="manage.export-delete-hint">只有打包成功后才会删除源文件和下载记录；删除不可恢复，压缩包按归档过期时间保留。</p>
         </div>
         <div class="modal-foot">
-            <button class="btn" id="batchExportCancel" type="button" data-i18n="manage.confirm-cancel">取消</button>
-            <button class="btn btn-primary" id="batchExportConfirm" type="button" data-i18n="manage.export-start">开始导出</button>
+            <button class="btn layout-touch" id="batchExportCancel" type="button" data-i18n="manage.confirm-cancel">取消</button>
+            <button class="btn btn-primary layout-touch" id="batchExportConfirm" type="button" data-i18n="manage.export-start">开始导出</button>
         </div>
     </div>
 </div>
 
 <div class="modal-backdrop" id="modalBatchCollection">
-    <div class="modal">
+    <div class="modal layout-dialog">
         <div class="modal-head">
             <span class="modal-title" data-i18n="manage.collect-title">添加到收藏夹</span>
-            <button class="modal-close" id="batchCollectionClose" type="button">×</button>
+            <button class="modal-close layout-touch" id="batchCollectionClose" type="button">×</button>
         </div>
         <div class="modal-body">
             <div class="collection-list" id="batchCollectionList"></div>
         </div>
         <div class="modal-foot">
-            <button class="btn" id="batchCollectionCancel" type="button" data-i18n="manage.confirm-cancel">取消</button>
+            <button class="btn layout-touch" id="batchCollectionCancel" type="button" data-i18n="manage.confirm-cancel">取消</button>
         </div>
     </div>
 </div>

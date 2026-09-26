@@ -6,6 +6,8 @@
             margin-top: 0.65rem;
             padding-top: 0.45rem;
             border-top: 1px solid var(--header-border);
+
+    flex-wrap: wrap;
         }
         .app-nav-brand {
             font-size: 0.7rem;

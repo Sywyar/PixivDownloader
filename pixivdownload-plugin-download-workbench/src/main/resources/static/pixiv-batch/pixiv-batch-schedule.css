@@ -1,7 +1,7 @@
 
 /* ── 计划任务（管理员专用） ───────────────────────────────────────────────── */
 .schedule-intro {
-    font-size: 13px;
+    font-size: 0.8125rem;
     color: var(--muted);
     line-height: 1.6;
     margin-bottom: 12px;
@@ -26,7 +26,7 @@
 
 .schedule-form .setting-item label {
     min-width: 92px;
-    font-size: 13px;
+    font-size: 0.8125rem;
     color: var(--text);
 }
 
@@ -35,7 +35,7 @@
     padding: 5px 8px;
     border: 1px solid var(--line);
     border-radius: 4px;
-    font-size: 13px;
+    font-size: 0.8125rem;
     background: var(--control-bg);
     color: var(--text);
 }
@@ -51,7 +51,7 @@
     padding: 4px 6px;
     border: 1px solid var(--line);
     border-radius: 4px;
-    font-size: 13px;
+    font-size: 0.8125rem;
 }
 
 .schedule-form-actions {
@@ -62,13 +62,13 @@
 
 .schedule-field-hint {
     flex-basis: 100%;
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--muted);
     line-height: 1.5;
 }
 
 .schedule-status {
-    font-size: 13px;
+    font-size: 0.8125rem;
     min-height: 18px;
 }
 
@@ -77,7 +77,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 13px;
+    font-size: 0.8125rem;
     color: var(--text);
     min-width: 0;
 }
@@ -96,7 +96,7 @@
     padding: 5px 8px;
     border: 1px solid var(--line);
     border-radius: 4px;
-    font-size: 13px;
+    font-size: 0.8125rem;
     background: var(--control-bg);
     color: var(--text);
 }
@@ -116,7 +116,7 @@
 .schedule-cookie-input-row .btn {
     flex: none;
     padding: 6px 10px;
-    font-size: 12px;
+    font-size: 0.75rem;
     white-space: nowrap;
 }
 
@@ -134,7 +134,7 @@
 }
 
 .schedule-override-intro {
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--muted);
     line-height: 1.6;
 }
@@ -145,7 +145,7 @@
 }
 
 .schedule-save-source {
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--muted);
     font-style: italic;
 }
@@ -160,7 +160,7 @@
     text-align: center;
     color: var(--muted);
     padding: 24px 0;
-    font-size: 13px;
+    font-size: 0.8125rem;
 }
 
 .schedule-card {
@@ -176,7 +176,7 @@
 }
 
 .schedule-card-tip {
-    font-size: 13px;
+    font-size: 0.8125rem;
     margin-bottom: 8px;
     padding: 6px 10px;
     border-radius: 6px;
@@ -215,7 +215,7 @@
     border-radius: 12px;
     background: var(--control-muted-bg);
     border: 1px solid transparent;
-    font-size: 12px;
+    font-size: 0.75rem;
     font-weight: 600;
     line-height: 1.4;
     transition: background .2s ease, border-color .2s ease;
@@ -301,11 +301,11 @@
 .schedule-card-name {
     font-weight: 700;
     color: var(--heading);
-    font-size: 15px;
+    font-size: 0.9375rem;
 }
 
 .schedule-badge {
-    font-size: 12px;
+    font-size: 0.75rem;
     padding: 2px 8px;
     border-radius: 10px;
     background: var(--control-muted-bg);
@@ -326,7 +326,7 @@
     display: flex;
     flex-direction: column;
     gap: 3px;
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--muted);
     margin-bottom: 10px;
 }
@@ -339,7 +339,7 @@
 
 .schedule-card-actions .btn {
     padding: 5px 12px;
-    font-size: 12px;
+    font-size: 0.75rem;
 }
 
 .schedule-meta-actions {
@@ -351,7 +351,7 @@
 
 .schedule-meta-actions .btn {
     padding: 5px 10px;
-    font-size: 12px;
+    font-size: 0.75rem;
 }
 
 /* 卡片底部「本轮队列详情」可折叠区域 */
@@ -369,7 +369,7 @@
     border: none;
     padding: 2px 0;
     cursor: pointer;
-    font-size: 13px;
+    font-size: 0.8125rem;
     font-weight: 600;
     color: var(--muted);
 }
@@ -381,7 +381,7 @@
 .schedule-queue-caret {
     display: inline-block;
     width: 12px;
-    font-size: 11px;
+    font-size: 0.6875rem;
 }
 
 .schedule-queue-body {
@@ -391,14 +391,14 @@
 /* 顶部状态行 / 统计行：与工作区底部的 #status-bar / #stats-bar 完全一致 */
 .schedule-queue-status {
     text-align: center;
-    font-size: 13px;
+    font-size: 0.8125rem;
     color: var(--muted);
     padding: 4px 0 2px;
 }
 
 .schedule-queue-stats {
     text-align: center;
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--primary);
     font-weight: bold;
     padding: 2px 0;
@@ -410,12 +410,12 @@
     border-left: 4px solid var(--primary);
     padding: 10px 14px;
     border-radius: 0 6px 6px 0;
-    font-size: 12px;
+    font-size: 0.75rem;
     margin: 8px 0;
 }
 
 .schedule-queue-current strong {
-    font-size: 13px;
+    font-size: 0.8125rem;
 }
 
 /* 列表容器与 #queue-list 完全一致（同样的最大高度与滚动） */
@@ -475,11 +475,11 @@ body.schedule-modal-open {
 .schedule-snapshot-footer {
     border-top: 1px solid var(--line);
     color: var(--muted);
-    font-size: 13px;
+    font-size: 0.8125rem;
 }
 
 .schedule-snapshot-title {
-    font-size: 15px;
+    font-size: 0.9375rem;
     font-weight: 700;
     color: var(--heading);
 }
@@ -492,7 +492,7 @@ body.schedule-modal-open {
     background: var(--control-bg);
     color: var(--text);
     cursor: pointer;
-    font-size: 20px;
+    font-size: 1.25rem;
     line-height: 1;
 }
 
@@ -520,7 +520,7 @@ body.schedule-modal-open {
 .schedule-snapshot-section-title {
     margin-bottom: 8px;
     color: var(--heading);
-    font-size: 13px;
+    font-size: 0.8125rem;
     font-weight: 700;
 }
 
@@ -528,7 +528,7 @@ body.schedule-modal-open {
     display: grid;
     grid-template-columns: minmax(128px, 180px) 1fr;
     gap: 6px 12px;
-    font-size: 13px;
+    font-size: 0.8125rem;
     line-height: 1.5;
 }
 
@@ -546,10 +546,10 @@ body.schedule-modal-open {
     padding: 20px 0;
     color: var(--muted);
     text-align: center;
-    font-size: 13px;
+    font-size: 0.8125rem;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 37.5em) {
     .schedule-snapshot-footer {
         align-items: stretch;
         flex-direction: column;
@@ -582,7 +582,7 @@ body.schedule-modal-open {
 }
 
 .schedule-credential-policy-desc {
-    font-size: 13px;
+    font-size: 0.8125rem;
     color: var(--text);
     margin-bottom: 10px;
     line-height: 1.6;
@@ -605,13 +605,13 @@ body.schedule-modal-open {
 
 .schedule-pending-head {
     font-weight: 600;
-    font-size: 13px;
+    font-size: 0.8125rem;
     color: var(--text);
     margin-bottom: 6px;
 }
 
 .schedule-pending-empty {
-    font-size: 13px;
+    font-size: 0.8125rem;
     color: var(--muted);
 }
 
@@ -624,7 +624,7 @@ body.schedule-modal-open {
 .schedule-pending-item {
     border-top: 1px solid var(--line);
     padding: 6px 0;
-    font-size: 13px;
+    font-size: 0.8125rem;
     color: var(--text);
 }
 
@@ -644,7 +644,7 @@ body.schedule-modal-open {
 }
 
 .schedule-pending-reason {
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--muted);
     margin-top: 2px;
     word-break: break-all;
@@ -652,5 +652,5 @@ body.schedule-modal-open {
 
 .btn-xs {
     padding: 2px 8px;
-    font-size: 12px;
+    font-size: 0.75rem;
 }

@@ -8,6 +8,7 @@
     <script src="/js/pixiv-feedback.js"></script>
     <script src="/js/pixiv-lang-switcher.js"></script>
     <script src="/js/pixiv-theme.js"></script>
+    <link rel="stylesheet" href="/css/pixiv-layout.css">
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
     <link rel="stylesheet" href="/css/lang-theme-switcher.css">
     <!-- 全站共享动效层：统一动效令牌与通用微交互，页面自有样式在其后加载、可按需覆盖。 -->
@@ -20,8 +21,8 @@
     <link rel="stylesheet" href="/pixiv-showcase/pixiv-showcase-overlays.css">
     <link rel="stylesheet" href="/pixiv-showcase/pixiv-showcase-responsive.css">
 </head>
-<body>
-<div class="top-bar" id="topBar">
+<body class="layout-flow">
+<div class="top-bar" data-layout-height="--layout-header-height" id="topBar">
     <div class="top-bar-logo">
         <div class="top-bar-logo-icon">
             <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
@@ -29,7 +30,7 @@
         <span class="top-bar-logo-text">Pixiv Gallery</span>
     </div>
     <div class="top-bar-actions" id="topBarActions">
-        <a class="top-bar-btn" id="detailPageLink" href="/pixiv-artwork.html">
+        <a class="top-bar-btn layout-touch" id="detailPageLink" href="/pixiv-artwork.html">
             <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
             <span id="detailPageLinkLabel" data-i18n="button.detail">详细页</span>
         </a>
@@ -203,25 +204,26 @@
 </div>
 
 <div class="modal-backdrop" id="modalAddToCollection">
-    <div class="modal">
+    <div class="modal layout-dialog">
         <div class="modal-head">
             <span class="modal-title" data-i18n="panel.add-to-collection">添加到收藏夹</span>
-            <button class="modal-close" id="modalCloseBtn" type="button" aria-label="关闭" data-i18n-aria-label="aria.close">×</button>
+            <button class="modal-close layout-touch" id="modalCloseBtn" type="button" aria-label="关闭" data-i18n-aria-label="aria.close">×</button>
         </div>
         <div class="modal-body">
             <div class="modal-quick-create">
                 <input class="form-input modal-quick-create-input" id="quickCreateName" placeholder="快速新建收藏夹" data-i18n-placeholder="placeholder.quick-create" maxlength="40">
-                <button class="btn" id="quickCreateBtn" type="button" data-i18n="button.create">新建</button>
+                <button class="btn layout-touch" id="quickCreateBtn" type="button" data-i18n="button.create">新建</button>
             </div>
             <div class="collection-list" id="addToCollectionList"></div>
         </div>
         <div class="modal-foot">
-            <button class="btn" id="addToCollectionDoneBtn" type="button" data-i18n="button.done">完成</button>
+            <button class="btn layout-touch" id="addToCollectionDoneBtn" type="button" data-i18n="button.done">完成</button>
         </div>
     </div>
 </div>
 
 <div class="toast-container" id="toastContainer"></div>
+<script src="/js/pixiv-layout.js"></script>
 <script src="/pixiv-showcase/showcase-core.js"></script>
 <script src="/pixiv-showcase/showcase-hero.js"></script>
 <script src="/pixiv-showcase/showcase-render.js"></script>

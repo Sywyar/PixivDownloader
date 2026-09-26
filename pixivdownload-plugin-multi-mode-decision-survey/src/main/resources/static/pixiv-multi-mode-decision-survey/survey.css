@@ -57,11 +57,11 @@ body { padding: 1px; }
 .survey-card h2,
 .survey-card p,
 .survey-card fieldset { margin: 0; }
-.survey-card h2 { font-size: 19px; }
+.survey-card h2 { font-size: 1.1875rem; }
 .survey-description,
 .survey-privacy { color: var(--survey-muted); line-height: 1.6; }
-.survey-description { font-size: 14px; }
-.survey-privacy { font-size: 12px; }
+.survey-description { font-size: 0.875rem; }
+.survey-privacy { font-size: 0.75rem; }
 
 .survey-options {
     display: grid;
@@ -114,7 +114,7 @@ body { padding: 1px; }
 
 .survey-error {
     color: var(--survey-danger);
-    font-size: 13px;
+    font-size: 0.8125rem;
 }
 
 .survey-submit {
@@ -131,7 +131,7 @@ body { padding: 1px; }
 
 .survey-submit:disabled { cursor: default; opacity: .6; }
 
-@media (max-width: 520px) {
+@media (max-width: 37.5em) {
     .survey-card { padding: 14px; }
     .survey-submit { width: 100%; }
 }

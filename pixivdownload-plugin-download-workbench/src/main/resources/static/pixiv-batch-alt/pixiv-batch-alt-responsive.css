@@ -2,9 +2,11 @@
 /* ============================================================
    响应式
    ============================================================ */
-@media (max-width: 1460px) {
+@media (max-width: 80em) {
     .ab-shell {
         grid-template-columns: 92px minmax(0, 1fr);
+
+    max-width: none;
     }
 
     .ab-dock {
@@ -16,11 +18,12 @@
         max-height: none;
         z-index: 90;
         border-radius: 0;
-        transform: translateX(103%);
+        transform: translateX(103%); visibility: hidden;
         transition: transform var(--motion-med) var(--motion-ease-out);
     }
 
     .ab-dock.is-open {
+                visibility: visible;
         transform: translateX(0);
         box-shadow: var(--shadow-3);
     }
@@ -52,7 +55,7 @@
     }
 }
 
-@media (max-width: 900px) {
+@media (max-width: 56.25em) {
     .ab-topbar-actions {
         flex: 1 1 100%;
         min-width: 0;
@@ -64,7 +67,8 @@
 
     .ab-shell {
         grid-template-columns: 1fr;
-        padding: 14px 14px 32px;
+        padding: 14px var(--layout-inset-right) 32px var(--layout-inset-left);
+        max-width: none;
     }
 
     .ab-rail {

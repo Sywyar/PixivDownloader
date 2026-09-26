@@ -98,7 +98,7 @@ a:focus-visible {
     min-width: 0;
     overflow: hidden;
     color: var(--text);
-    font-size: 16px;
+    font-size: 1rem;
     font-weight: 700;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -107,7 +107,7 @@ a:focus-visible {
 .douyin-gallery-section-title {
     padding: 22px 12px 8px;
     color: var(--muted);
-    font-size: 11px;
+    font-size: 0.6875rem;
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -181,10 +181,11 @@ a:focus-visible {
     align-items: center;
     gap: 14px;
     min-height: 72px;
-    padding: 12px 28px;
+    padding: 12px var(--layout-inset-right) 12px var(--layout-inset-left);
     border-bottom: 1px solid var(--line);
     background: color-mix(in srgb, var(--surface) 92%, transparent);
     backdrop-filter: blur(14px);
+    flex-wrap: wrap;
 }
 
 .douyin-gallery-menu {
@@ -208,7 +209,7 @@ a:focus-visible {
 
 .douyin-gallery-heading {
     margin: 0;
-    font-size: 20px;
+    font-size: 1.25rem;
     line-height: 1.2;
 }
 
@@ -234,7 +235,7 @@ a:focus-visible {
     padding: 0 14px;
     border-radius: 999px;
     color: var(--text-secondary);
-    font-size: 13px;
+    font-size: 0.8125rem;
     font-weight: 600;
     text-decoration: none;
     white-space: nowrap;
@@ -259,16 +260,16 @@ a:focus-visible {
 }
 
 .douyin-gallery-content {
-    width: min(1480px, 100%);
+    width: 100%;
     margin: 0 auto;
-    padding: 28px;
+    padding: 28px var(--layout-inset-right) 28px var(--layout-inset-left);
 }
 
 .douyin-gallery-status {
     min-height: 24px;
     margin-bottom: 16px;
     color: var(--text-secondary);
-    font-size: 13px;
+    font-size: 0.8125rem;
 }
 
 .douyin-gallery-status[data-state="failed"] {
@@ -277,7 +278,7 @@ a:focus-visible {
 
 .douyin-gallery-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 12rem), 1fr));
     gap: 20px;
 }
 
@@ -358,7 +359,7 @@ html[data-theme="dark"] .douyin-gallery-card:hover {
     overflow: hidden;
     margin: 0;
     color: var(--text);
-    font-size: 15px;
+    font-size: 0.9375rem;
     font-weight: 700;
     line-height: 1.45;
     -webkit-box-orient: vertical;
@@ -369,7 +370,7 @@ html[data-theme="dark"] .douyin-gallery-card:hover {
     overflow: hidden;
     margin-top: 8px;
     color: var(--text-secondary);
-    font-size: 13px;
+    font-size: 0.8125rem;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -379,7 +380,7 @@ html[data-theme="dark"] .douyin-gallery-card:hover {
     overflow: hidden;
     margin: 8px 0 0;
     color: var(--muted);
-    font-size: 12px;
+    font-size: 0.75rem;
     line-height: 1.5;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
@@ -401,7 +402,7 @@ html[data-theme="dark"] .douyin-gallery-card:hover {
     border-radius: 999px;
     background: var(--brand-soft);
     color: var(--brand);
-    font-size: 11px;
+    font-size: 0.6875rem;
     font-weight: 650;
 }
 
@@ -436,13 +437,14 @@ html[data-theme="dark"] .douyin-gallery-card:hover {
     display: none !important;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 56.25em) {
     .douyin-gallery-sidebar {
-        transform: translateX(-100%);
+        transform: translateX(-100%); visibility: hidden;
         box-shadow: 16px 0 38px rgba(0, 0, 0, 0.18);
     }
 
     .douyin-gallery-sidebar.mobile-open {
+                visibility: visible;
         transform: translateX(0);
     }
 
@@ -459,12 +461,12 @@ html[data-theme="dark"] .douyin-gallery-card:hover {
     }
 }
 
-@media (max-width: 680px) {
+@media (max-width: 37.5em) {
     .douyin-gallery-topbar {
         align-items: stretch;
         flex-wrap: wrap;
         gap: 10px;
-        padding: 12px 16px;
+        padding: 12px var(--layout-inset-right) 12px var(--layout-inset-left);
     }
 
     .douyin-gallery-menu {
@@ -474,7 +476,7 @@ html[data-theme="dark"] .douyin-gallery-card:hover {
     .douyin-gallery-heading {
         align-self: center;
         flex: 1;
-        font-size: 18px;
+        font-size: 1.125rem;
     }
 
     .gallery-type-switch {
@@ -489,7 +491,7 @@ html[data-theme="dark"] .douyin-gallery-card:hover {
     }
 
     .douyin-gallery-content {
-        padding: 18px 16px 24px;
+        padding: 18px var(--layout-inset-right) 24px var(--layout-inset-left);
     }
 
     .douyin-gallery-grid {
