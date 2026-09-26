@@ -334,6 +334,14 @@ class GuiComposePluginTest {
     private fun completeTree(): DesktopUiNode = DesktopUiNode.Container(
         "root", DesktopUiNode.ContainerLayout.COLUMN, 1, 4, DesktopUiNode.Alignment.STRETCH,
         listOf(
+            DesktopUiNode.SecurityOverview("security", "", false, 8, emptyList(),
+                DesktopUiNode.Toggle("security.https", "security.https", raw("HTTPS"), null, DesktopUiNode.ToggleStyle.SWITCH, false, true),
+                emptyList(), null, "", 0, 0, "", "", false),
+            DesktopUiNode.PluginOverview("plugins.overview", emptyList(), "", "", false,
+                DesktopUiNode.Button("plugins.refresh", "plugins.refresh", raw("Refresh"), null, DesktopUiNode.ButtonStyle.NORMAL, true),
+                DesktopUiNode.Button("plugins.manage", "plugins.manage", raw("Manage"), null, DesktopUiNode.ButtonStyle.NORMAL, true)),
+            DesktopUiNode.ToolsOverview("tools.overview", text("tools.backend"), emptyList(),
+                DesktopUiNode.Group("tools.media", raw("Media"), text("tools.media.content")), text("tools.history"), null, null),
             DesktopUiNode.AutomationOverview("automation", 0L, false, emptyList(), emptyList(), emptyList()),
             DesktopUiNode.HomeOverview("overview", emptyList(), emptyList(), emptyList(), false,
                 text("overview.backend"), DesktopUiNode.HomeSystem(raw("Disabled"), null, raw("Unavailable"))),

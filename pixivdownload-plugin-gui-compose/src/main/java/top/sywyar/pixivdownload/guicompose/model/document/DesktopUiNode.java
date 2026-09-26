@@ -29,7 +29,8 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         DesktopUiNode.TextInput, DesktopUiNode.Toggle, DesktopUiNode.Choice,
         DesktopUiNode.NumberInput, DesktopUiNode.Table, DesktopUiNode.Tree,
         DesktopUiNode.Button, DesktopUiNode.Link, DesktopUiNode.AccountSetup, DesktopUiNode.OnboardingHub,
-        DesktopUiNode.HomeOverview, DesktopUiNode.AutomationOverview, DesktopUiNode.PluginOverview, DesktopUiNode.ToolsOverview {
+        DesktopUiNode.HomeOverview, DesktopUiNode.AutomationOverview, DesktopUiNode.PluginOverview, DesktopUiNode.ToolsOverview,
+        DesktopUiNode.SecurityOverview {
 
     /** @return 单份文档内稳定的节点标识 */
     String id();
@@ -751,6 +752,37 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         }
     }
 
+    /** 安全页面的短暂交互状态；密码只通过输入事件传递，不进入节点值。 */
+    record SecurityOverview(
+            String id,
+            String panel,
+            boolean busy,
+            int minimumPasswordLength,
+            List<TextInput> inputs,
+            Toggle https,
+            List<Button> actions,
+            TextToken notice,
+            String errorField,
+            long formRevision,
+            long successRevision,
+            String successOperation,
+            String runningAddress,
+            boolean keyStoreConfigured
+    ) implements DesktopUiNode {
+        public SecurityOverview {
+            id = requireId(id, "id");
+            inputs = List.copyOf(inputs);
+            actions = List.copyOf(actions);
+        }
+        @Override public Kind kind() { return Kind.SECURITY_OVERVIEW; }
+        @Override public List<DesktopUiNode> childNodes() {
+            List<DesktopUiNode> children = new ArrayList<>(inputs);
+            children.add(https);
+            children.addAll(actions);
+            return List.copyOf(children);
+        }
+    }
+
     /** 工具目录与可收起的执行面板，动作仍由工具控制器持有。 */
     record ToolsOverview(String id, Text backend, List<DesktopUiNode> tools, Group media,
                          DesktopUiNode history, ToolActivity activity, ToolWorkspace workspace) implements DesktopUiNode {
@@ -1442,6 +1474,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
     /** 支持的节点类型。 */
     enum Kind {
+        /** 安全与管理员登录管理。 */ SECURITY_OVERVIEW,
         /** 工具工作区。 */ TOOLS_OVERVIEW,
         /** 插件浏览。 */ PLUGIN_OVERVIEW,
         /** 自动化时间线。 */ AUTOMATION_OVERVIEW,

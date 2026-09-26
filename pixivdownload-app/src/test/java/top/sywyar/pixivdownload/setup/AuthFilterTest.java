@@ -1399,6 +1399,7 @@ class AuthFilterTest {
         @ValueSource(strings = {
                 "/api/gui/status",
                 "/api/gui/restart",
+                "/api/gui/logout-all",
                 "/api/gui/anything"
         })
         @DisplayName("/api/gui/** 在本地请求 + 有效 GUI 令牌时应直接放行")
@@ -1418,7 +1419,8 @@ class AuthFilterTest {
         @ParameterizedTest
         @ValueSource(strings = {
                 "/api/gui/status",
-                "/api/gui/restart"
+                "/api/gui/restart",
+                "/api/gui/logout-all"
         })
         @DisplayName("/api/gui/** 缺少有效 GUI 令牌时应返回 403")
         void shouldRejectGuiApiPathsWithoutToken(String path) throws Exception {

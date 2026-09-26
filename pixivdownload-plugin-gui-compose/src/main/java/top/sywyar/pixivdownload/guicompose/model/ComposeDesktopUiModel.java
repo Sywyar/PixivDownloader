@@ -128,7 +128,8 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         this.security = new DesktopSecurityController(
                 this,
                 host,
-                formValues
+                formValues,
+                serverPort
         );
         this.aboutView = new DesktopAboutView(
                 this,
@@ -274,6 +275,9 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         }
         formValues.put(targetId, value);
         switch (targetId) {
+            case "security.current", "security.new", "security.confirm",
+                    "security.https", "security.domain", "security.port",
+                    "security.certificate", "security.private-key" -> security.inputChanged();
             case "welcome.username", "welcome.password" -> onboarding.credentialsChanged();
             case "welcome.proxy.enabled", "welcome.proxy.host", "welcome.proxy.port" -> onboarding.proxyChanged();
             case "folder.selected" -> tools.selectFolder(value);
@@ -667,6 +671,15 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         configuration.coreValueSaved(key, value);
     }
 
+    void securityConfigSaved(Map<String, String> saved) {
+        saved.forEach((key, value) -> {
+            var field = new DesktopConfigurationController.FieldKey(null, key);
+            String previous = configuration.savedValues.put(field, value);
+            configuration.values.compute(field, (ignored, draft) ->
+                    draft == null || Objects.equals(draft, previous) ? value : draft);
+        });
+    }
+
     DesktopUiHost.FfmpegProxy proxySettings() {
         return configuration.proxySettings();
     }
@@ -732,6 +745,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
     public synchronized void close() throws Exception {
         if (closed) return;
         closed = true;
+        security.clearSecrets();
         snapshotListeners.clear();
         worker.shutdownNow();
         AutoCloseable subscription = backendSubscription;

@@ -178,6 +178,7 @@ object ComposeDesktopUiNodeRenderer {
             is DesktopUiNode.AutomationOverview -> top.sywyar.pixivdownload.guicompose.automation.AutomationOverview(node, text, emit, modifier)
             is DesktopUiNode.HomeOverview -> HomeOverview(node, text, emit, modifier)
             is DesktopUiNode.ToolsOverview -> top.sywyar.pixivdownload.guicompose.tools.ToolsOverview(node, text, emit, modifier)
+            is DesktopUiNode.SecurityOverview -> top.sywyar.pixivdownload.guicompose.security.SecurityOverview(node, text, emit, modifier)
             is DesktopUiNode.OnboardingHub -> OnboardingGuideHub(node, text, emit, modifier) { child, childModifier ->
                 Node(child, text, emit, childModifier)
             }

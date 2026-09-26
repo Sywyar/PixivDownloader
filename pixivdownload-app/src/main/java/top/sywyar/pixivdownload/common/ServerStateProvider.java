@@ -23,4 +23,7 @@ public interface ServerStateProvider {
      * 未完成安装抛 {@link IllegalStateException}；成功后所有现存 session 失效。
      */
     void changePassword(String oldPassword, String newPassword) throws IOException;
+
+    /** 注销全部管理员短期与长期会话；写盘失败时保留原登录态。 */
+    void revokeAllSessions() throws IOException;
 }

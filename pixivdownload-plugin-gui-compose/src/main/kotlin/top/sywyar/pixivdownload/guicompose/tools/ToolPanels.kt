@@ -45,6 +45,7 @@ internal fun ToolPanelLayout(
     close: () -> Unit,
     closeLabel: String,
     closeEnabled: Boolean = true,
+    tagPrefix: String = "tools",
     footer: @Composable RowScope.() -> Unit,
     body: @Composable ColumnScope.() -> Unit,
 ) {
@@ -60,7 +61,7 @@ internal fun ToolPanelLayout(
                 CupertinoText(title, Modifier.semantics { heading(); paneTitle = title }, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
                 if (description.isNotBlank()) CupertinoText(description, fontSize = 12.sp, color = palette.secondaryText)
             }
-            CupertinoIconButton(close, enabled = closeEnabled, modifier = Modifier.testTag("tools.sheet.close")) {
+            CupertinoIconButton(close, enabled = closeEnabled, modifier = Modifier.testTag("$tagPrefix.sheet.close")) {
                 DesktopIcon(Icons.Default.Close, closeLabel, tint = palette.secondaryText)
             }
         }
@@ -75,7 +76,7 @@ internal fun ToolPanelLayout(
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(palette.controlBorder.copy(alpha = .35f)))
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 18.dp).testTag("tools.footer"),
+            Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 18.dp).testTag("$tagPrefix.footer"),
             horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
             verticalAlignment = Alignment.CenterVertically,
             content = footer,

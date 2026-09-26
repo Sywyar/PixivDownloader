@@ -36,6 +36,7 @@ import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.clipRect
@@ -99,6 +100,7 @@ internal fun OnboardingInput(
     onTogglePassword: () -> Unit = {},
     visibilityLabel: String = "",
     editRevision: Int = 0,
+    onFocusChanged: (Boolean) -> Unit = {},
 ) {
     val palette = LocalExperiencePalette.current
     val interaction = remember { MutableInteractionSource() }
@@ -162,7 +164,7 @@ internal fun OnboardingInput(
                 imeAction = if (password) ImeAction.Default else ImeAction.Next,
             ),
             keyboardActions = KeyboardActions(onNext = { onNext() }),
-            modifier = Modifier.fillMaxWidth().focusRequester(focusRequester).testTag(node.id())
+            modifier = Modifier.fillMaxWidth().focusRequester(focusRequester).onFocusChanged { onFocusChanged(it.isFocused) }.testTag(node.id())
                 .semantics {
                     contentDescription = label
                     if (feedback == Feedback.INVALID && errorMessage.isNotBlank()) error(errorMessage)

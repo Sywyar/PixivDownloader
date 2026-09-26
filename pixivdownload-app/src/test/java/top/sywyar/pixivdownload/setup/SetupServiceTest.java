@@ -402,6 +402,40 @@ class SetupServiceTest {
     }
 
     @Test
+    @DisplayName("退出全部登录同时撤销短期和持久会话并保留管理员密码")
+    void shouldRevokeAllSessionsAndPersist() throws IOException {
+        setupService.init("admin", "password1234", "solo");
+        String shortToken = setupService.createSession(false);
+        String longToken = setupService.createSession(true);
+        setupService.revokeAllSessions();
+        assertThat(setupService.isValidSession(shortToken)).isFalse();
+        assertThat(setupService.isValidSession(longToken)).isFalse();
+        assertThat(setupService.checkLogin("admin", "password1234")).isTrue();
+        SetupConfig saved = new ObjectMapper().readValue(
+                stateDir.resolve(RuntimeFiles.SETUP_CONFIG_JSON).toFile(), SetupConfig.class);
+        assertThat(saved.getSessions()).isEmpty();
+        setupService.revokeAllSessions();
+        assertThat(setupService.isValidSession(setupService.createSession(true))).isTrue();
+    }
+
+    @Test
+    @DisplayName("全部注销写盘失败时恢复两类会话，未安装时拒绝注销")
+    void shouldRollbackAllSessionRevocation() throws IOException {
+        assertThatThrownBy(() -> setupService.revokeAllSessions()).isInstanceOf(IllegalStateException.class);
+        setupService.init("admin", "password1234", "solo");
+        String shortToken = setupService.createSession(false);
+        String longToken = setupService.createSession(true);
+        Path backup = blockStateDirectory();
+        try {
+            assertThatThrownBy(() -> setupService.revokeAllSessions()).isInstanceOf(IOException.class);
+            assertThat(setupService.isValidSession(shortToken)).isTrue();
+            assertThat(setupService.isValidSession(longToken)).isTrue();
+        } finally {
+            restoreStateDirectory(backup);
+        }
+    }
+
+    @Test
     @DisplayName("安装状态在持久化完成前不对并发读取发布")
     void shouldNotExposeSetupStateBeforePersistenceCompletes() throws Exception {
         BlockingFailingObjectMapper mapper = new BlockingFailingObjectMapper();
