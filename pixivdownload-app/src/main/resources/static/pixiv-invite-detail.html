@@ -9,6 +9,7 @@
 <script src="/js/pixiv-lang-switcher.js"></script>
 <script src="/js/pixiv-theme.js"></script>
 <script src="/js/invite-modals.js"></script>
+<link rel="stylesheet" href="/css/pixiv-layout.css">
 <link rel="stylesheet" href="/vendor/fonts/fonts.css">
 <link rel="stylesheet" href="/css/lang-theme-switcher.css">
 <!-- 全站共享动效层：统一动效令牌与通用微交互，页面自有样式在其后加载、可按需覆盖。 -->
@@ -16,9 +17,10 @@
 <link rel="stylesheet" href="/css/pixiv-feedback.css">
 <link rel="stylesheet" href="/css/pixiv-scrollbar.css">
 <link rel="stylesheet" href="/pixiv-invite-detail/pixiv-invite-detail.css">
+    <script src="/js/pixiv-layout.js" defer></script>
 </head>
-<body>
-<header class="topbar">
+<body class="layout-flow">
+<header class="layout-sticky topbar" data-layout-height="--layout-header-height">
     <span class="brand" data-i18n="invite:page.detail.title">邀请详情</span>
     <a class="back-link" href="/pixiv-invite-manage.html" data-i18n="invite:header.back-list">← 返回列表</a>
     <div class="topbar-actions" id="langSwitcherAnchor"></div>

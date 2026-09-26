@@ -46,7 +46,7 @@ body {
     color: var(--text);
     background: var(--bg);
     font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
-    overflow-x: hidden;
+
 }
 
 button,
@@ -71,10 +71,11 @@ a {
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     align-items: center;
     min-height: 64px;
-    padding: 10px clamp(14px, 3vw, 34px);
+    padding: 10px var(--layout-inset-right) 10px var(--layout-inset-left);
     border-bottom: 1px solid var(--line);
     background: color-mix(in srgb, var(--surface) 92%, transparent);
     backdrop-filter: blur(16px);
+    flex-wrap: wrap;
 }
 
 .topbar-navigation,
@@ -98,7 +99,7 @@ a {
 .topbar-title {
     overflow: hidden;
     max-width: min(36vw, 520px);
-    font-size: 14px;
+    font-size: 0.875rem;
     font-weight: 700;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -122,7 +123,7 @@ a {
     border: 1px solid color-mix(in srgb, var(--brand) 48%, transparent);
     border-radius: 999px;
     background: var(--brand-soft);
-    font-size: 11px;
+    font-size: 0.6875rem;
     font-weight: 700;
     white-space: nowrap;
 }
@@ -130,7 +131,7 @@ a {
 .button,
 .work-action {
     display: inline-flex;
-    min-height: 38px;
+    min-height: max(2.375rem, var(--layout-control-height));
     align-items: center;
     justify-content: center;
     padding: 8px 13px;
@@ -157,9 +158,9 @@ a {
 }
 
 .page-shell {
-    width: min(1480px, 100%);
+    width: calc(100% - var(--layout-inset-left) - var(--layout-inset-right));
     margin: 0 auto;
-    padding: clamp(18px, 3vw, 38px);
+    padding: 1.5rem 0;
 }
 
 .status-card,
@@ -185,7 +186,7 @@ a {
 
 .detail-layout {
     display: grid;
-    grid-template-columns: minmax(0, 1.75fr) minmax(300px, 0.75fr);
+    grid-template-columns: minmax(0, 1fr) var(--layout-sidebar);
     gap: clamp(18px, 2.4vw, 30px);
     align-items: start;
 }
@@ -202,7 +203,7 @@ a {
 
 .metadata-panel {
     position: sticky;
-    top: 88px;
+    top: calc(var(--layout-header-height) + 1.5rem);
 }
 
 .panel-heading {
@@ -223,20 +224,20 @@ a {
 .eyebrow {
     margin-bottom: 5px;
     color: var(--brand);
-    font-size: 12px;
+    font-size: 0.75rem;
     font-weight: 800;
     letter-spacing: 0.08em;
     text-transform: uppercase;
 }
 
 .panel-heading h2 {
-    font-size: clamp(19px, 2.2vw, 25px);
+    font-size: clamp(1.1875rem, 2.2vw, 1.5625rem);
 }
 
 .media-count {
     flex: 0 0 auto;
     color: var(--muted);
-    font-size: 13px;
+    font-size: 0.8125rem;
 }
 
 .media-list {
@@ -260,7 +261,6 @@ a {
 
 .media-frame {
     display: grid;
-    min-height: 220px;
     place-items: center;
     overflow: hidden;
     background: #0b0c0f;
@@ -269,9 +269,9 @@ a {
 .media-frame img,
 .media-frame video {
     display: block;
-    width: 100%;
+    width: auto;
     max-width: 100%;
-    max-height: min(78vh, 1000px);
+    max-height: max(8rem, calc(100svh - var(--layout-header-height) - 10rem));
     object-fit: contain;
 }
 
@@ -284,7 +284,7 @@ a {
     padding: 11px 14px;
     color: var(--text-secondary);
     border-top: 1px solid var(--line);
-    font-size: 13px;
+    font-size: 0.8125rem;
 }
 
 .media-caption-label,
@@ -307,7 +307,7 @@ a {
 }
 
 .work-heading h1 {
-    font-size: clamp(24px, 3.2vw, 38px);
+    font-size: clamp(1.5rem, 3.2vw, 2.375rem);
     line-height: 1.2;
     overflow-wrap: anywhere;
 }
@@ -345,7 +345,7 @@ a {
 .metadata-section h2 {
     margin-bottom: 12px;
     color: var(--text);
-    font-size: 14px;
+    font-size: 0.875rem;
     font-weight: 750;
 }
 
@@ -391,11 +391,11 @@ a {
     border: 1px solid var(--line);
     border-radius: 999px;
     background: var(--surface-muted);
-    font-size: 13px;
+    font-size: 0.8125rem;
     overflow-wrap: anywhere;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 56.25em) {
     .topbar {
         grid-template-columns: 1fr auto;
     }
@@ -414,10 +414,10 @@ a {
     }
 }
 
-@media (max-width: 600px) {
+@media (max-width: 37.5em) {
     .topbar {
         gap: 8px;
-        padding: 8px 10px;
+        padding: 8px var(--layout-inset-right) 8px var(--layout-inset-left);
     }
 
     .topbar-navigation,
@@ -426,13 +426,14 @@ a {
     }
 
     .button {
-        min-height: 36px;
+        min-height: max(2.25rem, var(--layout-control-height));
         padding: 7px 10px;
-        font-size: 13px;
+        font-size: 0.8125rem;
     }
 
     .page-shell {
-        padding: 12px;
+        padding: 1.5rem 0;
+        width: calc(100% - var(--layout-inset-left) - var(--layout-inset-right));
     }
 
     .detail-layout {

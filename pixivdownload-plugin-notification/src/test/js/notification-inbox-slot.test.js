@@ -563,5 +563,5 @@ test('HTML 与 CSS 保留 CSP、主题、可见性和滚动布局边界', () => 
     assert.match(CSS, /\.notification-detail-content-frame\s*\{[^}]*height:\s*1px;[^}]*overflow:\s*hidden;/s);
     assert.doesNotMatch(CSS, /\.notification-detail-content-frame\s*\{[^}]*min-height:/s);
     assert.match(CSS, /\.notification-page\s*\{[^}]*height:\s*100dvh;[^}]*display:\s*flex;[^}]*overflow:\s*hidden;/s);
-    assert.match(CSS, /@media \(max-width:\s*760px\)[\s\S]*\.notification-page\s*\{[^}]*height:\s*auto;[^}]*overflow:\s*visible;/s);
+    assert.match(CSS, /@media \(max-width:\s*[^)]+\)[\s\S]*\.notification-page\s*\{[^}]*height:\s*auto;[^}]*overflow:\s*visible;/s);
 });

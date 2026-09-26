@@ -14,6 +14,7 @@
     <script src="/js/pixiv-onboarding-gallery.js"></script>
     <script src="/js/pixiv-onboarding.js"></script>
     <script src="/js/pixiv-actions.js"></script>
+    <link rel="stylesheet" href="/css/pixiv-layout.css">
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
     <link rel="stylesheet" href="/css/lang-theme-switcher.css">
     <link rel="stylesheet" href="/css/pixiv-onboarding.css">
@@ -25,9 +26,9 @@
     <link rel="stylesheet" href="/pixiv-artwork/pixiv-artwork-overlays.css">
     <link rel="stylesheet" href="/pixiv-artwork/pixiv-artwork-theme.css">
 </head>
-<body>
-<div class="topbar">
-    <a class="back-btn" id="backToGalleryLink" href="/pixiv-gallery.html?view=all">
+<body class="layout-flow">
+<div class="layout-sticky topbar" data-layout-height="--layout-header-height">
+    <a class="back-btn layout-touch" id="backToGalleryLink" href="/pixiv-gallery.html?view=all">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
              stroke-linejoin="round">
             <line x1="19" y1="12" x2="5" y2="12"/>
@@ -46,22 +47,22 @@
             <div class="viewer" id="viewer" style="display:none">
                 <div class="viewer-image" id="mainImage"></div>
                 <div class="more-pages" id="morePages"></div>
-                <div class="viewer-actions">
-                    <button class="expand-btn" id="expandBtn" style="display:none">展开全部 (<span
+                <div class="viewer-actions" data-layout-height="--layout-actions-height">
+                    <button class="expand-btn layout-touch" id="expandBtn" style="display:none">展开全部 (<span
                             id="totalPageCount"></span>)
                     </button>
-                    <button class="expand-btn" id="collapseBtn" style="display:none">收起</button>
-                    <button class="heart-btn" id="heartBtn" type="button" style="display:none">
+                    <button class="expand-btn layout-touch" id="collapseBtn" style="display:none">收起</button>
+                    <button class="heart-btn layout-touch" id="heartBtn" type="button" style="display:none">
                         <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
                         <span id="heartLabel">收藏</span>
                     </button>
-                    <a class="expand-btn external-link-btn" id="pixivArtworkLink" href="#" target="_blank" rel="noopener noreferrer" style="display:none">
+                    <a class="expand-btn external-link-btn layout-touch" id="pixivArtworkLink" href="#" target="_blank" rel="noopener noreferrer" style="display:none">
                         <span id="pixivArtworkLinkLabel">Pixiv 原作品链接</span>
                     </a>
-                    <a class="expand-btn showcase-link-btn" id="showcaseLink" href="#" target="_blank" rel="noopener noreferrer" style="display:none">
+                    <a class="expand-btn showcase-link-btn layout-touch" id="showcaseLink" href="#" target="_blank" rel="noopener noreferrer" style="display:none">
                         <span id="showcaseLinkLabel">作品展示(娱乐性功能)</span>
                     </a>
-                    <button class="expand-btn delete-btn" id="deleteArtworkBtn" type="button" style="display:none">
+                    <button class="expand-btn delete-btn layout-touch" id="deleteArtworkBtn" type="button" style="display:none">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <polyline points="3 6 5 6 21 6"/>
                             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -72,10 +73,10 @@
                     </button>
                     <span class="meta-info" id="metaInfo"></span>
                 </div>
-                <div class="viewer-series-nav" id="seriesNav" style="display:none">
-                    <a class="expand-btn" id="seriesPrevBtn" href="#" style="display:none"></a>
-                    <a class="expand-btn" id="seriesIndexBtn" href="#" style="display:none"></a>
-                    <a class="expand-btn" id="seriesNextBtn" href="#" style="display:none"></a>
+                <div class="viewer-series-nav" data-layout-height="--layout-series-height" id="seriesNav" style="display:none">
+                    <a class="expand-btn layout-touch" id="seriesPrevBtn" href="#" style="display:none"></a>
+                    <a class="expand-btn layout-touch" id="seriesIndexBtn" href="#" style="display:none"></a>
+                    <a class="expand-btn layout-touch" id="seriesNextBtn" href="#" style="display:none"></a>
                 </div>
             </div>
         </div>
@@ -162,37 +163,37 @@
 </div>
 
 <div class="modal-backdrop" id="modalAddToCollection">
-    <div class="modal">
+    <div class="modal layout-dialog">
         <div class="modal-head">
             <span class="modal-title" id="addToCollectionTitle">添加到收藏夹</span>
-            <button class="modal-close" data-pixiv-click="closeAddToCollectionModal()">×</button>
+            <button class="modal-close layout-touch" data-pixiv-click="closeAddToCollectionModal()">×</button>
         </div>
         <div class="modal-body">
             <div style="display:flex; gap:6px; margin-bottom:16px">
                 <input class="form-input" id="quickCreateName" placeholder="快速新建收藏夹" maxlength="40"
                        style="flex:1">
-                <button class="btn" id="quickCreateBtn">新建</button>
+                <button class="btn layout-touch" id="quickCreateBtn">新建</button>
             </div>
             <div class="collection-list" id="addToCollectionList"></div>
         </div>
         <div class="modal-foot">
-            <button class="btn" id="addToCollectionDoneBtn" data-pixiv-click="closeAddToCollectionModal()">完成</button>
+            <button class="btn layout-touch" id="addToCollectionDoneBtn" data-pixiv-click="closeAddToCollectionModal()">完成</button>
         </div>
     </div>
 </div>
 
 <div class="modal-backdrop" id="modalDeleteArtwork">
-    <div class="modal">
+    <div class="modal layout-dialog">
         <div class="modal-head">
             <span class="modal-title" id="deleteArtworkTitle">删除作品</span>
-            <button class="modal-close" id="deleteArtworkClose" type="button">×</button>
+            <button class="modal-close layout-touch" id="deleteArtworkClose" type="button">×</button>
         </div>
         <div class="modal-body">
             <p class="delete-modal-text" id="deleteArtworkMessage">确定要删除这个作品吗？该作品的图片文件会被永久删除且无法恢复；下载记录将保留删除标记，默认不会被重新下载。</p>
         </div>
         <div class="modal-foot">
-            <button class="btn" id="deleteArtworkCancel" type="button">取消</button>
-            <button class="btn btn-danger" id="deleteArtworkConfirm" type="button">删除</button>
+            <button class="btn layout-touch" id="deleteArtworkCancel" type="button">取消</button>
+            <button class="btn btn-danger layout-touch" id="deleteArtworkConfirm" type="button">删除</button>
         </div>
     </div>
 </div>
@@ -200,6 +201,8 @@
 <div class="toast-container" id="toastContainer"></div>
 
 <script src="/pixiv-artwork/artwork-core.js"></script>
+<script src="/js/pixiv-layout.js"></script>
+<script src="/pixiv-artwork/artwork-layout.js"></script>
 <script src="/pixiv-artwork/artwork-viewer.js"></script>
 <script src="/pixiv-artwork/artwork-related.js"></script>
 <script src="/pixiv-artwork/artwork-collections.js"></script>

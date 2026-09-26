@@ -39,11 +39,11 @@ body {
     display: grid;
     min-height: 100vh;
     place-items: center;
-    padding: 2rem 1rem;
+    padding: 2rem var(--layout-inset-right) 2rem var(--layout-inset-left);
 }
 
 .example-card {
-    width: min(100%, 42rem);
+    width: min(100%, var(--layout-form-wide));
     padding: clamp(1.5rem, 5vw, 3rem);
     border: 1px solid var(--example-border);
     border-radius: 1.25rem;

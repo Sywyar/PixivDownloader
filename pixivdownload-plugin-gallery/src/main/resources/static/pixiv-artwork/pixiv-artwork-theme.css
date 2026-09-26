@@ -51,12 +51,12 @@
             color: var(--text);
         }
 
-        @media (max-width: 640px) {
+        @media (max-width: 37.5em) {
             .topbar {
                 align-items: stretch;
                 flex-wrap: wrap;
                 gap: 10px;
-                padding: 12px 14px;
+                padding: .75rem var(--layout-inset-right) .75rem var(--layout-inset-left);
             }
 
             .back-btn {
@@ -77,12 +77,12 @@
             }
 
             .wrapper {
-                padding: 14px;
-                gap: 14px;
+                padding: 1rem 0;
+                gap: var(--layout-gap);
             }
 
             .panel {
-                padding: 16px 14px;
+                padding: var(--layout-panel-padding);
                 border-radius: 8px;
             }
 

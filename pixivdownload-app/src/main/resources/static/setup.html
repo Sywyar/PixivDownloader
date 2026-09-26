@@ -10,12 +10,13 @@
 <script src="/js/pixiv-theme.js"></script>
 <script src="/js/pixiv-actions.js"></script>
 <!-- 全站共享动效层：统一动效令牌与通用微交互，页面自有样式在其后加载、可按需覆盖。 -->
-<link rel="stylesheet" href="/css/pixiv-motion.css">
+<link rel="stylesheet" href="/css/pixiv-layout.css">
+    <link rel="stylesheet" href="/css/pixiv-motion.css">
 <link rel="stylesheet" href="/css/pixiv-feedback.css">
 <link rel="stylesheet" href="/css/pixiv-scrollbar.css">
 <link rel="stylesheet" href="/setup/setup.css">
 </head>
-<body>
+<body class="layout-flow">
 
 <header>
   <span class="header-title" data-i18n="header.title">Pixiv 批量下载器 — 初始配置</span>
@@ -69,7 +70,7 @@
 
   <div class="card">
     <div id="status-msg"></div>
-    <button class="btn btn-green" id="submit-btn" data-pixiv-click="submitSetup()" data-i18n="button.submit">完成配置</button>
+    <button class="btn btn-green layout-touch" id="submit-btn" data-pixiv-click="submitSetup()" data-i18n="button.submit">完成配置</button>
   </div>
 
 </div>

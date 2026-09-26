@@ -6,8 +6,8 @@
     display: flex;
     align-items: center;
     gap: 9px;
-    padding: 9px 22px;
-    font-size: 12.5px;
+    padding: 9px var(--layout-inset-right) 9px var(--layout-inset-left);
+    font-size: 0.78125rem;
     color: var(--warn);
     background: var(--warn-soft);
     border-bottom: 1px solid var(--warn);
@@ -19,11 +19,11 @@
 
 .ab-shell {
     display: grid;
-    grid-template-columns: 92px minmax(0, 1fr) 380px;
+    grid-template-columns: 5.75rem minmax(0, 1fr) 20rem;
     gap: 20px;
-    max-width: 1720px;
+    max-width: none;
     margin: 0 auto;
-    padding: 20px 22px 40px;
+    padding: 20px var(--layout-inset-right) 40px var(--layout-inset-left);
     align-items: start;
 }
 
@@ -77,7 +77,7 @@
 }
 
 .ab-rail-label {
-    font-size: 11px;
+    font-size: 0.6875rem;
     font-weight: 600;
     letter-spacing: .02em;
 }
@@ -141,7 +141,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    font-size: 24px;
+    font-size: 1.5rem;
     font-weight: 800;
     letter-spacing: .01em;
 }
@@ -154,7 +154,7 @@
 
 .ab-mode-desc {
     color: var(--muted);
-    font-size: 13px;
+    font-size: 0.8125rem;
     margin-top: 4px;
 }
 
@@ -171,13 +171,13 @@
 }
 
 .ab-stage-heading {
-    font-size: 17px;
+    font-size: 1.0625rem;
     font-weight: 700;
 }
 
 .ab-stage-count {
     color: var(--faint);
-    font-size: 12.5px;
+    font-size: 0.78125rem;
 }
 
 /* ============================================================
@@ -195,7 +195,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 13px;
+    font-size: 0.8125rem;
 }
 
 .ab-account-uid .ab-icon {
@@ -206,7 +206,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--warn);
     flex: 1;
     min-width: 220px;
@@ -223,7 +223,7 @@
     align-items: center;
     gap: 10px;
     padding: 13px 14px;
-    font-size: 13px;
+    font-size: 0.8125rem;
     font-weight: 600;
     text-align: left;
     transition: transform var(--motion-fast) var(--motion-ease-standard),
@@ -346,7 +346,7 @@
 .ab-mini-badge {
     padding: 1px 7px;
     border-radius: 6px;
-    font-size: 10px;
+    font-size: 0.625rem;
     font-weight: 700;
     letter-spacing: .03em;
     color: var(--surface);
@@ -440,7 +440,7 @@
 }
 
 .ab-work-title {
-    font-size: 12.5px;
+    font-size: 0.78125rem;
     font-weight: 600;
     line-height: 1.4;
     display: -webkit-box;
@@ -450,7 +450,7 @@
 }
 
 .ab-work-author {
-    font-size: 11px;
+    font-size: 0.6875rem;
     color: var(--faint);
     margin-top: 3px;
     white-space: nowrap;
@@ -524,7 +524,7 @@
 }
 
 .ab-user-meta strong, .ab-collection-meta strong {
-    font-size: 13px;
+    font-size: 0.8125rem;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -548,7 +548,7 @@
 }
 
 .ab-enqueue-summary {
-    font-size: 12.5px;
+    font-size: 0.78125rem;
     color: var(--muted);
     font-weight: 600;
 }
@@ -567,7 +567,7 @@
 
 .ab-page-btn {
     width: 34px;
-    height: 34px;
+    min-height: max(2.125rem, var(--layout-control-height));
     border-radius: 50%;
     display: flex;
     align-items: center;
@@ -587,7 +587,7 @@
 }
 
 .ab-page-info {
-    font-size: 12.5px;
+    font-size: 0.78125rem;
     color: var(--muted);
     font-variant-numeric: tabular-nums;
 }
@@ -629,13 +629,13 @@
 
 .ab-import-help summary {
     cursor: pointer;
-    font-size: 12.5px;
+    font-size: 0.78125rem;
     color: var(--muted);
     font-weight: 600;
 }
 
 .ab-import-summary {
-    font-size: 13px;
+    font-size: 0.8125rem;
     font-weight: 600;
     color: var(--ok);
 }
@@ -657,7 +657,7 @@
     display: flex;
     align-items: center;
     gap: 9px;
-    font-size: 12.5px;
+    font-size: 0.78125rem;
     padding: 6px 8px;
     border-radius: var(--r-sm);
     background: var(--surface-2);
@@ -671,7 +671,7 @@
 
 .ab-import-id {
     font-family: var(--mono);
-    font-size: 11.5px;
+    font-size: 0.71875rem;
     color: var(--muted);
 }
 
@@ -699,7 +699,7 @@
 }
 
 .ab-artist-meta strong {
-    font-size: 16px;
+    font-size: 1rem;
 }
 
 .ab-series-head {
@@ -730,7 +730,7 @@
 }
 
 .ab-series-title {
-    font-size: 16px;
+    font-size: 1rem;
 }
 
 .ab-search-controls {
@@ -741,7 +741,7 @@
 }
 
 .ab-control-label {
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--muted);
     font-weight: 600;
 }

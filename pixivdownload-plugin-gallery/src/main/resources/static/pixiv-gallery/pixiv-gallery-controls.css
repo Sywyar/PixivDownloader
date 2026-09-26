@@ -6,8 +6,9 @@
         }
 
         .topbar {
-            padding: 16px 32px;
+            padding: 16px var(--layout-inset-right) 16px var(--layout-inset-left);
             display: flex;
+            flex-wrap: wrap;
             align-items: center;
             gap: 16px;
             border-bottom: 1px solid var(--line);
@@ -56,7 +57,7 @@
             border: none;
             outline: none;
             background: transparent;
-            font-size: 13px;
+            font-size: 0.8125rem;
             font-family: inherit;
             color: var(--text);
         }
@@ -66,13 +67,13 @@
         }
 
         .search-type-select {
-            height: 40px;
+            min-height: max(2.5rem, var(--layout-control-height));
             padding: 0 30px 0 14px;
             border-radius: 999px;
             border: 1px solid var(--line);
             background: var(--control-bg);
             color: var(--text-secondary);
-            font-size: 13px;
+            font-size: 0.8125rem;
             font-family: inherit;
             cursor: pointer;
             outline: none;
@@ -119,12 +120,12 @@
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            height: 40px;
+            min-height: max(2.5rem, var(--layout-control-height));
             padding: 0 14px;
             border-radius: 999px;
             border: 1px solid var(--line);
             background: var(--surface);
-            font-size: 13px;
+            font-size: 0.8125rem;
             color: var(--text-secondary);
             cursor: pointer;
             transition: all 0.15s;
@@ -156,7 +157,7 @@
             border-radius: 8px;
             background: var(--danger);
             color: var(--on-accent);
-            font-size: 10px;
+            font-size: 0.625rem;
             font-weight: 700;
             padding: 0 4px;
             display: none;
@@ -190,7 +191,7 @@
             border-radius: 999px;
             background: transparent;
             color: var(--text-secondary);
-            font-size: 13px;
+            font-size: 0.8125rem;
             font-family: inherit;
             font-weight: 500;
             line-height: 1;
@@ -235,7 +236,7 @@
         }
 
         .filter-row-label {
-            font-size: 12px;
+            font-size: 0.75rem;
             font-weight: 600;
             color: var(--muted);
             text-transform: uppercase;
@@ -252,7 +253,7 @@
             border-radius: 999px;
             border: 1px solid var(--line);
             background: var(--surface);
-            font-size: 12px;
+            font-size: 0.75rem;
             color: var(--text-secondary);
             cursor: pointer;
             transition: all 0.15s;
@@ -331,7 +332,7 @@
         }
 
         .filter-chip-list .chip-empty {
-            font-size: 12px;
+            font-size: 0.75rem;
             color: var(--muted);
         }
 
@@ -394,13 +395,13 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            height: 28px;
+            min-height: max(1.75rem, var(--layout-control-height));
             padding: 0 12px;
             border-radius: 999px;
             border: 1px solid var(--line);
             background: var(--surface);
             color: var(--text-secondary);
-            font-size: 12px;
+            font-size: 0.75rem;
             cursor: pointer;
             transition: all 0.15s;
         }
@@ -454,7 +455,7 @@
             border: none;
             outline: none;
             background: transparent;
-            font-size: 12px;
+            font-size: 0.75rem;
             font-family: inherit;
             color: var(--text);
             width: 160px;
@@ -467,13 +468,13 @@
         .chip .tag-trans {
             color: var(--muted);
             margin-left: 4px;
-            font-size: 11px;
+            font-size: 0.6875rem;
         }
 
         .chip-count {
             color: var(--muted);
             margin-left: 4px;
-            font-size: 11px;
+            font-size: 0.6875rem;
         }
 
         #filterTagChips, #filterSeriesChips, #filterAuthorChips {
@@ -496,7 +497,7 @@
             right: 0;
             bottom: 0;
             padding: 2px 10px 2px 24px;
-            font-size: 14px;
+            font-size: 0.875rem;
             color: var(--muted);
             background: linear-gradient(90deg, var(--control-muted-transparent) 0%, var(--control-muted-bg) 40%, var(--control-muted-bg) 100%);
             pointer-events: none;
@@ -510,7 +511,7 @@
             border: 1px solid var(--line);
             background: transparent;
             color: var(--muted);
-            font-size: 12px;
+            font-size: 0.75rem;
             cursor: pointer;
         }
 

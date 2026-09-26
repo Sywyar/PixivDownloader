@@ -27,14 +27,14 @@
 }
 
 .ab-schedule-title strong {
-    font-size: 15px;
+    font-size: 0.9375rem;
 }
 
 .ab-lamp {
     display: inline-flex;
     align-items: center;
     gap: 7px;
-    font-size: 12px;
+    font-size: 0.75rem;
     font-weight: 600;
     padding: 4px 11px;
     border-radius: 999px;
@@ -83,7 +83,7 @@
     display: flex;
     align-items: center;
     gap: 7px;
-    font-size: 12px;
+    font-size: 0.75rem;
 }
 
 .ab-schedule-meta-label {
@@ -107,7 +107,7 @@
     align-items: center;
     gap: 7px;
     margin-top: 10px;
-    font-size: 12px;
+    font-size: 0.75rem;
     font-weight: 600;
     color: var(--muted);
     padding: 6px 0;
@@ -135,7 +135,7 @@
 .ab-round-head {
     display: flex;
     gap: 16px;
-    font-size: 11.5px;
+    font-size: 0.71875rem;
     flex-wrap: wrap;
 }
 
@@ -153,7 +153,7 @@
     padding: 7px 10px;
     border-radius: var(--r-sm);
     background: var(--surface-2);
-    font-size: 12px;
+    font-size: 0.75rem;
 }
 
 .ab-round-title {
@@ -200,7 +200,7 @@
     display: flex;
     align-items: center;
     gap: 9px;
-    font-size: 13px;
+    font-size: 0.8125rem;
     font-weight: 600;
     color: var(--danger);
 }
@@ -213,7 +213,7 @@
 }
 
 .ab-snapshot-section h4 {
-    font-size: 13px;
+    font-size: 0.8125rem;
     margin: 14px 0 8px;
     color: var(--brand-strong);
 }
@@ -223,7 +223,7 @@
     grid-template-columns: 150px 1fr;
     gap: 5px 14px;
     margin: 0;
-    font-size: 12.5px;
+    font-size: 0.78125rem;
 }
 
 .ab-snapshot-dl dt {

@@ -36,26 +36,26 @@
   html { min-width: 0; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: var(--page-bg); color: var(--text); font-size: 14px;
+    background: var(--page-bg); color: var(--text); font-size: 0.875rem;
     display: flex; flex-direction: column; min-height: 100vh;
-    line-height: 1.4; overflow-x: hidden;
+    line-height: 1.4;
   }
   button, input, select, textarea { max-width: 100%; }
   header {
     background: var(--brand); color: var(--brand-contrast);
-    padding: 14px 20px; font-size: 18px; font-weight: bold; letter-spacing: .5px;
+    padding: 14px var(--layout-inset-right) 14px var(--layout-inset-left); font-size: 1.125rem; font-weight: bold; letter-spacing: .5px;
     display: flex; align-items: center; gap: 12px;
   }
   .header-title { flex: 1; min-width: 0; }
   .header-actions { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
   .pixiv-lang-switcher--login {
-    display: inline-flex; align-items: center; font-size: 12px; font-weight: 500;
+    display: inline-flex; align-items: center; font-size: 0.75rem; font-weight: 500;
   }
   .pixiv-lang-switcher--login .pixiv-lang-switcher__select {
-    min-height: 28px; padding: 3px 7px;
+    min-height: max(1.75rem, var(--layout-control-height)); padding: 3px 7px;
     border: 1px solid var(--header-control-border); border-radius: 4px;
     background: transparent; color: var(--brand-contrast); cursor: pointer;
-    font-size: 12px; font-family: inherit;
+    font-size: 0.75rem; font-family: inherit;
   }
   .pixiv-lang-switcher--login .pixiv-lang-switcher__select:hover {
     background: var(--header-control-hover-bg); border-color: var(--header-control-hover-border);
@@ -80,25 +80,25 @@
   }
   .center {
     flex: 1; display: flex; align-items: center; justify-content: center;
-    padding: 20px;
+    padding: 20px var(--layout-inset-right) 20px var(--layout-inset-left);
   }
   .card {
     background: var(--surface); border-radius: 8px;
     box-shadow: var(--shadow);
-    padding: 28px; width: 100%; max-width: 360px;
+    padding: 28px; width: 100%; max-width: var(--layout-form);
   }
   .card-title {
-    font-weight: bold; font-size: 13px; color: var(--heading);
+    font-weight: bold; font-size: 0.8125rem; color: var(--heading);
     margin-bottom: 20px; text-transform: uppercase; letter-spacing: .4px;
   }
   .field { margin-bottom: 14px; }
-  .field label { display: block; font-size: 12px; color: var(--heading); margin-bottom: 4px; font-weight: bold; }
+  .field label { display: block; font-size: 0.75rem; color: var(--heading); margin-bottom: 4px; font-weight: bold; }
   .field input[type=text],
   .field input[type=password] {
     width: 100%; padding: 9px 11px;
     border: 1px solid var(--line); border-radius: 5px;
     background: var(--control-bg); color: var(--text);
-    font-size: 13px; transition: border-color .15s;
+    font-size: 0.8125rem; transition: border-color .15s;
   }
   .field input::placeholder { color: var(--muted); }
   .field input:focus { outline: none; border-color: var(--brand); }
@@ -107,33 +107,33 @@
     margin-bottom: 18px;
   }
   .remember-row input[type=checkbox] { width: 15px; height: 15px; cursor: pointer; accent-color: var(--brand); }
-  .remember-row label { font-size: 13px; cursor: pointer; color: var(--heading); }
+  .remember-row label { font-size: 0.8125rem; cursor: pointer; color: var(--heading); }
   #error-msg,
   #invite-error {
-    font-size: 12px; color: var(--danger);
+    font-size: 0.75rem; color: var(--danger);
     min-height: 18px; margin-bottom: 10px; text-align: center;
   }
   .btn {
     display: block; width: 100%; padding: 10px;
     border: none; border-radius: 5px; cursor: pointer;
-    font-size: 14px; font-weight: bold; color: var(--brand-contrast); transition: opacity .15s;
+    font-size: 0.875rem; font-weight: bold; color: var(--brand-contrast); transition: opacity .15s;
   }
   .btn:hover { opacity: .85; }
   .btn:disabled { opacity: .45; cursor: not-allowed; }
   .btn-green { background: var(--brand); }
   .invite-link-row {
-    margin-top: 14px; text-align: center; font-size: 12px;
+    margin-top: 14px; text-align: center; font-size: 0.75rem;
   }
   .invite-link-row a { color: var(--brand); cursor: pointer; text-decoration: underline; }
   .hidden { display: none; }
 
-  @media (max-width: 520px) {
+  @media (max-width: 37.5em) {
     header {
       flex-wrap: wrap;
       align-items: center;
       gap: 8px;
-      padding: 12px 14px;
-      font-size: 16px;
+      padding: 12px var(--layout-inset-right) 12px var(--layout-inset-left);
+      font-size: 1rem;
     }
 
     .header-title { flex: 1 1 100%; }
@@ -145,11 +145,11 @@
 
     .center {
       align-items: flex-start;
-      padding: 18px 14px 28px;
+      padding: 18px var(--layout-inset-right) 28px var(--layout-inset-left);
     }
 
     .card {
       padding: 22px 18px;
-      max-width: none;
+      max-width: var(--layout-form);
     }
   }

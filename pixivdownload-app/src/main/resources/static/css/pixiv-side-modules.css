@@ -32,7 +32,7 @@
     border-radius: 0 8px 8px 0;
     background: var(--surface, #ffffff);
     color: var(--text, #111111);
-    font-size: 12px;
+    font-size: 0.75rem;
     letter-spacing: 1px;
     cursor: pointer;
     box-shadow: 2px 0 8px rgba(0, 0, 0, 0.06);
@@ -60,7 +60,7 @@
     border-radius: 7px;
     background: var(--brand, #0096fa);
     color: #ffffff;
-    font-size: 10px;
+    font-size: 0.625rem;
     line-height: 14px;
     text-align: center;
     writing-mode: horizontal-tb;
@@ -106,7 +106,7 @@
     justify-content: space-between;
     padding: 14px 16px;
     border-bottom: 1px solid var(--line, #e0e0e0);
-    font-size: 14px;
+    font-size: 0.875rem;
     font-weight: 600;
 }
 
@@ -114,7 +114,7 @@
     border: none;
     background: transparent;
     color: inherit;
-    font-size: 16px;
+    font-size: 1rem;
     line-height: 1;
     cursor: pointer;
     opacity: 0.7;
@@ -159,7 +159,7 @@
     flex-direction: column;
     align-items: center;
     gap: 3px;
-    font-size: 11px;
+    font-size: 0.6875rem;
     line-height: 1;
 }
 
@@ -233,7 +233,7 @@
 .pixiv-side-module-flyout-title {
     padding: 12px 14px;
     border-bottom: 1px solid var(--line, #e0e0e0);
-    font-size: 14px;
+    font-size: 0.875rem;
     font-weight: 600;
 }
 
@@ -268,12 +268,12 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    font-size: 13px;
+    font-size: 0.8125rem;
     font-weight: 600;
 }
 
 .pixiv-side-task-status {
-    font-size: 12px;
+    font-size: 0.75rem;
     font-weight: 400;
     white-space: nowrap;
 }
@@ -288,7 +288,7 @@
 
 .pixiv-side-task-meta {
     margin-top: 4px;
-    font-size: 12px;
+    font-size: 0.75rem;
     opacity: 0.72;
 }
 
@@ -312,7 +312,7 @@
 
 .pixiv-side-task-progress-text {
     margin-top: 4px;
-    font-size: 11px;
+    font-size: 0.6875rem;
     opacity: 0.72;
 }
 
@@ -329,7 +329,7 @@
     border-radius: 6px;
     background: transparent;
     color: var(--brand, #0096fa);
-    font-size: 12px;
+    font-size: 0.75rem;
     cursor: pointer;
 }
 
@@ -341,19 +341,19 @@
 .pixiv-side-tasks-empty {
     padding: 28px 12px;
     text-align: center;
-    font-size: 13px;
+    font-size: 0.8125rem;
     opacity: 0.65;
 }
 
 .pixiv-side-tasks-hint {
     padding: 8px 14px 12px;
     border-top: 1px solid var(--line, #e0e0e0);
-    font-size: 11px;
+    font-size: 0.6875rem;
     line-height: 1.6;
     opacity: 0.6;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 56.25em) {
     /* 移动端侧边栏为抽屉式（默认收起到屏幕外），按钮栈固定在屏幕左缘。 */
     .pixiv-side-tabs,
     .sidebar.collapsed + .pixiv-side-tabs {

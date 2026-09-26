@@ -59,7 +59,7 @@
     display: flex;
     align-items: center;
     gap: 9px;
-    font-size: 16px;
+    font-size: 1rem;
     font-weight: 800;
 }
 
@@ -128,7 +128,7 @@
     display: flex;
     align-items: center;
     gap: 9px;
-    font-size: 16px;
+    font-size: 1rem;
     font-weight: 800;
 }
 
@@ -159,7 +159,7 @@
 
 .ab-cookie-input {
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: 0.75rem;
 }
 
 .ab-cookie-input.is-masked {
@@ -175,7 +175,7 @@
 
 .ab-cookie-parse {
     margin-top: 10px;
-    font-size: 12.5px;
+    font-size: 0.78125rem;
     padding: 9px 12px;
     border-radius: var(--r-sm);
     background: var(--surface-2);
@@ -194,7 +194,7 @@
 
 .ab-cookie-formats summary {
     cursor: pointer;
-    font-size: 12.5px;
+    font-size: 0.78125rem;
     font-weight: 600;
     color: var(--muted);
 }
@@ -202,7 +202,7 @@
 .ab-cookie-guide {
     display: inline-block;
     margin-top: 8px;
-    font-size: 12px;
+    font-size: 0.75rem;
 }
 
 .ab-cookie-actions {
@@ -231,19 +231,19 @@
 }
 
 .ab-script-name {
-    font-size: 13.5px;
+    font-size: 0.84375rem;
     flex: 1;
     min-width: 0;
 }
 
 .ab-script-version {
-    font-size: 11px;
+    font-size: 0.6875rem;
     color: var(--faint);
     font-family: var(--mono);
 }
 
 .ab-script-desc {
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--muted);
     margin-top: 6px;
 }
@@ -258,7 +258,7 @@
    设置 / 筛选抽屉
    ============================================================ */
 .ab-settings-group {
-    font-size: 12px;
+    font-size: 0.75rem;
     font-weight: 800;
     color: var(--brand-strong);
     letter-spacing: .04em;
@@ -283,7 +283,7 @@
 }
 
 .ab-setting-label {
-    font-size: 13px;
+    font-size: 0.8125rem;
     font-weight: 600;
 }
 
@@ -314,7 +314,7 @@
     border-radius: var(--r-sm);
     border: 1px solid var(--line);
     background: var(--control-muted-bg);
-    font-size: 12px;
+    font-size: 0.75rem;
     font-weight: 700;
     color: var(--muted);
     min-width: 48px;
@@ -338,7 +338,7 @@
     border: 1px solid var(--line);
     background: var(--surface-2);
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: 0.6875rem;
     color: var(--brand-strong);
     transition: border-color var(--motion-fast) var(--motion-ease-standard),
                 background-color var(--motion-fast) var(--motion-ease-standard);
@@ -350,7 +350,7 @@
 }
 
 .ab-name-preview {
-    font-size: 11.5px;
+    font-size: 0.71875rem;
     color: var(--faint);
     font-family: var(--mono);
 }
@@ -365,7 +365,7 @@
     color: var(--text);
     border-radius: var(--r-sm);
     padding: 7px 10px;
-    font-size: 12px;
+    font-size: 0.75rem;
     font-weight: 600;
     cursor: pointer;
     max-width: 120px;

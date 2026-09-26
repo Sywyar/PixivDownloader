@@ -24,12 +24,12 @@
             display: flex; align-items: center; justify-content: space-between;
             border-bottom: 1px solid var(--line);
         }
-        .modal-title { font-size: 16px; font-weight: 700; }
+        .modal-title { font-size: 1rem; font-weight: 700; }
         .modal-close {
             width: 28px; height: 28px;
             border: none; background: transparent;
             cursor: pointer; border-radius: 4px;
-            color: var(--muted); font-size: 18px;
+            color: var(--muted); font-size: 1.125rem;
         }
         .modal-close:hover { background: var(--hover-bg); color: var(--text); }
         .modal-body { padding: 20px 24px; overflow-y: auto; }
@@ -41,19 +41,19 @@
         .form-field { margin-bottom: 14px; }
         .form-label {
             display: block;
-            font-size: 12px;
+            font-size: 0.75rem;
             font-weight: 600;
             color: var(--text-secondary);
             margin-bottom: 6px;
         }
         .form-input {
-            width: 100%; height: 40px;
+            width: 100%; min-height: max(2.5rem, var(--layout-control-height));
             padding: 0 12px;
             border: 1px solid var(--line);
             border-radius: 8px;
             background: var(--control-bg);
             color: var(--text);
-            font-size: 13px;
+            font-size: 0.8125rem;
             font-family: inherit;
             outline: none;
         }
@@ -64,7 +64,7 @@
             cursor: default;
         }
         .form-hint {
-            font-size: 11px;
+            font-size: 0.6875rem;
             color: var(--muted);
             margin-top: 4px;
         }
@@ -72,7 +72,7 @@
             display: flex;
             align-items: center;
             gap: 8px;
-            font-size: 13px;
+            font-size: 0.8125rem;
             color: var(--text-secondary);
             cursor: pointer;
             user-select: none;
@@ -91,7 +91,7 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            font-size: 11px;
+            font-size: 0.6875rem;
             font-weight: 700;
             line-height: 1;
             cursor: help;
@@ -104,11 +104,11 @@
         .download-root-settings.visible { display: block; }
         .btn {
             display: inline-flex; align-items: center; gap: 6px;
-            height: 36px; padding: 0 16px;
+            min-height: max(2.25rem, var(--layout-control-height)); padding: 0 16px;
             border-radius: 8px;
             border: 1px solid var(--line);
             background: var(--control-bg);
-            font-size: 13px;
+            font-size: 0.8125rem;
             color: var(--text-secondary);
             cursor: pointer;
             transition: all .15s;
@@ -135,7 +135,7 @@
             top: 10px; left: 10px;
             z-index: 3;
             display: none;
-            width: 24px; height: 24px;
+            width: 24px; min-height: max(1.5rem, var(--layout-control-height));
             border-radius: 50%;
             border: 2px solid var(--gallery-fixed-white);
             background: var(--gallery-overlay-45);
@@ -165,7 +165,7 @@
             flex-wrap: wrap; justify-content: center;
         }
         .batch-action-bar.open { transform: translateX(-50%) translateY(0); }
-        .batch-count { font-size: 13px; font-weight: 600; color: var(--text); margin-right: 4px; }
+        .batch-count { font-size: 0.8125rem; font-weight: 600; color: var(--text); margin-right: 4px; }
         .batch-menu-wrap { position: relative; }
         .batch-menu {
             position: absolute;
@@ -197,13 +197,13 @@
             border-radius: 6px;
             padding: 9px 10px;
             text-align: left;
-            font-size: 13px;
+            font-size: 0.8125rem;
             cursor: pointer;
         }
         .batch-menu button:hover { background: var(--hover-bg); }
         .batch-menu button.danger { color: var(--danger); }
         .batch-menu button:disabled { opacity: 0.55; cursor: not-allowed; }
-        .delete-modal-text { margin: 0; font-size: 13px; line-height: 1.7; color: var(--text-secondary); }
+        .delete-modal-text { margin: 0; font-size: 0.8125rem; line-height: 1.7; color: var(--text-secondary); }
 
         .export-option-row {
             display: flex;
@@ -214,7 +214,7 @@
         .export-option-label {
             flex-shrink: 0;
             width: 72px;
-            font-size: 13px;
+            font-size: 0.8125rem;
             color: var(--text);
         }
 
@@ -226,14 +226,14 @@
             border-radius: 8px;
             background: var(--surface);
             color: var(--text);
-            font-size: 13px;
+            font-size: 0.8125rem;
         }
 
         .export-delete-check {
             display: flex;
             align-items: center;
             gap: 8px;
-            font-size: 13px;
+            font-size: 0.8125rem;
             color: var(--text);
             cursor: pointer;
             margin-bottom: 10px;
@@ -274,8 +274,8 @@
         }
         .collection-row-icon img { width: 100%; height: 100%; object-fit: cover; }
         .collection-row-icon svg { width: 14px; height: 14px; }
-        .collection-row-name { flex: 1; font-size: 13px; color: var(--text); }
-        .collection-row .collection-count { font-size: 12px; color: var(--muted-2); flex-shrink: 0; }
+        .collection-row-name { flex: 1; font-size: 0.8125rem; color: var(--text); }
+        .collection-row .collection-count { font-size: 0.75rem; color: var(--muted-2); flex-shrink: 0; }
         .icon-preview {
             width: 64px;
             height: 64px;
@@ -315,7 +315,7 @@
             border-radius: 8px;
             color: var(--gallery-fixed-white);
             background: var(--gallery-toast-bg);
-            font-size: 13px;
+            font-size: 0.8125rem;
             box-shadow: 0 4px 16px var(--gallery-shadow-20);
             animation: toastIn .2s ease;
         }

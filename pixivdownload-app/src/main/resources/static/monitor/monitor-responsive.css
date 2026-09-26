@@ -11,7 +11,7 @@
         .modal-backdrop { z-index: 1040; }
 
         /* ── Responsive tweaks ─────────────────────────────────── */
-        @media (max-width: 768px) {
+        @media (max-width: 56.25em) {
             .stat-value { font-size: 1.6rem; }
             .header-title { font-size: 1rem; }
             .artwork-title { max-width: 120px; }

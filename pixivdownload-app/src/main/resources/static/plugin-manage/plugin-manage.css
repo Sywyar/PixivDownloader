@@ -108,9 +108,9 @@ body {
     font-family: var(--font-sans);
     background: var(--page-bg);
     color: var(--text);
-    font-size: 14px;
+    font-size: 0.875rem;
     min-height: 100vh;
-    overflow-x: hidden;
+
     line-height: 1.4;
 }
 
@@ -124,11 +124,12 @@ textarea {
 /* ── 顶部应用导航栏（与下载页同款 chrome） ── */
 .app-nav {
     background: var(--nav-bg);
-    padding: 0 20px;
+    padding: 0 var(--layout-inset-right) 0 var(--layout-inset-left);
     display: flex;
     align-items: center;
-    height: 52px;
+    min-height: 52px;
     box-shadow: 0 2px 4px var(--nav-shadow-color);
+    flex-wrap: wrap;
 }
 
 .app-nav-brand-wrap {
@@ -147,12 +148,12 @@ textarea {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 15px;
+    font-size: 0.9375rem;
     color: var(--on-accent);
 }
 
 .app-nav-brand {
-    font-size: 18px;
+    font-size: 1.125rem;
     font-weight: 700;
     color: var(--on-accent);
     letter-spacing: .5px;
@@ -171,7 +172,7 @@ textarea {
     gap: 7px;
     padding: 0 14px;
     height: 100%;
-    font-size: 14px;
+    font-size: 0.875rem;
     font-weight: 500;
     color: var(--nav-text-muted);
     text-decoration: none;
@@ -191,7 +192,7 @@ textarea {
 }
 
 .app-nav-link i {
-    font-size: 14px;
+    font-size: 0.875rem;
 }
 
 .app-nav-link svg {
@@ -213,7 +214,7 @@ textarea {
 }
 
 .app-nav-logout {
-    font-size: 13px;
+    font-size: 0.8125rem;
     padding: 5px 12px;
     background: transparent;
     border: 1px solid var(--nav-control-border);
@@ -230,10 +231,10 @@ textarea {
 
 /* ── 内容列 ── */
 .pm-page {
-    width: 100%;
-    max-width: 1140px;
+    width: calc(100% - var(--layout-inset-left) - var(--layout-inset-right));
+    max-width: none;
     margin: 24px auto;
-    padding: 0 20px 56px;
+    padding: 0 0 2.5rem;
     display: flex;
     flex-direction: column;
     gap: 18px;
@@ -250,7 +251,7 @@ textarea {
 
 .pm-title {
     margin: 0;
-    font-size: 24px;
+    font-size: 1.5rem;
     font-weight: 800;
     letter-spacing: -.01em;
     display: flex;
@@ -264,12 +265,13 @@ textarea {
 
 .pm-subtitle {
     margin: 6px 0 0;
-    font-size: 13px;
+    font-size: 0.8125rem;
     color: var(--muted);
 }
 
 .pm-titlebar-actions {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 10px;
 }
@@ -277,6 +279,8 @@ textarea {
 /* ── 市场 / 已安装 分段控件（与市场页互链；由中性导航 placement 驱动，无贡献时整体隐藏） ── */
 .pm-seg {
     display: inline-flex;
+    flex-wrap: wrap;
+    max-width: 100%;
     align-items: center;
     background: var(--control-muted-bg);
     border: 1px solid var(--border);
@@ -298,7 +302,7 @@ textarea {
     gap: 6px;
     padding: 6px 14px;
     border-radius: var(--radius-pill);
-    font-size: 13px;
+    font-size: 0.8125rem;
     font-weight: 500;
     color: var(--muted);
     text-decoration: none;

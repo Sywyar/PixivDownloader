@@ -59,7 +59,7 @@
             color: var(--text);
             background: var(--bg);
             overflow: hidden;
-            height: 100vh;
+            height: 100svh;
             min-width: 0;
         }
 
@@ -80,7 +80,7 @@
         }
 
         .scroll-container {
-            height: 100vh;
+            height: 100svh;
             overflow-y: auto;
             scroll-snap-type: y mandatory;
             scroll-behavior: smooth;
@@ -93,7 +93,8 @@
         }
 
         .section {
-            height: 100vh;
+            min-height: 100svh;
+            padding-block: calc(var(--layout-header-height) + 1rem) 2rem;
             width: 100%;
             scroll-snap-align: start;
             scroll-snap-stop: always;
@@ -106,7 +107,7 @@
 
         .section-inner {
             width: 100%;
-            height: 100%;
+            min-height: calc(100svh - var(--layout-header-height) - 3rem);
             position: relative;
             display: flex;
             align-items: center;
@@ -142,7 +143,7 @@
             top: 50%;
             transform: translateY(-50%);
             white-space: nowrap;
-            font-size: 11px;
+            font-size: 0.6875rem;
             color: var(--muted);
             opacity: 0;
             transition: opacity 0.3s, transform 0.3s;
@@ -167,11 +168,13 @@
             top: 0;
             left: 0;
             right: 0;
-            height: 56px;
+            min-height: 56px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 0 28px;
+            padding: .625rem var(--layout-inset-right) .625rem var(--layout-inset-left);
+            flex-wrap: wrap;
+            gap: .5rem;
             z-index: 100;
             background: linear-gradient(180deg, var(--hero-top-scrim) 0%, transparent 100%);
             backdrop-filter: blur(12px);
@@ -202,7 +205,7 @@
         }
 
         .top-bar-logo-text {
-            font-size: 14px;
+            font-size: 0.875rem;
             font-weight: 700;
             color: var(--text);
             letter-spacing: -0.02em;
@@ -248,13 +251,13 @@
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            height: 34px;
+            min-height: max(2.125rem, var(--layout-control-height));
             padding: 0 14px;
             border-radius: 999px;
             border: 1px solid var(--line);
             background: var(--glass-bg);
             color: var(--text-secondary);
-            font-size: 12px;
+            font-size: 0.75rem;
             cursor: pointer;
             transition: all 0.2s;
             backdrop-filter: blur(8px);
@@ -280,7 +283,7 @@
             position: fixed;
             bottom: 32px;
             left: 32px;
-            font-size: 12px;
+            font-size: 0.75rem;
             color: var(--muted);
             z-index: 100;
             font-weight: 500;
@@ -288,7 +291,7 @@
         }
 
         .page-counter .current {
-            font-size: 24px;
+            font-size: 1.5rem;
             font-weight: 700;
             color: var(--text);
             letter-spacing: -0.02em;
@@ -319,7 +322,7 @@
         }
 
         .scroll-hint-text {
-            font-size: 11px;
+            font-size: 0.6875rem;
             color: var(--muted);
             letter-spacing: 0.1em;
             text-transform: uppercase;

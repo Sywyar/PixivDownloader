@@ -27,14 +27,14 @@
         }
 
         .end-title {
-            font-size: 32px;
+            font-size: 2rem;
             font-weight: 800;
             letter-spacing: -0.03em;
             margin-bottom: 12px;
         }
 
         .end-desc {
-            font-size: 15px;
+            font-size: 0.9375rem;
             color: var(--muted);
             line-height: 1.7;
             margin-bottom: 36px;
@@ -54,7 +54,7 @@
             height: 44px;
             padding: 0 24px;
             border-radius: 999px;
-            font-size: 14px;
+            font-size: 0.875rem;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.2s;
@@ -102,7 +102,7 @@
 
         .end-nav-btn {
             width: 48px;
-            height: 48px;
+            min-height: max(3rem, var(--layout-control-height));
             border-radius: 50%;
             border: 1px solid var(--line);
             background: var(--glass-bg-subtle);
@@ -136,7 +136,7 @@
         }
 
         .end-nav-indicator {
-            font-size: 13px;
+            font-size: 0.8125rem;
             color: var(--muted);
         }
 
@@ -171,7 +171,7 @@
             border: none;
             background: var(--glass-hover-bg);
             color: var(--on-accent);
-            font-size: 22px;
+            font-size: 1.375rem;
             cursor: pointer;
             display: flex;
             align-items: center;
@@ -193,7 +193,7 @@
             border: none;
             background: var(--glass-hover-bg);
             color: var(--on-accent);
-            font-size: 24px;
+            font-size: 1.5rem;
             cursor: pointer;
             display: flex;
             align-items: center;
@@ -219,7 +219,7 @@
             left: 50%;
             transform: translateX(-50%);
             color: var(--overlay-text-secondary);
-            font-size: 13px;
+            font-size: 0.8125rem;
             background: var(--scrim-strong);
             padding: 6px 16px;
             border-radius: 999px;
@@ -261,7 +261,7 @@
         }
 
         .modal-title {
-            font-size: 16px;
+            font-size: 1rem;
             font-weight: 700;
         }
 
@@ -273,7 +273,7 @@
             cursor: pointer;
             border-radius: 6px;
             color: var(--muted);
-            font-size: 18px;
+            font-size: 1.125rem;
         }
 
         .modal-close:hover {
@@ -308,12 +308,12 @@
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            height: 36px;
+            min-height: max(2.25rem, var(--layout-control-height));
             padding: 0 16px;
             border-radius: 8px;
             border: 1px solid var(--line);
             background: var(--glass-bg-subtle);
-            font-size: 13px;
+            font-size: 0.8125rem;
             color: var(--text-secondary);
             cursor: pointer;
             transition: all 0.15s;
@@ -353,7 +353,7 @@
             padding: 24px;
             text-align: center;
             color: var(--muted);
-            font-size: 13px;
+            font-size: 0.8125rem;
         }
 
         .collection-row {
@@ -401,23 +401,23 @@
 
         .collection-row-name {
             flex: 1;
-            font-size: 13px;
+            font-size: 0.8125rem;
             color: var(--text);
         }
 
         .collection-count {
-            font-size: 12px;
+            font-size: 0.75rem;
             color: var(--muted);
         }
 
         .form-input {
             width: 100%;
-            height: 40px;
+            min-height: max(2.5rem, var(--layout-control-height));
             padding: 0 12px;
             border: 1px solid var(--line);
             border-radius: 8px;
             background: var(--bg);
-            font-size: 13px;
+            font-size: 0.8125rem;
             font-family: inherit;
             color: var(--text);
             outline: none;
@@ -443,7 +443,7 @@
             border-radius: 8px;
             color: var(--on-accent);
             background: var(--toast-bg);
-            font-size: 13px;
+            font-size: 0.8125rem;
             box-shadow: 0 4px 16px var(--scrim-soft);
             animation: toastIn 0.2s ease;
         }
@@ -468,7 +468,7 @@
             justify-content: center;
             gap: 16px;
             color: var(--muted);
-            font-size: 14px;
+            font-size: 0.875rem;
         }
 
         .related-empty {

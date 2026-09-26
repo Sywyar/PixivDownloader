@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>下载工作台 · Pixiv 下载助手</title>
+    <link rel="stylesheet" href="/css/pixiv-layout.css">
     <link rel="icon" href="/favicon.ico">
     <link rel="stylesheet" href="/css/pixiv-tour.css">
     <link rel="stylesheet" href="/css/pixiv-onboarding.css">
@@ -19,9 +20,10 @@
     <link rel="stylesheet" href="/pixiv-batch-alt/pixiv-batch-alt-responsive.css">
     <link rel="stylesheet" href="/pixiv-batch-alt/pixiv-batch-alt-extensions.css">
     <link rel="stylesheet" href="/pixiv-batch-alt/pixiv-batch-alt-motion.css">
+    <script src="/js/pixiv-layout.js" defer></script>
 </head>
-<body>
-<header class="ab-topbar app-nav">
+<body class="layout-flow">
+<header class="layout-sticky ab-topbar app-nav" data-layout-height="--layout-header-height">
     <div class="ab-brand">
         <span class="ab-brand-mark ab-icon" id="abBrandMark" data-icon="download" aria-hidden="true"></span>
         <div class="ab-brand-text">
@@ -70,7 +72,7 @@
             <span class="ab-icon" data-icon="download" aria-hidden="true"></span>
             <span class="ab-badge" id="abDockBadge" hidden>0</span>
         </button>
-        <button type="button" class="ab-btn ab-btn--primary ab-btn--sm" id="abAuthBtn" data-i18n="auth.login">登录</button>
+        <button type="button" class="ab-btn ab-btn--primary ab-btn--sm layout-touch" id="abAuthBtn" data-i18n="auth.login">登录</button>
     </div>
 </header>
 

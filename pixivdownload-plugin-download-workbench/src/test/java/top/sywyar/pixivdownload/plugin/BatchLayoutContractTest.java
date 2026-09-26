@@ -297,15 +297,14 @@ class BatchLayoutContractTest {
         assertScopedProjection(css, WORKBENCH_SCOPE, "portrait");
 
         assertThat(css)
-                .contains("max-width: 1440px")
-                .contains("grid-template-columns: 190px minmax(0, 1fr) 350px")
+                .contains("max-width: none")
+                .contains("grid-template-columns: 12rem minmax(0, 1fr) 20rem")
                 .contains("\"rail   tools   queue\"")
                 .contains("position: sticky")
                 .contains("box-shadow: 0 0 0 100vmax")
-                .contains("@media (max-width: 1280px)")
-                .contains("@media (max-width: 1200px)")
-                .contains("@media (max-width: 820px)")
-                .contains("@media (max-width: 560px)")
+                .contains("@media (max-width: 80em)")
+                .contains("@media (max-width: 56.25em)")
+                .contains("@media (max-width: 37.5em)")
                 .contains("@media (max-width: 380px)");
     }
 
@@ -328,8 +327,8 @@ class BatchLayoutContractTest {
                 .contains("grid-template-columns: repeat(6, minmax(0, 1fr))")
                 .contains(".batch-layout-action-host[data-batch-layout-action-host=\"portrait\"]")
                 .contains("grid-template-columns: repeat(3, minmax(0, 1fr))")
-                .contains("@media (max-width: 820px)")
-                .contains("@media (max-width: 560px)")
+                .contains("@media (max-width: 56.25em)")
+                .contains("@media (max-width: 37.5em)")
                 .contains("@media (max-width: 380px)")
                 .doesNotContain("100vmax");
 
@@ -387,7 +386,7 @@ class BatchLayoutContractTest {
         assertThat(settingsColumn).as("设置列下方不应继续承载队列操作").doesNotContain("wb-actions");
 
         String mediumProjection = sliceBetween(read(WORKBENCH_LAYOUT_CSS),
-                "@media (max-width: 1200px) {", "@media (max-width: 820px) {");
+                "@media (max-width: 80em) {", "@media (max-width: 56.25em) {");
         assertThat(mediumProjection)
                 .contains(WORKBENCH_SCOPE + " .queue-rail #download-progress-area,")
                 .contains(WORKBENCH_SCOPE + " .queue-rail > .wb-actions")

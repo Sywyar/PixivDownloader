@@ -73,7 +73,7 @@ class DouyinGalleryPageGuardTest {
                 .contains("pageI18n.apply(document)", "next.apply(document)",
                         "window.location.replace(state.returnTo)")
                 .doesNotContain("apply(document.body)", "window.location.assign(state.returnTo)");
-        assertThat(css).contains("html[data-theme=\"dark\"]", "@media (max-width: 900px)");
+        assertThat(css).contains("html[data-theme=\"dark\"]", "@media (max-width: 56.25em)");
     }
 
     private static void assertScriptsInOrder(String html, List<String> scripts) {

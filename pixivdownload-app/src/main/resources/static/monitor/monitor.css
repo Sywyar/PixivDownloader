@@ -141,8 +141,8 @@
             background-size: 44px 44px;
             color: var(--text);
             font-family: var(--font);
-            font-size: 13px;
-            overflow-x: hidden;
+            font-size: 0.8125rem;
+
             min-height: 100vh;
         }
 

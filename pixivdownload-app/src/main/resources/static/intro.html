@@ -8,6 +8,7 @@
 <script src="/js/pixiv-i18n.js"></script>
 <script src="/js/pixiv-feedback.js"></script>
 <script src="/js/pixiv-lang-switcher.js"></script>
+<link rel="stylesheet" href="/css/pixiv-layout.css">
 <link rel="stylesheet" href="/vendor/fonts/fonts.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -18,7 +19,7 @@
 <link rel="stylesheet" href="/css/pixiv-scrollbar.css">
 <link rel="stylesheet" href="/intro/intro.css">
 </head>
-<body>
+<body class="layout-flow">
 
 <div class="ambient" aria-hidden="true">
   <div class="blob b1"></div>
@@ -62,11 +63,11 @@
         Spring Boot 后端 + 油猴脚本 + 本地画廊。批量、系列、动图转码、画廊检索、收藏夹归档、多人配额——一整套管线，跑在你自己的机器上。
       </p>
       <div class="cta-row fx d3">
-        <a class="btn primary" data-goto="2">
+        <a class="btn primary layout-touch" data-goto="2">
           <span data-i18n="btn.see-it">看它长什么样</span>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
         </a>
-        <a class="btn ghost" href="https://sywyar.github.io/PixivDownloader/" target="_blank" rel="noopener" data-i18n="btn.read-docs">阅读文档</a>
+        <a class="btn ghost layout-touch" href="https://sywyar.github.io/PixivDownloader/" target="_blank" rel="noopener" data-i18n="btn.read-docs">阅读文档</a>
       </div>
     </div>
   </section>
@@ -521,8 +522,8 @@
       </div>
 
       <div class="cta-row fx d5" style="display:flex;gap:11px;justify-content:center;flex-wrap:wrap">
-        <a class="btn primary" href="https://github.com/Sywyar/PixivDownloader/releases" target="_blank" rel="noopener" data-i18n="btn.download-release">下载 Release</a>
-        <a class="btn ghost" href="https://github.com/Sywyar/PixivDownloader" target="_blank" rel="noopener" data-i18n="btn.github-repo">GitHub 仓库</a>
+        <a class="btn primary layout-touch" href="https://github.com/Sywyar/PixivDownloader/releases" target="_blank" rel="noopener" data-i18n="btn.download-release">下载 Release</a>
+        <a class="btn ghost layout-touch" href="https://github.com/Sywyar/PixivDownloader" target="_blank" rel="noopener" data-i18n="btn.github-repo">GitHub 仓库</a>
       </div>
 
       <div class="foot fx d6">

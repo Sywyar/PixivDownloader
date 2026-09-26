@@ -80,7 +80,7 @@
             height: 24px;
             padding: 0 8px;
             border-radius: 6px;
-            font-size: 11px;
+            font-size: 0.6875rem;
             font-weight: 700;
             letter-spacing: 0.02em;
             backdrop-filter: blur(8px);
@@ -110,7 +110,7 @@
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            font-size: 11px;
+            font-size: 0.6875rem;
             font-weight: 600;
             color: var(--hero-accent, var(--brand));
             text-transform: uppercase;
@@ -152,7 +152,7 @@
         }
 
         .hero-title {
-            font-size: 42px;
+            font-size: 2.625rem;
             font-weight: 800;
             line-height: 1.15;
             letter-spacing: -0.03em;
@@ -202,24 +202,24 @@
             align-items: center;
             justify-content: center;
             color: var(--on-accent);
-            font-size: 14px;
+            font-size: 0.875rem;
             font-weight: 700;
             flex-shrink: 0;
         }
 
         .hero-author-name {
-            font-size: 15px;
+            font-size: 0.9375rem;
             font-weight: 600;
             color: var(--hero-text-secondary, var(--text-secondary));
         }
 
         .hero-author-id {
-            font-size: 12px;
+            font-size: 0.75rem;
             color: var(--muted);
         }
 
         .hero-desc {
-            font-size: 14px;
+            font-size: 0.875rem;
             line-height: 1.7;
             color: var(--hero-muted, var(--muted));
             max-width: 480px;
@@ -265,7 +265,7 @@
             background: var(--glass-bg);
             border: 1px solid var(--line);
             color: var(--hero-text-secondary, var(--text-secondary));
-            font-size: 12px;
+            font-size: 0.75rem;
             transition: all 0.2s;
         }
 
@@ -278,7 +278,7 @@
         .hero-tag .tag-trans {
             color: var(--muted);
             margin-left: 4px;
-            font-size: 11px;
+            font-size: 0.6875rem;
         }
 
         .section-artwork {
@@ -312,8 +312,8 @@
         .artwork-frame {
             position: relative;
             z-index: 1;
-            max-width: 900px;
-            max-height: 85vh;
+            max-width: calc(100vw - var(--layout-inset-left) - var(--layout-inset-right));
+            max-height: max(8rem, calc(100svh - var(--layout-header-height) - 4rem - env(safe-area-inset-bottom)));
             border-radius: 12px;
             overflow: hidden;
             background: var(--surface);
@@ -328,8 +328,8 @@
 
         .artwork-frame img {
             display: block;
-            max-width: 900px;
-            max-height: 85vh;
+            max-width: calc(100vw - var(--layout-inset-left) - var(--layout-inset-right));
+            max-height: max(8rem, calc(100svh - var(--layout-header-height) - 4rem - env(safe-area-inset-bottom)));
             object-fit: contain;
         }
 
@@ -350,12 +350,12 @@
         }
 
         .artwork-overlay-title {
-            font-size: 18px;
+            font-size: 1.125rem;
             font-weight: 700;
             margin-bottom: 4px;
         }
 
         .artwork-overlay-author {
-            font-size: 13px;
+            font-size: 0.8125rem;
             color: var(--muted);
         }

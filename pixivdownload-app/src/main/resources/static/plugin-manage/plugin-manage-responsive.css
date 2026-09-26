@@ -5,7 +5,7 @@
         min-height: 52px;
         flex-wrap: wrap;
         gap: 6px;
-        padding: 8px 14px;
+        padding: 8px var(--layout-inset-right) 8px var(--layout-inset-left);
     }
 
     .app-nav-brand-wrap {
@@ -44,7 +44,7 @@
     .pm-grid { grid-template-columns: 1fr; }
 }
 
-@media (max-width: 560px) {
+@media (max-width: 37.5em) {
     .app-nav-brand-wrap {
         flex-basis: 100%;
         margin-right: 0;
@@ -61,12 +61,14 @@
 
     .pm-page {
         margin: 16px auto;
-        padding: 0 12px 36px;
+        padding: 0 0 2.5rem;
         gap: 14px;
+        width: calc(100% - var(--layout-inset-left) - var(--layout-inset-right));
+        max-width: none;
     }
 
     .pm-title {
-        font-size: 21px;
+        font-size: 1.3125rem;
     }
 
     .pm-titlebar-actions,

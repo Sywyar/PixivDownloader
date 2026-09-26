@@ -101,7 +101,7 @@ html, body {
 
 body {
     font-family: var(--font);
-    font-size: 14px;
+    font-size: 0.875rem;
     line-height: 1.55;
     color: var(--text);
     background: var(--bg);
@@ -158,7 +158,7 @@ a {
 
 .ab-muted {
     color: var(--muted);
-    font-size: 12px;
+    font-size: 0.75rem;
 }
 
 .ab-flip {
@@ -173,9 +173,10 @@ a {
     top: 0;
     z-index: 60;
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 18px;
-    padding: 10px 22px;
+    padding: 10px var(--layout-inset-right) 10px var(--layout-inset-left);
     background: var(--topbar-bg);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
@@ -187,9 +188,12 @@ a {
     align-items: center;
     gap: 11px;
     flex: none;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .ab-brand-mark {
+    flex-shrink: 0;
     width: 38px;
     height: 38px;
     border-radius: 12px;
@@ -207,18 +211,19 @@ a {
 }
 
 .ab-brand-text {
+    min-width: 0;
     display: flex;
     flex-direction: column;
     line-height: 1.25;
 }
 
 .ab-brand-text strong {
-    font-size: 15px;
+    font-size: 0.9375rem;
     letter-spacing: .01em;
 }
 
 .ab-brand-sub {
-    font-size: 11px;
+    font-size: 0.6875rem;
     color: var(--muted);
 }
 
@@ -245,7 +250,7 @@ a {
     padding: 7px 10px;
     border-radius: 999px;
     color: var(--muted);
-    font-size: 12px;
+    font-size: 0.75rem;
     font-weight: 600;
     white-space: nowrap;
 }
@@ -269,6 +274,8 @@ a {
 
 .ab-topbar-actions {
     display: flex;
+    flex-wrap: wrap;
+    max-width: 100%;
     align-items: center;
     gap: 8px;
     flex: none;
@@ -305,7 +312,7 @@ a {
     padding: 8px 10px;
     border-radius: var(--r-sm);
     color: var(--text);
-    font-size: 13px;
+    font-size: 0.8125rem;
 }
 
 .ab-menu-item:hover {
@@ -326,7 +333,7 @@ a {
     gap: 7px;
     padding: 9px 16px;
     border-radius: var(--r-sm);
-    font-size: 13px;
+    font-size: 0.8125rem;
     font-weight: 600;
     border: 1px solid transparent;
     transition: transform var(--motion-fast) var(--motion-ease-standard),
@@ -342,7 +349,7 @@ a {
 
 .ab-btn--sm {
     padding: 6px 12px;
-    font-size: 12px;
+    font-size: 0.75rem;
 }
 
 .ab-btn--primary {
@@ -420,7 +427,7 @@ a {
     gap: 7px;
     padding: 6px 12px;
     border-radius: 999px;
-    font-size: 12px;
+    font-size: 0.75rem;
     font-weight: 600;
     border: 1px solid var(--line);
     background: var(--control-bg);
@@ -462,7 +469,7 @@ a {
     border-radius: 999px;
     background: var(--danger);
     color: var(--on-brand);
-    font-size: 10px;
+    font-size: 0.625rem;
     font-weight: 700;
     display: inline-flex;
     align-items: center;
@@ -490,7 +497,7 @@ a {
     gap: 4px;
     padding: 2px 9px;
     border-radius: 999px;
-    font-size: 11px;
+    font-size: 0.6875rem;
     font-weight: 600;
 }
 
@@ -524,7 +531,7 @@ a {
 .ab-seg-item {
     padding: 7px 13px;
     border-radius: 999px;
-    font-size: 12px;
+    font-size: 0.75rem;
     font-weight: 600;
     color: var(--muted);
     transition: background-color var(--motion-fast) var(--motion-ease-standard),
@@ -568,7 +575,7 @@ a {
 
 .ab-input--mono {
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: 0.75rem;
 }
 
 textarea.ab-input {
@@ -580,7 +587,7 @@ textarea.ab-input {
     display: inline-flex;
     align-items: center;
     gap: 7px;
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--muted);
     cursor: pointer;
 }
@@ -623,14 +630,14 @@ textarea.ab-input {
 
 .ab-field-label {
     display: block;
-    font-size: 12px;
+    font-size: 0.75rem;
     font-weight: 600;
     color: var(--muted);
     margin: 14px 0 7px;
 }
 
 .ab-field-note {
-    font-size: 11.5px;
+    font-size: 0.71875rem;
     color: var(--faint);
     line-height: 1.6;
     margin: 6px 0 0;
@@ -658,7 +665,7 @@ textarea.ab-input {
 .ab-note-list {
     margin: 8px 0 0;
     padding-left: 18px;
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--muted);
     line-height: 1.8;
 }
@@ -696,7 +703,7 @@ textarea.ab-input {
 
 .ab-empty-line {
     color: var(--faint);
-    font-size: 12.5px;
+    font-size: 0.78125rem;
     padding: 10px 2px;
 }
 
@@ -712,7 +719,7 @@ textarea.ab-input {
 
 .ab-loading-line {
     color: var(--muted);
-    font-size: 12.5px;
+    font-size: 0.78125rem;
     padding: 8px 2px;
 }
 
@@ -720,7 +727,7 @@ textarea.ab-input {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--warn);
     background: var(--warn-soft);
     border: 1px solid var(--warn);

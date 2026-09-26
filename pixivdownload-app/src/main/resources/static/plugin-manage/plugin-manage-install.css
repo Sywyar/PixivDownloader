@@ -44,7 +44,7 @@
 
 .pm-modal-title {
     margin: 0;
-    font-size: 17px;
+    font-size: 1.0625rem;
     font-weight: 800;
     display: flex;
     align-items: center;
@@ -53,7 +53,7 @@
 
 .pm-modal-title i {
     color: var(--accent-pixiv);
-    font-size: 16px;
+    font-size: 1rem;
 }
 
 .pm-modal-close {
@@ -65,7 +65,7 @@
     background: transparent;
     color: var(--muted);
     cursor: pointer;
-    font-size: 15px;
+    font-size: 0.9375rem;
     transition: background var(--transition), color var(--transition);
 }
 
@@ -76,7 +76,7 @@
 
 .pm-modal-desc {
     margin: 0;
-    font-size: 12.5px;
+    font-size: 0.78125rem;
     line-height: 1.55;
     color: var(--muted);
 }
@@ -113,13 +113,13 @@
     display: inline-flex;
     align-items: center;
     gap: 7px;
-    height: 32px;
+    min-height: max(2rem, var(--layout-control-height));
     padding: 0 14px;
     border-radius: var(--radius-sm);
     background: var(--control-muted-bg);
     border: 1px solid var(--border);
     color: var(--text);
-    font-size: 13px;
+    font-size: 0.8125rem;
     font-weight: 600;
     flex-shrink: 0;
 }
@@ -127,7 +127,7 @@
 .pm-file-name {
     flex: 1;
     min-width: 0;
-    font-size: 12.5px;
+    font-size: 0.78125rem;
     color: var(--muted);
     font-family: var(--font-mono);
     overflow: hidden;
@@ -151,7 +151,7 @@
     align-items: center;
     gap: 7px;
     padding: 10px 0;
-    font-size: 12.5px;
+    font-size: 0.78125rem;
     font-weight: 600;
     color: var(--text-secondary);
     cursor: pointer;
@@ -163,7 +163,7 @@
 }
 
 .pm-advanced summary i {
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--muted);
 }
 
@@ -176,7 +176,7 @@
     align-items: flex-start;
     gap: 9px;
     padding: 12px 2px;
-    font-size: 12.5px;
+    font-size: 0.78125rem;
     line-height: 1.5;
     color: var(--text-secondary);
     cursor: pointer;
@@ -220,7 +220,7 @@
 }
 
 .pm-install-result-head > i {
-    font-size: 15px;
+    font-size: 0.9375rem;
     flex-shrink: 0;
 }
 
@@ -232,7 +232,7 @@
 .pm-install-result-msg {
     flex: 1;
     min-width: 0;
-    font-size: 13px;
+    font-size: 0.8125rem;
     font-weight: 600;
     color: var(--text);
     line-height: 1.5;
@@ -241,7 +241,7 @@
 .pm-install-code {
     flex-shrink: 0;
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 0.6875rem;
     font-weight: 700;
     color: var(--muted);
     background: var(--control-muted-bg);
@@ -254,7 +254,7 @@
     display: flex;
     align-items: center;
     gap: 7px;
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--text-secondary);
 }
 
@@ -271,7 +271,7 @@
 .pm-install-meta-row {
     display: flex;
     gap: 10px;
-    font-size: 12px;
+    font-size: 0.75rem;
 }
 
 .pm-install-meta-key {
@@ -286,7 +286,7 @@
 }
 
 .pm-install-list {
-    font-size: 12px;
+    font-size: 0.75rem;
 }
 
 .pm-install-list-title {

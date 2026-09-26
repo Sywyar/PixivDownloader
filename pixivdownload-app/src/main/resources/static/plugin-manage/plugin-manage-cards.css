@@ -4,11 +4,11 @@
     align-items: center;
     justify-content: center;
     gap: 7px;
-    height: 36px;
+    min-height: max(2.25rem, var(--layout-control-height));
     padding: 0 16px;
     border: 1px solid transparent;
     border-radius: var(--radius-sm);
-    font-size: 13px;
+    font-size: 0.8125rem;
     font-weight: 600;
     font-family: inherit;
     color: var(--on-accent);
@@ -32,7 +32,7 @@
 }
 
 .pm-btn i {
-    font-size: 12px;
+    font-size: 0.75rem;
 }
 
 .pm-btn--primary { background: var(--brand); }
@@ -69,7 +69,7 @@
 .pm-btn--sm {
     height: 28px;
     padding: 0 11px;
-    font-size: 12px;
+    font-size: 0.75rem;
 }
 
 /* ── 恢复 / 补齐模式横幅 ── */
@@ -85,19 +85,19 @@
 }
 
 .pm-recovery i {
-    font-size: 20px;
+    font-size: 1.25rem;
     margin-top: 1px;
     flex-shrink: 0;
 }
 
 .pm-recovery-title {
-    font-size: 14px;
+    font-size: 0.875rem;
     font-weight: 800;
 }
 
 .pm-recovery-desc {
     margin-top: 4px;
-    font-size: 12.5px;
+    font-size: 0.78125rem;
     line-height: 1.55;
 }
 
@@ -118,7 +118,7 @@
 }
 
 .pm-stat-num {
-    font-size: 30px;
+    font-size: 1.875rem;
     font-weight: 800;
     line-height: 1;
     font-family: var(--font-mono);
@@ -127,7 +127,7 @@
 
 .pm-stat-label {
     margin-top: 8px;
-    font-size: 11px;
+    font-size: 0.6875rem;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: .06em;
@@ -138,7 +138,7 @@
     position: absolute;
     right: 12px;
     bottom: 6px;
-    font-size: 46px;
+    font-size: 2.875rem;
     color: var(--stat-color, var(--accent-pixiv));
     opacity: .13;
     pointer-events: none;
@@ -177,7 +177,7 @@
     background: transparent;
     border-radius: var(--radius-xs);
     font-family: inherit;
-    font-size: 13px;
+    font-size: 0.8125rem;
     font-weight: 600;
     color: var(--muted);
     cursor: pointer;
@@ -199,7 +199,7 @@
 }
 
 .pm-tab i {
-    font-size: 12px;
+    font-size: 0.75rem;
 }
 
 .pm-toolbar-search {
@@ -220,20 +220,20 @@
 .pm-search > i {
     position: absolute;
     left: 12px;
-    font-size: 13px;
+    font-size: 0.8125rem;
     color: var(--muted);
     pointer-events: none;
 }
 
 .pm-search input {
     width: 100%;
-    height: 36px;
+    min-height: max(2.25rem, var(--layout-control-height));
     padding: 0 12px 0 32px;
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     background: var(--surface);
     color: var(--text);
-    font-size: 13px;
+    font-size: 0.8125rem;
     font-family: inherit;
     transition: border-color var(--transition), box-shadow var(--transition);
 }
@@ -245,7 +245,7 @@
 }
 
 .pm-result-count {
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--muted);
     white-space: nowrap;
     font-family: var(--font-mono);
@@ -305,7 +305,7 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    font-size: 12px;
+    font-size: 0.75rem;
     font-weight: 600;
     color: var(--muted);
     white-space: nowrap;
@@ -329,7 +329,7 @@
     padding: 7px 16px;
     background: var(--warning-bg);
     color: var(--warning-text);
-    font-size: 12px;
+    font-size: 0.75rem;
     font-weight: 700;
 }
 
@@ -347,7 +347,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 19px;
+    font-size: 1.1875rem;
     /* 强调色由受控 token 决定（pm-card-icon--<token> 设置 --pm-accent）；默认 neutral=灰。 */
     color: var(--pm-accent, var(--accent-gray));
     background: color-mix(in srgb, var(--pm-accent, var(--accent-gray)) 14%, transparent);
@@ -378,7 +378,7 @@
 }
 
 .pm-card-name {
-    font-size: 15px;
+    font-size: 0.9375rem;
     font-weight: 700;
     color: var(--text);
 }
@@ -387,12 +387,12 @@
     flex-shrink: 0;
     color: var(--muted);
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 0.6875rem;
 }
 
 .pm-card-sub {
     margin-top: 3px;
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--muted);
     font-family: var(--font-mono);
     white-space: nowrap;
@@ -402,7 +402,7 @@
 
 .pm-card-desc {
     margin: 0;
-    font-size: 13px;
+    font-size: 0.8125rem;
     line-height: 1.55;
     color: var(--text-secondary);
     text-wrap: pretty;
@@ -423,7 +423,7 @@
     display: flex;
     align-items: flex-start;
     gap: 6px;
-    font-size: 12px;
+    font-size: 0.75rem;
     line-height: 1.5;
     color: var(--text-secondary);
 }
@@ -432,14 +432,14 @@
     margin-top: 2px;
     flex-shrink: 0;
     color: var(--accent-amber);
-    font-size: 11px;
+    font-size: 0.6875rem;
 }
 
 .pm-progress-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    font-size: 11px;
+    font-size: 0.6875rem;
     font-weight: 600;
     color: var(--muted);
     margin-bottom: 5px;
@@ -476,7 +476,7 @@
     display: flex;
     align-items: center;
     gap: 14px;
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--muted);
     flex-wrap: wrap;
 }
@@ -509,7 +509,7 @@
 /* 幽灵图标按钮：浮层菜单等次级操作的入口，弱化存在感，hover / 打开时才点亮。 */
 .pm-icon-btn {
     width: 28px;
-    height: 28px;
+    min-height: max(1.75rem, var(--layout-control-height));
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -517,7 +517,7 @@
     border-radius: var(--radius-sm);
     background: transparent;
     color: var(--muted);
-    font-size: 13px;
+    font-size: 0.8125rem;
     cursor: pointer;
     transition: background var(--transition), color var(--transition), border-color var(--transition);
 }
@@ -573,7 +573,7 @@
     background: transparent;
     color: var(--text);
     font: inherit;
-    font-size: 13px;
+    font-size: 0.8125rem;
     text-align: left;
     cursor: pointer;
 }
@@ -611,7 +611,7 @@
     height: 18px;
     padding: 0 8px;
     border-radius: var(--radius-pill);
-    font-size: 11px;
+    font-size: 0.6875rem;
     font-weight: 700;
     line-height: 1;
     border: 1px solid transparent;
@@ -688,19 +688,19 @@
 }
 
 .pm-empty i {
-    font-size: 40px;
+    font-size: 2.5rem;
     opacity: .5;
 }
 
 .pm-empty-title {
     margin-top: 14px;
-    font-size: 14px;
+    font-size: 0.875rem;
     font-weight: 600;
 }
 
 .pm-empty-hint {
     margin-top: 4px;
-    font-size: 12px;
+    font-size: 0.75rem;
 }
 
 /* ── 加载 / 错误占位 ── */
@@ -708,7 +708,7 @@
     text-align: center;
     padding: 48px 20px;
     color: var(--muted);
-    font-size: 14px;
+    font-size: 0.875rem;
 }
 
 .pm-state i {
@@ -722,7 +722,7 @@
 /* ── 免责声明 ── */
 .pm-disclaimer {
     margin-top: 4px;
-    font-size: 11px;
+    font-size: 0.6875rem;
     color: var(--faint);
     text-align: center;
     line-height: 1.6;
@@ -741,7 +741,7 @@
     border-radius: var(--radius-sm);
     box-shadow: var(--shadow-raised);
     padding: 11px 16px;
-    font-size: 13px;
+    font-size: 0.8125rem;
     max-width: min(440px, calc(100vw - 32px));
     opacity: 0;
     pointer-events: none;

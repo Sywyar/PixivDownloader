@@ -26,7 +26,7 @@ test('自定义状态码页覆盖专用状态与 4xx/5xx 兜底并复用共享�
 
     statuses.forEach(status => {
         const html = fs.readFileSync(path.join(errorRoot, `${status}.html`), 'utf8');
-        assert.match(html, new RegExp(`<body data-status="${status}">`));
+        assert.match(html, new RegExp(`<body\\b[^>]*\\bdata-status="${status}"[^>]*>`));
         sharedResources.forEach(resource => assert.ok(html.includes(resource),
             `${status}.html 缺少 ${resource}`));
         if (status.endsWith('xx')) assert.match(html, /data-error-status-text/);

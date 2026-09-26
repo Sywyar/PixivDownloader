@@ -158,9 +158,9 @@
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             background: var(--page-bg);
             color: var(--text);
-            font-size: 14px;
+            font-size: 0.875rem;
             line-height: 1.4;
-            overflow-x: hidden;
+
         }
 
         button,
@@ -174,7 +174,7 @@
             background: var(--brand);
             color: var(--brand-text);
             padding: 14px 20px;
-            font-size: 18px;
+            font-size: 1.125rem;
             font-weight: bold;
             letter-spacing: .5px;
         }
@@ -182,7 +182,7 @@
         /* 下载页布局容器：公共盒模型留在基础层，空间编排由独立布局投影提供。 */
         .wb-shell {
             margin: 0 auto;
-            padding: 0 16px 40px;
+            padding: 0 var(--layout-inset-right) 40px var(--layout-inset-left);
             display: grid;
             column-gap: 14px;
             row-gap: 14px;
