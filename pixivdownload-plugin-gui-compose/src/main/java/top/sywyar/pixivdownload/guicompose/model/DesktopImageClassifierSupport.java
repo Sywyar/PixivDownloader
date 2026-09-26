@@ -16,7 +16,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,12 +25,11 @@ import static top.sywyar.pixivdownload.guicompose.model.DesktopUiNodes.nullToEmp
 /**
  * 图片分类工具的预览解码与设置文本转换。
  */
-final class DesktopImageClassifierSupport {
+public final class DesktopImageClassifierSupport {
     private static final Logger LOG = LoggerFactory.getLogger(DesktopImageClassifierSupport.class);
 
     private final DesktopUiHost host;
     private final String rootFolder;
-    private final Map<Path, DesktopUiNode.ImageData> imageCache = new ConcurrentHashMap<>();
     private volatile Map<String, Path> paths = Map.of();
 
     DesktopImageClassifierSupport(DesktopUiHost host, String rootFolder) {
@@ -39,9 +37,8 @@ final class DesktopImageClassifierSupport {
         this.rootFolder = rootFolder;
     }
 
-    Optional<DesktopUiNode.ImageData> materializeImage(Path image) {
-        DesktopUiNode.ImageData cached = imageCache.get(image);
-        if (cached != null) return Optional.of(cached);
+    public static Optional<DesktopUiNode.ImageData> materializeImage(Path image, int width, int height) {
+        if (width <= 0 || height <= 0) return Optional.empty();
         try {
             Path source = image;
             String name = image.getFileName().toString().toLowerCase(Locale.ROOT);
@@ -52,23 +49,21 @@ final class DesktopImageClassifierSupport {
                 ) + "_thumb.jpg");
                 if (Files.isRegularFile(thumbnail)) source = thumbnail;
             }
-            BufferedImage rendered = ImageThumbnailScaler.scale(source, 1600, 1600);
+            double ratio = Math.min(1d, 1600d / Math.max(width, height));
+            BufferedImage rendered = ImageThumbnailScaler.scale(source,
+                    Math.max(1, (int) Math.round(width * ratio)),
+                    Math.max(1, (int) Math.round(height * ratio)));
             ByteArrayOutputStream output = new ByteArrayOutputStream();
             if (!ImageIO.write(rendered, "jpg", output)) return Optional.empty();
             DesktopUiNode.ImageData data = new DesktopUiNode.ImageData(
                     "image/jpeg",
                     Base64.getEncoder().encodeToString(output.toByteArray())
             );
-            imageCache.put(image, data);
             return Optional.of(data);
         } catch (Exception failure) {
             LOG.warn("Unable to materialize classifier preview {}", image, failure);
             return Optional.empty();
         }
-    }
-
-    void clearCache() {
-        imageCache.clear();
     }
 
     void setPaths(Map<String, Path> paths) {

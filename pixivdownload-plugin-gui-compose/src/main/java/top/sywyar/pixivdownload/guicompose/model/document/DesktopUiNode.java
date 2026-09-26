@@ -4,6 +4,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone;
 
 import java.math.BigDecimal;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.EnumSet;
@@ -20,7 +21,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         DesktopUiNode.PagedRow, DesktopUiNode.Dock,
         DesktopUiNode.Surface, DesktopUiNode.Group, DesktopUiNode.Form, DesktopUiNode.Tabs, DesktopUiNode.Scroll,
         DesktopUiNode.Split, DesktopUiNode.Text, DesktopUiNode.Icon,
-        DesktopUiNode.Image, DesktopUiNode.Separator, DesktopUiNode.Spacer, DesktopUiNode.Progress,
+        DesktopUiNode.Image, DesktopUiNode.LocalImage, DesktopUiNode.Separator, DesktopUiNode.Spacer, DesktopUiNode.Progress,
         DesktopUiNode.Timeline, DesktopUiNode.ScheduleTimeline,
         DesktopUiNode.TextInput, DesktopUiNode.Toggle, DesktopUiNode.Choice,
         DesktopUiNode.NumberInput, DesktopUiNode.Table, DesktopUiNode.Tree,
@@ -424,6 +425,20 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
             requireRange(preferredHeight, 1, 4096, "preferredHeight");
             scaleMode = scaleMode == null ? ScaleMode.FIT : scaleMode;
             shape = shape == null ? ImageShape.RECTANGLE : shape;
+        }
+
+        @Override public Kind kind() { return Kind.IMAGE; }
+    }
+
+    /** 本地预览在 Compose 完成布局后按实际像素尺寸物化，不随页面模型持有图像缓存。 */
+    record LocalImage(String id, Path path, TextToken altText,
+                      int preferredWidth, int preferredHeight) implements DesktopUiNode {
+        public LocalImage {
+            id = requireId(id, "id");
+            path = Objects.requireNonNull(path, "path");
+            altText = Objects.requireNonNull(altText, "altText");
+            requireRange(preferredWidth, 1, 4096, "preferredWidth");
+            requireRange(preferredHeight, 1, 4096, "preferredHeight");
         }
 
         @Override public Kind kind() { return Kind.IMAGE; }

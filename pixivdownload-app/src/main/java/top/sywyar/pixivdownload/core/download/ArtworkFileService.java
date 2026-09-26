@@ -48,6 +48,13 @@ public class ArtworkFileService {
     }
 
     public ThumbnailFile getThumbnailFile(Long artworkId, int page) throws IOException {
+        return getThumbnailFile(artworkId, page, 512);
+    }
+
+    public ThumbnailFile getThumbnailFile(Long artworkId, int page, int maximumEdge) throws IOException {
+        // 有限尺寸档避免任意请求参数产生无限缓存变体；预览沿用桌面的 1600 像素预算。
+        int edge = 128;
+        while (edge < maximumEdge && edge < 1600) edge = Math.min(1600, edge * 2);
         ArtworkRecord artwork = pixivDatabase.getArtwork(artworkId);
         if (artwork == null || artwork.count() <= page || page < 0) {
             return null;
@@ -58,7 +65,7 @@ public class ArtworkFileService {
             return null;
         }
         String writeFormat = normalizeThumbnailFormat(getFileExtension(imageFile.getName()).toLowerCase(Locale.ROOT));
-        Path cachePath = thumbnailCachePath(artworkId, page, writeFormat);
+        Path cachePath = thumbnailCachePath(artworkId, page, edge, writeFormat);
         String lockKey = cachePath.toString();
         Object lock = thumbnailCacheLocks.computeIfAbsent(lockKey, ignored -> new Object());
         try {
@@ -68,7 +75,7 @@ public class ArtworkFileService {
                     return new ThumbnailFile(cachePath, writeFormat);
                 }
                 Files.createDirectories(cachePath.getParent());
-                BufferedImage thumbnailImage = ImageThumbnailScaler.scale(imageFile.toPath(), -1, -1);
+                BufferedImage thumbnailImage = ImageThumbnailScaler.scale(imageFile.toPath(), edge, edge);
                 Path tempPath = Files.createTempFile(cachePath.getParent(), "thumb-", "." + writeFormat);
                 try {
                     try (OutputStream out = Files.newOutputStream(tempPath)) {
@@ -103,10 +110,10 @@ public class ArtworkFileService {
         return thumbFile.exists() ? thumbFile : null;
     }
 
-    private Path thumbnailCachePath(Long artworkId, int page, String extension) {
+    private Path thumbnailCachePath(Long artworkId, int page, int edge, String extension) {
         return RuntimeFiles.galleryThumbnailDirectory()
                 .resolve(String.valueOf(artworkId))
-                .resolve("p" + page + "." + extension)
+                .resolve("p" + page + "-" + edge + "." + extension)
                 .toAbsolutePath()
                 .normalize();
     }

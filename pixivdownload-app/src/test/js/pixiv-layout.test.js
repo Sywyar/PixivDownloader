@@ -16,9 +16,10 @@ test('工具栏换行和隐藏后向布局提供实际边框高度', () => {
     };
     let resized;
     vm.runInNewContext(source('js/pixiv-layout.js'), {
+        window: {addEventListener() {}},
         document: {
-            querySelectorAll: () => [element],
-            documentElement: {style: {setProperty: (key, value) => properties.set(key, value)}}
+            querySelectorAll: selector => selector === '[data-layout-height]' ? [element] : [],
+            documentElement: {dataset: {}, style: {setProperty: (key, value) => properties.set(key, value)}}
         },
         ResizeObserver: class {
             constructor(callback) { resized = callback; }

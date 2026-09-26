@@ -107,6 +107,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -146,13 +147,17 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import org.jetbrains.skia.Image as SkiaImage
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode
+import top.sywyar.pixivdownload.guicompose.model.DesktopImageClassifierSupport
 import javax.swing.JFileChooser
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -162,6 +167,8 @@ import kotlin.math.roundToInt
 /** Compose 插件私有页面节点的 Compose Multiplatform renderer。 */
 @OptIn(ExperimentalComposeUiApi::class, ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 object ComposeDesktopUiNodeRenderer {
+    // ponytail: 单路预览解码控制累计缓冲；提高并发前需重新测量整页内存。
+    private val previewDispatcher = Dispatchers.IO.limitedParallelism(1)
     private val LocalDocumentRevision = staticCompositionLocalOf { 0L }
     private val scheduleTimeFormatter = DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault())
 
@@ -215,6 +222,7 @@ object ComposeDesktopUiNodeRenderer {
             is DesktopUiNode.Text -> StyledText(node, text, modifier)
             is DesktopUiNode.Icon -> IconNode(node, text, modifier)
             is DesktopUiNode.Image -> ImageNode(node, text, modifier)
+            is DesktopUiNode.LocalImage -> LocalImageNode(node, text, modifier)
             is DesktopUiNode.Separator -> if (node.axis() == DesktopUiNode.Axis.HORIZONTAL) {
                 HorizontalDivider(modifier.fillMaxWidth())
             } else {
@@ -856,6 +864,36 @@ object ComposeDesktopUiNodeRenderer {
         DesktopUiTone.INFO -> MaterialTheme.colorScheme.primary
         DesktopUiTone.WARNING -> MaterialTheme.colorScheme.secondary
         DesktopUiTone.ERROR -> MaterialTheme.colorScheme.error
+    }
+
+    @Composable
+    private fun LocalImageNode(
+        node: DesktopUiNode.LocalImage,
+        text: (DesktopUiNode.TextToken) -> String,
+        modifier: Modifier,
+    ) {
+        var size by remember(node.path()) { mutableStateOf(IntSize.Zero) }
+        val data by produceState<DesktopUiNode.ImageData?>(null, node.path(), size) {
+            value = null
+            if (size.width > 0 && size.height > 0) {
+                value = withContext(previewDispatcher) {
+                    DesktopImageClassifierSupport.materializeImage(node.path(), size.width, size.height).orElse(null)
+                }
+            }
+        }
+        Box(modifier.size(node.preferredWidth().dp, node.preferredHeight().dp).onSizeChanged { size = it }) {
+            val image = data
+            if (image == null) {
+                Text(resolve(node.altText(), text))
+            } else {
+                ImageNode(
+                    DesktopUiNode.Image(node.id(), image, node.altText(), node.preferredWidth(),
+                        node.preferredHeight(), DesktopUiNode.ScaleMode.FIT),
+                    text,
+                    Modifier.fillMaxSize(),
+                )
+            }
+        }
     }
 
     @Composable

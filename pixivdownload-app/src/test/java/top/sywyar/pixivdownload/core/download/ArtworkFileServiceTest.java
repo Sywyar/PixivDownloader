@@ -44,10 +44,16 @@ class ArtworkFileServiceTest {
             var service = new ArtworkFileService(database, locator);
             var result = service.getThumbnailFile(119L, 0);
             BufferedImage thumbnail = ImageIO.read(result.path().toFile());
-            assertThat(thumbnail.getWidth()).isEqualTo(2064);
-            assertThat(thumbnail.getHeight()).isEqualTo(1976);
+            assertThat(thumbnail.getWidth()).isEqualTo(512);
+            assertThat(thumbnail.getHeight()).isEqualTo(490);
             assertThat(service.getThumbnailFile(119L, 0)).isEqualTo(result);
             assertThat(Files.getLastModifiedTime(result.path())).isEqualTo(Files.getLastModifiedTime(source));
+            var small = service.getThumbnailFile(119L, 0, 150);
+            assertThat(ImageIO.read(small.path().toFile()).getWidth()).isEqualTo(256);
+            assertThat(service.getThumbnailFile(119L, 0, 200)).isEqualTo(small);
+            var large = service.getThumbnailFile(119L, 0, Integer.MAX_VALUE);
+            assertThat(ImageIO.read(large.path().toFile()).getWidth()).isEqualTo(1600);
+            assertThat(small.path()).isNotEqualTo(large.path());
         }
         assertThat(Files.readAllBytes(source)).containsExactly(original);
     }

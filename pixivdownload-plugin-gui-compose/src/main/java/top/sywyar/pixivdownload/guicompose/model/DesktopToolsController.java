@@ -654,21 +654,13 @@ final class DesktopToolsController {
                 DesktopUiDocument.DialogStyle.INFO,
                 (nextActions, dismissAction, dismiss) -> {
                     List<DesktopUiNode> content = new ArrayList<>();
-                    classifierSupport.materializeImage(image).ifPresentOrElse(
-                            data -> content.add(new DesktopUiNode.Image(
-                                    "classifier.viewer.image",
-                                    data,
-                                    TextToken.raw(image.getFileName().toString()),
-                                    980,
-                                    700,
-                                    DesktopUiNode.ScaleMode.FIT
-                            )),
-                            () -> content.add(text(
-                                    "classifier.viewer.failed",
-                                    "gui.image-classifier.thumbnail.viewer-load-failed-generic",
-                                    TextStyle.ERROR
-                            ))
-                    );
+                    content.add(new DesktopUiNode.LocalImage(
+                            "classifier.viewer.image",
+                            image,
+                            TextToken.raw(image.getFileName().toString()),
+                            980,
+                            700
+                    ));
                     content.add(raw(
                             "classifier.viewer.page",
                             host.message(
@@ -790,7 +782,6 @@ final class DesktopToolsController {
         Path selected = classifierSupport.path(form("classifier.source", ""));
         if (selected == null) return;
         classifierImages = List.copyOf(host.listImageClassifierImages(selected));
-        classifierSupport.clearCache();
         classifierGroupIndex = 0;
         classifierServer = host.checkImageClassifierServer(form(
                 "classifier.server-url",
@@ -909,7 +900,6 @@ final class DesktopToolsController {
                     paths.put("folder." + index, classifierFolders.get(index));
                 }
                 classifierSupport.setPaths(paths);
-                classifierSupport.clearCache();
                 classifierArtwork = null;
                 classifierImages = List.of();
                 if (classifierFolders.isEmpty()) {

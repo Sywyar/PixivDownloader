@@ -28,6 +28,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - 下载页支持新版工作台、横屏三栏和竖屏单列经典布局，记住当前浏览器选择，并可折叠预览结果。Pixiv 体验增强工具箱可为已删除作品显示独立或继承已下载样式的边框。
 
 ### Changed
+- 降低大尺寸透明图片计算相似度哈希时的峰值内存占用，保留既有哈希结果。
 - Web 页面统一响应式布局：画廊和工作台随窗口扩展，图片按可用宽高与原图比例展示，小说和表单保持可读宽度。
 - AI 多角色朗读保留已建立的角色音色，后续分析提出的音色调整需手动采纳。
 - 每夜构建版只加载与当前构建同批发布的 Nightly 插件；稳定插件仍按 SDK 主次版本判断兼容性。升级每夜版后，旧 Nightly 插件需随新构建更新。
@@ -54,7 +55,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - 外置插件先验证并冻结包描述符和加载树，再初始化宿主进程插件；支持 JAR、ZIP 与 `lib/*.jar` 私有依赖布局。更新及跨 ID 替换冻结仓库、发布者和签名 key 身份，只有旧 key 对新身份、版本、大小与 SHA-256 制品签署迁移授权后才能变更所有者。
 - FFmpeg 自动安装、Windows 安装器与离线包构建现在会先验证内置官方信任根签发的发行清单，再严格核对目标资产名、长度和 SHA-256；清单缺失、签名无效或资产被篡改时会在解压及替换既有工具前失败。
 - 反向代理转发头只在来源命中 `server.trusted-proxy-cidrs` 的显式 CIDR 时生效（默认受信 CIDR 数为 0）；受信代理必须完整提供 RFC `Forwarded`，或 `X-Forwarded-For` / `X-Forwarded-Proto` / `X-Forwarded-Host`（`X-Forwarded-Port` 可选），两套头混用、链错位、缺失、畸形、端口不在 1–65535 或全链均为受信代理时返回 400，并在鉴权和同源校验前统一规范化客户端地址、外部协议、主机与端口。
-- 本地图片缩略图、相似度与分类工具限制源文件为 100 MiB、宽和高各 25,000 像素。大尺寸 PNG / JPEG 在解码时降采样，解码结果不超过 25,000,000 像素；其它格式仍限制源像素数。画廊图片接口改为直接流式返回文件，避免 Base64 JSON 放大内存。
+- 本地图片缩略图、相似度与分类工具限制源文件为 100 MiB、宽和高各 25,000 像素。PNG / JPEG 预览按显示尺寸在解码时降采样，解码结果不超过 25,000,000 像素；其它格式仍限制源像素数。画廊图片接口改为直接流式返回文件，缩略图按屏幕倍率选择尺寸、最长边为 1600，原图仍可完整查看。
 - Web 页面统一设置 CSP（普通页面 `frame-ancestors 'none'`，同源 iframe 为 `'self'`）、`X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`，并关闭 accelerometer、camera、geolocation、gyroscope、magnetometer、microphone、payment、usb 共 8 项浏览器能力；TRACE 请求统一返回 405，并移除内联事件执行路径。
 - Docker 默认以 UID/GID 10001 的非特权用户和只读根文件系统运行，仅绑定 `127.0.0.1:6999`，收回全部 Linux capabilities、启用 `no-new-privileges`，并限制为 256 个进程、2 GiB 内存、2.0 CPU 与 256 MiB 的 `noexec,nosuid,nodev` 临时目录；持久卷只开放插件、配置、状态、数据、下载与日志目录。
 - 小说正文中的 `jumpuri` 只有无用户凭据的绝对 HTTP(S) 地址会生成可点击链接；阅读页、HTML / EPUB 导出与独立下载脚本会把其它协议、相对地址和畸形地址降级为普通文本。

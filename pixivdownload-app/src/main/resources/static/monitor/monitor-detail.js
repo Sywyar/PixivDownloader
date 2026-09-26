@@ -168,8 +168,9 @@
     function loadThumbnail(artworkId, page) {
         const item = document.getElementById(`thumb-${artworkId}-${page}`);
         if (!item) return;
+        const previewUrl = window.PixivLayout.previewUrl(`/api/downloaded/thumbnail/${artworkId}/${page}`, item);
         item.innerHTML = `
-            <img src="/api/downloaded/thumbnail/${artworkId}/${page}" class="thumbnail-img" alt="thumb">
+            <img src="${previewUrl}" class="thumbnail-img" alt="thumb">
             <div class="thumbnail-index">${page + 1}</div>`;
         item.querySelector('img').addEventListener('error', () => {
             item.innerHTML = `<div class="thumbnail-error"><i class="fas fa-exclamation-circle"></i><span>ERR</span></div>`;

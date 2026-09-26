@@ -199,6 +199,7 @@ function rerenderLocalizedContent() {
     }
 
     async function setImage(element, url) {
+        if (url.includes('/thumbnail/')) url = window.PixivLayout.previewUrl(url, element);
         const src = await loadImage(url);
         if (src) {
             if (element.tagName === 'IMG') {
@@ -214,6 +215,7 @@ function rerenderLocalizedContent() {
     }
 
     async function setBgImage(element, url) {
+        if (url.includes('/thumbnail/')) url = window.PixivLayout.previewUrl(url, element);
         const src = await loadImage(url);
         if (src) {
             const img = document.createElement('img');

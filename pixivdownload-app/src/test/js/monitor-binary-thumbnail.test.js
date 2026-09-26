@@ -25,6 +25,10 @@ const item = {
     }
 };
 const sandbox = {
+    window: {PixivLayout: {previewUrl: (url, target) => {
+        assert.strictEqual(target, item);
+        return url + '?size=256';
+    }}},
     document: {
         getElementById(id) {
             return id === 'thumb-123-4' ? item : null;
@@ -35,7 +39,7 @@ vm.createContext(sandbox);
 vm.runInContext(source, sandbox, {filename: 'monitor-detail.js'});
 
 vm.runInContext('loadThumbnail(123, 4)', sandbox);
-assert.match(item.innerHTML, /<img src="\/api\/downloaded\/thumbnail\/123\/4"/);
+assert.match(item.innerHTML, /<img src="\/api\/downloaded\/thumbnail\/123\/4\?size=256"/);
 assert.match(item.innerHTML, /<div class="thumbnail-index">5<\/div>/);
 assert.strictEqual(typeof errorListener, 'function');
 

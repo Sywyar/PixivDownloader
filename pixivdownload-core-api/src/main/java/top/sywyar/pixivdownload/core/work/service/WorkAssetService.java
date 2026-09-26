@@ -43,6 +43,20 @@ public interface WorkAssetService {
     Optional<WorkAssetFile> thumbnail(WorkType workType, long workId, int page) throws IOException;
 
     /**
+     * 按展示区域所需的最长边生成预览；实现可合并相近尺寸并限制预览预算。
+     *
+     * @param workType 工作类型
+     * @param workId 作品标识
+     * @param page 页码
+     * @param maximumEdge 展示区域所需的最长边像素数
+     * @return 可用的缩略图文件
+     * @throws IOException 缩略图生成失败
+     */
+    default Optional<WorkAssetFile> thumbnail(WorkType workType, long workId, int page, int maximumEdge) throws IOException {
+        return thumbnail(workType, workId, page);
+    }
+
+    /**
      * 取指定页的原始文件。作品不存在、页号越界或文件缺失时返回 {@link Optional#empty()}。
      *
      * @param workType 工作类型
