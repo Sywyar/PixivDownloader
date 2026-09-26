@@ -32,6 +32,10 @@ final class DesktopUpdateController {
     private volatile boolean downloadingNightly;
     private volatile long updateReceivedBytes;
     private volatile long updateTotalBytes;
+    private volatile DesktopUiNode.AboutUpdateState aboutState = DesktopUiNode.AboutUpdateState.UNKNOWN;
+    private boolean checkedManually;
+
+    DesktopUiNode.AboutUpdateState aboutState() { return aboutState; }
 
     DesktopUpdateController(
             ComposeDesktopUiModel owner,
@@ -159,55 +163,76 @@ final class DesktopUpdateController {
     }
 
     void checkUpdates() {
+        checkUpdates(false);
+    }
+
+    void checkUpdatesInline() {
+        checkUpdates(true);
+    }
+
+    private void checkUpdates(boolean inline) {
+        if (owner.busy()) return;
+        synchronized (this) {
+            checkedManually = true;
+            aboutState = DesktopUiNode.AboutUpdateState.CHECKING;
+        }
         owner.runBusy(() -> {
-            DesktopUiHost.GuiResponse response = host.guiGet(
-                    "update/check?force=true",
-                    30_000
-            );
-            if (!response.is2xx() || response.body() == null) {
-                LOG.warn(
-                        "Desktop update check failed: reachable={}, status={}",
-                        response.reachable(),
-                        response.status()
+            try {
+                DesktopUiHost.GuiResponse response = host.guiGet(
+                        "update/check?force=true",
+                        30_000
                 );
-                owner.showDialog(
-                        "update.check-failed",
-                        "gui.dialog.error.title",
-                        "gui.update.dialog.check-failed.message",
-                        DesktopUiDocument.DialogStyle.WARNING
-                );
-                return;
-            }
-            DesktopUiHost.GuiValue result = response.body();
-            applyUpdateResult(result);
-            if (!result.path("enabled").asBoolean(false)) {
-                owner.showDialog(
-                        "update.disabled",
-                        "gui.dialog.info.title",
-                        "gui.update.dialog.disabled.message",
-                        DesktopUiDocument.DialogStyle.INFO
-                );
-            } else if (!result.path("checkSucceeded").asBoolean(false)) {
-                LOG.warn(
-                        "Desktop update check rejected: {}",
-                        result.path("error").asText("unknown")
-                );
-                owner.showDialog(
-                        "update.check-failed",
-                        "gui.dialog.error.title",
-                        "gui.update.dialog.check-failed.message",
-                        DesktopUiDocument.DialogStyle.WARNING
-                );
-            } else if (pendingOfficialUpdate == null && pendingNightlyUpdate == null) {
-                owner.showDialog(
-                        "update.up-to-date",
-                        "gui.dialog.info.title",
-                        appToken(
-                                "gui.update.dialog.up-to-date.message",
-                                result.path("currentVersion").asText("--")
-                        ),
-                        DesktopUiDocument.DialogStyle.INFO
-                );
+                if (!response.is2xx() || response.body() == null) {
+                    aboutState = DesktopUiNode.AboutUpdateState.ERROR;
+                    LOG.warn(
+                            "Desktop update check failed: reachable={}, status={}",
+                            response.reachable(),
+                            response.status()
+                    );
+                    if (!inline) owner.showDialog(
+                            "update.check-failed",
+                            "gui.dialog.error.title",
+                            "gui.update.dialog.check-failed.message",
+                            DesktopUiDocument.DialogStyle.WARNING
+                    );
+                    return;
+                }
+                DesktopUiHost.GuiValue result = response.body();
+                applyUpdateResult(result);
+                if (inline) return;
+                if (!result.path("enabled").asBoolean(false)) {
+                    owner.showDialog(
+                            "update.disabled",
+                            "gui.dialog.info.title",
+                            "gui.update.dialog.disabled.message",
+                            DesktopUiDocument.DialogStyle.INFO
+                    );
+                } else if (!result.path("checkSucceeded").asBoolean(false)) {
+                    LOG.warn(
+                            "Desktop update check rejected: {}",
+                            result.path("error").asText("unknown")
+                    );
+                    owner.showDialog(
+                            "update.check-failed",
+                            "gui.dialog.error.title",
+                            "gui.update.dialog.check-failed.message",
+                            DesktopUiDocument.DialogStyle.WARNING
+                    );
+                } else if (pendingOfficialUpdate == null && pendingNightlyUpdate == null) {
+                    owner.showDialog(
+                            "update.up-to-date",
+                            "gui.dialog.info.title",
+                            appToken(
+                                    "gui.update.dialog.up-to-date.message",
+                                    result.path("currentVersion").asText("--")
+                            ),
+                            DesktopUiDocument.DialogStyle.INFO
+                    );
+                }
+            } catch (RuntimeException failure) {
+                aboutState = DesktopUiNode.AboutUpdateState.ERROR;
+                if (!inline) throw failure;
+                LOG.warn("Desktop update check failed", failure);
             }
         });
     }
@@ -219,7 +244,10 @@ final class DesktopUpdateController {
                 for (int attempt = 0; attempt < 24; attempt++) {
                     DesktopUiHost.GuiResponse response = host.guiGet("update/last", 5_000);
                     if (response.is2xx() && response.body() != null) {
-                        applyUpdateResult(response.body());
+                        synchronized (this) {
+                            // 启动缓存不能覆盖用户刚发起的检查及其结果。
+                            if (!checkedManually) applyUpdateResult(response.body());
+                        }
                         owner.rebuild();
                         return;
                     }
@@ -232,11 +260,21 @@ final class DesktopUpdateController {
     }
 
     private void applyUpdateResult(DesktopUiHost.GuiValue result) {
+        if (!result.path("enabled").asBoolean(false)) {
+            aboutState = DesktopUiNode.AboutUpdateState.DISABLED;
+            return;
+        }
+        if (!result.path("checkSucceeded").asBoolean(false)) {
+            aboutState = DesktopUiNode.AboutUpdateState.ERROR;
+            return;
+        }
         pendingOfficialUpdate = result.path("updateAvailable").asBoolean(false) ? pendingInstall(
                 result) : null;
         DesktopUiHost.GuiValue nightly = result.path("nightlyAlternative");
         pendingNightlyUpdate = nightly.path("updateAvailable").asBoolean(false) ? pendingInstall(
                 nightly) : null;
+        aboutState = pendingOfficialUpdate != null || pendingNightlyUpdate != null
+                ? DesktopUiNode.AboutUpdateState.AVAILABLE : DesktopUiNode.AboutUpdateState.CURRENT;
     }
 
     private static PendingInstall pendingInstall(DesktopUiHost.GuiValue value) {

@@ -30,7 +30,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         DesktopUiNode.NumberInput, DesktopUiNode.Table, DesktopUiNode.Tree,
         DesktopUiNode.Button, DesktopUiNode.Link, DesktopUiNode.AccountSetup, DesktopUiNode.OnboardingHub,
         DesktopUiNode.HomeOverview, DesktopUiNode.AutomationOverview, DesktopUiNode.PluginOverview, DesktopUiNode.ToolsOverview,
-        DesktopUiNode.SecurityOverview, DesktopUiNode.SettingsWorkspace {
+        DesktopUiNode.SecurityOverview, DesktopUiNode.SettingsWorkspace, DesktopUiNode.AboutOverview {
 
     /** @return 单份文档内稳定的节点标识 */
     String id();
@@ -685,6 +685,50 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     }
 
     record AutomationSource(String owner, String availability, Long observedAt) {}
+
+    /** Compose 关于页的真实应用资料与平台信息。 */
+    record AboutOverview(
+            String id,
+            Image icon,
+            String applicationName,
+            String version,
+            Button checkUpdate,
+            AboutUpdateState updateState,
+            List<DesktopUiNode> updates,
+            List<Link> links,
+            List<AboutMaintainer> maintainers,
+            TextToken disclaimer,
+            String license,
+            List<AboutFact> facts
+    ) implements DesktopUiNode {
+        public AboutOverview {
+            id = requireId(id, "id");
+            Objects.requireNonNull(applicationName, "applicationName");
+            Objects.requireNonNull(version, "version");
+            Objects.requireNonNull(checkUpdate, "checkUpdate");
+            Objects.requireNonNull(updateState, "updateState");
+            updates = List.copyOf(updates);
+            links = List.copyOf(links);
+            maintainers = List.copyOf(maintainers);
+            Objects.requireNonNull(disclaimer, "disclaimer");
+            Objects.requireNonNull(license, "license");
+            facts = List.copyOf(facts);
+        }
+        @Override public Kind kind() { return Kind.ABOUT_OVERVIEW; }
+        @Override public List<DesktopUiNode> childNodes() {
+            List<DesktopUiNode> nodes = new ArrayList<>();
+            if (icon != null) nodes.add(icon);
+            nodes.add(checkUpdate);
+            nodes.addAll(updates);
+            nodes.addAll(links);
+            maintainers.forEach(person -> { nodes.add(person.avatar()); nodes.add(person.link()); });
+            return List.copyOf(nodes);
+        }
+    }
+
+    enum AboutUpdateState { UNKNOWN, CHECKING, CURRENT, AVAILABLE, DISABLED, ERROR }
+    record AboutMaintainer(Image avatar, Link link, TextToken role) {}
+    record AboutFact(String id, TextToken label, TextToken value) {}
 
     /** Compose 首页的任务、指标与系统状态。 */
     record HomeOverview(
@@ -1502,6 +1546,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
     /** 支持的节点类型。 */
     enum Kind {
+        /** 应用身份、平台信息与更新。 */ ABOUT_OVERVIEW,
         /** 设置工作区。 */ SETTINGS_WORKSPACE,
         /** 安全与管理员登录管理。 */ SECURITY_OVERVIEW,
         /** 工具工作区。 */ TOOLS_OVERVIEW,

@@ -148,6 +148,10 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override public String applicationVersion() { return AppVersion.getDisplayVersionOrDefault(""); }
     @Override public boolean launchedFromExecutable() { return AppInfo.isLaunchedFromExe(); }
     @Override public boolean currentVersionNightly() { return UpdateConfig.isCurrentVersionNightly(); }
+    @Override public BuildChannel applicationBuildChannel() { return AppVersion.getBuildChannel(); }
+    @Override public boolean developmentMode() {
+        return top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts.enabled();
+    }
     @Override public String guiToken() { return GuiTokenHolder.get(); }
     @Override public String guiTokenHeader() { return GuiTokenHolder.HEADER_NAME; }
     @Override public Path dataDirectory() { return RuntimeFiles.dataDirectory(); }

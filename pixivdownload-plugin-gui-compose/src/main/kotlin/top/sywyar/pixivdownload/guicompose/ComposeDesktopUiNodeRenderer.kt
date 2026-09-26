@@ -174,6 +174,9 @@ object ComposeDesktopUiNodeRenderer {
         modifier: Modifier = Modifier,
     ) {
         when (node) {
+            is DesktopUiNode.AboutOverview -> top.sywyar.pixivdownload.guicompose.about.AboutOverview(node, text, emit, modifier) { child, childModifier ->
+                Node(child, text, emit, childModifier)
+            }
             is DesktopUiNode.SettingsWorkspace -> top.sywyar.pixivdownload.guicompose.settings.SettingsWorkspace(node, text, emit, modifier)
             is DesktopUiNode.PluginOverview -> top.sywyar.pixivdownload.guicompose.plugins.PluginOverview(node, text, emit, modifier)
             is DesktopUiNode.AutomationOverview -> top.sywyar.pixivdownload.guicompose.automation.AutomationOverview(node, text, emit, modifier)

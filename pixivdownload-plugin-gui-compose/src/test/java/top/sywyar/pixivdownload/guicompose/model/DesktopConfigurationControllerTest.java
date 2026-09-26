@@ -265,6 +265,7 @@ class DesktopConfigurationControllerTest {
                     if (overrides.containsKey(method.getName())) return overrides.get(method.getName()).apply(arguments);
                     switch (method.getName()) {
                         case "applicationName": return "PixivDownloader";
+                        case "applicationBuildChannel": return DesktopUiHost.BuildChannel.UNKNOWN;
                         case "applicationConfig": return config;
                         case "resolveDatabasePath": return Path.of("data", "test.db");
                         case "defaultBackfillOptions": return new DesktopUiHost.BackfillOptions(

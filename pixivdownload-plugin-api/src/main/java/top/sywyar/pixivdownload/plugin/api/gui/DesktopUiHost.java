@@ -366,6 +366,27 @@ public interface DesktopUiHost extends DesktopUiToolHost {
     String applicationVersion();
 
     /**
+     * 返回宿主构建时写入的渠道，只供展示，不决定更新策略。
+     * 此只读事实由进程宿主拥有，不随插件启停变化，也没有持久化副作用。
+     *
+     * @return 构建渠道；元数据缺失或无法识别时为 {@link BuildChannel#UNKNOWN}
+     */
+    BuildChannel applicationBuildChannel();
+
+    /** 宿主构建元数据中的渠道，与当前进程的开发模式无关。 */
+    enum BuildChannel {
+        LOCAL, RELEASE, NIGHTLY, UNKNOWN
+    }
+
+    /**
+     * 返回当前宿主进程是否启用了插件开发模式，不通过 IDE 或版本字符串推断。
+     * 此只读事实由进程宿主拥有，不随插件启停变化，也没有持久化副作用。
+     *
+     * @return 当前进程的开发模式开关
+     */
+    boolean developmentMode();
+
+    /**
      * 返回进程是否由打包后的可执行文件启动。
      *
      * @return 进程是否由可执行文件启动

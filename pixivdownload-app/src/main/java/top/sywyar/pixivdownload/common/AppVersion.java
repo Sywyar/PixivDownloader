@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.common;
 
 import lombok.experimental.UtilityClass;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.BuildChannel;
 
 import java.io.InputStream;
 import java.util.Properties;
@@ -40,6 +41,21 @@ public class AppVersion {
     public static String getKotlinVersionOrDefault(String defaultVersion) {
         String version = normalize(readVersionFromProperties(APP_VERSION_PROPERTIES, KOTLIN_VERSION_KEY));
         return version != null ? version : defaultVersion;
+    }
+
+    /** 只读取构建渠道标记；旧产物和未过滤资源不推断为发行版。 */
+    public static BuildChannel getBuildChannel() {
+        return parseBuildChannel(readVersionFromProperties(APP_VERSION_PROPERTIES, "app.build.channel"));
+    }
+
+    static BuildChannel parseBuildChannel(String value) {
+        if (value == null) return BuildChannel.UNKNOWN;
+        return switch (value.trim()) {
+            case "local" -> BuildChannel.LOCAL;
+            case "release" -> BuildChannel.RELEASE;
+            case "nightly" -> BuildChannel.NIGHTLY;
+            default -> BuildChannel.UNKNOWN;
+        };
     }
 
     private static String readVersionFromProperties(String resourcePath, String key) {

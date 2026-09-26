@@ -3,13 +3,14 @@ package top.sywyar.pixivdownload.common;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.BuildChannel;
 
 import java.io.InputStream;
 import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DisplayName("AppVersion tests")
+@DisplayName("应用版本与构建元数据")
 class AppVersionTest {
 
     private final String originalJpackageVersion = System.getProperty("jpackage.app-version");
@@ -60,6 +61,21 @@ class AppVersionTest {
 
     private static String mavenFilteredVersion() throws Exception {
         return AppVersion.normalize(mavenFilteredProperty("app.version"));
+    }
+
+    @Test
+    @DisplayName("本地与发布渠道读取显式标记，缺失及未过滤的标记显示未知")
+    void buildChannelRequiresExplicitMetadata() throws Exception {
+        assertThat(AppVersion.parseBuildChannel("local")).isEqualTo(BuildChannel.LOCAL);
+        assertThat(AppVersion.parseBuildChannel("release")).isEqualTo(BuildChannel.RELEASE);
+        assertThat(AppVersion.parseBuildChannel("nightly")).isEqualTo(BuildChannel.NIGHTLY);
+        assertThat(AppVersion.parseBuildChannel(null)).isEqualTo(BuildChannel.UNKNOWN);
+        for (String value : new String[]{"", " ", "@app.build.channel@", "unexpected"}) {
+            assertThat(AppVersion.parseBuildChannel(value)).isEqualTo(BuildChannel.UNKNOWN);
+        }
+        assertThat(mavenFilteredProperty("app.build.channel")).isIn("local", "release", "nightly");
+        assertThat(AppVersion.getBuildChannel())
+                .isEqualTo(AppVersion.parseBuildChannel(mavenFilteredProperty("app.build.channel")));
     }
 
     private static String mavenFilteredProperty(String key) throws Exception {
