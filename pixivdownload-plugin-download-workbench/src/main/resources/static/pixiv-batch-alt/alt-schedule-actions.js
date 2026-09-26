@@ -122,13 +122,14 @@ async function loadScheduleQueue(task, quiet) {
         if (!res.ok) throw await scheduleHttpError(res);
         data = await res.json();
     } catch (e) {
+        if (document.getElementById('abScheduleQueue-' + task.id) !== box) return;
         const vue = scheduleQueueVue();
         if (vue && typeof vue.unmountScheduleQueue === 'function') vue.unmountScheduleQueue(task.id);
         box.replaceChildren(errorBox(String(e && e.message || bt('common.request-failed', '请求失败')),
             () => loadScheduleQueue(task, false)));
         return;
     }
-    if (quiet && !document.getElementById('abScheduleQueue-' + task.id)) return;
+    if (document.getElementById('abScheduleQueue-' + task.id) !== box) return;
     const vue = scheduleQueueVue();
     if (vue && typeof vue.ensureScheduleQueue === 'function'
             && vue.ensureScheduleQueue(task.id, scheduleQueueVueContext(task.id, box, data))) {

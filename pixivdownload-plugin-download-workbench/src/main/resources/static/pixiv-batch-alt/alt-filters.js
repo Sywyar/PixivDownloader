@@ -519,6 +519,29 @@ function syncFilterButtonBadge() {
         badge.textContent = String(count);
         badge.hidden = count === 0;
     });
+    document.querySelectorAll('[data-active-filters]').forEach(host => {
+        host.replaceChildren();
+        const f = extraFilters;
+        const labels = [];
+        for (const field of ['content', 'ai', 'type']) {
+            if (f[field] !== 'all') labels.push(field === 'content' && ['r18', 'r18g'].includes(f[field])
+                ? (f[field] === 'r18' ? 'R-18' : 'R-18G') : bt('filters.' + field + '.' + f[field], f[field]));
+        }
+        for (const [field, key] of [['page', 'pages'], ['bookmark', 'bookmarks'], ['words', 'words']]) {
+            if (f[field + 'Min'] !== null || f[field + 'Max'] !== null) {
+                labels.push(bt('filters.' + key, key) + ': ' + (f[field + 'Min'] ?? 0) + '–' + (f[field + 'Max'] ?? '∞'));
+            }
+        }
+        for (const [field, key] of [['tagsExact', 'tags-exact'], ['tagsFuzzy', 'tags-fuzzy']]) {
+            if (f[field].length) labels.push(bt('filters.' + key, key) + ': ' + f[field].join(', '));
+        }
+        labels.forEach(label => {
+            const button = el('button', 'ab-pill ab-pill--brand', label);
+            button.type = 'button';
+            button.addEventListener('click', openFiltersDrawer);
+            host.appendChild(button);
+        });
+    });
 }
 
 window.PixivBatchAlt.filters = Object.assign(window.PixivBatchAlt.filters, {

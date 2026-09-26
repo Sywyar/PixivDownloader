@@ -15,7 +15,7 @@ let isAdmin = false;
 let serverState = {};
 
 let state = {
-    mode: QUICK_FETCH_MODE,
+    mode: SINGLE_IMPORT_MODE,
     queue: [],
     isRunning: false,
     isPaused: false,

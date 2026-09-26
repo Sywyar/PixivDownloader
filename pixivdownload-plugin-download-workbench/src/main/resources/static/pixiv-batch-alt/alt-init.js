@@ -118,7 +118,7 @@ function buildOnboardingConfig(savedName) {
         savedName: savedName || '',
         sel: {
             cookieCard: '#abCookieChip',
-            scriptsCard: '#abScriptsBtn',
+            scriptsCard: '#abVersionBtn',
             tabs: '#abRail',
             singleImportTab: '#abRailModes [data-mode="single-import"]',
             importTextarea: '#abImportInput',
@@ -158,6 +158,12 @@ async function init() {
     if (blurPref !== null) searchState.blurR18 = blurPref === 'true';
 
     bindChrome();
+    bindScheduleMenus();
+    const compactRail = window.matchMedia('(max-width: 46em)');
+    const orientRail = () => document.getElementById('abRailModes')
+        ?.setAttribute('aria-orientation', compactRail.matches ? 'horizontal' : 'vertical');
+    compactRail.addEventListener('change', orientRail);
+    orientRail();
     loadAppInfo();
     renderAuthButton();
     refreshCookieUi();
@@ -176,7 +182,7 @@ async function init() {
     }
 
     // 模式（恢复上次；计划任务仅管理员）
-    let savedMode = storeGet('pixiv_mode') || (hasPixivCookie() ? QUICK_FETCH_MODE : SINGLE_IMPORT_MODE);
+    let savedMode = storeGet('pixiv_mode') || SINGLE_IMPORT_MODE;
     if (!AB_MODES.some(m => m.id === savedMode)) savedMode = QUICK_FETCH_MODE;
     if (savedMode === 'schedule' && !isAdmin) savedMode = QUICK_FETCH_MODE;
     state.mode = savedMode;

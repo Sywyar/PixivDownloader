@@ -8,10 +8,6 @@
     gap: 12px;
 }
 
-.ab-schedule-card {
-    padding: 14px 16px;
-}
-
 .ab-schedule-head {
     display: flex;
     align-items: flex-start;
@@ -68,13 +64,6 @@
     background: var(--surface-3);
 }
 
-
-.ab-schedule-meta {
-    display: flex;
-    gap: 8px 22px;
-    flex-wrap: wrap;
-    margin-top: 10px;
-}
 
 .ab-schedule-meta-item {
     display: flex;
@@ -246,4 +235,44 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+}
+
+/* 管理行在窄屏自然换行，常用操作始终可见。 */
+.ab-schedule-toolbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+.ab-app .ab-schedule-search { width: min(22rem, 100%); min-width: 0; }
+.ab-schedule-filters { display: flex; flex-wrap: wrap; gap: 4px; }
+.ab-schedule-count { font-size: .75rem; margin: 0 0 10px; }
+.ab-schedule-list { gap: 0; }
+.ab-schedule-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 20px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.ab-schedule-row .ab-schedule-head { grid-column: 1; }
+.ab-schedule-row .ab-schedule-title { gap: 5px; overflow-wrap: anywhere; }
+.ab-schedule-row .ab-schedule-title strong { font-size: 1rem; }
+.ab-schedule-row .ab-schedule-title .ab-muted { font-size: .75rem; }
+.ab-schedule-next { grid-column: 1; grid-row: 2; }
+.ab-schedule-row .ab-schedule-actions { grid-column: 2; grid-row: 1 / span 2; margin: 0; align-items: center; justify-content: flex-end; }
+.ab-schedule-row .ab-schedule-meta-value { font-variant-numeric: tabular-nums; font-weight: 400; }
+.ab-schedule-row-footer { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ab-schedule-row .ab-lamp { padding: 0; background: transparent; font-weight: 400; flex-shrink: 1; min-width: 0; }
+.ab-schedule-row .ab-lamp--green { color: var(--muted); }
+.ab-schedule-row .ab-lamp-dot { flex: none; width: 6px; height: 6px; }
+.ab-schedule-row .ab-schedule-queue-toggle { margin: 0; white-space: nowrap; }
+.ab-schedule-row .ab-schedule-queue { grid-column: 1 / -1; padding: 16px; border: 0; border-radius: var(--r-md); background: var(--surface-2); animation: ab-schedule-reveal 160ms ease-out; }
+.ab-schedule-more { position: relative; }
+.ab-schedule-more > summary { list-style: none; cursor: pointer; }
+.ab-schedule-more > summary::-webkit-details-marker { display: none; }
+.ab-schedule-more > summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.ab-schedule-menu { position: absolute; z-index: 20; right: 0; top: calc(100% + 6px); display: grid; gap: 4px; min-width: 12rem; padding: 8px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); box-shadow: var(--shadow-3); animation: ab-schedule-reveal 140ms ease-out; }
+.ab-app .ab-schedule-menu .ab-btn { justify-content: flex-start; width: 100%; background: transparent; }
+.ab-app .ab-schedule-menu .ab-btn:hover:not(:disabled) { background: var(--hover-bg); }
+.ab-app .ab-schedule-menu .ab-btn--danger-text { color: var(--danger); }
+@keyframes ab-schedule-reveal { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+@media (max-width: 68.75em) {
+    .ab-schedule-row { grid-template-columns: minmax(0, 1fr); }
+    .ab-schedule-row .ab-schedule-actions { grid-column: 1; grid-row: auto; justify-content: flex-start; }
+    .ab-schedule-more { margin-left: auto; }
+    .ab-schedule-row-footer { flex-wrap: wrap; }
+    .ab-schedule-next { grid-row: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .ab-schedule-menu, .ab-schedule-row .ab-schedule-queue { animation: none; }
 }

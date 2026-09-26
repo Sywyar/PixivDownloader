@@ -15,7 +15,7 @@ const source = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resourc
 const scheduleSource = readAltFiles(
     'alt-schedule.js', 'alt-schedule-actions.js', 'alt-schedule-editor.js');
 const modesSource = readAltFiles(
-    'alt-modes.js', 'alt-mode-capture.js', 'alt-mode-discovery.js', 'alt-mode-series.js');
+    'alt-selection.js', 'alt-modes.js', 'alt-mode-capture.js', 'alt-mode-discovery.js', 'alt-mode-series.js');
 const initSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch-alt', 'alt-init.js'), 'utf8');
 const chromeSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
@@ -195,7 +195,8 @@ assert.strictEqual(sandbox.scheduleStatusLabel(suspendedTask), '风控原因详�
     assert(pageSource.includes('data-i18n-title="page.switch-to-old-layout"'));
     assert(pageSource.includes('data-i18n-aria-label="page.switch-to-old-layout"'));
     assert(pageSource.includes('data-icon="grid"'));
-    assert(!pageSource.includes('data-i18n="page.switch-to-old-layout"'));
+    const oldLayoutLink = pageSource.match(/<a[^>]*href="\/pixiv-batch.html"[^>]*>/)[0];
+    assert(!oldLayoutLink.includes('data-i18n='), '翻译文本应在子节点，保留链接图标');
     const altStyleOrder = [
         'pixiv-batch-alt.css', 'pixiv-batch-alt-layout.css', 'pixiv-batch-alt-dock.css',
         'pixiv-batch-alt-schedule.css', 'pixiv-batch-alt-overlays.css',
@@ -205,20 +206,17 @@ assert.strictEqual(sandbox.scheduleStatusLabel(suspendedTask), '风控原因详�
     assert(altStyleOrder.every((position, index) => position >= 0
         && (index === 0 || position > altStyleOrder[index - 1])));
     const altScriptOrder = [
-        'alt-modes.js', 'alt-mode-capture.js', 'alt-mode-discovery.js', 'alt-mode-series.js',
+        'alt-selection.js', 'alt-modes.js', 'alt-mode-capture.js', 'alt-mode-discovery.js', 'alt-mode-series.js',
         'alt-schedule.js', 'alt-schedule-actions.js', 'alt-schedule-editor.js',
         'alt-queue.js', 'alt-queue-vue.js',
         'alt-engine.js', 'alt-engine-stream.js', 'alt-engine-workers.js'
     ].map(name => pageSource.indexOf(`/pixiv-batch-alt/${name}`));
     assert(altScriptOrder.every((position, index) => position >= 0
         && (index === 0 || position > altScriptOrder[index - 1])));
-    const topbarOrder = [
-        'id="abCookieChip"', 'id="abLangAnchor"', 'id="abVersion"', 'id="abScriptsBtn"',
-        'href="/pixiv-batch.html"', 'id="abThemeAnchor"', 'data-qt-slot="topbar-actions"',
-        'id="abAuthBtn"'
-    ].map(marker => pageSource.indexOf(marker));
-    assert(topbarOrder.every((position, index) => position >= 0
-        && (index === 0 || position > topbarOrder[index - 1])));
+    for (const anchor of ['abCookieChip', 'abLangAnchor', 'abVersion', 'abScriptsBtn', 'abThemeAnchor', 'abAuthBtn']) {
+        assert(pageSource.includes('id="' + anchor + '"'), '保留顶栏功能入口 ' + anchor);
+    }
+    assert(pageSource.includes('data-qt-slot="topbar-actions"'));
     const classicTopbarOrder = [
         'id="batchLangAnchor"', 'id="batchThemeAnchor"', 'data-qt-slot="topbar-actions"'
     ].map(marker => classicPageSource.indexOf(marker));
@@ -226,8 +224,8 @@ assert.strictEqual(sandbox.scheduleStatusLabel(suspendedTask), '风控原因详�
         && (index === 0 || position > classicTopbarOrder[index - 1])));
     assert(classicCoreSource.includes("mountPoint: document.getElementById('batchLangAnchor')"));
     assert(classicCoreSource.includes("mountPoint: document.getElementById('batchThemeAnchor')"));
-    assert(pageSource.includes('<span id="abVersionText">加载中…</span>'));
-    assert(!pageSource.includes('id="abVersionText" data-i18n='));
+    assert(pageSource.includes('id="abAppVersion"'));
+    assert(!pageSource.includes('id="abAppVersion" data-i18n='));
     assert(chromeSource.includes("fetch('/api/app/info', {credentials: 'same-origin'})"));
     assert(chromeSource.includes("btn.setAttribute('data-i18n', isAdmin ? 'auth.logout' : 'auth.login');"));
     assert(cssSource.includes('.ab-topnav-link svg'));

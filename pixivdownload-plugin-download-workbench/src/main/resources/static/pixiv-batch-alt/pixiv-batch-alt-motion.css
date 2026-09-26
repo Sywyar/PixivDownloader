@@ -3,13 +3,18 @@
     to { background-position: -200% 0; }
 }
 .ab-app :is(.ab-work, .ab-quick-action, .ab-user-card, .ab-collection-card,
-    .ab-script-card, .ab-schedule-card, .ab-rail-item, .card, .ab-mode-head) {
+    .ab-script-card, .ab-rail-item, .card, .ab-mode-head) {
     animation: none;
 }
 .ab-drill { border-top: 1px solid var(--line); padding-top: 20px; display: flex; flex-direction: column; gap: 16px; }
 .ab-drill-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .ab-drill-head h3 { font-size: 1rem; }
-.ab-enqueue-bar { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.ab-enqueue-bar { background: transparent; border: 0; }
+.ab-menu:not([hidden]) { animation: ab-menu-enter 140ms ease-out; transform-origin: top right; }
+@keyframes ab-menu-enter {
+    from { opacity: 0; transform: translateY(-4px) scale(.98); }
+    to { opacity: 1; transform: none; }
+}
 @media (prefers-reduced-motion: reduce) {
     .ab-app *, .ab-app *::before, .ab-app *::after {
         animation: none !important;

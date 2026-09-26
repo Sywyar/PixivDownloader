@@ -72,39 +72,42 @@ function renderQuickMode(panel) {
     const credentialOk = !(acquisition && acquisition.account
         && typeof acquisition.account.credentialMissing === 'function'
         && acquisition.account.credentialMissing());
-    const accountCard = el('div', 'ab-account card');
-    const uidLine = el('div', 'ab-account-uid');
-    uidLine.appendChild(abIconEl('user'));
-    uidLine.appendChild(el('span', 'ab-muted', bt('quick.uid', '当前账号 UID')));
-    const uidValue = el('strong', '', quickState.uid || '-');
-    uidValue.id = 'abQuickUid';
-    uidLine.appendChild(uidValue);
-    accountCard.appendChild(uidLine);
     if (!credentialOk) {
-        const warn = el('div', 'ab-account-warn');
-        warn.appendChild(abIconEl('alert'));
-        warn.appendChild(el('span', '', bt('quick.no-credential', '未检测到可用的登录凭据，请先保存含 PHPSESSID 的 Cookie')));
-        const fix = el('button', 'ab-btn ab-btn--ghost ab-btn--sm', bt('cookie.title', 'Pixiv Cookie'));
+        const gate = el('div', 'ab-credential-gate');
+        gate.appendChild(abIconEl('user', 'ab-gate-icon'));
+        gate.appendChild(el('h2', '', bt('quick.connect.title', '连接你的 Pixiv')));
+        gate.appendChild(el('p', '', bt('quick.connect.hint', '保存 Cookie 后，即可获取收藏、关注和珍藏集中的作品。')));
+        const fix = el('button', 'ab-btn ab-btn--primary', bt('quick.connect.action', '配置 Cookie'));
         fix.type = 'button';
         fix.addEventListener('click', openCookieModal);
-        warn.appendChild(fix);
-        accountCard.appendChild(warn);
+        gate.appendChild(fix);
+        panel.appendChild(gate);
+        return;
     }
-    panel.appendChild(accountCard);
-
+    const account = el('div', 'ab-account');
+    account.appendChild(abIconEl('user'));
+    account.appendChild(el('span', 'ab-muted', bt('quick.uid', '当前账号 UID')));
+    const uid = el('span', '', quickState.uid || '—');
+    uid.id = 'abQuickUid';
+    account.appendChild(uid);
+    panel.appendChild(account);
     const actions = el('div', 'ab-quick-actions');
-    quickActionDefs().forEach((action, idx) => {
-        const btn = el('button', 'ab-quick-action card'
-            + (quickState.action === action.id ? ' is-active' : ''));
-        btn.type = 'button';
-        btn.style.setProperty('--stagger', String(idx));
-        btn.disabled = !credentialOk;
-        if (!credentialOk) btn.title = bt('cookie.requires-phpsessid', '无有效cookie(PHPSESSID)此功能不可用');
-        btn.appendChild(abIconEl(action.icon));
-        btn.appendChild(el('span', '', bt(action.labelKey, action.label)));
-        btn.addEventListener('click', () => runQuickAction(action));
-        actions.appendChild(btn);
+    const label = el('label', 'ab-control-label', bt('quick.source', '作品来源'));
+    label.htmlFor = 'abQuickAction';
+    const select = el('select', 'ab-input');
+    select.id = 'abQuickAction';
+    const placeholder = el('option', '', bt('quick.choose', '选择收藏、关注或其他来源'));
+    placeholder.value = '';
+    placeholder.disabled = true;
+    select.appendChild(placeholder);
+    quickActionDefs().forEach(action => {
+        const option = el('option', '', bt(action.labelKey, action.label));
+        option.value = action.id;
+        select.appendChild(option);
     });
+    select.value = quickState.action || '';
+    select.addEventListener('change', () => runQuickAction(quickActionDef(select.value)));
+    actions.append(label, select);
     panel.appendChild(actions);
 
     const stage = el('div', 'ab-quick-stage');
@@ -143,14 +146,10 @@ function quickActionDef(id) {
 
 function runQuickAction(action, page) {
     quickState.action = action.id;
+    const selector = document.getElementById('abQuickAction');
+    if (selector) selector.value = action.id;
     quickState.drill = null;
-    document.querySelectorAll('.ab-quick-action').forEach(btn => btn.classList.remove('is-active'));
-    renderStagePreserve(() => {
-        document.querySelectorAll('.ab-quick-action').forEach(btn => {
-            const label = btn.querySelector('span:last-child');
-            if (label && label.textContent === bt(action.labelKey, action.label)) btn.classList.add('is-active');
-        });
-    });
+    renderStagePreserve();
     if (action.view === 'works') loadQuickWorks(action, page || 1);
     else if (action.view === 'following') loadQuickFollowing(action, 0);
     else loadQuickCollections(action);
@@ -723,11 +722,12 @@ function renderImportMode(panel) {
     textarea.id = 'abImportInput';
     textarea.setAttribute('aria-label', bt('modes.import', '批量导入'));
     textarea.setAttribute('aria-describedby', 'abImportResult');
-    textarea.rows = 8;
+    textarea.rows = 5;
     textarea.spellcheck = false;
     textarea.placeholder = bt('batch:input.single-import.placeholder',
         '粘贴插画/漫画/动图/小说单作品链接列表，兼容 One-Tab，N-Tab 等标签页管理插件导出格式...');
     composer.appendChild(textarea);
+    composer.appendChild(el('p', 'ab-field-note', bt('import.id-hint', '数字 ID 默认为插画；小说请粘贴完整链接，或在 ID 前另起一行写 novel:。')));
 
     const help = el('details', 'ab-import-help');
     help.appendChild(el('summary', '', bt('import.format.title', '导入格式说明')));
@@ -772,7 +772,7 @@ function renderImportMode(panel) {
         runImportParse(true);
     });
     actions.appendChild(importBtn);
-    actions.appendChild(freshBtn);
+    help.appendChild(freshBtn);
     composer.appendChild(actions);
 
     const result = el('div', 'ab-import-result');

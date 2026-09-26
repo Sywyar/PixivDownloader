@@ -368,6 +368,10 @@ function renderSearchMode(panel) {
     row.appendChild(searchBtn);
     composer.appendChild(row);
 
+    const options = el('details', 'ab-search-options');
+    options.open = !!searchState.optionsOpen || searchState.submode === 'batch';
+    options.addEventListener('toggle', () => { searchState.optionsOpen = options.open; });
+    options.appendChild(el('summary', '', bt('search.options', '搜索选项')));
     const controls = el('div', 'ab-search-controls');
     const searchAcquisition = altAcquisition('search', searchState.source, searchState.kind);
     const contributionControls = searchAcquisition && searchAcquisition.controls || {};
@@ -414,7 +418,8 @@ function renderSearchMode(panel) {
     blurLabel.appendChild(blurBox);
     blurLabel.appendChild(el('span', '', bt('search.blur-r18', '模糊 R18 缩略图')));
     if (contributionControls.r18Blur !== false) controls.appendChild(blurLabel);
-    composer.appendChild(controls);
+    options.appendChild(controls);
+    composer.appendChild(options);
 
     if (searchState.submode === 'batch') {
         const batchRow = el('div', 'ab-composer-row ab-batch-range');
@@ -444,7 +449,7 @@ function renderSearchMode(panel) {
                 ? ' ' + bt('search.batch.multi-limit', 'multi 模式：每次最多 {limit} 页', {limit: multiModeLimitPage})
                 : '');
         batchRow.appendChild(note);
-        composer.appendChild(batchRow);
+        options.appendChild(batchRow);
     }
     panel.appendChild(composer);
 

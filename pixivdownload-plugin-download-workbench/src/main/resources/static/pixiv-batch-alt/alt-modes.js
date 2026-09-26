@@ -5,10 +5,10 @@
    ============================================================ */
 
 const AB_MODES = [
-    {id: QUICK_FETCH_MODE, icon: 'zap', titleKey: 'modes.quick', titleFallback: '快捷获取',
-        descKey: 'modes.quick.desc', descFallback: '从账号收藏、关注、珍藏集一键取作品'},
-    {id: SINGLE_IMPORT_MODE, icon: 'clipboard', titleKey: 'modes.import', titleFallback: '批量导入',
-        descKey: 'modes.import.desc', descFallback: '粘贴作品链接 / ID 清单批量入队'},
+    {id: QUICK_FETCH_MODE, icon: 'zap', titleKey: 'modes.quick', titleFallback: '我的 Pixiv',
+        descKey: 'modes.quick.desc', descFallback: '收藏、关注与珍藏集，喜欢的作品都在这里。'},
+    {id: SINGLE_IMPORT_MODE, icon: 'clipboard', titleKey: 'modes.import', titleFallback: '链接导入',
+        descKey: 'modes.import.desc', descFallback: '粘贴作品链接或 ID，开始新的下载。'},
     {id: 'user', icon: 'user', titleKey: 'modes.user', titleFallback: '画师',
         descKey: 'modes.user.desc', descFallback: '按画师主页批量抓取全部作品'},
     {id: 'search', icon: 'search', titleKey: 'modes.search', titleFallback: '搜索',
@@ -65,7 +65,7 @@ function renderRail() {
     const rail = document.getElementById('abRailModes');
     if (!rail) return;
     rail.innerHTML = '';
-    AB_MODES.forEach(mode => {
+    [AB_MODES[1], AB_MODES[0], ...AB_MODES.slice(2)].forEach(mode => {
         if (mode.adminOnly) return;
         const btn = el('button', 'ab-rail-item' + (state.mode === mode.id ? ' is-active' : ''));
         btn.type = 'button';
@@ -82,8 +82,8 @@ function renderRail() {
             const tabs = Array.from(rail.querySelectorAll('[role="tab"]'));
             const index = tabs.indexOf(btn);
             const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
-                : event.key === 'ArrowRight' ? (index + 1) % tabs.length
-                : event.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : -1;
+                : ['ArrowRight', 'ArrowDown'].includes(event.key) ? (index + 1) % tabs.length
+                : ['ArrowLeft', 'ArrowUp'].includes(event.key) ? (index + tabs.length - 1) % tabs.length : -1;
             if (next < 0) return;
             event.preventDefault();
             tabs[next].click();
@@ -96,7 +96,7 @@ function renderRail() {
 }
 
 const modeDrafts = new Map();
-let lastAcquisitionMode = QUICK_FETCH_MODE;
+let lastAcquisitionMode = SINGLE_IMPORT_MODE;
 
 function rememberModeDraft(panel) {
     if (!panel || !panel.dataset.mode) return;
@@ -142,7 +142,10 @@ function switchMode(mode) {
         btn.tabIndex = active ? 0 : -1;
     });
     toggleDock(false);
-    if (changed) renderStage();
+    if (changed) {
+        renderStage();
+        animateWorkspace(document.getElementById('abModePanel'));
+    }
     if (changed && normalized === 'schedule') {
         enterScheduleMode();
     }
@@ -153,6 +156,10 @@ function renderStage() {
     if (!panel) return;
     const restoreFocus = panel.dataset.mode === state.mode && panel.contains(document.activeElement);
     if (panel.dataset.mode === state.mode) rememberModeDraft(panel);
+    if (panel.dataset.mode === 'schedule') {
+        scheduleState.expandedQueues.forEach(id => scheduleQueueVue()?.unmountScheduleQueue?.(id));
+        if (state.mode !== 'schedule') stopSchedulePolling();
+    }
     panel.innerHTML = '';
     const mode = state.mode;
     panel.dataset.mode = mode;
@@ -169,6 +176,8 @@ function renderStage() {
     refreshAltSlots();
     restoreModeDraft(panel, restoreFocus);
     syncWorkspaceNavigation();
+    syncFilterButtonBadge();
+    syncWorkSelection();
 }
 
 /* ============================================================
@@ -186,7 +195,14 @@ function modeHeader(modeDef, actions) {
     const actionWrap = el('div', 'ab-mode-actions');
     (actions || []).forEach(a => actionWrap.appendChild(a));
     head.appendChild(actionWrap);
-    return head;
+    const heading = el('div', 'ab-mode-heading');
+    heading.appendChild(head);
+    if ((actions || []).some(action => action.id === 'abFilterBtn')) {
+        const filters = el('div', 'ab-active-filters');
+        filters.dataset.activeFilters = '1';
+        heading.appendChild(filters);
+    }
+    return heading;
 }
 
 function filterButton() {
@@ -243,6 +259,7 @@ function workCard(item, opts) {
     const card = el('article', 'ab-work card');
     card.dataset.workId = String(item.id);
     card.dataset.kind = kind;
+    bindWorkSelection(card, item, kind, options);
     card.style.setProperty('--stagger', String(options.index || 0));
 
     const thumbWrap = el('div', 'ab-thumb-wrap');
@@ -299,6 +316,7 @@ function workCard(item, opts) {
         : title.textContent;
     info.appendChild(title);
     if (authorName) info.appendChild(el('div', 'ab-work-author', authorName));
+    if (kind === 'novel') info.appendChild(badges);
     card.appendChild(info);
 
     return card;
@@ -372,7 +390,7 @@ function normalizeAcquisitionItems(items, acquisition, context, mode) {
 
 function worksGrid(items, opts) {
     const options = opts || {};
-    const grid = el('div', 'ab-grid');
+    const grid = el('div', 'ab-grid' + (items.length && items.every(item => (options.kind || item.kind) === 'novel') ? ' ab-grid--novels' : ''));
     if (!items.length) {
         const empty = el('div', 'ab-empty');
         empty.appendChild(abIconEl('image'));
@@ -446,7 +464,7 @@ function paginationBar(opts) {
 }
 
 function enqueueBar(opts) {
-    const bar = el('div', 'ab-enqueue-bar card');
+    const bar = el('div', 'ab-enqueue-bar');
     const summary = el('span', 'ab-enqueue-summary', opts.summary || '');
     bar.appendChild(summary);
     const spacer = el('span', 'ab-enqueue-spacer');
@@ -454,11 +472,11 @@ function enqueueBar(opts) {
     if (opts.filterSummary) {
         bar.appendChild(el('span', 'ab-pill ab-pill--brand', opts.filterSummary));
     }
-    const pageBtn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm', bt('common.enqueue-page', '本页入队'));
+    const pageBtn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm', bt('selection.page', '选择本页'));
     pageBtn.type = 'button';
     pageBtn.disabled = !opts.pageEnabled;
-    pageBtn.addEventListener('click', opts.onEnqueuePage);
-    const allBtn = el('button', 'ab-btn ab-btn--primary ab-btn--sm', bt('common.enqueue-all', '全部入队'));
+    pageBtn.addEventListener('click', () => selectVisibleWorks());
+    const allBtn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm', bt('common.enqueue-all', '全部入队'));
     allBtn.type = 'button';
     allBtn.disabled = !opts.allEnabled;
     allBtn.addEventListener('click', opts.onEnqueueAll);
@@ -469,6 +487,7 @@ function enqueueBar(opts) {
 
 // 队列增删后统一刷新当前舞台各网格的 ✓ 标记（聚合入口，等价 syncAllResultsQueueState）
 function syncAllResultsQueueState() {
+    syncWorkSelection();
     document.querySelectorAll('.ab-work[data-work-id]').forEach(card => {
         const inQueue = queueHas(card.dataset.workId);
         card.classList.toggle('in-queue', inQueue);

@@ -66,11 +66,8 @@ function openScheduleOverride(task) {
     const status = el('p', 'ab-field-note');
     status.setAttribute('role', 'status');
     body.appendChild(status);
-    [nameInput, intervalInput, cronInput, limitInput, proxyInput, credInput].forEach((input, index) => {
-        input.id = 'abScheduleField' + index;
-        const label = input.previousElementSibling;
-        if (label && label.tagName === 'LABEL') label.htmlFor = input.id;
-    });
+    proxyInput.setAttribute('aria-label', bt('schedule.override.proxy', '单独代理'));
+    cookieInput.setAttribute('aria-label', bt('schedule.override.credential', '单独凭证'));
 
     const actions = el('div', 'ab-cookie-actions');
     const saveBtn = el('button', 'ab-btn ab-btn--primary');
@@ -308,14 +305,13 @@ function openScheduleEditor(task) {
 
     const status = el('p', 'ab-field-note');
     status.setAttribute('role', 'status');
-    body.appendChild(status);
     [nameInput, intervalInput, cronInput, limitInput, proxyInput, credInput].forEach((input, index) => {
         input.id = 'abScheduleField' + index;
         const label = input.previousElementSibling;
         if (label && label.tagName === 'LABEL') label.htmlFor = input.id;
     });
 
-    const actions = el('div', 'ab-cookie-actions');
+    const actions = el('div', 'ab-drawer-actions');
     const saveBtn = el('button', 'ab-btn ab-btn--primary');
     saveBtn.type = 'button';
     saveBtn.appendChild(el('span', '', editing
@@ -397,7 +393,8 @@ function openScheduleEditor(task) {
         loadScheduleTasks(true);
     });
     actions.appendChild(saveBtn);
-    body.appendChild(actions);
+    const footer = el('div');
+    footer.append(status, actions);
 
     openDrawer({
         id: 'schedule-editor',
@@ -407,7 +404,7 @@ function openScheduleEditor(task) {
             : bt('schedule.editor.title-new', '新建计划任务'),
         body,
         beforeClose: () => !saving && (!dirty || abConfirm('dialog.discard-draft', '放弃未保存的修改？')),
-        footer: null
+        footer
     });
 }
 

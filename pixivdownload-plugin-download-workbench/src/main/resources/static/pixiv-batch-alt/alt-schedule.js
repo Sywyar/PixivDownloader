@@ -6,6 +6,7 @@
    ============================================================ */
 let schedulePollTimer = null;
 let scheduleQueuePollTimer = null;
+const scheduleView = {query: '', filter: 'all'};
 
 function enterScheduleMode() {
     loadScheduleTasks();
@@ -117,7 +118,6 @@ function scheduleFailureReason(t) {
 }
 
 /**
- * 计算任务卡片右上角「状态灯」：返回 {tone, text}。
  * 优先级：瞬时运行态（运行中 / 排队中）> 已停用 > 挂起原因 > 上一轮持久化结果 > 首次未运行。
  */
 function scheduleStatusLight(t) {
@@ -306,6 +306,38 @@ function renderScheduleMode(panel) {
     bannerHost.id = 'abScheduleBanners';
     panel.appendChild(bannerHost);
 
+    const toolbar = el('div', 'ab-schedule-toolbar');
+    const search = el('input', 'ab-input ab-schedule-search');
+    search.id = 'abScheduleSearch';
+    search.type = 'search';
+    search.value = scheduleView.query;
+    search.placeholder = bt('schedule.manage.search', '搜索计划名称或来源');
+    search.setAttribute('aria-label', search.placeholder);
+    search.addEventListener('input', () => {
+        scheduleView.query = search.value;
+        renderScheduleTaskList();
+    });
+    const filters = el('div', 'ab-seg ab-schedule-filters');
+    filters.setAttribute('role', 'group');
+    filters.setAttribute('aria-label', bt('schedule.manage.filter', '计划状态'));
+    for (const [value, label] of [['all', '全部'], ['running', '运行中'], ['paused', '已暂停'], ['attention', '需要关注']]) {
+        const button = el('button', 'ab-seg-item', bt('schedule.manage.' + value, label));
+        button.type = 'button';
+        button.id = 'abScheduleFilter-' + value;
+        button.dataset.filter = value;
+        button.addEventListener('click', () => {
+            scheduleView.filter = value;
+            renderScheduleTaskList();
+        });
+        filters.appendChild(button);
+    }
+    toolbar.append(search, filters);
+    panel.appendChild(toolbar);
+    const count = el('p', 'ab-schedule-count ab-muted');
+    count.id = 'abScheduleCount';
+    count.setAttribute('role', 'status');
+    panel.appendChild(count);
+
     const list = el('div', 'ab-schedule-list');
     list.id = 'abScheduleList';
     panel.appendChild(list);
@@ -316,27 +348,79 @@ function renderScheduleMode(panel) {
     }
 }
 
+function scheduleVisibleTasks(tasks, query, filter) {
+    const term = query.trim().toLocaleLowerCase();
+    return tasks.filter(task => {
+        if (term && ![task.name, scheduleTypeLabel(task), task.sourceType || task.type]
+            .join(' ').toLocaleLowerCase().includes(term)) return false;
+        if (filter === 'running') return ['RUNNING', 'QUEUED', 'CANCEL_REQUESTED'].includes(task.runState);
+        if (filter === 'paused') return !task.enabled || task.suspendReason === 'MANUAL'
+            || task.lastStatus === 'PAUSED';
+        if (filter === 'attention') return ['red', 'yellow'].includes(scheduleStatusLight(task).tone);
+        return true;
+    });
+}
+
 function renderScheduleTaskList() {
     const bannerHost = document.getElementById('abScheduleBanners');
     const list = document.getElementById('abScheduleList');
     if (!list) return;
     renderOveruseBanners(bannerHost);
-    list.innerHTML = '';
+    const focused = list.contains(document.activeElement) ? document.activeElement.id : null;
+    const tasks = scheduleVisibleTasks(scheduleState.tasks, scheduleView.query, scheduleView.filter);
+    document.querySelectorAll('.ab-schedule-filters button').forEach(button => {
+        const selected = button.dataset.filter === scheduleView.filter;
+        button.classList.toggle('is-active', selected);
+        button.setAttribute('aria-pressed', String(selected));
+    });
+    const count = document.getElementById('abScheduleCount');
+    if (count) count.textContent = scheduleState.error ? ''
+        : bt('schedule.manage.count', '{visible} / {total} 个计划', {visible: tasks.length, total: scheduleState.tasks.length});
+
+    // 未变化的行和队列岛保留原节点，轮询不会关闭菜单或打断键盘操作。
+    const existing = new Map(Array.from(list.children, row => [row.dataset.taskId, row]));
+    const retained = new Set(tasks.map(task => String(task.id)));
+    for (const [id, row] of existing) {
+        if (scheduleState.error || !retained.has(id)) {
+            const taskId = row._scheduleTaskId;
+            if (taskId != null) scheduleQueueVue()?.unmountScheduleQueue?.(taskId);
+            row.remove();
+        }
+    }
     if (scheduleState.error) {
         list.appendChild(errorBox(scheduleState.error, () => loadScheduleTasks(false)));
         return;
     }
-    if (!scheduleState.tasks.length) {
-        const empty = el('div', 'ab-empty ab-empty--tall');
+    if (!tasks.length) {
+        const empty = el('div', 'ab-empty');
         empty.appendChild(abIconEl('clock'));
-        empty.appendChild(el('p', '', bt('schedule.empty', '暂无计划任务，点击右上角「新建计划任务」开始')));
+        empty.appendChild(el('p', '', scheduleState.tasks.length
+            ? bt('schedule.manage.empty', '没有匹配的计划，试试其他关键词或状态。')
+            : bt('schedule.empty', '暂无计划任务，点击右上角「新建计划任务」开始')));
         list.appendChild(empty);
-        return;
     }
-    scheduleState.tasks.forEach((task, idx) => {
-        list.appendChild(scheduleTaskCard(task, idx));
+    tasks.forEach((task, index) => {
+        const old = existing.get(String(task.id));
+        const runtime = altScheduleSources();
+        const signature = JSON.stringify([task, scheduleState.expandedQueues.has(task.id),
+            !!runtime?.isAvailable(task.sourceType || task.type), scheduleTaskCredentialUi(task)]);
+        if (old && old._scheduleSignature === signature) {
+            if (list.children[index] !== old) list.insertBefore(old, list.children[index] || null);
+            return;
+        }
+        const menuOpen = old?.querySelector('.ab-schedule-more')?.open;
+        scheduleQueueVue()?.unmountScheduleQueue?.(task.id);
+        const row = scheduleTaskCard(task);
+        row._scheduleSignature = signature;
+        row._scheduleTaskId = task.id;
+        row.querySelector('.ab-schedule-more').open = !!menuOpen;
+        if (old?.isConnected) old.replaceWith(row);
+        else list.appendChild(row);
+        if (list.children[index] !== row) list.insertBefore(row, list.children[index] || null);
+        hydrateIcons(row);
+        if (scheduleState.expandedQueues.has(task.id)) loadScheduleQueue(task);
     });
-    hydrateIcons(list);
+    if (focused) document.getElementById(focused)?.focus({preventScroll: true});
     startScheduleQueuePolling();
 }
 
@@ -407,7 +491,7 @@ async function resumeOveruseAccount(account, mode, minutes) {
     loadScheduleTasks(true);
 }
 
-function scheduleTaskCard(task, idx) {
+function scheduleTaskCard(task) {
     const light = scheduleStatusLight(task);
     const kind = scheduleTaskKind(task);
     const credentialUi = scheduleTaskCredentialUi(task);
@@ -415,47 +499,32 @@ function scheduleTaskCard(task, idx) {
     const runtime = altScheduleSources();
     const sourceEditable = task.sourceAvailable !== false
         && runtime && runtime.isAvailable(sourceType);
-    const card = el('div', 'ab-schedule-card card');
-    card.style.setProperty('--stagger', String(Math.min(idx, 10)));
+    const card = el('article', 'ab-schedule-row');
+    card.dataset.taskId = String(task.id);
+    card.setAttribute('aria-labelledby', 'abScheduleName-' + task.id);
 
     const head = el('div', 'ab-schedule-head');
     const titleWrap = el('div', 'ab-schedule-title');
-    titleWrap.appendChild(el('strong', '', task.name || ('#' + task.id)));
+    const name = el('strong', '', task.name || ('#' + task.id));
+    name.id = 'abScheduleName-' + task.id;
+    titleWrap.appendChild(name);
     const subtitle = el('span', 'ab-muted');
     subtitle.textContent = summaryJoin([
         scheduleTypeLabel(task),
-        kind ? scheduleKindLabel(kind) : null
+        kind ? scheduleKindLabel(kind) : null, scheduleTriggerLabel(task)
     ]);
     titleWrap.appendChild(subtitle);
     head.appendChild(titleWrap);
     const lamp = el('span', 'ab-lamp ab-lamp--' + light.tone + (light.live ? ' is-live' : ''));
     lamp.appendChild(el('span', 'ab-lamp-dot'));
     lamp.appendChild(el('span', '', light.text));
-    head.appendChild(lamp);
     card.appendChild(head);
 
-    const metaGrid = el('div', 'ab-schedule-meta');
-    if (credentialUi.badgeLabel) {
-        metaGrid.appendChild(scheduleMetaItem('schedule.meta.credential', '凭证',
-            credentialUi.badgeLabel, task.cookieBound ? 'ok' : 'warn'));
-    }
-    if (task.proxy) {
-        metaGrid.appendChild(scheduleMetaItem('schedule.meta.proxy', '代理', String(task.proxy), 'brand'));
-    }
-    metaGrid.appendChild(scheduleMetaItem('schedule.meta.trigger', '触发方式', scheduleTriggerLabel(task)));
-    metaGrid.appendChild(scheduleMetaItem('schedule.meta.next-run', '下次运行',
-        task.nextRunTime
-            ? fmtScheduleTime(task.nextRunTime)
-            : (task.suspendReason === 'USER_ACTION_REQUIRED'
-                ? bt('batch:path.overflow.waiting', null)
-                : task.suspendReason
-                ? bt('schedule.next-run.capability', '等待插件能力恢复后自动重试')
-                : (task.lastStatus === 'PAUSED' || task.lastStatus === 'OVERUSE_PAUSED')
-                    ? bt('schedule.next-run.suspended', '需人工恢复后才会继续')
-                    : '—')));
-    metaGrid.appendChild(scheduleMetaItem('schedule.meta.last-run', '上次运行',
-        task.lastRunTime ? fmtScheduleTime(task.lastRunTime) : '-'));
-    card.appendChild(metaGrid);
+    const nextRun = scheduleMetaItem('schedule.meta.next-run', '下次运行',
+        task.enabled && !task.suspendReason && !['PAUSED', 'OVERUSE_PAUSED'].includes(task.lastStatus)
+            ? fmtScheduleTime(task.nextRunTime) : '—');
+    nextRun.classList.add('ab-schedule-next');
+    card.appendChild(nextRun);
 
     const actions = el('div', 'ab-schedule-actions');
     const busy = task.runState === 'RUNNING' || task.runState === 'QUEUED';
@@ -486,23 +555,39 @@ function scheduleTaskCard(task, idx) {
     actions.appendChild(scheduleActionBtn('edit', 'schedule.actions.edit', '编辑', !sourceEditable,
         sourceEditable ? '' : bt('schedule.error.source-editor-unavailable', '计划任务来源编辑器当前不可用'),
         () => openScheduleEditor(task)));
-    actions.appendChild(scheduleActionBtn('eye', 'schedule.actions.snapshot', '任务快照', false, '',
+    const more = el('details', 'ab-schedule-more');
+    more.name = 'schedule-actions';
+    const summary = el('summary', 'ab-btn ab-btn--ghost ab-btn--sm');
+    summary.textContent = bt('workspace.more', '更多');
+    summary.id = 'abScheduleMore-' + task.id;
+    summary.setAttribute('aria-label', summary.textContent + ' · ' + (task.name || task.id));
+    const menu = el('div', 'ab-schedule-menu');
+    menu.appendChild(scheduleActionBtn('eye', 'schedule.actions.snapshot', '任务快照', false, '',
         () => openScheduleSnapshot(task)));
     if (credentialUi.showOverride) {
-        actions.appendChild(scheduleActionBtn('key', 'schedule.actions.override', '代理 / 凭证', false, '',
+        menu.appendChild(scheduleActionBtn('key', 'schedule.actions.override', '代理 / 凭证', false, '',
             () => openScheduleOverride(task)));
     }
-    actions.appendChild(scheduleActionBtn('alert', 'schedule.actions.pending', '待重试', false, '',
+    menu.appendChild(scheduleActionBtn('alert', 'schedule.actions.pending', '待重试', false, '',
         () => openSchedulePending(task)));
-    actions.appendChild(scheduleActionBtn('trash', 'schedule.actions.delete', '删除', busy,
+    menu.appendChild(scheduleActionBtn('trash', 'schedule.actions.delete', '删除', busy,
         busy ? bt('schedule.action-disabled.busy', '运行 / 排队中不可操作') : '',
         () => deleteScheduleTask(task), true));
+
+    more.append(summary, menu);
+    actions.appendChild(more);
     card.appendChild(actions);
+    const footer = el('div', 'ab-schedule-row-footer');
+    footer.appendChild(lamp);
+    card.appendChild(footer);
 
     // 本轮队列详情（可折叠）
     const queueToggle = el('button', 'ab-schedule-queue-toggle');
     queueToggle.type = 'button';
+    queueToggle.id = 'abScheduleQueueToggle-' + task.id;
+    queueToggle.setAttribute('aria-controls', 'abScheduleQueue-' + task.id);
     const expanded = scheduleState.expandedQueues.has(task.id);
+    queueToggle.setAttribute('aria-expanded', String(expanded));
     queueToggle.appendChild(abIconEl('chevron-down', expanded ? '' : 'ab-collapsed'));
     queueToggle.appendChild(el('span', '', bt('schedule.round.title', '本轮队列详情')));
     queueToggle.addEventListener('click', () => {
@@ -518,14 +603,16 @@ function scheduleTaskCard(task, idx) {
         }
         renderScheduleTaskList();
     });
-    card.appendChild(queueToggle);
+    footer.appendChild(queueToggle);
     if (expanded) {
         const queueBox = el('div', 'ab-schedule-queue');
         queueBox.id = 'abScheduleQueue-' + task.id;
         queueBox.appendChild(el('p', 'ab-loading-line', bt('common.loading', '加载中…')));
         card.appendChild(queueBox);
-        loadScheduleQueue(task);
     }
+    card.querySelectorAll('button').forEach(button => {
+        if (!button.id) button.id = 'abScheduleAction-' + task.id + '-' + button.dataset.action;
+    });
     return card;
 }
 
@@ -543,8 +630,29 @@ function scheduleActionBtn(icon, labelKey, labelFallback, disabled, disabledReas
     btn.type = 'button';
     btn.appendChild(abIconEl(icon));
     btn.appendChild(el('span', '', bt(labelKey, labelFallback)));
+    btn.dataset.action = labelKey;
     btn.disabled = !!disabled;
     if (disabled && disabledReason) btn.title = disabledReason;
-    btn.addEventListener('click', onClick);
+    btn.addEventListener('click', () => {
+        const menu = btn.closest('.ab-schedule-more');
+        if (menu) { menu.open = false; menu.querySelector('summary').focus(); }
+        onClick();
+    });
     return btn;
+}
+
+function bindScheduleMenus() {
+    document.addEventListener('click', event => {
+        document.querySelectorAll('.ab-schedule-more[open]').forEach(menu => {
+            if (!menu.contains(event.target)) menu.open = false;
+        });
+    });
+    document.addEventListener('keydown', event => {
+        if (event.key !== 'Escape' || document.querySelector('dialog[open]')) return;
+        document.querySelectorAll('.ab-schedule-more[open]').forEach(menu => {
+            menu.open = false;
+            menu.querySelector('summary').focus();
+            event.preventDefault();
+        });
+    });
 }

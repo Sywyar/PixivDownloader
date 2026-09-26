@@ -57,8 +57,13 @@ function bindVersionMenu() {
         event.stopPropagation();
         show(menu.hidden);
     });
+    menu.addEventListener('click', event => {
+        if (!event.target.closest('.ab-menu-item')) return;
+        show(false);
+        btn.focus();
+    }, true);
     document.addEventListener('keydown', event => {
-        if (event.key === 'Escape' && !menu.hidden) {
+        if (event.key === 'Escape' && !menu.hidden && !document.querySelector('dialog[open]')) {
             show(false);
             btn.focus();
             event.preventDefault();
@@ -107,7 +112,8 @@ function refreshCookieUi() {
     const ok = cookieHasPhpsessid();
     const any = hasPixivCookie();
     chromeState.cookieSaved = any;
-    chip.classList.toggle('ab-chip--ok', ok);
+    chip.classList.remove('ab-chip--ok');
+    chip.classList.toggle('ab-chip--ghost', ok);
     chip.classList.toggle('ab-chip--warn', !ok);
     const label = chip.querySelector('.ab-chip-label');
     if (label) {
@@ -448,7 +454,14 @@ function syncWorkspaceNavigation() {
     const rail = document.getElementById('abRail');
     if (stage) stage.hidden = downloads;
     if (dock) dock.hidden = !downloads;
-    if (rail) rail.hidden = scheduled;
+    if (rail) rail.hidden = false;
+    document.querySelectorAll('#abRailModes .ab-rail-item').forEach(tab => {
+        const active = !downloads && tab.dataset.mode === state.mode;
+        tab.classList.toggle('is-active', active);
+        tab.setAttribute('aria-selected', String(active));
+        tab.tabIndex = tab.dataset.mode === (scheduled ? lastAcquisitionMode : state.mode) ? 0 : -1;
+    });
+    syncWorkSelection();
     [['abPrepareTab', !downloads && !scheduled], ['abDockToggle', downloads], ['abScheduleTab', scheduled]]
         .forEach(([id, active]) => {
             const tab = document.getElementById(id);
@@ -471,7 +484,10 @@ function toggleDock(force) {
     }
     dockState.open = open;
     syncWorkspaceNavigation();
-    if (changed) window.scrollTo({top: open ? downloadsScroll : acquisitionScroll, behavior: 'instant'});
+    if (changed) {
+        window.scrollTo({top: open ? downloadsScroll : acquisitionScroll, behavior: 'instant'});
+        animateWorkspace(document.getElementById(open ? 'abDock' : 'abStage'));
+    }
 }
 
 function openDock() {

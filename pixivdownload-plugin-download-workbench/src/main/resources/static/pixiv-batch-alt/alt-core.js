@@ -315,16 +315,43 @@ function closeModal() {
 function closeAltDialog(id) {
     const root = document.getElementById(id);
     if (!root) return;
-    if (root.open) root.close();
-    root.replaceChildren();
-    root._abRequestClose = null;
-    root.onkeydown = null;
+    const finish = () => {
+        if (root.open) root.close();
+        root.replaceChildren();
+        root._abRequestClose = null;
+        root.onkeydown = null;
+    };
+    if (root._abClosing) return;
+    if (!root.open || !root.animate || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        finish();
+        return;
+    }
+    const style = window.getComputedStyle(root);
+    const from = {opacity: style.opacity, transform: style.transform};
+    const drawer = id === 'abDrawerRoot';
+    root.getAnimations().forEach(animation => animation.cancel());
+    const animation = root.animate([from,
+        {opacity: drawer ? 1 : 0, transform: drawer ? 'translateX(100%)' : 'translateY(8px)'}],
+        {duration: drawer ? 220 : 140, easing: 'cubic-bezier(.4,0,1,1)', fill: 'forwards'});
+    root._abClosing = animation;
+    animation.finished.then(() => {
+        if (root._abClosing !== animation) return;
+        finish();
+        animation.cancel();
+        root._abClosing = null;
+    }, () => {});
 }
 
-// Native dialogs own modality, focus containment, Escape and return focus.
+// 原生对话框负责模态、焦点约束、Escape 与关闭后的焦点恢复。
 function openAltDialog(spec, drawer) {
     const root = document.getElementById(drawer ? 'abDrawerRoot' : 'abModalRoot');
     if (!root) return null;
+    const style = root.open && root.animate ? window.getComputedStyle(root) : null;
+    const from = style ? {opacity: style.opacity, transform: style.transform}
+        : {opacity: drawer ? 1 : 0, transform: drawer ? 'translateX(100%)' : 'translateY(8px)'};
+    root._abClosing?.cancel();
+    root._abClosing = null;
+    root.getAnimations?.().forEach(animation => animation.cancel());
     const close = drawer ? closeDrawer : closeModal;
     let confirming = false;
     root._abRequestClose = async () => {
@@ -333,7 +360,7 @@ function openAltDialog(spec, drawer) {
         try { if (!spec.beforeClose || await spec.beforeClose()) close(); }
         finally { confirming = false; }
     };
-    // Guard Escape before the browser close watcher, whose cancel event can be non-cancelable.
+    // 浏览器的 cancel 事件可能无法取消，草稿确认需要先拦截 Escape。
     root.onkeydown = event => {
         if (event.key !== 'Escape' || !spec.beforeClose) return;
         event.preventDefault();
@@ -364,6 +391,10 @@ function openAltDialog(spec, drawer) {
     root.replaceChildren(box);
     root.setAttribute('aria-labelledby', title.id);
     if (!root.open) root.showModal();
+    if (root.animate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        root.animate([from, {opacity: 1, transform: 'none'}],
+            {duration: drawer ? 260 : 180, easing: 'cubic-bezier(.2,.7,.2,1)'});
+    }
     return {panel: box, box, body, close};
 }
 
