@@ -101,14 +101,14 @@ final class DesktopConfigurationFieldView {
                         null,
                         locales,
                         selected("app.language", "follow-system"),
-                        true
+                        !owner.busy()
                 ),
                 GuiConfigEffect.HOT_RELOAD
         ));
         nodes.add(formField(
                 "interface.provider",
                 key("gui.interface.provider.label"),
-                new TextToken("gui-compose", "gui.compose.settings.provider-help", "", List.of()),
+                key("gui.interface.provider.help"),
                 choice(
                         "interface.provider.input",
                         "interface.provider",
@@ -116,7 +116,7 @@ final class DesktopConfigurationFieldView {
                         null,
                         providers,
                         selectedProvider,
-                        !providers.isEmpty()
+                        !providers.isEmpty() && !owner.busy()
                 ),
                 GuiConfigEffect.PROCESS_RESTART
         ));
@@ -131,14 +131,14 @@ final class DesktopConfigurationFieldView {
                         null,
                         themes,
                         selectedTheme,
-                        true
+                        !owner.busy()
                 ),
                 GuiConfigEffect.HOT_RELOAD
         ));
         nodes.add(formField(
                 "interface.config-menu-expand-all",
                 key("gui.interface.config-menu-expand-all.label"),
-                new TextToken("gui-compose", "gui.compose.settings.config-menu-expand-all-help", "", List.of()),
+                key("gui.interface.config-menu-expand-all.help"),
                 new DesktopUiNode.Toggle(
                         "interface.config-menu-expand-all.input",
                         "interface.config-menu-expand-all",
@@ -152,15 +152,10 @@ final class DesktopConfigurationFieldView {
                                         "false"
                                 ))
                         ),
-                        true
+                        !owner.busy()
                 ),
                 GuiConfigEffect.HOT_RELOAD
         ));
-        nodes.add(new DesktopUiNode.Group("interface.details",
-                new TextToken("gui-compose", "gui.compose.settings.option-details", "", List.of()),
-                column("interface.details.content",
-                        text("interface.provider.details", "gui.interface.provider.help", TextStyle.BODY),
-                        text("interface.expand.details", "gui.interface.config-menu-expand-all.help", TextStyle.BODY)), true));
         return scroll(
                 "interface.scroll",
                 new DesktopUiNode.Surface(
@@ -241,7 +236,7 @@ final class DesktopConfigurationFieldView {
         String value = values.getOrDefault(field.key(), spec.defaultValue());
         TextToken label = token(field.namespace(), spec.labelKey(), spec.key());
         TextToken help = optionalToken(field.namespace(), spec.helpKey());
-        boolean enabled = model.enabled(field) && !locked.contains(field.key());
+        boolean enabled = model.enabled(field) && !locked.contains(field.key()) && !owner.busy();
         String nodeId = binding + ".input";
         DesktopUiNode node = switch (spec.type()) {
             case BOOL -> new DesktopUiNode.Toggle(
@@ -330,6 +325,10 @@ final class DesktopConfigurationFieldView {
             );
         };
         if (spec.type() != GuiConfigFieldType.ENUM) nextBindings.put(binding, field);
+        if (node instanceof DesktopUiNode.TextInput input && spec.sensitive()) {
+            node = new DesktopUiNode.TextInput(input.id(), input.bindingId(), input.label(), input.help(),
+                    InputKind.PASSWORD, "", input.columns(), input.rows(), input.enabled(), model.credentialRevisions.getOrDefault(field.key(), 0L));
+        }
         if (spec.sensitive() && field.owner() != null) {
             String actionId = binding + ".clear";
             node = new DesktopUiNode.Dock(

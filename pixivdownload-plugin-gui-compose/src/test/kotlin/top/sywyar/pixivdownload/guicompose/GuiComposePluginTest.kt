@@ -334,6 +334,13 @@ class GuiComposePluginTest {
     private fun completeTree(): DesktopUiNode = DesktopUiNode.Container(
         "root", DesktopUiNode.ContainerLayout.COLUMN, 1, 4, DesktopUiNode.Alignment.STRETCH,
         listOf(
+            DesktopUiNode.SettingsWorkspace("settings.workspace",
+                DesktopUiNode.Choice("settings.categories", "settings.category", raw("Categories"), null,
+                    DesktopUiNode.ChoiceStyle.LIST, DesktopUiNode.SelectionMode.SINGLE,
+                    listOf(DesktopUiNode.Option("interface", raw("Interface"), true)), listOf("interface"), true),
+                listOf(DesktopUiNode.Tab("interface", raw("Interface"), text("settings.interface"))),
+                emptyList(), emptyList(), listOf(DesktopUiNode.Button("config.save", "config.save", raw("Save"), null,
+                    DesktopUiNode.ButtonStyle.PRIMARY, false)), "", "", 0),
             DesktopUiNode.SecurityOverview("security", "", false, 8, emptyList(),
                 DesktopUiNode.Toggle("security.https", "security.https", raw("HTTPS"), null, DesktopUiNode.ToggleStyle.SWITCH, false, true),
                 emptyList(), null, "", 0, 0, "", "", false),

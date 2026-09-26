@@ -174,6 +174,7 @@ object ComposeDesktopUiNodeRenderer {
         modifier: Modifier = Modifier,
     ) {
         when (node) {
+            is DesktopUiNode.SettingsWorkspace -> top.sywyar.pixivdownload.guicompose.settings.SettingsWorkspace(node, text, emit, modifier)
             is DesktopUiNode.PluginOverview -> top.sywyar.pixivdownload.guicompose.plugins.PluginOverview(node, text, emit, modifier)
             is DesktopUiNode.AutomationOverview -> top.sywyar.pixivdownload.guicompose.automation.AutomationOverview(node, text, emit, modifier)
             is DesktopUiNode.HomeOverview -> HomeOverview(node, text, emit, modifier)
@@ -634,7 +635,7 @@ object ComposeDesktopUiNodeRenderer {
     }
 
     @Composable
-    private fun FormContent(
+    internal fun FormContent(
         node: DesktopUiNode,
         text: (DesktopUiNode.TextToken) -> String,
         emit: (DesktopUiNode.Event) -> Unit,
@@ -1153,24 +1154,28 @@ object ComposeDesktopUiNodeRenderer {
         }
         val content: @Composable () -> Unit = {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                CompactTextInput(
-                    value = value,
-                    onValueChange = ::update,
-                    enabled = node.enabled(),
-                    singleLine = node.inputKind() != DesktopUiNode.InputKind.MULTILINE,
-                    visualTransformation = if (node.inputKind() == DesktopUiNode.InputKind.PASSWORD)
-                        PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
-                    modifier = Modifier.weight(1f)
-                        .semantics { contentDescription = resolve(node.label(), text) }
-                        .then(if (node.inputKind() == DesktopUiNode.InputKind.MULTILINE)
-                            Modifier.heightIn(min = 88.dp) else Modifier.heightIn(min = DesktopLayout.controlHeight)),
-                )
+                // 将权重留在直接布局子节点上，避免输入框装饰层截断父布局参数。
+                Box(Modifier.weight(1f)) {
+                    CompactTextInput(
+                        value = value,
+                        onValueChange = ::update,
+                        enabled = node.enabled(),
+                        singleLine = node.inputKind() != DesktopUiNode.InputKind.MULTILINE,
+                        visualTransformation = if (node.inputKind() == DesktopUiNode.InputKind.PASSWORD)
+                            PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
+                        modifier = Modifier.fillMaxWidth()
+                            .semantics { contentDescription = resolve(node.label(), text) }
+                            .then(if (node.inputKind() == DesktopUiNode.InputKind.MULTILINE)
+                                Modifier.heightIn(min = 88.dp) else Modifier.heightIn(min = DesktopLayout.controlHeight)),
+                    )
+                }
                 if (node.inputKind() == DesktopUiNode.InputKind.FILE
                     || node.inputKind() == DesktopUiNode.InputKind.DIRECTORY) {
                     CupertinoButton(
-                colors = CupertinoButtonDefaults.grayButtonColors(contentColor = LocalExperiencePalette.current.text),
-                border = BorderStroke(1.dp, LocalExperiencePalette.current.controlBorder),
+                        colors = CupertinoButtonDefaults.grayButtonColors(contentColor = LocalExperiencePalette.current.text),
+                        border = BorderStroke(1.dp, LocalExperiencePalette.current.controlBorder),
                         shape = CupertinoTheme.shapes.small,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
                         onClick = { choosePath(node.inputKind(), value.text)?.let { update(TextFieldValue(it, TextRange(it.length))) } },
                         enabled = node.enabled(),
                         modifier = Modifier.padding(start = 8.dp).hand(node.enabled()),

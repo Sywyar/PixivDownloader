@@ -30,7 +30,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         DesktopUiNode.NumberInput, DesktopUiNode.Table, DesktopUiNode.Tree,
         DesktopUiNode.Button, DesktopUiNode.Link, DesktopUiNode.AccountSetup, DesktopUiNode.OnboardingHub,
         DesktopUiNode.HomeOverview, DesktopUiNode.AutomationOverview, DesktopUiNode.PluginOverview, DesktopUiNode.ToolsOverview,
-        DesktopUiNode.SecurityOverview {
+        DesktopUiNode.SecurityOverview, DesktopUiNode.SettingsWorkspace {
 
     /** @return 单份文档内稳定的节点标识 */
     String id();
@@ -751,6 +751,34 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
             Objects.requireNonNull(supporting, "supporting");
         }
     }
+
+    /** 设置页保留全部分类的绑定，切换分类不丢失草稿。 */
+    record SettingsWorkspace(String id, Choice categories, List<Tab> tabs,
+                             List<SettingLocation> locations, List<SettingChange> changes,
+                             List<DesktopUiNode> footer, String locatedRow, String invalidRow,
+                             long credentialRevision) implements DesktopUiNode {
+        public SettingsWorkspace {
+            id = requireId(id, "id");
+            tabs = List.copyOf(tabs);
+            locations = List.copyOf(locations);
+            changes = List.copyOf(changes);
+            footer = List.copyOf(footer);
+        }
+        @Override public Kind kind() { return Kind.SETTINGS_WORKSPACE; }
+        @Override public List<DesktopUiNode> childNodes() {
+            List<DesktopUiNode> children = new ArrayList<>();
+            children.add(categories);
+            tabs.forEach(tab -> children.add(tab.content()));
+            locations.forEach(location -> children.add(location.locate()));
+            children.addAll(footer);
+            return List.copyOf(children);
+        }
+    }
+
+    record SettingLocation(String rowId, String categoryId, TextToken label, TextToken help, Button locate) {}
+
+    /** 敏感字段只包含状态说明，不携带输入值或已存凭据。 */
+    record SettingChange(String rowId, TextToken label, TextToken before, TextToken after, TextToken effect) {}
 
     /** 安全页面的短暂交互状态；密码只通过输入事件传递，不进入节点值。 */
     record SecurityOverview(
@@ -1474,6 +1502,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
     /** 支持的节点类型。 */
     enum Kind {
+        /** 设置工作区。 */ SETTINGS_WORKSPACE,
         /** 安全与管理员登录管理。 */ SECURITY_OVERVIEW,
         /** 工具工作区。 */ TOOLS_OVERVIEW,
         /** 插件浏览。 */ PLUGIN_OVERVIEW,
