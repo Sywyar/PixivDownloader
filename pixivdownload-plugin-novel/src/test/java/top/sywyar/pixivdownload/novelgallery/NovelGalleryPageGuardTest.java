@@ -37,7 +37,7 @@ class NovelGalleryPageGuardTest {
         assertThat(read("pixiv-novel-gallery/pixiv-novel-gallery.css"))
                 .contains("html[data-theme=\"dark\"]", "--surface");
         assertThat(read("pixiv-novel-gallery/pixiv-novel-gallery-responsive.css"))
-                .contains("@media (max-width: 768px)");
+                .contains("@media (max-width: 56.25em)");
     }
 
     private String read(String resource) throws IOException {
