@@ -358,40 +358,32 @@ final class DesktopToolsView {
         );
     }
 
-    DesktopUiNode controlCenterPage(Map<String, Runnable> nextActions) {
+    DesktopUiNode controlCenterPage(Map<String, Runnable> nextActions, DesktopUiNode.Group media) {
+        DesktopUiNode.ToolWorkspace workspace = null;
         if (model.toolDialog != null) {
             boolean folder = model.toolDialog == DesktopToolsController.ToolDialog.FOLDER_CHECKER;
-            String title = folder ? "gui.tools.card.folder-checker.title" : "gui.tools.card.image-classifier.title";
             Runnable close = () -> {
                 model.toolDialog = null;
                 if (folder) model.closeFolderCheckerDialog();
                 else model.closeImageClassifierDialog();
             };
-            return new DesktopUiNode.Dock("tools.active", 12,
-                    column("tools.active.heading", text("tools.active.title", title, TextStyle.TITLE),
-                            folder ? composeText("tools.active.impact", "tools.folder-impact", TextStyle.WARNING)
-                                    : composeText("tools.active.description", "tools.classifier-description", TextStyle.CAPTION),
-                            button("tools.active.close", "tools.active.close", "desktop.ui.action.close",
-                                    !model.owner.busy(), nextActions, close)),
-                    folder ? scroll("tools.active.scroll", folderDialogContent(nextActions)) : classifierDialogContent(nextActions),
-                    null, null, null);
+            workspace = new DesktopUiNode.ToolWorkspace(
+                    folder ? "folder" : "classifier",
+                    folder ? folderDialogContent(nextActions) : classifierDialogContent(nextActions),
+                    button("tools.active.close", "tools.active.close", "desktop.ui.action.close",
+                            !model.owner.busy(), nextActions, close),
+                    model.form("classifier.target", "")
+            );
         }
-        List<DesktopUiNode> cards = toolCards(nextActions);
-        String[] ids = {"classifier", "folder", "backfill", "migration"};
-        List<DesktopUiNode.Tab> tabs = new ArrayList<>();
-        for (int i = 0; i < ids.length; i++) {
-            List<DesktopUiNode> content = new ArrayList<>();
-            if (i > 0) content.add(composeText("tools." + ids[i] + ".impact",
-                    i == 1 ? "tools.folder-impact" : i == 2 ? "tools.backfill-impact" : "tools.maintenance-impact", TextStyle.WARNING));
-            content.add(cards.get(i));
-            tabs.add(new DesktopUiNode.Tab(ids[i], composeToken("tools." + ids[i]),
-                    scroll("tools." + ids[i] + ".scroll", column("tools." + ids[i] + ".workspace", content))));
-        }
-        return new DesktopUiNode.Dock("tools.workspace", 12,
-                column("tools.heading", text("tools.title", "desktop.ui.page.tools", TextStyle.TITLE),
-                        raw("tools.backend", model.host.message("gui.tools.backend-status", model.owner.backendMessage()), TextStyle.CAPTION)),
-                new DesktopUiNode.Tabs("tools.catalog", tabs, model.lastOpenedTool),
-                new DesktopUiNode.Group("tools.history", key("gui.tools.history.title"), toolHistoryContent(), true), null, null);
+        return new DesktopUiNode.ToolsOverview(
+                "tools.workspace",
+                raw("tools.backend", model.owner.backendMessage(), TextStyle.CAPTION),
+                toolCards(nextActions),
+                media,
+                toolHistoryContent(),
+                model.activity,
+                workspace
+        );
     }
 
     private static TextToken composeToken(String key) {
@@ -516,21 +508,10 @@ final class DesktopToolsView {
                                                 "tools.backfill.proxy-port.row",
                                                 key("gui.tools.form.proxy-port"),
                                                 null,
-                                                number(
-                                                        "tools.backfill.proxy-port",
-                                                        "tools.backfill.proxy-port",
-                                                        "gui.tools.form.proxy-port",
-                                                        null,
-                                                        model.intForm(
-                                                                "tools.backfill.proxy-port",
-                                                                model.host.defaultProxyPort()
-                                                        ),
-                                                        1,
-                                                        65_535,
-                                                        !model.owner.busy() && model.boolForm(
-                                                                "tools.backfill.proxy",
-                                                                true
-                                                        )
+                                                input(
+                                                        "tools.backfill.proxy-port", "tools.backfill.proxy-port", "gui.tools.form.proxy-port", null,
+                                                        InputKind.NUMBER, model.form("tools.backfill.proxy-port", Integer.toString(model.host.defaultProxyPort())),
+                                                        !model.owner.busy() && model.boolForm("tools.backfill.proxy", true)
                                                 ),
                                                 null
                                         ),
@@ -538,14 +519,9 @@ final class DesktopToolsView {
                                                 "tools.backfill.delay.row",
                                                 key("gui.tools.form.delay-ms"),
                                                 null,
-                                                number(
-                                                        "tools.backfill.delay",
-                                                        "tools.backfill.delay",
-                                                        "gui.tools.form.delay-ms",
-                                                        null,
-                                                        model.intForm("tools.backfill.delay", 1000),
-                                                        0,
-                                                        Integer.MAX_VALUE,
+                                                input(
+                                                        "tools.backfill.delay", "tools.backfill.delay", "gui.tools.form.delay-ms", null,
+                                                        InputKind.NUMBER, model.form("tools.backfill.delay", "1000"),
                                                         !model.owner.busy()
                                                 ),
                                                 null
@@ -554,14 +530,9 @@ final class DesktopToolsView {
                                                 "tools.backfill.limit.row",
                                                 key("gui.tools.form.limit"),
                                                 key("gui.tools.form.limit-hint"),
-                                                number(
-                                                        "tools.backfill.limit",
-                                                        "tools.backfill.limit",
-                                                        "gui.tools.form.limit",
-                                                        null,
-                                                        model.intForm("tools.backfill.limit", 0),
-                                                        0,
-                                                        Integer.MAX_VALUE,
+                                                input(
+                                                        "tools.backfill.limit", "tools.backfill.limit", "gui.tools.form.limit", null,
+                                                        InputKind.NUMBER, model.form("tools.backfill.limit", "0"),
                                                         !model.owner.busy()
                                                 ),
                                                 null

@@ -102,6 +102,12 @@ final class DesktopConfigurationController {
         return view.controlCenterPage(nextSelections, nextActions);
     }
 
+    void coreValueSaved(String key, String value) {
+        FieldKey field = new FieldKey(null, key);
+        values.put(field, value);
+        savedValues.put(field, value);
+    }
+
     boolean acceptField(String binding, String value) {
         ConfigField field = fieldBindings.get(binding);
         if (field == null) return false;

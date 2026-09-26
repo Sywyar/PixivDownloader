@@ -29,7 +29,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         DesktopUiNode.TextInput, DesktopUiNode.Toggle, DesktopUiNode.Choice,
         DesktopUiNode.NumberInput, DesktopUiNode.Table, DesktopUiNode.Tree,
         DesktopUiNode.Button, DesktopUiNode.Link, DesktopUiNode.AccountSetup, DesktopUiNode.OnboardingHub,
-        DesktopUiNode.HomeOverview, DesktopUiNode.AutomationOverview, DesktopUiNode.PluginOverview {
+        DesktopUiNode.HomeOverview, DesktopUiNode.AutomationOverview, DesktopUiNode.PluginOverview, DesktopUiNode.ToolsOverview {
 
     /** @return 单份文档内稳定的节点标识 */
     String id();
@@ -751,6 +751,47 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         }
     }
 
+    /** 工具目录与可收起的执行面板，动作仍由工具控制器持有。 */
+    record ToolsOverview(String id, Text backend, List<DesktopUiNode> tools, Group media,
+                         DesktopUiNode history, ToolActivity activity, ToolWorkspace workspace) implements DesktopUiNode {
+        public ToolsOverview {
+            id = requireId(id, "id");
+            Objects.requireNonNull(backend, "backend");
+            tools = copyBounded(tools, "tools");
+            Objects.requireNonNull(media, "media");
+            Objects.requireNonNull(history, "history");
+        }
+
+        @Override public Kind kind() { return Kind.TOOLS_OVERVIEW; }
+        @Override public List<DesktopUiNode> childNodes() {
+            List<DesktopUiNode> nodes = new ArrayList<>(tools);
+            nodes.add(backend);
+            nodes.add(media);
+            nodes.add(history);
+            if (workspace != null) {
+                nodes.add(workspace.content());
+                nodes.add(workspace.close());
+            }
+            return List.copyOf(nodes);
+        }
+    }
+
+    record ToolWorkspace(String toolId, DesktopUiNode content, Button close, String selectedTarget) {
+        public ToolWorkspace {
+            toolId = requireId(toolId, "toolId");
+            Objects.requireNonNull(content, "content");
+            Objects.requireNonNull(close, "close");
+            selectedTarget = selectedTarget == null ? "" : selectedTarget;
+        }
+    }
+
+    record ToolActivity(String toolId, boolean running, boolean failed, TextToken message) {
+        public ToolActivity {
+            toolId = requireId(toolId, "toolId");
+            Objects.requireNonNull(message, "message");
+        }
+    }
+
     record OnboardingHub(
             String id,
             List<OnboardingCard> cards,
@@ -1401,6 +1442,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
     /** 支持的节点类型。 */
     enum Kind {
+        /** 工具工作区。 */ TOOLS_OVERVIEW,
         /** 插件浏览。 */ PLUGIN_OVERVIEW,
         /** 自动化时间线。 */ AUTOMATION_OVERVIEW,
         /** 首页概览。 */ HOME_OVERVIEW,

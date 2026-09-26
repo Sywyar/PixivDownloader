@@ -44,10 +44,9 @@ class DesktopToolsControllerTest {
             activate(model, "tools.active.close");
             assertEquals(List.of("stop", "history", "start"), calls);
             assertFalse(model.busy());
-            assertEquals("folder", model.snapshot().document().pages().stream()
+            assertTrue(model.snapshot().document().pages().stream()
                     .filter(page -> page.id().equals("tools")).flatMap(page -> descendants(page.content()))
-                    .filter(DesktopUiNode.Tabs.class::isInstance).map(DesktopUiNode.Tabs.class::cast)
-                    .findFirst().orElseThrow().initialSelectedId());
+                    .anyMatch(DesktopUiNode.ToolsOverview.class::isInstance));
         }
     }
 
@@ -66,12 +65,140 @@ class DesktopToolsControllerTest {
             try (ComposeDesktopUiModel model = DesktopConfigurationControllerTest.model(new HashMap<>(), overrides)) {
                 activate(model, migration ? "tools.migration.run" : "tools.backfill.run");
                 assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
-                    while (model.busy() || model.snapshot().document().dialogs().stream()
-                            .noneMatch(dialog -> dialog.id().equals("tools.failed"))) Thread.sleep(10);
+                    while (model.busy() || overview(model).activity() == null || overview(model).activity().running()) Thread.sleep(10);
                 });
                 assertEquals(migration ? List.of("stop", "FAILED", "start") : List.of("FAILED"), calls);
-                assertTrue(model.snapshot().document().dialogs().stream().anyMatch(dialog -> dialog.id().equals("tools.failed")));
+                assertTrue(overview(model).activity().failed());
+                assertTrue(model.snapshot().document().dialogs().isEmpty());
             }
+        }
+    }
+
+    @Test
+    @DisplayName("不完整代理地址和无效数字不能启动回填，迁移不能缺少目标路径")
+    void validatesBeforeDispatchingTools() throws Exception {
+        Map<String, String> values = new HashMap<>(Map.of("tools.backfill.db", "test.db",
+                "tools.backfill.proxy", "true", "tools.backfill.proxy-host", "127.0.0.",
+                "tools.backfill.proxy-port", "7890", "tools.backfill.delay", "800", "tools.backfill.limit", "0"));
+        assertTrue(ToolInputValidation.errors("backfill", values).containsKey("tools.backfill.proxy-host"));
+        values.put("tools.backfill.proxy", "false");
+        assertTrue(ToolInputValidation.errors("backfill", values).isEmpty());
+        for (String invalid : List.of("-1", "x", "999999999999")) {
+            values.put("tools.backfill.limit", invalid);
+            assertTrue(ToolInputValidation.errors("backfill", values).containsKey("tools.backfill.limit"));
+        }
+        assertEquals(2, ToolInputValidation.errors("migration", Map.of()).size());
+        List<String> calls = new ArrayList<>();
+        try (ComposeDesktopUiModel model = DesktopConfigurationControllerTest.model(new HashMap<>(), Map.of(
+                "backendSnapshot", args -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null),
+                "countBackfillCandidates", args -> { calls.add("run"); return 0; }))) {
+            model.dispatch(model.snapshot(), new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
+                    "tools.backfill.proxy", DesktopUiNode.Value.bool(true)));
+            model.dispatch(model.snapshot(), new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
+                    "tools.backfill.proxy-host", DesktopUiNode.Value.text("127.0.0.")));
+            activate(model, "tools.backfill.run");
+            assertTrue(calls.isEmpty());
+            assertTrue(model.snapshot().document().dialogs().isEmpty());
+        }
+    }
+
+    private static DesktopUiNode.ToolsOverview overview(ComposeDesktopUiModel model) {
+        return model.snapshot().document().pages().stream().filter(page -> page.id().equals("tools"))
+                .flatMap(page -> descendants(page.content())).filter(DesktopUiNode.ToolsOverview.class::isInstance)
+                .map(DesktopUiNode.ToolsOverview.class::cast).findFirst().orElseThrow();
+    }
+
+    @Test
+    @DisplayName("媒体检查不随表单编辑重复执行，路径校验失败不写配置，安装保留真实进度")
+    void mediaActionsUseHostValidationAndProgress() throws Exception {
+        Map<String, String> stored = new java.util.concurrent.ConcurrentHashMap<>();
+        var probes = new java.util.concurrent.atomic.AtomicInteger();
+        var installed = new java.util.concurrent.atomic.AtomicBoolean();
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var started = new java.util.concurrent.CountDownLatch(1);
+        var installation = new DesktopUiHost.FfmpegInstallation(Path.of("ffmpeg"), Path.of("ffprobe"), Path.of("."), DesktopUiHost.FfmpegSource.MANAGED);
+        Map<String, Function<Object[], Object>> overrides = new HashMap<>();
+        overrides.put("locateFfmpeg", args -> { probes.incrementAndGet(); return installed.get() ? java.util.Optional.of(installation) : java.util.Optional.empty(); });
+        overrides.put("supportsManagedFfmpegInstall", args -> true);
+        overrides.put("validateCoreConfigValue", args -> {
+            if (args[1].equals("bad")) throw new IllegalArgumentException("invalid executable");
+            return null;
+        });
+        overrides.put("installManagedFfmpeg", args -> {
+            ((DesktopUiHost.FfmpegProgressListener) args[1]).onProgress(DesktopUiHost.FfmpegInstallStage.DOWNLOADING, 3, 10);
+            started.countDown();
+            try { release.await(); } catch (InterruptedException e) { throw new RuntimeException(e); }
+            installed.set(true);
+            return installation;
+        });
+        try (ComposeDesktopUiModel model = DesktopConfigurationControllerTest.model(stored, overrides)) {
+            awaitMediaReady(model);
+            int baseline = probes.get();
+            model.dispatch(model.snapshot(), new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
+                    "tools.ffmpeg.path", DesktopUiNode.Value.text("bad")));
+            assertEquals(baseline, probes.get());
+            activate(model, "status.ffmpeg.path.save");
+            awaitMediaReady(model);
+            assertFalse(stored.containsKey("ffmpeg.executable-path"));
+            model.dispatch(model.snapshot(), new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
+                    "tools.ffmpeg.path", DesktopUiNode.Value.text("")));
+            activate(model, "status.ffmpeg.path.save");
+            awaitMediaReady(model);
+            assertEquals("", stored.get("ffmpeg.executable-path"));
+            activate(model, "status.ffmpeg.install");
+            assertTrue(model.snapshot().document().dialogs().isEmpty());
+            activate(model, "ffmpeg.confirm.install");
+            assertTrue(started.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            var progress = descendants(overview(model).media()).filter(DesktopUiNode.Progress.class::isInstance)
+                    .map(DesktopUiNode.Progress.class::cast).findFirst().orElseThrow();
+            assertEquals(.3d, progress.progress());
+            assertFalse(progress.indeterminate());
+            assertTrue(model.busy());
+            release.countDown();
+            awaitMediaReady(model);
+            assertTrue(installed.get());
+            assertTrue(descendants(overview(model).media()).filter(DesktopUiNode.Text.class::isInstance)
+                    .map(DesktopUiNode.Text.class::cast).anyMatch(text -> text.text().key().equals("gui.ffmpeg.badge.ready")));
+        } finally { release.countDown(); }
+    }
+
+    private static void awaitMediaReady(ComposeDesktopUiModel model) {
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            while (model.busy() || descendants(overview(model).media()).filter(DesktopUiNode.Button.class::isInstance)
+                    .map(DesktopUiNode.Button.class::cast).noneMatch(button -> button.id().equals("status.ffmpeg.refresh") && button.enabled())) Thread.sleep(10);
+        });
+    }
+
+    @Test
+    @DisplayName("迁移结果保留真实计数，服务恢复抛错也释放工具互锁")
+    void preservesCompletionWhenServiceRestoreFails() throws Exception {
+        List<Object[]> records = java.util.Collections.synchronizedList(new ArrayList<>());
+        Map<String, Function<Object[], Object>> overrides = new HashMap<>();
+        overrides.put("backendSnapshot", args -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null));
+        overrides.put("stopBackend", args -> { ((Runnable) args[0]).run(); return true; });
+        overrides.put("startBackend", args -> { throw new IllegalStateException("restart failed"); });
+        overrides.put("countMigrationCandidates", args -> 8);
+        overrides.put("runMigration", args -> new DesktopUiHost.MigrationSummary(8, 6, 2, false, ""));
+        overrides.put("recordToolHistory", args -> { records.add(args); return null; });
+        overrides.put("openToolLog", args -> new DesktopUiHost.ToolLogSession() {
+            public Path latestPath() { return Path.of("latest.html"); }
+            public Path sessionPath() { return Path.of("session.html"); }
+            public void openLatestInBrowser() {}
+            public void close() {}
+        });
+        try (ComposeDesktopUiModel model = DesktopConfigurationControllerTest.model(new HashMap<>(), overrides)) {
+            activate(model, "tools.migration.run");
+            assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+                while (model.busy() || overview(model).activity() == null || overview(model).activity().running()) Thread.sleep(10);
+            });
+            assertFalse(overview(model).activity().failed());
+            assertEquals(1, records.size());
+            assertEquals(DesktopUiHost.ToolOutcome.SUCCEEDED, records.get(0)[1]);
+            assertEquals(8, records.get(0)[3]);
+            assertEquals(6, records.get(0)[4]);
+            assertTrue(descendants(overview(model)).filter(DesktopUiNode.Button.class::isInstance)
+                    .map(DesktopUiNode.Button.class::cast).filter(button -> button.id().equals("tools.migration.run"))
+                    .allMatch(DesktopUiNode.Button::enabled));
         }
     }
 

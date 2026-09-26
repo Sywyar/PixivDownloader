@@ -177,6 +177,7 @@ object ComposeDesktopUiNodeRenderer {
             is DesktopUiNode.PluginOverview -> top.sywyar.pixivdownload.guicompose.plugins.PluginOverview(node, text, emit, modifier)
             is DesktopUiNode.AutomationOverview -> top.sywyar.pixivdownload.guicompose.automation.AutomationOverview(node, text, emit, modifier)
             is DesktopUiNode.HomeOverview -> HomeOverview(node, text, emit, modifier)
+            is DesktopUiNode.ToolsOverview -> top.sywyar.pixivdownload.guicompose.tools.ToolsOverview(node, text, emit, modifier)
             is DesktopUiNode.OnboardingHub -> OnboardingGuideHub(node, text, emit, modifier) { child, childModifier ->
                 Node(child, text, emit, childModifier)
             }
@@ -1753,7 +1754,7 @@ object ComposeDesktopUiNodeRenderer {
     private fun columnWidth(column: DesktopUiNode.TableColumn) =
         (if (column.preferredWidth() > 0) column.preferredWidth() else 160).dp
 
-    private fun choosePath(kind: DesktopUiNode.InputKind, value: String): String? {
+    internal fun choosePath(kind: DesktopUiNode.InputKind, value: String): String? {
         val chooser = JFileChooser(value.ifBlank { "." })
         chooser.fileSelectionMode = if (kind == DesktopUiNode.InputKind.DIRECTORY)
             JFileChooser.DIRECTORIES_ONLY else JFileChooser.FILES_ONLY

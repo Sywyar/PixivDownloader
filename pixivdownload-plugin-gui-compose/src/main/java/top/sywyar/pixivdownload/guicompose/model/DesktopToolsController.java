@@ -37,6 +37,7 @@ final class DesktopToolsController {
     final DesktopImageClassifierSupport classifierSupport;
     private final DesktopToolsView view;
 
+    volatile DesktopUiNode.ToolActivity activity;
     volatile String classifierNotice = "";
     volatile String folderNotice = "";
     volatile String backfillNotice = "";
@@ -78,8 +79,8 @@ final class DesktopToolsController {
         selectedFolderRow = value.isBlank() ? null : value;
     }
 
-    DesktopUiNode controlCenterPage(Map<String, Runnable> nextActions) {
-        return view.controlCenterPage(nextActions);
+    DesktopUiNode controlCenterPage(Map<String, Runnable> nextActions, DesktopUiNode.Group media) {
+        return view.controlCenterPage(nextActions, media);
     }
 
     String exclusiveToolName() {
@@ -215,16 +216,23 @@ final class DesktopToolsController {
         });
     }
 
+    private boolean validateTool(String tool) {
+        Map<String, String> errors = ToolInputValidation.errors(tool, formValues);
+        if (errors.isEmpty()) return true;
+        String key = errors.values().iterator().next();
+        String message = host.message(key.startsWith("gui.compose.") ? "desktop.ui.tools.operation-failed" : key);
+        if (tool.equals("backfill")) backfillNotice = message;
+        else migrationNotice = message;
+        owner.rebuild();
+        return false;
+    }
+
     void runBackfill() {
+        if (!validateTool("backfill")) return;
         String db = form("tools.backfill.db", "").trim();
-        if (db.isBlank()) {
-            backfillNotice = host.message("gui.tools.validation.database-path.required");
-            owner.rebuild();
-            return;
-        }
         DesktopUiHost.BackfillOptions options = new DesktopUiHost.BackfillOptions(
                 db,
-                form("tools.backfill.proxy-host", host.defaultProxyHost()),
+                form("tools.backfill.proxy-host", host.defaultProxyHost()).trim(),
                 intForm("tools.backfill.proxy-port", host.defaultProxyPort()),
                 boolForm("tools.backfill.proxy", true),
                 intForm("tools.backfill.delay", 1000),
@@ -245,18 +253,8 @@ final class DesktopToolsController {
                         log.openLatestInBrowser();
                         DesktopUiHost.BackfillSummary summary = host.runBackfill(options);
                         String result = host.message(summary.rateLimited() ? "gui.tools.backfill.result.rate-limited" : "gui.tools.backfill.result.completed");
-                        backfillNotice = result;
-                        owner.showDialog(
-                                "tools.backfill.completed",
-                                "gui.tools.dialog.backfill.completed.title",
-                                appToken(
-                                        "gui.tools.dialog.backfill.completed.message",
-                                        result,
-                                        summary.processed(),
-                                        summary.totalCandidates()
-                                ),
-                                DesktopUiDocument.DialogStyle.SUCCESS
-                        );
+                        backfillNotice = host.message("gui.tools.dialog.backfill.completed.message",
+                                result, summary.processed(), summary.totalCandidates());
                         return new ToolCompletion(
                                 summary.processed(),
                                 null,
@@ -271,13 +269,9 @@ final class DesktopToolsController {
     }
 
     void runMigration() {
+        if (!validateTool("migration")) return;
         String db = form("tools.migration.db", "").trim();
         String root = form("tools.migration.root", "").trim();
-        if (db.isBlank() || root.isBlank()) {
-            migrationNotice = host.message(db.isBlank() ? "gui.tools.validation.database-path.required" : "gui.tools.validation.root-folder.required");
-            owner.rebuild();
-            return;
-        }
         DesktopUiHost.MigrationOptions options = new DesktopUiHost.MigrationOptions(
                 db,
                 root
@@ -305,19 +299,8 @@ final class DesktopToolsController {
                                     "gui.tools.migration.status.history-missing");
                         } else {
                             String result = host.message("gui.tools.migration.result.completed");
-                            migrationNotice = result;
-                            owner.showDialog(
-                                    "tools.migration.completed",
-                                    "gui.tools.dialog.migration.completed.title",
-                                    appToken(
-                                            "gui.tools.dialog.migration.completed.message",
-                                            result,
-                                            summary.migrated(),
-                                            summary.skipped(),
-                                            summary.totalCandidates()
-                                    ),
-                                    DesktopUiDocument.DialogStyle.SUCCESS
-                            );
+                            migrationNotice = host.message("gui.tools.dialog.migration.completed.message",
+                                    result, summary.migrated(), summary.skipped(), summary.totalCandidates());
                         }
                         return new ToolCompletion(
                                 summary.totalCandidates(),
@@ -945,6 +928,9 @@ final class DesktopToolsController {
             owner.rebuild();
             return;
         }
+        String activityId = toolId == DesktopUiToolHost.ToolId.ARTWORKS_BACKFILL ? "backfill" : "migration";
+        activity = new DesktopUiNode.ToolActivity(activityId, true, false,
+                new TextToken("gui-compose", "gui.compose.tools.workspace.running", "", List.of()));
         exclusiveToolName = toolName;
         long startedAt = System.currentTimeMillis();
         exclusiveToolStartedAt = startedAt;
@@ -967,6 +953,8 @@ final class DesktopToolsController {
                 }
                 ToolCompletion completion = operation.run();
                 if (completion == null) completion = ToolCompletion.EMPTY;
+                activity = new DesktopUiNode.ToolActivity(activityId, false, false,
+                        TextToken.raw(activityId.equals("backfill") ? backfillNotice : migrationNotice));
                 host.recordToolHistory(
                         toolId,
                         DesktopUiToolHost.ToolOutcome.SUCCEEDED,
@@ -988,12 +976,8 @@ final class DesktopToolsController {
                         null
                 );
                 LOG.warn("Desktop tool was interrupted", interrupted);
-                owner.showDialog(
-                        "tools.interrupted",
-                        "gui.dialog.error.title",
-                        "desktop.ui.tools.operation-failed",
-                        DesktopUiDocument.DialogStyle.ERROR
-                );
+                activity = new DesktopUiNode.ToolActivity(activityId, false, true,
+                        TextToken.key("desktop.ui.tools.operation-failed"));
             } catch (Exception failure) {
                 host.recordToolHistory(
                         toolId,
@@ -1005,19 +989,19 @@ final class DesktopToolsController {
                         null
                 );
                 LOG.error("Desktop tool failed", failure);
-                owner.showDialog(
-                        "tools.failed",
-                        "gui.dialog.error.title",
-                        "desktop.ui.tools.operation-failed",
-                        DesktopUiDocument.DialogStyle.ERROR
-                );
+                activity = new DesktopUiNode.ToolActivity(activityId, false, true,
+                        TextToken.key("desktop.ui.tools.operation-failed"));
             } finally {
-                if (restart) host.startBackend(() -> {
-                });
-                exclusiveToolName = "";
-                exclusiveToolStartedAt = 0L;
-                owner.setBusy(false);
-                owner.rebuild();
+                try {
+                    if (restart) host.startBackend(owner::rebuild);
+                } catch (RuntimeException failure) {
+                    LOG.error("Unable to restore backend after desktop tool", failure);
+                } finally {
+                    exclusiveToolName = "";
+                    exclusiveToolStartedAt = 0L;
+                    owner.setBusy(false);
+                    owner.rebuild();
+                }
             }
         });
     }

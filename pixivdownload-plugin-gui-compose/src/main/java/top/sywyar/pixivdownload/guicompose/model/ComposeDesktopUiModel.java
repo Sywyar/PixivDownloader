@@ -428,7 +428,8 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         pages.add(page(
                 "tools",
                 DesktopUiIcon.TOOLS,
-                tools.controlCenterPage(nextActions)
+                tools.controlCenterPage(nextActions, statusController.ffmpegPanel(nextActions)),
+                DesktopUiNode.Insets.NONE
         ));
         pages.add(page("security", DesktopUiIcon.SECURITY, security.page(nextActions)));
         pages.add(page(
@@ -660,6 +661,10 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
 
     public String themePreference() {
         return configuration.themePreference();
+    }
+
+    void coreConfigValueSaved(String key, String value) {
+        configuration.coreValueSaved(key, value);
     }
 
     DesktopUiHost.FfmpegProxy proxySettings() {
