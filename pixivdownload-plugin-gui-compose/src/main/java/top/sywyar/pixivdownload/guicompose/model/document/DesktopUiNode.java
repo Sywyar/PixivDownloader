@@ -29,7 +29,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         DesktopUiNode.TextInput, DesktopUiNode.Toggle, DesktopUiNode.Choice,
         DesktopUiNode.NumberInput, DesktopUiNode.Table, DesktopUiNode.Tree,
         DesktopUiNode.Button, DesktopUiNode.Link, DesktopUiNode.AccountSetup, DesktopUiNode.OnboardingHub,
-        DesktopUiNode.HomeOverview {
+        DesktopUiNode.HomeOverview, DesktopUiNode.AutomationOverview {
 
     /** @return 单份文档内稳定的节点标识 */
     String id();
@@ -618,6 +618,40 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
                     : List.of(username, password, submit, notice);
         }
     }
+
+    /** Compose 自动化页的来源与计划事实，交互状态由页面持有。 */
+    record AutomationOverview(String id, long observedAt, boolean known,
+                              List<AutomationPlan> plans, List<AutomationSource> sources,
+                              List<Button> management) implements DesktopUiNode {
+        public AutomationOverview {
+            id = requireId(id, "id");
+            plans = copyBounded(plans, "plans");
+            sources = copyBounded(sources, "sources");
+            management = copyBounded(management, "management");
+            requireUnique(plans.stream().map(AutomationPlan::id).toList(), "plan id");
+        }
+        @Override public Kind kind() { return Kind.AUTOMATION_OVERVIEW; }
+        @Override public List<DesktopUiNode> childNodes() { return List.copyOf(management); }
+    }
+
+    record AutomationPlan(String id, String owner, String taskId, TextToken title,
+                          TextToken trigger, String status, String lastResult,
+                          List<Long> nextRuns, Long observedAt, String availability,
+                          String actionId) {
+        public AutomationPlan {
+            id = requireId(id, "id");
+            owner = boundedText(owner, "owner");
+            taskId = boundedText(taskId, "taskId");
+            Objects.requireNonNull(title, "title");
+            Objects.requireNonNull(trigger, "trigger");
+            status = boundedText(status, "status");
+            lastResult = boundedText(lastResult, "lastResult");
+            availability = boundedText(availability, "availability");
+            nextRuns = copyBounded(nextRuns, "nextRuns");
+        }
+    }
+
+    record AutomationSource(String owner, String availability, Long observedAt) {}
 
     /** Compose 首页的任务、指标与系统状态。 */
     record HomeOverview(
@@ -1335,6 +1369,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
     /** 支持的节点类型。 */
     enum Kind {
+        /** 自动化时间线。 */ AUTOMATION_OVERVIEW,
         /** 首页概览。 */ HOME_OVERVIEW,
         /** 首次账户设置。 */ ACCOUNT_SETUP,
         /** 首次使用任务选择。 */ ONBOARDING_HUB,

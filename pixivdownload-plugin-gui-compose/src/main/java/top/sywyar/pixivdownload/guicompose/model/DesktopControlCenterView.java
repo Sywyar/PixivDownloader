@@ -6,12 +6,9 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopControlCenterAvailability;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon;
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiDocument;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode;
-import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.Alignment;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.ButtonStyle;
-import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.ContainerLayout;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.TextStyle;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.TextToken;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
@@ -27,9 +24,6 @@ import java.nio.file.FileStore;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
-import java.time.LocalTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -142,190 +136,45 @@ final class DesktopControlCenterView {
     }
 
     DesktopUiNode automationPage(Map<String, Runnable> nextActions) {
-        DesktopUiHost.GuiValue controlCenter = owner.controlCenterSnapshot();
-        List<DesktopUiNode> sources = new ArrayList<>();
-        List<DesktopUiNode> tasks = new ArrayList<>();
-        List<AutomationRun> runs = new ArrayList<>();
-        boolean unavailable = false;
-        boolean stale = false;
-        for (DesktopUiHost.GuiValue owned : controlCenter.path("automations")) {
-            String owner = safeId(owned.path("owner").path("pluginId").asText("unknown"));
-            DesktopUiHost.GuiValue automation = owned.path("snapshot");
-            DesktopControlCenterAvailability availability = availability(automation.path(
-                    "availability").asText("UNAVAILABLE"));
-            unavailable |= availability == DesktopControlCenterAvailability.UNAVAILABLE;
-            stale |= availability == DesktopControlCenterAvailability.STALE;
-            sources.add(dashboardCard(
-                    "automation.source." + owner,
-                    appToken("desktop.ui.automation.source.title", owner),
-                    key("desktop.ui.automation.availability." + availability.name().toLowerCase(
-                            Locale.ROOT)),
-                    appToken(
-                            "desktop.ui.automation.observed-at",
-                            formatTimestamp(automation.path("observedAt").asText(""))
-                    ),
-                    DesktopUiIcon.AUTOMATION,
-                    availability == DesktopControlCenterAvailability.AVAILABLE ? DesktopUiTone.SUCCESS : DesktopUiTone.WARNING,
-                    availability
-            ));
-            for (DesktopUiHost.GuiValue task : automation.path("tasks")) {
-                String taskId = safeId(task.path("taskId").asText("unknown"));
-                tasks.add(automationTask(owner, taskId, task));
-                for (DesktopUiHost.GuiValue nextRun : task.path("nextRuns")) {
-                    parseInstant(nextRun.asText("")).ifPresent(at -> runs.add(new AutomationRun(
-                            at,
-                            owner,
-                            taskId,
-                            task
-                    )));
-                }
-            }
-        }
-        runs.sort(Comparator.comparing(AutomationRun::at).thenComparing(AutomationRun::owner).thenComparing(
-                AutomationRun::taskId));
-
-        DesktopUiNode timeline = automationTimeline(controlCenter, runs);
-
-        List<DesktopUiNode> content = new ArrayList<>();
-        content.add(text("automation.title", "desktop.ui.automation.title", TextStyle.TITLE));
-        content.add(composeText("automation.intro", "automation.intro", TextStyle.CAPTION));
+        DesktopUiHost.GuiValue snapshot = owner.controlCenterSnapshot();
+        List<DesktopUiNode.AutomationPlan> plans = new ArrayList<>();
+        List<DesktopUiNode.AutomationSource> sources = new ArrayList<>();
+        List<DesktopUiNode.Button> management = new ArrayList<>();
+        Map<String, String> actions = new java.util.HashMap<>();
         for (QuickStartEntry entry : quickStartEntries(owner.currentSources())) {
             if (quickStartIcon(entry.navigation().icon()) != DesktopUiIcon.DOWNLOAD) continue;
-            String action = "automation.workbench.open";
+            String action = "automation.manage." + safeId(entry.owner());
+            if (actions.putIfAbsent(entry.owner(), action) != null) continue;
             nextActions.put(action, () -> owner.openWeb(entry.navigation().href()));
-            content.add(new DesktopUiNode.Button(action, action, composeToken("home.open-workbench"), null,
-                    ButtonStyle.NORMAL, true, DesktopUiIcon.OPEN));
-            break;
+            management.add(new DesktopUiNode.Button(action, action,
+                    composeToken("automation.manage"), null, ButtonStyle.NORMAL, true, DesktopUiIcon.OPEN));
         }
-        if (!sources.isEmpty()) content.add(column("automation.sources", sources));
-        if (tasks.isEmpty()) {
-            String empty = sources.isEmpty() ? "no-source" : unavailable ? "unavailable" : stale ? "stale" : "no-tasks";
-            content.add(composeText("automation.tasks.empty", "automation." + empty,
-                    unavailable || stale ? TextStyle.WARNING : TextStyle.BODY));
-        } else {
-            content.add(group("automation.tasks", "desktop.ui.automation.tasks.title", column("automation.tasks.list", tasks)));
-            content.add(new DesktopUiNode.Group("automation.timeline", key("desktop.ui.automation.timeline.title"), timeline, true));
+        for (DesktopUiHost.GuiValue owned : snapshot.path("automations")) {
+            String plugin = owned.path("owner").path("pluginId").asText("unknown");
+            DesktopUiHost.GuiValue automation = owned.path("snapshot");
+            String available = availability(automation.path("availability").asText("UNAVAILABLE")).name();
+            sources.add(new DesktopUiNode.AutomationSource(plugin, available,
+                    parseInstant(automation.path("observedAt").asText("")).map(Instant::toEpochMilli).orElse(null)));
+            for (DesktopUiHost.GuiValue task : automation.path("tasks")) {
+                String taskId = task.path("taskId").asText("unknown");
+                List<Long> runs = values(task.path("nextRuns")).stream()
+                        .map(DesktopUiHost.GuiValue::asText).map(DesktopControlCenterView::parseInstant)
+                        .flatMap(Optional::stream).map(Instant::toEpochMilli).distinct().sorted().toList();
+                plans.add(new DesktopUiNode.AutomationPlan(
+                        "automation.plan." + safeId(plugin) + "." + safeId(taskId), plugin, taskId,
+                        guiToken(task.path("title")), guiToken(task.path("triggerSummary")),
+                        task.path("status").asText("UNKNOWN"), task.path("lastResult").asText("UNKNOWN"),
+                        runs, parseInstant(task.path("observedAt").asText("")).map(Instant::toEpochMilli).orElse(null),
+                        available, actions.get(plugin)));
+            }
         }
-        return scroll("automation.scroll", column("automation.content", content));
+        return new DesktopUiNode.AutomationOverview("automation.overview",
+                parseInstant(snapshot.path("observedAt").asText("")).map(Instant::toEpochMilli).orElse(0L),
+                snapshot.path("automations").isArray(), plans, sources, management);
     }
 
     private static TextToken composeToken(String key) {
         return new TextToken("gui-compose", "gui.compose." + key, "", List.of());
-    }
-
-    private static DesktopUiNode composeText(String id, String key, TextStyle style) {
-        return new DesktopUiNode.Text(id, composeToken(key), style, true, false);
-    }
-
-    private DesktopUiNode automationTimeline(
-            DesktopUiHost.GuiValue controlCenter,
-            List<AutomationRun> runs
-    ) {
-        Optional<Instant> startValue = parseInstant(controlCenter.path("observedAt").asText(""));
-        if (startValue.isEmpty() || runs.isEmpty()) {
-            return text("automation.timeline.empty", "desktop.ui.automation.timeline.empty", TextStyle.CAPTION);
-        }
-        Instant start = startValue.orElseThrow();
-        Instant end = start.plusSeconds(24L * 60L * 60L);
-        List<DesktopUiNode.ScheduleTimelineItem> items = runs.stream()
-                .filter(run -> !run.at().isBefore(start) && !run.at().isAfter(end))
-                .map(run -> new DesktopUiNode.ScheduleTimelineItem(
-                        run.at().toEpochMilli(),
-                        TextToken.raw(formatScheduleTime(run.at())),
-                        guiToken(run.task().path("title")),
-                        guiToken(run.task().path("triggerSummary"))
-                ))
-                .toList();
-        if (items.isEmpty()) {
-            return text("automation.timeline.empty", "desktop.ui.automation.timeline.empty", TextStyle.CAPTION);
-        }
-        long now = Math.max(start.toEpochMilli(), Math.min(Instant.now().toEpochMilli(), end.toEpochMilli()));
-        return new DesktopUiNode.ScheduleTimeline(
-                "automation.timeline.schedule",
-                start.toEpochMilli(),
-                now,
-                end.toEpochMilli(),
-                items
-        );
-    }
-
-    private DesktopUiNode automationTask(
-            String owner,
-            String taskId,
-            DesktopUiHost.GuiValue task
-    ) {
-        String base = "automation.task." + owner + "." + taskId;
-        String status = task.path("status").asText("UNKNOWN").toLowerCase(Locale.ROOT);
-        String result = task.path("lastResult").asText("UNKNOWN").toLowerCase(Locale.ROOT);
-        Optional<Instant> nextRun = values(task.path("nextRuns")).stream().map(DesktopUiHost.GuiValue::asText).map(
-                DesktopControlCenterView::parseInstant).flatMap(Optional::stream).min(Comparator.naturalOrder());
-        return new DesktopUiNode.Surface(
-                base,
-                DesktopUiNode.SurfaceStyle.PLAIN,
-                new DesktopUiNode.Insets(
-                        12,
-                        14,
-                        12,
-                        14
-                ),
-                true,
-                column(
-                        base + ".content",
-                        new DesktopUiNode.Text(
-                                base + ".title",
-                                guiToken(task.path("title")),
-                                TextStyle.HEADING,
-                                true,
-                                false
-                        ),
-                        new DesktopUiNode.Text(
-                                base + ".trigger",
-                                guiToken(task.path("triggerSummary")),
-                                TextStyle.CAPTION,
-                                true,
-                                false
-                        ),
-                        text(
-                                base + ".status",
-                                "desktop.ui.automation.status." + status,
-                                automationStatusStyle(status)
-                        ),
-                        text(
-                                base + ".last-result",
-                                "desktop.ui.automation.last-result." + result,
-                                "error".equals(result) ? TextStyle.ERROR : TextStyle.CAPTION
-                        ),
-                        new DesktopUiNode.Text(
-                                base + ".next-run",
-                                nextRun.<TextToken>map(at -> appToken(
-                                        "desktop.ui.automation.next-run",
-                                        formatTimestamp(at)
-                                )).orElseGet(() -> key("desktop.ui.automation.next-run.none")),
-                                TextStyle.CAPTION,
-                                true,
-                                false
-                        ),
-                        new DesktopUiNode.Text(
-                                base + ".observed-at",
-                                appToken(
-                                        "desktop.ui.automation.observed-at",
-                                        formatTimestamp(task.path("observedAt").asText(""))
-                                ),
-                                TextStyle.CAPTION,
-                                true,
-                                false
-                        )
-                )
-        );
-    }
-
-    private static TextStyle automationStatusStyle(String status) {
-        return switch (status) {
-            case "running" -> TextStyle.SUCCESS;
-            case "suspended", "cancel_requested" -> TextStyle.WARNING;
-            case "disabled" -> TextStyle.CAPTION;
-            default -> TextStyle.BODY;
-        };
     }
 
     private static Optional<Instant> parseInstant(String value) {
@@ -339,14 +188,6 @@ final class DesktopControlCenterView {
 
     private static String formatTimestamp(String value) {
         return parseInstant(value).map(DesktopUiNodes::formatTimestamp).orElse("—");
-    }
-
-    private static String formatTimestamp(Instant value) {
-        return DesktopUiNodes.formatTimestamp(value);
-    }
-
-    private static String formatScheduleTime(Instant value) {
-        return DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()).format(value);
     }
 
     static String formatCompactBinarySize(long bytes) {
@@ -364,45 +205,6 @@ final class DesktopControlCenterView {
                 value
         );
         return number + " " + units[unit];
-    }
-
-    private DesktopUiNode dashboardCard(
-            String base,
-            TextToken title,
-            TextToken primary,
-            TextToken supporting,
-            DesktopUiIcon icon,
-            DesktopUiTone tone,
-            DesktopControlCenterAvailability availability
-    ) {
-        return dashboardCard(
-                base,
-                title,
-                primary,
-                supporting,
-                icon,
-                tone,
-                availability,
-                null
-        );
-    }
-
-    private DesktopUiNode dashboardCard(
-            String base,
-            TextToken title,
-            TextToken primary,
-            TextToken supporting,
-            DesktopUiIcon icon,
-            DesktopUiTone tone,
-            DesktopControlCenterAvailability availability,
-            DesktopUiNode summaryGraphic
-    ) {
-        List<DesktopUiNode> content = new ArrayList<>();
-        content.add(new DesktopUiNode.Text(base + ".title", title, TextStyle.EMPHASIS, true, false));
-        content.add(new DesktopUiNode.Text(base + ".primary", primary, TextStyle.BODY, true, false));
-        content.add(new DesktopUiNode.Text(base + ".supporting", supporting,
-                availability == DesktopControlCenterAvailability.AVAILABLE ? TextStyle.CAPTION : TextStyle.WARNING, true, false));
-        return new DesktopUiNode.Container(base, ContainerLayout.FLOW, 1, 12, Alignment.START, content);
     }
 
     private DesktopUiNode.HomeMetric storageCard() {
@@ -485,14 +287,6 @@ final class DesktopControlCenterView {
             case "chart-bar" -> DesktopUiIcon.STATISTICS;
             default -> DesktopUiIcon.OPEN;
         };
-    }
-
-    private record AutomationRun(
-            Instant at,
-            String owner,
-            String taskId,
-            DesktopUiHost.GuiValue task
-    ) {
     }
 
     record QuickStartEntry(

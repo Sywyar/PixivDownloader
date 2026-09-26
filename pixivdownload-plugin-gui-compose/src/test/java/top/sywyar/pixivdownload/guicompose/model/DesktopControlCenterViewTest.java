@@ -16,6 +16,44 @@ import static org.junit.jupiter.api.Assertions.*;
 @DisplayName("Compose 首页存储指标")
 class DesktopControlCenterViewTest {
     @Test
+    @DisplayName("自动化保留来源、过期状态和真实时间，管理入口只绑定同一来源的注册路由")
+    void projectsAutomationFactsAndOwnedActions() throws Exception {
+        var source = new DesktopUiPluginSnapshot("sample", false, "sample", 1, false, null, "",
+                List.of(), List.of(), List.of(), List.of(WebRouteContribution.admin("/sample.html")),
+                List.of(new NavigationContribution("plans", Set.of(NavigationPlacements.DESKTOP_QUICK_START),
+                        "sample", "label", "/sample.html", "download", AccessPolicy.ADMIN, 0)));
+        var task = Map.of("taskId", "task-one", "title", token("Actual plan"),
+                "triggerSummary", token("Every day"), "status", "SUSPENDED", "lastResult", "ERROR",
+                "nextRuns", List.of("2025-01-02T01:00:00Z", "invalid", "2025-01-02T01:00:00Z"),
+                "observedAt", "2025-01-02T00:00:00Z");
+        var data = Map.of("observedAt", "2025-01-02T00:00:00Z", "automations", List.of(
+                Map.of("owner", Map.of("pluginId", "sample"), "snapshot",
+                        Map.of("availability", "STALE", "tasks", List.of(task))),
+                Map.of("owner", Map.of("pluginId", "another"), "snapshot",
+                        Map.of("availability", "AVAILABLE", "tasks", List.of(task)))));
+        try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), Map.of(
+                "controlCenterSnapshot", args -> new DesktopUiHost.GuiResponse(true, 200,
+                        DesktopUiHost.GuiValue.of(data), "", false)), () -> List.of(source))) {
+            model.rebuild();
+            var page = model.snapshot().document().pages().stream().filter(p -> p.id().equals("automation")).findFirst().orElseThrow();
+            var overview = assertInstanceOf(DesktopUiNode.AutomationOverview.class,
+                    assertInstanceOf(DesktopUiNode.Surface.class, page.content()).content());
+            assertTrue(overview.known());
+            assertEquals(2, overview.plans().size());
+            var first = overview.plans().get(0);
+            assertEquals("Actual plan", first.title().fallback());
+            assertEquals("SUSPENDED", first.status());
+            assertEquals("ERROR", first.lastResult());
+            assertEquals("STALE", first.availability());
+            assertEquals(List.of(java.time.Instant.parse("2025-01-02T01:00:00Z").toEpochMilli()), first.nextRuns());
+            assertNotNull(first.actionId());
+            assertNull(overview.plans().get(1).actionId());
+            assertEquals(1, overview.management().size());
+            assertTrue(DesktopUiEventProtocol.index(model.snapshot().document()).containsKey(overview.management().get(0).id()));
+        }
+    }
+
+    @Test
     @DisplayName("首页读取真实贡献并保留过期标记，拒绝未注册的快捷地址")
     void projectsFactsAndKeepsOnlyOwnedRoutes() throws Exception {
         var source = new DesktopUiPluginSnapshot("sample", false, "sample", 1, false, null, "",

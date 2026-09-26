@@ -334,6 +334,7 @@ class GuiComposePluginTest {
     private fun completeTree(): DesktopUiNode = DesktopUiNode.Container(
         "root", DesktopUiNode.ContainerLayout.COLUMN, 1, 4, DesktopUiNode.Alignment.STRETCH,
         listOf(
+            DesktopUiNode.AutomationOverview("automation", 0L, false, emptyList(), emptyList(), emptyList()),
             DesktopUiNode.HomeOverview("overview", emptyList(), emptyList(), emptyList(), false,
                 text("overview.backend"), DesktopUiNode.HomeSystem(raw("Disabled"), null, raw("Unavailable"))),
             DesktopUiNode.Dock("dock", 4, text("dock.top"), text("dock.center"), null, null, null),
