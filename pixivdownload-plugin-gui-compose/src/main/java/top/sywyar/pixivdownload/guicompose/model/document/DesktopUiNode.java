@@ -29,7 +29,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         DesktopUiNode.TextInput, DesktopUiNode.Toggle, DesktopUiNode.Choice,
         DesktopUiNode.NumberInput, DesktopUiNode.Table, DesktopUiNode.Tree,
         DesktopUiNode.Button, DesktopUiNode.Link, DesktopUiNode.AccountSetup, DesktopUiNode.OnboardingHub,
-        DesktopUiNode.HomeOverview, DesktopUiNode.AutomationOverview {
+        DesktopUiNode.HomeOverview, DesktopUiNode.AutomationOverview, DesktopUiNode.PluginOverview {
 
     /** @return 单份文档内稳定的节点标识 */
     String id();
@@ -617,6 +617,38 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
             return notice == null ? List.of(username, password, submit)
                     : List.of(username, password, submit, notice);
         }
+    }
+
+    /** 插件事实与受控动作；筛选、选择和详情展开状态留在 Compose 页面。 */
+    record PluginOverview(String id, List<PluginEntry> plugins, String observedAt,
+                          String noticeKey, boolean recoveryMode, Button refresh, Button manage)
+            implements DesktopUiNode {
+        public PluginOverview {
+            id = requireId(id, "id");
+            plugins = copyBounded(plugins, "plugins");
+            requireUnique(plugins.stream().map(PluginEntry::id).toList(), "plugin id");
+            Objects.requireNonNull(refresh, "refresh");
+            Objects.requireNonNull(manage, "manage");
+        }
+        @Override public Kind kind() { return Kind.PLUGIN_OVERVIEW; }
+        @Override public List<DesktopUiNode> childNodes() { return List.of(refresh, manage); }
+    }
+
+    record PluginEntry(String id, String name, String description, String iconKey, String colorToken,
+                       String source, String statusCode, String phaseCode, boolean managed,
+                       boolean required, String version, String verificationStatus,
+                       String verificationDiagnosticCode, String lastVerifiedAt) {
+        public boolean builtIn() { return "built-in".equals(source); }
+        public boolean runtimeFailed() {
+            return Set.of("FAILED", "CRASHED", "INCOMPATIBLE", "MISSING_REQUIRED", "INCOMPATIBLE_REQUIRED")
+                    .contains(statusCode);
+        }
+        public boolean verificationFailed() {
+            return !verificationStatus.isBlank() && !Set.of("VERIFIED_OFFICIAL", "VERIFIED_CUSTOM",
+                    "VERIFIED_COMMUNITY", "UNVERIFIED_LOCAL", "UNSIGNED_ALLOWED", "NOT_INSTALLED")
+                    .contains(verificationStatus);
+        }
+        public boolean needsAttention() { return runtimeFailed() || verificationFailed(); }
     }
 
     /** Compose 自动化页的来源与计划事实，交互状态由页面持有。 */
@@ -1369,6 +1401,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
     /** 支持的节点类型。 */
     enum Kind {
+        /** 插件浏览。 */ PLUGIN_OVERVIEW,
         /** 自动化时间线。 */ AUTOMATION_OVERVIEW,
         /** 首页概览。 */ HOME_OVERVIEW,
         /** 首次账户设置。 */ ACCOUNT_SETUP,

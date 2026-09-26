@@ -174,6 +174,7 @@ object ComposeDesktopUiNodeRenderer {
         modifier: Modifier = Modifier,
     ) {
         when (node) {
+            is DesktopUiNode.PluginOverview -> top.sywyar.pixivdownload.guicompose.plugins.PluginOverview(node, text, emit, modifier)
             is DesktopUiNode.AutomationOverview -> top.sywyar.pixivdownload.guicompose.automation.AutomationOverview(node, text, emit, modifier)
             is DesktopUiNode.HomeOverview -> HomeOverview(node, text, emit, modifier)
             is DesktopUiNode.OnboardingHub -> OnboardingGuideHub(node, text, emit, modifier) { child, childModifier ->

@@ -16,6 +16,47 @@ import static org.junit.jupiter.api.Assertions.*;
 @DisplayName("Compose 首页存储指标")
 class DesktopControlCenterViewTest {
     @Test
+    @DisplayName("插件页投影真实描述符与独立状态，读取失败清除旧的恢复模式")
+    void projectsPluginMetadataAndClearsUnavailableFacts() throws Exception {
+        var response = new java.util.concurrent.atomic.AtomicReference<>(new DesktopUiHost.GuiResponse(
+                true, 200, DesktopUiHost.GuiValue.of(Map.of("recoveryMode", true,
+                "observedAt", "2025-01-02T00:00:00Z", "plugins", List.of(
+                Map.of("id", "sample:one", "name", "Sample", "description", "Manage collections",
+                        "iconKey", "images", "colorToken", "blue", "status", "STARTED",
+                        "verification", Map.of("status", "UNVERIFIED_LOCAL")),
+                Map.of("id", "sample.one", "status", "CRASHED",
+                        "verification", Map.of("status", "VERIFIED_OFFICIAL"))))), "", false));
+        try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), Map.of(
+                "guiGet", args -> "plugins/status".equals(args[0]) ? response.get()
+                        : DesktopUiHost.GuiResponse.unreachable()))) {
+            model.loadPluginStatus();
+            model.rebuild();
+            var overview = plugins(model);
+            assertTrue(overview.recoveryMode());
+            assertEquals(List.of("sample:one", "sample.one"), overview.plugins().stream()
+                    .map(DesktopUiNode.PluginEntry::id).toList());
+            assertEquals("Manage collections", overview.plugins().get(0).description());
+            assertEquals("images", overview.plugins().get(0).iconKey());
+            assertFalse(overview.plugins().get(0).needsAttention());
+            assertTrue(overview.plugins().get(1).needsAttention());
+            assertTrue(DesktopUiEventProtocol.index(model.snapshot().document())
+                    .keySet().containsAll(List.of("plugins.refresh", "plugins.manage")));
+            response.set(DesktopUiHost.GuiResponse.unreachable());
+            model.loadPluginStatus();
+            model.rebuild();
+            assertFalse(plugins(model).recoveryMode());
+            assertTrue(plugins(model).plugins().isEmpty());
+            assertEquals("gui.plugins.state.offline", plugins(model).noticeKey());
+        }
+    }
+
+    private static DesktopUiNode.PluginOverview plugins(ComposeDesktopUiModel model) {
+        var page = model.snapshot().document().pages().stream().filter(p -> p.id().equals("plugins")).findFirst().orElseThrow();
+        return assertInstanceOf(DesktopUiNode.PluginOverview.class,
+                assertInstanceOf(DesktopUiNode.Surface.class, page.content()).content());
+    }
+
+    @Test
     @DisplayName("自动化保留来源、过期状态和真实时间，管理入口只绑定同一来源的注册路由")
     void projectsAutomationFactsAndOwnedActions() throws Exception {
         var source = new DesktopUiPluginSnapshot("sample", false, "sample", 1, false, null, "",

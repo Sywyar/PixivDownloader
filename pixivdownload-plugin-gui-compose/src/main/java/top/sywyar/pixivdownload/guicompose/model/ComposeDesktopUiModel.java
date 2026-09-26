@@ -422,7 +422,8 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         pages.add(page(
                 "plugins",
                 DesktopUiIcon.PLUGIN,
-                pluginStatus.controlCenterPage()
+                pluginStatus.controlCenterPage(nextActions),
+                DesktopUiNode.Insets.NONE
         ));
         pages.add(page(
                 "tools",
