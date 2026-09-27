@@ -13,6 +13,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode;
 import java.time.Duration;
@@ -92,11 +93,13 @@ class DesktopToolsControllerTest {
         try (ComposeDesktopUiModel model = DesktopConfigurationControllerTest.model(new HashMap<>(), Map.of(
                 "backendSnapshot", args -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null),
                 "countBackfillCandidates", args -> { calls.add("run"); return 0; }))) {
+            awaitMediaReady(model);
             model.dispatch(model.snapshot(), new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
                     "tools.backfill.proxy", DesktopUiNode.Value.bool(true)));
             model.dispatch(model.snapshot(), new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
                     "tools.backfill.proxy-host", DesktopUiNode.Value.text("127.0.0.")));
             activate(model, "tools.backfill.run");
+            assertNull(overview(model).activity());
             assertTrue(calls.isEmpty());
             assertTrue(model.snapshot().document().dialogs().isEmpty());
         }
