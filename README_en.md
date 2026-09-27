@@ -46,7 +46,7 @@
 - Novel AI translation (requires an LLM configured): translate a novel or a whole series into a chosen language and store it locally, with a content-language switch between the original and translations
 - Novel AI multi-voice narration (beta): an LLM attributes sentences to speakers, each character synthesized with a fixed voice and played back with follow-along highlighting; analysis is cached for replay
 
-- Animated image (Ugoira) auto-conversion to WebP
+- Save images in original, PNG, JPG and WebP formats; save Ugoira as WebP, GIF, APNG, MP4 and the original ZIP
 - Custom file naming templates (11 variables)
 - Downloaded-state verification: stale DB records auto-pruned; missing records reconstructed from disk to skip re-download
 - Quota and rate limiting for multi-user scenarios
@@ -98,6 +98,10 @@ sh run.sh
 
 After first startup, follow the wizard to complete setup, then visit `http://localhost:6999/pixiv-batch.html` to start
 downloading.
+
+Choose default formats, conversion quality, maximum edge and FFmpeg concurrency in the desktop download settings, then save and restart the backend. Images default to the original format and Ugoira to WebP. Both web layouts also let you select formats for downloads and new schedules. Deselecting the original removes it only after all selected outputs succeed; selecting the source format reuses the original file.
+
+For existing works, open **Tools → Process downloaded media** on the desktop, preview the scope and start manually. Processing adds missing copies and keeps existing files. Ugoira conversion requires the retained ZIP and frame timing file. The same page checks the current FFmpeg's encoding and decoding capabilities; MP4 requires an H.264 encoder.
 
 ### Route web Pixiv through the backend-configured proxy (no system proxy needed)
 
