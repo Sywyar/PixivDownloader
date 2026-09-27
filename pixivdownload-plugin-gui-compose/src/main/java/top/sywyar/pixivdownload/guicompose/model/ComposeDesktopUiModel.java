@@ -17,6 +17,7 @@ import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.TextToke
 import java.net.URI;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -71,6 +72,14 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
     private volatile Map<String, Runnable> actions = Map.of();
     private volatile Map<String, EventEndpoint> eventEndpoints = Map.of();
     private Map<String, InteractionSignature> interactionSignatures = Map.of();
+    private final Map<DesktopUiNode, Map<String, EventEndpoint>> pageEventIndexes = new IdentityHashMap<>();
+    private StablePages stablePages;
+
+    private record StablePages(
+            DesktopUiDocument.Page security,
+            DesktopUiDocument.Page about,
+            Map<String, Runnable> actions
+    ) {}
     private long interactionRevisionSequence;
     private volatile DesktopUiSnapshot snapshot;
     private volatile DesktopUiHost.BackendSnapshot backend;
@@ -336,6 +345,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         boolean localeChanged = !currentLocale.equals(documentLocale);
         if (!statusOnly || sourcesChanged || localeChanged || busy) {
             configuration.invalidatePage();
+            stablePages = null;
         }
         try {
             Map<String, Consumer<List<String>>> nextSelections = new LinkedHashMap<>();
@@ -374,10 +384,14 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
                     onboardingState.complete()
             );
             Map<String, EventEndpoint> nextEventEndpoints = DesktopUiEventProtocol.index(
-                    nextDocument);
+                    nextDocument,
+                    pageEventIndexes
+            );
             Map<String, InteractionSignature> nextInteractionSignatures = DesktopUiEventProtocol.interactionSignatures(
                     nextEventEndpoints,
-                    sourceFingerprints
+                    sourceFingerprints,
+                    eventEndpoints,
+                    interactionSignatures
             );
             Map<String, Long> nextInteractionRevisions = interactionRevisions(
                     nextInteractionSignatures);
@@ -453,17 +467,28 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
                         mediaTools.panels(nextSelections, nextActions)),
                 DesktopUiNode.Insets.NONE
         ));
-        pages.add(page("security", DesktopUiIcon.SECURITY, security.page(nextActions)));
+        if (stablePages == null) {
+            Map<String, Runnable> stableActions = new LinkedHashMap<>();
+            stablePages = new StablePages(
+                    page("security", DesktopUiIcon.SECURITY, security.page(stableActions)),
+                    page("about", DesktopUiIcon.ABOUT, aboutView.page(stableActions)),
+                    Map.copyOf(stableActions)
+            );
+        }
+        nextActions.putAll(stablePages.actions());
+        pages.add(stablePages.security());
         pages.add(page(
                 "settings",
                 DesktopUiIcon.SETTINGS,
                 configuration.controlCenterPage(nextSelections, nextActions),
                 DesktopUiNode.Insets.NONE
         ));
-        pages.add(page("about", DesktopUiIcon.ABOUT, aboutView.page(nextActions)));
+        pages.add(stablePages.about());
+        if (busy) stablePages = null;
     }
 
     private Map<String, Long> interactionRevisions(Map<String, InteractionSignature> signatures) {
+        if (snapshot != null && signatures.equals(interactionSignatures)) return snapshot.interactionRevisions();
         Map<String, Long> revisions = new LinkedHashMap<>();
         Map<String, Long> previous = snapshot == null ? Map.of() : snapshot.interactionRevisions();
         signatures.forEach((nodeId, signature) -> {
@@ -766,6 +791,8 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         security.clearSecrets();
         mediaTools.close();
         configuration.invalidatePage();
+        stablePages = null;
+        pageEventIndexes.clear();
         snapshotListeners.clear();
         worker.shutdownNow();
         AutoCloseable subscription = backendSubscription;

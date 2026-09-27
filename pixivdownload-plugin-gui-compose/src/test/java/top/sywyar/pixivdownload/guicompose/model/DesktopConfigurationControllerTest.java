@@ -372,8 +372,12 @@ class DesktopConfigurationControllerTest {
             synchronized (model) {
                 model.rebuild();
                 DesktopUiNode original = workspace(model);
+                var securityPage = model.snapshot().document().pages().stream().filter(page -> page.id().equals("security")).findFirst().orElseThrow();
+                var aboutPage = model.snapshot().document().pages().stream().filter(page -> page.id().equals("about")).findFirst().orElseThrow();
                 model.rebuildStatus();
                 assertSame(original, workspace(model));
+                assertSame(securityPage, model.snapshot().document().pages().stream().filter(page -> page.id().equals("security")).findFirst().orElseThrow());
+                assertSame(aboutPage, model.snapshot().document().pages().stream().filter(page -> page.id().equals("about")).findFirst().orElseThrow());
                 select(model, "theme", "dark");
                 assertNotSame(original, workspace(model));
                 assertEquals(1, pendingCount(model));
@@ -437,9 +441,11 @@ class DesktopConfigurationControllerTest {
                 model.setBusy(true);
                 model.rebuildStatus();
                 assertFalse(providerChoice(model).enabled());
+                assertTrue(((DesktopUiNode.SecurityOverview) pageContent(model, "security")).busy());
                 model.setBusy(false);
                 model.rebuildStatus();
                 assertTrue(providerChoice(model).enabled());
+                assertFalse(((DesktopUiNode.SecurityOverview) pageContent(model, "security")).busy());
                 sources.set(List.of());
                 model.rebuildStatus();
                 assertFalse(providerChoice(model).options().stream().anyMatch(option -> option.id().equals("third")));
@@ -451,6 +457,11 @@ class DesktopConfigurationControllerTest {
 
     private static DesktopUiNode workspace(ComposeDesktopUiModel model) {
         return nodes(model).filter(node -> node instanceof DesktopUiNode.SettingsWorkspace).findFirst().orElseThrow();
+    }
+
+    private static DesktopUiNode pageContent(ComposeDesktopUiModel model, String id) {
+        return ((DesktopUiNode.Surface) model.snapshot().document().pages().stream()
+                .filter(page -> page.id().equals(id)).findFirst().orElseThrow().content()).content();
     }
 
     private static DesktopUiNode.Choice providerChoice(ComposeDesktopUiModel model) {
