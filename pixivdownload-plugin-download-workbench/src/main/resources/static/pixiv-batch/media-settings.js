@@ -60,10 +60,17 @@ window.PixivMediaSettings = (() => {
                 options.append(option);
             }
             dropdown.addEventListener('keydown', event => {
-                if (event.key === 'Escape') { dropdown.open = false; summary.focus(); }
+                if (event.key === 'Escape' && dropdown.open) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    dropdown.open = false;
+                    summary.focus();
+                }
             });
             dropdown.addEventListener('focusout', event => {
-                if (!dropdown.contains(event.relatedTarget)) dropdown.open = false;
+                // label 激活控件前，焦点可能暂时为空或落在祖先模态窗口上，不能在此时隐藏控件。
+                const next = event.relatedTarget;
+                if (next && !dropdown.contains(next) && !next.contains(dropdown)) dropdown.open = false;
             });
             dropdown.append(summary, options);
             const help = document.createElement('small');
