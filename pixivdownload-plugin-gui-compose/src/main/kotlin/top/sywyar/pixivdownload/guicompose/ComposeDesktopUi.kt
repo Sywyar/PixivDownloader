@@ -292,15 +292,11 @@ internal object ComposeDesktopUi {
                                         context, model, observed, messages,
                                     )
                                     message.value?.let { current ->
-                                        CupertinoAlertDialog(
-                                            onDismissRequest = { message.value = null },
-                                            title = { CupertinoText(current.title) },
-                                            message = { CupertinoText(current.message) },
-                                            buttons = {
-                                                action(onClick = { message.value = null }, title = {
-                                                    CupertinoText(ComposeMessages(context).plugin("gui.compose.ok"))
-                                                })
-                                            },
+                                        DesktopMessageDialog(
+                                            title = current.title,
+                                            message = current.message,
+                                            confirmLabel = messages.plugin("gui.compose.ok"),
+                                            onDismiss = { message.value = null },
                                         )
                                     }
                                 }
