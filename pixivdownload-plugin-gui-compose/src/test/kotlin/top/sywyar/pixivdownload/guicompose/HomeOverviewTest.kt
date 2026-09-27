@@ -32,9 +32,9 @@ import kotlin.test.assertTrue
 @DisplayName("Compose 首页概览")
 class HomeOverviewTest {
     @Test
-    @DisplayName("启动计时独立按秒刷新，延迟提示与运行状态切换不移动首页内容")
+    @DisplayName("启动超过预期后显示按秒刷新的计时，提示与运行状态切换不移动首页内容")
     fun startupStatusTicksWithoutRebuildingTheHomeDocument() = runComposeUiTest {
-        var snapshot by mutableStateOf(home(empty = true, startingAt = System.currentTimeMillis() - 18_500L))
+        var snapshot by mutableStateOf(home(empty = true))
         setContent {
             PixivDownloaderTheme("light") {
                 Box(Modifier.size(1000.dp, 800.dp)) {
@@ -44,14 +44,17 @@ class HomeOverviewTest {
         }
         fun status() = onNodeWithTag("home.backend.state").fetchSemanticsNode()
             .config[SemanticsProperties.Text].single().text
+        runOnIdle { snapshot = home(empty = true, startingAt = System.currentTimeMillis() - 18_000L) }
         val hint = resolveKey("starting.slow")
         onNodeWithText(hint).assertDoesNotExist()
+        onNodeWithTag("home.backend.state").assertTextEquals(resolve(snapshot.backend().text()))
         val positions = listOf("home.greeting", "home.tip", "shortcut.download").associateWith {
             onNodeWithTag(it).fetchSemanticsNode().boundsInRoot
         }
-        val first = status()
-        waitUntil(timeoutMillis = 2_500) { status() != first }
         waitUntil(timeoutMillis = 3_500) { onAllNodesWithText(hint).fetchSemanticsNodes().isNotEmpty() }
+        val first = status()
+        assertNotEquals(resolve(snapshot.backend().text()), first)
+        waitUntil(timeoutMillis = 1_500) { status() != first }
         positions.forEach { (tag, bounds) -> assertEquals(bounds, onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot) }
         runOnIdle { snapshot = home(empty = true) }
         onNodeWithText(hint).assertDoesNotExist()
@@ -410,7 +413,8 @@ class HomeOverviewTest {
                     DesktopUiNode.HomeMetric("metric.$it", raw("Metric $it"), raw((1250 + it * 123).toString()),
                         if (it == 3) raw("GB") else null, raw("From connected sources"), null)
                 }, known,
-                DesktopUiNode.Text("backend", raw("Service running"), DesktopUiNode.TextStyle.SUCCESS, true, false),
+                DesktopUiNode.Text("backend", raw(if (startingAt > 0L) "Starting..." else "Service running"),
+                    DesktopUiNode.TextStyle.SUCCESS, true, false),
                 startingAt,
                 DesktopUiNode.HomeSystem(raw("Configured"), raw("127.0.0.1:7890"), raw("8 running / 9 total")),
             )

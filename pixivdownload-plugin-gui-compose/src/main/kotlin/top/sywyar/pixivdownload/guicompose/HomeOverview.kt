@@ -279,6 +279,7 @@ private fun BackendStatus(
     fun label(suffix: String, vararg args: Any) = text(
         DesktopUiNode.TextToken("gui-compose", "gui.compose.home.$suffix", "", args.map(Any::toString)),
     )
+    val slow = startedAt > 0L && elapsed >= 20L
     val palette = LocalExperiencePalette.current
     val color = when (backend.style()) {
         DesktopUiNode.TextStyle.SUCCESS -> palette.success
@@ -293,14 +294,13 @@ private fun BackendStatus(
         ) {
             Box(Modifier.size(6.dp).background(color, CircleShape))
             CupertinoText(
-                if (startedAt > 0L) label("starting", elapsed) else text(backend.text()),
+                if (slow) label("starting", elapsed) else text(backend.text()),
                 Modifier.testTag("home.backend.state"),
                 fontSize = 12.sp,
                 lineHeight = 18.sp,
                 color = palette.secondaryText,
             )
         }
-        val slow = startedAt > 0L && elapsed >= 20L
         // 始终测量完整提示，为文字缩放和长译文预留空间，显隐不会推动首页。
         CupertinoText(
             label("starting.slow"),
