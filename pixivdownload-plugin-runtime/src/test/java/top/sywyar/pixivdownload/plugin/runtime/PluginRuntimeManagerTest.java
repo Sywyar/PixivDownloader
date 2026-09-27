@@ -93,6 +93,33 @@ class PluginRuntimeManagerTest {
 
     private static final String PROBE_ID = "bootstrap-probe";
 
+    @ParameterizedTest
+    @CsvSource({"normal,false", "normal,true", "{app},false", "{app},true",
+            "中文 空格,false", "中文 空格,true", "percent%23#hash,false", "percent%23#hash,true"})
+    @DisplayName("生产加载支持含 URI 特殊字符的安装目录，卸载后释放冻结包")
+    void productionLoadSupportsSpecialCharactersInInstallationPath(String directory, boolean privateLib)
+            throws IOException {
+        Path plugins = tempDir.resolve(directory).resolve("plugins");
+        Path jar = plugins.resolve(PROBE_ID + ".jar");
+        writeProbeJar(jar, privateLib);
+        writeConfirmedLocalProvenance(plugins, jar);
+        var manager = new top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager(plugins, () -> false);
+        Path workspace;
+        try {
+            LoadedPluginPackage loaded = manager.loadPlugin(jar);
+            manager.startPlugin(PROBE_ID);
+            assertThat(loaded.artifactPath()).isEqualTo(jar.toAbsolutePath().normalize());
+            assertThat(manager.packagePhases().get(PROBE_ID)).isEqualTo(PluginRuntimePackagePhase.STARTED);
+            Path loadPath = manager.pluginManagerForTest().orElseThrow().getPlugin(PROBE_ID).getPluginPath();
+            workspace = loadPath.getParent();
+            assertThat(workspace).startsWith(plugins.resolve(PluginRuntimeLayout.RUNTIME_DIR));
+        } finally {
+            manager.shutdown();
+        }
+        assertThat(workspace).doesNotExist();
+        assertThat(jar).exists();
+    }
+
     @Test
     @DisplayName("进程内插件崩溃按代际隔离，旧代与重复回调不污染当前运行态")
     void inProcessFailureIsIsolatedAndGenerationScoped() throws IOException {
