@@ -155,7 +155,7 @@
             display: flex;
         }
 
-        .lightbox img {
+        .lightbox img, .lightbox video {
             max-width: 96vw;
             max-height: 96vh;
             object-fit: contain;

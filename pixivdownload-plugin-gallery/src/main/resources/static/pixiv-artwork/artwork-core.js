@@ -279,6 +279,21 @@ window.PixivArtwork = window.PixivArtwork || {};
 
     async function loadImageToElement(url, target, {onClick} = {}) {
         if (url.includes('/thumbnail/')) url = window.PixivLayout.previewUrl(url, target);
+        if (url.includes('/downloaded/image/')) {
+            const response = await fetch(url, {method: 'HEAD', credentials: 'same-origin'}).catch(() => null);
+            if (response && response.ok && (response.headers.get('content-type') || '').startsWith('video/')) {
+                const video = document.createElement('video');
+                video.controls = true;
+                video.loop = true;
+                video.playsInline = true;
+                video.preload = 'metadata';
+                video.src = url;
+                video.addEventListener('click', event => event.stopPropagation());
+                target.replaceChildren(video);
+                target.classList.remove('loading');
+                return null;
+            }
+        }
         const attach = src => {
             const img = document.createElement('img');
             img.alt = '';

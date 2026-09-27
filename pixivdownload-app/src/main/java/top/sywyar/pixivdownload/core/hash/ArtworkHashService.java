@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
+import top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaDecoder;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
@@ -31,15 +32,18 @@ public class ArtworkHashService {
     private final ArtworkFileLocator artworkFileLocator;
     private final AppMessages messages;
     private final TransactionTemplate transactionTemplate;
+    private final ArtworkMediaDecoder mediaDecoder;
 
     public ArtworkHashService(ImageHashMapper imageHashMapper,
                               ArtworkFileLocator artworkFileLocator,
                               AppMessages messages,
-                              PlatformTransactionManager transactionManager) {
+                              PlatformTransactionManager transactionManager,
+                              ArtworkMediaDecoder mediaDecoder) {
         this.imageHashMapper = imageHashMapper;
         this.artworkFileLocator = artworkFileLocator;
         this.messages = messages;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
+        this.mediaDecoder = mediaDecoder;
     }
 
     /** 单页哈希的计算结果。{@code hashes == null} 表示该页不可哈希（文件缺失 / 解码失败），落库时写页级哨兵。 */
@@ -100,6 +104,12 @@ public class ArtworkHashService {
                 return new PageHashResult(page, null, null);
             }
             Optional<ImageHasher.Hashes> hashes = ImageHasher.hash(source.file().toPath());
+            if (hashes.isEmpty()) {
+                var image = mediaDecoder.read(source.file().toPath(), 0);
+                var dHash = ImageHasher.dHash(image);
+                var aHash = ImageHasher.aHash(image);
+                if (dHash.isPresent() && aHash.isPresent()) hashes = Optional.of(new ImageHasher.Hashes(dHash.getAsLong(), aHash.getAsLong()));
+            }
             if (hashes.isEmpty()) {
                 log.warn(messages.getForLog("core.hash.log.decode-failed",
                         artwork.artworkId(), page, source.file().getAbsolutePath()));

@@ -28,20 +28,21 @@ public final class WorkSidecarFiles {
     }
 
     /**
-     * 是否为 sidecar 文件名（供配额打包 / 小说导出枚举层排除 {@code *.meta.json}）。
+     * 是否为元数据或媒体清单文件名，供配额打包 / 小说导出枚举排除。
      *
      * @param fileName 文件名（不含路径）
-     * @return 文件名以 {@code .meta.json} 结尾返回 {@code true}，否则 {@code false}
+     * @return 属于元数据或媒体清单时返回 {@code true}
      */
     public static boolean isSidecarFileName(String fileName) {
-        return fileName != null && fileName.endsWith(SIDECAR_SUFFIX);
+        return fileName != null && (fileName.endsWith(SIDECAR_SUFFIX)
+                || fileName.endsWith(top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest.SUFFIX));
     }
 
     /**
      * 是否为 sidecar 路径。
      *
      * @param path 文件路径
-     * @return 路径的文件名以 {@code .meta.json} 结尾返回 {@code true}，否则 {@code false}
+     * @return 路径指向元数据或媒体清单时返回 {@code true}
      */
     public static boolean isSidecarFile(Path path) {
         if (path == null) {

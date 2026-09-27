@@ -50,7 +50,10 @@ class DownloadedArtworkServiceTest {
         LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
         ArtworkFileLocator artworkFileLocator = new ArtworkFileLocator(pixivDatabase, downloadConfig, APP_MESSAGES,
                 new StagedFileDeletion(APP_MESSAGES));
-        ArtworkFileService artworkFileService = new ArtworkFileService(pixivDatabase, artworkFileLocator);
+        ArtworkFileService artworkFileService = new ArtworkFileService(pixivDatabase, artworkFileLocator,
+                new top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaDecoder(
+                        org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.class),
+                        new com.fasterxml.jackson.databind.ObjectMapper()));
         ArtworkMetadataRecoveryService artworkMetadataRecoveryService =
                 new ArtworkMetadataRecoveryService(pixivDatabase, authorService, downloadConfig, APP_MESSAGES);
         downloadedArtworkService = new DownloadedArtworkService(pixivDatabase, artworkFileService,

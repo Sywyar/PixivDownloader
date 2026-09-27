@@ -27,6 +27,31 @@ import static org.mockito.Mockito.when;
 @DisplayName("ArtworkFileLocator 删除链路")
 class ArtworkFileLocatorTest {
 
+    @Test
+    @DisplayName("按实际存在的原图 WebP PNG JPG 顺序选择并随作品删除媒体清单")
+    void prefersOriginalThenAvailableDerivatives() throws Exception {
+        Path dir = Files.createDirectories(tempDir.resolve("42"));
+        when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+        when(pixivDatabase.getFileNameTemplate(anyLong())).thenReturn("{artwork_id}_p{page}");
+        Path stem = dir.resolve("42_p0");
+        var record = artwork(42, dir.toString(), 1);
+        for (String extension : java.util.List.of("jpg", "png", "webp")) {
+            Files.writeString(dir.resolve("42_p0." + extension), "fixture");
+        }
+        new top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest("png",
+                java.util.List.of("jpg", "png", "webp"), false).write(stem);
+        org.junit.jupiter.api.Assertions.assertEquals(dir.resolve("42_p0.webp").toFile(), locator.resolveImageFile(record, 0));
+        new top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest("jpg",
+                java.util.List.of("jpg", "png", "webp"), true).write(stem);
+        for (String extension : java.util.List.of("jpg", "webp", "png")) {
+            Path expected = dir.resolve("42_p0." + extension);
+            org.junit.jupiter.api.Assertions.assertEquals(expected.toFile(), locator.resolveImageFile(record, 0));
+            Files.delete(expected);
+        }
+        assertTrue(locator.deleteArtworkFiles(record));
+        assertFalse(Files.exists(top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest.path(stem)));
+    }
+
     @TempDir
     Path tempDir;
 

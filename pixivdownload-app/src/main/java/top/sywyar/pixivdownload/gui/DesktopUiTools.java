@@ -225,14 +225,33 @@ final class DesktopUiTools {
         Files.createDirectories(targetFolder);
         Path numberedFolder = images.size() == 1 ? null : nextNumberedFolder(targetFolder);
         Path destination = numberedFolder == null ? targetFolder : numberedFolder;
-        if (numberedFolder != null) {
-            Files.createDirectory(numberedFolder);
-        }
-
         List<Path> copied = new ArrayList<>();
+        java.util.Set<Path> mediaFiles = new java.util.LinkedHashSet<>(images);
+        for (Path image : images) {
+            String name = image.getFileName().toString();
+            int dot = name.lastIndexOf('.');
+            String base = dot < 0 ? name : name.substring(0, dot);
+            if (base.endsWith("_thumb")) base = base.substring(0, base.length() - "_thumb".length());
+            Path stem = image.resolveSibling(base);
+            var manifest = top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest.read(stem);
+            if (manifest.isPresent()) {
+                mediaFiles.add(top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest.path(stem));
+                for (String extension : manifest.get().extensions()) {
+                    Path output = stem.resolveSibling(base + "." + extension);
+                    if (Files.isRegularFile(output)) mediaFiles.add(output);
+                }
+                Path original = stem.resolveSibling(base + "." + manifest.get().originalExtension());
+                if (Files.isRegularFile(original)) mediaFiles.add(original);
+                for (String suffix : List.of("_thumb.jpg", ".frames.properties")) {
+                    Path companion = stem.resolveSibling(base + suffix);
+                    if (Files.isRegularFile(companion)) mediaFiles.add(companion);
+                }
+            }
+        }
+        if (numberedFolder != null) Files.createDirectory(numberedFolder);
         Path sidecar = sourceFolder.resolve(WorkSidecarFiles.fileName(artworkId));
         try {
-            for (Path image : images) {
+            for (Path image : mediaFiles) {
                 Path target = destination.resolve(image.getFileName());
                 Files.copy(image, target);
                 copied.add(target);
@@ -249,7 +268,7 @@ final class DesktopUiTools {
 
         while (Files.exists(sourceFolder)) {
             try {
-                for (Path image : images) {
+                for (Path image : mediaFiles) {
                     Files.deleteIfExists(image);
                 }
                 Files.deleteIfExists(sidecar);

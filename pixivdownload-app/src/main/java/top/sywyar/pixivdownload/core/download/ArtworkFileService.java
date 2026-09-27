@@ -4,9 +4,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
+import top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaDecoder;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.asset.ImageThumbnailScaler;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -31,10 +31,11 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 public class ArtworkFileService {
 
-    private static final Set<String> IMAGE_EXTENSIONS = Set.of("jpg", "jpeg", "png", "gif", "webp");
+    private static final Set<String> IMAGE_EXTENSIONS = Set.of("jpg", "jpeg", "png", "gif", "webp", "apng", "mp4");
 
     private final PixivDatabase pixivDatabase;
     private final ArtworkFileLocator artworkFileLocator;
+    private final ArtworkMediaDecoder mediaDecoder;
 
     private final ConcurrentHashMap<String, Object> thumbnailCacheLocks = new ConcurrentHashMap<>();
 
@@ -42,9 +43,11 @@ public class ArtworkFileService {
     }
 
     public ArtworkFileService(PixivDatabase pixivDatabase,
-                              ArtworkFileLocator artworkFileLocator) {
+                              ArtworkFileLocator artworkFileLocator,
+                              ArtworkMediaDecoder mediaDecoder) {
         this.pixivDatabase = pixivDatabase;
         this.artworkFileLocator = artworkFileLocator;
+        this.mediaDecoder = mediaDecoder;
     }
 
     public ThumbnailFile getThumbnailFile(Long artworkId, int page) throws IOException {
@@ -75,7 +78,7 @@ public class ArtworkFileService {
                     return new ThumbnailFile(cachePath, writeFormat);
                 }
                 Files.createDirectories(cachePath.getParent());
-                BufferedImage thumbnailImage = ImageThumbnailScaler.scale(imageFile.toPath(), edge, edge);
+                BufferedImage thumbnailImage = mediaDecoder.read(imageFile.toPath(), edge);
                 Path tempPath = Files.createTempFile(cachePath.getParent(), "thumb-", "." + writeFormat);
                 try {
                     try (OutputStream out = Files.newOutputStream(tempPath)) {
@@ -101,13 +104,13 @@ public class ArtworkFileService {
             return null;
         }
         String extension = getFileExtension(imageFile.getName()).toLowerCase(Locale.ROOT);
-        if (!"webp".equals(extension)) {
+        if (!Set.of("webp", "mp4", "apng").contains(extension)) {
             return imageFile;
         }
         String dirPath = resolveArtworkDirectory(artwork);
         String baseName = resolveStoredFileBaseName(artwork, page);
         File thumbFile = Paths.get(dirPath, baseName + "_thumb.jpg").toFile();
-        return thumbFile.exists() ? thumbFile : null;
+        return thumbFile.exists() ? thumbFile : imageFile;
     }
 
     private Path thumbnailCachePath(Long artworkId, int page, int edge, String extension) {
@@ -126,7 +129,7 @@ public class ArtworkFileService {
     }
 
     private String normalizeThumbnailFormat(String extension) {
-        return "jpeg".equals(extension) ? "jpg" : extension;
+        return Set.of("jpg", "jpeg").contains(extension) ? "jpg" : "png";
     }
 
     private void moveReplacing(Path source, Path target) throws IOException {

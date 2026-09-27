@@ -326,7 +326,8 @@
             transform: scale(1.005);
         }
 
-        .artwork-frame img {
+        .artwork-frame img,
+        .artwork-frame video {
             display: block;
             max-width: calc(100vw - var(--layout-inset-left) - var(--layout-inset-right));
             max-height: max(8rem, calc(100svh - var(--layout-header-height) - 4rem - env(safe-area-inset-bottom)));

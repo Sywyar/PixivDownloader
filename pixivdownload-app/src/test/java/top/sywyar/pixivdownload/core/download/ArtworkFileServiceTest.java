@@ -41,7 +41,9 @@ class ArtworkFileServiceTest {
 
         try (var runtime = mockStatic(RuntimeFiles.class)) {
             runtime.when(RuntimeFiles::galleryThumbnailDirectory).thenReturn(tempDir.resolve("thumbnails"));
-            var service = new ArtworkFileService(database, locator);
+            var service = new ArtworkFileService(database, locator,
+                    new top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaDecoder(
+                            mock(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.class), new com.fasterxml.jackson.databind.ObjectMapper()));
             var result = service.getThumbnailFile(119L, 0);
             BufferedImage thumbnail = ImageIO.read(result.path().toFile());
             assertThat(thumbnail.getWidth()).isEqualTo(512);

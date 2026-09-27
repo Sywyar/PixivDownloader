@@ -200,7 +200,7 @@
             cursor: zoom-in;
         }
 
-        .viewer-image img {
+        .viewer-image img, .viewer-image video {
             width: auto;
             max-width: 100%;
             display: block;

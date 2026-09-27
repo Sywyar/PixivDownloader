@@ -39,7 +39,9 @@
         const thumbUrl = `/api/downloaded/thumbnail/${a.artworkId}/0`;
 
         setBgImage(document.getElementById('artworkBg'), thumbUrl);
-        const src = await setImage(document.getElementById('artworkImg'), imageUrl);
+        const image = document.getElementById('artworkImg');
+        document.getElementById('artworkFrame').onclick = null;
+        const src = await setArtworkMedia(image, imageUrl);
 
         document.getElementById('artworkOverlayTitle').textContent = localizedArtworkTitle(a);
         document.getElementById('artworkOverlayAuthor').textContent = a.authorName || '';
@@ -48,6 +50,32 @@
             state.lightboxImages = [src];
             document.getElementById('artworkFrame').onclick = () => openLightbox(0, state.lightboxImages);
         }
+    }
+
+    async function setArtworkMedia(image, imageUrl) {
+        image.dataset.mediaUrl = imageUrl;
+        const response = await fetch(imageUrl, {method: 'HEAD', credentials: 'same-origin'}).catch(() => null);
+        if (image.dataset.mediaUrl !== imageUrl) return null;
+        document.getElementById(image.id + '-video')?.remove();
+        image.hidden = false;
+        const isVideo = response && response.ok && (response.headers.get('content-type') || '').startsWith('video/');
+        if (isVideo) {
+            const video = document.createElement('video');
+            video.id = image.id + '-video';
+            video.className = image.className;
+            video.controls = true;
+            video.loop = true;
+            video.playsInline = true;
+            video.preload = 'metadata';
+            video.src = imageUrl;
+            image.hidden = true;
+            image.after(video);
+            return null;
+        }
+        const src = await loadImage(imageUrl);
+        if (image.dataset.mediaUrl !== imageUrl) return null;
+        if (src) image.src = src;
+        return src;
     }
 
     async function renderDetails() {
@@ -205,20 +233,8 @@
     async function loadAndOpenLightbox(pageIndex) {
         const a = state.artwork;
         const count = a.count || 1;
-        if (state.lightboxImages.length === count && state.lightboxImages[pageIndex]) {
-            openLightbox(pageIndex, state.lightboxImages);
-            return;
-        }
-        state.lightboxImages = new Array(count).fill(null);
-        const firstSrc = await loadImage(`/api/downloaded/image/${a.artworkId}/${pageIndex}`);
-        if (firstSrc) state.lightboxImages[pageIndex] = firstSrc;
+        state.lightboxImages = Array.from({length: count}, (_, page) => `/api/downloaded/image/${a.artworkId}/${page}`);
         openLightbox(pageIndex, state.lightboxImages);
-        for (let i = 0; i < count; i++) {
-            if (i === pageIndex) continue;
-            loadImage(`/api/downloaded/image/${a.artworkId}/${i}`).then(src => {
-                if (src) state.lightboxImages[i] = src;
-            });
-        }
     }
 
     async function loadThumbLazy(img) {
@@ -236,12 +252,14 @@
             return;
         }
         state.lightboxIndex = index;
-        document.getElementById('lightboxImage').src = state.lightboxImages[index];
+        setArtworkMedia(document.getElementById('lightboxImage'), state.lightboxImages[index]);
         document.getElementById('lightboxInfo').textContent = `${index + 1} / ${state.lightboxImages.length}`;
         document.getElementById('lightbox').classList.add('open');
     }
 
     function closeLightbox() {
+        delete document.getElementById('lightboxImage').dataset.mediaUrl;
+        document.getElementById('lightboxImage-video')?.remove();
         document.getElementById('lightbox').classList.remove('open');
     }
 
