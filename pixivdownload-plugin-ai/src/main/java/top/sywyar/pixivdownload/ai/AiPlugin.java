@@ -184,7 +184,7 @@ public class AiPlugin implements PixivFeaturePlugin {
                                         GuiConfigActionResultCondition.reachable(true),
                                         GuiConfigActionResultCondition.http2xx(true),
                                         GuiConfigActionResultCondition.jsonFalse("success")),
-                                List.of(GuiConfigActionResultArgument.json("error"))),
+                                List.of()),
                         new GuiConfigActionResultRule(
                                 "gui.config.ai.models.notice.failed-http",
                                 ID,

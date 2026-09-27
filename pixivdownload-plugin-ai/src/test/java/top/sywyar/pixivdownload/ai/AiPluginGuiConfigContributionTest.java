@@ -102,6 +102,10 @@ class AiPluginGuiConfigContributionTest {
         assertThat(modelsAction.resultSummary().arrayPath()).isEqualTo("models");
         assertThat(modelsAction.resultSummary().labelPath()).isEqualTo("id");
         assertThat(modelsAction.resultSummary().detailPath()).isEqualTo("ownedBy");
+        assertThat(modelsAction.resultRules())
+                .filteredOn(rule -> rule.noticeKey().equals("gui.config.ai.models.notice.failed"))
+                .singleElement()
+                .satisfies(rule -> assertThat(rule.arguments()).isEmpty());
 
         GuiConfigActionContribution action = section.actions().get(1);
         assertThat(action.actionId()).isEqualTo("ai.test");
