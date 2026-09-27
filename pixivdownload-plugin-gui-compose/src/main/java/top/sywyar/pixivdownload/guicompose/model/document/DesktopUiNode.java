@@ -1722,9 +1722,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     }
 
     private static String requireId(String value, String name) {
-        if (value == null || !value.matches("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")) {
-            throw new IllegalArgumentException(name + " must be a stable id");
-        }
+        DesktopUiDocument.requireStableId(value, name);
         return value;
     }
 
