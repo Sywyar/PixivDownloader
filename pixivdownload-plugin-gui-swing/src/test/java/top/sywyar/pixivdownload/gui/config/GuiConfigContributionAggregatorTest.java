@@ -171,8 +171,8 @@ class GuiConfigContributionAggregatorTest {
             var accepted = result.fields().stream().filter(field -> field.key().equals("demo.value")).toList();
             if (key.equals("demo.enabled")) {
                 assertThat(accepted).singleElement().satisfies(field -> {
-                    assertThat(field.requiredValueMissing().test(new ConfigSnapshot(java.util.Map.of("demo.enabled", "true")))).isTrue();
-                    assertThat(field.requiredValueMissing().test(new ConfigSnapshot(java.util.Map.of("demo.enabled", "false")))).isFalse();
+                    assertThat(field.requiredValueMissing().test(new ConfigSnapshot(java.util.Map.of("demo.enabled", "true")), false)).isTrue();
+                    assertThat(field.requiredValueMissing().test(new ConfigSnapshot(java.util.Map.of("demo.enabled", "false")), false)).isFalse();
                 });
             } else {
                 assertThat(accepted).isEmpty();

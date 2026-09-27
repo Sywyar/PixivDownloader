@@ -6,6 +6,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
+import java.util.function.BiPredicate;
 
 /**
  * 单个配置字段的元数据。UI 根据此 schema 自动渲染控件，无需为每个字段硬编码。
@@ -27,7 +28,7 @@ public record ConfigFieldSpec(
         List<GuiConfigCondition> visibleWhenConditions,
         GuiConfigEffect effect,
         boolean contributesGroupVisibility,
-        Predicate<ConfigSnapshot> requiredValueMissing
+        BiPredicate<ConfigSnapshot, Boolean> requiredValueMissing
 ) {
 
     public static final String CORE_OWNER = "core";
@@ -79,7 +80,7 @@ public record ConfigFieldSpec(
         private List<GuiConfigCondition> visibleWhenConditions = List.of();
         private GuiConfigEffect effect = GuiConfigEffect.BACKEND_RESTART;
         private boolean contributesGroupVisibility = true;
-        private Predicate<ConfigSnapshot> requiredValueMissing = snapshot -> false;
+        private BiPredicate<ConfigSnapshot, Boolean> requiredValueMissing = (snapshot, stored) -> false;
 
         private Builder(String key, String label, FieldType type, String group) {
             this.key = key;
@@ -115,7 +116,7 @@ public record ConfigFieldSpec(
             return this;
         }
 
-        public Builder requiredValueMissing(Predicate<ConfigSnapshot> predicate) {
+        public Builder requiredValueMissing(BiPredicate<ConfigSnapshot, Boolean> predicate) {
             this.requiredValueMissing = predicate;
             return this;
         }

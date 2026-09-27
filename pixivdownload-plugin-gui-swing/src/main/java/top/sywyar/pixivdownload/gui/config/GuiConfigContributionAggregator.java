@@ -404,7 +404,7 @@ public final class GuiConfigContributionAggregator {
                 .visibleWhen(predicate(field.visibleWhen()))
                 .visibleWhenConditions(field.visibleWhen())
                 .validator(validator(field))
-                .requiredValueMissing(snapshot -> field.missingRequiredValue(snapshot.values()))
+                .requiredValueMissing((snapshot, stored) -> field.missingRequiredValue(snapshot.values(), stored))
                 .contributesGroupVisibility(field.contributesGroupVisibility());
         if (field.type() == GuiConfigFieldType.ENUM) {
             builder.enumValues(field.enumValues().toArray(String[]::new));

@@ -376,13 +376,13 @@ final class DesktopConfigurationController {
             ));
             return;
         }
-        if (changed.isEmpty() && !repositoriesChanged && !interfaceChanged) {
-            setConfigNotice(host.message("gui.config.notice.saved-no-change"));
-            return;
-        }
         try {
             invalidRow = "";
             validate(changed);
+            if (changed.isEmpty() && !repositoriesChanged && !interfaceChanged) {
+                setConfigNotice(host.message("gui.config.notice.saved-no-change"));
+                return;
+            }
             ConfigField rootField = changed.stream().filter(field -> field.owner() == null && "download.root-folder".equals(
                     field.spec().key())).findFirst().orElse(null);
             if (!symbolicRootPinned && rootField != null) {
@@ -793,7 +793,13 @@ final class DesktopConfigurationController {
         for (ConfigField field : configFields) {
             try {
                 GuiConfigFieldContribution spec = field.spec();
-                if (spec.missingRequiredValue(drafts.get(field.owner()))) {
+                Map<String, String> draft = drafts.get(field.owner());
+                boolean missing = spec.missingRequiredValue(draft);
+                if (missing && spec.sensitive() && field.owner() != null) {
+                    boolean stored = !host.readCredentials(field.owner()).getOrDefault(spec.key(), "").isBlank();
+                    missing = spec.missingRequiredValue(draft, stored);
+                }
+                if (missing) {
                     throw new IllegalArgumentException(host.message("desktop.ui.config.required"));
                 }
                 if (!changed.contains(field)) continue;

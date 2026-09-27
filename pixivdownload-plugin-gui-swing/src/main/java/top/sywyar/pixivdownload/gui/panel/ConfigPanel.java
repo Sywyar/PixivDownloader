@@ -946,12 +946,23 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 continue;
             }
             boolean validate = rf.panel().isVisible() && rf.control().isEnabled();
-            boolean requiredValueMissing = spec.requiredValueMissing().test(draft);
+            boolean requiredValueMissing = spec.requiredValueMissing().test(draft, false);
+            String credentialError = null;
+            if (requiredValueMissing && isPluginCredential(spec) && !rf.credentialClearRequested()) {
+                try {
+                    boolean stored = !SwingHost.host().readCredentials(spec.ownerPluginId())
+                            .getOrDefault(spec.key(), "").isBlank();
+                    requiredValueMissing = spec.requiredValueMissing().test(draft, stored);
+                } catch (IOException failure) {
+                    credentialError = message("gui.config.dialog.read-failed.message", failure.getClass().getSimpleName());
+                }
+            }
             if (!validate && !requiredValueMissing) {
                 continue;
             }
             String val = rf.getValue().get();
-            String err = requiredValueMissing ? SwingHost.host().message("desktop.ui.config.required")
+            String err = credentialError != null ? credentialError
+                    : requiredValueMissing ? SwingHost.host().message("desktop.ui.config.required")
                     : validateFieldValueForSave(spec, val);
             if (err != null) {
                 String fieldMessage = spec.label() + "：" + err;

@@ -12,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class GuiConfigContributionTest {
 
     @Test
-    @DisplayName("条件必填使用完整草稿，空条件可选且拒绝将密码空框当作缺少凭据")
+    @DisplayName("条件必填使用完整草稿，敏感空框仅在有可沿用凭据时通过")
     void conditionalRequiredValuesUseTheDraft() {
         var optional = new GuiConfigFieldContribution("demo.value", "demo", "value",
                 GuiConfigFieldType.STRING, "", 1);
@@ -30,9 +30,13 @@ class GuiConfigContributionTest {
         assertThat(both.missingRequiredValue(java.util.Map.of("demo.enabled", "true"))).isFalse();
         assertThat(both.missingRequiredValue(java.util.Map.of(
                 "demo.enabled", "true", "demo.mode", "custom"))).isTrue();
-        org.assertj.core.api.Assertions.assertThatIllegalArgumentException().isThrownBy(() ->
-                new GuiConfigFieldContribution("demo.secret", "demo", "secret",
-                        GuiConfigFieldType.PASSWORD, "", 1).requiredWhen(GuiConfigCondition.isTrue("demo.enabled")));
+        var secret = new GuiConfigFieldContribution("demo.secret", "demo", "secret",
+                GuiConfigFieldType.PASSWORD, "", 1).requiredWhen(GuiConfigCondition.isTrue("demo.enabled"));
+        assertThat(secret.missingRequiredValue(Map.of("demo.enabled", "true"), false)).isTrue();
+        assertThat(secret.missingRequiredValue(Map.of("demo.enabled", "true"), true)).isFalse();
+        assertThat(secret.missingRequiredValue(Map.of("demo.enabled", "false"), false)).isFalse();
+        assertThat(secret.missingRequiredValue(Map.of("demo.enabled", "true", "demo.secret", "fixture-secret"), false)).isFalse();
+        assertThat(required.missingRequiredValue(Map.of("demo.enabled", "true"), true)).isTrue();
     }
 
     @Test

@@ -30,6 +30,20 @@ class AiPluginGuiConfigContributionTest {
     private final AiPlugin plugin = new AiPlugin();
 
     @Test
+    @DisplayName("启用 AI 时必须输入密钥或沿用可读取的已存凭据")
+    void credentialIsRequiredOnlyWhenEnabled() {
+        var key = fields().stream().filter(field -> field.key().equals("ai.api-key")).findFirst().orElseThrow();
+        for (String value : List.of("", " \t")) {
+            var draft = java.util.Map.of("ai.enabled", "true", "ai.api-key", value);
+            assertThat(key.missingRequiredValue(draft, false)).isTrue();
+            assertThat(key.missingRequiredValue(draft, true)).isFalse();
+            assertThat(key.missingRequiredValue(java.util.Map.of("ai.enabled", "false", "ai.api-key", value), false)).isFalse();
+        }
+        assertThat(key.missingRequiredValue(java.util.Map.of(
+                "ai.enabled", "true", "ai.api-key", "fixture-secret"), false)).isFalse();
+    }
+
+    @Test
     @DisplayName("仅在启用 AI 时要求非空模型，自定义模型无需来自预设")
     void modelIsRequiredOnlyWhenEnabled() {
         var model = fields().stream().filter(field -> field.key().equals("ai.model")).findFirst().orElseThrow();

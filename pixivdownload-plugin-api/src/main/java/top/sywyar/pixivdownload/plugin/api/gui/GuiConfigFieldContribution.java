@@ -25,7 +25,7 @@ import java.util.Map;
  * @param maxValue 类 INT 值的可选最大值
  * @param contributesGroupVisibility 是否仅凭该字段就让所属分组显示为标签页
  * @param enumValueLabelKeys 可选的枚举值到 i18n 标签 key 映射
- * @param requiredWhen 条件非空且全部匹配时，非敏感字段必须非空白；空列表表示可选
+ * @param requiredWhen 条件非空且全部匹配时必须有值；敏感字段允许沿用已存凭据，空列表表示可选
  */
 public record GuiConfigFieldContribution(
         String key,
@@ -80,9 +80,6 @@ public record GuiConfigFieldContribution(
         enabledWhen = enabledWhen == null ? List.of() : List.copyOf(enabledWhen);
         visibleWhen = visibleWhen == null ? List.of() : List.copyOf(visibleWhen);
         requiredWhen = requiredWhen == null ? List.of() : List.copyOf(requiredWhen);
-        if (sensitive && !requiredWhen.isEmpty()) {
-            throw new IllegalArgumentException("Required conditions are only supported for non-sensitive fields");
-        }
         enumValueLabelKeys = enumValueLabelKeys == null
                 ? Map.of()
                 : Collections.unmodifiableMap(new LinkedHashMap<>(enumValueLabelKeys));
@@ -185,7 +182,18 @@ public record GuiConfigFieldContribution(
      * @return 条件满足且字段值为空白时为真
      */
     public boolean missingRequiredValue(Map<String, String> values) {
+        return missingRequiredValue(values, false);
+    }
+
+    /**
+     * 校验完整草稿，敏感字段空输入可沿用保存时读取到的非空凭据。
+     * @param values 已准入的当前 owner 配置草稿，不填入已存秘密值
+     * @param storedCredentialAvailable 当前字段未请求清除，且已存凭据可读取并非空白；不代表远程鉴权成功
+     * @return 条件满足但既无输入也无可沿用凭据时为真
+     */
+    public boolean missingRequiredValue(Map<String, String> values, boolean storedCredentialAvailable) {
         return !requiredWhen.isEmpty() && values.getOrDefault(key, "").isBlank()
+                && !(sensitive && storedCredentialAvailable)
                 && requiredWhen.stream().allMatch(condition -> condition.matches(values));
     }
 

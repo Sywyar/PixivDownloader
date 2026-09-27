@@ -106,7 +106,7 @@ public class AiPlugin implements PixivFeaturePlugin {
         List<GuiConfigFieldContribution> fields = List.of(
                 bool("ai.enabled", "false", 100),
                 string("ai.base-url", "", 110),
-                password("ai.api-key", "", 120),
+                password("ai.api-key", "", 120).requiredWhen(GuiConfigCondition.isTrue("ai.enabled")),
                 string("ai.model", "", 130).requiredWhen(GuiConfigCondition.isTrue("ai.enabled")),
                 bool("ai.use-proxy", "false", 140));
         return List.of(new GuiConfigContribution(
