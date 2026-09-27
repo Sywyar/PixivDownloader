@@ -32,6 +32,65 @@ import kotlin.test.*
 @OptIn(ExperimentalTestApi::class)
 class SettingsWorkspaceTest {
     @Test
+    @DisplayName("浅色设置在目标字段旁查询候选，下拉选择可连续切换并适应窄窗口")
+    fun lightFieldSelection() = fieldSelection("light")
+
+    @Test
+    @DisplayName("深色设置在目标字段旁查询候选，下拉选择可连续切换并适应窄窗口")
+    fun darkFieldSelection() = fieldSelection("dark")
+
+    private fun fieldSelection(theme: String) = runComposeUiTest {
+        val model = DesktopConfigurationActionTest.model(
+            AtomicReference(listOf(DesktopConfigurationActionTest.source("demo.value", false))),
+            DesktopConfigurationActionTest::response,
+        )
+        var snapshot by mutableStateOf(model.snapshot())
+        var width by mutableStateOf(1150.dp)
+        val subscription = model.subscribeSnapshots { snapshot = it }
+        try {
+            setContent {
+                PixivDownloaderTheme(theme) {
+                    Box(Modifier.size(width, 820.dp).background(LocalExperiencePalette.current.surface)) {
+                        SettingsWorkspace(
+                            workspace(snapshot),
+                            ::resolve,
+                            { model.dispatch(snapshot, it) },
+                        )
+                    }
+                }
+            }
+            onNodeWithTag("settings.category.config.demo").performClick()
+            val row = onNodeWithTag("config.demo.demo.value.row", useUnmergedTree = true)
+            val input = onNodeWithTag("config.demo.demo.value.input", useUnmergedTree = true)
+            val query = onNodeWithText("action.get")
+            query.assertIsDisplayed().assert(hasAnyAncestor(hasTestTag("config.demo.demo.value.row")))
+            val inputBounds = input.fetchSemanticsNode().boundsInRoot
+            val queryBounds = query.fetchSemanticsNode().boundsInRoot
+            assertTrue(queryBounds.left >= inputBounds.right)
+            assertTrue(queryBounds.center.y in inputBounds.top..inputBounds.bottom)
+            query.performClick()
+            waitUntil(timeoutMillis = 5000) { !model.busy() }
+            val choice = onNode(
+                hasContentDescription("action.get") and hasAnyAncestor(hasTestTag("config.demo.demo.value.row")),
+            )
+            choice.assertIsDisplayed().performClick()
+            onNodeWithText("test/2+测试").performClick()
+            onNodeWithContentDescription("demo.value").assertTextEquals("test/2+测试")
+            capture("field-selection-$theme-wide")
+            runOnIdle { width = 360.dp }
+            row.assertIsDisplayed()
+            query.assertIsDisplayed()
+            assertTrue(query.fetchSemanticsNode().boundsInRoot.top >= input.fetchSemanticsNode().boundsInRoot.bottom)
+            choice.assertIsDisplayed().performClick()
+            onNodeWithText("test/3+测试").performClick()
+            onNodeWithContentDescription("demo.value").assertTextEquals("test/3+测试")
+            capture("field-selection-$theme-narrow")
+            onNodeWithContentDescription("demo.value").performTextReplacement("custom")
+            choice.assertDoesNotExist()
+        } finally { subscription.close(); model.close() }
+    }
+
+    @Test
     @DisplayName("浅色设置密码框可辨认，草稿可测试且显式清除后重置")
     fun lightCredentialInput() = credentialInput("light")
 

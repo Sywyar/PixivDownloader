@@ -147,7 +147,9 @@ private fun SettingsRow(
     BoxWithConstraints(Modifier.fillMaxWidth().bringIntoViewRequester(requester).testTag(row.id())
         .background(palette.selection.copy(alpha = located.value * .8f), RoundedCornerShape(8.dp))
         .then(if (invalid) Modifier.border(1.dp, palette.error, RoundedCornerShape(8.dp)) else Modifier)) {
-        val stacked = theme != null || control is Container || control is Dock ||
+        val fieldAction = control is Dock && (control.center() as? TextInput)?.inputKind() == InputKind.TEXT &&
+            control.end() is Button
+        val stacked = theme != null || control is Container || (control is Dock && !fieldAction) ||
             primaryInput?.inputKind() == InputKind.MULTILINE || maxWidth < if (textEntry) 600.dp else 390.dp
         val controlWidth = when {
             control is Toggle -> 44.dp
@@ -216,6 +218,29 @@ private fun SettingsControl(node: DesktopUiNode, secrets: MutableMap<String, Pai
                     node.bottom()?.let { ComposeDesktopUiNodeRenderer.Render(it, text, emit) }
                     node.end()?.let { ComposeDesktopUiNodeRenderer.Render(it, text, emit) }
                 }
+            }
+        }
+        node is Dock && node.center() is TextInput && node.end() is Button &&
+            node.top() == null && node.start() == null -> {
+            Column(modifier, verticalArrangement = Arrangement.spacedBy(node.gap().dp)) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(node.gap().dp),
+                    verticalArrangement = Arrangement.spacedBy(node.gap().dp),
+                    itemVerticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SettingsControl(
+                        node.center(),
+                        secrets,
+                        text,
+                        emit,
+                        Modifier.weight(1f).widthIn(min = 240.dp),
+                    )
+                    SettingsButton(node.end() as Button, text) {
+                        emit(Event(EventType.ACTIVATE, node.end().id(), Value.empty()))
+                    }
+                }
+                node.bottom()?.let { SettingsControl(it, secrets, text, emit, Modifier.fillMaxWidth()) }
             }
         }
         node is Container -> Column(modifier) {

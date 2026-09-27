@@ -18,19 +18,33 @@ import static org.junit.jupiter.api.Assertions.*;
 @DisplayName("Compose 配置动作的显示与选择回填")
 class DesktopConfigurationActionTest {
     @Test
-    @DisplayName("安全动作可见，取得完整候选后只在用户选择时修改草稿")
+    @DisplayName("各配置布局在目标字段内提供候选，连续选择只修改草稿")
     void selectsWithoutSaving() throws Exception {
-        try (var model = model(new AtomicReference<>(List.of(source("demo.value", false))), () -> response())) {
-            var action = button(model);
-            activate(model, action.id());
-            await(model);
-            var choice = choices(model).findFirst().orElseThrow();
-            assertEquals(35, choice.options().size());
-            assertEquals(List.of(), choice.selectedIds());
-            assertEquals("initial", input(model).value());
-            select(model, choice.id(), choice.options().get(34).id());
-            assertEquals("test/34+测试", input(model).value());
-            assertTrue(choices(model).findAny().isEmpty());
+        for (var layout : GuiConfigSectionLayout.values()) {
+            try (var model = model(new AtomicReference<>(List.of(source("demo.value", false, layout))), () -> response())) {
+                var action = button(model);
+                assertTrue(fieldNodes(model).anyMatch(node -> node.id().equals(action.id())));
+                activate(model, action.id());
+                await(model);
+                var choice = choices(model).findFirst().orElseThrow();
+                assertEquals(35, choice.options().size());
+                assertEquals(List.of(), choice.selectedIds());
+                assertEquals("initial", input(model).value());
+                assertTrue(fieldNodes(model).anyMatch(node -> node.id().equals(choice.id())));
+                select(model, choice.id(), choice.options().get(34).id());
+                assertEquals("test/34+测试", input(model).value());
+                assertEquals(List.of("item.34"), choices(model).findFirst().orElseThrow().selectedIds());
+                select(model, choice.id(), choice.options().get(2).id());
+                assertEquals("test/2+测试", input(model).value());
+                assertEquals(List.of("item.2"), choices(model).findFirst().orElseThrow().selectedIds());
+                dispatch(model, new DesktopUiNode.Event(
+                        DesktopUiNode.EventType.CHANGE,
+                        input(model).id(),
+                        DesktopUiNode.Value.text("manual")
+                ));
+                assertEquals("manual", input(model).value());
+                assertTrue(choices(model).findAny().isEmpty());
+            }
         }
     }
 
@@ -72,7 +86,7 @@ class DesktopConfigurationActionTest {
         }
     }
 
-    private static ComposeDesktopUiModel model(AtomicReference<List<DesktopUiPluginSnapshot>> sources,
+    static ComposeDesktopUiModel model(AtomicReference<List<DesktopUiPluginSnapshot>> sources,
                                                Response response) {
         DesktopUiHost.ConfigFile file = new DesktopUiHost.ConfigFile() {
             public Map<String, String> readAll(Collection<String> keys) { return Map.of("demo.value", "initial"); }
@@ -88,7 +102,11 @@ class DesktopConfigurationActionTest {
                 }), sources::get);
     }
 
-    private static DesktopUiPluginSnapshot source(String target, boolean unsafe) {
+    static DesktopUiPluginSnapshot source(String target, boolean unsafe) {
+        return source(target, unsafe, GuiConfigSectionLayout.FIELD_LIST);
+    }
+
+    private static DesktopUiPluginSnapshot source(String target, boolean unsafe, GuiConfigSectionLayout layout) {
         var field = new GuiConfigFieldContribution("demo.value", "demo", "field.value",
                 GuiConfigFieldType.STRING, "initial", 1);
         var action = new GuiConfigActionContribution("demo.get", "action.get", "", "demo",
@@ -96,15 +114,29 @@ class DesktopConfigurationActionTest {
                 "", List.of(new GuiConfigActionResultRule("notice.result", "demo", 1, List.of(),
                 unsafe ? List.of(GuiConfigActionResultArgument.json("error")) : List.of())),
                 GuiConfigActionResultSummary.allItems("items", "id", "").selectInto(target));
-        var section = new GuiConfigSectionContribution("demo.settings", "demo", "", "", "demo",
-                GuiConfigSectionLayout.FIELD_LIST, 1, List.of(new GuiConfigFieldLayoutContribution("demo.value", 1)),
-                List.of(action), List.of());
+        var section = new GuiConfigSectionContribution(
+                "demo.settings",
+                "demo",
+                "",
+                "",
+                "demo",
+                layout,
+                1,
+                List.of(new GuiConfigFieldLayoutContribution(
+                        "demo.value",
+                        layout == GuiConfigSectionLayout.CARD_SWITCHER ? "demo.card" : null,
+                        "",
+                        1
+                )),
+                List.of(action),
+                List.of()
+        );
         return new DesktopUiPluginSnapshot("demo", false, "demo", 1, false, "demo", "plugin.name",
                 List.of(), List.of(new GuiConfigContribution(List.of(), List.of(field), List.of(section))),
                 List.of(), List.of(WebRouteContribution.gui("/api/gui/demo-get")), List.of());
     }
 
-    private static DesktopUiHost.GuiResponse response() {
+    static DesktopUiHost.GuiResponse response() {
         return new DesktopUiHost.GuiResponse(true, 200, DesktopUiHost.GuiValue.of(Map.of("items",
                 java.util.stream.IntStream.range(0, 35).mapToObj(i -> Map.of("id", "test/" + i + "+测试")).toList())), "", false);
     }
@@ -121,11 +153,17 @@ class DesktopConfigurationActionTest {
 
     private static Stream<DesktopUiNode.Choice> choices(ComposeDesktopUiModel model) {
         return nodes(model).filter(DesktopUiNode.Choice.class::isInstance).map(DesktopUiNode.Choice.class::cast)
-                .filter(node -> node.bindingId().endsWith(".selection"));
+                .filter(node -> node.label().key().equals("action.get"));
     }
 
     private static Stream<DesktopUiNode> nodes(ComposeDesktopUiModel model) {
         return model.snapshot().document().pages().stream().flatMap(page -> descendants(page.content()));
+    }
+
+    private static Stream<DesktopUiNode> fieldNodes(ComposeDesktopUiModel model) {
+        return nodes(model).filter(DesktopUiNode.Form.class::isInstance).map(DesktopUiNode.Form.class::cast)
+                .flatMap(form -> form.rows().stream()).filter(row -> row.id().equals("config.demo.demo.value.row"))
+                .flatMap(row -> descendants(row.content()));
     }
 
     private static Stream<DesktopUiNode> descendants(DesktopUiNode node) {
@@ -154,5 +192,5 @@ class DesktopConfigurationActionTest {
         });
     }
 
-    private interface Response { DesktopUiHost.GuiResponse get() throws Exception; }
+    interface Response { DesktopUiHost.GuiResponse get() throws Exception; }
 }

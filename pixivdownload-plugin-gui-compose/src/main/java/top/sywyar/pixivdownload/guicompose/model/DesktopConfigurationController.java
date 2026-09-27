@@ -219,7 +219,6 @@ final class DesktopConfigurationController {
             return;
         }
         values.put(key, value);
-        clearActionChoices();
         owner.rebuild();
     }
 
