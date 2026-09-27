@@ -27,10 +27,14 @@
 }
 
 .layout-flow .layout-dialog {
-    max-inline-size: calc(100vw - 2rem);
     max-block-size: calc(100dvh - 2rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
     overflow-y: auto;
     overscroll-behavior: contain;
+}
+
+/* 视口宽度只作回退，不能覆盖页面自身的弹窗宽度上限。 */
+:where(.layout-flow .layout-dialog) {
+    max-inline-size: calc(100vw - 2rem);
 }
 
 @media (max-height: 35em) {
