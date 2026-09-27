@@ -82,7 +82,7 @@ class PluginManagementServiceTest {
                 null, null, 1L, "a".repeat(64), null, VerificationStatus.UNSIGNED_ALLOWED,
                 null, null, null, Instant.now(), null, null, "UNSIGNED_ALLOWED");
         when(status.recoveryGateSnapshot()).thenReturn(safeRecoveryGate());
-        when(status.report()).thenReturn(new PluginStatusReport(List.of(
+        when(status.report(org.mockito.ArgumentMatchers.anyList())).thenReturn(new PluginStatusReport(List.of(
                 new PluginDiagnostic(EXTERNAL_ID, PluginStatus.STOPPED, descriptor, false, List.of()))));
         when(lifecycle.managedPluginIds()).thenReturn(Set.of(EXTERNAL_ID));
         when(lifecycle.phase(EXTERNAL_ID)).thenReturn(Optional.of(PluginRuntimePhase.STOPPED));
@@ -327,7 +327,7 @@ class PluginManagementServiceTest {
         PluginStatusService status = mock(PluginStatusService.class);
         PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
         RecoveryModeService recovery = mock(RecoveryModeService.class);
-        when(status.report()).thenReturn(new PluginStatusReport(List.of(
+        when(status.report(org.mockito.ArgumentMatchers.anyList())).thenReturn(new PluginStatusReport(List.of(
                 new PluginDiagnostic(malformedId, PluginStatus.STARTED,
                         descriptor(malformedId, PluginKind.FEATURE), false, List.of()),
                 new PluginDiagnostic(validId, PluginStatus.STARTED,
@@ -384,7 +384,7 @@ class PluginManagementServiceTest {
         ExternalPluginLifecycleCoordinator coordinator = mock(ExternalPluginLifecycleCoordinator.class);
         ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
         when(status.recoveryGateSnapshot()).thenReturn(safeRecoveryGate());
-        when(status.report()).thenReturn(new PluginStatusReport(List.of(
+        when(status.report(org.mockito.ArgumentMatchers.anyList())).thenReturn(new PluginStatusReport(List.of(
                 new PluginDiagnostic(EXTERNAL_ID, PluginStatus.STARTED, descriptor, false, List.of()))));
         when(lifecycle.managedPluginIds()).thenReturn(Set.of(EXTERNAL_ID));
         when(lifecycle.phase(EXTERNAL_ID)).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
@@ -416,7 +416,7 @@ class PluginManagementServiceTest {
         ExternalPluginLifecycleCoordinator coordinator = mock(ExternalPluginLifecycleCoordinator.class);
         ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
         when(status.recoveryGateSnapshot()).thenReturn(safeRecoveryGate());
-        when(status.report()).thenReturn(new PluginStatusReport(List.of(
+        when(status.report(org.mockito.ArgumentMatchers.anyList())).thenReturn(new PluginStatusReport(List.of(
                 new PluginDiagnostic(EXTERNAL_ID, PluginStatus.STARTED, descriptor, false, List.of()))));
         when(lifecycle.managedPluginIds()).thenReturn(Set.of(EXTERNAL_ID));
         when(lifecycle.phase(EXTERNAL_ID)).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
@@ -451,7 +451,7 @@ class PluginManagementServiceTest {
         ExternalPluginLifecycleCoordinator coordinator = mock(ExternalPluginLifecycleCoordinator.class);
         ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
         when(status.recoveryGateSnapshot()).thenReturn(safeRecoveryGate());
-        when(status.report()).thenReturn(new PluginStatusReport(List.of(
+        when(status.report(org.mockito.ArgumentMatchers.anyList())).thenReturn(new PluginStatusReport(List.of(
                 new PluginDiagnostic(EXTERNAL_ID, PluginStatus.STARTED, descriptor, false, List.of()))));
         when(lifecycle.managedPluginIds()).thenReturn(Set.of(EXTERNAL_ID));
         when(lifecycle.phase(EXTERNAL_ID)).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
@@ -506,7 +506,7 @@ class PluginManagementServiceTest {
         ExternalPluginLifecycleCoordinator coordinator = mock(ExternalPluginLifecycleCoordinator.class);
         ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
         when(status.recoveryGateSnapshot()).thenReturn(safeRecoveryGate());
-        when(status.report()).thenReturn(new PluginStatusReport(List.of(
+        when(status.report(org.mockito.ArgumentMatchers.anyList())).thenReturn(new PluginStatusReport(List.of(
                 new PluginDiagnostic(pluginId, PluginStatus.INSTALLED, descriptor, false, List.of()))));
         when(status.runtimeVerificationSnapshots()).thenReturn(List.of(runtimeVerification));
         when(lifecycle.managedPluginIds()).thenReturn(Set.of());
@@ -610,7 +610,7 @@ class PluginManagementServiceTest {
         ExternalPluginLifecycleCoordinator coordinator = mock(ExternalPluginLifecycleCoordinator.class);
         ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
         when(status.recoveryGateSnapshot()).thenReturn(safeRecoveryGate());
-        when(status.report()).thenReturn(new PluginStatusReport(List.of(
+        when(status.report(org.mockito.ArgumentMatchers.anyList())).thenReturn(new PluginStatusReport(List.of(
                 new PluginDiagnostic(changedId, PluginStatus.INSTALLED,
                         changedDescriptor, false, List.of()),
                 new PluginDiagnostic(invalidId, PluginStatus.INSTALLED,
@@ -667,7 +667,7 @@ class PluginManagementServiceTest {
         ExternalPluginLifecycleCoordinator coordinator = mock(ExternalPluginLifecycleCoordinator.class);
         ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
         when(status.recoveryGateSnapshot()).thenReturn(safeRecoveryGate());
-        when(status.report()).thenReturn(new PluginStatusReport(List.of(
+        when(status.report(org.mockito.ArgumentMatchers.anyList())).thenReturn(new PluginStatusReport(List.of(
                 new PluginDiagnostic(EXTERNAL_ID, PluginStatus.STARTED, descriptor, false, List.of()))));
         when(lifecycle.managedPluginIds()).thenReturn(Set.of(EXTERNAL_ID));
         when(lifecycle.phase(EXTERNAL_ID)).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
@@ -706,7 +706,9 @@ class PluginManagementServiceTest {
         ExternalPluginLifecycleCoordinator coordinator = mock(ExternalPluginLifecycleCoordinator.class);
         ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
         when(status.recoveryGateSnapshot()).thenReturn(safe, blocked);
-        when(status.report())
+        when(installer.snapshotInstalledWithProvenance(512, 64L * 1024L * 1024L))
+                .thenReturn(new InstalledPluginInventorySnapshot(List.of(), false));
+        when(status.report(org.mockito.ArgumentMatchers.anyList()))
                 .thenThrow(new IllegalStateException("runtime scan blocked during status read"))
                 .thenReturn(new PluginStatusReport(List.of(new PluginDiagnostic(
                         "plugin-runtime", PluginStatus.FAILED, null, true,
@@ -722,8 +724,8 @@ class PluginManagementServiceTest {
         assertThat(report.transactionRecovery().state()).isEqualTo("BLOCKED");
         assertThat(report.transactionRecovery().safeToScan()).isFalse();
         assertThat(report.plugins()).isEmpty();
-        verify(status, times(2)).report();
-        verify(installer, never()).snapshotInstalledWithProvenance(512, 64L * 1024L * 1024L);
+        verify(status, times(2)).report(org.mockito.ArgumentMatchers.anyList());
+        verify(installer, times(1)).snapshotInstalledWithProvenance(512, 64L * 1024L * 1024L);
     }
 
     @Test
@@ -736,7 +738,7 @@ class PluginManagementServiceTest {
         ExternalPluginLifecycleCoordinator coordinator = mock(ExternalPluginLifecycleCoordinator.class);
         ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
         when(status.recoveryGateSnapshot()).thenReturn(safeRecoveryGate());
-        when(status.report()).thenReturn(new PluginStatusReport(List.of(
+        when(status.report(org.mockito.ArgumentMatchers.anyList())).thenReturn(new PluginStatusReport(List.of(
                 new PluginDiagnostic(EXTERNAL_ID, PluginStatus.STARTED, descriptor, false, List.of()))));
         when(coordinator.lifecycleMutationEpoch()).thenReturn(1L);
 
@@ -747,7 +749,7 @@ class PluginManagementServiceTest {
         assertThat(report.transactionRecovery().state()).isEqualTo("UNCHECKED");
         assertThat(report.transactionRecovery().safeToScan()).isFalse();
         assertThat(report.plugins()).isEmpty();
-        verify(status, never()).report();
+        verify(status, never()).report(org.mockito.ArgumentMatchers.anyList());
         verify(installer, never()).snapshotInstalledWithProvenance(512, 64L * 1024L * 1024L);
         verify(lifecycle, never()).managedPluginIds();
         verify(lifecycle, never()).phase(EXTERNAL_ID);
@@ -791,7 +793,7 @@ class PluginManagementServiceTest {
         ExternalPluginLifecycleCoordinator coordinator = mock(ExternalPluginLifecycleCoordinator.class);
         ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
         when(status.recoveryGateSnapshot()).thenReturn(safeRecoveryGate());
-        when(status.report()).thenReturn(new PluginStatusReport(List.of(
+        when(status.report(org.mockito.ArgumentMatchers.anyList())).thenReturn(new PluginStatusReport(List.of(
                 new PluginDiagnostic(changedId, PluginStatus.STARTED, changedDescriptor, false, List.of()),
                 new PluginDiagnostic(missingPathId, PluginStatus.STARTED,
                         missingPathDescriptor, false, List.of()))));
