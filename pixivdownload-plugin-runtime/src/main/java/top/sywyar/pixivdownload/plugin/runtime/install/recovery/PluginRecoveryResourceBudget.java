@@ -102,14 +102,14 @@ public final class PluginRecoveryResourceBudget {
                 artifact.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".jar"), limits);
         VerifiedArchive cached = archiveInspections.get(identity);
         if (cached != null) {
-            return cached.inspection();
+            return inspectDescriptor(artifact, identity, cached);
         }
         cached = previousInspections.get(identity);
         if (cached != null) {
             // 复用只省去解压工作，不能省去本轮累计预算或改变单包限制。
             consumeArchiveUsage(cached.usage().entryCount(), cached.usage().totalUncompressedBytes());
             archiveInspections.put(identity, cached);
-            return cached.inspection();
+            return inspectDescriptor(artifact, identity, cached);
         }
         int remainingEntries = MAX_ARCHIVE_ENTRIES - archiveEntries;
         long remainingUncompressed = MAX_UNCOMPRESSED_BYTES - uncompressedBytes;
@@ -140,8 +140,19 @@ public final class PluginRecoveryResourceBudget {
             throw failure;
         }
         consumeArchiveUsage(usage.entryCount(), usage.totalUncompressedBytes());
-        PluginPackageInspection inspection = PluginPackageReader.inspect(artifact, limits);
-        archiveInspections.put(identity, new VerifiedArchive(inspection, usage));
+        // 描述符错误不抹去已通过的结构校验，避免相同坏描述符让每轮清点重复解压私有库。
+        VerifiedArchive verified = new VerifiedArchive(null, usage);
+        archiveInspections.put(identity, verified);
+        return inspectDescriptor(artifact, identity, verified);
+    }
+
+    private PluginPackageInspection inspectDescriptor(Path artifact, ArchiveIdentity identity,
+                                                      VerifiedArchive verified) {
+        if (verified.inspection() != null) {
+            return verified.inspection();
+        }
+        PluginPackageInspection inspection = PluginPackageReader.inspect(artifact, identity.limits());
+        archiveInspections.put(identity, new VerifiedArchive(inspection, verified.usage()));
         return inspection;
     }
 

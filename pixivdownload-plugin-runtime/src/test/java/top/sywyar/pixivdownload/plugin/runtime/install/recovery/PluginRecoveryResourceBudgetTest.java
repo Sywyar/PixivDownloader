@@ -10,6 +10,8 @@ import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageInteg
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageVerifier;
 
 import java.nio.file.Path;
+import java.nio.file.Files;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -20,6 +22,57 @@ import static org.mockito.Mockito.mockStatic;
 class PluginRecoveryResourceBudgetTest {
     @TempDir
     Path directory;
+
+    @Test
+    @DisplayName("坏描述符不导致相同归档重复解压且修复后的内容重新校验")
+    void invalidDescriptorRetainsVerifiedStructure() throws Exception {
+        Path jar = directory.resolve("invalid.jar");
+        PluginPackageFixtures.writeZip(jar, Map.of("plugin.properties",
+                PluginPackageFixtures.bytes("plugin.id=plugin\nplugin.version=1.0.0\nplugin.class=example.Plugin\n")));
+        String digest = PluginPackageIntegrity.sha256Hex(jar);
+        PluginPackageLimits limits = PluginPackageLimits.defaults();
+        var first = new PluginRecoveryResourceBudget();
+        assertThatThrownBy(() -> first.inspectArchive(jar, digest, limits))
+                .isInstanceOf(PluginPackageException.class);
+        var next = new PluginRecoveryResourceBudget(first);
+        try (var verifier = mockStatic(PluginPackageVerifier.class)) {
+            assertThatThrownBy(() -> first.inspectArchive(jar, digest, limits))
+                    .isInstanceOf(PluginPackageException.class);
+            assertThatThrownBy(() -> next.inspectArchive(jar, digest, limits))
+                    .isInstanceOf(PluginPackageException.class);
+            verifier.verifyNoInteractions();
+        }
+        Files.delete(jar);
+        PluginPackageFixtures.bareJar(jar, "plugin", "1.0.0", null, "example.Plugin");
+        String repairedDigest = PluginPackageIntegrity.sha256Hex(jar);
+        assertThat(repairedDigest).isNotEqualTo(digest);
+        assertThat(new PluginRecoveryResourceBudget(next).inspectArchive(jar, repairedDigest, limits)
+                .descriptor().id()).isEqualTo("plugin");
+    }
+
+    @Test
+    @DisplayName("坏描述符的跨轮结构复用仍占用累计解压预算")
+    void invalidDescriptorReuseConsumesFreshRoundBudget() throws Exception {
+        Path jar = directory.resolve("invalid.jar");
+        PluginPackageFixtures.writeZip(jar, Map.of("plugin.properties", PluginPackageFixtures.bytes("plugin.id=plugin\n")));
+        String digest = PluginPackageIntegrity.sha256Hex(jar);
+        PluginPackageLimits limits = PluginPackageLimits.defaults();
+        var previous = new PluginRecoveryResourceBudget();
+        try (var verifier = mockStatic(PluginPackageVerifier.class)) {
+            verifier.when(() -> PluginPackageVerifier.verifyAndMeasure(any(), any()))
+                    .thenReturn(new PluginPackageVerifier.VerificationUsage(48_000, 672L << 20));
+            assertThatThrownBy(() -> previous.inspectArchive(jar, digest, limits))
+                    .isInstanceOf(PluginPackageException.class);
+            var current = new PluginRecoveryResourceBudget(previous);
+            assertThatThrownBy(() -> current.inspectArchive(jar, digest, limits))
+                    .isInstanceOf(PluginPackageException.class);
+            assertThatThrownBy(() -> current.inspectArchive(jar, "second-content", limits))
+                    .isInstanceOf(PluginPackageException.class);
+            assertThatThrownBy(() -> current.inspectArchive(jar, "third-content", limits))
+                    .isInstanceOf(PluginRecoveryValidationException.class);
+            assertThat(current.exhausted()).isTrue();
+        }
+    }
 
     @Test
     @DisplayName("相同内容复用检视结果但严格限制和归档解释不能复用")
