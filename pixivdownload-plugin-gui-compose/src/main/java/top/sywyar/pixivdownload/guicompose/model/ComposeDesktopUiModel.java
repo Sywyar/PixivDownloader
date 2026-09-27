@@ -809,13 +809,15 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         }
     }
 
+    long backendStartingAt() {
+        return backend.state() == DesktopUiHost.BackendState.STARTING && !host.maintenanceSnapshot().active()
+                ? backendStateChangedAt : 0L;
+    }
+
     String backendMessage() {
         DesktopUiHost.MaintenanceSnapshot maintenance = host.maintenanceSnapshot();
         if (maintenance.active()) return maintenanceMessage(maintenance);
         long elapsed = elapsedSeconds(backendStateChangedAt);
-        if (backend.state() == DesktopUiHost.BackendState.STARTING && elapsed >= 10L) {
-            return host.message("gui.backend.state.starting.slow", elapsed);
-        }
         String exclusiveToolName = tools.exclusiveToolName();
         if (!exclusiveToolName.isBlank()) {
             if (backend.state() == DesktopUiHost.BackendState.STOPPING) {

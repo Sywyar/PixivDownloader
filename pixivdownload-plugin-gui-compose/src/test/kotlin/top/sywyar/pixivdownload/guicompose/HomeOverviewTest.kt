@@ -32,6 +32,34 @@ import kotlin.test.assertTrue
 @DisplayName("Compose 首页概览")
 class HomeOverviewTest {
     @Test
+    @DisplayName("启动计时独立按秒刷新，延迟提示与运行状态切换不移动首页内容")
+    fun startupStatusTicksWithoutRebuildingTheHomeDocument() = runComposeUiTest {
+        var snapshot by mutableStateOf(home(empty = true, startingAt = System.currentTimeMillis() - 18_500L))
+        setContent {
+            PixivDownloaderTheme("light") {
+                Box(Modifier.size(1000.dp, 800.dp)) {
+                    HomeOverview(snapshot, ::resolve, {})
+                }
+            }
+        }
+        fun status() = onNodeWithTag("home.backend.state").fetchSemanticsNode()
+            .config[SemanticsProperties.Text].single().text
+        val hint = resolveKey("starting.slow")
+        onNodeWithText(hint).assertDoesNotExist()
+        val positions = listOf("home.greeting", "home.tip", "shortcut.download").associateWith {
+            onNodeWithTag(it).fetchSemanticsNode().boundsInRoot
+        }
+        val first = status()
+        waitUntil(timeoutMillis = 2_500) { status() != first }
+        waitUntil(timeoutMillis = 3_500) { onAllNodesWithText(hint).fetchSemanticsNodes().isNotEmpty() }
+        positions.forEach { (tag, bounds) -> assertEquals(bounds, onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot) }
+        runOnIdle { snapshot = home(empty = true) }
+        onNodeWithText(hint).assertDoesNotExist()
+        positions.forEach { (tag, bounds) -> assertEquals(bounds, onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot) }
+        onNodeWithTag("home.backend.state").assertTextEquals("Service running")
+    }
+
+    @Test
     @DisplayName("提示每分钟淡入淡出轮换且不连续重复，失焦暂停并支持减少动态效果")
     fun rotatesTipsEveryMinuteWhileFocused() {
         for (scale in listOf(1f, 0f)) runComposeUiTest(
@@ -362,7 +390,7 @@ class HomeOverviewTest {
         private fun resolveKey(suffix: String, vararg args: Any): String =
             MessageFormat.format(messages.getProperty("gui.compose.home.$suffix"), *args)
         private fun raw(value: String) = DesktopUiNode.TextToken.raw(value)
-        fun home(progress: Double = .42, empty: Boolean = false, known: Boolean = true, metricCount: Int = 4): DesktopUiNode.HomeOverview {
+        fun home(progress: Double = .42, empty: Boolean = false, known: Boolean = true, metricCount: Int = 4, startingAt: Long = 0L): DesktopUiNode.HomeOverview {
             val shortcuts = listOf("download", "images", "book", "chart-bar").map { symbol ->
                 DesktopUiNode.HomeShortcut(
                     DesktopUiNode.Button("shortcut.$symbol", "open.$symbol", raw(when (symbol) {
@@ -383,6 +411,7 @@ class HomeOverviewTest {
                         if (it == 3) raw("GB") else null, raw("From connected sources"), null)
                 }, known,
                 DesktopUiNode.Text("backend", raw("Service running"), DesktopUiNode.TextStyle.SUCCESS, true, false),
+                startingAt,
                 DesktopUiNode.HomeSystem(raw("Configured"), raw("127.0.0.1:7890"), raw("8 running / 9 total")),
             )
         }
