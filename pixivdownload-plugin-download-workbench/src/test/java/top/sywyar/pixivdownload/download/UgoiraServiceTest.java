@@ -70,7 +70,6 @@ class UgoiraServiceTest {
         assertThat(UgoiraService.MAX_FRAME_PIXELS).isEqualTo(25_000_000L);
         assertThat(UgoiraService.FFMPEG_TIMEOUT).isEqualTo(Duration.ofMinutes(10));
         assertThat(UgoiraService.MAX_FFMPEG_OUTPUT_BYTES).isEqualTo(100L * 1024 * 1024);
-        assertThat(UgoiraService.MAX_FFMPEG_PROCESSES).isEqualTo(1);
     }
 
     @Test
@@ -463,7 +462,7 @@ class UgoiraServiceTest {
                 PixivImageDownloader downloader,
                 FfmpegCommandResolver resolver
         ) {
-            super(downloader, resolver, WorkbenchTestMessages.messages());
+            super(downloader, resolver, WorkbenchTestMessages.messages(), cancelled -> () -> {});
         }
 
         @Override
@@ -491,7 +490,7 @@ class UgoiraServiceTest {
                 long timeoutNanos,
                 long maximumOutputBytes
         ) {
-            super(downloader, resolver, WorkbenchTestMessages.messages());
+            super(downloader, resolver, WorkbenchTestMessages.messages(), cancelled -> () -> {});
             this.childPidFile = childPidFile;
             this.timeoutNanos = timeoutNanos;
             this.maximumOutputBytes = maximumOutputBytes;

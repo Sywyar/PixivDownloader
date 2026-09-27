@@ -16,6 +16,21 @@ import static org.mockito.Mockito.when;
 class DesktopCoreConfigCatalogTest {
 
     @Test
+    @DisplayName("下载设置显示受限的 FFmpeg 并发并声明后端重启")
+    void exposesFfmpegConcurrencyInDownloadSettings() {
+        assertThat(DesktopCoreConfigCatalog.fields(mock(DesktopUiHost.class)))
+                .filteredOn(field -> field.key().equals("ffmpeg.max-concurrent"))
+                .singleElement()
+                .satisfies(field -> {
+                    assertThat(field.groupId()).isEqualTo(GuiConfigGroups.DOWNLOAD);
+                    assertThat(field.type()).isEqualTo(GuiConfigFieldType.INT);
+                    assertThat(field.effect()).isEqualTo(GuiConfigEffect.BACKEND_RESTART);
+                    assertThat(Integer.parseInt(field.defaultValue())).isEqualTo(
+                            new top.sywyar.pixivdownload.ffmpeg.FfmpegProperties().getMaxConcurrent());
+                });
+    }
+
+    @Test
     @DisplayName("插件设置分组由插件快照提供名称")
     void leavesPluginSettingsGroupsToPluginSnapshots() {
         assertThat(DesktopCoreConfigCatalog.groups())

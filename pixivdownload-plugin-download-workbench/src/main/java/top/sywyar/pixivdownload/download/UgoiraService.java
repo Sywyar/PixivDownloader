@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.download;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.core.ffmpeg.FfmpegCommandResolver;
+import top.sywyar.pixivdownload.core.ffmpeg.FfmpegProcessGate;
 import top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand;
 import top.sywyar.pixivdownload.core.pixiv.PixivImageDownloader;
 import top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver;
@@ -19,7 +20,6 @@ import java.nio.file.*;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CancellationException;
-import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
@@ -45,19 +45,20 @@ public class UgoiraService {
     static final long MAX_FRAME_PIXELS = 25_000_000L;
     static final Duration FFMPEG_TIMEOUT = Duration.ofMinutes(10);
     static final long MAX_FFMPEG_OUTPUT_BYTES = MAX_ZIP_BYTES;
-    static final int MAX_FFMPEG_PROCESSES = 1;
 
     private final PixivImageDownloader pixivImageDownloader;
     private final FfmpegCommandResolver ffmpegCommandResolver;
     private final MessageResolver messages;
-    private final Semaphore ffmpegPermits = new Semaphore(MAX_FFMPEG_PROCESSES, true);
+    private final FfmpegProcessGate ffmpegProcessGate;
 
     public UgoiraService(PixivImageDownloader pixivImageDownloader,
                          FfmpegCommandResolver ffmpegCommandResolver,
-                         MessageResolver messages) {
+                         MessageResolver messages,
+                         FfmpegProcessGate ffmpegProcessGate) {
         this.pixivImageDownloader = pixivImageDownloader;
         this.ffmpegCommandResolver = ffmpegCommandResolver;
         this.messages = messages;
+        this.ffmpegProcessGate = ffmpegProcessGate;
     }
 
     /**
@@ -333,9 +334,10 @@ public class UgoiraService {
                 .ffmpegDurationMs(durationMs)
                 .ffmpegProgress(0)
                 .build());
-        acquireFfmpegPermit(cancellationRequested);
+        FfmpegProcessGate.Permit permit = ffmpegProcessGate.acquire(cancellationRequested);
         Process process = null;
         try {
+            ensureNotCancelled(cancellationRequested);
             Files.deleteIfExists(partialOutput);
             Files.deleteIfExists(progressFile);
             Files.createFile(progressFile);
@@ -423,9 +425,12 @@ public class UgoiraService {
             if (process != null && process.isAlive()) {
                 terminateProcessTree(process);
             }
-            Files.deleteIfExists(partialOutput);
-            Files.deleteIfExists(progressFile);
-            ffmpegPermits.release();
+            try {
+                Files.deleteIfExists(partialOutput);
+                Files.deleteIfExists(progressFile);
+            } finally {
+                permit.close();
+            }
         }
     }
 
@@ -654,20 +659,6 @@ public class UgoiraService {
         String normalized = entryName.toLowerCase(Locale.ROOT);
         return normalized.endsWith(".jpg") || normalized.endsWith(".jpeg")
                 || normalized.endsWith(".png");
-    }
-
-    private void acquireFfmpegPermit(BooleanSupplier cancellationRequested) {
-        while (true) {
-            ensureNotCancelled(cancellationRequested);
-            try {
-                if (ffmpegPermits.tryAcquire(200, TimeUnit.MILLISECONDS)) {
-                    return;
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new CancellationException("download cancelled");
-            }
-        }
     }
 
     static Path ffmpegWorkingDirectory(Path directory) {

@@ -128,7 +128,7 @@ class CoreApiOwnershipGuardTest {
                     types("top.sywyar.pixivdownload.core.db.pathprefix", "StoredPathCodec"),
                     types("top.sywyar.pixivdownload.core.download", "InteractiveDownloadExecutionLane"),
                     types("top.sywyar.pixivdownload.core.ffmpeg",
-                            "FfmpegCommandResolver", "ResolvedFfmpegCommand"),
+                            "FfmpegCommandResolver", "FfmpegProcessGate", "ResolvedFfmpegCommand"),
                     types("top.sywyar.pixivdownload.core.web", "AcquisitionCredentialResolver"),
                     types("top.sywyar.pixivdownload.i18n",
                             "MessageResolver", "NamespaceMessageResolver", "ResourceBundleMessageResolver", "LocaleBundlePolicy", "LegacyLocaleBundlePolicy"),
@@ -208,6 +208,7 @@ class CoreApiOwnershipGuardTest {
     );
 
     private static final Set<String> APPROVED_PUBLIC_NESTED_TYPES = Set.of(
+            "top.sywyar.pixivdownload.core.ffmpeg.FfmpegProcessGate$Permit",
             "top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadStatistics$DailyOutcomes",
             "top.sywyar.pixivdownload.core.stats.StatsAggregates$Overview",
             "top.sywyar.pixivdownload.core.stats.StatsAggregates$AuthorStat",
