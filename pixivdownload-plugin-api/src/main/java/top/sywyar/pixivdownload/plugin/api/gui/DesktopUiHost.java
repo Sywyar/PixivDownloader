@@ -375,7 +375,14 @@ public interface DesktopUiHost extends DesktopUiToolHost {
 
     /** 宿主构建元数据中的渠道，与当前进程的开发模式无关。 */
     enum BuildChannel {
-        LOCAL, RELEASE, NIGHTLY, UNKNOWN
+        /** 本地源码构建，未指定发行渠道。 */
+        LOCAL,
+        /** 通过发行流程生成的构建。 */
+        RELEASE,
+        /** 通过每夜流程生成的构建。 */
+        NIGHTLY,
+        /** 构建元数据缺失或渠道无法识别。 */
+        UNKNOWN
     }
 
     /**
