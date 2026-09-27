@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.ai.preset.AiPresetRegistry;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionPayloadField;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionPayloadType;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldLayoutContribution;
@@ -27,6 +28,43 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AiPluginGuiConfigContributionTest {
 
     private final AiPlugin plugin = new AiPlugin();
+
+    @Test
+    @DisplayName("模型鉴权失败按受控错误码选择专用提示且不展示原始错误")
+    void modelAuthenticationNoticesUseControlledCodes() {
+        var action = section().actions().stream()
+                .filter(item -> item.actionId().equals("ai.models")).findFirst().orElseThrow();
+        for (String code : List.of("api-key-required", "authentication-failed", "models-forbidden")) {
+            assertThat(action.resultRules())
+                    .filteredOn(rule -> rule.noticeKey().equals("gui.config.ai.models.notice." + code))
+                    .singleElement().satisfies(rule -> {
+                        assertThat(rule.conditions()).contains(
+                                GuiConfigActionResultCondition.http2xx(true),
+                                GuiConfigActionResultCondition.jsonFalse("success"),
+                                GuiConfigActionResultCondition.jsonEquals("code", code));
+                        assertThat(rule.arguments()).isEmpty();
+                        assertThat(rule.order()).isLessThan(action.resultRules().stream()
+                                .filter(item -> item.noticeKey().equals("gui.config.ai.models.notice.failed"))
+                                .findFirst().orElseThrow().order());
+                    });
+        }
+    }
+
+    @Test
+    @DisplayName("AI 关闭时仍可编辑连接测试和模型查询所需的配置")
+    void connectionFieldsRemainEditableBeforeEnablingAi() {
+        assertThat(fields()).filteredOn(field -> field.key().equals(AiConfig.KEY_ENABLED))
+                .singleElement().satisfies(field -> assertThat(field.defaultValue()).isEqualTo("false"));
+        Set<String> actionFields = section().actions().stream()
+                .flatMap(action -> action.payloadFields().stream())
+                .map(GuiConfigActionPayloadField::fieldKey)
+                .collect(java.util.stream.Collectors.toSet());
+        assertThat(fields()).filteredOn(field -> actionFields.contains(field.key()))
+                .isNotEmpty().allSatisfy(field -> {
+                    assertThat(field.enabledWhen()).isEmpty();
+                    assertThat(field.visibleWhen()).isEmpty();
+                });
+    }
 
     @Test
     @DisplayName("只贡献 AI 自己的配置字段")

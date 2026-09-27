@@ -160,8 +160,12 @@ public class OpenAiCompatibleAiClient implements AiChatClient {
                 request.getHeaders().putAll(headers);
                 byte[] bytes;
                 try (var response = request.execute()) {
-                    if (!response.getStatusCode().is2xxSuccessful())
-                        throw new AiClientException("HTTP " + response.getStatusCode().value());
+                    if (!response.getStatusCode().is2xxSuccessful()) {
+                        int status = response.getStatusCode().value();
+                        String message = "HTTP " + status;
+                        throw new AiClientException(message, new RestClientResponseException(
+                                message, status, "", null, null, StandardCharsets.UTF_8));
+                    }
                     int remaining = Math.min(MAX_MODEL_PAGE_BYTES, MAX_MODEL_TOTAL_BYTES - totalBytes);
                     if (response.getHeaders().getContentLength() > remaining) throw modelListFailure();
                     bytes = response.getBody().readNBytes(remaining + 1);

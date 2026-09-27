@@ -27,6 +27,29 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 @DisplayName("OpenAI 兼容聊天与模型列表")
 class OpenAiCompatibleAiClientTest {
 
+    @Test
+    @DisplayName("AI 关闭时连接测试使用临时密钥，业务调用仍被拒绝")
+    void disabledAiAllowsExplicitProbeOnly() throws Exception {
+        RestTemplate direct = new RestTemplate();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(direct).build();
+        var config = new AiConfig();
+        var client = new OpenAiCompatibleAiClient(config, mock(MessageResolver.class), direct, new RestTemplate());
+        var messages = new ConnectivityProbeRequest().toMessages();
+        assertThatThrownBy(() -> client.chat("test", messages, AiChatOptions.defaults()))
+                .isInstanceOf(AiClientException.class);
+        server.expect(requestTo("https://example.test/v1/chat/completions"))
+                .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer test-draft-secret"))
+                .andExpect(jsonPath("$.model").value("test-model"))
+                .andRespond(withSuccess("{\"choices\":[{\"message\":{\"content\":\"OK\"}}]}",
+                        MediaType.APPLICATION_JSON));
+        assertThat(client.chatTest("test", new AiClientSettings(
+                "https://example.test/v1", "test-draft-secret", "test-model", false),
+                messages, AiChatOptions.defaults()).content()).isEqualTo("OK");
+        assertThat(config.isEnabled()).isFalse();
+        assertThat(config.getApiKey()).isEmpty();
+        server.verify();
+    }
+
     @ParameterizedTest
     @CsvSource({"openai,max_completion_tokens,max_tokens", "openrouter,max_tokens,max_completion_tokens"})
     @DisplayName("内置 OpenAI 与路由预设保留温度和 JSON 输出，并传递兼容的输出上限")

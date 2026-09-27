@@ -105,10 +105,10 @@ public class AiPlugin implements PixivFeaturePlugin {
     public List<GuiConfigContribution> guiConfigContributions() {
         List<GuiConfigFieldContribution> fields = List.of(
                 bool("ai.enabled", "false", 100),
-                string("ai.base-url", "", 110, GuiConfigCondition.isTrue("ai.enabled")),
-                password("ai.api-key", "", 120, GuiConfigCondition.isTrue("ai.enabled")),
-                string("ai.model", "", 130, GuiConfigCondition.isTrue("ai.enabled")),
-                bool("ai.use-proxy", "false", 140, GuiConfigCondition.isTrue("ai.enabled")));
+                string("ai.base-url", "", 110),
+                password("ai.api-key", "", 120),
+                string("ai.model", "", 130),
+                bool("ai.use-proxy", "false", 140));
         return List.of(new GuiConfigContribution(
                 List.of(),
                 fields,
@@ -176,6 +176,36 @@ public class AiPlugin implements PixivFeaturePlugin {
                                         GuiConfigActionResultCondition.http2xx(true),
                                         GuiConfigActionResultCondition.jsonTrue("success")),
                                 List.of(GuiConfigActionResultArgument.json("count"))),
+                        new GuiConfigActionResultRule(
+                                "gui.config.ai.models.notice.api-key-required",
+                                ID,
+                                21,
+                                List.of(
+                                        GuiConfigActionResultCondition.reachable(true),
+                                        GuiConfigActionResultCondition.http2xx(true),
+                                        GuiConfigActionResultCondition.jsonFalse("success"),
+                                        GuiConfigActionResultCondition.jsonEquals("code", "api-key-required")),
+                                List.of()),
+                        new GuiConfigActionResultRule(
+                                "gui.config.ai.models.notice.authentication-failed",
+                                ID,
+                                22,
+                                List.of(
+                                        GuiConfigActionResultCondition.reachable(true),
+                                        GuiConfigActionResultCondition.http2xx(true),
+                                        GuiConfigActionResultCondition.jsonFalse("success"),
+                                        GuiConfigActionResultCondition.jsonEquals("code", "authentication-failed")),
+                                List.of()),
+                        new GuiConfigActionResultRule(
+                                "gui.config.ai.models.notice.models-forbidden",
+                                ID,
+                                23,
+                                List.of(
+                                        GuiConfigActionResultCondition.reachable(true),
+                                        GuiConfigActionResultCondition.http2xx(true),
+                                        GuiConfigActionResultCondition.jsonFalse("success"),
+                                        GuiConfigActionResultCondition.jsonEquals("code", "models-forbidden")),
+                                List.of()),
                         new GuiConfigActionResultRule(
                                 "gui.config.ai.models.notice.failed",
                                 ID,
