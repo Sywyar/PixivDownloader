@@ -45,13 +45,15 @@
         <div class="panel" id="viewerPanel">
             <div class="loading-placeholder" id="viewerLoading">加载中...</div>
             <div class="viewer" id="viewer" style="display:none">
-                <div class="viewer-image" id="mainImage"></div>
-                <div class="more-pages" id="morePages"></div>
-                <div class="viewer-actions" data-layout-height="--layout-actions-height">
+                <div class="viewer-toolbar" data-layout-height="--layout-viewer-toolbar-height">
                     <label class="expand-btn original-image-option layout-touch">
                         <input type="checkbox" id="originalImagesToggle">
                         <span id="originalImagesLabel" data-i18n="artwork:button.original-image"></span>
                     </label>
+                </div>
+                <div class="viewer-image" id="mainImage"></div>
+                <div class="more-pages" id="morePages"></div>
+                <div class="viewer-actions" data-layout-height="--layout-actions-height">
                     <button class="expand-btn layout-touch" id="expandBtn" style="display:none">展开全部 (<span
                             id="totalPageCount"></span>)
                     </button>
