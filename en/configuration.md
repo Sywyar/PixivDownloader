@@ -27,7 +27,23 @@ Prefer the desktop GUI's Configuration page. On first startup, the current defau
 
 Pixiv artwork images, novel covers, and embedded images have a fixed safety limit of 100 MiB each. These responses are limited to 1 GiB in total within one ordinary artwork or novel download task. The service checks both `Content-Length` and the actual decoded response stream; an over-limit transfer is stopped and its partial file is removed. The final extension is selected from an image allowlist using the URL path, response `Content-Type`, and verified file signature; query parameters never become part of the filename. These limits cannot be raised through configuration.
 
-Ugoira processing limits the ZIP download to 100 MiB, 500 entries, 32 MiB per expanded entry, 200 MiB of expanded data in total, a 100:1 compression ratio per entry, 500 frames, and 25,000,000 pixels per frame. Ugoira conversion runs one ffmpeg process at a time; each process may run for 10 minutes and produce at most 100 MiB. Exceeding a limit terminates processing and removes the ZIP, extracted frames, and partial output.
+Ugoira ZIP files are limited to 100 MiB and 500 entries/frames, with 32 MiB per expanded entry, 200 MiB expanded in total, and 25,000,000 pixels per frame. Each conversion process is limited to 10 minutes and 100 MiB of output. Exceeding a limit stops processing and removes temporary files. ZIP files and frame timing explicitly selected for retention are kept.
+
+### Image and Ugoira output
+
+Use the desktop Settings / Configuration → Download section to select default formats, quality, lossless WebP, and maximum edge length. Save and restart the backend to apply them. Format dropdowns allow multiple selections and require at least one:
+
+- Images: original format (default), PNG, JPG, WebP. Original can be deselected; it is removed only after every selected output succeeds. Failure or cancellation retains it. Selecting the source format reuses the original file.
+- Ugoira: WebP (default), GIF, APNG, MP4, original ZIP. MP4 requires an H.264 encoder in the active FFmpeg. Keeping ZIP also saves frame timing for offline conversion.
+- Quality defaults to 90 (1–100), lossless WebP is off, and maximum edge defaults to 0 (keep dimensions), or 1–16,383. These controls affect newly encoded copies; reused originals are not re-encoded.
+
+Both Web download layouts expose format selection for the current download and new schedules. Defaults live in `config/plugins/download-workbench.properties` under `download-workbench.media.image-formats`, `ugoira-formats`, `quality`, `webp-lossless`, and `maximum-edge` (all five use the same prefix).
+
+FFmpeg shared concurrency defaults to 2, adjustable to 1–8 in desktop download settings. Save and restart the backend to apply it. The host key is `ffmpeg.max-concurrent` in `config/config.yaml`; conversion and media probing share this budget.
+
+Open Tools → Process downloaded media on the desktop for existing files. Enter artwork IDs, select missing formats or thumbnails, preview, then start explicitly; cancellation is available. A batch accepts at most 500 works and 10,000 files, with one historical job running at a time. Changing download settings never starts a historical job. Existing files are neither replaced nor deleted. Ugoira needs a retained ZIP and frame timing. The capability check runs only when clicked and tests the active FFmpeg with real encoding and decoding.
+
+The gallery prefers a retained original, followed by WebP, PNG, and JPG. If the original was removed, it uses an existing copy. MP4 opens in a video player.
 
 ### Plugin market
 
