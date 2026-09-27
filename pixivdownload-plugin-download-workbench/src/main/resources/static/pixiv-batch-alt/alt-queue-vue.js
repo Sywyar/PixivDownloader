@@ -60,6 +60,8 @@ let aqvStore = null;
 let aqvApps = [];
 let aqvActive = false;
 let aqvMounting = false;
+const aqvDirtyRows = new Set();
+let aqvFullRefresh = false;
 
 function aqvHelper() {
     return window.PixivVue;
@@ -201,22 +203,50 @@ function aqvCurrentComponent() {
     };
 }
 
+function aqvRenderRow(item, vm) {
+    const h = aqvVue.h;
+    const r = aqvRowModel(item);
+    const icon = name => h('span', {class: 'ab-icon', 'aria-hidden': 'true', innerHTML: aqvIcon(name)});
+    const action = (r, name, label, callback) => h('button', {
+        type: 'button', class: 'ab-iconbtn ab-iconbtn--xs button', title: label, 'aria-label': label,
+        onClick: event => { event.stopPropagation(); callback(r); }
+    }, [icon(name)]);
+    return h('div', {key: r.key, class: 'ab-queue-item', 'data-queue-id': r.queueId, 'data-status': r.status}, [
+        h('div', {class: 'ab-queue-title'}, [
+            h('span', {class: 'ab-queue-name'}, r.title),
+            h('a', {class: 'ab-iconbtn ab-iconbtn--xs button', href: r.url, target: '_blank', rel: 'noopener',
+                title: aqvT('queue.open-artwork', '打开作品页面'), 'aria-label': aqvT('queue.open-artwork', '打开作品页面'),
+                onClick: event => event.stopPropagation()}, [icon('external')]),
+            r.canCancel ? action(r, 'stop', aqvT('queue.cancel', '取消下载'), vm.cancelRow) : null,
+            r.removable ? action(r, 'x', aqvT('queue.remove', '移除'), vm.removeRow) : null
+        ]),
+        h('div', {class: 'ab-queue-tags'}, r.tags.map(tag => h('span', {key: tag.key, class: ['ab-queue-tag', tag.cls]}, tag.text))),
+        h('div', {class: 'ab-queue-meta'}, [r.idLine, h('span', {class: 'ab-queue-status', 'data-status': r.status}, r.message)]),
+        r.progress ? h('div', {class: 'ab-mini-prog'}, [
+            h('div', {class: 'ab-mini-prog-label'}, [h('span', r.progress.label), h('span', r.progress.text)]),
+            h('div', {class: 'ab-mini-prog-bar progressbar', role: 'progressbar', 'aria-label': r.title,
+                'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': Number.parseFloat(r.progress.width)}, [
+                h('span', {class: ['ab-mini-prog-fill', r.progress.cls], style: {transform: 'translate3d(' + (Number.parseFloat(r.progress.width) - 100) + '%, 0, 0)'}})
+            ])
+        ]) : null,
+        r.extrasHtml ? h('span', {class: 'ab-flatten', innerHTML: r.extrasHtml}) : null
+    ]);
+}
+
+const aqvDownloadRow = {
+    props: ['item', 'actions'],
+    render() { return aqvRenderRow(this.item, this.actions); }
+};
+
 function aqvListComponent() {
     return {
         setup() {
-            const rows = aqvVue.computed(() => aqvStore.items.map(q => aqvRowModel(q)));
             const isEmpty = aqvVue.computed(() => !aqvStore.items.length);
             return {
-                rows,
+                store: aqvStore,
                 isEmpty,
                 t: aqvT,
                 icon: aqvIcon,
-                noop() {},
-                rowTags: r => r.tags,
-                showCancel: r => r.canCancel,
-                showRemove: r => r.removable,
-                showProgress: r => !!r.progress,
-                showExtras: r => !!r.extrasHtml,
                 cancelRow(r) {
                     if (typeof requestQueueItemCancel === 'function') requestQueueItemCancel(r.ref.id);
                 },
@@ -232,32 +262,11 @@ function aqvListComponent() {
         },
         render() {
             const h = aqvVue.h;
-            const icon = name => h('span', {class: 'ab-icon', 'aria-hidden': 'true', innerHTML: aqvIcon(name)});
-            const action = (r, name, label, callback) => h('button', {
-                type: 'button', class: 'ab-iconbtn ab-iconbtn--xs button', title: label, 'aria-label': label,
-                onClick: event => { event.stopPropagation(); callback(r); }
-            }, [icon(name)]);
-            if (this.isEmpty) return h('div', {class: 'ab-empty ab-empty--dock'}, [icon('download'), h('p', aqvT('status.queue-empty', '队列为空'))]);
-            return this.rows.map(r => h('div', {key: r.key, class: 'ab-queue-item', 'data-queue-id': r.queueId, 'data-status': r.status}, [
-                h('div', {class: 'ab-queue-title'}, [
-                    h('span', {class: 'ab-queue-name'}, r.title),
-                    h('a', {class: 'ab-iconbtn ab-iconbtn--xs button', href: r.url, target: '_blank', rel: 'noopener',
-                        title: aqvT('queue.open-artwork', '打开作品页面'), 'aria-label': aqvT('queue.open-artwork', '打开作品页面'),
-                        onClick: event => event.stopPropagation()}, [icon('external')]),
-                    r.canCancel ? action(r, 'stop', aqvT('queue.cancel', '取消下载'), this.cancelRow) : null,
-                    r.removable ? action(r, 'x', aqvT('queue.remove', '移除'), this.removeRow) : null
-                ]),
-                h('div', {class: 'ab-queue-tags'}, r.tags.map(tag => h('span', {key: tag.key, class: ['ab-queue-tag', tag.cls]}, tag.text))),
-                h('div', {class: 'ab-queue-meta'}, [r.idLine, h('span', {class: 'ab-queue-status', 'data-status': r.status}, r.message)]),
-                r.progress ? h('div', {class: 'ab-mini-prog'}, [
-                    h('div', {class: 'ab-mini-prog-label'}, [h('span', r.progress.label), h('span', r.progress.text)]),
-                    h('div', {class: 'ab-mini-prog-bar progressbar', role: 'progressbar', 'aria-label': r.title,
-                        'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': Number.parseFloat(r.progress.width)}, [
-                        h('span', {class: ['ab-mini-prog-fill', r.progress.cls], style: {transform: 'translate3d(' + (Number.parseFloat(r.progress.width) - 100) + '%, 0, 0)'}})
-                    ])
-                ]) : null,
-                r.extrasHtml ? h('span', {class: 'ab-flatten', innerHTML: r.extrasHtml}) : null
-            ]));
+            const icon = name => h('span', {class: 'ab-icon', innerHTML: this.icon(name)});
+            if (this.isEmpty) return h('div', {class: 'ab-empty ab-empty--dock'}, [
+                icon('download'), h('p', null, this.t('status.queue-empty', '队列为空'))
+            ]);
+            return this.store.items.map(item => h(aqvDownloadRow, {key: aqvRowKey(item), item, actions: this}));
         }
     };
 }
@@ -268,7 +277,7 @@ let aqvCurrentApp = null;   // 当前卡专属挂载（供 isCurrentActive 判�
 function aqvMountOne(el, comp, kind) {
     return aqvHelper().mountOn(el, comp).then(h => {
         if (h && h.app) {
-            const entry = {el, app: h.app};
+            const entry = {el, app: h.app, kind};
             aqvApps.push(entry);
             if (kind === 'current') aqvCurrentApp = entry;
         }
@@ -341,8 +350,9 @@ function aqvEnsure() {
     });
 }
 
-function aqvIsActive() {
-    return aqvActive && aqvApps.length > 0 && aqvApps.every(entry => document.contains(entry.el));
+function aqvIsActive(kind) {
+    return aqvActive && aqvApps.length > 0 && aqvApps.every(entry => document.contains(entry.el))
+        && (!kind || aqvApps.some(entry => entry.kind === kind));
 }
 
 // 当前卡是否仍由 Vue 接管（专属判定）：当前卡挂载失败时即使统计 / 列表岛激活，渲染门面也走命令式当前卡。
@@ -372,9 +382,20 @@ function aqvSyncPaused(paused) {
     });
 }
 
-function aqvSyncList() {
+function aqvSyncList(changedItem) {
+    if (changedItem) aqvDirtyRows.add(aqvRowKey(changedItem));
+    else aqvFullRefresh = true;
     aqvSchedule('list', () => {
-        if (aqvStore && typeof state !== 'undefined') aqvStore.items = (state.queue || []).slice();
+        if (aqvStore && typeof state !== 'undefined') {
+            const previous = new Map(aqvStore.items.map(q => [aqvRowKey(q), q]));
+            // 原始队列在 Vue 之外原地更新，变动行必须更换快照，未变化行继续复用。
+            aqvStore.items = (state.queue || []).map(q => {
+                const key = aqvRowKey(q);
+                return !aqvFullRefresh && !aqvDirtyRows.has(key) && previous.has(key)
+                    ? previous.get(key) : Object.assign({}, q);
+            });
+        }
+        aqvDirtyRows.clear(); aqvFullRefresh = false;
     });
 }
 
@@ -535,6 +556,7 @@ window.PixivBatchAlt.queueVue = Object.assign(window.PixivBatchAlt.queueVue || {
         schedComponent: aqvSchedComponent,
         reset: function () {
             aqvJobs.clear();
+            aqvDirtyRows.clear(); aqvFullRefresh = false;
             aqvRafScheduled = false;
             aqvApps.splice(0).forEach(entry => {
                 try { entry.app.unmount(); } catch (e) { /* 忽略 */ }

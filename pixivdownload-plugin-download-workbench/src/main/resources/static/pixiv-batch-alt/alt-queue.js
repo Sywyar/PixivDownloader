@@ -362,9 +362,9 @@ function altQueueVue() {
     return window.PixivBatchAlt && window.PixivBatchAlt.queueVue;
 }
 
-function altQueueVueActive() {
+function altQueueVueActive(kind) {
     const vue = altQueueVue();
-    return !!(vue && typeof vue.isActive === 'function' && vue.isActive());
+    return !!(vue && typeof vue.isActive === 'function' && vue.isActive(kind));
 }
 
 function ensureDockVue() {
@@ -380,7 +380,7 @@ function updateStats() {
     state.stats.skipped = state.queue.filter(q => q.status === 'skipped').length;
     const pending = state.queue.filter(q =>
         ['idle', 'pending', 'paused'].includes(q.status)).length;
-    if (altQueueVueActive()) {
+    if (altQueueVueActive('stats')) {
         altQueueVue().syncStats({
             pending,
             success: state.stats.success,
@@ -410,7 +410,7 @@ function updateStats() {
 function renderDownloadSpeed(bytesPerSec) {
     const {value, unit} = formatSpeed(bytesPerSec);
     dockState.speed = {value, unit};
-    if (altQueueVueActive()) {
+    if (altQueueVueActive('stats')) {
         altQueueVue().syncSpeed(value, unit);
         return;
     }
@@ -556,7 +556,7 @@ function renderCurrent(item) {
     // 当前下载卡现由队列派生（队首未完成项 + 剩余计数），不再跟随事件到达顺序在不同作品间跳变；
     // item 参数仅为兼容既有调用点（SSE 进度事件 / worker 启停 / 语言切换）与 currentItemId 语义。
     state.currentItemId = item ? String(item.id) : null;
-    refreshCurrentCard();
+    if (!altQueueProgressRows.size) refreshCurrentCard(item);
 }
 
 // 队首未完成项 = 队列镜像中第一个 status 属于 downloading/pending/paused 的项（completed/failed/skipped/idle
@@ -612,9 +612,9 @@ function currentRemainingLineText(downloading, queued) {
 // 每次刷新都同步队列镜像，保证任意进度 / 状态事件（renderCurrent / renderQueue / pause / resume）都让当前卡
 // 实时重算；镜像同步与 renderQueue 的列表同步同 key 合批去重。按当前卡挂载点单独判定，避免「统计 / 列表岛
 // 激活但当前卡挂载失败」时当前卡永久停留在初始「无」。
-function refreshCurrentCard() {
+function refreshCurrentCard(changedItem) {
     if (altQueueVueActive() && altQueueVue().isCurrentActive()) {
-        altQueueVue().syncList();
+        altQueueVue().syncList(changedItem);
         altQueueVue().syncPaused(state.isPaused);
         return;
     }
@@ -836,12 +836,40 @@ function novelTranslateMessage(q) {
     }
 }
 
-function renderQueue() {
-    renderQueueRecovery();
+const altQueueProgressRows = new Set();
+let altQueueProgressScheduled = false;
+
+function renderQueue(changedItem) {
+    if (!changedItem) renderQueueRecovery();
+    if (changedItem && !altQueueVueActive('list')) {
+        altQueueProgressRows.add(changedItem);
+        if (!altQueueProgressScheduled) {
+            altQueueProgressScheduled = true;
+            const schedule = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : cb => setTimeout(cb, 16);
+            schedule(() => {
+                altQueueProgressScheduled = false;
+                if (!altQueueProgressRows.size) return;
+                const rows = Array.from(altQueueProgressRows);
+                altQueueProgressRows.clear();
+                const list = document.getElementById('abQueueList');
+                if (!altQueueVueActive('list') && list && list.children.length === state.queue.length) {
+                    rows.forEach(item => {
+                        const index = state.queue.indexOf(item);
+                        if (index >= 0) list.replaceChild(queueItemRow(item), list.children[index]);
+                    });
+                    refreshCurrentCard();
+                } else {
+                    renderQueue();
+                }
+            });
+        }
+        return;
+    }
+    altQueueProgressRows.clear();
     // 当前下载卡由 state.queue 派生：随队列每次变化一并刷新（Vue 接管后只合批同步 store，命令式回退时重建单卡）。
-    refreshCurrentCard();
-    if (altQueueVueActive()) {
-        altQueueVue().syncList();
+    refreshCurrentCard(changedItem);
+    if (altQueueVueActive('list')) {
+        altQueueVue().syncList(changedItem);
         return;
     }
     const list = document.getElementById('abQueueList');

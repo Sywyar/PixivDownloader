@@ -171,7 +171,7 @@
                         q.downloadedCount = data.downloadedCount;
                         q.ugoiraProgress = mergeUgoiraProgress(q.ugoiraProgress, data.ugoiraProgress);
                         q.imageProgress = data.imageProgress || q.imageProgress || null;
-                        renderQueue();
+                        renderQueue(q);
                         setCurrent(q);
                     }
                     clearTimeout(timer);

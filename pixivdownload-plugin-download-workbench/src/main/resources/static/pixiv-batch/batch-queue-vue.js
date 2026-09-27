@@ -2,13 +2,13 @@
 // ============================================================
 //  PixivBatch.queueVue —— 下载工作台「队列 / 统计 / 速度」与计划任务「本轮队列详情」的 Vue reactive 岛。
 //
-//  下载队列、统计、速度及计划任务详情的高频更新只改 reactive store；Vue 据 :key 与 v-html
+//  下载队列、统计、速度及计划任务详情的高频更新只改 reactive store；Vue 据稳定 key 与行组件
 //  仅 patch 变化的单行 / 单字段，避免整块 DOM 重建造成的主线程卡顿。
 //
 //  共享口径（不分叉、不复制第二套 HTML 语义）：行 HTML 仍由 batch-queue.js 的 buildQueueItemHtml 生成、
 //  当前下载卡由 batch-queue.js 的 computeCurrentCardHtml 从 reactive 队列镜像派生（内部复用 formatCurrentCardHtml
 //  + 剩余计数行，命令式回退同一函数）、统计文案 / 速度文案仍由 formatStatsText / formatSpeed 生成；
-//  本模块只负责把这些共享格式化函数挂到 reactive 模板里（v-html / 插值），命令式回退路径与 Vue 路径共用同一套。
+//  使用 render 函数避免生产 CSP 禁止动态编译；共享格式化函数保持命令式回退与 Vue 路径口径一致。
 //
 //  渐进式、加性、优雅降级：window.PixivVue 缺失 / Vue 运行时加载失败 / 挂载抛错时，本模块的 ensure/mount 一律
 //  收敛为「未激活」，调用方（batch-queue.js / schedule.js 的兼容门面）继续走现有布局的命令式渲染——不白屏、
@@ -114,21 +114,23 @@
     /* ============================================================
        普通下载队列岛：一个共享 reactive store + 三个挂载点。
        - .dash-stats   ：5 张统计卡（队列/成功/失败/进行中/跳过）+ 总下载速度卡（同一 store.speed）。
-       - #current-card ：当前下载卡（v-html formatCurrentCardHtml）。
-       - #queue-list   ：下载队列列表（v-for + :key + v-html buildQueueItemHtml）。
+       - #current-card ：当前下载卡（共享 HTML 派生）。
+       - #queue-list   ：下载队列列表（稳定 key 的独立行组件）。
     ============================================================ */
     var dlStore = null;     // Vue.reactive({ stats, speed, paused, items })
     var dlApps = [];        // [{ el, app }]
     var dlCurrentApp = null;   // 当前卡专属挂载（供 isDownloadCurrentActive 判定；与统计 / 列表的岛级激活相互独立）
     var dlActive = false;
     var dlMounting = false;
+    var dlDirtyRows = new Set();
+    var dlFullRefresh = false;
 
     function buildDlStore() {
         return Vue.reactive({
             stats: { pending: 0, success: 0, failed: 0, active: 0, skipped: 0 },
             speed: { value: '0', unit: 'B/s' },
             paused: false,   // 暂停标志镜像（当前卡响应式派生用；暂停 / 恢复时由渲染门面同步）
-            items: []        // state.queue 的浅快照（行对象引用，渲染时由 buildQueueItemHtml 读最新字段）
+            items: []        // 变动行复制字段，未变化行保留快照身份以跳过子组件重算。
         });
     }
 
@@ -142,17 +144,32 @@
                     label: function (key, fb) { return tt(key, fb); }
                 };
             },
-            template:
-                '<div class="stat-card stat-queued"><span class="stat-num" id="stat-count-pending">{{ store.stats.pending }}</span><span class="stat-label">{{ label(\'dashboard.stat.queued\', \'队列\') }}</span></div>'
-                + '<div class="stat-card stat-success"><span class="stat-num" id="stat-count-success">{{ store.stats.success }}</span><span class="stat-label">{{ label(\'dashboard.stat.success\', \'成功\') }}</span></div>'
-                + '<div class="stat-card stat-failed"><span class="stat-num" id="stat-count-failed">{{ store.stats.failed }}</span><span class="stat-label">{{ label(\'dashboard.stat.failed\', \'失败\') }}</span></div>'
-                + '<div class="stat-card stat-active"><span class="stat-num" id="stat-count-active">{{ store.stats.active }}</span><span class="stat-label">{{ label(\'dashboard.stat.active\', \'进行中\') }}</span></div>'
-                + '<div class="stat-card stat-skipped"><span class="stat-num" id="stat-count-skipped">{{ store.stats.skipped }}</span><span class="stat-label">{{ label(\'dashboard.stat.skipped\', \'跳过\') }}</span></div>'
-                + '<div class="stat-card stat-speed"><span class="stat-num"><span id="stat-speed-value">{{ store.speed.value }}</span><span class="stat-speed-unit" id="stat-speed-unit">{{ store.speed.unit }}</span></span><span class="stat-label">{{ label(\'dashboard.stat.speed\', \'下载速度\') }}</span></div>'
+            render: function () {
+                var h = Vue.h;
+                var vm = this;
+                var cards = [
+                    ['pending', 'queued', '队列'], ['success', 'success', '成功'],
+                    ['failed', 'failed', '失败'], ['active', 'active', '进行中'],
+                    ['skipped', 'skipped', '跳过']
+                ].map(function (entry) {
+                    return h('div', { class: 'stat-card stat-' + entry[1] }, [
+                        h('span', { class: 'stat-num', id: 'stat-count-' + entry[0] }, vm.store.stats[entry[0]]),
+                        h('span', { class: 'stat-label' }, vm.label('dashboard.stat.' + entry[1], entry[2]))
+                    ]);
+                });
+                cards.push(h('div', { class: 'stat-card stat-speed' }, [
+                    h('span', { class: 'stat-num' }, [
+                        h('span', { id: 'stat-speed-value' }, this.store.speed.value),
+                        h('span', { class: 'stat-speed-unit', id: 'stat-speed-unit' }, this.store.speed.unit)
+                    ]),
+                    h('span', { class: 'stat-label' }, this.label('dashboard.stat.speed', '下载速度'))
+                ]));
+                return cards;
+            }
         };
     }
 
-    // 当前下载卡组件：display:contents 透明宿主 + v-html，使派生结果作为 #current-card 的真实内容
+    // 当前下载卡组件：display:contents 透明宿主 + innerHTML，使派生结果作为 #current-card 的真实内容
     //（与命令式 el.innerHTML 视觉一致）。卡片内容由 batch-queue.js 的 computeCurrentCardHtml 从 reactive
     // 队列镜像 + 暂停标志派生：任何列表同步（renderQueue）或暂停 / 恢复同步都会让 Vue 重算本函数并只 patch
     // 这一张卡；文案在渲染期经 bt 派生（跟随语言切换）。与命令式回退共用同一派生口径。
@@ -166,12 +183,20 @@
                     }
                 };
             },
-            template: '<span style="display:contents" v-html="currentHtml()"></span>'
+            render: function () {
+                return Vue.h('span', { style: 'display:contents', innerHTML: this.currentHtml() });
+            }
         };
     }
 
-    // 队列列表组件：每行一个 display:contents 宿主 + v-html buildQueueItemHtml；复合 :key 复用宿主，
-    // 单项进度 / 状态 / message 变化只让该行的 v-html 字符串变化、Vue 仅 patch 该行（不整队列重建）。
+    // 独立行组件配合稳定快照，避免每次进度更新都重新生成全部行的 HTML。
+    var downloadRowComponent = {
+        props: ['item'],
+        render: function () {
+            return Vue.h('div', { class: 'q-item-host', innerHTML: rowHtmlOf(this.item, { removable: true }) });
+        }
+    };
+
     function listComponent() {
         return {
             setup: function () {
@@ -182,16 +207,19 @@
                     emptyText: function () { return tt('status.queue-empty', '队列为空'); }
                 };
             },
-            template:
-                '<div v-if="!store.items.length" class="queue-empty">{{ emptyText() }}</div>'
-                + '<template v-else><div class="q-item-host" v-for="q in store.items" :key="rowKey(q)" v-html="rowHtml(q)"></div></template>'
+            render: function () {
+                var vm = this;
+                return this.store.items.length ? this.store.items.map(function (q) {
+                    return Vue.h(downloadRowComponent, { key: vm.rowKey(q), item: q });
+                }) : Vue.h('div', { class: 'queue-empty' }, this.emptyText());
+            }
         };
     }
 
     function mountOne(el, comp, kind) {
         return helper().mountOn(el, comp).then(function (h) {
             if (h && h.app) {
-                var entry = {el: el, app: h.app};
+                var entry = {el: el, app: h.app, kind: kind};
                 dlApps.push(entry);
                 if (kind === 'current') { dlCurrentApp = entry; }
             }
@@ -249,7 +277,11 @@
         } catch (e) { warn('下载队列岛回灌失败', e); }
     }
 
-    function isDownloadActive() { return dlActive; }
+    function isDownloadActive(kind) {
+        return dlActive && (!kind || dlApps.some(function (entry) {
+            return entry.kind === kind && doc.contains(entry.el);
+        }));
+    }
 
     // 当前卡是否仍由 Vue 接管（专属判定）：当前卡挂载失败时即使统计 / 列表岛激活，渲染门面也走命令式当前卡。
     function isDownloadCurrentActive() {
@@ -261,8 +293,21 @@
         return (st && Array.isArray(st.queue)) ? st.queue.slice() : [];
     }
 
-    function syncDownloadList() {
-        schedule('dl:list', function () { if (dlStore) { dlStore.items = downloadQueueSnapshot(); } });
+    function syncDownloadList(changedItem) {
+        if (changedItem) { dlDirtyRows.add(queueRowKey(changedItem)); }
+        else { dlFullRefresh = true; }
+        schedule('dl:list', function () {
+            if (dlStore) {
+                var previous = new Map(dlStore.items.map(function (q) { return [queueRowKey(q), q]; }));
+                // 原始队列在 Vue 之外原地更新；复制变动行才能触发子组件，未变化行保留身份。
+                dlStore.items = downloadQueueSnapshot().map(function (q) {
+                    var key = queueRowKey(q);
+                    return !dlFullRefresh && !dlDirtyRows.has(key) && previous.has(key)
+                        ? previous.get(key) : Object.assign({}, q);
+                });
+            }
+            dlDirtyRows.clear(); dlFullRefresh = false;
+        });
     }
     function syncDownloadStats(s) {
         schedule('dl:stats', function () {
@@ -310,14 +355,19 @@
                     emptyText: function () { return tt('status.queue-empty', '队列为空'); }
                 };
             },
-            template:
-                '<div class="schedule-queue-status">{{ store.statusText }}</div>'
-                + '<div class="schedule-queue-stats">{{ store.statsText }}</div>'
-                + '<div class="schedule-queue-current" v-html="currentHtml()"></div>'
-                + '<div class="schedule-queue-list">'
-                + '<template v-if="store.items.length"><div class="q-item-host" v-for="q in store.items" :key="rowKey(q)" v-html="rowHtml(q)"></div></template>'
-                + '<div v-else class="queue-empty">{{ emptyText() }}</div>'
-                + '</div>'
+            render: function () {
+                var h = Vue.h;
+                var vm = this;
+                return [
+                    h('div', { class: 'schedule-queue-status' }, this.store.statusText),
+                    h('div', { class: 'schedule-queue-stats' }, this.store.statsText),
+                    h('div', { class: 'schedule-queue-current', innerHTML: this.currentHtml() }),
+                    h('div', { class: 'schedule-queue-list' }, this.store.items.length
+                        ? this.store.items.map(function (q) {
+                            return h('div', { class: 'q-item-host', key: vm.rowKey(q), innerHTML: vm.rowHtml(q) });
+                        }) : [h('div', { class: 'queue-empty' }, this.emptyText())])
+                ];
+            }
         };
     }
 
@@ -447,6 +497,7 @@
             schedComponent: schedComponent,
             reset: function () {
                 pendingJobs.clear(); rafScheduled = false;
+                dlDirtyRows.clear(); dlFullRefresh = false;
                 dlStore = null; dlApps = []; dlCurrentApp = null; dlActive = false; dlMounting = false;
                 schedEntries.clear(); Vue = null;
             }
