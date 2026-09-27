@@ -11,7 +11,9 @@
     rememberArtworkGalleryLocation();
     window.addEventListener('pagehide', rememberArtworkGalleryLocation);
     window.addEventListener('pagehide', releaseCollectionIconPreview);
+    window.addEventListener('pagehide', suspendThumbnails);
     window.addEventListener('pageshow', () => {
+        resumeThumbnails();
         if (document.getElementById('modalCollectionForm').classList.contains('open')) {
             updateFormIconPreview(state.editingCollection);
         }

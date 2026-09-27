@@ -68,13 +68,44 @@ window.PixivGallery = window.PixivGallery || {};
     let thumbnailObserver = null;
     const thumbnailQueue = [];
     let activeThumbnailLoads = 0;
+    const thumbnailCancellations = new Map();
+    let thumbnailsSuspended = false;
+
+    function releaseThumbnails(root = document) {
+        root.querySelectorAll('img[data-src]').forEach(img => {
+            if (thumbnailObserver) thumbnailObserver.unobserve(img);
+            delete img.dataset.thumbScheduled;
+            delete img.dataset.thumbQueued;
+            const cancel = thumbnailCancellations.get(img);
+            if (cancel) cancel();
+            img.removeAttribute('src');
+            setThumbnailState(img, 'loading');
+        });
+        for (let i = thumbnailQueue.length - 1; i >= 0; i--) {
+            if (!thumbnailQueue[i].isConnected || thumbnailQueue[i].dataset.thumbQueued !== '1') {
+                thumbnailQueue.splice(i, 1);
+            }
+        }
+        pumpThumbnailQueue();
+    }
+
+    function suspendThumbnails() {
+        thumbnailsSuspended = true;
+        releaseThumbnails();
+    }
+
+    function resumeThumbnails() {
+        thumbnailsSuspended = false;
+        const root = document.getElementById(state.view === 'all' ? 'galleryGrid' : 'authorView');
+        if (root) root.querySelectorAll('img[data-src]').forEach(scheduleThumbnail);
+    }
 
     function getThumbnailObserver() {
         if (!('IntersectionObserver' in window)) return null;
         if (!thumbnailObserver) {
             thumbnailObserver = new IntersectionObserver(entries => {
                 entries.forEach(entry => {
-                    if (!entry.isIntersecting) return;
+                    if (!entry.isIntersecting || entry.target.dataset.thumbScheduled !== '1') return;
                     thumbnailObserver.unobserve(entry.target);
                     enqueueThumbnail(entry.target);
                 });
@@ -84,7 +115,7 @@ window.PixivGallery = window.PixivGallery || {};
     }
 
     function scheduleThumbnail(img) {
-        if (!img || !img.dataset.src || img.dataset.thumbScheduled === '1') return;
+        if (thumbnailsSuspended || !img || !img.isConnected || !img.dataset.src || img.dataset.thumbScheduled === '1') return;
         img.dataset.thumbScheduled = '1';
         const observer = getThumbnailObserver();
         if (observer) {
@@ -95,36 +126,43 @@ window.PixivGallery = window.PixivGallery || {};
     }
 
     function enqueueThumbnail(img) {
-        if (!img || !img.dataset.src || img.dataset.thumbQueued === '1') return;
+        if (thumbnailsSuspended || !img || !img.isConnected || !img.dataset.src || img.dataset.thumbQueued === '1') return;
         img.dataset.thumbQueued = '1';
         thumbnailQueue.push(img);
         pumpThumbnailQueue();
     }
 
     function pumpThumbnailQueue() {
-        while (activeThumbnailLoads < THUMBNAIL_CONCURRENCY && thumbnailQueue.length) {
+        while (!thumbnailsSuspended && activeThumbnailLoads < THUMBNAIL_CONCURRENCY && thumbnailQueue.length) {
             const img = thumbnailQueue.shift();
+            if (!img.isConnected || img.dataset.thumbQueued !== '1') continue;
             const url = img && img.dataset && img.dataset.src
                 ? window.PixivLayout.previewUrl(img.dataset.src, img) : null;
             if (!url) continue;
-            img.removeAttribute('data-src');
             activeThumbnailLoads++;
             setThumbnailState(img, 'loading');
+            let finished = false;
             const cleanup = () => {
+                if (finished) return false;
+                finished = true;
                 img.removeEventListener('load', onLoad);
                 img.removeEventListener('error', onError);
-                activeThumbnailLoads = Math.max(0, activeThumbnailLoads - 1);
-                pumpThumbnailQueue();
+                thumbnailCancellations.delete(img);
+                activeThumbnailLoads--;
+                return true;
             };
             const onLoad = () => {
+                if (!cleanup()) return;
                 setThumbnailState(img, 'loaded');
-                cleanup();
+                pumpThumbnailQueue();
             };
             const onError = () => {
+                if (!cleanup()) return;
                 img.removeAttribute('src');
                 setThumbnailState(img, 'failed');
-                cleanup();
+                pumpThumbnailQueue();
             };
+            thumbnailCancellations.set(img, cleanup);
             img.addEventListener('load', onLoad, {once: true});
             img.addEventListener('error', onError, {once: true});
             img.src = url;
