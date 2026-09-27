@@ -17,11 +17,16 @@
         <pixivdownload.proguard.skip>false</pixivdownload.proguard.skip>
         <pixivdownload.proguard.additionalProgramPath>${project.build.directory}/proguard/program-dependencies</pixivdownload.proguard.additionalProgramPath>
         <pixivdownload.proguard.preservedContractsPath>${project.build.directory}/proguard/preserved-contracts</pixivdownload.proguard.preservedContractsPath>
-        <pixivdownload.proguard.libraryExcludeArtifactIds>mybatis-spring-boot-starter,pixivdownload-plugin-signature,pixivdownload-plugin-worker,pixivdownload-plugin-runtime,pixivdownload-community-contract</pixivdownload.proguard.libraryExcludeArtifactIds>
+        <pixivdownload.proguard.libraryExcludeArtifactIds>mybatis-spring-boot-starter,pixivdownload-plugin-signature,pixivdownload-plugin-worker,pixivdownload-plugin-runtime,pixivdownload-community-contract,pixivdownload-common</pixivdownload.proguard.libraryExcludeArtifactIds>
         <pixivdownload.jar.classesDirectory>${pixivdownload.proguard.outputDirectory}</pixivdownload.jar.classesDirectory>
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>top.sywyar.lovepopup</groupId>
+            <artifactId>pixivdownload-common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-community-contract</artifactId>
@@ -191,7 +196,7 @@
                 </excludes>
             </resource>
             <resource>
-                <directory>..</directory>
+                <directory>${project.build.directory}/generated-resources/license</directory>
                 <targetPath>.</targetPath>
                 <filtering>false</filtering>
                 <includes>
@@ -212,7 +217,7 @@
                             <goal>unpack-dependencies</goal>
                         </goals>
                         <configuration>
-                            <includeArtifactIds>pixivdownload-plugin-signature,pixivdownload-plugin-worker,pixivdownload-plugin-runtime,pixivdownload-community-contract</includeArtifactIds>
+                            <includeArtifactIds>pixivdownload-plugin-signature,pixivdownload-plugin-worker,pixivdownload-plugin-runtime,pixivdownload-community-contract,pixivdownload-common</includeArtifactIds>
                             <outputDirectory>${pixivdownload.proguard.additionalProgramPath}</outputDirectory>
                             <excludes>META-INF/MANIFEST.MF,META-INF/maven/**</excludes>
                             <overWriteReleases>true</overWriteReleases>
@@ -264,6 +269,17 @@
                 <artifactId>maven-antrun-plugin</artifactId>
                 <version>3.1.0</version>
                 <executions>
+                    <execution>
+                        <id>stage-license</id>
+                        <phase>generate-resources</phase>
+                        <goals><goal>run</goal></goals>
+                        <configuration>
+                            <target>
+                                <copy file="${project.basedir}/../LICENSE"
+                                      tofile="${project.build.directory}/generated-resources/license/LICENSE"/>
+                            </target>
+                        </configuration>
+                    </execution>
                     <execution>
                         <id>clean-proguard-program-dependencies</id>
                         <phase>test</phase>
@@ -321,6 +337,10 @@
                     <mainClass>top.sywyar.pixivdownload.gui.GuiLauncher</mainClass>
                     <classifier>boot</classifier>
                     <excludes>
+                        <exclude>
+                            <groupId>top.sywyar.lovepopup</groupId>
+                            <artifactId>pixivdownload-common</artifactId>
+                        </exclude>
                         <exclude>
                             <groupId>io.github.sywyar.pixivdownloader</groupId>
                             <artifactId>pixivdownload-sdk-info</artifactId>
