@@ -51,7 +51,11 @@ The backend applies a 4 MiB response budget to ordinary Pixiv JSON and a 1 MiB b
 
 ## `ai` plugin
 
-The AI plugin uses the OpenAI-compatible protocol. Connection tests, translations, and other AI features send the processed text, a task-specific prompt, the model name, and the API key to `/chat/completions` under the selected base URL. Clicking **Get available models** in the desktop settings uses the current unsaved base URL, API key, and proxy selection to request `/models` under that same base URL. This request sends no processed text or prompt; returned model IDs and owners are shown only as a bounded plain-text summary in the local UI. Installing the plugin or merely opening its settings does not initiate either request.
+The AI plugin uses the OpenAI-compatible protocol. Connection tests, translations, and other AI features send the processed text, a task-specific prompt, the model name, and the API key to `/chat/completions` under the selected base URL. Fetching the model list in desktop settings sends a GET request to `/models` under that same base URL, using the current unsaved URL, API key, and proxy selection. It sends no work text or prompt. Installing the plugin or merely opening its settings does not initiate these requests.
+
+Queries normally use Bearer authentication. For `https://api.anthropic.com/v1`, model discovery follows the [Anthropic API](https://platform.claude.com/docs/en/api/models/list): it sends `x-api-key` and `anthropic-version` headers and requests subsequent pages from the same endpoint using the `after_id` cursor. It does not follow response-provided URLs or switch another provider's host, region, or workspace automatically. Failed queries, unsupported pagination, and exceeded limits do not return partial lists. Providers without a supported discovery endpoint can still use a manually entered model.
+
+Model IDs appear as plain-text choices. Selecting one updates the current draft; saving applies it to the configuration. Entries explicitly marked as unsuitable for chat are excluded, while entries with unknown capabilities remain. A listing does not establish account permissions, billing access, chat compatibility, or that a model is the latest release. Use the connection test to check the selected model.
 
 | Preset | Default base URL |
 | --- | --- |
