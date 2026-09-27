@@ -395,7 +395,8 @@ function aqvBuildSchedStore() {
         truncatedText: '',
         empty: true,
         emptyText: '',
-        rows: []            // [{key, status, title, showTranslate, translateText, statusText}]
+        currentHtml: '',
+        rows: []
     });
 }
 
@@ -408,6 +409,7 @@ function aqvSeedSchedStore(entry) {
     entry.store.truncatedText = m.truncatedText != null ? m.truncatedText : '';
     entry.store.empty = !!m.empty;
     entry.store.emptyText = m.emptyText != null ? m.emptyText : '';
+    entry.store.currentHtml = m.currentHtml || '';
     entry.store.rows = Array.isArray(m.rows) ? m.rows : [];
 }
 
@@ -424,14 +426,10 @@ function aqvSchedComponent(entry) {
             return [
                 h('div', {class: 'ab-round-head'}, [h('span', {class: 'ab-muted'}, store.startedText), h('span', {class: 'ab-muted'}, store.statsText)]),
                 store.truncated ? h('p', {class: 'ab-field-note'}, store.truncatedText) : null,
+                store.currentHtml ? h('div', {class: 'ab-round-current', innerHTML: store.currentHtml}) : null,
                 store.empty ? h('p', {class: 'ab-empty-line'}, store.emptyText) : h('div', {class: 'ab-round-list'}, store.rows.map(row =>
-                    h('div', {key: row.key, class: 'ab-round-item', 'data-status': row.status}, [
-                        h('span', {class: 'ab-round-title'}, row.title),
-                        h('span', {class: 'ab-round-right'}, [
-                            row.showTranslate ? h('span', {class: 'ab-mini-badge ab-mini-badge--ai'}, row.translateText) : null,
-                            h('span', {class: 'ab-round-status'}, row.statusText)
-                        ])
-                    ])
+                    h('div', {key: row.key, class: 'ab-flatten', 'data-queue-key': row.key,
+                        'data-status': row.status, innerHTML: row.html})
                 ))
             ];
         }

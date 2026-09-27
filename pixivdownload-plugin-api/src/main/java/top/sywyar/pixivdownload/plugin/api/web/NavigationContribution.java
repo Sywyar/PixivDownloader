@@ -27,6 +27,8 @@ import java.util.Set;
  * @param visibleTo    可见所需的访问策略；必须满足 {@link AccessPolicy#supportsUiVisibility()}，Web 注册与 GUI 聚合时拒绝流程专用策略
  * @param priority     placement 内排序权重，越小越靠前（<b>不</b>跨越来源层级：外置项不会因 priority 小而越过内置项）
  * @param markers      中性语义标记，供前端导览等消费者定位「某类入口」；不参与渲染槽位匹配与排序
+ * @param descriptionI18nKey 可选的入口说明，使用 {@code labelNamespace}；缺省时消费端不显示业务说明。
+ *                           与导航一起随所属插件的活动快照发布、撤回，不产生独立能力或写操作
  */
 public record NavigationContribution(
         String id,
@@ -37,7 +39,8 @@ public record NavigationContribution(
         String icon,
         AccessPolicy visibleTo,
         int priority,
-        Set<String> markers
+        Set<String> markers,
+        String descriptionI18nKey
 ) {
     /**
      * 创建 {@code NavigationContribution} 实例。
@@ -51,10 +54,30 @@ public record NavigationContribution(
      * @param visibleTo 可见主体集合
      * @param priority 优先级
      * @param markers {@code markers} 对应的值
+     * @param descriptionI18nKey 可选说明的国际化键
      */
     public NavigationContribution {
         placements = placements == null ? Set.of() : Set.copyOf(placements);
         markers = markers == null ? Set.of() : Set.copyOf(markers);
+        descriptionI18nKey = descriptionI18nKey == null ? "" : descriptionI18nKey.trim();
+    }
+
+    /**
+     * 创建不带说明的导航声明。
+     *
+     * @param id 标识
+     * @param placements 挂载位置集合
+     * @param labelNamespace 标签命名空间
+     * @param labelI18nKey 标签国际化键
+     * @param href 链接
+     * @param icon 图标
+     * @param visibleTo 可见主体集合
+     * @param priority 优先级
+     * @param markers 中性语义标记
+     */
+    public NavigationContribution(String id, Set<String> placements, String labelNamespace, String labelI18nKey,
+                                  String href, String icon, AccessPolicy visibleTo, int priority, Set<String> markers) {
+        this(id, placements, labelNamespace, labelI18nKey, href, icon, visibleTo, priority, markers, "");
     }
 
     /**

@@ -189,6 +189,24 @@ assert.strictEqual(sandbox.scheduleStatusLabel(suspendedTask), '风控原因详�
     assert(queueSource.includes("clearBtn.addEventListener('click', handleClear);"));
     assert.deepStrictEqual(Array.from(await sandbox.altI18nNamespaces()),
         ['batch-alt', 'batch', 'common', 'tour', 'layout-feedback', 'novel', 'schedule-extra']);
+    const pendingLanguages = [];
+    let appliedLanguage = '';
+    sandbox.document = {};
+    sandbox.pageI18n = null;
+    sandbox.PixivI18n = sandbox.window.PixivI18n = {
+        create: ({namespaces}) => new Promise(resolve => pendingLanguages.push({namespaces, resolve}))
+    };
+    const firstLanguage = sandbox.refreshAltI18n();
+    while (pendingLanguages.length < 1) await new Promise(resolve => setImmediate(resolve));
+    sandbox.window.PixivBatch.queueTypes.i18nNamespaces = async () => ['new-owner'];
+    const newestLanguage = sandbox.refreshAltI18n();
+    while (pendingLanguages.length < 2) await new Promise(resolve => setImmediate(resolve));
+    assert(pendingLanguages[1].namespaces.includes('new-owner'));
+    pendingLanguages[1].resolve({apply() { appliedLanguage = 'new-owner'; }});
+    await newestLanguage;
+    pendingLanguages[0].resolve({apply() { appliedLanguage = 'stale-owner'; }});
+    await firstLanguage;
+    assert.strictEqual(appliedLanguage, 'new-owner', '迟到的资源响应不得覆盖新的插件语言快照');
     assert(pageSource.includes('data-nav-link-class="ab-topnav-link"'));
     assert(pageSource.includes('data-nav-current="download-workbench"'));
     assert(pageSource.includes('href="/pixiv-batch.html"'));
@@ -264,7 +282,6 @@ assert.strictEqual(sandbox.scheduleStatusLabel(suspendedTask), '风控原因详�
     assert(modesSource.includes("setAttribute('data-qt-slot', 'import-hint')"));
     assert(modesSource.includes('refreshAltSlots();'));
     assert(settingsSource.includes("setAttribute('data-qt-slot', 'settings-card')"));
-    assert(settingsSource.includes("novelGroup.id = 'novel-settings-card'"));
     assert(settingsSource.includes('refreshAltSlots();'));
     assert(/\[data-vue-slot\]\s*\{\s*display:\s*contents/.test(cssSource));
     assert(/\[data-vue-slot\]:empty\s*\{\s*display:\s*none/.test(cssSource));

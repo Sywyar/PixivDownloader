@@ -23,6 +23,20 @@ class NavigationContributionTest {
 
         assertThat(singlePlacement.markers()).isEmpty();
         assertThat(multiplePlacements.markers()).isEmpty();
+        assertThat(singlePlacement.descriptionI18nKey()).isEmpty();
+        assertThat(multiplePlacements.descriptionI18nKey()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("导航说明保留贡献方消息键，缺省说明规范为空")
+    void optionalDescriptionBelongsToNavigationNamespace() {
+        var described = new NavigationContribution("sample", Set.of(NavigationPlacements.DESKTOP_SECURITY_ACTIONS),
+                "sample", "nav.title", "/sample.html", "shield", AccessPolicy.ADMIN, 10,
+                Set.of(), " nav.description ");
+        assertThat(described.descriptionI18nKey()).isEqualTo("nav.description");
+        assertThat(described.labelNamespace()).isEqualTo("sample");
+        assertThat(new NavigationContribution("sample", Set.of("app.top"), "sample", "nav.title",
+                "/sample.html", "shield", AccessPolicy.ADMIN, 10, Set.of(), null).descriptionI18nKey()).isEmpty();
     }
 
     @Test

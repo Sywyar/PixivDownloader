@@ -221,7 +221,7 @@ public class NovelPlugin implements PixivFeaturePlugin {
                         Set.of(NavigationPlacements.NOVEL_SIDEBAR,
                                 NavigationPlacements.DESKTOP_QUICK_START),
                         "novel-gallery", "nav.label", "/pixiv-novel-gallery.html?view=all", "book",
-                        AccessPolicy.INVITED_GUEST, 40),
+                        AccessPolicy.INVITED_GUEST, 40, Set.of(), "nav.description"),
                 new NavigationContribution(
                         "novel-type-switch",
                         Set.of(NavigationPlacements.GALLERY_TYPE_SWITCH),

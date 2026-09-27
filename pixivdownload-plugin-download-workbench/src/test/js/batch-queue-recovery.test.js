@@ -64,10 +64,12 @@ function loadStart(context, layout) {
 test('alt: initial page load initializes recovery once and language refresh only renders', async () => {
     const calls = [];
     const context = vm.createContext({
-        window: {addEventListener() {}, dispatchEvent() {}},
-        document: {addEventListener() {}},
+        window: {addEventListener() {}, dispatchEvent() {},
+            matchMedia: () => ({matches: false, addEventListener() {}})},
+        document: {addEventListener() {}, getElementById: () => null},
         appMode: 'solo', isAdmin: true, chromeState: {}, state: {}, searchState: {}, pageI18n: null,
-        AB_MODES: [{id: 'single-import'}], QUICK_FETCH_MODE: 'single-import',
+        lastAcquisitionMode: 'single-import',
+        AB_MODES: [{id: 'single-import'}], QUICK_FETCH_MODE: 'single-import', SINGLE_IMPORT_MODE: 'single-import',
         storeGet: () => null, checkBackend: async () => true,
         debounce: fn => fn, moveRailIndicator() {},
         loadQueueForMode: () => calls.push('load'),
@@ -76,7 +78,7 @@ test('alt: initial page load initializes recovery once and language refresh only
     });
     vm.runInContext(source('pixiv-batch-alt/alt-init.js'), context);
     for (const name of ['hydrateIcons', 'initPageI18n', 'detectMode', 'detectAuthState',
-        'loadServerState', 'loadSettings', 'loadSearchFilterPrefs', 'bindChrome', 'loadAppInfo',
+        'loadServerState', 'loadSettings', 'loadSearchFilterPrefs', 'bindChrome', 'bindScheduleMenus', 'loadAppInfo',
         'renderAuthButton', 'refreshCookieUi', 'refreshBatchCollections', 'bootstrapAltExtensions',
         'renderRail', 'renderStage', 'renderBackendBanner', 'syncFilterButtonBadge',
         'setupOnboardingOrTour', 'refreshGuideFab']) context[name] = () => {};

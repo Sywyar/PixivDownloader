@@ -289,6 +289,7 @@ function abPrompt(key, fallback, vars, options) {
             inputType: opts.inputType || 'text',
             min: opts.min,
             max: opts.max,
+            step: opts.step,
             confirmLabel: opts.confirmLabel || bt('common.confirm', '确认'),
             cancelLabel: bt('common.cancel', '取消')
         });

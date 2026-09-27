@@ -732,6 +732,32 @@ function miniProgress(label, valueText, progress, cls) {
 function progressExtras(q) {
     const parts = el('div', 'ab-progress-extras');
     let has = false;
+    const runtime = window.PixivBatch && window.PixivBatch.queueTypes;
+    const live = runtime && typeof runtime.queueLiveStatus === 'function' ? runtime.queueLiveStatus(q) : null;
+    if (live && live.label && live.message && ['info', 'success', 'warning', 'error'].includes(live.tone)) {
+        const line = el('p', 'ab-progress-note ab-progress-note--' + live.tone);
+        line.appendChild(el('span', 'ab-mini-badge', live.label));
+        line.appendChild(document.createTextNode(' ' + live.message));
+        parts.appendChild(line);
+        has = true;
+    }
+    if (q.kind === 'novel' && q.status === 'downloading') {
+        for (const [progress, key, fallback] of [[q.novelText, 'queue.novel-text.label', '小说正文'],
+            [q.novelCover, 'queue.novel-cover.label', '封面']]) {
+            if (!progress || !(progress.done > 0 || progress.total > 0)) continue;
+            const bytes = formatBytes(progress.done || 0) + (progress.total > 0 ? ' / ' + formatBytes(progress.total) : '');
+            parts.appendChild(miniProgress(bt(key, fallback), bytes,
+                progress.total > 0 ? Math.round(progress.done / progress.total * 100) : null, 'is-image'));
+            has = true;
+        }
+        const embedded = q.novelEmbedded;
+        if (embedded && embedded.total > 0) {
+            parts.appendChild(miniProgress(bt('queue.novel-images.label', '内嵌图片'),
+                bt('queue.novel-images.count', '{done}/{total} 张', embedded),
+                Math.round((embedded.done || 0) / embedded.total * 100), 'is-image'));
+            has = true;
+        }
+    }
     const ip = q.imageProgress;
     if (ip && !['completed', 'failed', 'skipped'].includes(q.status)) {
         const imageText = ip.imageNumber && ip.totalImages
@@ -833,7 +859,7 @@ function renderQueue() {
     });
 }
 
-function queueItemRow(q) {
+function queueItemRow(q, options = {}) {
     const row = el('div', 'ab-queue-item');
     row.dataset.queueId = String(q.id);
     row.dataset.status = q.status;
@@ -849,7 +875,7 @@ function queueItemRow(q) {
     link.addEventListener('click', e => e.stopPropagation());
     titleRow.appendChild(link);
     const queueRuntime = window.PixivBatch && window.PixivBatch.queueTypes;
-    if (q.status === 'downloading' && queueRuntime && queueRuntime.canCancel(q)) {
+    if (!options.readOnly && q.status === 'downloading' && queueRuntime && queueRuntime.canCancel(q)) {
         const cancel = el('button', 'ab-iconbtn ab-iconbtn--xs');
         cancel.type = 'button';
         cancel.title = bt('queue.cancel', '取消下载');
@@ -860,7 +886,7 @@ function queueItemRow(q) {
         });
         titleRow.appendChild(cancel);
     }
-    if (q.status !== 'downloading') {
+    if (!options.readOnly && q.status !== 'downloading') {
         const remove = el('button', 'ab-iconbtn ab-iconbtn--xs');
         remove.type = 'button';
         remove.title = bt('queue.remove', '移除');

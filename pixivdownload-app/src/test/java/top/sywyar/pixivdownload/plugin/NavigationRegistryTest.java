@@ -92,7 +92,7 @@ class NavigationRegistryTest {
                 .filteredOn(registered -> registered.navigation().id().equals("invite-manage"))
                 .singleElement()
                 .satisfies(registered -> assertThat(registered.navigation().placements())
-                        .containsExactlyInAnyOrder("app.sidebar", "gallery.sidebar", "novel.sidebar"));
+                        .containsExactlyInAnyOrder("app.sidebar", "gallery.sidebar", "novel.sidebar", NavigationPlacements.DESKTOP_SECURITY_ACTIONS));
         assertThat(registry.navigation())
                 .filteredOn(registered -> registered.navigation().id().equals("plugin-manage"))
                 .singleElement()
@@ -106,6 +106,22 @@ class NavigationRegistryTest {
                     assertThat(registered.pluginId()).isEqualTo("plugin-market");
                     assertThat(registered.navigation().visibleTo()).isEqualTo(AccessPolicy.ADMIN);
                     assertThat(registered.navigation().placements()).containsExactly(NavigationPlacements.PLUGINS_SEGMENT);
+                });
+    }
+
+    @Test
+    @DisplayName("共享邀请管理由核心自己贡献，管理地址受同来源管理员路由保护")
+    void securityManagementIsOwnedByCore() {
+        var core = new CorePlugin();
+        assertThat(core.navigation())
+                .filteredOn(nav -> nav.placements().contains(NavigationPlacements.DESKTOP_SECURITY_ACTIONS))
+                .singleElement().satisfies(nav -> {
+                    assertThat(nav.descriptionI18nKey()).isNotBlank();
+                    assertThat(nav.visibleTo()).isEqualTo(AccessPolicy.ADMIN);
+                    assertThat(core.routes()).anySatisfy(route -> {
+                        assertThat(route.pathPattern()).isEqualTo(nav.href());
+                        assertThat(route.accessPolicy()).isEqualTo(AccessPolicy.ADMIN);
+                    });
                 });
     }
 

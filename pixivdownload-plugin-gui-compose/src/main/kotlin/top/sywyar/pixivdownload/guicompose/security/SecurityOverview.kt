@@ -88,7 +88,7 @@ internal fun SecurityOverview(
                 @Composable fun row(name: String, icon: ImageVector, description: String, action: String) {
                     val focus = anchors.getOrPut(name) { FocusRequester() }
                     SecurityRow(label("$name.title"), description, label(action), icon,
-                        name == "invites", !node.busy(), focus, "security.$name") {
+                        false, !node.busy(), focus, "security.$name") {
                         previousPanel = name
                         toast = false
                         activate(name)
@@ -103,9 +103,19 @@ internal fun SecurityOverview(
                         fontSize = 11.sp, color = palette.secondaryText)
                 }
                 group("access-group") {
-                    row("invites", Icons.Default.PeopleOutline, label("invites.description"), "invites.action")
-                    Box(Modifier.padding(start = 68.dp, end = 12.dp).fillMaxWidth().height(1.dp)
-                        .background(palette.controlBorder.copy(alpha = .3f)))
+                    node.navigation().forEach { entry ->
+                        key(entry.id()) {
+                            val focus = remember { FocusRequester() }
+                            SecurityRow(text(entry.label()), entry.help()?.let(text).orEmpty(),
+                                text(TextToken("gui-compose", "gui.compose.home.shortcut.open", "", emptyList())),
+                                desktopIcon(entry.icon()), true, entry.enabled(), focus, entry.id()) {
+                                toast = false
+                                emit(Event(EventType.ACTIVATE, entry.id(), Value.empty()))
+                            }
+                            Box(Modifier.padding(start = 68.dp, end = 12.dp).fillMaxWidth().height(1.dp)
+                                .background(palette.controlBorder.copy(alpha = .3f)))
+                        }
+                    }
                     row("connection", Icons.Default.Lock, label("connection.description"), "connection.action")
                 }
                 SecurityError(node.notice()?.takeIf { node.panel().isEmpty() }?.let(text))
@@ -187,7 +197,7 @@ private fun SecurityRow(
             ToolIcon(icon)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 CupertinoText(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                CupertinoText(description, fontSize = 12.sp, color = palette.secondaryText)
+                if (description.isNotBlank()) CupertinoText(description, fontSize = 12.sp, color = palette.secondaryText)
                 if (narrow) CupertinoText(action, fontSize = 12.sp, color = palette.link)
             }
             if (!narrow) CupertinoText(action, fontSize = 12.sp, color = palette.link)

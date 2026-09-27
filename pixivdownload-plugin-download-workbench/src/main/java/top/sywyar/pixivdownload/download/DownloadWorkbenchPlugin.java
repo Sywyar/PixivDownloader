@@ -177,7 +177,7 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
                         NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.NOVEL_SIDEBAR,
                         NavigationPlacements.DESKTOP_QUICK_START),
                 "batch", "nav.label", "/pixiv-batch.html", "download", AccessPolicy.VISITOR, 10,
-                Set.of(PREFERRED_DOWNLOAD_WORKBENCH_MARKER)));
+                Set.of(PREFERRED_DOWNLOAD_WORKBENCH_MARKER), "nav.description"));
     }
 
     @Override

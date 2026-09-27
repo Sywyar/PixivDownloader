@@ -423,12 +423,12 @@ async function main() {
         await tick();
         const entry = api.__test.schedEntry(8);
         const comp = api.__test.schedComponent(entry);
-        entry.store.rows = [{key: 'r1', status: 'pending', title: '作品', showTranslate: true, translateText: '翻译', statusText: '等待'}];
+        entry.store.rows = [{key: 'r1', status: 'pending', title: '作品', html: '<div class="ab-queue-item">作品 · 翻译</div>'}];
         entry.store.truncated = true;
         entry.store.truncatedText = '截断提示';
         let nodes = renderNodes(comp);
         ok('8: 计划队列保留稳定身份与状态', nodes.some(n => n.key === 'r1' && n.props['data-status'] === 'pending'));
-        ok('8: 实际渲染翻译徽标与截断提示', nodes.some(n => n.children === '翻译') && nodes.some(n => n.children === '截断提示'));
+        ok('8: 渲染共享队列行和截断提示', nodes.some(n => n.props.innerHTML === entry.store.rows[0].html) && nodes.some(n => n.children === '截断提示'));
         entry.store.empty = true;
         entry.store.emptyText = '空队列';
         nodes = renderNodes(comp);
@@ -484,7 +484,9 @@ async function main() {
                 if (vars) Object.keys(vars).forEach(key => { t = t.replace('{' + key + '}', String(vars[key])); });
                 return t;
             },
-            fmtScheduleTime: ms => ms ? '12:00' : '—'
+            fmtScheduleTime: ms => ms ? '12:00' : '—',
+            altQueueTypes: () => ({queueKey: (type, id) => type + ':' + id}),
+            queueItemRow: (item, options) => ({outerHTML: `${item.title}|${item.lastMessage || ''}|${options.readOnly}`})
         };
         sandbox.window = sandbox;
         sandbox.window.PixivBatchAlt = { schedule: {} };
@@ -495,16 +497,16 @@ async function main() {
             total: 3,
             truncated: true,
             items: [
-                { title: 'A', status: 'downloaded' },
-                { title: '', status: 'pending', message: 'schedule.foo' },
-                { title: 'C', status: 'downloaded', translatePhase: true, translateElapsedSeconds: 5 }
+                { id: 'a', kind: 'image', title: 'A', status: 'completed' },
+                { id: 'b', kind: 'image', title: '', status: 'failed', failureCode: 'schedule.foo' },
+                { id: 'c', kind: 'text', title: 'C', status: 'completed' }
             ]
         });
-        ok('11: 模型派生 started/stats 文案', typeof model.startedText === 'string' && model.startedText.length > 0 && model.statsText === '共 3 项');
+        ok('11: 模型派生 started/stats 文案', typeof model.startedText === 'string' && model.startedText.length > 0 && model.statsText.includes('成功: 2') && model.statsText.includes('失败: 1'));
         ok('11: truncated 提示派生', model.truncated === true && model.truncatedText.includes('3'));
         ok('11: 空标题回退占位文案', model.rows[1].title === '（暂无标题信息）');
-        ok('11: message 机器码本地化追加', model.rows[1].statusText === '待处理：机器码原因');
-        ok('11: AI 翻译徽标仅在 translatePhase 时出现', model.rows[0].showTranslate === false && model.rows[2].showTranslate === true && model.rows[2].translateText.includes('AI 翻译'));
+        ok('11: 失败机器码在共享队列渲染前本地化', model.rows[1].html.includes('机器码原因'));
+        ok('11: 计划队列共享行始终只读，行身份不随状态改变', model.rows.every(row => row.html.endsWith('|true')) && model.rows[2].key === 'text:c');
         const emptyModel = sandbox.scheduleQueueDetailModel({});
         ok('11: 空数据 → empty 行', emptyModel.empty === true && emptyModel.rows.length === 0);
     }

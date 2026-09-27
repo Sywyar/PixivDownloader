@@ -113,6 +113,7 @@
     "modal.summary.count": "{count}",
     "modal.summary.hint": "(OR semantics: visible if any tag matches OR the author matches)",
     "modal.summary.tags": "Tags: {value}",
+    "nav.description": "Share artwork through invitations and manage guest access.",
     "nav.invite-guest": "Invite a guest",
     "nav.invite-manage": "Invitations",
     "nav.label": "Invite Codes",

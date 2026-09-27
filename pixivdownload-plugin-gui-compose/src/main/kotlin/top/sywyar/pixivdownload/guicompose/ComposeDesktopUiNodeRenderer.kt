@@ -858,7 +858,7 @@ object ComposeDesktopUiNodeRenderer {
         Box(modifier.size(node.preferredWidth().dp, node.preferredHeight().dp).onSizeChanged { size = it }) {
             val image = data
             if (image == null) {
-                Text(resolve(node.altText(), text))
+                CupertinoText(resolve(node.altText(), text))
             } else {
                 ImageNode(
                     DesktopUiNode.Image(node.id(), image, node.altText(), node.preferredWidth(),

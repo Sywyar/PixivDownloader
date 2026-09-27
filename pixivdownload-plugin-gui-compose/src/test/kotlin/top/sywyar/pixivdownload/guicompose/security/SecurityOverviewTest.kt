@@ -27,6 +27,28 @@ import kotlin.test.*
 @OptIn(ExperimentalTestApi::class)
 class SecurityOverviewTest {
     @Test
+    @DisplayName("可选安全入口随贡献出现和撤回，点击分派贡献动作")
+    fun contributedNavigation() = runComposeUiTest {
+        val entry = Button("security.navigation.sample.manage", "security.navigation.sample.manage",
+            TextToken.raw("Shared access"), TextToken.raw("Control shared access"), ButtonStyle.NORMAL, true,
+            top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon.SECURITY)
+        var navigation by mutableStateOf<List<Button>>(emptyList())
+        val events = mutableListOf<Event>()
+        setContent { PixivDownloaderTheme("light") {
+            Box(Modifier.size(900.dp, 800.dp)) {
+                SecurityOverview(sample("", navigation = navigation), ::resolve, { events += it })
+            }
+        } }
+        onNodeWithTag(entry.id()).assertDoesNotExist()
+        runOnIdle { navigation = listOf(entry) }
+        onNodeWithTag(entry.id()).performScrollTo().performClick()
+        assertEquals(entry.id(), events.last().nodeId())
+        runOnIdle { navigation = emptyList() }
+        onNodeWithTag(entry.id()).assertDoesNotExist()
+        onNodeWithTag("security.connection").assertExists()
+    }
+
+    @Test
     @DisplayName("密码停顿校验不提前标错确认框，错误恢复后可提交并清空秘密")
     fun passwordFlow() = runComposeUiTest {
         var panel by mutableStateOf("")
@@ -139,18 +161,19 @@ class SecurityOverviewTest {
             else -> MessageFormat.format(messages.getProperty(token.key(), token.key()), *token.arguments().toTypedArray())
         }
         private fun sample(panel: String, busy: Boolean = false, values: Map<String, String> = emptyMap(),
-            notice: TextToken? = null, errorField: String = "", revision: Long = 0, success: Long = 0): DesktopUiNode.SecurityOverview {
+            notice: TextToken? = null, errorField: String = "", revision: Long = 0, success: Long = 0,
+            navigation: List<Button> = emptyList()): DesktopUiNode.SecurityOverview {
             val inputs = listOf("current", "new", "confirm", "domain", "port", "certificate", "private-key").map {
                 TextInput("security.$it.input", "security.$it", key(it), null,
                     if (it in listOf("current", "new", "confirm")) InputKind.PASSWORD else InputKind.TEXT,
                     values[it].orEmpty(), 24, 1, !busy, revision)
             }
-            val actions = listOf("password", "sessions", "connection", "invites", "close", "submit", "logout", "save").map {
+            val actions = listOf("password", "sessions", "connection", "close", "submit", "logout", "save").map {
                 Button("security.$it", "security.$it", key(it), null, ButtonStyle.NORMAL, !busy)
             }
             return DesktopUiNode.SecurityOverview("security.overview", panel, busy, 8, inputs,
                 Toggle("security.https", "security.https", key("https"), null, ToggleStyle.SWITCH, values["https"] == "true", !busy),
-                actions, notice, errorField, revision, success, "password", "http://localhost:8080", false)
+                actions, notice, errorField, revision, success, "password", "http://localhost:8080", false, navigation)
         }
     }
 }

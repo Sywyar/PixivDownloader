@@ -83,22 +83,13 @@
     grid-column: 1 / -1;
 }
 
-.ab-work.card { position: relative; overflow: hidden; border: 0; background: transparent; box-shadow: none; border-radius: 12px; cursor: pointer; }
+.ab-work.card { position: relative; overflow: hidden; border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow-2); border-radius: 12px; cursor: pointer; display: flex; flex-direction: column; }
 .ab-work:hover .ab-thumb { filter: brightness(.96); }
 .ab-work.is-selected { outline: 2px solid var(--brand); outline-offset: 3px; }
 .ab-work-select { position: absolute; top: 12px; left: 12px; z-index: 3; width: 20px; height: 20px; margin: 0; cursor: pointer; accent-color: var(--brand); }
 .ab-work:has(.ab-work-select:focus-visible) { outline: 2px solid var(--brand); outline-offset: 3px; }
 .ab-work .ab-work-badges { left: auto; right: 10px; max-width: calc(100% - 48px); justify-content: flex-end; }
-.ab-grid--novels { grid-template-columns: minmax(0, 1fr); gap: 0; }
-.ab-grid--novels .ab-work { display: flex; align-items: center; gap: 18px; padding: 14px 50px 14px 34px; border-bottom: 1px solid var(--line); border-radius: 0; overflow: visible; }
-.ab-grid--novels .ab-work-select { top: calc(50% - 10px); left: 0; }
-.ab-grid--novels .ab-thumb-wrap { width: 60px; height: 78px; flex: none; border-radius: 6px; overflow: visible; }
-.ab-grid--novels .ab-thumb { border-radius: 6px; overflow: hidden; }
-.ab-grid--novels .ab-work-badges { position: static; display: flex; justify-content: flex-start; max-width: none; margin-top: 6px; }
-.ab-grid--novels .ab-work-info { flex: 1; padding: 0; }
-.ab-grid--novels .ab-thumb-wrap { position: static; }
-.ab-grid--novels .ab-thumb { position: relative; width: 60px; height: 78px; }
-.ab-grid--novels .ab-work-enqueue { position: absolute; top: calc(50% - 18px); right: 4px; bottom: auto; }
+.ab-work[data-kind="novel"] .ab-thumb-img { object-fit: contain; padding: 12px; }
 .ab-selection-bar { position: fixed; inset: auto 20px 20px; z-index: 35; margin-inline: auto; width: fit-content; max-width: calc(100% - 40px); display: flex; align-items: center; gap: 18px; padding: 12px 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow-3); }
 .ab-selection-count { font-weight: 600; }
 .ab-app:has(#abSelectionBar:not([hidden])) .pt-help-fab { bottom: 128px; }
@@ -135,9 +126,6 @@
     object-fit: cover;
     transition: transform var(--motion-med) var(--motion-ease-standard),
                 filter var(--motion-med) var(--motion-ease-standard);
-}
-
-.ab-work:hover .ab-thumb-img {
 }
 
 .ab-thumb-img.is-blurred {
@@ -215,17 +203,15 @@
 }
 
 .ab-work-enqueue {
-    position: absolute;
-    right: 8px;
-    bottom: 8px;
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
+    flex: none;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--topbar-bg);
-    border: 1px solid var(--line);
+    background: var(--brand-soft);
+    border: 0;
     color: var(--brand-strong);
     opacity: 1;
     transition: opacity var(--motion-fast) var(--motion-ease-standard),
@@ -246,11 +232,18 @@
 }
 
 .ab-work-info {
-    padding: 9px 11px 11px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px;
+    flex: 1;
 }
 
+.ab-work-caption { flex: 1; min-width: 0; }
+
 .ab-work-title {
-    font-size: 0.78125rem;
+    color: var(--text);
+    font-size: 0.8125rem;
     font-weight: 600;
     line-height: 1.4;
     display: -webkit-box;
@@ -260,13 +253,23 @@
 }
 
 .ab-work-author {
-    font-size: 0.6875rem;
-    color: var(--faint);
-    margin-top: 3px;
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin-top: 5px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
+
+.ab-work-meta, .ab-work-details {
+    margin-top: 6px;
+    color: var(--muted);
+    font-size: 0.6875rem;
+    line-height: 1.5;
+}
+
+.ab-work-details summary { cursor: pointer; }
+.ab-work-details p { margin: 6px 0 0; overflow-wrap: anywhere; }
 
 .ab-work--skeleton {
     cursor: default;
@@ -367,6 +370,7 @@
 
 .ab-pagination {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: center;
     gap: 14px;
@@ -397,6 +401,17 @@
     font-size: 0.78125rem;
     color: var(--muted);
     font-variant-numeric: tabular-nums;
+}
+
+.ab-page-jump {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ab-page-jump .ab-input {
+    width: 5.5em;
+    min-width: 0;
 }
 
 /* ============================================================

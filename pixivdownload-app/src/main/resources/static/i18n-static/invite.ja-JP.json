@@ -113,6 +113,7 @@
     "modal.summary.count": "{count}件",
     "modal.summary.hint": "（OR の意味：タグまたは作者に一致すれば表示）",
     "modal.summary.tags": "タグ：{value}",
+    "nav.description": "招待で作品を共有し、ゲストのアクセス権を管理します。",
     "nav.invite-guest": "ゲストを招待",
     "nav.invite-manage": "招待コード管理",
     "nav.label": "招待コード管理",

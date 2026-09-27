@@ -839,18 +839,21 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
             long successRevision,
             String successOperation,
             String runningAddress,
-            boolean keyStoreConfigured
+            boolean keyStoreConfigured,
+            List<Button> navigation
     ) implements DesktopUiNode {
         public SecurityOverview {
             id = requireId(id, "id");
             inputs = List.copyOf(inputs);
             actions = List.copyOf(actions);
+            navigation = List.copyOf(navigation);
         }
         @Override public Kind kind() { return Kind.SECURITY_OVERVIEW; }
         @Override public List<DesktopUiNode> childNodes() {
             List<DesktopUiNode> children = new ArrayList<>(inputs);
             children.add(https);
             children.addAll(actions);
+            children.addAll(navigation);
             return List.copyOf(children);
         }
     }

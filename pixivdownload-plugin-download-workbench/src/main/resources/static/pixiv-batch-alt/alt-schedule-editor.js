@@ -173,10 +173,9 @@ async function openSchedulePending(task) {
     items.forEach(item => {
         const row = el('div', 'ab-pending-item card');
         const meta = el('div', 'ab-pending-meta');
-        meta.appendChild(el('strong', '', (item.workType || 'illust') + ' · ' + item.workId));
+        meta.appendChild(el('strong', '', scheduleKindLabel(item.workType) + ' · ' + item.workId));
         const sub = el('span', 'ab-muted');
-        const reason = localizeScheduleMachineCode(item.reasonCode)
-            || bt('schedule.pending.reason-unknown', '原因不可用');
+        const reason = schedulePendingReasonText(item, task.sourceType || task.type);
         sub.textContent = summaryJoin([
             bt('schedule.pending.attempts', '已重试 {count} 次', {count: item.attempts ?? 0}),
             item.needsManual ? bt('schedule.pending.needs-manual', '需人工处理') : '',
@@ -186,7 +185,12 @@ async function openSchedulePending(task) {
         row.appendChild(meta);
         const clearBtn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm', bt('schedule.pending.clear', '清除'));
         clearBtn.type = 'button';
+        const busy = () => ['RUNNING', 'QUEUED', 'CANCEL_REQUESTED'].includes(
+            (scheduleState.tasks.find(current => current.id === task.id) || task).runState);
+        clearBtn.disabled = busy();
+        if (clearBtn.disabled) clearBtn.title = bt('schedule.disabled.busy', '任务运行 / 排队中，暂不可操作');
         clearBtn.addEventListener('click', async () => {
+            if (busy()) return;
             try {
                 const res = await fetch(`${BASE}/api/schedule/tasks/${task.id}/pending`, {
                     method: 'DELETE',
@@ -209,6 +213,24 @@ async function openSchedulePending(task) {
         row.appendChild(clearBtn);
         body.appendChild(row);
     });
+}
+
+function schedulePendingReasonText(item, sourceType) {
+    const unavailable = () => bt('schedule.pending.reason-unavailable', '失败原因不可用');
+    const hasDetail = item.reasonDetailJson != null && String(item.reasonDetailJson).trim();
+    if (hasDetail) {
+        try {
+            const detail = JSON.parse(item.reasonDetailJson);
+            const code = typeof detail === 'string' ? detail : detail && typeof detail === 'object'
+                ? [detail.message, detail.reason, detail.reasonCode, detail.legacyReason]
+                    .find(value => typeof value === 'string' && value.trim()) : null;
+            if (code) return localizeScheduleMachineCode(code, sourceType) || unavailable();
+        } catch (e) { return unavailable(); }
+    }
+    if (item.reasonCode != null && String(item.reasonCode).trim()) {
+        return localizeScheduleMachineCode(item.reasonCode, sourceType) || unavailable();
+    }
+    return hasDetail ? unavailable() : '';
 }
 
 /* ============================================================

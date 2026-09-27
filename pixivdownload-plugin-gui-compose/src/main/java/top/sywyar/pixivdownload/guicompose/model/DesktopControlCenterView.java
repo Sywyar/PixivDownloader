@@ -72,18 +72,15 @@ final class DesktopControlCenterView {
             NavigationContribution navigation = entry.navigation();
             String base = "home.quick-start." + safeId(entry.owner()) + "." + safeId(navigation.id());
             String action = base + ".open";
-            nextActions.put(action, () -> owner.openWeb(navigation.href()));
+            nextActions.put(action, () -> {
+                if (quickStartEntries(owner.currentSources()).contains(entry)) owner.openWeb(navigation.href());
+                else owner.rebuild();
+            });
             TextToken label = token(navigation.labelNamespace(), navigation.labelI18nKey(), navigation.id());
-            if (quickStartIcon(navigation.icon()) == DesktopUiIcon.DOWNLOAD)
-                label = composeToken("home.open-workbench");
-            String summary = switch (nullToEmpty(navigation.icon())) {
-                case "download" -> "shortcut.download";
-                case "images" -> "shortcut.images";
-                case "book" -> "shortcut.book";
-                default -> "shortcut.open";
-            };
+            TextToken summary = navigation.descriptionI18nKey().isBlank() ? composeToken("home.shortcut.open")
+                    : token(navigation.labelNamespace(), navigation.descriptionI18nKey(), "");
             shortcuts.add(new DesktopUiNode.HomeShortcut(
-                    new DesktopUiNode.Button(base + ".button", action, label, composeToken("home." + summary),
+                    new DesktopUiNode.Button(base + ".button", action, label, summary,
                             ButtonStyle.NORMAL, true, quickStartIcon(navigation.icon())), navigation.icon()));
         }
 
@@ -229,16 +226,20 @@ final class DesktopControlCenterView {
     }
 
     static List<QuickStartEntry> quickStartEntries(List<DesktopUiPluginSnapshot> sources) {
+        return navigationEntries(sources, NavigationPlacements.DESKTOP_QUICK_START);
+    }
+
+    static List<QuickStartEntry> navigationEntries(List<DesktopUiPluginSnapshot> sources, String placement) {
         List<QuickStartEntry> entries = new ArrayList<>();
         for (DesktopUiPluginSnapshot source : sources) {
             try {
                 List<WebRouteContribution> routes = source.routes();
                 for (NavigationContribution navigation : source.navigation()) {
-                    if (navigation != null && navigation.placements().contains(NavigationPlacements.DESKTOP_QUICK_START) && navigation.visibleTo() != null && navigation.visibleTo().supportsUiVisibility() && validQuickStartRoute(
+                    if (navigation != null && navigation.placements().contains(placement) && navigation.visibleTo() != null && navigation.visibleTo().supportsUiVisibility() && validQuickStartRoute(
                             navigation,
                             routes
                     )) {
-                        entries.add(new QuickStartEntry(source.id(), navigation));
+                        entries.add(new QuickStartEntry(source.id(), navigation, source.fingerprint()));
                     }
                 }
             } catch (RuntimeException ignored) {
@@ -291,7 +292,8 @@ final class DesktopControlCenterView {
 
     record QuickStartEntry(
             String owner,
-            NavigationContribution navigation
+            NavigationContribution navigation,
+            DesktopUiPluginSnapshot.Fingerprint fingerprint
     ) {
     }
 }

@@ -172,6 +172,10 @@ async function init() {
     if (pageLangSwitcher && typeof pageLangSwitcher.refresh === 'function') {
         pageLangSwitcher.refresh(pageI18n);
     }
+    window.addEventListener('pixivbatch:queuetypeschanged', () => {
+        refreshAltI18n().then(() => pageLangSwitcher?.refresh(pageI18n))
+            .catch(error => console.warn('[batch-alt] 扩展语言资源刷新失败：', error));
+    });
 
     // 队列与坞
     loadQueueForMode();

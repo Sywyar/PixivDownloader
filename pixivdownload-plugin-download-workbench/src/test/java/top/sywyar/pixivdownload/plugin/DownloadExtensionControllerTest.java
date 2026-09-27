@@ -39,7 +39,7 @@ class DownloadExtensionControllerTest {
                 publishedSlot(owner, new WebUiSlotContribution(
                         "demo.a", "import-hint", null, 10)),
                 publishedSlot(owner, new WebUiSlotContribution(
-                        "demo.m", "cookie-tools", null, 5)));
+                        "demo.m", "cookie-tools", null, 5, Map.of("ignored", "value"), "demo-ui")));
         DownloadExtensionSnapshot snapshot = new DownloadExtensionSnapshot(
                 "demo-epoch",
                 1L,
@@ -69,6 +69,7 @@ class DownloadExtensionControllerTest {
         assertThat(first.owner().generation()).isZero();
         assertThat(first.owner().publicationId()).isEqualTo(7L);
         assertThat(first.metadata()).isEqualTo(Map.of());
+        assertThat(first.i18nNamespace()).isEqualTo("demo-ui");
         assertThat(view.downloadTypes().get(0)).satisfies(type -> {
             assertThat(type.contractVersion()).isEqualTo(1);
             assertThat(type.displayNamespace()).isEqualTo("demo");
@@ -96,7 +97,7 @@ class DownloadExtensionControllerTest {
                 .doesNotContain("pluginId", "queue", "schedule", "gallery", "uiSlots");
         assertThat(DownloadExtensionController.UiSlotView.class.getRecordComponents())
                 .extracting(component -> component.getName())
-                .containsExactly("slotId", "target", "moduleUrl", "order", "metadata", "owner");
+                .containsExactly("slotId", "target", "moduleUrl", "order", "metadata", "i18nNamespace", "owner");
     }
 
     @Test

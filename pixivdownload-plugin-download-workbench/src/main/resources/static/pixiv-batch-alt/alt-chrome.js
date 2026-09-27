@@ -108,21 +108,63 @@ function bindAuthButton() {
    ============================================================ */
 function refreshCookieUi() {
     const chip = document.getElementById('abCookieChip');
-    if (!chip) return;
     const ok = cookieHasPhpsessid();
     const any = hasPixivCookie();
     chromeState.cookieSaved = any;
-    chip.classList.remove('ab-chip--ok');
-    chip.classList.toggle('ab-chip--ghost', ok);
-    chip.classList.toggle('ab-chip--warn', !ok);
-    const label = chip.querySelector('.ab-chip-label');
-    if (label) {
-        label.textContent = ok
-            ? bt('cookie.status.saved', 'Cookie 已保存')
-            : any
-                ? bt('cookie.status.no-phpsessid', 'Cookie 缺少 PHPSESSID')
-                : bt('cookie.status.missing', '未保存 Cookie');
+    const key = ok ? 'cookie.status.saved' : any ? 'cookie.status.no-phpsessid' : 'cookie.status.missing';
+    const fallback = ok ? 'Cookie 已保存' : any ? 'Cookie 缺少 PHPSESSID' : '未保存 Cookie';
+    if (chip) {
+        chip.classList.remove('ab-chip--ok');
+        chip.classList.toggle('ab-chip--ghost', ok);
+        chip.classList.toggle('ab-chip--warn', !ok);
     }
+    for (const label of [chip?.querySelector('.ab-chip-label'), document.getElementById('abCookieStatus')]) {
+        if (!label) continue;
+        label.setAttribute('data-i18n', key);
+        label.textContent = bt(key, fallback);
+        if (label.id === 'abCookieStatus') {
+            label.classList.toggle('ab-pill--ok', ok);
+            label.classList.toggle('ab-pill--warn', !ok);
+        }
+    }
+}
+
+function refreshCookieViews() {
+    refreshCookieUi();
+    quickState.uid = null;
+    quickState.accountRevision = (quickState.accountRevision || 0) + 1;
+    quickState.loadSeq++;
+    quickState.loading = false;
+    if (state.mode === QUICK_FETCH_MODE || state.mode === 'search') renderStage();
+}
+
+async function persistCookieEditor(container, type, raw, format, status) {
+    const editor = container.closest('.ab-cookie') || container;
+    if (editor.getAttribute('aria-busy') === 'true') return false;
+    editor.setAttribute('aria-busy', 'true');
+    const controls = [...editor.querySelectorAll('button, input, textarea')].map(node => [node, node.disabled]);
+    controls.forEach(([node]) => { node.disabled = true; });
+    try {
+        const entries = {[cookieStorageKey(type)]: raw};
+        if (format != null) entries.pixiv_cookie_fmt = format;
+        await persistStoreEntries(entries);
+    } catch {
+        // Storage and transport errors must never echo the submitted credential.
+        status(bt('status.cookie-save-failed', 'Cookie 保存失败：{message}', {
+            message: bt('common.request-failed', '请求失败')
+        }));
+        return false;
+    } finally {
+        editor.removeAttribute('aria-busy');
+        controls.forEach(([node, disabled]) => { node.disabled = disabled; });
+    }
+    refreshCookieViews();
+    return true;
+}
+
+function finishCookieSave(editor, message, tone = 'success') {
+    abToast(tone, message);
+    if (editor?.isConnected && abModalOpen === 'cookie') closeModal();
 }
 
 function updateCookieImportStatus(msg, tone) {
@@ -153,7 +195,6 @@ function cookieFormatSeg(current) {
                 b.setAttribute('aria-pressed', String(b === btn));
             });
             btn.classList.add('is-active');
-            storeSet('pixiv_cookie_fmt', value);
         });
         seg.appendChild(btn);
     });
@@ -170,6 +211,7 @@ function openCookieModal() {
         ok ? bt('cookie.status.saved', 'Cookie 已保存')
             : saved ? bt('cookie.status.no-phpsessid', 'Cookie 缺少 PHPSESSID')
                 : bt('cookie.status.missing', '未保存 Cookie'));
+    statusPill.id = 'abCookieStatus';
     head.appendChild(statusPill);
     const fmtSeg = cookieFormatSeg(getCookieFmt());
     head.appendChild(fmtSeg);
@@ -256,37 +298,36 @@ function openCookieModal() {
     clearBtn.appendChild(el('span', '', bt('cookie.clear', '清除')));
     clearBtn.addEventListener('click', async () => {
         if (!await abConfirm('dialog.confirm-clear-cookie', '确认清除已保存的 Cookie？')) return;
-        removeStoredCookie('pixiv');
+        if (!await persistCookieEditor(body, 'pixiv', null, null,
+            message => updateCookieImportStatus(message, 'error'))) return;
         input.value = '';
         updateCookieImportStatus(bt('status.cookie-cleared', 'Cookie 已清除'), 'info');
-        refreshCookieUi();
-        refreshQuickCredentialGate();
     });
     const saveBtn = el('button', 'ab-btn ab-btn--primary');
     saveBtn.type = 'button';
     saveBtn.appendChild(abIconEl('check'));
     saveBtn.appendChild(el('span', '', bt('cookie.save', '保存')));
-    saveBtn.addEventListener('click', () => {
+    saveBtn.addEventListener('click', async () => {
         const raw = input.value.trim();
         const activeFmt = fmtSeg.querySelector('.ab-seg-item.is-active');
-        const result = validateAndParseCookie(raw, activeFmt ? activeFmt.dataset.value : getCookieFmt());
+        const format = activeFmt ? activeFmt.dataset.value : getCookieFmt();
+        const result = validateAndParseCookie(raw, format);
         if (!result.ok) {
             updateCookieImportStatus(bt('status.cookie-save-failed', 'Cookie 保存失败：{message}', {message: result.error}), 'error');
             return;
         }
-        setStoredCookie('pixiv', raw);
+        if (!await persistCookieEditor(body, 'pixiv', raw, format,
+            message => updateCookieImportStatus(message, 'error'))) return;
         if (result.warnings.length) {
-            updateCookieImportStatus(
+            finishCookieSave(body,
                 bt('status.cookie-saved-warning', 'Cookie 已保存（{count} 个字段）⚠ {warnings}', {
                     count: result.count,
                     warnings: result.warnings.join(punct('semicolon'))
-                }), 'error');
+                }), 'warning');
         } else {
-            updateCookieImportStatus(
-                bt('status.cookie-saved', 'Cookie 已保存，共 {count} 个字段', {count: result.count}), 'info');
+            finishCookieSave(body,
+                bt('status.cookie-saved', 'Cookie 已保存，共 {count} 个字段', {count: result.count}));
         }
-        refreshCookieUi();
-        refreshQuickCredentialGate();
     });
     actions.appendChild(importBtn);
     actions.appendChild(clearBtn);
@@ -304,6 +345,7 @@ function openCookieModal() {
         icon: 'key',
         title: bt('cookie.title', 'Pixiv Cookie'),
         body,
+        beforeClose: () => body.getAttribute('aria-busy') !== 'true',
         widthClass: 'ab-modal--wide'
     });
     // 弹窗 body 重建后重挂 cookie-tools 槽位内容。

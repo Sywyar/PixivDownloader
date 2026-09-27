@@ -346,7 +346,7 @@ class GuiComposePluginTest {
                     DesktopUiNode.ButtonStyle.PRIMARY, false)), "", "", 0),
             DesktopUiNode.SecurityOverview("security", "", false, 8, emptyList(),
                 DesktopUiNode.Toggle("security.https", "security.https", raw("HTTPS"), null, DesktopUiNode.ToggleStyle.SWITCH, false, true),
-                emptyList(), null, "", 0, 0, "", "", false),
+                emptyList(), null, "", 0, 0, "", "", false, emptyList()),
             DesktopUiNode.PluginOverview("plugins.overview", emptyList(), "", "", false,
                 DesktopUiNode.Button("plugins.refresh", "plugins.refresh", raw("Refresh"), null, DesktopUiNode.ButtonStyle.NORMAL, true),
                 DesktopUiNode.Button("plugins.manage", "plugins.manage", raw("Manage"), null, DesktopUiNode.ButtonStyle.NORMAL, true)),

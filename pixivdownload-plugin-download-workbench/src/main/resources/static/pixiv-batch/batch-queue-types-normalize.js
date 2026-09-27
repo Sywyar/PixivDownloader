@@ -270,6 +270,7 @@
             moduleUrl,
             order: Number.isFinite(order) ? order : 0,
             metadata: Object.freeze(isPlainObject(raw.metadata) ? Object.assign({}, raw.metadata) : {}),
+            i18nNamespace: text(raw.i18nNamespace),
             ownerPluginId,
             packageId,
             pluginGeneration,

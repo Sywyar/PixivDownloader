@@ -187,7 +187,7 @@ class AutomationOverviewTest {
             onNodeWithTag("automation.detail.technical").performClick()
             onNodeWithTag("automation.detail").assertIsDisplayed()
             System.getenv("PIXIV_AUTOMATION_SCREENSHOTS")?.let { output ->
-                ImageIO.write(onNodeWithTag("automation.detail").captureToImage().toAwtImage(), "png",
+                ImageIO.write(onRoot().captureToImage().toAwtImage(), "png",
                     File(output, "details-$theme-$width$suffix.png"))
             }
             onNodeWithTag("automation.detail.close").performClick()

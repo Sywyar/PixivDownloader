@@ -584,6 +584,8 @@
         }
         return {
             kind,
+            description: quickSourceLabel(sourceType, source, kind)
+                || (rows.length ? rows[0].join(bt('common:punctuation.colon', ': ')) : ''),
             sections: [
                 {title: bt('schedule.snapshot.section.source', '来源快照'), rows},
                 {title: bt('schedule.snapshot.section.filters', '筛选快照'), rows: [

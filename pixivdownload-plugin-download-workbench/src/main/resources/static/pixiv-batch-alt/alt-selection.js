@@ -3,6 +3,43 @@
 // 选择随获取上下文保存；分页不清空，来源、账号或查询变化不能沿用旧作品。
 const workSelections = new Map();
 const workSelectionItems = new WeakMap();
+const WORK_INTERACTION_MODE_KEY = 'pixiv_batch_alt_work_interaction_mode';
+let workInteractionMode = loadWorkInteractionMode();
+
+function loadWorkInteractionMode() {
+    try {
+        return localStorage.getItem(WORK_INTERACTION_MODE_KEY) === 'direct' ? 'direct' : 'select';
+    } catch {
+        return 'select';
+    }
+}
+
+function workInteractionModeControl() {
+    const group = el('div', 'ab-seg ab-seg--sm ab-work-mode');
+    group.setAttribute('role', 'group');
+    group.setAttribute('aria-label', bt('selection.mode', '作品操作模式'));
+    for (const [mode, key, fallback] of [
+        ['select', 'selection.mode.select', '批量选择'],
+        ['direct', 'card.enqueue', '直接加入队列']
+    ]) {
+        const button = el('button', 'ab-seg-item', bt(key, fallback));
+        button.type = 'button';
+        button.dataset.workMode = mode;
+        button.classList.toggle('is-active', mode === workInteractionMode);
+        button.setAttribute('aria-pressed', String(mode === workInteractionMode));
+        button.addEventListener('click', () => {
+            workInteractionMode = mode;
+            try {
+                localStorage.setItem(WORK_INTERACTION_MODE_KEY, mode);
+            } catch {
+                // 浏览器禁用存储时，模式仍在本页生效。
+            }
+            syncAllResultsQueueState();
+        });
+        group.appendChild(button);
+    }
+    return group;
+}
 
 function workSelectionContext() {
     if (state.mode === QUICK_FETCH_MODE) return [quickState.source, quickState.kind,
@@ -32,6 +69,10 @@ function bindWorkSelection(card, item, kind, options) {
     select.type = 'checkbox';
     select.setAttribute('aria-label', bt('selection.work', '选择 {title}', {title: item.title || id}));
     const update = () => {
+        if (workInteractionMode === 'direct') {
+            toggleWorkInQueue(item, kind, options);
+            return;
+        }
         const selection = currentWorkSelection();
         if (select.checked) selection.set(id, data);
         else selection.delete(id);
@@ -40,7 +81,7 @@ function bindWorkSelection(card, item, kind, options) {
     select.addEventListener('click', event => event.stopPropagation());
     select.addEventListener('change', update);
     card.addEventListener('click', event => {
-        if (select.disabled || event.target.closest('button, a, input, label')) return;
+        if (select.disabled || event.target.closest('button, a, input, label, details')) return;
         select.checked = !select.checked;
         update();
     });
@@ -83,16 +124,32 @@ window.addEventListener('pixivbatch:queuetypeschanged', () => {
 function syncWorkSelection() {
     const bar = document.getElementById('abSelectionBar');
     if (!bar) return;
+    const direct = workInteractionMode === 'direct';
+    document.querySelectorAll('[data-work-mode]').forEach(button => {
+        const active = button.dataset.workMode === workInteractionMode;
+        button.classList.toggle('is-active', active);
+        button.setAttribute('aria-pressed', String(active));
+    });
+    document.querySelectorAll('.ab-select-page').forEach(button => { button.hidden = direct; });
     const selected = currentWorkSelection();
     for (const id of selected.keys()) if (queueHas(id)) selected.delete(id);
     document.querySelectorAll('.ab-work[data-work-id]').forEach(card => {
         const check = card.querySelector('.ab-work-select');
         const queued = queueHas(card.dataset.workId);
-        const active = selected.has(card.dataset.workId);
+        const active = !direct && selected.has(card.dataset.workId);
         card.classList.toggle('is-selected', active);
-        if (check) { check.checked = active; check.disabled = queued; }
+        if (check) {
+            check.checked = direct ? queued : active;
+            check.disabled = !direct && queued;
+            const title = workSelectionItems.get(card)?.item.title || card.dataset.workId;
+            const label = direct
+                ? bt(queued ? 'queue.remove' : 'card.enqueue', queued ? '从队列移除' : '直接加入队列') + ': ' + title
+                : bt('selection.work', '选择 {title}', {title});
+            check.setAttribute('aria-label', label);
+            check.title = label;
+        }
     });
-    const show = selected.size > 0 && !dockState.open && state.mode !== 'schedule';
+    const show = !direct && selected.size > 0 && !dockState.open && state.mode !== 'schedule';
     if (!bar.firstChild) {
         const count = el('strong', 'ab-selection-count');
         count.setAttribute('role', 'status');

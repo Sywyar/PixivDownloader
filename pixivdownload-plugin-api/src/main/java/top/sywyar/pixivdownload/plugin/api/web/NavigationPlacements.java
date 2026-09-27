@@ -61,6 +61,9 @@ public final class NavigationPlacements {
     /** 桌面控制中心首页的快速开始入口。 */
     public static final String DESKTOP_QUICK_START = "desktop.quick-start";
 
+    /** 桌面安全页的可选管理入口；没有活动贡献时不显示，目标仍受其所属插件的路由策略保护。 */
+    public static final String DESKTOP_SECURITY_ACTIONS = "desktop.security.actions";
+
     /** 邀请管理页的返回入口 slot。 */
     public static final String INVITE_MANAGE_BACK = "invite.manage.back";
 

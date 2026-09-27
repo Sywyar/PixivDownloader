@@ -287,16 +287,15 @@ public class CorePlugin implements PixivFeaturePlugin {
         // 二者均 ADMIN，仅管理员身份在 /api/navigation 可见（受邀访客 / multi 匿名访客看不到、点开本会 403）。标签走核心
         // 自有 i18n namespace（invite / plugins），与各功能插件的 nav.label 同一套「插件自有 i18n」机制。
         //
-        // placement：邀请码管理是管理入口，只进各侧栏、不进顶部栏（priority 80：侧栏内最末，符合「管理入口
-        // 在底部」现状）——这正是「invite-manage 不靠 data-nav-exclude 从顶部栏排除，而是只注册到适合的 placement」的体现。
-        // 它把主入口同时贡献到 app.sidebar（统计等中立宿主页的主侧栏），与画廊 / 小说家族侧栏正交。
+        // 邀请管理属于核心安全能力；可选内容插件撤回后仍可管理和撤销已有邀请。
+        // 仅贡献到 Web 侧栏与桌面安全入口，不占用顶部应用导航。
         return List.of(
                 new NavigationContribution(
                         "invite-manage",
                         Set.of(NavigationPlacements.APP_SIDEBAR, NavigationPlacements.GALLERY_SIDEBAR,
-                                NavigationPlacements.NOVEL_SIDEBAR),
+                                NavigationPlacements.NOVEL_SIDEBAR, NavigationPlacements.DESKTOP_SECURITY_ACTIONS),
                         "invite", "nav.label", "/pixiv-invite-manage.html",
-                        "invite-manage", AccessPolicy.ADMIN, 80),
+                        "invite-manage", AccessPolicy.ADMIN, 80, Set.of(), "nav.description"),
                 // 插件入口：顶部应用导航栏入口，与下载工作台 / 画廊 / 小说同级（不进各侧栏——它是顶部栏级页面、
                 // 非画廊 / 小说家族侧栏入口）。priority 85 仍为内置最大值，使其排在全部内置基础 / 功能页面之后
                 //（顶部栏内「管理入口在末尾」，内置必选业务页面靠前）。

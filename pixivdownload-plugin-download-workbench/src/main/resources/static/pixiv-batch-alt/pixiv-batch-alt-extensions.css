@@ -127,6 +127,52 @@
 }
 
 /* —— 插件设置卡（settings-card 槽位贡献，设置抽屉内） —— */
+.ab-settings [data-vue-slot="settings-card"] > .card {
+    margin: 24px 0 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent;
+}
+
+.ab-settings [data-vue-slot="settings-card"] .card-title {
+    margin-bottom: 12px;
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.ab-settings [data-vue-slot="settings-card"] .settings-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.ab-settings [data-vue-slot="settings-card"] .setting-item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8125rem;
+}
+
+.ab-settings [data-vue-slot="settings-card"] .setting-item > label {
+    flex: 1;
+}
+
+.ab-settings [data-vue-slot="settings-card"] .setting-item > input:not([type="checkbox"]),
+.ab-settings [data-vue-slot="settings-card"] .setting-item > select {
+    max-width: 100%;
+    min-width: 0;
+    min-height: var(--layout-control-height);
+    padding: 7px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font: inherit;
+    color: var(--text);
+    background: var(--control-bg);
+}
+
 .ab-settings [data-vue-slot] > section {
     display: flex;
     flex-direction: column;

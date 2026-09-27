@@ -164,21 +164,22 @@ async function fetchServerPixivCookie() {
     }
 }
 
-function applyImportedCookie(snapshot) {
+function applyImportedCookie(snapshot, editor) {
     serverState['pixiv_cookie'] = snapshot.cookie;
     serverState['pixiv_cookie_fmt'] = snapshot.fmt;
     if (snapshot.syncAt) serverState['pixiv_cookie_sync_at'] = snapshot.syncAt;
-    refreshCookieUi();
-    const hasPhp = /(?:^|;\s*)PHPSESSID=/.test(snapshot.cookie);
+    refreshCookieViews();
+    const hasPhp = cookieHasPhpsessid();
     if (hasPhp) {
-        abToast('success', bt('status.cookie-imported', '已从 Pixiv 自动导入并保存 Cookie'));
+        finishCookieSave(editor, bt('status.cookie-imported', '已从 Pixiv 自动导入并保存 Cookie'));
     } else {
-        abToast('warning', bt('status.cookie-imported-no-phpsessid',
-            '已导入 Cookie，但未检测到 PHPSESSID，可能未登录 Pixiv'));
+        finishCookieSave(editor, bt('status.cookie-imported-no-phpsessid',
+            '已导入 Cookie，但未检测到 PHPSESSID，可能未登录 Pixiv'), 'warning');
     }
 }
 
 function runScriptCookieImport() {
+    const editor = document.getElementById('abCookieInput')?.closest('.ab-cookie');
     if (appMode !== 'solo') {
         abToast('error', bt('status.cookie-import-solo-only', '一键导入仅在 solo 模式可用'));
         return;
@@ -210,7 +211,7 @@ function runScriptCookieImport() {
                 // 同步内存基线，避免下次重试用旧时间戳瞬间误判
                 serverState['pixiv_cookie_sync_at'] = cur.syncAt;
                 if (cur.syncStatus === 'ok' || /(?:^|;\s*)PHPSESSID=/.test(cur.cookie || '')) {
-                    applyImportedCookie(cur);
+                    applyImportedCookie(cur, editor);
                 } else {
                     updateCookieImportStatus(bt('status.cookie-imported-no-phpsessid',
                         '已导入 Cookie，但未检测到 PHPSESSID，可能未登录 Pixiv'), 'error');

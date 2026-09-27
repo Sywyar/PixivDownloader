@@ -101,7 +101,7 @@ class DesktopControlCenterViewTest {
                 List.of(), List.of(), List.of(), List.of(WebRouteContribution.admin("/sample.html")),
                 List.of(
                         new NavigationContribution("valid", Set.of(NavigationPlacements.DESKTOP_QUICK_START),
-                                "sample", "label", "/sample.html", "images", AccessPolicy.ADMIN, 0),
+                                "sample", "label", "/sample.html", "images", AccessPolicy.ADMIN, 0, Set.of(), "nav.description"),
                         new NavigationContribution("invalid", Set.of(NavigationPlacements.DESKTOP_QUICK_START),
                                 "sample", "label", "/unregistered.html", "download", AccessPolicy.ADMIN, 1)));
         var task = Map.of("taskId", "active", "title", token("Actual task"),
@@ -121,6 +121,8 @@ class DesktopControlCenterViewTest {
             assertTrue(home.tasksKnown());
             assertEquals(1, home.shortcuts().size());
             assertEquals("images", home.shortcuts().get(0).symbol());
+            assertEquals("sample", home.shortcuts().get(0).button().help().namespace());
+            assertEquals("nav.description", home.shortcuts().get(0).button().help().key());
             assertTrue(DesktopUiEventProtocol.index(model.snapshot().document())
                     .containsKey(home.shortcuts().get(0).button().id()));
             assertEquals("Actual task", home.tasks().get(0).title().fallback());
@@ -128,6 +130,34 @@ class DesktopControlCenterViewTest {
             assertEquals("gui.compose.home.freshness.stale", home.tasks().get(0).freshness().key());
             assertEquals("431", home.metrics().get(0).value().fallback());
             assertEquals("gui.compose.home.storage-available", home.metrics().get(1).title().key());
+        }
+    }
+
+    @Test
+    @DisplayName("首页快捷入口随插件贡献撤回与恢复，不根据内置图标补业务文案")
+    void homeNavigationLifecycle() throws Exception {
+        var source = new DesktopUiPluginSnapshot("sample", false, "sample", 1, false, "sample", "name",
+                List.of(), List.of(), List.of(), List.of(WebRouteContribution.admin("/sample.html")),
+                List.of(new NavigationContribution("entry", NavigationPlacements.DESKTOP_QUICK_START,
+                        "sample", "custom.title", "/sample.html", "download", AccessPolicy.ADMIN, 0)));
+        var sources = new java.util.concurrent.atomic.AtomicReference<List<DesktopUiPluginSnapshot>>(List.of());
+        var opened = new java.util.concurrent.atomic.AtomicInteger();
+        try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), Map.of(
+                "openExternalUri", args -> { opened.incrementAndGet(); return null; }), sources::get)) {
+            assertTrue(home(model).shortcuts().isEmpty());
+            sources.set(List.of(source));
+            model.rebuild();
+            var button = home(model).shortcuts().get(0).button();
+            assertEquals("custom.title", button.label().key());
+            assertEquals("gui.compose.home.shortcut.open", button.help().key());
+            var observed = model.snapshot();
+            sources.set(List.of());
+            model.dispatch(observed, new DesktopUiNode.Event(DesktopUiNode.EventType.ACTIVATE, button.id(), DesktopUiNode.Value.empty()));
+            assertEquals(0, opened.get());
+            assertTrue(home(model).shortcuts().isEmpty());
+            sources.set(List.of(source));
+            model.rebuild();
+            assertEquals(1, home(model).shortcuts().size());
         }
     }
 

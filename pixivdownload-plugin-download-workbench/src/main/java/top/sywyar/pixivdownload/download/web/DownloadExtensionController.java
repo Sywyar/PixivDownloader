@@ -58,6 +58,7 @@ public class DownloadExtensionController {
                         item.slot().moduleUrl(),
                         item.slot().order(),
                         Map.of(),
+                        item.slot().i18nNamespace(),
                         OwnerView.from(item.owner())))
                 .toList();
         DownloadExtensionsView view = new DownloadExtensionsView(
@@ -76,7 +77,7 @@ public class DownloadExtensionController {
 
     /** UI 槽位对外视图：只含下载页稳定锚点，并携带宿主盖章的 owner 身份。 */
     public record UiSlotView(String slotId, String target, String moduleUrl, int order,
-                             Map<String, String> metadata, OwnerView owner) {
+                             Map<String, String> metadata, String i18nNamespace, OwnerView owner) {
     }
 
     public record OwnerView(String pluginId, String packageId, long generation, long publicationId) {

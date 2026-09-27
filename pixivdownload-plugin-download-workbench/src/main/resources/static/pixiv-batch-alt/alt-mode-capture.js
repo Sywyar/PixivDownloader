@@ -21,19 +21,19 @@ function quickAcquisition() {
 }
 
 function quickActionDefs() {
-    if (quickState.source === 'pixiv' && quickState.kind === 'illust') return QUICK_ACTIONS;
     const acquisition = quickAcquisition();
     if (!acquisition) return [];
     return Object.entries(acquisition.actions || {}).map(([id, descriptor]) => {
         const labelNamespace = descriptor.labelNamespace
             || (acquisition.dataSource && acquisition.dataSource.displayNamespace) || '';
         const labelKey = descriptor.labelI18nKey || ('quick.action.' + id);
+        const known = QUICK_ACTIONS.find(action => action.id === id);
         return {
             id,
-            icon: descriptor.iconKey
+            icon: descriptor.iconKey || (known && known.icon)
                 || (descriptor.viewType === 'collection-list' ? 'folder' : 'bookmark'),
-            labelKey: (labelNamespace ? labelNamespace + ':' : '') + labelKey,
-            label: descriptor.label || id,
+            labelKey: known ? known.labelKey : (labelNamespace ? labelNamespace + ':' : '') + labelKey,
+            label: descriptor.label || (known && known.label) || id,
             view: descriptor.viewType === 'following-list' ? 'following'
                 : descriptor.viewType === 'collection-list' ? 'collections' : 'works',
             descriptor
@@ -50,6 +50,9 @@ function renderQuickMode(panel) {
     if (sources.length > 1) {
         panel.appendChild(sourceChips(sources, quickState.source, source => {
             quickState.source = source;
+            quickState.uid = null;
+            quickState.drill = null;
+            quickState.loadSeq++;
             quickState.kind = (altTypesForSource('quick', source)[0] || {}).type || 'illust';
             quickState.action = null;
             renderStage();
@@ -63,6 +66,8 @@ function renderQuickMode(panel) {
     if (typeOptions.length > 1) {
         panel.appendChild(smallSeg(typeOptions, quickState.kind, kind => {
             quickState.kind = kind;
+            quickState.drill = null;
+            quickState.loadSeq++;
             quickState.action = null;
             renderStage();
         }));
@@ -119,6 +124,8 @@ function renderQuickMode(panel) {
 }
 
 async function loadQuickUid() {
+    const source = quickState.source, revision = quickState.accountRevision;
+    const isCurrent = () => source === quickState.source && revision === quickState.accountRevision;
     try {
         const acquisition = quickAcquisition();
         if (!acquisition || !acquisition.account) {
@@ -126,9 +133,11 @@ async function loadQuickUid() {
         }
         const data = await altAcquisitionJson(acquisition.type, 'quick',
             acquisition.account.buildRequest(), 'account', {});
+        if (!isCurrent()) return;
         const value = acquisition.account.readId(data);
         quickState.uid = value == null ? null : String(value);
     } catch {
+        if (!isCurrent()) return;
         quickState.uid = null;
     }
     const node = document.getElementById('abQuickUid');
@@ -145,6 +154,10 @@ function quickActionDef(id) {
 }
 
 function runQuickAction(action, page) {
+    if (!action) return;
+    quickState.allIds = [];
+    quickState.pageCursors = new Map();
+    quickState.loadSeq++;
     quickState.action = action.id;
     const selector = document.getElementById('abQuickAction');
     if (selector) selector.value = action.id;
@@ -169,6 +182,9 @@ function quickRest(action) {
 async function loadQuickWorks(action, page) {
     const stage = document.getElementById('abQuickStage');
     if (!stage) return;
+    const seq = ++quickState.loadSeq;
+    const source = quickState.source, kind = quickState.kind;
+    const isCurrent = () => seq === quickState.loadSeq && source === quickState.source && kind === quickState.kind;
     quickState.loading = true;
     quickState.error = '';
     stage.innerHTML = '';
@@ -191,13 +207,14 @@ async function loadQuickWorks(action, page) {
                 if (!quickState.uid) throw new Error(bt('quick.error.no-uid', '无法解析当前账号'));
                 if (page === 1 || !quickState.allIds.length) {
                     const idsData = await altAcquisitionJson(acquisition.type, 'quick',
-                        acquisition.buildMyWorksIdsRequest(quickState.uid), 'ids', context);
+                        (descriptor.buildIdsRequest || acquisition.buildMyWorksIdsRequest)(quickState.uid), 'ids', context);
+                    if (!isCurrent()) return;
                     quickState.allIds = (idsData.ids || []).map(String);
                 }
                 total = quickState.allIds.length;
                 const pageIds = quickState.allIds.slice((page - 1) * limit, page * limit);
                 const data = await altAcquisitionJson(acquisition.type, 'quick',
-                    acquisition.buildCardsRequest(quickState.uid, pageIds), 'cards', context);
+                    (descriptor.buildCardsRequest || acquisition.buildCardsRequest)(quickState.uid, pageIds), 'cards', context);
                 items = normalizeAcquisitionItems(data.items || [], acquisition, context, 'quick');
                 totalPages = Math.max(1, Math.ceil(total / limit));
             } else {
@@ -206,37 +223,17 @@ async function loadQuickWorks(action, page) {
                 const raw = data.items || data.works || [];
                 items = normalizeAcquisitionItems(raw, acquisition, context, 'quick');
                 total = Number(data.total || items.length);
-                hasNext = !!(data.hasNext || data.hasMore);
+                hasNext = quickPageHasMore(data, page, limit, raw.length);
                 if (page === 1) quickState.pageCursors = new Map();
                 if (hasNext && descriptor.cursorPaging) {
                     quickState.pageCursors.set(page + 1, altNextCursor(data, cursor, true));
                 }
-                totalPages = total > 0 ? Math.max(1, Math.ceil(total / limit)) : 0;
+                totalPages = Math.max(page + (hasNext ? 1 : 0), Math.ceil(total / limit));
             }
-        } else if (action.id === 'my-illust-bookmarks-show' || action.id === 'my-illust-bookmarks-hide') {
-            const limit = 48;
-            const data = await pixivJson(`/api/pixiv/me/illust-bookmarks?rest=${quickRest(action)}&offset=${(page - 1) * limit}&limit=${limit}`);
-            items = data.items || [];
-            total = Number(data.total || items.length);
-            totalPages = Math.max(1, Math.ceil(total / limit));
-        } else if (action.id === 'my-following-new') {
-            const data = await pixivJson(`/api/pixiv/me/follow-latest?p=${page}`);
-            items = data.items || [];
-            total = 0;
-            hasNext = !!data.hasNext;
         } else {
-            // 我的作品 / 约稿：先取全部 ID，再分页取卡片
-            if (!quickState.uid) await loadQuickUid();
-            if (!quickState.uid) throw new Error(bt('quick.error.no-uid', '无法解析当前账号'));
-            const endpoint = action.id === 'my-request-artworks' ? 'request-artworks' : 'artworks';
-            const idsData = await pixivJson(`/api/pixiv/user/${encodeURIComponent(quickState.uid)}/${endpoint}`);
-            const ids = (idsData.ids || []).map(String);
-            total = ids.length;
-            totalPages = Math.max(1, Math.ceil(total / QUICK_PAGE_SIZE));
-            const pageIds = ids.slice((page - 1) * QUICK_PAGE_SIZE, page * QUICK_PAGE_SIZE);
-            const cards = await fetchIllustCards(quickState.uid, pageIds);
-            items = cards.items || [];
+            throw new Error(bt('quick.error.unknown-action', null));
         }
+        if (!isCurrent()) return;
         quickState.items = items;
         quickState.rawItems = items;
         quickState.page = page;
@@ -246,6 +243,7 @@ async function loadQuickWorks(action, page) {
         quickState.loading = false;
         quickState.error = '';
     } catch (e) {
+        if (!isCurrent()) return;
         quickState.items = [];
         quickState.rawItems = [];
         quickState.page = page;
@@ -267,6 +265,7 @@ async function applyQuickFilters() {
     if (!result) return;
     quickState.items = result.filtered;
     quickState.filterSummary = result.stats;
+    if (quickState.drill) await applyQuickDrillFilters(quickState.drill);
     renderQuickStage();
 }
 
@@ -339,7 +338,7 @@ function renderQuickWorks(stage, action) {
             : bt('common.page.simple', '第 {page} 页', {page: quickState.page}),
         filterSummary: quickFilterSummaryText(),
         pageEnabled: quickState.items.length > 0,
-        allEnabled: quickState.items.length > 0,
+        allEnabled: quickState.rawItems.length > 0 || quickState.total > 0,
         onEnqueuePage: () => enqueueItems(quickState.items, null, {source: QUICK_FETCH_MODE}),
         onEnqueueAll: () => enqueueQuickAll(action)
     }));
@@ -349,7 +348,7 @@ function renderQuickWorks(stage, action) {
     }));
     stage.appendChild(paginationBar({
         page: quickState.page,
-        totalPages: action.id === 'my-following-new' ? 0 : quickState.totalPages,
+        totalPages: quickState.totalPages,
         total: quickState.total,
         hasNext: quickState.hasNext,
         onPage: p => loadQuickWorks(action, p)
@@ -357,12 +356,16 @@ function renderQuickWorks(stage, action) {
 }
 
 async function enqueueQuickAll(action) {
+    const source = quickState.source, kind = quickState.kind, seq = quickState.loadSeq;
+    const isCurrent = () => source === quickState.source && kind === quickState.kind
+        && action.id === quickState.action && seq === quickState.loadSeq;
     if (!await abConfirm('quick.enqueue-all.confirm',
         '将全部 {count} 个作品加入队列？需要逐页抓取约 {pages} 页，会产生较多请求。',
-        {count: quickState.total || quickState.items.length, pages: quickState.totalPages || 1})) return;
+        {count: quickState.total || quickState.items.length, pages: quickState.totalPages || 1}) || !isCurrent()) return;
     if (action.descriptor) {
         const acquisition = quickAcquisition();
         const descriptor = action.descriptor;
+        const lease = altQueueTypes().acquisitionLease(acquisition.type, 'quick');
         if (descriptor.allIdsFastPath) {
             try {
                 if (!quickState.uid) await loadQuickUid();
@@ -371,9 +374,11 @@ async function enqueueQuickAll(action) {
                     accountId: quickState.uid, accountOwner: quickState.source};
                 if (!quickState.allIds.length) {
                     const data = await altAcquisitionJson(acquisition.type, 'quick',
-                        acquisition.buildMyWorksIdsRequest(quickState.uid), 'ids', context);
+                        (descriptor.buildIdsRequest || acquisition.buildMyWorksIdsRequest)(quickState.uid), 'ids', context);
                     quickState.allIds = (data.ids || []).map(String);
                 }
+                lease.assertCurrent();
+                if (!isCurrent()) return;
                 const items = quickState.allIds.map(id => {
                     const owned = acquisition.buildQueueMetaFromId
                         ? acquisition.buildQueueMetaFromId(id, context) : {};
@@ -392,7 +397,7 @@ async function enqueueQuickAll(action) {
         const limit = Math.max(1, Number(descriptor.pageSize || acquisition.pageSize) || 24);
         const all = [];
         let cursor = descriptor.initialCursor ?? acquisition.initialCursor ?? null;
-        for (let page = 1; page <= 200; page++) {
+        for (let page = 1; ; page++) {
             const context = {
                 action: action.id, page, offset: (page - 1) * limit, limit, cursor,
                 rest: quickRest(action), uid: quickState.uid,
@@ -400,82 +405,61 @@ async function enqueueQuickAll(action) {
             };
             let data;
             try {
+                lease.assertCurrent();
+                if (!isCurrent()) return;
                 data = await altAcquisitionJson(acquisition.type, 'quick',
                     descriptor.buildPageRequest(context), 'page', context);
+                lease.assertCurrent();
+                if (!isCurrent()) return;
             } catch (e) {
                 abToast('error', String(e && e.message || bt('common.request-failed', '请求失败')));
                 return;
             }
             all.push(...normalizeAcquisitionItems(data.items || data.works || [], acquisition, context, 'quick'));
-            const hasMore = !!(data.hasNext || data.hasMore);
-            if (!hasMore || !(data.items || data.works || []).length) break;
-            // ponytail: 防止失控循环；仅在真实账号数超过已验证上限时再提高此值。
-            if (page === 200) {
+            const hasMore = quickPageHasMore(data, page, limit, (data.items || data.works || []).length);
+            if (!hasMore) break;
+            // 已知总量按来源遍历；未知结束点沿用游标获取的累计保护。
+            const totalPages = Number(data.totalPages) > 0 ? Number(data.totalPages) : Math.ceil(Number(data.total) / limit);
+            const knownTotal = Number.isFinite(totalPages) && totalPages > 0;
+            if (knownTotal && page >= totalPages) break;
+            if (!knownTotal && page >= 1000) {
                 abToast('error', bt('pagination.error.page-limit', '分页数量超出安全上限，未加入不完整结果'));
                 return;
             }
-            if (descriptor.cursorPaging) cursor = altNextCursor(data, cursor, hasMore);
+            if (descriptor.cursorPaging) {
+                try { cursor = altNextCursor(data, cursor, hasMore); }
+                catch (error) {
+                    abToast('error', String(error && error.message || bt('common.request-failed', '请求失败')));
+                    return;
+                }
+            }
         }
         const added = enqueueItems(all, null, {source: QUICK_FETCH_MODE, silent: true});
         abToast('success', bt('queue.toast.batch-added', '已批量加入 {count} 个作品', {count: added}));
         return;
     }
-    if (action.id === 'my-following-new' || action.id.startsWith('my-illust-bookmarks')) {
-        // 书签 / 新作：逐页抓取直到没有下一页。
-        const all = [];
-        if (action.id.startsWith('my-illust-bookmarks')) {
-            const limit = 100;
-            let offset = 0;
-            for (; ;) {
-                const data = await pixivJson(`/api/pixiv/me/illust-bookmarks?rest=${quickRest(action)}&offset=${offset}&limit=${limit}`);
-                const items = data.items || [];
-                all.push(...items);
-                offset += items.length;
-                if (items.length < limit || offset >= Number(data.total || 0)) break;
-            }
-        } else {
-            let page = 1;
-            for (; ;) {
-                const data = await pixivJson(`/api/pixiv/me/follow-latest?p=${page}`);
-                const items = data.items || [];
-                all.push(...items);
-                if (!data.hasNext) break;
-                page++;
-                if (page > 200) break;   // 分页护栏：超过安全页数即停止
-            }
-        }
-        enqueueItems(all, 'illust', {source: QUICK_FETCH_MODE, silent: true});
-        const added = all.length;
-        abToast('success', bt('queue.toast.batch-added', '已批量加入 {count} 个作品', {count: added}));
-    } else {
-        // 我的作品 / 约稿：ID 全量已在服务端，直接逐页取卡片入队
-        try {
-            const endpoint = action.id === 'my-request-artworks' ? 'request-artworks' : 'artworks';
-            const idsData = await pixivJson(`/api/pixiv/user/${encodeURIComponent(quickState.uid)}/${endpoint}`);
-            const ids = (idsData.ids || []).map(String);
-            const metas = ids.map(id => buildQueueMeta({id}, 'illust', {}));
-            const added = addItemsToQueue(ids, metas, QUICK_FETCH_MODE);
-            abToast('success', bt('queue.toast.batch-added', '已批量加入 {count} 个作品', {count: added}));
-        } catch (e) {
-            abToast('error', String(e && e.message || bt('common.request-failed', '请求失败')));
-        }
-    }
-    syncAllResultsQueueState();
+    abToast('error', bt('quick.error.unknown-action', null));
 }
 
 async function loadQuickFollowing(action, offset) {
     const stage = document.getElementById('abQuickStage');
     if (!stage) return;
+    const seq = ++quickState.loadSeq;
     quickState.loading = true;
     quickState.error = '';
     renderQuickStage();
     try {
         const limit = 24;
-        const data = await pixivJson(`/api/pixiv/me/following?rest=${quickRest(action)}&offset=${offset}&limit=${limit}`);
-        quickState.users = data.users || [];
+        const acquisition = quickAcquisition();
+        const context = {page: Math.floor(offset / limit) + 1, offset, limit, rest: quickRest(action)};
+        const data = await altAcquisitionJson(acquisition.type, 'quick',
+            action.descriptor.buildPageRequest(context), 'page', context);
+        if (seq !== quickState.loadSeq) return;
+        quickState.users = data.users || data.items || [];
         quickState.usersTotal = Number(data.total || quickState.users.length);
         quickState.usersOffset = offset;
     } catch (e) {
+        if (seq !== quickState.loadSeq) return;
         quickState.users = [];
         quickState.usersTotal = 0;
         quickState.usersOffset = offset;
@@ -538,30 +522,161 @@ function renderQuickFollowing(stage, action) {
     }));
 }
 
+function quickPageHasMore(data, page, limit, count) {
+    if (typeof data.hasMore === 'boolean') return data.hasMore;
+    if (typeof data.hasNext === 'boolean') return data.hasNext;
+    if (Number(data.totalPages) > 0) return page < Number(data.totalPages);
+    return page * limit < Number(data.total || 0) && count > 0;
+}
+
+function quickUserAcquisitions() {
+    const descriptor = quickActionDef(quickState.action)?.descriptor;
+    const allowed = new Set(descriptor?.userWorkTypes || [quickState.kind]);
+    return altTypesForSource('quick', quickState.source)
+        .filter(item => allowed.has(item.type))
+        .map(item => altAcquisition('quick', quickState.source, item.type))
+        .filter(acq => acq && (typeof acq.buildUserPageRequest === 'function'
+            || (typeof acq.buildUserIdsRequest === 'function' && typeof acq.buildCardsRequest === 'function')));
+}
+
 async function drillQuickUser(user) {
-    quickState.drill = {type: 'user', id: String(user.userId), name: user.userName || String(user.userId)};
-    quickState.drillItems = [];
-    quickState.error = '';
-    renderQuickStage();
-    const stage = document.getElementById('abQuickStage');
-    const drillBox = stage && stage.querySelector('.ab-drill');
-    if (drillBox) drillBox.appendChild(loadingGrid(bt('common.loading', '加载中…')));
-    try {
-        const idsData = await pixivJson(`/api/pixiv/user/${encodeURIComponent(user.userId)}/artworks`);
-        const ids = (idsData.ids || []).map(String).slice(0, 24);
-        const cards = await fetchIllustCards(user.userId, ids);
-        quickState.drillItems = cards.items || [];
-    } catch (e) {
-        quickState.error = String(e && e.message || bt('common.request-failed', '请求失败'));
+    const kinds = quickUserAcquisitions();
+    const kind = (kinds.find(acq => acq.type === quickState.kind) || kinds[0])?.type;
+    const drill = {
+        type: 'user', id: String(user.userId), name: user.userName || String(user.userId),
+        kind, page: 1, total: 0, rawItems: [], cursors: new Map(), loadSeq: 0
+    };
+    quickState.drill = drill;
+    await loadQuickDrillPage(1);
+}
+
+async function fetchQuickDrillPage(drill, page) {
+    const acquisition = altAcquisition('quick', quickState.source, drill.kind);
+    if (!acquisition) throw new Error(bt('queue.message.type-unavailable', '该类型当前不可用（其插件已禁用）'));
+    const descriptor = quickActionDef(quickState.action)?.descriptor;
+    const limit = Math.max(1, Number(descriptor?.pageSize || acquisition.pageSize) || 24);
+    const lease = altQueueTypes().acquisitionLease(acquisition.type, 'quick');
+    const initial = drill.type === 'collection' ? descriptor?.initialCursor : acquisition.initialCursor;
+    const cursor = page === 1 ? initial ?? null : drill.cursors.get(page);
+    const context = {
+        page, offset: (page - 1) * limit, limit, cursor,
+        userId: drill.id, username: drill.name,
+        inner: {type: drill.type === 'user' ? 'following-user' : 'collection',
+            id: drill.id, userId: drill.id, name: drill.name, kind: drill.kind}
+    };
+    const request = async (spec, operation) => {
+        lease.assertCurrent();
+        const data = await altAcquisitionJson(acquisition.type, 'quick', spec, operation, context);
+        lease.assertCurrent();
+        return data;
+    };
+    let data, raw, hasMore;
+    if (drill.type === 'user' && typeof acquisition.buildUserPageRequest !== 'function') {
+        if (!drill.ids) {
+            const idsData = await request(acquisition.buildUserIdsRequest(drill.id), 'ids');
+            drill.ids = (idsData.ids || []).map(String);
+        }
+        const ids = drill.ids.slice(context.offset, context.offset + limit);
+        data = ids.length ? await request(acquisition.buildCardsRequest(drill.id, ids), 'cards') : {items: []};
+        raw = data.items || [];
+        data.total = drill.ids.length;
+        hasMore = context.offset + limit < drill.ids.length;
+    } else if (drill.type === 'collection' && typeof descriptor?.buildCollectionWorksPageRequest !== 'function') {
+        if (typeof descriptor?.buildCollectionWorksRequest !== 'function') {
+            throw new Error(bt('quick.error.unknown-action', '该入口当前不可用'));
+        }
+        data = await request(descriptor.buildCollectionWorksRequest(drill.id), 'collection-works');
+        raw = data.works || data.items || [];
+        hasMore = false;
+    } else {
+        if (page > 1 && cursor == null) {
+            throw new Error(bt('pagination.error.cursor-unavailable', '分页游标不可用，请重新从第一页加载'));
+        }
+        const spec = drill.type === 'user'
+            ? acquisition.buildUserPageRequest(drill.id, context)
+            : descriptor.buildCollectionWorksPageRequest(drill.id, context);
+        data = await request(spec, drill.type === 'user' ? 'page' : 'collection-works');
+        raw = data.items || data.works || [];
+        hasMore = !!data.hasMore;
+        if (hasMore) drill.cursors.set(page + 1, altNextCursor(data, cursor, true));
     }
+    // 混合珍藏集按条目的活动类型构建队列元数据，不能把小说当成插画。
+    const items = raw.flatMap(item => {
+        const owner = item.kind && item.kind !== acquisition.type
+            ? altAcquisition('quick', quickState.source, item.kind) : acquisition;
+        return owner ? normalizeAcquisitionItems([item], owner, context, 'quick') : [];
+    });
+    return {
+        items, page, limit, hasMore,
+        knownTotal: Number.isFinite(Number(data.total)) && Number(data.total) > 0,
+        total: Math.max(Number(data.total) || 0, context.offset + raw.length + (hasMore ? 1 : 0))
+    };
+}
+
+async function loadQuickDrillPage(page) {
+    const drill = quickState.drill;
+    if (!drill) return;
+    const seq = ++drill.loadSeq;
+    const isCurrent = () => quickState.drill === drill && seq === drill.loadSeq;
+    drill.loading = true;
+    drill.error = '';
     renderQuickStage();
-    const box = document.querySelector('.ab-drill');
-    if (box && box.scrollIntoView) box.scrollIntoView({block: 'nearest', behavior: 'smooth'});
+    try {
+        const data = await fetchQuickDrillPage(drill, page);
+        if (!isCurrent()) return;
+        Object.assign(drill, data, {rawItems: data.items});
+        await applyQuickDrillFilters(drill);
+    } catch (error) {
+        if (!isCurrent()) return;
+        drill.error = String(error?.message || bt('common.request-failed', '请求失败'));
+    }
+    if (!isCurrent()) return;
+    drill.loading = false;
+    renderQuickStage();
+}
+
+async function applyQuickDrillFilters(drill) {
+    const seq = drill.filterSeq = (drill.filterSeq || 0) + 1;
+    const result = await computeFilteredItems(drill.rawItems, extraFilters, drill.kind,
+        () => quickState.drill !== drill || seq !== drill.filterSeq);
+    if (!result || quickState.drill !== drill || seq !== drill.filterSeq) return;
+    quickState.drillItems = result.filtered;
+    drill.filterSummary = result.stats;
+}
+
+async function enqueueQuickDrillAll() {
+    const drill = quickState.drill;
+    if (!drill) return;
+    const seq = drill.loadSeq;
+    const isCurrent = () => quickState.drill === drill && seq === drill.loadSeq;
+    if (!await abConfirm('quick.confirm.add-all-paged',
+        '将逐页抓取 {pages} 页（共 {total} 个）并加入队列，请求较多，确认继续？',
+        {pages: Math.max(1, Math.ceil(drill.total / drill.limit)), total: drill.total}) || !isCurrent()) return;
+    const lease = altQueueTypes().acquisitionLease(drill.kind, 'quick');
+    const all = [];
+    try {
+        for (let page = 1; ; page++) {
+            if (!isCurrent()) return;
+            lease.assertCurrent();
+            const data = await fetchQuickDrillPage(drill, page);
+            lease.assertCurrent();
+            if (!isCurrent()) return;
+            all.push(...data.items);
+            if (!data.hasMore) break;
+            if (!data.knownTotal && page >= 1000) throw new Error(bt('pagination.error.page-limit', '分页数量超出安全上限，未加入不完整结果'));
+        }
+        // 与现行快捷获取一致：全量入队后由下载执行阶段应用附加筛选。
+        const added = enqueueItems(all, null, {source: QUICK_FETCH_MODE, silent: true});
+        abToast('success', bt('queue.toast.batch-added', '已批量加入 {count} 个作品', {count: added}));
+    } catch (error) {
+        if (isCurrent()) abToast('error', String(error?.message || bt('common.request-failed', '请求失败')));
+    }
 }
 
 async function loadQuickCollections(action) {
     const stage = document.getElementById('abQuickStage');
     if (!stage) return;
+    const seq = ++quickState.loadSeq;
     quickState.loading = true;
     quickState.error = '';
     renderQuickStage();
@@ -571,6 +686,7 @@ async function loadQuickCollections(action) {
             const context = {action: action.id, page: 1, cursor: action.descriptor.initialCursor || '0', limit: 24};
             const data = await altAcquisitionJson(acquisition.type, 'quick',
                 action.descriptor.buildPageRequest(context), 'collections', context);
+            if (seq !== quickState.loadSeq) return;
             quickState.collections = (data.collections || data.items || data.folders || []).map(item => ({
                 id: item.id || item.collectionId || item.folderId,
                 title: item.title || item.name || item.id,
@@ -582,6 +698,7 @@ async function loadQuickCollections(action) {
             quickState.collections = data.collections || [];
         }
     } catch (e) {
+        if (seq !== quickState.loadSeq) return;
         quickState.collections = [];
         quickState.error = String(e && e.message || bt('common.request-failed', '请求失败'));
     }
@@ -623,35 +740,18 @@ function renderQuickCollections(stage) {
 }
 
 async function drillQuickCollection(collection) {
-    quickState.drill = {type: 'collection', id: String(collection.id), name: collection.title || String(collection.id)};
-    quickState.drillItems = [];
-    quickState.error = '';
-    renderQuickStage();
-    try {
-        const action = quickActionDef(quickState.action);
-        if (action && action.descriptor && typeof action.descriptor.buildCollectionWorksPageRequest === 'function') {
-            const acquisition = quickAcquisition();
-            const context = {action: action.id, page: 1, cursor: '0', limit: 24,
-                inner: {type: 'collection', id: String(collection.id), name: collection.title}};
-            const data = await altAcquisitionJson(acquisition.type, 'quick',
-                action.descriptor.buildCollectionWorksPageRequest(collection.id, context), 'collection-works', context);
-            quickState.drillItems = normalizeAcquisitionItems(data.items || data.works || [], acquisition, context, 'quick');
-        } else {
-            const data = await pixivJson(`/api/pixiv/me/collection/${encodeURIComponent(collection.id)}/works`);
-            quickState.drillItems = (data.works || []).map(w => Object.assign({}, w, {kind: w.kind || 'illust'}));
-        }
-    } catch (e) {
-        quickState.error = String(e && e.message || bt('common.request-failed', '请求失败'));
-    }
-    renderQuickStage();
-    const box = document.querySelector('.ab-drill');
-    if (box && box.scrollIntoView) box.scrollIntoView({block: 'nearest', behavior: 'smooth'});
+    quickState.drill = {
+        type: 'collection', id: String(collection.id), name: collection.title || String(collection.id),
+        kind: quickState.kind, page: 1, total: 0, rawItems: [], cursors: new Map(), loadSeq: 0
+    };
+    await loadQuickDrillPage(1);
 }
 
 function renderQuickDrill(stage) {
+    const current = quickState.drill;
     const drill = el('div', 'ab-drill');
     const head = el('div', 'ab-drill-head');
-    head.appendChild(el('h3', '', quickState.drill.name));
+    head.appendChild(el('h3', '', current.name));
     const close = el('button', 'ab-iconbtn');
     close.type = 'button';
     close.setAttribute('aria-label', bt('common.close', '关闭'));
@@ -663,17 +763,38 @@ function renderQuickDrill(stage) {
     });
     head.appendChild(close);
     drill.appendChild(head);
-    if (!quickState.drillItems.length) {
-        drill.appendChild(loadingGrid(bt('common.loading', '加载中…')));
-    } else {
-        drill.appendChild(enqueueBar({
-            summary: bt('quick.drill.summary', '{count} 个作品', {count: quickState.drillItems.length}),
-            pageEnabled: true,
-            allEnabled: true,
-            onEnqueuePage: () => enqueueItems(quickState.drillItems, null, {source: QUICK_FETCH_MODE}),
-            onEnqueueAll: () => enqueueItems(quickState.drillItems, null, {source: QUICK_FETCH_MODE})
+    if (current.type === 'user') {
+        const choices = quickUserAcquisitions().map(acq => [acq.type, altTypeLabel(acq.type)]);
+        if (choices.length > 1) drill.appendChild(smallSeg(choices, current.kind, kind => {
+            quickState.drill = Object.assign({}, current, {
+                kind, ids: null, cursors: new Map(), page: 1, rawItems: [], loadSeq: 0
+            });
+            loadQuickDrillPage(1);
         }));
-        drill.appendChild(worksGrid(quickState.drillItems, {source: QUICK_FETCH_MODE}));
+    }
+    if (current.loading) {
+        drill.appendChild(loadingGrid(bt('common.loading', '加载中…')));
+    } else if (current.error) {
+        drill.appendChild(errorBox(current.error, () => loadQuickDrillPage(current.page)));
+    } else {
+        const previewKey = 'quick-drill:' + current.type + ':' + current.id + ':' + current.kind;
+        drill.appendChild(enqueueBar({
+            previewKey,
+            summary: bt('quick.stage.summary', '第 {page} 页 · 共 {count} 个',
+                {page: current.page, count: current.total}),
+            filterSummary: current.filterSummary && hasExtraSearchFilter()
+                ? bt('user.summary.filtered', '附加筛选后 {count} 个', {count: current.filterSummary.filteredCount}) : '',
+            pageEnabled: quickState.drillItems.length > 0,
+            allEnabled: current.total > 0,
+            onEnqueuePage: () => enqueueItems(quickState.drillItems, null, {source: QUICK_FETCH_MODE}),
+            onEnqueueAll: enqueueQuickDrillAll
+        }));
+        drill.appendChild(worksGrid(quickState.drillItems, {source: QUICK_FETCH_MODE, previewKey}));
+        drill.appendChild(paginationBar({
+            previewKey, page: current.page,
+            totalPages: current.ids ? Math.max(1, Math.ceil(current.total / current.limit)) : 0,
+            total: current.total, hasNext: current.hasMore, onPage: loadQuickDrillPage
+        }));
     }
     stage.appendChild(drill);
 }

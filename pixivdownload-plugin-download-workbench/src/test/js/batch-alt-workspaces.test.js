@@ -139,7 +139,7 @@ test('作品选择跨页保留，按查询和插件换代清理，批量入队�
     assert.equal(context.currentWorkSelection().size, 0);
 });
 
-test('计划列表直接提供管理动作，并按名称、来源与状态筛选', () => {
+test('计划列表直接提供管理动作，并按名称、来源与状态筛选', async () => {
     const calls = [];
     const document = {
         addEventListener() {},
@@ -154,11 +154,11 @@ test('计划列表直接提供管理动作，并按名称、来源与状态筛�
         altScheduleSources: () => ({isAvailable: () => true, descriptor: () => null}),
         summaryJoin: items => items.filter(Boolean).join(' · '),
         scheduleVerb: (task, verb) => calls.push([task.id, verb]),
-        scheduleSetEnabled: (task, enabled) => calls.push([task.id, enabled]),
+        scheduleSetEnabled: (task, enabled) => { calls.push([task.id, enabled]); return false; },
         openScheduleEditor: task => calls.push([task.id, 'edit']),
     });
     context.window = context;
-    for (const name of ['alt-core.js', 'alt-schedule.js']) {
+    for (const name of ['alt-core.js', 'alt-settings.js', 'alt-schedule-presentation.js', 'alt-schedule.js']) {
         vm.runInContext(readFileSync(resolve(__dirname,
             '../../main/resources/static/pixiv-batch-alt', name), 'utf8'), context);
     }
@@ -175,19 +175,31 @@ test('计划列表直接提供管理动作，并按名称、来源与状态筛�
     assert.deepEqual(ids('', 'attention'), ['unavailable', 'input-needed']);
     const action = (row, key) => row.querySelectorAll('button').find(button => button.dataset.action === 'schedule.actions.' + key);
     const row = context.scheduleTaskCard(tasks[0]);
-    for (const key of ['run', 'pause', 'disable', 'edit']) {
+    for (const key of ['run', 'pause', 'edit']) {
         const button = action(row, key);
         assert.equal(button.disabled, false);
         assert.equal(button.closest('details'), null, '常用动作无需展开');
         button.dispatchEvent({type: 'click'});
     }
-    assert.deepEqual(calls, [['Favorite', 'run'], ['Favorite', 'pause'], ['Favorite', false], ['Favorite', 'edit']]);
+    const enabled = row.querySelector('input');
+    assert.equal(enabled.getAttribute('role'), 'switch');
+    enabled.checked = false;
+    enabled.dispatchEvent({type: 'change'});
+    assert.equal(enabled.disabled, true);
+    await Promise.resolve();
+    assert.equal(enabled.checked, true, '失败时恢复服务器确认过的开关状态');
+    assert.deepEqual(calls, [['Favorite', 'run'], ['Favorite', 'pause'], ['Favorite', 'edit'], ['Favorite', false]]);
     assert.ok(action(row, 'delete').closest('details'), '破坏性动作收纳到更多');
     assert.equal(action(context.scheduleTaskCard(tasks[1]), 'run').disabled, true);
     const paused = context.scheduleTaskCard(tasks[3]);
     action(paused, 'resume').dispatchEvent({type: 'click'});
     assert.deepEqual(calls.at(-1), ['paused', 'resume']);
-    assert.equal(paused.querySelector('.ab-schedule-next').querySelector('.ab-schedule-meta-value').textContent, '—');
+    assert.equal(paused.querySelector('.ab-schedule-next').textContent, '');
+    assert.equal(action(paused, 'run').disabled, true);
+    const cancelling = context.scheduleTaskCard(plan('cancelling', {runState: 'CANCEL_REQUESTED'}));
+    assert.equal(action(cancelling, 'run').disabled, true);
+    assert.equal(action(cancelling, 'pause').disabled, true);
+    assert.equal(cancelling.querySelector('input').disabled, true);
 });
 
 
@@ -198,6 +210,8 @@ test('计划队列的过期响应不得更新或卸载重新展开的容器', as
     const unmounts = [];
     const context = vm.createContext({
         BASE: '', document: {getElementById: () => box},
+        storeGet: () => null, storeSet() {},
+        state: {mode: 'schedule'}, scheduleState: {expandedQueues: new Set()},
         fetch: () => new Promise(resolve => { settle = resolve; }),
         PixivBatchAlt: {queueVue: {unmountScheduleQueue: id => unmounts.push(id)}},
     });

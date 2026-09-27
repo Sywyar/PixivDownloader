@@ -31,11 +31,11 @@ public class WebUiSlotController {
                 .sorted(Comparator.comparingInt(WebUiSlotContribution::order)
                         .thenComparing(WebUiSlotContribution::slotId))
                 .map(slot -> new UiSlotView(
-                        slot.slotId(), slot.target(), slot.moduleUrl(), slot.order(), slot.metadata()))
+                        slot.slotId(), slot.target(), slot.moduleUrl(), slot.order(), slot.metadata(), slot.i18nNamespace()))
                 .toList();
     }
 
     public record UiSlotView(String slotId, String target, String moduleUrl, int order,
-                             Map<String, String> metadata) {
+                             Map<String, String> metadata, String i18nNamespace) {
     }
 }

@@ -618,13 +618,16 @@ window.PixivBatch.queueTypes = (function () {
     async function i18nNamespaces() {
         const out = [];
         const seen = new Set();
+        const prefetched = current.identity ? null : ((await prefetchExtensions()) || {});
         const downloadTypes = current.identity
             ? current.orderedTypes.map(type => current.manifest.get(type))
-            : (((await prefetchExtensions()) || {}).downloadTypes || []);
+            : (prefetched.downloadTypes || []);
         downloadTypes.forEach(item => {
             addNamespace(out, seen, item && item.displayNamespace);
             addNamespace(out, seen, item && item.i18nNamespace);
         });
+        const slots = current.identity ? current.uiSlots : (prefetched.uiSlots || []);
+        slots.forEach(slot => addNamespace(out, seen, slot && slot.i18nNamespace));
         if (current.identity) {
             current.orderedTypes.forEach(type => {
                 ['single-import', 'user', 'search', 'series', 'quick'].forEach(mode => {

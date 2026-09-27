@@ -22,6 +22,8 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.*
@@ -75,6 +77,7 @@ internal fun AutomationDetails(
     onManage: (DesktopUiNode.AutomationPlan?) -> Unit,
 ) {
     val palette = LocalExperiencePalette.current
+    val elevatedSurface = if (palette.surface.luminance() < .5f) palette.secondarySurface else palette.surface
     val density = LocalDensity.current
     val margin = with(density) { 20.dp.roundToPx() }
     var popupOffset by remember { mutableStateOf(IntOffset.Zero) }
@@ -100,7 +103,7 @@ internal fun AutomationDetails(
             val above = popupOffset.y < localAnchor.top - margin
             val shape = RoundedCornerShape(17.dp)
             Box(
-                Modifier.widthIn(max = 384.dp).padding(20.dp)
+                Modifier.widthIn(max = 384.dp)
                     .graphicsLayer {
                         alpha = amount
                         scaleX = .982f + .018f * amount
@@ -108,9 +111,16 @@ internal fun AutomationDetails(
                         transformOrigin = TransformOrigin(.5f, if (above) 1f else 0f)
                         translationY = (if (above) 5 else -5) * density.density * (1 - amount)
                     }
+                    .padding(20.dp)
                     .onPointerEvent(PointerEventType.Enter) { onHover(true) }
                     .onPointerEvent(PointerEventType.Exit) { onHover(false) }
-                    .shadow(24.dp, shape, clip = false, ambientColor = palette.text.copy(alpha = .10f), spotColor = palette.text.copy(alpha = .12f)),
+                    .shadow(
+                        elevation = 18.dp,
+                        shape = shape,
+                        clip = false,
+                        ambientColor = Color.Black.copy(alpha = .32f),
+                        spotColor = Color.Black.copy(alpha = .38f),
+                    ),
             ) {
                 val side = popupOffset.x + margin >= localAnchor.right || popupOffset.x + with(density) { 364.dp.toPx() } <= localAnchor.left
                 if (!narrow && !side) Canvas(Modifier.fillMaxWidth().height(7.dp)
@@ -123,12 +133,13 @@ internal fun AutomationDetails(
                         lineTo(center + 6.dp.toPx(), if (above) 0f else size.height)
                         close()
                     }
-                    drawPath(path, palette.surface)
+                    drawPath(path, elevatedSurface)
                 }
                 Column(
                     Modifier.testTag("automation.detail").width(344.dp).onGloballyPositioned { onBounds(it.boundsInWindow()) }
                         .heightIn(max = availableHeight)
-                        .clip(shape).background(palette.surface)
+                        .clip(shape).background(elevatedSurface)
+                        .border(.5.dp, palette.separator.copy(alpha = .5f), shape)
                         .animateContentSize(tween(240)).verticalScroll(rememberScrollState()).padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {

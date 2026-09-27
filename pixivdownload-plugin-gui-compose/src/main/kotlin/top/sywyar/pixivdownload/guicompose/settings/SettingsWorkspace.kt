@@ -67,14 +67,8 @@ internal fun SettingsWorkspace(
         query = ""
         emit(Event(EventType.SELECTION, node.categories().id(), Value.selection(id)))
     }
-    val results = remember(query, node.locations(), text) {
-        val terms = query.trim().split(Regex("\\s+")).filter(String::isNotEmpty)
-        if (terms.isEmpty()) emptyList() else node.locations().filter { location ->
-            val category = node.tabs().firstOrNull { it.id() == location.categoryId() }
-            val searchable = listOf(text(location.label()), location.help()?.let(text).orEmpty(),
-                category?.title()?.let(text).orEmpty(), location.rowId()).joinToString(" ")
-            terms.all { searchable.contains(it, ignoreCase = true) }
-        }
+    val results = remember(query, node.locations(), node.tabs(), text) {
+        searchSettings(query, node.locations(), node.tabs(), text)
     }
     CompositionLocalProvider(LocalHintDismiss provides hintDismiss) {
     BoxWithConstraints(modifier.fillMaxSize().testTag("settings.workspace").onPreviewKeyEvent {
@@ -138,7 +132,8 @@ internal fun SettingsWorkspace(
                             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).testTag("settings.results")) {
                                 CupertinoText(text(settingsText("results", results.size)), fontSize = 13.sp, color = palette.secondaryText,
                                     modifier = Modifier.padding(bottom = 18.dp))
-                                results.forEach { result ->
+                                results.forEach { match ->
+                                    val result = match.location
                                     CupertinoButton(onClick = { query = ""; activate(result.locate()) },
                                         modifier = Modifier.fillMaxWidth().testTag(result.locate().id()),
                                         colors = CupertinoButtonDefaults.plainButtonColors(contentColor = palette.text),
@@ -147,6 +142,9 @@ internal fun SettingsWorkspace(
                                             CupertinoText(text(result.label()), fontSize = 14.sp, fontWeight = FontWeight.Medium)
                                             CupertinoText(text(node.tabs().first { it.id() == result.categoryId() }.title()),
                                                 fontSize = 12.sp, color = palette.secondaryText)
+                                            if (match.helpMatched) result.help()?.let { help ->
+                                                CupertinoText(text(help), fontSize = 12.sp, color = palette.secondaryText)
+                                            }
                                         }
                                     }
                                 }

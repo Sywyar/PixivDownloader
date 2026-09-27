@@ -28,6 +28,31 @@ import kotlin.test.*
 @OptIn(ExperimentalTestApi::class)
 class SettingsWorkspaceTest {
     @Test
+    @DisplayName("设置搜索支持标题和说明命中，显示匹配上下文并定位字段")
+    fun searchExplainsSecondaryMatchesAndLocatesFields() = runComposeUiTest {
+        val model = createModel(mutableMapOf())
+        var snapshot by mutableStateOf(model.snapshot())
+        val subscription = model.subscribeSnapshots { snapshot = it }
+        try {
+            setContent { PixivDownloaderTheme("light") {
+                Box(Modifier.size(1150.dp, 820.dp).background(LocalExperiencePalette.current.surface)) {
+                    SettingsWorkspace(workspace(snapshot), ::resolve, { model.dispatch(snapshot, it) })
+                }
+            } }
+            onNodeWithContentDescription(resolve(settingsKey("search"))).performTextInput("port")
+            val titleResult = onNodeWithTag("config.app.server.port.row.locate")
+            titleResult.assertIsDisplayed()
+            titleResult.performClick()
+            onNodeWithTag("config.app.server.port.row").assertIsDisplayed()
+            onNodeWithContentDescription(resolve(settingsKey("search"))).performTextInput("service")
+            onNodeWithText("Service address").assertIsDisplayed()
+            capture("search-help")
+            onNodeWithTag("config.app.sample.address.row.locate").performClick()
+            onNodeWithTag("config.app.sample.address.row").assertIsDisplayed()
+        } finally { subscription.close(); model.close() }
+    }
+
+    @Test
     @DisplayName("路径和文本设置紧凑对齐，窄窗口换行后仍可编辑和浏览文件")
     fun compactSettingsRows() = runComposeUiTest {
         val model = createModel(mutableMapOf())

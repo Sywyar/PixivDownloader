@@ -1,6 +1,8 @@
 package top.sywyar.pixivdownload.guicompose.model;
 
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon;
+import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.*;
 import java.net.URI;
@@ -40,13 +42,24 @@ final class DesktopSecurityController {
         actions.add(action("password", nextActions, () -> open("password")));
         actions.add(action("sessions", nextActions, () -> open("sessions")));
         actions.add(action("connection", nextActions, this::loadConnection));
-        actions.add(action("invites", nextActions, () -> {
-            inputChanged();
-            owner.runBusy(() -> {
-                try { host.openExternalUri(owner.webUri("/pixiv-invite-manage.html")); }
-                catch (Exception failure) { notice = label("browser-failed"); }
+        List<Button> navigation = new ArrayList<>();
+        for (var entry : DesktopControlCenterView.navigationEntries(owner.currentSources(), NavigationPlacements.DESKTOP_SECURITY_ACTIONS)) {
+            var contribution = entry.navigation();
+            String id = "security.navigation." + DesktopUiNodes.safeId(entry.owner()) + "." + DesktopUiNodes.safeId(contribution.id());
+            nextActions.put(id, () -> {
+                inputChanged();
+                owner.runBusy(() -> {
+                    if (!DesktopControlCenterView.navigationEntries(owner.currentSources(), NavigationPlacements.DESKTOP_SECURITY_ACTIONS).contains(entry)) return;
+                    try { host.openExternalUri(owner.webUri(contribution.href())); }
+                    catch (Exception failure) { notice = label("browser-failed"); }
+                });
             });
-        }));
+            navigation.add(new Button(id, id,
+                    DesktopUiNodes.token(contribution.labelNamespace(), contribution.labelI18nKey(), contribution.id()),
+                    contribution.descriptionI18nKey().isBlank() ? null
+                            : DesktopUiNodes.token(contribution.labelNamespace(), contribution.descriptionI18nKey(), ""),
+                    ButtonStyle.NORMAL, !owner.busy(), DesktopUiIcon.SECURITY));
+        }
         actions.add(action("close", nextActions, this::close));
         actions.add(action("submit", nextActions, this::changePassword));
         actions.add(action("logout", nextActions, this::logout));
@@ -62,7 +75,7 @@ final class DesktopSecurityController {
                 inputs, new Toggle("security.https", "security.https", label("https"), null,
                 ToggleStyle.SWITCH, Boolean.parseBoolean(value("https")), !owner.busy()),
                 actions, notice, errorField, formRevision, successRevision, successOperation,
-                runningAddress, keyStoreConfigured);
+                runningAddress, keyStoreConfigured, navigation);
     }
 
     private Button action(String name, Map<String, Runnable> actions, Runnable callback) {
@@ -75,7 +88,7 @@ final class DesktopSecurityController {
             default -> true;
         };
         String labelKey = switch (name) {
-            case "password", "sessions", "connection", "invites" -> name + ".action";
+            case "password", "sessions", "connection" -> name + ".action";
             case "submit" -> "password.action";
             case "logout" -> "sessions.action";
             default -> name;

@@ -4,9 +4,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.*;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPluginSnapshot;
+import top.sywyar.pixivdownload.plugin.api.web.*;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.*;
@@ -51,14 +55,12 @@ class DesktopSecurityControllerTest {
     }
 
     @Test
-    @DisplayName("会话注销失败和无效成功响应不误报成功，邀请打开真实页面")
-    void sessionsAndInvites() throws Exception {
+    @DisplayName("会话注销失败和无效成功响应不误报成功")
+    void sessionRevocation() throws Exception {
         AtomicReference<String> endpoint = new AtomicReference<>();
-        AtomicReference<Object> uri = new AtomicReference<>();
         AtomicReference<DesktopUiHost.GuiResponse> response = new AtomicReference<>(reply(200, Map.of()));
         try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), Map.of(
-                "guiPostJson", args -> { endpoint.set((String) args[0]); return response.get(); },
-                "openExternalUri", args -> { uri.set(args[0]); return null; }))) {
+                "guiPostJson", args -> { endpoint.set((String) args[0]); return response.get(); }))) {
             activate(model, "sessions");
             activate(model, "logout");
             await(model);
@@ -73,9 +75,6 @@ class DesktopSecurityControllerTest {
             activate(model, "logout");
             await(model);
             assertEquals(1, security(model).successRevision());
-            activate(model, "invites");
-            await(model);
-            assertEquals("/pixiv-invite-manage.html", ((java.net.URI) uri.get()).getPath());
         }
     }
 
@@ -122,8 +121,9 @@ class DesktopSecurityControllerTest {
     @DisplayName("浏览器打开失败在安全页可见，连接缺省端口来自宿主")
     void browserFailureAndHostPort() throws Exception {
         try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), Map.of(
-                "openExternalUri", args -> { throw new IllegalStateException("unavailable"); }))) {
-            activate(model, "invites");
+                "openExternalUri", args -> { throw new IllegalStateException("unavailable"); }),
+                () -> List.of(source(1, "/manage.html")))) {
+            activate(model, "navigation.sample.manage");
             await(model);
             assertEquals("gui.compose.security.browser-failed", security(model).notice().key());
             activate(model, "connection");
@@ -131,6 +131,64 @@ class DesktopSecurityControllerTest {
             assertEquals("8080", security(model).inputs().stream().filter(it -> it.bindingId().equals("security.port"))
                     .findFirst().orElseThrow().value());
         }
+    }
+
+    @Test
+    @DisplayName("安全入口仅来自活动贡献，撤回或换代后旧操作失效，恢复使用新入口")
+    void navigationLifecycle() throws Exception {
+        var sources = new AtomicReference<List<DesktopUiPluginSnapshot>>(List.of());
+        var opened = new AtomicReference<java.net.URI>();
+        try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), Map.of(
+                "openExternalUri", args -> { opened.set((java.net.URI) args[0]); return null; }), sources::get)) {
+            assertTrue(security(model).navigation().isEmpty());
+            sources.set(List.of(source(1, "/manage.html")));
+            model.rebuild();
+            var button = security(model).navigation().get(0);
+            assertEquals("sample", button.label().namespace());
+            assertEquals("nav.description", button.help().key());
+            activate(model, "navigation.sample.manage");
+            await(model);
+            assertEquals("/manage.html", opened.getAndSet(null).getPath());
+            var observed = model.snapshot();
+            sources.set(List.of());
+            model.dispatch(observed, new Event(EventType.ACTIVATE, button.id(), Value.empty()));
+            await(model);
+            assertNull(opened.get());
+            assertTrue(security(model).navigation().isEmpty());
+            sources.set(List.of(source(2, "/replacement.html")));
+            model.rebuild();
+            model.dispatch(observed, new Event(EventType.ACTIVATE, button.id(), Value.empty()));
+            assertNull(opened.get());
+            activate(model, "navigation.sample.manage");
+            await(model);
+            assertEquals("/replacement.html", opened.get().getPath());
+        }
+    }
+
+    @Test
+    @DisplayName("安全入口拒绝跨来源路由、未声明地址和流程专用访问策略")
+    void navigationRequiresOwnedDeclaredRoute() throws Exception {
+        var routeOwner = source(1, "/owned.html");
+        var invalid = new DesktopUiPluginSnapshot("other", false, "other", 1, false, "other", "name",
+                List.of(), List.of(), List.of(), List.of(WebRouteContribution.admin("/admin.html")), List.of(
+                new NavigationContribution("cross", NavigationPlacements.DESKTOP_SECURITY_ACTIONS, "other", "label",
+                        "/owned.html", "shield", AccessPolicy.ADMIN, 0),
+                new NavigationContribution("broad", NavigationPlacements.DESKTOP_SECURITY_ACTIONS, "other", "label",
+                        "/admin.html", "shield", AccessPolicy.PUBLIC, 0),
+                new NavigationContribution("flow-only", NavigationPlacements.DESKTOP_SECURITY_ACTIONS, "other", "label",
+                        "/admin.html", "shield", AccessPolicy.GUI, 0),
+                new NavigationContribution("external", NavigationPlacements.DESKTOP_SECURITY_ACTIONS, "other", "label",
+                        "https://example.test", "shield", AccessPolicy.ADMIN, 0)));
+        try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), Map.of(), () -> List.of(routeOwner, invalid))) {
+            assertEquals(List.of("security.navigation.sample.manage"), security(model).navigation().stream().map(Button::id).toList());
+        }
+    }
+
+    private static DesktopUiPluginSnapshot source(long generation, String path) {
+        return new DesktopUiPluginSnapshot("sample", false, "sample", generation, false, "sample", "name",
+                List.of(), List.of(), List.of(), List.of(WebRouteContribution.admin(path)), List.of(
+                new NavigationContribution("manage", Set.of(NavigationPlacements.DESKTOP_SECURITY_ACTIONS),
+                        "sample", "nav.title", path, "shield", AccessPolicy.ADMIN, 10, Set.of(), "nav.description")));
     }
 
     private static DesktopUiHost.GuiResponse reply(int status, Map<String, Object> body) {

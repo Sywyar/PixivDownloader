@@ -54,6 +54,12 @@ test('Pixiv 来源模块只经固定凭证贡献面注册并在插件内部读�
         }
     });
     assert.deepEqual(Array.from(contributions.keys()).sort(), sourceTypes.slice().sort());
+    const searchSummary = contributions.get('search').summary({paramsJson: JSON.stringify({
+        kind: 'illust', source: {word: '机械师'}, download: {}, filters: {}
+    })});
+    assert.match(searchSummary.description, /搜索关键词.*机械师/);
+    assert.equal(searchSummary.kind, 'illust');
+    assert.equal(searchSummary.sections.length, 3, '简述不丢失完整快照');
     contributions.forEach(value => {
         assert.equal(typeof value.capture, 'function');
         assert.equal(typeof value.restore, 'function');
