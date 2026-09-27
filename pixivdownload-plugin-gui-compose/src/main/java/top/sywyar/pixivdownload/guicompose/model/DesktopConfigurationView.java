@@ -663,6 +663,7 @@ final class DesktopConfigurationView {
                 nodes.addAll(actionNodes(
                         base,
                         section.actions().stream().filter(action -> action.cardId() == null).toList(),
+                        nextSelections,
                         nextActions
                 ));
             } else {
@@ -747,6 +748,7 @@ final class DesktopConfigurationView {
             nodes.addAll(actionNodes(
                     base,
                     section.actions().stream().filter(action -> action.cardId() == null).toList(),
+                    nextSelections,
                     nextActions
             ));
         } else {
@@ -827,7 +829,7 @@ final class DesktopConfigurationView {
                 cardId,
                 action.cardId()
         )).toList();
-        nodes.addAll(actionNodes(base, actions, nextActions));
+        nodes.addAll(actionNodes(base, actions, nextSelections, nextActions));
         return nodes;
     }
 
@@ -882,6 +884,7 @@ final class DesktopConfigurationView {
     private List<DesktopUiNode> actionNodes(
             String base,
             List<ConfigAction> configActions,
+            Map<String, Consumer<List<String>>> nextSelections,
             Map<String, Runnable> nextActions
     ) {
         List<DesktopUiNode> nodes = new ArrayList<>();
@@ -898,6 +901,30 @@ final class DesktopConfigurationView {
                     ButtonStyle.NORMAL,
                     !owner.busy()
             ));
+            var choices = model.actionChoices;
+            if (model.currentChoices(choices) && choices.action().equals(action)) {
+                String binding = id + ".selection";
+                nextSelections.put(binding, selected -> {
+                    int position = parseInt(first(selected).replaceFirst("^item\\.", ""), -1);
+                    if (position >= 0 && position < choices.options().size())
+                        model.selectActionValue(choices, choices.options().get(position));
+                });
+                nodes.add(new DesktopUiNode.Choice(
+                        binding,
+                        binding,
+                        action.label().token(),
+                        action.help() == null ? null : action.help().token(),
+                        ChoiceStyle.COMBO_BOX,
+                        SelectionMode.SINGLE,
+                        java.util.stream.IntStream.range(0, choices.options().size()).mapToObj(position -> new DesktopUiNode.Option(
+                                "item." + position,
+                                TextToken.raw(GuiActionResponseSafety.sanitizeActionText(choices.options().get(position))),
+                                true
+                        )).toList(),
+                        List.of(),
+                        !owner.busy()
+                ));
+            }
         }
         return nodes;
     }

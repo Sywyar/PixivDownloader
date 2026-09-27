@@ -64,6 +64,7 @@ final class DesktopConfigurationLoader {
     }
 
     synchronized void load() {
+        model.clearActionChoices();
         List<ConfigField> fields = new ArrayList<>();
         Map<String, GuiConfigGroupContribution> groups = new LinkedHashMap<>();
         host.coreConfigGroups().forEach(group -> groups.put(
@@ -553,6 +554,11 @@ final class DesktopConfigurationLoader {
                         action.resultRules(),
                         action.resultSummary()
                 )) return null;
+        if (action.resultSummary() != null && !action.resultSummary().selectionFieldKey().isBlank()) {
+            ConfigField field = trustedFields.get(new FieldKey(plugin.owner(), action.resultSummary().selectionFieldKey()));
+            if (field == null || field.spec().sensitive() || field.spec().type() != GuiConfigFieldType.STRING)
+                return null;
+        }
         String namespace = action.i18nNamespace() == null ? plugin.namespace() : action.i18nNamespace();
         return new ConfigAction(
                 plugin.owner(),

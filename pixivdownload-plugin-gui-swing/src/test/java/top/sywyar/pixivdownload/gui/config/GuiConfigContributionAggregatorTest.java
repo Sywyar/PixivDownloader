@@ -130,6 +130,30 @@ class GuiConfigContributionAggregatorTest {
         return plugin(owner, new GuiConfigContribution(groups, List.of(field), List.of(section)));
     }
 
+    @Test
+    @DisplayName("选择回填仅接纳同 owner 的非敏感文本字段")
+    void validatesSelectionOwnerAndType() {
+        for (String target : List.of("demo.value", "other.value", "demo.secret")) {
+            var action = new top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionContribution(
+                    "demo.get", "action.get", "", "demo", null, "demo-get", 10_000, 1,
+                    List.of(), "", List.of(),
+                    top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultSummary
+                            .allItems("items", "id", "").selectInto(target));
+            var section = new GuiConfigSectionContribution("demo.settings", "demo", "", "", "demo",
+                    GuiConfigSectionLayout.FIELD_LIST, 1, List.of(), List.of(action), List.of());
+            var contribution = new GuiConfigContribution(List.of(), List.of(
+                    new GuiConfigFieldContribution("demo.value", "demo", "Value", GuiConfigFieldType.STRING, "", 1),
+                    new GuiConfigFieldContribution("demo.secret", "demo", "Secret", GuiConfigFieldType.PASSWORD, "", 2)
+            ), List.of(section));
+            var source = new DesktopUiPluginSnapshot("demo", false, "demo", 1, false, "demo", "plugin.name",
+                    List.of(), List.of(contribution), List.of(),
+                    List.of(top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution.gui("/api/gui/demo-get")), List.of());
+            var result = GuiConfigContributionAggregator.fromRegisteredPlugins(List.of(source));
+            assertThat(result.sections()).hasSize(1);
+            assertThat(result.sections().get(0).actions()).hasSize(target.equals("demo.value") ? 1 : 0);
+        }
+    }
+
     private static DesktopUiPluginSnapshot plugin(String owner, GuiConfigContribution contribution) {
         return new DesktopUiPluginSnapshot(
                 owner,

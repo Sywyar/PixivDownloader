@@ -519,24 +519,61 @@ final class DeclaredGuiConfigSection implements ConfigSection {
                 .filter(action -> Objects.equals(cardId, action.cardId()))
                 .toList()) {
             JButton button = new JButton(action.label());
-            button.addActionListener(e -> runAction(section, action, button));
+            JComboBox<String> choices = new JComboBox<>();
+            choices.setVisible(false);
+            choices.getAccessibleContext().setAccessibleName(action.label());
+            choices.setToolTipText(action.help());
+            choices.setRenderer(new javax.swing.DefaultListCellRenderer() {
+                @Override
+                public Component getListCellRendererComponent(
+                        JList<?> list,
+                        Object value,
+                        int index,
+                        boolean selected,
+                        boolean focused
+                ) {
+                    return super.getListCellRendererComponent(
+                            list,
+                            GuiConfigActionResultSafety.sanitizeDisplayText(value == null ? "" : value.toString()),
+                            index,
+                            selected,
+                            focused
+                    );
+                }
+            });
+            JPanel controls = new JPanel(new BorderLayout(8, 0));
+            controls.setOpaque(false);
+            controls.add(button, BorderLayout.WEST);
+            controls.add(choices, BorderLayout.CENTER);
+            button.addActionListener(e -> runAction(section, action, button, choices));
             JPanel panel = FieldRenderer.fieldPanel(
                     action.label() + message("gui.punctuation.colon"),
-                    button,
+                    controls,
                     null,
                     action.help());
             addPanel(content, panel);
         }
     }
 
-    private void runAction(GuiConfigSectionSpec section, GuiConfigActionSpec action, JButton button) {
+    private void runAction(
+            GuiConfigSectionSpec section,
+            GuiConfigActionSpec action,
+            JButton button,
+            JComboBox<String> choices
+    ) {
+        for (var listener : choices.getActionListeners()) choices.removeActionListener(listener);
+        choices.setVisible(false);
+        String selectionKey = action.resultSummary() == null ? "" : action.resultSummary().selectionFieldKey();
+        String original = selectionKey.isBlank() ? "" : ctx.currentFieldValue(selectionKey);
         button.setEnabled(false);
         ctx.showNotice(action.sendingNotice().isBlank()
                 ? message("gui.config.action.notice.sending", action.label())
                 : action.sendingNotice());
         Map<String, Object> body;
+        byte[] requested;
         try {
             body = buildPayload(section, action);
+            requested = payloadDigest(body);
         } catch (Exception e) {
             log.warn(logMessage("gui.config.log.action.payload-failed", action.actionId(), safeMessage(e)), e);
             ctx.showNotice(message("gui.config.action.notice.failed", action.label(), safeMessage(e)));
@@ -555,7 +592,39 @@ final class DeclaredGuiConfigSection implements ConfigSection {
             protected void done() {
                 try {
                     DesktopUiHost.GuiResponse response = get();
+                    if (!button.isDisplayable()) return;
                     ctx.showNotice(actionNotice(action, response));
+                    List<String> candidates = ActionResult.from(response, action.resultSummary())
+                            .selectionValues(action.resultSummary());
+                    if (!candidates.isEmpty() && Objects.equals(original, ctx.currentFieldValue(selectionKey))
+                            && java.util.Arrays.equals(requested, payloadDigest(buildPayload(section, action)))) {
+                        String key = action.resultSummary().selectionFieldKey();
+                        ConfigFieldSpec field = ctx.findSpec(key);
+                        if (field == null || field.type() != FieldType.STRING
+                                || !Objects.equals(field.ownerPluginId(), effectiveOwner(action.ownerPluginId(), section)))
+                            return;
+                        choices.setModel(new javax.swing.DefaultComboBoxModel<>(candidates.toArray(String[]::new)));
+                        choices.setSelectedIndex(-1);
+                        choices.addActionListener(event -> {
+                            try {
+                                Object selected = choices.getSelectedItem();
+                                if (selected instanceof String value && candidates.contains(value)
+                                        && button.isDisplayable() && ctx.findSpec(key) == field
+                                        && Objects.equals(original, ctx.currentFieldValue(key))
+                                        && java.util.Arrays.equals(requested, payloadDigest(buildPayload(section, action)))) {
+                                    ctx.desktopHost().requireSafeConfigValue(value);
+                                    ctx.setFieldValue(key, value);
+                                    ctx.updateEnabledStates();
+                                }
+                            } catch (Exception failure) {
+                                ctx.showNotice(message("gui.config.action.notice.unreachable", action.label()));
+                            } finally {
+                                choices.setVisible(false);
+                            }
+                        });
+                        choices.setVisible(true);
+                        choices.revalidate();
+                    }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     ctx.showNotice(message("gui.config.action.notice.unreachable", action.label()));
@@ -565,12 +634,28 @@ final class DeclaredGuiConfigSection implements ConfigSection {
                             action.actionId(), safeMessage(cause)), cause);
                     ctx.showNotice(message("gui.config.action.notice.failed",
                             action.label(), safeMessage(cause)));
+                } catch (Exception e) {
+                    ctx.showNotice(message("gui.config.action.notice.unreachable", action.label()));
                 } finally {
+                    body.clear();
                     button.setEnabled(true);
                 }
             }
         };
         worker.execute();
+    }
+
+    private static byte[] payloadDigest(Map<String, Object> payload) throws IOException {
+        try {
+            var digest = java.security.MessageDigest.getInstance("SHA-256");
+            try (var output = new java.io.ObjectOutputStream(new java.security.DigestOutputStream(
+                    java.io.OutputStream.nullOutputStream(), digest))) {
+                output.writeObject(payload);
+            }
+            return digest.digest();
+        } catch (java.security.NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException(impossible);
+        }
     }
 
     private String actionNotice(GuiConfigActionSpec action, DesktopUiHost.GuiResponse response) {
@@ -748,6 +833,27 @@ final class DeclaredGuiConfigSection implements ConfigSection {
                 case JSON -> jsonText(path);
                 case SUMMARY -> summary == null ? "" : summary;
             };
+        }
+
+        private List<String> selectionValues(GuiConfigActionResultSummary spec) {
+            if (!reachable || !http2xx || body == null || spec == null
+                    || spec.selectionFieldKey().isBlank()
+                    || !GuiConfigActionResultSafety.isSafeJsonPath(spec.arrayPath(), false)
+                    || !GuiConfigActionResultSafety.isSafeJsonPath(spec.labelPath(), false)) return List.of();
+            GuiValue array = nodeAt(body, spec.arrayPath());
+            if (array == null || !array.isArray()) return List.of();
+            Set<String> values = new LinkedHashSet<>();
+            int count = 0;
+            for (var item : array) {
+                if (++count > 2_000) return List.of();
+                var node = nodeAt(item, spec.labelPath());
+                if (node == null || !node.isTextual()) return List.of();
+                String value = node.asText("");
+                if (value.isBlank() || value.length() > 256
+                        || value.codePoints().anyMatch(Character::isISOControl)) return List.of();
+                values.add(value);
+            }
+            return List.copyOf(values);
         }
 
         private String jsonText(String path) {

@@ -827,6 +827,15 @@ public final class GuiConfigContributionAggregator {
                         "GUI config action result summary contains an unsafe or invalid JSON path: " + actionId));
                 continue;
             }
+            if (action.resultSummary() != null && !action.resultSummary().selectionFieldKey().isBlank()) {
+                String target = action.resultSummary().selectionFieldKey();
+                if (!sameOwnerField(registered.id(), target, trustedFields)
+                        || trustedFields.get(target).type() != FieldType.STRING) {
+                    diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                            "GUI config selection must target an owned non-sensitive text field: " + actionId));
+                    continue;
+                }
+            }
             List<GuiConfigActionResultRuleSpec> resultRules =
                     actionResultRules(registered, textResolver, sectionId, action.resultRules(),
                             action.resultSummary() != null, diagnostics);

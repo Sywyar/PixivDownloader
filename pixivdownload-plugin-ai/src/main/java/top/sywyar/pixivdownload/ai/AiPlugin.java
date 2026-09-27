@@ -193,7 +193,7 @@ public class AiPlugin implements PixivFeaturePlugin {
                                         GuiConfigActionResultCondition.reachable(true),
                                         GuiConfigActionResultCondition.http2xx(false)),
                                 List.of())),
-                GuiConfigActionResultSummary.allItems("models", "id", "ownedBy"));
+                GuiConfigActionResultSummary.allItems("models", "id", "ownedBy").selectInto("ai.model"));
     }
 
     private static GuiConfigActionContribution aiTestAction() {

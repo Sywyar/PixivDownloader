@@ -71,6 +71,8 @@ final class DesktopConfigurationController {
     volatile Map<String, ConfigField> fieldBindings = Map.of();
     volatile String configNotice = "";
     volatile TextToken configNoticeToken;
+    volatile ActionChoices actionChoices;
+    private volatile long actionRevision;
     volatile boolean autoStartSupported;
     volatile boolean autoStartEnabled;
     volatile String invalidRow = "";
@@ -114,6 +116,7 @@ final class DesktopConfigurationController {
     boolean acceptField(String binding, String value) {
         ConfigField field = fieldBindings.get(binding);
         if (field == null) return false;
+        clearActionChoices();
         values.put(field.key(), value);
         if (invalidRow.equals(DesktopConfigurationFieldView.bindingId(field.key()) + ".row")) invalidRow = "";
         return true;
@@ -141,6 +144,7 @@ final class DesktopConfigurationController {
     }
 
     void applyPreset(ConfigPreset preset) {
+        clearActionChoices();
         preset.spec().values().forEach((key, value) -> values.put(
                 new FieldKey(preset.owner(), key),
                 value
@@ -151,6 +155,9 @@ final class DesktopConfigurationController {
     }
 
     void runConfigAction(ConfigAction action) {
+        clearActionChoices();
+        long revision = actionRevision;
+        var source = actionSource(action);
         configNotice = "";
         configNoticeToken = action.sendingNotice() == null ? appToken(
                 "gui.config.action.notice.sending",
@@ -166,6 +173,12 @@ final class DesktopConfigurationController {
                         action.owner()
                 );
                 configNoticeToken = actionNotice(action, response);
+                List<String> options = ActionResult.from(response, action.spec().resultSummary())
+                        .selectionValues(action.spec().resultSummary());
+                if (!options.isEmpty() && revision == actionRevision && source != null
+                        && source.equals(actionSource(action))) {
+                    actionChoices = new ActionChoices(action, source, revision, options);
+                }
             } catch (Exception failure) {
                 configNoticeToken = appToken(
                         "gui.config.action.notice.failed",
@@ -175,6 +188,47 @@ final class DesktopConfigurationController {
             }
         });
     }
+
+    synchronized void clearActionChoices() {
+        actionRevision++;
+        actionChoices = null;
+    }
+
+    private DesktopUiPluginSnapshot.Fingerprint actionSource(ConfigAction action) {
+        return owner.currentSources().stream().filter(source -> source.id().equals(action.owner()))
+                .map(DesktopUiPluginSnapshot::fingerprint).findFirst().orElse(null);
+    }
+
+    boolean currentChoices(ActionChoices choices) {
+        return choices != null && choices.revision() == actionRevision
+                && choices.source().equals(actionSource(choices.action()));
+    }
+
+    void selectActionValue(ActionChoices choices, String value) {
+        if (!currentChoices(choices) || !choices.options().contains(value)) return;
+        FieldKey key = new FieldKey(choices.action().owner(), choices.action().spec().resultSummary().selectionFieldKey());
+        ConfigField field = view.fields.field(key);
+        if (field == null || field.spec().sensitive() || field.spec().type() != GuiConfigFieldType.STRING
+                || !visible(field) || !enabled(field) || view.fields.lockedFields().contains(key)) return;
+        try {
+            host.requireSafeConfigValue(value);
+        } catch (java.io.IOException failure) {
+            clearActionChoices();
+            configNoticeToken = appToken("gui.config.action.notice.failed", choices.action().spec().actionId(), "");
+            owner.rebuild();
+            return;
+        }
+        values.put(key, value);
+        clearActionChoices();
+        owner.rebuild();
+    }
+
+    record ActionChoices(
+            ConfigAction action,
+            DesktopUiPluginSnapshot.Fingerprint source,
+            long revision,
+            List<String> options
+    ) {}
 
     private Map<String, Object> actionPayload(ConfigAction action) throws Exception {
         Map<String, Object> payload = new LinkedHashMap<>();
