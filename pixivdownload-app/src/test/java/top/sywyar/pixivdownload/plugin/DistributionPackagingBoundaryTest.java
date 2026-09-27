@@ -492,7 +492,7 @@ class DistributionPackagingBoundaryTest {
     }
 
     @Test
-    @DisplayName("最终宿主产物独立类加载器可读取社区合同资源并解析审核及发布者事实")
+    @DisplayName("最终宿主产物可独立加载共享实现、社区合同、语言目录和许可证")
     void bootJarLoadsCommunityContracts(@TempDir Path tempDir) throws Exception {
         Path bootJar = locateBootJar();
         requireAvailable(bootJar != null, "需要本次构建的宿主 boot JAR");
@@ -511,6 +511,21 @@ class DistributionPackagingBoundaryTest {
             }
         }
         try (URLClassLoader loader = new URLClassLoader(urls.toArray(URL[]::new), ClassLoader.getPlatformClassLoader())) {
+            String consoleClass = "top.sywyar.pixivdownload.common.Utf8ConsoleStreams";
+            assertThat(classes.resolve(consoleClass.replace('.', '/') + ".class")).isRegularFile();
+            assertThat(loader.loadClass(consoleClass).getMethod("install")).isNotNull();
+            assertThat(java.util.Collections.list(loader.getResources(consoleClass.replace('.', '/') + ".class")))
+                    .hasSize(1);
+            Class<?> messages = loader.loadClass("top.sywyar.pixivdownload.i18n.MessageBundles");
+            String key = "gui.dialog.warning.title";
+            Object rendered = messages.getMethod("get", java.util.Locale.class, String.class, Object[].class)
+                    .invoke(null, java.util.Locale.ENGLISH, key, new Object[0]);
+            assertThat(rendered).isInstanceOf(String.class).isNotEqualTo(key);
+            assertThat(java.util.Collections.list(loader.getResources("i18n/locales.json"))).hasSize(1);
+            try (InputStream license = loader.getResourceAsStream("LICENSE")) {
+                assertThat(license).isNotNull();
+                assertThat(license.readAllBytes()).isEqualTo(Files.readAllBytes(Path.of("../LICENSE")));
+            }
             String prefix = "top.sywyar.pixivdownload.sdk.community.";
             Class<?> json = loader.loadClass(prefix + "format.CommunityJson");
             Class<?> kind = loader.loadClass(prefix + "format.CommunityJson$Kind");
