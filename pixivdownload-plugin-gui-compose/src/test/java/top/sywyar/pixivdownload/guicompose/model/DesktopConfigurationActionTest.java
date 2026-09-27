@@ -28,8 +28,8 @@ class DesktopConfigurationActionTest {
                 await(model);
                 var choice = choices(model).findFirst().orElseThrow();
                 assertEquals(35, choice.options().size());
-                assertEquals(List.of(), choice.selectedIds());
-                assertEquals("initial", input(model).value());
+                assertEquals(List.of("item.0"), choice.selectedIds());
+                assertEquals("test/0+测试", input(model).value());
                 assertTrue(fieldNodes(model).anyMatch(node -> node.id().equals(choice.id())));
                 select(model, choice.id(), choice.options().get(34).id());
                 assertEquals("test/34+测试", input(model).value());
@@ -43,6 +43,20 @@ class DesktopConfigurationActionTest {
                         DesktopUiNode.Value.text("manual")
                 ));
                 assertEquals("manual", input(model).value());
+                assertEquals(35, choices(model).findFirst().orElseThrow().options().size());
+                dispatch(model, new DesktopUiNode.Event(
+                        DesktopUiNode.EventType.CHANGE,
+                        input(model).id(),
+                        DesktopUiNode.Value.text("")
+                ));
+                assertEquals(List.of(), choices(model).findFirst().orElseThrow().selectedIds());
+                select(model, choice.id(), "item.1");
+                assertEquals("test/1+测试", input(model).value());
+                dispatch(model, new DesktopUiNode.Event(
+                        DesktopUiNode.EventType.CHANGE,
+                        "config.demo.demo.endpoint.input",
+                        DesktopUiNode.Value.text("changed")
+                ));
                 assertTrue(choices(model).findAny().isEmpty());
             }
         }
@@ -89,7 +103,7 @@ class DesktopConfigurationActionTest {
     static ComposeDesktopUiModel model(AtomicReference<List<DesktopUiPluginSnapshot>> sources,
                                                Response response) {
         DesktopUiHost.ConfigFile file = new DesktopUiHost.ConfigFile() {
-            public Map<String, String> readAll(Collection<String> keys) { return Map.of("demo.value", "initial"); }
+            public Map<String, String> readAll(Collection<String> keys) { return Map.of("demo.value", "initial", "demo.endpoint", ""); }
             public void writeAll(Map<String, String> values) { fail("selection must not save"); }
             public void removeAll(Collection<String> keys) { fail("selection must not remove"); }
             public DesktopUiHost.ConfigSnapshot snapshot() { return new DesktopUiHost.ConfigSnapshot(false, List.of()); }
@@ -132,7 +146,9 @@ class DesktopConfigurationActionTest {
                 List.of()
         );
         return new DesktopUiPluginSnapshot("demo", false, "demo", 1, false, "demo", "plugin.name",
-                List.of(), List.of(new GuiConfigContribution(List.of(), List.of(field), List.of(section))),
+                List.of(), List.of(new GuiConfigContribution(List.of(), List.of(field,
+                        new GuiConfigFieldContribution("demo.endpoint", "demo", "field.endpoint",
+                                GuiConfigFieldType.STRING, "", 2)), List.of(section))),
                 List.of(), List.of(WebRouteContribution.gui("/api/gui/demo-get")), List.of());
     }
 

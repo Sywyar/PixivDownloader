@@ -8,10 +8,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.v2.runComposeUiTest
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Density
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import top.sywyar.pixivdownload.guicompose.*
@@ -39,39 +41,48 @@ class SettingsWorkspaceTest {
     @DisplayName("深色设置在目标字段旁查询候选，下拉选择可连续切换并适应窄窗口")
     fun darkFieldSelection() = fieldSelection("dark")
 
-    private fun fieldSelection(theme: String) = runComposeUiTest {
+    private fun fieldSelection(theme: String) = runComposeUiTest(
+        effectContext = object : MotionDurationScale { override val scaleFactor = 0f },
+    ) {
+        fun fieldText(token: TextToken) = if (token.key() == "action.get") "Fetch available models" else resolve(token)
         val model = DesktopConfigurationActionTest.model(
             AtomicReference(listOf(DesktopConfigurationActionTest.source("demo.value", false))),
             DesktopConfigurationActionTest::response,
         )
         var snapshot by mutableStateOf(model.snapshot())
         var width by mutableStateOf(1150.dp)
+        var height by mutableStateOf(820.dp)
+        var fontScale by mutableStateOf(1f)
         val subscription = model.subscribeSnapshots { snapshot = it }
         try {
             setContent {
-                PixivDownloaderTheme(theme) {
-                    Box(Modifier.size(width, 820.dp).background(LocalExperiencePalette.current.surface)) {
-                        SettingsWorkspace(
-                            workspace(snapshot),
-                            ::resolve,
-                            { model.dispatch(snapshot, it) },
-                        )
+                CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, fontScale)) {
+                    PixivDownloaderTheme(theme) {
+                        Box(Modifier.size(width, height).background(LocalExperiencePalette.current.surface)) {
+                            SettingsWorkspace(
+                                workspace(snapshot),
+                                ::fieldText,
+                                { model.dispatch(snapshot, it) },
+                            )
+                        }
                     }
                 }
             }
             onNodeWithTag("settings.category.config.demo").performClick()
             val row = onNodeWithTag("config.demo.demo.value.row", useUnmergedTree = true)
             val input = onNodeWithTag("config.demo.demo.value.input", useUnmergedTree = true)
-            val query = onNodeWithText("action.get")
+            val query = onNodeWithText("Fetch available models")
             query.assertIsDisplayed().assert(hasAnyAncestor(hasTestTag("config.demo.demo.value.row")))
             val inputBounds = input.fetchSemanticsNode().boundsInRoot
             val queryBounds = query.fetchSemanticsNode().boundsInRoot
-            assertTrue(queryBounds.left >= inputBounds.right)
+            assertTrue(queryBounds.left >= inputBounds.right, "input=$inputBounds query=$queryBounds")
             assertTrue(queryBounds.center.y in inputBounds.top..inputBounds.bottom)
             query.performClick()
             waitUntil(timeoutMillis = 5000) { !model.busy() }
+            val editor = onNodeWithContentDescription("demo.value")
+            editor.assertTextEquals("test/0+测试")
             val choice = onNode(
-                hasContentDescription("action.get") and hasAnyAncestor(hasTestTag("config.demo.demo.value.row")),
+                hasContentDescription("Fetch available models") and hasAnyAncestor(hasTestTag("config.demo.demo.value.row")),
             )
             choice.assertIsDisplayed().performClick()
             onNodeWithText("test/2+测试").performClick()
@@ -86,7 +97,25 @@ class SettingsWorkspaceTest {
             onNodeWithContentDescription("demo.value").assertTextEquals("test/3+测试")
             capture("field-selection-$theme-narrow")
             onNodeWithContentDescription("demo.value").performTextReplacement("custom")
-            choice.assertDoesNotExist()
+            choice.assertIsDisplayed()
+            editor.performTextClearance()
+            choice.performClick()
+            onNodeWithText("test/1+测试").performClick()
+            editor.assertTextEquals("test/1+测试").assertIsFocused()
+            editor.performKeyInput { pressKey(Key.DirectionDown) }
+            onNodeWithText("test/4+测试").assertIsDisplayed()
+            onNodeWithText("test/4+测试").performKeyInput { pressKey(Key.DirectionDown) }
+            onNodeWithText("test/2+测试").assertIsFocused().performKeyInput { pressKey(Key.Enter) }
+            editor.assertTextEquals("test/2+测试").assertIsFocused()
+            editor.performKeyInput { pressKey(Key.DirectionDown) }
+            onNodeWithText("test/4+测试").performKeyInput { pressKey(Key.Escape) }
+            onNodeWithText("test/4+测试").assertDoesNotExist()
+            editor.assertIsFocused().assertTextEquals("test/2+测试")
+            runOnIdle { height = 500.dp; fontScale = 1.3f }
+            choice.performScrollTo().assertIsDisplayed().performClick()
+            onNodeWithText("test/4+测试").performClick()
+            editor.assertTextEquals("test/4+测试")
+            capture("field-selection-$theme-large-text")
         } finally { subscription.close(); model.close() }
     }
 

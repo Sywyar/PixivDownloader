@@ -153,6 +153,7 @@ private fun SettingsRow(
             primaryInput?.inputKind() == InputKind.MULTILINE || maxWidth < if (textEntry) 600.dp else 390.dp
         val controlWidth = when {
             control is Toggle -> 44.dp
+            fieldAction -> (maxWidth * .72f).coerceAtMost(640.dp)
             textEntry -> (maxWidth * .6f).coerceAtMost(480.dp)
             primaryInput != null -> 112.dp
             else -> 240.dp
@@ -229,18 +230,21 @@ private fun SettingsControl(node: DesktopUiNode, secrets: MutableMap<String, Pai
                     verticalArrangement = Arrangement.spacedBy(node.gap().dp),
                     itemVerticalAlignment = Alignment.CenterVertically,
                 ) {
-                    SettingsControl(
-                        node.center(),
-                        secrets,
-                        text,
-                        emit,
-                        Modifier.weight(1f).widthIn(min = 240.dp),
+                    ComposeDesktopUiNodeRenderer.TextInput(
+                        node = node.center() as TextInput,
+                        text = text,
+                        emit = emit,
+                        modifier = Modifier.weight(1f).widthIn(min = 180.dp).testTag(node.center().id()),
+                        includeLabel = false,
+                        suggestions = node.bottom() as? Choice,
                     )
                     SettingsButton(node.end() as Button, text) {
                         emit(Event(EventType.ACTIVATE, node.end().id(), Value.empty()))
                     }
                 }
-                node.bottom()?.let { SettingsControl(it, secrets, text, emit, Modifier.fillMaxWidth()) }
+                node.bottom()?.takeUnless { it is Choice }?.let {
+                    SettingsControl(it, secrets, text, emit, Modifier.fillMaxWidth())
+                }
             }
         }
         node is Container -> Column(modifier) {

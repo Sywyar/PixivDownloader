@@ -116,7 +116,11 @@ final class DesktopConfigurationController {
     boolean acceptField(String binding, String value) {
         ConfigField field = fieldBindings.get(binding);
         if (field == null) return false;
-        clearActionChoices();
+        ActionChoices choices = actionChoices;
+        if (!currentChoices(choices) || !field.key().equals(new FieldKey(
+                choices.action().owner(),
+                choices.action().spec().resultSummary().selectionFieldKey()
+        ))) clearActionChoices();
         values.put(field.key(), value);
         if (invalidRow.equals(DesktopConfigurationFieldView.bindingId(field.key()) + ".row")) invalidRow = "";
         return true;
@@ -178,6 +182,7 @@ final class DesktopConfigurationController {
                 if (!options.isEmpty() && revision == actionRevision && source != null
                         && source.equals(actionSource(action))) {
                     actionChoices = new ActionChoices(action, source, revision, options);
+                    selectActionValue(actionChoices, options.get(0));
                 }
             } catch (Exception failure) {
                 configNoticeToken = appToken(
@@ -828,6 +833,7 @@ final class DesktopConfigurationController {
         owner.runBusy(() -> {
             try {
                 host.updateCredentials(field.owner(), Map.of(field.spec().key(), ""));
+                clearActionChoices();
                 values.put(field.key(), "");
                 if (invalidRow.equals(DesktopConfigurationFieldView.bindingId(field.key()) + ".row")) invalidRow = "";
                 credentialRevisions.merge(field.key(), 1L, Long::sum);

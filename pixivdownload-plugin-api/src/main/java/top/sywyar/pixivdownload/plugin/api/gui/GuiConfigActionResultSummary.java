@@ -10,7 +10,7 @@ package top.sywyar.pixivdownload.plugin.api.gui;
  * @param successStatus 摘要中忽略的成功状态值
  * @param detailPath 每个条目内用作详情文本的可选路径
  * @param selectionFieldKey 可选回填目标，必须是同一 owner 的非敏感文本字段；空值表示仅展示摘要。
- *                          用户选定条目后才将 labelPath 的原始值写入草稿，不自动保存；
+ *                          用户查询后 provider 可默认回填首项，选择时将 labelPath 的原始值写入草稿，不自动保存；
  *                          来源撤回、换代或请求期间草稿变化时丢弃候选。
  */
 public record GuiConfigActionResultSummary(
