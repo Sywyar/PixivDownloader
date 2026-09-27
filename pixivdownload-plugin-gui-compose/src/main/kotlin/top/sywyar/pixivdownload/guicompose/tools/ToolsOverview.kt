@@ -53,6 +53,7 @@ internal fun ToolsOverview(
     var restoreFocus by remember { mutableStateOf<String?>(null) }
     val anchors = remember { mutableMapOf<String, FocusRequester>() }
     val tools = node.tools().map { it as Group }
+    val mediaTools = node.mediaTools().filterIsInstance<Group>()
     fun label(key: String) = workspaceText(text, key)
     fun select(id: String) {
         restoreFocus = id
@@ -66,82 +67,87 @@ internal fun ToolsOverview(
     }
     val activity = node.activity()
     val mediaProgress = descendants(node.media()).filterIsInstance<Progress>().firstOrNull()
-    BoxWithConstraints(modifier.fillMaxSize().testTag("tools.overview")) {
-        val wide = maxWidth >= 760.dp * LocalDensity.current.fontScale.coerceAtLeast(1f)
-        val inset = if (maxWidth < 600.dp) 24.dp else 44.dp
-        val scroll = rememberScrollState()
-        Box(Modifier.fillMaxSize()) {
-            Column(
-                Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = inset, vertical = 32.dp),
-                verticalArrangement = Arrangement.spacedBy(30.dp),
-            ) {
-                FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp), itemVerticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CupertinoText(text(TextToken.key("desktop.ui.page.tools")), Modifier.semantics { heading() },
-                            fontSize = 30.sp, fontWeight = FontWeight.Bold)
-                        CupertinoText(label("subtitle"), fontSize = 13.sp, color = palette.secondaryText)
+        ?: mediaTools.asSequence().flatMap(::descendants).filterIsInstance<Progress>().firstOrNull { it.id().endsWith(".progress") }
+    if (selected == "media") {
+        FfmpegToolsWorkspace(node.media(), mediaTools, text, emit, { selected = null }, modifier)
+    } else {
+        BoxWithConstraints(modifier.fillMaxSize().testTag("tools.overview")) {
+            val wide = maxWidth >= 760.dp * LocalDensity.current.fontScale.coerceAtLeast(1f)
+            val inset = if (maxWidth < 600.dp) 24.dp else 44.dp
+            val scroll = rememberScrollState()
+            Box(Modifier.fillMaxSize()) {
+                Column(
+                    Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = inset, vertical = 32.dp),
+                    verticalArrangement = Arrangement.spacedBy(30.dp),
+                ) {
+                    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            CupertinoText(text(TextToken.key("desktop.ui.page.tools")), Modifier.semantics { heading() },
+                                fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                            CupertinoText(label("subtitle"), fontSize = 13.sp, color = palette.secondaryText)
+                        }
+                        CupertinoText(text(node.backend().text()), fontSize = 12.sp, color = palette.secondaryText)
                     }
-                    CupertinoText(text(node.backend().text()), fontSize = 12.sp, color = palette.secondaryText)
-                }
-                AnimatedVisibility(activity != null || mediaProgress != null, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
-                    val id = if (mediaProgress != null) "media" else activity?.toolId().orEmpty()
-                    ToolRow(
-                        if (id == "media") label("media-title") else label("$id.title"),
-                        if (id == "media") mediaProgress?.text()?.let(text).orEmpty() else activity?.message()?.let(text).orEmpty(),
-                        label("show-task"), Icons.Default.Schedule, "tools.current", Modifier.fillMaxWidth(),
-                    ) { select(id) }
-                }
-                @Composable fun category(indices: IntRange, title: String, modifier: Modifier = Modifier) {
-                    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CupertinoText(title, fontSize = 12.sp, fontWeight = FontWeight.Medium,
+                    AnimatedVisibility(activity != null || mediaProgress != null, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+                        val id = if (mediaProgress != null) "media" else activity?.toolId().orEmpty()
+                        ToolRow(
+                            if (id == "media") label("media-title") else label("$id.title"),
+                            if (id == "media") mediaProgress?.text()?.let(text).orEmpty() else activity?.message()?.let(text).orEmpty(),
+                            label("show-task"), Icons.Default.Schedule, "tools.current", Modifier.fillMaxWidth(),
+                        ) { select(id) }
+                    }
+                    @Composable fun category(indices: IntRange, title: String, modifier: Modifier = Modifier) {
+                        Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            CupertinoText(title, fontSize = 12.sp, fontWeight = FontWeight.Medium,
+                                color = palette.secondaryText, modifier = Modifier.semantics { heading() })
+                            indices.forEach { index ->
+                                val id = toolIds[index]
+                                val focus = anchors.getOrPut(id) { FocusRequester() }
+                                ToolRow(label("$id.title"), label("$id.description"), label("$id.impact"), toolIcons[index],
+                                    "tools.entry.$id", Modifier.fillMaxWidth().focusRequester(focus)) { select(id) }
+                            }
+                        }
+                    }
+                    if (wide) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
+                        category(0..1, label("organize"), Modifier.weight(1f))
+                        category(2..3, label("maintain"), Modifier.weight(1f))
+                    } else Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
+                        category(0..1, label("organize"))
+                        category(2..3, label("maintain"))
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        CupertinoText(label("media-group"), fontSize = 12.sp, fontWeight = FontWeight.Medium,
                             color = palette.secondaryText, modifier = Modifier.semantics { heading() })
-                        indices.forEach { index ->
-                            val id = toolIds[index]
-                            val focus = anchors.getOrPut(id) { FocusRequester() }
-                            ToolRow(label("$id.title"), label("$id.description"), label("$id.impact"), toolIcons[index],
-                                "tools.entry.$id", Modifier.fillMaxWidth().focusRequester(focus)) { select(id) }
+                        val state = descendants(node.media()).filterIsInstance<Text>().firstOrNull { it.id() == "status.ffmpeg.state" }
+                        ToolRow(label("media-title"), label("media-description"), mediaProgress?.text()?.let(text) ?: state?.text()?.let(text).orEmpty(),
+                            Icons.Default.Movie, "tools.entry.media",
+                            Modifier.fillMaxWidth().background(palette.secondarySurface.copy(alpha = .6f), RoundedCornerShape(16.dp))
+                                .focusRequester(anchors.getOrPut("media") { FocusRequester() })) { select("media") }
+                    }
+                    val rows = (node.history() as? Table)?.rows().orEmpty()
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            CupertinoText(label("history"), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f).semantics { heading() })
+                            if (rows.isNotEmpty()) ToolButton(label("history-all"), "tools.history.all") { select("history") }
+                        }
+                        if (rows.isEmpty()) CupertinoText(text(TextToken.key("gui.tools.history.empty")), fontSize = 13.sp, color = palette.secondaryText)
+                        else rows.take(2).forEach { row ->
+                            HistoryRow(row, "tools.history.${row.id()}") { select(row.id()) }
                         }
                     }
                 }
-                if (wide) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
-                    category(0..1, label("organize"), Modifier.weight(1f))
-                    category(2..3, label("maintain"), Modifier.weight(1f))
-                } else Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
-                    category(0..1, label("organize"))
-                    category(2..3, label("maintain"))
-                }
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    CupertinoText(label("media-group"), fontSize = 12.sp, fontWeight = FontWeight.Medium,
-                        color = palette.secondaryText, modifier = Modifier.semantics { heading() })
-                    val state = descendants(node.media()).filterIsInstance<Text>().firstOrNull { it.id() == "status.ffmpeg.state" }
-                    ToolRow(label("media-title"), label("media-description"), state?.text()?.let(text).orEmpty(),
-                        Icons.Default.Movie, "tools.entry.media",
-                        Modifier.fillMaxWidth().background(palette.secondarySurface.copy(alpha = .6f), RoundedCornerShape(16.dp))
-                            .focusRequester(anchors.getOrPut("media") { FocusRequester() })) { select("media") }
-                    node.pluginTools().forEach { entry -> key(entry.id()) {
-                        ComposeDesktopUiNodeRenderer.Render(entry, text, emit, Modifier.fillMaxWidth())
-                    } }
-                }
-                val rows = (node.history() as? Table)?.rows().orEmpty()
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        CupertinoText(label("history"), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f).semantics { heading() })
-                        if (rows.isNotEmpty()) ToolButton(label("history-all"), "tools.history.all") { select("history") }
-                    }
-                    if (rows.isEmpty()) CupertinoText(text(TextToken.key("gui.tools.history.empty")), fontSize = 13.sp, color = palette.secondaryText)
-                    else rows.take(2).forEach { row ->
-                        HistoryRow(row, "tools.history.${row.id()}") { select(row.id()) }
-                    }
-                }
+                VerticalScrollbar(rememberScrollbarAdapter(scroll), Modifier.align(Alignment.CenterEnd).fillMaxHeight())
             }
-            VerticalScrollbar(rememberScrollbarAdapter(scroll), Modifier.align(Alignment.CenterEnd).fillMaxHeight())
         }
+    }
+    LaunchedEffect(selected) {
+        if (selected == null && restoreFocus == "media") anchors["media"]?.requestFocus()
     }
     var retainedWorkspace by remember { mutableStateOf<ToolWorkspace?>(null) }
     node.workspace()?.let { retainedWorkspace = it }
     val workspace = node.workspace()
-    val current = workspace?.toolId() ?: selected
+    val current = workspace?.toolId() ?: selected?.takeUnless { it == "media" }
     val close = {
         if (workspace != null) activate(workspace.close()) else selected = null
     }
@@ -160,10 +166,10 @@ internal fun ToolsOverview(
             else -> {
                 val index = toolIds.indexOf(id)
                 ToolPanel(id,
-                    if (id == "media") label("media-title") else label("$id.title"),
-                    if (id == "media") label("media-description") else label("$id.description"),
-                    if (id == "media") Icons.Default.Movie else toolIcons[index],
-                    if (id == "media") node.media() else tools[index],
+                    label("$id.title"),
+                    label("$id.description"),
+                    toolIcons[index],
+                    tools[index],
                     activity?.takeIf { it.toolId() == id }, node.backend(), text, emit, close)
             }
         }

@@ -110,7 +110,7 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
         // 邀请访客 403 / 不入 monitor。AuthFilter 不为 VISITOR 派生任何清单、命中后落默认会话 / 访客分支，
         // 访问行为与未声明时逐字等价；声明只为消除「未声明路由」歧义、纳入路由归属与全 URL 声明守卫。
         return List.of(
-                WebRouteContribution.admin("/api/download/media/**"),
+                WebRouteContribution.admin("/api/download/media/settings"),
                 WebRouteContribution.visitor("/pixiv-batch.html"),
                 WebRouteContribution.visitor("/pixiv-batch/**"),
                 WebRouteContribution.visitor("/pixiv-batch-alt.html"),
@@ -153,15 +153,13 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
                 WebRouteContribution.visitor("/api/download/cancel/**"),
                 WebRouteContribution.visitor("/api/download/queue/**"),
                 WebRouteContribution.visitor("/api/batch/**"),
-                WebRouteContribution.visitor("/api/download/extensions"),
-                WebRouteContribution.admin("/pixiv-media.html"));
+                WebRouteContribution.visitor("/api/download/extensions"));
     }
 
     @Override
     public List<StaticResourceContribution> staticResources() {
         return List.of(
                 new StaticResourceContribution("classpath:/static/", "/pixiv-batch.html", true),
-                new StaticResourceContribution("classpath:/static/", "/pixiv-media.html", true),
                 new StaticResourceContribution("classpath:/static/pixiv-batch/", "/pixiv-batch/"),
                 new StaticResourceContribution("classpath:/static/", "/pixiv-batch-alt.html", true),
                 new StaticResourceContribution("classpath:/static/pixiv-batch-alt/", "/pixiv-batch-alt/"),
@@ -186,17 +184,7 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
                         NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.NOVEL_SIDEBAR,
                         NavigationPlacements.DESKTOP_QUICK_START),
                 "batch", "nav.label", "/pixiv-batch.html", "download", AccessPolicy.VISITOR, 10,
-                Set.of(PREFERRED_DOWNLOAD_WORKBENCH_MARKER), "nav.description"),
-                new NavigationContribution(
-                        "media-maintenance",
-                        NavigationPlacements.DESKTOP_TOOLS,
-                        "batch",
-                        "media.tools.title",
-                        "/pixiv-media.html",
-                        "images",
-                        AccessPolicy.ADMIN,
-                        20
-                ));
+                Set.of(PREFERRED_DOWNLOAD_WORKBENCH_MARKER), "nav.description"));
     }
 
     @Override

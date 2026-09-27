@@ -1457,7 +1457,16 @@ object ComposeDesktopUiNodeRenderer {
                 )
                 DesktopIcon(Icons.Default.ArrowDropDown, contentDescription = null, modifier = Modifier.padding(start = 8.dp).size(18.dp))
             }
-            CupertinoDropdownMenu(expanded, onDismissRequest = { expanded = false }) {
+            CupertinoDropdownMenu(
+                expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier.onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
+                        expanded = false
+                        true
+                    } else false
+                },
+            ) {
                 node.options().forEach { option ->
                     MenuPickerAction(
                         isSelected = !multiple && selectedIds.contains(option.id()),

@@ -79,8 +79,8 @@ final class DesktopToolsController {
         selectedFolderRow = value.isBlank() ? null : value;
     }
 
-    DesktopUiNode controlCenterPage(Map<String, Runnable> nextActions, DesktopUiNode.Group media) {
-        return view.controlCenterPage(nextActions, media);
+    DesktopUiNode controlCenterPage(Map<String, Runnable> nextActions, DesktopUiNode.Group media, List<DesktopUiNode> mediaTools) {
+        return view.controlCenterPage(nextActions, media, mediaTools);
     }
 
     String exclusiveToolName() {

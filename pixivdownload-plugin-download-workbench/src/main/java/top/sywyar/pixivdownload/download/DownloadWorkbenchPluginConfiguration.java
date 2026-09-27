@@ -97,19 +97,26 @@ public class DownloadWorkbenchPluginConfiguration {
 
     @Bean
     public top.sywyar.pixivdownload.download.media.MediaOutputController mediaOutputController(
-            top.sywyar.pixivdownload.download.media.MediaOutputSettings settings,
+            top.sywyar.pixivdownload.download.media.MediaOutputSettings settings) {
+        return new top.sywyar.pixivdownload.download.media.MediaOutputController(settings);
+    }
+
+    @Bean
+    public top.sywyar.pixivdownload.download.media.DesktopMediaMaintenance desktopMediaMaintenance(
             top.sywyar.pixivdownload.download.media.MediaMaintenanceService maintenance,
-            top.sywyar.pixivdownload.download.media.MediaCapabilityService capabilities) {
-        return new top.sywyar.pixivdownload.download.media.MediaOutputController(settings, maintenance, capabilities);
+            top.sywyar.pixivdownload.download.media.MediaCapabilityService capabilities,
+            top.sywyar.pixivdownload.download.media.MediaOutputSettings settings) {
+        return new top.sywyar.pixivdownload.download.media.DesktopMediaMaintenance(maintenance, capabilities, settings);
     }
 
     @Bean(destroyMethod = "close")
     public top.sywyar.pixivdownload.download.media.MediaMaintenanceService mediaMaintenanceService(
             top.sywyar.pixivdownload.core.work.service.WorkAssetService assets,
             top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository metadata,
+            top.sywyar.pixivdownload.core.work.service.WorkQueryService query,
             top.sywyar.pixivdownload.download.media.ImageOutputService images,
             UgoiraService animations) {
-        return new top.sywyar.pixivdownload.download.media.MediaMaintenanceService(assets, metadata, images, animations);
+        return new top.sywyar.pixivdownload.download.media.MediaMaintenanceService(assets, metadata, query, images, animations);
     }
 
     @Bean

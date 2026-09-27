@@ -71,13 +71,8 @@ class DownloadWorkbenchRequiredContextTest {
             assertRoute(path, HttpMethod.GET, AccessPolicy.VISITOR);
         }
         assertRoute("/api/schedule/tasks", HttpMethod.GET, AccessPolicy.ADMIN);
-        assertRoute("/pixiv-media.html", HttpMethod.GET, AccessPolicy.ADMIN);
-        for (String path : List.of("settings", "status", "capabilities")) {
-            assertRoute("/api/download/media/" + path, HttpMethod.GET, AccessPolicy.ADMIN);
-        }
-        for (String path : List.of("preview", "start", "cancel")) {
-            assertRoute("/api/download/media/" + path, HttpMethod.POST, AccessPolicy.ADMIN);
-        }
+        assertRoute("/api/download/media/settings", HttpMethod.GET, AccessPolicy.ADMIN);
+        assertThat(plugin.routes()).noneMatch(route -> route.pathPattern().contains("pixiv-media"));
     }
 
     @Test
@@ -96,7 +91,6 @@ class DownloadWorkbenchRequiredContextTest {
                         + "|" + resource.publicPathPrefix() + "|" + resource.exactFile())
                 .containsExactly(
                         "classpath:/static/|/pixiv-batch.html|true",
-                        "classpath:/static/|/pixiv-media.html|true",
                         "classpath:/static/pixiv-batch/|/pixiv-batch/|false",
                         "classpath:/static/|/pixiv-batch-alt.html|true",
                         "classpath:/static/pixiv-batch-alt/|/pixiv-batch-alt/|false",
@@ -162,12 +156,7 @@ class DownloadWorkbenchRequiredContextTest {
                     assertThat(nav.placements()).contains(NavigationPlacements.DESKTOP_QUICK_START);
                     assertThat(nav.markers()).containsExactly("preferred-download-workbench");
                 });
-        assertThat(plugin.navigation()).filteredOn(nav -> nav.id().equals("media-maintenance")).singleElement()
-                .satisfies(nav -> {
-                    assertThat(nav.href()).isEqualTo("/pixiv-media.html");
-                    assertThat(nav.placements()).containsExactly(NavigationPlacements.DESKTOP_TOOLS);
-                    assertThat(nav.visibleTo()).isEqualTo(AccessPolicy.ADMIN);
-                });
+        assertThat(plugin.navigation()).noneMatch(nav -> nav.href().equals("/pixiv-media.html"));
         assertThat(plugin.startupRoutes()).singleElement().satisfies(route -> {
             assertThat(route.path()).isEqualTo("/pixiv-batch.html");
             assertThat(route.order()).isEqualTo(10);

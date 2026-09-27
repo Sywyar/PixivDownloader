@@ -12,7 +12,7 @@ window.PixivMediaSettings = (() => {
         return selected.length === new Set(selected).size && selected.every(format => options.includes(format));
     }
 
-    function mount(container, settings, changed, translate, admin, historical = false) {
+    function mount(container, settings, changed, translate, admin) {
         if (!container) return;
         container.replaceChildren();
         container.hidden = !admin;
@@ -67,9 +67,7 @@ window.PixivMediaSettings = (() => {
             });
             dropdown.append(summary, options);
             const help = document.createElement('small');
-            help.textContent = translate(historical
-                ? (field.key === 'imageFormats' ? 'media.tools.help' : 'media.tools.animations')
-                : 'media.' + field.name + '.help');
+            help.textContent = translate('media.' + field.name + '.help');
             row.append(label, dropdown, help);
             container.append(row);
             refreshers.push(refresh);

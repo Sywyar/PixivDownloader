@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.*
@@ -50,7 +51,12 @@ internal fun ToolPanelLayout(
     body: @Composable ColumnScope.() -> Unit,
 ) {
     val palette = LocalExperiencePalette.current
-    Column(Modifier.fillMaxWidth()) {
+    Column(Modifier.fillMaxWidth().onPreviewKeyEvent {
+        if (closeEnabled && it.type == KeyEventType.KeyDown && it.key == Key.Escape) {
+            close()
+            true
+        } else false
+    }) {
         Row(
             Modifier.fillMaxWidth().padding(start = 28.dp, top = 26.dp, end = 18.dp, bottom = 22.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -243,8 +249,6 @@ internal fun ToolPanel(
     }) else emptyMap()
     LaunchedEffect(activity?.running()) { if (activity?.running() == true) showForm = false }
     val phase = when { progress != null || activity?.running() == true -> "running"; activity != null && !showForm -> "result"; else -> "form" }
-    var mediaAdvanced by rememberSaveable { mutableStateOf(false) }
-    val ready = nodes.any { it.id() == "status.ffmpeg.path" }
     ToolPanelLayout(title, description, icon, close, label("close"), footer = {
         when (phase) {
             "running" -> {
@@ -258,10 +262,8 @@ internal fun ToolPanel(
                 ToolButton(label("done"), "tools.done", primary = true, onClick = close)
             }
             else -> {
-                ToolButton(if (id == "media" && ready) label("done") else text(TextToken.key("desktop.ui.action.cancel")), "tools.cancel", onClick = close)
-                if (id == "media") {
-                    buttons.firstOrNull { it.id() == "ffmpeg.confirm.install" || !ready && it.id() == "status.ffmpeg.install" }?.let { ToolAction(it, text, emit, true) }
-                } else buttons.firstOrNull { it.id().endsWith(".run") }?.let { button ->
+                ToolButton(text(TextToken.key("desktop.ui.action.cancel")), "tools.cancel", onClick = close)
+                buttons.firstOrNull { it.id().endsWith(".run") }?.let { button ->
                     val dry = form?.rows()?.map { it.content() }?.filterIsInstance<Toggle>()?.any { it.id().endsWith(".dry") && it.selected() } == true
                     ToolAction(button, text, emit, true, label(if (dry) "start-dry" else "$id.start")) {
                         if (errors.isNotEmpty()) attempt++ else emit(Event(EventType.ACTIVATE, button.id(), Value.empty()))
@@ -282,26 +284,6 @@ internal fun ToolPanel(
                         }
                         if (state == "running") DesktopLinearProgress(progress?.takeUnless { it.indeterminate() }?.progress()?.toFloat(), Modifier.fillMaxWidth().height(5.dp))
                         ToolNotice(text(backend.text()))
-                    }
-                } else if (id == "media") {
-                    nodes.filterIsInstance<Text>().firstOrNull { it.id() == "status.ffmpeg.state" }?.let {
-                        ToolNotice(text(it.text()), it.style() == TextStyle.ERROR)
-                    }
-                    nodes.filterIsInstance<Text>().filter { it.id() in listOf("status.ffmpeg.intro", "status.ffmpeg.source", "status.ffmpeg.path", "status.ffmpeg.notice", "status.ffmpeg.confirmation") }.forEach {
-                        SelectionContainer { CupertinoText(text(it.text()), fontSize = 12.sp, color = if (it.style() == TextStyle.ERROR) palette.error else palette.secondaryText) }
-                    }
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        buttons.filter { it.id() in listOf("status.ffmpeg.refresh", "status.ffmpeg.open", "status.ffmpeg.help", "ffmpeg.confirm.cancel") }.forEach { ToolAction(it, text, emit) }
-                    }
-                    if (form != null) {
-                        ToolDisclosure(label("media-existing"), "tools.media.advanced", mediaAdvanced) { mediaAdvanced = !mediaAdvanced }
-                        AnimatedVisibility(mediaAdvanced, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-                            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                                form.rows().forEach { ToolField(it.content() as TextInput, text, emit, help = it.help()?.let(text)) }
-                                buttons.firstOrNull { it.id() == "status.ffmpeg.path.save" }?.let { ToolAction(it, text, emit) }
-                                if (ready) buttons.firstOrNull { it.id() == "status.ffmpeg.install" }?.let { ToolAction(it, text, emit) }
-                            }
-                        }
                     }
                 } else {
                     if (form != null) ToolForm(form, id, text, emit, if (attempt > 0) errors else emptyMap(), attempt)

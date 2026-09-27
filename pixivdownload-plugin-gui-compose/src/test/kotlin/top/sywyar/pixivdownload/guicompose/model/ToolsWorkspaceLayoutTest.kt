@@ -160,7 +160,8 @@ class ToolsWorkspaceLayoutTest {
 
     private fun ComposeUiTest.screenshot(name: String) {
         val file = File("target/tools-ui/$name.png").apply { parentFile.mkdirs() }
-        ImageIO.write(onNodeWithTag("tools.sheet").captureToImage().toAwtImage(), "png", file)
+        val tag = if (onAllNodesWithTag("tools.media.workspace").fetchSemanticsNodes().isNotEmpty()) "tools.media.workspace" else "tools.sheet"
+        ImageIO.write(onNodeWithTag(tag).captureToImage().toAwtImage(), "png", file)
     }
 
     companion object {

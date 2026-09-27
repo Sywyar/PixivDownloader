@@ -31,6 +31,16 @@ public interface WorkAssetService {
     Optional<LocalWorkAsset> findAsset(WorkType workType, long workId);
 
     /**
+     * 只读查找默认尺寸且仍有效的已有缩略图；不得生成文件或刷新缓存。
+     * @param workType 作品类型
+     * @param workId 作品标识
+     * @param page 页码
+     * @return 已有缩略图；缺失或已过期时为空
+     * @throws IOException 文件状态读取失败
+     */
+    Optional<WorkAssetFile> existingThumbnail(WorkType workType, long workId, int page) throws IOException;
+
+    /**
      * 取指定页的缩略图文件（必要时生成并写入缩略图缓存）。
      * 作品不存在、页号越界或缩略图源不可得时返回 {@link Optional#empty()}。
      *

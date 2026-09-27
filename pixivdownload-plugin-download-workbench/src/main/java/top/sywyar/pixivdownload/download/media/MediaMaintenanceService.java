@@ -4,6 +4,9 @@ import top.sywyar.pixivdownload.core.work.model.WorkAssetFile;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository;
+import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
+import top.sywyar.pixivdownload.core.work.query.WorkQuery;
+import top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest;
 import top.sywyar.pixivdownload.download.web.LocalizedException;
 
 import java.io.IOException;
@@ -11,7 +14,6 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CancellationException;
@@ -25,6 +27,7 @@ public final class MediaMaintenanceService implements AutoCloseable {
     static final int MAX_FILES = 10_000;
     private final WorkAssetService assets;
     private final WorkMetadataRepository metadata;
+    private final WorkQueryService query;
     private final ImageOutputService images;
     private final top.sywyar.pixivdownload.download.UgoiraService animations;
     private final ExecutorService executor = Executors.newSingleThreadExecutor(task -> {
@@ -37,49 +40,135 @@ public final class MediaMaintenanceService implements AutoCloseable {
     private volatile Status status = new Status("idle", 0, 0, 0, List.of());
     private boolean closed;
 
-    public MediaMaintenanceService(WorkAssetService assets, WorkMetadataRepository metadata, ImageOutputService images,
+    public MediaMaintenanceService(WorkAssetService assets, WorkMetadataRepository metadata, WorkQueryService query, ImageOutputService images,
                                    top.sywyar.pixivdownload.download.UgoiraService animations) {
         this.assets = assets;
         this.metadata = metadata;
+        this.query = query;
         this.images = images;
         this.animations = animations;
     }
 
-    public record Request(List<Long> artworkIds, String imageFormats, String ugoiraFormats, boolean repairThumbnails) {}
-    public record Item(long artworkId, int page, String fileName) {}
-    public record Preview(String token, List<Item> files) {}
+    public record Request(String imageFormats, String ugoiraFormats, boolean repairThumbnails) {}
+    public record Item(long artworkId, int page, String fileName, List<String> missingFormats, boolean missingThumbnail) {}
+    public record Preview(String token, List<Item> files, int scanned, int skipped, boolean limited) {}
     public record Failure(long artworkId, int page) {}
     public record Status(String state, int total, int completed, int failed, List<Failure> failures) {}
-    private record Candidate(long artworkId, WorkAssetFile file, long bytes, long modified) {}
-    private record Plan(String token, Request request, List<Candidate> files) {}
+    private record Candidate(long artworkId, WorkAssetFile file, long bytes, long modified,
+                             List<String> formats, boolean thumbnail, boolean animation, boolean unavailable) {}
+    private record Plan(String token, List<Candidate> files) {}
 
     public synchronized Preview preview(Request request) throws IOException {
         requireIdle();
-        if (request == null || request.artworkIds() == null || request.artworkIds().isEmpty()
-                || request.artworkIds().size() > MAX_WORKS || request.artworkIds().stream().anyMatch(id -> id == null || id <= 0)) {
-            throw LocalizedException.badRequest("download.media.invalid-scope", null, MAX_WORKS);
-        }
+        preview = null;
+        if (request == null) throw LocalizedException.badRequest("download.media.invalid-formats", null);
         try {
             MediaOutputSettings.parseFormats(request.imageFormats(), MediaOutputSettings.IMAGE_FORMATS);
             if (request.ugoiraFormats() != null) MediaOutputSettings.parseFormats(request.ugoiraFormats(), MediaOutputSettings.UGOIRA_FORMATS);
         }
         catch (IllegalArgumentException invalid) { throw LocalizedException.badRequest("download.media.invalid-formats", null); }
-        Request snapshot = new Request(List.copyOf(request.artworkIds()), request.imageFormats(), request.ugoiraFormats(), request.repairThumbnails());
+        cancelled = false;
+        status = new Status("scanning", 0, 0, 0, List.of());
         List<Candidate> files = new ArrayList<>();
-        for (Long id : new LinkedHashSet<>(snapshot.artworkIds())) {
-            if (metadata.find(WorkType.ARTWORK, id).isEmpty()) continue;
-            var asset = assets.findAsset(WorkType.ARTWORK, id);
-            if (asset.isEmpty()) continue;
-            for (WorkAssetFile file : asset.get().files()) {
-                requirePlain(file.path());
-                if (files.size() >= MAX_FILES) throw LocalizedException.badRequest("download.media.too-many-files", null, MAX_FILES);
-                files.add(new Candidate(id, file, Files.size(file.path()), Files.getLastModifiedTime(file.path()).toMillis()));
+        int scanned = 0;
+        int skipped = 0;
+        int matched = 0;
+        boolean limited = false;
+        try {
+            // 固定首批总页数，避免持续下载使本次只读扫描永不结束。
+            int pages = 1;
+            scan: for (int page = 0; page < pages; page++) {
+                checkCancelled();
+                var batch = query.search(WorkQuery.builder(WorkType.ARTWORK).page(page).size(100)
+                        .sort("artworkId").order("asc").build());
+                if (page == 0) pages = batch.totalPages();
+                for (var work : batch.content()) {
+                    checkCancelled();
+                    scanned++;
+                    int before = files.size();
+                    long id = work.workId();
+                    var asset = assets.findAsset(WorkType.ARTWORK, id);
+                    if (asset.isPresent() && !asset.get().files().isEmpty()) {
+                        for (WorkAssetFile file : asset.get().files()) {
+                            checkCancelled();
+                            if (files.size() >= MAX_FILES) { limited = true; break scan; }
+                            try {
+                                Candidate candidate = inspect(id, file, request);
+                                if (candidate != null) {
+                                    if (candidate.unavailable()) skipped++;
+                                    if (!candidate.formats().isEmpty() || candidate.thumbnail()) files.add(candidate);
+                                }
+                            } catch (IOException unavailable) { skipped++; }
+                        }
+                    } else skipped++;
+                    status = new Status("scanning", (int) Math.min(Integer.MAX_VALUE, batch.totalElements()), scanned, skipped, List.of());
+                    if (files.size() > before && ++matched >= MAX_WORKS) {
+                        limited = scanned < batch.totalElements();
+                        break scan;
+                    }
+                }
+            }
+            checkCancelled();
+            preview = files.isEmpty() ? null : new Plan(UUID.randomUUID().toString(), List.copyOf(files));
+            return new Preview(preview == null ? "" : preview.token(), files.stream()
+                    .map(item -> new Item(item.artworkId(), item.file().page(), item.file().path().getFileName().toString(),
+                            item.formats(), item.thumbnail())).toList(), scanned, skipped, limited);
+        } finally {
+            status = new Status(cancelled ? "cancelled" : "idle", 0, 0, 0, List.of());
+        }
+    }
+
+    private Candidate inspect(long id, WorkAssetFile file, Request request) throws IOException {
+        requirePlain(file.path());
+        String name = file.path().getFileName().toString();
+        int dot = name.lastIndexOf('.');
+        if (dot < 1) throw new IOException("Invalid media filename");
+        String base = name.substring(0, dot).replaceFirst("_thumb$", "");
+        Path stem = file.path().resolveSibling(base);
+        var manifest = ArtworkMediaManifest.read(stem);
+        boolean animation = manifest.map(value -> value.originalExtension().equals("zip")).orElse(false)
+                || List.of("gif", "apng", "mp4", "zip").contains(file.extension());
+        if (!animation && file.extension().equals("webp")) {
+            try (var input = Files.newInputStream(file.path())) {
+                byte[] header = input.readNBytes(21);
+                animation = header.length == 21
+                        && new String(header, 12, 4, java.nio.charset.StandardCharsets.US_ASCII).equals("VP8X")
+                        && (header[20] & 2) != 0;
             }
         }
-        if (files.isEmpty()) throw LocalizedException.badRequest("download.media.empty-scope", null);
-        preview = new Plan(UUID.randomUUID().toString(), snapshot, List.copyOf(files));
-        return new Preview(preview.token(), files.stream()
-                .map(item -> new Item(item.artworkId(), item.file().page(), item.file().path().getFileName().toString())).toList());
+        List<String> missing = new ArrayList<>();
+        String formats = animation ? request.ugoiraFormats() : request.imageFormats();
+        if (formats != null) {
+            for (String format : MediaOutputSettings.parseFormats(formats,
+                    animation ? MediaOutputSettings.UGOIRA_FORMATS : MediaOutputSettings.IMAGE_FORMATS)) {
+                // 已移除的原图不可从有损副本恢复；原始格式选项只要求保留已有原图。
+                if (format.equals("original")) continue;
+                if (!Files.exists(stem.resolveSibling(base + "." + format))
+                        && !(format.equals("jpg") && Files.exists(stem.resolveSibling(base + ".jpeg")))) missing.add(format);
+            }
+        }
+        boolean unavailable = false;
+        if (!missing.isEmpty() && animation) {
+            Path zip = stem.resolveSibling(base + ".zip");
+            Path timing = stem.resolveSibling(base + ".frames.properties");
+            if (manifest.isEmpty() || !manifest.get().originalExtension().equals("zip")
+                    || !Files.isRegularFile(zip, LinkOption.NOFOLLOW_LINKS)
+                    || !Files.isRegularFile(timing, LinkOption.NOFOLLOW_LINKS)) {
+                unavailable = true;
+                missing.clear();
+            }
+        }
+        boolean thumbnail = request.repairThumbnails() && assets.existingThumbnail(WorkType.ARTWORK, id, file.page()).isEmpty();
+        if (missing.isEmpty() && !thumbnail && !unavailable) return null;
+        return new Candidate(id, file, Files.size(file.path()), Files.getLastModifiedTime(file.path()).toMillis(),
+                List.copyOf(missing), thumbnail, animation, unavailable);
+    }
+
+    private void checkCancelled() {
+        if (cancelled || Thread.currentThread().isInterrupted()) {
+            cancelled = true;
+            throw new CancellationException();
+        }
     }
 
     public synchronized Status start(String token) {
@@ -111,12 +200,15 @@ public final class MediaMaintenanceService implements AutoCloseable {
                             || Files.getLastModifiedTime(file.path()).toMillis() != candidate.modified()) {
                         throw new IOException("Source changed after preview");
                     }
-                    boolean animation = plan.request().ugoiraFormats() != null && animations.addMissingFormats(
-                            candidate.artworkId(), file.path(), plan.request().ugoiraFormats(), () -> cancelled);
-                    if (!animation && !plan.request().imageFormats().equals("original")) {
-                        images.addMissingFormats(file.path(), plan.request().imageFormats(), () -> cancelled);
+                    if (!candidate.formats().isEmpty()) {
+                        String formats = String.join(",", candidate.formats());
+                        if (candidate.animation()) {
+                            if (!animations.addMissingFormats(candidate.artworkId(), file.path(), formats, () -> cancelled)) {
+                                throw new IOException("Animation source unavailable");
+                            }
+                        } else images.addMissingFormats(file.path(), formats, () -> cancelled);
                     }
-                    if (plan.request().repairThumbnails()
+                    if (candidate.thumbnail()
                             && assets.thumbnail(WorkType.ARTWORK, candidate.artworkId(), file.page()).isEmpty()) {
                         throw new IOException("Thumbnail unavailable");
                     }
@@ -134,7 +226,9 @@ public final class MediaMaintenanceService implements AutoCloseable {
     }
 
     private void requireIdle() {
-        if (closed || status.state().equals("running")) throw LocalizedException.badRequest("download.media.busy", null);
+        if (closed || status.state().equals("running") || status.state().equals("scanning")) {
+            throw LocalizedException.badRequest("download.media.busy", null);
+        }
     }
 
     private static void requirePlain(Path path) throws IOException {
@@ -149,6 +243,7 @@ public final class MediaMaintenanceService implements AutoCloseable {
 
     @Override
     public void close() {
+        cancelled = true;
         synchronized (this) { closed = true; preview = null; cancelled = true; }
         executor.shutdownNow();
         boolean interrupted = Thread.interrupted();

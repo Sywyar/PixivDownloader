@@ -49,6 +49,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
     private final String selectedProviderId;
     private final DesktopUiHost host;
     private final DesktopToolsController tools;
+    private final DesktopMediaToolsController mediaTools;
     private final DesktopOnboardingController onboarding;
     private final DesktopStatusController statusController;
     final DesktopNavigationView navigation;
@@ -96,6 +97,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         this.configPath = Objects.requireNonNull(configPath, "configPath");
         this.selectedProviderId = Objects.requireNonNull(selectedProviderId, "selectedProviderId");
         this.host = Objects.requireNonNull(host, "host");
+        this.mediaTools = new DesktopMediaToolsController(this, host);
         this.tools = new DesktopToolsController(
                 this,
                 host,
@@ -259,6 +261,10 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
             return;
         }
         String value = event.value().values().stream().findFirst().orElse("");
+        if (mediaTools.accept(targetId, value)) {
+            rebuild();
+            return;
+        }
         if (configuration.acceptField(targetId, value)) {
             rebuild();
             return;
@@ -432,7 +438,8 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         pages.add(page(
                 "tools",
                 DesktopUiIcon.TOOLS,
-                tools.controlCenterPage(nextActions, statusController.ffmpegPanel(nextActions)),
+                tools.controlCenterPage(nextActions, statusController.ffmpegPanel(nextActions),
+                        mediaTools.panels(nextSelections, nextActions)),
                 DesktopUiNode.Insets.NONE
         ));
         pages.add(page("security", DesktopUiIcon.SECURITY, security.page(nextActions)));
@@ -746,6 +753,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         if (closed) return;
         closed = true;
         security.clearSecrets();
+        mediaTools.close();
         snapshotListeners.clear();
         worker.shutdownNow();
         AutoCloseable subscription = backendSubscription;

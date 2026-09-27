@@ -24,7 +24,6 @@ public final class GuiWebEntryContributionAggregator {
         List<GuiWebEntryContributionDiagnostic> diagnostics = new ArrayList<>();
         List<GuiWebEntrySpec> statusActions = new ArrayList<>();
         List<GuiWebEntrySpec> trayActions = new ArrayList<>();
-        List<GuiWebEntrySpec> toolActions = new ArrayList<>();
         for (DesktopUiPluginSnapshot registered : registeredPlugins) {
             if (registered == null) {
                 diagnostics.add(new GuiWebEntryContributionDiagnostic(
@@ -40,7 +39,6 @@ public final class GuiWebEntryContributionAggregator {
                 if (contribution.placements().contains(NavigationPlacements.GUI_TRAY_ACTIONS)) {
                     trayActions.add(spec);
                 }
-                if (contribution.placements().contains(NavigationPlacements.DESKTOP_TOOLS)) toolActions.add(spec);
             }
         }
         Comparator<GuiWebEntrySpec> order = Comparator
@@ -49,7 +47,6 @@ public final class GuiWebEntryContributionAggregator {
         return new GuiWebEntrySnapshot(
                 statusActions.stream().sorted(order).toList(),
                 trayActions.stream().sorted(order).toList(),
-                toolActions.stream().sorted(order).toList(),
                 diagnostics);
     }
 
@@ -60,8 +57,7 @@ public final class GuiWebEntryContributionAggregator {
     ) {
         if (contribution == null || contribution.placements() == null
                 || (!contribution.placements().contains(NavigationPlacements.GUI_STATUS_ACTIONS)
-                && !contribution.placements().contains(NavigationPlacements.GUI_TRAY_ACTIONS)
-                && !contribution.placements().contains(NavigationPlacements.DESKTOP_TOOLS))) {
+                && !contribution.placements().contains(NavigationPlacements.GUI_TRAY_ACTIONS))) {
             return null;
         }
         String id = normalize(contribution.id());

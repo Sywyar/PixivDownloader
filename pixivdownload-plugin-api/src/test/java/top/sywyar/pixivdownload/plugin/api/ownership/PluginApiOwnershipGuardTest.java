@@ -161,7 +161,8 @@ class PluginApiOwnershipGuardTest {
                     "GuiConfigSectionNoticeStyle", "GuiOnboardingStepContribution", "GuiThemeAppearance",
                     "GuiThemeApplier", "GuiThemeChangeListener", "GuiThemeContribution",
                     "GuiThemeListenerFactory", "GuiThemeListenerSession", "RepositoryConfigEntry",
-                    "TrustedKeyConfigEntry"))),
+                    "TrustedKeyConfigEntry"),
+                    types(API_PREFIX + "gui.media", "DesktopMediaTool"))),
             Map.entry("Web 与请求身份协议", types(API_PREFIX + "web",
                     "AccessPolicy", "ApiErrorResponse", "Audience", "DrilldownContribution", "DrilldownPlacements",
                     "HttpMethod", "I18nContribution",
@@ -246,7 +247,7 @@ class PluginApiOwnershipGuardTest {
 
     private static final Map<String, Integer> APPROVED_TYPE_COUNTS = Map.ofEntries(
             Map.entry("插件入口与生命周期", 4),
-            Map.entry("GUI contribution 与桌面宿主契约", 51),
+            Map.entry("GUI contribution 与桌面宿主契约", 52),
             Map.entry("Web 与请求身份协议", 21),
             Map.entry("油猴脚本宿主目录协议", 2),
             Map.entry("下载类型描述协议", 2),
@@ -264,6 +265,18 @@ class PluginApiOwnershipGuardTest {
     );
 
     private static final Set<String> APPROVED_PUBLIC_NESTED_TYPES = Set.of(
+            API_PREFIX + "gui.media.DesktopMediaTool$Identity",
+            API_PREFIX + "gui.media.DesktopMediaTool$Description",
+            API_PREFIX + "gui.media.DesktopMediaTool$Source",
+            API_PREFIX + "gui.media.DesktopMediaTool$Request",
+            API_PREFIX + "gui.media.DesktopMediaTool$Item",
+            API_PREFIX + "gui.media.DesktopMediaTool$Preview",
+            API_PREFIX + "gui.media.DesktopMediaTool$Failure",
+            API_PREFIX + "gui.media.DesktopMediaTool$Status",
+            API_PREFIX + "gui.media.DesktopMediaTool$Capability",
+            API_PREFIX + "gui.media.DesktopMediaTool$Report",
+            API_PREFIX + "gui.media.DesktopMediaTool$Result",
+            API_PREFIX + "gui.media.DesktopMediaTool$OperationException",
             API_PREFIX + "gui.DesktopAutomationTaskContribution$LastResult",
             API_PREFIX + "gui.DesktopAutomationTaskContribution$Status",
             API_PREFIX + "gui.DesktopRunningTaskContribution$Status",

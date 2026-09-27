@@ -542,7 +542,6 @@ class BatchLayoutContractTest {
                         + resource.publicPathPrefix() + "|" + resource.exactFile())
                 .containsExactly(
                         "classpath:/static/|/pixiv-batch.html|true",
-                        "classpath:/static/|/pixiv-media.html|true",
                         "classpath:/static/pixiv-batch/|/pixiv-batch/|false",
                         "classpath:/static/|/pixiv-batch-alt.html|true",
                         "classpath:/static/pixiv-batch-alt/|/pixiv-batch-alt/|false",

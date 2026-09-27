@@ -54,6 +54,17 @@ public class ArtworkFileService {
         return getThumbnailFile(artworkId, page, 512);
     }
 
+    public ThumbnailFile existingThumbnail(Long artworkId, int page) throws IOException {
+        ArtworkRecord artwork = pixivDatabase.getArtwork(artworkId);
+        if (artwork == null || page < 0 || page >= artwork.count()) return null;
+        File source = resolveThumbnailSourceFile(artwork, page);
+        if (source == null) return null;
+        String format = normalizeThumbnailFormat(getFileExtension(source.getName()).toLowerCase(Locale.ROOT));
+        Path cache = thumbnailCachePath(artworkId, page, 512, format);
+        return isFreshThumbnailCache(cache, Files.getLastModifiedTime(source.toPath()))
+                ? new ThumbnailFile(cache, format) : null;
+    }
+
     public ThumbnailFile getThumbnailFile(Long artworkId, int page, int maximumEdge) throws IOException {
         // 有限尺寸档避免任意请求参数产生无限缓存变体；预览沿用桌面的 1600 像素预算。
         int edge = 128;

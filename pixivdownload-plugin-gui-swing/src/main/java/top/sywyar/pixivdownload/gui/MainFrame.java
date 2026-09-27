@@ -188,11 +188,7 @@ public class MainFrame extends JFrame {
             welcomePanel = null;
         }
 
-        toolsPanel = new ToolsPanel(
-                configPath,
-                this::guiWebEntries,
-                statusPanel::openWebPage
-        );
+        toolsPanel = new ToolsPanel(configPath);
         // Web URL 构造复用状态页（scheme 按 SSL、主机名按域名推导，不写死协议 / 主机），用于「打开 Web 插件市场 / 管理页」。
         configPanel = new ConfigPanel(configPath, serverPort, statusPanel::getWebUrl,
                 ConfigFieldRegistry.snapshot(guiConfigContributions()),

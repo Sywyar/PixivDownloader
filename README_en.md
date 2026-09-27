@@ -101,7 +101,7 @@ downloading.
 
 Choose default formats, conversion quality, maximum edge and FFmpeg concurrency in the desktop download settings, then save and restart the backend. Images default to the original format and Ugoira to WebP. Both web layouts also let you select formats for downloads and new schedules. Deselecting the original removes it only after all selected outputs succeed; selecting the source format reuses the original file.
 
-For existing works, open **Tools → Process downloaded media** on the desktop, preview the scope and start manually. Processing adds missing copies and keeps existing files. Ugoira conversion requires the retained ZIP and frame timing file. The same page checks the current FFmpeg's encoding and decoding capabilities; MP4 requires an H.264 encoder.
+For existing works, open **Tools → FFmpeg and tools → Process downloaded media** in the Compose desktop UI, select target formats, and detect missing files without entering artwork IDs. Review the results and start explicitly. Processing adds missing formats and thumbnails while keeping existing files; going back does not cancel the task. Swing provides the same detection and processing on its Tools page. Ugoira conversion requires a retained ZIP and frame timing. FFmpeg management can test actual codec support; MP4 requires an H.264 encoder.
 
 ### Route web Pixiv through the backend-configured proxy (no system proxy needed)
 
