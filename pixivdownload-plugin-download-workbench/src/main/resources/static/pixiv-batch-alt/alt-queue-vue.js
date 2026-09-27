@@ -60,7 +60,9 @@ let aqvStore = null;
 let aqvApps = [];
 let aqvActive = false;
 let aqvMounting = false;
-const aqvDirtyRows = new Set();
+const aqvDirtyRows = new Map();
+const aqvRowIndexes = new Map();
+let aqvQueue = null;
 let aqvFullRefresh = false;
 
 function aqvHelper() {
@@ -286,6 +288,9 @@ function aqvMountOne(el, comp, kind) {
 }
 
 function aqvTeardown() {
+    aqvRowIndexes.clear();
+    aqvDirtyRows.clear();
+    aqvQueue = null;
     aqvApps.splice(0).forEach(entry => {
         try { entry.app.unmount(); } catch (e) { /* 卸载失败忽略 */ }
     });
@@ -383,17 +388,29 @@ function aqvSyncPaused(paused) {
 }
 
 function aqvSyncList(changedItem) {
-    if (changedItem) aqvDirtyRows.add(aqvRowKey(changedItem));
+    if (changedItem) aqvDirtyRows.set(aqvRowKey(changedItem), changedItem);
     else aqvFullRefresh = true;
     aqvSchedule('list', () => {
         if (aqvStore && typeof state !== 'undefined') {
-            const previous = new Map(aqvStore.items.map(q => [aqvRowKey(q), q]));
-            // 原始队列在 Vue 之外原地更新，变动行必须更换快照，未变化行继续复用。
-            aqvStore.items = (state.queue || []).map(q => {
-                const key = aqvRowKey(q);
-                return !aqvFullRefresh && !aqvDirtyRows.has(key) && previous.has(key)
-                    ? previous.get(key) : Object.assign({}, q);
+            const queue = state.queue || [];
+            let rebuild = aqvFullRefresh || aqvQueue !== queue || aqvStore.items.length !== queue.length;
+            aqvDirtyRows.forEach((q, key) => {
+                const index = aqvRowIndexes.get(key);
+                if (index === undefined || queue[index] !== q) rebuild = true;
             });
+            if (rebuild) {
+                aqvRowIndexes.clear();
+                aqvQueue = queue;
+                aqvStore.items = queue.map((q, index) => {
+                    aqvRowIndexes.set(aqvRowKey(q), index);
+                    return Object.assign({}, q);
+                });
+            } else {
+                // 原始队列在 Vue 外更新，替换脏行快照以保留嵌套字段的刷新语义。
+                aqvDirtyRows.forEach((q, key) => {
+                    aqvStore.items[aqvRowIndexes.get(key)] = Object.assign({}, q);
+                });
+            }
         }
         aqvDirtyRows.clear(); aqvFullRefresh = false;
     });
@@ -557,6 +574,7 @@ window.PixivBatchAlt.queueVue = Object.assign(window.PixivBatchAlt.queueVue || {
         reset: function () {
             aqvJobs.clear();
             aqvDirtyRows.clear(); aqvFullRefresh = false;
+            aqvRowIndexes.clear(); aqvQueue = null;
             aqvRafScheduled = false;
             aqvApps.splice(0).forEach(entry => {
                 try { entry.app.unmount(); } catch (e) { /* 忽略 */ }

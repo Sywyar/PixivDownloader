@@ -122,7 +122,9 @@
     var dlCurrentApp = null;   // 当前卡专属挂载（供 isDownloadCurrentActive 判定；与统计 / 列表的岛级激活相互独立）
     var dlActive = false;
     var dlMounting = false;
-    var dlDirtyRows = new Set();
+    var dlDirtyRows = new Map();
+    var dlRowIndexes = new Map();
+    var dlQueue = null;
     var dlFullRefresh = false;
 
     function buildDlStore() {
@@ -288,23 +290,31 @@
         return !!(dlCurrentApp && doc.contains(dlCurrentApp.el));
     }
 
-    function downloadQueueSnapshot() {
-        var st = batchState();
-        return (st && Array.isArray(st.queue)) ? st.queue.slice() : [];
-    }
-
     function syncDownloadList(changedItem) {
-        if (changedItem) { dlDirtyRows.add(queueRowKey(changedItem)); }
+        if (changedItem) { dlDirtyRows.set(queueRowKey(changedItem), changedItem); }
         else { dlFullRefresh = true; }
         schedule('dl:list', function () {
             if (dlStore) {
-                var previous = new Map(dlStore.items.map(function (q) { return [queueRowKey(q), q]; }));
-                // 原始队列在 Vue 之外原地更新；复制变动行才能触发子组件，未变化行保留身份。
-                dlStore.items = downloadQueueSnapshot().map(function (q) {
-                    var key = queueRowKey(q);
-                    return !dlFullRefresh && !dlDirtyRows.has(key) && previous.has(key)
-                        ? previous.get(key) : Object.assign({}, q);
+                var st = batchState();
+                var queue = st && Array.isArray(st.queue) ? st.queue : [];
+                var rebuild = dlFullRefresh || dlQueue !== queue || dlStore.items.length !== queue.length;
+                dlDirtyRows.forEach(function (q, key) {
+                    var index = dlRowIndexes.get(key);
+                    if (index === undefined || queue[index] !== q) rebuild = true;
                 });
+                if (rebuild) {
+                    dlRowIndexes.clear();
+                    dlQueue = queue;
+                    dlStore.items = queue.map(function (q, index) {
+                        dlRowIndexes.set(queueRowKey(q), index);
+                        return Object.assign({}, q);
+                    });
+                } else {
+                    // 替换脏行快照，嵌套字段原地变化也能触发子组件刷新。
+                    dlDirtyRows.forEach(function (q, key) {
+                        dlStore.items[dlRowIndexes.get(key)] = Object.assign({}, q);
+                    });
+                }
             }
             dlDirtyRows.clear(); dlFullRefresh = false;
         });
@@ -498,6 +508,7 @@
             reset: function () {
                 pendingJobs.clear(); rafScheduled = false;
                 dlDirtyRows.clear(); dlFullRefresh = false;
+                dlRowIndexes.clear(); dlQueue = null;
                 dlStore = null; dlApps = []; dlCurrentApp = null; dlActive = false; dlMounting = false;
                 schedEntries.clear(); Vue = null;
             }
