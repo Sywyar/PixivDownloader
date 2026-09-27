@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.headerDoesNotExist;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -26,6 +27,29 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 @DisplayName("OpenAI 兼容聊天与模型列表")
 class OpenAiCompatibleAiClientTest {
+
+    @Test
+    @DisplayName("AI 关闭时连接测试使用临时密钥，业务调用仍被拒绝")
+    void disabledAiAllowsExplicitProbeOnly() throws Exception {
+        RestTemplate direct = new RestTemplate();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(direct).build();
+        var config = new AiConfig();
+        var client = new OpenAiCompatibleAiClient(config, mock(MessageResolver.class), direct, new RestTemplate());
+        var messages = new ConnectivityProbeRequest().toMessages();
+        assertThatThrownBy(() -> client.chat("test", messages, AiChatOptions.defaults()))
+                .isInstanceOf(AiClientException.class);
+        server.expect(requestTo("https://example.test/v1/chat/completions"))
+                .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer test-draft-secret"))
+                .andExpect(jsonPath("$.model").value("test-model"))
+                .andRespond(withSuccess("{\"choices\":[{\"message\":{\"content\":\"OK\"}}]}",
+                        MediaType.APPLICATION_JSON));
+        assertThat(client.chatTest("test", new AiClientSettings(
+                "https://example.test/v1", "test-draft-secret", "test-model", false),
+                messages, AiChatOptions.defaults()).content()).isEqualTo("OK");
+        assertThat(config.isEnabled()).isFalse();
+        assertThat(config.getApiKey()).isEmpty();
+        server.verify();
+    }
 
     @ParameterizedTest
     @CsvSource({"openai,max_completion_tokens,max_tokens", "openrouter,max_tokens,max_completion_tokens"})
@@ -96,14 +120,14 @@ class OpenAiCompatibleAiClientTest {
     }
 
     @Test
-    @DisplayName("GET models 使用当前鉴权并返回排序去重后的有界模型")
+    @DisplayName("公开目录优先匿名查询，填写密钥也不发送，并返回排序去重后的模型")
     void listsModelsWithCurrentSettings() throws Exception {
         RestTemplate direct = new RestTemplate();
         MockRestServiceServer server = MockRestServiceServer.bindTo(direct).build();
         OpenAiCompatibleAiClient client = client(direct);
         server.expect(requestTo("https://example.test/v1/models"))
                 .andExpect(method(org.springframework.http.HttpMethod.GET))
-                .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer sk-test-secret"))
+                .andExpect(headerDoesNotExist(HttpHeaders.AUTHORIZATION))
                 .andRespond(withSuccess("""
                         {"data":[
                           {"id":"zeta","owned_by":"vendor"},
@@ -130,6 +154,10 @@ class OpenAiCompatibleAiClientTest {
         OpenAiCompatibleAiClient client = client(direct);
         String apiKey = "sk-test-secret-value";
         server.expect(requestTo("https://example.test/v1/models"))
+                .andExpect(headerDoesNotExist(HttpHeaders.AUTHORIZATION))
+                .andRespond(withStatus(HttpStatus.UNAUTHORIZED));
+        server.expect(requestTo("https://example.test/v1/models"))
+                .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey))
                 .andRespond(withStatus(HttpStatus.UNAUTHORIZED)
                         .contentType(MediaType.APPLICATION_JSON)
                         .body("{\"api_key\":\"" + apiKey + "\"}"));

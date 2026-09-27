@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.ai.preset.AiPresetRegistry;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionPayloadField;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionPayloadType;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldLayoutContribution;
@@ -27,6 +28,69 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AiPluginGuiConfigContributionTest {
 
     private final AiPlugin plugin = new AiPlugin();
+
+    @Test
+    @DisplayName("启用 AI 时必须输入密钥或沿用可读取的已存凭据")
+    void credentialIsRequiredOnlyWhenEnabled() {
+        var key = fields().stream().filter(field -> field.key().equals("ai.api-key")).findFirst().orElseThrow();
+        for (String value : List.of("", " \t")) {
+            var draft = java.util.Map.of("ai.enabled", "true", "ai.api-key", value);
+            assertThat(key.missingRequiredValue(draft, false)).isTrue();
+            assertThat(key.missingRequiredValue(draft, true)).isFalse();
+            assertThat(key.missingRequiredValue(java.util.Map.of("ai.enabled", "false", "ai.api-key", value), false)).isFalse();
+        }
+        assertThat(key.missingRequiredValue(java.util.Map.of(
+                "ai.enabled", "true", "ai.api-key", "fixture-secret"), false)).isFalse();
+    }
+
+    @Test
+    @DisplayName("仅在启用 AI 时要求非空模型，自定义模型无需来自预设")
+    void modelIsRequiredOnlyWhenEnabled() {
+        var model = fields().stream().filter(field -> field.key().equals("ai.model")).findFirst().orElseThrow();
+        for (String value : List.of("", " \t")) {
+            assertThat(model.missingRequiredValue(java.util.Map.of("ai.enabled", "true", "ai.model", value))).isTrue();
+            assertThat(model.missingRequiredValue(java.util.Map.of("ai.enabled", "false", "ai.model", value))).isFalse();
+        }
+        assertThat(model.missingRequiredValue(java.util.Map.of(
+                "ai.enabled", "true", "ai.model", "fixture/custom"))).isFalse();
+    }
+
+    @Test
+    @DisplayName("模型鉴权失败按受控错误码选择专用提示且不展示原始错误")
+    void modelAuthenticationNoticesUseControlledCodes() {
+        var action = section().actions().stream()
+                .filter(item -> item.actionId().equals("ai.models")).findFirst().orElseThrow();
+        for (String code : List.of("api-key-required", "authentication-failed", "models-forbidden")) {
+            assertThat(action.resultRules())
+                    .filteredOn(rule -> rule.noticeKey().equals("gui.config.ai.models.notice." + code))
+                    .singleElement().satisfies(rule -> {
+                        assertThat(rule.conditions()).contains(
+                                GuiConfigActionResultCondition.http2xx(true),
+                                GuiConfigActionResultCondition.jsonFalse("success"),
+                                GuiConfigActionResultCondition.jsonEquals("code", code));
+                        assertThat(rule.arguments()).isEmpty();
+                        assertThat(rule.order()).isLessThan(action.resultRules().stream()
+                                .filter(item -> item.noticeKey().equals("gui.config.ai.models.notice.failed"))
+                                .findFirst().orElseThrow().order());
+                    });
+        }
+    }
+
+    @Test
+    @DisplayName("AI 关闭时仍可编辑连接测试和模型查询所需的配置")
+    void connectionFieldsRemainEditableBeforeEnablingAi() {
+        assertThat(fields()).filteredOn(field -> field.key().equals(AiConfig.KEY_ENABLED))
+                .singleElement().satisfies(field -> assertThat(field.defaultValue()).isEqualTo("false"));
+        Set<String> actionFields = section().actions().stream()
+                .flatMap(action -> action.payloadFields().stream())
+                .map(GuiConfigActionPayloadField::fieldKey)
+                .collect(java.util.stream.Collectors.toSet());
+        assertThat(fields()).filteredOn(field -> actionFields.contains(field.key()))
+                .isNotEmpty().allSatisfy(field -> {
+                    assertThat(field.enabledWhen()).isEmpty();
+                    assertThat(field.visibleWhen()).isEmpty();
+                });
+    }
 
     @Test
     @DisplayName("只贡献 AI 自己的配置字段")
@@ -102,6 +166,11 @@ class AiPluginGuiConfigContributionTest {
         assertThat(modelsAction.resultSummary().arrayPath()).isEqualTo("models");
         assertThat(modelsAction.resultSummary().labelPath()).isEqualTo("id");
         assertThat(modelsAction.resultSummary().detailPath()).isEqualTo("ownedBy");
+        assertThat(modelsAction.resultSummary().selectionFieldKey()).isEqualTo("ai.model");
+        assertThat(modelsAction.resultRules())
+                .filteredOn(rule -> rule.noticeKey().equals("gui.config.ai.models.notice.failed"))
+                .singleElement()
+                .satisfies(rule -> assertThat(rule.arguments()).isEmpty());
 
         GuiConfigActionContribution action = section.actions().get(1);
         assertThat(action.actionId()).isEqualTo("ai.test");

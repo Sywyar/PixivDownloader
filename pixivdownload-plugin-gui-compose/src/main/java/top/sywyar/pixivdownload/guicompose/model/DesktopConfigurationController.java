@@ -71,6 +71,8 @@ final class DesktopConfigurationController {
     volatile Map<String, ConfigField> fieldBindings = Map.of();
     volatile String configNotice = "";
     volatile TextToken configNoticeToken;
+    volatile ActionChoices actionChoices;
+    private volatile long actionRevision;
     volatile boolean autoStartSupported;
     volatile boolean autoStartEnabled;
     volatile String invalidRow = "";
@@ -114,6 +116,11 @@ final class DesktopConfigurationController {
     boolean acceptField(String binding, String value) {
         ConfigField field = fieldBindings.get(binding);
         if (field == null) return false;
+        ActionChoices choices = actionChoices;
+        if (!currentChoices(choices) || !field.key().equals(new FieldKey(
+                choices.action().owner(),
+                choices.action().spec().resultSummary().selectionFieldKey()
+        ))) clearActionChoices();
         values.put(field.key(), value);
         if (invalidRow.equals(DesktopConfigurationFieldView.bindingId(field.key()) + ".row")) invalidRow = "";
         return true;
@@ -141,6 +148,7 @@ final class DesktopConfigurationController {
     }
 
     void applyPreset(ConfigPreset preset) {
+        clearActionChoices();
         preset.spec().values().forEach((key, value) -> values.put(
                 new FieldKey(preset.owner(), key),
                 value
@@ -151,6 +159,9 @@ final class DesktopConfigurationController {
     }
 
     void runConfigAction(ConfigAction action) {
+        clearActionChoices();
+        long revision = actionRevision;
+        var source = actionSource(action);
         configNotice = "";
         configNoticeToken = action.sendingNotice() == null ? appToken(
                 "gui.config.action.notice.sending",
@@ -166,6 +177,13 @@ final class DesktopConfigurationController {
                         action.owner()
                 );
                 configNoticeToken = actionNotice(action, response);
+                List<String> options = ActionResult.from(response, action.spec().resultSummary())
+                        .selectionValues(action.spec().resultSummary());
+                if (!options.isEmpty() && revision == actionRevision && source != null
+                        && source.equals(actionSource(action))) {
+                    actionChoices = new ActionChoices(action, source, revision, options);
+                    selectActionValue(actionChoices, options.get(0));
+                }
             } catch (Exception failure) {
                 configNoticeToken = appToken(
                         "gui.config.action.notice.failed",
@@ -175,6 +193,46 @@ final class DesktopConfigurationController {
             }
         });
     }
+
+    synchronized void clearActionChoices() {
+        actionRevision++;
+        actionChoices = null;
+    }
+
+    private DesktopUiPluginSnapshot.Fingerprint actionSource(ConfigAction action) {
+        return owner.currentSources().stream().filter(source -> source.id().equals(action.owner()))
+                .map(DesktopUiPluginSnapshot::fingerprint).findFirst().orElse(null);
+    }
+
+    boolean currentChoices(ActionChoices choices) {
+        return choices != null && choices.revision() == actionRevision
+                && choices.source().equals(actionSource(choices.action()));
+    }
+
+    void selectActionValue(ActionChoices choices, String value) {
+        if (!currentChoices(choices) || !choices.options().contains(value)) return;
+        FieldKey key = new FieldKey(choices.action().owner(), choices.action().spec().resultSummary().selectionFieldKey());
+        ConfigField field = view.fields.field(key);
+        if (field == null || field.spec().sensitive() || field.spec().type() != GuiConfigFieldType.STRING
+                || !visible(field) || !enabled(field) || view.fields.lockedFields().contains(key)) return;
+        try {
+            host.requireSafeConfigValue(value);
+        } catch (java.io.IOException failure) {
+            clearActionChoices();
+            configNoticeToken = appToken("gui.config.action.notice.failed", choices.action().spec().actionId(), "");
+            owner.rebuild();
+            return;
+        }
+        values.put(key, value);
+        owner.rebuild();
+    }
+
+    record ActionChoices(
+            ConfigAction action,
+            DesktopUiPluginSnapshot.Fingerprint source,
+            long revision,
+            List<String> options
+    ) {}
 
     private Map<String, Object> actionPayload(ConfigAction action) throws Exception {
         Map<String, Object> payload = new LinkedHashMap<>();
@@ -318,13 +376,13 @@ final class DesktopConfigurationController {
             ));
             return;
         }
-        if (changed.isEmpty() && !repositoriesChanged && !interfaceChanged) {
-            setConfigNotice(host.message("gui.config.notice.saved-no-change"));
-            return;
-        }
         try {
             invalidRow = "";
             validate(changed);
+            if (changed.isEmpty() && !repositoriesChanged && !interfaceChanged) {
+                setConfigNotice(host.message("gui.config.notice.saved-no-change"));
+                return;
+            }
             ConfigField rootField = changed.stream().filter(field -> field.owner() == null && "download.root-folder".equals(
                     field.spec().key())).findFirst().orElse(null);
             if (!symbolicRootPinned && rootField != null) {
@@ -726,9 +784,25 @@ final class DesktopConfigurationController {
     }
 
     private void validate(List<ConfigField> fields) throws Exception {
-        for (ConfigField field : fields) {
+        Set<ConfigField> changed = Set.copyOf(fields);
+        Map<String, Map<String, String>> drafts = new LinkedHashMap<>();
+        for (ConfigField field : configFields) {
+            drafts.computeIfAbsent(field.owner(), ignored -> new LinkedHashMap<>())
+                    .put(field.spec().key(), values.getOrDefault(field.key(), field.spec().defaultValue()));
+        }
+        for (ConfigField field : configFields) {
             try {
                 GuiConfigFieldContribution spec = field.spec();
+                Map<String, String> draft = drafts.get(field.owner());
+                boolean missing = spec.missingRequiredValue(draft);
+                if (missing && spec.sensitive() && field.owner() != null) {
+                    boolean stored = !host.readCredentials(field.owner()).getOrDefault(spec.key(), "").isBlank();
+                    missing = spec.missingRequiredValue(draft, stored);
+                }
+                if (missing) {
+                    throw new IllegalArgumentException(host.message("desktop.ui.config.required"));
+                }
+                if (!changed.contains(field)) continue;
                 String value = values.getOrDefault(field.key(), "");
                 host.requireSafeConfigKey(spec.key());
                 host.requireSafeConfigValue(value);
@@ -765,6 +839,7 @@ final class DesktopConfigurationController {
         owner.runBusy(() -> {
             try {
                 host.updateCredentials(field.owner(), Map.of(field.spec().key(), ""));
+                clearActionChoices();
                 values.put(field.key(), "");
                 if (invalidRow.equals(DesktopConfigurationFieldView.bindingId(field.key()) + ".row")) invalidRow = "";
                 credentialRevisions.merge(field.key(), 1L, Long::sum);

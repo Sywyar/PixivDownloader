@@ -143,6 +143,27 @@ final class GuiActionResponseSafety {
             };
         }
 
+        java.util.List<String> selectionValues(GuiConfigActionResultSummary spec) {
+            if (!reachable || !http2xx || body == null || spec == null
+                    || spec.selectionFieldKey().isBlank()
+                    || !safeJsonPath(spec.arrayPath(), false, true)
+                    || !safeJsonPath(spec.labelPath(), false, true)) return java.util.List.of();
+            DesktopUiHost.GuiValue array = nodeAt(body, spec.arrayPath());
+            if (array == null || !array.isArray()) return java.util.List.of();
+            java.util.Set<String> values = new java.util.LinkedHashSet<>();
+            int count = 0;
+            for (var item : array) {
+                if (++count > 2_000) return java.util.List.of();
+                var node = nodeAt(item, spec.labelPath());
+                if (node == null || !node.isTextual()) return java.util.List.of();
+                String value = node.asText("");
+                if (value.isBlank() || value.length() > 256
+                        || value.codePoints().anyMatch(Character::isISOControl)) return java.util.List.of();
+                values.add(value);
+            }
+            return java.util.List.copyOf(values);
+        }
+
         private String jsonText(String path) {
             if (!safeJsonPath(path, false, true)) return "";
             DesktopUiHost.GuiValue node = nodeAt(body, path);

@@ -6,6 +6,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
+import java.util.function.BiPredicate;
 
 /**
  * 单个配置字段的元数据。UI 根据此 schema 自动渲染控件，无需为每个字段硬编码。
@@ -26,7 +27,8 @@ public record ConfigFieldSpec(
         Predicate<ConfigSnapshot> visibleWhen,
         List<GuiConfigCondition> visibleWhenConditions,
         GuiConfigEffect effect,
-        boolean contributesGroupVisibility
+        boolean contributesGroupVisibility,
+        BiPredicate<ConfigSnapshot, Boolean> requiredValueMissing
 ) {
 
     public static final String CORE_OWNER = "core";
@@ -78,6 +80,7 @@ public record ConfigFieldSpec(
         private List<GuiConfigCondition> visibleWhenConditions = List.of();
         private GuiConfigEffect effect = GuiConfigEffect.BACKEND_RESTART;
         private boolean contributesGroupVisibility = true;
+        private BiPredicate<ConfigSnapshot, Boolean> requiredValueMissing = (snapshot, stored) -> false;
 
         private Builder(String key, String label, FieldType type, String group) {
             this.key = key;
@@ -110,6 +113,11 @@ public record ConfigFieldSpec(
 
         public Builder validator(Validator v) {
             this.validator = v;
+            return this;
+        }
+
+        public Builder requiredValueMissing(BiPredicate<ConfigSnapshot, Boolean> predicate) {
+            this.requiredValueMissing = predicate;
             return this;
         }
 
@@ -154,9 +162,25 @@ public record ConfigFieldSpec(
         }
 
         public ConfigFieldSpec build() {
-            return new ConfigFieldSpec(key, label, type, group, groupId, ownerPluginId, helpText, defaultValue,
-                    validator, enumValues, enumValueLabels, enabledWhen, visibleWhen,
-                    visibleWhenConditions, effect, contributesGroupVisibility);
+            return new ConfigFieldSpec(
+                    key,
+                    label,
+                    type,
+                    group,
+                    groupId,
+                    ownerPluginId,
+                    helpText,
+                    defaultValue,
+                    validator,
+                    enumValues,
+                    enumValueLabels,
+                    enabledWhen,
+                    visibleWhen,
+                    visibleWhenConditions,
+                    effect,
+                    contributesGroupVisibility,
+                    requiredValueMissing
+            );
         }
     }
 }

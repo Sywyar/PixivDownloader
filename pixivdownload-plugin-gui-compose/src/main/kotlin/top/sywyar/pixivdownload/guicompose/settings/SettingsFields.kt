@@ -147,10 +147,13 @@ private fun SettingsRow(
     BoxWithConstraints(Modifier.fillMaxWidth().bringIntoViewRequester(requester).testTag(row.id())
         .background(palette.selection.copy(alpha = located.value * .8f), RoundedCornerShape(8.dp))
         .then(if (invalid) Modifier.border(1.dp, palette.error, RoundedCornerShape(8.dp)) else Modifier)) {
-        val stacked = theme != null || control is Container || control is Dock ||
+        val fieldAction = control is Dock && (control.center() as? TextInput)?.inputKind() == InputKind.TEXT &&
+            control.end() is Button
+        val stacked = theme != null || control is Container || (control is Dock && !fieldAction) ||
             primaryInput?.inputKind() == InputKind.MULTILINE || maxWidth < if (textEntry) 600.dp else 390.dp
         val controlWidth = when {
             control is Toggle -> 44.dp
+            fieldAction -> (maxWidth * .72f).coerceAtMost(640.dp)
             textEntry -> (maxWidth * .6f).coerceAtMost(480.dp)
             primaryInput != null -> 112.dp
             else -> 240.dp
@@ -194,11 +197,18 @@ private fun SettingsControl(node: DesktopUiNode, secrets: MutableMap<String, Pai
             LaunchedEffect(node.stateRevision()) {
                 if (secrets[node.id()]?.first != node.stateRevision()) secrets.remove(node.id())
             }
-            CupertinoTextField(value = secrets[node.id()]?.takeIf { it.first == node.stateRevision() }?.second ?: TextFieldValue(), onValueChange = {
-                secrets[node.id()] = node.stateRevision() to it
-                emit(Event(EventType.CHANGE, node.id(), Value.text(it.text)))
-            }, enabled = node.enabled(), singleLine = true, visualTransformation = PasswordVisualTransformation(),
-                modifier = modifier.testTag(node.id()).semantics { contentDescription = text(node.label()) })
+            ComposeDesktopUiNodeRenderer.CompactTextInput(
+                value = secrets[node.id()]?.takeIf { it.first == node.stateRevision() }?.second ?: TextFieldValue(),
+                onValueChange = {
+                    secrets[node.id()] = node.stateRevision() to it
+                    emit(Event(EventType.CHANGE, node.id(), Value.text(it.text)))
+                },
+                enabled = node.enabled(),
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = modifier.heightIn(min = DesktopLayout.controlHeight).testTag(node.id())
+                    .semantics { contentDescription = text(node.label()) },
+            )
         }
         node is Toggle -> ComposeDesktopUiNodeRenderer.FormContent(
             Toggle(node.id(), node.bindingId(), node.label(), node.help(), ToggleStyle.SWITCH, node.selected(), node.enabled()), text, emit, modifier)
@@ -208,6 +218,32 @@ private fun SettingsControl(node: DesktopUiNode, secrets: MutableMap<String, Pai
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     node.bottom()?.let { ComposeDesktopUiNodeRenderer.Render(it, text, emit) }
                     node.end()?.let { ComposeDesktopUiNodeRenderer.Render(it, text, emit) }
+                }
+            }
+        }
+        node is Dock && node.center() is TextInput && node.end() is Button &&
+            node.top() == null && node.start() == null -> {
+            Column(modifier, verticalArrangement = Arrangement.spacedBy(node.gap().dp)) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(node.gap().dp),
+                    verticalArrangement = Arrangement.spacedBy(node.gap().dp),
+                    itemVerticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ComposeDesktopUiNodeRenderer.TextInput(
+                        node = node.center() as TextInput,
+                        text = text,
+                        emit = emit,
+                        modifier = Modifier.weight(1f).widthIn(min = 180.dp).testTag(node.center().id()),
+                        includeLabel = false,
+                        suggestions = node.bottom() as? Choice,
+                    )
+                    SettingsButton(node.end() as Button, text) {
+                        emit(Event(EventType.ACTIVATE, node.end().id(), Value.empty()))
+                    }
+                }
+                node.bottom()?.takeUnless { it is Choice }?.let {
+                    SettingsControl(it, secrets, text, emit, Modifier.fillMaxWidth())
                 }
             }
         }

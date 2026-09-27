@@ -130,6 +130,57 @@ class GuiConfigContributionAggregatorTest {
         return plugin(owner, new GuiConfigContribution(groups, List.of(field), List.of(section)));
     }
 
+    @Test
+    @DisplayName("选择回填仅接纳同 owner 的非敏感文本字段")
+    void validatesSelectionOwnerAndType() {
+        for (String target : List.of("demo.value", "other.value", "demo.secret")) {
+            var action = new top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionContribution(
+                    "demo.get", "action.get", "", "demo", null, "demo-get", 10_000, 1,
+                    List.of(), "", List.of(),
+                    top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultSummary
+                            .allItems("items", "id", "").selectInto(target));
+            var section = new GuiConfigSectionContribution("demo.settings", "demo", "", "", "demo",
+                    GuiConfigSectionLayout.FIELD_LIST, 1, List.of(), List.of(action), List.of());
+            var contribution = new GuiConfigContribution(List.of(), List.of(
+                    new GuiConfigFieldContribution("demo.value", "demo", "Value", GuiConfigFieldType.STRING, "", 1),
+                    new GuiConfigFieldContribution("demo.secret", "demo", "Secret", GuiConfigFieldType.PASSWORD, "", 2)
+            ), List.of(section));
+            var source = new DesktopUiPluginSnapshot("demo", false, "demo", 1, false, "demo", "plugin.name",
+                    List.of(), List.of(contribution), List.of(),
+                    List.of(top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution.gui("/api/gui/demo-get")), List.of());
+            var result = GuiConfigContributionAggregator.fromRegisteredPlugins(List.of(source));
+            assertThat(result.sections()).hasSize(1);
+            assertThat(result.sections().get(0).actions()).hasSize(target.equals("demo.value") ? 1 : 0);
+        }
+    }
+
+    @Test
+    @DisplayName("条件必填传入完整草稿，并拒绝跨 owner 或不存在的条件字段")
+    void requiredConditionsStayWithinTheirOwner() {
+        var enabled = new GuiConfigFieldContribution("demo.enabled", "demo", "Enabled",
+                GuiConfigFieldType.BOOL, "false", 1);
+        var other = plugin("other", new GuiConfigContribution(List.of(), List.of(
+                new GuiConfigFieldContribution("other.enabled", "other", "Enabled",
+                        GuiConfigFieldType.BOOL, "true", 1)), List.of()));
+        for (String key : List.of("demo.enabled", "other.enabled", "missing")) {
+            var value = new GuiConfigFieldContribution("demo.value", "demo", "Value",
+                    GuiConfigFieldType.STRING, "", 2).requiredWhen(
+                    top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition.isTrue(key));
+            var result = GuiConfigContributionAggregator.fromRegisteredPlugins(List.of(other,
+                    plugin("demo", new GuiConfigContribution(List.of(), List.of(enabled, value), List.of()))));
+            var accepted = result.fields().stream().filter(field -> field.key().equals("demo.value")).toList();
+            if (key.equals("demo.enabled")) {
+                assertThat(accepted).singleElement().satisfies(field -> {
+                    assertThat(field.requiredValueMissing().test(new ConfigSnapshot(java.util.Map.of("demo.enabled", "true")), false)).isTrue();
+                    assertThat(field.requiredValueMissing().test(new ConfigSnapshot(java.util.Map.of("demo.enabled", "false")), false)).isFalse();
+                });
+            } else {
+                assertThat(accepted).isEmpty();
+                assertThat(result.diagnostics()).isNotEmpty();
+            }
+        }
+    }
+
     private static DesktopUiPluginSnapshot plugin(String owner, GuiConfigContribution contribution) {
         return new DesktopUiPluginSnapshot(
                 owner,

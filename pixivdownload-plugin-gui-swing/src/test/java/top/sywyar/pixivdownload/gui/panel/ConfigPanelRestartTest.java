@@ -12,6 +12,9 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPluginSnapshot;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
@@ -38,6 +41,108 @@ class ConfigPanelRestartTest {
 
     @TempDir
     Path tempDir;
+
+    @Test
+    @DisplayName("凭据必填识别新输入和已存值，显式清除或外部删除后拒绝保存")
+    void requiredCredentialsUseCurrentStorage() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            Map<String, String> credentials = new LinkedHashMap<>();
+            MemoryConfigFile plugin = new MemoryConfigFile(Map.of("demo.enabled", "false"));
+            MemoryConfigFile config = installHost(Map.of(), new DesktopUiHost.UiLocale("en-US", "English", "en"),
+                    plugin, credentials);
+            var required = new GuiConfigFieldContribution("demo.secret", "demo", "secret", GuiConfigFieldType.PASSWORD, "", 2)
+                    .requiredWhen(GuiConfigCondition.isTrue("demo.enabled"));
+            String group = "Fixture";
+            var fields = List.of(
+                    ConfigFieldSpec.builder("demo.enabled", "Enabled", FieldType.BOOL, group)
+                            .ownerPluginId("demo").defaultValue("false").build(),
+                    ConfigFieldSpec.builder("demo.secret", "Secret", FieldType.PASSWORD, group)
+                            .ownerPluginId("demo")
+                            .requiredValueMissing((snapshot, stored) -> required.missingRequiredValue(snapshot.values(), stored)).build());
+            ConfigPanel panel = new ConfigPanel(tempDir.resolve("config.yaml"), 6999, path -> path,
+                    new ConfigFieldSnapshot(List.of(group), fields, List.of()), null, null,
+                    () -> false, () -> false, () -> false, () -> false);
+            panel.setFieldValue("demo.enabled", "true");
+            for (String blank : List.of("", " \t")) {
+                panel.setFieldValue("demo.secret", blank);
+                findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+                assertThat(plugin.writes).isZero();
+                assertThat(config.writes).isZero();
+                assertThat(credentials).isEmpty();
+            }
+            panel.setFieldValue("demo.secret", "fixture-secret");
+            findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+            assertThat(plugin.values).containsEntry("demo.enabled", "true").doesNotContainKey("demo.secret");
+            assertThat(credentials).containsEntry("demo.secret", "fixture-secret");
+            assertThat(panel.currentFieldValue("demo.secret")).isEmpty();
+            findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+            assertThat(credentials).containsEntry("demo.secret", "fixture-secret");
+            int writes = plugin.writes;
+            credentials.clear();
+            findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+            assertThat(plugin.writes).isEqualTo(writes);
+            credentials.put("demo.secret", "fixture-secret");
+            panel.requestCredentialClear("demo.secret");
+            findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+            assertThat(plugin.writes).isEqualTo(writes);
+            assertThat(credentials).containsEntry("demo.secret", "fixture-secret");
+            panel.setFieldValue("demo.enabled", "false");
+            findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+            assertThat(plugin.values).containsEntry("demo.enabled", "false");
+            assertThat(credentials).isEmpty();
+        });
+    }
+
+    @Test
+    @DisplayName("统一保存按完整草稿检查条件必填，失败不落盘且关闭条件后允许空值")
+    void requiredValuesUseTheWholeDraft() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            MemoryConfigFile config = installHost(
+                    Map.of("demo.enabled", "false", "demo.value", ""),
+                    new DesktopUiHost.UiLocale("en-US", "English", "en")
+            );
+            var required = new GuiConfigFieldContribution(
+                    "demo.value",
+                    "demo",
+                    "value",
+                    GuiConfigFieldType.STRING,
+                    "",
+                    2
+            ).requiredWhen(GuiConfigCondition.isTrue("demo.enabled"));
+            String group = "Fixture";
+            var fields = List.of(
+                    ConfigFieldSpec.builder("demo.enabled", "Enabled", FieldType.BOOL, group)
+                            .defaultValue("false").build(),
+                    ConfigFieldSpec.builder("demo.value", "Value", FieldType.STRING, group)
+                            .requiredValueMissing((snapshot, stored) -> required.missingRequiredValue(snapshot.values(), stored)).build()
+            );
+            ConfigPanel panel = new ConfigPanel(
+                    tempDir.resolve("config.yaml"),
+                    6999,
+                    path -> path,
+                    new ConfigFieldSnapshot(List.of(group), fields, List.of()),
+                    null,
+                    null,
+                    () -> false,
+                    () -> false,
+                    () -> false,
+                    () -> false
+            );
+            panel.setFieldValue("demo.enabled", "true");
+            findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+            assertThat(config.writes).isZero();
+            panel.setFieldValue("demo.value", " \t");
+            findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+            assertThat(config.writes).isZero();
+            panel.setFieldValue("demo.value", "fixture/custom");
+            findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+            assertThat(config.values).containsEntry("demo.enabled", "true").containsEntry("demo.value", "fixture/custom");
+            panel.setFieldValue("demo.enabled", "false");
+            panel.setFieldValue("demo.value", "");
+            findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+            assertThat(config.values).containsEntry("demo.enabled", "false").containsEntry("demo.value", "");
+        });
+    }
 
     @Test
     @DisplayName("完整重启字段不会误走后端重启")
@@ -379,17 +484,27 @@ class ConfigPanelRestartTest {
 
     @SuppressWarnings("unchecked")
     private MemoryConfigFile installHost(Map<String, String> values) {
+        return installHost(values, new DesktopUiHost.UiLocale("zh-CN", "简体中文", ""));
+    }
+
+    private MemoryConfigFile installHost(Map<String, String> values, DesktopUiHost.UiLocale locale) {
+        return installHost(values, locale, null, new LinkedHashMap<>());
+    }
+
+    @SuppressWarnings("unchecked")
+    private MemoryConfigFile installHost(Map<String, String> values, DesktopUiHost.UiLocale locale,
+                                         MemoryConfigFile plugin, Map<String, String> credentials) {
         MemoryConfigFile config = new MemoryConfigFile(values);
-        DesktopUiHost.UiLocale locale = new DesktopUiHost.UiLocale("zh-CN", "简体中文", "");
         DesktopUiHost host = (DesktopUiHost) Proxy.newProxyInstance(
                 getClass().getClassLoader(),
                 new Class<?>[]{DesktopUiHost.class},
                 (proxy, method, args) -> switch (method.getName()) {
-                    case "applicationConfig", "pluginConfig" -> config;
+                    case "applicationConfig" -> config;
+                    case "pluginConfig" -> plugin == null ? config : plugin;
                     case "coreConfigGroups", "coreConfigFields" -> List.of();
                     case "visibleLocales" -> List.of(locale);
                     case "matchLocale" -> Optional.of(locale).filter(ignored ->
-                            args != null && args.length > 0 && "zh-CN".equalsIgnoreCase(String.valueOf(args[0])));
+                            args != null && args.length > 0 && locale.tag().equalsIgnoreCase(String.valueOf(args[0])));
                     case "resolveLocale" -> new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));
                     case "detectSystemLocale" -> Locale.SIMPLIFIED_CHINESE;
                     case "requireSafeConfigKey", "requireSafeConfigValue" -> args[0];
@@ -408,7 +523,14 @@ class ConfigPanelRestartTest {
                          "defaultUpdateManifestUrl", "defaultNightlyUpdateManifestUrl", "guiToken",
                          "guiTokenHeader", "defaultProxyHost", "defaultMaintenanceTime" -> "test";
                     case "reservedPluginRepositoryIds" -> Set.of();
-                    case "readCredentials" -> Map.of();
+                    case "readCredentials" -> Map.copyOf(credentials);
+                    case "snapshotCredentials" -> new DesktopUiHost.CredentialSnapshot(false, new byte[0]);
+                    case "updateCredentials" -> {
+                        ((Map<String, String>) args[1]).forEach((key, value) -> {
+                            if (value.isBlank()) credentials.remove(key); else credentials.put(key, value);
+                        });
+                        yield null;
+                    }
                     case "toString" -> "TestDesktopUiHost";
                     case "hashCode" -> System.identityHashCode(proxy);
                     case "equals" -> proxy == args[0];

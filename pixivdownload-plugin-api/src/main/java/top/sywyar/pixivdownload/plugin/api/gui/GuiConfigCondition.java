@@ -11,6 +11,24 @@ package top.sywyar.pixivdownload.plugin.api.gui;
 public record GuiConfigCondition(String key, GuiConfigConditionOperator operator, String value) {
 
     /**
+     * 对已准入且补齐默认值的配置草稿求值，缺键按空字符串处理。
+     * @param values 同 owner 配置值
+     * @return 当前条件是否匹配
+     */
+    public boolean matches(java.util.Map<String, String> values) {
+        String actual = values.getOrDefault(key, "");
+        String expected = value == null ? "" : value;
+        return switch (operator) {
+            case TRUE -> Boolean.parseBoolean(actual);
+            case FALSE -> !Boolean.parseBoolean(actual);
+            case EQUALS -> actual.equals(expected);
+            case NOT_EQUALS -> !actual.equals(expected);
+            case BLANK -> actual.isBlank();
+            case NOT_BLANK -> !actual.isBlank();
+        };
+    }
+
+    /**
      * 创建要求字段为真的条件。
      *
      * @param key 配置 key

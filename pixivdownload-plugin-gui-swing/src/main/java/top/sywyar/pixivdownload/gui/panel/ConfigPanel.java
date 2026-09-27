@@ -935,8 +935,9 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     // ── 保存 ─────────────────────────────────────────────────────────────────────
 
     private void saveConfig() {
-        // 只验证当前可编辑字段；隐藏字段仍可保留原值，但不能阻止其它配置保存。
+        // 条件必填根据完整草稿判断；其余类型校验沿用当前可编辑字段范围。
         clearValidationErrors();
+        ConfigSnapshot draft = buildSnapshot();
         List<String> errors = new ArrayList<>();
         FieldRenderer.RenderedField firstInvalidField = null;
         for (ConfigFieldSpec spec : allFields) {
@@ -945,11 +946,24 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 continue;
             }
             boolean validate = rf.panel().isVisible() && rf.control().isEnabled();
-            if (!validate) {
+            boolean requiredValueMissing = spec.requiredValueMissing().test(draft, false);
+            String credentialError = null;
+            if (requiredValueMissing && isPluginCredential(spec) && !rf.credentialClearRequested()) {
+                try {
+                    boolean stored = !SwingHost.host().readCredentials(spec.ownerPluginId())
+                            .getOrDefault(spec.key(), "").isBlank();
+                    requiredValueMissing = spec.requiredValueMissing().test(draft, stored);
+                } catch (IOException failure) {
+                    credentialError = message("gui.config.dialog.read-failed.message", failure.getClass().getSimpleName());
+                }
+            }
+            if (!validate && !requiredValueMissing) {
                 continue;
             }
             String val = rf.getValue().get();
-            String err = validateFieldValueForSave(spec, val);
+            String err = credentialError != null ? credentialError
+                    : requiredValueMissing ? SwingHost.host().message("desktop.ui.config.required")
+                    : validateFieldValueForSave(spec, val);
             if (err != null) {
                 String fieldMessage = spec.label() + "：" + err;
                 errors.add(validationReportFieldPath(spec) + "：" + err);

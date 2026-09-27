@@ -22,12 +22,16 @@ import top.sywyar.pixivdownload.ai.model.AiModelInfo;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 
 import java.nio.charset.StandardCharsets;
+import java.io.IOException;
+import java.net.URI;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
+import org.springframework.web.util.UriComponentsBuilder;
 
 /**
  * 大语言模型（LLM）调用服务。统一走 <b>OpenAI Chat Completions 兼容协议</b>：
@@ -54,7 +58,11 @@ public class OpenAiCompatibleAiClient implements AiChatClient {
 
     private static final String CHAT_COMPLETIONS_PATH = "/chat/completions";
     private static final String MODELS_PATH = "/models";
-    private static final int MAX_MODELS = 500;
+    private static final int MAX_MODELS = 2_000;
+    private static final int MAX_MODEL_PAGE_BYTES = 2 * 1024 * 1024;
+    private static final int MAX_MODEL_TOTAL_BYTES = 8 * 1024 * 1024;
+    private static final int MAX_MODEL_PAGES = 20;
+    private static final long MODEL_QUERY_BUDGET_NANOS = Duration.ofSeconds(30).toNanos();
     private static final int MAX_MODEL_ID_LENGTH = 256;
     private static final int MAX_MODEL_OWNER_LENGTH = 128;
 
@@ -111,8 +119,7 @@ public class OpenAiCompatibleAiClient implements AiChatClient {
     }
 
     /**
-     * 读取当前服务对该 API Key 可见的 OpenAI 兼容模型列表。模型字段不是查询前置条件；返回值会去重、排序并限制
-     * 外部响应的条目数与标量长度，供 GUI 作为纯文本摘要展示。
+     * 读取当前服务暴露的模型目录；目录可见不代表账户有调用权限。分页失败或超限不返回部分列表。
      */
     public List<AiModelInfo> listModels(AiClientSettings settings) throws AiClientException {
         if (settings == null) {
@@ -122,20 +129,92 @@ public class OpenAiCompatibleAiClient implements AiChatClient {
             throw new AiClientException(localized("ai.error.base-url-missing"));
         }
 
-        String apiKey = settings.apiKey();
         RestTemplate restTemplate = settings.useProxy() ? aiProxyRestTemplate : aiRestTemplate;
         try {
-            ResponseEntity<byte[]> response = restTemplate.exchange(
-                    endpointUrl(settings.baseUrl(), MODELS_PATH),
-                    HttpMethod.GET,
-                    new HttpEntity<>(buildHeaders(apiKey)),
-                    byte[].class);
-            return parseModels(response.getBody());
-        } catch (RestClientResponseException e) {
-            throw new AiClientException(responseError(e, apiKey), e);
-        } catch (RestClientException e) {
-            throw new AiClientException(safeMessage(e, apiKey), e);
+            URI endpoint = URI.create(endpointUrl(settings.baseUrl(), MODELS_PATH));
+            boolean anthropic = "https".equalsIgnoreCase(endpoint.getScheme())
+                    && "api.anthropic.com".equalsIgnoreCase(endpoint.getHost())
+                    && (endpoint.getPort() == -1 || endpoint.getPort() == 443)
+                    && "/v1/models".equals(endpoint.getPath())
+                    && endpoint.getRawQuery() == null && endpoint.getRawFragment() == null;
+            HttpHeaders headers = buildHeaders(null);
+            if (anthropic) {
+                headers.set("anthropic-version", "2023-06-01");
+            }
+            boolean authenticated = false;
+            List<AiModelInfo> models = new ArrayList<>();
+            Set<String> seen = new HashSet<>();
+            Set<String> cursors = new HashSet<>();
+            String cursor = null;
+            int totalBytes = 0;
+            long started = System.nanoTime();
+            for (int page = 0; page < MAX_MODEL_PAGES;) {
+                if (Thread.currentThread().isInterrupted()
+                        || System.nanoTime() - started >= MODEL_QUERY_BUDGET_NANOS) throw modelListFailure();
+                URI uri = cursor == null ? endpoint : UriComponentsBuilder.fromUri(endpoint)
+                        .queryParam("after_id", "{cursor}").encode().buildAndExpand(cursor).toUri();
+                // 复用受管传输，直接检查状态，避免默认错误处理器先无界缓存错误正文。
+                var request = restTemplate.getRequestFactory().createRequest(uri, HttpMethod.GET);
+                request.getHeaders().putAll(headers);
+                byte[] bytes;
+                try (var response = request.execute()) {
+                    if (!response.getStatusCode().is2xxSuccessful()) {
+                        int status = response.getStatusCode().value();
+                        if ((status == 401 || status == 403) && !authenticated
+                                && settings.apiKey() != null && !settings.apiKey().isBlank()) {
+                            if (anthropic) headers.set("x-api-key", settings.apiKey().trim());
+                            else headers.setBearerAuth(settings.apiKey().trim());
+                            authenticated = true;
+                            // 整轮只允许一次鉴权重试，保留当前游标和累计预算。
+                            continue;
+                        }
+                        String message = "HTTP " + status;
+                        throw new AiClientException(message, new RestClientResponseException(
+                                message, status, "", null, null, StandardCharsets.UTF_8));
+                    }
+                    int remaining = Math.min(MAX_MODEL_PAGE_BYTES, MAX_MODEL_TOTAL_BYTES - totalBytes);
+                    if (response.getHeaders().getContentLength() > remaining) throw modelListFailure();
+                    bytes = response.getBody().readNBytes(remaining + 1);
+                    if (bytes.length > remaining) throw modelListFailure();
+                }
+                page++;
+                totalBytes += bytes.length;
+                if (System.nanoTime() - started >= MODEL_QUERY_BUDGET_NANOS) throw modelListFailure();
+                ModelListResponse response = MAPPER.readValue(
+                        new String(bytes, StandardCharsets.UTF_8), ModelListResponse.class);
+                if (response == null || response.data() == null
+                        || (response.nextPageToken() != null && !response.nextPageToken().isBlank()))
+                    throw modelListFailure();
+                for (ModelEntry entry : response.data()) {
+                    if (entry == null || !entry.chatCandidate()) continue;
+                    String id = entry.id() == null ? "" : entry.id().trim();
+                    if (id.isEmpty()) continue;
+                    if (id.length() > MAX_MODEL_ID_LENGTH
+                            || id.codePoints().anyMatch(Character::isISOControl)) throw modelListFailure();
+                    if (!seen.add(id)) continue;
+                    if (models.size() >= MAX_MODELS) throw modelListFailure();
+                    String owner = scalar(entry.ownedBy());
+                    if (owner.length() > MAX_MODEL_OWNER_LENGTH)
+                        owner = owner.substring(0, MAX_MODEL_OWNER_LENGTH) + "…";
+                    models.add(new AiModelInfo(id, owner));
+                }
+                if (!Boolean.TRUE.equals(response.hasMore())) {
+                    models.sort(Comparator.comparing(AiModelInfo::id, String.CASE_INSENSITIVE_ORDER)
+                            .thenComparing(AiModelInfo::id));
+                    return List.copyOf(models);
+                }
+                cursor = response.lastId();
+                if (!anthropic || cursor == null || cursor.isBlank() || cursor.length() > MAX_MODEL_ID_LENGTH
+                        || !cursors.add(cursor) || response.data().isEmpty()) throw modelListFailure();
+            }
+            throw modelListFailure();
+        } catch (IOException | RestClientException | IllegalArgumentException e) {
+            throw modelListFailure();
         }
+    }
+
+    private AiClientException modelListFailure() {
+        return new AiClientException(localized("ai.error.models-response-invalid"));
     }
 
     /**
@@ -250,42 +329,6 @@ public class OpenAiCompatibleAiClient implements AiChatClient {
                 usage == null ? null : usage.totalTokens());
     }
 
-    private List<AiModelInfo> parseModels(byte[] body) throws AiClientException {
-        if (body == null || body.length == 0) {
-            throw new AiClientException(localized("ai.error.models-response-invalid"));
-        }
-        ModelListResponse response;
-        try {
-            response = MAPPER.readValue(body, ModelListResponse.class);
-        } catch (Exception e) {
-            throw new AiClientException(localized("ai.error.models-response-invalid"), e);
-        }
-        if (response == null || response.data() == null) {
-            throw new AiClientException(localized("ai.error.models-response-invalid"));
-        }
-
-        List<AiModelInfo> models = new ArrayList<>();
-        Set<String> seen = new HashSet<>();
-        for (ModelEntry entry : response.data()) {
-            String id = scalar(entry == null ? null : entry.id());
-            if (id.isEmpty() || id.length() > MAX_MODEL_ID_LENGTH || !seen.add(id)) {
-                continue;
-            }
-            String ownedBy = scalar(entry.ownedBy());
-            if (ownedBy.length() > MAX_MODEL_OWNER_LENGTH) {
-                ownedBy = ownedBy.substring(0, MAX_MODEL_OWNER_LENGTH) + "…";
-            }
-            models.add(new AiModelInfo(id, ownedBy));
-            // ponytail: GUI 摘要有界即可；只有服务商实际超过 500 个可用模型时才增加分页。
-            if (models.size() == MAX_MODELS) {
-                break;
-            }
-        }
-        models.sort(Comparator.comparing(AiModelInfo::id, String.CASE_INSENSITIVE_ORDER)
-                .thenComparing(AiModelInfo::id));
-        return List.copyOf(models);
-    }
-
     /** 在 base-url 后拼接协议路径，自动处理结尾斜杠。 */
     private static String endpointUrl(String baseUrl, String path) {
         String trimmed = baseUrl.trim();
@@ -396,10 +439,22 @@ public class OpenAiCompatibleAiClient implements AiChatClient {
         }
     }
 
-    private record ModelListResponse(List<ModelEntry> data) {
+    private record ModelListResponse(List<ModelEntry> data,
+                                     @JsonProperty("has_more") Boolean hasMore,
+                                     @JsonProperty("last_id") String lastId,
+                                     @JsonProperty("next_page_token") String nextPageToken) {
     }
 
-    private record ModelEntry(String id, @JsonProperty("owned_by") String ownedBy) {
+    private record ModelEntry(String id, @JsonProperty("owned_by") String ownedBy,
+                              String type, Capabilities capabilities) {
+        boolean chatCandidate() {
+            return (capabilities == null || !Boolean.FALSE.equals(capabilities.completionChat()))
+                    && (type == null || !Set.of("embedding", "embeddings", "rerank", "text2image",
+                    "text2video", "tts", "asr").contains(type));
+        }
+    }
+
+    private record Capabilities(@JsonProperty("completion_chat") Boolean completionChat) {
     }
 
 }

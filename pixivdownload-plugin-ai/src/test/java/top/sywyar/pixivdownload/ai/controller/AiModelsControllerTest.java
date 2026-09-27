@@ -3,9 +3,17 @@ package top.sywyar.pixivdownload.ai.controller;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.RestTemplate;
+import top.sywyar.pixivdownload.ai.AiConfig;
 import top.sywyar.pixivdownload.ai.OpenAiCompatibleAiClient;
 import top.sywyar.pixivdownload.ai.model.AiModelInfo;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 
 import java.util.List;
 
@@ -14,9 +22,75 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.headerDoesNotExist;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 @DisplayName("AI GUI 模型查询端点")
 class AiModelsControllerTest {
+
+    @ParameterizedTest
+    @CsvSource({
+            "401,,1,api-key-required",
+            "401,'',1,api-key-required",
+            "401,'  ',1,api-key-required",
+            "401,test-secret,2,authentication-failed",
+            "403,,1,models-forbidden",
+            "403,test-secret,2,models-forbidden",
+            "500,test-secret,1,models-query-failed"
+    })
+    @DisplayName("模型查询区分缺少密钥、鉴权失败和访问被拒绝，且不回传服务错误正文")
+    void modelQueryReportsAuthenticationStatus(int status, String apiKey, int attempts, String expectedCode) {
+        RestTemplate direct = new RestTemplate();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(direct).build();
+        server.expect(requestTo("https://example.test/v1/models"))
+                .andExpect(headerDoesNotExist(HttpHeaders.AUTHORIZATION))
+                .andRespond(withStatus(HttpStatus.valueOf(status)).body("upstream-secret"));
+        if (attempts == 2) {
+            server.expect(requestTo("https://example.test/v1/models"))
+                    .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey))
+                    .andRespond(withStatus(HttpStatus.valueOf(status)).body("upstream-secret"));
+        }
+        var controller = new AiModelsController(new OpenAiCompatibleAiClient(
+                new AiConfig(), mock(MessageResolver.class), direct, new RestTemplate()));
+
+        var response = controller.models(
+                new AiTestRequest("https://example.test/v1", apiKey, "", false), localRequest());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isInstanceOfSatisfying(AiModelsResponse.class, body -> {
+            assertThat(body.success()).isFalse();
+            assertThat(body.code()).isEqualTo(expectedCode);
+            assertThat(body.error()).isEqualTo("HTTP " + status);
+            assertThat(body.models()).isEmpty();
+            assertThat(body.count()).isZero();
+        });
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("公开模型目录允许不携带密钥查询")
+    void publicModelDirectoryNeedsNoKey() {
+        RestTemplate direct = new RestTemplate();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(direct).build();
+        server.expect(requestTo("https://example.test/v1/models"))
+                .andExpect(headerDoesNotExist(HttpHeaders.AUTHORIZATION))
+                .andRespond(withSuccess("{\"data\":[{\"id\":\"public-model\"}]}", MediaType.APPLICATION_JSON));
+        var controller = new AiModelsController(new OpenAiCompatibleAiClient(
+                new AiConfig(), mock(MessageResolver.class), direct, new RestTemplate()));
+
+        var response = controller.models(
+                new AiTestRequest("https://example.test/v1", "", "", false), localRequest());
+
+        assertThat(response.getBody()).isInstanceOfSatisfying(AiModelsResponse.class, body -> {
+            assertThat(body.success()).isTrue();
+            assertThat(body.code()).isNull();
+            assertThat(body.models()).extracting(AiModelInfo::id).containsExactly("public-model");
+        });
+        server.verify();
+    }
 
     @Test
     @DisplayName("本机请求返回当前服务模型")

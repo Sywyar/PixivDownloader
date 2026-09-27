@@ -5,6 +5,11 @@ import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPluginSnapshot;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroupContribution;
 
 import java.lang.reflect.Proxy;
 import java.nio.file.Path;
@@ -21,9 +26,196 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @DisplayName("Compose 配置未保存状态")
 class DesktopConfigurationControllerTest {
+    @Test
+    @DisplayName("保存按当前凭据检查必填，空框沿用、外部删除及显式清除不会误判")
+    @SuppressWarnings("unchecked")
+    void validatesEffectiveCredentialsBeforeSaving() throws Exception {
+        var enabled = new GuiConfigFieldContribution("demo.enabled", "demo", "enabled", GuiConfigFieldType.BOOL, "false", 1);
+        var secret = new GuiConfigFieldContribution("demo.secret", "demo", "secret", GuiConfigFieldType.PASSWORD, "", 2)
+                .requiredWhen(GuiConfigCondition.isTrue("demo.enabled"));
+        var source = new DesktopUiPluginSnapshot("demo", false, "demo", 1, false, "demo", "demo",
+                List.of(), List.of(new GuiConfigContribution(
+                        List.of(new GuiConfigGroupContribution("demo", "demo", "demo", 1, true)),
+                        List.of(enabled, secret), List.of())), List.of(), List.of(), List.of());
+        Map<String, String> app = new HashMap<>();
+        Map<String, String> plugin = new HashMap<>(Map.of("demo.enabled", "false"));
+        Map<String, String> credentials = new HashMap<>();
+        var unreadable = new java.util.concurrent.atomic.AtomicBoolean();
+        var writes = new java.util.concurrent.atomic.AtomicInteger();
+        DesktopUiHost.ConfigFile file = new DesktopUiHost.ConfigFile() {
+            public Map<String, String> readAll(Collection<String> keys) { return Map.copyOf(plugin); }
+            public void writeAll(Map<String, String> values) { writes.incrementAndGet(); plugin.putAll(values); }
+            public void removeAll(Collection<String> keys) { keys.forEach(plugin::remove); }
+            public DesktopUiHost.ConfigSnapshot snapshot() { return new DesktopUiHost.ConfigSnapshot(false, List.of()); }
+            public void restore(DesktopUiHost.ConfigSnapshot snapshot) { throw new AssertionError("unexpected rollback"); }
+        };
+        try (var model = model(app, Map.of(
+                "pluginConfig", args -> file,
+                "readCredentials", args -> {
+                    assertEquals("demo", args[0]);
+                    if (unreadable.get()) throw new java.io.UncheckedIOException(new java.io.IOException("unavailable"));
+                    return Map.copyOf(credentials);
+                },
+                "snapshotCredentials", args -> new DesktopUiHost.CredentialSnapshot(false, new byte[0]),
+                "updateCredentials", args -> {
+                    ((Map<String, String>) args[1]).forEach((key, value) -> {
+                        if (value.isBlank()) credentials.remove(key); else credentials.put(key, value);
+                    });
+                    return null;
+                }), () -> List.of(source))) {
+            dispatch(model, new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
+                    "config.demo.demo.enabled.input", DesktopUiNode.Value.bool(true)));
+            select(model, "theme", "dark");
+            for (String blank : List.of("", " \t")) {
+                dispatch(model, new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
+                        "config.demo.demo.secret.input", DesktopUiNode.Value.text(blank)));
+                assertCredentialSaveRejected(model);
+                assertEquals(0, writes.get());
+                assertTrue(app.isEmpty());
+                assertTrue(credentials.isEmpty());
+            }
+            dispatch(model, new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
+                    "config.demo.demo.secret.input", DesktopUiNode.Value.text("fixture-secret")));
+            save(model);
+            assertEquals("true", plugin.get("demo.enabled"));
+            assertEquals("fixture-secret", credentials.get("demo.secret"));
+            assertFalse(plugin.containsKey("demo.secret"));
+            assertFalse(app.containsKey("demo.secret"));
+            select(model, "theme", "light");
+            save(model);
+            assertEquals("fixture-secret", credentials.get("demo.secret"));
+            select(model, "theme", "dark");
+            unreadable.set(true);
+            assertCredentialSaveRejected(model);
+            unreadable.set(false);
+            credentials.clear();
+            assertCredentialSaveRejected(model);
+            assertEquals("light", app.get("app.theme"));
+            credentials.put("demo.secret", "fixture-secret");
+            activate(model, "config.demo.demo.secret.clear.button");
+            awaitReady(model);
+            assertTrue(credentials.isEmpty());
+            assertCredentialSaveRejected(model);
+            dispatch(model, new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
+                    "config.demo.demo.enabled.input", DesktopUiNode.Value.bool(false)));
+            save(model);
+            assertEquals("false", plugin.get("demo.enabled"));
+        }
+    }
+
+    private static void assertCredentialSaveRejected(ComposeDesktopUiModel model) {
+        activate(model, "config.save");
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            while (model.busy() || nodes(model).filter(DesktopUiNode.SettingsWorkspace.class::isInstance)
+                    .map(DesktopUiNode.SettingsWorkspace.class::cast)
+                    .noneMatch(workspace -> workspace.invalidRow().equals("config.demo.demo.secret.row"))) Thread.sleep(10);
+        });
+        var workspace = nodes(model).filter(DesktopUiNode.SettingsWorkspace.class::isInstance)
+                .map(DesktopUiNode.SettingsWorkspace.class::cast).findFirst().orElseThrow();
+        assertEquals("config.demo.demo.secret.row", workspace.invalidRow());
+    }
+
+    @Test
+    @DisplayName("条件必填拒绝引用缺席字段，健康字段继续显示")
+    void rejectsUnavailableRequiredCondition() throws Exception {
+        var required = new GuiConfigFieldContribution(
+                "demo.value",
+                "demo",
+                "value",
+                GuiConfigFieldType.STRING,
+                "",
+                1
+        ).requiredWhen(GuiConfigCondition.isTrue("missing"));
+        var healthy = new GuiConfigFieldContribution(
+                "demo.healthy",
+                "demo",
+                "healthy",
+                GuiConfigFieldType.STRING,
+                "",
+                2
+        );
+        try (var model = model(new HashMap<>(Map.of("demo.healthy", "")), Map.of(
+                "coreConfigGroups", args -> List.of(new GuiConfigGroupContribution("demo", "demo", null, 1, true)),
+                "coreConfigFields", args -> List.of(required, healthy)))) {
+            assertFalse(nodes(model).anyMatch(node -> node.id().equals("config.app.demo.value.input")));
+            assertTrue(nodes(model).anyMatch(node -> node.id().equals("config.app.demo.healthy.input")));
+        }
+    }
+
+    @Test
+    @DisplayName("完整保存草稿检查条件必填，拦截未编辑空值且不写入其它设置")
+    void validatesRequiredFieldsBeforeAnyWrite() throws Exception {
+        var enabled = new GuiConfigFieldContribution(
+                "demo.enabled",
+                "demo",
+                "enabled",
+                GuiConfigFieldType.BOOL,
+                "false",
+                1
+        );
+        var value = new GuiConfigFieldContribution(
+                "demo.value",
+                "demo",
+                "value",
+                GuiConfigFieldType.STRING,
+                "",
+                2
+        ).requiredWhen(GuiConfigCondition.isTrue("demo.enabled"));
+        Map<String, java.util.function.Function<Object[], Object>> fields = Map.of(
+                "validateCoreConfigValue", args -> null,
+                "coreConfigGroups", args -> List.of(new GuiConfigGroupContribution("demo", "demo", null, 1, true)),
+                "coreConfigFields", args -> List.of(enabled, value));
+        for (String blank : List.of("", " \t")) {
+            Map<String, String> stored = new HashMap<>(Map.of("demo.enabled", "false", "demo.value", blank));
+            try (var model = model(stored, fields)) {
+                dispatch(model, new DesktopUiNode.Event(
+                        DesktopUiNode.EventType.CHANGE,
+                        "config.app.demo.enabled.input",
+                        DesktopUiNode.Value.bool(true)
+                ));
+                select(model, "theme", "dark");
+                assertTrue(nodes(model).filter(DesktopUiNode.Toggle.class::isInstance)
+                        .map(DesktopUiNode.Toggle.class::cast).filter(node -> node.id().equals("config.app.demo.enabled.input"))
+                        .findFirst().orElseThrow().selected());
+                assertTrue(nodes(model).filter(node -> node.id().equals("config.save"))
+                        .map(DesktopUiNode.Button.class::cast).findFirst().orElseThrow().enabled());
+                activate(model, "config.save");
+                assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+                    while (model.busy() || nodes(model).filter(DesktopUiNode.SettingsWorkspace.class::isInstance)
+                            .map(DesktopUiNode.SettingsWorkspace.class::cast)
+                            .noneMatch(workspace -> !workspace.invalidRow().isEmpty())) Thread.sleep(10);
+                });
+                assertEquals(Map.of("demo.enabled", "false", "demo.value", blank), stored);
+                var workspace = nodes(model).filter(DesktopUiNode.SettingsWorkspace.class::isInstance)
+                        .map(DesktopUiNode.SettingsWorkspace.class::cast).findFirst().orElseThrow();
+                assertEquals("config.app.demo.value.row", workspace.invalidRow());
+                assertEquals(workspace.invalidRow(), workspace.locatedRow());
+                dispatch(model, new DesktopUiNode.Event(
+                        DesktopUiNode.EventType.CHANGE,
+                        "config.app.demo.value.input",
+                        DesktopUiNode.Value.text("fixture/custom")
+                ));
+                save(model);
+                assertEquals("true", stored.get("demo.enabled"));
+                assertEquals("fixture/custom", stored.get("demo.value"));
+            }
+            stored = new HashMap<>(Map.of("demo.enabled", "false", "demo.value", "fixture/custom"));
+            try (var model = model(stored, fields)) {
+                dispatch(model, new DesktopUiNode.Event(
+                        DesktopUiNode.EventType.CHANGE,
+                        "config.app.demo.value.input",
+                        DesktopUiNode.Value.text(blank)
+                ));
+                save(model);
+                assertEquals(blank, stored.get("demo.value"));
+            }
+        }
+    }
+
     @Test
     @DisplayName("首次加载缺项或默认配置时没有未保存更改")
     void startsCleanWithMissingOrDefaultPreferences() throws Exception {

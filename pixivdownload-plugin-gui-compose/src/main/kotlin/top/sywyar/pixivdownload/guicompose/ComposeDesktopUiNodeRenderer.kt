@@ -106,10 +106,15 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -1126,14 +1131,29 @@ object ComposeDesktopUiNodeRenderer {
     }
 
     @Composable
-    private fun TextInput(
+    internal fun TextInput(
         node: DesktopUiNode.TextInput,
         text: (DesktopUiNode.TextToken) -> String,
         emit: (DesktopUiNode.Event) -> Unit,
         modifier: Modifier,
         includeLabel: Boolean = true,
+        suggestions: DesktopUiNode.Choice? = null,
     ) {
         val documentRevision = LocalDocumentRevision.current
+        val inputFocus = remember(node.id()) { FocusRequester() }
+        val menuFocus = remember(node.id()) { FocusRequester() }
+        var expanded by remember(suggestions?.id()) { mutableStateOf(false) }
+        var restoreInputFocus by remember(node.id()) { mutableStateOf(false) }
+        fun dismissChoices() {
+            expanded = false
+            restoreInputFocus = true
+        }
+        LaunchedEffect(expanded, restoreInputFocus) {
+            if (!expanded && restoreInputFocus) {
+                inputFocus.requestFocus()
+                restoreInputFocus = false
+            }
+        }
         val password = node.inputKind() == DesktopUiNode.InputKind.PASSWORD
         val inputState = if (password) {
             remember(textInputStateKey(node)) { mutableStateOf(TextFieldValue()) }
@@ -1158,7 +1178,13 @@ object ComposeDesktopUiNodeRenderer {
         val content: @Composable () -> Unit = {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 // 将权重留在直接布局子节点上，避免输入框装饰层截断父布局参数。
-                Box(Modifier.weight(1f)) {
+                Box(Modifier.weight(1f).focusRequester(inputFocus).onPreviewKeyEvent { event ->
+                    if (!expanded && event.type == KeyEventType.KeyDown && event.key == Key.DirectionDown
+                        && node.enabled() && suggestions?.enabled() == true) {
+                        expanded = true
+                        true
+                    } else false
+                }) {
                     CompactTextInput(
                         value = value,
                         onValueChange = ::update,
@@ -1170,7 +1196,67 @@ object ComposeDesktopUiNodeRenderer {
                             .semantics { contentDescription = resolve(node.label(), text) }
                             .then(if (node.inputKind() == DesktopUiNode.InputKind.MULTILINE)
                                 Modifier.heightIn(min = 88.dp) else Modifier.heightIn(min = DesktopLayout.controlHeight)),
+                        trailingIcon = suggestions?.let { choices -> {
+                            CupertinoIconButton(
+                                onClick = { expanded = !expanded },
+                                enabled = node.enabled() && choices.enabled(),
+                                modifier = Modifier.focusProperties { canFocus = false }.semantics {
+                                    contentDescription = resolve(choices.label(), text)
+                                    stateDescription = text(
+                                        DesktopUiNode.TextToken(
+                                            GuiComposePlugin.ID,
+                                            if (expanded) "gui.compose.expanded" else "gui.compose.collapsed",
+                                            "",
+                                            emptyList(),
+                                        ),
+                                    )
+                                },
+                            ) {
+                                DesktopIcon(Icons.Default.ArrowDropDown, contentDescription = null)
+                            }
+                        } },
                     )
+                    if (suggestions != null) CupertinoDropdownMenu(
+                        expanded = expanded && node.enabled() && suggestions.enabled(),
+                        onDismissRequest = ::dismissChoices,
+                        modifier = Modifier.onPreviewKeyEvent {
+                            if (it.type == KeyEventType.KeyDown && it.key == Key.Escape) {
+                                dismissChoices()
+                                true
+                            } else false
+                        },
+                    ) {
+                        val menuFocusManager = LocalFocusManager.current
+                        val focusOption = suggestions.options().firstOrNull { it.enabled() && it.id() in suggestions.selectedIds() }
+                            ?: suggestions.options().firstOrNull { it.enabled() }
+                        LaunchedEffect(expanded) {
+                            if (expanded && focusOption != null) menuFocus.requestFocus()
+                        }
+                        suggestions.options().forEach { option ->
+                            MenuPickerAction(
+                                modifier = Modifier.onPreviewKeyEvent {
+                                    if (it.type != KeyEventType.KeyDown) false else when (it.key) {
+                                        Key.DirectionDown -> menuFocusManager.moveFocus(FocusDirection.Next)
+                                        Key.DirectionUp -> menuFocusManager.moveFocus(FocusDirection.Previous)
+                                        else -> false
+                                    }
+                                }.then(if (option == focusOption) Modifier.focusRequester(menuFocus) else Modifier),
+                                isSelected = option.id() in suggestions.selectedIds(),
+                                title = { CupertinoText(resolve(option.label(), text)) },
+                                enabled = option.enabled(),
+                                onClick = {
+                                    emit(
+                                        selection(
+                                            suggestions.id(),
+                                            suggestions.bindingId(),
+                                            DesktopUiNode.Value.selection(option.id()),
+                                        ),
+                                    )
+                                    dismissChoices()
+                                },
+                            )
+                        }
+                    }
                 }
                 if (node.inputKind() == DesktopUiNode.InputKind.FILE
                     || node.inputKind() == DesktopUiNode.InputKind.DIRECTORY) {
@@ -1193,18 +1279,29 @@ object ComposeDesktopUiNodeRenderer {
     }
 
     @Composable
-    private fun CompactTextInput(value: TextFieldValue, onValueChange: (TextFieldValue) -> Unit,
-                                 enabled: Boolean, singleLine: Boolean,
-                                 visualTransformation: androidx.compose.ui.text.input.VisualTransformation,
-                                 modifier: Modifier, invalid: Boolean = false,
-                                 keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
-                                 errorMessage: String = "") {
+    internal fun CompactTextInput(
+        value: TextFieldValue,
+        onValueChange: (TextFieldValue) -> Unit,
+        enabled: Boolean,
+        singleLine: Boolean,
+        visualTransformation: androidx.compose.ui.text.input.VisualTransformation,
+        modifier: Modifier,
+        invalid: Boolean = false,
+        keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+        errorMessage: String = "",
+        trailingIcon: (@Composable () -> Unit)? = null,
+    ) {
         val interaction = remember { MutableInteractionSource() }
         val focused by interaction.collectIsFocusedAsState()
-        CupertinoTextField(value = value, onValueChange = onValueChange, enabled = enabled,
-            singleLine = singleLine, visualTransformation = visualTransformation,
+        CupertinoTextField(
+            value = value,
+            onValueChange = onValueChange,
+            enabled = enabled,
+            singleLine = singleLine,
+            visualTransformation = visualTransformation,
             interactionSource = interaction,
             keyboardOptions = keyboardOptions,
+            trailingIcon = trailingIcon,
             isError = invalid,
             textStyle = CupertinoTheme.typography.body.copy(color = if (enabled)
                 LocalExperiencePalette.current.text else LocalExperiencePalette.current.secondaryText),

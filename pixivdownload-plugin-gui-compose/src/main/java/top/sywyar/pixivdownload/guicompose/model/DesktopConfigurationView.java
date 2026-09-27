@@ -660,11 +660,13 @@ final class DesktopConfigurationView {
                         nextSelections,
                         nextActions
                 ));
-                nodes.addAll(actionNodes(
+                appendActionNodes(
+                        nodes,
                         base,
                         section.actions().stream().filter(action -> action.cardId() == null).toList(),
+                        nextSelections,
                         nextActions
-                ));
+                );
             } else {
                 nodes.addAll(configNoticeNodes(base, section.notices(), null));
                 nodes.addAll(sectionContent(
@@ -744,11 +746,13 @@ final class DesktopConfigurationView {
                 ));
             }
             nodes.addAll(normal);
-            nodes.addAll(actionNodes(
+            appendActionNodes(
+                    nodes,
                     base,
                     section.actions().stream().filter(action -> action.cardId() == null).toList(),
+                    nextSelections,
                     nextActions
-            ));
+            );
         } else {
             nodes.addAll(sectionContent(
                     section,
@@ -827,7 +831,7 @@ final class DesktopConfigurationView {
                 cardId,
                 action.cardId()
         )).toList();
-        nodes.addAll(actionNodes(base, actions, nextActions));
+        appendActionNodes(nodes, base, actions, nextSelections, nextActions);
         return nodes;
     }
 
@@ -879,27 +883,97 @@ final class DesktopConfigurationView {
         ));
     }
 
-    private List<DesktopUiNode> actionNodes(
+    private void appendActionNodes(
+            List<DesktopUiNode> nodes,
             String base,
             List<ConfigAction> configActions,
+            Map<String, Consumer<List<String>>> nextSelections,
             Map<String, Runnable> nextActions
     ) {
-        List<DesktopUiNode> nodes = new ArrayList<>();
         int index = 0;
         for (ConfigAction action : configActions) {
             String id = base + ".action." + index++ + "." + safeId(action.owner() + "." + action.spec().actionId());
             String target = id + ".run";
             nextActions.put(target, () -> model.runConfigAction(action));
-            nodes.add(new DesktopUiNode.Button(
+            var button = new DesktopUiNode.Button(
                     id,
                     target,
                     action.label().token(),
                     action.help() == null ? null : action.help().token(),
                     ButtonStyle.NORMAL,
                     !owner.busy()
-            ));
+            );
+            var summary = action.spec().resultSummary();
+            FieldKey fieldKey = summary == null || summary.selectionFieldKey() == null ? null
+                    : new FieldKey(action.owner(), summary.selectionFieldKey());
+            DesktopUiNode.Choice selection = null;
+            var choices = model.actionChoices;
+            if (model.currentChoices(choices) && choices.action().equals(action)) {
+                String binding = id + ".selection";
+                nextSelections.put(binding, selected -> {
+                    int position = parseInt(first(selected).replaceFirst("^item\\.", ""), -1);
+                    if (position >= 0 && position < choices.options().size())
+                        model.selectActionValue(choices, choices.options().get(position));
+                });
+                int selectedIndex = choices.options().indexOf(values.get(fieldKey));
+                selection = new DesktopUiNode.Choice(
+                        binding,
+                        binding,
+                        action.label().token(),
+                        action.help() == null ? null : action.help().token(),
+                        ChoiceStyle.COMBO_BOX,
+                        SelectionMode.SINGLE,
+                        java.util.stream.IntStream.range(0, choices.options().size()).mapToObj(position -> new DesktopUiNode.Option(
+                                "item." + position,
+                                TextToken.raw(GuiActionResponseSafety.sanitizeActionText(choices.options().get(position))),
+                                true
+                        )).toList(),
+                        selectedIndex < 0 ? List.of() : List.of("item." + selectedIndex),
+                        !owner.busy()
+                );
+            }
+            if (!attachFieldAction(nodes, fieldKey, button, selection)) {
+                nodes.add(button);
+                if (selection != null) nodes.add(selection);
+            }
         }
-        return nodes;
+    }
+
+    private static boolean attachFieldAction(
+            List<DesktopUiNode> nodes,
+            FieldKey fieldKey,
+            DesktopUiNode.Button button,
+            DesktopUiNode.Choice selection
+    ) {
+        if (fieldKey == null) return false;
+        String rowId = bindingId(fieldKey) + ".row";
+        for (int i = 0; i < nodes.size(); i++) {
+            if (!(nodes.get(i) instanceof DesktopUiNode.Form form) || form.rows().size() != 1) continue;
+            var row = form.rows().get(0);
+            if (!row.id().equals(rowId)) continue;
+            nodes.set(i, new DesktopUiNode.Form(
+                    form.id(),
+                    form.formStyle(),
+                    form.labelSuffix(),
+                    List.of(new DesktopUiNode.FormRow(
+                            row.id(),
+                            row.label(),
+                            row.help(),
+                            new DesktopUiNode.Dock(
+                                    button.id() + ".field",
+                                    8,
+                                    null,
+                                    row.content(),
+                                    selection,
+                                    null,
+                                    button
+                            ),
+                            row.trailing()
+                    ))
+            ));
+            return true;
+        }
+        return false;
     }
 
 }

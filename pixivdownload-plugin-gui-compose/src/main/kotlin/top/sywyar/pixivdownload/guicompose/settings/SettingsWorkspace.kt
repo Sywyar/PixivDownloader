@@ -79,9 +79,14 @@ internal fun SettingsWorkspace(
             it.type == KeyEventType.KeyDown && (it.isCtrlPressed || it.isMetaPressed) && it.key == Key.S -> {
                 activate(save); true
             }
-            it.type == KeyEventType.KeyDown && it.key == Key.Escape -> { query = ""; hintDismiss++; true }
             else -> false
         }
+    }.onKeyEvent {
+        if (it.type == KeyEventType.KeyDown && it.key == Key.Escape) {
+            query = ""
+            hintDismiss++
+            true
+        } else false
     }) {
         val narrow = maxWidth < 680.dp
         Column(Modifier.fillMaxSize().padding(horizontal = if (narrow) 20.dp else 38.dp)) {

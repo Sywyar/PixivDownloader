@@ -12,6 +12,34 @@ import static org.assertj.core.api.Assertions.assertThat;
 class GuiConfigContributionTest {
 
     @Test
+    @DisplayName("条件必填使用完整草稿，敏感空框仅在有可沿用凭据时通过")
+    void conditionalRequiredValuesUseTheDraft() {
+        var optional = new GuiConfigFieldContribution("demo.value", "demo", "value",
+                GuiConfigFieldType.STRING, "", 1);
+        var required = optional.requiredWhen(GuiConfigCondition.isTrue("demo.enabled"));
+        assertThat(optional.missingRequiredValue(java.util.Map.of())).isFalse();
+        assertThat(required.missingRequiredValue(java.util.Map.of("demo.enabled", "false"))).isFalse();
+        for (String blank : List.of("", " \t", "\u3000")) {
+            assertThat(required.missingRequiredValue(java.util.Map.of(
+                    "demo.enabled", "true", "demo.value", blank))).isTrue();
+        }
+        assertThat(required.missingRequiredValue(java.util.Map.of(
+                "demo.enabled", "true", "demo.value", "fixture/custom"))).isFalse();
+        var both = optional.requiredWhen(GuiConfigCondition.isTrue("demo.enabled"),
+                GuiConfigCondition.equalsTo("demo.mode", "custom"));
+        assertThat(both.missingRequiredValue(java.util.Map.of("demo.enabled", "true"))).isFalse();
+        assertThat(both.missingRequiredValue(java.util.Map.of(
+                "demo.enabled", "true", "demo.mode", "custom"))).isTrue();
+        var secret = new GuiConfigFieldContribution("demo.secret", "demo", "secret",
+                GuiConfigFieldType.PASSWORD, "", 1).requiredWhen(GuiConfigCondition.isTrue("demo.enabled"));
+        assertThat(secret.missingRequiredValue(Map.of("demo.enabled", "true"), false)).isTrue();
+        assertThat(secret.missingRequiredValue(Map.of("demo.enabled", "true"), true)).isFalse();
+        assertThat(secret.missingRequiredValue(Map.of("demo.enabled", "false"), false)).isFalse();
+        assertThat(secret.missingRequiredValue(Map.of("demo.enabled", "true", "demo.secret", "fixture-secret"), false)).isFalse();
+        assertThat(required.missingRequiredValue(Map.of("demo.enabled", "true"), true)).isTrue();
+    }
+
+    @Test
     @DisplayName("空列表与可选文本按纯数据模型安全归一化")
     void nullListsAndOptionalTextAreNormalized() {
         GuiConfigContribution contribution = new GuiConfigContribution(null, null, null);
