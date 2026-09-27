@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver;
 
@@ -106,6 +107,9 @@ class BoundedImageDecoderTest {
         BufferedImage preview = ImageThumbnailScaler.scale(image, 1600, 1600);
         assertThat(preview.getWidth()).isEqualTo(1600);
         assertThat(preview.getHeight()).isEqualTo(1532);
+        BoundedImageDecoder.Decoded previewDecoded = BoundedImageDecoder.read(image, 1600, 1600);
+        assertThat(previewDecoded.image().getWidth()).isBetween(1600, 3199);
+        assertThat(previewDecoded.image().getHeight()).isBetween(1532, 3063);
     }
 
     @Test
@@ -121,6 +125,27 @@ class BoundedImageDecoderTest {
         assertThat(thumbnail.getHeight()).isEqualTo(1);
         assertThat(thumbnail.getRGB(0, 0)).isEqualTo(0xffffffff);
         assertThat(ImageThumbnailScaler.scale(image, -1, -1).getHeight()).isEqualTo(1);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"24000, 1", "1, 24000", "24000, 7", "7, 24000"})
+    @DisplayName("长条图按预览尺寸解码且短边保留至少一个像素")
+    void subsamplesThinImagesForPreview(int width, int height) throws Exception {
+        Path image = tempDir.resolve("strip.png");
+        ImageIO.write(new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB), "png", image.toFile());
+
+        BoundedImageDecoder.Decoded decoded = BoundedImageDecoder.read(image, 1600, 1600);
+
+        assertThat(Math.max(decoded.image().getWidth(), decoded.image().getHeight())).isEqualTo(1600);
+        assertThat(Math.min(decoded.image().getWidth(), decoded.image().getHeight())).isEqualTo(1);
+        BufferedImage preview = ImageThumbnailScaler.scale(image, 1600, 1600);
+        assertThat(preview.getWidth()).isEqualTo(decoded.targetWidth());
+        assertThat(preview.getHeight()).isEqualTo(decoded.targetHeight());
+        assertThat(preview.getRGB(0, 0)).isEqualTo(0xffffffff);
+
+        BufferedImage full = BoundedImageDecoder.read(image);
+        assertThat(full.getWidth()).isEqualTo(width);
+        assertThat(full.getHeight()).isEqualTo(height);
     }
 
     private Path writePngHeader(String fileName, int width, int height) throws Exception {

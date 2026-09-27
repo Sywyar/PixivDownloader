@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.core.work.model.WorkAssetFile;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
@@ -43,9 +44,10 @@ public class WorkAssetFileController {
     public ResponseEntity<Resource> getThumbnail(
             @PathVariable Long artworkId,
             @PathVariable int page,
+            @RequestParam(defaultValue = "512") int size,
             HttpServletRequest httpRequest) throws IOException {
         guestAccessGuard.requireVisible(httpRequest, artworkId);
-        WorkAssetFile thumbnail = workAssetService.thumbnail(WorkType.ARTWORK, artworkId, page).orElse(null);
+        WorkAssetFile thumbnail = workAssetService.thumbnail(WorkType.ARTWORK, artworkId, page, size).orElse(null);
         return fileResponse(thumbnail, true);
     }
 

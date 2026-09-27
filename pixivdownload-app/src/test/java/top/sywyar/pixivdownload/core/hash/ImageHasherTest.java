@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.core.hash;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import javax.imageio.ImageIO;
 import java.awt.Color;
@@ -11,6 +13,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Random;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -68,6 +72,58 @@ class ImageHasherTest {
         ImageIO.write(original, "png", image.toFile());
 
         assertThat(ImageHasher.hash(image)).isPresent();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"257, 193, 8264785180201684410, 6600080756491151536",
+            "1025, 769, -5957018370959910250, 426246640375712890"})
+    @DisplayName("预览降采样和分条带合成不改变既有透明图片哈希")
+    void preservesExistingTransparentImageHashes(int width, int height, long dHash, long aHash) throws Exception {
+        BufferedImage original = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        Random random = new Random(81723);
+        for (int y = 0; y < original.getHeight(); y++) {
+            for (int x = 0; x < original.getWidth(); x++) {
+                original.setRGB(x, y, random.nextInt());
+            }
+        }
+        Path image = testTempDir().resolve("hash-compat.png");
+        ImageIO.write(original, "png", image.toFile());
+
+        // 固定值来自既有全尺寸解码、白底合成和双线性采样，避免预览策略污染已落库哈希。
+        ImageHasher.Hashes hashes = ImageHasher.hash(image).orElseThrow();
+        assertThat(hashes.dHash()).isEqualTo(dHash);
+        assertThat(hashes.aHash()).isEqualTo(aHash);
+    }
+
+    @Test
+    @DisplayName("2500 万像素透明图片可在 256 MiB 独立堆内计算哈希")
+    void hashesTransparentImageWithinHeapBudget() throws Exception {
+        Path directory = testTempDir();
+        Path output = directory.resolve("probe.log");
+        Path image = directory.resolve("transparent.png");
+        ImageIO.write(new BufferedImage(5000, 5000, BufferedImage.TYPE_INT_ARGB), "png", image.toFile());
+        String executable = System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java";
+        Process process = new ProcessBuilder(
+                Path.of(System.getProperty("java.home"), "bin", executable).toString(),
+                "-Xmx256m", "-Djava.awt.headless=true", "-cp", System.getProperty("java.class.path"),
+                MemoryProbe.class.getName(), image.toAbsolutePath().toString())
+                .redirectErrorStream(true).redirectOutput(output.toFile()).start();
+        try {
+            assertThat(process.waitFor(120, TimeUnit.SECONDS)).isTrue();
+            assertThat(process.exitValue()).withFailMessage(Files.readString(output)).isZero();
+        } finally {
+            if (process.isAlive()) process.destroyForcibly();
+        }
+    }
+
+    public static final class MemoryProbe {
+        public static void main(String[] args) throws Exception {
+            top.sywyar.pixivdownload.common.Utf8ConsoleStreams.install();
+            ImageHasher.Hashes hashes = ImageHasher.hash(Path.of(args[0])).orElseThrow();
+            if (hashes.dHash() != 0L || hashes.aHash() != -1L) {
+                throw new AssertionError("Transparent image must hash as an opaque white image");
+            }
+        }
     }
 
     private static BufferedImage horizontalGradient(boolean descending) {

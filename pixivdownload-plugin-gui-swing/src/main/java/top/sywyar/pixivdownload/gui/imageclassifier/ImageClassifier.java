@@ -3,7 +3,6 @@ package top.sywyar.pixivdownload.gui.imageclassifier;
 import top.sywyar.pixivdownload.guiswing.SwingHost;
 
 import lombok.extern.slf4j.Slf4j;
-import top.sywyar.pixivdownload.core.asset.BoundedImageDecoder;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
@@ -1330,23 +1329,7 @@ public class ImageClassifier extends JFrame {
 
             new Thread(() -> {
                 try {
-                    java.awt.image.BufferedImage src = BoundedImageDecoder.read(loadFile.toPath());
-                    if (src == null) throw new IOException(message("gui.image-classifier.error.decode-image"));
-
-                    int imgW = src.getWidth();
-                    int imgH = src.getHeight();
-                    double scale = Math.min((double) vpW / imgW, (double) vpH / imgH);
-
-                    java.awt.image.BufferedImage display;
-                    if (scale < 1.0) {
-                        int newW = (int) (imgW * scale);
-                        int newH = (int) (imgH * scale);
-                        display = ThumbnailManager.getThumbnail(src, newW, newH);
-                    } else {
-                        display = src; // 原图不放大
-                    }
-
-                    final ImageIcon icon = new ImageIcon(display);
+                    final ImageIcon icon = new ImageIcon(ThumbnailManager.getThumbnail(loadFile, vpW, vpH));
                     SwingUtilities.invokeLater(() -> {
                         imageLabel.setIcon(icon);
                         imageLabel.setText("");

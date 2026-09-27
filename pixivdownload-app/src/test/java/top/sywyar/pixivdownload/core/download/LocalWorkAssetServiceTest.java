@@ -84,6 +84,16 @@ class LocalWorkAssetServiceTest {
     }
 
     @Test
+    @DisplayName("thumbnail 将预览尺寸传给缓存实现")
+    void thumbnailPassesRequestedSize() throws Exception {
+        Path cachePath = tempDir.resolve("p0-256.jpg");
+        when(artworkFileService.getThumbnailFile(42L, 0, 200))
+                .thenReturn(new ArtworkFileService.ThumbnailFile(cachePath, "jpg"));
+        assertEquals(new WorkAssetFile(0, cachePath, "jpg"),
+                service.thumbnail(WorkType.ARTWORK, 42L, 0, 200).orElseThrow());
+    }
+
+    @Test
     @DisplayName("thumbnail 缩略图不可得时返回 empty")
     void thumbnailReturnsEmptyWhenUnavailable() throws Exception {
         when(artworkFileService.getThumbnailFile(42L, 0)).thenReturn(null);

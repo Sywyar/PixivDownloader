@@ -222,7 +222,7 @@
     }
 
     async function loadThumbLazy(img) {
-        const url = img.dataset.src;
+        const url = window.PixivLayout.previewUrl(img.dataset.src, img);
         if (!url) return;
         img.removeAttribute('data-src');
         const src = await loadImage(url);

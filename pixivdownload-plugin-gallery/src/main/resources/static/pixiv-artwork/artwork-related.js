@@ -209,7 +209,7 @@
     }
 
     async function lazyLoadBox(box) {
-        const url = box.dataset.src;
+        const url = window.PixivLayout.previewUrl(box.dataset.src, box);
         box.removeAttribute('data-src');
         const img = document.createElement('img');
         img.alt = '';

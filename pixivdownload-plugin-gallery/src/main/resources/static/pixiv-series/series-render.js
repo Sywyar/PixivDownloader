@@ -341,7 +341,7 @@
     }
 
     async function loadThumbnail(img) {
-        const url = img.dataset.src;
+        const url = window.PixivLayout.previewUrl(img.dataset.src, img);
         img.removeAttribute('data-src');
         img.addEventListener('load', () => ImageCache.put(url, url), {once: true});
         img.src = ImageCache.get(url) || url;
@@ -420,4 +420,3 @@
     function buildPixivAuthorHref(authorId) {
         return `https://www.pixiv.net/users/${authorId}`;
     }
-

@@ -71,7 +71,8 @@ public final class BoundedImageDecoder {
                 double ratio = Math.min(1d, Math.min((double) boundWidth / width, (double) boundHeight / height));
                 int targetWidth = Math.max(1, (int) Math.round(width * ratio));
                 int targetHeight = Math.max(1, (int) Math.round(height * ratio));
-                int sampling = Math.max(1, Math.min(width / targetWidth, height / targetHeight));
+                // 从未取整的比例取采样步长，避免长条图的短边被钳到 1 后迫使整图过量解码。
+                int sampling = Math.max(1, (int) Math.floor(1d / ratio));
                 while ((long) ((width + sampling - 1) / sampling)
                         * ((height + sampling - 1) / sampling) > MAX_PIXELS) {
                     sampling++;

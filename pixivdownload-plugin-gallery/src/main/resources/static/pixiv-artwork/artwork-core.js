@@ -278,6 +278,7 @@ window.PixivArtwork = window.PixivArtwork || {};
     }
 
     async function loadImageToElement(url, target, {onClick} = {}) {
+        if (url.includes('/thumbnail/')) url = window.PixivLayout.previewUrl(url, target);
         const attach = src => {
             const img = document.createElement('img');
             img.alt = '';

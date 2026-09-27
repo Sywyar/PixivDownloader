@@ -13,6 +13,8 @@ import java.util.OptionalLong;
 
 public final class ImageHasher {
 
+    private static final int OPAQUE_TILE_PIXELS = 256 * 1024;
+
     private ImageHasher() {
     }
 
@@ -101,7 +103,13 @@ public final class ImageHasher {
         try {
             baseGraphics.setColor(Color.WHITE);
             baseGraphics.fillRect(0, 0, opaque.getWidth(), opaque.getHeight());
-            baseGraphics.drawImage(source, 0, 0, null);
+            // Java2D 可能为透明源创建额外的 ARGB 转换缓冲；分条带合成把它限制在约 1 MiB。
+            int rows = Math.max(1, OPAQUE_TILE_PIXELS / source.getWidth());
+            for (int y = 0; y < source.getHeight(); y += rows) {
+                int bottom = Math.min(source.getHeight(), y + rows);
+                baseGraphics.drawImage(source, 0, y, source.getWidth(), bottom,
+                        0, y, source.getWidth(), bottom, null);
+            }
         } finally {
             baseGraphics.dispose();
         }

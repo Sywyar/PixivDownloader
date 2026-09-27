@@ -142,14 +142,13 @@ final class DesktopToolsView {
             Path image = model.classifierImages.get(index);
             String base = "classifier.image." + index;
             List<DesktopUiNode> content = new ArrayList<>();
-            model.classifierSupport.materializeImage(image).ifPresent(data -> content.add(new DesktopUiNode.Image(
+            content.add(new DesktopUiNode.LocalImage(
                     base + ".preview",
-                    data,
+                    image,
                     TextToken.raw(image.getFileName().toString()),
                     160,
-                    150,
-                    DesktopUiNode.ScaleMode.FIT
-            )));
+                    150
+            ));
             content.add(raw(
                     base + ".name",
                     image.getFileName().toString(),

@@ -104,7 +104,8 @@ window.PixivGallery = window.PixivGallery || {};
     function pumpThumbnailQueue() {
         while (activeThumbnailLoads < THUMBNAIL_CONCURRENCY && thumbnailQueue.length) {
             const img = thumbnailQueue.shift();
-            const url = img && img.dataset ? img.dataset.src : null;
+            const url = img && img.dataset && img.dataset.src
+                ? window.PixivLayout.previewUrl(img.dataset.src, img) : null;
             if (!url) continue;
             img.removeAttribute('data-src');
             activeThumbnailLoads++;

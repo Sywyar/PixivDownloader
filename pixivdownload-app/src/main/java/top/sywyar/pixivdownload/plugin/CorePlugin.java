@@ -153,7 +153,6 @@ public class CorePlugin implements PixivFeaturePlugin {
                 // 跨页共享只读静态依赖（访客可读、不入 monitor）。公开资源只在下方 PUBLIC 清单登记，
                 // 避免同一路径出现互相冲突的访问策略。
                 WebRouteContribution.visitorAndInvitedGuest("/css/admin-visibility.css"),
-                WebRouteContribution.visitorAndInvitedGuest("/css/lang-theme-switcher.css"),
                 WebRouteContribution.visitorAndInvitedGuest("/css/pixiv-side-modules.css"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/invite-modals.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-navigation.js"),
@@ -186,6 +185,9 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.publicRoute("/intro.html"),
                 WebRouteContribution.publicRoute("/intro-canary.html"),
                 WebRouteContribution.publicRoute("/favicon.ico"),
+                WebRouteContribution.publicRoute("/css/pixiv-layout.css"),
+                WebRouteContribution.publicRoute("/css/pixiv-motion.css"),
+                WebRouteContribution.publicRoute("/css/lang-theme-switcher.css"),
                 WebRouteContribution.publicRoute("/css/pixiv-feedback.css"),
                 WebRouteContribution.publicRoute("/css/pixiv-scrollbar.css"),
                 WebRouteContribution.publicRoute("/js/pixiv-feedback.js"),
@@ -194,6 +196,7 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.publicRoute("/js/pixiv-lang-switcher.js"),
                 WebRouteContribution.publicRoute("/js/pixiv-survey-frame-bridge.js"),
                 WebRouteContribution.publicRoute("/js/pixiv-theme.js"),
+                WebRouteContribution.publicRoute("/js/pixiv-layout.js"),
                 // 品牌化错误状态页（400/403/404/429/500/502/503 与 4xx/5xx 兜底）。错误派发本身
                 // 由容器 sendError → Spring Boot 静态错误视图解析完成（ERROR dispatch 旁路 AuthFilter）；
                 // 这里声明的是页面与其共享 CSS/JS 被浏览器以普通 REQUEST 直接加载时的公开访问——

@@ -61,7 +61,7 @@ class WorkAssetFileControllerTest {
     @Test
     @DisplayName("获取缩略图成功：返回可缓存的 image/png 文件流")
     void shouldReturnThumbnail() throws Exception {
-        when(workAssetService.thumbnail(WorkType.ARTWORK, 12345L, 0))
+        when(workAssetService.thumbnail(WorkType.ARTWORK, 12345L, 0, 512))
                 .thenReturn(Optional.of(new WorkAssetFile(0, pngFile, "png")));
 
         mockMvc.perform(get("/api/downloaded/thumbnail/12345/0"))
@@ -74,7 +74,7 @@ class WorkAssetFileControllerTest {
     @Test
     @DisplayName("获取缩略图不存在应返回 404")
     void shouldReturn404ForMissingThumbnail() throws Exception {
-        when(workAssetService.thumbnail(WorkType.ARTWORK, 99999L, 0)).thenReturn(Optional.empty());
+        when(workAssetService.thumbnail(WorkType.ARTWORK, 99999L, 0, 512)).thenReturn(Optional.empty());
 
         mockMvc.perform(get("/api/downloaded/thumbnail/99999/0"))
                 .andExpect(status().isNotFound());
@@ -83,9 +83,20 @@ class WorkAssetFileControllerTest {
     // ========== GET /api/downloaded/thumbnail-file（FileSystemResource 流） ==========
 
     @Test
+    @DisplayName("缩略图请求把展示尺寸传给资产服务且保留可见性检查")
+    void forwardsPreviewSize() throws Exception {
+        when(workAssetService.thumbnail(WorkType.ARTWORK, 12345L, 0, 300))
+                .thenReturn(Optional.of(new WorkAssetFile(0, pngFile, "png")));
+        mockMvc.perform(get("/api/downloaded/thumbnail/12345/0").param("size", "300"))
+                .andExpect(status().isOk());
+        verify(guestAccessGuard).requireVisible(any(), eq(12345L));
+        verify(workAssetService).thumbnail(WorkType.ARTWORK, 12345L, 0, 300);
+    }
+
+    @Test
     @DisplayName("获取缩略图文件成功：按扩展名返回 image/png 与文件流")
     void shouldReturnThumbnailFile() throws Exception {
-        when(workAssetService.thumbnail(WorkType.ARTWORK, 12345L, 0))
+        when(workAssetService.thumbnail(WorkType.ARTWORK, 12345L, 0, 512))
                 .thenReturn(Optional.of(new WorkAssetFile(0, pngFile, "png")));
 
         mockMvc.perform(get("/api/downloaded/thumbnail-file/12345/0"))
@@ -96,7 +107,7 @@ class WorkAssetFileControllerTest {
     @Test
     @DisplayName("缩略图文件不存在应返回 404")
     void shouldReturn404ForMissingThumbnailFile() throws Exception {
-        when(workAssetService.thumbnail(WorkType.ARTWORK, 99999L, 0)).thenReturn(Optional.empty());
+        when(workAssetService.thumbnail(WorkType.ARTWORK, 99999L, 0, 512)).thenReturn(Optional.empty());
 
         mockMvc.perform(get("/api/downloaded/thumbnail-file/99999/0"))
                 .andExpect(status().isNotFound());
