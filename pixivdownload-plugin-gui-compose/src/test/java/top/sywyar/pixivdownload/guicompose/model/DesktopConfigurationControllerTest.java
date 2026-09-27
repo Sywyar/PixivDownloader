@@ -414,6 +414,43 @@ class DesktopConfigurationControllerTest {
         return Stream.concat(Stream.of(node), node.childNodes().stream().flatMap(DesktopConfigurationControllerTest::descendants));
     }
 
+    @Test
+    @DisplayName("工具页显示插件入口并通过宿主打开声明的页面")
+    void toolNavigationOpensContributedPage() throws Exception {
+        var opened = new java.util.concurrent.atomic.AtomicReference<java.net.URI>();
+        var entry = new top.sywyar.pixivdownload.plugin.api.web.NavigationContribution(
+                "sample-tool",
+                top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements.DESKTOP_TOOLS,
+                null, "sample.tools.title", "/sample-tool.html", "images",
+                top.sywyar.pixivdownload.plugin.api.web.AccessPolicy.ADMIN, 1
+        );
+        var plugin = new DesktopUiPluginSnapshot(
+                "sample", false, "sample", 1, false, null, "",
+                List.of(), List.of(), List.of(), List.of(), List.of(entry)
+        );
+        try (var model = model(new HashMap<>(), Map.of("openExternalUri", arguments -> {
+            opened.set((java.net.URI) arguments[0]);
+            return null;
+        }), () -> List.of(plugin))) {
+            var snapshot = model.snapshot();
+            var button = snapshot.document().pages().stream()
+                    .filter(page -> page.id().equals("tools"))
+                    .flatMap(page -> descendants(page.content()))
+                    .filter(DesktopUiNode.Button.class::isInstance)
+                    .map(DesktopUiNode.Button.class::cast)
+                    .filter(value -> value.label().key().equals("sample.tools.title"))
+                    .findFirst().orElseThrow();
+            org.junit.jupiter.api.Assertions.assertTrue(button.enabled());
+            model.dispatch(snapshot, new DesktopUiNode.Event(
+                    DesktopUiNode.EventType.ACTIVATE, button.id(), DesktopUiNode.Value.empty()
+            ));
+            assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+                while (opened.get() == null) Thread.sleep(10);
+            });
+            assertEquals("/sample-tool.html", opened.get().getPath());
+        }
+    }
+
     static ComposeDesktopUiModel model(Map<String, String> stored) {
         return model(stored, Map.of());
     }

@@ -380,6 +380,9 @@ final class DesktopToolsView {
                 raw("tools.backend", model.owner.backendMessage(), TextStyle.CAPTION),
                 toolCards(nextActions),
                 media,
+                model.owner.navigation.webEntryButtons(
+                        top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements.DESKTOP_TOOLS,
+                        "tools.plugin", nextActions),
                 toolHistoryContent(),
                 model.activity,
                 workspace

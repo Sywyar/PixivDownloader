@@ -31,6 +31,46 @@ import kotlin.test.assertEquals
 @DisplayName("Compose 桌面真实渲染闭环")
 class ComposeDesktopUiConformanceTest {
     @Test
+    @DisplayName("多选下拉框持续显示勾选结果且不能取消最后一个选项")
+    fun multiSelectionDropdownKeepsAtLeastOneChoice() = runComposeUiTest {
+        var selected by mutableStateOf(listOf("original"))
+        val accepted = mutableListOf<List<String>>()
+        setContent {
+            PixivDownloaderTheme("light") {
+                ComposeDesktopUiNodeRenderer.Render(
+                    DesktopUiNode.Choice(
+                        "formats", "formats.value", raw("Formats"), null,
+                        DesktopUiNode.ChoiceStyle.COMBO_BOX, DesktopUiNode.SelectionMode.MULTIPLE,
+                        listOf(
+                            DesktopUiNode.Option("original", raw("Original"), true),
+                            DesktopUiNode.Option("png", raw("PNG"), true),
+                            DesktopUiNode.Option("webp", raw("WebP"), true),
+                        ),
+                        selected, true,
+                    ),
+                    { it.fallback() },
+                    { selected = it.value().values(); accepted.add(selected) },
+                )
+            }
+        }
+        onNodeWithText("Original").performClick()
+        onNodeWithText("PNG").performClick()
+        waitForIdle()
+        assertEquals(listOf("original", "png"), selected)
+        onNodeWithText("Original").performClick()
+        waitForIdle()
+        assertEquals(listOf("png"), selected)
+        onAllNodesWithText("PNG").fetchSemanticsNodes().also { assertEquals(2, it.size) }
+        onAllNodesWithText("PNG")[1].performClick()
+        waitForIdle()
+        assertEquals(listOf("png"), selected)
+        assertEquals(2, accepted.size)
+        onNodeWithText("WebP").performClick()
+        waitForIdle()
+        onNodeWithText("PNG, WebP").assertExists()
+    }
+
+    @Test
     @DisplayName("可激活表面把头像与名称组成的卡片作为单一点击区域")
     fun activatesCompactSurfaceCard() = runComposeUiTest {
         val node = DesktopUiNode.Surface(

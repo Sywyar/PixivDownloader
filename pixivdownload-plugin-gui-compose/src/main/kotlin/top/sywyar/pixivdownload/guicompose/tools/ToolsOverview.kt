@@ -119,6 +119,9 @@ internal fun ToolsOverview(
                         Icons.Default.Movie, "tools.entry.media",
                         Modifier.fillMaxWidth().background(palette.secondarySurface.copy(alpha = .6f), RoundedCornerShape(16.dp))
                             .focusRequester(anchors.getOrPut("media") { FocusRequester() })) { select("media") }
+                    node.pluginTools().forEach { entry -> key(entry.id()) {
+                        ComposeDesktopUiNodeRenderer.Render(entry, text, emit, Modifier.fillMaxWidth())
+                    } }
                 }
                 val rows = (node.history() as? Table)?.rows().orEmpty()
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

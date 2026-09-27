@@ -33,6 +33,9 @@ public class ToolsPanel extends JPanel {
     private static final String MIGRATION_COUNTING_STATUS = message("gui.tools.migration.status.counting");
 
     private final Path configPath;
+    private final java.util.function.Supplier<top.sywyar.pixivdownload.gui.entry.GuiWebEntrySnapshot> entries;
+    private final java.util.function.Consumer<String> openWeb;
+    private final JPanel pluginTools = new JPanel();
 
     private final JLabel backendStateLabel = new JLabel(message("gui.tools.backend-status", message("gui.tools.backend-status.detecting")));
     private final JLabel exclusiveToolLabel = new JLabel(message("gui.tools.exclusive-tool", message("gui.value.none")));
@@ -65,8 +68,14 @@ public class ToolsPanel extends JPanel {
 
     private final SwingBackendLifecycle.Listener backendListener = this::handleBackendState;
 
-    public ToolsPanel(Path configPath) {
+    public ToolsPanel(
+            Path configPath,
+            java.util.function.Supplier<top.sywyar.pixivdownload.gui.entry.GuiWebEntrySnapshot> entries,
+            java.util.function.Consumer<String> openWeb
+    ) {
         this.configPath = configPath;
+        this.entries = entries;
+        this.openWeb = openWeb;
         buildUi();
         GuiInputStyleNormalizer.apply(this);
         loadDefaults();
@@ -84,6 +93,13 @@ public class ToolsPanel extends JPanel {
         content.add(buildOverviewCard());
         content.add(Box.createVerticalStrut(12));
         content.add(buildImageClassifierCard());
+        pluginTools.setOpaque(false);
+        pluginTools.setLayout(new BoxLayout(pluginTools, BoxLayout.Y_AXIS));
+        content.add(pluginTools);
+        addHierarchyListener(event -> {
+            if ((event.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) refreshPluginTools();
+        });
+        refreshPluginTools();
         content.add(Box.createVerticalStrut(12));
         content.add(buildFolderCheckerCard());
         content.add(Box.createVerticalStrut(12));
@@ -113,6 +129,20 @@ public class ToolsPanel extends JPanel {
         panel.add(Box.createVerticalStrut(10));
         panel.add(hint);
         return panel;
+    }
+
+    private void refreshPluginTools() {
+        pluginTools.removeAll();
+        for (var entry : entries.get().toolActions()) {
+            JPanel card = createCard(entry.label());
+            JButton button = new JButton(entry.label());
+            button.addActionListener(event -> openWeb.accept(entry.href()));
+            card.add(button);
+            pluginTools.add(Box.createVerticalStrut(12));
+            pluginTools.add(card);
+        }
+        pluginTools.revalidate();
+        pluginTools.repaint();
     }
 
     private JComponent buildImageClassifierCard() {

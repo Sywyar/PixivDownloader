@@ -223,7 +223,7 @@ public final class ConfigFieldRegistry {
                 .validator(coreValidator(field))
                 .requiredValueMissing((snapshot, stored) -> field.missingRequiredValue(snapshot.values(), stored))
                 .contributesGroupVisibility(field.contributesGroupVisibility());
-        if (field.type() == GuiConfigFieldType.ENUM) {
+        if (field.type() == GuiConfigFieldType.ENUM || field.type() == GuiConfigFieldType.MULTI_ENUM) {
             builder.enumValues(field.enumValues().toArray(String[]::new));
             Map<String, String> labels = new LinkedHashMap<>();
             field.enumValueLabelKeys().forEach((value, key) -> labels.put(value, message(key)));

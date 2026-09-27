@@ -363,7 +363,9 @@ public final class GuiConfigContributionAggregator {
                     "GUI config field type is null"));
             return null;
         }
-        if (field.type() == GuiConfigFieldType.ENUM && field.enumValues().isEmpty()) {
+        if ((field.type() == GuiConfigFieldType.ENUM && field.enumValues().isEmpty())
+                || (field.type() == GuiConfigFieldType.MULTI_ENUM
+                && !GuiConfigFieldType.validMultiSelection(field.defaultValue(), field.enumValues()))) {
             diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), key,
                     "GUI config enum field has no enum values"));
             return null;
@@ -406,7 +408,7 @@ public final class GuiConfigContributionAggregator {
                 .validator(validator(field))
                 .requiredValueMissing((snapshot, stored) -> field.missingRequiredValue(snapshot.values(), stored))
                 .contributesGroupVisibility(field.contributesGroupVisibility());
-        if (field.type() == GuiConfigFieldType.ENUM) {
+        if (field.type() == GuiConfigFieldType.ENUM || field.type() == GuiConfigFieldType.MULTI_ENUM) {
             builder.enumValues(field.enumValues().toArray(String[]::new));
             Map<String, String> enumValueLabels = enumValueLabels(
                     registered, textResolver, key, field, diagnostics);
@@ -1151,6 +1153,7 @@ public final class GuiConfigContributionAggregator {
             case INT -> FieldType.INT;
             case STRING, TIME, PASSWORD -> FieldType.STRING;
             case ENUM -> FieldType.ENUM;
+            case MULTI_ENUM -> FieldType.MULTI_ENUM;
         };
     }
 

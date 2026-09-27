@@ -1380,7 +1380,7 @@ object ComposeDesktopUiNodeRenderer {
         }
         val content: @Composable () -> Unit = {
             when (node.choiceStyle()) {
-                DesktopUiNode.ChoiceStyle.COMBO_BOX -> ComboChoice(node, selected.firstOrNull(), text, ::choose)
+                DesktopUiNode.ChoiceStyle.COMBO_BOX -> ComboChoice(node, selected, text, ::choose)
                 DesktopUiNode.ChoiceStyle.RADIO_BUTTONS -> Column {
                     node.options().forEach { option ->
                         Row(
@@ -1429,12 +1429,14 @@ object ComposeDesktopUiNodeRenderer {
     @Composable
     private fun ComboChoice(
         node: DesktopUiNode.Choice,
-        selectedId: String?,
+        selectedIds: List<String>,
         text: (DesktopUiNode.TextToken) -> String,
         choose: (String) -> Unit,
     ) {
         var expanded by remember(node.id()) { mutableStateOf(false) }
-        val label = node.options().firstOrNull { it.id() == selectedId }?.let { resolve(it.label(), text) }.orEmpty()
+        val multiple = node.selectionMode() == DesktopUiNode.SelectionMode.MULTIPLE
+        val label = node.options().filter { selectedIds.contains(it.id()) }
+            .joinToString(", ") { resolve(it.label(), text) }
         Box {
             CupertinoButton(
                 colors = CupertinoButtonDefaults.grayButtonColors(contentColor = LocalExperiencePalette.current.text),
@@ -1458,10 +1460,18 @@ object ComposeDesktopUiNodeRenderer {
             CupertinoDropdownMenu(expanded, onDismissRequest = { expanded = false }) {
                 node.options().forEach { option ->
                     MenuPickerAction(
-                        isSelected = selectedId == option.id(),
-                        title = { CupertinoText(resolve(option.label(), text)) },
+                        isSelected = !multiple && selectedIds.contains(option.id()),
+                        title = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (multiple) CupertinoCheckBox(selectedIds.contains(option.id()), onCheckedChange = null)
+                                CupertinoText(resolve(option.label(), text))
+                            }
+                        },
                         enabled = option.enabled(),
-                        onClick = { choose(option.id()); expanded = false },
+                        onClick = {
+                            if (!multiple || !selectedIds.contains(option.id()) || selectedIds.size > 1) choose(option.id())
+                            if (!multiple) expanded = false
+                        },
                     )
                 }
             }
