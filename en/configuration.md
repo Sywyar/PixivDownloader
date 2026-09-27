@@ -41,7 +41,9 @@ Both Web download layouts expose format selection for the current download and n
 
 FFmpeg shared concurrency defaults to 2, adjustable to 1–8 in desktop download settings. Save and restart the backend to apply it. The host key is `ffmpeg.max-concurrent` in `config/config.yaml`; conversion and media probing share this budget.
 
-Open Tools → Process downloaded media on the desktop for existing files. Enter artwork IDs, select missing formats or thumbnails, preview, then start explicitly; cancellation is available. A batch accepts at most 500 works and 10,000 files, with one historical job running at a time. Changing download settings never starts a historical job. Existing files are neither replaced nor deleted. Ugoira needs a retained ZIP and frame timing. The capability check runs only when clicked and tests the active FFmpeg with real encoding and decoding.
+For existing works, open **Tools → FFmpeg and tools → Process downloaded media** in the Compose desktop UI, select target formats, and detect missing files without entering artwork IDs. Review the results and start explicitly. Processing adds missing formats and thumbnails while keeping existing files; going back does not cancel the task. Swing provides the same detection and processing on its Tools page. Ugoira conversion requires a retained ZIP and frame timing. FFmpeg management can test actual codec support; MP4 requires an H.264 encoder.
+
+Each batch handles up to 500 matching works and 10,000 candidate files, with one task at a time. When the limit is reached, process the batch and detect again. Detection creates no files. Changing options requires another detection; changing download settings never starts historical processing.
 
 The gallery prefers a retained original, followed by WebP, PNG, and JPG. If the original was removed, it uses an existing copy. MP4 opens in a video player.
 
