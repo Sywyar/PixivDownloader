@@ -10,6 +10,9 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.StandardWatchEventKinds;
+import java.nio.file.WatchKey;
+import java.nio.file.WatchService;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.util.Objects;
@@ -37,7 +40,8 @@ public final class PluginDirectorySessionLock implements AutoCloseable {
     private FileChannel channel;
     private FileLock lock;
     private FileLock identityLock;
-    private RootIdentity rootIdentity;
+    private Object rootIdentity;
+    private WatchService rootWatchService;
     private boolean closed;
 
     public PluginDirectorySessionLock(Path pluginsRoot) {
@@ -138,7 +142,6 @@ public final class PluginDirectorySessionLock implements AutoCloseable {
             if (candidateIdentityLock == null) {
                 throw new IOException("plugin directory identity range is already owned by another process");
             }
-            acquiredLocksProbe.run();
             if (!ensurePlainDirectoryChain(false)) {
                 throw new IOException("plugins root disappeared while acquiring its session lock");
             }
@@ -153,13 +156,22 @@ public final class PluginDirectorySessionLock implements AutoCloseable {
                 throw new IOException("plugin directory lock identity changed after opening: " + lockPath);
             }
             verifyPathStillNamesLockedFile();
-            RootIdentity acquiredRootIdentity = readRootIdentity();
+            Object acquiredRootIdentity = readRootIdentity();
+            acquiredLocksProbe.run();
             channel = candidateChannel;
             lock = candidateLock;
             identityLock = candidateIdentityLock;
             rootIdentity = acquiredRootIdentity;
             return true;
         } catch (Throwable e) {
+            if (rootWatchService != null) {
+                try {
+                    rootWatchService.close();
+                } catch (Throwable releaseFailure) {
+                    addSuppressedSafely(e, releaseFailure);
+                }
+                rootWatchService = null;
+            }
             if (candidateIdentityLock != null) {
                 try {
                     candidateIdentityLock.release();
@@ -230,18 +242,32 @@ public final class PluginDirectorySessionLock implements AutoCloseable {
         }
     }
 
-    private RootIdentity readRootIdentity() throws IOException {
+    private Object readRootIdentity() throws IOException {
         BasicFileAttributes attributes = attributesIfPresent(pluginsRoot);
         if (attributes == null || attributes.isSymbolicLink() || attributes.isOther()
                 || !attributes.isDirectory()) {
             throw new IOException("plugins root is not a plain directory: " + pluginsRoot);
         }
-        return new RootIdentity(attributes.fileKey(), attributes.creationTime());
+        if (attributes.fileKey() != null) {
+            return new RootIdentity(attributes.fileKey(), attributes.creationTime());
+        }
+        // Windows 的 fileKey 为空，重建目录也可能沿用创建时间。重复注册同一个目录对象才返回
+        // 原 WatchKey；同步注册比较不依赖删除事件的异步投递，也不把子项变化当作目录换绑。
+        if (rootWatchService == null) {
+            rootWatchService = pluginsRoot.getFileSystem().newWatchService();
+        }
+        return pluginsRoot.register(rootWatchService, StandardWatchEventKinds.ENTRY_CREATE);
     }
 
     private void verifyRootIdentity() throws IOException {
-        RootIdentity current = readRootIdentity();
+        if (rootIdentity instanceof WatchKey key && !key.isValid()) {
+            throw new IOException("plugins root identity changed while its session lock was held: " + pluginsRoot);
+        }
+        Object current = readRootIdentity();
         if (rootIdentity == null || !rootIdentity.equals(current)) {
+            if (current instanceof WatchKey key) {
+                key.cancel();
+            }
             throw new IOException("plugins root identity changed while its session lock was held: " + pluginsRoot);
         }
     }
@@ -274,11 +300,22 @@ public final class PluginDirectorySessionLock implements AutoCloseable {
         }
         closed = true;
         IOException failure = null;
+        if (rootWatchService != null) {
+            try {
+                rootWatchService.close();
+            } catch (IOException e) {
+                failure = e;
+            }
+        }
         if (identityLock != null) {
             try {
                 identityLock.release();
             } catch (IOException e) {
-                failure = e;
+                if (failure == null) {
+                    failure = e;
+                } else {
+                    failure.addSuppressed(e);
+                }
             }
         }
         if (lock != null) {
@@ -308,6 +345,7 @@ public final class PluginDirectorySessionLock implements AutoCloseable {
         lock = null;
         channel = null;
         rootIdentity = null;
+        rootWatchService = null;
         if (failure != null) {
             throw failure;
         }
@@ -332,11 +370,7 @@ public final class PluginDirectorySessionLock implements AutoCloseable {
         }
     }
 
-    /** Windows 默认 provider 的 fileKey 可能为空；创建时间只作为该平台上的换绑检测退路。 */
+    /** 同时保留创建时间，避免已删除目录的 inode 被复用时误认旧身份。 */
     private record RootIdentity(Object fileKey, FileTime creationTime) {
-
-        private RootIdentity {
-            creationTime = Objects.requireNonNull(creationTime, "creationTime");
-        }
     }
 }
