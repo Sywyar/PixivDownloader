@@ -48,7 +48,10 @@
                 <div class="viewer-image" id="mainImage"></div>
                 <div class="more-pages" id="morePages"></div>
                 <div class="viewer-actions" data-layout-height="--layout-actions-height">
-                    <a class="expand-btn external-link-btn layout-touch" id="originalImageLink" target="_blank" rel="noopener noreferrer" data-i18n="artwork:button.original-image"></a>
+                    <label class="expand-btn original-image-option layout-touch">
+                        <input type="checkbox" id="originalImagesToggle">
+                        <span id="originalImagesLabel" data-i18n="artwork:button.original-image"></span>
+                    </label>
                     <button class="expand-btn layout-touch" id="expandBtn" style="display:none">展开全部 (<span
                             id="totalPageCount"></span>)
                     </button>
@@ -156,7 +159,10 @@
 </div>
 
 <div class="lightbox" id="lightbox" data-pixiv-click="handleLightboxClick(event)">
-    <a class="lightbox-original layout-touch" id="lightboxOriginalLink" target="_blank" rel="noopener noreferrer" data-i18n="artwork:button.original-image"></a>
+    <label class="lightbox-original original-image-option layout-touch">
+        <input type="checkbox" id="lightboxOriginalImagesToggle">
+        <span id="lightboxOriginalImagesLabel" data-i18n="artwork:button.original-image"></span>
+    </label>
     <button class="lightbox-close" data-pixiv-click="closeLightbox()">×</button>
     <button class="lightbox-nav prev" data-pixiv-click="lightboxNav(-1)" data-pixiv-stop="true">‹</button>
     <div class="lightbox-image-frame">
@@ -206,6 +212,7 @@
 
 <script src="/pixiv-artwork/artwork-core.js"></script>
 <script src="/js/pixiv-layout.js"></script>
+<script src="/pixiv-artwork/artwork-images.js"></script>
 <script src="/pixiv-artwork/artwork-layout.js"></script>
 <script src="/pixiv-artwork/artwork-viewer.js"></script>
 <script src="/pixiv-artwork/artwork-related.js"></script>

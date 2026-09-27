@@ -23,6 +23,12 @@
     }
 
     function renderViewer() {
+        mainImageLoad?.abort();
+        if (expanded) collapseAll();
+        closeLightbox();
+        originalPageObserver?.disconnect();
+        originalVisibleBoxes.clear();
+        clearArtworkPreviews();
         const artwork = state.artwork;
         const count = artwork.count || 1;
         document.getElementById('viewerLoading').style.display = 'none';
@@ -35,10 +41,27 @@
         });
 
         const mainImage = document.getElementById('mainImage');
+        mainImage.dataset.pageIndex = '0';
         mainImage.classList.add('loading');
         mainImage.onclick = () => openLightbox(0);
-        loadImageToElement(artworkPreviewUrl(0), mainImage);
-        document.getElementById('originalImageLink').href = `/api/downloaded/image/${artwork.artworkId}/0`;
+        if (typeof IntersectionObserver !== 'undefined') {
+            originalPageObserver = new IntersectionObserver(entries => {
+                for (const entry of entries) {
+                    if (!entry.target.isConnected) continue;
+                    if (entry.isIntersecting) originalVisibleBoxes.add(entry.target);
+                    else originalVisibleBoxes.delete(entry.target);
+                    updateBoxOriginal(entry.target);
+                }
+            });
+            originalPageObserver.observe(mainImage);
+        }
+        mainImageLoad = new AbortController();
+        loadImageToElement(artworkPreviewUrl(0), mainImage, {
+            signal: mainImageLoad.signal,
+            onLoad: () => updateBoxOriginal(mainImage),
+            onError: () => updateBoxOriginal(mainImage)
+        });
+        refreshOriginalVisibility();
 
         const more = document.getElementById('morePages');
         more.innerHTML = '';
@@ -54,6 +77,79 @@
     let expanded = false;
     let expandedPageObserver = null;
     const expandedPageLoads = new Map();
+    const ORIGINAL_IMAGES_KEY = 'pixiv:artwork-original-images';
+    const originalVisibleBoxes = new Set();
+    let originalImagesEnabled = false;
+    let originalPageObserver = null;
+    let mainImageLoad = null;
+    let originalRefreshFrame = null;
+
+    function updateBoxOriginal(box) {
+        const image = box.querySelector('img');
+        if (!image) return;
+        const visible = originalVisibleBoxes.has(box)
+            && !document.getElementById('lightbox').classList.contains('open');
+        if (originalImagesEnabled && visible) {
+            loadArtworkOriginal(image, `/api/downloaded/image/${state.artworkId}/${box.dataset.pageIndex}`);
+        } else {
+            releaseArtworkOriginal(image);
+        }
+    }
+
+    function refreshOriginalVisibility() {
+        const boxes = [document.getElementById('mainImage'), ...expandedPageLoads.keys()];
+        for (const box of boxes) {
+            if (!originalPageObserver) {
+                const rect = box.getBoundingClientRect();
+                if (rect.bottom > 0 && rect.top < window.innerHeight && rect.right > 0 && rect.left < window.innerWidth) {
+                    originalVisibleBoxes.add(box);
+                } else originalVisibleBoxes.delete(box);
+            }
+            updateBoxOriginal(box);
+        }
+        const image = document.getElementById('lightboxImage');
+        if (originalImagesEnabled && document.getElementById('lightbox').classList.contains('open')) {
+            loadArtworkOriginal(image, `/api/downloaded/image/${state.artworkId}/${state.lightboxIndex}`);
+        } else releaseArtworkOriginal(image);
+    }
+
+    function setOriginalImagesEnabled(enabled, persist = true) {
+        originalImagesEnabled = enabled;
+        for (const id of ['originalImagesToggle', 'lightboxOriginalImagesToggle']) {
+            document.getElementById(id).checked = enabled;
+        }
+        if (persist) {
+            try { localStorage.setItem(ORIGINAL_IMAGES_KEY, String(enabled)); } catch (_) { /* 存储不可用时保留本页选择。 */ }
+        }
+        refreshOriginalVisibility();
+    }
+
+    function readOriginalImagesPreference() {
+        try { return localStorage.getItem(ORIGINAL_IMAGES_KEY) === 'true'; } catch (_) { return false; }
+    }
+
+    function initOriginalImages() {
+        for (const id of ['originalImagesToggle', 'lightboxOriginalImagesToggle']) {
+            document.getElementById(id).addEventListener('change', event => setOriginalImagesEnabled(event.target.checked));
+        }
+        setOriginalImagesEnabled(readOriginalImagesPreference(), false);
+        window.addEventListener('storage', event => {
+            if (event.key === ORIGINAL_IMAGES_KEY || event.key === null) {
+                setOriginalImagesEnabled(readOriginalImagesPreference(), false);
+            }
+        });
+        window.addEventListener('pageshow', () => setOriginalImagesEnabled(readOriginalImagesPreference(), false));
+        document.addEventListener('visibilitychange', refreshOriginalVisibility);
+        const scheduleRefresh = () => {
+            if (originalPageObserver || originalRefreshFrame !== null) return;
+            originalRefreshFrame = requestAnimationFrame(() => {
+                originalRefreshFrame = null;
+                refreshOriginalVisibility();
+            });
+        };
+        window.addEventListener('scroll', scheduleRefresh, {passive: true});
+        window.addEventListener('resize', scheduleRefresh);
+    }
 
     function artworkPreviewUrl(index) {
         // GIF / WebP 可能是动图，静态缩略图不能替代其播放。
@@ -66,9 +162,12 @@
         if (expandedPageLoads.has(box)) return;
         const controller = new AbortController();
         expandedPageLoads.set(box, controller);
+        if (!originalPageObserver) refreshOriginalVisibility();
         loadImageToElement(box.dataset.imageUrl, box, {
             signal: controller.signal,
-            loading: expandedPageObserver ? 'eager' : 'lazy'
+            loading: expandedPageObserver ? 'eager' : 'lazy',
+            onLoad: () => updateBoxOriginal(box),
+            onError: () => updateBoxOriginal(box)
         }).then(src => {
             if (!src || controller.signal.aborted) return;
             const image = box.querySelector('img');
@@ -80,6 +179,7 @@
     function unloadExpandedPage(box) {
         expandedPageLoads.get(box)?.abort();
         expandedPageLoads.delete(box);
+        originalVisibleBoxes.delete(box);
         box.classList.add('loading');
     }
 
@@ -107,11 +207,13 @@
             box.classList.add('loading');
             box.setAttribute('data-loading-text', wt('status.loading', 'Loading...'));
             box.dataset.imageUrl = artworkPreviewUrl(p);
+            box.dataset.pageIndex = String(p);
             more.appendChild(box);
             const idx = p;
             box.addEventListener('click', () => openLightbox(idx));
             if (expandedPageObserver) expandedPageObserver.observe(box);
             else loadExpandedPage(box);
+            originalPageObserver?.observe(box);
         }
         return Promise.resolve();
     }
@@ -122,6 +224,10 @@
         expandedPageObserver = null;
         for (const box of expandedPageLoads.keys()) unloadExpandedPage(box);
         const more = document.getElementById('morePages');
+        for (const box of more.children) {
+            originalPageObserver?.unobserve(box);
+            originalVisibleBoxes.delete(box);
+        }
         more.classList.remove('open');
         more.innerHTML = '';
         const btn = document.getElementById('expandBtn');
@@ -213,27 +319,38 @@
             ? mainImage.naturalWidth / mainImage.naturalHeight : 1);
         lightbox.classList.add('open');
         const image = document.getElementById('lightboxImage');
-        image.onerror = () => toast(wt('status.load-failed', 'Load failed'));
+        releaseArtworkOriginal(image, false);
+        image.onerror = () => {
+            toast(wt('status.load-failed', 'Load failed'));
+            refreshOriginalVisibility();
+        };
         const url = artworkPreviewUrl(index);
         image.onload = () => {
             lightbox.style.setProperty('--lightbox-image-ratio', image.naturalWidth / image.naturalHeight);
-            if (url.includes('/thumbnail/')) {
+            if (!isArtworkOriginal(image) && url.includes('/thumbnail/')) {
+                retainArtworkPreview(image);
                 const fittedUrl = window.PixivLayout.previewUrl(url, image);
-                if (image.getAttribute('src') !== fittedUrl) image.src = fittedUrl;
+                if (image.getAttribute('src') !== fittedUrl) {
+                    image.src = fittedUrl;
+                    return;
+                }
             }
+            refreshOriginalVisibility();
         };
         image.src = url.includes('/thumbnail/') ? window.PixivLayout.previewUrl(url, image) : url;
-        document.getElementById('lightboxOriginalLink').href = `/api/downloaded/image/${state.artworkId}/${index}`;
         document.getElementById('lightboxInfo').textContent = `${index + 1} / ${count}`;
+        refreshOriginalVisibility();
     }
 
     function closeLightbox() {
         document.getElementById('lightbox').classList.remove('open');
         const image = document.getElementById('lightboxImage');
+        releaseArtworkOriginal(image, false);
         image.onload = null;
         image.onerror = null;
         image.removeAttribute('src');
         image.removeAttribute('data-preview-src');
+        refreshOriginalVisibility();
     }
 
     function handleLightboxClick(e) {
