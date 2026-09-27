@@ -42,6 +42,7 @@ html:has(.ab-drawer-root[open]) { overflow: hidden; }
 .ab-drawer-body { flex: 1; overscroll-behavior: contain; }
 .ab-drawer-foot { padding-bottom: max(.75rem, env(safe-area-inset-bottom)); }
 .ab-drawer-foot .ab-field-note:empty { display: none; }
+.ab-download-options > .ab-seg { margin-bottom: 1.25rem; }
 
 /* ============================================================
    Cookie 弹窗 / 脚本弹窗
