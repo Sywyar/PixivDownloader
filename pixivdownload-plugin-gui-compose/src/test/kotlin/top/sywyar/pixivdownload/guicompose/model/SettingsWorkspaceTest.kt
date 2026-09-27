@@ -8,6 +8,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.v2.runComposeUiTest
 import androidx.compose.ui.unit.dp
@@ -18,15 +19,133 @@ import top.sywyar.pixivdownload.guicompose.settings.SettingsWorkspace
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.*
 import top.sywyar.pixivdownload.plugin.api.gui.*
+import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution
 import java.io.File
+import java.lang.reflect.Proxy
 import java.text.MessageFormat
 import java.util.Properties
 import java.util.function.Function
+import java.util.concurrent.atomic.AtomicReference
 import javax.imageio.ImageIO
 import kotlin.test.*
 
 @OptIn(ExperimentalTestApi::class)
 class SettingsWorkspaceTest {
+    @Test
+    @DisplayName("浅色设置密码框可辨认，草稿可测试且显式清除后重置")
+    fun lightCredentialInput() = credentialInput("light")
+
+    @Test
+    @DisplayName("深色设置密码框可辨认，草稿可测试且显式清除后重置")
+    fun darkCredentialInput() = credentialInput("dark")
+
+    private fun credentialInput(theme: String) = runComposeUiTest {
+        val field = GuiConfigFieldContribution(
+            "sample.secret",
+            "sample",
+            "sample.secret.label",
+            GuiConfigFieldType.PASSWORD,
+            "",
+            1,
+        )
+        val action = GuiConfigActionContribution(
+            "probe",
+            "sample.probe",
+            "sample-probe",
+            1,
+            listOf(GuiConfigActionPayloadField("secret", field.key())),
+        )
+        val section = GuiConfigSectionContribution(
+            "sample.connection",
+            "sample",
+            "",
+            "",
+            "sample",
+            GuiConfigSectionLayout.FIELD_LIST,
+            1,
+            listOf(GuiConfigFieldLayoutContribution(field.key(), "", "", 1)),
+            listOf(action),
+            emptyList(),
+        )
+        val source = DesktopUiPluginSnapshot(
+            "sample",
+            false,
+            "sample",
+            1,
+            false,
+            "sample",
+            "sample.title",
+            emptyList(),
+            listOf(GuiConfigContribution(
+                listOf(GuiConfigGroupContribution("sample", "sample.title", "sample", 1, true)),
+                listOf(field),
+                listOf(section),
+            )),
+            emptyList(),
+            listOf(WebRouteContribution.gui("/api/gui/sample-probe")),
+            emptyList(),
+        )
+        val config = Proxy.newProxyInstance(
+            DesktopUiHost.ConfigFile::class.java.classLoader,
+            arrayOf(DesktopUiHost.ConfigFile::class.java),
+        ) { _, method, _ ->
+            check(method.name == "readAll") { "Unexpected config write" }
+            emptyMap<String, String>()
+        } as DesktopUiHost.ConfigFile
+        val request = AtomicReference<Map<*, *>>()
+        val cleared = AtomicReference<Map<*, *>>()
+        val model = DesktopConfigurationControllerTest.model(
+            mutableMapOf(),
+            mapOf(
+                "pluginConfig" to Function { config },
+                "updateCredentials" to Function { args ->
+                    cleared.set(args[1] as Map<*, *>)
+                    null
+                },
+                "guiPostJson" to Function { args ->
+                    request.set(args[1] as Map<*, *>)
+                    DesktopUiHost.GuiResponse.unreachable()
+                },
+            ),
+        ) { listOf(source) }
+        var snapshot by mutableStateOf(model.snapshot())
+        val subscription = model.subscribeSnapshots { snapshot = it }
+        try {
+            setContent {
+                PixivDownloaderTheme(theme) {
+                    Box(Modifier.size(1150.dp, 820.dp).background(LocalExperiencePalette.current.surface)) {
+                        SettingsWorkspace(
+                            workspace(snapshot),
+                            ::resolve,
+                            { model.dispatch(snapshot, it) },
+                        )
+                    }
+                }
+            }
+            onNodeWithTag("settings.category.config.sample").performClick()
+            val input = onNodeWithTag("config.sample.sample.secret.input", useUnmergedTree = true)
+            input.assertIsDisplayed().assertIsEnabled()
+            val image = input.captureToImage().toAwtImage()
+            val edge = java.awt.Color(image.getRGB(0, image.height / 2))
+            val center = java.awt.Color(image.getRGB(image.width / 2, image.height / 2))
+            assertTrue(kotlin.math.abs(edge.red - center.red) > 12, "Empty credential input needs a visible boundary")
+            capture("credential-$theme")
+            val editor = onNodeWithContentDescription("sample.secret")
+            editor.performTextInput("test-draft-secret")
+            editor.assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Password))
+            assertFalse(workspace(model.snapshot()).toString().contains("test-draft-secret"))
+            onNodeWithTag("settings.category.interface").performClick()
+            onNodeWithTag("settings.category.config.sample").performClick()
+            onNodeWithText("sample.probe").performClick()
+            waitUntil(timeoutMillis = 5000) { request.get() != null && !model.busy() }
+            assertEquals("test-draft-secret", request.get()["secret"])
+            onNodeWithText(resolve(TextToken.key("desktop.ui.config.clear-secret"))).performClick()
+            waitUntil(timeoutMillis = 5000) { cleared.get() != null && !model.busy() }
+            assertEquals(mapOf("sample.secret" to ""), cleared.get())
+            editor.assertTextEquals("")
+        } finally { subscription.close(); model.close() }
+    }
+
     @Test
     @DisplayName("设置搜索支持标题和说明命中，显示匹配上下文并定位字段")
     fun searchExplainsSecondaryMatchesAndLocatesFields() = runComposeUiTest {

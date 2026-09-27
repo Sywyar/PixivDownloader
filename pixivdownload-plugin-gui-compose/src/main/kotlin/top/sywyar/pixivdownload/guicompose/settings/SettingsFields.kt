@@ -194,11 +194,18 @@ private fun SettingsControl(node: DesktopUiNode, secrets: MutableMap<String, Pai
             LaunchedEffect(node.stateRevision()) {
                 if (secrets[node.id()]?.first != node.stateRevision()) secrets.remove(node.id())
             }
-            CupertinoTextField(value = secrets[node.id()]?.takeIf { it.first == node.stateRevision() }?.second ?: TextFieldValue(), onValueChange = {
-                secrets[node.id()] = node.stateRevision() to it
-                emit(Event(EventType.CHANGE, node.id(), Value.text(it.text)))
-            }, enabled = node.enabled(), singleLine = true, visualTransformation = PasswordVisualTransformation(),
-                modifier = modifier.testTag(node.id()).semantics { contentDescription = text(node.label()) })
+            ComposeDesktopUiNodeRenderer.CompactTextInput(
+                value = secrets[node.id()]?.takeIf { it.first == node.stateRevision() }?.second ?: TextFieldValue(),
+                onValueChange = {
+                    secrets[node.id()] = node.stateRevision() to it
+                    emit(Event(EventType.CHANGE, node.id(), Value.text(it.text)))
+                },
+                enabled = node.enabled(),
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = modifier.heightIn(min = DesktopLayout.controlHeight).testTag(node.id())
+                    .semantics { contentDescription = text(node.label()) },
+            )
         }
         node is Toggle -> ComposeDesktopUiNodeRenderer.FormContent(
             Toggle(node.id(), node.bindingId(), node.label(), node.help(), ToggleStyle.SWITCH, node.selected(), node.enabled()), text, emit, modifier)

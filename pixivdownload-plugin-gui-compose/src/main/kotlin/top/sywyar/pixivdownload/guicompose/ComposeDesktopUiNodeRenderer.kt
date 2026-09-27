@@ -1193,12 +1193,17 @@ object ComposeDesktopUiNodeRenderer {
     }
 
     @Composable
-    private fun CompactTextInput(value: TextFieldValue, onValueChange: (TextFieldValue) -> Unit,
-                                 enabled: Boolean, singleLine: Boolean,
-                                 visualTransformation: androidx.compose.ui.text.input.VisualTransformation,
-                                 modifier: Modifier, invalid: Boolean = false,
-                                 keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
-                                 errorMessage: String = "") {
+    internal fun CompactTextInput(
+        value: TextFieldValue,
+        onValueChange: (TextFieldValue) -> Unit,
+        enabled: Boolean,
+        singleLine: Boolean,
+        visualTransformation: androidx.compose.ui.text.input.VisualTransformation,
+        modifier: Modifier,
+        invalid: Boolean = false,
+        keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+        errorMessage: String = "",
+    ) {
         val interaction = remember { MutableInteractionSource() }
         val focused by interaction.collectIsFocusedAsState()
         CupertinoTextField(value = value, onValueChange = onValueChange, enabled = enabled,
