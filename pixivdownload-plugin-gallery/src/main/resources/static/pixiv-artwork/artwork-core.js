@@ -48,6 +48,8 @@ window.PixivArtwork = window.PixivArtwork || {};
         document.getElementById('mainImage').setAttribute('data-loading-text', wt('status.loading', 'Loading...'));
         document.getElementById('pixivArtworkLinkLabel').textContent = wt('button.pixiv-artwork', 'Open Original on Pixiv');
         document.getElementById('showcaseLinkLabel').textContent = wt('button.showcase', '作品展示(娱乐性功能)');
+        document.getElementById('originalImageLink').textContent = wt('button.original-image', 'View original image');
+        document.getElementById('lightboxOriginalLink').textContent = wt('button.original-image', 'View original image');
         document.getElementById('detailTagsTitle').textContent = wt('panel.tags', 'Tags');
         document.getElementById('relatedPanelTitle').textContent = wt('panel.related', 'Related Artworks');
         document.getElementById('seriesPanelTitle').textContent = wt('panel.series', 'This Series');
@@ -180,7 +182,6 @@ window.PixivArtwork = window.PixivArtwork || {};
         collections: [],
         collectionMembership: new Set(),
         lightboxIndex: 0,
-        lightboxImages: [],
         seriesNav: null,
     };
 
@@ -277,10 +278,12 @@ window.PixivArtwork = window.PixivArtwork || {};
         return `https://www.pixiv.net/users/${authorId}`;
     }
 
-    async function loadImageToElement(url, target, {onClick} = {}) {
+    async function loadImageToElement(url, target, {onClick, signal, loading = 'eager'} = {}) {
         if (url.includes('/thumbnail/')) url = window.PixivLayout.previewUrl(url, target);
+        if (signal?.aborted) return null;
         if (url.includes('/downloaded/image/')) {
-            const response = await fetch(url, {method: 'HEAD', credentials: 'same-origin'}).catch(() => null);
+            const response = await fetch(url, {method: 'HEAD', credentials: 'same-origin', signal}).catch(() => null);
+            if (signal?.aborted) return null;
             if (response && response.ok && (response.headers.get('content-type') || '').startsWith('video/')) {
                 const video = document.createElement('video');
                 video.controls = true;
@@ -289,37 +292,43 @@ window.PixivArtwork = window.PixivArtwork || {};
                 video.preload = 'metadata';
                 video.src = url;
                 video.addEventListener('click', event => event.stopPropagation());
+                signal?.addEventListener('abort', () => {
+                    video.pause();
+                    video.removeAttribute('src');
+                    video.load();
+                    video.remove();
+                }, {once: true});
                 target.replaceChildren(video);
                 target.classList.remove('loading');
                 return null;
             }
         }
-        const attach = src => {
-            const img = document.createElement('img');
-            img.alt = '';
-            if (onClick) img.addEventListener('click', onClick);
-            img.src = src;
-            target.innerHTML = '';
-            target.classList.remove('loading');
-            target.appendChild(img);
-            return img;
-        };
-        const cached = ImageCache.get(url);
-        if (cached) {
-            attach(cached);
-            return cached;
-        }
         return new Promise(resolve => {
             const image = new Image();
+            image.alt = '';
+            image.loading = loading;
+            image.decoding = 'async';
+            if (onClick) image.addEventListener('click', onClick);
+            const abort = () => {
+                image.onload = image.onerror = null;
+                image.removeAttribute('src');
+                image.remove();
+                resolve(null);
+            };
+            signal?.addEventListener('abort', abort, {once: true});
             image.onload = () => {
-                ImageCache.put(url, url);
-                attach(url);
+                image.onload = image.onerror = null;
+                target.classList.remove('loading');
                 resolve(url);
             };
             image.onerror = () => {
+                image.onload = image.onerror = null;
+                signal?.removeEventListener('abort', abort);
                 target.innerHTML = '<span style="color:var(--muted); padding:40px">' + escapeHtml(wt('status.load-failed', 'Load failed')) + '</span>';
                 resolve(null);
             };
+            target.innerHTML = '';
+            target.appendChild(image);
             image.src = url;
         });
     }

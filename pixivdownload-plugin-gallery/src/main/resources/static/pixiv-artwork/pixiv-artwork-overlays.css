@@ -14,9 +14,17 @@
             display: flex;
         }
 
+        .lightbox-image-frame {
+            width: min(98vw, calc(96vh * var(--lightbox-image-ratio, 1)));
+            aspect-ratio: var(--lightbox-image-ratio, 1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
         .lightbox img {
-            max-width: 98vw;
-            max-height: 96vh;
+            max-width: 100%;
+            max-height: 100%;
             object-fit: contain;
             position: relative;
             z-index: 0;
@@ -33,6 +41,20 @@
             background: var(--lightbox-control-bg);
             color: var(--on-accent);
             font-size: 1.375rem;
+            cursor: pointer;
+            z-index: 2;
+        }
+
+        .lightbox-original {
+            position: absolute;
+            top: 16px;
+            left: 16px;
+            max-width: calc(100% - 88px);
+            padding: 8px 12px;
+            border-radius: 16px;
+            background: var(--lightbox-control-bg);
+            color: var(--on-accent);
+            text-decoration: none;
             cursor: pointer;
             z-index: 2;
         }

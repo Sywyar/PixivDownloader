@@ -34,14 +34,11 @@
             ext: (artwork.extensions || '').toUpperCase()
         });
 
-        state.lightboxImages = new Array(count).fill(null);
-
         const mainImage = document.getElementById('mainImage');
         mainImage.classList.add('loading');
         mainImage.onclick = () => openLightbox(0);
-        loadImageToElement(`/api/downloaded/image/${artwork.artworkId}/0`, mainImage).then(src => {
-            if (src) state.lightboxImages[0] = src;
-        });
+        loadImageToElement(artworkPreviewUrl(0), mainImage);
+        document.getElementById('originalImageLink').href = `/api/downloaded/image/${artwork.artworkId}/0`;
 
         const more = document.getElementById('morePages');
         more.innerHTML = '';
@@ -55,57 +52,84 @@
     }
 
     let expanded = false;
-    let expansionPromise = null;
+    let expandedPageObserver = null;
+    const expandedPageLoads = new Map();
+
+    function artworkPreviewUrl(index) {
+        // GIF / WebP 可能是动图，静态缩略图不能替代其播放。
+        const animatedFormat = /(?:^|,)(?:gif|webp|apng)(?:,|$)/i.test(state.artwork.extensions || '');
+        const kind = animatedFormat ? 'image' : 'thumbnail';
+        return `/api/downloaded/${kind}/${state.artworkId}/${index}`;
+    }
+
+    function loadExpandedPage(box) {
+        if (expandedPageLoads.has(box)) return;
+        const controller = new AbortController();
+        expandedPageLoads.set(box, controller);
+        loadImageToElement(box.dataset.imageUrl, box, {
+            signal: controller.signal,
+            loading: expandedPageObserver ? 'eager' : 'lazy'
+        }).then(src => {
+            if (!src || controller.signal.aborted) return;
+            const image = box.querySelector('img');
+            box.style.aspectRatio = `${image.naturalWidth} / ${image.naturalHeight}`;
+            box.style.maxHeight = `min(var(--artwork-height), ${image.naturalHeight}px)`;
+        });
+    }
+
+    function unloadExpandedPage(box) {
+        expandedPageLoads.get(box)?.abort();
+        expandedPageLoads.delete(box);
+        box.classList.add('loading');
+    }
 
     function expandAll(count) {
         if (expanded) return Promise.resolve();
-        if (expansionPromise) return expansionPromise;
+        expanded = true;
         const btn = document.getElementById('expandBtn');
         const collapseBtn = document.getElementById('collapseBtn');
-        btn.disabled = true;
-        btn.textContent = wt('button.expand-loading', 'Loading...');
+        btn.style.display = 'none';
+        collapseBtn.style.display = '';
         const more = document.getElementById('morePages');
         more.classList.add('open');
-        
-        // 并行加载所有图片
-        const promises = [];
+        if (typeof IntersectionObserver !== 'undefined') {
+            expandedPageObserver = new IntersectionObserver(entries => {
+                for (const entry of entries) {
+                    if (!expanded || !entry.target.isConnected) continue;
+                    if (entry.isIntersecting) loadExpandedPage(entry.target);
+                    else unloadExpandedPage(entry.target);
+                }
+            }, {rootMargin: '200px'});
+        }
         for (let p = 1; p < count; p++) {
             const box = document.createElement('div');
             box.className = 'viewer-image';
             box.classList.add('loading');
+            box.setAttribute('data-loading-text', wt('status.loading', 'Loading...'));
+            box.dataset.imageUrl = artworkPreviewUrl(p);
             more.appendChild(box);
             const idx = p;
             box.addEventListener('click', () => openLightbox(idx));
-            
-            const promise = loadImageToElement(`/api/downloaded/image/${state.artworkId}/${p}`, box).then(src => {
-                if (src) state.lightboxImages[p] = src;
-            });
-            promises.push(promise);
+            if (expandedPageObserver) expandedPageObserver.observe(box);
+            else loadExpandedPage(box);
         }
-        
-        expansionPromise = Promise.all(promises).then(() => {
-            btn.style.display = 'none';
-            collapseBtn.style.display = '';
-            expanded = true;
-        }).finally(() => { expansionPromise = null; });
-        return expansionPromise;
+        return Promise.resolve();
     }
 
     function collapseAll() {
+        expanded = false;
+        expandedPageObserver?.disconnect();
+        expandedPageObserver = null;
+        for (const box of expandedPageLoads.keys()) unloadExpandedPage(box);
         const more = document.getElementById('morePages');
         more.classList.remove('open');
         more.innerHTML = '';
         const btn = document.getElementById('expandBtn');
         const collapseBtn = document.getElementById('collapseBtn');
-        const count = state.artwork.count || 1;
         btn.style.display = '';
         btn.disabled = false;
         syncExpandButtonText();
         collapseBtn.style.display = 'none';
-        for (let i = 1; i < state.lightboxImages.length; i++) {
-            state.lightboxImages[i] = null;
-        }
-        expanded = false;
     }
 
     function renderDetail() {
@@ -180,41 +204,48 @@
 
     // ---------- Lightbox ----------
     function openLightbox(index) {
-        if (!state.lightboxImages[index]) return;
+        const count = state.artwork?.count || 1;
+        if (!Number.isInteger(index) || index < 0 || index >= count) return;
         state.lightboxIndex = index;
-        document.getElementById('lightboxImage').src = state.lightboxImages[index];
-        document.getElementById('lightboxInfo').textContent = `${index + 1} / ${state.lightboxImages.length}`;
-        document.getElementById('lightbox').classList.add('open');
-        
-        // 预加载所有图片
-        if (!expanded) {
-            const count = state.artwork.count || 1;
-            expandAll(count);
-        }
+        const lightbox = document.getElementById('lightbox');
+        const mainImage = document.getElementById('mainImage').querySelector('img');
+        lightbox.style.setProperty('--lightbox-image-ratio', mainImage?.naturalHeight
+            ? mainImage.naturalWidth / mainImage.naturalHeight : 1);
+        lightbox.classList.add('open');
+        const image = document.getElementById('lightboxImage');
+        image.onerror = () => toast(wt('status.load-failed', 'Load failed'));
+        const url = artworkPreviewUrl(index);
+        image.onload = () => {
+            lightbox.style.setProperty('--lightbox-image-ratio', image.naturalWidth / image.naturalHeight);
+            if (url.includes('/thumbnail/')) {
+                const fittedUrl = window.PixivLayout.previewUrl(url, image);
+                if (image.getAttribute('src') !== fittedUrl) image.src = fittedUrl;
+            }
+        };
+        image.src = url.includes('/thumbnail/') ? window.PixivLayout.previewUrl(url, image) : url;
+        document.getElementById('lightboxOriginalLink').href = `/api/downloaded/image/${state.artworkId}/${index}`;
+        document.getElementById('lightboxInfo').textContent = `${index + 1} / ${count}`;
     }
 
     function closeLightbox() {
         document.getElementById('lightbox').classList.remove('open');
+        const image = document.getElementById('lightboxImage');
+        image.onload = null;
+        image.onerror = null;
+        image.removeAttribute('src');
+        image.removeAttribute('data-preview-src');
     }
 
     function handleLightboxClick(e) {
-        if (e.target.id === 'lightbox' || e.target.id === 'lightboxImage') closeLightbox();
+        if (e.target.id === 'lightbox' || e.target.id === 'lightboxImage'
+            || e.target.classList.contains('lightbox-image-frame')) closeLightbox();
     }
 
     function lightboxNav(delta) {
-        const total = state.lightboxImages.length;
+        const total = state.artwork?.count || 1;
         let next = state.lightboxIndex + delta;
         if (next < 0) next = total - 1;
         if (next >= total) next = 0;
-        if (!state.lightboxImages[next]) {
-            if (!expanded) {
-                const count = state.artwork.count || 1;
-                expandAll(count).then(() => openLightbox(next));
-                return;
-            }
-            toast(wt('status.image-not-ready', 'Image is still loading. Please wait.'));
-            return;
-        }
         openLightbox(next);
     }
 

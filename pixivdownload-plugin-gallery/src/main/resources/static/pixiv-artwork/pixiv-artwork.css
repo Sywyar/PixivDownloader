@@ -229,6 +229,11 @@
             max-height: 999999px;
         }
 
+        .more-pages .viewer-image {
+            aspect-ratio: var(--artwork-ratio, 1);
+            max-height: var(--artwork-height);
+        }
+
         .more-pages img {
             width: auto;
             max-width: 100%;
