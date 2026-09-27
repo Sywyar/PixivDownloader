@@ -29,9 +29,16 @@ function renderQueueRecovery() {
     host.hidden = appMode !== 'solo' || !isAdmin;
     if (host.hidden) return;
     if (!host.firstChild) {
+        const help = document.createElement('details');
+        help.className = 'queue-recovery-help';
+        const summary = document.createElement('summary');
+        summary.className = 'layout-touch';
+        summary.dataset.recoverySummary = '';
+        help.appendChild(summary);
         const notice = document.createElement('p');
         notice.dataset.recoveryNotice = '';
-        host.appendChild(notice);
+        help.appendChild(notice);
+        host.appendChild(help);
         const message = document.createElement('p');
         message.dataset.recoveryMessage = '';
         message.setAttribute('role', 'status');
@@ -51,6 +58,7 @@ function renderQueueRecovery() {
             actions.appendChild(button);
         }
     }
+    host.querySelector('[data-recovery-summary]').textContent = bt('batch:queue.recovery.keep-open');
     host.querySelector('[data-recovery-notice]').textContent = bt('batch:queue.recovery.notice');
     const pending = state.queue.some(item => item.recoveryState);
     const message = host.querySelector('[data-recovery-message]');

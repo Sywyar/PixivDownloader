@@ -95,12 +95,14 @@
 
 .ab-dock-btns {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
 }
 
 .ab-dock-btns .ab-btn {
     flex: 0 0 auto;
-    white-space: nowrap;
+    white-space: normal;
+    max-width: 100%;
     justify-content: center;
 }
 

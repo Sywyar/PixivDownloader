@@ -488,11 +488,11 @@ function renderDock() {
     btnRow.appendChild(startBtn);
     btnRow.appendChild(pauseBtn);
     controls.appendChild(btnRow);
+    body.appendChild(controls);
     const recovery = el('div');
     recovery.id = 'queue-recovery';
     recovery.dataset.buttonClass = 'ab-btn ab-btn--ghost ab-btn--sm';
-    controls.appendChild(recovery);
-    body.appendChild(controls);
+    body.appendChild(recovery);
 
     // 配额（multi 模式启用配额时）
     const quotaBox = el('div', 'ab-quota card');
