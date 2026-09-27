@@ -134,6 +134,15 @@ public class PluginStatusService {
 
     /** 计算当前插件状态报告。每次调用按当前注册中心 / 清点快照重新评估。 */
     public PluginStatusReport report() {
+        return report(installedArtifacts);
+    }
+
+    /** 管理查询复用本轮安装清点，避免状态与来源投影重复读取相同归档。 */
+    public PluginStatusReport report(List<InstalledPlugin> installed) {
+        return report(() -> installed);
+    }
+
+    private PluginStatusReport report(Supplier<List<InstalledPlugin>> installedArtifacts) {
         PluginRecoveryGateSnapshot recovery = recoveryGate.get();
         Map<String, String> lifecycleFailures = currentFailuresById();
         Set<String> crashedIds = crashedPluginIds();

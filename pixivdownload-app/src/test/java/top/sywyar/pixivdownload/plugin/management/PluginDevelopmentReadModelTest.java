@@ -20,6 +20,8 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginInventorySnapshot;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginSnapshot;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.ProvenanceSnapshotState;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginRecoveryGateSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransactionRecoveryReport;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
@@ -64,7 +66,9 @@ class PluginDevelopmentReadModelTest {
             when(installer.listInstalled()).thenReturn(List.of(
                     new InstalledPlugin(descriptor, root.resolve("plugins/installed.jar"))));
             when(installer.snapshotInstalledWithProvenance(anyInt(), anyLong()))
-                    .thenReturn(new InstalledPluginInventorySnapshot(List.of(), false));
+                    .thenReturn(new InstalledPluginInventorySnapshot(List.of(new InstalledPluginSnapshot(
+                            new InstalledPlugin(descriptor, root.resolve("plugins/installed.jar")),
+                            1L, "a".repeat(64), ProvenanceSnapshotState.ABSENT, null, 0L)), false));
             PluginRuntimeManager runtime = mock(PluginRuntimeManager.class);
             when(runtime.inspectPlugins()).thenReturn(new PluginInventory(List.of(), List.of()));
             PluginRegistry plugins = new PluginRegistry(List.of());
@@ -79,7 +83,11 @@ class PluginDevelopmentReadModelTest {
                     plugins, beans.getBeanProvider(ExternalPluginInstaller.class));
             for (int i = 0; i < 5; i++) {
                 assertThat(status.report().byId("installed").isPresent()).isEqualTo(scanInstalled);
+                clearInvocations(installer);
                 assertThat(management.list().plugins()).hasSize(scanInstalled ? 1 : 0);
+                verify(installer, never()).listInstalled();
+                verify(installer, times(scanInstalled ? 1 : 0))
+                        .snapshotInstalledWithProvenance(anyInt(), anyLong());
                 assertThat(i18n.supportedNamespaces()).hasSize(scanInstalled ? 1 : 0);
             }
             verify(installer, scanInstalled ? atLeastOnce() : never()).listInstalled();

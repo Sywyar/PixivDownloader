@@ -6,6 +6,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 /**
  * Compose 桌面应用根页面的私有描述。页面顺序即渲染后的导航顺序。
@@ -19,6 +20,8 @@ import java.util.Optional;
 public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
                                 List<KeyboardShortcut> shortcuts, Optional<Tray> tray,
                                 boolean navigationVisible) {
+    private static final Pattern STABLE_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}");
+    private static final Pattern PHYSICAL_KEY = Pattern.compile("[A-Za-z][A-Za-z0-9]{0,31}");
     /**
      * 创建没有已打开对话框或快捷键的文档。
      *
@@ -196,15 +199,11 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
          * @param parentSized 是否填满父窗口内的可用弹窗区域
          */
         public Dialog {
-            if (id == null || !id.matches("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")) {
-                throw new IllegalArgumentException("id must be a stable id");
-            }
+            requireStableId(id, "id");
             title = Objects.requireNonNull(title, "title");
             style = style == null ? DialogStyle.INFO : style;
             content = Objects.requireNonNull(content, "content");
-            if (dismissActionId == null || !dismissActionId.matches("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")) {
-                throw new IllegalArgumentException("dismissActionId must be a stable id");
-            }
+            requireStableId(dismissActionId, "dismissActionId");
             if (preferredWidth < 0 || preferredWidth > 4096
                     || preferredHeight < 0 || preferredHeight > 4096) {
                 throw new IllegalArgumentException("preferred dialog size out of range");
@@ -308,7 +307,7 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
          * @param meta 是否按下平台 Meta 键
          */
         public KeyStroke {
-            if (key == null || !key.matches("[A-Za-z][A-Za-z0-9]{0,31}")) {
+            if (key == null || !PHYSICAL_KEY.matcher(key).matches()) {
                 throw new IllegalArgumentException("key must be a physical-key identifier");
             }
         }
@@ -359,9 +358,7 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
          * @param floatingAction 可选的页面浮动操作树
          */
         public Page {
-            if (id == null || !id.matches("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")) {
-                throw new IllegalArgumentException("id must be a stable id");
-            }
+            requireStableId(id, "id");
             title = Objects.requireNonNull(title, "title");
             icon = Objects.requireNonNull(icon, "icon");
             content = Objects.requireNonNull(content, "content");
@@ -369,8 +366,8 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
         }
     }
 
-    private static void requireStableId(String value, String name) {
-        if (value == null || !value.matches("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")) {
+    static void requireStableId(String value, String name) {
+        if (value == null || !STABLE_ID.matcher(value).matches()) {
             throw new IllegalArgumentException(name + " must be a stable id");
         }
     }

@@ -29,6 +29,7 @@ import top.sywyar.pixivdownload.plugin.verification.PluginVerificationView;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -140,13 +141,17 @@ public class PluginManagementService {
             }
             PluginRecoveryGateSnapshot gateBefore = pluginStatusService.recoveryGateSnapshot();
             try {
-                PluginStatusReport status = pluginStatusService.report();
+                Map<String, List<InstalledPluginSnapshot>> installedArtifacts =
+                        gateBefore.safeToScan() ? installedArtifactsById() : Map.of();
+                PluginStatusReport status = installer == null ? pluginStatusService.report()
+                        : pluginStatusService.report(installedArtifacts.values().stream()
+                                .flatMap(List::stream).map(InstalledPluginSnapshot::plugin).toList());
                 PluginRecoveryGateSnapshot gateAfterStatus = pluginStatusService.recoveryGateSnapshot();
                 if (!gateBefore.equals(gateAfterStatus)) {
                     continue;
                 }
                 List<PluginManagementEntry> entries = buildEntries(
-                        status, gateBefore, gateBefore.safeToScan(), true);
+                        status, installedArtifacts, gateBefore, gateBefore.safeToScan(), true);
                 boolean recoveryMode = recoveryModeService.isActive();
                 List<RecoveryModeReason> recoveryReasons = recoveryModeService.reasons();
                 if (gateBefore.equals(pluginStatusService.recoveryGateSnapshot())
@@ -171,13 +176,12 @@ public class PluginManagementService {
 
     private List<PluginManagementEntry> buildEntries(
             PluginStatusReport status,
+            Map<String, List<InstalledPluginSnapshot>> installedArtifacts,
             PluginRecoveryGateSnapshot expectedGate,
             boolean allowProvenanceReads,
             boolean allowLifecycleReads) {
         Set<String> managedIds = allowLifecycleReads
                 ? pluginLifecycleService.managedPluginIds() : Set.of();
-        Map<String, List<InstalledPluginSnapshot>> installedArtifacts =
-                allowProvenanceReads ? installedArtifactsById() : Map.of();
         Map<String, List<PluginRuntimeVerificationSnapshot>> runtimeVerifications =
                 allowProvenanceReads ? runtimeVerificationsById() : Map.of();
         List<PluginManagementEntry> entries = new ArrayList<>();
@@ -419,7 +423,7 @@ public class PluginManagementService {
             grouped.computeIfAbsent(entry.plugin().id(), ignored -> new ArrayList<>()).add(entry);
         }
         grouped.replaceAll((ignored, paths) -> List.copyOf(paths));
-        return Map.copyOf(grouped);
+        return Collections.unmodifiableMap(grouped);
     }
 
     private Map<String, List<PluginRuntimeVerificationSnapshot>> runtimeVerificationsById() {
