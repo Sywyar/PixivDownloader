@@ -2,8 +2,13 @@ package top.sywyar.pixivdownload.plugin.runtime;
 
 import org.pf4j.DefaultPluginManager;
 import org.pf4j.CompoundPluginLoader;
+import org.pf4j.CompoundPluginDescriptorFinder;
 import org.pf4j.DevelopmentPluginLoader;
+import org.pf4j.ManifestPluginDescriptorFinder;
+import org.pf4j.PluginDescriptorFinder;
 import org.pf4j.PluginLoader;
+import org.pf4j.PluginRuntimeException;
+import org.pf4j.PropertiesPluginDescriptorFinder;
 import org.pf4j.DefaultVersionManager;
 import org.pf4j.PluginManager;
 import org.pf4j.PluginState;
@@ -48,6 +53,7 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.file.Files;
+import java.nio.file.FileSystems;
 import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
@@ -1152,6 +1158,26 @@ public class PluginRuntimeManager {
     private void ensureManager(Path root) {
         if (pluginManager == null) {
             pluginManager = new DefaultPluginManager(root) {
+                @Override
+                protected PluginDescriptorFinder createPluginDescriptorFinder() {
+                    return new CompoundPluginDescriptorFinder()
+                            .add(new PropertiesPluginDescriptorFinder() {
+                                @Override
+                                protected Path getPropertiesPath(Path pluginPath, String propertiesFileName) {
+                                    if (Files.isDirectory(pluginPath)) {
+                                        return super.getPropertiesPath(pluginPath, propertiesFileName);
+                                    }
+                                    try {
+                                        // 直接使用 Path，避免 PF4J 拼接 URI 时误解路径字符；读取后由父类关闭文件系统。
+                                        return FileSystems.newFileSystem(pluginPath).getPath(propertiesFileName);
+                                    } catch (IOException failure) {
+                                        throw new PluginRuntimeException(failure);
+                                    }
+                                }
+                            })
+                            .add(new ManifestPluginDescriptorFinder());
+                }
+
                 @Override
                 protected PluginLoader createPluginLoader() {
                     return new CompoundPluginLoader()
