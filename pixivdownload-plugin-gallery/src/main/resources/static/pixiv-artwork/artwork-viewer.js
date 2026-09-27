@@ -6,6 +6,7 @@
             return;
         }
         state.artworkId = Number(id);
+        clearRelatedThumbnails();
         try {
             state.artwork = await api(`/api/gallery/artwork/${id}`);
         } catch (e) {
@@ -17,6 +18,7 @@
         renderViewer();
         renderDetail();
         renderAuthor();
+        if (state.artwork.authorId) loadByAuthor();
         loadSeriesSections();
         loadRelated();
         loadMembership();
@@ -305,7 +307,6 @@
         pixivAuthorLink.setAttribute('aria-label', wt('author.pixiv', 'Open {name} on Pixiv', {name}));
         pixivAuthorLink.style.display = 'inline';
 
-        loadByAuthor();
     }
 
     // ---------- Lightbox ----------

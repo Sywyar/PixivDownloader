@@ -82,7 +82,7 @@ window.PixivArtwork = window.PixivArtwork || {};
                 if (state.artwork) {
                     renderDetail();
                     renderAuthor();
-                    loadSeriesSections();
+                    refreshRelatedTranslations();
                     updateHeart();
                 }
             }
@@ -92,55 +92,6 @@ window.PixivArtwork = window.PixivArtwork || {};
         });
         applyStaticPageTranslations();
     }
-
-    // ---------- Image cache (in-memory + sessionStorage for thumbs) ----------
-    const ImageCache = (() => {
-        const PREFIX = 'pxImg:';
-        const mem = new Map();
-        const isThumb = url => url.includes('/thumbnail/');
-
-        function get(url) {
-            if (mem.has(url)) return mem.get(url);
-            if (isThumb(url)) {
-                try {
-                    const v = sessionStorage.getItem(PREFIX + url);
-                    if (v) {
-                        mem.set(url, v);
-                        return v;
-                    }
-                } catch (_) {
-                }
-            }
-            return null;
-        }
-
-        function put(url, dataUri) {
-            mem.set(url, dataUri);
-            if (!isThumb(url)) return;
-            try {
-                sessionStorage.setItem(PREFIX + url, dataUri);
-            } catch (_) {
-                const keys = [];
-                for (let i = 0; i < sessionStorage.length; i++) {
-                    const k = sessionStorage.key(i);
-                    if (k && k.startsWith(PREFIX)) keys.push(k);
-                }
-                keys.slice(0, Math.max(1, Math.floor(keys.length / 2)))
-                    .forEach(k => {
-                        try {
-                            sessionStorage.removeItem(k);
-                        } catch (_) {
-                        }
-                    });
-                try {
-                    sessionStorage.setItem(PREFIX + url, dataUri);
-                } catch (_) {
-                }
-            }
-        }
-
-        return {get, put};
-    })();
 
     const ARTWORK_GALLERY_RETURN_KEY = 'pixiv:gallery-return-to';
 
@@ -348,4 +299,4 @@ window.PixivArtwork = window.PixivArtwork || {};
 
 // ---- PixivArtwork facade ----
 window.PixivArtwork.core = window.PixivArtwork.core || {};
-window.PixivArtwork.core = Object.assign(window.PixivArtwork.core, { interpolate, wt, syncExpandButtonText, applyStaticPageTranslations, initPageI18n, ImageCache, state, getQueryParam, api, toast, escapeHtml, formatTime, buildGalleryFilterHref, buildSeriesDirectoryHref, buildPixivArtworkHref, buildShowcaseHref, buildPixivAuthorHref, loadImageToElement, safeArtworkGalleryReturnTo, resolveArtworkGalleryReturnTo, bindArtworkGalleryReturn, HEART_SVG });
+window.PixivArtwork.core = Object.assign(window.PixivArtwork.core, { interpolate, wt, syncExpandButtonText, applyStaticPageTranslations, initPageI18n, state, getQueryParam, api, toast, escapeHtml, formatTime, buildGalleryFilterHref, buildSeriesDirectoryHref, buildPixivArtworkHref, buildShowcaseHref, buildPixivAuthorHref, loadImageToElement, safeArtworkGalleryReturnTo, resolveArtworkGalleryReturnTo, bindArtworkGalleryReturn, HEART_SVG });
