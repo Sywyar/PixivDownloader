@@ -35,6 +35,8 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits
  */
 public final class ZipSafety {
 
+    private static final Path VIRTUAL_ROOT = Path.of(".").toAbsolutePath().normalize();
+
     private static final int END_OF_CENTRAL_DIRECTORY_SIGNATURE = 0x06054b50;
     private static final int CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50;
     private static final int END_OF_CENTRAL_DIRECTORY_BYTES = 22;
@@ -257,9 +259,8 @@ public final class ZipSafety {
             portableKey.append(portableSegment);
         }
         // 纵深防御：相对一个绝对虚拟根 resolve + normalize 后仍须在根内。
-        Path base = Path.of(".").toAbsolutePath().normalize();
-        Path resolved = base.resolve(name).normalize();
-        if (!resolved.startsWith(base)) {
+        Path resolved = VIRTUAL_ROOT.resolve(name).normalize();
+        if (!resolved.startsWith(VIRTUAL_ROOT)) {
             throw unsafe(rawName);
         }
         return new SafeEntryName(name, portableKey.toString());
