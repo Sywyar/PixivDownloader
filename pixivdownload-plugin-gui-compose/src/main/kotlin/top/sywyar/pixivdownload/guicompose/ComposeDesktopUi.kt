@@ -744,23 +744,25 @@ private fun FrameWindowScope.WindowsTitleBar(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                CupertinoIconButton(
+                WindowCaptionButton(
+                    icon = Icons.Default.Minimize,
+                    label = minimizeLabel,
                     onClick = { minimize() },
                     modifier = Modifier.width(46.dp).fillMaxHeight().windowMinimizeButton(helper),
-                ) { DesktopIcon(Icons.Default.Minimize, contentDescription = minimizeLabel) }
-                CupertinoIconButton(
+                )
+                WindowCaptionButton(
+                    icon = if (isMaximized) Icons.Default.FilterNone else Icons.Default.CropSquare,
+                    label = if (isMaximized) restoreLabel else maximizeLabel,
                     onClick = { toggleMaximize() },
                     modifier = Modifier.width(46.dp).fillMaxHeight().windowMaximizeButton(helper),
-                ) {
-                    DesktopIcon(
-                        if (isMaximized) Icons.Default.FilterNone else Icons.Default.CropSquare,
-                        contentDescription = if (isMaximized) restoreLabel else maximizeLabel,
-                    )
-                }
-                CupertinoIconButton(
+                )
+                WindowCaptionButton(
+                    icon = Icons.Default.Close,
+                    label = closeLabel,
                     onClick = onClose,
                     modifier = Modifier.width(46.dp).fillMaxHeight().windowCloseButton(helper),
-                ) { DesktopIcon(Icons.Default.Close, contentDescription = closeLabel) }
+                    close = true,
+                )
             }
         }
     }
