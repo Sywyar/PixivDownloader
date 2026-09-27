@@ -5,6 +5,10 @@ import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPluginSnapshot;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroupContribution;
 
 import java.lang.reflect.Proxy;
 import java.nio.file.Path;
@@ -21,9 +25,107 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @DisplayName("Compose 配置未保存状态")
 class DesktopConfigurationControllerTest {
+    @Test
+    @DisplayName("条件必填拒绝引用缺席字段，健康字段继续显示")
+    void rejectsUnavailableRequiredCondition() throws Exception {
+        var required = new GuiConfigFieldContribution(
+                "demo.value",
+                "demo",
+                "value",
+                GuiConfigFieldType.STRING,
+                "",
+                1
+        ).requiredWhen(GuiConfigCondition.isTrue("missing"));
+        var healthy = new GuiConfigFieldContribution(
+                "demo.healthy",
+                "demo",
+                "healthy",
+                GuiConfigFieldType.STRING,
+                "",
+                2
+        );
+        try (var model = model(new HashMap<>(Map.of("demo.healthy", "")), Map.of(
+                "coreConfigGroups", args -> List.of(new GuiConfigGroupContribution("demo", "demo", null, 1, true)),
+                "coreConfigFields", args -> List.of(required, healthy)))) {
+            assertFalse(nodes(model).anyMatch(node -> node.id().equals("config.app.demo.value.input")));
+            assertTrue(nodes(model).anyMatch(node -> node.id().equals("config.app.demo.healthy.input")));
+        }
+    }
+
+    @Test
+    @DisplayName("完整保存草稿检查条件必填，拦截未编辑空值且不写入其它设置")
+    void validatesRequiredFieldsBeforeAnyWrite() throws Exception {
+        var enabled = new GuiConfigFieldContribution(
+                "demo.enabled",
+                "demo",
+                "enabled",
+                GuiConfigFieldType.BOOL,
+                "false",
+                1
+        );
+        var value = new GuiConfigFieldContribution(
+                "demo.value",
+                "demo",
+                "value",
+                GuiConfigFieldType.STRING,
+                "",
+                2
+        ).requiredWhen(GuiConfigCondition.isTrue("demo.enabled"));
+        Map<String, java.util.function.Function<Object[], Object>> fields = Map.of(
+                "validateCoreConfigValue", args -> null,
+                "coreConfigGroups", args -> List.of(new GuiConfigGroupContribution("demo", "demo", null, 1, true)),
+                "coreConfigFields", args -> List.of(enabled, value));
+        for (String blank : List.of("", " \t")) {
+            Map<String, String> stored = new HashMap<>(Map.of("demo.enabled", "false", "demo.value", blank));
+            try (var model = model(stored, fields)) {
+                dispatch(model, new DesktopUiNode.Event(
+                        DesktopUiNode.EventType.CHANGE,
+                        "config.app.demo.enabled.input",
+                        DesktopUiNode.Value.bool(true)
+                ));
+                select(model, "theme", "dark");
+                assertTrue(nodes(model).filter(DesktopUiNode.Toggle.class::isInstance)
+                        .map(DesktopUiNode.Toggle.class::cast).filter(node -> node.id().equals("config.app.demo.enabled.input"))
+                        .findFirst().orElseThrow().selected());
+                assertTrue(nodes(model).filter(node -> node.id().equals("config.save"))
+                        .map(DesktopUiNode.Button.class::cast).findFirst().orElseThrow().enabled());
+                activate(model, "config.save");
+                assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+                    while (model.busy() || nodes(model).filter(DesktopUiNode.SettingsWorkspace.class::isInstance)
+                            .map(DesktopUiNode.SettingsWorkspace.class::cast)
+                            .noneMatch(workspace -> !workspace.invalidRow().isEmpty())) Thread.sleep(10);
+                });
+                assertEquals(Map.of("demo.enabled", "false", "demo.value", blank), stored);
+                var workspace = nodes(model).filter(DesktopUiNode.SettingsWorkspace.class::isInstance)
+                        .map(DesktopUiNode.SettingsWorkspace.class::cast).findFirst().orElseThrow();
+                assertEquals("config.app.demo.value.row", workspace.invalidRow());
+                assertEquals(workspace.invalidRow(), workspace.locatedRow());
+                dispatch(model, new DesktopUiNode.Event(
+                        DesktopUiNode.EventType.CHANGE,
+                        "config.app.demo.value.input",
+                        DesktopUiNode.Value.text("fixture/custom")
+                ));
+                save(model);
+                assertEquals("true", stored.get("demo.enabled"));
+                assertEquals("fixture/custom", stored.get("demo.value"));
+            }
+            stored = new HashMap<>(Map.of("demo.enabled", "false", "demo.value", "fixture/custom"));
+            try (var model = model(stored, fields)) {
+                dispatch(model, new DesktopUiNode.Event(
+                        DesktopUiNode.EventType.CHANGE,
+                        "config.app.demo.value.input",
+                        DesktopUiNode.Value.text(blank)
+                ));
+                save(model);
+                assertEquals(blank, stored.get("demo.value"));
+            }
+        }
+    }
+
     @Test
     @DisplayName("首次加载缺项或默认配置时没有未保存更改")
     void startsCleanWithMissingOrDefaultPreferences() throws Exception {

@@ -304,6 +304,7 @@ public final class GuiConfigContributionAggregator {
         List<GuiConfigCondition> conditions = new ArrayList<>();
         conditions.addAll(field.enabledWhenConditions());
         conditions.addAll(field.visibleWhenConditions());
+        conditions.addAll(field.requiredWhenConditions());
         for (GuiConfigCondition condition : conditions) {
             TrustedField target = trustedFields.get(condition.key());
             if (target == null || !field.pluginId().equals(target.ownerPluginId())) {
@@ -367,7 +368,8 @@ public final class GuiConfigContributionAggregator {
                     "GUI config enum field has no enum values"));
             return null;
         }
-        if (!validConditions(field.enabledWhen()) || !validConditions(field.visibleWhen())) {
+        if (!validConditions(field.enabledWhen()) || !validConditions(field.visibleWhen())
+                || !validConditions(field.requiredWhen())) {
             diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), key,
                     "GUI config field contains an invalid condition"));
             return null;
@@ -402,6 +404,7 @@ public final class GuiConfigContributionAggregator {
                 .visibleWhen(predicate(field.visibleWhen()))
                 .visibleWhenConditions(field.visibleWhen())
                 .validator(validator(field))
+                .requiredValueMissing(snapshot -> field.missingRequiredValue(snapshot.values()))
                 .contributesGroupVisibility(field.contributesGroupVisibility());
         if (field.type() == GuiConfigFieldType.ENUM) {
             builder.enumValues(field.enumValues().toArray(String[]::new));
@@ -416,7 +419,7 @@ public final class GuiConfigContributionAggregator {
         int groupOrder = ConfigFieldRegistry.groupOrder(groupId)
                 .orElseGet(() -> customGroups.get(groupId).spec().order());
         return new AcceptedField(registered.id(), key, builder.build(), groupOrder, field.order(),
-                field.enabledWhen(), field.visibleWhen());
+                field.enabledWhen(), field.visibleWhen(), field.requiredWhen());
     }
 
     private static Map<String, String> enumValueLabels(DesktopUiPluginSnapshot registered,
@@ -1243,7 +1246,8 @@ public final class GuiConfigContributionAggregator {
     private record AcceptedField(String pluginId, String key, ConfigFieldSpec spec,
                                  int groupOrder, int fieldOrder,
                                  List<GuiConfigCondition> enabledWhenConditions,
-                                 List<GuiConfigCondition> visibleWhenConditions) {
+                                 List<GuiConfigCondition> visibleWhenConditions,
+                                 List<GuiConfigCondition> requiredWhenConditions) {
         private AcceptedField {
             enabledWhenConditions = enabledWhenConditions == null
                     ? List.of()

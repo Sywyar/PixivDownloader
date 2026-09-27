@@ -26,7 +26,8 @@ public record ConfigFieldSpec(
         Predicate<ConfigSnapshot> visibleWhen,
         List<GuiConfigCondition> visibleWhenConditions,
         GuiConfigEffect effect,
-        boolean contributesGroupVisibility
+        boolean contributesGroupVisibility,
+        Predicate<ConfigSnapshot> requiredValueMissing
 ) {
 
     public static final String CORE_OWNER = "core";
@@ -78,6 +79,7 @@ public record ConfigFieldSpec(
         private List<GuiConfigCondition> visibleWhenConditions = List.of();
         private GuiConfigEffect effect = GuiConfigEffect.BACKEND_RESTART;
         private boolean contributesGroupVisibility = true;
+        private Predicate<ConfigSnapshot> requiredValueMissing = snapshot -> false;
 
         private Builder(String key, String label, FieldType type, String group) {
             this.key = key;
@@ -110,6 +112,11 @@ public record ConfigFieldSpec(
 
         public Builder validator(Validator v) {
             this.validator = v;
+            return this;
+        }
+
+        public Builder requiredValueMissing(Predicate<ConfigSnapshot> predicate) {
+            this.requiredValueMissing = predicate;
             return this;
         }
 
@@ -154,9 +161,25 @@ public record ConfigFieldSpec(
         }
 
         public ConfigFieldSpec build() {
-            return new ConfigFieldSpec(key, label, type, group, groupId, ownerPluginId, helpText, defaultValue,
-                    validator, enumValues, enumValueLabels, enabledWhen, visibleWhen,
-                    visibleWhenConditions, effect, contributesGroupVisibility);
+            return new ConfigFieldSpec(
+                    key,
+                    label,
+                    type,
+                    group,
+                    groupId,
+                    ownerPluginId,
+                    helpText,
+                    defaultValue,
+                    validator,
+                    enumValues,
+                    enumValueLabels,
+                    enabledWhen,
+                    visibleWhen,
+                    visibleWhenConditions,
+                    effect,
+                    contributesGroupVisibility,
+                    requiredValueMissing
+            );
         }
     }
 }

@@ -779,9 +779,19 @@ final class DesktopConfigurationController {
     }
 
     private void validate(List<ConfigField> fields) throws Exception {
-        for (ConfigField field : fields) {
+        Set<ConfigField> changed = Set.copyOf(fields);
+        Map<String, Map<String, String>> drafts = new LinkedHashMap<>();
+        for (ConfigField field : configFields) {
+            drafts.computeIfAbsent(field.owner(), ignored -> new LinkedHashMap<>())
+                    .put(field.spec().key(), values.getOrDefault(field.key(), field.spec().defaultValue()));
+        }
+        for (ConfigField field : configFields) {
             try {
                 GuiConfigFieldContribution spec = field.spec();
+                if (spec.missingRequiredValue(drafts.get(field.owner()))) {
+                    throw new IllegalArgumentException(host.message("desktop.ui.config.required"));
+                }
+                if (!changed.contains(field)) continue;
                 String value = values.getOrDefault(field.key(), "");
                 host.requireSafeConfigKey(spec.key());
                 host.requireSafeConfigValue(value);

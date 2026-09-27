@@ -25,6 +25,7 @@ import java.util.Map;
  * @param maxValue 类 INT 值的可选最大值
  * @param contributesGroupVisibility 是否仅凭该字段就让所属分组显示为标签页
  * @param enumValueLabelKeys 可选的枚举值到 i18n 标签 key 映射
+ * @param requiredWhen 条件非空且全部匹配时，非敏感字段必须非空白；空列表表示可选
  */
 public record GuiConfigFieldContribution(
         String key,
@@ -43,7 +44,8 @@ public record GuiConfigFieldContribution(
         Integer minValue,
         Integer maxValue,
         boolean contributesGroupVisibility,
-        Map<String, String> enumValueLabelKeys
+        Map<String, String> enumValueLabelKeys,
+        List<GuiConfigCondition> requiredWhen
 ) {
 
     /**
@@ -66,6 +68,7 @@ public record GuiConfigFieldContribution(
      * @param maxValue 最大值
      * @param contributesGroupVisibility 贡献状态分组可见性
      * @param enumValueLabelKeys 枚举值标签键映射
+     * @param requiredWhen 条件必填规则
      */
     public GuiConfigFieldContribution {
         helpKey = helpKey == null ? "" : helpKey;
@@ -76,9 +79,114 @@ public record GuiConfigFieldContribution(
         enumValues = enumValues == null ? List.of() : List.copyOf(enumValues);
         enabledWhen = enabledWhen == null ? List.of() : List.copyOf(enabledWhen);
         visibleWhen = visibleWhen == null ? List.of() : List.copyOf(visibleWhen);
+        requiredWhen = requiredWhen == null ? List.of() : List.copyOf(requiredWhen);
+        if (sensitive && !requiredWhen.isEmpty()) {
+            throw new IllegalArgumentException("Required conditions are only supported for non-sensitive fields");
+        }
         enumValueLabelKeys = enumValueLabelKeys == null
                 ? Map.of()
                 : Collections.unmodifiableMap(new LinkedHashMap<>(enumValueLabelKeys));
+    }
+
+    /**
+     * 创建没有条件必填规则的字段。
+     *
+     * @param key owner 作用域配置键
+     * @param groupId 分组标识
+     * @param labelKey 标签键
+     * @param helpKey 帮助文本键
+     * @param i18nNamespace 国际化命名空间
+     * @param type 字段类型
+     * @param defaultValue 默认值
+     * @param order 排序值
+     * @param sensitive 是否包含敏感信息
+     * @param effect 生效方式
+     * @param enumValues 枚举值列表
+     * @param enabledWhen 启用条件
+     * @param visibleWhen 可见条件
+     * @param minValue 最小值
+     * @param maxValue 最大值
+     * @param contributesGroupVisibility 是否贡献分组可见性
+     * @param enumValueLabelKeys 枚举值标签键映射
+     */
+    public GuiConfigFieldContribution(
+            String key,
+            String groupId,
+            String labelKey,
+            String helpKey,
+            String i18nNamespace,
+            GuiConfigFieldType type,
+            String defaultValue,
+            int order,
+            boolean sensitive,
+            GuiConfigEffect effect,
+            List<String> enumValues,
+            List<GuiConfigCondition> enabledWhen,
+            List<GuiConfigCondition> visibleWhen,
+            Integer minValue,
+            Integer maxValue,
+            boolean contributesGroupVisibility,
+            Map<String, String> enumValueLabelKeys
+    ) {
+        this(
+                key,
+                groupId,
+                labelKey,
+                helpKey,
+                i18nNamespace,
+                type,
+                defaultValue,
+                order,
+                sensitive,
+                effect,
+                enumValues,
+                enabledWhen,
+                visibleWhen,
+                minValue,
+                maxValue,
+                contributesGroupVisibility,
+                enumValueLabelKeys,
+                List.of()
+        );
+    }
+
+    /**
+     * 声明基于同 owner 完整保存草稿的条件必填规则，不受字段当前是否展示或是否编辑影响。
+     * 贡献缺席时不检查；来源与条件引用的准入仍由消费方负责。此方法不产生持久化副作用。
+     * @param conditions 必须全部匹配的条件；空列表表示可选
+     * @return 带必填规则的新字段
+     */
+    public GuiConfigFieldContribution requiredWhen(GuiConfigCondition... conditions) {
+        return new GuiConfigFieldContribution(
+                key,
+                groupId,
+                labelKey,
+                helpKey,
+                i18nNamespace,
+                type,
+                defaultValue,
+                order,
+                sensitive,
+                effect,
+                enumValues,
+                enabledWhen,
+                visibleWhen,
+                minValue,
+                maxValue,
+                contributesGroupVisibility,
+                enumValueLabelKeys,
+                List.of(conditions)
+        );
+    }
+
+    /**
+     * 校验完整草稿是否缺少条件必填值；调用前应以已存值和默认值补齐未编辑字段。
+     * @param values 已准入的当前 owner 配置草稿
+     * @return 条件满足且字段值为空白时为真
+     */
+    public boolean missingRequiredValue(Map<String, String> values) {
+        return !requiredWhen.isEmpty() && values.getOrDefault(key, "").isBlank()
+                && requiredWhen.stream().allMatch(condition -> condition.matches(values));
     }
 
     /**

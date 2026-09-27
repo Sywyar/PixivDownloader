@@ -141,6 +141,22 @@ final class DesktopConfigurationLoader {
                 }
             }
         }
+        boolean rejectedRequiredField;
+        do {
+            Set<FieldKey> declared = new LinkedHashSet<>(fields.stream().map(ConfigField::key).toList());
+            rejectedRequiredField = fields.removeIf(field -> {
+                boolean invalid = field.spec().requiredWhen().stream().anyMatch(condition ->
+                        condition.operator() == null || condition.key() == null || condition.key().isBlank()
+                                || !declared.contains(new FieldKey(field.owner(), condition.key())));
+                if (invalid) LOG.warn(host.message(
+                        "gui.config.log.plugin-field-diagnostic",
+                        field.owner(),
+                        field.spec().key(),
+                        "REQUIRED_CONDITION_UNAVAILABLE"
+                ));
+                return invalid;
+            });
+        } while (rejectedRequiredField);
         Set<FieldKey> conditionSources = new LinkedHashSet<>();
         for (ConfigField field : fields) {
             java.util.stream.Stream.concat(

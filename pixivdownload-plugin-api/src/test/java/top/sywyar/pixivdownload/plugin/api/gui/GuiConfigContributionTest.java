@@ -12,6 +12,30 @@ import static org.assertj.core.api.Assertions.assertThat;
 class GuiConfigContributionTest {
 
     @Test
+    @DisplayName("条件必填使用完整草稿，空条件可选且拒绝将密码空框当作缺少凭据")
+    void conditionalRequiredValuesUseTheDraft() {
+        var optional = new GuiConfigFieldContribution("demo.value", "demo", "value",
+                GuiConfigFieldType.STRING, "", 1);
+        var required = optional.requiredWhen(GuiConfigCondition.isTrue("demo.enabled"));
+        assertThat(optional.missingRequiredValue(java.util.Map.of())).isFalse();
+        assertThat(required.missingRequiredValue(java.util.Map.of("demo.enabled", "false"))).isFalse();
+        for (String blank : List.of("", " \t", "\u3000")) {
+            assertThat(required.missingRequiredValue(java.util.Map.of(
+                    "demo.enabled", "true", "demo.value", blank))).isTrue();
+        }
+        assertThat(required.missingRequiredValue(java.util.Map.of(
+                "demo.enabled", "true", "demo.value", "fixture/custom"))).isFalse();
+        var both = optional.requiredWhen(GuiConfigCondition.isTrue("demo.enabled"),
+                GuiConfigCondition.equalsTo("demo.mode", "custom"));
+        assertThat(both.missingRequiredValue(java.util.Map.of("demo.enabled", "true"))).isFalse();
+        assertThat(both.missingRequiredValue(java.util.Map.of(
+                "demo.enabled", "true", "demo.mode", "custom"))).isTrue();
+        org.assertj.core.api.Assertions.assertThatIllegalArgumentException().isThrownBy(() ->
+                new GuiConfigFieldContribution("demo.secret", "demo", "secret",
+                        GuiConfigFieldType.PASSWORD, "", 1).requiredWhen(GuiConfigCondition.isTrue("demo.enabled")));
+    }
+
+    @Test
     @DisplayName("空列表与可选文本按纯数据模型安全归一化")
     void nullListsAndOptionalTextAreNormalized() {
         GuiConfigContribution contribution = new GuiConfigContribution(null, null, null);

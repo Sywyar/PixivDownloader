@@ -30,6 +30,18 @@ class AiPluginGuiConfigContributionTest {
     private final AiPlugin plugin = new AiPlugin();
 
     @Test
+    @DisplayName("仅在启用 AI 时要求非空模型，自定义模型无需来自预设")
+    void modelIsRequiredOnlyWhenEnabled() {
+        var model = fields().stream().filter(field -> field.key().equals("ai.model")).findFirst().orElseThrow();
+        for (String value : List.of("", " \t")) {
+            assertThat(model.missingRequiredValue(java.util.Map.of("ai.enabled", "true", "ai.model", value))).isTrue();
+            assertThat(model.missingRequiredValue(java.util.Map.of("ai.enabled", "false", "ai.model", value))).isFalse();
+        }
+        assertThat(model.missingRequiredValue(java.util.Map.of(
+                "ai.enabled", "true", "ai.model", "fixture/custom"))).isFalse();
+    }
+
+    @Test
     @DisplayName("模型鉴权失败按受控错误码选择专用提示且不展示原始错误")
     void modelAuthenticationNoticesUseControlledCodes() {
         var action = section().actions().stream()

@@ -12,6 +12,9 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPluginSnapshot;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
@@ -38,6 +41,57 @@ class ConfigPanelRestartTest {
 
     @TempDir
     Path tempDir;
+
+    @Test
+    @DisplayName("统一保存按完整草稿检查条件必填，失败不落盘且关闭条件后允许空值")
+    void requiredValuesUseTheWholeDraft() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            MemoryConfigFile config = installHost(
+                    Map.of("demo.enabled", "false", "demo.value", ""),
+                    new DesktopUiHost.UiLocale("en-US", "English", "en")
+            );
+            var required = new GuiConfigFieldContribution(
+                    "demo.value",
+                    "demo",
+                    "value",
+                    GuiConfigFieldType.STRING,
+                    "",
+                    2
+            ).requiredWhen(GuiConfigCondition.isTrue("demo.enabled"));
+            String group = "Fixture";
+            var fields = List.of(
+                    ConfigFieldSpec.builder("demo.enabled", "Enabled", FieldType.BOOL, group)
+                            .defaultValue("false").build(),
+                    ConfigFieldSpec.builder("demo.value", "Value", FieldType.STRING, group)
+                            .requiredValueMissing(snapshot -> required.missingRequiredValue(snapshot.values())).build()
+            );
+            ConfigPanel panel = new ConfigPanel(
+                    tempDir.resolve("config.yaml"),
+                    6999,
+                    path -> path,
+                    new ConfigFieldSnapshot(List.of(group), fields, List.of()),
+                    null,
+                    null,
+                    () -> false,
+                    () -> false,
+                    () -> false,
+                    () -> false
+            );
+            panel.setFieldValue("demo.enabled", "true");
+            findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+            assertThat(config.writes).isZero();
+            panel.setFieldValue("demo.value", " \t");
+            findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+            assertThat(config.writes).isZero();
+            panel.setFieldValue("demo.value", "fixture/custom");
+            findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+            assertThat(config.values).containsEntry("demo.enabled", "true").containsEntry("demo.value", "fixture/custom");
+            panel.setFieldValue("demo.enabled", "false");
+            panel.setFieldValue("demo.value", "");
+            findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+            assertThat(config.values).containsEntry("demo.enabled", "false").containsEntry("demo.value", "");
+        });
+    }
 
     @Test
     @DisplayName("完整重启字段不会误走后端重启")
@@ -379,8 +433,11 @@ class ConfigPanelRestartTest {
 
     @SuppressWarnings("unchecked")
     private MemoryConfigFile installHost(Map<String, String> values) {
+        return installHost(values, new DesktopUiHost.UiLocale("zh-CN", "简体中文", ""));
+    }
+
+    private MemoryConfigFile installHost(Map<String, String> values, DesktopUiHost.UiLocale locale) {
         MemoryConfigFile config = new MemoryConfigFile(values);
-        DesktopUiHost.UiLocale locale = new DesktopUiHost.UiLocale("zh-CN", "简体中文", "");
         DesktopUiHost host = (DesktopUiHost) Proxy.newProxyInstance(
                 getClass().getClassLoader(),
                 new Class<?>[]{DesktopUiHost.class},
@@ -389,7 +446,7 @@ class ConfigPanelRestartTest {
                     case "coreConfigGroups", "coreConfigFields" -> List.of();
                     case "visibleLocales" -> List.of(locale);
                     case "matchLocale" -> Optional.of(locale).filter(ignored ->
-                            args != null && args.length > 0 && "zh-CN".equalsIgnoreCase(String.valueOf(args[0])));
+                            args != null && args.length > 0 && locale.tag().equalsIgnoreCase(String.valueOf(args[0])));
                     case "resolveLocale" -> new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));
                     case "detectSystemLocale" -> Locale.SIMPLIFIED_CHINESE;
                     case "requireSafeConfigKey", "requireSafeConfigValue" -> args[0];
