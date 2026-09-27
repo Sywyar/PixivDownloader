@@ -529,6 +529,53 @@ class WebI18nBundleRegistryTest {
                 .isInstanceOf(MissingResourceException.class);
     }
 
+    @Test
+    @DisplayName("单条文案按目标、回退、源语言查找，空值覆盖与资源缺失语义保持一致")
+    void resolvesSingleMessageWithFallbackAndBlankOverrides() {
+        WebI18nBundleRegistry registry = new WebI18nBundleRegistry(
+                new PluginRegistry(List.of()), List::of, candidateCatalogWithJapanese());
+        registry.register("lookup", resourceClassLoader(Map.of(
+                "i18n/web/lookup.properties", "shared=Source\nsource.only=Source only\nblank=Source\n",
+                "i18n/web/lookup_en.properties", "shared=Fallback\nfallback.only=Fallback only\nblank=Fallback\n",
+                "i18n/web/lookup_ja.properties", "shared=Target\nblank=\n")), List.of(ns("lookup")));
+
+        assertThat(registry.resolve("lookup", Locale.JAPANESE, "shared")).contains("Target");
+        assertThat(registry.resolve("lookup", Locale.JAPANESE, "fallback.only")).contains("Fallback only");
+        assertThat(registry.resolve("lookup", Locale.JAPANESE, "source.only")).contains("Source only");
+        assertThat(registry.resolve("lookup", Locale.JAPANESE, "blank")).isEmpty();
+        assertThat(registry.resolve("lookup", Locale.JAPANESE, "missing")).isEmpty();
+        assertThat(registry.resolve("lookup", Locale.US, "shared")).contains("Fallback");
+        assertThat(registry.resolve("lookup", Locale.SIMPLIFIED_CHINESE, "shared")).contains("Source");
+        assertThat(registry.resolve("lookup", null, "shared")).contains("Source");
+        registry.register("missing", resourceClassLoader(Map.of()), List.of(ns("missing")));
+        assertThatThrownBy(() -> registry.resolve("missing", Locale.US, "missing"))
+                .isInstanceOf(MissingResourceException.class);
+    }
+
+    @Test
+    @DisplayName("单条文案读取已物化快照，卸载与重新注册后不保留旧文案")
+    void singleMessageLookupUsesCurrentMaterializedGeneration() {
+        AtomicInteger reads = new AtomicInteger();
+        ClassLoader loader = new ClassLoader(null) {
+            @Override
+            public InputStream getResourceAsStream(String name) {
+                reads.incrementAndGet();
+                return utf8("value=First\n");
+            }
+        };
+        WebI18nBundleRegistry registry = emptyRegistry();
+        registry.register("lookup", loader, List.of(ns("lookup")));
+        int materializationReads = reads.get();
+        assertThat(registry.resolve("lookup", Locale.US, "value")).contains("First");
+        assertThat(registry.resolve("lookup", Locale.SIMPLIFIED_CHINESE, "value")).contains("First");
+        assertThat(reads).hasValue(materializationReads);
+        registry.unregister("lookup");
+        assertThat(registry.resolve("lookup", Locale.US, "value")).isEmpty();
+        registry.register("lookup", resourceClassLoader(Map.of(
+                "i18n/web/lookup.properties", "value=Second\n")), List.of(ns("lookup")));
+        assertThat(registry.resolve("lookup", Locale.US, "value")).contains("Second");
+    }
+
     private static LocaleCatalog candidateCatalogWithJapanese() {
         return new LocaleCatalogLoader(null).parse("""
                 {

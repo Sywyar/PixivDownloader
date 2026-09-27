@@ -140,6 +140,27 @@ public class WebI18nBundleRegistry implements NamespaceMessageResolver {
             return loadEffective(locale);
         }
 
+        private String resolveMessage(Locale locale, String key) {
+            if (installedArtifact != null) {
+                return loadEffective(locale).get(key);
+            }
+            LocaleDescriptor target = catalog.resolve(locale);
+            boolean loaded = false;
+            for (LocaleDescriptor descriptor : catalog.fallbackChain(target)) {
+                Map<String, String> exact = messagesByLocale.getOrDefault(descriptor.tag(), Map.of());
+                loaded |= !exact.isEmpty();
+                if (exact.containsKey(key)) {
+                    return exact.get(key);
+                }
+            }
+            if (!loaded) {
+                throw new MissingResourceException(
+                        "Missing i18n bundle " + contribution.baseName() + " for locale " + target.tag(),
+                        contribution.baseName(), "");
+            }
+            return null;
+        }
+
         private Map<String, String> safeExact(LocaleDescriptor descriptor) {
             try {
                 return loadExact(descriptor.toLocale());
@@ -285,7 +306,7 @@ public class WebI18nBundleRegistry implements NamespaceMessageResolver {
         if (registered == null) {
             return Optional.empty();
         }
-        String message = registered.load(locale).get(key);
+        String message = registered.resolveMessage(locale, key);
         return message == null || message.isBlank() ? Optional.empty() : Optional.of(message);
     }
 
