@@ -2,9 +2,9 @@
     function queueVue() {
         return window.PixivBatch && window.PixivBatch.queueVue;
     }
-    function downloadQueueVueActive() {
+    function downloadQueueVueActive(kind) {
         const qv = queueVue();
-        return !!(qv && qv.isDownloadActive());
+        return !!(qv && qv.isDownloadActive(kind));
     }
 
     // 队列计数门面：始终重算 state.stats 并维护 sr-only #stats-bar（读屏 / 回归保留）。
@@ -26,7 +26,7 @@
                 state.stats.skipped
             );
         }
-        if (downloadQueueVueActive()) {
+        if (downloadQueueVueActive('stats')) {
             queueVue().syncDownloadStats({
                 pending,
                 success: state.stats.success,
@@ -140,7 +140,7 @@
     // 否则命令式写入数字 / 单位两个 span。formatSpeed 为两路共享口径。
     function renderDownloadSpeed(bytesPerSec) {
         const {value, unit} = formatSpeed(bytesPerSec);
-        if (downloadQueueVueActive()) {
+        if (downloadQueueVueActive('stats')) {
             queueVue().syncDownloadSpeed(value, unit);
             return;
         }
@@ -155,7 +155,7 @@
         // 当前下载卡现由队列派生（队首未完成项 + 剩余计数），不再跟踪单一 currentItemId 触发整卡重建；
         // item 参数仅为兼容既有调用点（processArtworkItem / processNovelItem / SSE 进度事件）与 currentItemId 语义。
         state.currentItemId = item ? String(item.id) : null;
-        refreshCurrentCard();
+        if (!queueProgressRows.size) refreshCurrentCard(item);
     }
 
     // 当前卡按队列顺序展示最前面的未完成项，避免并发进度事件改变卡片归属。
@@ -228,9 +228,9 @@
     // 保证任意进度 / 状态事件（setCurrent / renderCurrent / pause / resume）都让当前卡实时重算，不依赖外部是否
     // 另调 renderQueue；镜像同步与 renderQueue 的列表同步同 key 合批去重。按当前卡挂载点单独判定，避免「统计 /
     // 列表岛激活但当前卡挂载失败」时当前卡永久停留在初始「无」。两条路径共用 computeCurrentCardHtml 同一派生口径。
-    function refreshCurrentCard() {
+    function refreshCurrentCard(changedItem) {
         if (downloadQueueVueActive() && queueVue().isDownloadCurrentActive()) {
-            queueVue().syncDownloadList();
+            queueVue().syncDownloadList(changedItem);
             queueVue().syncDownloadPaused(state.isPaused);
             return;
         }
@@ -238,14 +238,41 @@
         if (el) el.innerHTML = computeCurrentCardHtml(state.queue, state.isPaused);
     }
 
-    // 队列列表门面：Vue 岛激活时合并一次 reactive 同步（按 :key + v-html 仅 patch 变化的行，不整队列重建），
-    // 否则命令式整块渲染。两路都刷新管理员打包按钮（仅依赖 state.queue，与渲染路径正交）。
-    function renderQueue() {
-        renderQueueRecovery();
+    // 进度按帧合并且只替换变动行；结构或状态变化仍走完整同步并更新管理员打包按钮。
+    const queueProgressRows = new Set();
+    let queueProgressScheduled = false;
+
+    function renderQueue(changedItem) {
+        if (!changedItem) renderQueueRecovery();
+        if (changedItem && !downloadQueueVueActive('list')) {
+            queueProgressRows.add(changedItem);
+            if (!queueProgressScheduled) {
+                queueProgressScheduled = true;
+                const schedule = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : cb => setTimeout(cb, 16);
+                schedule(() => {
+                    queueProgressScheduled = false;
+                    if (!queueProgressRows.size) return;
+                    const rows = Array.from(queueProgressRows);
+                    queueProgressRows.clear();
+                    const list = document.getElementById('queue-list');
+                    if (!downloadQueueVueActive('list') && list && list.children.length === state.queue.length) {
+                        rows.forEach(item => {
+                            const index = state.queue.indexOf(item);
+                            if (index >= 0) list.children[index].outerHTML = buildQueueItemHtml(item, {removable: true});
+                        });
+                        refreshCurrentCard();
+                    } else {
+                        renderQueue();
+                    }
+                });
+            }
+            return;
+        }
+        queueProgressRows.clear();
         // 当前下载卡由 state.queue 派生：随队列每次变化一并刷新（Vue 接管后只合批同步 store，命令式回退时重建单卡）。
-        refreshCurrentCard();
-        if (downloadQueueVueActive()) {
-            queueVue().syncDownloadList();
+        refreshCurrentCard(changedItem);
+        if (downloadQueueVueActive('list')) {
+            queueVue().syncDownloadList(changedItem);
         } else {
             renderQueueImperative();
         }

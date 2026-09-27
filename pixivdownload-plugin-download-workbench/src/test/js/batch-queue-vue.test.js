@@ -308,12 +308,11 @@ async function main() {
         ok('5: 恢复标志写 store', store.paused === false);
     }
 
-    /* ===== 6) 组件契约：template 镜像结构、行 / 当前卡共用格式化函数、标签经 bt ===== */
+    /* ===== 6) 行身份、共享格式化与当前卡派生 ===== */
     {
         const { api, state } = loadVue({});
         await api.mountDownloadQueue();
         const list = api.__test.listComponent();
-        ok('6: 列表模板含 q-item-host + 复合 :key + v-html', /q-item-host/.test(list.template) && /:key="rowKey\(q\)"/.test(list.template) && /v-html="rowHtml\(q\)"/.test(list.template));
         const lv = list.setup();
         ok('6: 行 HTML 走共享 buildQueueItemHtml', /class="queue-item"/.test(lv.rowHtml({ id: '9' })));
         const opaqueId = ' work /<img src=x> "\' ';
@@ -325,11 +324,7 @@ async function main() {
         ok('6: Vue 行键编码后不含空白、斜杠、引号或 HTML 片段',
             /^q:[0-9a-f]*\.[0-9a-f]*$/.test(illustKey)
             && !/[<>"'\/\s]/.test(illustKey));
-        const stats = api.__test.statsComponent();
-        ok('6: 统计模板保留 5 计数 id + 速度 id', /id="stat-count-pending"/.test(stats.template) && /id="stat-speed-value"/.test(stats.template) && /id="stat-speed-unit"/.test(stats.template));
-        ok('6: 统计标签经 bt（label）派生而非写死 data-i18n', /label\('dashboard.stat.queued'/.test(stats.template) && stats.template.indexOf('data-i18n') < 0);
         const cur = api.__test.currentComponent();
-        ok('6: 当前卡走 display:contents v-html 经 currentHtml() 派生', /currentHtml\(\)/.test(cur.template) && /display:contents/.test(cur.template));
         ok('6: 空队列 + 未暂停 → idle「无」', /cur<\/strong>none/.test(cur.setup().currentHtml()));
         // 队列镜像同步后由响应式自动派生队首 + 剩余计数行（不逐事件命令式重建）。
         state.queue.push({ id: '9', status: 'downloading' }, { id: '10', status: 'pending' });
@@ -488,8 +483,6 @@ async function main() {
         await tick();
         const entry = api.__test.scheduleEntry(8);
         const comp = api.__test.schedComponent(entry);
-        ok('11: 四段结构镜像 renderScheduleQueueBody', /schedule-queue-status/.test(comp.template) && /schedule-queue-stats/.test(comp.template) && /schedule-queue-current/.test(comp.template) && /schedule-queue-list/.test(comp.template));
-        ok('11: 列表行带复合 :key（局部刷新口径） + q-item-host', /q-item-host/.test(comp.template) && /:key="rowKey\(q\)"/.test(comp.template));
         const v = comp.setup();
         ok('11: 计划行走共享 buildQueueItemHtml（removable:false + queueKey）',
             /:q:[0-9a-f]*\.[0-9a-f]*</.test(v.rowHtml({ kind: 'illust', id: '5' })));

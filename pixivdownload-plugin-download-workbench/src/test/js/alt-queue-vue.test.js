@@ -124,6 +124,7 @@ function renderNodes(component) {
         if (!node || typeof node !== 'object') return;
         nodes.push(node);
         visit(node.children);
+        if (node.type && typeof node.type.render === 'function') visit(node.type.render.call(node.props));
     }
     visit(root);
     return nodes;
@@ -350,16 +351,15 @@ async function main() {
             curHtml().indexOf('ab-current-idle') < 0 && curHtml().indexOf('3/3 100%') >= 0);
     }
 
-    /* ===== 6) 组件契约：template 镜像结构、行 / 当前卡共用格式化函数、标签经 bt ===== */
+    /* ===== 6) 行身份、共享格式化与当前卡派生 ===== */
     {
         const queue = [{id: 'title-check', title: '共享标题', status: 'pending'}];
         const { api, state } = loadVue({state: {queue, stats: {}, currentItemId: null}});
         await api.ensure();
         const list = api.__test.listComponent();
-        const lv = list.setup();
-        const rows = lv.rows.value;
-        ok('6: CSP 禁止代码生成时仍渲染稳定队列身份', renderNodes(list).some(n => n.key === rows[0].key && n.props['data-queue-id'] === rows[0].queueId));
-        ok('6: 行模型经共享 queueItemDisplayTitle 派生标题', rows.length === 1 && rows[0].title === '共享标题');
+        const rows = renderNodes(list);
+        ok('6: CSP 禁止代码生成时仍渲染稳定队列身份', rows.some(n => n.props?.['data-queue-id'] === 'title-check' && n.key));
+        ok('6: 行模型经共享 queueItemDisplayTitle 派生标题', rows.some(n => n.children === '共享标题'));
         state.queue.length = 0;
         api.syncList();
         api.flush();
