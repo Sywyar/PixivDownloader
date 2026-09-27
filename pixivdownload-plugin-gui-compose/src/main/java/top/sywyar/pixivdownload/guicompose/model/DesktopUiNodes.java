@@ -24,6 +24,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 import static top.sywyar.pixivdownload.guicompose.model.GuiActionResponseSafety.sanitizeActionText;
 
@@ -31,11 +32,14 @@ import static top.sywyar.pixivdownload.guicompose.model.GuiActionResponseSafety.
  * 桌面文档节点、文本令牌与受控展示值的共享构造函数。
  */
 final class DesktopUiNodes {
+    private static final Pattern VALID_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:-]{0,120}");
+    private static final Pattern UNSAFE_ID_CHARACTER = Pattern.compile("[^A-Za-z0-9._:-]");
+
     private DesktopUiNodes() {
     }
 
     static boolean validId(String value) {
-        return value != null && value.matches("[A-Za-z0-9][A-Za-z0-9._:-]{0,120}");
+        return value != null && VALID_ID.matcher(value).matches();
     }
 
     static DesktopUiNode.Container column(String id, DesktopUiNode... children) {
@@ -341,7 +345,7 @@ final class DesktopUiNodes {
     }
 
     static String safeId(String value) {
-        String safe = nullToEmpty(value).trim().replaceAll("[^A-Za-z0-9._:-]", "-");
+        String safe = UNSAFE_ID_CHARACTER.matcher(nullToEmpty(value).trim()).replaceAll("-");
         if (safe.isBlank() || !Character.isLetterOrDigit(safe.charAt(0))) safe = "id-" + safe;
         return safe.length() <= 120 ? safe : safe.substring(
                 0,

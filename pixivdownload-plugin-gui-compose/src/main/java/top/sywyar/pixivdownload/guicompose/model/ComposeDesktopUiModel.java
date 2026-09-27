@@ -317,6 +317,14 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
     }
 
     synchronized void rebuild() {
+        rebuild(false);
+    }
+
+    synchronized void rebuildStatus() {
+        rebuild(true);
+    }
+
+    private void rebuild(boolean statusOnly) {
         if (closed) return;
         DesktopUiSnapshot published = null;
         List<DesktopUiPluginSnapshot> previousSources = rebuildSources;
@@ -326,6 +334,9 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         boolean sourcesChanged = !sourceFingerprints.equals(documentSourceFingerprints);
         Locale currentLocale = Locale.getDefault();
         boolean localeChanged = !currentLocale.equals(documentLocale);
+        if (!statusOnly || sourcesChanged || localeChanged || busy) {
+            configuration.invalidatePage();
+        }
         try {
             Map<String, Consumer<List<String>>> nextSelections = new LinkedHashMap<>();
             Map<String, Runnable> nextActions = new LinkedHashMap<>();
@@ -754,6 +765,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         closed = true;
         security.clearSecrets();
         mediaTools.close();
+        configuration.invalidatePage();
         snapshotListeners.clear();
         worker.shutdownNow();
         AutoCloseable subscription = backendSubscription;

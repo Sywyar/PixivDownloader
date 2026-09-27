@@ -279,7 +279,7 @@ final class DesktopStatusController {
                     if (owner.backendSnapshot().state() == DesktopUiHost.BackendState.RUNNING && System.currentTimeMillis() - lastConnectivityCheckAt >= 60_000L) {
                         checkConnectivity();
                     }
-                    owner.rebuild();
+                    owner.rebuildStatus();
                 }
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
