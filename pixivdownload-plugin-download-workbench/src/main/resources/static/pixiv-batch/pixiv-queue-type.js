@@ -364,6 +364,23 @@
 
         const descriptor = {
             process: processIllustItem,
+            async queryDownloadStatus(item, signal) {
+                context.assertActive();
+                const response = await fetch(
+                    `${BASE}/api/download/status/${encodeURIComponent(item.id)}`,
+                    {credentials: 'same-origin', signal});
+                if (!response.ok) return null;
+                const data = await response.json();
+                context.assertActive();
+                if (data.success !== true || String(data.artworkId) !== String(item.id)) return null;
+                return {
+                    status: data.cancelled ? 'cancelled' : data.failed
+                        || (data.completed && data.downloadedCount < data.totalImages) ? 'failed'
+                        : data.completed ? 'completed' : 'running',
+                    totalImages: data.totalImages,
+                    downloadedCount: data.downloadedCount
+                };
+            },
             queueTags: pixivQueueTags,
             mergeQueueTypeData: pixivMergeQueueTypeData,
             scheduledSse: true,

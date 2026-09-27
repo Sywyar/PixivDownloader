@@ -171,6 +171,7 @@ async function init() {
     // 队列与坞
     loadQueueForMode();
     renderDock();
+    initQueueRecovery();
     if (appMode === 'multi') {
         await initQuota();
     }

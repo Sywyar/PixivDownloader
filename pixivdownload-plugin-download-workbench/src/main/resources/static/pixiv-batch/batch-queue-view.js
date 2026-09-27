@@ -241,6 +241,7 @@
     // 队列列表门面：Vue 岛激活时合并一次 reactive 同步（按 :key + v-html 仅 patch 变化的行，不整队列重建），
     // 否则命令式整块渲染。两路都刷新管理员打包按钮（仅依赖 state.queue，与渲染路径正交）。
     function renderQueue() {
+        renderQueueRecovery();
         // 当前下载卡由 state.queue 派生：随队列每次变化一并刷新（Vue 接管后只合批同步 store，命令式回退时重建单卡）。
         refreshCurrentCard();
         if (downloadQueueVueActive()) {

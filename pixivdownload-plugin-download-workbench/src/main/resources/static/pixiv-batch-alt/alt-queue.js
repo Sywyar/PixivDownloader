@@ -310,7 +310,7 @@ function loadQueueForMode() {
         if (Array.isArray(parsed.queue)) {
             state.queue = dedupeQueueItems(parsed.queue);
             state.queue.forEach(q => {
-                // 刷新前正在下载的项目实际已中断，标记为失败
+                if (restoreInterruptedQueueItem(q)) return;
                 if (q.status === 'downloading') {
                     q.status = 'failed';
                     q.lastMessage = bt('queue.message.failed-refresh', '失败 — 页面刷新导致中断');
@@ -488,6 +488,10 @@ function renderDock() {
     btnRow.appendChild(startBtn);
     btnRow.appendChild(pauseBtn);
     controls.appendChild(btnRow);
+    const recovery = el('div');
+    recovery.id = 'queue-recovery';
+    recovery.dataset.buttonClass = 'ab-btn ab-btn--ghost ab-btn--sm';
+    controls.appendChild(recovery);
     body.appendChild(controls);
 
     // 配额（multi 模式启用配额时）
@@ -807,6 +811,7 @@ function novelTranslateMessage(q) {
 }
 
 function renderQueue() {
+    renderQueueRecovery();
     // 当前下载卡由 state.queue 派生：随队列每次变化一并刷新（Vue 接管后只合批同步 store，命令式回退时重建单卡）。
     refreshCurrentCard();
     if (altQueueVueActive()) {

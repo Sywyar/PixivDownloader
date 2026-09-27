@@ -5,6 +5,13 @@
    ============================================================ */
 async function start() {
     if (state.isRunning) return;
+    if (state.queue.some(item => item.recoveryState)) {
+        await reconcileRestoredQueue();
+        if (state.queue.some(item => item.recoveryState)) {
+            setDockStatus(bt('batch:queue.recovery.waiting'), 'warning');
+            return;
+        }
+    }
     if (state.queue.length === 0) {
         setDockStatus(bt('status.queue-empty', '队列为空'), 'error');
         return;
