@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.i18n.MessageResolver;
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
+import java.awt.image.BufferedImage;
 import java.io.*;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -28,7 +29,7 @@ import java.util.zip.ZipException;
 import java.util.zip.ZipInputStream;
 
 /**
- * 动图（Ugoira）处理服务：下载 ZIP → 提取帧 → ffmpeg 合成 WebP。
+ * 动图下载、帧校验及用户选择的动画输出。
  */
 @Slf4j
 @Service
@@ -50,15 +51,24 @@ public class UgoiraService {
     private final FfmpegCommandResolver ffmpegCommandResolver;
     private final MessageResolver messages;
     private final FfmpegProcessGate ffmpegProcessGate;
+    private final top.sywyar.pixivdownload.download.media.MediaOutputSettings outputSettings;
+    private final Map<Path, ProcessingLock> processingLocks = new HashMap<>();
+
+    private static final class ProcessingLock {
+        private final java.util.concurrent.locks.ReentrantLock gate = new java.util.concurrent.locks.ReentrantLock();
+        private int users;
+    }
 
     public UgoiraService(PixivImageDownloader pixivImageDownloader,
                          FfmpegCommandResolver ffmpegCommandResolver,
                          MessageResolver messages,
-                         FfmpegProcessGate ffmpegProcessGate) {
+                         FfmpegProcessGate ffmpegProcessGate,
+                         top.sywyar.pixivdownload.download.media.MediaOutputSettings outputSettings) {
         this.pixivImageDownloader = pixivImageDownloader;
         this.ffmpegCommandResolver = ffmpegCommandResolver;
         this.messages = messages;
         this.ffmpegProcessGate = ffmpegProcessGate;
+        this.outputSettings = outputSettings;
     }
 
     /**
@@ -71,6 +81,13 @@ public class UgoiraService {
         return processUgoira(artworkId, other, downloadPath, referer, cookie, null);
     }
 
+    public List<String> outputFormats(DownloadRequest.Other other) {
+        return top.sywyar.pixivdownload.download.media.MediaOutputSettings.parseFormats(
+                !other.isMediaOutputEnabled() ? "webp"
+                        : other.getUgoiraFormats() == null ? outputSettings.getUgoiraFormats() : other.getUgoiraFormats(),
+                top.sywyar.pixivdownload.download.media.MediaOutputSettings.UGOIRA_FORMATS);
+    }
+
     public int processUgoira(Long artworkId, DownloadRequest.Other other,
                              Path downloadPath, String referer, String cookie,
                              Consumer<UgoiraProgress> progressListener) {
@@ -81,11 +98,96 @@ public class UgoiraService {
                              Path downloadPath, String referer, String cookie,
                              Consumer<UgoiraProgress> progressListener,
                              BooleanSupplier cancellationRequested) {
-        ArtworkDownloadExecutor.validatePixivUrl(other.getUgoiraZipUrl());
-        String outputBaseName = resolveOutputBaseName(artworkId, other);
+        return processArchive(artworkId, other, downloadPath, referer, cookie, progressListener, cancellationRequested, null, null);
+    }
 
-        Path zipPath = downloadPath.resolve("_ugoira_frames.zip");
-        Path tempDir = downloadPath.resolve("_frames_tmp");
+    public boolean addMissingFormats(long artworkId, Path displayedFile, String selectedFormats,
+                                     BooleanSupplier cancellationRequested) throws IOException {
+        String name = displayedFile.getFileName().toString();
+        String base = name.substring(0, name.lastIndexOf('.'));
+        if (base.endsWith("_thumb")) base = base.substring(0, base.length() - 6);
+        Path stem = displayedFile.resolveSibling(base);
+        var previous = top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest.read(stem);
+        if (previous.isEmpty() || !previous.get().originalExtension().equals("zip")) return false;
+        Path zip = stem.resolveSibling(base + ".zip");
+        Path timingFile = stem.resolveSibling(base + ".frames.properties");
+        if (!Files.isRegularFile(zip, LinkOption.NOFOLLOW_LINKS) || Files.size(zip) > MAX_ZIP_BYTES
+                || !Files.isRegularFile(timingFile, LinkOption.NOFOLLOW_LINKS) || Files.size(timingFile) > 128 * 1024) {
+            throw new IOException("Original animation archive and timing are required");
+        }
+        List<String> missing = new ArrayList<>();
+        for (String format : top.sywyar.pixivdownload.download.media.MediaOutputSettings.parseFormats(selectedFormats,
+                top.sywyar.pixivdownload.download.media.MediaOutputSettings.UGOIRA_FORMATS)) {
+            if (!format.equals("zip") && !Files.exists(stem.resolveSibling(base + "." + format))) missing.add(format);
+        }
+        if (missing.isEmpty()) return true;
+        Properties timing = new Properties();
+        try (var reader = Files.newBufferedReader(timingFile, StandardCharsets.UTF_8)) { timing.load(reader); }
+        if (timing.isEmpty() || timing.size() > MAX_FRAME_COUNT) throw new IOException("Invalid animation timing");
+        List<Integer> delays = new ArrayList<>();
+        for (String frame : new TreeSet<>(timing.stringPropertyNames())) {
+            if (!isSafeFrameEntryName(frame)) throw new IOException("Invalid frame name");
+            try {
+                int delay = Integer.parseInt(timing.getProperty(frame));
+                if (delay <= 0) throw new NumberFormatException();
+                delays.add(delay);
+            } catch (NumberFormatException invalid) { throw new IOException("Invalid animation delay", invalid); }
+        }
+        DownloadRequest.Other request = new DownloadRequest.Other();
+        request.setFileNames(List.of(base));
+        request.setUgoiraDelays(delays);
+        request.setUgoiraFormats(String.join(",", missing));
+        if (processArchive(artworkId, request, displayedFile.getParent(), null, null, null, cancellationRequested, zip, timing.stringPropertyNames()) != 1) {
+            throw new IOException("Animation conversion failed");
+        }
+        return true;
+    }
+
+    private int processArchive(Long artworkId, DownloadRequest.Other other,
+                               Path downloadPath, String referer, String cookie,
+                               Consumer<UgoiraProgress> progressListener,
+                               BooleanSupplier cancellationRequested, Path sourceArchive, Set<String> frameNames) {
+        Path directory = downloadPath.toAbsolutePath().normalize();
+        ProcessingLock lock;
+        synchronized (processingLocks) {
+            lock = processingLocks.computeIfAbsent(directory, ignored -> new ProcessingLock());
+            lock.users++;
+        }
+        boolean acquired = false;
+        try {
+            do {
+                ensureNotCancelled(cancellationRequested);
+                acquired = lock.gate.tryLock(200, TimeUnit.MILLISECONDS);
+            } while (!acquired);
+            return processArchiveLocked(artworkId, other, downloadPath, referer, cookie,
+                    progressListener, cancellationRequested, sourceArchive, frameNames);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new CancellationException("download cancelled");
+        } finally {
+            if (acquired) lock.gate.unlock();
+            synchronized (processingLocks) {
+                if (--lock.users == 0) processingLocks.remove(directory, lock);
+            }
+        }
+    }
+
+    private int processArchiveLocked(Long artworkId, DownloadRequest.Other other,
+                                     Path downloadPath, String referer, String cookie,
+                                     Consumer<UgoiraProgress> progressListener,
+                                     BooleanSupplier cancellationRequested, Path sourceArchive, Set<String> frameNames) {
+        if (sourceArchive == null) ArtworkDownloadExecutor.validatePixivUrl(other.getUgoiraZipUrl());
+        String outputBaseName = resolveOutputBaseName(artworkId, other);
+        List<String> formats = outputFormats(other);
+        if (sourceArchive != null) {
+            formats = formats.stream().filter(format -> !Files.exists(downloadPath.resolve(outputBaseName + "." + format))).toList();
+        }
+        var encodingSettings = other.isMediaOutputEnabled() ? outputSettings
+                : new top.sywyar.pixivdownload.download.media.MediaOutputSettings();
+
+        String localSuffix = sourceArchive == null ? "" : "_" + UUID.randomUUID();
+        Path zipPath = downloadPath.resolve("_ugoira_frames" + localSuffix + ".zip");
+        Path tempDir = downloadPath.resolve("_frames_tmp" + localSuffix);
         Path partialOutput = partialOutputPath(downloadPath, outputBaseName);
         int maxAttempts = 3;
         cleanup(zipPath, tempDir, partialOutput);
@@ -102,8 +204,15 @@ public class UgoiraService {
                         .zipDownloadedBytes(0L)
                         .zipProgress(0)
                         .build());
-                if (!downloadZip(other.getUgoiraZipUrl(), zipPath, referer, cookie, attempt, maxAttempts,
-                        progressListener, cancellationRequested)) {
+                boolean downloaded;
+                if (sourceArchive != null) {
+                    Files.copy(sourceArchive, zipPath, StandardCopyOption.REPLACE_EXISTING);
+                    downloaded = true;
+                } else {
+                    downloaded = downloadZip(other.getUgoiraZipUrl(), zipPath, referer, cookie, attempt, maxAttempts,
+                            progressListener, cancellationRequested);
+                }
+                if (!downloaded) {
                     log.error(message("ugoira.log.zip.download.failed", id(artworkId), text(attempt), text(maxAttempts)));
                     continue;
                 }
@@ -130,14 +239,47 @@ public class UgoiraService {
                 ensureNotCancelled(cancellationRequested);
 
                 List<Map.Entry<String, Path>> orderedFrames = new ArrayList<>(frameFiles.entrySet());
+                if (sourceArchive != null && (!frameFiles.keySet().equals(frameNames) || orderedFrames.size() != expectedFrames)) {
+                    throw new IOException("Animation timing does not match frames");
+                }
                 List<Integer> delays = resolveDelays(other.getUgoiraDelays(), orderedFrames.size());
 
-                if (runFfmpeg(artworkId, orderedFrames, delays, tempDir, downloadPath,
-                        outputBaseName, attempt, maxAttempts, progressListener, cancellationRequested)) {
-                    // ffmpeg 成功后再发布缩略图，失败路径不会留下半份 Ugoira 产物。
-                    Files.copy(orderedFrames.get(0).getValue(),
-                            downloadPath.resolve(outputBaseName + "_thumb.jpg"),
-                            StandardCopyOption.REPLACE_EXISTING);
+                // 用户选中的原始帧包先落盘，后续编码失败或取消也保留这份恢复源。
+                if (formats.contains("zip")) saveArchive(zipPath, downloadPath.resolve(outputBaseName), orderedFrames, delays);
+                boolean complete = true;
+                int outputIndex = 0;
+                int outputCount = (int) formats.stream().filter(format -> !format.equals("zip")).count();
+                for (String format : formats) {
+                    if (format.equals("zip")) continue;
+                    int index = ++outputIndex;
+                    Consumer<UgoiraProgress> outputProgress = progress -> publishProgress(progressListener,
+                            progress.toBuilder().outputFormat(format).outputIndex(index).outputCount(outputCount).build());
+                    if (!runFfmpeg(artworkId, orderedFrames, delays, tempDir, downloadPath,
+                            outputBaseName, format, encodingSettings, attempt, maxAttempts,
+                            outputProgress, cancellationRequested)) {
+                        complete = false;
+                        break;
+                    }
+                }
+                if (complete) {
+                    Path thumbnailPath = downloadPath.resolve(outputBaseName + "_thumb.jpg");
+                    if (sourceArchive == null || !Files.exists(thumbnailPath)) {
+                        BufferedImage thumbnail = top.sywyar.pixivdownload.core.asset.ImageThumbnailScaler.scale(
+                                orderedFrames.get(0).getValue(), 1600, 1600);
+                        Path temporary = Files.createTempFile(downloadPath, ".media-thumb-", ".jpg");
+                        try {
+                            if (!ImageIO.write(thumbnail, "jpg", temporary.toFile())) throw new IOException("JPEG writer unavailable");
+                            publishOutput(temporary, thumbnailPath);
+                        } finally { Files.deleteIfExists(temporary); }
+                    }
+                    LinkedHashSet<String> savedFormats = new LinkedHashSet<>();
+                    if (sourceArchive != null) {
+                        top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest.read(downloadPath.resolve(outputBaseName))
+                                .ifPresent(existing -> savedFormats.addAll(existing.extensions()));
+                    }
+                    savedFormats.addAll(formats);
+                    new top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest("zip", List.copyOf(savedFormats))
+                            .write(downloadPath.resolve(outputBaseName));
                     return 1;
                 }
 
@@ -165,6 +307,30 @@ public class UgoiraService {
                 .status(UgoiraProgress.STATUS_FAILED)
                 .build());
         return 0;
+    }
+
+    private void saveArchive(Path zip, Path stem, List<Map.Entry<String, Path>> frames,
+                             List<Integer> delays) throws IOException {
+        Path archive = Files.createTempFile(stem.getParent(), ".media-archive-", ".zip");
+        Path timingFile = Files.createTempFile(stem.getParent(), ".media-timing-", ".properties");
+        try {
+            Files.copy(zip, archive, StandardCopyOption.REPLACE_EXISTING);
+            Properties timing = new Properties();
+            for (int index = 0; index < frames.size(); index++) {
+                timing.setProperty(frames.get(index).getKey(), Integer.toString(delays.get(index)));
+            }
+            try (var writer = Files.newBufferedWriter(timingFile, StandardCharsets.UTF_8)) { timing.store(writer, null); }
+            publishOutput(timingFile, stem.resolveSibling(stem.getFileName() + ".frames.properties"));
+            publishOutput(archive, stem.resolveSibling(stem.getFileName() + ".zip"));
+        } finally {
+            Files.deleteIfExists(archive);
+            Files.deleteIfExists(timingFile);
+        }
+    }
+
+    private static void publishOutput(Path temporary, Path target) throws IOException {
+        try { Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING); }
+        catch (AtomicMoveNotSupportedException unavailable) { Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING); }
     }
 
     private TreeMap<String, Path> extractFrames(Long artworkId, Path zipPath, Path tempDir,
@@ -263,6 +429,7 @@ public class UgoiraService {
         if (delays == null || delays.size() != frameCount) {
             return Collections.nCopies(frameCount, 100);
         }
+        if (delays.stream().anyMatch(delay -> delay == null || delay <= 0)) throw new IllegalArgumentException("Invalid animation delay");
         return delays;
     }
 
@@ -300,7 +467,9 @@ public class UgoiraService {
 
     private boolean runFfmpeg(Long artworkId, List<Map.Entry<String, Path>> orderedFrames,
                               List<Integer> delays, Path tempDir, Path downloadPath,
-                              String outputBaseName, int attempt, int maxAttempts,
+                              String outputBaseName, String format,
+                              top.sywyar.pixivdownload.download.media.MediaOutputSettings encodingSettings,
+                              int attempt, int maxAttempts,
                               Consumer<UgoiraProgress> progressListener,
                               BooleanSupplier cancellationRequested) throws Exception {
         Path listFile = tempDir.resolve("frames.txt");
@@ -309,17 +478,18 @@ public class UgoiraService {
             String fp = orderedFrames.get(i).getValue().getFileName()
                     .toString().replace("\\", "/");
             sb.append("file '").append(fp).append("'\n");
+            sb.append("option framerate 1000\n");
             sb.append("duration ").append(delays.get(i) / 1000.0).append("\n");
         }
         // ffmpeg concat 需要重复最后一帧才能正确应用末帧时长
         sb.append("file '").append(
                 orderedFrames.get(orderedFrames.size() - 1).getValue()
                         .getFileName().toString().replace("\\", "/"))
-                .append("'\n");
+                .append("'\noption framerate 1000\n");
         Files.writeString(listFile, sb.toString(), StandardCharsets.UTF_8);
 
-        Path webpPath = downloadPath.resolve(outputBaseName + ".webp");
-        Path partialOutput = partialOutputPath(downloadPath, outputBaseName);
+        Path outputPath = downloadPath.resolve(outputBaseName + "." + format);
+        Path partialOutput = downloadPath.resolve(outputBaseName + "." + format + ".part");
         Path progressFile = tempDir.resolve("ffmpeg-progress.log");
         long durationMs = Math.max(1L, delays.stream().mapToLong(Integer::longValue).sum());
         publishProgress(progressListener, UgoiraProgress.builder()
@@ -336,6 +506,7 @@ public class UgoiraService {
                 .build());
         FfmpegProcessGate.Permit permit = ffmpegProcessGate.acquire(cancellationRequested);
         Process process = null;
+        Map<Long, ProcessHandle> descendants = new LinkedHashMap<>();
         try {
             ensureNotCancelled(cancellationRequested);
             Files.deleteIfExists(partialOutput);
@@ -345,20 +516,23 @@ public class UgoiraService {
             Path executable = Path.of(command);
             if (executable.getParent() != null) command = executable.toAbsolutePath().toString();
             Path workingDirectory = ffmpegWorkingDirectory(downloadPath);
-            ProcessBuilder processBuilder = new ProcessBuilder(
-                    command, "-y",
+            List<String> commandLine = new ArrayList<>(List.of(
+                    command, "-y", "-nostdin",
                     "-nostats",
                     "-stats_period", "0.5",
                     "-progress", "pipe:1",
                     "-f", "concat", "-safe", "0",
-                    "-i", workingDirectory.relativize(listFile.toAbsolutePath()).toString(),
-                    "-vcodec", "libwebp",
-                    "-quality", "90",
-                    "-loop", "0",
-                    "-an",
-                    "-f", "webp",
-                    workingDirectory.relativize(partialOutput.toAbsolutePath()).toString()
-            );
+                    "-i", workingDirectory.relativize(listFile.toAbsolutePath()).toString()));
+            commandLine.addAll(top.sywyar.pixivdownload.download.media.UgoiraEncoding.arguments(format, encodingSettings));
+            int lastDelay = delays.get(delays.size() - 1);
+            if (format.equals("gif")) commandLine.addAll(List.of("-final_delay", Integer.toString(Math.max(1, Math.round(lastDelay / 10f)))));
+            if (format.equals("apng")) commandLine.addAll(List.of("-final_delay", lastDelay + "/1000"));
+            commandLine.addAll(List.of("-fps_mode", "vfr"));
+            if (format.equals("gif") || format.equals("apng")) {
+                commandLine.addAll(List.of("-t", Double.toString(durationMs / 1000.0)));
+            }
+            commandLine.add(workingDirectory.relativize(partialOutput.toAbsolutePath()).toString());
+            ProcessBuilder processBuilder = new ProcessBuilder(commandLine);
             processBuilder.directory(workingDirectory.toFile());
             processBuilder.redirectOutput(ProcessBuilder.Redirect.appendTo(progressFile.toFile()));
             processBuilder.redirectError(ProcessBuilder.Redirect.DISCARD);
@@ -368,6 +542,7 @@ public class UgoiraService {
             long[] lastAt = {0L};
             int progressLineCount = 0;
             while (true) {
+                process.descendants().forEach(child -> descendants.put(child.pid(), child));
                 ensureNotCancelled(cancellationRequested);
                 enforceFfmpegOutputLimit(partialOutput);
                 progressLineCount = publishFfmpegProgress(
@@ -404,7 +579,9 @@ public class UgoiraService {
                         .build());
                 return false;
             }
-            Files.move(partialOutput, webpPath, StandardCopyOption.REPLACE_EXISTING);
+            ensureNotCancelled(cancellationRequested);
+            if (!Files.isRegularFile(partialOutput) || Files.size(partialOutput) == 0) return false;
+            publishOutput(partialOutput, outputPath);
             publishProgress(progressListener, UgoiraProgress.builder()
                     .phase(UgoiraProgress.PHASE_FFMPEG)
                     .status(UgoiraProgress.STATUS_COMPLETED)
@@ -422,14 +599,13 @@ public class UgoiraService {
             Thread.currentThread().interrupt();
             throw new CancellationException("download cancelled");
         } finally {
-            if (process != null && process.isAlive()) {
-                terminateProcessTree(process);
-            }
+            if (process == null) permit.close();
+            else terminateProcessTree(process, permit, descendants);
             try {
                 Files.deleteIfExists(partialOutput);
                 Files.deleteIfExists(progressFile);
-            } finally {
-                permit.close();
+            } catch (IOException cleanupFailure) {
+                log.debug("Could not remove FFmpeg temporary output", cleanupFailure);
             }
         }
     }
@@ -728,28 +904,31 @@ public class UgoiraService {
         return lines.size();
     }
 
-    private void terminateProcessTree(Process process) {
+    private void terminateProcessTree(Process process, FfmpegProcessGate.Permit permit, Map<Long, ProcessHandle> knownChildren) {
         ProcessHandle parent = process.toHandle();
-        List<ProcessHandle> descendants;
         try {
-            descendants = parent.descendants().toList();
-        } catch (RuntimeException ignored) {
-            descendants = List.of();
-        }
-        parent.destroyForcibly();
+            parent.descendants().forEach(child -> knownChildren.put(child.pid(), child));
+        } catch (RuntimeException ignored) {}
+        List<ProcessHandle> descendants = List.copyOf(knownChildren.values());
+        if (parent.isAlive()) parent.destroyForcibly();
         for (int i = descendants.size() - 1; i >= 0; i--) {
             descendants.get(i).destroyForcibly();
         }
+        List<ProcessHandle> handles = new ArrayList<>(descendants);
+        handles.add(parent);
+        java.util.concurrent.CompletableFuture.allOf(handles.stream().map(ProcessHandle::onExit)
+                .toArray(java.util.concurrent.CompletableFuture[]::new)).thenRun(permit::close);
+        boolean interrupted = Thread.interrupted();
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
         while (System.nanoTime() < deadline
                 && (parent.isAlive() || descendants.stream().anyMatch(ProcessHandle::isAlive))) {
             try {
                 Thread.sleep(50);
             } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
+                interrupted = true;
             }
         }
+        if (interrupted) Thread.currentThread().interrupt();
     }
 
     private static Path partialOutputPath(Path downloadPath, String outputBaseName) {

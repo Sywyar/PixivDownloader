@@ -31,6 +31,7 @@
     <link rel="stylesheet" href="/css/pixiv-motion.css">
     <link rel="stylesheet" href="/css/pixiv-scrollbar.css">
     <link rel="stylesheet" href="/pixiv-batch/pixiv-batch.css">
+    <link rel="stylesheet" href="/pixiv-batch/media-settings.css">
     <link rel="stylesheet" href="/pixiv-batch/pixiv-batch-components.css">
     <link rel="stylesheet" href="/pixiv-batch/pixiv-batch-navigation.css">
     <link rel="stylesheet" href="/pixiv-batch/pixiv-batch-search.css">
@@ -588,6 +589,7 @@
                             <option value="" data-i18n="option.collection.none">（不加入收藏夹）</option>
                         </select>
                     </div>
+                    <div id="type-output-settings"></div>
                     <div class="setting-item filename-setting">
                         <label for="s-file-name-template" data-i18n="label.settings.filename-template">文件名格式:</label>
                         <input type="text" id="s-file-name-template" value="{artwork_id}_p{page}" spellcheck="false">
@@ -809,6 +811,7 @@
 <script src="/pixiv-batch/batch-storage.js"></script>
 <script src="/pixiv-batch/batch-userscripts.js"></script>
 <script src="/pixiv-batch/batch-cookie.js"></script>
+<script src="/pixiv-batch/media-settings.js"></script>
 <script src="/pixiv-batch/batch-settings.js"></script>
 <script src="/pixiv-batch/batch-filters.js"></script>
 <script src="/pixiv-batch/batch-queue-model.js"></script>

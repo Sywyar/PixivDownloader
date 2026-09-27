@@ -108,6 +108,8 @@ async function sendDownload(artworkId, imageUrls, title, isUserDownload, usernam
         description: description || null,
         tags: Array.isArray(tags) && tags.length ? tags : null,
         fileNameTemplate,
+        imageFormats: state.settings.imageFormats || 'original',
+        ugoiraFormats: state.settings.ugoiraFormats || 'webp',
         fileNames,
         fileNameTimestamp
     };

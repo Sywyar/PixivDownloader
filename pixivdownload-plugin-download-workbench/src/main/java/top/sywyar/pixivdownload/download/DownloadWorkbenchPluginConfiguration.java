@@ -89,6 +89,45 @@ public class DownloadWorkbenchPluginConfiguration {
         return new DownloadWorkbenchPlugin();
     }
 
+    @Bean
+    @ConfigurationProperties(prefix = top.sywyar.pixivdownload.download.media.MediaOutputSettings.PREFIX)
+    public top.sywyar.pixivdownload.download.media.MediaOutputSettings mediaOutputSettings() {
+        return new top.sywyar.pixivdownload.download.media.MediaOutputSettings();
+    }
+
+    @Bean
+    public top.sywyar.pixivdownload.download.media.MediaOutputController mediaOutputController(
+            top.sywyar.pixivdownload.download.media.MediaOutputSettings settings,
+            top.sywyar.pixivdownload.download.media.MediaMaintenanceService maintenance,
+            top.sywyar.pixivdownload.download.media.MediaCapabilityService capabilities) {
+        return new top.sywyar.pixivdownload.download.media.MediaOutputController(settings, maintenance, capabilities);
+    }
+
+    @Bean(destroyMethod = "close")
+    public top.sywyar.pixivdownload.download.media.MediaMaintenanceService mediaMaintenanceService(
+            top.sywyar.pixivdownload.core.work.service.WorkAssetService assets,
+            top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository metadata,
+            top.sywyar.pixivdownload.download.media.ImageOutputService images,
+            UgoiraService animations) {
+        return new top.sywyar.pixivdownload.download.media.MediaMaintenanceService(assets, metadata, images, animations);
+    }
+
+    @Bean
+    public top.sywyar.pixivdownload.download.media.MediaCapabilityService mediaCapabilityService(
+            top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner runner,
+            top.sywyar.pixivdownload.core.ffmpeg.FfmpegCommandResolver resolver,
+            RuntimePathProvider paths) {
+        return new top.sywyar.pixivdownload.download.media.MediaCapabilityService(runner, resolver, paths);
+    }
+
+    @Bean
+    public top.sywyar.pixivdownload.download.media.ImageOutputService imageOutputService(
+            top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner runner,
+            top.sywyar.pixivdownload.download.media.MediaOutputSettings settings,
+            ObjectMapper mapper) {
+        return new top.sywyar.pixivdownload.download.media.ImageOutputService(runner, settings, mapper);
+    }
+
     @Bean("downloadWorkbenchMessages")
     public MessageResolver downloadWorkbenchMessages(MessageResolver messages, LocaleBundlePolicy localeBundlePolicy) {
         return ResourceBundleMessageResolver.of(
@@ -138,8 +177,9 @@ public class DownloadWorkbenchPluginConfiguration {
     public UgoiraService ugoiraService(PixivImageDownloader pixivImageDownloader,
                                        FfmpegCommandResolver ffmpegCommandResolver,
                                        FfmpegProcessGate ffmpegProcessGate,
+                                       top.sywyar.pixivdownload.download.media.MediaOutputSettings outputSettings,
                                        @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
-        return new UgoiraService(pixivImageDownloader, ffmpegCommandResolver, messages, ffmpegProcessGate);
+        return new UgoiraService(pixivImageDownloader, ffmpegCommandResolver, messages, ffmpegProcessGate, outputSettings);
     }
 
     @Bean
@@ -168,6 +208,7 @@ public class DownloadWorkbenchPluginConfiguration {
                                                            InteractiveDownloadExecutionLane interactiveDownloadExecutionLane,
                                                            PixivBookmarkActions pixivBookmarkActions,
                                                            UgoiraService ugoiraService,
+                                                           top.sywyar.pixivdownload.download.media.ImageOutputService imageOutputService,
                                                            AuthorObservationService authorObservationService,
                                                            ArtworkAuthorLookup artworkAuthorLookup,
                                                            DownloadPathGuard downloadPathGuard,
@@ -181,7 +222,7 @@ public class DownloadWorkbenchPluginConfiguration {
                 artworkDownloadHistory, artworkDownloadLookup, artworkDownloadStatistics,
                 visitorDownloadQuotaService,
                 pixivImageDownloader, taskScheduler, interactiveDownloadExecutionLane,
-                pixivBookmarkActions, ugoiraService, authorObservationService,
+                pixivBookmarkActions, ugoiraService, imageOutputService, authorObservationService,
                 artworkAuthorLookup, downloadPathGuard,
                 collectionDownloadRootResolver, workCollectionMembership,
                 artworkSeriesObserver, artworkHashIndexMaintenance, workMetadataCapture,

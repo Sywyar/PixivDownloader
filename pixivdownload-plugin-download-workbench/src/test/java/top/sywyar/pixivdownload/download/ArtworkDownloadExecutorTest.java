@@ -131,10 +131,14 @@ class ArtworkDownloadExecutorTest {
     }
 
     private ArtworkDownloadExecutor newExecutor(InteractiveDownloadExecutionLane taskExecutor) {
+        org.mockito.Mockito.lenient().when(ugoiraService.outputFormats(any())).thenReturn(java.util.List.of("webp"));
         return new ArtworkDownloadExecutor(downloadSettings, eventPublisher,
                 artworkDownloadHistory, artworkDownloadLookup, artworkDownloadStatistics,
                 visitorDownloadQuotaService, pixivImageDownloader, taskScheduler, taskExecutor,
                 pixivBookmarkActions, ugoiraService,
+                new top.sywyar.pixivdownload.download.media.ImageOutputService(
+                        mock(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.class),
+                        new top.sywyar.pixivdownload.download.media.MediaOutputSettings(), new com.fasterxml.jackson.databind.ObjectMapper()),
                 authorObservationService, artworkAuthorLookup, downloadPathGuard,
                 collectionDownloadRootResolver, workCollectionMembership,
                 artworkSeriesObserver, artworkHashIndexMaintenance,

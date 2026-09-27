@@ -76,7 +76,9 @@ public record ScheduleTaskSnapshot(
                 download.path("novelAutoTranslate").asBoolean(false),
                 download.path("novelTranslateLanguage").asText(""),
                 intOrNull(download.path("novelTranslateSegmentSize")),
-                DownloadPathAction.parse(download.path("pathOverflowAction").asText(null)));
+                DownloadPathAction.parse(download.path("pathOverflowAction").asText(null)),
+                download.path("imageFormats").asText("original"),
+                download.path("ugoiraFormats").asText("webp"));
     }
 
     /**
@@ -155,6 +157,7 @@ public record ScheduleTaskSnapshot(
                            boolean redownloadDeleted,
                            String novelFormat, boolean novelMerge, String novelMergeFormat,
                            boolean novelAutoTranslate, String novelTranslateLanguage,
-                           Integer novelTranslateSegmentSize, DownloadPathAction pathOverflowAction) {
+                           Integer novelTranslateSegmentSize, DownloadPathAction pathOverflowAction,
+                           String imageFormats, String ugoiraFormats) {
     }
 }

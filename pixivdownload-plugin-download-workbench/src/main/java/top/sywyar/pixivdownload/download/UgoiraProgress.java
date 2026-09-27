@@ -5,7 +5,7 @@ import lombok.Builder;
 import lombok.Getter;
 
 @Getter
-@Builder
+@Builder(toBuilder = true)
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class UgoiraProgress {
     public static final String STATUS_RUNNING = "running";
@@ -32,4 +32,7 @@ public class UgoiraProgress {
     private final Long ffmpegOutTimeMs;
     private final Long ffmpegDurationMs;
     private final Integer ffmpegProgress;
+    private final String outputFormat;
+    private final Integer outputIndex;
+    private final Integer outputCount;
 }

@@ -376,6 +376,13 @@ function buildSettingsDrawerBody() {
         bt('settings.filename.help', '生成不含扩展名的文件名主干；重复名称自动追加页码。点击变量插入。')));
     body.appendChild(varChips);
     body.appendChild(namePreview);
+    const typeSettings = el('div');
+    typeSettings.id = 'type-output-settings';
+    body.appendChild(typeSettings);
+    const runtime = altQueueTypes();
+    if (runtime) runtime.contributionsOf('settings').forEach(setting => {
+        if (typeof setting.mount === 'function') setting.mount(typeSettings);
+    });
 
     if (isAdmin) {
         const pathAction = el('select', 'ab-input');

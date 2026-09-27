@@ -352,7 +352,8 @@
                 ? `${formatDurationMs(progress.ffmpegOutTimeMs || 0)} / ${formatDurationMs(progress.ffmpegDurationMs)}`
                 : '';
             parts.push(miniProgressHtml(
-                bt('queue.ugoira.ffmpeg', 'ffmpeg 转换'),
+                bt('queue.ugoira.ffmpeg', 'ffmpeg 转换') + (progress.outputFormat
+                    ? ' · ' + progress.outputFormat.toUpperCase() + ' (' + progress.outputIndex + '/' + progress.outputCount + ')' : ''),
                 timeText,
                 progress.ffmpegProgress,
                 status === 'failed' ? 'var(--danger-bg)' : 'var(--violet)'

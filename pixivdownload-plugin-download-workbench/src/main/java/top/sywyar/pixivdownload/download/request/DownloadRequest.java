@@ -28,6 +28,10 @@ public class DownloadRequest {
 
     @Data
     public static class Other {
+        private String imageFormats;
+        private String ugoiraFormats;
+        @com.fasterxml.jackson.annotation.JsonIgnore
+        private boolean mediaOutputEnabled = true;
         private boolean isUserDownload;
         private String username;
         private Long authorId;

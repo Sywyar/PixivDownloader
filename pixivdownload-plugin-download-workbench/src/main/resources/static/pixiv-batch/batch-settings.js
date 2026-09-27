@@ -121,6 +121,9 @@
         document.getElementById('s-image-delay').value = state.settings.imageDelay ?? 0;
         state.settings.fileNameTemplate = normalizeFileNameTemplate(state.settings.fileNameTemplate);
         document.getElementById('s-file-name-template').value = state.settings.fileNameTemplate;
+        window.PixivBatch.queueTypes.contributionsOf('settings').forEach(setting => {
+            if (typeof setting.mount === 'function') setting.mount(document.getElementById('type-output-settings'));
+        });
         const pathAction = document.getElementById('s-path-overflow-action');
         if (pathAction) {
             pathAction.value = state.settings.pathOverflowAction || 'ASK';

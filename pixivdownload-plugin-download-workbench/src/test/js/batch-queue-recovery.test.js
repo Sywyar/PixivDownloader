@@ -260,7 +260,7 @@ test('Pixiv recovery reads status only, rejects unavailable or mismatched result
         }
     });
     h.context.window.PixivBatch.queueTypes.registerModule = initializer => {
-        descriptor = initializer({type: 'illust', assertActive() {
+        descriptor = initializer({type: 'illust', onCleanup() {}, assertActive() {
             if (!active) throw new Error('stale');
         }}).descriptor;
     };

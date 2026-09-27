@@ -150,6 +150,17 @@ test('设置抽屉仅保留贡献锚点，缺席小说与 AI 时不伪造设置'
     assert.ok(body.querySelector('template[data-qt-slot="settings-card"]'));
 });
 
+test('设置抽屉通过当前队列运行时挂载格式选项，缺席时仍可打开', () => {
+    const h = harness();
+    let mounted;
+    h.context.altQueueTypes = () => ({contributionsOf: () => [{mount: root => { mounted = root; }}]});
+    const body = h.context.buildSettingsDrawerBody();
+    assert.equal(mounted, body.querySelector('#type-output-settings'));
+    assert.ok(mounted);
+    h.context.altQueueTypes = () => null;
+    assert.ok(h.context.buildSettingsDrawerBody());
+});
+
 test('真实小说片段绑定同一设置模型，重开与换代恢复值且旧监听失效', () => {
     const h = harness();
     const owner = h.mountNovel();

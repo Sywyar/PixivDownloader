@@ -385,6 +385,95 @@ class UgoiraServiceTest {
         return new TestUgoiraService(downloader, resolver);
     }
 
+    @Test
+    @DisplayName("真实编码生成全部选定动画、保留原 ZIP 时序并写出 JPEG 缩略图")
+    void realMultiFormatOutputsPreserveTimingAndZip() throws Exception {
+        Process availability;
+        try {
+            availability = new ProcessBuilder("ffmpeg", "-version")
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
+        } catch (IOException absent) {
+            org.junit.jupiter.api.Assumptions.assumeTrue(false, "FFmpeg required");
+            return;
+        }
+        assertThat(availability.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (ZipOutputStream archive = new ZipOutputStream(bytes)) {
+            for (int i = 0; i < 2; i++) {
+                BufferedImage frame = new BufferedImage(17, 13, BufferedImage.TYPE_INT_ARGB);
+                frame.setRGB(8, 6, i == 0 ? 0xFFFF0000 : 0xFF0000FF);
+                archive.putNextEntry(new ZipEntry("00000" + i + ".png"));
+                assertThat(ImageIO.write(frame, "png", archive)).isTrue();
+                archive.closeEntry();
+            }
+        }
+        byte[] originalZip = bytes.toByteArray();
+        var request = ugoiraRequest("animation");
+        request.setUgoiraDelays(List.of(100, 150));
+        request.setUgoiraFormats("webp,gif,apng,mp4,zip");
+        var service = service(archiveDownloader(originalZip), fallbackResolver());
+        assertThat(service.processUgoira(100L, request, tempDir, null, null)).isEqualTo(1);
+        assertThat(Files.readAllBytes(tempDir.resolve("animation.zip"))).isEqualTo(originalZip);
+        var timing = new java.util.Properties();
+        try (var reader = Files.newBufferedReader(tempDir.resolve("animation.frames.properties"), java.nio.charset.StandardCharsets.UTF_8)) {
+            timing.load(reader);
+        }
+        assertThat(timing.getProperty("000001.png")).isEqualTo("150");
+        var manifest = top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest.read(tempDir.resolve("animation")).orElseThrow();
+        assertThat(manifest.extensions()).containsExactly("webp", "gif", "apng", "mp4", "zip");
+        assertThat(ImageIO.read(tempDir.resolve("animation_thumb.jpg").toFile())).isNotNull();
+        for (String format : List.of("gif", "apng", "mp4")) {
+            Process probe = new ProcessBuilder("ffprobe", "-v", "error", "-show_entries", "packet=duration_time",
+                    "-of", "csv=p=0", tempDir.resolve("animation." + format).toString())
+                    .redirectErrorStream(true).start();
+            String result = new String(probe.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            assertThat(probe.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(probe.exitValue()).as(result).isZero();
+            double duration = result.lines().filter(line -> !line.isBlank()).mapToDouble(Double::parseDouble).sum();
+            assertThat(duration).as(format + " timing").isBetween(0.23, 0.27);
+        }
+        String webp = new String(Files.readAllBytes(tempDir.resolve("animation.webp")), java.nio.charset.StandardCharsets.ISO_8859_1);
+        assertThat(webp).startsWith("RIFF").contains("ANIM").contains("ANMF");
+        byte[] webpBytes = Files.readAllBytes(tempDir.resolve("animation.webp"));
+        int animationDuration = 0;
+        for (int offset = 12; offset + 8 <= webpBytes.length;) {
+            int size = ByteBuffer.wrap(webpBytes, offset + 4, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt();
+            String chunk = new String(webpBytes, offset, 4, java.nio.charset.StandardCharsets.US_ASCII);
+            if (chunk.equals("ANMF")) {
+                int delayOffset = offset + 20;
+                animationDuration += (webpBytes[delayOffset] & 255) | (webpBytes[delayOffset + 1] & 255) << 8
+                        | (webpBytes[delayOffset + 2] & 255) << 16;
+            }
+            offset += 8 + size + (size & 1);
+        }
+        assertThat(animationDuration).as("WebP timing").isBetween(230, 270);
+        byte[] existingGif = Files.readAllBytes(tempDir.resolve("animation.gif"));
+        Files.delete(tempDir.resolve("animation.mp4"));
+        var offline = service((source, referer, target, cookie, observer) -> {
+            throw new AssertionError("Historical conversion must not download");
+        }, fallbackResolver());
+        assertThat(offline.addMissingFormats(100L, tempDir.resolve("animation.webp"), "gif,mp4", () -> false)).isTrue();
+        assertThat(tempDir.resolve("animation.mp4")).isNotEmptyFile();
+        assertThat(Files.readAllBytes(tempDir.resolve("animation.gif"))).isEqualTo(existingGif);
+        assertThat(Files.readAllBytes(tempDir.resolve("animation.zip"))).isEqualTo(originalZip);
+        assertThat(top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest.read(tempDir.resolve("animation"))
+                .orElseThrow().extensions()).containsExactly("webp", "gif", "apng", "mp4", "zip");
+    }
+
+    @Test
+    @DisplayName("编码失败仍保留用户选择的原始帧包与时序")
+    void failedEncodingKeepsSelectedArchive() throws Exception {
+        byte[] original = zip("000000.jpg", jpegFrame());
+        var request = ugoiraRequest("retained");
+        request.setUgoiraFormats("zip,webp");
+        var service = service(archiveDownloader(original),
+                () -> new ResolvedFfmpegCommand(tempDir.resolve("missing-ffmpeg").toString(), ResolvedFfmpegCommand.Source.FALLBACK));
+        assertThat(service.processUgoira(100L, request, tempDir, null, null)).isZero();
+        assertThat(Files.readAllBytes(tempDir.resolve("retained.zip"))).isEqualTo(original);
+        assertThat(tempDir.resolve("retained.frames.properties")).isNotEmptyFile();
+        assertThat(tempDir.resolve("retained.webp")).doesNotExist();
+    }
+
     private static FfmpegCommandResolver fallbackResolver() {
         return () -> new ResolvedFfmpegCommand(
                 "ffmpeg",
@@ -462,7 +551,8 @@ class UgoiraServiceTest {
                 PixivImageDownloader downloader,
                 FfmpegCommandResolver resolver
         ) {
-            super(downloader, resolver, WorkbenchTestMessages.messages(), cancelled -> () -> {});
+            super(downloader, resolver, WorkbenchTestMessages.messages(), cancelled -> () -> {},
+                    new top.sywyar.pixivdownload.download.media.MediaOutputSettings());
         }
 
         @Override
@@ -490,7 +580,8 @@ class UgoiraServiceTest {
                 long timeoutNanos,
                 long maximumOutputBytes
         ) {
-            super(downloader, resolver, WorkbenchTestMessages.messages(), cancelled -> () -> {});
+            super(downloader, resolver, WorkbenchTestMessages.messages(), cancelled -> () -> {},
+                    new top.sywyar.pixivdownload.download.media.MediaOutputSettings());
             this.childPidFile = childPidFile;
             this.timeoutNanos = timeoutNanos;
             this.maximumOutputBytes = maximumOutputBytes;

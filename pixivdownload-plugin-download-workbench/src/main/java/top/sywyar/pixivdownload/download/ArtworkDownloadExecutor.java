@@ -91,6 +91,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
     private final InteractiveDownloadExecutionLane interactiveDownloadExecutionLane;
     private final PixivBookmarkActions pixivBookmarkActions;
     private final UgoiraService ugoiraService;
+    private final top.sywyar.pixivdownload.download.media.ImageOutputService imageOutputService;
     private final AuthorObservationService authorObservationService;
     private final ArtworkAuthorLookup artworkAuthorLookup;
     private final DownloadPathGuard downloadPathGuard;
@@ -117,6 +118,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                                    InteractiveDownloadExecutionLane interactiveDownloadExecutionLane,
                                    PixivBookmarkActions pixivBookmarkActions,
                                    UgoiraService ugoiraService,
+                                   top.sywyar.pixivdownload.download.media.ImageOutputService imageOutputService,
                                    AuthorObservationService authorObservationService,
                                    ArtworkAuthorLookup artworkAuthorLookup,
                                    DownloadPathGuard downloadPathGuard,
@@ -137,6 +139,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
         this.interactiveDownloadExecutionLane = interactiveDownloadExecutionLane;
         this.pixivBookmarkActions = pixivBookmarkActions;
         this.ugoiraService = ugoiraService;
+        this.imageOutputService = imageOutputService;
         this.authorObservationService = authorObservationService;
         this.artworkAuthorLookup = artworkAuthorLookup;
         this.downloadPathGuard = downloadPathGuard;
@@ -214,7 +217,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
 
             if (other.isUgoira() && other.getUgoiraZipUrl() != null) {
                 // === 动图 (ugoira) 处理：委托给 UgoiraService ===
-                fileExtensions.add("webp");
+                fileExtensions.addAll(ugoiraService.outputFormats(other));
                 status.setCurrentImageIndex(0);
                 eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
 
@@ -255,7 +258,8 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                                 imageNumber, imageUrls.size(), imageProgressListener, status::isCancelled,
                                 remainingImageBytes);
                         if (extension != null) {
-                            fileExtensions.add(extension);
+                            fileExtensions.addAll(imageOutputService.process(fileStem, extension,
+                                    other.isMediaOutputEnabled() ? other.getImageFormats() : "original", status::isCancelled));
                             successCount.incrementAndGet();
                             status.setDownloadedCount(successCount.get());
                             log.info(logMessage("download.log.progress",
@@ -1008,8 +1012,8 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                         other.getAuthorName(), recordTime, count, other.isAi(), other.getXRestrict(), length),
                 PixivWorkFileNameFormatter.formatAll(PixivWorkFileNameFormatter.DEFAULT_TEMPLATE, artworkId,
                         title, other.getAuthorId(), other.getAuthorName(), recordTime, count, other.isAi(), other.getXRestrict()),
-                other.isUgoira() ? List.of(".webp", ".webp.part", "_thumb.jpg")
-                        : List.of(".jpg", ".image-download.part"),
+                other.isUgoira() ? List.of(".webp", ".webp.part", "_thumb.jpg", ".frames.properties", ".media.properties.part")
+                        : List.of(".jpg", ".image-download.part", "_thumb.jpg", ".media.properties.part"),
                 other.isUgoira() ? List.of("_ugoira_frames.zip.part", "_frames_tmp/ffmpeg-progress.log") : List.of(),
                 DownloadPathAction.parse(other.getPathOverflowAction()));
         List<String> computed = resolved.baseNames();

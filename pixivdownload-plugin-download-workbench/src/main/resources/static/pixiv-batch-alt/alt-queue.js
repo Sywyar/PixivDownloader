@@ -793,7 +793,8 @@ function progressExtras(q) {
             const timeText = up.ffmpegDurationMs > 0
                 ? `${formatDurationMs(up.ffmpegOutTimeMs || 0)} / ${formatDurationMs(up.ffmpegDurationMs)}`
                 : '';
-            parts.appendChild(miniProgress(bt('queue.ugoira.ffmpeg', 'ffmpeg 转换'), timeText, up.ffmpegProgress, 'is-ffmpeg'));
+            const output = up.outputFormat ? ' · ' + up.outputFormat.toUpperCase() + ' (' + up.outputIndex + '/' + up.outputCount + ')' : '';
+            parts.appendChild(miniProgress(bt('queue.ugoira.ffmpeg', 'ffmpeg 转换') + output, timeText, up.ffmpegProgress, 'is-ffmpeg'));
             has = true;
         }
         if (up.status === 'failed') {

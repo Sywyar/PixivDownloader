@@ -224,6 +224,8 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
         other.setSeriesOrder(meta.seriesOrder());
         other.setIllustType(meta.illustType());
         other.setFileNameTemplate(download.fileNameTemplate());
+        other.setImageFormats(download.imageFormats());
+        other.setUgoiraFormats(download.ugoiraFormats());
         other.setPathOverflowAction(context.userAction("DOWNLOAD_PATH_ACTION_REQUIRED")
                 .orElse(download.pathOverflowAction().name()));
         other.setBookmark(download.bookmark());
