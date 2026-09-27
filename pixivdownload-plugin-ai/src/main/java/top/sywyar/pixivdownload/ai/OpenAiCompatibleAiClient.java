@@ -137,20 +137,18 @@ public class OpenAiCompatibleAiClient implements AiChatClient {
                     && (endpoint.getPort() == -1 || endpoint.getPort() == 443)
                     && "/v1/models".equals(endpoint.getPath())
                     && endpoint.getRawQuery() == null && endpoint.getRawFragment() == null;
-            HttpHeaders headers = buildHeaders(settings.apiKey());
+            HttpHeaders headers = buildHeaders(null);
             if (anthropic) {
-                headers.remove(HttpHeaders.AUTHORIZATION);
-                if (settings.apiKey() != null && !settings.apiKey().isBlank())
-                    headers.set("x-api-key", settings.apiKey().trim());
                 headers.set("anthropic-version", "2023-06-01");
             }
+            boolean authenticated = false;
             List<AiModelInfo> models = new ArrayList<>();
             Set<String> seen = new HashSet<>();
             Set<String> cursors = new HashSet<>();
             String cursor = null;
             int totalBytes = 0;
             long started = System.nanoTime();
-            for (int page = 0; page < MAX_MODEL_PAGES; page++) {
+            for (int page = 0; page < MAX_MODEL_PAGES;) {
                 if (Thread.currentThread().isInterrupted()
                         || System.nanoTime() - started >= MODEL_QUERY_BUDGET_NANOS) throw modelListFailure();
                 URI uri = cursor == null ? endpoint : UriComponentsBuilder.fromUri(endpoint)
@@ -162,6 +160,14 @@ public class OpenAiCompatibleAiClient implements AiChatClient {
                 try (var response = request.execute()) {
                     if (!response.getStatusCode().is2xxSuccessful()) {
                         int status = response.getStatusCode().value();
+                        if ((status == 401 || status == 403) && !authenticated
+                                && settings.apiKey() != null && !settings.apiKey().isBlank()) {
+                            if (anthropic) headers.set("x-api-key", settings.apiKey().trim());
+                            else headers.setBearerAuth(settings.apiKey().trim());
+                            authenticated = true;
+                            // 整轮只允许一次鉴权重试，保留当前游标和累计预算。
+                            continue;
+                        }
                         String message = "HTTP " + status;
                         throw new AiClientException(message, new RestClientResponseException(
                                 message, status, "", null, null, StandardCharsets.UTF_8));
@@ -171,6 +177,7 @@ public class OpenAiCompatibleAiClient implements AiChatClient {
                     bytes = response.getBody().readNBytes(remaining + 1);
                     if (bytes.length > remaining) throw modelListFailure();
                 }
+                page++;
                 totalBytes += bytes.length;
                 if (System.nanoTime() - started >= MODEL_QUERY_BUDGET_NANOS) throw modelListFailure();
                 ModelListResponse response = MAPPER.readValue(

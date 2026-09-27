@@ -23,6 +23,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.headerDoesNotExist;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
@@ -32,20 +33,26 @@ class AiModelsControllerTest {
 
     @ParameterizedTest
     @CsvSource({
-            "401,,api-key-required",
-            "401,'',api-key-required",
-            "401,'  ',api-key-required",
-            "401,test-secret,authentication-failed",
-            "403,,models-forbidden",
-            "403,test-secret,models-forbidden",
-            "500,test-secret,models-query-failed"
+            "401,,1,api-key-required",
+            "401,'',1,api-key-required",
+            "401,'  ',1,api-key-required",
+            "401,test-secret,2,authentication-failed",
+            "403,,1,models-forbidden",
+            "403,test-secret,2,models-forbidden",
+            "500,test-secret,1,models-query-failed"
     })
     @DisplayName("模型查询区分缺少密钥、鉴权失败和访问被拒绝，且不回传服务错误正文")
-    void modelQueryReportsAuthenticationStatus(int status, String apiKey, String expectedCode) {
+    void modelQueryReportsAuthenticationStatus(int status, String apiKey, int attempts, String expectedCode) {
         RestTemplate direct = new RestTemplate();
         MockRestServiceServer server = MockRestServiceServer.bindTo(direct).build();
         server.expect(requestTo("https://example.test/v1/models"))
+                .andExpect(headerDoesNotExist(HttpHeaders.AUTHORIZATION))
                 .andRespond(withStatus(HttpStatus.valueOf(status)).body("upstream-secret"));
+        if (attempts == 2) {
+            server.expect(requestTo("https://example.test/v1/models"))
+                    .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey))
+                    .andRespond(withStatus(HttpStatus.valueOf(status)).body("upstream-secret"));
+        }
         var controller = new AiModelsController(new OpenAiCompatibleAiClient(
                 new AiConfig(), mock(MessageResolver.class), direct, new RestTemplate()));
 

@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.headerDoesNotExist;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -119,14 +120,14 @@ class OpenAiCompatibleAiClientTest {
     }
 
     @Test
-    @DisplayName("GET models 使用当前鉴权并返回排序去重后的有界模型")
+    @DisplayName("公开目录优先匿名查询，填写密钥也不发送，并返回排序去重后的模型")
     void listsModelsWithCurrentSettings() throws Exception {
         RestTemplate direct = new RestTemplate();
         MockRestServiceServer server = MockRestServiceServer.bindTo(direct).build();
         OpenAiCompatibleAiClient client = client(direct);
         server.expect(requestTo("https://example.test/v1/models"))
                 .andExpect(method(org.springframework.http.HttpMethod.GET))
-                .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer sk-test-secret"))
+                .andExpect(headerDoesNotExist(HttpHeaders.AUTHORIZATION))
                 .andRespond(withSuccess("""
                         {"data":[
                           {"id":"zeta","owned_by":"vendor"},
@@ -153,6 +154,10 @@ class OpenAiCompatibleAiClientTest {
         OpenAiCompatibleAiClient client = client(direct);
         String apiKey = "sk-test-secret-value";
         server.expect(requestTo("https://example.test/v1/models"))
+                .andExpect(headerDoesNotExist(HttpHeaders.AUTHORIZATION))
+                .andRespond(withStatus(HttpStatus.UNAUTHORIZED));
+        server.expect(requestTo("https://example.test/v1/models"))
+                .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey))
                 .andRespond(withStatus(HttpStatus.UNAUTHORIZED)
                         .contentType(MediaType.APPLICATION_JSON)
                         .body("{\"api_key\":\"" + apiKey + "\"}"));
