@@ -174,7 +174,6 @@ internal fun MediaCapabilities(
     fun message(suffix: String) = nodes.filterIsInstance<Text>().firstOrNull { it.id() == group.id() + suffix }
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         CupertinoText(text(message(".cap-title")!!.text()), fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-        message(".cap-help")?.let { CupertinoText(text(it.text()), fontSize = 12.sp, color = palette.secondaryText) }
         ToolAction(nodes.filterIsInstance<Button>().first { it.id() == group.id() + ".check" }, text, emit)
         if (nodes.any { it.id() == group.id() + ".busy" }) CupertinoActivityIndicator(Modifier.size(14.dp))
         message(".command")?.let {

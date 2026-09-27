@@ -140,7 +140,7 @@ private fun FfmpegManagement(
             CupertinoText(text(it.text()), fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
         }
         nodes.filterIsInstance<Text>().filter {
-            it.id() in listOf("status.ffmpeg.intro", "status.ffmpeg.source", "status.ffmpeg.path", "status.ffmpeg.notice", "status.ffmpeg.confirmation")
+            it.id() in listOf("status.ffmpeg.source", "status.ffmpeg.path", "status.ffmpeg.notice", "status.ffmpeg.confirmation")
         }.forEach {
             SelectionContainer {
                 CupertinoText(text(it.text()), fontSize = 12.sp, color = if (it.style() == TextStyle.ERROR) palette.error else palette.secondaryText)
