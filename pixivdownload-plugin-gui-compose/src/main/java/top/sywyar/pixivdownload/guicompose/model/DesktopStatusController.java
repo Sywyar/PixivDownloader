@@ -45,6 +45,15 @@ final class DesktopStatusController {
     private volatile boolean connectivityChecking;
     private volatile long lastConnectivityCheckAt;
     private volatile boolean ffmpegInstalling;
+    private volatile Optional<DesktopUiHost.FfmpegInstallation> ffmpegInstallation = Optional.empty();
+    private final AtomicBoolean ffmpegChecking = new AtomicBoolean();
+    private volatile boolean ffmpegChecked;
+    private volatile boolean ffmpegCheckFailed;
+    private volatile boolean ffmpegConfirm;
+    private volatile TextToken ffmpegNotice;
+    private volatile boolean ffmpegNoticeError;
+    private volatile String ffmpegConfiguredPath;
+    private final Map<String, String> formValues;
     private final AtomicBoolean ffmpegDirectoryOpening = new AtomicBoolean();
     private volatile double ffmpegProgress;
 
@@ -59,6 +68,7 @@ final class DesktopStatusController {
         this.host = host;
         this.serverPort = serverPort;
         this.rootFolder = rootFolder;
+        this.formValues = formValues;
         this.updates = new DesktopUpdateController(owner, host, formValues);
     }
 
@@ -86,7 +96,6 @@ final class DesktopStatusController {
     }
 
     DesktopUiNode page(Map<String, Runnable> nextActions) {
-        Optional<DesktopUiHost.FfmpegInstallation> ffmpeg = host.locateFfmpeg();
         List<DesktopUiNode> webActions = owner.navigation.webEntryButtons(
                 NavigationPlacements.GUI_STATUS_ACTIONS,
                 "status.web",
@@ -184,68 +193,6 @@ final class DesktopStatusController {
                 "gui.status.hint.web-console",
                 TextStyle.CAPTION
         ));
-        List<DesktopUiNode> ffmpegNodes = new ArrayList<>();
-        ffmpegNodes.add(text(
-                "status.ffmpeg.intro",
-                "gui.ffmpeg.panel.intro",
-                TextStyle.BODY
-        ));
-        ffmpegNodes.add(status(
-                "status.ffmpeg.state",
-                ffmpeg.isPresent() ? host.message("gui.ffmpeg.badge.ready") : host.message(
-                        "gui.ffmpeg.badge.missing")
-        ));
-        ffmpeg.ifPresent(value -> {
-            ffmpegNodes.add(raw(
-                    "status.ffmpeg.source",
-                    host.message(
-                            "gui.ffmpeg.source.label",
-                            owner.localizedCode(
-                                    "ffmpeg.source.",
-                                    value.source().name().toLowerCase(Locale.ROOT)
-                            )
-                    ),
-                    TextStyle.CAPTION
-            ));
-            ffmpegNodes.add(raw(
-                    "status.ffmpeg.path",
-                    host.message(
-                            "gui.ffmpeg.path.label",
-                            value.ffmpegPath() == null ? "--" : value.ffmpegPath()
-                    ),
-                    TextStyle.CODE
-            ));
-        });
-        ffmpegNodes.add(row(
-                "status.ffmpeg.actions",
-                button(
-                        "status.ffmpeg.install",
-                        "status.ffmpeg.install",
-                        "gui.ffmpeg.action.download-to-managed",
-                        !owner.busy() && host.supportsManagedFfmpegInstall(),
-                        nextActions,
-                        this::requestFfmpegInstall
-                ),
-                button(
-                        "status.ffmpeg.open",
-                        "status.ffmpeg.open",
-                        "gui.ffmpeg.action.open-dir",
-                        !owner.busy(),
-                        nextActions,
-                        this::openFfmpegDirectory
-                )
-        ));
-        if (ffmpegInstalling) ffmpegNodes.add(new DesktopUiNode.Progress(
-                "status.ffmpeg.progress",
-                ffmpegProgress,
-                ffmpegProgress <= 0d,
-                owner.statusNotice.isBlank() ? null : TextToken.raw(owner.statusNotice)
-        ));
-        children.add(group(
-                "status.ffmpeg",
-                "gui.ffmpeg.panel.title",
-                column("status.ffmpeg.content", ffmpegNodes)
-        ));
         DesktopUiNode actions = column(
                 "status.actions",
                 group(
@@ -314,6 +261,7 @@ final class DesktopStatusController {
 
     void refresh() {
         owner.runBusy(() -> {
+            if (!ffmpegChecked) inspectFfmpeg();
             refreshSnapshot();
             owner.refreshOnboarding();
             owner.loadPluginStatus();
@@ -407,54 +355,153 @@ final class DesktopStatusController {
         });
     }
 
-    private void requestFfmpegInstall() {
-        if (!host.supportsManagedFfmpegInstall()) {
-            owner.showDialog(
-                    "ffmpeg.unsupported",
-                    "gui.dialog.info.title",
-                    "gui.ffmpeg.dialog.unsupported.message",
-                    DesktopUiDocument.DialogStyle.INFO
-            );
-            owner.rebuild();
-            return;
+    DesktopUiNode.Group ffmpegPanel(Map<String, Runnable> nextActions) {
+        Optional<DesktopUiHost.FfmpegInstallation> ffmpeg = ffmpegInstallation;
+        List<DesktopUiNode> ffmpegNodes = new ArrayList<>();
+        ffmpegNodes.add(text(
+                "status.ffmpeg.intro",
+                "gui.ffmpeg.panel.intro",
+                TextStyle.BODY
+        ));
+        ffmpegNodes.add(new DesktopUiNode.Text("status.ffmpeg.state",
+                ffmpegChecking.get() || !ffmpegChecked ? toolToken("checking")
+                        : ffmpegCheckFailed ? toolToken("check-failed")
+                        : TextToken.key(ffmpeg.isPresent() ? "gui.ffmpeg.badge.ready" : "gui.ffmpeg.badge.missing"),
+                TextStyle.CAPTION, true, false));
+        ffmpeg.ifPresent(value -> {
+            ffmpegNodes.add(raw(
+                    "status.ffmpeg.source",
+                    host.message(
+                            "gui.ffmpeg.source.label",
+                            owner.localizedCode(
+                                    "ffmpeg.source.",
+                                    value.source().name().toLowerCase(Locale.ROOT)
+                            )
+                    ),
+                    TextStyle.CAPTION
+            ));
+            ffmpegNodes.add(raw(
+                    "status.ffmpeg.path",
+                    host.message(
+                            "gui.ffmpeg.path.label",
+                            value.ffmpegPath() == null ? "--" : value.ffmpegPath()
+                    ),
+                    TextStyle.CODE
+            ));
+        });
+        if (ffmpegNotice != null) ffmpegNodes.add(new DesktopUiNode.Text(
+                "status.ffmpeg.notice", ffmpegNotice, ffmpegNoticeError ? TextStyle.ERROR : TextStyle.CAPTION, true, false));
+        nextActions.put("status.ffmpeg.help", () -> owner.runBusy(() -> {
+            try {
+                host.openExternalUri(java.net.URI.create("https://ffmpeg.org/download.html"));
+            } catch (Exception failure) {
+                LOG.warn("Unable to open FFmpeg installation guide", failure);
+                ffmpegNotice = TextToken.key("desktop.ui.action.failed");
+                ffmpegNoticeError = true;
+            }
+        }));
+        ffmpegNodes.add(new DesktopUiNode.Button(
+                "status.ffmpeg.help", "status.ffmpeg.help", toolToken("media-help"),
+                null, DesktopUiNode.ButtonStyle.NORMAL, !owner.busy()
+        ));
+        if (ffmpegConfirm) {
+            ffmpegNodes.add(text("status.ffmpeg.confirmation", "gui.ffmpeg.dialog.install.confirm.message", TextStyle.BODY));
+            ffmpegNodes.add(row("status.ffmpeg.actions",
+                    button("ffmpeg.confirm.install", "ffmpeg.confirm.install", "gui.ffmpeg.action.download",
+                            !owner.busy(), nextActions, () -> { ffmpegConfirm = false; installFfmpeg(); }),
+                    button("ffmpeg.confirm.cancel", "ffmpeg.confirm.cancel", "desktop.ui.action.cancel",
+                            !owner.busy(), nextActions, () -> { ffmpegConfirm = false; owner.rebuild(); })));
+        } else {
+            ffmpegNodes.add(new DesktopUiNode.Form("tools.ffmpeg.form", DesktopUiNode.FormStyle.COMPACT, null, List.of(
+                    new DesktopUiNode.FormRow("tools.ffmpeg.path.row", TextToken.key("gui.config.field.ffmpeg.executable-path.label"),
+                            TextToken.key("gui.config.field.ffmpeg.executable-path.help"),
+                            input("tools.ffmpeg.path", "tools.ffmpeg.path", "gui.config.field.ffmpeg.executable-path.label", null,
+                                    DesktopUiNode.InputKind.FILE, formValues.getOrDefault("tools.ffmpeg.path", ""),
+                                    !owner.busy() && !ffmpegChecking.get()), null))));
+            nextActions.put("status.ffmpeg.refresh", this::refreshFfmpeg);
+            ffmpegNodes.add(new DesktopUiNode.Button("status.ffmpeg.refresh", "status.ffmpeg.refresh", toolToken("refresh"),
+                    null, DesktopUiNode.ButtonStyle.NORMAL, !owner.busy() && !ffmpegChecking.get()));
+            nextActions.put("status.ffmpeg.path.save", this::saveFfmpegPath);
+            ffmpegNodes.add(new DesktopUiNode.Button("status.ffmpeg.path.save", "status.ffmpeg.path.save", toolToken("save-path"),
+                    null, DesktopUiNode.ButtonStyle.NORMAL, !owner.busy() && !ffmpegChecking.get()));
+            ffmpegNodes.add(row("status.ffmpeg.actions",
+                    button("status.ffmpeg.install", "status.ffmpeg.install", "gui.ffmpeg.action.download-to-managed",
+                            !owner.busy() && !ffmpegChecking.get() && host.supportsManagedFfmpegInstall(), nextActions, this::requestFfmpegInstall),
+                    button("status.ffmpeg.open", "status.ffmpeg.open", "gui.ffmpeg.action.open-dir",
+                            !owner.busy(), nextActions, this::openFfmpegDirectory)));
         }
-        owner.showDialog(
-                "ffmpeg.confirm",
-                "gui.ffmpeg.dialog.install.title",
-                DesktopUiDocument.DialogStyle.QUESTION,
-                (nextActions, dismissAction, dismiss) -> column(
-                        "ffmpeg.confirm.content",
-                        text(
-                                "ffmpeg.confirm.message",
-                                "gui.ffmpeg.dialog.install.confirm.message",
-                                TextStyle.BODY
-                        ),
-                        row(
-                                "ffmpeg.confirm.actions",
-                                button(
-                                        "ffmpeg.confirm.install",
-                                        "ffmpeg.confirm.install",
-                                        "gui.ffmpeg.action.download",
-                                        true,
-                                        nextActions,
-                                        () -> {
-                                            owner.closeDialog();
-                                            installFfmpeg();
-                                        }
-                                ),
-                                button(
-                                        "ffmpeg.confirm.cancel",
-                                        dismissAction,
-                                        "desktop.ui.action.cancel",
-                                        true,
-                                        nextActions,
-                                        dismiss
-                                )
-                        )
-                ),
-                520,
-                0
+        if (ffmpegInstalling) ffmpegNodes.add(new DesktopUiNode.Progress(
+                "status.ffmpeg.progress",
+                ffmpegProgress,
+                ffmpegProgress <= 0d,
+                owner.statusNotice.isBlank() ? null : TextToken.raw(owner.statusNotice)
+        ));
+        return group(
+                "status.ffmpeg",
+                "gui.ffmpeg.panel.title",
+                column("status.ffmpeg.content", ffmpegNodes)
         );
+    }
+
+    private static TextToken toolToken(String key) {
+        return new TextToken("gui-compose", "gui.compose.tools.workspace." + key, "", List.of());
+    }
+
+    private void refreshFfmpeg() {
+        if (!ffmpegChecking.compareAndSet(false, true)) return;
+        owner.executeAsync(() -> {
+            try {
+                inspectFfmpeg();
+            } finally {
+                ffmpegChecking.set(false);
+                owner.rebuild();
+            }
+        });
+        owner.rebuild();
+    }
+
+    private void inspectFfmpeg() {
+        try {
+            ffmpegInstallation = host.locateFfmpeg();
+            ffmpegCheckFailed = false;
+            String configured = host.applicationConfig().read("ffmpeg.executable-path");
+            String path = configured == null ? "" : configured;
+            formValues.compute("tools.ffmpeg.path", (key, draft) -> draft == null || draft.equals(ffmpegConfiguredPath) ? path : draft);
+            ffmpegConfiguredPath = path;
+        } catch (Exception failure) {
+            ffmpegInstallation = Optional.empty();
+            ffmpegCheckFailed = true;
+            LOG.warn("Unable to inspect FFmpeg installation", failure);
+        } finally {
+            ffmpegChecked = true;
+        }
+    }
+
+    private void saveFfmpegPath() {
+        if (owner.busy() || ffmpegChecking.get()) return;
+        String value = formValues.getOrDefault("tools.ffmpeg.path", "").trim();
+        owner.runBusy(() -> {
+            try {
+                host.requireSafeConfigValue(value);
+                host.validateCoreConfigValue("ffmpeg.executable-path", value);
+                host.applicationConfig().writeAll(Map.of("ffmpeg.executable-path", value));
+                owner.coreConfigValueSaved("ffmpeg.executable-path", value);
+                ffmpegNotice = toolToken("path-saved");
+                ffmpegNoticeError = false;
+                refreshFfmpeg();
+            } catch (Exception failure) {
+                LOG.warn("Unable to save FFmpeg path", failure);
+                ffmpegNotice = toolToken("path-failed");
+                ffmpegNoticeError = true;
+            }
+        });
+    }
+
+    private void requestFfmpegInstall() {
+        if (owner.busy() || ffmpegChecking.get()) return;
+        if (!host.supportsManagedFfmpegInstall()) ffmpegNotice = TextToken.key("gui.ffmpeg.dialog.unsupported.message");
+        else ffmpegConfirm = true;
+        owner.rebuild();
     }
 
     private void installFfmpeg() {
@@ -477,36 +524,21 @@ final class DesktopStatusController {
                         }
                 );
                 owner.statusNotice = "";
-                owner.showDialog(
-                        "ffmpeg.success",
-                        "gui.ffmpeg.dialog.install-success.title",
-                        appToken(
-                                "gui.ffmpeg.dialog.install-success.message",
-                                owner.localizedCode(
-                                        "ffmpeg.source.",
-                                        installed.source().name().toLowerCase(Locale.ROOT)
-                                ),
-                                installed.ffmpegPath()
-                        ),
-                        DesktopUiDocument.DialogStyle.SUCCESS
-                );
+                ffmpegInstallation = Optional.of(installed);
+                ffmpegChecked = true;
+                ffmpegCheckFailed = false;
+                ffmpegNotice = toolToken("installed");
+                ffmpegNoticeError = false;
+                inspectFfmpeg();
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
                 LOG.error("Managed FFmpeg installation was interrupted", interrupted);
-                owner.showDialog(
-                        "ffmpeg.failed",
-                        "gui.ffmpeg.dialog.install-failed.title",
-                        "desktop.ui.ffmpeg.install-failed",
-                        DesktopUiDocument.DialogStyle.ERROR
-                );
+                ffmpegNotice = TextToken.key("desktop.ui.ffmpeg.install-failed");
+                ffmpegNoticeError = true;
             } catch (Exception failure) {
                 LOG.error("Managed FFmpeg installation failed", failure);
-                owner.showDialog(
-                        "ffmpeg.failed",
-                        "gui.ffmpeg.dialog.install-failed.title",
-                        "desktop.ui.ffmpeg.install-failed",
-                        DesktopUiDocument.DialogStyle.ERROR
-                );
+                ffmpegNotice = TextToken.key("desktop.ui.ffmpeg.install-failed");
+                ffmpegNoticeError = true;
             } finally {
                 ffmpegInstalling = false;
             }

@@ -64,7 +64,10 @@ function openScheduleOverride(task) {
     body.appendChild(useSavedBtn);
 
     const status = el('p', 'ab-field-note');
+    status.setAttribute('role', 'status');
     body.appendChild(status);
+    proxyInput.setAttribute('aria-label', bt('schedule.override.proxy', '单独代理'));
+    cookieInput.setAttribute('aria-label', bt('schedule.override.credential', '单独凭证'));
 
     const actions = el('div', 'ab-cookie-actions');
     const saveBtn = el('button', 'ab-btn ab-btn--primary');
@@ -170,10 +173,9 @@ async function openSchedulePending(task) {
     items.forEach(item => {
         const row = el('div', 'ab-pending-item card');
         const meta = el('div', 'ab-pending-meta');
-        meta.appendChild(el('strong', '', (item.workType || 'illust') + ' · ' + item.workId));
+        meta.appendChild(el('strong', '', scheduleKindLabel(item.workType) + ' · ' + item.workId));
         const sub = el('span', 'ab-muted');
-        const reason = localizeScheduleMachineCode(item.reasonCode)
-            || bt('schedule.pending.reason-unknown', '原因不可用');
+        const reason = schedulePendingReasonText(item, task.sourceType || task.type);
         sub.textContent = summaryJoin([
             bt('schedule.pending.attempts', '已重试 {count} 次', {count: item.attempts ?? 0}),
             item.needsManual ? bt('schedule.pending.needs-manual', '需人工处理') : '',
@@ -183,7 +185,12 @@ async function openSchedulePending(task) {
         row.appendChild(meta);
         const clearBtn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm', bt('schedule.pending.clear', '清除'));
         clearBtn.type = 'button';
+        const busy = () => ['RUNNING', 'QUEUED', 'CANCEL_REQUESTED'].includes(
+            (scheduleState.tasks.find(current => current.id === task.id) || task).runState);
+        clearBtn.disabled = busy();
+        if (clearBtn.disabled) clearBtn.title = bt('schedule.disabled.busy', '任务运行 / 排队中，暂不可操作');
         clearBtn.addEventListener('click', async () => {
+            if (busy()) return;
             try {
                 const res = await fetch(`${BASE}/api/schedule/tasks/${task.id}/pending`, {
                     method: 'DELETE',
@@ -208,6 +215,24 @@ async function openSchedulePending(task) {
     });
 }
 
+function schedulePendingReasonText(item, sourceType) {
+    const unavailable = () => bt('schedule.pending.reason-unavailable', '失败原因不可用');
+    const hasDetail = item.reasonDetailJson != null && String(item.reasonDetailJson).trim();
+    if (hasDetail) {
+        try {
+            const detail = JSON.parse(item.reasonDetailJson);
+            const code = typeof detail === 'string' ? detail : detail && typeof detail === 'object'
+                ? [detail.message, detail.reason, detail.reasonCode, detail.legacyReason]
+                    .find(value => typeof value === 'string' && value.trim()) : null;
+            if (code) return localizeScheduleMachineCode(code, sourceType) || unavailable();
+        } catch (e) { return unavailable(); }
+    }
+    if (item.reasonCode != null && String(item.reasonCode).trim()) {
+        return localizeScheduleMachineCode(item.reasonCode, sourceType) || unavailable();
+    }
+    return hasDetail ? unavailable() : '';
+}
+
 /* ============================================================
    创建 / 编辑（「存为计划任务」）
    来源定义（definitionJson）由计划来源运行时生成。
@@ -223,6 +248,10 @@ function openScheduleEditor(task) {
         }
     }
     const body = el('div', 'ab-schedule-editor');
+    let dirty = false;
+    let saving = false;
+    body.addEventListener('input', () => { dirty = true; });
+    body.addEventListener('change', () => { dirty = true; });
 
     if (editing) {
         body.appendChild(el('p', 'ab-field-note',
@@ -241,6 +270,7 @@ function openScheduleEditor(task) {
         ['interval', bt('schedule.trigger.interval', '固定周期')],
         ['cron', bt('schedule.trigger.cron', 'Cron 表达式')]
     ], editing && task.triggerKind === 'cron' ? 'cron' : 'interval', () => {
+        dirty = true;
         const isCron = triggerSeg.querySelector('.ab-seg-item.is-active') === triggerSeg.children[1];
         intervalRow.style.display = isCron ? 'none' : '';
         cronRow.style.display = isCron ? '' : 'none';
@@ -296,15 +326,21 @@ function openScheduleEditor(task) {
     body.appendChild(credInput);
 
     const status = el('p', 'ab-field-note');
-    body.appendChild(status);
+    status.setAttribute('role', 'status');
+    [nameInput, intervalInput, cronInput, limitInput, proxyInput, credInput].forEach((input, index) => {
+        input.id = 'abScheduleField' + index;
+        const label = input.previousElementSibling;
+        if (label && label.tagName === 'LABEL') label.htmlFor = input.id;
+    });
 
-    const actions = el('div', 'ab-cookie-actions');
+    const actions = el('div', 'ab-drawer-actions');
     const saveBtn = el('button', 'ab-btn ab-btn--primary');
     saveBtn.type = 'button';
     saveBtn.appendChild(el('span', '', editing
         ? bt('schedule.editor.save-edit', '保存修改')
         : bt('schedule.editor.save', '保存计划任务')));
     saveBtn.addEventListener('click', async () => {
+        if (saving) return;
         const name = nameInput.value.trim();
         if (!name) {
             status.textContent = bt('schedule.editor.error.name-required', '任务名称必填');
@@ -321,6 +357,9 @@ function openScheduleEditor(task) {
                 '首次抓取上限为 0（全量不限），确认创建？首次运行可能抓取大量作品。')) return;
         }
         const isCron = triggerSeg.querySelectorAll('.ab-seg-item')[1].classList.contains('is-active');
+        saving = true;
+        saveBtn.disabled = true;
+        body.setAttribute('aria-busy', 'true');
         try {
             const snapshot = editing ? (() => {
                 const sourceType = task.sourceType || task.type;
@@ -367,12 +406,17 @@ function openScheduleEditor(task) {
         } catch (e) {
             status.textContent = String(e && e.message || bt('schedule.error.save', '保存失败'));
             return;
+        } finally {
+            saving = false;
+            saveBtn.disabled = false;
+            body.removeAttribute('aria-busy');
         }
         closeDrawer();
         loadScheduleTasks(true);
     });
     actions.appendChild(saveBtn);
-    body.appendChild(actions);
+    const footer = el('div');
+    footer.append(status, actions);
 
     openDrawer({
         id: 'schedule-editor',
@@ -381,7 +425,8 @@ function openScheduleEditor(task) {
             ? bt('schedule.editor.title-edit', '编辑计划任务')
             : bt('schedule.editor.title-new', '新建计划任务'),
         body,
-        footer: null
+        beforeClose: () => !saving && (!dirty || abConfirm('dialog.discard-draft', '放弃未保存的修改？')),
+        footer
     });
 }
 

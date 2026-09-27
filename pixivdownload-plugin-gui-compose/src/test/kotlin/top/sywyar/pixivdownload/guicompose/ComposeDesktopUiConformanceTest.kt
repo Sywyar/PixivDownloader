@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.guicompose
 
-import androidx.compose.material3.MaterialTheme
+import io.github.robinpcrd.cupertino.theme.CupertinoTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -57,7 +57,7 @@ class ComposeDesktopUiConformanceTest {
         val model = TestModel(node)
         val observed = model.snapshot()
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 ComposeDesktopUiNodeRenderer.Render(
                     node,
                     { it.fallback() },
@@ -87,7 +87,7 @@ class ComposeDesktopUiConformanceTest {
         val observed = model.snapshot()
         val dispatch: (DesktopUiNode.Event) -> Unit = { model.dispatch(stamp(observed, it)) }
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 ComposeDesktopUiNodeRenderer.Render(
                     node,
                     { it.fallback() },
@@ -143,7 +143,7 @@ class ComposeDesktopUiConformanceTest {
         var renderedNode by mutableStateOf(firstNode)
         var documentRevision by mutableStateOf(observed.revision())
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 ComposeDesktopUiNodeRenderer.Render(
                     renderedNode,
                     { it.fallback() },

@@ -23,7 +23,7 @@ import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
 import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
 
 /**
- * GUI 专用插件状态只读接口。GUI（Swing，与后端同进程）经此读取插件管理视图，在桌面端展示已发现插件的安装 / 运行状态，
+ * GUI 专用插件状态只读接口。桌面提供者经此读取插件管理视图，展示已发现插件的安装 / 运行状态，
  * 并把启用 / 停用 / 安装 / 卸载等写操作引导到 Web 插件管理页（{@code /plugin-manage.html}）。
  *
  * <p><b>状态语义单一来源</b>：本控制器只委托核心 {@link PluginManagementService#list()} 投影，<b>不自行扫描插件目录、
@@ -58,7 +58,7 @@ public class GuiPluginController {
     /**
      * GET /api/gui/plugins/status：插件管理视图的 GUI 投影（是否处于恢复模式 + 每个插件的展示名称 / 来源 / 状态 /
      * 运行期阶段 / 是否受管 / 是否必选 / 版本）。状态语义直接取自 {@link PluginManagementService#list()}，仅把展示名称
-     * 在服务端解析为请求 locale 文案。
+     * 与简介在服务端解析为请求 locale 文案。
      */
     @GetMapping("/status")
     public ResponseEntity<GuiPluginStatusResponse> status(HttpServletRequest req) {
@@ -79,6 +79,9 @@ public class GuiPluginController {
         return new GuiPluginEntry(
                 entry.id(),
                 resolver.resolve(entry.displayNamespace(), entry.displayNameKey(), entry.id()),
+                resolver.resolve(entry.displayNamespace(), entry.descriptionKey(), ""),
+                entry.iconKey(),
+                entry.colorToken(),
                 entry.source(),
                 entry.status() != null ? entry.status().name() : null,
                 entry.runtimePhase() != null ? entry.runtimePhase().name() : null,
@@ -124,7 +127,7 @@ public class GuiPluginController {
 
     /**
      * GUI 插件状态响应（{@code /api/gui/plugins/status} 的 JSON 契约）。复用核心
-     * {@link PluginManagementReport} 的状态语义，仅把展示名称解析为文案、去掉 GUI 不需要的市场 / 描述符字段。
+     * {@link PluginManagementReport} 的状态语义，解析名称与简介，并保留受控图标和颜色 token。
      *
      * @param recoveryMode 核心壳当前是否处于恢复模式（存在未满足的必选插件）
      * @param observedAt   本次状态快照的观测时间
@@ -139,6 +142,9 @@ public class GuiPluginController {
      *
      * @param id           插件 id
      * @param name         展示名称（已按请求 locale 解析；解析不到时为插件 id）
+     * @param description  插件简介（按请求 locale 解析；缺失时为空）
+     * @param iconKey      插件声明的受控图标 token
+     * @param colorToken   插件声明的受控颜色 token
      * @param source       来源：{@code built-in} / {@code external} / {@code not-installed}
      * @param status       评估状态（{@code PluginStatus} 名，如 {@code STARTED}）
      * @param runtimePhase 运行期阶段（{@code PluginRuntimePhase} 名；仅受管外置插件有，否则 {@code null}）
@@ -150,6 +156,9 @@ public class GuiPluginController {
     public record GuiPluginEntry(
             String id,
             String name,
+            String description,
+            String iconKey,
+            String colorToken,
             String source,
             String status,
             String runtimePhase,

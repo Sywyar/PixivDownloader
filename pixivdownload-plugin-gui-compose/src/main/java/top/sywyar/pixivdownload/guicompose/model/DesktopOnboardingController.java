@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.guicompose.model;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPluginSnapshot;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiOnboardingStepContribution;
+import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiDocument;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.InputKind;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.TextStyle;
@@ -10,7 +11,7 @@ import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.TextToke
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashSet;
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -24,11 +25,7 @@ import static top.sywyar.pixivdownload.guicompose.model.GuiActionResponseSafety.
 final class DesktopOnboardingController {
     private static final int STEP_SERVICE = 1;
     private static final int STEP_CONFIG = 2;
-    private static final int STEP_PROXY = 3;
-    private static final int STEP_START = 4;
-    private static final int STEP_GUIDE = 5;
-    private static final int STEP_ADVANCED = 6;
-    private static final int STEP_DONE = 7;
+    private static final int STEP_HUB = 3;
 
     private final ComposeDesktopUiModel owner;
     private final DesktopUiHost host;
@@ -38,10 +35,12 @@ final class DesktopOnboardingController {
     private volatile String welcomeNotice = "";
     private volatile TextStyle welcomeNoticeStyle = TextStyle.ERROR;
     private volatile long welcomeFormRevision;
+    private volatile int proxyValidationAttempt;
     private volatile int welcomeStep;
     private volatile boolean weakPasswordConfirmationPending;
-    private volatile boolean batchVisited;
-    private volatile Set<String> completedSteps = Set.of();
+    private volatile boolean ffmpegReady;
+    private volatile boolean submitting;
+    private final Set<String> openedCards = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     DesktopOnboardingController(
             ComposeDesktopUiModel owner,
@@ -58,361 +57,296 @@ final class DesktopOnboardingController {
                 host.defaultProxyHost(),
                 host.defaultProxyPort()
         );
+        try {
+            host.applicationConfig().readAll(List.of("proxy.enabled", "proxy.host", "proxy.port"))
+                    .forEach((key, value) -> formValues.put("welcome." + key, value));
+        } catch (java.io.IOException ignored) {
+            // 配置暂不可读时保留宿主默认值，只有显式保存才写入。
+        }
         this.welcomeStep = initialWelcomeStep();
     }
 
-    void passwordChanged() {
+    void credentialsChanged() {
         weakPasswordConfirmationPending = false;
+        welcomeNotice = "";
+    }
+
+    void proxyChanged() {
+        welcomeNotice = "";
     }
 
     DesktopUiNode controlCenterPage(
             Map<String, Runnable> nextActions
     ) {
         return switch (welcomeStep) {
-            case STEP_SERVICE -> welcomeServiceStep(nextActions);
+            case STEP_SERVICE -> welcomeServiceStep();
             case STEP_CONFIG -> welcomeConfigStep(nextActions);
-            case STEP_PROXY -> welcomeProxyStep(nextActions);
-            case STEP_START -> welcomeStartStep(nextActions);
-            case STEP_GUIDE -> welcomeGuideStep(nextActions);
-            case STEP_ADVANCED -> welcomeAdvancedStep(nextActions);
-            default -> welcomeDoneStep(nextActions);
+            default -> welcomeHub(nextActions);
         };
     }
 
-    private DesktopUiNode welcomeServiceStep(Map<String, Runnable> nextActions) {
-        List<DesktopUiNode> content = new ArrayList<>(List.of(
-                raw(
-                        "welcome.service.state",
-                        owner.backendMessage(),
-                        owner.backendSnapshot().state() == DesktopUiHost.BackendState.RUNNING ? TextStyle.SUCCESS : owner.backendSnapshot().state() == DesktopUiHost.BackendState.FAILED ? TextStyle.ERROR : TextStyle.WARNING
+    private DesktopUiNode welcomeServiceStep() {
+        boolean failed = owner.backendSnapshot().state() == DesktopUiHost.BackendState.FAILED;
+        List<DesktopUiNode> content = new ArrayList<>();
+        content.add(new DesktopUiNode.Text(
+                "welcome.service.message",
+                token(
+                        "gui-compose",
+                        failed ? "gui.compose.onboarding.failed" : "gui.compose.onboarding.preparing",
+                        ""
                 ),
-                bullet("welcome.service.point1", "gui.welcome.status.point1"),
-                bullet("welcome.service.point2", "gui.welcome.status.point2")
+                failed ? TextStyle.ERROR : TextStyle.WAITING,
+                true,
+                false,
+                DesktopUiNode.TextAlignment.CENTER
         ));
-        return welcomeStep(
+        if (!failed) {
+            content.add(new DesktopUiNode.Text(
+                    "welcome.service.status",
+                    token("gui-compose", "gui.compose.onboarding.service-preparing", ""),
+                    TextStyle.SECONDARY,
+                    true,
+                    false,
+                    DesktopUiNode.TextAlignment.CENTER
+            ));
+            content.add(new DesktopUiNode.Progress(
+                    "welcome.service.progress",
+                    0,
+                    true,
+                    null,
+                    DesktopUiNode.ProgressStyle.COMPACT_LINEAR
+            ));
+        }
+        return new DesktopUiNode.Container(
                 "welcome.service",
-                "gui.welcome.status.title",
-                "gui.welcome.status.subtitle",
-                content,
-                endRow(
-                        "welcome.service.actions",
-                        button(
-                                "welcome.service.next",
-                                "welcome.service.next",
-                                "gui.welcome.nav.next",
-                                owner.backendSnapshot().state() == DesktopUiHost.BackendState.RUNNING,
-                                nextActions,
-                                () -> goWelcomeStep(2)
-                        )
-                )
+                DesktopUiNode.ContainerLayout.FLOW,
+                1,
+                12,
+                DesktopUiNode.Alignment.CENTER,
+                List.of(new DesktopUiNode.Container(
+                        "welcome.service.content",
+                        DesktopUiNode.ContainerLayout.COLUMN,
+                        1,
+                        16,
+                        DesktopUiNode.Alignment.CENTER,
+                        content
+                ))
         );
     }
 
     private DesktopUiNode welcomeConfigStep(Map<String, Runnable> nextActions) {
-        DesktopUiHost.OnboardingSnapshot onboarding = host.onboardingState(rootFolder);
-        List<DesktopUiNode> content = new ArrayList<>();
-        DesktopUiNode actions;
-        if (onboarding.setupComplete()) {
-            content.add(text(
-                    "welcome.config.done",
-                    "gui.welcome.config.done",
-                    TextStyle.SUCCESS
-            ));
-            actions = endRow(
-                    "welcome.config.actions",
-                    backWelcomeButton("welcome.config.back", 1, nextActions),
-                    nextWelcomeButton("welcome.config.next", 3, nextActions)
-            );
-        } else {
-            content.add(bullet(
-                    "welcome.config.account",
-                    "desktop.ui.onboarding.account.point.credentials"
-            ));
-            content.add(new DesktopUiNode.Form(
-                    "welcome.config.form",
-                    DesktopUiNode.FormStyle.COMPACT,
-                    null,
-                    List.of(
-                            new DesktopUiNode.FormRow(
-                                    "welcome.config.username",
-                                    key("gui.welcome.config.username"),
-                                    null,
-                                    input(
-                                            "welcome.username.input",
-                                            "welcome.username",
-                                            "gui.welcome.config.username",
-                                            null,
-                                            InputKind.TEXT,
-                                            form("welcome.username", ""),
-                                            !owner.busy()
-                                    ),
-                                    null
-                            ),
-                            new DesktopUiNode.FormRow(
-                                    "welcome.config.password",
-                                    key("gui.welcome.config.password"),
-                                    null,
-                                    new DesktopUiNode.TextInput(
-                                            "welcome.password.input",
-                                            "welcome.password",
-                                            key("gui.welcome.config.password"),
-                                            null,
-                                            InputKind.PASSWORD,
-                                            "",
-                                            18,
-                                            1,
-                                            !owner.busy() && owner.backendSnapshot().state() == DesktopUiHost.BackendState.RUNNING,
-                                            welcomeFormRevision
-                                    ),
-                                    null
-                            )
-                    )
-            ));
-            content.add(secondary(
-                    "welcome.config.change",
-                    "desktop.ui.onboarding.account.point.change"
-            ));
-            actions = endRow(
-                    "welcome.config.actions",
-                    backWelcomeButton("welcome.config.back", 1, nextActions),
-                    button(
-                            "welcome.config.submit",
-                            "welcome.config.submit",
-                            "gui.welcome.config.submit",
-                            !owner.busy() && owner.backendSnapshot().state() == DesktopUiHost.BackendState.RUNNING,
-                            nextActions,
-                            this::submitSetup
-                    )
+        if (host.onboardingState(rootFolder).setupComplete()) {
+            return welcomeStep(
+                    "welcome.config",
+                    "desktop.ui.onboarding.account.title",
+                    "desktop.ui.onboarding.account.body",
+                    List.of(text("welcome.config.done", "gui.welcome.config.done", TextStyle.SUCCESS)),
+                    nextWelcomeButton("welcome.config.next", STEP_HUB, nextActions)
             );
         }
-        return welcomeStep(
+        boolean enabled = !owner.busy()
+                && owner.backendSnapshot().state() == DesktopUiHost.BackendState.RUNNING;
+        nextActions.put("welcome.config.submit", this::submitSetup);
+        return new DesktopUiNode.AccountSetup(
                 "welcome.config",
-                "desktop.ui.onboarding.account.title",
-                "desktop.ui.onboarding.account.body",
-                content,
-                actions
-        );
-    }
-
-    private DesktopUiNode welcomeProxyStep(Map<String, Runnable> nextActions) {
-        boolean enabled = boolForm("welcome.proxy.enabled", true);
-        List<DesktopUiNode> content = new ArrayList<>();
-        content.add(bullet("welcome.proxy.usage", "gui.welcome.proxy.point.usage"));
-        content.add(bullet("welcome.proxy.docker", "gui.welcome.proxy.point.docker"));
-        content.add(toggle(
-                "welcome.proxy.enabled.input",
-                "welcome.proxy.enabled",
-                "gui.welcome.proxy.enabled",
-                enabled,
-                !owner.busy()
-        ));
-        content.add(new DesktopUiNode.Form(
-                "welcome.proxy.form",
-                DesktopUiNode.FormStyle.COMPACT,
-                null,
-                List.of(
-                        new DesktopUiNode.FormRow(
-                                "welcome.proxy.host",
-                                key("gui.welcome.proxy.host"),
-                                null,
-                                input(
-                                        "welcome.proxy.host.input",
-                                        "welcome.proxy.host",
-                                        "gui.welcome.proxy.host",
-                                        null,
-                                        InputKind.TEXT,
-                                        form("welcome.proxy.host", host.defaultProxyHost()),
-                                        !owner.busy() && enabled
-                                ),
-                                null
-                        ),
-                        new DesktopUiNode.FormRow(
-                                "welcome.proxy.port",
-                                key("gui.welcome.proxy.port"),
-                                null,
-                                input(
-                                        "welcome.proxy.port.input",
-                                        "welcome.proxy.port",
-                                        "gui.welcome.proxy.port",
-                                        null,
-                                        InputKind.NUMBER,
-                                        form("welcome.proxy.port", Integer.toString(host.defaultProxyPort())),
-                                        !owner.busy() && enabled
-                                ),
-                                null
-                        )
-                )
-        ));
-        content.add(secondary(
-                "welcome.proxy.change",
-                "desktop.ui.onboarding.proxy.point.change"
-        ));
-        return welcomeStep(
-                "welcome.proxy",
-                "gui.welcome.proxy.title",
-                "desktop.ui.onboarding.proxy.body",
-                content,
-                endRow(
-                        "welcome.proxy.actions",
-                        backWelcomeButton("welcome.proxy.back", 2, nextActions),
-                        button(
-                                "welcome.proxy.next",
-                                "welcome.proxy.next",
-                                "gui.welcome.nav.next",
-                                !owner.busy(),
-                                nextActions,
-                                this::saveWelcomeProxy
-                        )
-                )
-        );
-    }
-
-    private DesktopUiNode welcomeStartStep(Map<String, Runnable> nextActions) {
-        List<DesktopUiNode> content = new ArrayList<>(List.of(
-                bullet("welcome.start.kinds", "gui.welcome.start.point.kinds"),
-                bullet("welcome.start.keepopen", "gui.welcome.start.point.keepopen"),
-                bullet("welcome.start.formats", "gui.welcome.start.point.formats"),
-                button(
-                        "welcome.start.open",
-                        "welcome.start.open",
-                        "gui.welcome.start.button",
-                        !owner.busy(),
-                        nextActions,
-                        () -> owner.openWeb("/pixiv-batch.html")
+                input(
+                        "welcome.username.input",
+                        "welcome.username",
+                        "gui.welcome.config.username",
+                        null,
+                        InputKind.TEXT,
+                        form("welcome.username", ""),
+                        enabled
                 ),
-                secondary("welcome.start.waiting", "gui.welcome.start.waiting")
-        ));
-        return welcomeStep(
-                "welcome.start",
-                "gui.welcome.start.title",
-                "gui.welcome.start.body",
-                content,
-                endRow(
-                        "welcome.start.actions",
-                        backWelcomeButton("welcome.start.back", STEP_PROXY, nextActions),
-                        nextWelcomeButton(
-                                "welcome.start.next",
-                                stepAfterStart(),
-                                nextActions
-                        )
-                )
+                new DesktopUiNode.TextInput(
+                        "welcome.password.input",
+                        "welcome.password",
+                        key("gui.welcome.config.password"),
+                        null,
+                        InputKind.PASSWORD,
+                        "",
+                        18,
+                        1,
+                        enabled,
+                        welcomeFormRevision
+                ),
+                new DesktopUiNode.Button(
+                        "welcome.config.submit",
+                        "welcome.config.submit",
+                        token("gui-compose", "gui.compose.onboarding.account.finish", ""),
+                        null,
+                        DesktopUiNode.ButtonStyle.PRIMARY,
+                        enabled
+                ),
+                host.minimumPasswordLength(),
+                host.recommendedPasswordLength(),
+                owner.busy(),
+                weakPasswordConfirmationPending,
+                welcomeNotice.isBlank() || owner.busy() || weakPasswordConfirmationPending ? null
+                        : raw("welcome.config.notice", welcomeNotice, welcomeNoticeStyle)
         );
     }
 
-    private DesktopUiNode welcomeGuideStep(Map<String, Runnable> nextActions) {
+    private DesktopUiNode welcomeHub(Map<String, Runnable> nextActions) {
+        List<DesktopUiNode.OnboardingCard> cards = new ArrayList<>();
+        cards.add(new DesktopUiNode.OnboardingCard(
+                "network",
+                DesktopUiNode.OnboardingTopic.NETWORK,
+                hubText("network.title"),
+                hubText("network.summary"),
+                hubText("network.body"),
+                hubOpenButton(
+                        "network",
+                        hubText("network.open"),
+                        nextActions,
+                        URI.create("https://sywyar.github.io/PixivDownloader/#/" +
+                                (java.util.Locale.getDefault().getLanguage().equals("zh")
+                                        ? "zh-cn/configuration?id=出站代理" : "en/configuration?id=outbound-proxy"))
+                ),
+                proxySettings(),
+                openedCards.contains("network")
+        ));
+        var download = DesktopControlCenterView.quickStartEntries(owner.currentSources()).stream()
+                .filter(entry -> "download".equals(entry.navigation().icon()))
+                .findFirst();
+        cards.add(new DesktopUiNode.OnboardingCard(
+                "download",
+                DesktopUiNode.OnboardingTopic.DOWNLOAD,
+                hubText("download.title"),
+                hubText("download.summary"),
+                hubText(download.isPresent() ? "download.body" : "unavailable"),
+                hubOpenButton(
+                        "download",
+                        hubText("download.open"),
+                        nextActions,
+                        download.map(entry -> owner.webUri(entry.navigation().href())).orElse(null)
+                ),
+                null,
+                openedCards.contains("download")
+        ));
         GuiOnboardingStepContribution step = guideStep();
-        if (step == null) return welcomeAdvancedStep(nextActions);
-        List<DesktopUiNode> content = new ArrayList<>();
-        for (int index = 0; index < step.bulletKeys().size(); index++) {
-            content.add(new DesktopUiNode.Text(
-                    "welcome.guide.bullet." + index,
-                    token(step.i18nNamespace(), step.bulletKeys().get(index), step.bulletKeys().get(index)),
-                    TextStyle.BULLET,
-                    true,
-                    false
+        if (step != null) {
+            cards.add(new DesktopUiNode.OnboardingCard(
+                    "guide." + step.stepId(),
+                    DesktopUiNode.OnboardingTopic.GUIDE,
+                    token(step.i18nNamespace(), step.titleKey(), ""),
+                    token(step.i18nNamespace(), step.bodyKey(), ""),
+                    token(
+                            step.i18nNamespace(),
+                            step.bulletKeys().isEmpty() ? step.bodyKey() : step.bulletKeys().get(0),
+                            ""
+                    ),
+                    hubOpenButton(
+                            "guide." + step.stepId(),
+                            token(step.i18nNamespace(), step.actionLabelKey(), ""),
+                            nextActions,
+                            owner.webUri(step.actionHref())
+                    ),
+                    null,
+                    openedCards.contains("guide." + step.stepId())
             ));
         }
-        String openAction = "welcome.guide.open";
-        nextActions.put(openAction, () -> owner.openWeb(step.actionHref()));
-        content.add(new DesktopUiNode.Button(
-                "welcome.guide.open",
-                openAction,
-                token(step.i18nNamespace(), step.actionLabelKey(), step.actionLabelKey()),
-                null,
-                DesktopUiNode.ButtonStyle.NORMAL,
-                !owner.busy()
-        ));
-        content.add(new DesktopUiNode.Text(
-                "welcome.guide.waiting",
-                token(step.i18nNamespace(), step.waitingKey(), step.waitingKey()),
-                TextStyle.SECONDARY,
-                true,
-                false
-        ));
-        return welcomeStep(
-                "welcome.guide",
-                token(step.i18nNamespace(), step.titleKey(), step.titleKey()),
-                token(step.i18nNamespace(), step.bodyKey(), step.bodyKey()),
-                content,
-                endRow(
-                        "welcome.guide.actions",
-                        backWelcomeButton("welcome.guide.back", STEP_START, nextActions),
-                        button(
-                                "welcome.guide.finish",
-                                "welcome.guide.finish",
-                                "gui.welcome.nav.finish",
-                                !owner.busy(),
-                                nextActions,
-                                this::finishGuideStep
-                        )
-                )
-        );
-    }
-
-    private DesktopUiNode welcomeAdvancedStep(Map<String, Runnable> nextActions) {
-        boolean ffmpegReady = host.locateFfmpeg().isPresent();
-        return welcomeStep(
-                "welcome.advanced",
-                "gui.welcome.advanced.title",
-                "gui.welcome.advanced.body",
-                List.of(
-                        text("welcome.advanced.scripts.title", "gui.welcome.scripts.title", TextStyle.HEADING),
-                        text("welcome.advanced.scripts.intro", "gui.welcome.scripts.intro", TextStyle.BODY),
-                        bullet("welcome.advanced.scripts.page", "gui.welcome.scripts.point.page"),
-                        bullet("welcome.advanced.scripts.toolbox", "gui.welcome.scripts.point.toolbox"),
-                        text("welcome.advanced.scripts.install", "gui.welcome.scripts.install", TextStyle.BODY),
-                        text("welcome.advanced.ffmpeg.title", "gui.welcome.ffmpeg.title", TextStyle.HEADING),
-                        text("welcome.advanced.ffmpeg.intro", "gui.welcome.ffmpeg.intro", TextStyle.BODY),
-                        new DesktopUiNode.Text(
-                                "welcome.advanced.ffmpeg.state",
-                                appToken(
-                                        "gui.welcome.ffmpeg.state",
-                                        host.message(ffmpegReady
-                                                ? "gui.welcome.ffmpeg.state.ready"
-                                                : "gui.welcome.ffmpeg.state.missing")
-                                ),
-                                ffmpegReady ? TextStyle.SUCCESS : TextStyle.WARNING,
-                                true,
-                                false
-                        ),
-                        text("welcome.advanced.ffmpeg.install", "gui.welcome.ffmpeg.install", TextStyle.BODY),
-                        text("welcome.advanced.reopen.title", "gui.welcome.done.reopen.title", TextStyle.HEADING),
-                        text("welcome.advanced.reopen", "gui.welcome.done.reopen", TextStyle.BODY)
+        cards.add(new DesktopUiNode.OnboardingCard(
+                "animation",
+                DesktopUiNode.OnboardingTopic.ANIMATION,
+                hubText("animation.title"),
+                hubText("animation.summary"),
+                hubText(ffmpegReady ? "animation.ready" : "animation.body"),
+                hubOpenButton(
+                        "animation",
+                        hubText("animation.open"),
+                        nextActions,
+                        URI.create("https://sywyar.github.io/PixivDownloader/#/" +
+                                (java.util.Locale.getDefault().getLanguage().equals("zh")
+                                        ? "zh-cn/installation?id=安装-ffmpeg（可选）"
+                                        : "en/installation?id=installing-ffmpeg-optional"))
                 ),
-                endRow(
-                        "welcome.advanced.actions",
-                        backWelcomeButton(
-                                "welcome.advanced.back",
-                                guideStep() == null ? STEP_START : STEP_GUIDE,
-                                nextActions
-                        ),
-                        nextWelcomeButton("welcome.advanced.next", STEP_DONE, nextActions)
-                )
+                null,
+                openedCards.contains("animation")
+        ));
+        nextActions.put("welcome.hub.next", this::saveWelcomeProxy);
+        return new DesktopUiNode.OnboardingHub(
+                "welcome.hub",
+                cards,
+                new DesktopUiNode.Button(
+                        "welcome.hub.next",
+                        "welcome.hub.next",
+                        hubText(submitting ? "saving" : "finish"),
+                        null,
+                        DesktopUiNode.ButtonStyle.PRIMARY,
+                        !owner.busy()
+                ),
+                welcomeNotice.isBlank() ? null : raw("welcome.hub.notice", welcomeNotice, welcomeNoticeStyle),
+                submitting
         );
     }
 
-    private DesktopUiNode welcomeDoneStep(Map<String, Runnable> nextActions) {
-        return welcomeStep(
-                    "welcome.done",
-                    "gui.welcome.done.title",
-                    "gui.welcome.done.body",
-                    List.of(
-                            bullet("welcome.done.start", "gui.welcome.done.point.start"),
-                            bullet("welcome.done.advanced", "gui.welcome.done.point.advanced")
-                    ),
-                    endRow(
-                            "welcome.done.actions",
-                            backWelcomeButton("welcome.done.back", STEP_ADVANCED, nextActions),
-                            button(
-                                    "welcome.done.finish",
-                                    "welcome.done.finish",
-                                    "gui.welcome.done.button",
-                                    !owner.busy(),
-                                    nextActions,
-                                    this::finishOnboarding
-                            )
-                    )
+    private DesktopUiNode.Button hubOpenButton(
+            String cardId,
+            TextToken label,
+            Map<String, Runnable> nextActions,
+            URI target
+    ) {
+        String id = "welcome.hub." + cardId + ".open";
+        if (target != null) nextActions.put(
+                id,
+                () -> owner.runBusy(() -> {
+                    try {
+                        host.openExternalUri(target);
+                        openedCards.add(cardId);
+                        welcomeNotice = "";
+                    } catch (Exception failure) {
+                        setWelcomeNotice(host.message("desktop.ui.action.failed"), TextStyle.ERROR);
+                    }
+                })
         );
+        return new DesktopUiNode.Button(
+                id,
+                id,
+                label,
+                null,
+                DesktopUiNode.ButtonStyle.PRIMARY,
+                target != null && !owner.busy(),
+                top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon.OPEN
+        );
+    }
+
+    private DesktopUiNode.OnboardingProxySettings proxySettings() {
+        boolean enabled = boolForm("welcome.proxy.enabled", true);
+        return new DesktopUiNode.OnboardingProxySettings(
+                new DesktopUiNode.Toggle(
+                        "welcome.proxy.enabled.input",
+                        "welcome.proxy.enabled",
+                        key("gui.welcome.proxy.enabled"),
+                        null,
+                        DesktopUiNode.ToggleStyle.SWITCH,
+                        enabled,
+                        !owner.busy()
+                ),
+                input(
+                        "welcome.proxy.host.input",
+                        "welcome.proxy.host",
+                        "gui.welcome.proxy.host",
+                        null,
+                        InputKind.TEXT,
+                        form("welcome.proxy.host", host.defaultProxyHost()),
+                        !owner.busy() && enabled
+                ),
+                input(
+                        "welcome.proxy.port.input",
+                        "welcome.proxy.port",
+                        "gui.welcome.proxy.port",
+                        null,
+                        InputKind.NUMBER,
+                        form("welcome.proxy.port", Integer.toString(host.defaultProxyPort())),
+                        !owner.busy() && enabled
+                ),
+                proxyValidationAttempt
+        );
+    }
+
+    private static TextToken hubText(String key) {
+        return token("gui-compose", "gui.compose.onboarding.hub." + key, "");
     }
 
     private DesktopUiNode welcomeStep(
@@ -476,21 +410,6 @@ final class DesktopOnboardingController {
         );
     }
 
-    private DesktopUiNode.Button backWelcomeButton(
-            String id,
-            int target,
-            Map<String, Runnable> nextActions
-    ) {
-        return button(
-                id,
-                id,
-                "gui.welcome.nav.prev",
-                !owner.busy(),
-                nextActions,
-                () -> goWelcomeStep(target)
-        );
-    }
-
     private DesktopUiNode.Button nextWelcomeButton(
             String id,
             int target,
@@ -507,7 +426,7 @@ final class DesktopOnboardingController {
     }
 
     private void goWelcomeStep(int target) {
-        welcomeStep = Math.max(STEP_SERVICE, Math.min(STEP_DONE, target));
+        welcomeStep = normalizeStep(target);
         welcomeNotice = "";
         welcomeNoticeStyle = TextStyle.ERROR;
         host.saveOnboardingProgress(welcomeStep);
@@ -517,17 +436,22 @@ final class DesktopOnboardingController {
     private int initialWelcomeStep() {
         DesktopUiHost.OnboardingSnapshot onboarding = host.onboardingState(rootFolder);
         int required = hostSetupWelcomeStep(onboarding);
-        if (required < STEP_START) return required;
-        return Math.max(STEP_START, Math.min(STEP_DONE, onboarding.progress()));
+        if (required < STEP_HUB) return required;
+        return normalizeStep(Math.max(STEP_HUB, onboarding.progress()));
     }
 
     private int hostSetupWelcomeStep(DesktopUiHost.OnboardingSnapshot onboarding) {
         if (owner.backendSnapshot().state() != DesktopUiHost.BackendState.RUNNING) return STEP_SERVICE;
         if (!onboarding.setupComplete()) return STEP_CONFIG;
-        return onboarding.proxyConfigured() ? STEP_START : STEP_PROXY;
+        return STEP_HUB;
+    }
+
+    private static int normalizeStep(int step) {
+        return Math.max(STEP_SERVICE, Math.min(STEP_HUB, step));
     }
 
     private void submitSetup() {
+        if (owner.busy() || owner.backendSnapshot().state() != DesktopUiHost.BackendState.RUNNING) return;
         String username = form("welcome.username", "").trim();
         String password = form("welcome.password", "");
         if (username.isBlank()) {
@@ -552,22 +476,31 @@ final class DesktopOnboardingController {
         weakPasswordConfirmationPending = false;
         setWelcomeNotice(host.message("gui.welcome.config.submitting"), TextStyle.EMPHASIS);
         owner.runBusy(() -> {
-            DesktopUiHost.GuiResponse response = host.guiPostJson(
-                    "setup/init",
-                    Map.of(
-                            "username",
-                            username,
-                            "password",
-                            password,
-                            "mode",
-                            "solo"
-                    ),
-                    5_000
-            );
+            DesktopUiHost.GuiResponse response;
+            try {
+                response = host.guiPostJson(
+                        "setup/init",
+                        Map.of(
+                                "username",
+                                username,
+                                "password",
+                                password,
+                                "mode",
+                                "solo"
+                        ),
+                        5_000
+                );
+            } catch (RuntimeException failure) {
+                setWelcomeNotice(
+                        host.message("gui.welcome.config.failed", host.message("desktop.ui.action.failed")),
+                        TextStyle.ERROR
+                );
+                return;
+            }
             if (response.is2xx()) {
                 formValues.remove("welcome.password");
                 welcomeFormRevision++;
-                goWelcomeStep(STEP_PROXY);
+                goWelcomeStep(STEP_HUB);
             } else {
                 setWelcomeNotice(
                         host.message("gui.welcome.config.failed", responseDetail(response)),
@@ -578,16 +511,13 @@ final class DesktopOnboardingController {
     }
 
     private void saveWelcomeProxy() {
+        if (owner.busy()) return;
+        welcomeNotice = "";
         String hostValue = form("welcome.proxy.host", "").trim();
         int port = intForm("welcome.proxy.port", 0);
         boolean enabled = boolForm("welcome.proxy.enabled", true);
-        if (enabled && hostValue.isBlank()) {
-            setWelcomeNotice(host.message("gui.welcome.proxy.invalid.host"), TextStyle.ERROR);
-            owner.rebuild();
-            return;
-        }
-        if (enabled && (port < 1 || port > 65_535)) {
-            setWelcomeNotice(host.message("gui.welcome.proxy.invalid.port"), TextStyle.ERROR);
+        if (proxySettings().invalid()) {
+            proxyValidationAttempt++;
             owner.rebuild();
             return;
         }
@@ -595,93 +525,77 @@ final class DesktopOnboardingController {
         if (!enabled && (port < 1 || port > 65_535)) port = host.defaultProxyPort();
         String savedHost = hostValue;
         int savedPort = port;
+        submitting = true;
         owner.runBusy(() -> {
             try {
-                host.applicationConfig().writeAll(Map.of(
-                        "proxy.enabled",
-                        Boolean.toString(enabled),
-                        "proxy.host",
-                        savedHost,
-                        "proxy.port",
-                        Integer.toString(savedPort)
-                ));
-                host.markOnboardingProxyConfigured();
-                host.guiPostJson(
-                        "config/reload",
-                        Map.of(
-                                "changedKeys",
-                                List.of("proxy.enabled", "proxy.host", "proxy.port")
-                        ),
-                        5_000
-                );
-                goWelcomeStep(STEP_START);
-            } catch (Exception failure) {
-                setWelcomeNotice(
-                        host.message("gui.welcome.proxy.failed", safeMessage(failure)),
-                        TextStyle.ERROR
-                );
+                try {
+                    host.applicationConfig().writeAll(Map.of(
+                            "proxy.enabled",
+                            Boolean.toString(enabled),
+                            "proxy.host",
+                            savedHost,
+                            "proxy.port",
+                            Integer.toString(savedPort)
+                    ));
+                    host.markOnboardingProxyConfigured();
+                } catch (Exception failure) {
+                    setWelcomeNotice(
+                            host.message("gui.welcome.proxy.failed", safeMessage(failure)),
+                            TextStyle.ERROR
+                    );
+                    return;
+                }
+                boolean reloaded;
+                try {
+                    DesktopUiHost.GuiResponse response = host.guiPostJson(
+                            "config/reload",
+                            Map.of(
+                                    "changedKeys",
+                                    List.of("proxy.enabled", "proxy.host", "proxy.port")
+                            ),
+                            5_000
+                    );
+                    reloaded = response.is2xx();
+                } catch (Exception failure) {
+                    reloaded = false;
+                }
+                finishOnboarding();
+                if (!reloaded) {
+                    owner.showDialog(
+                            "welcome.proxy.reload-failed",
+                            "gui.dialog.warning.title",
+                            hubText("network.reload-failed"),
+                            DesktopUiDocument.DialogStyle.WARNING
+                    );
+                }
+            } finally {
+                submitting = false;
             }
         });
-    }
-
-    private void finishGuideStep() {
-        GuiOnboardingStepContribution step = guideStep();
-        if (step != null) {
-            Set<String> next = new LinkedHashSet<>(completedSteps);
-            next.add(step.completionKey());
-            completedSteps = Set.copyOf(next);
-        }
-        host.markOnboardingSeen();
-        goWelcomeStep(STEP_ADVANCED);
     }
 
     private void finishOnboarding() {
         if (!host.onboardingState(rootFolder).setupComplete()) {
             setWelcomeNotice(host.message("gui.welcome.config.waiting"), TextStyle.ERROR);
             welcomeStep = STEP_CONFIG;
-            owner.rebuild();
             return;
         }
         host.markOnboardingSeen();
         host.markOnboardingFinished();
-        owner.rebuild();
     }
 
     void refreshState() {
         DesktopUiHost.OnboardingSnapshot onboarding = host.onboardingState(rootFolder);
-        if (onboarding.finished()) return;
-        int next = welcomeStep;
-        if (next == STEP_SERVICE) next = hostSetupWelcomeStep(onboarding);
-        if (next >= STEP_ADVANCED) return;
-        if (owner.backendSnapshot().state() == DesktopUiHost.BackendState.RUNNING) {
-            try {
-                DesktopUiHost.GuiResponse response = host.guiGet("onboarding", 2_000);
-                if (response.is2xx() && response.body() != null) {
-                    batchVisited |= response.body().path("batchVisited").asBoolean(false);
-                    completedSteps = completedSteps(response.body().path("completedSteps"));
-                }
-            } catch (RuntimeException ignored) {
-                // 后端轮询会继续重试；保留上次已观测到的进度。
+        if (onboarding.complete()) return;
+        if (welcomeStep == STEP_SERVICE) {
+            int next = hostSetupWelcomeStep(onboarding);
+            if (next != welcomeStep) {
+                welcomeStep = next;
+                host.saveOnboardingProgress(next);
             }
         }
-        if (next == STEP_START && batchVisited) next = stepAfterStart();
-        if (next == STEP_GUIDE && guideStepComplete()) {
-            host.markOnboardingSeen();
-            next = STEP_ADVANCED;
-        }
-        if (next != welcomeStep) {
-            welcomeStep = next;
-            host.saveOnboardingProgress(next);
-        }
-    }
-
-    private int stepAfterStart() {
-        return guideStep() == null ? STEP_ADVANCED : STEP_GUIDE;
-    }
-
-    private boolean guideStepComplete() {
-        GuiOnboardingStepContribution step = guideStep();
-        return step == null || completedSteps.contains(step.completionKey());
+        // 检测可能启动系统命令，复用后台刷新，避免阻塞表单输入。
+        if (welcomeStep == STEP_HUB) ffmpegReady = host.locateFfmpeg().isPresent();
     }
 
     private GuiOnboardingStepContribution guideStep() {
@@ -706,21 +620,9 @@ final class DesktopOnboardingController {
                 && validId(step.bodyKey())
                 && step.bulletKeys().stream().allMatch(DesktopUiNodes::validId)
                 && validId(step.actionLabelKey())
-                && step.actionHref() != null
-                && step.actionHref().startsWith("/")
+                && safeHref(step.actionHref())
                 && validId(step.waitingKey())
                 && validId(step.completionKey());
-    }
-
-    private static Set<String> completedSteps(DesktopUiHost.GuiValue node) {
-        if (node == null || !node.isArray()) return Set.of();
-        Set<String> result = new LinkedHashSet<>();
-        for (DesktopUiHost.GuiValue item : node) {
-            if (item != null && item.isTextual() && !item.asText().isBlank()) {
-                result.add(item.asText().trim());
-            }
-        }
-        return Set.copyOf(result);
     }
 
     static void initializeProxyDefaults(

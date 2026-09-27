@@ -1,24 +1,35 @@
+@file:OptIn(io.github.robinpcrd.cupertino.ExperimentalCupertinoApi::class)
+
 package top.sywyar.pixivdownload.guicompose
 
-import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
+import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
+import io.github.robinpcrd.cupertino.*
+import io.github.robinpcrd.cupertino.theme.*
+
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,31 +39,19 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CropSquare
 import androidx.compose.material.icons.filled.FilterNone
 import androidx.compose.material.icons.filled.Minimize
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ColorScheme
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Shapes
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.Typography
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -61,12 +60,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.awt.ComposeWindow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -75,8 +82,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.DialogState
-import androidx.compose.ui.window.DialogWindow
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPlacement
@@ -195,7 +202,7 @@ internal object ComposeDesktopUi {
                         trayPopup.value?.let { popup ->
                             TrayPopup(
                                 tray = tray,
-                                themePreference = context.themePreference(),
+                                themePreference = model.themePreference(),
                                 messages = messages,
                                 request = popup,
                                 onDismiss = { trayPopup.value = null },
@@ -267,7 +274,7 @@ internal object ComposeDesktopUi {
                                 windowRef.compareAndSet(composeWindow, null)
                             }
                         }
-                        PixivDownloaderTheme(context.themePreference()) {
+                        PixivDownloaderTheme(model.themePreference()) {
                             Column(Modifier.fillMaxSize()) {
                                 if (isWindows()) {
                                     WindowsTitleBar(
@@ -280,19 +287,19 @@ internal object ComposeDesktopUi {
                                         onClose = closeMainWindow,
                                     )
                                 }
-                                Surface(Modifier.weight(1f).fillMaxWidth(), color = Color.Transparent) {
+                                CupertinoSurface(Modifier.weight(1f).fillMaxWidth(), color = Color.Transparent) {
                                     ComposeDesktopRoot(
-                                        context, model, observed, messages, mainWindowState.size,
+                                        context, model, observed, messages,
                                     )
                                     message.value?.let { current ->
-                                        AlertDialog(
+                                        CupertinoAlertDialog(
                                             onDismissRequest = { message.value = null },
-                                            title = { Text(current.title) },
-                                            text = { Text(current.message) },
-                                            confirmButton = {
-                                                TextButton(onClick = { message.value = null }) {
-                                                    Text(ComposeMessages(context).plugin("gui.compose.ok"))
-                                                }
+                                            title = { CupertinoText(current.title) },
+                                            message = { CupertinoText(current.message) },
+                                            buttons = {
+                                                action(onClick = { message.value = null }, title = {
+                                                    CupertinoText(ComposeMessages(context).plugin("gui.compose.ok"))
+                                                })
                                             },
                                         )
                                     }
@@ -458,28 +465,25 @@ private fun TrayPopup(
         }
         PixivDownloaderTheme(themePreference) {
             Box(Modifier.fillMaxSize().padding(8.dp)) {
-                Surface(
+                CupertinoSurface(
                     modifier = Modifier.fillMaxSize(),
-                    shape = MaterialTheme.shapes.extraLarge,
-                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    shape = CupertinoTheme.shapes.extraLarge,
+                    color = LocalExperiencePalette.current.background,
                     shadowElevation = 8.dp,
                 ) {
                     Column(Modifier.fillMaxSize().padding(vertical = 4.dp)) {
                         tray.items().forEach { item ->
                             if (item.role() == DesktopUiDocument.TrayItemRole.SEPARATOR) {
-                                HorizontalDivider(Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+                                CupertinoHorizontalDivider(Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
                             } else {
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            messages.resolve(item.label()),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                    },
+                                CupertinoButton(
                                     onClick = { onSelect(item) },
+                                    colors = CupertinoButtonDefaults.plainButtonColors(contentColor = LocalExperiencePalette.current.text),
                                     modifier = Modifier.fillMaxWidth(),
-                                )
+                                ) {
+                                    CupertinoText(messages.resolve(item.label()), Modifier.weight(1f), maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis)
+                                }
                             }
                         }
                     }
@@ -574,201 +578,108 @@ private fun ComposeDesktopRoot(
     model: ComposeDesktopUiModel,
     snapshot: DesktopUiSnapshot,
     messages: ComposeMessages,
-    parentWindowSize: DpSize,
 ) {
     val document = snapshot.document()
-    val documentRevision = snapshot.revision()
+    DesktopShell(
+        document = document,
+        documentRevision = snapshot.revision(),
+        resolveText = messages::resolve,
+        dispatch = { event -> model.dispatch(snapshot, event) },
+    )
+    document.dialogs().forEach { dialog ->
+        DocumentDialog(
+            dialog = dialog,
+            text = messages::resolve,
+            closeLabel = messages.plugin("gui.compose.window.close"),
+            emit = { event -> model.dispatch(snapshot, event) },
+            documentRevision = snapshot.revision(),
+        )
+    }
+}
+
+/**
+ * 根页面外壳：导航与当前页面。文档关闭导航时只渲染首个页面，使引导向导独占窗口。
+ */
+@OptIn(ExperimentalComposeUiApi::class, ExperimentalAnimationApi::class)
+@Composable
+internal fun DesktopShell(
+    document: DesktopUiDocument,
+    documentRevision: Long,
+    resolveText: (DesktopUiNode.TextToken) -> String,
+    dispatch: (DesktopUiNode.Event) -> Unit,
+) {
     val pageIds = document.pages().map { it.id() }
     var selected by rememberSaveable { mutableStateOf(pageIds.first()) }
-    val activePage = selectedIdOrFirst(selected, pageIds)
+    val activePage = activePageId(document, selected)
     val pageStates = rememberSaveableStateHolder()
-    val retainedPageIds = remember { linkedSetOf<String>() }
+    val sceneIds = document.pages().map(::pageSceneId)
+    val retainedSceneIds = remember { linkedSetOf<String>() }
+    val focusManager = LocalFocusManager.current
     LaunchedEffect(activePage) { selected = activePage }
-    LaunchedEffect(pageIds) {
-        removedPageIds(retainedPageIds, pageIds).forEach(pageStates::removeState)
-        retainedPageIds.clear()
-        retainedPageIds.addAll(pageIds)
+    LaunchedEffect(sceneIds) {
+        removedPageIds(retainedSceneIds, sceneIds).forEach(pageStates::removeState)
+        retainedSceneIds.clear()
+        retainedSceneIds.addAll(sceneIds)
     }
 
-    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+    CupertinoSurface(Modifier.fillMaxSize(), color = LocalExperiencePalette.current.surface) {
         Row(Modifier.fillMaxSize()) {
-            NavigationPanel(
-                document = document,
-                selected = activePage,
-                messages = messages,
-                modifier = Modifier.width(104.dp).fillMaxHeight(),
-                onSelect = { selected = it },
-            )
+            AnimatedVisibility(
+                document.navigationVisible(),
+                enter = expandHorizontally(tween(280)) + fadeIn(tween(180, delayMillis = 80)),
+                exit = shrinkHorizontally(tween(220)) + fadeOut(tween(150)),
+            ) {
+                NavigationPanel(
+                    document = document,
+                    selected = activePage,
+                    resolveText = resolveText,
+                    modifier = Modifier.width(DesktopLayout.sidebarWidth).fillMaxHeight(),
+                    onSelect = { focusManager.clearFocus(); selected = it },
+                )
+            }
             val currentPage = document.pages().first { it.id() == activePage }
-            var floatingActionExpanded by remember(activePage) { mutableStateOf(false) }
-
-            Scaffold(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight(),
-                floatingActionButton = {
-                    currentPage.floatingAction().orElse(null)?.let { action ->
-                        val label = (action as? DesktopUiNode.Container)?.children()
-                            ?.filterIsInstance<DesktopUiNode.Text>()?.firstOrNull()
-                            ?.let { messages.resolve(it.text()) }
-                            ?: messages.resolve(currentPage.title())
-                        val menu = expandableFabMenu(action)
-                        if (menu != null) {
-                            ExpandableFab(
-                                menu = menu,
-                                resolve = messages::resolve,
-                                emit = { event -> model.dispatch(snapshot, event) },
-                            )
-                        } else {
-                            AnimatedContent(
-                                targetState = floatingActionExpanded,
-                                contentAlignment = Alignment.BottomEnd,
-                                transitionSpec = { fadeIn(tween(160)).togetherWith(fadeOut(tween(100))) },
-                                contentKey = { it },
-                            ) { expanded ->
-                                if (expanded) {
-                                    Surface(
-                                        modifier = Modifier.width(380.dp),
-                                        shape = MaterialTheme.shapes.extraLarge,
-                                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                        shadowElevation = 6.dp,
-                                    ) {
-                                        ComposeDesktopUiNodeRenderer.Render(
-                                            action,
-                                            messages::resolve,
-                                            { event -> model.dispatch(snapshot, event) },
-                                            Modifier.padding(16.dp),
-                                            documentRevision,
-                                        )
+            val transition = updateTransition(currentPage, label = "desktop-page")
+            Box(Modifier.weight(1f).fillMaxHeight()) {
+                // 保留退场的向导步骤；其它页面只在可见或退场时组合内容。
+                (document.pages() + transition.currentState).distinctBy(::pageSceneId).forEach { page ->
+                    val sceneId = pageSceneId(page)
+                    val active = sceneId == pageSceneId(currentPage)
+                    key(sceneId) {
+                        transition.AnimatedVisibility(
+                            visible = { pageSceneId(it) == sceneId },
+                            modifier = Modifier.fillMaxSize().zIndex(if (active) 1f else 0f),
+                            enter = fadeIn(tween(180)),
+                            exit = fadeOut(tween(180)),
+                        ) {
+                            pageStates.SaveableStateProvider(sceneId) {
+                                // 退场页面只保留画面，不能向新文档派发旧操作。
+                                val interaction = if (active) Modifier else Modifier
+                                    .clearAndSetSemantics {}
+                                    .onPreviewKeyEvent { true }
+                                    .pointerInput(Unit) {
+                                        awaitPointerEventScope {
+                                            while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                                        }
                                     }
-                                } else {
-                                    FloatingActionButton(
-                                        onClick = { floatingActionExpanded = true },
-                                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    ) {
-                                        Icon(Icons.Default.Apps, contentDescription = label)
-                                    }
-                                }
+                                ComposeDesktopUiNodeRenderer.Render(
+                                    page.content(), resolveText, { if (active) dispatch(it) },
+                                    Modifier.fillMaxSize().focusProperties { canFocus = active }.then(interaction), documentRevision,
+                                )
                             }
                         }
                     }
-                },
-                containerColor = MaterialTheme.colorScheme.surface,
-            ) { contentPadding ->
-                AnimatedContent(
-                    targetState = activePage,
-                    modifier = Modifier.fillMaxSize().padding(contentPadding),
-                    transitionSpec = {
-                        val direction = if (pageIds.indexOf(targetState) >= pageIds.indexOf(initialState)) 1 else -1
-                        (fadeIn(tween(220)) + slideInHorizontally(tween(260)) { direction * it / 18 })
-                            .togetherWith(
-                                fadeOut(tween(140)) +
-                                        slideOutHorizontally(tween(200)) { -direction * it / 24 })
-                    },
-                    contentKey = { it },
-                ) { pageId ->
-                    pageStates.SaveableStateProvider(pageId) {
-                        ComposeDesktopUiNodeRenderer.Render(
-                            document.pages().first { it.id() == pageId }.content(),
-                            messages::resolve,
-                            { event -> model.dispatch(snapshot, event) },
-                            Modifier.fillMaxSize(),
-                            documentRevision,
-                        )
-                    }
                 }
             }
         }
     }
-    document.dialogs().forEach { dialog ->
-        DocumentDialog(dialog, snapshot, messages, model, parentWindowSize)
-    }
 }
 
-internal data class ExpandableFabItem(
-    val icon: DesktopUiNode.Icon,
-    val button: DesktopUiNode.Button,
-)
+private fun pageSceneId(page: DesktopUiDocument.Page): String =
+    page.id() + ":" + ((page.content() as? DesktopUiNode.Surface)?.content()?.id() ?: page.content().id())
 
-internal data class ExpandableFabMenu(
-    val label: DesktopUiNode.TextToken,
-    val items: List<ExpandableFabItem>,
-)
-
-internal fun expandableFabMenu(node: DesktopUiNode): ExpandableFabMenu? {
-    val root = node as? DesktopUiNode.Container ?: return null
-    val label = root.children().filterIsInstance<DesktopUiNode.Text>().firstOrNull()?.text() ?: return null
-    val items = root.children().flatMap(::expandableFabItems)
-    return items.takeIf { it.isNotEmpty() && it.all { item -> item.button.enabled() } }
-        ?.let { ExpandableFabMenu(label, it) }
-}
-
-private fun expandableFabItems(node: DesktopUiNode): List<ExpandableFabItem> {
-    val container = node as? DesktopUiNode.Container
-        ?: return node.childNodes().flatMap(::expandableFabItems)
-    val icon = container.children().filterIsInstance<DesktopUiNode.Icon>().singleOrNull()
-    val button = container.children().filterIsInstance<DesktopUiNode.Button>().singleOrNull()
-    if (container.layout() == DesktopUiNode.ContainerLayout.ROW
-        && container.children().size == 2 && icon != null && button != null) {
-        return listOf(ExpandableFabItem(icon, button))
-    }
-    return container.children().flatMap(::expandableFabItems)
-}
-
-@Composable
-internal fun ExpandableFab(
-    menu: ExpandableFabMenu,
-    resolve: (DesktopUiNode.TextToken) -> String,
-    emit: (DesktopUiNode.Event) -> Unit,
-) {
-    var expanded by remember(menu) { mutableStateOf(false) }
-
-    Column(
-        horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        val size = menu.items.size
-        menu.items.forEachIndexed { index, item ->
-            val label = resolve(item.button.label())
-            AnimatedVisibility(
-                visible = expanded,
-                enter = fadeIn(tween(120, delayMillis = (size - index) * 30)) +
-                        scaleIn(
-                            initialScale = 0.5f,
-                            transformOrigin = TransformOrigin(0.5f, 1f)
-                        ),
-                exit = fadeOut(tween(80)) +
-                        scaleOut(
-                            targetScale = 0.5f,
-                            transformOrigin = TransformOrigin(0.5f, 1f)
-                        )
-            ) {
-                ExtendedFloatingActionButton(
-                    onClick = {
-                        emit(DesktopUiNode.Event(
-                            DesktopUiNode.EventType.ACTIVATE,
-                            item.button.id(),
-                            DesktopUiNode.Value.empty(),
-                        ))
-                        expanded = false
-                    },
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                ) {
-                    Icon(desktopIcon(item.icon.icon()), contentDescription = null)
-                    Text(label, modifier = Modifier.padding(start = 4.dp))
-                }
-            }
-        }
-
-        FloatingActionButton(
-            onClick = { expanded = !expanded },
-        ) {
-            Icon(Icons.Default.Apps, contentDescription = resolve(menu.label))
-        }
-    }
-}
+internal fun activePageId(document: DesktopUiDocument, selectedId: String): String =
+    if (document.navigationVisible()) selectedIdOrFirst(selectedId, document.pages().map { it.id() })
+    else document.pages().first().id()
 
 internal fun selectedIdOrFirst(selectedId: String, orderedIds: List<String>): String =
     selectedId.takeIf(orderedIds::contains) ?: orderedIds.first()
@@ -780,31 +691,30 @@ internal fun removedPageIds(previousIds: Set<String>, currentIds: Collection<Str
 private fun NavigationPanel(
     document: DesktopUiDocument,
     selected: String,
-    messages: ComposeMessages,
+    resolveText: (DesktopUiNode.TextToken) -> String,
     modifier: Modifier,
     onSelect: (String) -> Unit,
 ) {
-    NavigationRail(
-        modifier = modifier,
-        containerColor = MaterialTheme.colorScheme.surface,
+    Column(
+        modifier = modifier.verticalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        document.pages().forEach { page ->
-            val title = messages.resolve(page.title())
-            NavigationRailItem(
-                selected = page.id() == selected,
-                onClick = { onSelect(page.id()) },
-                icon = {
-                    Icon(desktopIcon(page.icon()), contentDescription = title)
-                },
-                label = {
-                    Text(
-                        title,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
-                alwaysShowLabel = true,
+        document.pages().forEachIndexed { index, page ->
+            if (index == 4) CupertinoHorizontalDivider(Modifier.padding(vertical = 8.dp))
+            val active = page.id() == selected
+            val background by animateColorAsState(
+                if (active) LocalExperiencePalette.current.selection else Color.Transparent,
+                tween(140), label = "navigation-selection",
             )
+            CupertinoSurface(shape = CupertinoTheme.shapes.small,
+                color = background,
+                modifier = Modifier.fillMaxWidth().selectable(active, role = Role.Tab) { onSelect(page.id()) }) {
+                Row(Modifier.heightIn(min = DesktopLayout.navigationHeight).padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    DesktopIcon(desktopIcon(page.icon()), null, Modifier.size(18.dp))
+                    CupertinoText(resolveText(page.title()), style = CupertinoTheme.typography.body)
+                }
+            }
         }
     }
 }
@@ -820,41 +730,41 @@ private fun FrameWindowScope.WindowsTitleBar(
     onClose: () -> Unit,
 ) {
     BorderlessTitleBarScaffold(windowState) {
-        Surface(
-            color = MaterialTheme.colorScheme.surface,
-            contentColor = MaterialTheme.colorScheme.onSurface,
+        CupertinoSurface(
+            color = LocalExperiencePalette.current.surface,
+            contentColor = LocalExperiencePalette.current.text,
         ) {
             Row(
-                Modifier.fillMaxWidth().height(60.dp)
+                Modifier.fillMaxWidth().height(40.dp)
                     .windowDragArea(helper),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
+                CupertinoText(
                     title,
                     Modifier.weight(1f).padding(start = 16.dp),
-                    style = MaterialTheme.typography.labelLarge.copy(
-                        fontSize = 18.sp
+                    style = CupertinoTheme.typography.subhead.copy(
+                        fontSize = 14.sp
                     ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                IconButton(
+                CupertinoIconButton(
                     onClick = { minimize() },
                     modifier = Modifier.width(46.dp).fillMaxHeight().windowMinimizeButton(helper),
-                ) { Icon(Icons.Default.Minimize, contentDescription = minimizeLabel) }
-                IconButton(
+                ) { DesktopIcon(Icons.Default.Minimize, contentDescription = minimizeLabel) }
+                CupertinoIconButton(
                     onClick = { toggleMaximize() },
                     modifier = Modifier.width(46.dp).fillMaxHeight().windowMaximizeButton(helper),
                 ) {
-                    Icon(
+                    DesktopIcon(
                         if (isMaximized) Icons.Default.FilterNone else Icons.Default.CropSquare,
                         contentDescription = if (isMaximized) restoreLabel else maximizeLabel,
                     )
                 }
-                IconButton(
+                CupertinoIconButton(
                     onClick = onClose,
                     modifier = Modifier.width(46.dp).fillMaxHeight().windowCloseButton(helper),
-                ) { Icon(Icons.Default.Close, contentDescription = closeLabel) }
+                ) { DesktopIcon(Icons.Default.Close, contentDescription = closeLabel) }
             }
         }
     }
@@ -862,37 +772,81 @@ private fun FrameWindowScope.WindowsTitleBar(
 
 private fun isWindows(): Boolean = System.getProperty("os.name").contains("Windows", ignoreCase = true)
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
-private fun DocumentDialog(
+internal fun DocumentDialog(
     dialog: DesktopUiDocument.Dialog,
-    snapshot: DesktopUiSnapshot,
-    messages: ComposeMessages,
-    model: ComposeDesktopUiModel,
-    parentWindowSize: DpSize,
+    text: (DesktopUiNode.TextToken) -> String,
+    closeLabel: String,
+    emit: (DesktopUiNode.Event) -> Unit,
+    documentRevision: Long,
 ) {
-    val targetSize = dialogWindowSize(dialog, parentWindowSize)
-    val state = remember(dialog.id()) { DialogState(size = targetSize) }
-    LaunchedEffect(targetSize) { state.size = targetSize }
-    DialogWindow(
-        state = state,
-        onCloseRequest = {
-            if (dialog.dismissible()) model.dispatch(
-                snapshot, DesktopUiNode.Event(
-                    DesktopUiNode.EventType.ACTIVATE,
-                    dialog.id(),
-                    DesktopUiNode.Value.empty(),
-                )
+    val title = text(dialog.title())
+    val focusRequester = remember(dialog.id()) { FocusRequester() }
+    val dismiss = {
+        if (dialog.dismissible()) emit(
+            DesktopUiNode.Event(
+                DesktopUiNode.EventType.ACTIVATE,
+                dialog.id(),
+                DesktopUiNode.Value.empty(),
             )
-        },
+        )
+    }
+    // 使用与 Cupertino 提示框相同的模态层，避免创建带系统标题栏的独立窗口。
+    Dialog(
+        onDismissRequest = dismiss,
+        properties = DialogProperties(
+            dismissOnBackPress = dialog.dismissible(),
+            dismissOnClickOutside = false,
+            usePlatformDefaultWidth = false,
+            usePlatformInsets = false,
+            scrimColor = CupertinoDialogsDefaults.ScrimColor,
+        ),
     ) {
-        Surface(Modifier.fillMaxSize(), shape = MaterialTheme.shapes.extraLarge, shadowElevation = 12.dp) {
-            Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text(messages.resolve(dialog.title()), style = MaterialTheme.typography.titleLarge)
-                ComposeDesktopUiNodeRenderer.Render(
-                    dialog.content(), messages::resolve,
-                    { event -> model.dispatch(snapshot, event) }, Modifier.fillMaxWidth().weight(1f),
-                    snapshot.revision(),
-                )
+        LaunchedEffect(dialog.id()) { focusRequester.requestFocus() }
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxSize()
+                .onKeyEvent {
+                    if (it.key == Key.Escape && it.type == KeyEventType.KeyUp) {
+                        dismiss()
+                        true
+                    } else false
+                }
+                .focusRequester(focusRequester)
+                .focusable()
+                .padding(24.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            val targetSize = dialogWindowSize(dialog, DpSize(maxWidth, maxHeight))
+            CupertinoSurface(
+                modifier = Modifier.size(targetSize)
+                    .border(1.dp, LocalExperiencePalette.current.separator, CupertinoTheme.shapes.medium)
+                    .semantics { paneTitle = title },
+                shape = CupertinoTheme.shapes.medium,
+                color = LocalExperiencePalette.current.surface,
+                shadowElevation = 12.dp,
+            ) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CupertinoText(
+                            text = title,
+                            modifier = Modifier.weight(1f).semantics { heading() },
+                            style = CupertinoTheme.typography.title2,
+                        )
+                        if (dialog.dismissible()) {
+                            CupertinoIconButton(onClick = dismiss) {
+                                DesktopIcon(Icons.Default.Close, contentDescription = closeLabel)
+                            }
+                        }
+                    }
+                    ComposeDesktopUiNodeRenderer.Render(
+                        root = dialog.content(),
+                        textResolver = text,
+                        eventSink = emit,
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        documentRevision = documentRevision,
+                    )
+                }
             }
         }
     }
@@ -900,8 +854,8 @@ private fun DocumentDialog(
 
 internal fun dialogWindowSize(dialog: DesktopUiDocument.Dialog, parentWindowSize: DpSize): DpSize =
     if (dialog.parentSized()) parentWindowSize else DpSize(
-        (dialog.preferredWidth().takeIf { it > 0 } ?: 400).dp,
-        (dialog.preferredHeight().takeIf { it > 0 } ?: 300).dp,
+        (dialog.preferredWidth().takeIf { it > 0 } ?: 400).dp.coerceAtMost(parentWindowSize.width),
+        (dialog.preferredHeight().takeIf { it > 0 } ?: 300).dp.coerceAtMost(parentWindowSize.height),
     )
 
 internal fun restoredWindowSize(state: WindowStateSnapshot?): DpSize =
@@ -940,51 +894,63 @@ internal fun persistedWindowState(size: DpSize, maximized: Boolean): WindowState
         maximized,
     )
 
-private val LightColors = lightColorScheme()
+internal fun experiencePalette(dark: Boolean, highContrast: Boolean = false): ExperiencePalette = when {
+    dark && highContrast -> ExperienceTokens.highContrastDark
+    highContrast -> ExperienceTokens.highContrastLight
+    dark -> ExperienceTokens.dark
+    else -> ExperienceTokens.light
+}
 
-private val DarkColors = darkColorScheme()
+internal object DesktopLayout {
+    val sidebarWidth = 160.dp
+    val navigationHeight = 40.dp
+    val controlHeight = 36.dp
+    val numberWidth = 140.dp
+    val choiceWidth = 280.dp
+    val formWidth = 720.dp
+}
 
 private val DesktopTypography = Typography(
-    headlineSmall = TextStyle(
+    title1 = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 23.sp,
-        lineHeight = 29.sp,
+        fontSize = 26.sp,
+        lineHeight = 32.sp,
     ),
-    titleLarge = TextStyle(
+    title2 = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.SemiBold,
         fontSize = 19.sp,
         lineHeight = 25.sp,
     ),
-    titleMedium = TextStyle(
+    headline = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Medium,
-        fontSize = 15.sp,
-        lineHeight = 21.sp,
+        fontSize = 16.sp,
+        lineHeight = 22.sp,
     ),
-    bodyLarge = TextStyle(
+    body = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Normal,
         fontSize = 14.sp,
         lineHeight = 20.sp,
     ),
-    bodyMedium = TextStyle(
+    callout = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Normal,
+        fontSize = 14.sp,
+        lineHeight = 20.sp,
+    ),
+    footnote = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Normal,
         fontSize = 13.sp,
         lineHeight = 19.sp,
     ),
-    bodySmall = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Normal,
-        fontSize = 12.sp,
-        lineHeight = 17.sp,
-    ),
-    labelLarge = TextStyle(
+    subhead = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Medium,
-        fontSize = 13.sp,
+        fontSize = 14.sp,
         lineHeight = 18.sp,
     ),
 )
@@ -993,22 +959,44 @@ private val DesktopShapes = Shapes(
     extraSmall = RoundedCornerShape(4.dp),
     small = RoundedCornerShape(8.dp),
     medium = RoundedCornerShape(12.dp),
-    large = RoundedCornerShape(16.dp),
-    extraLarge = RoundedCornerShape(28.dp),
+    large = RoundedCornerShape(12.dp),
+    extraLarge = RoundedCornerShape(12.dp),
 )
 
 @Composable
-private fun PixivDownloaderTheme(themePreference: String, content: @Composable () -> Unit) {
+internal fun PixivDownloaderTheme(themePreference: String, content: @Composable () -> Unit) {
     val dark = darkForThemePreference(themePreference, isSystemInDarkTheme())
-    MaterialTheme(
-        colorScheme = desktopColorScheme(dark),
-        typography = DesktopTypography,
-        shapes = DesktopShapes,
-        content = content,
-    )
+    val toolkit = remember { Toolkit.getDefaultToolkit() }
+    var highContrast by remember { mutableStateOf(toolkit.getDesktopProperty("win.highContrast.on") == true) }
+    DisposableEffect(toolkit) {
+        val listener = java.beans.PropertyChangeListener { highContrast = it.newValue == true }
+        toolkit.addPropertyChangeListener("win.highContrast.on", listener)
+        onDispose { toolkit.removePropertyChangeListener("win.highContrast.on", listener) }
+    }
+    androidx.compose.runtime.CompositionLocalProvider(LocalExperiencePalette provides experiencePalette(dark, highContrast)) {
+        CupertinoTheme(
+            colorScheme = desktopColorScheme(dark, highContrast),
+            typography = DesktopTypography,
+            shapes = DesktopShapes,
+            content = content,
+        )
+    }
 }
 
-internal fun desktopColorScheme(dark: Boolean): ColorScheme = if (dark) DarkColors else LightColors
+internal fun desktopColorScheme(dark: Boolean, highContrast: Boolean = false): ColorScheme {
+    val p = experiencePalette(dark, highContrast)
+    val base = if (dark) darkColorScheme() else lightColorScheme()
+    return base.copy(
+        accent = p.link, label = p.text, secondaryLabel = p.secondaryText,
+        tertiaryLabel = p.secondaryText, quaternaryLabel = p.secondaryText,
+        systemFill = p.controlBorder, secondarySystemFill = p.separator,
+        tertiarySystemFill = p.secondarySurface, quaternarySystemFill = p.secondarySurface,
+        placeholderText = p.secondaryText, separator = p.separator, opaqueSeparator = p.controlBorder,
+        link = p.link, systemBackground = p.surface, secondarySystemBackground = p.background,
+        tertiarySystemBackground = p.secondarySurface, systemGroupedBackground = p.background,
+        secondarySystemGroupedBackground = p.surface, tertiarySystemGroupedBackground = p.secondarySurface,
+    )
+}
 
 internal fun darkForThemePreference(themePreference: String, systemDark: Boolean): Boolean =
     when (themePreference) {

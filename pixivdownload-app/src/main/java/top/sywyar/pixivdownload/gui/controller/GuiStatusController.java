@@ -16,6 +16,7 @@ import top.sywyar.pixivdownload.config.SslConfig;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.onboarding.OnboardingProgressService;
 import top.sywyar.pixivdownload.setup.SetupService;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -245,6 +246,27 @@ public class GuiStatusController {
         }
         return ResponseEntity.ok(new GuiChangePasswordResponse(true, null));
     }
+
+    @PostMapping("/logout-all")
+    public ResponseEntity<GuiLogoutAllResponse> logoutAll(HttpServletRequest req) {
+        if (!NetworkUtils.isTrustedLocalRequest(req)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(new GuiLogoutAllResponse(false, "local-only", messages.get("auth.local-only")));
+        }
+        try {
+            serverState.revokeAllSessions();
+            return ResponseEntity.ok(new GuiLogoutAllResponse(true, null, null));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(new GuiLogoutAllResponse(false, "setup-incomplete", messages.get("auth.setup-required")));
+        } catch (IOException e) {
+            log.warn(logMessage("setup.log.session.save.failed", e.getMessage()), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new GuiLogoutAllResponse(false, "save-failed", messages.get("gui.security.error.save-failed")));
+        }
+    }
+
+    public record GuiLogoutAllResponse(boolean success, String code, String error) implements ApiErrorResponse {}
 
     public record OnboardingStatusResponse(
             boolean setupComplete,

@@ -1,0 +1,36 @@
+{
+  "reference": {
+    "platform": "macOS 27 HIG, retrieved 2026-09-16",
+    "colorSpecification": "https://developer.apple.com/design/human-interface-guidelines/color#Specifications",
+    "semanticRoles": "https://developer.apple.com/documentation/appkit/ui-element-colors",
+    "adaptation": "Opaque sRGB adaptation for Web and Compose Desktop; these are not dynamic NSColor values. Accent uses the HIG increased-contrast blue. Neutral surfaces and semantic foregrounds are product adaptations measured against every supported surface."
+  },
+  "light": {
+    "background": "#f5f5f7", "surface": "#ffffff", "secondarySurface": "#ededf0",
+    "text": "#1d1d1f", "secondaryText": "#616166", "separator": "#d5d5d9", "controlBorder": "#85858b",
+    "accent": "#1e6ef4", "onAccent": "#ffffff", "link": "#185ecf", "selection": "#e2edff",
+    "success": "#146c2e", "successSurface": "#e7f4e9", "warning": "#994000", "warningSurface": "#fff0e2",
+    "error": "#c21125", "errorSurface": "#ffe9eb", "disabled": "#616166"
+  },
+  "dark": {
+    "background": "#1c1c1e", "surface": "#242426", "secondarySurface": "#2c2c2e",
+    "text": "#f5f5f7", "secondaryText": "#b5b5bb", "separator": "#414145", "controlBorder": "#85858b",
+    "accent": "#5cb8ff", "onAccent": "#1c1c1e", "link": "#5cb8ff", "selection": "#233c58",
+    "success": "#4ad968", "successSurface": "#213629", "warning": "#ffa056", "warningSurface": "#3c2c20",
+    "error": "#ff6165", "errorSurface": "#3e2429", "disabled": "#b5b5bb"
+  },
+  "highContrastLight": {
+    "background": "#ffffff", "surface": "#ffffff", "secondarySurface": "#ffffff",
+    "text": "#000000", "secondaryText": "#333333", "separator": "#555555", "controlBorder": "#555555",
+    "accent": "#185ecf", "onAccent": "#ffffff", "link": "#185ecf", "selection": "#e2edff",
+    "success": "#146c2e", "successSurface": "#ffffff", "warning": "#994000", "warningSurface": "#ffffff",
+    "error": "#c21125", "errorSurface": "#ffffff", "disabled": "#555555"
+  },
+  "highContrastDark": {
+    "background": "#000000", "surface": "#000000", "secondarySurface": "#000000",
+    "text": "#ffffff", "secondaryText": "#dddddd", "separator": "#bbbbbb", "controlBorder": "#bbbbbb",
+    "accent": "#5cb8ff", "onAccent": "#000000", "link": "#5cb8ff", "selection": "#233c58",
+    "success": "#4ad968", "successSurface": "#000000", "warning": "#ffa056", "warningSurface": "#000000",
+    "error": "#ff6165", "errorSurface": "#000000", "disabled": "#bbbbbb"
+  }
+}

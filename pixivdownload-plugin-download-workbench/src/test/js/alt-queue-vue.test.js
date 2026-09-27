@@ -4,7 +4,7 @@
  * Vue reactive 岛（alt-queue-vue.js, window.PixivBatchAlt.queueVue）的运行态测试。
  *
  * 无浏览器 / 无 jsdom：最小 DOM + 可控 requestAnimationFrame + 假 PixivVue helper
- * （reactive 为恒等、mountOn 记录挂载并可模拟挂载失败 / 运行时加载失败）在 Node 的
+ * （真实 Vue 在禁止代码生成的 VM 中运行，mountOn 记录挂载并可模拟失败）在 Node 的
  * vm 沙箱里加载**真实**源码，断言：
  *   1) Vue 成功 / Vue 缺失 / Vue 运行时加载失败 / 挂载失败四条路径的激活与优雅降级。
  *   2) 高频合批：N 次 sync 在一帧内只触发一次 store 扇出（requestAnimationFrame 合并、同 key 去重）。
@@ -12,7 +12,7 @@
  *   4) 计划任务本轮队列详情岛：ensure → 异步挂载 → active 后 reactive 同步；连续多条
  *      同步不整块重建 #abScheduleQueue-<id>；box 被替换（detached）后探测失效并重挂；
  *      折叠 / 下线卸载。
- *   5) 组件契约：统计 / 当前卡 / 列表 / 计划详情组件的 template 镜像 alt 命令式
+ *   5) 组件契约：统计 / 当前卡 / 列表 / 计划详情在 CSP 下渲染 VNode 并保留 alt 命令式
  *      renderDock / renderCurrent / queueItemRow / renderScheduleQueue 的 class / id 契约。
  *
  * 运行： node src/test/js/alt-queue-vue.test.js
@@ -112,14 +112,23 @@ function makeScheduleBox(id) {
 /* ============================================================
    假 Vue helper（PixivVue）
 ============================================================ */
-function makeVueRuntime() {
-    return {
-        reactive: o => o,
-        computed: fn => ({ value: fn() }),
-        nextTick: () => Promise.resolve(),
-        createApp: () => ({ mount: () => ({}) })
-    };
+const vueContext = vm.createContext({console}, {codeGeneration: {strings: false, wasm: false}});
+vm.runInContext(fs.readFileSync(path.resolve(__dirname, '../../../../pixivdownload-app/src/main/resources/static/vendor/vue/vue.global.prod.js'), 'utf8'), vueContext);
+const realVue = vueContext.Vue;
+function makeVueRuntime() { return realVue; }
+function renderNodes(component) {
+    const root = component.render.call(realVue.proxyRefs(component.setup ? component.setup() : {}));
+    const nodes = [];
+    function visit(node) {
+        if (Array.isArray(node)) return node.forEach(visit);
+        if (!node || typeof node !== 'object') return;
+        nodes.push(node);
+        visit(node.children);
+    }
+    visit(root);
+    return nodes;
 }
+
 function makePixivVue(opts, record) {
     opts = opts || {};
     const vue = makeVueRuntime();
@@ -147,7 +156,7 @@ function loadVue(opts) {
         document, console: { warn() {}, log() {}, error() {} },
         Map, Set, Promise, setTimeout, clearTimeout,
         // 默认捕获 rAF 回调而不自动执行：测试经 queueVue.flush() 确定性 flush；
-        // 统计滚动 tween 经 drainRaf() 用推进的假时钟跑到终点。
+        // 待处理合批回调由 drainRaf() 排空。
         requestAnimationFrame: cb => { record.rafQueued++; (record.rafCallbacks = record.rafCallbacks || []).push(cb); return record.rafQueued; },
         performance: { _now: 0, now() { this._now += 17; return this._now; } },
         // 共享格式化 / 门面桩（alt-queue.js 顶层函数；此处隔离注入）。
@@ -222,7 +231,7 @@ function loadVue(opts) {
         api: sandbox.window.PixivBatchAlt.queueVue };
 }
 
-// 把捕获的 rAF 回调一直跑到没有下一次调度为止（统计滚动 tween 到终点）。
+// 把捕获的 rAF 回调一直跑到没有下一次调度为止。
 function drainRaf(record) {
     let guard = 0;
     while (record.rafCallbacks && record.rafCallbacks.length) {
@@ -240,7 +249,7 @@ async function main() {
         const { api, record } = loadVue({ state: st });
         ok('1: 初始未激活', api.isActive() === false);
         const active = await api.ensure();
-        drainRaf(record);   // 统计滚动 tween 跑完
+        drainRaf(record);   // 完成待处理合批
         ok('1: Vue 成功 → 激活', active === true && api.isActive() === true);
         ok('1: 挂载 3 个 app（.ab-dock-stats / #abCurrentCard / #abQueueList）', record.mounts.length === 3);
         const targets = record.mounts.map(m => m.el.getAttribute('class') || m.el.getAttribute('id'));
@@ -291,6 +300,7 @@ async function main() {
         api.syncStats({ pending: 9, success: 1, failed: 2, active: 3, skipped: 4 });
         ok('4: flush 前统计未更新', store.stats.pending !== 9);
         api.flush();
+        ok('4: 合批后立即显示真实计数，不依赖补间帧', store.stats.pending === 9 && store.stats.failed === 2);
         drainRaf(record);
         ok('4: flush 后统计取最后一次（pending=9, failed=2）', store.stats.pending === 9 && store.stats.failed === 2);
     }
@@ -348,19 +358,18 @@ async function main() {
         const list = api.__test.listComponent();
         const lv = list.setup();
         const rows = lv.rows.value;
-        ok('6: 列表模板含 ab-queue-item + :key + :data-queue-id', /ab-queue-item/.test(list.template) && /:key="r.key"/.test(list.template) && /:data-queue-id="r.queueId"/.test(list.template));
+        ok('6: CSP 禁止代码生成时仍渲染稳定队列身份', renderNodes(list).some(n => n.key === rows[0].key && n.props['data-queue-id'] === rows[0].queueId));
         ok('6: 行模型经共享 queueItemDisplayTitle 派生标题', rows.length === 1 && rows[0].title === '共享标题');
         state.queue.length = 0;
         api.syncList();
         api.flush();
         const stats = api.__test.statsComponent();
-        ok('6: 统计模板保留 5 计数 id + 速度 id', /id="abStatPending"/.test(stats.template) && /id="abStatSpeed"/.test(stats.template) && /id="abStatSpeedUnit"/.test(stats.template));
-        ok('6: 统计标签经 bt（t）派生而非写死 data-i18n', /t\('stats\.queued'/.test(stats.template) && stats.template.indexOf('data-i18n') < 0);
+        const statNodes = renderNodes(stats);
+        ok('6: 统计计数与速度节点实际生成', ['abStatPending', 'abStatSuccess', 'abStatFailed', 'abStatActive', 'abStatSkipped', 'abStatSpeed', 'abStatSpeedUnit'].every(id => statNodes.some(n => n.props?.id === id)));
+        ok('6: 统计标签在渲染时本地化', statNodes.some(n => n.children === '队列'));
         const cur = api.__test.currentComponent();
-        ok('6: 当前卡走 display:contents v-html 经 currentHtml() 派生（单模板规避 prod 编译器静态折叠崩溃）',
-            /currentHtml\(\)/.test(cur.template) && /display:contents/.test(cur.template));
-        ok('6: 当前卡模板不含 v-if / 成员链条件（与 pixiv-batch.html 同手法）',
-            /v-if/.test(cur.template) === false && /v-else/.test(cur.template) === false);
+        const currentNode = renderNodes(cur)[0];
+        ok('6: 当前卡沿用安全 HTML 派生与无容器布局', currentNode.props.style.display === 'contents' && currentNode.props.innerHTML === cur.setup().currentHtml());
         ok('6: 空队列 + 未暂停 → idle「无」', cur.setup().currentHtml().indexOf('ab-current-idle') >= 0);
         // 队列镜像同步后由响应式自动派生队首 + 流式图片进度条 + 剩余计数行。
         state.queue.push({ id: '9', status: 'downloading', totalImages: 3, downloadedCount: 1, title: 'T9' }, { id: '10', status: 'pending' });
@@ -414,10 +423,17 @@ async function main() {
         await tick();
         const entry = api.__test.schedEntry(8);
         const comp = api.__test.schedComponent(entry);
-        ok('8: 结构镜像 renderScheduleQueue（head / empty / list / item）', /ab-round-head/.test(comp.template) && /ab-round-list/.test(comp.template) && /ab-round-item/.test(comp.template) && /ab-round-status/.test(comp.template));
-        ok('8: truncated 提示与 empty 行存在', /ab-field-note/.test(comp.template) && /ab-empty-line/.test(comp.template));
-        ok('8: 列表行带 :key 与 :data-status（局部刷新口径）', /:key="row.key"/.test(comp.template) && /:data-status="row.status"/.test(comp.template));
-        ok('8: AI 翻译徽标经 row.showTranslate 条件渲染', /v-if="row.showTranslate"/.test(comp.template) && /ab-mini-badge--ai/.test(comp.template));
+        entry.store.rows = [{key: 'r1', status: 'pending', title: '作品', html: '<div class="ab-queue-item">作品 · 翻译</div>'}];
+        entry.store.truncated = true;
+        entry.store.truncatedText = '截断提示';
+        let nodes = renderNodes(comp);
+        ok('8: 计划队列保留稳定身份与状态', nodes.some(n => n.key === 'r1' && n.props['data-status'] === 'pending'));
+        ok('8: 渲染共享队列行和截断提示', nodes.some(n => n.props.innerHTML === entry.store.rows[0].html) && nodes.some(n => n.children === '截断提示'));
+        entry.store.empty = true;
+        entry.store.emptyText = '空队列';
+        nodes = renderNodes(comp);
+        ok('8: 空队列移除旧行并显示提示', !nodes.some(n => n.key === 'r1') && nodes.some(n => n.children === '空队列'));
+
     }
 
     /* ===== 9) box 被替换（detached）→ 探测失效 → 重挂；折叠 / 下线卸载 ===== */
@@ -468,7 +484,9 @@ async function main() {
                 if (vars) Object.keys(vars).forEach(key => { t = t.replace('{' + key + '}', String(vars[key])); });
                 return t;
             },
-            fmtScheduleTime: ms => ms ? '12:00' : '—'
+            fmtScheduleTime: ms => ms ? '12:00' : '—',
+            altQueueTypes: () => ({queueKey: (type, id) => type + ':' + id}),
+            queueItemRow: (item, options) => ({outerHTML: `${item.title}|${item.lastMessage || ''}|${options.readOnly}`})
         };
         sandbox.window = sandbox;
         sandbox.window.PixivBatchAlt = { schedule: {} };
@@ -479,16 +497,16 @@ async function main() {
             total: 3,
             truncated: true,
             items: [
-                { title: 'A', status: 'downloaded' },
-                { title: '', status: 'pending', message: 'schedule.foo' },
-                { title: 'C', status: 'downloaded', translatePhase: true, translateElapsedSeconds: 5 }
+                { id: 'a', kind: 'image', title: 'A', status: 'completed' },
+                { id: 'b', kind: 'image', title: '', status: 'failed', failureCode: 'schedule.foo' },
+                { id: 'c', kind: 'text', title: 'C', status: 'completed' }
             ]
         });
-        ok('11: 模型派生 started/stats 文案', typeof model.startedText === 'string' && model.startedText.length > 0 && model.statsText === '共 3 项');
+        ok('11: 模型派生 started/stats 文案', typeof model.startedText === 'string' && model.startedText.length > 0 && model.statsText.includes('成功: 2') && model.statsText.includes('失败: 1'));
         ok('11: truncated 提示派生', model.truncated === true && model.truncatedText.includes('3'));
         ok('11: 空标题回退占位文案', model.rows[1].title === '（暂无标题信息）');
-        ok('11: message 机器码本地化追加', model.rows[1].statusText === '待处理：机器码原因');
-        ok('11: AI 翻译徽标仅在 translatePhase 时出现', model.rows[0].showTranslate === false && model.rows[2].showTranslate === true && model.rows[2].translateText.includes('AI 翻译'));
+        ok('11: 失败机器码在共享队列渲染前本地化', model.rows[1].html.includes('机器码原因'));
+        ok('11: 计划队列共享行始终只读，行身份不随状态改变', model.rows.every(row => row.html.endsWith('|true')) && model.rows[2].key === 'text:c');
         const emptyModel = sandbox.scheduleQueueDetailModel({});
         ok('11: 空数据 → empty 行', emptyModel.empty === true && emptyModel.rows.length === 0);
     }

@@ -119,6 +119,7 @@ jobs:
       - name: Build release Java artifacts
         uses: ./.github/actions/build-release-java
         with:
+          build_channel: release
           release_version: ${{ needs.validate-release-tag.outputs.version }}
           distribution_version: ${{ github.ref_name }}
           plugin_credential_master_key_base64: ${{ secrets.PIXIVDOWNLOAD_PLUGIN_CREDENTIAL_MASTER_KEY_BASE64 }}

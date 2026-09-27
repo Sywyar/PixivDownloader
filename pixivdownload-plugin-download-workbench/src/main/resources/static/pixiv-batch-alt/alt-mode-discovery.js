@@ -305,10 +305,41 @@ async function enqueueUserAll() {
     }
     const ids = userState.ids.slice();
     const context = {variant: userState.kind, userId: userState.userId, username: userState.username};
-    const metas = ids.map(id => Object.assign({id, kind: acquisition.type},
-        acquisition.buildQueueMetaFromId ? acquisition.buildQueueMetaFromId(id, context) : {}));
-    const added = addItemsToQueue(ids, metas, 'user', userState.username,
-        userState.userId, userState.username);
+    const source = userState.source, kind = userState.kind;
+    const isStale = () => source !== userState.source || kind !== userState.kind || context.userId !== userState.userId;
+    const lease = altQueueTypes().acquisitionLease(acquisition.type, 'user');
+    let items = ids.map(id => {
+        const owned = acquisition.buildQueueMetaFromId ? acquisition.buildQueueMetaFromId(id, context) : {};
+        return Object.assign({id: String(acquisition.queueId ? acquisition.queueId({id}) : id), kind: acquisition.type},
+            owned, {__queueMeta: owned});
+    });
+    try {
+        if (filtered) {
+            const matched = [];
+            for (let offset = 0; offset < ids.length; offset += userState.pageSize) {
+                if (isStale()) return;
+                lease.assertCurrent();
+                const pageIds = ids.slice(offset, offset + userState.pageSize);
+                const data = await altAcquisitionJson(acquisition.type, 'user', {
+                    endpoint: acquisition.cardsEndpoint(context.userId), params: {ids: pageIds}
+                }, 'cards', context);
+                lease.assertCurrent();
+                const result = await computeFilteredItems(
+                    normalizeAcquisitionItems(data.items || [], acquisition, context, 'user'),
+                    extraFilters, acquisition.type, isStale);
+                if (!result || isStale()) return;
+                matched.push(...result.filtered);
+            }
+            items = matched;
+        }
+        lease.assertCurrent();
+    } catch (e) {
+        if (!isStale()) abToast('error', String(e && e.message || bt('common.request-failed', '请求失败')));
+        return;
+    }
+    if (isStale()) return;
+    const added = enqueueItems(items, null, {source: 'user', username: context.username,
+        authorId: context.userId, authorName: context.username, silent: true});
     abToast('success', bt('queue.toast.batch-added', '已批量加入 {count} 个作品', {count: added}));
 }
 
@@ -316,6 +347,10 @@ async function enqueueUserAll() {
    Search 模式
    ============================================================ */
 function renderSearchMode(panel) {
+    if (!searchState.preferenceLoaded) {
+        searchState.preferenceLoaded = true;
+        searchState.submode = storeGet('pixiv_search_submode') === 'batch' ? 'batch' : 'search';
+    }
     const def = AB_MODES[3];
     panel.appendChild(modeHeader(def, [filterButton(), settingsButton(), saveScheduleButton()].filter(Boolean)));
 
@@ -368,6 +403,10 @@ function renderSearchMode(panel) {
     row.appendChild(searchBtn);
     composer.appendChild(row);
 
+    const options = el('details', 'ab-search-options');
+    options.open = !!searchState.optionsOpen || searchState.submode === 'batch';
+    options.addEventListener('toggle', () => { searchState.optionsOpen = options.open; });
+    options.appendChild(el('summary', '', bt('search.options', '搜索选项')));
     const controls = el('div', 'ab-search-controls');
     const searchAcquisition = altAcquisition('search', searchState.source, searchState.kind);
     const contributionControls = searchAcquisition && searchAcquisition.controls || {};
@@ -400,6 +439,7 @@ function renderSearchMode(panel) {
     if (supportsBatchRange) submodes.push(['batch', bt('search.sub.batch', '批量获取')]);
     controls.appendChild(smallSeg(submodes, searchState.submode, v => {
         searchState.submode = v;
+        storeSet('pixiv_search_submode', v);
         renderStage();
     }));
     const blurLabel = el('label', 'ab-check');
@@ -414,7 +454,8 @@ function renderSearchMode(panel) {
     blurLabel.appendChild(blurBox);
     blurLabel.appendChild(el('span', '', bt('search.blur-r18', '模糊 R18 缩略图')));
     if (contributionControls.r18Blur !== false) controls.appendChild(blurLabel);
-    composer.appendChild(controls);
+    options.appendChild(controls);
+    composer.appendChild(options);
 
     if (searchState.submode === 'batch') {
         const batchRow = el('div', 'ab-composer-row ab-batch-range');
@@ -424,14 +465,20 @@ function renderSearchMode(panel) {
         startInput.min = '1';
         startInput.value = searchState.startPage;
         startInput.addEventListener('change', () => {
-            searchState.startPage = Math.max(1, parseInt(startInput.value, 10) || 1);
+            searchState.startPage = startInput.value;
+            normalizeAltBatchRange();
+            startInput.value = searchState.startPage;
+            endInput.value = searchState.endPage;
         });
         const endInput = el('input', 'ab-input ab-input--num');
         endInput.type = 'number';
-        endInput.min = '-1';
+        endInput.min = isAdmin ? '-1' : '1';
         endInput.value = searchState.endPage;
         endInput.addEventListener('change', () => {
-            searchState.endPage = parseInt(endInput.value, 10) || 1;
+            searchState.endPage = endInput.value;
+            normalizeAltBatchRange();
+            startInput.value = searchState.startPage;
+            endInput.value = searchState.endPage;
         });
         batchRow.appendChild(startInput);
         batchRow.appendChild(el('span', 'ab-range-dash', '—'));
@@ -444,7 +491,7 @@ function renderSearchMode(panel) {
                 ? ' ' + bt('search.batch.multi-limit', 'multi 模式：每次最多 {limit} 页', {limit: multiModeLimitPage})
                 : '');
         batchRow.appendChild(note);
-        composer.appendChild(batchRow);
+        options.appendChild(batchRow);
     }
     panel.appendChild(composer);
 
@@ -459,9 +506,14 @@ function smallSeg(options, current, onSelect) {
     options.forEach(([value, label]) => {
         const btn = el('button', 'ab-seg-item' + (current === value ? ' is-active' : ''), label);
         btn.type = 'button';
+        btn.setAttribute('aria-pressed', String(current === value));
         btn.addEventListener('click', () => {
-            seg.querySelectorAll('.ab-seg-item').forEach(b => b.classList.remove('is-active'));
+            seg.querySelectorAll('.ab-seg-item').forEach(b => {
+                b.classList.remove('is-active');
+                b.setAttribute('aria-pressed', 'false');
+            });
             btn.classList.add('is-active');
+            btn.setAttribute('aria-pressed', 'true');
             onSelect(value);
         });
         seg.appendChild(btn);
@@ -470,6 +522,20 @@ function smallSeg(options, current, onSelect) {
 }
 
 // 附加筛选的内容分级映射为搜索 API 的 mode 参数（与现行页同口径）
+function normalizeAltBatchRange() {
+    let start = Math.max(1, parseInt(searchState.startPage, 10) || 1);
+    let end = parseInt(searchState.endPage, 10);
+    if (!(isAdmin && end === -1)) {
+        if (!Number.isFinite(end) || end < 1) end = start;
+        if (end < start) [start, end] = [end, start];
+        if (appMode !== 'solo' && !isAdmin && multiModeLimitPage > 0) {
+            end = Math.min(end, start + multiModeLimitPage - 1);
+        }
+    }
+    searchState.startPage = start;
+    searchState.endPage = end;
+}
+
 function searchApiMode() {
     const c = extraFilters.content;
     if (c === 'safe') return 'safe';
@@ -478,6 +544,7 @@ function searchApiMode() {
 }
 
 async function runSearch(page) {
+    if (searchState.submode === 'batch') normalizeAltBatchRange();
     const input = document.getElementById('abSearchInput');
     const word = (input ? input.value : searchState.word || '').trim();
     if (!word) {
@@ -495,7 +562,9 @@ async function runSearch(page) {
         const context = {
             word, order: searchState.order, uiMode: searchApiMode(),
             searchMode: searchState.sMode, page,
-            startPage: searchState.startPage, endPage: searchState.endPage
+            startPage: searchState.startPage,
+            // -1 只表示计划任务翻页到底，立即抓取仍限定在起始页。
+            endPage: Number(searchState.endPage) === -1 ? searchState.startPage : searchState.endPage
         };
         const range = searchState.submode === 'batch';
         const builder = range ? acquisition.buildRangeRequest : acquisition.buildRequest;

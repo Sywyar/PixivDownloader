@@ -1,263 +1,251 @@
 package top.sywyar.pixivdownload.guicompose.model;
 
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
-
-import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiDocument;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon;
+import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode;
-import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.InputKind;
-import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.TextStyle;
-import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.TextToken;
-
+import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.*;
+import java.net.URI;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import static top.sywyar.pixivdownload.guicompose.model.DesktopUiNodes.*;
-
-/**
- * 管理员密码变更表单及其提交状态。
- */
+/** 管理安全表单与受控本地动作，密码不投影到页面快照。 */
 final class DesktopSecurityController {
-    private static final Logger LOG = LoggerFactory.getLogger(DesktopSecurityController.class);
-
+    private static final Map<String, String> CONNECTION_KEYS = Map.of(
+            "https", "server.ssl.enabled", "domain", "ssl.domain", "port", "server.port",
+            "certificate", "server.ssl.certificate", "private-key", "server.ssl.certificate-private-key");
     private final ComposeDesktopUiModel owner;
     private final DesktopUiHost host;
+    private final int serverPort;
     private final Map<String, String> formValues;
-
-    private volatile TextToken notice = key("gui.security.status.idle");
+    private volatile String panel = "";
+    private volatile TextToken notice;
+    private volatile String errorField = "";
     private volatile long formRevision;
+    private volatile long successRevision;
+    private volatile String successOperation = "";
+    private volatile String runningAddress = "";
+    private volatile boolean connectionLoaded;
+    private volatile boolean keyStoreConfigured;
 
-    DesktopSecurityController(
-            ComposeDesktopUiModel owner,
-            DesktopUiHost host,
-            Map<String, String> formValues
-    ) {
+    DesktopSecurityController(ComposeDesktopUiModel owner, DesktopUiHost host, Map<String, String> formValues, int serverPort) {
         this.owner = owner;
         this.host = host;
         this.formValues = formValues;
+        this.serverPort = serverPort;
     }
 
     DesktopUiNode page(Map<String, Runnable> nextActions) {
-        TextStyle noticeStyle = notice.key().contains(".error.") || notice.key().contains(
-                ".validation.") ? TextStyle.ERROR : notice.key().endsWith(".success") ? TextStyle.SUCCESS : TextStyle.CAPTION;
-        DesktopUiNode form = new DesktopUiNode.Form(
-                "security.form",
-                DesktopUiNode.FormStyle.COMPACT,
-                null,
-                List.of(
-                        new DesktopUiNode.FormRow(
-                                "security.current.row",
-                                key("gui.security.field.current-password"),
-                                null,
-                                passwordInput(
-                                        "security.current.input",
-                                        "security.current",
-                                        "gui.security.field.current-password",
-                                        !owner.busy()
-                                ),
-                                null
-                        ),
-                        new DesktopUiNode.FormRow(
-                                "security.new.row",
-                                key("gui.security.field.new-password"),
-                                null,
-                                passwordInput(
-                                        "security.new.input",
-                                        "security.new",
-                                        "gui.security.field.new-password",
-                                        !owner.busy()
-                                ),
-                                null
-                        ),
-                        new DesktopUiNode.FormRow(
-                                "security.confirm.row",
-                                key("gui.security.field.confirm-password"),
-                                null,
-                                passwordInput(
-                                        "security.confirm.input",
-                                        "security.confirm",
-                                        "gui.security.field.confirm-password",
-                                        !owner.busy()
-                                ),
-                                null
-                        )
-                )
-        );
-        List<DesktopUiNode> actions = new ArrayList<>();
-        actions.add(button(
-                "security.submit",
-                "security.submit",
-                "gui.security.action.submit",
-                !owner.busy(),
-                nextActions,
-                this::changePassword
-        ));
-        actions.add(button(
-                "security.clear",
-                "security.clear",
-                "gui.security.action.clear",
-                !owner.busy(),
-                nextActions,
-                () -> {
-                    clearSecurityForm();
-                    notice = key("gui.security.status.idle");
-                    owner.rebuild();
-                }
-        ));
-        DesktopUiNode bottom = column(
-                "security.bottom",
-                text(
-                        "security.description",
-                        "gui.security.card.change-password.description",
-                        TextStyle.CAPTION
-                ),
-                new DesktopUiNode.Text(
-                        "security.notice",
-                        notice,
-                        noticeStyle,
-                        true,
-                        false
-                ),
-                row("security.actions", actions)
-        );
-        return scroll(
-                "security.scroll",
-                column(
-                        "security.root",
-                        text("security.title", "desktop.ui.page.security", TextStyle.TITLE),
-                        group(
-                                "security.card",
-                                "gui.security.card.change-password.title",
-                                column("security.card.layout", form, bottom)
-                        )
-                )
-        );
+        List<Button> actions = new ArrayList<>();
+        actions.add(action("password", nextActions, () -> open("password")));
+        actions.add(action("sessions", nextActions, () -> open("sessions")));
+        actions.add(action("connection", nextActions, this::loadConnection));
+        List<Button> navigation = new ArrayList<>();
+        for (var entry : DesktopControlCenterView.navigationEntries(owner.currentSources(), NavigationPlacements.DESKTOP_SECURITY_ACTIONS)) {
+            var contribution = entry.navigation();
+            String id = "security.navigation." + DesktopUiNodes.safeId(entry.owner()) + "." + DesktopUiNodes.safeId(contribution.id());
+            nextActions.put(id, () -> {
+                inputChanged();
+                owner.runBusy(() -> {
+                    if (!DesktopControlCenterView.navigationEntries(owner.currentSources(), NavigationPlacements.DESKTOP_SECURITY_ACTIONS).contains(entry)) return;
+                    try { host.openExternalUri(owner.webUri(contribution.href())); }
+                    catch (Exception failure) { notice = label("browser-failed"); }
+                });
+            });
+            navigation.add(new Button(id, id,
+                    DesktopUiNodes.token(contribution.labelNamespace(), contribution.labelI18nKey(), contribution.id()),
+                    contribution.descriptionI18nKey().isBlank() ? null
+                            : DesktopUiNodes.token(contribution.labelNamespace(), contribution.descriptionI18nKey(), ""),
+                    ButtonStyle.NORMAL, !owner.busy(), DesktopUiIcon.SECURITY));
+        }
+        actions.add(action("close", nextActions, this::close));
+        actions.add(action("submit", nextActions, this::changePassword));
+        actions.add(action("logout", nextActions, this::logout));
+        actions.add(action("save", nextActions, this::saveConnection));
+        List<TextInput> inputs = new ArrayList<>();
+        for (String field : List.of("current", "new", "confirm", "domain", "port", "certificate", "private-key")) {
+            boolean secret = List.of("current", "new", "confirm").contains(field);
+            inputs.add(new TextInput("security." + field + ".input", "security." + field,
+                    label(field), null, secret ? InputKind.PASSWORD : InputKind.TEXT,
+                    secret ? "" : value(field), 24, 1, !owner.busy(), formRevision));
+        }
+        return new SecurityOverview("security.overview", panel, owner.busy(), host.minimumPasswordLength(),
+                inputs, new Toggle("security.https", "security.https", label("https"), null,
+                ToggleStyle.SWITCH, Boolean.parseBoolean(value("https")), !owner.busy()),
+                actions, notice, errorField, formRevision, successRevision, successOperation,
+                runningAddress, keyStoreConfigured, navigation);
+    }
+
+    private Button action(String name, Map<String, Runnable> actions, Runnable callback) {
+        String id = "security." + name;
+        actions.put(id, callback);
+        boolean allowed = !owner.busy() && switch (name) {
+            case "submit" -> panel.equals("password");
+            case "logout" -> panel.equals("sessions");
+            case "save" -> panel.equals("connection") && connectionLoaded;
+            default -> true;
+        };
+        String labelKey = switch (name) {
+            case "password", "sessions", "connection" -> name + ".action";
+            case "submit" -> "password.action";
+            case "logout" -> "sessions.action";
+            default -> name;
+        };
+        return new Button(id, id, label(labelKey), null, ButtonStyle.NORMAL, allowed);
+    }
+
+    void inputChanged() {
+        notice = null;
+        errorField = "";
+    }
+
+    private void open(String next) {
+        if (owner.busy()) return;
+        clearSecrets();
+        inputChanged();
+        panel = next;
+        owner.rebuild();
+    }
+
+    private void close() {
+        if (owner.busy()) return;
+        clearSecrets();
+        inputChanged();
+        panel = "";
+        owner.rebuild();
+    }
+
+    void clearSecrets() {
+        for (String name : List.of("current", "new", "confirm")) formValues.remove("security." + name);
+        formRevision++;
     }
 
     private void changePassword() {
-        String current = form("security.current", "");
-        String next = form("security.new", "");
-        String confirm = form("security.confirm", "");
-        if (current.isBlank()) {
-            notice = key("gui.security.validation.current-required");
+        String current = value("current"), next = value("new"), confirm = value("confirm");
+        var errors = SecurityInputValidation.passwordErrors(current, next, confirm, host.minimumPasswordLength());
+        if (!errors.isEmpty()) {
+            var error = errors.entrySet().iterator().next();
+            errorField = error.getKey();
+            notice = label(error.getValue());
             owner.rebuild();
             return;
         }
-        if (next.isBlank()) {
-            notice = key("gui.security.validation.new-required");
-            owner.rebuild();
-            return;
-        }
-        if (next.length() < host.minimumPasswordLength()) {
-            notice = key("gui.security.validation.weak-password");
-            owner.rebuild();
-            return;
-        }
-        if (!next.equals(confirm)) {
-            notice = key("gui.security.validation.mismatch");
-            owner.rebuild();
-            return;
-        }
-        if (next.equals(current)) {
-            notice = key("gui.security.validation.same-password");
-            owner.rebuild();
-            return;
-        }
-        notice = key("gui.security.action.submitting");
+        request("change-password", Map.of("oldPassword", current, "newPassword", next), "password");
+    }
+
+    private void logout() {
+        request("logout-all", Map.of(), "sessions");
+    }
+
+    private void request(String endpoint, Map<String, String> body, String operation) {
+        inputChanged();
         owner.runBusy(() -> {
-            DesktopUiHost.GuiResponse response = host.guiPostJson(
-                    "change-password",
-                    Map.of(
-                            "oldPassword",
-                            current,
-                            "newPassword",
-                            next
-                    ),
-                    5_000
-            );
-            if (response.is2xx()) {
-                LOG.info(host.message("gui.security.log.change-password.success"));
-                clearSecurityForm();
-                notice = key("gui.security.status.success");
-                owner.showDialog(
-                        "security.success",
-                        "gui.security.dialog.success.title",
-                        "gui.security.dialog.success.message",
-                        DesktopUiDocument.DialogStyle.SUCCESS
-                );
-                return;
-            }
-            String error = response.body() == null ? "unexpected" : response.body().path("error").asText(
-                    "unexpected");
-            String messageKey = switch (error) {
-                case "invalid-current" -> "gui.security.error.invalid-current";
-                case "weak-password" -> "gui.security.error.weak-password";
-                case "same-password" -> "gui.security.error.same-password";
-                case "setup-incomplete" -> "gui.security.error.setup-incomplete";
-                case "save-failed" -> "gui.security.error.save-failed";
-                default ->
-                        response.reachable() ? "gui.security.error.unexpected" : "gui.security.error.backend-unreachable";
-            };
-            notice = key(messageKey);
-            if (Set.of(
-                    "setup-incomplete",
-                    "save-failed",
-                    "unexpected"
-            ).contains(error) || !response.reachable()) {
-                LOG.error(
-                        "Desktop password change failed: reachable={}, status={}, kind={}",
-                        response.reachable(),
-                        response.status(),
-                        error
-                );
-                owner.showDialog(
-                        "security.error",
-                        "gui.dialog.error.title",
-                        messageKey,
-                        DesktopUiDocument.DialogStyle.ERROR
-                );
-            } else {
-                LOG.warn(
-                        "Desktop password change rejected: status={}, kind={}",
-                        response.status(),
-                        error
-                );
+            try {
+                var response = host.guiPostJson(endpoint, body, 5_000);
+                if (response.reachable() && response.is2xx() && !response.bodyLimitExceeded()
+                        && response.body() != null && response.body().path("success").asBoolean(false)) {
+                    succeeded(operation);
+                    return;
+                }
+                String code = response.body() == null ? "" : response.body()
+                        .path(endpoint.equals("logout-all") ? "code" : "error").asText("");
+                String key = switch (code) {
+                    case "invalid-current" -> "invalid-current";
+                    case "weak-password" -> "invalid-length";
+                    case "same-password" -> "same-password";
+                    case "setup-incomplete" -> "setup-incomplete";
+                    case "save-failed" -> "save-failed";
+                    default -> response.reachable() ? "request-failed" : "offline";
+                };
+                errorField = code.equals("invalid-current") ? "current"
+                        : List.of("weak-password", "same-password").contains(code) ? "new" : "";
+                notice = label(key);
+            } catch (RuntimeException failure) {
+                notice = label("request-failed");
             }
         });
     }
 
-    private void clearSecurityForm() {
-        formValues.remove("security.current");
-        formValues.remove("security.new");
-        formValues.remove("security.confirm");
-        formRevision++;
+    private void succeeded(String operation) {
+        clearSecrets();
+        inputChanged();
+        panel = "";
+        successOperation = operation;
+        successRevision++;
     }
 
-    private DesktopUiNode.TextInput passwordInput(
-            String id,
-            String binding,
-            String label,
-            boolean enabled
-    ) {
-        return new DesktopUiNode.TextInput(
-                id,
-                binding,
-                key(label),
-                null,
-                InputKind.PASSWORD,
-                "",
-                24,
-                1,
-                enabled,
-                formRevision
-        );
+    private void loadConnection() {
+        open("connection");
+        connectionLoaded = false;
+        owner.runBusy(() -> {
+            try {
+                List<String> keys = new ArrayList<>(CONNECTION_KEYS.values());
+                keys.add("server.ssl.key-store");
+                var saved = host.applicationConfig().readAll(keys);
+                CONNECTION_KEYS.forEach((field, key) -> formValues.put("security." + field,
+                        saved.getOrDefault(key, field.equals("domain") ? "localhost" : field.equals("port") ? Integer.toString(serverPort) : "")));
+                keyStoreConfigured = !saved.getOrDefault("server.ssl.key-store", "").isBlank();
+                runningAddress = "";
+                var response = host.guiGet("status", 5_000);
+                if (response.reachable() && response.is2xx() && response.body() != null) {
+                    var status = response.body();
+                    String scheme = status.path("httpsEnabled").asBoolean(false) ? "https" : "http";
+                    String domain = status.path("domain").asText("");
+                    int port = status.path("port").asInt(0);
+                    if (OnboardingProxySettings.validHost(domain) && port > 0 && port <= 65535)
+                        runningAddress = new URI(scheme, null, domain, port, null, null, null).toASCIIString();
+                }
+                connectionLoaded = true;
+                formRevision++;
+            } catch (Exception failure) {
+                notice = label("load-failed");
+            }
+        });
     }
 
-    private String form(String key, String fallback) {
-        return formValues.getOrDefault(key, fallback);
+    private void saveConnection() {
+        if (!connectionLoaded) return;
+        Map<String, String> fields = new LinkedHashMap<>();
+        CONNECTION_KEYS.forEach((field, key) -> fields.put(field, value(field).trim()));
+        var errors = SecurityInputValidation.connectionErrors(fields, keyStoreConfigured);
+        if (!errors.isEmpty()) {
+            var error = errors.entrySet().iterator().next();
+            errorField = error.getKey();
+            notice = label(error.getValue());
+            owner.rebuild();
+            return;
+        }
+        inputChanged();
+        owner.runBusy(() -> {
+            try {
+                Map<String, String> saved = new LinkedHashMap<>();
+                for (var entry : CONNECTION_KEYS.entrySet()) {
+                    String key = host.requireSafeConfigKey(entry.getValue());
+                    String value = host.requireSafeConfigValue(fields.get(entry.getKey()));
+                    host.validateCoreConfigValue(key, value);
+                    saved.put(key, value);
+                }
+                var file = host.applicationConfig();
+                var before = file.snapshot();
+                try {
+                    file.writeAll(saved);
+                } catch (Exception failure) {
+                    try { file.restore(before); } catch (Exception rollback) { failure.addSuppressed(rollback); }
+                    throw failure;
+                }
+                owner.securityConfigSaved(saved);
+                succeeded("connection");
+            } catch (Exception failure) {
+                notice = label("save-failed");
+            }
+        });
+    }
+
+    private String value(String name) { return formValues.getOrDefault("security." + name, ""); }
+
+    private static TextToken label(String key) {
+        return new TextToken("gui-compose", "gui.compose.security." + key, "", List.of());
     }
 }

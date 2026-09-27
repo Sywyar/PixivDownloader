@@ -63,16 +63,19 @@ async function scheduleVerb(task, verb) {
     } catch (e) {
         abToast('error', String(e && e.message || bt('schedule.feedback.failed', '操作失败')));
     }
-    loadScheduleTasks(true);
+    await loadScheduleTasks(true);
 }
 
 async function scheduleSetEnabled(task, enabled) {
+    let saved = false;
     try {
         await schedulePost(task, 'enabled?enabled=' + encodeURIComponent(enabled));
+        saved = true;
     } catch (e) {
         abToast('error', String(e && e.message || bt('schedule.feedback.failed', '操作失败')));
     }
-    loadScheduleTasks(true);
+    await loadScheduleTasks(true);
+    return saved;
 }
 
 async function deleteScheduleTask(task) {
@@ -98,140 +101,264 @@ async function deleteScheduleTask(task) {
 /* ============================================================
    本轮队列详情
    ============================================================ */
+const altScheduleQueues = new Map();
+
+function releaseScheduleQueue(id) {
+    const entry = altScheduleQueues.get(id);
+    if (!entry) return;
+    for (const {workId, listener} of entry.listeners || []) removeSSEListener(workId, listener);
+    entry.listeners = [];
+    if (entry.frame != null) cancelAnimationFrame(entry.frame);
+    entry.frame = null;
+}
+
+function releaseAllScheduleQueues() {
+    altScheduleQueues.forEach((_entry, id) => releaseScheduleQueue(id));
+}
+
 function startScheduleQueuePolling() {
-    if (scheduleQueuePollTimer) {
-        clearInterval(scheduleQueuePollTimer);
-        scheduleQueuePollTimer = null;
-    }
-    if (!scheduleState.expandedQueues.size) return;
-    // 4 秒轮询 + SSE 实时进度（本页以轮询呈现）
+    if (scheduleQueuePollTimer) clearInterval(scheduleQueuePollTimer);
+    scheduleQueuePollTimer = null;
+    altScheduleQueues.forEach((_entry, id) => {
+        if (state.mode !== 'schedule' || !scheduleState.expandedQueues.has(id)
+                || !document.getElementById('abScheduleQueue-' + id)) releaseScheduleQueue(id);
+        if (!scheduleState.tasks.some(task => task.id === id)) {
+            altScheduleQueues.delete(id);
+            storeRemove('pixiv_schedule_queue_' + id);
+        }
+    });
+    if (state.mode !== 'schedule' || !scheduleState.expandedQueues.size) return;
     scheduleQueuePollTimer = setInterval(() => {
         scheduleState.expandedQueues.forEach(id => {
-            const task = scheduleState.tasks.find(t => t.id === id);
+            const task = scheduleState.tasks.find(task => task.id === id);
             if (task) loadScheduleQueue(task, true);
         });
     }, 4000);
 }
 
-async function loadScheduleQueue(task, quiet) {
-    const box = document.getElementById('abScheduleQueue-' + task.id);
-    if (!box) return;
-    let data;
-    try {
-        const res = await fetch(`${BASE}/api/schedule/tasks/${task.id}/queue`, {credentials: 'same-origin'});
-        if (!res.ok) throw await scheduleHttpError(res);
-        data = await res.json();
-    } catch (e) {
-        const vue = scheduleQueueVue();
-        if (vue && typeof vue.unmountScheduleQueue === 'function') vue.unmountScheduleQueue(task.id);
-        box.replaceChildren(errorBox(String(e && e.message || bt('common.request-failed', '请求失败')),
-            () => loadScheduleQueue(task, false)));
-        return;
-    }
-    if (quiet && !document.getElementById('abScheduleQueue-' + task.id)) return;
-    const vue = scheduleQueueVue();
-    if (vue && typeof vue.ensureScheduleQueue === 'function'
-            && vue.ensureScheduleQueue(task.id, scheduleQueueVueContext(task.id, box, data))) {
-        // Vue 已（将）接管该 box：合并一次 reactive 同步（Vue 据 :key 仅 patch 变化，
-        // 不整块重建 .ab-schedule-queue），命令式只在 Vue 不可用 / 挂载失败时兜底。
-        vue.syncScheduleQueue(task.id);
-        return;
-    }
-    renderScheduleQueue(box, task, data);
-}
-
-const SCHEDULE_QUEUE_STATUS = {
-    'paused': ['batch:path.overflow.waiting', ''],
-    'pending': ['queue.status.pending', '待处理'],
-    'downloaded': ['queue.status.downloaded', '已下载'],
-    'skipped-downloaded': ['queue.status.skipped-downloaded', '已存在跳过'],
-    'skipped-filter': ['queue.status.skipped-filter', '被筛选条件跳过'],
-    'failed': ['queue.status.failed', '失败']
-};
-
 function scheduleQueueVue() {
     return window.PixivBatchAlt && window.PixivBatchAlt.queueVue;
 }
 
-// 本轮队列详情的展示模型派生（命令式 renderScheduleQueue 与 Vue 岛共用同一口径，避免两路分叉）。
-// 模型只存 raw 字段 + 渲染期经 bt() 派生的展示字段；Vue 岛只读本模型、不反向 import schedule 内部模型。
-function scheduleQueueDetailModel(data) {
-    const items = (data && Array.isArray(data.items)) ? data.items : [];
-    const total = data && data.total != null ? data.total : items.length;
-    const rows = items.map((item, index) => {
-        const statusDef = SCHEDULE_QUEUE_STATUS[item.status] || ['queue.status.pending', '待处理'];
-        let statusText = bt(statusDef[0], statusDef[1]);
-        if (item.message) {
-            const reason = localizeScheduleMachineCode(item.message);
-            if (reason) statusText += '：' + reason;
-        }
-        const translateText = item.translatePhase
-            ? bt('queue.translate.label', 'AI 翻译') + ' ' +
-                (item.translateElapsedSeconds != null
-                    ? bt('queue.message.translating', 'AI 翻译中（{sec}s）', {sec: item.translateElapsedSeconds})
-                    : '')
-            : '';
-        return {
-            key: 'sched:' + index + ':' + String(item.status || ''),
-            status: item.status,
-            title: (item.title && String(item.title).trim())
-                ? item.title
-                : bt('schedule.queue.no-title', '（暂无标题信息）'),
-            showTranslate: !!translateText,
-            translateText,
-            statusText
-        };
+function scheduleQueueIdentity(item) {
+    const runtime = altQueueTypes();
+    return runtime.queueKey(item.workType ?? item.kind, item.workId ?? item.id);
+}
+
+function scheduleQueueWorkMessage(code, workType) {
+    const safe = safeScheduleMachineCode(code);
+    if (!safe) return null;
+    if (safe.startsWith('schedule.')) {
+        const result = bt(safe, '');
+        return result && result !== safe ? result : null;
+    }
+    const runtime = altQueueTypes();
+    const ns = runtime.manifestDescriptor?.(workType)?.i18nNamespace;
+    if (typeof ns !== 'string' || !/^[a-z][a-z0-9._-]{0,63}$/.test(ns)
+            || !safe.startsWith(ns + '.') || typeof pageI18n === 'undefined' || !pageI18n) return null;
+    const key = ns + ':' + safe.slice(ns.length + 1);
+    const result = pageI18n.t(key, '');
+    return result && result !== key ? result : null;
+}
+
+function mapScheduleQueueItem(item, task) {
+    const workType = String(item.workType ?? item.kind ?? 'unknown').trim();
+    const workId = String(item.workId ?? item.id ?? '');
+    const statuses = {'downloaded': 'completed', 'skipped-downloaded': 'skipped',
+        'skipped-filter': 'skipped', 'failed': 'failed', 'paused': 'paused'};
+    const runtime = altQueueTypes();
+    const status = item.status;
+    const failureCode = status === 'failed' ? safeScheduleMachineCode(item.message) : null;
+    const liveStatus = item.liveStatus && typeof item.liveStatus === 'object'
+        && !Array.isArray(item.liveStatus) ? Object.assign({}, item.liveStatus) : null;
+    const owned = runtime.scheduledQueueItem(workType, item, {
+        sourceType: task.sourceType || task.type, task
     });
+    return Object.assign({}, owned, {
+        id: workId, kind: workType, workType, workId,
+        queueKey: runtime.queueKey(workType, workId),
+        status: statuses[status] || 'pending', rawStatus: status, failureCode,
+        totalImages: 0, downloadedCount: 0, imageProgress: null, ugoiraProgress: null,
+        liveStatus
+    });
+}
+
+function localizedScheduleQueueItem(item) {
+    const messages = {'paused': ['path.overflow.waiting', null],
+        'skipped-downloaded': ['schedule.queue.status.skipped-downloaded', '已存在，跳过'],
+        'skipped-filter': ['schedule.queue.status.skipped-filter', '被筛选条件跳过']};
+    const message = messages[item.rawStatus];
+    return Object.assign({}, item, {
+        title: item.rawTitle || item.title || bt('schedule.queue.no-title', '（暂无标题信息）'),
+        lastMessage: item.status === 'failed'
+            ? scheduleQueueWorkMessage(item.failureCode, item.workType) || bt('schedule.queue.status.failed', '失败')
+            : message ? bt(...message) : null
+    });
+}
+
+function scheduleQueueCached(task) {
+    try {
+        const cached = JSON.parse(storeGet('pixiv_schedule_queue_' + task.id) || 'null');
+        if (!cached || !Array.isArray(cached.items)
+                || (cached.lastRunTime ?? null) !== (task.lastRunTime ?? null)) return null;
+        cached.items = cached.items.map(item => Object.assign({}, item, {liveStatus: null}));
+        return cached;
+    } catch (_error) { return null; }
+}
+
+function persistScheduleQueue(task, data) {
+    storeSet('pixiv_schedule_queue_' + task.id, JSON.stringify(Object.assign({}, data, {
+        lastRunTime: task.lastRunTime ?? null,
+        items: data.items.map(item => Object.assign({}, item, {liveStatus: null}))
+    })));
+}
+
+function refreshScheduleQueueView(task, entry) {
+    const box = document.getElementById('abScheduleQueue-' + task.id);
+    if (!box || !entry.data) return;
+    const vue = scheduleQueueVue();
+    if (vue?.ensureScheduleQueue?.(task.id, {boxEl: box, read: () => scheduleQueueDetailModel(entry.data)})) {
+        vue.syncScheduleQueue(task.id);
+        return;
+    }
+    renderScheduleQueue(box, task, entry.data);
+}
+
+function subscribeScheduleQueue(task, entry) {
+    releaseScheduleQueue(task.id);
+    if (state.mode !== 'schedule' || !scheduleState.expandedQueues.has(task.id)
+            || !['RUNNING', 'QUEUED', 'CANCEL_REQUESTED'].includes(task.runState)) return;
+    const runtime = altQueueTypes();
+    const eligible = entry.data.items.filter(item => runtime.supportsScheduledSse(item.workType));
+    if (!eligible.length) return;
+    ensureSharedSSE();
+    const identities = new Map();
+    eligible.forEach(item => {
+        const list = identities.get(item.workId) || new Set();
+        list.add(item.queueKey);
+        identities.set(item.workId, list);
+    });
+    entry.listeners = eligible.map(item => {
+        const listener = data => {
+            if (altScheduleQueues.get(task.id) !== entry || data.cancelled) return;
+            const type = String(data.workType || '').trim();
+            if (type ? runtime.queueKey(type, item.workId) !== item.queueKey
+                : identities.get(item.workId).size > 1) return;
+            if (data.completed) { item.status = 'completed'; item.rawStatus = 'downloaded'; }
+            else if (data.failed) { item.status = 'failed'; item.rawStatus = 'failed'; }
+            else if (data.downloadedCount !== undefined || data.totalImages !== undefined) {
+                item.status = 'downloading';
+                item.rawStatus = 'downloading';
+                if (data.totalImages !== undefined) item.totalImages = data.totalImages;
+                if (data.downloadedCount !== undefined) item.downloadedCount = data.downloadedCount;
+                item.imageProgress = data.imageProgress || item.imageProgress;
+                item.ugoiraProgress = mergeUgoiraProgress(item.ugoiraProgress, data.ugoiraProgress);
+            }
+            if (entry.frame == null) entry.frame = requestAnimationFrame(() => {
+                entry.frame = null;
+                refreshScheduleQueueView(task, entry);
+            });
+        };
+        addSSEListener(item.workId, listener);
+        return {workId: item.workId, listener};
+    });
+}
+
+async function loadScheduleQueue(task, quiet) {
+    const box = document.getElementById('abScheduleQueue-' + task.id);
+    if (!box) return;
+    let entry = altScheduleQueues.get(task.id);
+    if (!entry || entry.lastRunTime !== (task.lastRunTime ?? null)) {
+        releaseScheduleQueue(task.id);
+        entry = {data: scheduleQueueCached(task), lastRunTime: task.lastRunTime ?? null, sequence: 0, listeners: []};
+        altScheduleQueues.set(task.id, entry);
+    }
+    if (!quiet && entry.data) refreshScheduleQueueView(task, entry);
+    const sequence = ++entry.sequence;
+    try {
+        const res = await fetch(`${BASE}/api/schedule/tasks/${task.id}/queue`, {credentials: 'same-origin'});
+        if (!res.ok) throw await scheduleHttpError(res);
+        const data = await res.json();
+        if (sequence !== entry.sequence || altScheduleQueues.get(task.id) !== entry
+                || document.getElementById('abScheduleQueue-' + task.id) !== box) return;
+        const incoming = Array.isArray(data.items) ? data.items : [];
+        if (incoming.length || data.startedTime != null || !entry.data?.items.length) {
+            const previous = new Map((entry.data?.items || []).map(item => [scheduleQueueIdentity(item), item]));
+            const items = incoming.map(raw => {
+                const item = mapScheduleQueueItem(raw, task);
+                const old = previous.get(item.queueKey);
+                if (old && item.status === 'pending' && old.status === 'downloading') {
+                    Object.assign(item, {status: old.status, rawStatus: old.rawStatus,
+                        totalImages: old.totalImages, downloadedCount: old.downloadedCount,
+                        imageProgress: old.imageProgress, ugoiraProgress: old.ugoiraProgress});
+                } else if (old) {
+                    item.totalImages = old.totalImages || 0;
+                    item.downloadedCount = old.downloadedCount || 0;
+                }
+                return item;
+            });
+            entry.data = Object.assign({}, data, {items});
+            persistScheduleQueue(task, entry.data);
+        }
+        refreshScheduleQueueView(task, entry);
+        subscribeScheduleQueue(task, entry);
+    } catch (error) {
+        if (sequence !== entry.sequence || altScheduleQueues.get(task.id) !== entry
+                || document.getElementById('abScheduleQueue-' + task.id) !== box) return;
+        if (quiet && entry.data) return;
+        scheduleQueueVue()?.unmountScheduleQueue(task.id);
+        box.replaceChildren(errorBox(String(error && error.message || bt('common.request-failed', '请求失败')),
+            () => loadScheduleQueue(task, false)));
+    }
+}
+
+function scheduleQueueDetailModel(data) {
+    const items = (data?.items || []).map(localizedScheduleQueueItem);
+    const count = status => items.filter(item => item.status === status).length;
     return {
-        startedText: bt('schedule.round.started', '本轮开始：{time}',
-            {time: fmtScheduleTime(data && data.startedTime)}),
-        statsText: bt('schedule.round.stats', '共 {count} 项', {count: total}),
-        truncated: !!(data && data.truncated),
+        startedText: bt('schedule.round.started', '本轮开始：{time}', {time: fmtScheduleTime(data?.startedTime)}),
+        statsText: bt('status.stats', '队列: {pending} | 成功: {success} | 失败: {failed} | 进行中: {active} | 跳过: {skipped}', {
+            pending: count('pending') + count('paused'), success: count('completed'), failed: count('failed'),
+            active: count('downloading'), skipped: count('skipped')
+        }),
+        truncated: !!data?.truncated,
         truncatedText: bt('schedule.round.truncated', '作品过多，仅记录并展示前 {count} 项', {count: items.length}),
         empty: !items.length,
         emptyText: bt('schedule.round.empty', '本轮暂无记录'),
-        rows
+        currentHtml: items.some(item => item.status === 'downloading') ? computeCurrentCardHtml(items, false) : '',
+        rows: items.map(item => ({key: scheduleQueueIdentity(item), status: item.status,
+            title: item.title, html: queueItemRow(item, {readOnly: true}).outerHTML}))
     };
 }
 
-// 计划队列详情 Vue 岛上下文：data 为最近一次 fetch 的原始响应，read() 派生展示模型。
-function scheduleQueueVueContext(id, box, data) {
-    return {
-        boxEl: box,
-        read() {
-            return scheduleQueueDetailModel(data || null);
-        }
-    };
+function scheduleQueueVueContext(_id, box, data) {
+    return {boxEl: box, read: () => scheduleQueueDetailModel(data)};
 }
 
 function renderScheduleQueue(box, task, data) {
     const model = scheduleQueueDetailModel(data);
-    box.innerHTML = '';
+    const scroll = box.querySelector('.ab-round-list')?.scrollTop || 0;
+    box.replaceChildren();
     const head = el('div', 'ab-round-head');
     head.appendChild(el('span', 'ab-muted', model.startedText));
     head.appendChild(el('span', 'ab-muted', model.statsText));
     box.appendChild(head);
-    if (model.truncated) {
-        box.appendChild(el('p', 'ab-field-note', model.truncatedText));
-    }
-    if (model.empty) {
-        box.appendChild(el('p', 'ab-empty-line', model.emptyText));
-        return;
+    if (model.truncated) box.appendChild(el('p', 'ab-field-note', model.truncatedText));
+    if (model.empty) { box.appendChild(el('p', 'ab-empty-line', model.emptyText)); return; }
+    if (model.currentHtml) {
+        const current = el('div', 'ab-round-current');
+        current.innerHTML = model.currentHtml;
+        box.appendChild(current);
     }
     const list = el('div', 'ab-round-list');
     model.rows.forEach(row => {
-        const item = el('div', 'ab-round-item');
-        item.dataset.status = row.status;
-        item.appendChild(el('span', 'ab-round-title', row.title));
-        const right = el('span', 'ab-round-right');
-        if (row.showTranslate) {
-            right.appendChild(el('span', 'ab-mini-badge ab-mini-badge--ai', row.translateText));
-        }
-        right.appendChild(el('span', 'ab-round-status', row.statusText));
-        item.appendChild(right);
+        const item = el('div', 'ab-flatten');
+        item.dataset.queueKey = row.key;
+        item.innerHTML = row.html;
         list.appendChild(item);
     });
     box.appendChild(list);
+    list.scrollTop = scroll;
 }
 
 /* ============================================================

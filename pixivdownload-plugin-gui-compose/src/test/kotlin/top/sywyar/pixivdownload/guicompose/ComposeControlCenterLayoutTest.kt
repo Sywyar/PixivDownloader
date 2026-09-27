@@ -1,25 +1,41 @@
 package top.sywyar.pixivdownload.guicompose
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.assertIsDisplayed
+import io.github.robinpcrd.cupertino.theme.CupertinoTheme
+import io.github.robinpcrd.cupertino.theme.darkColorScheme
+import io.github.robinpcrd.cupertino.theme.lightColorScheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.graphics.asSkiaBitmap
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
@@ -45,7 +61,70 @@ import kotlin.test.assertTrue
 @DisplayName("Compose 控制中心通用布局")
 class ComposeControlCenterLayoutTest {
     @Test
-    @DisplayName("工具弹窗沿用父窗口尺寸，普通弹窗使用声明尺寸")
+    @DisplayName("放大文字下可展开详情、读到数字错误并滚动到末字段，保存仍可见")
+    fun keepsLongSettingsAccessibleWithLargerText() = runComposeUiTest {
+        val rows = (1..14).map { index -> DesktopUiNode.FormRow(
+            "field.$index", DesktopUiNode.TextToken.raw("Setting $index"),
+            DesktopUiNode.TextToken.raw("Long configuration explanation with its conditions and original units."),
+            DesktopUiNode.TextInput("value.$index", "value.$index", DesktopUiNode.TextToken.raw("Value $index"),
+                null, DesktopUiNode.InputKind.TEXT, "D:/Downloads/long-folder-name/$index", 32, 1, true), null) }
+        val fields = DesktopUiNode.Container("fields", DesktopUiNode.ContainerLayout.COLUMN, 1, 12,
+            DesktopUiNode.Alignment.STRETCH, listOf(
+                DesktopUiNode.NumberInput("amount", "amount", DesktopUiNode.TextToken.raw("Amount"), null,
+                    DesktopUiNode.NumberStyle.SPINNER, 2, 0, 10, 1, true),
+                DesktopUiNode.Form("form", DesktopUiNode.FormStyle.RESPONSIVE, null, rows), text("last", "Last field")))
+        val group = DesktopUiNode.Group("details", DesktopUiNode.TextToken.raw("Details"), fields, true)
+        val content = DesktopUiNode.Dock("settings", 8, null,
+            DesktopUiNode.Scroll("scroll", group),
+            DesktopUiNode.Button("save", "save", DesktopUiNode.TextToken.raw("Save"), null,
+                DesktopUiNode.ButtonStyle.PRIMARY, false), null, null)
+        setContent {
+            CompositionLocalProvider(LocalDensity provides Density(1f, 1.5f)) {
+                PixivDownloaderTheme("light") {
+                    Box(Modifier.size(480.dp, 400.dp)) {
+                        ComposeDesktopUiNodeRenderer.Render(content,
+                            { if (it.key() == "gui.compose.number-invalid") "Number outside allowed range" else it.fallback() }, {})
+                    }
+                }
+            }
+        }
+        onNodeWithText("Details").performClick()
+        onNodeWithContentDescription("Amount").performTextReplacement("99")
+        assertEquals("Number outside allowed range",
+            onNodeWithContentDescription("Amount").fetchSemanticsNode().config[SemanticsProperties.Error])
+        onNodeWithText("Last field").performScrollTo().assertIsDisplayed()
+        onNodeWithText("Save").assertIsDisplayed()
+    }
+
+    @Test
+    @DisplayName("流式容器居中时主轴与交叉轴同时居中")
+    fun centersFlowContainerOnBothAxes() = runComposeUiTest {
+        val content = DesktopUiNode.Container(
+            "centered", DesktopUiNode.ContainerLayout.FLOW, 1, 12, DesktopUiNode.Alignment.CENTER,
+            listOf(text("first", "First"), text("second", "Second")),
+        )
+        setContent {
+            PixivDownloaderTheme("light") {
+                Box(Modifier.size(600.dp, 400.dp)) {
+                    ComposeDesktopUiNodeRenderer.Render(
+                        content,
+                        { it.fallback() },
+                        {},
+                        Modifier.fillMaxSize(),
+                    )
+                }
+            }
+        }
+        val first = onNodeWithText("First").fetchSemanticsNode().boundsInRoot
+        val second = onNodeWithText("Second").fetchSemanticsNode().boundsInRoot
+
+        assertEquals(200f, first.center.y, 1f)
+        assertEquals(200f, second.center.y, 1f)
+        assertEquals(first.left, 600f - second.right, 1f)
+    }
+
+    @Test
+    @DisplayName("弹窗使用声明尺寸且不超出主窗口可用区域")
     fun sizesDocumentDialogs() {
         val parentSize = DpSize(1120.dp, 760.dp)
         val content = text("content", "Content")
@@ -60,24 +139,27 @@ class ComposeControlCenterLayoutTest {
 
         assertEquals(parentSize, dialogWindowSize(toolDialog, parentSize))
         assertEquals(DpSize(440.dp, 300.dp), dialogWindowSize(compactDialog, parentSize))
+        val smallViewport = DpSize(320.dp, 240.dp)
+        assertEquals(smallViewport, dialogWindowSize(compactDialog, smallViewport))
     }
 
     @Test
-    @DisplayName("浅色与深色主题使用 Material 3 Baseline 配色")
-    fun usesMaterialBaselineColorSchemes() {
-        val lightColors = desktopColorScheme(false)
-        val darkColors = desktopColorScheme(true)
-        val baselineLight = lightColorScheme()
-        val baselineDark = darkColorScheme()
-
-        assertEquals(baselineLight.primary, lightColors.primary)
-        assertEquals(baselineLight.primaryContainer, lightColors.primaryContainer)
-        assertEquals(baselineLight.surface, lightColors.surface)
-        assertEquals(baselineLight.surfaceContainerHighest, lightColors.surfaceContainerHighest)
-        assertEquals(baselineDark.primary, darkColors.primary)
-        assertEquals(baselineDark.primaryContainer, darkColors.primaryContainer)
-        assertEquals(baselineDark.surface, darkColors.surface)
-        assertEquals(baselineDark.surfaceContainerHighest, darkColors.surfaceContainerHighest)
+    @DisplayName("浅深色与增强对比度使用共享语义色，并保持正文可读")
+    fun usesSharedSemanticColorSchemes() {
+        for (dark in listOf(false, true)) for (contrast in listOf(false, true)) {
+            val colors = desktopColorScheme(dark, contrast)
+            val palette = experiencePalette(dark, contrast)
+            assertEquals(palette.surface, colors.systemBackground)
+            assertEquals(palette.text, colors.label)
+            assertEquals(palette.secondaryText, colors.secondaryLabel)
+            for (foreground in listOf(colors.label, colors.secondaryLabel, colors.accent,
+                palette.success, palette.warning, palette.error)) {
+                for (background in listOf(colors.systemBackground, colors.secondarySystemBackground, colors.tertiarySystemBackground)) {
+                    val levels = listOf(foreground.luminance(), background.luminance()).sorted()
+                    assertTrue((levels.last() + .05f) / (levels.first() + .05f) >= 4.5f)
+                }
+            }
+        }
     }
 
     @Test
@@ -89,7 +171,7 @@ class ComposeControlCenterLayoutTest {
             listOf(text("one", "One"), text("two", "Two"), text("three", "Three")),
         )
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 Box(Modifier.width(width)) {
                     ComposeDesktopUiNodeRenderer.Render(grid, { it.fallback() }, {})
                 }
@@ -110,7 +192,7 @@ class ComposeControlCenterLayoutTest {
     fun shrinksGridRowsWhenContentShrinks() = runComposeUiTest {
         var expanded by mutableStateOf(true)
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 val value = if (expanded) "Tall\nline 2\nline 3\nline 4\nline 5" else "Short"
                 val card = DesktopUiNode.Surface(
                     "dynamic", DesktopUiNode.SurfaceStyle.PLAIN, DesktopUiNode.Insets.all(8),
@@ -150,7 +232,7 @@ class ComposeControlCenterLayoutTest {
             ),
         )
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 Box(Modifier.width(800.dp)) {
                     ComposeDesktopUiNodeRenderer.Render(row, { it.fallback() }, {})
                 }
@@ -185,7 +267,7 @@ class ComposeControlCenterLayoutTest {
             "home", DesktopUiIcon.HOME, DesktopUiTone.INFO, DesktopUiNode.TextToken.raw("Home"),
         )
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 ComposeDesktopUiNodeRenderer.Render(icon, { it.fallback() }, {})
             }
         }
@@ -194,8 +276,8 @@ class ComposeControlCenterLayoutTest {
     }
 
     @Test
-    @DisplayName("可展开快捷入口解析文本令牌并派发声明式按钮事件")
-    fun resolvesAndActivatesExpandableFabItem() = runComposeUiTest {
+    @DisplayName("首页直接显示快捷入口，并派发声明式按钮事件")
+    fun resolvesAndActivatesVisibleQuickStart() = runComposeUiTest {
         val title = DesktopUiNode.TextToken.key("desktop.ui.home.quick-start.title")
         val itemLabel = DesktopUiNode.TextToken(
             "sample", "navigation.search", "Search", emptyList(),
@@ -226,11 +308,10 @@ class ComposeControlCenterLayoutTest {
             ),
         )
         val events = mutableListOf<DesktopUiNode.Event>()
-        val menu = checkNotNull(expandableFabMenu(action))
         setContent {
-            MaterialTheme {
-                ExpandableFab(
-                    menu,
+            PixivDownloaderTheme("light") {
+                ComposeDesktopUiNodeRenderer.Render(
+                    action,
                     { token ->
                         when (token.key()) {
                             "desktop.ui.home.quick-start.title" -> "Quick start"
@@ -243,7 +324,6 @@ class ComposeControlCenterLayoutTest {
             }
         }
 
-        onNodeWithContentDescription("Quick start").performClick()
         onNodeWithText("Search artworks").performClick()
         waitForIdle()
 
@@ -259,7 +339,7 @@ class ComposeControlCenterLayoutTest {
                 text("content", "Visible content"))),
         )
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 ComposeDesktopUiNodeRenderer.Render(tabs, { it.fallback() }, {})
             }
         }
@@ -278,7 +358,7 @@ class ComposeControlCenterLayoutTest {
             ),
         )
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 ComposeDesktopUiNodeRenderer.Render(content, { it.fallback() }, {})
             }
         }
@@ -303,7 +383,7 @@ class ComposeControlCenterLayoutTest {
             ),
         )
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 ComposeDesktopUiNodeRenderer.Render(content, { it.fallback() }, {})
             }
         }
@@ -323,7 +403,7 @@ class ComposeControlCenterLayoutTest {
             DesktopUiNode.NumberStyle.SPINNER, 6999, 1, 65535, 1, true,
         )
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 ComposeDesktopUiNodeRenderer.Render(input, { it.fallback() }, events::add)
             }
         }
@@ -337,8 +417,8 @@ class ComposeControlCenterLayoutTest {
     }
 
     @Test
-    @DisplayName("设置项帮助仅在悬浮标题时显示")
-    fun showsSettingHelpOnTitleHover() = runComposeUiTest {
+    @DisplayName("表单帮助持续可见，独立紧凑开关保留提示")
+    fun showsFormHelpWithoutHover() = runComposeUiTest {
         var compactOnly by mutableStateOf(false)
         val form = DesktopUiNode.Form(
             "settings",
@@ -364,7 +444,7 @@ class ComposeControlCenterLayoutTest {
             true,
         )
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 Box(Modifier.width(620.dp)) {
                     ComposeDesktopUiNodeRenderer.Render(
                         if (compactOnly) compact else form,
@@ -375,12 +455,8 @@ class ComposeControlCenterLayoutTest {
             }
         }
 
-        onNodeWithText("Setting hint").assertDoesNotExist()
-        onNodeWithText("Compact hint").assertDoesNotExist()
-
-        onNodeWithText("Setting").performMouseInput { moveTo(center) }
-        waitForIdle()
         onNodeWithText("Setting hint").assertExists()
+        onNodeWithText("Compact hint").assertDoesNotExist()
 
         runOnIdle { compactOnly = true }
         waitForIdle()
@@ -389,12 +465,13 @@ class ComposeControlCenterLayoutTest {
 
         onNodeWithText("Compact setting").performMouseInput { moveTo(center) }
         waitForIdle()
+        waitUntil(timeoutMillis = 2_000) { onAllNodesWithText("Compact hint").fetchSemanticsNodes().isNotEmpty() }
         onNodeWithText("Compact hint").assertExists()
     }
 
     @Test
-    @DisplayName("窄设置页只把需要横向空间的控件拆成两行")
-    fun keepsCompactSettingsInlineInNarrowForms() = runComposeUiTest {
+    @DisplayName("设置字段保持相邻对齐且短值宽度受限")
+    fun boundsShortFieldsAndKeepsLabelsAdjacent() = runComposeUiTest {
         val form = DesktopUiNode.Form(
             "settings",
             DesktopUiNode.FormStyle.RESPONSIVE,
@@ -447,21 +524,23 @@ class ComposeControlCenterLayoutTest {
             ),
         )
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 Box(Modifier.width(620.dp)) {
                     ComposeDesktopUiNodeRenderer.Render(form, { it.fallback() }, {})
                 }
             }
         }
 
-        assertEquals(centerY("Toggle title"), toggleCenterY(), 1f)
-        assertEquals(centerY("Choice title"), centerY("Auto"), 1f)
-        assertEquals(centerY("Number title"), centerY("8080"), 1f)
-        assertEquals(centerY("Spinner title"), centerY("4"), 1f)
-        assertEquals(centerY("Time title"), centerY("10:00"), 1f)
-        val textTitle = onNodeWithText("Text title").fetchSemanticsNode().boundsInRoot
-        val textField = onNodeWithText("Downloads").fetchSemanticsNode().boundsInRoot
-        assertTrue(textField.top > textTitle.bottom)
+        for ((label, value) in listOf("Choice title" to "Auto", "Number title" to "8080",
+            "Spinner title" to "4", "Time title" to "10:00", "Text title" to "Downloads")) {
+            val title = onNodeWithText(label).fetchSemanticsNode().boundsInRoot
+            val field = onNodeWithText(value).fetchSemanticsNode().boundsInRoot
+            assertTrue(field.left > title.right)
+            assertTrue(kotlin.math.abs(field.top - title.top) < 24f)
+        }
+        val number = onNodeWithContentDescription("Number").fetchSemanticsNode().boundsInRoot
+        assertTrue(number.width <= 160f)
+
     }
 
     @Test
@@ -471,7 +550,7 @@ class ComposeControlCenterLayoutTest {
             "storage", .25, false, null, DesktopUiNode.ProgressStyle.CIRCULAR,
         )
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 Box(Modifier.width(200.dp)) {
                     ComposeDesktopUiNodeRenderer.Render(progress, { it.fallback() }, {})
                 }
@@ -482,6 +561,125 @@ class ComposeControlCenterLayoutTest {
             SemanticsMatcher.keyIsDefined(SemanticsProperties.ProgressBarRangeInfo),
         ).fetchSemanticsNode().boundsInRoot
         assertEquals(bounds.width, bounds.height)
+    }
+
+    @Test
+    @DisplayName("等待标题保持静态，细进度条向右连续移出并从左侧出现且遵循动画开关")
+    fun keepsWaitingTextStaticWhileProgressMoves() {
+        for ((theme, scale) in listOf("light" to 1f, "dark" to 1f, "light" to 0f, "dark" to 0f)) {
+            runComposeUiTest(effectContext = object : MotionDurationScale {
+                override val scaleFactor = scale
+            }) {
+                mainClock.autoAdvance = false
+                val background = if (theme == "light") ExperienceTokens.light.background else ExperienceTokens.dark.background
+                val message = DesktopUiNode.Text(
+                    "waiting",
+                    DesktopUiNode.TextToken.raw("Almost ready"),
+                    DesktopUiNode.TextStyle.WAITING,
+                    true,
+                    false,
+                    DesktopUiNode.TextAlignment.CENTER,
+                )
+                val status = DesktopUiNode.Text(
+                    "status",
+                    DesktopUiNode.TextToken.raw("Preparing the local service"),
+                    DesktopUiNode.TextStyle.SECONDARY,
+                    true,
+                    false,
+                    DesktopUiNode.TextAlignment.CENTER,
+                )
+                val progress = DesktopUiNode.Progress(
+                    "progress", 0.0, true, null, DesktopUiNode.ProgressStyle.COMPACT_LINEAR,
+                )
+                val content = DesktopUiNode.Container(
+                    "waiting-page",
+                    DesktopUiNode.ContainerLayout.FLOW,
+                    1,
+                    12,
+                    DesktopUiNode.Alignment.CENTER,
+                    listOf(DesktopUiNode.Container(
+                        "stack",
+                        DesktopUiNode.ContainerLayout.COLUMN,
+                        1,
+                        16,
+                        DesktopUiNode.Alignment.CENTER,
+                        listOf(message, status, progress),
+                    )),
+                )
+                setContent {
+                    CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                        PixivDownloaderTheme(theme) {
+                            Box(Modifier.size(600.dp, 400.dp).background(background).testTag("waiting-preview")) {
+                                ComposeDesktopUiNodeRenderer.Render(content, { it.fallback() }, {}, Modifier.fillMaxSize())
+                            }
+                        }
+                    }
+                }
+                mainClock.advanceTimeBy(32)
+                val title = onNodeWithText("Almost ready")
+                val titleBounds = title.fetchSemanticsNode().boundsInRoot
+                val statusBounds = onNodeWithText("Preparing the local service").fetchSemanticsNode().boundsInRoot
+                val indicator = onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.ProgressBarRangeInfo))
+                val progressBounds = indicator.fetchSemanticsNode().boundsInRoot
+                assertEquals(300f, titleBounds.center.x, 1f)
+                assertEquals(300f, statusBounds.center.x, 1f)
+                assertEquals(300f, progressBounds.center.x, 1f)
+                assertEquals(200f, (titleBounds.top + progressBounds.bottom) / 2, 1f)
+                assertTrue(titleBounds.bottom < statusBounds.top)
+                assertTrue(statusBounds.bottom < progressBounds.top)
+                assertTrue(progressBounds.width < 300f && progressBounds.height <= 5f)
+                val layouts = mutableListOf<TextLayoutResult>()
+                title.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+                assertTrue(layouts.single().layoutInput.style.fontSize.value >= 34f)
+                assertEquals(
+                    ProgressBarRangeInfo.Indeterminate,
+                    indicator.fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo],
+                )
+                fun progressPixels(): List<androidx.compose.ui.graphics.Color> {
+                    val pixels = indicator.captureToImage().toPixelMap()
+                    return (0 until pixels.width).map { pixels[it, pixels.height / 2] }
+                }
+                fun segmentPixels(pixels: List<androidx.compose.ui.graphics.Color>): List<Int> =
+                    pixels.mapIndexedNotNull { index, color ->
+                        index.takeIf { color.blue > color.red + .1f }
+                    }
+                val titleBefore = title.captureToImage().toPixelMap()
+                val initial = progressPixels()
+                mainClock.advanceTimeBy(800)
+                val shifted = progressPixels()
+                if (scale > 0f) {
+                    assertTrue(segmentPixels(shifted).average() > segmentPixels(initial).average())
+                    mainClock.advanceTimeBy(400)
+                    val entering = segmentPixels(progressPixels())
+                    val midpoint = initial.size / 2
+                    assertTrue(entering.any { it < midpoint } && entering.any { it >= midpoint })
+                    mainClock.advanceTimeBy(160)
+                    val exiting = segmentPixels(progressPixels())
+                    assertTrue(exiting.count { it < midpoint } > entering.count { it < midpoint })
+                    assertTrue(exiting.count { it >= midpoint } < entering.count { it >= midpoint })
+                    assertEquals(segmentPixels(initial).size.toDouble(), exiting.size.toDouble(), 2.0)
+                    mainClock.advanceTimeBy(240)
+                    val nextCycle = segmentPixels(progressPixels())
+                    assertEquals(segmentPixels(initial).average(), nextCycle.average(), 2.0)
+                    mainClock.advanceTimeBy(400)
+                    assertTrue(segmentPixels(progressPixels()).average() > nextCycle.average())
+                } else assertEquals(initial, shifted)
+                val titleAfter = title.captureToImage().toPixelMap()
+                for (y in 0 until titleBefore.height) for (x in 0 until titleBefore.width) {
+                    assertEquals(titleBefore[x, y], titleAfter[x, y])
+                }
+                if (scale > 0f) {
+                    val output = java.io.File("build/reports/ui/waiting-$theme.png")
+                    output.parentFile.mkdirs()
+                    val bitmap = onNodeWithTag("waiting-preview").captureToImage()
+                    org.jetbrains.skia.Image.makeFromBitmap(bitmap.asSkiaBitmap()).use { image ->
+                        image.encodeToData(org.jetbrains.skia.EncodedImageFormat.PNG)!!.use { data ->
+                            output.writeBytes(data.bytes)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     @Test
@@ -511,7 +709,7 @@ class ComposeControlCenterLayoutTest {
             ),
         )
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 Box(Modifier.width(420.dp)) {
                     ComposeDesktopUiNodeRenderer.Render(timeline, { it.fallback() }, {})
                 }
@@ -546,7 +744,7 @@ class ComposeControlCenterLayoutTest {
             ),
         )
         setContent {
-            MaterialTheme {
+            PixivDownloaderTheme("light") {
                 Box(Modifier.width(600.dp)) {
                     ComposeDesktopUiNodeRenderer.Render(
                         timeline,

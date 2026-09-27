@@ -234,28 +234,12 @@ function applyThumbHue(el, seed) {
 }
 
 /* ============================================================
-   计数动画（统计卡数字滚动）
+   统计计数直接显示已确认的当前值
    ============================================================ */
 function animateCount(el, next, options) {
-    const opts = options || {};
-    const from = Number(el.dataset.countValue || 0);
-    const to = Number(next) || 0;
-    el.dataset.countValue = String(to);
-    if (from === to || opts.instant) {
-        el.textContent = String(to);
-        return;
-    }
-    const duration = 420;
-    const start = performance.now();
-    const token = (el.dataset.countToken = String(Math.random()));
-    const step = now => {
-        if (el.dataset.countToken !== token) return;
-        const t = Math.min(1, (now - start) / duration);
-        const eased = 1 - Math.pow(1 - t, 3);
-        el.textContent = String(Math.round(from + (to - from) * eased));
-        if (t < 1) requestAnimationFrame(step);
-    };
-    requestAnimationFrame(step);
+    const value = String(Number(next) || 0);
+    el.dataset.countValue = value;
+    if (el.textContent !== value) el.textContent = value;
 }
 
 /* ============================================================
@@ -305,6 +289,7 @@ function abPrompt(key, fallback, vars, options) {
             inputType: opts.inputType || 'text',
             min: opts.min,
             max: opts.max,
+            step: opts.step,
             confirmLabel: opts.confirmLabel || bt('common.confirm', '确认'),
             cancelLabel: bt('common.cancel', '取消')
         });
@@ -316,158 +301,162 @@ function abPrompt(key, fallback, vars, options) {
    抽屉 / 弹窗原语（共享 #abDrawerRoot / #abModalRoot）
    ============================================================ */
 let abDrawerOpen = null;
+let abModalOpen = null;
 
 function closeDrawer() {
-    const root = document.getElementById('abDrawerRoot');
-    if (!root || root.hidden) return;
-    const panel = root.querySelector('.ab-drawer');
-    const scrim = root.querySelector('.ab-drawer-scrim');
-    if (panel) panel.classList.add('is-closing');
-    if (scrim) scrim.classList.add('is-closing');
-    setTimeout(() => {
-        root.hidden = true;
-        root.innerHTML = '';
-        document.body.classList.remove('ab-no-scroll');
-    }, 240);
+    closeAltDialog('abDrawerRoot');
     abDrawerOpen = null;
 }
 
-// spec: {title, icon, body: HTMLElement, widthClass?, footer?}
-function openDrawer(spec) {
-    const root = document.getElementById('abDrawerRoot');
-    if (!root) return null;
-    root.innerHTML = '';
-    const scrim = document.createElement('div');
-    scrim.className = 'ab-drawer-scrim';
-    scrim.addEventListener('click', closeDrawer);
-
-    const panel = document.createElement('aside');
-    panel.className = 'ab-drawer' + (spec.widthClass ? ' ' + spec.widthClass : '');
-    panel.setAttribute('role', 'dialog');
-    panel.setAttribute('aria-modal', 'true');
-
-    const head = document.createElement('div');
-    head.className = 'ab-drawer-head';
-    const title = document.createElement('h3');
-    title.className = 'ab-drawer-title';
-    if (spec.icon) title.appendChild(abIconEl(spec.icon));
-    const titleText = document.createElement('span');
-    titleText.textContent = spec.title || '';
-    title.appendChild(titleText);
-    const closeBtn = document.createElement('button');
-    closeBtn.type = 'button';
-    closeBtn.className = 'ab-iconbtn';
-    closeBtn.setAttribute('aria-label', bt('common.close', '关闭'));
-    closeBtn.appendChild(abIconEl('x'));
-    closeBtn.addEventListener('click', closeDrawer);
-    head.appendChild(title);
-    head.appendChild(closeBtn);
-
-    const body = document.createElement('div');
-    body.className = 'ab-drawer-body';
-    if (spec.body) body.appendChild(spec.body);
-
-    panel.appendChild(head);
-    panel.appendChild(body);
-    if (spec.footer) {
-        const foot = document.createElement('div');
-        foot.className = 'ab-drawer-foot';
-        foot.appendChild(spec.footer);
-        panel.appendChild(foot);
-    }
-
-    root.appendChild(scrim);
-    root.appendChild(panel);
-    root.hidden = false;
-    document.body.classList.add('ab-no-scroll');
-    requestAnimationFrame(() => {
-        scrim.classList.add('is-open');
-        panel.classList.add('is-open');
-    });
-    abDrawerOpen = spec.id || true;
-    return {panel, body, close: closeDrawer};
-}
-
-let abModalOpen = null;
-
 function closeModal() {
-    const root = document.getElementById('abModalRoot');
-    if (!root || root.hidden) return;
-    const box = root.querySelector('.ab-modal');
-    const scrim = root.querySelector('.ab-modal-scrim');
-    if (box) box.classList.add('is-closing');
-    if (scrim) scrim.classList.add('is-closing');
-    setTimeout(() => {
-        root.hidden = true;
-        root.innerHTML = '';
-        document.body.classList.remove('ab-no-scroll');
-    }, 200);
+    closeAltDialog('abModalRoot');
     abModalOpen = null;
 }
 
-// spec: {title, icon, body, widthClass?}
-function openModal(spec) {
-    const root = document.getElementById('abModalRoot');
-    if (!root) return null;
-    root.innerHTML = '';
-    const scrim = document.createElement('div');
-    scrim.className = 'ab-modal-scrim';
-    scrim.addEventListener('click', closeModal);
-
-    const box = document.createElement('div');
-    box.className = 'ab-modal' + (spec.widthClass ? ' ' + spec.widthClass : '');
-    box.setAttribute('role', 'dialog');
-    box.setAttribute('aria-modal', 'true');
-
-    const head = document.createElement('div');
-    head.className = 'ab-modal-head';
-    const title = document.createElement('h3');
-    title.className = 'ab-modal-title';
-    if (spec.icon) title.appendChild(abIconEl(spec.icon));
-    const titleText = document.createElement('span');
-    titleText.textContent = spec.title || '';
-    title.appendChild(titleText);
-    const closeBtn = document.createElement('button');
-    closeBtn.type = 'button';
-    closeBtn.className = 'ab-iconbtn';
-    closeBtn.setAttribute('aria-label', bt('common.close', '关闭'));
-    closeBtn.appendChild(abIconEl('x'));
-    closeBtn.addEventListener('click', closeModal);
-    head.appendChild(title);
-    head.appendChild(closeBtn);
-
-    const body = document.createElement('div');
-    body.className = 'ab-modal-body';
-    if (spec.body) body.appendChild(spec.body);
-
-    box.appendChild(head);
-    box.appendChild(body);
-    root.appendChild(scrim);
-    root.appendChild(box);
-    root.hidden = false;
-    document.body.classList.add('ab-no-scroll');
-    requestAnimationFrame(() => {
-        scrim.classList.add('is-open');
-        box.classList.add('is-open');
-    });
-    abModalOpen = spec.id || true;
-    return {box, body, close: closeModal};
+function closeAltDialog(id) {
+    const root = document.getElementById(id);
+    if (!root) return;
+    const finish = () => {
+        if (root.open) root.close();
+        root.replaceChildren();
+        root._abRequestClose = null;
+        root.onkeydown = null;
+    };
+    if (root._abClosing) return;
+    if (!root.open || !root.animate || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        finish();
+        return;
+    }
+    const style = window.getComputedStyle(root);
+    const from = {opacity: style.opacity, transform: style.transform};
+    const drawer = id === 'abDrawerRoot';
+    root.getAnimations().forEach(animation => animation.cancel());
+    const animation = root.animate([from,
+        {opacity: drawer ? 1 : 0, transform: drawer ? 'translateX(100%)' : 'translateY(8px)'}],
+        {duration: drawer ? 220 : 140, easing: 'cubic-bezier(.4,0,1,1)', fill: 'forwards'});
+    root._abClosing = animation;
+    animation.finished.then(() => {
+        if (root._abClosing !== animation) return;
+        finish();
+        animation.cancel();
+        root._abClosing = null;
+    }, () => {});
 }
 
-document.addEventListener('keydown', event => {
-    if (event.key !== 'Escape') return;
-    if (abModalOpen) {
-        closeModal();
-    } else if (abDrawerOpen) {
-        closeDrawer();
+// 原生对话框负责模态、焦点约束、Escape 与关闭后的焦点恢复。
+function openAltDialog(spec, drawer) {
+    const root = document.getElementById(drawer ? 'abDrawerRoot' : 'abModalRoot');
+    if (!root) return null;
+    const style = root.open && root.animate ? window.getComputedStyle(root) : null;
+    const from = style ? {opacity: style.opacity, transform: style.transform}
+        : {opacity: drawer ? 1 : 0, transform: drawer ? 'translateX(100%)' : 'translateY(8px)'};
+    root._abClosing?.cancel();
+    root._abClosing = null;
+    root.getAnimations?.().forEach(animation => animation.cancel());
+    const close = drawer ? closeDrawer : closeModal;
+    let confirming = false;
+    root._abRequestClose = async () => {
+        if (confirming) return;
+        confirming = true;
+        try { if (!spec.beforeClose || await spec.beforeClose()) close(); }
+        finally { confirming = false; }
+    };
+    // 浏览器的 cancel 事件可能无法取消，草稿确认需要先拦截 Escape。
+    root.onkeydown = event => {
+        if (event.key !== 'Escape' || !spec.beforeClose) return;
+        event.preventDefault();
+        event.stopPropagation();
+        root._abRequestClose?.();
+    };
+    const prefix = drawer ? 'ab-drawer' : 'ab-modal';
+    const box = el('div', prefix + (spec.widthClass ? ' ' + spec.widthClass : ''));
+    const head = el('div', prefix + '-head');
+    const title = el('h2', prefix + '-title');
+    title.id = root.id + '-title';
+    if (spec.icon) title.appendChild(abIconEl(spec.icon));
+    title.appendChild(el('span', '', spec.title || ''));
+    const closeBtn = el('button', 'ab-iconbtn');
+    closeBtn.type = 'button';
+    closeBtn.setAttribute('aria-label', bt('common.close', '关闭'));
+    closeBtn.appendChild(abIconEl('x'));
+    closeBtn.addEventListener('click', () => root._abRequestClose?.());
+    head.append(title, closeBtn);
+    const body = el('div', prefix + '-body');
+    if (spec.body) body.appendChild(spec.body);
+    box.append(head, body);
+    if (spec.footer) {
+        const foot = el('div', prefix + '-foot');
+        foot.appendChild(spec.footer);
+        box.appendChild(foot);
     }
+    root.replaceChildren(box);
+    root.setAttribute('aria-labelledby', title.id);
+    if (!root.open) root.showModal();
+    if (root.animate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        root.animate([from, {opacity: 1, transform: 'none'}],
+            {duration: drawer ? 260 : 180, easing: 'cubic-bezier(.2,.7,.2,1)'});
+    }
+    return {panel: box, box, body, close};
+}
+
+function openDrawer(spec) {
+    abDrawerOpen = spec.id || true;
+    return openAltDialog(spec, true);
+}
+
+function openModal(spec) {
+    abModalOpen = spec.id || true;
+    return openAltDialog(spec, false);
+}
+
+function closeTargetDialog(event) {
+    if (event.target.id !== 'abDrawerRoot' && event.target.id !== 'abModalRoot') return;
+    event.preventDefault();
+    event.target._abRequestClose?.();
+}
+
+document.addEventListener('cancel', closeTargetDialog, true);
+document.addEventListener('click', event => {
+    const root = event.target;
+    if (root.id !== 'abDrawerRoot' && root.id !== 'abModalRoot') return;
+    const rect = root.getBoundingClientRect();
+    if (event.clientX < rect.left || event.clientX > rect.right
+        || event.clientY < rect.top || event.clientY > rect.bottom) closeTargetDialog(event);
 });
 
 /* ---- 小构件 ---- */
+// Framework7 的 CSS 组件由现有渲染入口统一创建，行为仍由原生控件和业务事件负责。
+function altComponentClasses(tag, classes) {
+    const tokens = classes.split(/\s+/);
+    const button = tag === 'button' || (tag === 'a' && tokens.includes('ab-iconbtn'));
+    if (button) {
+        classes += ' button';
+        if (tokens.includes('ab-btn--primary') || tokens.includes('ab-btn--danger')) classes += ' button-fill';
+        else if (tokens.includes('ab-btn--ghost')) classes += ' button-tonal';
+    }
+    if (tokens.includes('ab-seg')) classes += ' segmented';
+    return classes.trim();
+}
+
 function el(tag, className, text) {
     const node = document.createElement(tag);
-    if (className) node.className = className;
+    node.className = altComponentClasses(tag, className || '');
     if (text !== undefined && text !== null) node.textContent = text;
+    if ((className || '').split(/\s+/).includes('ab-loading-line')) {
+        const spinner = document.createElement('span');
+        spinner.className = 'preloader';
+        spinner.setAttribute('aria-hidden', 'true');
+        const inner = document.createElement('span');
+        inner.className = 'preloader-inner';
+        for (let i = 0; i < 8; i++) {
+            const line = document.createElement('span');
+            line.className = 'preloader-inner-line';
+            inner.appendChild(line);
+        }
+        spinner.appendChild(inner);
+        node.prepend(spinner);
+        node.setAttribute('role', 'status');
+    }
     return node;
 }
 

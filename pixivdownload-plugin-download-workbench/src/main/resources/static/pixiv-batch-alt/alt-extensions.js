@@ -33,7 +33,7 @@ function setCurrent(item) { renderCurrent(item); }
 function setStatus(message, tone) { setDockStatus(message, tone); }
 function syncSettings() { saveSettings(); }
 function getSearchFiltersFromUI() { return normalizeSearchFilters(extraFilters); }
-function defaultNovelTranslateLang() { return state.settings.novelTranslateLang || 'zh-CN'; }
+function defaultNovelTranslateLang() { return bt('ai:batch.translate-lang-default', 'english'); }
 
 function altQueueTypes() {
     return window.PixivBatch && window.PixivBatch.queueTypes;
@@ -52,9 +52,13 @@ async function altI18nNamespaces() {
         .filter((value, index, all) => value && all.indexOf(value) === index);
 }
 
+let altLanguageRevision = 0;
 async function refreshAltI18n() {
     if (!window.PixivI18n) return;
-    pageI18n = await PixivI18n.create({namespaces: await altI18nNamespaces()});
+    const revision = ++altLanguageRevision;
+    const client = await PixivI18n.create({namespaces: await altI18nNamespaces()});
+    if (revision !== altLanguageRevision) return;
+    pageI18n = client;
     pageI18n.apply();
     document.title = bt('page.title', '下载工作台 · Pixiv 下载助手');
     if (window.PixivLayoutFeedback && typeof window.PixivLayoutFeedback.refreshLanguage === 'function') {
@@ -199,7 +203,7 @@ function altQuickScheduleSource() {
     const action = acquisition && acquisition.actions[quickState.action];
     if (!action || typeof action.scheduleSource !== 'function') return null;
     const inner = quickState.drill && quickState.drill.type === 'user'
-        ? {type: 'following-user', userId: quickState.drill.id, name: quickState.drill.name}
+        ? {type: 'following-user', userId: quickState.drill.id, name: quickState.drill.name, kind: quickState.drill.kind}
         : quickState.drill && quickState.drill.type === 'collection'
             ? {type: 'collection', id: quickState.drill.id, name: quickState.drill.name}
             : null;
@@ -281,20 +285,21 @@ function appendExtensionCookieEditors(host) {
         input.placeholder = bt('cookie.extension.placeholder', '粘贴该来源所需的 Cookie / 凭证');
         section.appendChild(input);
         const status = el('p', 'ab-field-note');
+        status.setAttribute('role', 'status');
         section.appendChild(status);
         const actions = el('div', 'ab-cookie-actions');
         const clear = el('button', 'ab-btn ab-btn--danger-ghost', bt('cookie.clear', '清除'));
         clear.type = 'button';
         clear.addEventListener('click', async () => {
             if (!await abConfirm('dialog.confirm-clear-cookie', '确认清除已保存的 Cookie？')) return;
-            removeStoredCookie(contribution.type);
+            if (!await persistCookieEditor(section, contribution.type, null, null,
+                message => { status.textContent = message; })) return;
             input.value = '';
             status.textContent = bt('status.cookie-cleared', 'Cookie 已清除');
-            refreshQuickCredentialGate();
         });
         const save = el('button', 'ab-btn ab-btn--primary', bt('cookie.save', '保存'));
         save.type = 'button';
-        save.addEventListener('click', () => {
+        save.addEventListener('click', async () => {
             const raw = input.value.trim();
             let validation = {ok: !!raw};
             try {
@@ -308,9 +313,9 @@ function appendExtensionCookieEditors(host) {
                     || bt('cookie.extension.invalid', '凭证无效');
                 return;
             }
-            setStoredCookie(contribution.type, raw);
-            status.textContent = bt('status.cookie-saved-simple', '凭证已保存');
-            refreshQuickCredentialGate();
+            if (!await persistCookieEditor(section, contribution.type, raw, null,
+                message => { status.textContent = message; })) return;
+            finishCookieSave(section, bt('status.cookie-saved-simple', '凭证已保存'));
         });
         actions.appendChild(clear);
         actions.appendChild(save);

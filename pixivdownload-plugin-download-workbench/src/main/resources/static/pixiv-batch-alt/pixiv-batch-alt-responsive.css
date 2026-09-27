@@ -1,108 +1,60 @@
-
-/* ============================================================
-   响应式
-   ============================================================ */
-@media (max-width: 80em) {
-    .ab-shell {
-        grid-template-columns: 92px minmax(0, 1fr);
-
-    max-width: none;
-    }
-
-    .ab-dock {
-        position: fixed;
-        top: 0;
-        right: 0;
-        bottom: 0;
-        width: min(400px, 94vw);
-        max-height: none;
-        z-index: 90;
-        border-radius: 0;
-        transform: translateX(103%); visibility: hidden;
-        transition: transform var(--motion-med) var(--motion-ease-out);
-    }
-
-    .ab-dock.is-open {
-                visibility: visible;
-        transform: translateX(0);
-        box-shadow: var(--shadow-3);
-    }
-
-    .ab-dock-close {
-        display: inline-flex;
-    }
-
-    .ab-dock-toggle {
-        display: inline-flex;
-    }
-
-    .ab-dock-scrim {
-        display: block;
-        position: fixed;
-        inset: 0;
-        z-index: 80;
-        background: var(--scrim);
-        opacity: 0;
-        transition: opacity var(--motion-med) var(--motion-ease-standard);
-    }
-
-    .ab-dock-scrim[hidden] {
-        display: none;
-    }
-
-    .ab-dock-scrim.is-open {
-        opacity: 1;
-    }
+@media (max-width: 68.75em) {
+    .ab-topnav { order: 3; flex-basis: 100%; justify-content: flex-start; }
+    .ab-topbar-actions { margin-left: auto; }
+    .ab-shell { grid-template-columns: 10.5rem minmax(0, 1fr); gap: 26px; }
+    .ab-dock-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
-
-@media (max-width: 56.25em) {
-    .ab-topbar-actions {
-        flex: 1 1 100%;
-        min-width: 0;
+@media (max-width: 46em) {
+    .ab-shell { display: block; padding-top: 12px; }
+    .ab-sidebar { position: static; margin-bottom: 28px; }
+    .ab-nav-label { display: none; }
+    .ab-rail-modes { flex-direction: row; flex-wrap: nowrap; overflow-x: auto; }
+    .ab-rail-item { white-space: nowrap; padding: 10px 12px; }
+    .ab-workspaces { flex-direction: row; margin-top: 10px; padding-top: 10px; }
+    .ab-workspace { padding: 10px 12px; }
+    .ab-topbar { gap: 10px; }
+    .ab-topbar-actions { gap: 4px; margin: 0 0 0 auto; flex-wrap: wrap; }
+    .ab-brand { flex: 1; }
+    .ab-brand-sub { display: none; }
+    .ab-mode-title, .ab-dock-title { font-size: 1.7rem; }
+    .ab-mode-actions { gap: 6px; }
+    .ab-composer-row .ab-input { flex-basis: 100%; }
+    .ab-dock-controls { align-items: stretch; }
+    .ab-dock-btns { width: 100%; }
+    .ab-queue-ops { gap: 8px; }
+    .ab-pagination { flex-wrap: wrap; }
+    .ab-import-row, .ab-artist, .ab-series-head, .ab-setting-head { flex-wrap: wrap; }
+    .ab-import-title { flex-basis: 60%; }
+    .ab-selection-bar { flex-wrap: wrap; gap: 8px; bottom: 12px; }
+    .ab-selection-count { flex-basis: 100%; }
+}
+@media (max-width: 28em) {
+    .ab-brand-text strong { font-size: .8125rem; }
+    .ab-brand-mark { width: 30px; height: 30px; }
+    .ab-app #abCookieChip { max-width: 11rem; white-space: normal; }
+    .ab-topbar-actions { flex-basis: 100%; justify-content: flex-end; }
+}
+@media (pointer: coarse) {
+    .ab-app :is(button, .ab-btn, .ab-iconbtn, .ab-page-btn, select, input:not([type="checkbox"])) { min-height: 44px; }
+    .ab-app .ab-iconbtn { min-width: 44px; }
+    .ab-work-enqueue { width: 44px; height: 44px; }
+}
+@media (forced-colors: active) {
+    :root.ab-workbench {
+        --bg: Canvas; --surface: Canvas; --surface-2: Canvas; --surface-3: Canvas;
+        --text: CanvasText; --muted: CanvasText; --faint: GrayText;
+        --line: ButtonBorder; --line-strong: ButtonBorder;
+        --brand: Highlight; --brand-strong: LinkText; --brand-soft: Canvas; --brand-grad: Highlight;
+        --on-brand: HighlightText; --control-bg: ButtonFace; --control-muted-bg: Canvas;
+        --ok: CanvasText; --warn: CanvasText; --danger: LinkText;
+        --ok-soft: Canvas; --warn-soft: Canvas; --danger-soft: Canvas;
     }
-
-    .ab-version {
-        position: static;
+    .ab-btn--primary, .ab-workspace.is-active {
+        forced-color-adjust: none;
+        background: Highlight;
+        color: HighlightText;
+        border-color: Highlight;
     }
-
-    .ab-shell {
-        grid-template-columns: 1fr;
-        padding: 14px var(--layout-inset-right) 32px var(--layout-inset-left);
-        max-width: none;
-    }
-
-    .ab-rail {
-        position: static;
-        flex-direction: row;
-        overflow-x: auto;
-        padding: 8px;
-    }
-
-    .ab-rail-modes {
-        flex-direction: row;
-    }
-
-    .ab-rail-item {
-        padding: 8px 12px;
-        flex-direction: row;
-        flex-shrink: 0;
-        white-space: nowrap;
-        gap: 7px;
-    }
-
-    .ab-rail-indicator {
-        display: none;
-    }
-
-    .ab-rail-item.is-active {
-        background: var(--brand-soft);
-    }
-
-    .ab-brand-sub {
-        display: none;
-    }
-
-    .ab-topnav {
-        display: none;
-    }
+    .ab-work-enqueue.is-queued { outline: 2px solid Highlight; }
+    .ab-mini-prog-fill { forced-color-adjust: none; background: Highlight; }
 }

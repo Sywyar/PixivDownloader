@@ -30,13 +30,16 @@ import java.util.Map;
  *                  （以单个 {@code /} 开头）
  * @param order     同一 {@code target} 内的叠放顺序，越小越靠前（多个插件贡献同一锚点时据此稳定排序）
  * @param metadata  挂载点消费者约定的只读字符串元数据；不承载宿主盖章的 owner 身份
+ * @param i18nNamespace 槽位需要预加载的可选国际化命名空间；空值表示不追加资源。
+ *                      随所属活动槽位发布和撤回，仅提供展示依赖，不授予额外能力
  */
 public record WebUiSlotContribution(
         String slotId,
         String target,
         String moduleUrl,
         int order,
-        Map<String, String> metadata
+        Map<String, String> metadata,
+        String i18nNamespace
 ) {
 
     /**
@@ -47,9 +50,25 @@ public record WebUiSlotContribution(
      * @param moduleUrl 模块地址
      * @param order 排序值
      * @param metadata 元数据
+     * @param i18nNamespace 可选国际化命名空间
      */
     public WebUiSlotContribution {
         metadata = Map.copyOf(metadata == null ? Map.of() : metadata);
+        i18nNamespace = i18nNamespace == null ? "" : i18nNamespace.trim();
+    }
+
+    /**
+     * 创建不需要额外国际化资源的槽位声明。
+     *
+     * @param slotId 槽位标识
+     * @param target 目标
+     * @param moduleUrl 模块地址
+     * @param order 排序值
+     * @param metadata 元数据
+     */
+    public WebUiSlotContribution(String slotId, String target, String moduleUrl, int order,
+                                 Map<String, String> metadata) {
+        this(slotId, target, moduleUrl, order, metadata, "");
     }
 
     /**

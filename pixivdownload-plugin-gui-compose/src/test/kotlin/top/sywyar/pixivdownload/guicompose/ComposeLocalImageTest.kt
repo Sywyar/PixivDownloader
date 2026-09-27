@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.guicompose
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,7 +36,7 @@ class ComposeLocalImageTest {
         val node = DesktopUiNode.LocalImage("preview", file, DesktopUiNode.TextToken.raw("Local preview"), 980, 700)
         setContent {
             CompositionLocalProvider(LocalDensity provides Density(2f)) {
-                MaterialTheme {
+                PixivDownloaderTheme("light") {
                     Box(Modifier.size(edge.dp)) {
                         ComposeDesktopUiNodeRenderer.Render(node, { it.fallback() }, {})
                     }

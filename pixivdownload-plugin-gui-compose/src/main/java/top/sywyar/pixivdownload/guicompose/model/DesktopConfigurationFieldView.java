@@ -93,7 +93,7 @@ final class DesktopConfigurationFieldView {
         nodes.add(formField(
                 "interface.language",
                 key("gui.interface.language.label"),
-                key("gui.interface.language.help"),
+                new TextToken("gui-compose", "gui.compose.settings.language-help", "", List.of()),
                 choice(
                         "interface.language.input",
                         "interface.language",
@@ -101,7 +101,7 @@ final class DesktopConfigurationFieldView {
                         null,
                         locales,
                         selected("app.language", "follow-system"),
-                        true
+                        !owner.busy()
                 ),
                 GuiConfigEffect.HOT_RELOAD
         ));
@@ -116,7 +116,7 @@ final class DesktopConfigurationFieldView {
                         null,
                         providers,
                         selectedProvider,
-                        !providers.isEmpty()
+                        !providers.isEmpty() && !owner.busy()
                 ),
                 GuiConfigEffect.PROCESS_RESTART
         ));
@@ -131,7 +131,7 @@ final class DesktopConfigurationFieldView {
                         null,
                         themes,
                         selectedTheme,
-                        true
+                        !owner.busy()
                 ),
                 GuiConfigEffect.HOT_RELOAD
         ));
@@ -152,7 +152,7 @@ final class DesktopConfigurationFieldView {
                                         "false"
                                 ))
                         ),
-                        true
+                        !owner.busy()
                 ),
                 GuiConfigEffect.HOT_RELOAD
         ));
@@ -161,7 +161,7 @@ final class DesktopConfigurationFieldView {
                 new DesktopUiNode.Surface(
                         "interface.padding",
                         DesktopUiNode.SurfaceStyle.PLAIN,
-                        DesktopUiNode.Insets.all(16),
+                        DesktopUiNode.Insets.all(8),
                         true,
                         column("interface.content", nodes)
                 )
@@ -236,7 +236,7 @@ final class DesktopConfigurationFieldView {
         String value = values.getOrDefault(field.key(), spec.defaultValue());
         TextToken label = token(field.namespace(), spec.labelKey(), spec.key());
         TextToken help = optionalToken(field.namespace(), spec.helpKey());
-        boolean enabled = model.enabled(field) && !locked.contains(field.key());
+        boolean enabled = model.enabled(field) && !locked.contains(field.key()) && !owner.busy();
         String nodeId = binding + ".input";
         DesktopUiNode node = switch (spec.type()) {
             case BOOL -> new DesktopUiNode.Toggle(
@@ -325,6 +325,10 @@ final class DesktopConfigurationFieldView {
             );
         };
         if (spec.type() != GuiConfigFieldType.ENUM) nextBindings.put(binding, field);
+        if (node instanceof DesktopUiNode.TextInput input && spec.sensitive()) {
+            node = new DesktopUiNode.TextInput(input.id(), input.bindingId(), input.label(), input.help(),
+                    InputKind.PASSWORD, "", input.columns(), input.rows(), input.enabled(), model.credentialRevisions.getOrDefault(field.key(), 0L));
+        }
         if (spec.sensitive() && field.owner() != null) {
             String actionId = binding + ".clear";
             node = new DesktopUiNode.Dock(
@@ -380,18 +384,14 @@ final class DesktopConfigurationFieldView {
 
     static DesktopUiNode.Text effectNode(String id, GuiConfigEffect effect) {
         String key = switch (effect) {
-            case HOT_RELOAD -> "gui.label.hot-reload";
-            case BACKEND_RESTART -> "gui.label.restart-required";
-            case PROCESS_RESTART -> "gui.label.process-restart-required";
+            case HOT_RELOAD -> "gui.compose.settings.effect.immediate";
+            case BACKEND_RESTART -> "gui.compose.settings.effect.backend";
+            case PROCESS_RESTART -> "gui.compose.settings.effect.process";
         };
-        TextStyle style = switch (effect) {
-            case HOT_RELOAD -> TextStyle.SUCCESS;
-            case BACKEND_RESTART -> TextStyle.WARNING;
-            case PROCESS_RESTART -> TextStyle.ERROR;
-        };
+        TextStyle style = TextStyle.CAPTION;
         return new DesktopUiNode.Text(
                 id + ".effect",
-                key(key),
+                new TextToken("gui-compose", key, "", List.of()),
                 style,
                 false,
                 false

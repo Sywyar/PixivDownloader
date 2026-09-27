@@ -4,6 +4,9 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone;
 
 import java.math.BigDecimal;
+import java.net.IDN;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -25,7 +28,9 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         DesktopUiNode.Timeline, DesktopUiNode.ScheduleTimeline,
         DesktopUiNode.TextInput, DesktopUiNode.Toggle, DesktopUiNode.Choice,
         DesktopUiNode.NumberInput, DesktopUiNode.Table, DesktopUiNode.Tree,
-        DesktopUiNode.Button, DesktopUiNode.Link {
+        DesktopUiNode.Button, DesktopUiNode.Link, DesktopUiNode.AccountSetup, DesktopUiNode.OnboardingHub,
+        DesktopUiNode.HomeOverview, DesktopUiNode.AutomationOverview, DesktopUiNode.PluginOverview, DesktopUiNode.ToolsOverview,
+        DesktopUiNode.SecurityOverview, DesktopUiNode.SettingsWorkspace, DesktopUiNode.AboutOverview {
 
     /** @return 单份文档内稳定的节点标识 */
     String id();
@@ -256,7 +261,10 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     }
 
     /** 带标题的分组容器。 */
-    record Group(String id, TextToken title, DesktopUiNode content) implements DesktopUiNode {
+    record Group(String id, TextToken title, DesktopUiNode content, boolean collapsible) implements DesktopUiNode {
+        public Group(String id, TextToken title, DesktopUiNode content) {
+            this(id, title, content, false);
+        }
         /**
          * @param id 稳定节点标识
          * @param title 已本地化的分组标题
@@ -300,7 +308,11 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     }
 
     /** 标签页容器。 */
-    record Tabs(String id, List<Tab> tabs) implements DesktopUiNode {
+    record Tabs(String id, List<Tab> tabs, String initialSelectedId) implements DesktopUiNode {
+        public Tabs(String id, List<Tab> tabs) {
+            this(id, tabs, null);
+        }
+
         /**
          * @param id 稳定节点标识
          * @param tabs 有序标签页描述
@@ -582,6 +594,394 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         }
     }
 
+    /** Compose 首次账户设置；密码草稿与展开动画只保存在组件内。 */
+    record AccountSetup(
+            String id,
+            TextInput username,
+            TextInput password,
+            Button submit,
+            int minimumPasswordLength,
+            int recommendedPasswordLength,
+            boolean submitting,
+            boolean confirmWeakPassword,
+            Text notice
+    ) implements DesktopUiNode {
+        public AccountSetup {
+            id = requireId(id, "id");
+            Objects.requireNonNull(username, "username");
+            Objects.requireNonNull(password, "password");
+            Objects.requireNonNull(submit, "submit");
+        }
+
+        @Override public Kind kind() { return Kind.ACCOUNT_SETUP; }
+        @Override public List<DesktopUiNode> childNodes() {
+            return notice == null ? List.of(username, password, submit)
+                    : List.of(username, password, submit, notice);
+        }
+    }
+
+    /** 插件事实与受控动作；筛选、选择和详情展开状态留在 Compose 页面。 */
+    record PluginOverview(String id, List<PluginEntry> plugins, String observedAt,
+                          String noticeKey, boolean recoveryMode, Button refresh, Button manage)
+            implements DesktopUiNode {
+        public PluginOverview {
+            id = requireId(id, "id");
+            plugins = copyBounded(plugins, "plugins");
+            requireUnique(plugins.stream().map(PluginEntry::id).toList(), "plugin id");
+            Objects.requireNonNull(refresh, "refresh");
+            Objects.requireNonNull(manage, "manage");
+        }
+        @Override public Kind kind() { return Kind.PLUGIN_OVERVIEW; }
+        @Override public List<DesktopUiNode> childNodes() { return List.of(refresh, manage); }
+    }
+
+    record PluginEntry(String id, String name, String description, String iconKey, String colorToken,
+                       String source, String statusCode, String phaseCode, boolean managed,
+                       boolean required, String version, String verificationStatus,
+                       String verificationDiagnosticCode, String lastVerifiedAt) {
+        public boolean builtIn() { return "built-in".equals(source); }
+        public boolean runtimeFailed() {
+            return Set.of("FAILED", "CRASHED", "INCOMPATIBLE", "MISSING_REQUIRED", "INCOMPATIBLE_REQUIRED")
+                    .contains(statusCode);
+        }
+        public boolean verificationFailed() {
+            return !verificationStatus.isBlank() && !Set.of("VERIFIED_OFFICIAL", "VERIFIED_CUSTOM",
+                    "VERIFIED_COMMUNITY", "UNVERIFIED_LOCAL", "UNSIGNED_ALLOWED", "NOT_INSTALLED")
+                    .contains(verificationStatus);
+        }
+        public boolean needsAttention() { return runtimeFailed() || verificationFailed(); }
+    }
+
+    /** Compose 自动化页的来源与计划事实，交互状态由页面持有。 */
+    record AutomationOverview(String id, long observedAt, boolean known,
+                              List<AutomationPlan> plans, List<AutomationSource> sources,
+                              List<Button> management) implements DesktopUiNode {
+        public AutomationOverview {
+            id = requireId(id, "id");
+            plans = copyBounded(plans, "plans");
+            sources = copyBounded(sources, "sources");
+            management = copyBounded(management, "management");
+            requireUnique(plans.stream().map(AutomationPlan::id).toList(), "plan id");
+        }
+        @Override public Kind kind() { return Kind.AUTOMATION_OVERVIEW; }
+        @Override public List<DesktopUiNode> childNodes() { return List.copyOf(management); }
+    }
+
+    record AutomationPlan(String id, String owner, String taskId, TextToken title,
+                          TextToken trigger, String status, String lastResult,
+                          List<Long> nextRuns, Long observedAt, String availability,
+                          String actionId) {
+        public AutomationPlan {
+            id = requireId(id, "id");
+            owner = boundedText(owner, "owner");
+            taskId = boundedText(taskId, "taskId");
+            Objects.requireNonNull(title, "title");
+            Objects.requireNonNull(trigger, "trigger");
+            status = boundedText(status, "status");
+            lastResult = boundedText(lastResult, "lastResult");
+            availability = boundedText(availability, "availability");
+            nextRuns = copyBounded(nextRuns, "nextRuns");
+        }
+    }
+
+    record AutomationSource(String owner, String availability, Long observedAt) {}
+
+    /** Compose 关于页的真实应用资料与平台信息。 */
+    record AboutOverview(
+            String id,
+            Image icon,
+            String applicationName,
+            String version,
+            Button checkUpdate,
+            AboutUpdateState updateState,
+            List<DesktopUiNode> updates,
+            List<Link> links,
+            List<AboutMaintainer> maintainers,
+            TextToken disclaimer,
+            String license,
+            List<AboutFact> facts
+    ) implements DesktopUiNode {
+        public AboutOverview {
+            id = requireId(id, "id");
+            Objects.requireNonNull(applicationName, "applicationName");
+            Objects.requireNonNull(version, "version");
+            Objects.requireNonNull(checkUpdate, "checkUpdate");
+            Objects.requireNonNull(updateState, "updateState");
+            updates = List.copyOf(updates);
+            links = List.copyOf(links);
+            maintainers = List.copyOf(maintainers);
+            Objects.requireNonNull(disclaimer, "disclaimer");
+            Objects.requireNonNull(license, "license");
+            facts = List.copyOf(facts);
+        }
+        @Override public Kind kind() { return Kind.ABOUT_OVERVIEW; }
+        @Override public List<DesktopUiNode> childNodes() {
+            List<DesktopUiNode> nodes = new ArrayList<>();
+            if (icon != null) nodes.add(icon);
+            nodes.add(checkUpdate);
+            nodes.addAll(updates);
+            nodes.addAll(links);
+            maintainers.forEach(person -> { nodes.add(person.avatar()); nodes.add(person.link()); });
+            return List.copyOf(nodes);
+        }
+    }
+
+    enum AboutUpdateState { UNKNOWN, CHECKING, CURRENT, AVAILABLE, DISABLED, ERROR }
+    record AboutMaintainer(Image avatar, Link link, TextToken role) {}
+    record AboutFact(String id, TextToken label, TextToken value) {}
+
+    /** Compose 首页的任务、指标与系统状态。 */
+    record HomeOverview(
+            String id,
+            List<HomeShortcut> shortcuts,
+            List<HomeTask> tasks,
+            List<HomeMetric> metrics,
+            boolean tasksKnown,
+            Text backend,
+            HomeSystem system
+    ) implements DesktopUiNode {
+        public HomeOverview {
+            id = requireId(id, "id");
+            shortcuts = copyBounded(shortcuts, "shortcuts");
+            tasks = copyBounded(tasks, "tasks");
+            metrics = copyBounded(metrics, "metrics");
+            requireUnique(tasks.stream().map(HomeTask::id).toList(), "task id");
+            requireUnique(metrics.stream().map(HomeMetric::id).toList(), "metric id");
+            Objects.requireNonNull(backend, "backend");
+            Objects.requireNonNull(system, "system");
+        }
+
+        @Override public Kind kind() { return Kind.HOME_OVERVIEW; }
+        @Override public List<DesktopUiNode> childNodes() {
+            List<DesktopUiNode> nodes = new ArrayList<>();
+            shortcuts.forEach(shortcut -> nodes.add(shortcut.button()));
+            nodes.add(backend);
+            return List.copyOf(nodes);
+        }
+    }
+
+    record HomeSystem(TextToken proxy, TextToken endpoint, TextToken plugins) {
+        public HomeSystem {
+            Objects.requireNonNull(proxy, "proxy");
+            Objects.requireNonNull(plugins, "plugins");
+        }
+    }
+
+    record HomeShortcut(Button button, String symbol) {
+        public HomeShortcut {
+            Objects.requireNonNull(button, "button");
+            symbol = boundedText(symbol, "symbol");
+        }
+    }
+
+    record HomeTask(String id, TextToken title, TextToken supporting, TextToken status,
+                    Double progress, TextToken freshness) {
+        public HomeTask {
+            id = requireId(id, "id");
+            Objects.requireNonNull(title, "title");
+            Objects.requireNonNull(supporting, "supporting");
+            Objects.requireNonNull(status, "status");
+            if (progress != null && (!Double.isFinite(progress) || progress < 0 || progress > 1))
+                throw new IllegalArgumentException("invalid task progress");
+        }
+    }
+
+    record HomeMetric(String id, TextToken title, TextToken value, TextToken unit,
+                      TextToken supporting, TextToken freshness) {
+        public HomeMetric {
+            id = requireId(id, "id");
+            Objects.requireNonNull(title, "title");
+            Objects.requireNonNull(value, "value");
+            Objects.requireNonNull(supporting, "supporting");
+        }
+    }
+
+    /** 设置页保留全部分类的绑定，切换分类不丢失草稿。 */
+    record SettingsWorkspace(String id, Choice categories, List<Tab> tabs,
+                             List<SettingLocation> locations, List<SettingChange> changes,
+                             List<DesktopUiNode> footer, String locatedRow, String invalidRow,
+                             long credentialRevision) implements DesktopUiNode {
+        public SettingsWorkspace {
+            id = requireId(id, "id");
+            tabs = List.copyOf(tabs);
+            locations = List.copyOf(locations);
+            changes = List.copyOf(changes);
+            footer = List.copyOf(footer);
+        }
+        @Override public Kind kind() { return Kind.SETTINGS_WORKSPACE; }
+        @Override public List<DesktopUiNode> childNodes() {
+            List<DesktopUiNode> children = new ArrayList<>();
+            children.add(categories);
+            tabs.forEach(tab -> children.add(tab.content()));
+            locations.forEach(location -> children.add(location.locate()));
+            children.addAll(footer);
+            return List.copyOf(children);
+        }
+    }
+
+    record SettingLocation(String rowId, String categoryId, TextToken label, TextToken help, Button locate) {}
+
+    /** 敏感字段只包含状态说明，不携带输入值或已存凭据。 */
+    record SettingChange(String rowId, TextToken label, TextToken before, TextToken after, TextToken effect) {}
+
+    /** 安全页面的短暂交互状态；密码只通过输入事件传递，不进入节点值。 */
+    record SecurityOverview(
+            String id,
+            String panel,
+            boolean busy,
+            int minimumPasswordLength,
+            List<TextInput> inputs,
+            Toggle https,
+            List<Button> actions,
+            TextToken notice,
+            String errorField,
+            long formRevision,
+            long successRevision,
+            String successOperation,
+            String runningAddress,
+            boolean keyStoreConfigured,
+            List<Button> navigation
+    ) implements DesktopUiNode {
+        public SecurityOverview {
+            id = requireId(id, "id");
+            inputs = List.copyOf(inputs);
+            actions = List.copyOf(actions);
+            navigation = List.copyOf(navigation);
+        }
+        @Override public Kind kind() { return Kind.SECURITY_OVERVIEW; }
+        @Override public List<DesktopUiNode> childNodes() {
+            List<DesktopUiNode> children = new ArrayList<>(inputs);
+            children.add(https);
+            children.addAll(actions);
+            children.addAll(navigation);
+            return List.copyOf(children);
+        }
+    }
+
+    /** 工具目录与可收起的执行面板，动作仍由工具控制器持有。 */
+    record ToolsOverview(String id, Text backend, List<DesktopUiNode> tools, Group media,
+                         DesktopUiNode history, ToolActivity activity, ToolWorkspace workspace) implements DesktopUiNode {
+        public ToolsOverview {
+            id = requireId(id, "id");
+            Objects.requireNonNull(backend, "backend");
+            tools = copyBounded(tools, "tools");
+            Objects.requireNonNull(media, "media");
+            Objects.requireNonNull(history, "history");
+        }
+
+        @Override public Kind kind() { return Kind.TOOLS_OVERVIEW; }
+        @Override public List<DesktopUiNode> childNodes() {
+            List<DesktopUiNode> nodes = new ArrayList<>(tools);
+            nodes.add(backend);
+            nodes.add(media);
+            nodes.add(history);
+            if (workspace != null) {
+                nodes.add(workspace.content());
+                nodes.add(workspace.close());
+            }
+            return List.copyOf(nodes);
+        }
+    }
+
+    record ToolWorkspace(String toolId, DesktopUiNode content, Button close, String selectedTarget) {
+        public ToolWorkspace {
+            toolId = requireId(toolId, "toolId");
+            Objects.requireNonNull(content, "content");
+            Objects.requireNonNull(close, "close");
+            selectedTarget = selectedTarget == null ? "" : selectedTarget;
+        }
+    }
+
+    record ToolActivity(String toolId, boolean running, boolean failed, TextToken message) {
+        public ToolActivity {
+            toolId = requireId(toolId, "toolId");
+            Objects.requireNonNull(message, "message");
+        }
+    }
+
+    record OnboardingHub(
+            String id,
+            List<OnboardingCard> cards,
+            Button next,
+            Text notice,
+            boolean submitting
+    ) implements DesktopUiNode {
+        public OnboardingHub {
+            id = requireId(id, "id");
+            cards = List.copyOf(cards);
+            Objects.requireNonNull(next, "next");
+        }
+
+        @Override public Kind kind() { return Kind.ONBOARDING_HUB; }
+        @Override public List<DesktopUiNode> childNodes() {
+            List<DesktopUiNode> nodes = new ArrayList<>();
+            for (OnboardingCard card : cards) {
+                nodes.add(card.open());
+                if (card.settings() != null) {
+                    nodes.add(card.settings().enabled());
+                    nodes.add(card.settings().host());
+                    nodes.add(card.settings().port());
+                }
+            }
+            nodes.add(next);
+            if (notice != null) nodes.add(notice);
+            return List.copyOf(nodes);
+        }
+    }
+
+    record OnboardingCard(
+            String id,
+            OnboardingTopic topic,
+            TextToken title,
+            TextToken summary,
+            TextToken description,
+            Button open,
+            OnboardingProxySettings settings,
+            boolean opened
+    ) {
+        public OnboardingCard {
+            id = requireId(id, "id");
+            Objects.requireNonNull(topic, "topic");
+            Objects.requireNonNull(title, "title");
+            Objects.requireNonNull(summary, "summary");
+            Objects.requireNonNull(description, "description");
+            Objects.requireNonNull(open, "open");
+        }
+    }
+
+    enum OnboardingTopic { NETWORK, DOWNLOAD, GUIDE, ANIMATION }
+
+    /** 代理草稿和提交校验反馈，仅供 Compose 引导使用。 */
+    record OnboardingProxySettings(Toggle enabled, TextInput host, TextInput port, int validationAttempt) {
+        public static boolean validHost(String value) {
+            String host = value.trim();
+            if (host.isEmpty()) return false;
+            try {
+                if (!host.contains(":")) {
+                    host = IDN.toASCII(host, IDN.USE_STD3_ASCII_RULES);
+                    // 纯数字仍可能是未输完的 IPv4，要求使用完整的点分地址。
+                    if (host.chars().allMatch(Character::isDigit)) return false;
+                }
+                return new URI(null, null, host, -1, null, null, null).getHost() != null;
+            } catch (IllegalArgumentException | URISyntaxException invalid) {
+                return false;
+            }
+        }
+
+        public static boolean validPort(String value) {
+            try {
+                int port = Integer.parseInt(value.trim());
+                return port >= 1 && port <= 65_535;
+            } catch (NumberFormatException invalid) {
+                return false;
+            }
+        }
+
+        public boolean invalid() {
+            return enabled.selected() && (!validHost(host.value()) || !validPort(port.value()));
+        }
+    }
+
     /** 文本型输入，包括密码、多行、搜索、时间、文件和目录变体。 */
     record TextInput(String id, String bindingId, TextToken label, TextToken help,
                      InputKind inputKind, String value, int columns, int rows,
@@ -804,7 +1204,11 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
     /** 触发激活事件的命令按钮。 */
     record Button(String id, String actionId, TextToken label, TextToken help,
-                  ButtonStyle buttonStyle, boolean enabled) implements DesktopUiNode {
+                  ButtonStyle buttonStyle, boolean enabled, DesktopUiIcon icon) implements DesktopUiNode {
+        public Button(String id, String actionId, TextToken label, TextToken help,
+                      ButtonStyle buttonStyle, boolean enabled) {
+            this(id, actionId, label, help, buttonStyle, enabled, null);
+        }
         /**
          * @param id 稳定节点标识
          * @param actionId 稳定的激活事件目标
@@ -1145,6 +1549,15 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
     /** 支持的节点类型。 */
     enum Kind {
+        /** 应用身份、平台信息与更新。 */ ABOUT_OVERVIEW,
+        /** 设置工作区。 */ SETTINGS_WORKSPACE,
+        /** 安全与管理员登录管理。 */ SECURITY_OVERVIEW,
+        /** 工具工作区。 */ TOOLS_OVERVIEW,
+        /** 插件浏览。 */ PLUGIN_OVERVIEW,
+        /** 自动化时间线。 */ AUTOMATION_OVERVIEW,
+        /** 首页概览。 */ HOME_OVERVIEW,
+        /** 首次账户设置。 */ ACCOUNT_SETUP,
+        /** 首次使用任务选择。 */ ONBOARDING_HUB,
         /** 通用容器。 */ CONTAINER,
         /** 可按宽度自适应列数的网格。 */ ADAPTIVE_GRID,
         /** 固定页容量的吸附横向区域。 */ PAGED_ROW,
@@ -1215,6 +1628,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         /** 项目符号正文。 */ BULLET,
         /** 小号说明文本。 */ CAPTION,
         /** 页面标题。 */ TITLE,
+        /** 突出显示的等待标题。 */ WAITING,
         /** 区块标题。 */ HEADING,
         /** 等宽代码文本。 */ CODE,
         /** 成功文本。 */ SUCCESS,
@@ -1276,6 +1690,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     /** 进度呈现样式。 */
     enum ProgressStyle {
         /** 线性进度条。 */ LINEAR,
+        /** 紧凑宽度的线性进度条。 */ COMPACT_LINEAR,
         /** 环形进度条。 */ CIRCULAR
     }
     /** 时间线项目的语义状态。 */

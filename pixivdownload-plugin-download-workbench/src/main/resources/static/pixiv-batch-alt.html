@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="light" data-nav-remember-marker="preferred-download-workbench">
+<html lang="zh-CN" class="ab-workbench ios" data-theme="light" data-nav-remember-marker="preferred-download-workbench">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -12,6 +12,11 @@
     <link rel="stylesheet" href="/css/pixiv-feedback.css">
     <link rel="stylesheet" href="/css/pixiv-scrollbar.css">
     <link rel="stylesheet" href="/pixiv-layout-feedback/pixiv-layout-feedback.css">
+    <link rel="stylesheet" href="/pixiv-batch-alt/vendor/framework7/framework7.css">
+    <link rel="stylesheet" href="/pixiv-batch-alt/vendor/framework7/toggle.css">
+    <link rel="stylesheet" href="/pixiv-batch-alt/vendor/framework7/progressbar.css">
+    <link rel="stylesheet" href="/pixiv-batch-alt/vendor/framework7/preloader.css">
+    <link rel="stylesheet" href="/pixiv-batch-alt/experience-tokens.css">
     <link rel="stylesheet" href="/pixiv-batch-alt/pixiv-batch-alt.css">
     <link rel="stylesheet" href="/pixiv-batch-alt/pixiv-batch-alt-layout.css">
     <link rel="stylesheet" href="/pixiv-batch-alt/pixiv-batch-alt-dock.css">
@@ -21,8 +26,9 @@
     <link rel="stylesheet" href="/pixiv-batch-alt/pixiv-batch-alt-extensions.css">
     <link rel="stylesheet" href="/pixiv-batch-alt/pixiv-batch-alt-motion.css">
     <script src="/js/pixiv-layout.js" defer></script>
+    <link rel="stylesheet" href="/pixiv-batch-alt/cupertino.css">
 </head>
-<body class="layout-flow">
+<body class="ab-app layout-flow">
 <header class="layout-sticky ab-topbar app-nav" data-layout-height="--layout-header-height">
     <div class="ab-brand">
         <span class="ab-brand-mark ab-icon" id="abBrandMark" data-icon="download" aria-hidden="true"></span>
@@ -35,18 +41,26 @@
          data-nav-link-class="ab-topnav-link" data-nav-active-class="is-active"
          data-nav-target="_blank" data-nav-rel="noopener" aria-label="跨插件导航"></nav>
     <div class="ab-topbar-actions">
-        <button type="button" class="ab-chip ab-chip--warn" id="abCookieChip">
+        <button type="button" class="ab-chip ab-chip--warn button" id="abCookieChip">
             <span class="ab-chip-dot" aria-hidden="true"></span>
             <span class="ab-chip-label" data-i18n="cookie.status.missing">未保存 Cookie</span>
         </button>
-        <span id="abLangAnchor"></span>
         <div class="ab-version" id="abVersion">
-            <button type="button" class="ab-chip ab-chip--ghost" id="abVersionBtn">
-                <span class="ab-icon" data-icon="info" aria-hidden="true"></span>
-                <span id="abVersionText">加载中…</span>
-                <span class="ab-icon" data-icon="chevron-down" aria-hidden="true"></span>
+            <button type="button" class="ab-chip ab-chip--ghost button" id="abVersionBtn">
+                <span class="ab-icon" data-icon="sliders" aria-hidden="true"></span>
+                <span data-i18n="workspace.more">更多</span>
             </button>
             <div class="ab-menu" id="abVersionMenu" hidden>
+                <button type="button" class="ab-menu-item button" id="abScriptsBtn" data-i18n-title="scripts.entry" title="油猴脚本">
+                    <span class="ab-icon" data-icon="puzzle" aria-hidden="true"></span><span data-i18n="scripts.entry">油猴脚本</span>
+                </button>
+                <a class="ab-menu-item button" href="/pixiv-batch.html"
+                   data-i18n-title="page.switch-to-old-layout"
+                   data-i18n-aria-label="page.switch-to-old-layout"
+                   title="旧布局" aria-label="旧布局">
+                    <span class="ab-icon" data-icon="grid" aria-hidden="true"></span><span data-i18n="page.switch-to-old-layout">旧布局</span>
+                </a>
+                <div class="ab-menu-preferences"><span id="abLangAnchor"></span><span id="abThemeAnchor"></span></div>
                 <div class="ab-menu-head">
                     <strong id="abAppName">PixivDownloader</strong>
                     <span class="ab-muted" id="abAppVersion"></span>
@@ -57,22 +71,8 @@
                 <a class="ab-menu-item" id="abLinkLicense" href="#" target="_blank" rel="noopener" data-i18n="app.link.license">License</a>
             </div>
         </div>
-        <button type="button" class="ab-iconbtn" id="abScriptsBtn" data-i18n-title="scripts.entry" title="油猴脚本">
-            <span class="ab-icon" data-icon="puzzle" aria-hidden="true"></span>
-        </button>
-        <a class="ab-iconbtn" href="/pixiv-batch.html"
-           data-i18n-title="page.switch-to-old-layout"
-           data-i18n-aria-label="page.switch-to-old-layout"
-           title="旧布局" aria-label="旧布局">
-            <span class="ab-icon" data-icon="grid" aria-hidden="true"></span>
-        </a>
-        <span id="abThemeAnchor"></span>
         <template data-qt-slot="topbar-actions"></template>
-        <button type="button" class="ab-iconbtn ab-dock-toggle" id="abDockToggle" data-i18n-title="dock.toggle" title="下载面板">
-            <span class="ab-icon" data-icon="download" aria-hidden="true"></span>
-            <span class="ab-badge" id="abDockBadge" hidden>0</span>
-        </button>
-        <button type="button" class="ab-btn ab-btn--primary ab-btn--sm layout-touch" id="abAuthBtn" data-i18n="auth.login">登录</button>
+        <button type="button" class="ab-btn ab-btn--primary ab-btn--sm button button-fill layout-touch" id="abAuthBtn" data-i18n="auth.login">登录</button>
     </div>
 </header>
 
@@ -82,28 +82,46 @@
 </div>
 
 <div class="ab-shell" id="abShell">
-    <aside class="ab-rail" id="abRail" aria-label="下载模式">
-        <div class="ab-rail-modes" id="abRailModes" role="tablist" aria-label="下载模式"></div>
-    </aside>
-
-    <main class="ab-stage" id="abStage" tabindex="-1">
-        <section class="ab-mode-panel" id="abModePanel" aria-live="polite"></section>
-    </main>
-
-    <div class="ab-dock-scrim" id="abDockScrim" hidden></div>
-    <aside class="ab-dock" id="abDock" aria-label="下载中心">
-        <div class="ab-dock-head">
-            <h2 class="ab-dock-title" data-i18n="dock.title">下载中心</h2>
-            <button type="button" class="ab-iconbtn ab-dock-close" id="abDockClose" data-i18n-title="common.close" title="关闭">
-                <span class="ab-icon" data-icon="x" aria-hidden="true"></span>
+    <aside class="ab-sidebar">
+        <p class="ab-nav-label" data-i18n="workspace.sources">获取方式</p>
+        <nav class="ab-rail" id="abRail" aria-label="获取方式" data-i18n-aria-label="workspace.sources">
+            <div class="ab-rail-modes" id="abRailModes" role="tablist" aria-orientation="vertical" aria-label="获取方式" data-i18n-aria-label="workspace.sources"></div>
+        </nav>
+        <nav class="ab-workspaces" aria-label="工作区" data-i18n-aria-label="workspace.navigation">
+            <button type="button" class="ab-workspace button" id="abDockToggle" aria-controls="abDock">
+                <span class="ab-icon" data-icon="download" aria-hidden="true"></span>
+                <span data-i18n="workspace.downloads">下载列表</span>
+                <span class="ab-badge" id="abDockBadge" hidden>0</span>
             </button>
-        </div>
-        <div class="ab-dock-body" id="abDockBody"></div>
+            <button type="button" class="ab-workspace button" id="abScheduleTab" aria-controls="abStage" hidden>
+                <span class="ab-icon" data-icon="clock" aria-hidden="true"></span>
+                <span data-i18n="modes.schedule">计划任务</span>
+            </button>
+        </nav>
     </aside>
+    <div class="ab-content">
+        <main class="ab-stage" id="abStage" tabindex="-1">
+            <section class="ab-mode-panel" id="abModePanel" role="tabpanel" tabindex="-1"></section>
+        </main>
+        <section class="ab-dock" id="abDock" aria-labelledby="abDownloadsTitle" tabindex="-1" hidden>
+            <div class="ab-dock-head">
+                <div>
+                    <h1 class="ab-dock-title" id="abDownloadsTitle" data-i18n="workspace.downloads">下载列表</h1>
+                    <p class="ab-mode-desc" data-i18n="workspace.downloads.hint">查看进度、处理失败，或继续添加作品。</p>
+                </div>
+                <button type="button" class="ab-btn ab-btn--ghost button button-tonal" id="abDockClose">
+                    <span class="ab-icon" data-icon="plus" aria-hidden="true"></span>
+                    <span data-i18n="workspace.add-more">添加作品</span>
+                </button>
+            </div>
+            <div class="ab-dock-body" id="abDockBody"></div>
+        </section>
+        <div class="ab-selection-bar" id="abSelectionBar" hidden></div>
+    </div>
 </div>
 
-<div class="ab-drawer-root" id="abDrawerRoot" hidden></div>
-<div class="ab-modal-root" id="abModalRoot" hidden></div>
+<dialog class="ab-drawer-root" id="abDrawerRoot"></dialog>
+<dialog class="ab-modal-root" id="abModalRoot"></dialog>
 
 <script src="/js/pixiv-i18n.js"></script>
 <script src="/js/pixiv-theme.js"></script>
@@ -135,10 +153,12 @@
 <script src="/pixiv-batch-alt/alt-filters.js"></script>
 <script src="/pixiv-batch-alt/alt-settings.js"></script>
 <script src="/pixiv-batch-alt/alt-chrome.js"></script>
+<script src="/pixiv-batch-alt/alt-selection.js"></script>
 <script src="/pixiv-batch-alt/alt-modes.js"></script>
 <script src="/pixiv-batch-alt/alt-mode-capture.js"></script>
 <script src="/pixiv-batch-alt/alt-mode-discovery.js"></script>
 <script src="/pixiv-batch-alt/alt-mode-series.js"></script>
+<script src="/pixiv-batch-alt/alt-schedule-presentation.js"></script>
 <script src="/pixiv-batch-alt/alt-schedule.js"></script>
 <script src="/pixiv-batch-alt/alt-schedule-actions.js"></script>
 <script src="/pixiv-batch-alt/alt-schedule-editor.js"></script>

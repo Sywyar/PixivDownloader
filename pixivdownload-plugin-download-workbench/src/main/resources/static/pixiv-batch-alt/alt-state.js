@@ -15,7 +15,7 @@ let isAdmin = false;
 let serverState = {};
 
 let state = {
-    mode: QUICK_FETCH_MODE,
+    mode: SINGLE_IMPORT_MODE,
     queue: [],
     isRunning: false,
     isPaused: false,
@@ -73,6 +73,7 @@ let quickState = {
     hasNext: false,
     title: '',
     loading: false,
+    loadSeq: 0,
     error: '',
     drill: null,          // {type: 'user'|'collection', id, name}
     drillItems: [],
@@ -212,17 +213,44 @@ async function detectAuthState() {
 }
 
 let _saveTimer = null;
+let _saveRequest = Promise.resolve();
+
+function persistStoreEntries(entries) {
+    const apply = (target) => Object.entries(entries).forEach(([key, value]) => {
+        if (value == null) delete target[key];
+        else target[key] = value;
+    });
+    if (appMode !== 'solo') {
+        const previous = Object.fromEntries(Object.keys(entries).map(key => [key, localStorage.getItem(key)]));
+        const write = values => Object.entries(values).forEach(([key, value]) => {
+            if (value == null) localStorage.removeItem(key);
+            else localStorage.setItem(key, value);
+        });
+        try { write(entries); } catch (error) {
+            try { write(previous); } catch {}
+            return Promise.reject(error);
+        }
+        return Promise.resolve();
+    }
+    // Batch state is replaced as a whole; serialize writes so an older autosave cannot undo credentials.
+    _saveRequest = _saveRequest.catch(() => {}).then(async () => {
+        const snapshot = {...serverState};
+        apply(snapshot);
+        const response = await fetch(BASE + '/api/batch/state', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({state: snapshot}), credentials: 'same-origin'
+        });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        apply(serverState);
+    });
+    return _saveRequest;
+}
 
 function scheduleServerSave() {
     if (_saveTimer) clearTimeout(_saveTimer);
     _saveTimer = setTimeout(() => {
-        fetch(BASE + '/api/batch/state', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({state: serverState}),
-            credentials: 'same-origin'
-        }).catch(() => {
-        });
+        _saveTimer = null;
+        persistStoreEntries({}).catch(() => {});
     }, 400);
 }
 
@@ -253,14 +281,8 @@ async function doLogout() {
     // solo 模式下退出登录同时清除服务器保存的 Cookie；必须在 logout 使 session 失效前持久化
     if (appMode === 'solo') {
         if (_saveTimer) clearTimeout(_saveTimer);
-        delete serverState['pixiv_cookie'];
         try {
-            await fetch(BASE + '/api/batch/state', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({state: serverState}),
-                credentials: 'same-origin'
-            });
+            await persistStoreEntries({pixiv_cookie: null});
         } catch {
         }
     }

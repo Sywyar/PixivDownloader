@@ -171,30 +171,45 @@ function normalizeBatchCollectionId(value) {
 /* ============================================================
    设置抽屉 UI
    ============================================================ */
+let settingsLabelSequence = 0;
 function settingsRow(labelText, control, helpText) {
     const row = el('div', 'ab-setting-row');
     const head = el('div', 'ab-setting-head');
-    head.appendChild(el('span', 'ab-setting-label', labelText));
+    const label = el('span', 'ab-setting-label', labelText);
+    label.id = 'ab-setting-label-' + (++settingsLabelSequence);
+    head.appendChild(label);
     row.appendChild(head);
-    if (control) row.appendChild(control);
-    if (helpText) row.appendChild(el('p', 'ab-field-note', helpText));
+    if (control) {
+        const selector = 'input, select, textarea, button';
+        const controls = control.matches(selector) ? [control] : Array.from(control.querySelectorAll(selector));
+        controls.forEach(input => {
+            if (!input.hasAttribute('aria-label') && !input.hasAttribute('aria-labelledby')) {
+                if (input.classList.contains('ab-unit-toggle')) {
+                    input.setAttribute('aria-label', bt('settings.unit-switch', '切换时间单位'));
+                } else input.setAttribute('aria-labelledby', label.id);
+            }
+            if (helpText) input.setAttribute('aria-describedby', label.id + '-help');
+        });
+        row.appendChild(control);
+    }
+    if (helpText) {
+        const note = el('p', 'ab-field-note', helpText);
+        note.id = label.id + '-help';
+        row.appendChild(note);
+    }
     return row;
 }
 
 function switchControl(checked, onChange, disabled) {
-    const btn = el('button', 'ab-switch' + (checked ? ' is-on' : ''));
-    btn.type = 'button';
-    btn.setAttribute('role', 'switch');
-    btn.setAttribute('aria-checked', checked ? 'true' : 'false');
-    if (disabled) btn.disabled = true;
-    btn.appendChild(el('span', 'ab-switch-knob'));
-    btn.addEventListener('click', () => {
-        const next = !btn.classList.contains('is-on');
-        btn.classList.toggle('is-on', next);
-        btn.setAttribute('aria-checked', next ? 'true' : 'false');
-        onChange(next);
-    });
-    return btn;
+    const label = el('label', 'toggle ab-switch');
+    const input = el('input');
+    input.type = 'checkbox';
+    input.setAttribute('role', 'switch');
+    input.checked = !!checked;
+    input.disabled = !!disabled;
+    input.addEventListener('change', () => onChange(input.checked));
+    label.append(input, el('span', 'toggle-icon'));
+    return label;
 }
 
 function numberWithUnit(value, unit, onValue, onUnit) {
@@ -230,6 +245,7 @@ function numberWithUnit(value, unit, onValue, onUnit) {
 function buildSettingsDrawerBody() {
     const s = state.settings;
     const body = el('div', 'ab-settings');
+    body.appendChild(el('p', 'ab-field-note', bt('settings.scope', '更改会立即保存在此浏览器中，供后续下载使用；不会修改桌面的全局配置。')));
 
     // —— 节奏 ——
     body.appendChild(el('h4', 'ab-settings-group', bt('settings.group.pace', '下载节奏')));
@@ -383,74 +399,7 @@ function buildSettingsDrawerBody() {
         body.appendChild(row);
     }
 
-    // —— 小说 ——
-    // 本分组即小说 typed settings 声明的 cardId（novel-settings-card）在 alt 的原生实现：
-    // 共享槽位管线据同 id 元素在场判定该类型的 settings-card 片段不再注入（避免双份设置卡）。
-    const novelGroup = el('h4', 'ab-settings-group', bt('settings.group.novel', '小说设置'));
-    novelGroup.id = 'novel-settings-card';
-    body.appendChild(novelGroup);
-    const novelFmtSel = el('select', 'ab-input');
-    ['txt', 'html', 'epub'].forEach(fmt => {
-        const opt = el('option', '', fmt.toUpperCase());
-        opt.value = fmt;
-        novelFmtSel.appendChild(opt);
-    });
-    novelFmtSel.value = s.novelFormat || 'txt';
-    novelFmtSel.addEventListener('change', () => { s.novelFormat = novelFmtSel.value; saveSettings(); });
-    body.appendChild(settingsRow(bt('settings.novel.format', '小说格式'), novelFmtSel));
-
-    const mergeFmtSel = el('select', 'ab-input');
-    ['txt', 'html', 'epub'].forEach(fmt => {
-        const opt = el('option', '', fmt.toUpperCase());
-        opt.value = fmt;
-        mergeFmtSel.appendChild(opt);
-    });
-    mergeFmtSel.value = s.mergeNovelFormat || 'epub';
-    mergeFmtSel.addEventListener('change', () => { s.mergeNovelFormat = mergeFmtSel.value; saveSettings(); });
-    const mergeFmtRow = settingsRow(bt('settings.novel.merge-format', '合订本格式'), mergeFmtSel);
-    mergeFmtRow.style.display = s.mergeNovelSeries ? '' : 'none';
-    const mergeSwitch = switchControl(s.mergeNovelSeries, v => {
-        s.mergeNovelSeries = v;
-        saveSettings();
-        mergeFmtRow.style.display = v ? '' : 'none';
-    });
-    body.appendChild(settingsRow(bt('settings.novel.merge', '系列下载完成后生成合订本'), mergeSwitch));
-    body.appendChild(mergeFmtRow);
-
-    const translateRows = [];
-    const langInput = el('input', 'ab-input');
-    langInput.type = 'text';
-    langInput.value = s.novelTranslateLang || bt('settings.novel.translate-lang-default', '简体中文');
-    langInput.addEventListener('change', () => {
-        const v = (langInput.value || '').trim();
-        s.novelTranslateLang = (v && v !== bt('settings.novel.translate-lang-default', '简体中文')) ? v : '';
-        saveSettings();
-    });
-    const langRow = settingsRow(bt('settings.novel.translate-lang', '目标语言'), langInput);
-    const segInput = el('input', 'ab-input ab-input--num');
-    segInput.type = 'number';
-    segInput.min = '0';
-    segInput.value = s.novelTranslateSeg ?? 0;
-    segInput.addEventListener('change', () => {
-        s.novelTranslateSeg = Math.max(0, parseInt(segInput.value, 10) || 0);
-        saveSettings();
-    });
-    const segRow = settingsRow(bt('settings.novel.translate-seg', '分段字数'), segInput,
-        bt('settings.novel.translate-seg.help', '0 = 整章一次性翻译'));
-    translateRows.push(langRow, segRow);
-    translateRows.forEach(r => { r.style.display = (isAdmin && s.novelAutoTranslate) ? '' : 'none'; });
-    if (isAdmin) {
-        const translateSwitch = switchControl(s.novelAutoTranslate, v => {
-            s.novelAutoTranslate = v;
-            saveSettings();
-            translateRows.forEach(r => { r.style.display = v ? '' : 'none'; });
-        });
-        body.appendChild(settingsRow(bt('settings.novel.auto-translate', '新下载小说自动翻译'), translateSwitch));
-        translateRows.forEach(r => body.appendChild(r));
-    }
-
-    // 取得侧设置卡槽位：作品类型插件经 queueTypes 贡献自身设置卡（与旧布局 settings-card 槽位
-    // 同契约）；宿主已原生渲染同 cardId 卡片的类型由共享管线自动跳过，插件禁用时缺席。
+    // 作品类型与增强功能由其活动插件贡献真实设置片段。
     const settingsCardSlot = document.createElement('template');
     settingsCardSlot.setAttribute('data-qt-slot', 'settings-card');
     body.appendChild(settingsCardSlot);
@@ -468,6 +417,53 @@ function openSettingsDrawer() {
     // 抽屉 body 重建后重挂 settings-card 槽位内容。
     refreshAltSlots();
 }
+
+// 字段语义与可见性由贡献方提供；宿主只负责共享草稿和持久化。
+function bindContributedSettings(root, bindings, isActive, refresh) {
+    const cleanups = [];
+    Object.entries(bindings).forEach(([id, binding]) => {
+        const input = root.querySelector('#' + id);
+        if (!input) return;
+        binding.write(input, state.settings[binding.key]);
+        const changed = () => {
+            if (!root.isConnected || !isActive()) return;
+            state.settings[binding.key] = binding.read(input);
+            saveSettings();
+            refresh();
+        };
+        ['input', 'change'].forEach(event => {
+            input.addEventListener(event, changed);
+            cleanups.push(() => input.removeEventListener(event, changed));
+        });
+    });
+    refresh();
+    return () => cleanups.splice(0).forEach(cleanup => cleanup());
+}
+
+function refreshContributedSettingsVisibility() {
+    const runtime = altQueueTypes();
+    if (!runtime) return;
+    const mode = state.mode;
+    let kind = null;
+    if (mode === 'user') kind = userState.kind;
+    else if (mode === 'search') kind = searchState.kind;
+    else if (mode === QUICK_FETCH_MODE) {
+        kind = quickState.drill && quickState.drill.type === 'collection' ? 'mixed'
+            : quickState.drill && quickState.drill.kind || quickState.kind;
+    }
+    const type = kind && runtime.resolveSelectionForMode(kind, mode, null);
+    runtime.contributionsOf('settings').forEach(contribution => {
+        const card = contribution.cardId && document.getElementById(contribution.cardId);
+        if (card) card.style.display = mode === SINGLE_IMPORT_MODE || mode === 'series'
+            || kind === 'mixed' || type === contribution.type ? '' : 'none';
+    });
+}
+
+if (typeof window.addEventListener === 'function') {
+    window.addEventListener('pixivbatch:slotsrendered', refreshContributedSettingsVisibility);
+}
+window.PixivBatch = window.PixivBatch || {};
+window.PixivBatch.settings = Object.assign(window.PixivBatch.settings || {}, {bindContributedSettings});
 
 window.PixivBatchAlt.settings = Object.assign(window.PixivBatchAlt.settings, {
     getIntervalMs, getImageDelayMs, saveSettings, loadSettings,

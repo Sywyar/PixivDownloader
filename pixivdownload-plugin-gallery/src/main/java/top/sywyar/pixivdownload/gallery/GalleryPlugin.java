@@ -132,7 +132,7 @@ public class GalleryPlugin implements PixivFeaturePlugin {
                                 NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.DUPLICATES_HEADER_ICONS,
                                 NavigationPlacements.DESKTOP_QUICK_START),
                         "gallery", "nav.label", "/pixiv-gallery.html?view=all", "images",
-                        AccessPolicy.INVITED_GUEST, 30, Set.of(NavigationMarkers.FIRST_DOWNLOAD_RESULT)),
+                        AccessPolicy.INVITED_GUEST, 30, Set.of(NavigationMarkers.FIRST_DOWNLOAD_RESULT), "nav.description"),
                 new NavigationContribution(
                         "gallery-type-switch",
                         Set.of(NavigationPlacements.GALLERY_TYPE_SWITCH),

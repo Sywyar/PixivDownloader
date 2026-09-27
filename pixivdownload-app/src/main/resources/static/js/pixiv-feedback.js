@@ -38,7 +38,7 @@
             return new Promise(function (resolve) {
                 const dialogId = ++dialogSequence;
                 const previousFocus = document.activeElement;
-                const backdrop = document.createElement('div');
+                const backdrop = document.createElement('dialog');
                 backdrop.className = 'pixiv-feedback-backdrop';
 
                 const panel = document.createElement('section');
@@ -207,6 +207,7 @@
                 }
 
                 document.body.appendChild(backdrop);
+                if (typeof backdrop.showModal === 'function') backdrop.showModal();
                 document.body.classList.add('pixiv-feedback-open');
                 document.addEventListener('keydown', onKeyDown, true);
                 if (options.signal) options.signal.addEventListener('abort', cancel, {once: true});
@@ -220,6 +221,7 @@
         toastHost = document.createElement('div');
         toastHost.className = 'pixiv-feedback-toast-host';
         toastHost.setAttribute('aria-live', 'polite');
+        if (typeof toastHost.showPopover === 'function') toastHost.setAttribute('popover', 'manual');
         document.body.appendChild(toastHost);
         return toastHost;
     }
@@ -230,7 +232,12 @@
         node.className = 'pixiv-feedback-toast pixiv-feedback-toast--' + kind;
         node.setAttribute('role', kind === 'error' ? 'alert' : 'status');
         node.textContent = requiredText(options.message, 'message');
-        ensureToastHost().appendChild(node);
+        const host = ensureToastHost();
+        host.appendChild(node);
+        if (typeof host.showPopover === 'function') {
+            if (host.matches(':popover-open')) host.hidePopover();
+            host.showPopover();
+        }
         global.setTimeout(function () {
             node.classList.add('pixiv-feedback-toast--leaving');
             global.setTimeout(function () { node.remove(); }, 180);

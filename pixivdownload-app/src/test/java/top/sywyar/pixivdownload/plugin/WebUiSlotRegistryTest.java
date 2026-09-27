@@ -181,21 +181,27 @@ class WebUiSlotRegistryTest {
     }
 
     @Test
-    @DisplayName("通用槽位 wire 投影贡献方 metadata 且保持不可变")
+    @DisplayName("通用槽位投影贡献方元数据和语言资源，注销后不再发布")
     void controllerProjectsImmutableMetadata() {
         WebUiSlotRegistry registry = emptyRegistry();
         registry.register("demo", List.of(new WebUiSlotContribution(
-                "demo.a", "anchor-demo.a", "/demo/slot.js", 10, Map.of("kind", "survey"))));
+                "demo.a", "anchor-demo.a", "/demo/slot.js", 10, Map.of("kind", "survey"), "demo-copy")));
 
-        assertThat(new WebUiSlotController(registry).uiSlots(null))
+        WebUiSlotController controller = new WebUiSlotController(registry);
+        assertThat(controller.uiSlots(null))
                 .singleElement()
-                .satisfies(view -> assertThat(view.metadata()).containsEntry("kind", "survey"));
+                .satisfies(view -> {
+                    assertThat(view.metadata()).containsEntry("kind", "survey");
+                    assertThat(view.i18nNamespace()).isEqualTo("demo-copy");
+                });
         assertThat(registry.uiSlots()).extracting(WebUiSlotContribution::slotId).containsExactly("demo.a");
         assertThatThrownBy(() -> registry.uiSlots().get(0).metadata().put("x", "y"))
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThat(WebUiSlotController.UiSlotView.class.getRecordComponents())
                 .extracting(component -> component.getName())
-                .containsExactly("slotId", "target", "moduleUrl", "order", "metadata");
+                .containsExactly("slotId", "target", "moduleUrl", "order", "metadata", "i18nNamespace");
+        registry.unregister("demo");
+        assertThat(controller.uiSlots(null)).isEmpty();
     }
 
     private static final class FlakyIdSlotPlugin implements PixivFeaturePlugin {

@@ -347,9 +347,14 @@ function filterSegment(name, options, current) {
         btn.type = 'button';
         btn.textContent = opt.label;
         btn.dataset.value = opt.value;
+        btn.setAttribute('aria-pressed', String(current === opt.value));
         btn.addEventListener('click', () => {
-            wrap.querySelectorAll('.ab-seg-item').forEach(b => b.classList.remove('is-active'));
+            wrap.querySelectorAll('.ab-seg-item').forEach(b => {
+                b.classList.remove('is-active');
+                b.setAttribute('aria-pressed', 'false');
+            });
             btn.classList.add('is-active');
+            btn.setAttribute('aria-pressed', 'true');
         });
         wrap.appendChild(btn);
     });
@@ -513,6 +518,29 @@ function syncFilterButtonBadge() {
         const count = activeFilterCount();
         badge.textContent = String(count);
         badge.hidden = count === 0;
+    });
+    document.querySelectorAll('[data-active-filters]').forEach(host => {
+        host.replaceChildren();
+        const f = extraFilters;
+        const labels = [];
+        for (const field of ['content', 'ai', 'type']) {
+            if (f[field] !== 'all') labels.push(field === 'content' && ['r18', 'r18g'].includes(f[field])
+                ? (f[field] === 'r18' ? 'R-18' : 'R-18G') : bt('filters.' + field + '.' + f[field], f[field]));
+        }
+        for (const [field, key] of [['page', 'pages'], ['bookmark', 'bookmarks'], ['words', 'words']]) {
+            if (f[field + 'Min'] !== null || f[field + 'Max'] !== null) {
+                labels.push(bt('filters.' + key, key) + ': ' + (f[field + 'Min'] ?? 0) + '–' + (f[field + 'Max'] ?? '∞'));
+            }
+        }
+        for (const [field, key] of [['tagsExact', 'tags-exact'], ['tagsFuzzy', 'tags-fuzzy']]) {
+            if (f[field].length) labels.push(bt('filters.' + key, key) + ': ' + f[field].join(', '));
+        }
+        labels.forEach(label => {
+            const button = el('button', 'ab-pill ab-pill--brand', label);
+            button.type = 'button';
+            button.addEventListener('click', openFiltersDrawer);
+            host.appendChild(button);
+        });
     });
 }
 

@@ -128,7 +128,8 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         this.security = new DesktopSecurityController(
                 this,
                 host,
-                formValues
+                formValues,
+                serverPort
         );
         this.aboutView = new DesktopAboutView(
                 this,
@@ -274,7 +275,11 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         }
         formValues.put(targetId, value);
         switch (targetId) {
-            case "welcome.password" -> onboarding.passwordChanged();
+            case "security.current", "security.new", "security.confirm",
+                    "security.https", "security.domain", "security.port",
+                    "security.certificate", "security.private-key" -> security.inputChanged();
+            case "welcome.username", "welcome.password" -> onboarding.credentialsChanged();
+            case "welcome.proxy.enabled", "welcome.proxy.host", "welcome.proxy.port" -> onboarding.proxyChanged();
             case "folder.selected" -> tools.selectFolder(value);
             default -> {
             }
@@ -318,11 +323,11 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         try {
             Map<String, Consumer<List<String>>> nextSelections = new LinkedHashMap<>();
             Map<String, Runnable> nextActions = new LinkedHashMap<>();
+            DesktopUiHost.OnboardingSnapshot onboardingState = host.onboardingState(rootFolder);
             List<DesktopUiDocument.Page> pages = new ArrayList<>();
-            appendHostPages(pages, nextSelections, nextActions);
+            appendHostPages(pages, nextSelections, nextActions, onboardingState);
             List<DesktopUiDocument.Dialog> dialogs = new ArrayList<>();
             if (dialogState != null) dialogs.add(dialog(dialogState, nextActions));
-            tools.dialog(nextActions).ifPresent(dialogs::add);
             long candidateRevision = snapshot == null ? 1L : snapshot.revision() + 1L;
             DesktopUiDocument.Tray tray = navigation.tray(nextActions);
             nextActions.put("debug.unlock", configuration::unlockDebug);
@@ -348,7 +353,8 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
                             "debug.unlock",
                             false
                     )),
-                    Optional.of(tray)
+                    Optional.of(tray),
+                    onboardingState.complete()
             );
             Map<String, EventEndpoint> nextEventEndpoints = DesktopUiEventProtocol.index(
                     nextDocument);
@@ -395,18 +401,19 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
     private void appendHostPages(
             List<DesktopUiDocument.Page> pages,
             Map<String, Consumer<List<String>>> nextSelections,
-            Map<String, Runnable> nextActions
+            Map<String, Runnable> nextActions,
+            DesktopUiHost.OnboardingSnapshot onboardingState
     ) {
-        appendControlCenterPages(pages, nextSelections, nextActions);
+        appendControlCenterPages(pages, nextSelections, nextActions, onboardingState);
     }
 
     private void appendControlCenterPages(
             List<DesktopUiDocument.Page> pages,
             Map<String, Consumer<List<String>>> nextSelections,
-            Map<String, Runnable> nextActions
+            Map<String, Runnable> nextActions,
+            DesktopUiHost.OnboardingSnapshot onboardingState
     ) {
-        DesktopUiHost.OnboardingSnapshot onboarding = host.onboardingState(rootFolder);
-        pages.add(onboarding.complete() ? controlCenterView.homePage(nextActions) : page(
+        pages.add(onboardingState.complete() ? controlCenterView.homePage(nextActions) : page(
                 "home",
                 DesktopUiIcon.HOME,
                 this.onboarding.controlCenterPage(nextActions)
@@ -414,17 +421,19 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         pages.add(page(
                 "automation",
                 DesktopUiIcon.AUTOMATION,
-                controlCenterView.automationPage()
+                controlCenterView.automationPage(nextActions)
         ));
         pages.add(page(
                 "plugins",
                 DesktopUiIcon.PLUGIN,
-                pluginStatus.controlCenterPage()
+                pluginStatus.controlCenterPage(nextActions),
+                DesktopUiNode.Insets.NONE
         ));
         pages.add(page(
                 "tools",
                 DesktopUiIcon.TOOLS,
-                tools.controlCenterPage(nextActions)
+                tools.controlCenterPage(nextActions, statusController.ffmpegPanel(nextActions)),
+                DesktopUiNode.Insets.NONE
         ));
         pages.add(page("security", DesktopUiIcon.SECURITY, security.page(nextActions)));
         pages.add(page(
@@ -654,8 +663,21 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         configuration.load();
     }
 
-    String themePreference() {
+    public String themePreference() {
         return configuration.themePreference();
+    }
+
+    void coreConfigValueSaved(String key, String value) {
+        configuration.coreValueSaved(key, value);
+    }
+
+    void securityConfigSaved(Map<String, String> saved) {
+        saved.forEach((key, value) -> {
+            var field = new DesktopConfigurationController.FieldKey(null, key);
+            String previous = configuration.savedValues.put(field, value);
+            configuration.values.compute(field, (ignored, draft) ->
+                    draft == null || Objects.equals(draft, previous) ? value : draft);
+        });
     }
 
     DesktopUiHost.FfmpegProxy proxySettings() {
@@ -674,12 +696,8 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         return pluginStatus.localizedCode(prefix, code);
     }
 
-    long startedPluginCount() {
-        return pluginStatus.startedCount();
-    }
-
-    int pluginCount() {
-        return pluginStatus.count();
+    DesktopUiNode.TextToken pluginSummary() {
+        return pluginStatus.summary();
     }
 
     boolean busy() {
@@ -727,6 +745,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
     public synchronized void close() throws Exception {
         if (closed) return;
         closed = true;
+        security.clearSecrets();
         snapshotListeners.clear();
         worker.shutdownNow();
         AutoCloseable subscription = backendSubscription;

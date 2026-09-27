@@ -47,13 +47,31 @@ function bindVersionMenu() {
     const btn = document.getElementById('abVersionBtn');
     const menu = document.getElementById('abVersionMenu');
     if (!btn || !menu) return;
+    btn.setAttribute('aria-controls', menu.id);
+    const show = open => {
+        menu.hidden = !open;
+        btn.setAttribute('aria-expanded', String(open));
+    };
+    show(false);
     btn.addEventListener('click', event => {
         event.stopPropagation();
-        menu.hidden = !menu.hidden;
+        show(menu.hidden);
+    });
+    menu.addEventListener('click', event => {
+        if (!event.target.closest('.ab-menu-item')) return;
+        show(false);
+        btn.focus();
+    }, true);
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && !menu.hidden && !document.querySelector('dialog[open]')) {
+            show(false);
+            btn.focus();
+            event.preventDefault();
+        }
     });
     document.addEventListener('click', event => {
         if (!menu.hidden && !menu.contains(event.target) && event.target !== btn) {
-            menu.hidden = true;
+            show(false);
         }
     });
 }
@@ -68,6 +86,8 @@ function renderAuthButton() {
     btn.textContent = isAdmin ? bt('auth.logout', '退出') : bt('auth.login', '登录');
     btn.classList.toggle('ab-btn--primary', !isAdmin);
     btn.classList.toggle('ab-btn--ghost', isAdmin);
+    btn.classList.toggle('button-fill', !isAdmin);
+    btn.classList.toggle('button-tonal', isAdmin);
 }
 
 function bindAuthButton() {
@@ -88,20 +108,63 @@ function bindAuthButton() {
    ============================================================ */
 function refreshCookieUi() {
     const chip = document.getElementById('abCookieChip');
-    if (!chip) return;
     const ok = cookieHasPhpsessid();
     const any = hasPixivCookie();
     chromeState.cookieSaved = any;
-    chip.classList.toggle('ab-chip--ok', ok);
-    chip.classList.toggle('ab-chip--warn', !ok);
-    const label = chip.querySelector('.ab-chip-label');
-    if (label) {
-        label.textContent = ok
-            ? bt('cookie.status.saved', 'Cookie 已保存')
-            : any
-                ? bt('cookie.status.no-phpsessid', 'Cookie 缺少 PHPSESSID')
-                : bt('cookie.status.missing', '未保存 Cookie');
+    const key = ok ? 'cookie.status.saved' : any ? 'cookie.status.no-phpsessid' : 'cookie.status.missing';
+    const fallback = ok ? 'Cookie 已保存' : any ? 'Cookie 缺少 PHPSESSID' : '未保存 Cookie';
+    if (chip) {
+        chip.classList.remove('ab-chip--ok');
+        chip.classList.toggle('ab-chip--ghost', ok);
+        chip.classList.toggle('ab-chip--warn', !ok);
     }
+    for (const label of [chip?.querySelector('.ab-chip-label'), document.getElementById('abCookieStatus')]) {
+        if (!label) continue;
+        label.setAttribute('data-i18n', key);
+        label.textContent = bt(key, fallback);
+        if (label.id === 'abCookieStatus') {
+            label.classList.toggle('ab-pill--ok', ok);
+            label.classList.toggle('ab-pill--warn', !ok);
+        }
+    }
+}
+
+function refreshCookieViews() {
+    refreshCookieUi();
+    quickState.uid = null;
+    quickState.accountRevision = (quickState.accountRevision || 0) + 1;
+    quickState.loadSeq++;
+    quickState.loading = false;
+    if (state.mode === QUICK_FETCH_MODE || state.mode === 'search') renderStage();
+}
+
+async function persistCookieEditor(container, type, raw, format, status) {
+    const editor = container.closest('.ab-cookie') || container;
+    if (editor.getAttribute('aria-busy') === 'true') return false;
+    editor.setAttribute('aria-busy', 'true');
+    const controls = [...editor.querySelectorAll('button, input, textarea')].map(node => [node, node.disabled]);
+    controls.forEach(([node]) => { node.disabled = true; });
+    try {
+        const entries = {[cookieStorageKey(type)]: raw};
+        if (format != null) entries.pixiv_cookie_fmt = format;
+        await persistStoreEntries(entries);
+    } catch {
+        // Storage and transport errors must never echo the submitted credential.
+        status(bt('status.cookie-save-failed', 'Cookie 保存失败：{message}', {
+            message: bt('common.request-failed', '请求失败')
+        }));
+        return false;
+    } finally {
+        editor.removeAttribute('aria-busy');
+        controls.forEach(([node, disabled]) => { node.disabled = disabled; });
+    }
+    refreshCookieViews();
+    return true;
+}
+
+function finishCookieSave(editor, message, tone = 'success') {
+    abToast(tone, message);
+    if (editor?.isConnected && abModalOpen === 'cookie') closeModal();
 }
 
 function updateCookieImportStatus(msg, tone) {
@@ -125,10 +188,13 @@ function cookieFormatSeg(current) {
         const btn = el('button', 'ab-seg-item' + (current === value ? ' is-active' : ''), label);
         btn.type = 'button';
         btn.dataset.value = value;
+        btn.setAttribute('aria-pressed', String(current === value));
         btn.addEventListener('click', () => {
-            seg.querySelectorAll('.ab-seg-item').forEach(b => b.classList.remove('is-active'));
+            seg.querySelectorAll('.ab-seg-item').forEach(b => {
+                b.classList.remove('is-active');
+                b.setAttribute('aria-pressed', String(b === btn));
+            });
             btn.classList.add('is-active');
-            storeSet('pixiv_cookie_fmt', value);
         });
         seg.appendChild(btn);
     });
@@ -145,6 +211,7 @@ function openCookieModal() {
         ok ? bt('cookie.status.saved', 'Cookie 已保存')
             : saved ? bt('cookie.status.no-phpsessid', 'Cookie 缺少 PHPSESSID')
                 : bt('cookie.status.missing', '未保存 Cookie'));
+    statusPill.id = 'abCookieStatus';
     head.appendChild(statusPill);
     const fmtSeg = cookieFormatSeg(getCookieFmt());
     head.appendChild(fmtSeg);
@@ -153,6 +220,8 @@ function openCookieModal() {
     const inputWrap = el('div', 'ab-cookie-input-wrap');
     const input = el('textarea', 'ab-input ab-cookie-input');
     input.id = 'abCookieInput';
+    input.setAttribute('aria-label', bt('cookie.title', 'Pixiv Cookie'));
+    input.setAttribute('aria-describedby', 'abCookieParseArea');
     input.rows = 5;
     input.spellcheck = false;
     input.placeholder = bt('cookie.placeholder', '粘贴 Cookie（支持 Header String / JSON / Netscape 三种格式）');
@@ -189,6 +258,7 @@ function openCookieModal() {
 
     const parseArea = el('div', 'ab-cookie-parse');
     parseArea.id = 'abCookieParseArea';
+    parseArea.setAttribute('role', 'status');
     parseArea.hidden = true;
     body.appendChild(parseArea);
 
@@ -228,37 +298,36 @@ function openCookieModal() {
     clearBtn.appendChild(el('span', '', bt('cookie.clear', '清除')));
     clearBtn.addEventListener('click', async () => {
         if (!await abConfirm('dialog.confirm-clear-cookie', '确认清除已保存的 Cookie？')) return;
-        removeStoredCookie('pixiv');
+        if (!await persistCookieEditor(body, 'pixiv', null, null,
+            message => updateCookieImportStatus(message, 'error'))) return;
         input.value = '';
         updateCookieImportStatus(bt('status.cookie-cleared', 'Cookie 已清除'), 'info');
-        refreshCookieUi();
-        refreshQuickCredentialGate();
     });
     const saveBtn = el('button', 'ab-btn ab-btn--primary');
     saveBtn.type = 'button';
     saveBtn.appendChild(abIconEl('check'));
     saveBtn.appendChild(el('span', '', bt('cookie.save', '保存')));
-    saveBtn.addEventListener('click', () => {
+    saveBtn.addEventListener('click', async () => {
         const raw = input.value.trim();
         const activeFmt = fmtSeg.querySelector('.ab-seg-item.is-active');
-        const result = validateAndParseCookie(raw, activeFmt ? activeFmt.dataset.value : getCookieFmt());
+        const format = activeFmt ? activeFmt.dataset.value : getCookieFmt();
+        const result = validateAndParseCookie(raw, format);
         if (!result.ok) {
             updateCookieImportStatus(bt('status.cookie-save-failed', 'Cookie 保存失败：{message}', {message: result.error}), 'error');
             return;
         }
-        setStoredCookie('pixiv', raw);
+        if (!await persistCookieEditor(body, 'pixiv', raw, format,
+            message => updateCookieImportStatus(message, 'error'))) return;
         if (result.warnings.length) {
-            updateCookieImportStatus(
+            finishCookieSave(body,
                 bt('status.cookie-saved-warning', 'Cookie 已保存（{count} 个字段）⚠ {warnings}', {
                     count: result.count,
                     warnings: result.warnings.join(punct('semicolon'))
-                }), 'error');
+                }), 'warning');
         } else {
-            updateCookieImportStatus(
-                bt('status.cookie-saved', 'Cookie 已保存，共 {count} 个字段', {count: result.count}), 'info');
+            finishCookieSave(body,
+                bt('status.cookie-saved', 'Cookie 已保存，共 {count} 个字段', {count: result.count}));
         }
-        refreshCookieUi();
-        refreshQuickCredentialGate();
     });
     actions.appendChild(importBtn);
     actions.appendChild(clearBtn);
@@ -276,6 +345,7 @@ function openCookieModal() {
         icon: 'key',
         title: bt('cookie.title', 'Pixiv Cookie'),
         body,
+        beforeClose: () => body.getAttribute('aria-busy') !== 'true',
         widthClass: 'ab-modal--wide'
     });
     // 弹窗 body 重建后重挂 cookie-tools 槽位内容。
@@ -412,23 +482,53 @@ function renderBackendBanner() {
 function bindDockToggle() {
     const toggle = document.getElementById('abDockToggle');
     const close = document.getElementById('abDockClose');
-    const scrim = document.getElementById('abDockScrim');
-    if (toggle) toggle.addEventListener('click', () => toggleDock());
-    if (close) close.addEventListener('click', () => toggleDock(false));
-    if (scrim) scrim.addEventListener('click', () => toggleDock(false));
+    if (toggle) toggle.addEventListener('click', openDock);
+    if (close) close.addEventListener('click', () => switchMode(lastAcquisitionMode));
+    document.getElementById('abPrepareTab')?.addEventListener('click', () => switchMode(lastAcquisitionMode));
+    document.getElementById('abScheduleTab')?.addEventListener('click', () => switchMode('schedule'));
 }
 
-function toggleDock(force) {
+function syncWorkspaceNavigation() {
+    const downloads = dockState.open;
+    const scheduled = !downloads && state.mode === 'schedule';
+    const stage = document.getElementById('abStage');
     const dock = document.getElementById('abDock');
-    const scrim = document.getElementById('abDockScrim');
-    if (!dock) return;
-    const open = force !== undefined ? force : !dock.classList.contains('is-open');
+    const rail = document.getElementById('abRail');
+    if (stage) stage.hidden = downloads;
+    if (dock) dock.hidden = !downloads;
+    if (rail) rail.hidden = false;
+    document.querySelectorAll('#abRailModes .ab-rail-item').forEach(tab => {
+        const active = !downloads && tab.dataset.mode === state.mode;
+        tab.classList.toggle('is-active', active);
+        tab.setAttribute('aria-selected', String(active));
+        tab.tabIndex = tab.dataset.mode === (scheduled ? lastAcquisitionMode : state.mode) ? 0 : -1;
+    });
+    syncWorkSelection();
+    [['abPrepareTab', !downloads && !scheduled], ['abDockToggle', downloads], ['abScheduleTab', scheduled]]
+        .forEach(([id, active]) => {
+            const tab = document.getElementById(id);
+            if (!tab) return;
+            tab.classList.toggle('is-active', active);
+            if (active) tab.setAttribute('aria-current', 'page');
+            else tab.removeAttribute('aria-current');
+        });
+}
+
+let acquisitionScroll = 0;
+let downloadsScroll = 0;
+
+function toggleDock(force) {
+    const open = force !== undefined ? force : !dockState.open;
+    const changed = open !== dockState.open;
+    if (changed) {
+        if (open) acquisitionScroll = window.scrollY;
+        else downloadsScroll = window.scrollY;
+    }
     dockState.open = open;
-    dock.classList.toggle('is-open', open);
-    if (scrim) {
-        scrim.hidden = !open;
-        if (open) requestAnimationFrame(() => scrim.classList.add('is-open'));
-        else scrim.classList.remove('is-open');
+    syncWorkspaceNavigation();
+    if (changed) {
+        window.scrollTo({top: open ? downloadsScroll : acquisitionScroll, behavior: 'instant'});
+        animateWorkspace(document.getElementById(open ? 'abDock' : 'abStage'));
     }
 }
 

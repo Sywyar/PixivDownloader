@@ -5,6 +5,9 @@ inputs:
   release_version:
     description: Application version embedded in the executable JAR
     required: true
+  build_channel:
+    description: 构建渠道，使用 release 或 nightly
+    required: true
   distribution_version:
     description: Version used in staged JAR and distribution filenames
     required: true
@@ -42,9 +45,11 @@ runs:
       shell: bash
       env:
         RELEASE_VERSION: ${{ inputs.release_version }}
+        BUILD_CHANNEL: ${{ inputs.build_channel }}
         GITHUB_TOKEN: ${{ github.token }}
       run: >
         mvn -pl pixivdownload-app -am install -Pofficial-surveys -DskipTests "-Dapp.release.version=$RELEASE_VERSION"
+        "-Dapp.build.channel=$BUILD_CHANNEL"
         -Dmaven.javadoc.skip=true -Dmaven.source.skip=true
         "-Dplugin.credential.filter=$PLUGIN_CREDENTIAL_FILTER"
 

@@ -3,28 +3,24 @@
    右侧下载坞
    ============================================================ */
 .ab-dock {
-    position: sticky;
-    top: 76px;
-    max-height: calc(100vh - 96px);
+    width: 100%;
+    min-width: 0;
     display: flex;
     flex-direction: column;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: var(--r-lg);
-    box-shadow: var(--shadow-1);
-    overflow: hidden;
+    gap: 20px;
 }
 
 .ab-dock-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 14px 16px 10px;
+    gap: 16px;
+    flex-wrap: wrap;
 }
 
 .ab-dock-title {
-    font-size: 0.9375rem;
-    font-weight: 800;
+    font-size: 2rem;
+    font-weight: 650;
 }
 
 .ab-dock-close {
@@ -32,8 +28,7 @@
 }
 
 .ab-dock-body {
-    overflow-y: auto;
-    padding: 0 14px 14px;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -41,19 +36,16 @@
 
 .ab-dock-stats {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 8px;
 }
 
 .ab-stat {
     display: flex;
-    flex-direction: column;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 2px;
-    padding: 10px 6px;
-    border-radius: var(--r-sm);
-    background: var(--surface-2);
-    border: 1px solid var(--line);
+    gap: 6px;
+    padding: 6px 0;
 }
 
 .ab-stat-icon {
@@ -64,24 +56,29 @@
 
 .ab-stat-value {
     font-size: 1.125rem;
-    font-weight: 800;
+    font-weight: 600;
     font-variant-numeric: tabular-nums;
     line-height: 1.2;
 }
 
 .ab-stat-label {
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     color: var(--muted);
 }
 
 .ab-dock-controls {
-    padding: 12px 14px;
+    padding: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
 }
 
 .ab-dock-status {
     font-size: 0.78125rem;
     min-height: 20px;
-    margin-bottom: 10px;
+    margin-bottom: 0;
 }
 
 .ab-dock-status[data-tone="success"] {
@@ -102,7 +99,8 @@
 }
 
 .ab-dock-btns .ab-btn {
-    flex: 1;
+    flex: 0 0 auto;
+    white-space: nowrap;
     justify-content: center;
 }
 
@@ -166,7 +164,7 @@
     align-items: center;
     justify-content: center;
     font-size: 0.8125rem;
-    font-weight: 800;
+    font-weight: 600;
     font-variant-numeric: tabular-nums;
 }
 
@@ -208,17 +206,18 @@
     display: flex;
     flex-direction: column;
     gap: 0;
-    max-height: 340px;
-    overflow-y: auto;
+    border: 0;
+    border-radius: 0;
+    overflow: clip;
 }
 
 .ab-queue-item {
-    padding: 7px 10px;
+    padding: 14px 16px;
     border-left: 3px solid var(--line-strong);
-    margin-bottom: 4px;
-    border-radius: 0 4px 4px 0;
-    background: var(--surface-2);
-    font-size: 0.6875rem;
+    border-bottom: 1px solid var(--line);
+
+    background: var(--surface);
+    font-size: 0.8125rem;
 }
 
 .ab-queue-item[data-status="downloading"] {
@@ -253,9 +252,7 @@
     min-width: 0;
     font-size: 0.75rem;
     font-weight: 700;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    overflow-wrap: anywhere;
 }
 
 .ab-queue-tags {
@@ -273,7 +270,7 @@
     padding: 1px 5px;
     border: 1px solid transparent;
     border-radius: 3px;
-    font-size: 0.625rem;
+    font-size: 0.6875rem;
     font-weight: 600;
     line-height: 1.2;
 }
@@ -304,8 +301,8 @@
 }
 
 .ab-queue-tag--sfw {
-    color: var(--on-brand);
-    background: var(--ok);
+    color: var(--ok);
+    background: var(--ok-soft);
 }
 
 .ab-queue-tag--unknown,
@@ -345,7 +342,7 @@
 .ab-mini-prog-label {
     display: flex;
     justify-content: space-between;
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     color: var(--muted);
     margin-bottom: 3px;
     font-variant-numeric: tabular-nums;
@@ -398,7 +395,7 @@
 }
 
 .ab-progress-note {
-    font-size: 0.65625rem;
+    font-size: 0.75rem;
     color: var(--muted);
     margin-top: 5px;
 }
@@ -445,3 +442,9 @@
 .ab-dock-scrim {
     display: none;
 }
+
+.ab-dock .card, .ab-dock .stat-card { border: 0; border-radius: 0; box-shadow: none; background: transparent; }
+.ab-dock .ab-stat { padding: 16px 0; }
+.ab-dock .ab-dock-controls { padding-inline: 0; border-block: 1px solid var(--line); }
+.ab-dock .ab-current { background: var(--surface-2); border-radius: 16px; }
+.ab-dock .ab-queue-item { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; box-shadow: none; }

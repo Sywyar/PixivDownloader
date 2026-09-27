@@ -72,7 +72,7 @@ class GuiPluginControllerTest {
                                                PluginStatus status, PluginRuntimePhase phase, boolean managed,
                                                boolean required, String version) {
         return new PluginManagementEntry(
-                id, namespace, nameKey, nameKey, "puzzle", "neutral", version, PluginKind.FEATURE,
+                id, namespace, nameKey, "plugin.description", "puzzle", "neutral", version, PluginKind.FEATURE,
                 new SdkRequirementView(false, true, "(unspecified)"), List.of(),
                 source, status, phase, managed, required, !required, List.of(), List.of());
     }
@@ -95,7 +95,8 @@ class GuiPluginControllerTest {
                 entry("stats", "stats", "plugin.name", "external",
                         PluginStatus.STARTED, PluginRuntimePhase.STARTED, true, false, "1.0.0"))));
         when(webI18nService.loadBundle(eq("gallery"), any()))
-                .thenReturn(new I18nBundleResponse("gallery", "en", "zh-CN", Map.of("plugin.name", "Gallery")));
+                .thenReturn(new I18nBundleResponse("gallery", "en", "zh-CN", Map.of(
+                        "plugin.name", "Gallery", "plugin.description", "Browse your saved works")));
         when(webI18nService.loadBundle(eq("stats"), any()))
                 .thenReturn(new I18nBundleResponse("stats", "en", "zh-CN", Map.of("plugin.name", "Statistics")));
 
@@ -105,6 +106,9 @@ class GuiPluginControllerTest {
                 .andExpect(jsonPath("$.observedAt").isString())
                 .andExpect(jsonPath("$.plugins[0].id").value("gallery"))
                 .andExpect(jsonPath("$.plugins[0].name").value("Gallery"))
+                .andExpect(jsonPath("$.plugins[0].description").value("Browse your saved works"))
+                .andExpect(jsonPath("$.plugins[0].iconKey").value("puzzle"))
+                .andExpect(jsonPath("$.plugins[0].colorToken").value("neutral"))
                 .andExpect(jsonPath("$.plugins[0].source").value("external"))
                 .andExpect(jsonPath("$.plugins[0].status").value("STARTED"))
                 .andExpect(jsonPath("$.plugins[0].runtimePhase").value("STARTED"))
@@ -115,6 +119,7 @@ class GuiPluginControllerTest {
                         .value(PluginVerificationProjector.UNVERIFIED_LOCAL))
                 .andExpect(jsonPath("$.plugins[1].id").value("stats"))
                 .andExpect(jsonPath("$.plugins[1].name").value("Statistics"))
+                .andExpect(jsonPath("$.plugins[1].description").value(""))
                 .andExpect(jsonPath("$.plugins[1].source").value("external"))
                 .andExpect(jsonPath("$.plugins[1].status").value("STARTED"))
                 .andExpect(jsonPath("$.plugins[1].runtimePhase").value("STARTED"))
@@ -122,6 +127,7 @@ class GuiPluginControllerTest {
                 .andExpect(jsonPath("$.plugins[1].version").value("1.0.0"))
                 .andExpect(jsonPath("$.plugins[1].verification.status")
                         .value(PluginVerificationProjector.UNVERIFIED_LOCAL));
+        verify(webI18nService).loadBundle(eq("gallery"), any());
     }
 
     @Test

@@ -54,7 +54,8 @@ class DesktopConfigurationControllerTest {
                 assertFalse(nodes(model).anyMatch(node -> node.id().equals("settings.impact.effect")));
                 save(model);
                 assertEquals(stored, config);
-                assertEquals("gui.config.notice.saved-no-change", text(model, "config.notice").fallback());
+                assertFalse(nodes(model).filter(node -> node.id().equals("config.save"))
+                        .map(DesktopUiNode.Button.class::cast).findFirst().orElseThrow().enabled());
             }
         }
     }
@@ -69,7 +70,7 @@ class DesktopConfigurationControllerTest {
             assertEquals(1, pendingCount(model));
             select(model, "provider", "alternate");
             assertEquals(2, pendingCount(model));
-            assertEquals("gui.label.process-restart-required", text(model, "settings.impact.effect").key());
+            assertEquals("gui.compose.settings.effect.process", text(model, "settings.impact.effect").key());
             select(model, "theme", "dark");
             toggleExpandAll(model, true);
             assertEquals(4, pendingCount(model));
@@ -87,7 +88,7 @@ class DesktopConfigurationControllerTest {
 
             select(model, "theme", "dark");
             assertEquals(1, pendingCount(model));
-            assertEquals("gui.label.hot-reload", text(model, "settings.impact.effect").key());
+            assertEquals("gui.compose.settings.effect.immediate", text(model, "settings.impact.effect").key());
             save(model);
             assertEquals("dark", stored.get("app.theme"));
             assertEquals(0, pendingCount(model));
@@ -118,8 +119,57 @@ class DesktopConfigurationControllerTest {
         }
     }
 
+    @Test
+    @DisplayName("重新加载前允许保留草稿，确认后恢复文件值且不写配置")
+    void confirmsBeforeDiscardingDrafts() throws Exception {
+        Map<String, String> stored = new HashMap<>();
+        try (ComposeDesktopUiModel model = model(stored)) {
+            select(model, "theme", "dark");
+            activate(model, "config.reload");
+            assertEquals("config.reload.dialog", model.snapshot().document().dialogs().get(0).id());
+            assertEquals(1, pendingCount(model));
+            activate(model, "config.reload.cancel");
+            assertEquals(1, pendingCount(model));
+            activate(model, "config.reload");
+            activate(model, "config.reload.confirm");
+            assertEquals(0, pendingCount(model));
+            assertEquals(Map.of(), stored);
+            assertEquals(List.of(), model.snapshot().document().dialogs());
+        }
+    }
+
+    @Test
+    @DisplayName("放弃修改恢复语言与主题预览且不写配置")
+    void restoresSavedPreviewsWhenDiscarded() throws Exception {
+        Locale previous = Locale.getDefault();
+        Map<String, String> stored = new HashMap<>(Map.of("app.language", "en-US", "app.theme", "light"));
+        try (ComposeDesktopUiModel model = model(stored)) {
+            select(model, "language", "follow-system");
+            Locale.setDefault(Locale.JAPAN);
+            select(model, "theme", "dark");
+            assertEquals("dark", model.themePreference());
+            assertEquals("light", stored.get("app.theme"));
+            activate(model, "config.reload");
+            activate(model, "config.reload.confirm");
+            assertEquals(Locale.US, Locale.getDefault());
+            assertEquals("light", model.themePreference());
+            assertEquals(0, pendingCount(model));
+            assertEquals(Map.of("app.language", "en-US", "app.theme", "light"), stored);
+        } finally { Locale.setDefault(previous); }
+    }
+
+    private static void activate(ComposeDesktopUiModel model, String id) {
+        dispatch(model, new DesktopUiNode.Event(DesktopUiNode.EventType.ACTIVATE, id, DesktopUiNode.Value.empty()));
+    }
+
+    private static void dispatch(ComposeDesktopUiModel model, DesktopUiNode.Event event) {
+        synchronized (model) {
+            model.dispatch(model.snapshot(), event);
+        }
+    }
+
     private static void select(ComposeDesktopUiModel model, String preference, String value) {
-        model.dispatch(model.snapshot(), new DesktopUiNode.Event(
+        dispatch(model, new DesktopUiNode.Event(
                 DesktopUiNode.EventType.SELECTION,
                 "interface." + preference + ".input",
                 DesktopUiNode.Value.selection(value)
@@ -127,7 +177,7 @@ class DesktopConfigurationControllerTest {
     }
 
     private static void toggleExpandAll(ComposeDesktopUiModel model, boolean value) {
-        model.dispatch(model.snapshot(), new DesktopUiNode.Event(
+        dispatch(model, new DesktopUiNode.Event(
                 DesktopUiNode.EventType.CHANGE,
                 "interface.config-menu-expand-all.input",
                 DesktopUiNode.Value.bool(value)
@@ -136,23 +186,23 @@ class DesktopConfigurationControllerTest {
 
     private static void save(ComposeDesktopUiModel model) {
         awaitReady(model);
-        model.dispatch(model.snapshot(), new DesktopUiNode.Event(
-                DesktopUiNode.EventType.ACTIVATE, "config.save", DesktopUiNode.Value.empty()
-        ));
-        awaitReady(model);
+        activate(model, "config.save");
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            while (model.busy() || pendingCount(model) != 0) Thread.sleep(10);
+        });
     }
 
     private static void awaitReady(ComposeDesktopUiModel model) {
         assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
-            while (nodes(model).filter(node -> node.id().equals("config.save"))
-                    .map(DesktopUiNode.Button.class::cast).anyMatch(button -> !button.enabled())) {
+            while (model.busy()) {
                 Thread.sleep(10);
             }
         });
     }
 
     private static int pendingCount(ComposeDesktopUiModel model) {
-        return Integer.parseInt(text(model, "settings.unsaved-count").arguments().get(0));
+        return nodes(model).filter(node -> node.id().equals("settings.unsaved-count"))
+                .map(DesktopUiNode.Text.class::cast).map(node -> Integer.parseInt(node.text().arguments().get(0))).findFirst().orElse(0);
     }
 
     private static DesktopUiNode.TextToken text(ComposeDesktopUiModel model, String id) {
@@ -172,7 +222,18 @@ class DesktopConfigurationControllerTest {
         return Stream.concat(Stream.of(node), node.childNodes().stream().flatMap(DesktopConfigurationControllerTest::descendants));
     }
 
-    private static ComposeDesktopUiModel model(Map<String, String> stored) {
+    static ComposeDesktopUiModel model(Map<String, String> stored) {
+        return model(stored, Map.of());
+    }
+
+    static ComposeDesktopUiModel model(Map<String, String> stored,
+            Map<String, java.util.function.Function<Object[], Object>> overrides) {
+        return model(stored, overrides, List::of);
+    }
+
+    static ComposeDesktopUiModel model(Map<String, String> stored,
+            Map<String, java.util.function.Function<Object[], Object>> overrides,
+            java.util.function.Supplier<List<DesktopUiPluginSnapshot>> sources) {
         DesktopUiHost.ConfigFile config = new DesktopUiHost.ConfigFile() {
             @Override
             public Map<String, String> readAll(Collection<String> keys) {
@@ -201,8 +262,10 @@ class DesktopConfigurationControllerTest {
                 DesktopUiHost.class.getClassLoader(),
                 new Class<?>[]{DesktopUiHost.class},
                 (proxy, method, arguments) -> {
+                    if (overrides.containsKey(method.getName())) return overrides.get(method.getName()).apply(arguments);
                     switch (method.getName()) {
                         case "applicationName": return "PixivDownloader";
+                        case "applicationBuildChannel": return DesktopUiHost.BuildChannel.UNKNOWN;
                         case "applicationConfig": return config;
                         case "resolveDatabasePath": return Path.of("data", "test.db");
                         case "defaultBackfillOptions": return new DesktopUiHost.BackfillOptions(
@@ -245,7 +308,8 @@ class DesktopConfigurationControllerTest {
                 List.of(), List.of(), List.of(), List.of(), List.of()
         );
         ComposeDesktopUiModel model = new ComposeDesktopUiModel(
-                8080, ".", Path.of("config.yaml"), "compose", host, () -> List.of(provider, alternate)
+                8080, ".", Path.of("config.yaml"), "compose", host,
+                () -> java.util.stream.Stream.concat(java.util.stream.Stream.of(provider, alternate), sources.get().stream()).toList()
         );
         awaitReady(model);
         return model;

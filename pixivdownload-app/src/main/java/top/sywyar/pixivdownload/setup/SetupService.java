@@ -335,6 +335,15 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
         }
     }
 
+    @Override
+    public synchronized void revokeAllSessions() throws IOException {
+        if (!setupComplete) throw new IllegalStateException("Setup not completed");
+        SetupState before = snapshot();
+        sessions.clear();
+        persistentSessions.clear();
+        saveOrRestore(before);
+    }
+
     private int evictPersistentSessionsIfNeeded() {
         long now = System.currentTimeMillis();
         persistentSessions.entrySet().removeIf(entry -> {

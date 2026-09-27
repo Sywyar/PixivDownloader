@@ -113,6 +113,7 @@
     "modal.summary.count": "{count}개",
     "modal.summary.hint": "(OR 의미: 태그 또는 작가 중 하나라도 일치하면 표시)",
     "modal.summary.tags": "태그: {value}",
+    "nav.description": "초대로 작품을 공유하고 게스트 접근 권한을 관리합니다.",
     "nav.invite-guest": "방문자 초대",
     "nav.invite-manage": "초대 코드 관리",
     "nav.label": "초대 코드 관리",

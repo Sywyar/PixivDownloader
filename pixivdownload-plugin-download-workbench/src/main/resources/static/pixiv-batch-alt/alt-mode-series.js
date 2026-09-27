@@ -85,50 +85,77 @@ function parseSeriesUrl(raw) {
     return null;
 }
 
-async function openSeriesBrowser(acquisition, cursor) {
+async function openSeriesBrowser(acquisition) {
     const browser = acquisition.browser;
     const body = el('div', 'ab-collection-grid');
-    body.appendChild(el('p', 'ab-loading-line', browser.loadingLabel()));
+    const lease = altQueueTypes().acquisitionLease(acquisition.type, 'series');
+    const session = {};
+    seriesState.browserSession = session;
+    const cursors = new Map([[1, browser.initialCursor ?? null]]);
+    let sequence = 0;
     openDrawer({
-        id: 'series-browser', icon: 'folder', title: browser.title(), body, footer: null
+        id: 'series-browser', icon: 'folder',
+        title: typeof browser.title === 'function' ? browser.title() : bt('series.browser.open', '浏览可用合集'),
+        body, footer: null,
+        beforeClose: () => { if (seriesState.browserSession === session) seriesState.browserSession = null; return true; }
     });
-    try {
-        const context = {cursor: cursor ?? browser.initialCursor, limit: browser.pageSize};
-        const data = await altAcquisitionJson(acquisition.type, 'series',
-            browser.buildPageRequest(context), 'browser', context);
-        const page = browser.readPage(data);
-        body.innerHTML = '';
-        if (!page.items.length) {
-            body.appendChild(el('p', 'ab-empty-line', browser.emptyLabel()));
-            return;
-        }
-        page.items.forEach(item => {
-            const button = el('button', 'ab-collection-card card');
-            button.type = 'button';
-            button.appendChild(abIconEl('folder'));
-            button.appendChild(el('span', 'ab-collection-meta', browser.itemLabel(item)));
-            button.addEventListener('click', () => {
-                const selected = browser.select(item);
-                seriesState.source = acquisition.dataSource.id;
-                seriesState.kind = acquisition.type;
-                seriesState.url = String(selected.seriesId);
-                seriesState.browserSelection = {type: acquisition.type, parsed: selected};
-                closeDrawer();
-                renderStage();
-                loadSeries(1);
+    async function showPage(pageNumber) {
+        const request = ++sequence;
+        body.replaceChildren(el('p', 'ab-loading-line',
+            typeof browser.loadingLabel === 'function' ? browser.loadingLabel() : bt('common.loading', '加载中…')));
+        try {
+            lease.assertCurrent();
+            const context = {cursor: cursors.get(pageNumber), limit: browser.pageSize, page: pageNumber};
+            const data = await altAcquisitionJson(acquisition.type, 'series',
+                browser.buildPageRequest(context), 'browser', context);
+            lease.assertCurrent();
+            if (seriesState.browserSession !== session || request !== sequence) return;
+            const page = browser.readPage(data);
+            body.replaceChildren();
+            if (!page.items.length) body.appendChild(el('p', 'ab-empty-line',
+                typeof browser.emptyLabel === 'function' ? browser.emptyLabel() : bt('series.status.empty', '该系列没有可用条目')));
+            page.items.forEach(item => {
+                const button = el('button', 'ab-collection-card card');
+                button.type = 'button';
+                button.appendChild(abIconEl('folder'));
+                button.appendChild(el('span', 'ab-collection-meta', browser.itemLabel(item)));
+                button.addEventListener('click', async () => {
+                    button.disabled = true;
+                    try {
+                        lease.assertCurrent();
+                        const selected = await browser.select(item);
+                        lease.assertCurrent();
+                        if (seriesState.browserSession !== session || request !== sequence) return;
+                        seriesState.source = acquisition.dataSource.id;
+                        seriesState.kind = acquisition.type;
+                        seriesState.url = String(selected.seriesId);
+                        seriesState.browserSelection = {type: acquisition.type, parsed: selected};
+                        closeDrawer();
+                        renderStage();
+                        await loadSeries(1);
+                    } catch (error) {
+                        abToast('error', String(error && error.message || bt('common.request-failed', '请求失败')));
+                    } finally { button.disabled = false; }
+                });
+                body.appendChild(button);
             });
-            body.appendChild(button);
-        });
-        if (page.hasMore && page.nextCursor != null) {
-            const more = el('button', 'ab-btn ab-btn--ghost', bt('common.next', '下一页'));
-            more.type = 'button';
-            more.addEventListener('click', () => openSeriesBrowser(acquisition, page.nextCursor));
-            body.appendChild(more);
+            if (page.hasMore) cursors.set(pageNumber + 1, altNextCursor(page, context.cursor, true));
+            const controls = el('div', 'ab-composer-actions');
+            for (const [step, key, fallback] of [[-1, 'common.prev', '上一页'], [1, 'common.next', '下一页']]) {
+                const button = el('button', 'ab-btn ab-btn--ghost', bt(key, fallback));
+                button.type = 'button';
+                button.disabled = step < 0 ? pageNumber === 1 : !page.hasMore;
+                button.addEventListener('click', () => showPage(pageNumber + step));
+                controls.appendChild(button);
+            }
+            body.appendChild(controls);
+        } catch (error) {
+            if (seriesState.browserSession !== session || request !== sequence) return;
+            body.replaceChildren(errorBox(String(error && error.message || bt('common.request-failed', '请求失败')),
+                () => showPage(pageNumber)));
         }
-    } catch (e) {
-        body.replaceChildren(errorBox(String(e && e.message || bt('common.request-failed', '请求失败')),
-            () => openSeriesBrowser(acquisition, cursor)));
     }
+    await showPage(1);
 }
 
 async function loadSeries(page) {
@@ -168,10 +195,18 @@ async function loadSeries(page) {
             lease.assertCurrent();
         }
         if (seriesId == null) throw new Error(bt('series.status.no-url', '请先粘贴有效的系列链接'));
-        if (page === 1) seriesState.cursor = acquisition.initialCursor ? acquisition.initialCursor(seriesId) : null;
+        if (page === 1) {
+            const firstCursor = typeof acquisition.initialCursor === 'function'
+                ? acquisition.initialCursor(seriesId) : acquisition.initialCursor ?? null;
+            seriesState.cursors = new Map([[1, firstCursor]]);
+        }
+        const cursor = seriesState.cursors?.get(page) ?? null;
+        if (page > 1 && acquisition.initialCursor != null && cursor == null) {
+            throw new Error(bt('pagination.error.cursor-unavailable', '分页游标不可用，请重新从第一页加载'));
+        }
         const context = {
             seriesId, seriesTitle: seriesState.info && seriesState.info.title || '', page,
-            cursor: seriesState.cursor, limit: Number(acquisition.pageSize) || 12
+            cursor, limit: Number(acquisition.pageSize) || 12
         };
         const spec = acquisition.apiPath(seriesId, page, context);
         let data = await altAcquisitionJson(acquisition.type, 'series', spec, 'page', context);
@@ -184,13 +219,14 @@ async function loadSeries(page) {
         });
         const queueContext = {
             seriesId, seriesTitle: seriesState.info.title,
+            orderOffset: (page - 1) * context.limit,
             seriesAuthorId: seriesState.info.authorId,
             seriesAuthorName: seriesState.info.authorName
         };
         seriesState.rawItems = normalizeAcquisitionItems(data.items || [], acquisition, queueContext, 'series');
         seriesState.page = Number(data.page || page);
         seriesState.isLastPage = data.isLastPage === true || data.hasMore === false;
-        seriesState.cursor = data.nextCursor == null ? null : String(data.nextCursor);
+        if (data.hasMore === true) seriesState.cursors.set(page + 1, altNextCursor(data, cursor, true));
     } catch (e) {
         seriesState.info = null;
         seriesState.rawItems = [];
@@ -267,7 +303,7 @@ function renderSeriesStage() {
         }),
         filterSummary,
         pageEnabled: seriesState.items.length > 0,
-        allEnabled: seriesState.items.length > 0,
+        allEnabled: seriesState.rawItems.length > 0 || Number(info.total) > 0,
         onEnqueuePage: () => enqueueSeriesItems(seriesState.items),
         onEnqueueAll: enqueueSeriesAll
     }));
@@ -301,37 +337,64 @@ async function enqueueSeriesAll() {
     const acquisition = altAcquisition('series', seriesState.source, seriesState.kind);
     if (!acquisition || !seriesState.info) return;
     const seriesId = seriesState.info.seriesId;
+    const info = seriesState.info;
+    const source = seriesState.source, kind = seriesState.kind;
+    const isStale = () => seriesState.info !== info || source !== seriesState.source || kind !== seriesState.kind;
+    const lease = altQueueTypes().acquisitionLease(acquisition.type, 'series');
     const all = [];
     let cursor = typeof acquisition.initialCursor === 'function'
-        ? acquisition.initialCursor(seriesId) : null;
-    for (let page = 1; page <= 100; page++) {
+        ? acquisition.initialCursor(seriesId) : acquisition.initialCursor ?? null;
+    for (let page = 1; ; page++) {
         const context = {
             seriesId, seriesTitle: seriesState.info.title || '', page, cursor,
             limit: Number(acquisition.pageSize) || 12
         };
         let data;
         try {
+            if (isStale()) return;
+            lease.assertCurrent();
             data = await altAcquisitionJson(acquisition.type, 'series',
                 acquisition.apiPath(seriesId, page, context), 'page', context);
             if (typeof acquisition.normalizePage === 'function') data = acquisition.normalizePage(data, context);
+            lease.assertCurrent();
+            if (isStale()) return;
         } catch (e) {
             abToast('error', String(e && e.message || bt('common.request-failed', '请求失败')));
             return;
         }
         all.push(...normalizeAcquisitionItems(data.items || [], acquisition, {
             seriesId, seriesTitle: seriesState.info.title,
+            orderOffset: all.length,
             seriesAuthorId: seriesState.info.authorId,
             seriesAuthorName: seriesState.info.authorName
         }, 'series'));
-        if (data.isLastPage === true || data.hasMore === false || !(data.items || []).length) break;
-        // ponytail: 防止失控循环；原子失败，避免静默加入不完整系列。
-        if (page === 100) {
+        const totalPages = Number(data.totalPages) > 0 ? Number(data.totalPages)
+            : Math.ceil(Number(data.series?.total ?? data.total ?? info.total) / context.limit);
+        const knownTotal = Number.isFinite(totalPages) && totalPages > 0;
+        if (data.isLastPage === true || data.hasMore === false
+            || (knownTotal ? page >= totalPages : !(data.items || []).length)) break;
+        if (!knownTotal && page >= 1000) {
             abToast('error', bt('pagination.error.page-limit', '分页数量超出安全上限，未加入不完整结果'));
             return;
         }
-        if (data.hasMore === true) cursor = altNextCursor(data, cursor, true);
+        if (data.hasMore === true) {
+            try { cursor = altNextCursor(data, cursor, true); }
+            catch (error) {
+                abToast('error', String(error && error.message || bt('common.request-failed', '请求失败')));
+                return;
+            }
+        }
     }
-    const added = enqueueSeriesItems(all.length ? all : seriesState.items);
+    let result;
+    try {
+        result = await computeFilteredItems(all, extraFilters, acquisition.type, isStale);
+        lease.assertCurrent();
+    } catch (e) {
+        if (!isStale()) abToast('error', String(e && e.message || bt('common.request-failed', '请求失败')));
+        return;
+    }
+    if (!result || isStale()) return;
+    const added = enqueueSeriesItems(result.filtered);
     abToast('success', bt('queue.toast.batch-added', '已批量加入 {count} 个作品', {count: added}));
 }
 
@@ -339,7 +402,7 @@ async function enqueueSeriesAll() {
    筛选变更 → 当前模式预览实时重滤
    ============================================================ */
 async function applyFiltersToCurrentMode() {
-    if (state.mode === QUICK_FETCH_MODE && quickState.rawItems.length) {
+    if (state.mode === QUICK_FETCH_MODE && (quickState.rawItems.length || quickState.drill)) {
         await applyQuickFilters();
     } else if (state.mode === 'user' && userState.rawItems.length) {
         await applyUserFilters();

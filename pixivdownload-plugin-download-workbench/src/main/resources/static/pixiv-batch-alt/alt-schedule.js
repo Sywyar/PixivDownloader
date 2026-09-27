@@ -1,11 +1,11 @@
 'use strict';
 /* ============================================================
    alt-schedule — 计划任务（仅管理员）
-   状态灯、任务列表和类型标签映射逐字移植 batch-schedule.js 语义；
-   任务动作与编辑入口由同目录职责模块提供。
+   任务列表消费来源贡献和调度状态；展示、动作与编辑分别由同目录模块提供。
    ============================================================ */
 let schedulePollTimer = null;
 let scheduleQueuePollTimer = null;
+const scheduleView = {query: '', filter: 'all'};
 
 function enterScheduleMode() {
     loadScheduleTasks();
@@ -28,9 +28,11 @@ function stopSchedulePolling() {
         clearInterval(scheduleQueuePollTimer);
         scheduleQueuePollTimer = null;
     }
+    releaseAllScheduleQueues();
 }
 
 async function loadScheduleTasks(quiet) {
+    try { await altScheduleSources()?.refresh?.(false); } catch (e) { /* 保留持久化展示，来源动作仍由运行时校验。 */ }
     try {
         const res = await fetch(`${BASE}/api/schedule/tasks`, {credentials: 'same-origin'});
         if (!res.ok) throw await scheduleHttpError(res);
@@ -46,7 +48,7 @@ async function loadScheduleTasks(quiet) {
 }
 
 /* ============================================================
-   视图模型（逐字移植）
+   状态与来源展示
    ============================================================ */
 function scheduleTaskCredentialPresentation(task) {
     const runtime = altScheduleSources();
@@ -117,7 +119,6 @@ function scheduleFailureReason(t) {
 }
 
 /**
- * 计算任务卡片右上角「状态灯」：返回 {tone, text}。
  * 优先级：瞬时运行态（运行中 / 排队中）> 已停用 > 挂起原因 > 上一轮持久化结果 > 首次未运行。
  */
 function scheduleStatusLight(t) {
@@ -171,7 +172,7 @@ function scheduleStatusLight(t) {
             text: reason || bt('schedule.light.suspended', '任务已挂起，等待恢复')
         };
     }
-    if (t.lastStatus === 'PAUSED') {
+    if (t.suspendReason === 'MANUAL' || t.lastStatus === 'PAUSED') {
         return {tone: 'gray', live: false, text: bt('schedule.light.paused', '已手动暂停')};
     }
     if (t.lastOutcome === 'INTERRUPTED' || t.lastStatus === 'INTERRUPTED') {
@@ -306,6 +307,38 @@ function renderScheduleMode(panel) {
     bannerHost.id = 'abScheduleBanners';
     panel.appendChild(bannerHost);
 
+    const toolbar = el('div', 'ab-schedule-toolbar');
+    const search = el('input', 'ab-input ab-schedule-search');
+    search.id = 'abScheduleSearch';
+    search.type = 'search';
+    search.value = scheduleView.query;
+    search.placeholder = bt('schedule.manage.search', '搜索计划名称或来源');
+    search.setAttribute('aria-label', search.placeholder);
+    search.addEventListener('input', () => {
+        scheduleView.query = search.value;
+        renderScheduleTaskList();
+    });
+    const filters = el('div', 'ab-seg ab-schedule-filters');
+    filters.setAttribute('role', 'group');
+    filters.setAttribute('aria-label', bt('schedule.manage.filter', '计划状态'));
+    for (const [value, label] of [['all', '全部'], ['running', '运行中'], ['paused', '已暂停'], ['attention', '需要关注']]) {
+        const button = el('button', 'ab-seg-item', bt('schedule.manage.' + value, label));
+        button.type = 'button';
+        button.id = 'abScheduleFilter-' + value;
+        button.dataset.filter = value;
+        button.addEventListener('click', () => {
+            scheduleView.filter = value;
+            renderScheduleTaskList();
+        });
+        filters.appendChild(button);
+    }
+    toolbar.append(search, filters);
+    panel.appendChild(toolbar);
+    const count = el('p', 'ab-schedule-count ab-muted');
+    count.id = 'abScheduleCount';
+    count.setAttribute('role', 'status');
+    toolbar.appendChild(count);
+
     const list = el('div', 'ab-schedule-list');
     list.id = 'abScheduleList';
     panel.appendChild(list);
@@ -316,154 +349,211 @@ function renderScheduleMode(panel) {
     }
 }
 
+function scheduleVisibleTasks(tasks, query, filter) {
+    const term = query.trim().toLocaleLowerCase();
+    return tasks.filter(task => {
+        if (term && ![task.name, scheduleTypeLabel(task), scheduleSourceSummary(task), task.sourceType || task.type]
+            .join(' ').toLocaleLowerCase().includes(term)) return false;
+        if (filter === 'running') return ['RUNNING', 'QUEUED', 'CANCEL_REQUESTED'].includes(task.runState);
+        if (filter === 'paused') return !task.enabled || task.suspendReason === 'MANUAL'
+            || task.lastStatus === 'PAUSED';
+        if (filter === 'attention') return ['red', 'yellow'].includes(scheduleStatusLight(task).tone);
+        return true;
+    });
+}
+
 function renderScheduleTaskList() {
     const bannerHost = document.getElementById('abScheduleBanners');
     const list = document.getElementById('abScheduleList');
     if (!list) return;
-    renderOveruseBanners(bannerHost);
-    list.innerHTML = '';
+    renderScheduleCredentialPolicyBanners(bannerHost);
+    const focused = list.contains(document.activeElement) ? document.activeElement.id : null;
+    const tasks = scheduleVisibleTasks(scheduleState.tasks, scheduleView.query, scheduleView.filter);
+    document.querySelectorAll('.ab-schedule-filters button').forEach(button => {
+        const selected = button.dataset.filter === scheduleView.filter;
+        button.classList.toggle('is-active', selected);
+        button.setAttribute('aria-pressed', String(selected));
+    });
+    const count = document.getElementById('abScheduleCount');
+    if (count) count.textContent = scheduleState.error ? ''
+        : bt('schedule.manage.count', '{visible} / {total} 个计划', {visible: tasks.length, total: scheduleState.tasks.length});
+
+    // 未变化的行和队列岛保留原节点，轮询不会关闭菜单或打断键盘操作。
+    const existing = new Map(Array.from(list.children, row => [row.dataset.taskId, row]));
+    const retained = new Set(tasks.map(task => String(task.id)));
+    for (const [id, row] of existing) {
+        if (scheduleState.error || !retained.has(id)) {
+            const taskId = row._scheduleTaskId;
+            if (taskId != null) scheduleQueueVue()?.unmountScheduleQueue?.(taskId);
+            row.remove();
+        }
+    }
     if (scheduleState.error) {
+        releaseAllScheduleQueues();
         list.appendChild(errorBox(scheduleState.error, () => loadScheduleTasks(false)));
         return;
     }
-    if (!scheduleState.tasks.length) {
-        const empty = el('div', 'ab-empty ab-empty--tall');
+    if (!tasks.length) {
+        const empty = el('div', 'ab-empty');
         empty.appendChild(abIconEl('clock'));
-        empty.appendChild(el('p', '', bt('schedule.empty', '暂无计划任务，点击右上角「新建计划任务」开始')));
+        empty.appendChild(el('p', '', scheduleState.tasks.length
+            ? bt('schedule.manage.empty', '没有匹配的计划，试试其他关键词或状态。')
+            : bt('schedule.empty', '暂无计划任务，点击右上角「新建计划任务」开始')));
         list.appendChild(empty);
-        return;
     }
-    scheduleState.tasks.forEach((task, idx) => {
-        list.appendChild(scheduleTaskCard(task, idx));
+    tasks.forEach((task, index) => {
+        const old = existing.get(String(task.id));
+        const runtime = altScheduleSources();
+        const signature = JSON.stringify([task, scheduleSourceSummary(task), scheduleNextLabel(task),
+            !!runtime?.isAvailable(task.sourceType || task.type), scheduleTaskCredentialUi(task)]);
+        if (old && old._scheduleSignature === signature) {
+            if (list.children[index] !== old) list.insertBefore(old, list.children[index] || null);
+            return;
+        }
+        const menuOpen = old?.querySelector('.ab-schedule-more')?.open;
+        const retainedResults = old?.querySelector('.ab-schedule-results');
+        const row = scheduleTaskCard(task);
+        if (retainedResults) {
+            retainedResults._scheduleTask = task;
+            retainedResults.querySelector('.ab-lamp').replaceWith(row.querySelector('.ab-lamp'));
+            row.querySelector('.ab-schedule-results').replaceWith(retainedResults);
+        }
+        row._scheduleSignature = signature;
+        row._scheduleTaskId = task.id;
+        row.querySelector('.ab-schedule-more').open = !!menuOpen;
+        if (old?.isConnected) old.replaceWith(row);
+        else list.appendChild(row);
+        if (list.children[index] !== row) list.insertBefore(row, list.children[index] || null);
+        hydrateIcons(row);
+        if (scheduleState.expandedQueues.has(task.id)) loadScheduleQueue(task);
     });
-    hydrateIcons(list);
+    if (focused) document.getElementById(focused)?.focus({preventScroll: true});
     startScheduleQueuePolling();
 }
 
-// 过度访问（按账号分组）横幅
-function renderOveruseBanners(host) {
+function scheduleCredentialPolicyGroups() {
+    try {
+        const groups = altScheduleSources()?.credentialPolicyGroups?.(scheduleState.tasks, {mode: state.mode});
+        return Array.isArray(groups) ? groups : [];
+    } catch (e) { return []; }
+}
+
+function renderScheduleCredentialPolicyBanners(host) {
     if (!host) return;
-    host.innerHTML = '';
-    const groups = new Map();
-    scheduleState.tasks.forEach(t => {
-        if (t.lastStatus !== 'OVERUSE_PAUSED' && t.suspendReason !== 'OVERUSE_PAUSED') return;
-        const account = t.accountId || '-';
-        if (!groups.has(account)) groups.set(account, []);
-        groups.get(account).push(t);
-    });
-    groups.forEach((tasks, account) => {
-        const banner = el('div', 'ab-overuse card');
+    const groups = scheduleCredentialPolicyGroups();
+    const signature = JSON.stringify(groups);
+    if (host._credentialPolicySignature === signature) return;
+    host._credentialPolicySignature = signature;
+    host.replaceChildren();
+    groups.forEach(group => {
+        const banner = el('div', 'ab-overuse');
         const head = el('div', 'ab-overuse-head');
         head.appendChild(abIconEl('alert'));
-        head.appendChild(el('span', '',
-            bt('schedule.overuse.message', '账号 {account} 有 {count} 个计划任务因检测到 Pixiv 过度访问警告被暂停',
-                {account, count: tasks.length})));
+        head.appendChild(el('strong', '', group.title));
         banner.appendChild(head);
+        banner.appendChild(el('p', 'ab-muted', group.description));
         const actions = el('div', 'ab-overuse-actions');
-        const ignoreBtn = el('button', 'ab-btn ab-btn--danger ab-btn--sm',
-            bt('schedule.overuse.ignore', '无视风险，继续下载（可能导致删号）'));
-        ignoreBtn.type = 'button';
-        ignoreBtn.addEventListener('click', async () => {
-            if (!await abConfirm('schedule.overuse.ignore.confirm',
-                '确认无视过度访问警告并恢复该账号的全部任务？可能导致账号被封禁。',
-                null, {danger: true})) return;
-            await resumeOveruseAccount(account, 'ignore', 0);
+        group.actions.forEach(action => {
+            const tone = action.tone === 'danger' ? 'danger' : action.tone === 'primary' ? 'primary' : 'ghost';
+            const button = el('button', 'ab-btn ab-btn--sm ab-btn--' + tone, action.label);
+            button.type = 'button';
+            button.addEventListener('click', () => applyScheduleCredentialPolicyAction(group, action, button));
+            actions.appendChild(button);
         });
-        const deferBtn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm',
-            bt('schedule.overuse.defer', '延迟 N 分钟后继续所有同账号任务'));
-        deferBtn.type = 'button';
-        deferBtn.addEventListener('click', async () => {
-            const value = await abPrompt('schedule.overuse.defer.prompt',
-                '输入延迟分钟数（最低 60 分钟）', null,
-                {inputType: 'number', min: 60, value: '60'});
-            const minutes = parseInt(value, 10);
-            if (!Number.isFinite(minutes) || minutes < 60) {
-                if (value !== null) abToast('warning', bt('schedule.overuse.defer.min', '延迟分钟数最低为 60'));
-                return;
-            }
-            await resumeOveruseAccount(account, 'defer', minutes);
-        });
-        actions.appendChild(ignoreBtn);
-        actions.appendChild(deferBtn);
         banner.appendChild(actions);
         host.appendChild(banner);
     });
 }
 
-async function resumeOveruseAccount(account, mode, minutes) {
-    try {
-        const res = await fetch(`${BASE}/api/schedule/account/${encodeURIComponent(account)}/resume`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            credentials: 'same-origin',
-            body: JSON.stringify({mode, minutes})
+async function applyScheduleCredentialPolicyAction(group, action, button) {
+    if (action.confirmMessage && !await abConfirm('schedule.credential-policy.confirm',
+        action.confirmMessage, null, {danger: action.tone === 'danger'})) return;
+    const parameters = {};
+    if (action.prompt) {
+        const prompt = action.prompt;
+        const input = await abPrompt('schedule.credential-policy.prompt', prompt.message, null, {
+            value: prompt.defaultValue, inputType: prompt.inputType, min: prompt.min, step: prompt.step
         });
-        if (!res.ok) throw await scheduleHttpError(res);
-    } catch (e) {
-        abToast('error', String(e && e.message || bt('schedule.feedback.failed', '操作失败')));
-        return;
+        if (input == null) return;
+        let value = prompt.inputType === 'number' ? Number(input) : String(input);
+        if (prompt.inputType === 'number' && !Number.isFinite(value)) {
+            abToast('error', bt('schedule.error.credential-policy-parameter', '输入值无效，请重新输入'));
+            return;
+        }
+        if (prompt.inputType === 'number' && Number.isFinite(prompt.min)) value = Math.max(value, prompt.min);
+        parameters[prompt.parameterName] = value;
     }
-    abToast('success', bt('schedule.overuse.resumed', '已恢复该账号的所有任务'));
-    loadScheduleTasks(true);
+    const runtime = altScheduleSources();
+    if (!runtime?.applyCredentialPolicyAction) return;
+    button.disabled = true;
+    try {
+        const result = await runtime.applyCredentialPolicyAction(group.sourceType, {
+            identity: group.identity, actionId: action.actionId, parameters
+        }, {mode: state.mode});
+        abToast(result?.ok ? 'success' : 'error', result?.ok
+            ? bt('schedule.status.credential-policy-applied', '凭证策略操作已应用')
+            : result?.error || bt('schedule.error.credential-policy-action', '凭证策略操作失败'));
+    } catch (e) {
+        abToast('error', bt('schedule.error.credential-policy-action', '凭证策略操作失败'));
+    } finally {
+        if (button.isConnected) button.disabled = false;
+        await loadScheduleTasks(true);
+    }
 }
 
-function scheduleTaskCard(task, idx) {
+function scheduleTaskCard(task) {
     const light = scheduleStatusLight(task);
-    const kind = scheduleTaskKind(task);
     const credentialUi = scheduleTaskCredentialUi(task);
     const sourceType = task.sourceType || task.type;
     const runtime = altScheduleSources();
     const sourceEditable = task.sourceAvailable !== false
         && runtime && runtime.isAvailable(sourceType);
-    const card = el('div', 'ab-schedule-card card');
-    card.style.setProperty('--stagger', String(Math.min(idx, 10)));
-
-    const head = el('div', 'ab-schedule-head');
-    const titleWrap = el('div', 'ab-schedule-title');
-    titleWrap.appendChild(el('strong', '', task.name || ('#' + task.id)));
-    const subtitle = el('span', 'ab-muted');
-    subtitle.textContent = summaryJoin([
-        scheduleTypeLabel(task),
-        kind ? scheduleKindLabel(kind) : null
-    ]);
-    titleWrap.appendChild(subtitle);
-    head.appendChild(titleWrap);
-    const lamp = el('span', 'ab-lamp ab-lamp--' + light.tone + (light.live ? ' is-live' : ''));
-    lamp.appendChild(el('span', 'ab-lamp-dot'));
-    lamp.appendChild(el('span', '', light.text));
-    head.appendChild(lamp);
-    card.appendChild(head);
-
-    const metaGrid = el('div', 'ab-schedule-meta');
-    if (credentialUi.badgeLabel) {
-        metaGrid.appendChild(scheduleMetaItem('schedule.meta.credential', '凭证',
-            credentialUi.badgeLabel, task.cookieBound ? 'ok' : 'warn'));
-    }
-    if (task.proxy) {
-        metaGrid.appendChild(scheduleMetaItem('schedule.meta.proxy', '代理', String(task.proxy), 'brand'));
-    }
-    metaGrid.appendChild(scheduleMetaItem('schedule.meta.trigger', '触发方式', scheduleTriggerLabel(task)));
-    metaGrid.appendChild(scheduleMetaItem('schedule.meta.next-run', '下次运行',
-        task.nextRunTime
-            ? fmtScheduleTime(task.nextRunTime)
-            : (task.suspendReason === 'USER_ACTION_REQUIRED'
-                ? bt('batch:path.overflow.waiting', null)
-                : task.suspendReason
-                ? bt('schedule.next-run.capability', '等待插件能力恢复后自动重试')
-                : (task.lastStatus === 'PAUSED' || task.lastStatus === 'OVERUSE_PAUSED')
-                    ? bt('schedule.next-run.suspended', '需人工恢复后才会继续')
-                    : '—')));
-    metaGrid.appendChild(scheduleMetaItem('schedule.meta.last-run', '上次运行',
-        task.lastRunTime ? fmtScheduleTime(task.lastRunTime) : '-'));
-    card.appendChild(metaGrid);
-
-    const actions = el('div', 'ab-schedule-actions');
-    const busy = task.runState === 'RUNNING' || task.runState === 'QUEUED';
+    const card = el('article', 'ab-schedule-row');
+    card.dataset.taskId = String(task.id);
+    card.setAttribute('aria-labelledby', 'abScheduleName-' + task.id);
+    const busy = ['RUNNING', 'QUEUED', 'CANCEL_REQUESTED'].includes(task.runState);
     const suspended = !!task.suspendReason
         || task.lastStatus === 'PAUSED' || task.lastStatus === 'OVERUSE_PAUSED';
 
+    const head = el('div', 'ab-schedule-head');
+    const titleWrap = el('div', 'ab-schedule-title');
+    const name = el('strong', '', task.name || ('#' + task.id));
+    name.id = 'abScheduleName-' + task.id;
+    titleWrap.appendChild(name);
+    const subtitle = el('span', 'ab-schedule-source ab-muted', scheduleSourceSummary(task));
+    titleWrap.appendChild(subtitle);
+    head.appendChild(titleWrap);
+    const timing = el('div', 'ab-schedule-timing');
+    const cadence = el('span', 'ab-schedule-cadence', scheduleCadenceLabel(task));
+    cadence.title = scheduleTriggerLabel(task);
+    timing.append(cadence, el('span', 'ab-schedule-next ab-muted', scheduleNextLabel(task)));
+    titleWrap.appendChild(timing);
+
+    const enabled = switchControl(task.enabled, async value => {
+        input.disabled = true;
+        input.setAttribute('aria-busy', 'true');
+        try {
+            const saved = await scheduleSetEnabled(task, value);
+            input.checked = saved ? value : !!task.enabled;
+        } finally {
+            input.disabled = busy;
+            input.removeAttribute('aria-busy');
+        }
+    }, busy);
+    const enableControl = el('div', 'ab-schedule-enabled');
+    const input = enabled.querySelector('input');
+    input.id = 'abScheduleEnabled-' + task.id;
+    const enableLabel = el('label', '', bt('schedule.manage.enabled', '启用计划'));
+    enableLabel.id = 'abScheduleEnabledLabel-' + task.id;
+    enableLabel.setAttribute('for', input.id);
+    enableControl.append(enableLabel, enabled);
+    input.setAttribute('aria-labelledby', enableLabel.id + ' ' + name.id);
+    if (busy) enabled.title = bt('schedule.action-disabled.busy', '运行 / 排队中不可操作');
+    card.append(head, enableControl);
+
+    const actions = el('div', 'ab-schedule-actions');
     actions.appendChild(scheduleActionBtn('play', 'schedule.actions.run', '立即运行',
-        busy || !task.enabled || !!task.suspendReason,
+        busy || !task.enabled || suspended,
         busy
             ? bt('schedule.action-disabled.busy', '运行 / 排队中不可操作')
             : !task.enabled
@@ -475,67 +565,40 @@ function scheduleTaskCard(task, idx) {
             () => scheduleVerb(task, 'resume')));
     } else {
         actions.appendChild(scheduleActionBtn('pause', 'schedule.actions.pause', '暂停',
-            !task.enabled || task.lastStatus === 'PAUSED',
+            !task.enabled || suspended || task.runState === 'CANCEL_REQUESTED',
             bt('schedule.action-disabled.not-running', '未在运行或已暂停'),
             () => scheduleVerb(task, 'pause')));
     }
-    actions.appendChild(scheduleActionBtn(task.enabled ? 'stop' : 'play',
-        task.enabled ? 'schedule.actions.disable' : 'schedule.actions.enable',
-        task.enabled ? '停用' : '启用', busy, busy ? bt('schedule.action-disabled.busy', '运行 / 排队中不可操作') : '',
-        () => scheduleSetEnabled(task, !task.enabled)));
     actions.appendChild(scheduleActionBtn('edit', 'schedule.actions.edit', '编辑', !sourceEditable,
         sourceEditable ? '' : bt('schedule.error.source-editor-unavailable', '计划任务来源编辑器当前不可用'),
         () => openScheduleEditor(task)));
-    actions.appendChild(scheduleActionBtn('eye', 'schedule.actions.snapshot', '任务快照', false, '',
+    const more = el('details', 'ab-schedule-more');
+    more.name = 'schedule-actions';
+    const summary = el('summary', 'ab-btn ab-btn--ghost ab-btn--sm');
+    summary.textContent = bt('workspace.more', '更多');
+    summary.id = 'abScheduleMore-' + task.id;
+    summary.setAttribute('aria-label', summary.textContent + ' · ' + (task.name || task.id));
+    const menu = el('div', 'ab-schedule-menu');
+    menu.appendChild(scheduleActionBtn('eye', 'schedule.actions.snapshot', '任务快照', false, '',
         () => openScheduleSnapshot(task)));
     if (credentialUi.showOverride) {
-        actions.appendChild(scheduleActionBtn('key', 'schedule.actions.override', '代理 / 凭证', false, '',
+        menu.appendChild(scheduleActionBtn('key', 'schedule.actions.override', '代理 / 凭证', false, '',
             () => openScheduleOverride(task)));
     }
-    actions.appendChild(scheduleActionBtn('alert', 'schedule.actions.pending', '待重试', false, '',
+    menu.appendChild(scheduleActionBtn('alert', 'schedule.actions.pending', '待重试', false, '',
         () => openSchedulePending(task)));
-    actions.appendChild(scheduleActionBtn('trash', 'schedule.actions.delete', '删除', busy,
+    menu.appendChild(scheduleActionBtn('trash', 'schedule.actions.delete', '删除', busy,
         busy ? bt('schedule.action-disabled.busy', '运行 / 排队中不可操作') : '',
         () => deleteScheduleTask(task), true));
+
+    more.append(summary, menu);
+    actions.appendChild(more);
     card.appendChild(actions);
-
-    // 本轮队列详情（可折叠）
-    const queueToggle = el('button', 'ab-schedule-queue-toggle');
-    queueToggle.type = 'button';
-    const expanded = scheduleState.expandedQueues.has(task.id);
-    queueToggle.appendChild(abIconEl('chevron-down', expanded ? '' : 'ab-collapsed'));
-    queueToggle.appendChild(el('span', '', bt('schedule.round.title', '本轮队列详情')));
-    queueToggle.addEventListener('click', () => {
-        if (scheduleState.expandedQueues.has(task.id)) {
-            scheduleState.expandedQueues.delete(task.id);
-            // 折叠：卸载该任务详情岛（再展开时命令式首屏 + 重挂）。
-            const vueCollapse = scheduleQueueVue();
-            if (vueCollapse && typeof vueCollapse.unmountScheduleQueue === 'function') {
-                vueCollapse.unmountScheduleQueue(task.id);
-            }
-        } else {
-            scheduleState.expandedQueues.add(task.id);
-        }
-        renderScheduleTaskList();
+    card.appendChild(scheduleResults(task, light));
+    card.querySelectorAll('button').forEach(button => {
+        if (!button.id) button.id = 'abScheduleAction-' + task.id + '-' + button.dataset.action;
     });
-    card.appendChild(queueToggle);
-    if (expanded) {
-        const queueBox = el('div', 'ab-schedule-queue');
-        queueBox.id = 'abScheduleQueue-' + task.id;
-        queueBox.appendChild(el('p', 'ab-loading-line', bt('common.loading', '加载中…')));
-        card.appendChild(queueBox);
-        loadScheduleQueue(task);
-    }
     return card;
-}
-
-function scheduleMetaItem(labelKey, labelFallback, value, tone) {
-    const item = el('div', 'ab-schedule-meta-item');
-    item.appendChild(el('span', 'ab-schedule-meta-label', bt(labelKey, labelFallback)));
-    const valueEl = el('span', 'ab-schedule-meta-value' + (tone ? ' ab-pill ab-pill--' + tone : ''));
-    valueEl.textContent = value;
-    item.appendChild(valueEl);
-    return item;
 }
 
 function scheduleActionBtn(icon, labelKey, labelFallback, disabled, disabledReason, onClick, danger) {
@@ -543,8 +606,32 @@ function scheduleActionBtn(icon, labelKey, labelFallback, disabled, disabledReas
     btn.type = 'button';
     btn.appendChild(abIconEl(icon));
     btn.appendChild(el('span', '', bt(labelKey, labelFallback)));
+    btn.dataset.action = labelKey;
     btn.disabled = !!disabled;
     if (disabled && disabledReason) btn.title = disabledReason;
-    btn.addEventListener('click', onClick);
+    btn.addEventListener('click', async () => {
+        if (btn.disabled) return;
+        const menu = btn.closest('.ab-schedule-more');
+        if (menu) { menu.open = false; menu.querySelector('summary').focus(); }
+        btn.disabled = true;
+        try { await onClick(); }
+        finally { btn.disabled = !!disabled; }
+    });
     return btn;
+}
+
+function bindScheduleMenus() {
+    document.addEventListener('click', event => {
+        document.querySelectorAll('.ab-schedule-more[open]').forEach(menu => {
+            if (!menu.contains(event.target)) menu.open = false;
+        });
+    });
+    document.addEventListener('keydown', event => {
+        if (event.key !== 'Escape' || document.querySelector('dialog[open]')) return;
+        document.querySelectorAll('.ab-schedule-more[open]').forEach(menu => {
+            menu.open = false;
+            menu.querySelector('summary').focus();
+            event.preventDefault();
+        });
+    });
 }

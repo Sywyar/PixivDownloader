@@ -476,6 +476,20 @@ test('发布链：所有凭据与写权限只在 release Environment 的门禁�
     const nightlyJava = nightly.jobs['build-jar'].steps
         .find((step) => step.uses === './.github/actions/build-release-java');
     assert.equal(releaseJava.with.release_version, '${{ needs.validate-release-tag.outputs.version }}');
+    assert.equal(releaseJava.with.build_channel, 'release');
+    assert.equal(nightlyJava.with.build_channel, 'nightly');
+    const build = load('.github/actions/build-release-java/action.yml').runs.steps
+        .find(step => step.env?.BUILD_CHANNEL);
+    assert.equal(build.env.BUILD_CHANNEL, '${{ inputs.build_channel }}');
+    for (const caller of [releaseJava, nightlyJava]) {
+        const args = execFileSync('bash', ['-e', '-o', 'pipefail', '-c',
+            `mvn() { printf '%s\\n' "$@"; }\n${build.run}`], {
+            cwd: ROOT, encoding: 'utf8',
+            env: { ...process.env, RELEASE_VERSION: '2.3.4-fixture', BUILD_CHANNEL: caller.with.build_channel,
+                PLUGIN_CREDENTIAL_FILTER: 'fixture-filter.properties' },
+        }).trim().split(/\r?\n/);
+        assert.ok(args.includes(`-Dapp.build.channel=${caller.with.build_channel}`));
+    }
     assert.equal(releaseJava.with.distribution_version, '${{ github.ref_name }}');
     assert.equal(releaseJava.with.plugin_manifest_commit, undefined);
     assert.equal(nightlyJava.with.release_version, '${{ needs.resolve-version.outputs.version }}');

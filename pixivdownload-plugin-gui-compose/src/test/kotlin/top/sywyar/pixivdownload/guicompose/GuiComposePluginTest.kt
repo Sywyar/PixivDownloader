@@ -30,6 +30,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Base64
 import java.util.Locale
+import java.util.Optional
 import java.util.ResourceBundle
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
@@ -306,6 +307,22 @@ class GuiComposePluginTest {
     }
 
     @Test
+    @DisplayName("关闭导航时始终停留在首个引导页")
+    fun keepsFirstPageWhileNavigationIsHidden() {
+        val pages = listOf(
+            DesktopUiDocument.Page("home", raw("Home"), text("wizard")),
+            DesktopUiDocument.Page("settings", raw("Settings"), text("settings")),
+        )
+
+        val wizard = DesktopUiDocument(pages, listOf(), listOf(), Optional.empty(), false)
+        val ready = DesktopUiDocument(pages, listOf(), listOf(), Optional.empty(), true)
+
+        assertFalse(wizard.navigationVisible())
+        assertEquals("home", activePageId(wizard, "settings"))
+        assertEquals("settings", activePageId(ready, "settings"))
+    }
+
+    @Test
     @DisplayName("共享主题偏好映射为 Material 明暗外观")
     fun mapsSharedThemePreferenceToMaterialAppearance() {
         assertFalse(darkForThemePreference("light", true))
@@ -317,8 +334,40 @@ class GuiComposePluginTest {
     private fun completeTree(): DesktopUiNode = DesktopUiNode.Container(
         "root", DesktopUiNode.ContainerLayout.COLUMN, 1, 4, DesktopUiNode.Alignment.STRETCH,
         listOf(
+            DesktopUiNode.AboutOverview("about", null, "Example", "test-build",
+                DesktopUiNode.Button("about.check", "about.check", raw("Check"), null, DesktopUiNode.ButtonStyle.NORMAL, true),
+                DesktopUiNode.AboutUpdateState.UNKNOWN, emptyList(), emptyList(), emptyList(), raw("Notice"), "License", emptyList()),
+            DesktopUiNode.SettingsWorkspace("settings.workspace",
+                DesktopUiNode.Choice("settings.categories", "settings.category", raw("Categories"), null,
+                    DesktopUiNode.ChoiceStyle.LIST, DesktopUiNode.SelectionMode.SINGLE,
+                    listOf(DesktopUiNode.Option("interface", raw("Interface"), true)), listOf("interface"), true),
+                listOf(DesktopUiNode.Tab("interface", raw("Interface"), text("settings.interface"))),
+                emptyList(), emptyList(), listOf(DesktopUiNode.Button("config.save", "config.save", raw("Save"), null,
+                    DesktopUiNode.ButtonStyle.PRIMARY, false)), "", "", 0),
+            DesktopUiNode.SecurityOverview("security", "", false, 8, emptyList(),
+                DesktopUiNode.Toggle("security.https", "security.https", raw("HTTPS"), null, DesktopUiNode.ToggleStyle.SWITCH, false, true),
+                emptyList(), null, "", 0, 0, "", "", false, emptyList()),
+            DesktopUiNode.PluginOverview("plugins.overview", emptyList(), "", "", false,
+                DesktopUiNode.Button("plugins.refresh", "plugins.refresh", raw("Refresh"), null, DesktopUiNode.ButtonStyle.NORMAL, true),
+                DesktopUiNode.Button("plugins.manage", "plugins.manage", raw("Manage"), null, DesktopUiNode.ButtonStyle.NORMAL, true)),
+            DesktopUiNode.ToolsOverview("tools.overview", text("tools.backend"), emptyList(),
+                DesktopUiNode.Group("tools.media", raw("Media"), text("tools.media.content")), text("tools.history"), null, null),
+            DesktopUiNode.AutomationOverview("automation", 0L, false, emptyList(), emptyList(), emptyList()),
+            DesktopUiNode.HomeOverview("overview", emptyList(), emptyList(), emptyList(), false,
+                text("overview.backend"), DesktopUiNode.HomeSystem(raw("Disabled"), null, raw("Unavailable"))),
             DesktopUiNode.Dock("dock", 4, text("dock.top"), text("dock.center"), null, null, null),
+            DesktopUiNode.AccountSetup(
+                "account",
+                input("account.username", DesktopUiNode.InputKind.TEXT),
+                input("account.password", DesktopUiNode.InputKind.PASSWORD),
+                DesktopUiNode.Button("account.finish", "account.finish", raw("Finish"), null,
+                    DesktopUiNode.ButtonStyle.PRIMARY, true),
+                8, 12, false, false, null,
+            ),
             DesktopUiNode.AdaptiveGrid("adaptive", 160, 4, 8, 8, listOf(text("adaptive.text"))),
+            DesktopUiNode.OnboardingHub("hub", emptyList(),
+                DesktopUiNode.Button("hub.next", "hub.next", raw("Continue"), null,
+                    DesktopUiNode.ButtonStyle.PRIMARY, true), null, false),
             DesktopUiNode.PagedRow("paged", 4, 8, listOf(text("paged.text"))),
             DesktopUiNode.Surface("surface", DesktopUiNode.SurfaceStyle.CARD,
                 DesktopUiNode.Insets.all(8), true, "surface.open", text("surface.text")),

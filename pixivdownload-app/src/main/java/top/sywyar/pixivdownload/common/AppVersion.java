@@ -42,6 +42,11 @@ public class AppVersion {
         return version != null ? version : defaultVersion;
     }
 
+    /** 返回构建渠道原始标记；缺失资源返回 {@code null}。 */
+    public static String getBuildChannelMarker() {
+        return readVersionFromProperties(APP_VERSION_PROPERTIES, "app.build.channel");
+    }
+
     private static String readVersionFromProperties(String resourcePath, String key) {
         try (InputStream stream = AppVersion.class.getResourceAsStream(resourcePath)) {
             if (stream == null) {

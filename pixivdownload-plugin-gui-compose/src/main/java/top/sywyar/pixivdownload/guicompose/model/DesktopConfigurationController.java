@@ -73,6 +73,9 @@ final class DesktopConfigurationController {
     volatile TextToken configNoticeToken;
     volatile boolean autoStartSupported;
     volatile boolean autoStartEnabled;
+    volatile String invalidRow = "";
+    volatile long credentialRevision;
+    final Map<FieldKey, Long> credentialRevisions = new ConcurrentHashMap<>();
 
     DesktopConfigurationController(
             ComposeDesktopUiModel owner,
@@ -102,10 +105,17 @@ final class DesktopConfigurationController {
         return view.controlCenterPage(nextSelections, nextActions);
     }
 
+    void coreValueSaved(String key, String value) {
+        FieldKey field = new FieldKey(null, key);
+        values.put(field, value);
+        savedValues.put(field, value);
+    }
+
     boolean acceptField(String binding, String value) {
         ConfigField field = fieldBindings.get(binding);
         if (field == null) return false;
         values.put(field.key(), value);
+        if (invalidRow.equals(DesktopConfigurationFieldView.bindingId(field.key()) + ".row")) invalidRow = "";
         return true;
     }
 
@@ -313,6 +323,7 @@ final class DesktopConfigurationController {
             return;
         }
         try {
+            invalidRow = "";
             validate(changed);
             ConfigField rootField = changed.stream().filter(field -> field.owner() == null && "download.root-folder".equals(
                     field.spec().key())).findFirst().orElse(null);
@@ -360,6 +371,7 @@ final class DesktopConfigurationController {
                         value
                 ));
             }
+            credentialRevision++;
             boolean hotReloaded = hotKeys.isEmpty() || host.guiPostJson(
                     "config/reload",
                     Map.of("changedKeys", List.copyOf(hotKeys)),
@@ -407,6 +419,41 @@ final class DesktopConfigurationController {
             )) count++;
         }
         return count;
+    }
+
+    List<DesktopUiNode.SettingChange> pendingChanges() {
+        List<DesktopUiNode.SettingChange> changes = new ArrayList<>();
+        for (ConfigField field : changedConfigurationFields()) {
+            boolean secret = field.spec().sensitive();
+            changes.add(new DesktopUiNode.SettingChange(
+                    DesktopConfigurationFieldView.bindingId(field.key()) + ".row",
+                    token(field.namespace(), field.spec().labelKey(), field.spec().key()),
+                    secret ? composeText("gui.compose.settings.secret-hidden") : changeValue(savedValues.getOrDefault(field.key(), "")),
+                    secret ? composeText("gui.compose.settings.secret-replaced") : changeValue(values.getOrDefault(field.key(), "")),
+                    DesktopConfigurationFieldView.effectNode("change", field.spec().effect()).text()));
+        }
+        Map<String, String> labels = Map.of(
+                "app.language", "language", "app.gui-provider", "provider",
+                "app.theme", "theme", "app.config-menu-expand-all", "config-menu-expand-all");
+        pendingInterfaceValues().forEach((key, value) -> {
+            String before = savedValues.getOrDefault(new FieldKey(null, key), "");
+            if (!Objects.equals(before, value)) changes.add(new DesktopUiNode.SettingChange(
+                    "interface." + labels.get(key) + ".row", key("gui.interface." + labels.get(key) + ".label"),
+                    changeValue(before), changeValue(value), DesktopConfigurationFieldView.effectNode("change",
+                    key.equals("app.gui-provider") ? GuiConfigEffect.PROCESS_RESTART : GuiConfigEffect.HOT_RELOAD).text()));
+        });
+        if (repositories.changed()) changes.add(new DesktopUiNode.SettingChange("config.market.repositories",
+                key("gui.config.scope.plugin-market-settings"), null, null,
+                DesktopConfigurationFieldView.effectNode("change", GuiConfigEffect.BACKEND_RESTART).text()));
+        return List.copyOf(changes);
+    }
+
+    private static TextToken changeValue(String value) {
+        return TextToken.raw(value.isBlank() ? "—" : value);
+    }
+
+    private static TextToken composeText(String key) {
+        return new TextToken("gui-compose", key, "", List.of());
     }
 
     GuiConfigEffect pendingConfigurationEffect() {
@@ -680,30 +727,35 @@ final class DesktopConfigurationController {
 
     private void validate(List<ConfigField> fields) throws Exception {
         for (ConfigField field : fields) {
-            GuiConfigFieldContribution spec = field.spec();
-            String value = values.getOrDefault(field.key(), "");
-            host.requireSafeConfigKey(spec.key());
-            host.requireSafeConfigValue(value);
-            if (field.owner() == null) {
-                host.validateCoreConfigValue(spec.key(), value);
-            }
-            if (spec.type() == GuiConfigFieldType.PORT) {
-                int port = Integer.parseInt(value);
-                if (port < 1 || port > 65_535) throw new IllegalArgumentException(spec.key());
-            }
-            if (spec.type() == GuiConfigFieldType.INT) {
-                int number = Integer.parseInt(value);
-                if (spec.minValue() != null && number < spec.minValue())
+            try {
+                GuiConfigFieldContribution spec = field.spec();
+                String value = values.getOrDefault(field.key(), "");
+                host.requireSafeConfigKey(spec.key());
+                host.requireSafeConfigValue(value);
+                if (field.owner() == null) {
+                    host.validateCoreConfigValue(spec.key(), value);
+                }
+                if (spec.type() == GuiConfigFieldType.PORT) {
+                    int port = Integer.parseInt(value);
+                    if (port < 1 || port > 65_535) throw new IllegalArgumentException(spec.key());
+                }
+                if (spec.type() == GuiConfigFieldType.INT) {
+                    int number = Integer.parseInt(value);
+                    if (spec.minValue() != null && number < spec.minValue())
+                        throw new IllegalArgumentException(spec.key());
+                    if (spec.maxValue() != null && number > spec.maxValue())
+                        throw new IllegalArgumentException(spec.key());
+                }
+                if (spec.type() == GuiConfigFieldType.ENUM && !spec.enumValues().contains(value)) {
                     throw new IllegalArgumentException(spec.key());
-                if (spec.maxValue() != null && number > spec.maxValue())
+                }
+                if (spec.key().startsWith("maintenance.") && spec.key().endsWith(".time") && !host.validMaintenanceTime(value)) {
                     throw new IllegalArgumentException(spec.key());
-            }
-            if (spec.type() == GuiConfigFieldType.ENUM && !spec.enumValues().contains(value)) {
-                throw new IllegalArgumentException(spec.key());
-            }
-            if (spec.key().startsWith("maintenance.") && spec.key().endsWith(".time") && !host.validMaintenanceTime(
-                    value)) {
-                throw new IllegalArgumentException(spec.key());
+                }
+            } catch (Exception failure) {
+                invalidRow = DesktopConfigurationFieldView.bindingId(field.key()) + ".row";
+                view.locateField(field);
+                throw failure;
             }
         }
     }
@@ -714,6 +766,8 @@ final class DesktopConfigurationController {
             try {
                 host.updateCredentials(field.owner(), Map.of(field.spec().key(), ""));
                 values.put(field.key(), "");
+                if (invalidRow.equals(DesktopConfigurationFieldView.bindingId(field.key()) + ".row")) invalidRow = "";
+                credentialRevisions.merge(field.key(), 1L, Long::sum);
                 Set<FieldKey> stored = new LinkedHashSet<>(storedCredentialFields);
                 stored.remove(field.key());
                 storedCredentialFields = Set.copyOf(stored);
@@ -832,9 +886,37 @@ final class DesktopConfigurationController {
     }
 
     void reloadConfiguration() {
+        if (pendingConfigurationChangeCount() == 0) {
+            discardAndReloadConfiguration();
+            return;
+        }
+        owner.showDialog(
+                "config.reload.dialog", "desktop.ui.action.reload", DesktopUiDocument.DialogStyle.QUESTION,
+                (nextActions, dismissAction, dismiss) -> column(
+                        "config.reload.content",
+                        new DesktopUiNode.Text("config.reload.message",
+                                new TextToken("gui-compose", "gui.compose.settings.reload-warning", "", List.of()),
+                                TextStyle.BODY, true, false),
+                        row("config.reload.actions",
+                                button("config.reload.cancel", dismissAction, "desktop.ui.action.cancel",
+                                        true, nextActions, dismiss),
+                                button("config.reload.confirm", "config.reload.confirm", "desktop.ui.action.reload",
+                                        true, nextActions, () -> {
+                                            owner.closeDialog();
+                                            discardAndReloadConfiguration();
+                                        }))
+                ), 480, 0
+        );
+    }
+
+    private void discardAndReloadConfiguration() {
+        List.of("interface.language", "interface.provider", "interface.theme", "interface.config-menu-expand-all")
+                .forEach(formValues::remove);
+        invalidRow = "";
+        credentialRevision++;
         load();
         setConfigNotice("");
-        owner.rebuild();
+        applyLocale(selected("app.language", "follow-system"));
     }
 
     private Map<String, String> pendingInterfaceValues() {

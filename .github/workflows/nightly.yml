@@ -143,6 +143,7 @@ jobs:
       - name: Build release Java artifacts
         uses: ./.github/actions/build-release-java
         with:
+          build_channel: nightly
           release_version: ${{ needs.resolve-version.outputs.version }}
           distribution_version: ${{ needs.resolve-version.outputs.version }}
           plugin_credential_master_key_base64: ${{ secrets.PIXIVDOWNLOAD_PLUGIN_CREDENTIAL_MASTER_KEY_BASE64 }}

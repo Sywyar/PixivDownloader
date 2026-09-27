@@ -81,6 +81,37 @@ const NOVEL_SLOTS = {
         '</div></div>'
 };
 
+const settingsBridge = window.PixivBatch.settings;
+if (settingsBridge && typeof settingsBridge.bindContributedSettings === 'function') {
+    let unbind = () => {};
+    const bindSettings = () => {
+        unbind();
+        if (!shared.context.isActive()) return;
+        const card = document.getElementById('novel-settings-card');
+        if (!card) return;
+        const format = fallback => ({
+            read: input => (input.value || fallback).toLowerCase(),
+            write: (input, value) => { input.value = value || fallback; }
+        });
+        unbind = settingsBridge.bindContributedSettings(card, {
+            's-novel-format': Object.assign({key: 'novelFormat'}, format('txt')),
+            's-novel-merge': {key: 'mergeNovelSeries', read: input => input.checked,
+                write: (input, value) => { input.checked = !!value; }},
+            's-novel-merge-format': Object.assign({key: 'mergeNovelFormat'}, format('epub'))
+        }, () => shared.context.isActive(), () => {
+            const enabled = card.querySelector('#s-novel-merge').checked;
+            ['s-novel-merge-format-row', 's-novel-merge-format-hint'].forEach(id => {
+                card.querySelector('#' + id).style.display = enabled ? '' : 'none';
+            });
+        });
+    };
+    window.addEventListener('pixivbatch:slotsrendered', bindSettings);
+    shared.context.onCleanup(() => {
+        window.removeEventListener('pixivbatch:slotsrendered', bindSettings);
+        unbind();
+    });
+}
+
 /* ============================================================
    取得侧行为：小说作品类型向下载页各取得模式（user / search / series / quick）+ 批量导入 + 附加筛选
    贡献的抓取 / 渲染 / 队列 meta / 专属筛选逻辑。下载页宿主（modes/*.js、batch-filters.js、

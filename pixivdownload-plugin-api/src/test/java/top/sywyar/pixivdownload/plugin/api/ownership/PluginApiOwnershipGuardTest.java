@@ -269,6 +269,7 @@ class PluginApiOwnershipGuardTest {
             API_PREFIX + "gui.DesktopRunningTaskContribution$Status",
             API_PREFIX + "gui.DesktopUiHost$BackendSnapshot",
             API_PREFIX + "gui.DesktopUiHost$BackendState",
+            API_PREFIX + "gui.DesktopUiHost$BuildChannel",
             API_PREFIX + "gui.DesktopUiHost$ConfigFile",
             API_PREFIX + "gui.DesktopUiHost$ConfigSnapshot",
             API_PREFIX + "gui.DesktopUiHost$CredentialSnapshot",
@@ -505,7 +506,7 @@ class PluginApiOwnershipGuardTest {
                 .doesNotContain("pluginId", "ownerPluginId", "packageId", "generation", "publicationId"));
         assertThat(Arrays.stream(WebUiSlotContribution.class.getRecordComponents())
                 .map(component -> component.getName()).toList())
-                .containsExactly("slotId", "target", "moduleUrl", "order", "metadata");
+                .containsExactly("slotId", "target", "moduleUrl", "order", "metadata", "i18nNamespace");
         assertThat(WebUiSlotCatalog.class.getDeclaredMethods())
                 .singleElement()
                 .satisfies(method -> assertThat(method.getName()).isEqualTo("uiSlots"));

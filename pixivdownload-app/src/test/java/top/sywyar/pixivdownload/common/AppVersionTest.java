@@ -9,7 +9,7 @@ import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DisplayName("AppVersion tests")
+@DisplayName("应用版本与构建元数据")
 class AppVersionTest {
 
     private final String originalJpackageVersion = System.getProperty("jpackage.app-version");
@@ -60,6 +60,14 @@ class AppVersionTest {
 
     private static String mavenFilteredVersion() throws Exception {
         return AppVersion.normalize(mavenFilteredProperty("app.version"));
+    }
+
+    @Test
+    @DisplayName("构建渠道原始标记读取实际过滤后的资源")
+    void buildChannelReadsFilteredMetadata() throws Exception {
+        assertThat(mavenFilteredProperty("app.build.channel")).isIn("local", "release", "nightly");
+        assertThat(AppVersion.getBuildChannelMarker())
+                .isEqualTo(mavenFilteredProperty("app.build.channel"));
     }
 
     private static String mavenFilteredProperty(String key) throws Exception {
