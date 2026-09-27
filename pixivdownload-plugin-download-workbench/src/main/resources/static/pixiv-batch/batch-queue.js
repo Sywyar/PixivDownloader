@@ -24,9 +24,9 @@
             const parsed = JSON.parse(raw);
             if (Array.isArray(parsed.queue)) {
                 state.queue = dedupeQueueItems(parsed.queue);
-                // 刷新前正在下载的项目实际已中断，标记为失败
                 state.queue.forEach(q => {
                     q.source = normalizeImportMode(q.source);
+                    if (restoreInterruptedQueueItem(q)) return;
                     if (q.status === 'downloading') {
                         q.status = 'failed';
                         q.statusMessageKey = null;
