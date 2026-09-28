@@ -266,6 +266,7 @@ Mail 插件通过 SMTP 发送配置测试邮件和业务通知。连接会携带
 | SDK 发行基线校验 | `https://api.github.com/repos/Sywyar/PixivDownloader-Plugin-SDK/releases`、该仓库公开 Release 的 `sdk-release.json` 附件，以及 `https://repo1.maven.org/maven2/io/github/sywyar/pixivdownloader/` 下的 SDK POM | 正式应用发行和独立 SDK 发布前，CI 读取公开 SDK Release 的源码身份，比较当前 SDK 合同与已发行源码。两条流程都会确认所选版本的五个 Maven POM 已公开且指向同一源码。日常 PR 与 Nightly 不执行这些发行查询。GitHub 请求使用 Actions 内置只读令牌，Maven 请求不带令牌；已安装应用不会执行此检查 |
 | Docker | 配置的 OCI 镜像仓库，默认情况下解析 `eclipse-temurin:17-jre`；基础镜像配置的 Debian 软件源 | 拉取基础镜像，以及安装 FFmpeg、curl 等系统包 |
 | Windows CI | Chocolatey 配置的软件源 | 安装 Inno Setup 等打包工具 |
+| SDK 的 Douyin 兼容性检查 | `https://github.com/Sywyar/PixivDownloader-Plugin-Douyin.git` 的固定提交；该工程 POM 声明的 Maven 依赖仓库 | `scripts/ci/sdk-consumer.mjs` 在 SDK 验证时用 Git HTTPS 获取 `scripts/ci/douyin-source.json` 固定的提交，单次 Git 获取和检出最多 300 秒；不跟随 `main`。随后以待验 SDK 在线构建、离线重建并运行 Java、JavaScript、产物和宿主集成测试。Git 获取关闭凭据助手及交互提示，使用 Git 自身的代理配置；发送仓库路径和提交身份，不需要发布凭据。显式传入 `--douyin-source` 可改用本地源码并省去 GitHub 源码请求，依赖解析仍遵循 Maven 配置。此流程不由已安装客户端执行 |
 
 构建机、代理、镜像或包管理器配置可以改写最终下载主机，因此这些传递依赖无法仅凭仓库源码列出稳定的完整域名集合。
 

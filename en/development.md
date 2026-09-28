@@ -29,12 +29,13 @@ The root `pom.xml` is the Maven Reactor aggregator.
 | `pixivdownload-plugin-signature/` | Artifact and repository-manifest signing tools |
 | `pixivdownload-plugin-runtime/` | PF4J, Spring child contexts, and install lifecycle |
 | `pixivdownload-plugin-*/` | Official external plugins |
-| `pixivdownload-plugin-douyin/` | Official Douyin download-type example |
 | `pixivdownload-app/` | Host adapters and executable Spring Boot JAR |
 | `pixivdownload-official-plugins/` | Official-plugin aggregator and development entry point |
 | `plugin-templates/` | Copyable third-party plugin templates |
 
 Dependencies must point toward the contracts: plugins depend on `plugin-api`, and may add `core-api` only for stable host capabilities. Third-party plugins must not depend on `pixivdownload-app` or host implementation classes.
+
+Douyin source, resources and tests live in the [separate plugin repository](https://github.com/Sywyar/PixivDownloader-Plugin-Douyin) and are outside the main Maven reactor. SDK compatibility checks use a pinned commit from that repository, build it against the SDK under test, and verify cross-plugin interactions plus installation and lifecycle behavior for signed and unsigned packages.
 
 ## Fork and branch
 

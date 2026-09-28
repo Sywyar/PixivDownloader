@@ -6,10 +6,10 @@
 - [SDK Info](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-sdk-info)
 - [Plugin API](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-api)
 - [Core API](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-core-api)
-- [公式 Douyin 例](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-douyin)
+- [サードパーティ Douyin プラグイン例](https://github.com/Sywyar/PixivDownloader-Plugin-Douyin)
 - [プラグイン署名ツール](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-signature)
 
-Douyin はダウンロード、設定、プロキシ、キュー、スケジュール、永続化、プラグイン所有ギャラリーを含む完全な公式例です。新規プロジェクトは `plugin-templates` から作成してください。
+Douyin はダウンロード、設定、プロキシ、キュー、スケジュール、永続化、プラグイン所有ギャラリーを含むサードパーティ SDK の実装例です。公開 SDK 契約だけに依存し、公式配布には含まれません。新規プロジェクトは `plugin-templates` から作成してください。
 
 ## 最初に信頼境界を理解する
 

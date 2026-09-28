@@ -29,12 +29,13 @@ $env:JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8'
 | `pixivdownload-plugin-signature/` | 插件和仓库清单的签名、验签工具 |
 | `pixivdownload-plugin-runtime/` | PF4J、Spring 子上下文和安装生命周期 |
 | `pixivdownload-plugin-*/` | 各官方外置插件 |
-| `pixivdownload-plugin-douyin/` | 官方 Douyin 下载类型示例 |
 | `pixivdownload-app/` | 宿主应用、适配器和可执行 Spring Boot JAR |
 | `pixivdownload-official-plugins/` | 官方插件聚合与开发模式入口 |
 | `plugin-templates/` | 可复制的第三方插件模板 |
 
 插件 API 与宿主实现之间必须保持依赖方向：插件依赖 `plugin-api`，需要稳定宿主能力时再依赖 `core-api`；第三方插件不得依赖 `pixivdownload-app` 或宿主实现类。
+
+Douyin 的源码、资源和测试在[独立插件仓库](https://github.com/Sywyar/PixivDownloader-Plugin-Douyin)维护，不属于主仓库的 Maven Reactor。SDK 兼容性检查读取独立仓库的固定提交，使用待验 SDK 构建插件，再验证跨插件交互与签名、未签名包的安装和生命周期。
 
 ## Fork 与分支
 

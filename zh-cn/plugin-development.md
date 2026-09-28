@@ -8,7 +8,7 @@
 - [SDK Info](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-sdk-info)
 - [Plugin API](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-api)
 - [Core API](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-core-api)
-- [Douyin 第三方示例插件](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-douyin)
+- [Douyin 第三方示例插件](https://github.com/Sywyar/PixivDownloader-Plugin-Douyin)
 - [插件签名工具](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-signature)
 - [SDK 下载与版本记录](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases)
 - [版本化 SDK Javadoc](https://sywyar.github.io/PixivDownloader-Plugin-SDK/)

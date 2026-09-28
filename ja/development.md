@@ -29,12 +29,13 @@ $env:JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8'
 | `pixivdownload-plugin-signature/` | アーティファクト / マニフェスト署名ツール |
 | `pixivdownload-plugin-runtime/` | PF4J、子 Spring コンテキスト、インストールライフサイクル |
 | `pixivdownload-plugin-*/` | 公式外部プラグイン |
-| `pixivdownload-plugin-douyin/` | Douyin の公式例 |
 | `pixivdownload-app/` | ホストアダプターと実行可能 Spring Boot JAR |
 | `pixivdownload-official-plugins/` | 公式プラグイン集約と開発入口 |
 | `plugin-templates/` | コピー可能な第三者向けテンプレート |
 
 依存関係は契約へ向けます。プラグインは `plugin-api` に依存し、安定したホスト機能が必要な場合だけ `core-api` を追加します。`pixivdownload-app` やホスト実装クラスには依存しません。
+
+Douyin のソース、リソース、テストは[独立したプラグインリポジトリ](https://github.com/Sywyar/PixivDownloader-Plugin-Douyin)で管理し、メインの Maven Reactor には含めません。SDK の互換性検証では、そのリポジトリの固定コミットを検証対象 SDK でビルドし、プラグイン間の連携と署名付き・署名なしパッケージのインストールおよびライフサイクルを確認します。
 
 ## フォークとブランチ
 

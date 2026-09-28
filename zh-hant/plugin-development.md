@@ -8,10 +8,10 @@
 - [SDK Info](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-sdk-info)
 - [Plugin API](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-api)
 - [Core API](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-core-api)
-- [Douyin 官方示例插件](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-douyin)
+- [Douyin 第三方示例外掛](https://github.com/Sywyar/PixivDownloader-Plugin-Douyin)
 - [插件簽名工具](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-signature)
 
-> Douyin 是完整官方實現的 SDK 示例，展示下載、配置、代理、隊列、計劃任務、私有持久化和插件自有畫廊如何組合。它只依賴公開 SDK 契約，可用於覈對完整實現。新項目仍應先複製 `plugin-templates`，避免帶入與目標站點綁定的業務代碼。
+> Douyin 是完整的第三方 SDK 示例，展示下載、配置、代理、隊列、計劃任務、私有持久化和插件自有畫廊如何組合。它只依賴公開 SDK 契約，不屬於官方分發集合。新項目從 `plugin-templates` 開始，可避免帶入與目標站點綁定的業務代碼。
 
 ## 先理解信任邊界
 

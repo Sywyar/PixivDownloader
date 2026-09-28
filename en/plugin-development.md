@@ -8,7 +8,7 @@ Relevant source code:
 - [SDK Info](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-sdk-info)
 - [Plugin API](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-api)
 - [Core API](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-core-api)
-- [Third-party Douyin example plugin](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-douyin)
+- [Third-party Douyin example plugin](https://github.com/Sywyar/PixivDownloader-Plugin-Douyin)
 - [Plugin signature tool](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-signature)
 - [SDK downloads and release history](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases)
 - [Versioned SDK Javadocs](https://sywyar.github.io/PixivDownloader-Plugin-SDK/)
