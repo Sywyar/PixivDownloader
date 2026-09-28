@@ -108,7 +108,7 @@ function dedupeQueueItems(items) {
 
 function addItemsToQueue(idList, metaList, source, username, defaultAuthorId, defaultAuthorName) {
     const existing = new Map(state.queue.map(q => [String(q.id), q]));
-    let added = 0;
+    const additions = [];
     const meta = metaList || [];
     for (let i = 0; i < idList.length; i++) {
         const id = String(idList[i]);
@@ -148,10 +148,12 @@ function addItemsToQueue(idList, metaList, source, username, defaultAuthorId, de
         };
         if (m.cancelWorkKey) queueItem.cancelWorkKey = m.cancelWorkKey;
         queueItem.canonicalUrl = queueItemCanonicalUrl(queueItem);
-        state.queue.push(queueItem);
+        additions.push(queueItem);
         existing.set(id, queueItem);
-        added++;
     }
+    const added = additions.length;
+    // 一批新任务保持取得顺序并整体前置，不反转批内顺序，也不中断已领取的任务。
+    if (added) state.queue = additions.concat(state.queue);
     updateStats();
     saveQueue();
     renderQueue();
@@ -288,7 +290,24 @@ function storageKey() {
     return 'pixiv_batch_queue';
 }
 
+let queueOrderChanged = false;
+
+function orderDownloadQueue() {
+    const finished = item => item.status === 'completed' || item.status === 'skipped';
+    let seenFinished = false;
+    for (const item of state.queue) {
+        if (finished(item)) seenFinished = true;
+        else if (seenFinished) {
+            // 仅状态保存或恢复时重排，复用条目对象；数值进度仍按原有脏行机制刷新。
+            state.queue.sort((a, b) => Number(finished(a)) - Number(finished(b)));
+            queueOrderChanged = true;
+            return;
+        }
+    }
+}
+
 function saveQueue() {
+    orderDownloadQueue();
     let snapshot = {
         queue: state.queue,
         isPaused: state.isPaused,
@@ -334,6 +353,7 @@ function loadQueueForMode() {
     } catch {
         state.queue = [];
     }
+    orderDownloadQueue();
     renderQueue();
     updateStats();
 }
@@ -893,6 +913,10 @@ const altQueueProgressRows = new Set();
 let altQueueProgressScheduled = false;
 
 function renderQueue(changedItem, statusChanged = false) {
+    if (queueOrderChanged) {
+        changedItem = null;
+        queueOrderChanged = false;
+    }
     if (!changedItem || statusChanged) renderQueueRecovery();
     if (changedItem && !altQueueVueActive('list')) {
         altQueueProgressRows.add(changedItem);

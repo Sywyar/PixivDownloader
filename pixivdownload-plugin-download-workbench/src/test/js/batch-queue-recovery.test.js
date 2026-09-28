@@ -21,6 +21,7 @@ function harness(queue = []) {
         state: {queue, stats: {}, settings: {}, isRunning: false, isPaused: false},
         window: {
             PixivBatch: {queueTypes: {get: () => behavior}},
+            PixivBatchAlt: {queue: {}},
             PixivFeedback: {confirm: async () => { calls.confirmations++; return true; }},
             addEventListener: (type, listener) => listeners.set(type, listener)
         },
@@ -29,6 +30,7 @@ function harness(queue = []) {
         setTimeout(fn, ms) { timers.set(++nextTimer, {fn, ms}); return nextTimer; },
         clearTimeout: id => timers.delete(id),
         bt: key => key,
+        novelTranslateMessage() {},
         renderQueue() {}, updateStats() {}, updateButtonsState() {},
         saveQueue() { calls.saved++; },
         storeGet: () => JSON.stringify({queue}),
@@ -91,8 +93,15 @@ test('recovery help keeps disclosure and focus while pending actions remain visi
 
 function loadQueue(context, layout) {
     const file = source(layout === 'classic' ? 'pixiv-batch/batch-queue.js' : 'pixiv-batch-alt/alt-queue.js');
-    vm.runInContext(file.slice(file.indexOf('function loadQueueForMode()'),
-        file.indexOf('function clearSavedQueue()')), context);
+    if (layout === 'alt') {
+        const stubs = Object.fromEntries(['renderQueue', 'updateStats', 'updateButtonsState', 'setDockStatus',
+            'saveQueue', 'storageKey', 'dedupeQueueItems'].map(key => [key, context[key]]));
+        vm.runInContext(file, context);
+        Object.assign(context, stubs);
+    } else {
+        vm.runInContext(file.slice(file.indexOf('function loadQueueForMode()'),
+            file.indexOf('function clearSavedQueue()')), context);
+    }
     context.loadQueueForMode();
 }
 

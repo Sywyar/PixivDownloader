@@ -8,3 +8,41 @@
 .media-settings-scope { margin-block: 12px; font-size: .9em; line-height: 1.5; opacity: .75; }
 #media-output-settings .media-format-row > input[type="number"] { box-sizing: border-box; width: 100%; min-width: 0; }
 .media-format-row > input[type="checkbox"] { width: auto; justify-self: start; margin: 0; }
+
+/* 贡献容器不占布局位置，控件直接参与原有下载设置的换行排列。 */
+#download-settings-card #type-output-settings,
+#download-settings-card #media-output-settings {
+    display: contents;
+}
+#download-settings-card #media-output-settings[hidden] { display: none; }
+#download-settings-card .media-format-select { min-width: 6rem; max-width: 100%; }
+#download-settings-card .media-format-select > summary {
+    padding: 4px 6px;
+    border-color: var(--line);
+    border-radius: 4px;
+    font-size: .8125rem;
+    background: var(--control-bg);
+    color: var(--text);
+    overflow-wrap: anywhere;
+}
+#download-settings-card .media-format-options {
+    min-width: max-content;
+    border-color: var(--line);
+    background: var(--surface);
+    color: var(--text);
+}
+#download-settings-card .media-format-options > label { padding: .375rem; }
+#download-settings-card .media-encoding-row > input[type="number"] { border-radius: 4px; }
+#download-settings-card .media-checkbox-row > label { cursor: pointer; }
+#download-settings-card .path-overflow-setting select {
+    max-width: 100%;
+    padding: .25rem .375rem;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--control-bg);
+    color: var(--text);
+}
+@media (max-width: 37.5em) {
+    #download-settings-card .filename-setting { flex-wrap: wrap; }
+    #download-settings-card #s-file-name-template { min-width: 0; max-width: 100%; }
+}

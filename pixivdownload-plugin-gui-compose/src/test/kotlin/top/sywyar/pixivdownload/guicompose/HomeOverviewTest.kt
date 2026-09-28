@@ -65,15 +65,23 @@ class HomeOverviewTest {
         }
         fun status() = onNodeWithTag("home.backend.state").fetchSemanticsNode()
             .config[SemanticsProperties.Text].single().text
+        fun assertStatusAtRightEdge() {
+            val bounds = onNodeWithTag("home.backend").fetchSemanticsNode().boundsInRoot
+            val statusBounds = onNodeWithTag("home.backend.state").fetchSemanticsNode().boundsInRoot
+            assertEquals(bounds.right, statusBounds.right)
+        }
+        assertStatusAtRightEdge()
         runOnIdle { snapshot = home(empty = true, startingAt = System.currentTimeMillis() - 18_000L) }
         val hint = resolveKey("starting.slow")
         onNodeWithText(hint).assertDoesNotExist()
         onNodeWithTag("home.backend.state").assertTextEquals(resolve(snapshot.backend().text()))
+        assertStatusAtRightEdge()
         val positions = listOf("home.greeting", "home.tip", "shortcut.download").associateWith {
             onNodeWithTag(it).fetchSemanticsNode().boundsInRoot
         }
         waitUntil(timeoutMillis = 3_500) { onAllNodesWithText(hint).fetchSemanticsNodes().isNotEmpty() }
         val first = status()
+        assertStatusAtRightEdge()
         assertNotEquals(resolve(snapshot.backend().text()), first)
         waitUntil(timeoutMillis = 1_500) { status() != first }
         positions.forEach { (tag, bounds) -> assertEquals(bounds, onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot) }
@@ -81,6 +89,7 @@ class HomeOverviewTest {
         onNodeWithText(hint).assertDoesNotExist()
         positions.forEach { (tag, bounds) -> assertEquals(bounds, onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot) }
         onNodeWithTag("home.backend.state").assertTextEquals("Service running")
+        assertStatusAtRightEdge()
     }
 
     @Test

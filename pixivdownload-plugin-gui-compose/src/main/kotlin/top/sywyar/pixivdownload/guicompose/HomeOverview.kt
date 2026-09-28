@@ -55,6 +55,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -287,7 +288,11 @@ private fun BackendStatus(
         DesktopUiNode.TextStyle.WARNING -> palette.warning
         else -> palette.secondaryText
     }
-    Column(modifier.testTag("home.backend"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(
+        modifier.testTag("home.backend"),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalAlignment = Alignment.End,
+    ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(7.dp),
@@ -310,6 +315,7 @@ private fun BackendStatus(
             fontSize = 12.sp,
             lineHeight = 18.sp,
             color = palette.secondaryText,
+            textAlign = TextAlign.End,
         )
     }
 }

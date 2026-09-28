@@ -137,12 +137,13 @@ function getNextPending() {
     );
     const idx = state.queue.findIndex(q => q.status === 'pending' && !downloadingIds.has(q.id));
     if (idx === -1) return null;
-    state.queue[idx].status = 'downloading';
-    state.queue[idx].statusMessageKey = null;
-    state.queue[idx].startTime = new Date().toISOString();
+    const item = state.queue[idx];
+    item.status = 'downloading';
+    item.statusMessageKey = null;
+    item.startTime = new Date().toISOString();
     saveQueue();
-    renderQueue(state.queue[idx], true);
-    return state.queue[idx];
+    renderQueue(item, true);
+    return item;
 }
 
 // 类型当前不可用（其行为模块未装载 / 插件已禁用）：标记暂停，待类型恢复后可重试。
