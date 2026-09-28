@@ -839,7 +839,7 @@ When verifying a custom root, also pass `--trusted-key-id` and `--trusted-public
 
 ### Let users add a custom repository
 
-Publish a strict UTF-8 JSON `repository.json` no larger than 64 KiB. A user only needs its public HTTPS URL in the plugin market:
+Publish a strict UTF-8 JSON `repository.json` no larger than 64 KiB. Enter its public HTTPS URL in GUI Settings → Plugin market settings → Add → Use repository descriptor:
 
 ```json
 {
@@ -938,3 +938,7 @@ Before submission:
 - [ ] `mvn clean verify`, frontend behavior tests, and JAR structure checks pass
 - [ ] Published artifact size, SHA-256, signature, and manifest refer to exactly the same bytes
 - [ ] The private key is absent from source, build output, logs, plugin packages, and public repository directories
+
+## Gallery navigation slots
+
+Plugins declare entries through `NavigationContribution.placements`. `gallery.sidebar` contains main pages such as plugins, downloads and the gallery; `gallery.sidebar.tools` contains utilities such as invitation management, statistics and duplicates. Novel galleries use `novel.sidebar` and `novel.sidebar.tools`. Each group has its own ordering and request-identity filtering. Withdrawing a contribution removes its entry; empty groups are hidden. Pages declare `data-nav-slot` without classifying plugin IDs.

@@ -207,3 +207,7 @@ mvn clean verify
 - 無効化、停止、アンロード、破損、非互換時に capability がきれいに撤回される
 - 認証情報、Cookie、ローカルパス、秘密鍵をログや成果物に含めない
 - `mvn clean verify` と最小のインストール / リロード / 復旧テストを実行
+
+## ギャラリーのナビゲーションスロット
+
+プラグインは `NavigationContribution.placements` でリンク先を宣言します。`gallery.sidebar` はプラグイン、ダウンロード、ギャラリーなどの主要ページ、`gallery.sidebar.tools` は招待管理、統計、重複候補などのツール用です。小説ギャラリーでは `novel.sidebar` と `novel.sidebar.tools` を使います。各グループは独立して並び順とアクセス権を適用します。貢献を撤回するとリンクが消え、空のグループは非表示になります。ページは `data-nav-slot` を宣言し、プラグイン ID で分類しません。

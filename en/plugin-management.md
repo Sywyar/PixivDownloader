@@ -8,6 +8,8 @@ The **Plugin Management** page (top nav → **Plugins**) lets an admin see all o
 
 ---
 
+Add or edit custom repositories in GUI Settings → Plugin market settings. The dialog offers “Use repository descriptor” and “Enter manually”. The descriptor option previews the publisher, network hosts and full public-key fingerprints, then adds the confirmed repository to the settings draft. Manual entry provides repository, network policy and trusted-key fields. Save settings and restart to apply the changes. The web marketplace browses and installs plugins.
+
 ## Execution security
 
 A signature proves publisher identity and artifact integrity. It does not certify harmless behavior or grant runtime capabilities.

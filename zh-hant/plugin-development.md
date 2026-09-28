@@ -816,7 +816,7 @@ verify-artifact --artifact <jar> --signature <sig.json> --plugin-id <id> --versi
 
 ### 讓用戶添加自定義倉庫
 
-發佈一個最大 64 KiB、嚴格 UTF-8 JSON 的 `repository.json`，使用者只需在外掛程式市集填寫它的公網 HTTPS 位址：
+發佈一個最大 64 KiB、嚴格 UTF-8 JSON 的 `repository.json`，使用者在 GUI 的「設定 → 外掛程式市集設定 → 新增 → 使用儲存庫描述檔」中填寫它的公網 HTTPS 位址：
 
 ```json
 {
@@ -891,3 +891,7 @@ git switch -c feat/plugin-api/your-capability upstream/master
 - [ ] `mvn clean verify`、前端行爲測試和 JAR 結構檢查通過
 - [ ] 發佈 artifact 的大小、SHA-256、簽名和 manifest 完全對應同一份字節
 - [ ] 私鑰不在源碼、構建輸出、日誌、插件包或倉庫服務器公開目錄中
+
+## 畫廊導覽槽位
+
+外掛程式透過 `NavigationContribution.placements` 聲明入口。`gallery.sidebar` 承載外掛程式、下載、畫廊等主要頁面，`gallery.sidebar.tools` 承載邀請碼管理、統計、疑似重複等工具頁面；小說畫廊對應 `novel.sidebar` 和 `novel.sidebar.tools`。兩組獨立排序，按請求身分過濾；貢獻撤回後入口消失，空組隱藏。頁面只聲明 `data-nav-slot`，不按外掛程式 ID 分類。

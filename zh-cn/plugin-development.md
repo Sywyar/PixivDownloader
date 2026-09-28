@@ -838,7 +838,7 @@ verify-artifact --artifact <jar> --signature <sig.json> --plugin-id <id> --versi
 
 ### 让用户添加自定义仓库
 
-发布一个最大 64 KiB、严格 UTF-8 JSON 的 `repository.json`，用户只需在插件市场填写它的公网 HTTPS 地址：
+发布一个最大 64 KiB、严格 UTF-8 JSON 的 `repository.json`，用户在 GUI 的「设置 → 插件市场设置 → 添加 → 使用仓库描述符」中填写它的公网 HTTPS 地址：
 
 ```json
 {
@@ -937,3 +937,7 @@ git switch -c feat/plugin-api/your-capability upstream/master
 - [ ] `mvn clean verify`、前端行为测试和 JAR 结构检查通过
 - [ ] 发布 artifact 的大小、SHA-256、签名和 manifest 完全对应同一份字节
 - [ ] 私钥不在源码、构建输出、日志、插件包或仓库服务器公开目录中
+
+## 画廊导航槽位
+
+插件通过 `NavigationContribution.placements` 声明入口。`gallery.sidebar` 承载插件、下载、画廊等主页面，`gallery.sidebar.tools` 承载邀请码管理、统计、疑似重复等工具页面；小说画廊对应 `novel.sidebar` 和 `novel.sidebar.tools`。两组独立排序，按请求身份过滤；贡献撤回后入口消失，空组隐藏。页面只声明 `data-nav-slot`，不按插件 ID 分类。

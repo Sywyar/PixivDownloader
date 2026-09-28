@@ -143,7 +143,7 @@ Mail 插件通过 SMTP 发送配置测试邮件和业务通知。连接会携带
 | 请求所有者 | 目标地址 | 用途 | 触发场景与默认状态 |
 | --- | --- | --- | --- |
 | 应用宿主的插件市场 | 正式版使用 `https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json`，每夜构建版使用同仓库的 `nightly-manifest.json`；包地址通常为 GitHub Release，并可能重定向到 `*.githubusercontent.com` | 获取与当前应用发布通道匹配的官方插件清单、下载用户选择的插件包并做签名、SHA-256 和大小校验 | 清单由打包进应用的版本自动选择；`plugin-catalog.enabled` 与内嵌官方仓库默认启用，管理员打开或刷新市场时拉取清单，明确安装插件时下载包；应用启动本身不访问仓库；最多跟随五跳重定向且每一跳都重新校验，关闭主开关可完全停用该链路 |
-| 应用宿主的插件市场 | 管理员输入的公网 HTTPS `repository.json` | 预览仓库声明的发布者、目录、撤销/更新证明端点、实际联网主机和完整公钥指纹；请求不携带 Cookie、账号、作品、本地路径或其它应用凭据，也不请求 `repository.json.sig` | 仅在管理员提交预览或确认信任时触发；确认会重新获取并要求描述符 SHA-256 不变。响应最大 64 KiB，所有地址都执行公网 HTTPS 与 SSRF 校验；`DIRECT_STRICT` 不跟随重定向，`GITHUB_RELEASES` 只允许 GitHub 固定主机边界内一跳。取消预览或不确认不会保存/启用仓库 |
+| GUI 仓库描述符导入 | 管理员输入的公网 HTTPS `repository.json` | 预览仓库声明的发布者、目录、撤销/更新证明端点、实际联网主机和完整公钥指纹；请求不携带 Cookie、账号、作品、本地路径或其它应用凭据，也不请求 `repository.json.sig` | 在 GUI 预览、确认和统一保存新描述符快照时触发；确认会重新获取并要求描述符 SHA-256 不变。响应最大 64 KiB，所有地址都执行公网 HTTPS 与 SSRF 校验；`DIRECT_STRICT` 不跟随重定向，`GITHUB_RELEASES` 只允许 GitHub 固定主机边界内一跳。取消预览或不确认不会保存/启用仓库 |
 | 应用宿主的插件市场 | 已信任描述符中的 HTTPS catalog endpoint、可选 `revocations.json` / `repository-update.json` 及相邻 `.sig`，以及目录指定的插件 JAR/ZIP URL | `manifest-v1` 读取清单和清单签名；`paged-v2` 分页读取列表、详情和指定版本；每次列表、详情和版本事实查询刷新必选撤销文档及签名，同一响应使用同一快照；安装在解析依赖前及下载完成后再次核对。隐藏或撤销的版本不可新装，仍可查看历史诊断；无有效快照或超过 24 小时宽限期时禁止新安装，刷新失败不会清除已知限制。包下载后还校验大小、SHA-256、发布者签名和包内 descriptor。重新导入已信任仓库时可能读取连续性证明 | 浏览/搜索/翻页、查看详情、明确安装/更新或重新导入时触发；启动只读取本地最后有效撤销快照，不自动请求第三方仓库。使用描述符映射后的固定安全网络档位；禁用/删除仓库或关闭 `plugin-catalog.enabled` 可停用后续请求 |
 | 应用宿主的社区目录与插件市场 | `https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/master/` 下的 `generated/current.json`、`generated/generations/<sequence>/directory.json` 及按需 shard、`generated/repository.json`、清单与撤销文件；审核、投稿和历史发布者记录来自该仓库中的受控相对路径，包地址来自已验签清单 | 独立社区根验证目录与包签名，核对目录序号、描述符与 key 指纹；所选版本详情最多读取一份审核记录，安装还验证原发布者签名与实际包内声明。请求只包含公开路径及标准连接元数据，不携带 Cookie、私钥或应用凭据 | 社区仓库默认启用，管理员浏览社区来源、查看版本、安装或预览/确认第三方仓库认证时触发；启动只做本地复验，不自动安装。沿用宿主代理和 `GITHUB_RELEASES` 的公网 HTTPS、GitHub 主机与一跳重定向边界。关闭 `plugin-catalog.community-repository-enabled` 停止社区市场请求；第三方仓库认证查询随 `plugin-catalog.enabled` 主开关关闭。目录失败保留已验证的最近一个桶，损坏状态拒绝重置防回滚水位 |
 | 应用宿主 FFmpeg 安装器 | `https://github.com/Sywyar/PixivDownloader-Remote-Content/releases/download/ffmpeg-stable/ffmpeg-release.json`、相邻的 `ffmpeg-release.json.sig`、当前系统与架构对应的 `ffmpeg-{windows-x64,linux-x64,linux-arm64,macos-x64,macos-arm64}.zip`，以及 GitHub Release CDN 重定向 | 先使用应用内置官方信任根验证 Ed25519 清单签名，再按清单中的精确资产名、大小和 SHA-256 验证 FFmpeg 官方稳定源码构建，全部通过后才解压。GET 请求只发送 FFmpeg 安装器 User-Agent、IP 等标准连接元数据，不发送 Pixiv Cookie、账号或其它应用凭据 | 仅在 GUI 中明确选择自动安装 FFmpeg 时触发；应用启动本身不会下载；不支持的系统继续使用手动安装。请求沿用宿主代理设置；不执行自动安装即可停用该链路 |
@@ -152,6 +152,9 @@ Mail 插件通过 SMTP 发送配置测试邮件和业务通知。连接会携带
 | All-in-One 油猴脚本管理器，不属于插件 | `https://github.com/Sywyar/PixivDownloader/releases/latest/download/Pixiv%20All-in-One.user.js` | 检查或下载构建生成的合并脚本 | 仅安装该发行脚本后由脚本管理器触发 |
 
 ## 官方插件的可选调查（PostHog）
+
+GUI 预览和确认描述符时会联网；保存包含新描述符快照的设置时，会再次获取描述符并校验同一 SHA-256。确认前不修改配置，确认后的草稿也必须通过设置页统一保存才会写盘。
+
 
 布局反馈调查属于 `download-workbench` 插件；多人模式保留意愿调查属于 `multi-mode-decision-survey` 插件，并且只在管理员站内信中显示。独立的 `posthog` 插件提供 PostHog JavaScript SDK 和调用方配置的隔离客户端。SDK 已随插件静态资源打包，不会从 CDN 加载。
 

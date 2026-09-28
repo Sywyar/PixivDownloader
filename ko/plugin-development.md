@@ -90,3 +90,7 @@ PostHog 기능은 vendor 전용 foundation과 플러그인 소유 consumer를 �
 - 시작/중지/reload/unload와 실패 복구 테스트
 - JAR 구조, SHA-256, 서명과 catalog 검증
 - 문서, 테스트 결과와 변경 범위를 PR에 기록
+
+## 갤러리 탐색 슬롯
+
+플러그인은 `NavigationContribution.placements`로 항목을 선언합니다. `gallery.sidebar`는 플러그인, 다운로드, 갤러리 같은 주요 페이지용이며, `gallery.sidebar.tools`는 초대 관리, 통계, 중복 후보 같은 도구용입니다. 소설 갤러리는 `novel.sidebar`와 `novel.sidebar.tools`를 사용합니다. 각 그룹에 정렬 순서와 요청 사용자의 접근 권한을 독립적으로 적용합니다. 기여를 철회하면 항목이 사라지고 빈 그룹은 숨겨집니다. 페이지는 `data-nav-slot`만 선언하며 플러그인 ID로 분류하지 않습니다.
