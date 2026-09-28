@@ -4,32 +4,15 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.core.stats.StatsAggregates;
 import top.sywyar.pixivdownload.core.stats.StatsQueryStore;
-import top.sywyar.pixivdownload.gallerytools.GalleryToolsPlugin;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopControlCenterAvailability;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone;
-import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class StatsServiceTest {
-
-    @Test
-    @DisplayName("统计页只声明下一级 Web 导航与桌面快速开始入口")
-    void statsNavigationStaysOutOfAppTop() {
-        assertThat(new GalleryToolsPlugin().navigation())
-                .filteredOn(navigation -> navigation.id().equals("stats"))
-                .singleElement()
-                .satisfies(navigation -> assertThat(navigation.placements())
-                        .containsExactlyInAnyOrder(
-                                NavigationPlacements.APP_SIDEBAR,
-                                NavigationPlacements.GALLERY_SIDEBAR,
-                                NavigationPlacements.NOVEL_SIDEBAR,
-                                NavigationPlacements.DUPLICATES_HEADER_ICONS,
-                                NavigationPlacements.DESKTOP_QUICK_START));
-    }
 
     @Test
     @DisplayName("桌面快照只复用现有统计总览")

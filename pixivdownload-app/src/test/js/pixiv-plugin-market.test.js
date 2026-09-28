@@ -239,18 +239,8 @@ eq('市场 recoveryBlocked toast 保留后端 message', blockedFeedback.message,
     eq('版本详情路径与 cursor 分别编码', fetchCalls[1].url,
         '/api/plugin-market/plugins/repo%20id/demo%2Fplugin?cursor=v%2B2&limit=24');
 
-    fetchCalls.length = 0;
-    nextFetchResponse = {status: 200, body: {descriptorUrl: 'https://repo.example/repository.json'}};
-    await PMK.api.previewRepository('https://repo.example/repository.json');
-    eq('仓库预览只发送 descriptorUrl', fetchCalls[0].opts.body,
-        '{"descriptorUrl":"https://repo.example/repository.json"}');
-    await PMK.api.trustRepository({
-        descriptorUrl: 'https://repo.example/repository.json', descriptorSha256: 'a'.repeat(64),
-        catalogEndpoint: 'https://evil.example/ignored', trustedKeys: ['ignored']
-    });
-    eq('仓库确认只发送 URL、预览摘要和显式确认', fetchCalls[1].opts.body,
-        '{"descriptorUrl":"https://repo.example/repository.json","expectedDescriptorSha256":"' +
-        'a'.repeat(64) + '","trustConfirmed":true}');
+    eq('Web 市场不提供仓库描述符预览操作', typeof PMK.api.previewRepository, 'undefined');
+    eq('Web 市场不提供仓库信任保存操作', typeof PMK.api.trustRepository, 'undefined');
 
     // 503 是安装事务的结构化终态，不得被 API 层当成普通 HTTP 错误丢掉 outcome / message。
     fetchCalls.length = 0;

@@ -34,6 +34,7 @@ final class DesktopRepositorySettingsController {
     private final DesktopUiHost host;
     private final Map<String, String> formValues;
     private final DesktopTrustedKeyEditorView trustedKeyView;
+    private final DesktopRepositoryImportView descriptorImport;
 
     private volatile List<RepositoryConfigEntry> entries = List.of();
     private volatile List<RepositoryConfigEntry> savedEntries = List.of();
@@ -54,6 +55,13 @@ final class DesktopRepositorySettingsController {
     ) {
         this.owner = owner;
         this.host = host;
+        this.descriptorImport = new DesktopRepositoryImportView(owner, host,
+                id -> {
+                    for (int index = 0; index < entries.size(); index++) {
+                        if (index != editingRepositoryIndex && entries.get(index).id().equalsIgnoreCase(id)) return false;
+                    }
+                    return true;
+                }, this::acceptRepositoryEntry);
         this.formValues = formValues;
         this.trustedKeyView = new DesktopTrustedKeyEditorView(this);
     }
@@ -267,6 +275,7 @@ final class DesktopRepositorySettingsController {
         );
         trustedKeys = existing == null ? List.of() : existing.trustedKeys().stream().filter(trusted -> official == null || !trusted.equals(
                 official)).toList();
+        descriptorImport.reset(existing);
         showRepositoryEditorDialog();
     }
 
@@ -277,12 +286,24 @@ final class DesktopRepositorySettingsController {
                 title,
                 DesktopUiDocument.DialogStyle.INFO,
                 this::repositoryEditorContent,
-                720,
+                560,
                 760
         );
     }
 
     private DesktopUiNode repositoryEditorContent(
+            Map<String, Runnable> nextActions, String dismissAction, Runnable dismiss) {
+        return new DesktopUiNode.RepositoryEditor("config.market.repository.editor",
+                new DesktopUiNode.Tabs("config.market.repository.mode", List.of(
+                new DesktopUiNode.Tab("descriptor", key("gui.config.market.repo.mode.descriptor"),
+                        descriptorImport.content(nextActions, dismissAction, dismiss)),
+                new DesktopUiNode.Tab("manual", key("gui.config.market.repo.mode.manual"),
+                        manualEditorContent(nextActions, dismissAction, dismiss))),
+                editingRepositoryIndex < 0 || entries.get(editingRepositoryIndex).extraFields().containsKey("descriptor-url")
+                        ? "descriptor" : "manual"));
+    }
+
+    private DesktopUiNode manualEditorContent(
             Map<String, Runnable> nextActions,
             String dismissAction,
             Runnable dismiss
@@ -534,7 +555,10 @@ final class DesktopRepositorySettingsController {
                 )
         ));
 
-        fields.add(new DesktopUiNode.Form(
+        fields.add(new DesktopUiNode.Group(
+                "config.market.repository.advanced",
+                token("gui-compose", "gui.compose.tools.workspace.advanced", ""),
+                new DesktopUiNode.Form(
                 "config.market.repository.overrides",
                 DesktopUiNode.FormStyle.RESPONSIVE,
                 key("gui.punctuation.colon"),
@@ -596,7 +620,7 @@ final class DesktopRepositorySettingsController {
                                 )
                         )
                 )
-        ));
+        ), true));
         if (!formErrorKey.isBlank()) {
             fields.add(text(
                     "config.market.repository.error",
@@ -716,6 +740,10 @@ final class DesktopRepositorySettingsController {
                 trustedKeys,
                 existing == null ? new LinkedHashMap<>() : existing.extraFields()
         );
+        acceptRepositoryEntry(entry);
+    }
+
+    private void acceptRepositoryEntry(RepositoryConfigEntry entry) {
         List<RepositoryConfigEntry> updated = new ArrayList<>(entries);
         int selected;
         if (editingRepositoryIndex < 0) {
@@ -962,6 +990,7 @@ final class DesktopRepositorySettingsController {
     }
 
     void acceptForm(String binding, String value) {
+        descriptorImport.acceptForm(binding, value);
         if ("config.market.repositories.selected".equals(binding)) {
             selectedRepositoryRow = value.isBlank() ? null : value;
         } else if ("config.market.repository.trusted.selected".equals(binding)) {

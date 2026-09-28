@@ -33,14 +33,18 @@ window.PixivMediaSettings = (() => {
         container.replaceChildren();
         container.hidden = !admin;
         if (!admin) return;
-        const scope = document.createElement('p');
-        scope.className = 'media-settings-scope';
-        scope.textContent = translate('media.settings.scope');
-        container.append(scope);
+        const classic = !!container.closest('#download-settings-card');
+        const rowClass = classic ? 'setting-item' : 'media-format-row';
+        if (!classic) {
+            const scope = document.createElement('p');
+            scope.className = 'media-settings-scope';
+            scope.textContent = translate('media.settings.scope');
+            container.append(scope);
+        }
         for (const field of fields) {
             const row = document.createElement('div');
-            row.className = 'media-format-row';
-            const label = document.createElement('span');
+            row.className = rowClass;
+            const label = document.createElement(classic ? 'label' : 'span');
             label.textContent = translate('media.' + field.name + '.label');
             const dropdown = document.createElement('details');
             dropdown.className = 'media-format-select';
@@ -91,25 +95,29 @@ window.PixivMediaSettings = (() => {
                 if (next && !dropdown.contains(next) && !next.contains(dropdown)) dropdown.open = false;
             });
             dropdown.append(summary, options);
-            const help = document.createElement('small');
-            help.textContent = translate('media.' + field.name + '.help');
-            row.append(label, dropdown, help);
+            row.append(label, dropdown);
+            if (!classic) {
+                const help = document.createElement('small');
+                help.textContent = translate('media.' + field.name + '.help');
+                row.append(help);
+            }
             container.append(row);
             refresh();
         }
         for (const field of encodingFields) {
             const row = document.createElement('div');
-            row.className = 'media-format-row';
+            row.className = rowClass + ' media-encoding-row';
             const label = document.createElement('label');
             label.htmlFor = 'media-setting-' + field.key;
             label.textContent = translate('media.' + field.name + '.label');
             const input = document.createElement('input');
             input.id = label.htmlFor;
             const checkbox = field.min == null;
+            if (checkbox) row.classList.add('media-checkbox-row');
             input.type = checkbox ? 'checkbox' : 'number';
             if (checkbox) input.checked = snapshot(settings)[field.key];
             else {
-                input.className = 'ab-input';
+                if (!classic) input.className = 'ab-input';
                 input.min = String(field.min);
                 input.max = String(field.max);
                 input.step = '1';
@@ -121,10 +129,6 @@ window.PixivMediaSettings = (() => {
                 settings[field.key] = checkbox ? input.checked : input.valueAsNumber;
                 changed();
             });
-            const help = document.createElement('small');
-            help.id = input.id + '-help';
-            help.textContent = translate('media.' + field.name + '.help');
-            input.setAttribute('aria-describedby', help.id);
             let control = input;
             if (checkbox && container.closest('.ab-settings')) {
                 control = document.createElement('label');
@@ -134,7 +138,15 @@ window.PixivMediaSettings = (() => {
                 icon.className = 'toggle-icon';
                 control.append(input, icon);
             }
-            row.append(label, control, help);
+            if (classic && checkbox) row.append(control, label);
+            else row.append(label, control);
+            if (!classic) {
+                const help = document.createElement('small');
+                help.id = input.id + '-help';
+                help.textContent = translate('media.' + field.name + '.help');
+                input.setAttribute('aria-describedby', help.id);
+                row.append(help);
+            }
             container.append(row);
         }
     }

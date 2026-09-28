@@ -87,8 +87,49 @@ final class AppDesktopUiHost implements DesktopUiHost {
     }
     @Override public void writePluginRepositories(ConfigFile configFile, List<RepositoryConfigEntry> entries)
             throws IOException {
-        new top.sywyar.pixivdownload.gui.config.PluginRepositoryConfigEditor(configFile).write(entries);
+        var editor = new top.sywyar.pixivdownload.gui.config.PluginRepositoryConfigEditor(configFile);
+        var saved = editor.read();
+        boolean hasChangedDescriptors = entries.stream().anyMatch(entry ->
+                entry.extraFields().containsKey("descriptor-url") && saved.stream().noneMatch(previous ->
+                        previous.id().equalsIgnoreCase(entry.id())
+                                && java.util.Objects.equals(previous.extraFields().get("descriptor-url"),
+                                        entry.extraFields().get("descriptor-url"))
+                                && java.util.Objects.equals(previous.extraFields().get("descriptor-sha256"),
+                                        entry.extraFields().get("descriptor-sha256"))));
+        try {
+            if (hasChangedDescriptors) repositoryImports().writeDraft(configFile, entries);
+            else editor.write(entries);
+        } catch (top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException failure) {
+            throw new IOException(message(failure.messageKey()), failure);
+        }
     }
+    @Override public top.sywyar.pixivdownload.plugin.api.gui.RepositoryImportPreview previewPluginRepository(
+            String descriptorUrl) throws IOException {
+        try {
+            return repositoryImports().preview(descriptorUrl);
+        } catch (top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException failure) {
+            throw new IOException(message(failure.messageKey()), failure);
+        }
+    }
+
+    @Override public RepositoryConfigEntry preparePluginRepository(
+            String descriptorUrl, String expectedSha256, boolean trustConfirmed) throws IOException {
+        try {
+            return repositoryImports().prepare(descriptorUrl, expectedSha256, trustConfirmed);
+        } catch (top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException failure) {
+            throw new IOException(message(failure.messageKey()), failure);
+        }
+    }
+
+    private top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryImportService repositoryImports() throws IOException {
+        try {
+            return BackendLifecycleManager.requiredBean(
+                    top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryImportService.class);
+        } catch (IllegalStateException unavailable) {
+            throw new IOException(message("gui.config.market.repo.import.backend-required"), unavailable);
+        }
+    }
+
     @Override public TrustedKeyConfigEntry officialPluginRepositoryKey() {
         var key = PluginTrustStores.builtInOfficialPluginRoot();
         return TrustedKeyConfigEntry.create(key.keyId(), key.algorithm(), key.publicKeySpkiBase64(),

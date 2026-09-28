@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.catalog.repository;
 
+import top.sywyar.pixivdownload.plugin.api.gui.RepositoryKeyPreview;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode;

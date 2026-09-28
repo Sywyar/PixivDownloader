@@ -53,3 +53,6 @@
         min-block-size: 2.75rem;
     }
 }
+
+/* Empty plugin navigation groups do not leave orphaned headings. */
+.sidebar-navigation-group:not(:has(.nav-item)) { display: none; }

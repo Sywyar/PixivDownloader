@@ -161,7 +161,7 @@ class PluginApiOwnershipGuardTest {
                     "GuiConfigSectionNoticeStyle", "GuiOnboardingStepContribution", "GuiThemeAppearance",
                     "GuiThemeApplier", "GuiThemeChangeListener", "GuiThemeContribution",
                     "GuiThemeListenerFactory", "GuiThemeListenerSession", "RepositoryConfigEntry",
-                    "TrustedKeyConfigEntry"),
+                    "RepositoryImportPreview", "RepositoryKeyPreview", "TrustedKeyConfigEntry"),
                     types(API_PREFIX + "gui.media", "DesktopMediaTool"))),
             Map.entry("Web 与请求身份协议", types(API_PREFIX + "web",
                     "AccessPolicy", "ApiErrorResponse", "Audience", "DrilldownContribution", "DrilldownPlacements",
@@ -250,7 +250,7 @@ class PluginApiOwnershipGuardTest {
 
     private static final Map<String, Integer> APPROVED_TYPE_COUNTS = Map.ofEntries(
             Map.entry("插件入口与生命周期", 4),
-            Map.entry("GUI contribution 与桌面宿主契约", 52),
+            Map.entry("GUI contribution 与桌面宿主契约", 54),
             Map.entry("Web 与请求身份协议", 21),
             Map.entry("油猴脚本宿主目录协议", 2),
             Map.entry("下载类型描述协议", 2),

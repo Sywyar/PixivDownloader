@@ -30,7 +30,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         DesktopUiNode.NumberInput, DesktopUiNode.Table, DesktopUiNode.Tree,
         DesktopUiNode.Button, DesktopUiNode.Link, DesktopUiNode.AccountSetup, DesktopUiNode.OnboardingHub,
         DesktopUiNode.HomeOverview, DesktopUiNode.AutomationOverview, DesktopUiNode.PluginOverview, DesktopUiNode.ToolsOverview,
-        DesktopUiNode.SecurityOverview, DesktopUiNode.SettingsWorkspace, DesktopUiNode.AboutOverview {
+        DesktopUiNode.SecurityOverview, DesktopUiNode.SettingsWorkspace, DesktopUiNode.RepositoryEditor, DesktopUiNode.AboutOverview {
 
     /** @return 单份文档内稳定的节点标识 */
     String id();
@@ -92,6 +92,17 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
         @Override public Kind kind() { return Kind.CONTAINER; }
         @Override public List<DesktopUiNode> childNodes() { return children; }
+    }
+
+    /** 仓库编辑弹窗的两种输入方式，由 Compose 设置界面负责布局。 */
+    record RepositoryEditor(String id, Tabs modes) implements DesktopUiNode {
+        public RepositoryEditor {
+            id = requireId(id, "id");
+            modes = Objects.requireNonNull(modes, "modes");
+        }
+
+        @Override public Kind kind() { return Kind.REPOSITORY_EDITOR; }
+        @Override public List<DesktopUiNode> childNodes() { return List.of(modes); }
     }
 
     /** 按当前可用宽度调整列数的通用网格。 */
@@ -1570,6 +1581,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
     /** 支持的节点类型。 */
     enum Kind {
+        /** 自定义仓库编辑。 */ REPOSITORY_EDITOR,
         /** 应用身份、平台信息与更新。 */ ABOUT_OVERVIEW,
         /** 设置工作区。 */ SETTINGS_WORKSPACE,
         /** 安全与管理员登录管理。 */ SECURITY_OVERVIEW,

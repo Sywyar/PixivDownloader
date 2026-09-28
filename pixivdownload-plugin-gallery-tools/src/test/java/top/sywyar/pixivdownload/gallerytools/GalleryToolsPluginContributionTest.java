@@ -60,15 +60,15 @@ class GalleryToolsPluginContributionTest {
         assertThat(plugin.navigation()).filteredOn(nav -> nav.id().equals("stats")).singleElement()
                 .satisfies(nav -> assertThat(nav.placements()).containsExactlyInAnyOrder(
                         NavigationPlacements.APP_SIDEBAR,
-                        NavigationPlacements.GALLERY_SIDEBAR,
-                        NavigationPlacements.NOVEL_SIDEBAR,
+                        NavigationPlacements.GALLERY_SIDEBAR_TOOLS,
+                        NavigationPlacements.NOVEL_SIDEBAR_TOOLS,
                         NavigationPlacements.DUPLICATES_HEADER_ICONS,
                         NavigationPlacements.DESKTOP_QUICK_START));
         assertThat(plugin.navigation()).filteredOn(nav -> nav.id().equals("duplicate")).singleElement()
                 .satisfies(nav -> assertThat(nav.placements()).containsExactlyInAnyOrder(
                         NavigationPlacements.APP_SIDEBAR,
-                        NavigationPlacements.GALLERY_SIDEBAR,
-                        NavigationPlacements.NOVEL_SIDEBAR));
+                        NavigationPlacements.GALLERY_SIDEBAR_TOOLS,
+                        NavigationPlacements.NOVEL_SIDEBAR_TOOLS));
     }
 
     @Test

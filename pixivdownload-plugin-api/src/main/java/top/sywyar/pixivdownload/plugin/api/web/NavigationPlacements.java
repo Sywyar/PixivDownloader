@@ -33,6 +33,12 @@ public final class NavigationPlacements {
     /** 小说画廊页的侧栏主导航——含小说、不含画廊（画廊经类型切换抵达）。 */
     public static final String NOVEL_SIDEBAR = "novel.sidebar";
 
+    /** 画廊家族页面的工具导航，与主页面入口独立贡献和排序。 */
+    public static final String GALLERY_SIDEBAR_TOOLS = "gallery.sidebar.tools";
+
+    /** 小说画廊页面的工具导航，与主页面入口独立贡献和排序。 */
+    public static final String NOVEL_SIDEBAR_TOOLS = "novel.sidebar.tools";
+
     /**
      * 画廊家族页面共享的类型切换 slot。每个画廊类型插件只贡献自己的入口，页面不硬编码当前类型或其它插件；
      * 导航渲染器按当前 pathname 标记活动项，插件停用后对应入口随注册快照一并撤销。

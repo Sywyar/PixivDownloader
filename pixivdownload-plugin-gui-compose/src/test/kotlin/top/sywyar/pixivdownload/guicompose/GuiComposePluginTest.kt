@@ -334,6 +334,13 @@ class GuiComposePluginTest {
     private fun completeTree(): DesktopUiNode = DesktopUiNode.Container(
         "root", DesktopUiNode.ContainerLayout.COLUMN, 1, 4, DesktopUiNode.Alignment.STRETCH,
         listOf(
+            DesktopUiNode.RepositoryEditor(
+                "repository.editor",
+                DesktopUiNode.Tabs(
+                    "repository.modes",
+                    listOf(DesktopUiNode.Tab("descriptor", raw("Descriptor"), text("repository.descriptor"))),
+                ),
+            ),
             DesktopUiNode.AboutOverview("about", null, "Example", "test-build",
                 DesktopUiNode.Button("about.check", "about.check", raw("Check"), null, DesktopUiNode.ButtonStyle.NORMAL, true),
                 DesktopUiNode.AboutUpdateState.UNKNOWN, emptyList(), emptyList(), emptyList(), raw("Notice"), "License", emptyList()),

@@ -57,34 +57,6 @@
         return getJson('/api/plugin-market/plugins/' + enc(repositoryId) + '/' + enc(pluginId) + '/' + enc(version) + '/facts');
     };
 
-    function postJson(url, body) {
-        return fetch(url, {
-            method: 'POST', credentials: 'same-origin',
-            headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-        }).then(function (res) {
-            return res.json().catch(function () { return null; }).then(function (data) {
-                if (!res.ok) {
-                    var error = new Error(data && data.message ? data.message : 'HTTP ' + res.status);
-                    error.body = data; error.httpStatus = res.status; throw error;
-                }
-                return data;
-            });
-        });
-    }
-
-    API.previewRepository = function (descriptorUrl) {
-        return postJson('/api/plugin-market/repositories/import/preview', { descriptorUrl: descriptorUrl });
-    };
-
-    API.trustRepository = function (preview) {
-        return postJson('/api/plugin-market/repositories/import/trust', {
-            descriptorUrl: preview.descriptorUrl,
-            expectedDescriptorSha256: preview.descriptorSha256,
-            trustConfirmed: true
-        });
-    };
-
     // POST /api/plugin-market/{repositoryId}/{pluginId}/{version}/install（请求体不含 URL）。
     // 后端对「已决安装结局」返回 PluginInstallResponse（带稳定 outcome，含各类拒绝），对「拿到包之前的 catalog / 下载层
     // 失败」返回错误体（带稳定 code）。据响应体字段归一化：outcome → install；code → error；都没有 → 抛错（如 401 跳登录）。

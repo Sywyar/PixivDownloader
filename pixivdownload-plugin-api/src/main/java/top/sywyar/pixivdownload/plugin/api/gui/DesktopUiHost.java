@@ -208,6 +208,34 @@ public interface DesktopUiHost extends DesktopUiToolHost {
     }
 
     /**
+     * 在既有限制内读取描述符事实，不改变配置或信任状态。
+     *
+     * @param descriptorUrl 仓库描述符的公网 HTTPS 地址
+     * @return 待用户核对的仓库与信任事实
+     * @throws IOException 描述符无法获取或未通过校验时抛出
+     */
+    default RepositoryImportPreview previewPluginRepository(String descriptorUrl) throws IOException {
+        throw new UnsupportedOperationException("Repository descriptor import is not supported by this host");
+    }
+
+    /**
+     * 复验已确认的描述符并返回草稿；持久化由 writePluginRepositories 完成。
+     *
+     * @param descriptorUrl 已预览的仓库描述符地址
+     * @param expectedSha256 用户确认的描述符 SHA-256
+     * @param trustConfirmed 用户是否已核对并确认信任该仓库
+     * @return 通过复验的仓库配置草稿
+     * @throws IOException 描述符无法获取、事实变化或信任校验失败时抛出
+     */
+    default RepositoryConfigEntry preparePluginRepository(
+            String descriptorUrl,
+            String expectedSha256,
+            boolean trustConfirmed
+    ) throws IOException {
+        throw new UnsupportedOperationException("Repository descriptor import is not supported by this host");
+    }
+
+    /**
      * @return 以纯配置值表示的内置官方仓库信任根
      */
     default TrustedKeyConfigEntry officialPluginRepositoryKey() {

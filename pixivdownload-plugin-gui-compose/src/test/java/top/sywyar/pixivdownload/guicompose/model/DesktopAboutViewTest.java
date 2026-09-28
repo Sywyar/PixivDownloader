@@ -41,8 +41,11 @@ class DesktopAboutViewTest {
             assertEquals(System.getProperty("os.arch"), facts.get("architecture").fallback());
             assertEquals(System.getProperty("java.runtime.version"), facts.get("java").fallback());
             assertEquals(kotlin.KotlinVersion.CURRENT.toString(), facts.get("kotlin").fallback());
+            assertEquals(Integer.toString(Runtime.getRuntime().availableProcessors()), facts.get("processors").fallback());
+            assertEquals(ComposeApplicationInfo.bytes(Runtime.getRuntime().maxMemory()), facts.get("heap"));
+            assertFalse(facts.get("cpu").fallback().isBlank() && facts.get("cpu").key().isBlank());
             assertEquals(java.util.Set.of("version", "channel", "mode", "os", "os-version", "architecture",
-                    "java", "java-vendor", "vm", "interface", "kotlin", "launch"), facts.keySet());
+                    "cpu", "processors", "memory", "heap", "java", "java-vendor", "vm", "interface", "kotlin", "launch"), facts.keySet());
             var endpoints = DesktopUiEventProtocol.index(model.snapshot().document());
             assertTrue(endpoints.keySet().containsAll(about.links().stream().map(DesktopUiNode.Link::id).toList()));
             about.maintainers().forEach(person -> assertTrue(endpoints.containsKey(person.link().id())));
@@ -50,6 +53,23 @@ class DesktopAboutViewTest {
             awaitIdle(model);
             assertEquals("https://example.com/project", opened.get());
         }
+    }
+
+    @Test
+    @DisplayName("硬件字段只提取型号，未知内存保留不可用状态")
+    void hardwareValues() throws Exception {
+        try (var reader = new java.io.BufferedReader(new java.io.StringReader(
+                "processor : 0\nserial : private\nmodel name : Example CPU\nmodel name : Other CPU\n"))) {
+            assertEquals("Example CPU", ComposeApplicationInfo.cpuModel(reader));
+        }
+        try (var reader = new java.io.BufferedReader(new java.io.StringReader("Hardware : Example ARM\n"))) {
+            assertEquals("Example ARM", ComposeApplicationInfo.cpuModel(reader));
+        }
+        try (var reader = new java.io.BufferedReader(new java.io.StringReader("processor : 0\n"))) {
+            assertNull(ComposeApplicationInfo.cpuModel(reader));
+        }
+        assertEquals("32.0 GiB", ComposeApplicationInfo.bytes(32L * 1024 * 1024 * 1024).fallback());
+        assertEquals("gui.compose.about.unknown", ComposeApplicationInfo.bytes(-1).key());
     }
 
     @Test

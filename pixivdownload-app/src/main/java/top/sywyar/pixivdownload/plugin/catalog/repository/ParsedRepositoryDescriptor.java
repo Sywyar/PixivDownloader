@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.catalog.repository;
 
+import top.sywyar.pixivdownload.plugin.api.gui.RepositoryKeyPreview;
 import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
 
 import java.util.List;

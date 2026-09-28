@@ -87,7 +87,7 @@ for (const variant of ['classic', 'alt']) {
         h.run("state.isPaused = true; state.queue[0].status = 'completed'; saveQueue(); serverState.pixiv_cookie = 'fixture';");
         await h.context.doLogout();
         const saved = JSON.parse(h.requests[0].body.state.pixiv_batch_queue);
-        assert.equal(saved.queue[0].status, 'completed');
+        assert.equal(saved.queue.find(item => item.id === '0').status, 'completed');
         assert.equal(saved.isPaused, true);
         assert.equal(h.requests[0].body.state.pixiv_cookie, undefined);
         assert.equal(h.requests[1].url, '/api/auth/logout');
@@ -126,6 +126,53 @@ for (const variant of ['classic', 'alt']) {
         assert.equal(list.children[41], nodes[41]);
     });
 }
+
+test('新版队列整批前置，终态沉底，保存恢复与从上往下领取复用同一条目', async () => {
+    const h = harness('alt');
+    Object.assign(h.context, {
+        normalizeAuthorId: value => value == null ? null : String(value),
+        syncAllResultsQueueState() {}, ensureWorkers() {},
+        restoreInterruptedQueueItem: () => false
+    });
+    h.run("state.queue = [{id:'active', status:'downloading'}, {id:'older', status:'pending'}, {id:'done', status:'completed'}]; state.isRunning = true;");
+    const active = h.run('state.queue[0]');
+    const ids = () => Array.from(h.run('state.queue'), item => item.id);
+    assert.equal(h.context.addItemsToQueue(['new-a', 'new-b', 'new-a', 'active'], [], 'user'), 2);
+    assert.deepEqual(ids(), ['new-a', 'new-b', 'active', 'older', 'done']);
+    assert.equal(h.run('state.queue[2]'), active);
+    assert.equal(active.status, 'downloading');
+    const first = h.context.getNextPending();
+    assert.equal(first.id, 'new-a');
+    h.run("commitQueueItemPatch(state.queue[0], {status:'completed'});");
+    assert.deepEqual(ids(), ['new-b', 'active', 'older', 'new-a', 'done']);
+    assert.equal(h.run('state.queue[3]'), first);
+    const second = h.context.getNextPending();
+    assert.equal(second.id, 'new-b');
+    h.run("commitQueueItemPatch(state.queue[0], {status:'skipped'});");
+    assert.deepEqual(ids(), ['active', 'older', 'new-b', 'new-a', 'done']);
+    const saved = JSON.parse(h.context.storeGet('pixiv_batch_queue'));
+    assert.deepEqual(saved.queue.map(item => item.id), ids());
+    h.context.loadQueueForMode();
+    assert.deepEqual(ids(), saved.queue.map(item => item.id));
+    assert.equal(h.context.getNextPending().id, 'older');
+
+    const synced = [];
+    Object.assign(h.context, {
+        renderQueueRecovery() {}, refreshCurrentCard() {},
+        altQueueVueActive: () => true,
+        altQueueVue: () => ({syncList: item => synced.push(item)})
+    });
+    h.render(second, true);
+    assert.equal(synced.pop(), null, '重排必须同步行结构，不能把旧下标当成新下标');
+    const pendingArray = h.run('state.queue');
+    const item = pendingArray[1];
+    for (let i = 0; i < 100; i++) {
+        item.downloadedCount = i;
+        h.render(item);
+        assert.equal(synced.pop(), item, '纯进度保持单行同步');
+        assert.equal(h.run('state.queue'), pendingArray);
+    }
+});
 
 test('经典打包按钮跳过纯进度扫描，完成、清空和权限刷新仍立即生效', () => {
     const h = harness('classic');
@@ -181,6 +228,6 @@ test('新版队列延迟序列化保持凭据写入顺序，失败后后续保�
     await credential;
     await last;
     assert.equal(h.requests[2].state.pixiv_cookie, 'new-fixture');
-    assert.equal(JSON.parse(h.requests[2].state.pixiv_batch_queue).queue[0].status, 'completed');
+    assert.equal(JSON.parse(h.requests[2].state.pixiv_batch_queue).queue.find(item => item.id === '0').status, 'completed');
     assert.equal(h.serializations(), 2);
 });

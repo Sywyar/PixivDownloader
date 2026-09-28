@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.catalog.repository;
+package top.sywyar.pixivdownload.plugin.api.gui;
 
 /** 描述符预览中的完整发布密钥事实。 */
 public record RepositoryKeyPreview(

@@ -292,16 +292,15 @@ public class CorePlugin implements PixivFeaturePlugin {
         return List.of(
                 new NavigationContribution(
                         "invite-manage",
-                        Set.of(NavigationPlacements.APP_SIDEBAR, NavigationPlacements.GALLERY_SIDEBAR,
-                                NavigationPlacements.NOVEL_SIDEBAR, NavigationPlacements.DESKTOP_SECURITY_ACTIONS),
+                        Set.of(NavigationPlacements.APP_SIDEBAR, NavigationPlacements.GALLERY_SIDEBAR_TOOLS,
+                                NavigationPlacements.NOVEL_SIDEBAR_TOOLS, NavigationPlacements.DESKTOP_SECURITY_ACTIONS),
                         "invite", "nav.label", "/pixiv-invite-manage.html",
                         "invite-manage", AccessPolicy.ADMIN, 80, Set.of(), "nav.description"),
-                // 插件入口：顶部应用导航栏入口，与下载工作台 / 画廊 / 小说同级（不进各侧栏——它是顶部栏级页面、
-                // 非画廊 / 小说家族侧栏入口）。priority 85 仍为内置最大值，使其排在全部内置基础 / 功能页面之后
-                //（顶部栏内「管理入口在末尾」，内置必选业务页面靠前）。
+                // 插件管理与下载、画廊同属主页面入口。
                 new NavigationContribution(
                         "plugin-manage",
-                        NavigationPlacements.APP_TOP,
+                        Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.GALLERY_SIDEBAR,
+                                NavigationPlacements.NOVEL_SIDEBAR),
                         "plugins", "nav.label", "/plugin-manage.html",
                         "puzzle", AccessPolicy.ADMIN, 85));
     }
