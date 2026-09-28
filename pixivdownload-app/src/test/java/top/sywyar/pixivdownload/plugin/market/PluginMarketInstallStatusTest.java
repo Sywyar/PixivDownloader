@@ -2,6 +2,9 @@ package top.sywyar.pixivdownload.plugin.market;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogAcquisitionService;
@@ -9,6 +12,7 @@ import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogProperties;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogService;
 import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogEntry;
 import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogManifest;
+import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogMarketMeta;
 import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogPackage;
 import top.sywyar.pixivdownload.plugin.catalog.page.PluginCatalogDetailPage;
 import top.sywyar.pixivdownload.plugin.catalog.page.PluginCatalogPage;
@@ -23,6 +27,7 @@ import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusReport;
 
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -133,6 +138,48 @@ class PluginMarketInstallStatusTest {
         assertThat(b.latestVersion()).isEqualTo("2.0.0");
         assertThat(b.updateAvailable()).isTrue();
         assertThat(view.installedCount()).isEqualTo(1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "7.3.0-rc.2,7.3.0-rc.3,7.3.0-rc.10",
+            "7.3.0-rc.10,7.3.0-rc.3,7.3.0-rc.2",
+            "7.3.0-rc.3,7.3.0-rc.2,7.3.0-rc.10"
+    })
+    @DisplayName("未声明最新版时，列表与详情按版本语义选择最高版本，不依赖清单顺序")
+    void selectsHighestVersionRegardlessOfPackageOrder(String versions) {
+        PluginMarketService market = service(installed("b", "7.3.0-rc.2"));
+        PluginCatalogEntry entry = entry("b", Stream.of(versions.split(","))
+                .map(version -> pkg(version, "1.0")).toArray(PluginCatalogPackage[]::new));
+        when(catalogService.loadPage(eq(PluginRepository.OFFICIAL_ID), any(PluginCatalogPageQuery.class)))
+                .thenReturn(new PluginCatalogPage("manifest-v1", List.of(entry), null, 1L, Map.of(), false));
+        when(catalogService.loadEntryPage(eq(PluginRepository.OFFICIAL_ID), eq("b"), isNull(), eq(24)))
+                .thenReturn(new PluginCatalogDetailPage(entry, "manifest-v1", null, 3L, false));
+
+        assertThat(List.of(entryOf(market.catalog(PluginRepository.OFFICIAL_ID), "b"),
+                market.pluginDetail(PluginRepository.OFFICIAL_ID, "b"))).allSatisfy(view -> {
+            assertThat(view.latestVersion()).isEqualTo("7.3.0-rc.10");
+            assertThat(view.installStatus()).isEqualTo(MarketInstallStatus.UPDATE_AVAILABLE);
+            assertThat(view.updateAvailable()).isTrue();
+        });
+    }
+
+    @ParameterizedTest
+    @CsvSource({"7.3.0-rc.3,7.3.0-rc.3", "7.3.0-rc.99,7.3.0-rc.10"})
+    @DisplayName("保留清单显式指定的可用版本，指定版本不存在时回退到语义最高版本")
+    void respectsAvailableDeclaredVersion(String declared, String expected) {
+        PluginCatalogMarketMeta meta = new PluginCatalogMarketMeta(null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, declared, null, null, null,
+                false, false, false);
+        PluginCatalogEntry entry = new PluginCatalogEntry("sample", null, null, null, meta,
+                List.of(pkg("7.3.0-rc.2", "1.0"), pkg("7.3.0-rc.3", "1.0"), pkg("7.3.0-rc.10", "1.0")));
+
+        PluginMarketEntryView view = PluginMarketEntryView.from(
+                new PluginRepositoryRegistry(new PluginCatalogProperties()).defaultRepository().orElseThrow(),
+                entry, true, "7.3.0-rc.2");
+
+        assertThat(view.latestVersion()).isEqualTo(expected);
+        assertThat(view.installStatus()).isEqualTo(MarketInstallStatus.UPDATE_AVAILABLE);
     }
 
     @Test
