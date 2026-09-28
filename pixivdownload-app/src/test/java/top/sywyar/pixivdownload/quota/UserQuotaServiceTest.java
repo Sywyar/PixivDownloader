@@ -344,12 +344,13 @@ class UserQuotaServiceTest {
         }
 
         @Test
-        @DisplayName("管理员打包排除 *.meta.json（meta sidecar 不入 zip）")
+        @DisplayName("管理员打包排除现存元数据和媒体记录文件")
         void adminArchiveExcludesSidecar() throws Exception {
             when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
             Path folder = Files.createDirectories(tempDir.resolve("100"));
             Files.writeString(folder.resolve("100_p0.jpg"), "image");
             Files.writeString(folder.resolve("100.meta.json"), "{\"schemaVersion\":1}");
+            Files.writeString(folder.resolve("100_p0.media.properties"), "original=jpg");
 
             String token = userQuotaService.triggerAdminArchive(List.of(folder));
             UserQuotaService.ArchiveEntry entry = userQuotaService.getArchive(token);
@@ -365,6 +366,7 @@ class UserQuotaServiceTest {
             }
             assertThat(names).contains("100/100_p0.jpg");
             assertThat(names).noneMatch(n -> n.endsWith(".meta.json"));
+            assertThat(names).noneMatch(n -> n.endsWith(".media.properties"));
         }
     }
 

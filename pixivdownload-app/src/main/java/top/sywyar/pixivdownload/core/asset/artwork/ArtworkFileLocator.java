@@ -42,6 +42,7 @@ public class ArtworkFileLocator {
     private final DownloadConfig downloadConfig;
     private final AppMessages messages;
     private final StagedFileDeletion stagedFileDeletion;
+    private final top.sywyar.pixivdownload.core.asset.ArtworkMediaStore mediaStore;
 
     public record LocatedArtworkFile(File file, String extension) {
     }
@@ -66,7 +67,7 @@ public class ArtworkFileLocator {
         LinkedHashSet<String> priority = new LinkedHashSet<>();
         boolean hasManifest = false;
         try {
-            var manifest = ArtworkMediaManifest.read(Paths.get(directoryPath, baseName));
+            var manifest = mediaStore.find(artwork.artworkId(), page);
             hasManifest = manifest.isPresent();
             manifest.filter(ArtworkMediaManifest::originalRetained)
                     .ifPresent(saved -> priority.add(saved.originalExtension()));

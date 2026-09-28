@@ -105,6 +105,8 @@ When image conversion is selected, downloads can overlap with conversion, with a
 
 For existing works, open **Tools → FFmpeg and tools → Process downloaded media** in the Compose desktop UI, select target formats, and detect missing files without entering artwork IDs. Review the results and start explicitly. Processing adds missing formats and thumbnails while keeping existing files; going back does not cancel the task. Swing provides the same detection and processing on its Tools page. Ugoira conversion requires a retained ZIP and frame timing. FFmpeg management can test actual codec support; MP4 requires an H.264 encoder.
 
+Work metadata and per-page media format records are stored in the database. New downloads no longer create `.meta.json` or `.media.properties` files. Back up or move the media files together with `data/pixiv_download.db`; the gallery cannot rebuild work records from files alone if the database is lost. Existing sidecar files are not automatically deleted in bulk.
+
 ### Route web Pixiv through the backend-configured proxy (no system proxy needed)
 
 The backend reaches Pixiv through the proxy in your config (default `127.0.0.1:7890`) and does not rely on a system

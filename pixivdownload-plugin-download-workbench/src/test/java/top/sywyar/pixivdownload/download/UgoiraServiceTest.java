@@ -35,6 +35,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("Ugoira 稳定宿主端口")
 class UgoiraServiceTest {
+    private final top.sywyar.pixivdownload.download.media.MemoryMediaStore mediaStore = new top.sywyar.pixivdownload.download.media.MemoryMediaStore();
 
     @TempDir
     Path tempDir;
@@ -293,7 +294,7 @@ class UgoiraServiceTest {
                 fallbackResolver(), WorkbenchTestMessages.messages(), cancelled -> {
                     assertThat(progress.get(progress.size() - 1).getPhase()).isEqualTo("ffmpeg-waiting");
                     throw new CancellationException("cancel while waiting");
-                });
+                }, mediaStore);
         assertThatThrownBy(() -> service.processUgoira(100L, ugoiraRequest("waiting"), tempDir,
                 "https://www.pixiv.net/artworks/100", null, progress::add, () -> false))
                 .isInstanceOf(CancellationException.class);
@@ -401,7 +402,7 @@ class UgoiraServiceTest {
         }
     }
 
-    private static TestUgoiraService service(
+    private TestUgoiraService service(
             PixivImageDownloader downloader,
             FfmpegCommandResolver resolver
     ) {
@@ -442,7 +443,7 @@ class UgoiraServiceTest {
             timing.load(reader);
         }
         assertThat(timing.getProperty("000001.png")).isEqualTo("150");
-        var manifest = top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest.read(tempDir.resolve("animation")).orElseThrow();
+        var manifest = mediaStore.find(100L, 0).orElseThrow();
         assertThat(manifest.extensions()).containsExactly("webp", "gif", "apng", "mp4", "zip");
         assertThat(ImageIO.read(tempDir.resolve("animation_thumb.jpg").toFile())).isNotNull();
         for (String format : List.of("gif", "apng", "mp4")) {
@@ -479,7 +480,7 @@ class UgoiraServiceTest {
         assertThat(tempDir.resolve("animation.mp4")).isNotEmptyFile();
         assertThat(Files.readAllBytes(tempDir.resolve("animation.gif"))).isEqualTo(existingGif);
         assertThat(Files.readAllBytes(tempDir.resolve("animation.zip"))).isEqualTo(originalZip);
-        assertThat(top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest.read(tempDir.resolve("animation"))
+        assertThat(mediaStore.find(100L, 0)
                 .orElseThrow().extensions()).containsExactly("webp", "gif", "apng", "mp4", "zip");
     }
 
@@ -495,6 +496,22 @@ class UgoiraServiceTest {
         assertThat(Files.readAllBytes(tempDir.resolve("retained.zip"))).isEqualTo(original);
         assertThat(tempDir.resolve("retained.frames.properties")).isNotEmptyFile();
         assertThat(tempDir.resolve("retained.webp")).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("动图媒体记录保存失败不计成功，已选择的原始 ZIP 与时序仍保留")
+    void metadataFailureKeepsSelectedArchive() throws Exception {
+        var failedStore = org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ArtworkMediaStore.class);
+        org.mockito.Mockito.doThrow(new IOException("database unavailable")).when(failedStore)
+                .save(org.mockito.ArgumentMatchers.eq(100L), org.mockito.ArgumentMatchers.eq(0), org.mockito.ArgumentMatchers.any());
+        var service = new UgoiraService(archiveDownloader(zip("000000.jpg", jpegFrame())),
+                fallbackResolver(), WorkbenchTestMessages.messages(), cancelled -> () -> {}, failedStore);
+        var request = ugoiraRequest("archive");
+        request.setUgoiraFormats("zip");
+        assertThat(service.processUgoira(100L, request, tempDir, null, null)).isZero();
+        assertThat(tempDir.resolve("archive.zip")).isNotEmptyFile();
+        assertThat(tempDir.resolve("archive.frames.properties")).isNotEmptyFile();
+        assertThat(tempDir.resolve("archive.media.properties")).doesNotExist();
     }
 
     private static FfmpegCommandResolver fallbackResolver() {
@@ -567,14 +584,14 @@ class UgoiraServiceTest {
         return ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false) == false;
     }
 
-    private static final class TestUgoiraService extends UgoiraService {
+    private final class TestUgoiraService extends UgoiraService {
         private final List<Long> retryDelays = new ArrayList<>();
 
         private TestUgoiraService(
                 PixivImageDownloader downloader,
                 FfmpegCommandResolver resolver
         ) {
-            super(downloader, resolver, WorkbenchTestMessages.messages(), cancelled -> () -> {});
+            super(downloader, resolver, WorkbenchTestMessages.messages(), cancelled -> () -> {}, mediaStore);
         }
 
         @Override
@@ -602,7 +619,7 @@ class UgoiraServiceTest {
                 long timeoutNanos,
                 long maximumOutputBytes
         ) {
-            super(downloader, resolver, WorkbenchTestMessages.messages(), cancelled -> () -> {});
+            super(downloader, resolver, WorkbenchTestMessages.messages(), cancelled -> () -> {}, new top.sywyar.pixivdownload.download.media.MemoryMediaStore());
             this.childPidFile = childPidFile;
             this.timeoutNanos = timeoutNanos;
             this.maximumOutputBytes = maximumOutputBytes;

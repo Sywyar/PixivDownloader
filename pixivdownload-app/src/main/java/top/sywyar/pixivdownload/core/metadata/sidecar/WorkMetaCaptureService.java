@@ -6,42 +6,24 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-import top.sywyar.pixivdownload.core.db.ArtworkRecord;
-import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
 import top.sywyar.pixivdownload.core.metadata.ArtworkMetadataQuality;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRow;
+import top.sywyar.pixivdownload.core.metadata.WorkMetadataStore;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 
-/**
- * 作品 meta 捕获落地服务：把一份捕获到的 Pixiv 原始 body 归一化（{@link WorkMetaCurator}）
- * 后，写出权威 sidecar（{@link WorkSidecarStore}）并刷新可查询的列投影（{@code upload_time} /
- * {@code is_original}）。下载已完成、作品行已落库后调用（计划任务在下载成功后旁路调用）。
- *
- * <p><b>一致性模型</b>：sidecar 是元数据的权威落点，{@code upload_time} /
- * {@code is_original} 列是可重建投影。两者各自 best-effort、互不阻断：任一写失败仅记日志，由下次下载
- * 刷新或后续历史回填自愈，<b>绝不</b>反报下载失败（下载已成功，反报会留下被「跳过已下载」挡住的孤儿）。
- */
+/** 捕获经过裁剪的作品快照与查询列；入库失败不反报已经完成的下载失败。 */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class WorkMetaCaptureService implements WorkMetadataCapture {
 
     private final WorkMetaCurator curator;
-    private final WorkSidecarStore sidecarStore;
-    private final PixivDatabase pixivDatabase;
-    private final NovelMetadataRepository novelMetadataRepository;
-    private final ArtworkFileLocator artworkFileLocator;
+    private final WorkMetadataStore metadataStore;
     private final ObjectMapper objectMapper;
 
     /**
-     * 捕获插画 meta：归一化后写列投影 + sidecar。
+     * 捕获插画 meta：归一化后原子更新数据库快照与查询列。
      *
      * @param illustBody {@code /ajax/illust/{id}} 的 body；为 {@code null} 时直接跳过（无可捕获）
      * @param pagesBody  {@code /ajax/illust/{id}/pages} 的 body（逐页尺寸）；无逐页时传 {@code null}
@@ -58,24 +40,8 @@ public class WorkMetaCaptureService implements WorkMetadataCapture {
             log.warn("Failed to curate artwork meta {}: {}", artworkId, e.getMessage());
             return;
         }
-        // 列投影（可重建）：与 sidecar 各自独立，超总大小上限被拒时仍写。
-        try {
-            pixivDatabase.updateArtworkUploadMeta(artworkId, curated.uploadTime(), curated.isOriginal());
-        } catch (RuntimeException e) {
-            log.warn("Failed to write artwork upload-meta columns {}: {}", artworkId, e.getMessage());
-        }
-        // sidecar（权威）：归一化结果超总大小上限被拒（无 document）时不落半成品，仅 warn（列投影已写、不反报下载失败）。
-        if (!curated.hasDocument()) {
-            log.warn("Skip artwork sidecar {}: curated meta exceeds size cap, column projection kept", artworkId);
-            return;
-        }
-        ArtworkRecord rec = pixivDatabase.getArtwork(artworkId);
-        if (rec == null) {
-            return;
-        }
-        String directory = artworkFileLocator.resolveArtworkDirectory(rec);
-        writeSidecar(directory, artworkId, curated, "artwork",
-                illustBody.path("illustTitle").asText(null));
+        persist(WorkType.ARTWORK, artworkId, curated,
+                ArtworkMetadataQuality.isMeaningfulTitle(artworkId, illustBody.path("illustTitle").asText(null)));
     }
 
     private void captureArtworkJson(long artworkId, String artworkJson, String pagesJson, String source) {
@@ -112,7 +78,7 @@ public class WorkMetaCaptureService implements WorkMetadataCapture {
     }
 
     /**
-     * 捕获小说 meta：归一化后写 {@code upload_time} 列投影（小说 {@code is_original} 列在 insert 时已写）+ sidecar。
+     * 捕获小说 meta：归一化后写 {@code upload_time} 列投影（小说 {@code is_original} 列在 insert 时已写）及数据库快照。
      *
      * @param novelBody {@code /ajax/novel/{id}} 的 body；为 {@code null} 时直接跳过
      */
@@ -127,21 +93,7 @@ public class WorkMetaCaptureService implements WorkMetadataCapture {
             log.warn("Failed to curate novel meta {}: {}", novelId, e.getMessage());
             return;
         }
-        try {
-            novelMetadataRepository.updateNovelUploadTime(novelId, curated.uploadTime());
-        } catch (RuntimeException e) {
-            log.warn("Failed to write novel upload_time column {}: {}", novelId, e.getMessage());
-        }
-        // sidecar（权威）：归一化结果超总大小上限被拒（无 document）时不落半成品，仅 warn（列投影已写、不反报下载失败）。
-        if (!curated.hasDocument()) {
-            log.warn("Skip novel sidecar {}: curated meta exceeds size cap, column projection kept", novelId);
-            return;
-        }
-        NovelMetadataRow rec = novelMetadataRepository.getNovel(novelId);
-        if (rec == null) {
-            return;
-        }
-        writeSidecar(rec.folder(), novelId, curated, "novel", null);
+        persist(WorkType.NOVEL, novelId, curated, true);
     }
 
     private void captureNovelJson(long novelId, String novelJson, String source) {
@@ -202,23 +154,11 @@ public class WorkMetaCaptureService implements WorkMetadataCapture {
         }
     }
 
-    private void writeSidecar(String directory, long workId, CuratedWorkMeta curated,
-                              String kind, String artworkTitle) {
-        if (!StringUtils.hasText(directory)) {
-            log.warn("Skip {} sidecar {}: no resolvable directory", kind, workId);
-            return;
-        }
+    private void persist(WorkType type, long id, CuratedWorkMeta meta, boolean replaceSnapshot) {
         try {
-            Path dir = Paths.get(directory);
-            if ("artwork".equals(kind)
-                    && Files.isRegularFile(sidecarStore.sidecarPath(dir, workId))
-                    && !ArtworkMetadataQuality.isMeaningfulTitle(workId, artworkTitle)) {
-                log.warn("Skip artwork sidecar {}: incoming title is blank or a known placeholder", workId);
-                return;
-            }
-            sidecarStore.write(dir, workId, curated.document());
-        } catch (Exception e) {
-            log.warn("Failed to write {} sidecar {}: {}", kind, workId, e.getMessage());
+            metadataStore.save(type, id, meta, replaceSnapshot);
+        } catch (Exception failure) {
+            log.warn("Failed to persist {} metadata {}: {}", type, id, failure.getMessage());
         }
     }
 }

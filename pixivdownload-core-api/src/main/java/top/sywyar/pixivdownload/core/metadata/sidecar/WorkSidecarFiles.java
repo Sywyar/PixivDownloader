@@ -3,10 +3,10 @@ package top.sywyar.pixivdownload.core.metadata.sidecar;
 import java.nio.file.Path;
 
 /**
- * 作品 meta sidecar 文件命名规则（纯 JDK，无框架依赖）。
+ * 现存作品附属文件的识别规则，供移动、删除与归档排除使用。
  * <p>
  * sidecar 文件名为 {@code {workId}.meta.json}（per-work 命名，避免 ImageClassifier 摊平单图作品时跨作品撞名）。
- * 本类只负责文件名规则；JSON curation 与原子写入仍由宿主实现承担。当前不发布 sidecar 读取契约。
+ * 新记录由宿主集中入库；本类不读取或生成附属文件。
  */
 public final class WorkSidecarFiles {
 
@@ -35,7 +35,7 @@ public final class WorkSidecarFiles {
      */
     public static boolean isSidecarFileName(String fileName) {
         return fileName != null && (fileName.endsWith(SIDECAR_SUFFIX)
-                || fileName.endsWith(top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest.SUFFIX));
+                || fileName.endsWith(".media.properties"));
     }
 
     /**

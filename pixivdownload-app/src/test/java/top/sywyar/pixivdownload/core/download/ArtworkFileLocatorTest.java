@@ -38,28 +38,29 @@ class ArtworkFileLocatorTest {
         for (String extension : java.util.List.of("jpg", "png", "webp")) {
             Files.writeString(dir.resolve("42_p0." + extension), "fixture");
         }
-        new top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest("png",
-                java.util.List.of("jpg", "png", "webp"), false).write(stem);
+        when(mediaStore.find(42L, 0)).thenReturn(java.util.Optional.of(new top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest("png",
+                java.util.List.of("jpg", "png", "webp"), false)));
         org.junit.jupiter.api.Assertions.assertEquals(dir.resolve("42_p0.webp").toFile(), locator.resolveImageFile(record, 0));
-        new top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest("jpg",
-                java.util.List.of("jpg", "png", "webp"), true).write(stem);
+        when(mediaStore.find(42L, 0)).thenReturn(java.util.Optional.of(new top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest("jpg",
+                java.util.List.of("jpg", "png", "webp"), true)));
         for (String extension : java.util.List.of("jpg", "webp", "png")) {
             Path expected = dir.resolve("42_p0." + extension);
             org.junit.jupiter.api.Assertions.assertEquals(expected.toFile(), locator.resolveImageFile(record, 0));
             Files.delete(expected);
         }
         assertTrue(locator.deleteArtworkFiles(record));
-        assertFalse(Files.exists(top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest.path(stem)));
+        assertFalse(Files.exists(dir.resolve("42_p0.media.properties")));
     }
 
     @TempDir
     Path tempDir;
 
+    private final top.sywyar.pixivdownload.core.asset.ArtworkMediaStore mediaStore = org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ArtworkMediaStore.class);
     private final PixivDatabase pixivDatabase = mock(PixivDatabase.class);
     private final DownloadConfig downloadConfig = mock(DownloadConfig.class);
     private final StagedFileDeletion stagedFileDeletion = new StagedFileDeletion(TestI18nBeans.appMessages());
     private final ArtworkFileLocator locator =
-            new ArtworkFileLocator(pixivDatabase, downloadConfig, TestI18nBeans.appMessages(), stagedFileDeletion);
+            new ArtworkFileLocator(pixivDatabase, downloadConfig, TestI18nBeans.appMessages(), stagedFileDeletion, mediaStore);
 
     @BeforeEach
     void isolateStagingDirectory() {
@@ -118,7 +119,7 @@ class ArtworkFileLocatorTest {
         // 删 300_p1.jpg 时失败：无论枚举顺序如何，最终所有原文件都应被复原
         ArtworkFileLocator failingLocator = new ArtworkFileLocator(
                 pixivDatabase, downloadConfig, TestI18nBeans.appMessages(),
-                failOn(dir.resolve("300_p1.jpg")));
+                failOn(dir.resolve("300_p1.jpg")), mediaStore);
 
         assertFalse(failingLocator.deleteArtworkFiles(artwork(300L, dir.toString(), 2)),
                 "删除失败应返回 false");
@@ -137,7 +138,7 @@ class ArtworkFileLocatorTest {
         when(pixivDatabase.getFileNameTemplate(anyLong())).thenReturn("{artwork_id}");
 
         ArtworkFileLocator failingCacheLocator = new ArtworkFileLocator(
-                pixivDatabase, downloadConfig, TestI18nBeans.appMessages(), stagedFileDeletion) {
+                pixivDatabase, downloadConfig, TestI18nBeans.appMessages(), stagedFileDeletion, mediaStore) {
             @Override
             protected boolean deleteGalleryThumbnailCache(long artworkId) {
                 return false; // 模拟可再生缓存删除失败

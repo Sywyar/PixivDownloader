@@ -156,7 +156,7 @@ class CoreApiOwnershipGuardTest {
                             "ScheduleLastOutcome", "ScheduleRunCompletion", "ScheduleRunState",
                             "ScheduleRunToken", "ScheduleSuspendReason"))),
             Map.entry("核心作品事实与共享纯语义", union(
-                    types("top.sywyar.pixivdownload.core.asset", "ArtworkMediaManifest", "BoundedImageDecoder", "ImageThumbnailScaler"),
+                    types("top.sywyar.pixivdownload.core.asset", "ArtworkMediaManifest", "ArtworkMediaStore", "BoundedImageDecoder", "ImageThumbnailScaler"),
                     types("top.sywyar.pixivdownload.core.artwork.download",
                             "ArtworkAuthorLookup", "ArtworkDownloadCompletion", "ArtworkDownloadHistory",
                             "ArtworkDownloadLookup", "ArtworkDownloadStatistics",
@@ -226,7 +226,6 @@ class CoreApiOwnershipGuardTest {
     );
 
     private static final Map<String, Object> APPROVED_PUBLIC_CONSTANTS = Map.ofEntries(
-            Map.entry("top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest#SUFFIX:java.lang.String", ".media.properties"),
             Map.entry("top.sywyar.pixivdownload.ai.model.AiChatMessage#ROLE_SYSTEM:java.lang.String", "system"),
             Map.entry("top.sywyar.pixivdownload.ai.model.AiChatMessage#ROLE_USER:java.lang.String", "user"),
             Map.entry("top.sywyar.pixivdownload.ai.model.AiChatMessage#ROLE_ASSISTANT:java.lang.String", "assistant"),

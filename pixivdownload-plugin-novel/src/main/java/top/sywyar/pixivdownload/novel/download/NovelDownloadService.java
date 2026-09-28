@@ -350,7 +350,7 @@ public class NovelDownloadService implements NovelDownloader {
             log.info("novel download completed: id={}, format={}, path={}", novelId, ext, downloadPath);
             succeeded = true;
 
-            // 前端转发的原始 meta（若有）：下载成功、小说行已落库后旁路归一化为 sidecar + 列投影。
+            // 前端转发的原始 meta（若有）：下载成功、小说行已落库后旁路归一化为 数据库快照 + 列投影。
             // 零额外请求、best-effort，绝不反报已成功的下载。
             captureForwardedMeta(novelId, other);
 

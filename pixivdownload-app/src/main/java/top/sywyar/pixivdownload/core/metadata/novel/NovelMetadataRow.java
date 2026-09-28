@@ -4,7 +4,7 @@ package top.sywyar.pixivdownload.core.metadata.novel;
  * 宿主核心读取小说事实时使用的窄投影。
  *
  * <p>正文 {@code raw_content} 由小说插件拥有，不进入宿主查询行；宿主只读取跨类型检索、
- * 本地资产、可见性与 sidecar 投影确实需要的列。
+ * 本地资产、可见性与 数据库快照 投影确实需要的列。
  */
 public record NovelMetadataRow(
         long novelId,

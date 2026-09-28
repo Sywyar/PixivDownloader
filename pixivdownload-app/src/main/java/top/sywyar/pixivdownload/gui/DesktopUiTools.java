@@ -233,19 +233,13 @@ final class DesktopUiTools {
             String base = dot < 0 ? name : name.substring(0, dot);
             if (base.endsWith("_thumb")) base = base.substring(0, base.length() - "_thumb".length());
             Path stem = image.resolveSibling(base);
-            var manifest = top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest.read(stem);
-            if (manifest.isPresent()) {
-                mediaFiles.add(top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest.path(stem));
-                for (String extension : manifest.get().extensions()) {
-                    Path output = stem.resolveSibling(base + "." + extension);
-                    if (Files.isRegularFile(output)) mediaFiles.add(output);
-                }
-                Path original = stem.resolveSibling(base + "." + manifest.get().originalExtension());
-                if (Files.isRegularFile(original)) mediaFiles.add(original);
-                for (String suffix : List.of("_thumb.jpg", ".frames.properties")) {
-                    Path companion = stem.resolveSibling(base + suffix);
-                    if (Files.isRegularFile(companion)) mediaFiles.add(companion);
-                }
+            for (String extension : List.of("jpg", "jpeg", "png", "webp", "gif", "apng", "mp4", "zip")) {
+                Path output = stem.resolveSibling(base + "." + extension);
+                if (Files.isRegularFile(output)) mediaFiles.add(output);
+            }
+            for (String suffix : List.of("_thumb.jpg", ".frames.properties")) {
+                Path companion = stem.resolveSibling(base + suffix);
+                if (Files.isRegularFile(companion)) mediaFiles.add(companion);
             }
         }
         if (numberedFolder != null) Files.createDirectory(numberedFolder);

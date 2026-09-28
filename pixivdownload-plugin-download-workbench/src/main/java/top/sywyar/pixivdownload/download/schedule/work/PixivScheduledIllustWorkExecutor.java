@@ -377,7 +377,7 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
                     rawJson(pagesBody),
                     "schedule");
         } catch (RuntimeException failure) {
-            log.warn("Scheduled artwork sidecar capture failed: artworkId={}, errorType={}",
+            log.warn("Scheduled artwork metadata capture failed: artworkId={}, errorType={}",
                     artworkId, failure.getClass().getSimpleName());
         }
     }

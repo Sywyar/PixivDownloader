@@ -64,4 +64,19 @@ class DesktopUiToolsTest {
     private static String sql(Path path) {
         return path.toString().replace("'", "''");
     }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("分类移动完整格式组和缩略图，不依赖目录中的媒体清单")
+    void classificationMovesAllFormatsWithoutManifest() throws Exception {
+        Path source = Files.createDirectory(tempDir.resolve("42"));
+        var suffixes = List.of(".jpg", ".png", ".webp", ".gif", ".apng", ".mp4", ".zip", ".frames.properties", "_thumb.jpg");
+        for (String suffix : suffixes) Files.writeString(source.resolve("42_p0" + suffix), suffix);
+        Path target = tempDir.resolve("target");
+        new DesktopUiTools().classifyImageFolder(source, List.of(source.resolve("42_p0.jpg")), 42L, target,
+                new DesktopUiToolHost.ImageClassifierServer(false, "http://localhost:6999"),
+                (detail, folder) -> { throw new AssertionError(detail); });
+        for (String suffix : suffixes) assertThat(Files.readString(target.resolve("42_p0" + suffix))).isEqualTo(suffix);
+        assertThat(source).doesNotExist();
+        try (var files = Files.list(target)) { assertThat(files.count()).isEqualTo(suffixes.size()); }
+    }
 }

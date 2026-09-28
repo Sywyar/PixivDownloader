@@ -363,7 +363,7 @@ class PluginApiDependencyGuardTest {
                 .that().resideInAPackage("top.sywyar.pixivdownload.gallery..")
                 .should().dependOnClassesThat()
                 .belongToAnyOf(
-                        top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarStore.class,
+                        top.sywyar.pixivdownload.core.metadata.WorkMetadataStore.class,
                         top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator.class,
                         top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService.class,
                         top.sywyar.pixivdownload.core.metadata.sidecar.CuratedWorkMeta.class)

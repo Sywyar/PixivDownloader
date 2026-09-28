@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.download.media;
 
+import top.sywyar.pixivdownload.core.asset.ArtworkMediaStore;
 import top.sywyar.pixivdownload.core.work.model.WorkAssetFile;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
@@ -28,6 +29,7 @@ public final class MediaMaintenanceService implements AutoCloseable {
     private final WorkAssetService assets;
     private final WorkMetadataRepository metadata;
     private final WorkQueryService query;
+    private final ArtworkMediaStore mediaStore;
     private final ImageOutputService images;
     private final top.sywyar.pixivdownload.download.UgoiraService animations;
     private final ExecutorService executor = Executors.newSingleThreadExecutor(task -> {
@@ -41,12 +43,13 @@ public final class MediaMaintenanceService implements AutoCloseable {
     private boolean closed;
 
     public MediaMaintenanceService(WorkAssetService assets, WorkMetadataRepository metadata, WorkQueryService query, ImageOutputService images,
-                                   top.sywyar.pixivdownload.download.UgoiraService animations) {
+                                   top.sywyar.pixivdownload.download.UgoiraService animations, ArtworkMediaStore mediaStore) {
         this.assets = assets;
         this.metadata = metadata;
         this.query = query;
         this.images = images;
         this.animations = animations;
+        this.mediaStore = mediaStore;
     }
 
     public record Request(String imageFormats, String ugoiraFormats, boolean repairThumbnails) {}
@@ -125,7 +128,7 @@ public final class MediaMaintenanceService implements AutoCloseable {
         if (dot < 1) throw new IOException("Invalid media filename");
         String base = name.substring(0, dot).replaceFirst("_thumb$", "");
         Path stem = file.path().resolveSibling(base);
-        var manifest = ArtworkMediaManifest.read(stem);
+        var manifest = mediaStore.find(id, file.page());
         boolean animation = manifest.map(value -> value.originalExtension().equals("zip")).orElse(false)
                 || List.of("gif", "apng", "mp4", "zip").contains(file.extension());
         if (!animation && file.extension().equals("webp")) {
@@ -206,7 +209,7 @@ public final class MediaMaintenanceService implements AutoCloseable {
                             if (!animations.addMissingFormats(candidate.artworkId(), file.path(), formats, () -> cancelled)) {
                                 throw new IOException("Animation source unavailable");
                             }
-                        } else images.addMissingFormats(file.path(), formats, () -> cancelled);
+                        } else images.addMissingFormats(candidate.artworkId(), file.page(), file.path(), formats, () -> cancelled);
                     }
                     if (candidate.thumbnail()
                             && assets.thumbnail(WorkType.ARTWORK, candidate.artworkId(), file.page()).isEmpty()) {

@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.download.media;
 
+import top.sywyar.pixivdownload.core.asset.ArtworkMediaStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest;
 import top.sywyar.pixivdownload.core.asset.ImageThumbnailScaler;
@@ -20,38 +21,45 @@ import java.util.concurrent.CancellationException;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
-/** 先生成全部选定产物，再发布清单并按选择移除原文件。 */
+/** 先生成全部选定产物，再保存媒体记录并按选择移除原文件。 */
 public final class ImageOutputService {
     static final long MAX_PIXELS = 25_000_000L;
     static final Duration TIMEOUT = Duration.ofMinutes(10);
     private final FfmpegRunner runner;
     private final ObjectMapper mapper;
+    private final ArtworkMediaStore mediaStore;
 
-    public ImageOutputService(FfmpegRunner runner, ObjectMapper mapper) {
+    public ImageOutputService(FfmpegRunner runner, ObjectMapper mapper, ArtworkMediaStore mediaStore) {
         this.runner = runner;
         this.mapper = mapper;
+        this.mediaStore = mediaStore;
     }
 
-    public List<String> process(Path stem, String sourceExtension, MediaOutputSettings settings,
+    public List<String> process(long artworkId, int page, Path stem, String sourceExtension, MediaOutputSettings settings,
                                 BooleanSupplier cancelled) throws IOException {
-        return process(stem, sourceExtension, settings, cancelled, null, null);
+        return process(artworkId, page, stem, sourceExtension, settings, cancelled, null, null);
     }
 
     /** 只报告机器阶段与输出序号；原始路径、命令和异常诊断不进入队列状态。 */
     public record Progress(String phase, String outputFormat, Integer outputIndex, Integer outputCount) {}
 
-    public List<String> process(Path stem, String sourceExtension, MediaOutputSettings settings,
+    public List<String> process(long artworkId, int page, Path stem, String sourceExtension, MediaOutputSettings settings,
                                 BooleanSupplier cancelled, Consumer<Progress> progress) throws IOException {
-        return process(stem, sourceExtension, settings, cancelled, null, progress);
+        return process(artworkId, page, stem, sourceExtension, settings, cancelled, null, progress);
     }
 
-    private List<String> process(Path stem, String sourceExtension, MediaOutputSettings settings,
+    private List<String> process(long artworkId, int page, Path stem, String sourceExtension, MediaOutputSettings settings,
                                  BooleanSupplier cancelled, ArtworkMediaManifest previous,
                                  Consumer<Progress> progress) throws IOException {
         List<String> selected = MediaOutputSettings.parseFormats(
                 settings.getImageFormats(), MediaOutputSettings.IMAGE_FORMATS);
         if (selected.stream().allMatch(format -> format.equals("original") || format.equals(sourceExtension)
-                || format.equals("jpg") && sourceExtension.equals("jpeg"))) return List.of(sourceExtension);
+                || format.equals("jpg") && sourceExtension.equals("jpeg"))) {
+            checkCancelled(cancelled);
+            mediaStore.save(artworkId, page, previous == null
+                    ? new ArtworkMediaManifest(sourceExtension, List.of(sourceExtension)) : previous);
+            return List.of(sourceExtension);
+        }
         Path source = withExtension(stem, sourceExtension);
         int outputCount = (int) selected.stream().filter(format -> !format.equals("original")
                 && !format.equals(sourceExtension) && !(format.equals("jpg") && sourceExtension.equals("jpeg"))).count();
@@ -116,8 +124,8 @@ public final class ImageOutputService {
             LinkedHashSet<String> recorded = new LinkedHashSet<>();
             if (previous != null) recorded.addAll(previous.extensions());
             recorded.addAll(outputs);
-            new ArtworkMediaManifest(previous == null ? sourceExtension : previous.originalExtension(), List.copyOf(recorded),
-                    previous == null ? outputs.contains(sourceExtension) : previous.originalRetained()).write(stem);
+            mediaStore.save(artworkId, page, new ArtworkMediaManifest(previous == null ? sourceExtension : previous.originalExtension(), List.copyOf(recorded),
+                    previous == null ? outputs.contains(sourceExtension) : previous.originalRetained()));
             if (!outputs.contains(sourceExtension)) Files.delete(source);
             return List.copyOf(outputs);
         } finally {
@@ -126,7 +134,7 @@ public final class ImageOutputService {
     }
 
     /** 历史处理只补缺失副本，既有媒体及其原始格式身份保持不变。 */
-    public void addMissingFormats(Path source, String selectedFormats, BooleanSupplier cancelled) throws IOException {
+    public void addMissingFormats(long artworkId, int page, Path source, String selectedFormats, BooleanSupplier cancelled) throws IOException {
         String name = source.getFileName().toString();
         int dot = name.lastIndexOf('.');
         if (dot < 1) throw new IOException("Invalid image filename");
@@ -135,7 +143,7 @@ public final class ImageOutputService {
             throw new IOException("Animation requires its original frame archive");
         }
         Path stem = source.resolveSibling(name.substring(0, dot));
-        var previous = ArtworkMediaManifest.read(stem);
+        var previous = mediaStore.find(artworkId, page);
         if (previous.isPresent() && previous.get().originalExtension().equals("zip")) {
             throw new IOException("Animation requires its original frame archive");
         }
@@ -152,7 +160,7 @@ public final class ImageOutputService {
         if (missing.size() == 1) return;
         var settings = new MediaOutputSettings();
         settings.setImageFormats(String.join(",", missing));
-        process(stem, extension, settings, cancelled,
+        process(artworkId, page, stem, extension, settings, cancelled,
                 previous.orElse(new ArtworkMediaManifest(extension, List.of(extension))), null);
     }
 

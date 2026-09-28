@@ -357,7 +357,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
             succeeded = true;
             recordDownloadStatistics(successCount.get());
 
-            // 前端转发的原始 meta（若有）：下载成功、作品行已落库后旁路归一化为 sidecar + 列投影。
+            // 前端转发的原始 meta（若有）：下载成功、作品行已落库后旁路归一化为 数据库快照 + 列投影。
             // 零额外请求、best-effort，绝不反报已成功的下载。
             captureForwardedMeta(artworkId, other);
 
@@ -393,7 +393,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                                         int number, int total, Set<String> extensions, AtomicInteger successes) {
         try {
             ensureNotCancelled(status);
-            extensions.addAll(imageOutputService.process(stem, extension, settings, status::isCancelled, progress -> {
+            extensions.addAll(imageOutputService.process(status.getArtworkId(), number - 1, stem, extension, settings, status::isCancelled, progress -> {
                 synchronized (status) {
                     ensureNotCancelled(status);
                     status.updateProcessingImage(number, ImageDownloadProgress.builder()
@@ -1079,8 +1079,8 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                         other.getAuthorName(), recordTime, count, other.isAi(), other.getXRestrict(), length),
                 PixivWorkFileNameFormatter.formatAll(PixivWorkFileNameFormatter.DEFAULT_TEMPLATE, artworkId,
                         title, other.getAuthorId(), other.getAuthorName(), recordTime, count, other.isAi(), other.getXRestrict()),
-                other.isUgoira() ? List.of(".webp", ".webp.part", "_thumb.jpg", ".frames.properties", ".media.properties.part")
-                        : List.of(".jpg", ".image-download.part", "_thumb.jpg", ".media.properties.part"),
+                other.isUgoira() ? List.of(".webp", ".webp.part", "_thumb.jpg", ".frames.properties")
+                        : List.of(".jpg", ".image-download.part", "_thumb.jpg"),
                 other.isUgoira() ? List.of("_ugoira_frames.zip.part", "_frames_tmp/ffmpeg-progress.log") : List.of(),
                 DownloadPathAction.parse(other.getPathOverflowAction()));
         List<String> computed = resolved.baseNames();

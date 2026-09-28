@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.download;
 
+import top.sywyar.pixivdownload.core.asset.ArtworkMediaStore;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.core.ffmpeg.FfmpegCommandResolver;
@@ -51,6 +52,7 @@ public class UgoiraService {
     private final FfmpegCommandResolver ffmpegCommandResolver;
     private final MessageResolver messages;
     private final FfmpegProcessGate ffmpegProcessGate;
+    private final ArtworkMediaStore mediaStore;
     private final Map<Path, ProcessingLock> processingLocks = new HashMap<>();
 
     private static final class ProcessingLock {
@@ -61,11 +63,12 @@ public class UgoiraService {
     public UgoiraService(PixivImageDownloader pixivImageDownloader,
                          FfmpegCommandResolver ffmpegCommandResolver,
                          MessageResolver messages,
-                         FfmpegProcessGate ffmpegProcessGate) {
+                         FfmpegProcessGate ffmpegProcessGate, ArtworkMediaStore mediaStore) {
         this.pixivImageDownloader = pixivImageDownloader;
         this.ffmpegCommandResolver = ffmpegCommandResolver;
         this.messages = messages;
         this.ffmpegProcessGate = ffmpegProcessGate;
+        this.mediaStore = mediaStore;
     }
 
     /**
@@ -103,7 +106,7 @@ public class UgoiraService {
         String base = name.substring(0, name.lastIndexOf('.'));
         if (base.endsWith("_thumb")) base = base.substring(0, base.length() - 6);
         Path stem = displayedFile.resolveSibling(base);
-        var previous = top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest.read(stem);
+        var previous = mediaStore.find(artworkId, 0);
         if (previous.isEmpty() || !previous.get().originalExtension().equals("zip")) return false;
         Path zip = stem.resolveSibling(base + ".zip");
         Path timingFile = stem.resolveSibling(base + ".frames.properties");
@@ -272,12 +275,12 @@ public class UgoiraService {
                     }
                     LinkedHashSet<String> savedFormats = new LinkedHashSet<>();
                     if (sourceArchive != null) {
-                        top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest.read(downloadPath.resolve(outputBaseName))
+                        mediaStore.find(artworkId, 0)
                                 .ifPresent(existing -> savedFormats.addAll(existing.extensions()));
                     }
                     savedFormats.addAll(formats);
-                    new top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest("zip", List.copyOf(savedFormats))
-                            .write(downloadPath.resolve(outputBaseName));
+                    mediaStore.save(artworkId, 0,
+                            new top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest("zip", List.copyOf(savedFormats)));
                     return 1;
                 }
 
