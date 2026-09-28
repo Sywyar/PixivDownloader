@@ -57,7 +57,7 @@ class LocalWorkAssetServiceTest {
         downloadConfig = mock(DownloadConfig.class);
         service = new LocalWorkAssetService(artworkFileService, artworkFileLocator, pixivDatabase,
                 novelMetadataRepository, downloadConfig, TestI18nBeans.appMessages(),
-                new StagedFileDeletion(TestI18nBeans.appMessages()));
+                new StagedFileDeletion(TestI18nBeans.appMessages()), org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ExternalWorkFiles.class));
     }
 
     @AfterEach
@@ -377,7 +377,7 @@ class LocalWorkAssetServiceTest {
             LocalWorkAssetService failingService = new LocalWorkAssetService(
                     artworkFileService, artworkFileLocator, pixivDatabase, novelMetadataRepository,
                     downloadConfig, TestI18nBeans.appMessages(),
-                    failOn(dir.resolve("7.meta.json")));
+                    failOn(dir.resolve("7.meta.json")), org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ExternalWorkFiles.class));
 
             assertFalse(failingService.deleteLocalFiles(WorkType.NOVEL, 7L), "删除失败应返回 false");
             assertTrue(Files.exists(txt), "正文文件应被回滚复原");

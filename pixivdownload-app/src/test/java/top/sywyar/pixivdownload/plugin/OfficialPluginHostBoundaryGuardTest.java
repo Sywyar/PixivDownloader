@@ -764,7 +764,8 @@ class OfficialPluginHostBoundaryGuardTest {
             String featureClass = featureSimpleName.contains(".")
                     ? featureSimpleName
                     : providerClass.substring(0, lastDot + 1) + featureSimpleName;
-            Path featureSource = pluginSource(repositoryRoot, module, featureClass);
+            Path featureSource = "PixivFeaturePlugin".equals(featureSimpleName)
+                    ? providerSource : pluginSource(repositoryRoot, module, featureClass);
             if (featureSource == null) {
                 violations.add(module + ": feature source not found: " + featureClass);
                 continue;

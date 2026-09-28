@@ -21,6 +21,15 @@ import java.util.Optional;
 public interface WorkAssetService {
 
     /**
+     * 外部登记的文件只供读取；删除记录不删除文件，媒体维护不得修改文件。
+     * @param workType 作品类型
+     * @param workId 作品 ID
+     * @return 当前记录是否引用外部只读文件
+     */
+    default boolean isReadOnly(WorkType workType, long workId) { return false; }
+
+
+    /**
      * 解析单个作品的本地资产概览（目录、声明页数、各页实际存在的文件）。
      * 作品无下载记录时返回 {@link Optional#empty()}。
      *

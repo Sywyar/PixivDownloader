@@ -60,7 +60,7 @@ class ArtworkFileLocatorTest {
     private final DownloadConfig downloadConfig = mock(DownloadConfig.class);
     private final StagedFileDeletion stagedFileDeletion = new StagedFileDeletion(TestI18nBeans.appMessages());
     private final ArtworkFileLocator locator =
-            new ArtworkFileLocator(pixivDatabase, downloadConfig, TestI18nBeans.appMessages(), stagedFileDeletion, mediaStore);
+            new ArtworkFileLocator(pixivDatabase, downloadConfig, TestI18nBeans.appMessages(), stagedFileDeletion, mediaStore, org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ExternalWorkFiles.class));
 
     @BeforeEach
     void isolateStagingDirectory() {
@@ -119,7 +119,7 @@ class ArtworkFileLocatorTest {
         // 删 300_p1.jpg 时失败：无论枚举顺序如何，最终所有原文件都应被复原
         ArtworkFileLocator failingLocator = new ArtworkFileLocator(
                 pixivDatabase, downloadConfig, TestI18nBeans.appMessages(),
-                failOn(dir.resolve("300_p1.jpg")), mediaStore);
+                failOn(dir.resolve("300_p1.jpg")), mediaStore, org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ExternalWorkFiles.class));
 
         assertFalse(failingLocator.deleteArtworkFiles(artwork(300L, dir.toString(), 2)),
                 "删除失败应返回 false");
@@ -138,7 +138,7 @@ class ArtworkFileLocatorTest {
         when(pixivDatabase.getFileNameTemplate(anyLong())).thenReturn("{artwork_id}");
 
         ArtworkFileLocator failingCacheLocator = new ArtworkFileLocator(
-                pixivDatabase, downloadConfig, TestI18nBeans.appMessages(), stagedFileDeletion, mediaStore) {
+                pixivDatabase, downloadConfig, TestI18nBeans.appMessages(), stagedFileDeletion, mediaStore, org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ExternalWorkFiles.class)) {
             @Override
             protected boolean deleteGalleryThumbnailCache(long artworkId) {
                 return false; // 模拟可再生缓存删除失败

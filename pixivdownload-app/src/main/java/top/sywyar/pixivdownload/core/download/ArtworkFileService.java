@@ -33,7 +33,7 @@ import java.util.concurrent.Semaphore;
 @Service
 public class ArtworkFileService {
 
-    private static final Set<String> IMAGE_EXTENSIONS = Set.of("jpg", "jpeg", "png", "gif", "webp", "apng", "mp4");
+    private static final Set<String> IMAGE_EXTENSIONS = Set.of("jpg", "jpeg", "png", "gif", "webp", "apng", "mp4", "webm", "zip");
 
     private final PixivDatabase pixivDatabase;
     private final ArtworkFileLocator artworkFileLocator;
@@ -145,7 +145,7 @@ public class ArtworkFileService {
             return null;
         }
         String extension = getFileExtension(imageFile.getName()).toLowerCase(Locale.ROOT);
-        if (!Set.of("webp", "mp4", "apng").contains(extension)) {
+        if (artworkFileLocator.isReadOnly(artwork) || !Set.of("webp", "mp4", "webm", "apng").contains(extension)) {
             return imageFile;
         }
         String dirPath = resolveArtworkDirectory(artwork);

@@ -240,7 +240,8 @@ public class RouteAccessRegistry {
     private static RegisteredRoute disambiguate(List<RegisteredRoute> candidates, String path, HttpMethod method) {
         AccessPolicy first = candidates.get(0).route().accessPolicy();
         for (RegisteredRoute registered : candidates) {
-            if (registered.route().accessPolicy() != first) {
+            if (registered.route().accessPolicy() != first
+                    || !registered.route().trustedWriteOrigins().equals(candidates.get(0).route().trustedWriteOrigins())) {
                 throw new IllegalStateException("ambiguous route resolution for " + method + " " + path + ": "
                         + candidates.stream()
                                 .map(candidate -> candidate.route().pathPattern() + "="
@@ -289,7 +290,8 @@ public class RouteAccessRegistry {
                                              WebRouteContribution proposed) {
         for (RegisteredRoute registered : registeredRoutes) {
             WebRouteContribution existing = registered.route();
-            if (!methodsOverlap(existing, proposed) || existing.accessPolicy() == proposed.accessPolicy()) {
+            if (!methodsOverlap(existing, proposed) || (existing.accessPolicy() == proposed.accessPolicy()
+                    && existing.trustedWriteOrigins().equals(proposed.trustedWriteOrigins()))) {
                 continue;
             }
             boolean samePattern = existing.pathPattern().equals(proposed.pathPattern());
@@ -376,6 +378,6 @@ public class RouteAccessRegistry {
 
     /** 同一（模式, 方法集, 访问策略）三元组视为重复声明；方法集排序后参与键值。 */
     private static String routeKey(WebRouteContribution route) {
-        return route.pathPattern() + "|" + route.accessPolicy() + "|" + new TreeSet<>(route.methods());
+        return route.pathPattern() + "|" + route.accessPolicy() + "|" + new TreeSet<>(route.methods()) + "|" + new TreeSet<>(route.trustedWriteOrigins());
     }
 }

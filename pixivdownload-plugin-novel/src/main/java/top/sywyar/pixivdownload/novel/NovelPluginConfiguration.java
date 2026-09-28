@@ -88,6 +88,12 @@ import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceSelector;
 @Configuration
 @Import(NovelExecutionConfiguration.class)
 public class NovelPluginConfiguration {
+    @Bean
+    public top.sywyar.pixivdownload.novel.download.NovelFileImportHandler novelFileImportHandler(
+            NovelDatabase database, top.sywyar.pixivdownload.core.work.service.WorkFileNameCatalog names) {
+        return new top.sywyar.pixivdownload.novel.download.NovelFileImportHandler(database, names);
+    }
+
 
     @Bean
     public NovelPlugin novelPlugin() {

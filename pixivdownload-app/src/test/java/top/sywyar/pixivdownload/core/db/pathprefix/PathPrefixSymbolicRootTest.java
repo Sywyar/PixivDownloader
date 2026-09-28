@@ -79,11 +79,10 @@ class PathPrefixSymbolicRootTest {
 
     private void createPathColumnTables() {
         try (var conn = dataSource.getConnection(); var st = conn.createStatement()) {
-            st.execute("CREATE TABLE IF NOT EXISTS artworks (artwork_id INTEGER PRIMARY KEY, folder TEXT, move_folder TEXT)");
-            st.execute("CREATE TABLE IF NOT EXISTS novels (novel_id INTEGER PRIMARY KEY, folder TEXT)");
-            st.execute("CREATE TABLE IF NOT EXISTS manga_series (series_id INTEGER PRIMARY KEY, cover_folder TEXT)");
-            st.execute("CREATE TABLE IF NOT EXISTS novel_series (series_id INTEGER PRIMARY KEY, cover_folder TEXT)");
-            st.execute("CREATE TABLE IF NOT EXISTS collections (id INTEGER PRIMARY KEY, download_root TEXT)");
+            for (var table : PATH_COLUMNS.all()) {
+                st.execute("CREATE TABLE " + table.table() + " (" + table.idColumn() + " TEXT PRIMARY KEY, "
+                        + String.join(", ", table.columns().stream().map(column -> column + " TEXT").toList()) + ")");
+            }
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

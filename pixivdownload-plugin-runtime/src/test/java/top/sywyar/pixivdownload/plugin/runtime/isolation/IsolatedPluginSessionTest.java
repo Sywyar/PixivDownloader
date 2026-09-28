@@ -54,6 +54,15 @@ class IsolatedPluginSessionTest {
     }
 
     @Test
+    @DisplayName("隔离静态插件拒绝不能跨进程传递的脚本写入声明")
+    void rejectsScriptWriteOrigins() {
+        var route = new top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution("/probe", AccessPolicy.LOCAL,
+                Set.of(top.sywyar.pixivdownload.plugin.api.web.HttpMethod.POST), false, Set.of("https://www.pixiv.net"));
+        assertThatThrownBy(() -> new IsolatedPluginProtocol.Snapshot(List.of(route), List.of(), List.of(), List.of()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("script writes");
+    }
+
+    @Test
     @DisplayName("SDK worker 调试目标必须完整且端口与摘要均合法")
     void validatesExactSdkDebugTarget() {
         assertThat(SdkWorkerDebug.fromSystemProperties()).isNull();

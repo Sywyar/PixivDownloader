@@ -111,6 +111,8 @@ class ArtworkDownloadExecutorTest {
     private ArtworkHashIndexMaintenance artworkHashIndexMaintenance;
     @Mock
     private WorkMetadataCapture workMetadataCapture;
+    @Mock
+    private top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadLifecycle downloadLifecycle;
     private ArtworkDownloadExecutor artworkDownloadExecutor;
     private final InteractiveDownloadExecutionLane downloadTaskExecutor = Runnable::run;
 
@@ -141,7 +143,7 @@ class ArtworkDownloadExecutorTest {
                 authorObservationService, artworkAuthorLookup, downloadPathGuard,
                 collectionDownloadRootResolver, workCollectionMembership,
                 artworkSeriesObserver, artworkHashIndexMaintenance,
-                workMetadataCapture, MESSAGES);
+                workMetadataCapture, MESSAGES, downloadLifecycle);
     }
 
     private ArtworkDownloadCompletion capturedDownloadCompletion() {
@@ -1007,6 +1009,19 @@ class ArtworkDownloadExecutorTest {
     @Nested
     @DisplayName("普通图片下载落盘")
     class PartTempFileTests {
+        @Test
+        @DisplayName("准入规则拒绝时不产生网络请求、目录或下载历史")
+        void rejectsBeforeSideEffects() {
+            doThrow(new top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadAdmissionRejectedException())
+                    .when(downloadLifecycle).checkAdmission(any());
+            assertThatThrownBy(() -> artworkDownloadExecutor.downloadImages(12345L, "title", List.of(IMAGE_URL),
+                    "https://www.pixiv.net/", new DownloadRequest.Other(), null, null))
+                    .isInstanceOf(top.sywyar.pixivdownload.download.web.LocalizedException.class);
+            verifyNoInteractions(pixivImageDownloader);
+            verify(artworkDownloadHistory, never()).record(any());
+            verify(downloadLifecycle, never()).publish(any());
+            assertThat(tempDir.resolve("12345")).doesNotExist();
+        }
 
         private static final String IMAGE_URL =
                 "https://i.pximg.net/img-original/img/2024/01/01/00/00/00/12345_p0.jpg";
@@ -1201,6 +1216,18 @@ class ArtworkDownloadExecutorTest {
 
             artworkDownloadExecutor.downloadImages(12345L, "title", List.of(IMAGE_URL),
                     "https://www.pixiv.net/", new DownloadRequest.Other(), null, null);
+
+            var events = org.mockito.ArgumentCaptor.forClass(
+                    top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadEvent.class);
+            var order = org.mockito.Mockito.inOrder(downloadLifecycle, artworkDownloadHistory);
+            order.verify(downloadLifecycle).checkAdmission(any());
+            order.verify(downloadLifecycle, times(2)).publish(events.capture());
+            order.verify(artworkDownloadHistory).record(any());
+            order.verify(downloadLifecycle).publish(events.capture());
+            assertThat(events.getAllValues()).extracting(event -> event.phase().name())
+                    .containsExactly("ACCEPTED", "STARTED", "COMPLETED");
+            assertThat(events.getAllValues()).extracting(event -> event.attempt().attemptId())
+                    .containsOnly(events.getValue().attempt().attemptId());
 
             Path artworkDir = tempDir.resolve("12345");
             try (var stream = Files.list(artworkDir)) {

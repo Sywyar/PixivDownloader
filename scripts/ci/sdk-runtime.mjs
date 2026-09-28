@@ -12,7 +12,6 @@ import { inspectSdkVersion } from './sdk-version.mjs';
 // 只负责把共享发行组装器的实际输出固化为 SDK 配套关系，不维护第二份官方插件清单。
 export function assembleDevelopmentRuntime(options) {
     const root = path.resolve(options.repoRoot);
-    const identity = inspectSdkVersion(root);
     if (!/^[0-9a-f]{40}$/u.test(options.sourceSha)
             || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(options.hostVersion)) {
         throw new Error('SDK runtime requires an exact source SHA and host version');
@@ -24,6 +23,11 @@ export function assembleDevelopmentRuntime(options) {
         '-SignatureToolJar', path.resolve(options.signatureTool), '-OutputDir', output,
     ], { cwd: root, stdio: 'inherit' });
     const layout = path.join(output, 'full-offline');
+    return freezeDevelopmentRuntime(options, layout, output);
+}
+
+export function freezeDevelopmentRuntime(options, layout, output) {
+    const identity = inspectSdkVersion(options.repoRoot);
     const archive = path.join(output, `PixivDownload-${options.hostVersion}-full-offline.zip`);
     // 复用 SDK 的可重现 ZIP producer，恢复发布时不把文件复制时间写进附件身份。
     createArchive(layout, archive);

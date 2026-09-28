@@ -388,6 +388,7 @@
                         <ai.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-ai/target/classes</ai.plugin.classes>
                         <douyin.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-douyin/target/classes</douyin.plugin.classes>
                         <recovery-sentinel.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-recovery-sentinel/target/classes</recovery-sentinel.plugin.classes>
+                        <external-download-import.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-external-download-import/target/classes</external-download-import.plugin.classes>
                         <download-workbench.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-download-workbench/target/classes</download-workbench.plugin.classes>
                         <posthog.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-posthog/target/classes</posthog.plugin.classes>
                         <multi-mode-decision-survey.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-multi-mode-decision-survey/target/classes</multi-mode-decision-survey.plugin.classes>

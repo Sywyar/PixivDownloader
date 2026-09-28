@@ -285,7 +285,7 @@ test('SDK 发布串行消费本次完整 QG 验证的候选，恢复继续使用
         "${{ needs.release-plan.outputs.mode == 'publish' }}");
     assert.match(upload.uses, /^actions\/upload-artifact@[a-f0-9]{40}$/u);
     assert.equal(upload.if.replace(/^\$\{\{\s*|\s*\}\}$/gu, ''), 'inputs.export_sdk_candidates == true');
-    assert.equal(upload.with.path, 'target/sdk-release/');
+    assert.equal(upload.with.path, 'target/sdk-publication-inputs/');
     assert.equal(upload.with['if-no-files-found'], 'error');
     assert.equal(producer.outputs.candidate_id, '${{ steps.sdk-candidate.outputs.artifact-id }}');
     assert.equal(qg.on.workflow_call.outputs.sdk_candidate_id.value,
@@ -294,7 +294,7 @@ test('SDK 发布串行消费本次完整 QG 验证的候选，恢复继续使用
     const download = steps.find(step => step.uses?.startsWith('actions/download-artifact@'));
     assert.deepEqual(download.with, {
         'artifact-ids': '${{ needs.quality-gate.outputs.sdk_candidate_id }}',
-        path: 'target/sdk-release', 'merge-multiple': true,
+        path: 'target/sdk-publication-inputs', 'merge-multiple': true,
     });
     assert.equal(download.if, "${{ steps.state.outputs.reuse_release == 'false' }}");
     assert.ok(!steps.some(step => step.uses === './.github/actions/verify-sdk'));
@@ -302,6 +302,12 @@ test('SDK 发布串行消费本次完整 QG 验证的候选，恢复继续使用
     assert.ok(steps.indexOf(download) < freeze);
     assert.match(steps[freeze].run, /--verify-directory target\/sdk-release --source-sha/u);
     assert.ok(steps.findIndex(step => /pixivdownload-plugin-signature package/u.test(step.run || '')) < freeze);
+    const sign = steps.findIndex(step => step.env?.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64);
+    const runtime = steps.findIndex(step => /sdk-runtime-consumer\.ps1/u.test(step.run || ''));
+    assert.ok(sign > steps.indexOf(download) && runtime > sign && freeze > runtime);
+    assert.equal(steps[sign].if, "${{ steps.state.outputs.reuse_release == 'false' }}");
+    assert.ok(sdk.jobs.publish.needs.includes('quality-gate'));
+    assert.equal(sdk.jobs.publish.environment, 'release');
 });
 
 test('应用资源构建与 SDK 宿主消费者显式取得内置 GitHub 读取令牌', () => {
@@ -529,7 +535,7 @@ test('SDK 发布链只在身份变化或显式恢复时通过同 SHA 门禁写�
         '${{ github.sha }}');
     assert.deepEqual(secretNames(sdk.jobs.publish).sort(), [
         'CENTRAL_PASSWORD', 'CENTRAL_USERNAME', 'CROSS_REPO_RELEASE_TOKEN',
-        'MAVEN_GPG_PASSPHRASE', 'MAVEN_GPG_PRIVATE_KEY',
+        'MAVEN_GPG_PASSPHRASE', 'MAVEN_GPG_PRIVATE_KEY', 'PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64',
     ]);
     const serialized = JSON.stringify(sdk.jobs.publish);
     assert.doesNotMatch(serialized, /continue-on-error|always\(\)|failure\(\)|cancelled\(\)/u);

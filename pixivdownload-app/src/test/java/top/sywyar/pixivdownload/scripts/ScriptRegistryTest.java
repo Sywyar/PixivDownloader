@@ -86,12 +86,13 @@ class ScriptRegistryTest {
         try (URLClassLoader loader = new URLClassLoader(
                 new URL[]{tempDir.toUri().toURL()}, getClass().getClassLoader())) {
             sources.register("external", loader, List.of(new UserscriptContribution(
-                    "external", "classpath:/static/userscripts/External.user.js")));
+                    "external", "classpath:/static/userscripts/External.user.js", "external-messages")));
             ScriptRegistry registry = new ScriptRegistry(TestI18nBeans.appMessages(), sources);
 
             assertThat(registry.scripts()).singleElement()
                     .satisfies(artifact -> {
                         assertThat(artifact.displayName()).isEqualTo("外置脚本");
+                        assertThat(artifact.i18nNamespace()).isEqualTo("external-messages");
                         assertThat(artifact.version()).isEqualTo("1.0.0");
                         assertThat(artifact.content()).isEqualTo(first);
                     });

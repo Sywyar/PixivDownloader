@@ -110,6 +110,8 @@ class UserscriptRegistryTest {
     @DisplayName("非法输入拒绝：owner、稳定 id 与精确 classpath 资源均须合法")
     void invalidInputRejected() {
         UserscriptRegistry registry = emptyRegistry();
+        assertThatThrownBy(() -> registry.register("demo", CL, List.of(new UserscriptContribution(
+                "a", "classpath:/a/a.user.js", "../other")))).isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> registry.register(
                 " ", CL, List.of(uscript("a", "classpath:/a/a.user.js"))))
                 .isInstanceOf(IllegalStateException.class);

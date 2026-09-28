@@ -9,6 +9,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import top.sywyar.pixivdownload.download.testsupport.WorkbenchTestMessages;
+import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
 import top.sywyar.pixivdownload.plugin.api.userscript.UserscriptArtifact;
 import top.sywyar.pixivdownload.plugin.api.userscript.UserscriptCatalog;
 
@@ -27,6 +28,9 @@ class ScriptControllerTest {
 
     @Mock
     private UserscriptCatalog userscriptCatalog;
+
+    @Mock
+    private NamespaceMessageResolver namespaceMessages;
 
     private static final String SCRIPT_CONTENT =
             """
@@ -53,7 +57,7 @@ class ScriptControllerTest {
     void setUp() {
         ScriptController controller = new ScriptController(
                 userscriptCatalog,
-                WorkbenchTestMessages.messages()
+                WorkbenchTestMessages.messages(), namespaceMessages
         );
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }
@@ -73,6 +77,21 @@ class ScriptControllerTest {
 
         verify(userscriptCatalog).scripts();
         verifyNoMoreInteractions(userscriptCatalog);
+    }
+
+    @Test
+    @DisplayName("插件贡献的翻译独立解析，缺失时回退为同一脚本快照的元数据")
+    void contributedNamespaceLocalizesWithoutWorkbenchKeys() throws Exception {
+        when(userscriptCatalog.scripts()).thenReturn(List.of(new UserscriptArtifact(
+                "test-script", "Default name", "Default description", "1", SCRIPT_CONTENT, "third-party")));
+        when(namespaceMessages.resolve(eq("third-party"), any(), eq("script.meta.test-script.name")))
+                .thenReturn(java.util.Optional.of("独立脚本"));
+        when(namespaceMessages.resolve(eq("third-party"), any(), eq("script.meta.test-script.description")))
+                .thenReturn(java.util.Optional.empty());
+        mockMvc.perform(get("/api/scripts"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scripts[0].displayName", is("独立脚本")))
+                .andExpect(jsonPath("$.scripts[0].description", is("Default description")));
     }
 
     @Test

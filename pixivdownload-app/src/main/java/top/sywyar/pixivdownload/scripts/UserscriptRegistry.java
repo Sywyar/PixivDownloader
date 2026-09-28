@@ -130,6 +130,10 @@ public class UserscriptRegistry {
                     + pluginId + ")");
         }
         String resource = contribution.classpathResource();
+        String namespace = contribution.i18nNamespace();
+        if (namespace == null || (!namespace.isEmpty() && !SAFE_ID.matcher(namespace).matches())) {
+            throw new IllegalStateException("userscript contribution with invalid i18n namespace");
+        }
         String classpath = resource == null || !resource.startsWith("classpath:")
                 ? ""
                 : resource.substring("classpath:".length());

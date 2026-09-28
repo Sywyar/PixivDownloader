@@ -36,15 +36,20 @@ import java.util.stream.Stream;
 @RequiredArgsConstructor
 public class ArtworkFileLocator {
 
-    private static final Set<String> HASHABLE_IMAGE_EXTENSIONS = Set.of("jpg", "jpeg", "png", "gif", "webp", "apng", "mp4");
+    private static final Set<String> HASHABLE_IMAGE_EXTENSIONS = Set.of("jpg", "jpeg", "png", "gif", "webp", "apng", "mp4", "webm", "zip");
 
     private final PixivDatabase pixivDatabase;
     private final DownloadConfig downloadConfig;
     private final AppMessages messages;
     private final StagedFileDeletion stagedFileDeletion;
     private final top.sywyar.pixivdownload.core.asset.ArtworkMediaStore mediaStore;
+    private final top.sywyar.pixivdownload.core.asset.ExternalWorkFiles externalFiles;
 
     public record LocatedArtworkFile(File file, String extension) {
+    }
+
+    public boolean isReadOnly(ArtworkRecord artwork) {
+        return artwork != null && externalFiles.contains(top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK, artwork.artworkId());
     }
 
     public String resolveArtworkDirectory(ArtworkRecord artwork) {
@@ -58,6 +63,11 @@ public class ArtworkFileLocator {
     }
 
     public File resolveImageFile(ArtworkRecord artwork, int page) {
+        if (artwork == null) return null;
+        if (externalFiles.contains(top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK, artwork.artworkId())) {
+            Path file = externalFiles.file(top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK, artwork.artworkId(), page);
+            return file == null ? null : file.toFile();
+        }
         String directoryPath = resolveArtworkDirectory(artwork);
         if (!StringUtils.hasText(directoryPath)) {
             return null;
@@ -75,7 +85,7 @@ public class ArtworkFileLocator {
             log.debug("Cannot read media manifest for {}", artwork.artworkId(), invalid);
         }
         if (!hasManifest && extensions.length == 1 && StringUtils.hasText(extensions[0])) priority.add(extensions[0]);
-        priority.addAll(List.of("webp", "png", "jpg", "jpeg", "gif", "apng", "mp4"));
+        priority.addAll(List.of("webp", "png", "jpg", "jpeg", "gif", "apng", "mp4", "webm", "zip"));
         for (String extension : priority) {
             if (extension.equals("zip")) continue;
             Path file = Paths.get(directoryPath, baseName + "." + extension);
@@ -94,7 +104,8 @@ public class ArtworkFileLocator {
         if (!HASHABLE_IMAGE_EXTENSIONS.contains(extension)) {
             return null;
         }
-        if (!Set.of("webp", "mp4", "apng").contains(extension)) {
+        if (externalFiles.contains(top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK, artwork.artworkId())
+                || !Set.of("webp", "mp4", "webm", "apng").contains(extension)) {
             return new LocatedArtworkFile(imageFile, extension);
         }
         String directoryPath = resolveArtworkDirectory(artwork);
@@ -166,6 +177,7 @@ public class ArtworkFileLocator {
      *         调用方必须中止 DB 清理以避免 DB 与磁盘状态不一致。
      */
     public boolean deleteArtworkFiles(ArtworkRecord artwork) {
+        if (artwork != null && externalFiles.contains(top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK, artwork.artworkId())) return true;
         if (artwork == null) {
             return true;
         }

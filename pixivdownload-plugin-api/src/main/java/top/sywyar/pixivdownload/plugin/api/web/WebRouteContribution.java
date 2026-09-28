@@ -9,12 +9,14 @@ import java.util.Set;
  * @param accessPolicy             访问策略（允许的身份组合，见 {@link AccessPolicy}）
  * @param methods                  允许的 HTTP 方法；空集合表示全部方法
  * @param visibleDuringMaintenance 维护窗口（503）期间是否仍可访问
+ * @param trustedWriteOrigins 允许无环境 cookie 的扩展脚本写入来源；不改变路由鉴权
  */
 public record WebRouteContribution(
         String pathPattern,
         AccessPolicy accessPolicy,
         Set<HttpMethod> methods,
-        boolean visibleDuringMaintenance
+        boolean visibleDuringMaintenance,
+        Set<String> trustedWriteOrigins
 ) {
     /**
      * 创建 {@code WebRouteContribution} 实例。
@@ -22,10 +24,36 @@ public record WebRouteContribution(
      * @param pathPattern 路径模式
      * @param accessPolicy 访问策略
      * @param methods 方法集合
-     * @param visibleDuringMaintenance {@code visibleDuringMaintenance} 对应的值
+     * @param visibleDuringMaintenance 维护窗口期间是否可见
+     * @param trustedWriteOrigins 最多四个精确 HTTPS origin，仅适用于无 cookie 的 ADMIN/LOCAL POST
      */
     public WebRouteContribution {
         methods = Set.copyOf(methods);
+        trustedWriteOrigins = Set.copyOf(trustedWriteOrigins);
+        if (!trustedWriteOrigins.isEmpty()) {
+            if ((accessPolicy != AccessPolicy.ADMIN && accessPolicy != AccessPolicy.LOCAL)
+                    || pathPattern.contains("*") || !methods.equals(Set.of(HttpMethod.POST)) || trustedWriteOrigins.size() > 4)
+                throw new IllegalArgumentException("Script writes require an exact ADMIN/LOCAL POST route");
+            for (String origin : trustedWriteOrigins) {
+                java.net.URI uri = java.net.URI.create(origin);
+                if (origin.length() > 256 || !"https".equals(uri.getScheme()) || uri.getHost() == null
+                        || uri.getUserInfo() != null || uri.getQuery() != null || uri.getFragment() != null
+                        || !uri.getPath().isEmpty() || uri.getPort() != -1)
+                    throw new IllegalArgumentException("Invalid script origin");
+            }
+        }
+    }
+
+    /**
+     * 创建未声明跨源脚本写入的路由。
+     * @param pathPattern 路径模式
+     * @param accessPolicy 访问策略
+     * @param methods 方法集合
+     * @param visibleDuringMaintenance 维护期间是否可见
+     */
+    public WebRouteContribution(String pathPattern, AccessPolicy accessPolicy, Set<HttpMethod> methods,
+                                boolean visibleDuringMaintenance) {
+        this(pathPattern, accessPolicy, methods, visibleDuringMaintenance, Set.of());
     }
 
     // ── 命名静态工厂（对标 List.of / Optional.of）：声明「指定访问策略 + 全部 HTTP 方法 + 维护窗口不可见」

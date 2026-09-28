@@ -164,7 +164,7 @@
         const count = batchSelectedCount();
         if (count === 0) return;
         document.getElementById('batchDeleteMessage').textContent = t('manage.confirm-message',
-            '确定要删除选中的 {count} 个作品吗？这些作品的图片文件会被永久删除且无法恢复；下载记录将保留删除标记，默认不会被重新下载。',
+            '确定要删除选中的 {count} 个作品吗？本程序下载的文件会永久删除且无法恢复；外部下载器导入的原文件会保留。下载记录保留删除标记，默认不会重新下载。',
             {count});
         document.getElementById('modalBatchDelete').classList.add('open');
     }

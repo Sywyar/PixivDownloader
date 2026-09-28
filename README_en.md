@@ -191,7 +191,9 @@ refining this project.
 ## Friend Links
 
 **[PixivBatchDownloader](https://github.com/xuejianxianzun/PixivBatchDownloader)**
-If you prefer simplicity and don't want to rely on a backend program, give this script a try.
+If you want to download directly in your browser without a backend, try this extension.
+
+You can also use its downloads with this project's gallery. In the download page, open **More → Userscripts** and install **PixivBatchDownloader import support**. Follow the [setup instructions](pixivdownload-plugin-external-download-import/README_en.md#setup) to configure the download directory once and enable the script. Illustrations, manga, animations and novels that PixivBatchDownloader finishes downloading from then on are added to the local gallery automatically. Original files are not copied and remain when gallery records are deleted. Downloads completed before installation are not scanned.
 
 Features:
 
