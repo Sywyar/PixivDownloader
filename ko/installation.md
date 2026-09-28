@@ -45,12 +45,31 @@ nohup sh run.sh > app.log 2>&1 &
 
 ## 방법 3: Docker
 
+`Dockerfile`은 서명된 Java 배포 디렉터리에서 Java 17, FFmpeg, curl이 포함된 이미지를 만듭니다. Java 표준 또는 전체 오프라인 패키지를 저장소의 `build/dist/default-downloader/`에 모두 압축 해제하세요. 이 디렉터리 바로 아래에 앱 JAR, `plugins/`, `plugins-manifest.json`, `SHA256SUMS`가 있어야 합니다. 그런 다음 `docker compose build`를 실행합니다.
+
+컨테이너는 UID/GID 10001로 실행됩니다. Linux에 새로 설치할 때는 먼저 쓰기 가능한 마운트 디렉터리를 만드세요.
+
 ```bash
-docker compose run --rm pixivdownload --setup
-docker compose up -d
+sudo install -d -o 10001 -g 10001 config state data pixiv-download log
 ```
 
-초기 설정에서 계정, 실행 모드와 프록시를 지정합니다. `config/`, `state/`, `data/`를 호스트 볼륨에 보존하고, 컨테이너에서 호스트 프록시에 접근할 때는 환경에 맞는 게이트웨이를 사용하세요.
+CLI 초기 설정을 마친 후 서비스를 실행합니다.
+
+```bash
+docker compose run --rm app --setup
+docker compose up -d
+docker compose logs -f app
+```
+
+초기화되지 않은 컨테이너는 종료 코드 78로 종료됩니다. 컨테이너에는 데스크톱 GUI가 없으며 `setup.html`은 CLI 초기 설정을 대신하지 않습니다. 기본 포트는 호스트의 `127.0.0.1:6999`에만 바인딩됩니다. 호스트에서 `http://127.0.0.1:6999/`를 여세요. 원격 접속에는 기존 SSH 터널이나 별도로 설정한 리버스 프록시를 사용할 수 있습니다. 관리자로 로그인한 후 플러그인 관리 페이지에서 설치, 상태 조회, 복구를 수행합니다.
+
+컨테이너 내부의 `127.0.0.1`은 컨테이너 자신입니다. 호스트 프록시를 사용하려면 setup에 `--proxy-host=host.docker.internal --proxy-port=7890`을 추가하고, 프록시가 필요 없으면 `--proxy-enabled=false`를 추가하세요. 이미지 가져오기와 빌드 중 APT 다운로드는 Docker 자체의 프록시나 미러 설정을 사용합니다. `config/config.yaml`을 수정한 후 `docker compose restart app`을 실행합니다.
+
+설치된 패키지는 `plugins` 이름 있는 볼륨에 저장됩니다. `config/`, `state/`, `data/`, `pixiv-download/`, `log/`는 호스트에서 마운트됩니다. 인스턴스 잠금은 `state/instance/`, SQLite 네이티브 라이브러리 임시 추출은 `state/`를 사용합니다. 쓰기와 라이브러리 로드를 허용해야 합니다. 루트 파일 시스템은 읽기 전용이며 `/tmp`의 `noexec,nosuid,nodev`도 유지됩니다.
+
+이미지를 바꿔도 기존 플러그인 볼륨은 덮어쓰지 않습니다. 컨테이너를 다시 만든 후 플러그인 버전과 비활성화 상태를 확인하세요. 필수 플러그인이 호환되지 않으면 복구 모드가 되므로 호스트에 맞는 신뢰할 수 있는 패키지를 설치해야 합니다. 볼륨, 설정, 데이터베이스와 다운로드를 유지하고 `docker compose down`으로 중지하세요. 볼륨을 삭제하는 `-v`는 추가하지 마세요.
+
+`docker compose ps`에서 상태를 확인할 수 있습니다. 상태 검사는 인증이 필요 없는 `/actuator/health`를 사용합니다. 통과한 후에도 플러그인 상태를 확인하세요. 포트를 바꾸면 매핑과 상태 검사도 함께 수정합니다.
 
 ## 사용자 스크립트 설치(선택)
 

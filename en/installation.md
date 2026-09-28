@@ -113,11 +113,17 @@ Automatic launch after installation, or launch from Start Menu / desktop shortcu
 
 ## Method 3: Docker (Long-Running Server)
 
-The repository root ships a `Dockerfile` (multi-stage build; the runtime image bundles the ffmpeg required for Ugoira) and a `docker-compose.yml`.
+The repository's `Dockerfile` builds an image from a signed Java distribution and includes Java 17, FFmpeg and curl. Extract the complete Java standard or full-offline package into `build/dist/default-downloader/`. That directory must directly contain the application JAR, `plugins/`, `plugins-manifest.json` and `SHA256SUMS`. Then run `docker compose build`.
 
 ### 1. Requirements
 
 - Docker 20.10+ with Docker Compose (the `docker compose` command).
+
+The container runs as UID/GID 10001. For a new Linux installation, create writable mount directories first:
+
+```bash
+sudo install -d -o 10001 -g 10001 config state data pixiv-download log
+```
 
 ### 2. First-Time Setup (do this first)
 
@@ -141,7 +147,7 @@ docker compose logs -f app   # view logs
 docker compose down          # stop
 ```
 
-Then open `http://<host-ip>:6999/` in a browser. Login, monitor, and pages contributed by installed plugins are reachable remotely via session auth; the setup wizard and desktop GUI are not available inside the container (see below for editing config).
+The default port binds only to the host's `127.0.0.1:6999`; open `http://127.0.0.1:6999/` on that host. Remote access can use an existing SSH tunnel or a separately configured reverse proxy. Sign in as the administrator to install, inspect and repair plugins.
 
 ### 4. Proxy Configuration (important)
 
@@ -177,6 +183,10 @@ Run `docker compose restart app` to apply.
 | `./data/` | SQLite database `pixiv_download.db`, collection icons, thumbnail cache, TTS cache, backfill state, narration reference audio |
 | `./pixiv-download/` | Downloaded artwork/novel/series files (incl. `_archives` packaging) |
 | `./log/` | Runtime logs (optional) |
+
+The `plugins` named volume stores installed packages. The `config/`, `state/`, `data/`, `pixiv-download/` and `log/` directories are mounted from the host. The instance lock uses `state/instance/`, and SQLite extracts its native library into `state/`; these paths must be writable and permit loading the library. The root filesystem remains read-only and `/tmp` retains `noexec,nosuid,nodev`.
+
+Replacing the image does not overwrite an existing plugin volume. After recreation, check plugin versions and disabled states in plugin management. An incompatible required plugin puts the host in recovery mode; install a trusted package matching the host. Preserve the plugin volume, configuration, databases and downloads. Stop with `docker compose down` without the volume-deleting `-v` option.
 
 ### 6. Health Check
 

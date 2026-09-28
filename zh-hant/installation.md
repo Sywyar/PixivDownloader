@@ -112,11 +112,17 @@ nohup java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --no-gui > app.lo
 
 ## 方式三：Docker（服務器常駐）
 
-倉庫根目錄已提供 `Dockerfile`（multi-stage 構建，運行鏡像內置動圖所需的 ffmpeg）與 `docker-compose.yml`。
+倉庫的 `Dockerfile` 使用已簽章的 Java 分發目錄建立映像，內含 Java 17、FFmpeg 與 curl。先將 Java 標準包或離線全量包完整解壓到倉庫的 `build/dist/default-downloader/`，確認該目錄直接包含主程式 JAR、`plugins/`、`plugins-manifest.json` 與 `SHA256SUMS`，再執行 `docker compose build`。
 
 ### 1. 環境要求
 
 - Docker 20.10+ 與 Docker Compose（`docker compose` 命令）。
+
+容器以 UID/GID 10001 執行。Linux 新建實例時，先建立該使用者可寫入的掛載目錄：
+
+```bash
+sudo install -d -o 10001 -g 10001 config state data pixiv-download log
+```
 
 ### 2. 首次初始化（務必先做）
 
@@ -140,7 +146,7 @@ docker compose logs -f app   # 查看日誌
 docker compose down          # 停止
 ```
 
-啓動後瀏覽器訪問 `http://<宿主IP>:6999/`。登錄、監控和已安裝插件貢獻的頁面均通過會話鑑權遠程可用；setup 嚮導與桌面 GUI 在容器內不可用（如需改配置見下）。
+預設連接埠只綁定主機的 `127.0.0.1:6999`，請在主機瀏覽器開啟 `http://127.0.0.1:6999/`。遠端存取可使用既有 SSH 通道或另行設定反向代理；管理員登入後可安裝、查詢與修復外掛。
 
 ### 4. 代理配置（關鍵）
 
@@ -176,6 +182,10 @@ proxy.host: host.docker.internal   # 複用宿主機上運行的代理（端口�
 | `./data/` | SQLite 數據庫 `pixiv_download.db`、收藏夾圖標、縮略圖緩存、TTS 緩存、回填狀態、朗讀參考音 |
 | `./pixiv-download/` | 下載的作品/小說/系列文件（含臨時打包 `_archives`） |
 | `./log/` | 運行日誌（可選） |
+
+`plugins` 命名卷保存已安裝套件；`config/`、`state/`、`data/`、`pixiv-download/` 與 `log/` 分別掛載到主機。單實例鎖位於 `state/instance/`，SQLite 原生函式庫暫時解壓到 `state/`；這兩個路徑須可寫入，原生函式庫須可載入。根檔案系統保持唯讀，`/tmp` 保留 `noexec,nosuid,nodev`。
+
+更新映像不會自動覆蓋既有外掛卷。重建後在外掛管理頁核對版本與停用狀態；不相容的必要外掛會使主機進入復原模式，應安裝與主機匹配的受信任套件。保留外掛卷、設定、資料庫及下載目錄，停止容器使用 `docker compose down`，不要附加刪除卷的 `-v`。
 
 ### 6. 健康檢查
 

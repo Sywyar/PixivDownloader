@@ -75,7 +75,15 @@ java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --setup
 
 ## 方法 3：Docker
 
-リポジトリには `Dockerfile` と `docker-compose.yml` があります。
+`Dockerfile` は署名済み Java 配布ディレクトリから、Java 17、FFmpeg、curl を含むイメージを作成します。Java 標準または完全オフラインパッケージをリポジトリの `build/dist/default-downloader/` に完全展開してください。直下にアプリの JAR、`plugins/`、`plugins-manifest.json`、`SHA256SUMS` があることを確認し、`docker compose build` を実行します。
+
+コンテナは UID/GID 10001 で動作します。Linux の新規インストールでは、書き込み可能なマウント先を作成します。
+
+```bash
+sudo install -d -o 10001 -g 10001 config state data pixiv-download log
+```
+
+CLI の初期設定を完了してから常駐起動します。
 
 ```bash
 docker compose run --rm app --setup
@@ -83,11 +91,15 @@ docker compose up -d
 docker compose logs -f app
 ```
 
-初期化前に `up` を実行しないでください。セットアップが完了していないコンテナは終了コード 78 で再起動を繰り返します。起動後は `http://<host-ip>:6999/` を開きます。
+未設定のコンテナは終了コード 78 で終了します。コンテナにデスクトップ GUI はなく、`setup.html` も CLI 初期設定の代わりにはなりません。既定の公開先はホストの `127.0.0.1:6999` のみです。ホスト上で `http://127.0.0.1:6999/` を開いてください。遠隔接続には既存の SSH トンネル、または別途設定したリバースプロキシを利用できます。管理者ログイン後、プラグイン管理ページでインストール、状態確認、修復を行います。
 
-コンテナ内の `127.0.0.1` はコンテナ自身を指します。ホストのプロキシを使う場合は、セットアップ時に `--proxy-host=host.docker.internal --proxy-port=7890` を指定してください。設定を変更したら `docker compose restart app` を実行します。
+コンテナ内の `127.0.0.1` はコンテナ自身を指します。ホストのプロキシを使う場合は setup に `--proxy-host=host.docker.internal --proxy-port=7890` を追加し、不要なら `--proxy-enabled=false` を追加します。イメージ取得やビルド中の APT ダウンロードには Docker 自身のプロキシ・ミラー設定が使われます。`config/config.yaml` の変更後は `docker compose restart app` を実行します。
 
-`config/`、`state/`、`data/`、`pixiv-download/`、`log/` は compose によりホストへマウントされ、再起動後も保持されます。
+インストール済みパッケージは名前付きボリューム `plugins` に保存されます。`config/`、`state/`、`data/`、`pixiv-download/`、`log/` はホストからマウントされます。インスタンスロックは `state/instance/`、SQLite ネイティブライブラリの一時展開先は `state/` です。書き込みとライブラリ読み込みを許可してください。ルートファイルシステムは読み取り専用、`/tmp` は `noexec,nosuid,nodev` のままです。
+
+イメージ更新は既存のプラグインボリュームを上書きしません。再作成後はプラグインのバージョンと無効状態を確認してください。必須プラグインに互換性がなければリカバリーモードに入り、ホストに対応する信頼済みパッケージが必要です。ボリューム、設定、データベース、ダウンロードを保持し、停止には `docker compose down` を使います。ボリュームを削除する `-v` は付けないでください。
+
+`docker compose ps` でヘルス状態を確認できます。プローブは認証不要の `/actuator/health` を使います。成功後もプラグインの状態を確認してください。ポート変更時はマッピングとプローブも更新します。
 
 ## ユーザースクリプト（任意）
 
