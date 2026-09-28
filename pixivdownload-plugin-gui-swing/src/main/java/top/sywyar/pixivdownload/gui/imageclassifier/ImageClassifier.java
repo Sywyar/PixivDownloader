@@ -1263,6 +1263,7 @@ public class ImageClassifier extends JFrame {
         if (currentImages == null || currentImages.isEmpty()) return;
 
         JDialog viewer = new JDialog(this, message("gui.image-classifier.dialog.image-viewer.title"), false);
+        viewer.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         viewer.setSize(1100, 860);
         viewer.setLocationRelativeTo(this);
         viewer.setLayout(new BorderLayout());
@@ -1275,6 +1276,21 @@ public class ImageClassifier extends JFrame {
         imageLabel.setForeground(new Color(180, 180, 180));
         imageLabel.setBackground(new Color(18, 18, 18));
         imageLabel.setOpaque(true);
+
+        ImageViewerLoader loader = new ImageViewerLoader();
+        viewer.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent event) {
+                loader.close();
+                imageLabel.setIcon(null);
+            }
+
+            @Override
+            public void windowClosed(WindowEvent event) {
+                loader.close();
+                imageLabel.setIcon(null);
+            }
+        });
 
         JScrollPane scrollPane = new JScrollPane(imageLabel,
                 JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
@@ -1313,7 +1329,7 @@ public class ImageClassifier extends JFrame {
 
         // ── 加载图片（必须在 EDT 调用）──
         Runnable loadImage = () -> {
-            if (currentImages == null || idx[0] >= currentImages.size()) return;
+            if (!viewer.isDisplayable() || currentImages == null || idx[0] >= currentImages.size()) return;
             File imgFile = currentImages.get(idx[0]);
 
             viewer.setTitle(message("gui.image-classifier.dialog.image-viewer.page-title", idx[0] + 1, currentImages.size(), imgFile.getName()));
@@ -1336,23 +1352,22 @@ public class ImageClassifier extends JFrame {
             final int vpW = vpSize.width  > 100 ? vpSize.width  : 1060;
             final int vpH = vpSize.height > 100 ? vpSize.height : 760;
 
-            new Thread(() -> {
-                try {
-                    final ImageIcon icon = new ImageIcon(ThumbnailManager.getThumbnail(loadFile, vpW, vpH));
-                    SwingUtilities.invokeLater(() -> {
+            loader.load(
+                    () -> new ImageIcon(ThumbnailManager.getThumbnail(loadFile, vpW, vpH)),
+                    icon -> {
+                        if (!viewer.isDisplayable()) return;
                         imageLabel.setIcon(icon);
                         imageLabel.setText("");
                         // 滚动回顶部
                         scrollPane.getViewport().setViewPosition(new Point(0, 0));
-                    });
-                } catch (Exception ex) {
-                    log.error(logMessage("gui.image-classifier.log.viewer-load-failed", ex.getMessage()));
-                    SwingUtilities.invokeLater(() -> {
+                    },
+                    ex -> {
+                        if (!viewer.isDisplayable()) return;
+                        log.error(logMessage("gui.image-classifier.log.viewer-load-failed", ex.getMessage()));
                         imageLabel.setIcon(null);
                         imageLabel.setText(message("gui.image-classifier.thumbnail.viewer-load-failed", ex.getMessage()));
-                    });
-                }
-            }, "ImageViewer-Loader").start();
+                    }
+            );
         };
 
         prevBtn.addActionListener(e -> { if (idx[0] > 0) { idx[0]--; loadImage.run(); } });
