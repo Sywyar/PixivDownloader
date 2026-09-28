@@ -158,9 +158,13 @@ class DesktopMediaToolsControllerTest {
         };
     }
     private static void activate(ComposeDesktopUiModel model, String id) {
-        synchronized (model) {
-            model.dispatch(model.snapshot(), new DesktopUiNode.Event(DesktopUiNode.EventType.ACTIVATE, id, DesktopUiNode.Value.empty()));
-        }
+        await(() -> {
+            synchronized (model) {
+                if (!button(model, id).enabled()) return false;
+                model.dispatch(model.snapshot(), new DesktopUiNode.Event(DesktopUiNode.EventType.ACTIVATE, id, DesktopUiNode.Value.empty()));
+                return true;
+            }
+        });
     }
     private static void change(ComposeDesktopUiModel model, String id, DesktopUiNode.Value value) {
         synchronized (model) {
