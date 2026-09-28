@@ -147,8 +147,8 @@ class AboutOverviewTest {
             )).use {
                 it.rebuild()
                 val model = DesktopAboutViewTest.overview(it)
-                val image = ImageData("image/x-icon", java.util.Base64.getEncoder().encodeToString(
-                    File("../pixivdownload-app/src/main/resources/static/favicon.ico").readBytes()))
+                val image = ImageData("image/x-icon",
+                    File("../pixivdownload-app/src/main/resources/static/favicon.ico").readBytes())
                 AboutOverview(
                     model.id(),
                     Image("about.icon", image, TextToken.raw("Application icon"), 80, 80, ScaleMode.FIT),

@@ -8,13 +8,37 @@ import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.nio.file.Path;
+import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.*;
 
 @DisplayName("Compose 图片分类预览")
 class DesktopImageClassifierSupportTest {
     @TempDir
     Path tempDir;
+
+    @Test
+    @DisplayName("图像数据隔离可变数组，按内容比较并保留大小和资源格式校验")
+    void ownsBoundedImageBytes() {
+        int maximumBytes = 5 * 1024 * 1024;
+        byte[] input = {1, 2, 3};
+        var image = new DesktopUiNode.ImageData(" IMAGE/PNG ", input);
+        var equivalent = new DesktopUiNode.ImageData("image/png", input.clone());
+        input[0] = 9;
+        image.bytes()[1] = 9;
+        assertArrayEquals(new byte[]{1, 2, 3}, image.bytes());
+        assertEquals(equivalent, image);
+        assertEquals(equivalent.hashCode(), image.hashCode());
+        assertNotEquals(image, new DesktopUiNode.ImageData("image/png", input));
+        assertEquals(image, DesktopUiNode.ImageData.fromBase64("image/png", "AQID"));
+        assertThrows(IllegalArgumentException.class, () -> new DesktopUiNode.ImageData("text/plain", input));
+        assertThrows(IllegalArgumentException.class, () -> new DesktopUiNode.ImageData("image/png", new byte[0]));
+        assertThrows(IllegalArgumentException.class, () -> new DesktopUiNode.ImageData("image/png",
+                new byte[maximumBytes + 1]));
+        assertThrows(IllegalArgumentException.class, () -> DesktopUiNode.ImageData.fromBase64("image/png", "!"));
+        assertThrows(IllegalArgumentException.class, () -> DesktopUiNode.ImageData.fromBase64("image/png",
+                "A".repeat(((maximumBytes + 2) / 3) * 4 + 5)));
+    }
 
     @Test
     @DisplayName("大图可生成有界预览且 WebP 使用伴随帧")
