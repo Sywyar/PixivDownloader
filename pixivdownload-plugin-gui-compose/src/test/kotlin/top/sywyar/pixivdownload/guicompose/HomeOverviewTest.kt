@@ -35,10 +35,14 @@ class HomeOverviewTest {
     @DisplayName("启动超过预期后显示按秒刷新的计时，提示与运行状态切换不移动首页内容")
     fun startupStatusTicksWithoutRebuildingTheHomeDocument() = runComposeUiTest {
         var snapshot by mutableStateOf(home(empty = true))
+        // 失焦暂停独立的提示轮换，避免虚拟时钟推进改变被比较的提示文字。
+        val window = object : WindowInfo { override val isWindowFocused = false }
         setContent {
-            PixivDownloaderTheme("light") {
-                Box(Modifier.size(1000.dp, 800.dp)) {
-                    HomeOverview(snapshot, ::resolve, {})
+            CompositionLocalProvider(LocalWindowInfo provides window) {
+                PixivDownloaderTheme("light") {
+                    Box(Modifier.size(1000.dp, 800.dp)) {
+                        HomeOverview(snapshot, ::resolve, {})
+                    }
                 }
             }
         }
