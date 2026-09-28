@@ -1769,7 +1769,10 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
     private static List<String> copyBoundedStrings(List<String> values, String name) {
         List<String> copy = copyBounded(values == null ? List.of() : values, name);
-        return copy.stream().map(value -> boundedText(Objects.requireNonNull(value, name), name)).toList();
+        for (String value : copy) {
+            boundedText(value, name);
+        }
+        return copy;
     }
 
     private static void requireUnique(List<String> values, String name) {
