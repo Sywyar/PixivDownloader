@@ -207,7 +207,16 @@ public final class LocaleCatalog {
         if (candidate == null || candidate.getLanguage().isBlank()) {
             return Optional.empty();
         }
-        String canonical = canonicalTag(candidate.toLanguageTag());
+        String tag = candidate.toLanguageTag();
+        LocaleDescriptor byTagMatch = byTag.get(tag);
+        if (byTagMatch != null) {
+            return Optional.of(byTagMatch);
+        }
+        LocaleDescriptor aliasMatch = byAlias.get(tag);
+        if (aliasMatch != null) {
+            return Optional.of(aliasMatch);
+        }
+        String canonical = canonicalTag(tag);
         if (canonical == null) {
             return Optional.empty();
         }

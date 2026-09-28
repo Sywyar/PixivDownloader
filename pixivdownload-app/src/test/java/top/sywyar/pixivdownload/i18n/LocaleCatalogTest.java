@@ -161,6 +161,28 @@ class LocaleCatalogTest {
     }
 
     @Test
+    @DisplayName("语言对象保留旧语言码、变体与扩展的匹配和歧义语义")
+    void localeFormPreservesLegacyCodesVariantsAndExtensions() {
+        LocaleCatalog original = fixture();
+        LocaleDescriptor hebrew = new LocaleDescriptor("he-IL", "עברית", "he",
+                LocaleStatus.SUPPORTED, "rtl", List.of("he"));
+        var locales = new java.util.ArrayList<>(original.allLocales());
+        locales.add(hebrew);
+        LocaleCatalog catalog = new LocaleCatalog(1, original.sourceLocale(), original.defaultLocale(),
+                original.fallbackLocale(), original.languageCookieName(), original.languageParameterName(), locales);
+
+        assertThat(catalog.match(new Locale("iw", "IL"))).containsSame(hebrew);
+        assertThat(catalog.match(new Locale("iw"))).containsSame(hebrew);
+        assertThat(catalog.match(new Locale("ja", "JP", "JP")).orElseThrow().tag()).isEqualTo("ja-JP");
+        assertThat(catalog.match(new Locale("en", "US", "POSIX"))).containsSame(catalog.fallbackLocale());
+        assertThat(catalog.match(Locale.forLanguageTag("en-US-u-ca-japanese")))
+                .containsSame(catalog.fallbackLocale());
+        assertThat(catalog.match(Locale.forLanguageTag("zh-CN-u-nu-hanidec"))).isEmpty();
+        assertThat(catalog.resolve(Locale.forLanguageTag("zz-ZZ-x-private"))).isSameAs(catalog.defaultLocale());
+        assertThat(catalog.match(Locale.ROOT)).isEmpty();
+    }
+
+    @Test
     @DisplayName("无匹配时 resolve 落到默认语言 en-US")
     void resolveFallsBackToDefaultLocale() {
         LocaleCatalog catalog = fixture();
