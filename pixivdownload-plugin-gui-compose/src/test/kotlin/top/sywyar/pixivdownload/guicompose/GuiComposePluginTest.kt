@@ -354,7 +354,7 @@ class GuiComposePluginTest {
                 DesktopUiNode.Group("tools.media", raw("Media"), text("tools.media.content")), text("tools.history"), null, null),
             DesktopUiNode.AutomationOverview("automation", 0L, false, emptyList(), emptyList(), emptyList()),
             DesktopUiNode.HomeOverview("overview", emptyList(), emptyList(), emptyList(), false,
-                text("overview.backend"), DesktopUiNode.HomeSystem(raw("Disabled"), null, raw("Unavailable"))),
+                text("overview.backend"), 0L, DesktopUiNode.HomeSystem(raw("Disabled"), null, raw("Unavailable"))),
             DesktopUiNode.Dock("dock", 4, text("dock.top"), text("dock.center"), null, null, null),
             DesktopUiNode.AccountSetup(
                 "account",

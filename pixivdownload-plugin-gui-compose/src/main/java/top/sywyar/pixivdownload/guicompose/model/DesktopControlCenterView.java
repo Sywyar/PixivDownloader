@@ -101,7 +101,7 @@ final class DesktopControlCenterView {
         DesktopUiNode content = new DesktopUiNode.HomeOverview("home.overview", shortcuts, tasks, metrics,
                 snapshot.path("runningTasks").isArray(),
                 new DesktopUiNode.Text("home.system.backend", TextToken.raw(owner.backendMessage()),
-                        owner.backendTextStyle(), true, false), systemStatus());
+                        owner.backendTextStyle(), true, false), owner.backendStartingAt(), systemStatus());
         return owner.page("home", DesktopUiIcon.HOME, content, new DesktopUiNode.Insets(0, 0, 0, 0), null);
     }
 

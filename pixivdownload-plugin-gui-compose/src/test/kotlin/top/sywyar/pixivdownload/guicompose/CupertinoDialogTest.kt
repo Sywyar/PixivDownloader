@@ -3,6 +3,19 @@ package top.sywyar.pixivdownload.guicompose
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
+import androidx.compose.ui.test.v2.runSkikoComposeUiTest
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.toAwtImage
+import java.io.File
+import javax.imageio.ImageIO
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -31,6 +44,46 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class, ExperimentalCupertinoApi::class)
 @DisplayName("Cupertino 提示框运行契约")
 class CupertinoDialogTest {
+    @Test
+    @DisplayName("桌面通知按阅读宽度显示，低矮窗口内长正文可滚动且确认始终可达")
+    fun desktopMessageFitsViewportAndKeepsConfirmationVisible() {
+        for ((width, height) in listOf(1000 to 720, 440 to 320)) runSkikoComposeUiTest(
+            size = Size(width.toFloat(), height.toFloat()),
+        ) {
+            var open by mutableStateOf(true)
+            var message by mutableStateOf(List(40) { "Unmanaged table: example_table_$it" }.joinToString("\n"))
+            setContent {
+                PixivDownloaderTheme(if (width == 1000) "light" else "dark") {
+                    Box(Modifier.size(width.dp, height.dp)) {
+                        if (open) DesktopMessageDialog(
+                            title = "Database structure",
+                            message = message,
+                            confirmLabel = "OK",
+                            onDismiss = { open = false },
+                        )
+                    }
+                }
+            }
+            val dialog = onNodeWithTag("desktop.message").fetchSemanticsNode().boundsInRoot
+            assertTrue(dialog.width <= width && dialog.height <= height, "dialog=$dialog, window=$width x $height")
+            if (width == 1000) assertTrue(dialog.width >= 560, "桌面通知应有可读宽度")
+            val body = onNodeWithTag("desktop.message.body")
+            body.performTouchInput { swipeUp() }
+            assertTrue(body.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value() > 0)
+            System.getenv("PIXIV_DIALOG_SCREENSHOTS")?.let { directory ->
+                val file = File(directory, "message-$width.png")
+                file.parentFile.mkdirs()
+                ImageIO.write(captureToImage().toAwtImage(), "png", file)
+            }
+            onNodeWithText("OK").assertIsDisplayed().performClick()
+            onNodeWithText("Database structure").assertDoesNotExist()
+            runOnIdle { message = "Ready"; open = true }
+            if (width == 1000) assertTrue(onNodeWithTag("desktop.message").fetchSemanticsNode().boundsInRoot.height < height / 2)
+            onNodeWithText("OK").performKeyInput { pressKey(Key.Escape) }
+            onNodeWithText("Database structure").assertDoesNotExist()
+        }
+    }
+
     @Test
     @DisplayName("业务弹窗在模态层显示，保留确认动作，关闭按钮和 Escape 发出取消事件")
     fun documentDialogKeepsActionsAndDismissalInsideTheWindow() = runComposeUiTest {

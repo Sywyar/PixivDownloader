@@ -481,9 +481,10 @@ function renderBackendBanner() {
 
 function bindDockToggle() {
     const toggle = document.getElementById('abDockToggle');
-    const close = document.getElementById('abDockClose');
     if (toggle) toggle.addEventListener('click', openDock);
-    if (close) close.addEventListener('click', () => switchMode(lastAcquisitionMode));
+    document.getElementById('abDownloadOptions')?.replaceChildren(
+        filterButton('abQueueFilterBtn'), settingsButton('abQueueSettingsBtn'));
+    syncFilterButtonBadge();
     document.getElementById('abPrepareTab')?.addEventListener('click', () => switchMode(lastAcquisitionMode));
     document.getElementById('abScheduleTab')?.addEventListener('click', () => switchMode('schedule'));
 }

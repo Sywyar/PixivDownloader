@@ -408,13 +408,36 @@ function buildSettingsDrawerBody() {
 }
 
 function openSettingsDrawer() {
-    openDrawer({
-        id: 'settings',
-        icon: 'sliders',
-        title: bt('settings.title', '下载设置'),
-        body: buildSettingsDrawerBody()
+    openDownloadOptionsDrawer('settings');
+}
+
+function openDownloadOptionsDrawer(section) {
+    const body = el('div', 'ab-download-options');
+    const filters = buildFiltersDrawerBody();
+    const settings = buildSettingsDrawerBody();
+    const footer = buildFiltersDrawerFooter(filters);
+    const sections = [
+        ['filters', bt('filters.title', '附加筛选')],
+        ['settings', bt('settings.title', '下载设置')]
+    ];
+    function selectSection(value) {
+        filters.hidden = value !== 'filters';
+        settings.hidden = value !== 'settings';
+        footer.parentElement.hidden = value !== 'filters';
+    }
+    const selector = smallSeg(sections, section, value => {
+        selectSection(value);
+        drawer.body.scrollTop = 0;
     });
-    // 抽屉 body 重建后重挂 settings-card 槽位内容。
+    body.append(selector, filters, settings);
+    const drawer = openDrawer({
+        id: 'download-options',
+        icon: 'sliders',
+        title: sections.map(([, label]) => label).join(' · '),
+        body,
+        footer
+    });
+    selectSection(section);
     refreshAltSlots();
 }
 
@@ -454,7 +477,7 @@ function refreshContributedSettingsVisibility() {
     const type = kind && runtime.resolveSelectionForMode(kind, mode, null);
     runtime.contributionsOf('settings').forEach(contribution => {
         const card = contribution.cardId && document.getElementById(contribution.cardId);
-        if (card) card.style.display = mode === SINGLE_IMPORT_MODE || mode === 'series'
+        if (card) card.style.display = dockState.open || mode === SINGLE_IMPORT_MODE || mode === 'series'
             || kind === 'mixed' || type === contribution.type ? '' : 'none';
     });
 }

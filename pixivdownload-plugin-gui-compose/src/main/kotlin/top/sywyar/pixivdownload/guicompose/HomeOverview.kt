@@ -103,7 +103,7 @@ internal fun HomeOverview(
             ) {
                 HomeEntrance(entered, 0) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top,
                             horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                             Crossfade(
                                 targetState = label(homeGreetingKey(hour)),
@@ -119,7 +119,7 @@ internal fun HomeOverview(
                                     color = palette.text,
                                 )
                             }
-                            if (!narrow) BackendStatus(node.backend(), text)
+                            if (!narrow) BackendStatus(node, text, Modifier.width(240.dp))
                         }
                         tip?.let { key ->
                             Crossfade(
@@ -138,7 +138,7 @@ internal fun HomeOverview(
                                 )
                             }
                         }
-                        if (narrow) BackendStatus(node.backend(), text)
+                        if (narrow) BackendStatus(node, text, Modifier.fillMaxWidth())
                     }
                 }
                 HomeEntrance(entered, 35) {
@@ -262,7 +262,24 @@ private fun SectionTitle(title: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun BackendStatus(backend: DesktopUiNode.Text, text: (DesktopUiNode.TextToken) -> String) {
+private fun BackendStatus(
+    node: DesktopUiNode.HomeOverview,
+    text: (DesktopUiNode.TextToken) -> String,
+    modifier: Modifier,
+) {
+    val backend = node.backend()
+    val startedAt = node.backendStartingAt()
+    var elapsed by remember(startedAt) { mutableLongStateOf(0L) }
+    LaunchedEffect(startedAt) {
+        while (startedAt > 0L) {
+            elapsed = ((System.currentTimeMillis() - startedAt) / 1_000L).coerceAtLeast(0L)
+            delay(1_000L)
+        }
+    }
+    fun label(suffix: String, vararg args: Any) = text(
+        DesktopUiNode.TextToken("gui-compose", "gui.compose.home.$suffix", "", args.map(Any::toString)),
+    )
+    val slow = startedAt > 0L && elapsed >= 20L
     val palette = LocalExperiencePalette.current
     val color = when (backend.style()) {
         DesktopUiNode.TextStyle.SUCCESS -> palette.success
@@ -270,10 +287,30 @@ private fun BackendStatus(backend: DesktopUiNode.Text, text: (DesktopUiNode.Text
         DesktopUiNode.TextStyle.WARNING -> palette.warning
         else -> palette.secondaryText
     }
-    Row(Modifier.widthIn(max = 240.dp).semantics(mergeDescendants = true) {},
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-        Box(Modifier.size(6.dp).background(color, CircleShape))
-        CupertinoText(text(backend.text()), fontSize = 12.sp, color = palette.secondaryText)
+    Column(modifier.testTag("home.backend"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            Box(Modifier.size(6.dp).background(color, CircleShape))
+            CupertinoText(
+                if (slow) label("starting", elapsed) else text(backend.text()),
+                Modifier.testTag("home.backend.state"),
+                fontSize = 12.sp,
+                lineHeight = 18.sp,
+                color = palette.secondaryText,
+            )
+        }
+        // 始终测量完整提示，为文字缩放和长译文预留空间，显隐不会推动首页。
+        CupertinoText(
+            label("starting.slow"),
+            Modifier.fillMaxWidth().testTag("home.backend.hint")
+                .graphicsLayer { alpha = if (slow) 1f else 0f }
+                .then(if (slow) Modifier else Modifier.clearAndSetSemantics {}),
+            fontSize = 12.sp,
+            lineHeight = 18.sp,
+            color = palette.secondaryText,
+        )
     }
 }
 

@@ -13,9 +13,14 @@ function harness() {
     const document = {addEventListener() {}};
     class Element extends MiniElement {
         get firstChild() { return this.children[0] || null; }
+        get parentElement() { return this.parentNode; }
         get isConnected() { return document.body.contains(this); }
         remove() { if (this.parentNode) this.parentNode.removeChild(this); }
         append(...nodes) { nodes.forEach(node => this.appendChild(node)); }
+        replaceChildren(...nodes) {
+            this.children.slice().forEach(child => this.removeChild(child));
+            this.append(...nodes);
+        }
         matches(selector) { return selector.split(',').some(part => super.matches(part.trim())); }
         set innerHTML(html) {
             this.children.slice().forEach(child => this.removeChild(child));
@@ -34,6 +39,7 @@ function harness() {
     document.createElement = tag => new Element(tag, document);
     document.body = document.createElement('body');
     document.getElementById = id => document.body.querySelector('#' + id);
+    document.querySelectorAll = selector => document.body.querySelectorAll(selector);
     const writes = [];
     const context = vm.createContext({
         document, console, cookieHasPhpsessid: () => true,
@@ -77,6 +83,64 @@ function harness() {
     return {context, document, writes, load, dispatchSlots, mountNovel, mountAi,
         input: id => document.getElementById(id)};
 }
+
+test('获取与下载列表共用筛选及设置抽屉，切换分区保留草稿并共享下载偏好', async () => {
+    const h = harness();
+    const {context, document} = h;
+    const alt = 'pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch-alt/';
+    for (const name of ['alt-filters.js', 'alt-modes.js', 'alt-mode-discovery.js', 'alt-chrome.js']) h.load(alt + name);
+    context.abIconEl = () => document.createElement('span');
+    context.applyFiltersToCurrentMode = async () => {};
+    let mounts = 0;
+    context.refreshAltSlots = () => { mounts++; };
+    for (const id of ['abDownloadOptions', 'abDrawerRoot']) {
+        const node = document.createElement(id === 'abDrawerRoot' ? 'dialog' : 'div');
+        node.id = id;
+        node.showModal = () => { node.open = true; };
+        node.close = () => { node.open = false; };
+        document.body.appendChild(node);
+    }
+    const click = node => node.dispatchEvent({type: 'click'});
+    const drawer = document.getElementById('abDrawerRoot');
+    vm.runInContext("state.mode = 'search'; searchState.kind = 'illust'; dockState.open = true", context);
+    context.bindDockToggle();
+    click(document.getElementById('abQueueSettingsBtn'));
+    assert.equal(drawer.open, true);
+    assert.equal(drawer.querySelector('.ab-settings').hidden, false);
+    assert.equal(drawer.querySelector('.ab-filters').hidden, true);
+    const interval = drawer.querySelector('.ab-settings').querySelector('input');
+    interval.value = '7';
+    interval.dispatchEvent({type: 'change'});
+    assert.equal(h.writes.at(-1).interval, 7);
+    const sections = drawer.querySelector('.ab-download-options').children[0].querySelectorAll('button');
+    click(sections[0]);
+    const tags = drawer.querySelector('[data-filter-field="tagsExact"]');
+    tags.value = 'cat';
+    click(sections[1]);
+    click(sections[0]);
+    assert.equal(drawer.querySelector('[data-filter-field="tagsExact"]'), tags);
+    assert.equal(tags.value, 'cat');
+    assert.equal(mounts, 1, '切换分区不重建贡献控件或其监听器');
+    click(drawer.querySelector('.ab-drawer-actions').children[1]);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(drawer.open, false);
+    assert.equal(context.evaluateDownloadFilterSkip({tags: ['dog']}, 'illust') !== null, true);
+    const queueBadge = document.getElementById('abQueueFilterBtn').querySelector('[data-filter-badge]');
+    assert.equal(queueBadge.textContent, '1');
+    assert.equal(queueBadge.hidden, false);
+    vm.runInContext('dockState.open = false', context);
+    click(context.filterButton());
+    assert.equal(drawer.querySelector('[data-filter-field="tagsExact"]').value, 'cat');
+    assert.equal(drawer.querySelector('.ab-settings').querySelector('input').value, '7');
+    const card = document.createElement('div');
+    card.id = 'novel-settings-card';
+    document.body.appendChild(card);
+    context.refreshContributedSettingsVisibility();
+    assert.equal(card.style.display, 'none');
+    vm.runInContext('dockState.open = true', context);
+    context.refreshContributedSettingsVisibility();
+    assert.equal(card.style.display, '', '下载列表可设置所有活动作品类型，不受上次获取方式限制');
+});
 
 test('设置抽屉仅保留贡献锚点，缺席小说与 AI 时不伪造设置', () => {
     const h = harness();

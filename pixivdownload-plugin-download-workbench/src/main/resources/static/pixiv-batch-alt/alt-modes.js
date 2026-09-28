@@ -205,9 +205,9 @@ function modeHeader(modeDef, actions) {
     return heading;
 }
 
-function filterButton() {
+function filterButton(id = 'abFilterBtn') {
     const btn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm');
-    btn.id = 'abFilterBtn';
+    btn.id = id;
     btn.type = 'button';
     btn.appendChild(abIconEl('filter'));
     btn.appendChild(el('span', '', bt('filters.title', '附加筛选')));
@@ -219,9 +219,9 @@ function filterButton() {
     return btn;
 }
 
-function settingsButton() {
+function settingsButton(id = 'abSettingsBtn') {
     const btn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm');
-    btn.id = 'abSettingsBtn';
+    btn.id = id;
     btn.type = 'button';
     btn.appendChild(abIconEl('sliders'));
     btn.appendChild(el('span', '', bt('settings.title', '下载设置')));

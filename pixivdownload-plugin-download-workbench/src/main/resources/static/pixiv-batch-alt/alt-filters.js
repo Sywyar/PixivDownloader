@@ -468,7 +468,10 @@ function buildFiltersDrawerBody() {
 }
 
 function openFiltersDrawer() {
-    const body = buildFiltersDrawerBody();
+    openDownloadOptionsDrawer('filters');
+}
+
+function buildFiltersDrawerFooter(body) {
     const footer = el('div', 'ab-drawer-actions');
     const resetBtn = el('button', 'ab-btn ab-btn--ghost', bt('common.reset', '重置'));
     resetBtn.type = 'button';
@@ -490,13 +493,7 @@ function openFiltersDrawer() {
     });
     footer.appendChild(resetBtn);
     footer.appendChild(applyBtn);
-    openDrawer({
-        id: 'filters',
-        icon: 'filter',
-        title: bt('filters.title', '附加筛选'),
-        body,
-        footer
-    });
+    return footer;
 }
 
 function activeFilterCount() {
