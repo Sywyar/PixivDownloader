@@ -12,8 +12,36 @@ const {
    小说下载端点已迁至小说自有前缀 /api/novel/**（旧址 /api/download/** 由 novel 插件
    的兼容垫片 forward，供油猴脚本懒迁移）。运行在下载页全局作用域，复用宿主既有工具函数
    （bt/state/renderQueue/updateStats/saveQueue/setCurrent/getCookie/fetchJsonWithProgress/
-   fetchSeriesEnrichmentCached/evaluateDownloadFilterSkip/applyNovelStage/handleQuotaExceeded 等）。
+   refreshBatchCollections/evaluateDownloadFilterSkip/handleQuotaExceeded 等）。
 ============================================================ */
+
+    function novelStageLabel(stage) {
+        if (!stage) return '';
+        return bt('queue.stage.' + stage, stage);
+    }
+    /**
+     * 把后端小说下载状态写入队列项，提供比单一“阶段：X”更细的展示：
+     * 下载内嵌图片时附带 (已完成/总数) 计数；下载封面时附带流式字节进度。
+     * 维护 item.novelEmbedded / item.novelCover 供进度条渲染。
+     */
+    function applyNovelStage(item, status) {
+        const stage = status.stage;
+        const eTotal = Number(status.embeddedTotal || 0);
+        const eDone = Number(status.embeddedDone || 0);
+        const cTotal = Number(status.coverTotalBytes || 0);
+        const cDone = Number(status.coverDownloadedBytes || 0);
+        item.novelEmbedded = (stage === 'downloading-images' && eTotal > 0)
+            ? {done: eDone, total: eTotal} : null;
+        item.novelCover = (stage === 'downloading-cover')
+            ? {done: cDone, total: cTotal} : null;
+        if (stage === 'downloading-images' && eTotal > 0) {
+            item.lastMessage = bt('queue.message.novel-images',
+                '阶段：下载内嵌图片（{done}/{total}）', {done: eDone, total: eTotal});
+        } else {
+            item.lastMessage = bt('queue.message.stage', '阶段：{stage}',
+                {stage: novelStageLabel(stage)});
+        }
+    }
 
     function assertNovelProcess(invocation) {
         if (!invocation || typeof invocation.assertActive !== 'function') {
@@ -144,7 +172,7 @@ const {
             const fmt = (state.settings.novelFormat || 'txt').toLowerCase();
             const autoTranslate = !!(isAdmin && state.settings.novelAutoTranslate);
             if (meta.seriesId) item.seriesId = Number(meta.seriesId);
-            const collectionId = await resolveBatchCollectionIdForDownload(invocation);
+            const {collectionId} = await refreshBatchCollections(invocation);
             assertNovelProcess(invocation);
             const body = {
                 novelId: Number(novelId),

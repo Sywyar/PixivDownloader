@@ -136,7 +136,8 @@ function buildDownloadFileNames(template, vars, count) {
    ============================================================ */
 let batchCollections = [];
 
-async function refreshBatchCollections() {
+async function refreshBatchCollections(invocation) {
+    if (invocation) invocation.assertActive();
     const canUseCollections = appMode === 'solo' || isAdmin;
     if (!canUseCollections) {
         batchCollections = [];
@@ -144,20 +145,26 @@ async function refreshBatchCollections() {
         return {collectionId: null, collections: []};
     }
     try {
-        const res = await fetch(BASE + '/api/collections', {credentials: 'same-origin'});
+        const res = await fetch(BASE + '/api/collections', {
+            credentials: 'same-origin', signal: invocation ? invocation.signal : undefined
+        });
+        if (invocation) invocation.assertActive();
         if (!res.ok) {
             batchCollections = [];
             state.settings.collectionId = null;
             return {collectionId: null, collections: []};
         }
         const data = await res.json();
+        if (invocation) invocation.assertActive();
         batchCollections = Array.isArray(data.collections) ? data.collections : [];
         const validIds = new Set(batchCollections.map(c => normalizeBatchCollectionId(c.id)).filter(id => id !== null));
         const current = normalizeBatchCollectionId(state.settings.collectionId);
         state.settings.collectionId = current !== null && validIds.has(current) ? current : null;
         return {collectionId: state.settings.collectionId, collections: batchCollections};
     } catch {
+        if (invocation) invocation.assertActive();
         batchCollections = [];
+        state.settings.collectionId = null;
         return {collectionId: null, collections: []};
     }
 }

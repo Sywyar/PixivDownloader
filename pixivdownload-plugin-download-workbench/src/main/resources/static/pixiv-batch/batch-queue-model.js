@@ -1,32 +1,4 @@
 'use strict';
-    function novelStageLabel(stage) {
-        if (!stage) return '';
-        return bt('queue.stage.' + stage, stage);
-    }
-    /**
-     * 把后端小说下载状态写入队列项，提供比单一“阶段：X”更细的展示：
-     * 下载内嵌图片时附带 (已完成/总数) 计数；下载封面时附带流式字节进度。
-     * 维护 item.novelEmbedded / item.novelCover 供进度条渲染。
-     */
-    function applyNovelStage(item, status) {
-        const stage = status.stage;
-        const eTotal = Number(status.embeddedTotal || 0);
-        const eDone = Number(status.embeddedDone || 0);
-        const cTotal = Number(status.coverTotalBytes || 0);
-        const cDone = Number(status.coverDownloadedBytes || 0);
-        item.novelEmbedded = (stage === 'downloading-images' && eTotal > 0)
-            ? {done: eDone, total: eTotal} : null;
-        item.novelCover = (stage === 'downloading-cover')
-            ? {done: cDone, total: cTotal} : null;
-        if (stage === 'downloading-images' && eTotal > 0) {
-            item.lastMessage = bt('queue.message.novel-images',
-                '阶段：下载内嵌图片（{done}/{total}）', {done: eDone, total: eTotal});
-        } else {
-            item.lastMessage = bt('queue.message.stage', '阶段：{stage}',
-                {stage: novelStageLabel(stage)});
-        }
-    }
-
     function novelByteProgressHtml(p, labelKey, labelDefault, color) {
         if (!p || !(p.done > 0 || p.total > 0)) return '';
         const valueText = p.total > 0
