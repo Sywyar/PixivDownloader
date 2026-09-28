@@ -1,4 +1,4 @@
-# Run on Windows with pwsh or Windows PowerShell. No external test framework.
+﻿# Run on Windows with pwsh or Windows PowerShell. No external test framework.
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $ast = [Management.Automation.Language.Parser]::ParseFile(
@@ -91,6 +91,18 @@ try {
     $children += $child
     $null = $child.Handle
     Connect-ReleaseProbe $child $startupProbe
+    # 尚未查询桌面或触发超时，也必须能取得启动线程现场。
+    $startupSample = Join-Path $startupProbe 'startup-threads-1.txt'
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    while (-not (Test-Path -LiteralPath $startupSample -PathType Leaf)) {
+        Assert-ArtifactAlive $child 'Startup thread evidence'
+        if ([DateTime]::UtcNow -ge $deadline) { throw 'Startup thread evidence missing before desktop observation.' }
+        Start-Sleep -Milliseconds 50
+    }
+    $threads = Get-Content -LiteralPath $startupSample -Raw -Encoding UTF8
+    if (-not $threads.Contains('DelayedLauncher.main') -or -not $threads.Contains('TIMED_WAITING')) {
+        throw 'Startup thread evidence omitted the waiting application entry.'
+    }
     $desktop = Invoke-ReleaseProbe $child $startupProbe 'desktop'
     if ($desktop.applicationLoaded) { throw 'Observer loaded the application entry prematurely.' }
     # The shared deadline may expire during polling or during the final IPC request.
@@ -108,6 +120,15 @@ try {
     if (Test-ReleaseDesktopReady $desktop '' -BootstrapPrompt) { throw 'Loaded entry without a window was accepted.' }
     Assert-Rejected { Invoke-ReleaseProbe $child $startupProbe 'unknown-command' } 'Unknown probe command'
     Start-BlockedDesktop
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        $blockedSample = @(Get-ChildItem -LiteralPath $startupProbe -Filter 'startup-threads-*.txt' |
+            Where-Object { (Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8).Contains('blockEventThread') })
+        if ($blockedSample.Count) { break }
+        Assert-ArtifactAlive $child 'Startup evidence with blocked EDT'
+        if ([DateTime]::UtcNow -ge $deadline) { throw 'Startup evidence sampler depended on the blocked EDT.' }
+        Start-Sleep -Milliseconds 50
+    } while ($true)
     Assert-Rejected { Invoke-ReleaseProbe $child $startupProbe 'dismiss' -AllowPendingDesktop } 'TimeoutException'
     $threads = Get-Content -LiteralPath (Join-Path $startupProbe 'edt-timeout.txt') -Raw -Encoding UTF8
     if (-not $threads.Contains('EDT task started: false') -or
@@ -163,6 +184,16 @@ try {
     Invoke-ReleaseProbe $child $startupProbe 'dismiss' | Out-Null
     $desktop = Invoke-ReleaseProbe $child $startupProbe 'desktop'
     if ($desktop.bootstrapPrompts -ne 0) { throw 'Fresh dismissal did not close the fixture window.' }
+    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    while (@(Get-ChildItem -LiteralPath $startupProbe -Filter 'startup-threads-*.txt').Count -lt 6) {
+        Assert-ArtifactAlive $child 'Bounded startup evidence'
+        if ([DateTime]::UtcNow -ge $deadline) { throw 'Startup evidence did not finish its bounded sample set.' }
+        Start-Sleep -Milliseconds 100
+    }
+    Start-Sleep -Seconds 11
+    if (@(Get-ChildItem -LiteralPath $startupProbe -Filter 'startup-threads-*.txt').Count -ne 6) {
+        throw 'Startup evidence continued beyond its six-snapshot budget.'
+    }
     New-Item -ItemType File -Path (Join-Path $startupProbe 'exit') | Out-Null
     Wait-ArtifactProcessExit $child 'Delayed entry fixture' 15
     if ($child.ExitCode -ne 0) { throw "Delayed entry fixture failed with code $($child.ExitCode)." }
