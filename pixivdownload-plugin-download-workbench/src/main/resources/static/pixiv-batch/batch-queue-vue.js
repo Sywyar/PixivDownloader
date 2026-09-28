@@ -5,9 +5,8 @@
 //  下载队列、统计、速度及计划任务详情的高频更新只改 reactive store；Vue 据稳定 key 与行组件
 //  仅 patch 变化的单行 / 单字段，避免整块 DOM 重建造成的主线程卡顿。
 //
-//  共享口径（不分叉、不复制第二套 HTML 语义）：行 HTML 仍由 batch-queue.js 的 buildQueueItemHtml 生成、
-//  当前下载卡由 batch-queue.js 的 computeCurrentCardHtml 从 reactive 队列镜像派生（内部复用 formatCurrentCardHtml
-//  + 剩余计数行，命令式回退同一函数）、统计文案 / 速度文案仍由 formatStatsText / formatSpeed 生成；
+//  下载行与当前卡直接渲染节点，共用 batch-queue-model / view 的展示数据与文案；
+//  计划详情保留共享 HTML 入口，统计文案 / 速度文案仍由 formatStatsText / formatSpeed 生成；
 //  使用 render 函数避免生产 CSP 禁止动态编译；共享格式化函数保持命令式回退与 Vue 路径口径一致。
 //
 //  渐进式、加性、优雅降级：window.PixivVue 缺失 / Vue 运行时加载失败 / 挂载抛错时，本模块的 ensure/mount 一律
@@ -114,7 +113,7 @@
     /* ============================================================
        普通下载队列岛：一个共享 reactive store + 三个挂载点。
        - .dash-stats   ：5 张统计卡（队列/成功/失败/进行中/跳过）+ 总下载速度卡（同一 store.speed）。
-       - #current-card ：当前下载卡（共享 HTML 派生）。
+       - #current-card ：当前下载卡（队首与剩余计数派生）。
        - #queue-list   ：下载队列列表（稳定 key 的独立行组件）。
     ============================================================ */
     var dlStore = null;     // Vue.reactive({ stats, speed, paused, items })
@@ -172,31 +171,109 @@
         };
     }
 
-    // 当前下载卡组件：display:contents 透明宿主 + innerHTML，使派生结果作为 #current-card 的真实内容
-    //（与命令式 el.innerHTML 视觉一致）。卡片内容由 batch-queue.js 的 computeCurrentCardHtml 从 reactive
-    // 队列镜像 + 暂停标志派生：任何列表同步（renderQueue）或暂停 / 恢复同步都会让 Vue 重算本函数并只 patch
-    // 这一张卡；文案在渲染期经 bt 派生（跟随语言切换）。与命令式回退共用同一派生口径。
+    function progressPart(model, key) {
+        if (!model) return null;
+        var h = Vue.h;
+        if (model.note != null) {
+            return h('div', { key: key, class: 'queue-detail-note' + (model.error ? ' queue-detail-note--error' : '') }, model.note);
+        }
+        return h('div', { key: key, class: 'prog-wrap', style: { marginTop: '4px' } }, [
+            h('div', { class: 'prog-label' }, [h('span', null, model.label), h('span', null, model.right)]),
+            h('div', { class: 'prog-bg', role: 'progressbar', 'aria-label': model.ariaLabel,
+                'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-busy': String(model.busy),
+                'aria-valuenow': model.pctValue == null ? undefined : String(model.pctValue)
+            }, [h('div', { class: 'prog-fill' + (model.busy ? ' is-indeterminate' : ''), style: {
+                width: model.width + '%', background: model.color, height: '4px'
+            } })])
+        ]);
+    }
+
+    function imageCountProgress(q, current) {
+        if (!(q.totalImages > 0)) return null;
+        var h = Vue.h, percent = callG('pct', [q], 0);
+        return h('div', { key: 'count', class: 'prog-wrap' }, [
+            h('div', { class: 'prog-label' }, [
+                h('span', null, callG('formatImageProgressText', [q.downloadedCount || 0, q.totalImages], '')),
+                h('span', null, percent + '%')
+            ]),
+            h('div', { class: 'prog-bg' }, [h('div', { class: 'prog-fill' + (current ? ' green' : ''), style: {
+                width: percent + '%', background: current ? null : callG('statusColor', [q.status], '')
+            } })])
+        ]);
+    }
+
+    function imageDetails(q) {
+        var parts = callG('ugoiraProgressModel', [q.ugoiraProgress, q.status], []);
+        var images = callG('imageDownloadProgressModels', [q.imageProgress, q.status], []);
+        return images.map(function (part, index) { return progressPart(part, 'image-' + index); }).concat([
+            parts.length ? Vue.h('div', { key: 'ugoira', class: 'ugoira-progress' }, parts.map(progressPart)) : null
+        ]);
+    }
+
+    // 与命令式回退共用队首、暂停收尾与剩余计数口径；更新保留卡内真实节点。
     function currentComponent() {
         return {
-            setup: function () {
-                return {
-                    store: dlStore,
-                    currentHtml: function () {
-                        return callG('computeCurrentCardHtml', [dlStore.items, dlStore.paused], '');
-                    }
-                };
-            },
             render: function () {
-                return Vue.h('span', { style: 'display:contents', innerHTML: this.currentHtml() });
+                var h = Vue.h;
+                var front = callG('currentFrontItem', [dlStore.items, dlStore.paused], null);
+                var children = [h('strong', null, tt('label.current', '当前下载:'))];
+                if (front) {
+                    children.push(' ' + (front.title == null ? '' : front.title) + ' (ID: ' + (front.id == null ? '' : front.id) + ')');
+                    children.push(imageCountProgress(front, true));
+                    children.push.apply(children, imageDetails(front));
+                    var counts = callG('currentRemainingCounts', [dlStore.items, front], { downloading: 0, queued: 0 });
+                    var remaining = callG('currentRemainingLineText', [counts.downloading, counts.queued], '');
+                    if (remaining) children.push(h('div', { key: 'remaining', class: 'current-remaining' }, remaining));
+                } else {
+                    children.push(' ' + tt('status.current-idle', '无'));
+                }
+                return h('span', { style: 'display:contents' }, children);
             }
         };
     }
 
-    // 独立行组件配合稳定快照，避免每次进度更新都重新生成全部行的 HTML。
+    // 独立行组件配合稳定快照；标签、按钮与进度节点随原位置 patch，不经 HTML 解析。
     var downloadRowComponent = {
         props: ['index'],
         render: function () {
-            return Vue.h('div', { class: 'q-item-host', innerHTML: rowHtmlOf(dlStore.items[this.index], { removable: true }) });
+            var h = Vue.h, q = dlStore.items[this.index];
+            var model = callG('queueItemModel', [q, { removable: true }], null);
+            if (!model) return null;
+            var title = [h('span', { class: 'q-title-main' }, model.title)];
+            if (model.linkHref) title.push(h('a', {
+                key: 'link', href: model.linkHref, target: '_blank', class: 'queue-source-link',
+                'data-pixiv-click': 'noop()', 'data-pixiv-stop': 'true', title: model.linkLabel
+            }, '🔗'));
+            if (model.canCancel) title.push(h('button', {
+                key: 'cancel', type: 'button', class: 'queue-cancel-btn', 'data-queue-cancel-id': String(q.id),
+                title: model.cancelLabel, 'aria-label': model.cancelLabel
+            }, '■'));
+            if (model.canRemove) title.push(h('button', {
+                key: 'remove', type: 'button', class: 'queue-remove-btn', 'data-queue-remove-id': String(q.id), title: model.removeLabel
+            }, '✕'));
+            var children = [
+                h('div', { class: 'q-title' }, title),
+                h('div', { class: 'q-tags' }, model.tags.map(function (tag) {
+                    return h('span', { class: tag.className, 'data-source-id': tag.sourceId, 'data-queue-tag-id': tag.pluginId }, tag.label);
+                })),
+                h('div', { class: 'q-meta' }, ['ID: ' + model.displayId + ' | '].concat(model.message.map(function (part) {
+                    return h('span', { style: { color: part.color, fontWeight: 'bold' } }, part.text == null ? '' : String(part.text));
+                }))),
+                imageCountProgress(q, false)
+            ];
+            children.push.apply(children, imageDetails(q));
+            var novel = callG('novelProgressModel', [q], []);
+            novel.forEach(function (part, index) { children.push(progressPart(part, 'novel-' + index)); });
+            var live = callG('queueLiveStatusModel', [q], null);
+            if (live) children.push(h('div', { key: 'live', class: 'q-live-status', style: {
+                marginTop: '4px', fontSize: '11px', color: live.color, display: 'flex', alignItems: 'center', gap: '6px'
+            } }, [
+                h('span', { style: { border: '1px solid currentColor', borderRadius: '3px', padding: '0 5px', fontSize: '10px' } }, live.label),
+                h('span', null, live.message)
+            ]));
+            return h('div', { class: 'q-item-host' }, [
+                h('div', { class: 'queue-item', style: { borderLeftColor: model.color } }, children)
+            ]);
         }
     };
 
@@ -205,8 +282,6 @@
             setup: function () {
                 return {
                     store: dlStore,
-                    rowKey: queueRowKey,
-                    rowHtml: function (q) { return rowHtmlOf(q, { removable: true }); },
                     emptyText: function () { return tt('status.queue-empty', '队列为空'); }
                 };
             },

@@ -1,10 +1,10 @@
 'use strict';
-    function novelByteProgressHtml(p, labelKey, labelDefault, color) {
-        if (!p || !(p.done > 0 || p.total > 0)) return '';
+    function novelByteProgressModel(p, labelKey, labelDefault, color) {
+        if (!p || !(p.done > 0 || p.total > 0)) return null;
         const valueText = p.total > 0
             ? `${formatBytes(p.done || 0)} / ${formatBytes(p.total)}`
             : formatBytes(p.done || 0);
-        return miniProgressHtml(
+        return miniProgressModel(
             bt(labelKey, labelDefault),
             valueText,
             p.total > 0 ? Math.round((p.done || 0) / p.total * 100) : null,
@@ -12,34 +12,38 @@
         );
     }
 
-    function formatNovelProgressHtml(q) {
-        if (q.kind !== 'novel' || q.status !== 'downloading') return '';
+    function novelProgressModel(q) {
+        if (q.kind !== 'novel' || q.status !== 'downloading') return [];
         const parts = [];
-        parts.push(novelByteProgressHtml(q.novelText, 'queue.novel-text.label', '小说正文', 'var(--indigo)'));
+        parts.push(novelByteProgressModel(q.novelText, 'queue.novel-text.label', '小说正文', 'var(--indigo)'));
         const e = q.novelEmbedded;
         if (e && e.total > 0) {
-            parts.push(miniProgressHtml(
+            parts.push(miniProgressModel(
                 bt('queue.novel-images.label', '内嵌图片'),
                 bt('queue.novel-images.count', '{done}/{total} 张', {done: e.done || 0, total: e.total}),
                 Math.round((e.done || 0) / e.total * 100),
                 'var(--teal)'
             ));
         }
-        parts.push(novelByteProgressHtml(q.novelCover, 'queue.novel-cover.label', '封面', 'var(--info)'));
-        return parts.filter(Boolean).join('');
+        parts.push(novelByteProgressModel(q.novelCover, 'queue.novel-cover.label', '封面', 'var(--info)'));
+        return parts.filter(Boolean);
+    }
+
+    function formatNovelProgressHtml(q) {
+        return novelProgressModel(q).map(progressPartHtml).join('');
     }
 
     // 作品类型只贡献有界纯文本；共享渲染器固定 tone 样式并再次转义，不认识任何插件私有阶段。
-    function formatQueueLiveStatusHtml(q) {
+    function queueLiveStatusModel(q) {
         const registry = window.PixivBatch && window.PixivBatch.queueTypes;
-        if (!registry || typeof registry.queueLiveStatus !== 'function') return '';
+        if (!registry || typeof registry.queueLiveStatus !== 'function') return null;
         let status;
         try {
             status = registry.queueLiveStatus(q);
         } catch (e) {
-            return '';
+            return null;
         }
-        if (!status || typeof status !== 'object') return '';
+        if (!status || typeof status !== 'object') return null;
         const colors = {
             info: 'var(--muted)',
             success: 'var(--brand)',
@@ -47,10 +51,17 @@
             error: 'var(--danger-bg)'
         };
         const color = colors[String(status.tone || '').toLowerCase()];
-        if (!color) return '';
+        if (!color) return null;
         const label = String(status.label == null ? '' : status.label).trim();
         const message = String(status.message == null ? '' : status.message).trim();
-        if (!label || !message) return '';
+        if (!label || !message) return null;
+        return {color, label, message};
+    }
+
+    function formatQueueLiveStatusHtml(q) {
+        const model = queueLiveStatusModel(q);
+        if (!model) return '';
+        const {color, label, message} = model;
         return `<div class="q-live-status" style="margin-top:4px;font-size:11px;color:${color};display:flex;align-items:center;gap:6px;">`
             + `<span style="border:1px solid currentColor;border-radius:3px;padding:0 5px;font-size:10px;">${esc(label)}</span>`
             + `<span>${esc(message)}</span></div>`;
@@ -247,12 +258,17 @@
     }
 
     function renderQueueMessageHtml(q, fallbackText) {
+        return queueMessageModel(q, fallbackText)
+            .map(part => `<span style="color:${part.color};font-weight:bold;">${esc(part.text)}</span>`)
+            .join('');
+    }
+
+    function queueMessageModel(q, fallbackText) {
         if (!q.statusMessageKey && Array.isArray(q.lastMessageParts) && q.lastMessageParts.length) {
             return q.lastMessageParts
-                .map(part => `<span style="color:${toneColor(part.tone, statusColor(q.status))};font-weight:bold;">${esc(part.text)}</span>`)
-                .join('');
+                .map(part => ({text: part.text, color: toneColor(part.tone, statusColor(q.status))}));
         }
-        return `<span style="color:${statusColor(q.status)};font-weight:bold;">${esc(fallbackText)}</span>`;
+        return [{text: fallbackText, color: statusColor(q.status)}];
     }
 
     function mergeUgoiraProgress(existing, incoming) {
@@ -266,28 +282,42 @@
         return Math.max(0, Math.min(100, Math.round(n)));
     }
 
-    function miniProgressHtml(label, valueText, progress, color, active = true) {
+    function miniProgressModel(label, valueText, progress, color, active = true) {
         const pctValue = clampProgressValue(progress);
         const pctText = pctValue === null ? '' : `${pctValue}%`;
         const right = [valueText, pctText].filter(Boolean).join(' · ');
-        const busy = pctValue === null && active;
         const width = pctValue === null ? 35 : pctValue;
+        const busy = pctValue === null && active;
+        const ariaLabel = [label, valueText].filter(Boolean).join(' · ');
+        return {label, right, width, color, busy, pctValue, ariaLabel};
+    }
+
+    function progressPartHtml(model) {
+        if (!model) return '';
+        if (model.note != null) {
+            return `<div class="queue-detail-note${model.error ? ' queue-detail-note--error' : ''}">${esc(model.note)}</div>`;
+        }
+        const {label, right, width, color, busy, pctValue, ariaLabel} = model;
         const value = pctValue === null ? '' : ` aria-valuenow="${pctValue}"`;
         return `<div class="prog-wrap" style="margin-top:4px;">
         <div class="prog-label"><span>${esc(label)}</span><span>${esc(right)}</span></div>
-        <div class="prog-bg" role="progressbar" aria-label="${esc([label, valueText].filter(Boolean).join(' · '))}" aria-valuemin="0" aria-valuemax="100" aria-busy="${busy}"${value}><div class="prog-fill${busy ? ' is-indeterminate' : ''}" style="width:${width}%;background:${color};height:4px;"></div></div>
+        <div class="prog-bg" role="progressbar" aria-label="${esc(ariaLabel)}" aria-valuemin="0" aria-valuemax="100" aria-busy="${busy}"${value}><div class="prog-fill${busy ? ' is-indeterminate' : ''}" style="width:${width}%;background:${color};height:4px;"></div></div>
        </div>`;
     }
 
     function formatImageDownloadProgressHtml(progress, status) {
-        if (!progress || status !== 'downloading') return '';
-        const images = [progress, ...(Array.isArray(progress.processing) ? progress.processing : [])];
-        return images.filter(image => image.phase !== 'processing')
-            .map(image => formatSingleImageProgressHtml(image, status)).join('');
+        return imageDownloadProgressModels(progress, status).map(progressPartHtml).join('');
     }
 
-    function formatSingleImageProgressHtml(progress, status) {
-        if (!progress || status !== 'downloading') return '';
+    function imageDownloadProgressModels(progress, status) {
+        if (!progress || status !== 'downloading') return [];
+        const images = [progress, ...(Array.isArray(progress.processing) ? progress.processing : [])];
+        return images.filter(image => image.phase !== 'processing')
+            .map(image => imageDownloadProgressModel(image, status));
+    }
+
+    function imageDownloadProgressModel(progress, status) {
+        if (!progress || status !== 'downloading') return null;
         const imageText = progress.imageNumber && progress.totalImages
             ? bt('queue.image-download.index', '第 {current}/{total} 张', {
                 current: progress.imageNumber,
@@ -300,10 +330,10 @@
         const valueText = [imageText, bytesText].filter(Boolean).join(' · ');
         if (progress.phase) {
             const label = progress.status === 'failed' ? bt('queue.media.failed', null) : mediaProgressLabel(progress);
-            return miniProgressHtml(label, imageText, null,
+            return miniProgressModel(label, imageText, null,
                 progress.status === 'failed' ? 'var(--danger-bg)' : 'var(--violet)', progress.status !== 'failed');
         }
-        return miniProgressHtml(
+        return miniProgressModel(
             bt('queue.image-download.label', '图片下载'),
             valueText,
             progress.progress,
@@ -313,7 +343,12 @@
     }
 
     function formatUgoiraProgressHtml(progress, itemStatus) {
-        if (!progress || itemStatus !== 'downloading') return '';
+        const parts = ugoiraProgressModel(progress, itemStatus);
+        return parts.length ? `<div class="ugoira-progress">${parts.map(progressPartHtml).join('')}</div>` : '';
+    }
+
+    function ugoiraProgressModel(progress, itemStatus) {
+        if (!progress || itemStatus !== 'downloading') return [];
         const phase = String(progress.phase || '');
         const status = String(progress.status || '');
         const parts = [];
@@ -324,7 +359,7 @@
             const zipBytes = progress.zipTotalBytes > 0
                 ? `${formatBytes(progress.zipDownloadedBytes || 0)} / ${formatBytes(progress.zipTotalBytes)}`
                 : formatBytes(progress.zipDownloadedBytes || 0);
-            parts.push(miniProgressHtml(
+            parts.push(miniProgressModel(
                 bt('queue.ugoira.zip', '动图压缩包'),
                 zipBytes,
                 progress.zipProgress,
@@ -334,14 +369,14 @@
         }
 
         if (phase === 'ffmpeg-waiting' || phase === 'finalizing') {
-            parts.push(miniProgressHtml(mediaProgressLabel(progress), '', null, 'var(--violet)', status !== 'failed'));
+            parts.push(miniProgressModel(mediaProgressLabel(progress), '', null, 'var(--violet)', status !== 'failed'));
         }
         const hasFfmpeg = phase === 'ffmpeg' && status !== 'failed';
         if (hasFfmpeg) {
             const timeText = progress.ffmpegDurationMs > 0
                 ? `${formatDurationMs(progress.ffmpegOutTimeMs || 0)} / ${formatDurationMs(progress.ffmpegDurationMs)}`
                 : '';
-            parts.push(miniProgressHtml(
+            parts.push(miniProgressModel(
                 mediaProgressLabel(progress),
                 timeText,
                 progress.ffmpegProgress,
@@ -356,12 +391,12 @@
                     total: progress.totalFrames
                 })
                 : bt('queue.ugoira.extracting', '正在解压帧');
-            parts.push(`<div class="queue-detail-note">${esc(extracted)}</div>`);
+            parts.push({note: extracted});
         } else if (status === 'failed') {
-            parts.push(`<div class="queue-detail-note queue-detail-note--error">${esc(bt('queue.ugoira.failed', '动图处理失败'))}</div>`);
+            parts.push({note: bt('queue.ugoira.failed', '动图处理失败'), error: true});
         }
 
-        return parts.length ? `<div class="ugoira-progress">${parts.join('')}</div>` : '';
+        return parts;
     }
 
     function formatCurrentCardHtml(item) {

@@ -13,8 +13,7 @@
  *      缺失时命令式写 DOM；速度卡启动 / 采样 / 单位切换 / 停止归零两路都覆盖。
  *   5) 计划任务本轮队列详情岛：ensure → 异步挂载 → active 后 reactive 同步；连续多条 SSE 同步不整块重建
  *      .schedule-queue-body；卡片 body 被替换（detached）后探测失效并重挂；折叠 / 下线卸载；滚动位置在重挂时保留。
- *   6) 组件契约：列表 / 统计 / 当前卡 / 计划详情组件的 template 镜像 DOM 结构、行与当前卡共用 buildQueueItemHtml /
- *      formatCurrentCardHtml（不分叉），标签经 bt 派生（语言切换由门面重调触发重渲染）。
+ *   6) 下载行与当前卡的实际渲染、进度节点保留和暂停收尾由 queue-render-csp.test.js 使用真实 Vue 验证。
  *
  * 运行： node src/test/js/batch-queue-vue.test.js
  */
@@ -140,19 +139,6 @@ function loadVue(opts) {
         // 共享格式化桩（batch-queue.js 全局函数；此处隔离注入）。
         buildQueueItemHtml: (q, o) => { record.rows = (record.rows || 0) + 1; return '<div class="queue-item" data-id="' + (q && q.id) + '">' + (q && q.id) + (o && o.queueKey != null ? ':' + o.queueKey : '') + '</div>'; },
         formatCurrentCardHtml: item => '<strong>cur</strong>' + (item ? item.id : 'none'),
-        computeCurrentCardHtml: (queue, isPaused) => {
-            const active = q => ['downloading', 'pending', 'paused'].includes(q.status);
-            const front = isPaused ? null : (queue.find(active) || null);
-            if (!front) return '<strong>cur</strong>none';
-            let d = 0, q2 = 0;
-            queue.forEach(q => {
-                if (q.status === 'downloading') d++;
-                else if (q.status === 'pending' || q.status === 'paused') q2++;
-            });
-            if (front.status === 'downloading') d--;
-            else q2--;
-            return '<strong>cur</strong>' + front.id + (d || q2 ? '<div class="current-remaining">' + d + '/' + q2 + '</div>' : '');
-        },
         bt: (k, fb) => (fb != null ? fb : k),
         // refreshDownloadFromState 回调（模拟真实门面回灌：Vue 已接管时 setCurrent 同步队列镜像 + 暂停标志，
         // 当前卡内容由响应式从镜像派生）。
@@ -248,9 +234,6 @@ async function main() {
         ok('1: 挂载后回灌统计（成功 1 / 进行中 1 / 队列 1）', store.stats.success === 1 && store.stats.active === 1 && store.stats.pending === 1);
         ok('1: 挂载后回灌列表（3 项快照）', store.items.length === 3);
         ok('1: 挂载后回灌暂停标志（false）', store.paused === false);
-        const curHtml = api.__test.currentComponent().setup().currentHtml();
-        ok('1: 当前卡由队列镜像派生队首（id=2）+ 剩余计数行（0 正在下载、1 排队中）',
-            /cur<\/strong>2/.test(curHtml) && /current-remaining/.test(curHtml) && /0\/1/.test(curHtml));
         ok('1: 幂等：再次挂载不重复挂 app', (await api.mountDownloadQueue()) === true && record.mounts.length === 3);
     }
 
@@ -308,37 +291,6 @@ async function main() {
         ok('5: 恢复标志写 store', store.paused === false);
     }
 
-    /* ===== 6) 行身份、共享格式化与当前卡派生 ===== */
-    {
-        const { api, state } = loadVue({});
-        await api.mountDownloadQueue();
-        const list = api.__test.listComponent();
-        const lv = list.setup();
-        ok('6: 行 HTML 走共享 buildQueueItemHtml', /class="queue-item"/.test(lv.rowHtml({ id: '9' })));
-        const opaqueId = ' work /<img src=x> "\' ';
-        const illustKey = lv.rowKey({ kind: 'illust', id: opaqueId });
-        const novelKey = lv.rowKey({ kind: 'novel', id: opaqueId });
-        ok('6: Vue 行键按作品类型与原始不透明 id 组成复合身份',
-            illustKey !== novelKey
-            && illustKey !== lv.rowKey({ kind: 'illust', id: opaqueId.trim() }));
-        ok('6: Vue 行键编码后不含空白、斜杠、引号或 HTML 片段',
-            /^q:[0-9a-f]*\.[0-9a-f]*$/.test(illustKey)
-            && !/[<>"'\/\s]/.test(illustKey));
-        const cur = api.__test.currentComponent();
-        ok('6: 空队列 + 未暂停 → idle「无」', /cur<\/strong>none/.test(cur.setup().currentHtml()));
-        // 队列镜像同步后由响应式自动派生队首 + 剩余计数行（不逐事件命令式重建）。
-        state.queue.push({ id: '9', status: 'downloading' }, { id: '10', status: 'pending' });
-        api.syncDownloadList(); api.flush();
-        const derivedHtml = cur.setup().currentHtml();
-        ok('6: 列表同步后当前卡自动派生队首 + 剩余计数行（0 正在下载、1 排队中）',
-            /cur<\/strong>9/.test(derivedHtml) && /current-remaining/.test(derivedHtml) && /0\/1/.test(derivedHtml));
-        // 暂停标志 → 回退 idle「无」、无剩余计数行。
-        api.syncDownloadPaused(true); api.flush();
-        const pausedHtml = cur.setup().currentHtml();
-        ok('6: 暂停 → 回退 idle「无」、无剩余计数行',
-            /cur<\/strong>none/.test(pausedHtml) && /current-remaining/.test(pausedHtml) === false);
-    }
-
     /* ===== 7) 集成：renderQueue Vue 激活时不整队列重建 #queue-list（连续 N 次仅合并） ===== */
     {
         const st = { queue: [{ id: 'a', status: 'pending' }], stats: {}, currentItemId: null };
@@ -353,71 +305,6 @@ async function main() {
         ok('7: 连续 10 次 renderQueue 未整队列重建 #queue-list（innerHTML 重写=0）', queueList.innerHTMLSets === before);
         const store = sandbox.window.PixivBatch.queueVue.__test.downloadStore();
         ok('7: store 反映最新队列', store.items.length === 1);
-    }
-
-    /* ===== 7b) 集成：当前卡由 Vue 响应式从队列镜像派生（队首未完成项 + 剩余计数），暂停时回退 idle、恢复后自动重新派生 ===== */
-    {
-        const st = { queue: [{ id: 'a', status: 'completed' }, { id: 'b', status: 'downloading' }, { id: 'c', status: 'pending' }], stats: {}, currentItemId: 'c', isPaused: false };
-        const { sandbox } = loadIntegration({ state: st });
-        const qv = sandbox.window.PixivBatch.queueVue;
-        await qv.mountDownloadQueue();
-        qv.flush();
-        const curHtml = () => qv.__test.currentComponent().setup().currentHtml();
-        ok('7b: 挂载回灌暂停标志（false）', qv.__test.downloadStore().paused === false);
-        ok('7b: 当前卡由队列派生显示队首未完成项（而非 currentItemId 指向的项）', /<strong>cur<\/strong>b/.test(curHtml()));
-        ok('7b: 剩余计数行排除队首（0 正在下载、1 排队中）', /current-remaining/.test(curHtml()) && /还有 1 个排队中/.test(curHtml()));
-        // 队首完成 → renderQueue 同步队列镜像 → 响应式重新派生到下一个未完成项。
-        st.queue[1].status = 'completed';
-        sandbox.renderQueue();
-        qv.flush();
-        ok('7b: 队首完成后重新派生 → 显示下一未完成项', /<strong>cur<\/strong>c/.test(curHtml()));
-        // 暂停 → 当前卡回退 idle「无」；恢复后自动重新派生队首。
-        st.isPaused = true;
-        sandbox.renderQueue();
-        qv.flush();
-        ok('7b: 暂停时当前卡回退 idle「无」（无计数行）', /无/.test(curHtml()) && /current-remaining/.test(curHtml()) === false);
-        st.isPaused = false;
-        sandbox.renderQueue();
-        qv.flush();
-        ok('7b: 恢复后自动重新派生队首', /<strong>cur<\/strong>c/.test(curHtml()));
-        // 暂停（停止接受新任务）期间仍展示正在收尾下载的作品（drain），不回归「无」。
-        st.isPaused = true;
-        st.queue[1].status = 'downloading';
-        sandbox.renderQueue();
-        qv.flush();
-        ok('7b: 暂停期间仍展示正在收尾下载的作品', /<strong>cur<\/strong>b/.test(curHtml()) && /current-remaining/.test(curHtml()));
-        st.queue[1].status = 'completed';
-        sandbox.renderQueue();
-        qv.flush();
-        ok('7b: 收尾完成后暂停期间回退 idle「无」', /无/.test(curHtml()) && /current-remaining/.test(curHtml()) === false);
-    }
-
-    /* ===== 7c) 集成：SSE 进度事件 → 当前卡实时更新（流式进度字段变化经 renderQueue 流到单卡） ===== */
-    {
-        const st = { queue: [{ id: 'a', status: 'downloading', title: 'T', totalImages: 3, downloadedCount: 0 }], stats: {}, currentItemId: 'a', isPaused: false };
-        const { sandbox } = loadIntegration({ state: st });
-        // 让 formatCurrentCardHtml 的桩反映进度字段，验证进度变更确实流到当前卡 HTML。
-        sandbox.formatCurrentCardHtml = item => '<strong>cur</strong>' + (item ? item.id + ':' + (item.downloadedCount || 0) : 'none');
-        const qv = sandbox.window.PixivBatch.queueVue;
-        await qv.mountDownloadQueue();
-        qv.flush();
-        const curHtml = () => qv.__test.currentComponent().setup().currentHtml();
-        ok('7c: 初始派生（downloadedCount=0）', /cur<\/strong>a:0/.test(curHtml()));
-        // 模拟 SSE 进度事件：字段变更 + renderQueue。
-        st.queue[0].downloadedCount = 2;
-        st.queue[0].imageProgress = {imageNumber: 2, totalImages: 3, downloadedBytes: 100, totalBytes: 300, progress: 66};
-        sandbox.renderQueue();
-        qv.flush();
-        ok('7c: SSE 进度 → 当前卡实时更新（downloadedCount=2）', /cur<\/strong>a:2/.test(curHtml()));
-        st.queue[0].downloadedCount = 3;
-        sandbox.renderQueue();
-        qv.flush();
-        ok('7c: 再次进度 → 继续实时更新（downloadedCount=3）', /cur<\/strong>a:3/.test(curHtml()));
-        // setCurrent 单独调用（不经 renderQueue）也应实时刷新当前卡：refreshCurrentCard 自行同步队列镜像。
-        st.queue[0].downloadedCount = 1;
-        sandbox.setCurrent(st.queue[0]);
-        qv.flush();
-        ok('7c: setCurrent 单独调用也实时刷新（downloadedCount=1）', /cur<\/strong>a:1/.test(curHtml()));
     }
 
     /* ===== 8) 集成：Vue 缺失时门面命令式回退（#queue-list 整块渲染、统计 / 速度写 DOM） ===== */
