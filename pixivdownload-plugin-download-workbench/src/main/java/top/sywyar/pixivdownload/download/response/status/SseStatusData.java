@@ -25,6 +25,8 @@ public class SseStatusData {
     private final Integer progress;
     private final WorkActionResult bookmarkResult;
     private final WorkActionResult collectionResult;
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     private final UgoiraProgress ugoiraProgress;
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     private final ImageDownloadProgress imageProgress;
 }

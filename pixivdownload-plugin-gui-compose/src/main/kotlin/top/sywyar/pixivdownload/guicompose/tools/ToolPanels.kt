@@ -196,7 +196,11 @@ internal fun ToolDisclosure(label: String, tag: String, expanded: Boolean, onCli
     val palette = LocalExperiencePalette.current
     val rotation by animateFloatAsState(if (expanded) 90f else 0f, tween(200), label = "disclosure")
     Row(
-        Modifier.testTag(tag).clickable(role = Role.Button, onClick = onClick).padding(vertical = 8.dp),
+        Modifier.testTag(tag).clickable(role = Role.Button, onClick = onClick)
+            .semantics {
+                if (expanded) collapse { onClick(); true } else expand { onClick(); true }
+            }
+            .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {

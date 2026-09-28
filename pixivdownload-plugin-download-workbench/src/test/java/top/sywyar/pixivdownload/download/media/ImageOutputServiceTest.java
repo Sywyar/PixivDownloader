@@ -28,8 +28,8 @@ class ImageOutputServiceTest {
         Path source = jpeg();
         byte[] original = Files.readAllBytes(source);
         FfmpegRunner runner = mock(FfmpegRunner.class);
-        var service = new ImageOutputService(runner, new MediaOutputSettings(), new ObjectMapper());
-        assertEquals(List.of("jpg"), service.process(directory.resolve("42_p0"), "jpg", null, () -> false));
+        var service = new ImageOutputService(runner, new ObjectMapper());
+        assertEquals(List.of("jpg"), service.process(directory.resolve("42_p0"), "jpg", settings(null), () -> false));
         assertArrayEquals(original, Files.readAllBytes(source));
         verifyNoInteractions(runner);
     }
@@ -39,15 +39,15 @@ class ImageOutputServiceTest {
     void convertsRequestedFormatAndRecordsSourceIdentity() throws Exception {
         Path source = jpeg();
         AtomicInteger calls = new AtomicInteger();
-        FfmpegRunner runner = (tool, args, cwd, output, limit, timeout, cancelled) -> {
+        FfmpegRunner runner = (tool, args, cwd, output, limit, timeout, cancelled, progress) -> {
             calls.incrementAndGet();
             assertTrue(args.contains("png"));
             ImageIO.write(new BufferedImage(17, 13, BufferedImage.TYPE_INT_RGB), "png", output.toFile());
             return "";
         };
-        var service = new ImageOutputService(runner, new MediaOutputSettings(), new ObjectMapper());
+        var service = new ImageOutputService(runner, new ObjectMapper());
         Path stem = directory.resolve("42_p0");
-        assertEquals(List.of("png"), service.process(stem, "jpg", "png", () -> false));
+        assertEquals(List.of("png"), service.process(stem, "jpg", settings("png"), () -> false));
         assertEquals(1, calls.get());
         assertFalse(Files.exists(source));
         assertEquals(17, ImageIO.read(directory.resolve("42_p0.png").toFile()).getWidth());
@@ -61,8 +61,8 @@ class ImageOutputServiceTest {
         ImageIO.write(new BufferedImage(25_001, 1, BufferedImage.TYPE_INT_RGB), "png", source.toFile());
         byte[] original = Files.readAllBytes(source);
         FfmpegRunner runner = mock(FfmpegRunner.class);
-        var service = new ImageOutputService(runner, new MediaOutputSettings(), new ObjectMapper());
-        assertEquals(List.of("png"), service.process(directory.resolve("42_p0"), "png", "png", () -> false));
+        var service = new ImageOutputService(runner, new ObjectMapper());
+        assertEquals(List.of("png"), service.process(directory.resolve("42_p0"), "png", settings("png"), () -> false));
         assertArrayEquals(original, Files.readAllBytes(source));
         verifyNoInteractions(runner);
     }
@@ -72,18 +72,78 @@ class ImageOutputServiceTest {
     void failureAndCancellationPreserveSource() throws Exception {
         Path source = jpeg();
         byte[] original = Files.readAllBytes(source);
-        FfmpegRunner runner = (tool, args, cwd, output, limit, timeout, cancelled) -> {
+        FfmpegRunner runner = (tool, args, cwd, output, limit, timeout, cancelled, progress) -> {
             Files.writeString(output, "partial");
             throw new IOException("fixture failure");
         };
-        var service = new ImageOutputService(runner, new MediaOutputSettings(), new ObjectMapper());
+        var service = new ImageOutputService(runner, new ObjectMapper());
         Path stem = directory.resolve("42_p0");
-        assertThrows(IOException.class, () -> service.process(stem, "jpg", "png,webp", () -> false));
+        assertThrows(IOException.class, () -> service.process(stem, "jpg", settings("png,webp"), () -> false));
         assertArrayEquals(original, Files.readAllBytes(source));
         assertTrue(ArtworkMediaManifest.read(stem).isEmpty());
-        assertThrows(CancellationException.class, () -> service.process(stem, "jpg", "png", () -> true));
+        assertThrows(CancellationException.class, () -> service.process(stem, "jpg", settings("png"), () -> true));
         assertArrayEquals(original, Files.readAllBytes(source));
         try (var files = Files.list(directory)) { assertEquals(1, files.count()); }
+    }
+
+    @Test
+    @DisplayName("多格式进度按真实调用报告排队、转换、校验、缩略图与保存")
+    void reportsEachOutputAndFinalization() throws Exception {
+        Path source = jpeg();
+        var events = new java.util.ArrayList<ImageOutputService.Progress>();
+        FfmpegRunner runner = (tool, args, cwd, output, limit, timeout, cancelled, progress) -> {
+            progress.accept(FfmpegRunner.Phase.WAITING);
+            assertTrue(Files.exists(source));
+            progress.accept(FfmpegRunner.Phase.RUNNING);
+            ImageIO.write(new BufferedImage(17, 13, BufferedImage.TYPE_INT_RGB), "png", output.toFile());
+            return "";
+        };
+        var service = new ImageOutputService(runner, new ObjectMapper());
+        service.process(directory.resolve("42_p0"), "jpg", settings("png,webp"), () -> false, events::add);
+        assertEquals(List.of("verifying", "ffmpeg-waiting", "ffmpeg", "verifying",
+                "ffmpeg-waiting", "ffmpeg", "verifying", "thumbnail", "finalizing"),
+                events.stream().map(ImageOutputService.Progress::phase).toList());
+        assertEquals(List.of(new ImageOutputService.Progress("ffmpeg-waiting", "png", 1, 2),
+                        new ImageOutputService.Progress("ffmpeg-waiting", "webp", 2, 2)),
+                events.stream().filter(p -> p.phase().equals("ffmpeg-waiting")).toList());
+        assertFalse(Files.exists(source));
+    }
+
+    private static MediaOutputSettings settings(String formats) {
+        var settings = new MediaOutputSettings();
+        if (formats != null) settings.setImageFormats(formats);
+        return settings;
+    }
+
+    @Test
+    @DisplayName("同一转码服务逐任务使用独立质量无损和最长边")
+    void encodingOptionsDoNotLeakBetweenTasks() throws Exception {
+        var invocations = new java.util.ArrayList<List<String>>();
+        FfmpegRunner runner = (tool, args, cwd, output, limit, timeout, cancelled, progress) -> {
+            invocations.add(List.copyOf(args));
+            ImageIO.write(new BufferedImage(17, 13, BufferedImage.TYPE_INT_RGB), "png", output.toFile());
+            return "";
+        };
+        var service = new ImageOutputService(runner, new ObjectMapper());
+        var first = settings("webp");
+        first.setQuality(73);
+        first.setWebpLossless(true);
+        first.setMaximumEdge(1280);
+        var second = settings("webp");
+        second.setQuality(45);
+        for (var selected : List.of(first, second)) {
+            jpeg();
+            service.process(directory.resolve("42_p0"), "jpg", selected, () -> false);
+        }
+        assertEquals(2, invocations.size());
+        var one = invocations.get(0);
+        var two = invocations.get(1);
+        assertEquals("73", one.get(one.indexOf("-quality") + 1));
+        assertEquals("1", one.get(one.indexOf("-lossless") + 1));
+        assertTrue(one.get(one.indexOf("-vf") + 1).contains("1280"));
+        assertEquals("45", two.get(two.indexOf("-quality") + 1));
+        assertEquals("0", two.get(two.indexOf("-lossless") + 1));
+        assertFalse(two.contains("-vf"));
     }
 
     private Path jpeg() throws IOException {
@@ -99,11 +159,11 @@ class ImageOutputServiceTest {
         byte[] original = Files.readAllBytes(source);
         Path stem = directory.resolve("42_p0");
         new ArtworkMediaManifest("png", List.of("jpg"), false).write(stem);
-        FfmpegRunner runner = (tool, args, cwd, output, limit, timeout, cancelled) -> {
+        FfmpegRunner runner = (tool, args, cwd, output, limit, timeout, cancelled, progress) -> {
             ImageIO.write(new BufferedImage(17, 13, BufferedImage.TYPE_INT_RGB), "png", output.toFile());
             return "";
         };
-        new ImageOutputService(runner, new MediaOutputSettings(), new ObjectMapper()).addMissingFormats(source, "png", () -> false);
+        new ImageOutputService(runner, new ObjectMapper()).addMissingFormats(source, "png", () -> false);
         assertArrayEquals(original, Files.readAllBytes(source));
         assertEquals(new ArtworkMediaManifest("png", List.of("jpg", "png"), false), ArtworkMediaManifest.read(stem).orElseThrow());
         assertNotNull(ImageIO.read(directory.resolve("42_p0.png").toFile()));
@@ -119,7 +179,7 @@ class ImageOutputServiceTest {
             return;
         }
         assertTrue(check.waitFor(10, java.util.concurrent.TimeUnit.SECONDS));
-        FfmpegRunner runner = (tool, args, cwd, output, limit, timeout, cancelled) -> {
+        FfmpegRunner runner = (tool, args, cwd, output, limit, timeout, cancelled, progress) -> {
             var command = new java.util.ArrayList<String>();
             command.add(tool == FfmpegRunner.Tool.FFMPEG ? "ffmpeg" : "ffprobe");
             command.addAll(args);
@@ -139,8 +199,8 @@ class ImageOutputServiceTest {
         };
         Path stem = directory.resolve("transparent");
         ImageIO.write(new BufferedImage(17, 13, BufferedImage.TYPE_INT_ARGB), "png", directory.resolve("transparent.png").toFile());
-        var service = new ImageOutputService(runner, new MediaOutputSettings(), new ObjectMapper());
-        assertEquals(List.of("jpg", "webp"), service.process(stem, "png", "jpg,webp", () -> false));
+        var service = new ImageOutputService(runner, new ObjectMapper());
+        assertEquals(List.of("jpg", "webp"), service.process(stem, "png", settings("jpg,webp"), () -> false));
         BufferedImage jpg = ImageIO.read(directory.resolve("transparent.jpg").toFile());
         assertEquals(0xFFFFFF, jpg.getRGB(0, 0) & 0xFFFFFF);
         assertTrue(Files.size(directory.resolve("transparent.webp")) > 0);

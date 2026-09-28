@@ -213,7 +213,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
 
             AtomicInteger successCount = new AtomicInteger(0);
 
-            HashSet<String> fileExtensions = new HashSet<>();
+            Set<String> fileExtensions = ConcurrentHashMap.newKeySet();
 
             if (other.isUgoira() && other.getUgoiraZipUrl() != null) {
                 // === 动图 (ugoira) 处理：委托给 UgoiraService ===
@@ -222,6 +222,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                 eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
 
                 Consumer<UgoiraProgress> progressListener = progress -> {
+                    ensureNotCancelled(status);
                     status.setUgoiraProgress(progress);
                     eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
                 };
@@ -235,44 +236,51 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                 // === 普通图片下载 ===
                 AtomicLong remainingImageBytes = new AtomicLong(PixivImageTransferObserver.MAX_TASK_BYTES);
                 for (String url : imageUrls) validatePixivUrl(url);
-                for (int i = 0; i < imageUrls.size(); i++) {
-                    ensureNotCancelled(status);
-                    if (remainingImageBytes.get() <= 0) {
-                        break;
-                    }
-
-                    String imageUrl = imageUrls.get(i);
-
-                    status.setCurrentImageIndex(i);
-                    status.setDownloadedCount(successCount.get());
-                    eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
-
-                    try {
-                        Path fileStem = downloadPath.resolve(fileNamePlan.baseName(i));
-                        int imageNumber = i + 1;
-                        Consumer<ImageDownloadProgress> imageProgressListener = progress -> {
-                            status.setImageProgress(progress);
-                            eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
-                        };
-                        String extension = downloadImage(imageUrl, fileStem, referer, cookie,
-                                imageNumber, imageUrls.size(), imageProgressListener, status::isCancelled,
-                                remainingImageBytes);
-                        if (extension != null) {
-                            fileExtensions.addAll(imageOutputService.process(fileStem, extension,
-                                    other.isMediaOutputEnabled() ? other.getImageFormats() : "original", status::isCancelled));
-                            successCount.incrementAndGet();
-                            status.setDownloadedCount(successCount.get());
-                            log.info(logMessage("download.log.progress",
-                                    id(artworkId), text(successCount.get()), text(imageUrls.size())));
-                            eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
+                var mediaSettings = other.resolveMediaOutputSettings();
+                try (var pipeline = new ImageOutputPipeline(!"original".equals(mediaSettings.getImageFormats()), status::isCancelled)) {
+                    for (int i = 0; i < imageUrls.size(); i++) {
+                        pipeline.awaitCapacity();
+                        if (remainingImageBytes.get() <= 0) {
+                            break;
                         }
-                        if (other.getDelayMs() > 0) sleepCancellable(other.getDelayMs(), status::isCancelled);
-                    } catch (Exception e) {
-                        if (e instanceof CancellationException) {
-                            throw e;
+
+                        String imageUrl = imageUrls.get(i);
+
+                        status.setCurrentImageIndex(i);
+                        status.setImageProgress(null);
+                        eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
+
+                        try {
+                            Path fileStem = downloadPath.resolve(fileNamePlan.baseName(i));
+                            int imageNumber = i + 1;
+                            Consumer<ImageDownloadProgress> imageProgressListener = progress -> {
+                                ensureNotCancelled(status);
+                                status.setImageProgress(progress);
+                                eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
+                            };
+                            String extension = downloadImage(imageUrl, fileStem, referer, cookie,
+                                    imageNumber, imageUrls.size(), imageProgressListener, status::isCancelled,
+                                    remainingImageBytes);
+                            if (extension != null) {
+                                pipeline.submit(() -> processDownloadedImage(status, fileStem, extension, mediaSettings,
+                                        imageNumber, imageUrls.size(), fileExtensions, successCount));
+                                status.setImageProgress(null);
+                                eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
+                            }
+                            if (other.getDelayMs() > 0) sleepCancellable(other.getDelayMs(), status::isCancelled);
+                        } catch (Exception e) {
+                            if (e instanceof CancellationException) {
+                                throw e;
+                            }
+                            if (status.getImageProgress() != null) {
+                                status.setImageProgress(status.getImageProgress().toBuilder()
+                                        .status(ImageDownloadProgress.STATUS_FAILED).build());
+                                eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
+                            }
+                            log.error(logMessage("download.log.image.failed", imageUrl, e.getMessage()));
                         }
-                        log.error(logMessage("download.log.image.failed", imageUrl, e.getMessage()));
                     }
+                    pipeline.finish();
                 }
             }
 
@@ -379,6 +387,38 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
             }
         }
         return succeeded;
+    }
+
+    private void processDownloadedImage(DownloadStatus status, Path stem, String extension, top.sywyar.pixivdownload.download.media.MediaOutputSettings settings,
+                                        int number, int total, Set<String> extensions, AtomicInteger successes) {
+        try {
+            ensureNotCancelled(status);
+            extensions.addAll(imageOutputService.process(stem, extension, settings, status::isCancelled, progress -> {
+                synchronized (status) {
+                    ensureNotCancelled(status);
+                    status.updateProcessingImage(number, ImageDownloadProgress.builder()
+                            .status(ImageDownloadProgress.STATUS_RUNNING).phase(progress.phase())
+                            .imageNumber(number).totalImages(total).outputFormat(progress.outputFormat())
+                            .outputIndex(progress.outputIndex()).outputCount(progress.outputCount()).build());
+                    eventPublisher.publishEvent(new DownloadProgressEvent(this, status.getArtworkId(), status, status.getOwnerUuid()));
+                }
+            }));
+            synchronized (status) {
+                ensureNotCancelled(status);
+                status.setDownloadedCount(successes.incrementAndGet());
+            }
+        } catch (CancellationException cancelled) {
+            throw cancelled;
+        } catch (IOException failure) {
+            log.error(logMessage("download.log.image.failed", stem.getFileName(), failure.getMessage()));
+        } finally {
+            synchronized (status) {
+                status.updateProcessingImage(number, null);
+                if (!status.isCancelled()) {
+                    eventPublisher.publishEvent(new DownloadProgressEvent(this, status.getArtworkId(), status, status.getOwnerUuid()));
+                }
+            }
+        }
     }
 
     private Path resolveEffectiveDownloadRoot(DownloadRequest.Other other) {
@@ -567,7 +607,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
     }
 
     private void ensureNotCancelled(DownloadStatus status) {
-        if (status != null && status.isCancelled()) {
+        if (Thread.currentThread().isInterrupted() || status != null && status.isCancelled()) {
             throw new CancellationException(messages.get("download.cancelled"));
         }
     }
@@ -619,13 +659,21 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
         if (admin) {
             return findAnyStatus(artworkId);
         }
-        return downloadStatusMap.get(statusKey(artworkId, ownerUuid));
+        DownloadStatus status = downloadStatusMap.get(statusKey(artworkId, ownerUuid));
+        return canAccessStatus(status, ownerUuid, false) ? status : null;
     }
 
     public List<Long> getDownloadStatus() {
         Set<Long> downloadStatus = new LinkedHashSet<>();
         downloadStatusMap.forEach(10, (key, status) -> downloadStatus.add(status.getArtworkId()));
         return new LinkedList<>(downloadStatus);
+    }
+
+    /** SSE 重连及心跳只补发当前身份可见的未终结任务，不重放历史结果。 */
+    public List<DownloadStatus> activeStatuses(String ownerUuid, boolean admin) {
+        return downloadStatusMap.values().stream()
+                .filter(status -> !status.isCompleted() && !status.isFailed() && !status.isCancelled())
+                .filter(status -> canAccessStatus(status, ownerUuid, admin)).toList();
     }
 
     public List<Long> getDownloadStatus(String ownerUuid, boolean admin) {
@@ -776,6 +824,25 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                 ? text("desktop.control-center.task.progress", "{0} of {1} images downloaded",
                 Integer.toString(downloaded), Integer.toString(total))
                 : text("desktop.control-center.task.downloading", "Downloading");
+        ImageDownloadProgress image = status.getImageProgress();
+        if (image != null && image.getProcessing() != null && !image.getProcessing().isEmpty()) {
+            image = image.getProcessing().stream().filter(p -> !"ffmpeg-waiting".equals(p.getPhase()))
+                    .findFirst().orElse(image.getProcessing().get(0));
+        }
+        String mediaPhase = image != null ? image.getPhase()
+                : status.getUgoiraProgress() != null ? status.getUgoiraProgress().getPhase() : null;
+        String mediaLabel = switch (mediaPhase == null ? "" : mediaPhase) {
+            case "ffmpeg-waiting" -> "waiting";
+            case "ffmpeg" -> "converting";
+            case "verifying", "thumbnail", "finalizing" -> mediaPhase;
+            default -> null;
+        };
+        if (mediaLabel != null) {
+            supportingText = text("queue.media." + mediaLabel, "Processing media");
+            taskStatus = "waiting".equals(mediaLabel) ? DesktopRunningTaskContribution.Status.QUEUED
+                    : "finalizing".equals(mediaLabel) ? DesktopRunningTaskContribution.Status.FINALIZING
+                    : DesktopRunningTaskContribution.Status.RUNNING;
+        }
         String title = boundedDashboardText(status.getTitle());
         DesktopUiText titleToken = title.isBlank()
                 ? text("desktop.control-center.task.artwork", "Artwork {0}",
@@ -787,7 +854,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                 titleToken,
                 supportingText,
                 taskStatus,
-                total > 0 ? (double) downloaded / total : null,
+                mediaLabel == null && total > 0 ? (double) downloaded / total : null,
                 DesktopControlCenterAvailability.AVAILABLE,
                 observedAt);
     }
@@ -1028,7 +1095,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                 provided.equals(computed) ? provided : computed, root, directory, resolved.maxLength());
     }
 
-    private void recordDownload(Long artworkId, String title, String folderPath, HashSet<String> fileExtensions,
+    private void recordDownload(Long artworkId, String title, String folderPath, Set<String> fileExtensions,
                                 int count, int xRestrict, boolean isAi, Long authorId, String description, List<WorkTag> tags,
                                 String fileNameTemplate, long recordTime, String normalizedAuthorName,
                                 Long seriesId, Long seriesOrder, int maxLength) {

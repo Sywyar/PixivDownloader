@@ -319,13 +319,20 @@ async function processIllustItem(item, invocation) {
 
         const final = await ssePromise;
 
-        if (final && final.completed) {
+        if (final && final.cancelled) {
+            item.status = 'paused';
+            item.statusMessageKey = 'queue.stage.cancelled';
+            item.lastMessage = bt('queue.stage.cancelled', null);
+            item.lastMessageParts = null;
+            item.imageProgress = null;
+            item.ugoiraProgress = null;
+        } else if (final && final.completed && !final.failed) {
             const dCount = final.downloadedCount !== undefined ? final.downloadedCount : item.totalImages;
             item.downloadedCount = dCount;
             item.bookmarkResult = final.bookmarkResult || null;
             item.collectionResult = final.collectionResult || null;
             item.ugoiraProgress = mergeUgoiraProgress(item.ugoiraProgress, final.ugoiraProgress);
-            item.imageProgress = final.imageProgress || item.imageProgress || null;
+            item.imageProgress = final.imageProgress || null;
             if (dCount < item.totalImages) {
                 item.status = 'failed';
                 item.lastMessage = bt(
@@ -347,7 +354,7 @@ async function processIllustItem(item, invocation) {
             }
         } else if (final && final.failed) {
             item.ugoiraProgress = mergeUgoiraProgress(item.ugoiraProgress, final.ugoiraProgress);
-            item.imageProgress = final.imageProgress || item.imageProgress || null;
+            item.imageProgress = final.imageProgress || null;
             item.status = 'failed';
             item.lastMessage = bt(
                 'queue.message.failed-backend',
@@ -358,13 +365,23 @@ async function processIllustItem(item, invocation) {
         } else {
             try {
                 const check = await getDownloadStatus(item.id);
-                if (check && check.completed) {
+                if (check && check.cancelled) {
+                    item.status = 'paused';
+                    item.statusMessageKey = 'queue.stage.cancelled';
+                    item.lastMessage = bt('queue.stage.cancelled', null);
+                    item.lastMessageParts = null;
+                    item.imageProgress = null;
+                    item.ugoiraProgress = null;
+                } else if (check && check.failed) {
+                    item.status = 'failed';
+                    item.lastMessage = bt('queue.message.failed-backend', null, {message: check.message || bt('status.backend-failure', null)});
+                } else if (check && check.completed) {
                     const dCount = check.downloadedCount !== undefined ? check.downloadedCount : 0;
                     item.downloadedCount = dCount;
                     item.bookmarkResult = check.bookmarkResult || null;
                     item.collectionResult = check.collectionResult || null;
                     item.ugoiraProgress = mergeUgoiraProgress(item.ugoiraProgress, check.ugoiraProgress);
-                    item.imageProgress = check.imageProgress || check.imageProgress || null;
+                    item.imageProgress = check.imageProgress || null;
                     if (dCount < item.totalImages) {
                         item.status = 'failed';
                         item.lastMessage = bt(

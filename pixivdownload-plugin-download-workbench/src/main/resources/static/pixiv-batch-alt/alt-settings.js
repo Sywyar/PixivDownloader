@@ -245,7 +245,7 @@ function numberWithUnit(value, unit, onValue, onUnit) {
 function buildSettingsDrawerBody() {
     const s = state.settings;
     const body = el('div', 'ab-settings');
-    body.appendChild(el('p', 'ab-field-note', bt('settings.scope', '更改会立即保存在此浏览器中，供后续下载使用；不会修改桌面的全局配置。')));
+    body.appendChild(el('p', 'ab-field-note', bt('settings.scope', '更改供后续下载使用。单人模式保存在服务端工作台状态，多人模式保存在此浏览器。')));
 
     // —— 节奏 ——
     body.appendChild(el('h4', 'ab-settings-group', bt('settings.group.pace', '下载节奏')));

@@ -712,17 +712,24 @@ function progressRing(percent) {
     return wrap;
 }
 
-function miniProgress(label, valueText, progress, cls) {
+function miniProgress(label, valueText, progress, cls, active = true) {
     const wrap = el('div', 'ab-mini-prog');
     const head = el('div', 'ab-mini-prog-label');
     head.appendChild(el('span', '', label));
-    const pctValue = progress == null ? null : Math.max(0, Math.min(100, Math.round(progress)));
+    const pctValue = progress == null || !Number.isFinite(Number(progress))
+        ? null : Math.max(0, Math.min(100, Math.round(progress)));
     head.appendChild(el('span', '', [valueText, pctValue == null ? '' : pctValue + '%'].filter(Boolean).join(' · ')));
     wrap.appendChild(head);
     const bar = el('div', 'ab-mini-prog-bar');
+    bar.setAttribute('role', 'progressbar');
+    bar.setAttribute('aria-label', [label, valueText].filter(Boolean).join(' · '));
+    bar.setAttribute('aria-valuemin', '0');
+    bar.setAttribute('aria-valuemax', '100');
+    bar.setAttribute('aria-busy', String(pctValue == null && active));
+    if (pctValue != null) bar.setAttribute('aria-valuenow', String(pctValue));
     const fill = el('div', 'ab-mini-prog-fill' + (cls ? ' ' + cls : ''));
-    fill.style.width = (pctValue == null ? 100 : pctValue) + '%';
-    if (pctValue == null) fill.classList.add('is-indeterminate');
+    fill.style.width = (pctValue == null ? 35 : pctValue) + '%';
+    if (pctValue == null && active) fill.classList.add('is-indeterminate');
     bar.appendChild(fill);
     wrap.appendChild(bar);
     return wrap;
@@ -758,29 +765,37 @@ function progressExtras(q) {
             has = true;
         }
     }
-    const ip = q.imageProgress;
-    if (ip && !['completed', 'failed', 'skipped'].includes(q.status)) {
-        const imageText = ip.imageNumber && ip.totalImages
-            ? bt('queue.image-download.index', '第 {current}/{total} 张', {current: ip.imageNumber, total: ip.totalImages})
-            : '';
-        const bytesText = ip.totalBytes > 0
-            ? `${formatBytes(ip.downloadedBytes || 0)} / ${formatBytes(ip.totalBytes)}`
-            : formatBytes(ip.downloadedBytes || 0);
-        parts.appendChild(miniProgress(
-            bt('queue.image-download.label', '图片下载'),
-            [imageText, bytesText].filter(Boolean).join(' · '),
-            ip.progress,
-            'is-image'));
-        has = true;
+    const snapshot = q.imageProgress;
+    const images = snapshot ? [snapshot, ...(Array.isArray(snapshot.processing) ? snapshot.processing : [])] : [];
+    for (const ip of images.filter(image => image.phase !== 'processing')) {
+        if (ip && q.status === 'downloading') {
+            const imageText = ip.imageNumber && ip.totalImages
+                ? bt('queue.image-download.index', '第 {current}/{total} 张', {current: ip.imageNumber, total: ip.totalImages})
+                : '';
+            const bytesText = ip.totalBytes > 0
+                ? `${formatBytes(ip.downloadedBytes || 0)} / ${formatBytes(ip.totalBytes)}`
+                : formatBytes(ip.downloadedBytes || 0);
+            if (ip.phase) {
+                const label = ip.status === 'failed' ? bt('queue.media.failed', null) : mediaProgressLabel(ip);
+                parts.appendChild(miniProgress(label, imageText, null,
+                    ip.status === 'failed' ? 'is-failed' : 'is-ffmpeg', ip.status !== 'failed'));
+            } else parts.appendChild(miniProgress(
+                bt('queue.image-download.label', '图片下载'),
+                [imageText, bytesText].filter(Boolean).join(' · '),
+                ip.progress,
+                ip.status === 'failed' ? 'is-failed' : 'is-image', ip.status !== 'failed'));
+            has = true;
+        }
     }
     const up = q.ugoiraProgress;
-    if (up && q.status !== 'completed' && up.status !== 'completed') {
+    if (up && q.status === 'downloading') {
         const phase = String(up.phase || '');
         if (phase === 'zip' || phase === 'extract' || phase === 'ffmpeg' || up.zipProgress !== undefined) {
             const zipBytes = up.zipTotalBytes > 0
                 ? `${formatBytes(up.zipDownloadedBytes || 0)} / ${formatBytes(up.zipTotalBytes)}`
                 : formatBytes(up.zipDownloadedBytes || 0);
-            parts.appendChild(miniProgress(bt('queue.ugoira.zip', '动图压缩包'), zipBytes, up.zipProgress, 'is-zip'));
+            parts.appendChild(miniProgress(bt('queue.ugoira.zip', '动图压缩包'), zipBytes, up.zipProgress,
+                'is-zip', phase === 'zip' && up.status !== 'failed'));
             has = true;
         }
         if (phase === 'extract') {
@@ -789,12 +804,15 @@ function progressExtras(q) {
                     ? bt('queue.ugoira.extracting-count', '正在解压帧 {current}/{total}', {current: up.extractedFrames || 0, total: up.totalFrames})
                     : bt('queue.ugoira.extracting', '正在解压帧')));
         }
-        if (phase === 'ffmpeg' || up.ffmpegProgress !== undefined) {
+        if (phase === 'ffmpeg-waiting' || phase === 'finalizing') {
+            parts.appendChild(miniProgress(mediaProgressLabel(up), '', null, 'is-ffmpeg', up.status !== 'failed'));
+            has = true;
+        }
+        if (phase === 'ffmpeg' && up.status !== 'failed') {
             const timeText = up.ffmpegDurationMs > 0
                 ? `${formatDurationMs(up.ffmpegOutTimeMs || 0)} / ${formatDurationMs(up.ffmpegDurationMs)}`
                 : '';
-            const output = up.outputFormat ? ' · ' + up.outputFormat.toUpperCase() + ' (' + up.outputIndex + '/' + up.outputCount + ')' : '';
-            parts.appendChild(miniProgress(bt('queue.ugoira.ffmpeg', 'ffmpeg 转换') + output, timeText, up.ffmpegProgress, 'is-ffmpeg'));
+            parts.appendChild(miniProgress(mediaProgressLabel(up), timeText, up.ffmpegProgress, 'is-ffmpeg'));
             has = true;
         }
         if (up.status === 'failed') {

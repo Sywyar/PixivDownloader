@@ -5,6 +5,8 @@ import com.fasterxml.jackson.annotation.JsonSetter;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
+import com.fasterxml.jackson.databind.JsonNode;
+import top.sywyar.pixivdownload.download.media.MediaOutputSettings;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
 
 import java.util.List;
@@ -30,6 +32,36 @@ public class DownloadRequest {
     public static class Other {
         private String imageFormats;
         private String ugoiraFormats;
+        private int mediaQuality = MediaOutputSettings.DEFAULT_QUALITY;
+        private boolean mediaWebpLossless;
+        private int mediaMaximumEdge;
+
+        @JsonSetter("mediaQuality")
+        public void readMediaQuality(JsonNode value) {
+            mediaQuality = MediaOutputSettings.readInteger(value, MediaOutputSettings.DEFAULT_QUALITY);
+        }
+
+        @JsonSetter("mediaMaximumEdge")
+        public void readMediaMaximumEdge(JsonNode value) {
+            mediaMaximumEdge = MediaOutputSettings.readInteger(value, 0);
+        }
+
+        @JsonSetter("mediaWebpLossless")
+        public void readMediaWebpLossless(JsonNode value) {
+            mediaWebpLossless = MediaOutputSettings.readBoolean(value);
+        }
+
+        public MediaOutputSettings resolveMediaOutputSettings() {
+            var settings = new MediaOutputSettings();
+            if (!mediaOutputEnabled) return settings;
+            if (imageFormats != null) settings.setImageFormats(imageFormats);
+            if (ugoiraFormats != null) settings.setUgoiraFormats(ugoiraFormats);
+            settings.setQuality(mediaQuality);
+            settings.setWebpLossless(mediaWebpLossless);
+            settings.setMaximumEdge(mediaMaximumEdge);
+            return settings;
+        }
+
         @com.fasterxml.jackson.annotation.JsonIgnore
         private boolean mediaOutputEnabled = true;
         private boolean isUserDownload;

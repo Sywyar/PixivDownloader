@@ -15,6 +15,8 @@ public class UgoiraProgress {
     public static final String PHASE_ZIP = "zip";
     public static final String PHASE_EXTRACT = "extract";
     public static final String PHASE_FFMPEG = "ffmpeg";
+    public static final String PHASE_WAITING_FFMPEG = "ffmpeg-waiting";
+    public static final String PHASE_FINALIZING = "finalizing";
 
     private final String phase;
     private final String status;

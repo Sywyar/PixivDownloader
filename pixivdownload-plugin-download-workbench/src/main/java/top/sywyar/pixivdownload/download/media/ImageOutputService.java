@@ -18,38 +18,49 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 /** 先生成全部选定产物，再发布清单并按选择移除原文件。 */
 public final class ImageOutputService {
     static final long MAX_PIXELS = 25_000_000L;
     static final Duration TIMEOUT = Duration.ofMinutes(10);
     private final FfmpegRunner runner;
-    private final MediaOutputSettings settings;
     private final ObjectMapper mapper;
 
-    public ImageOutputService(FfmpegRunner runner, MediaOutputSettings settings, ObjectMapper mapper) {
+    public ImageOutputService(FfmpegRunner runner, ObjectMapper mapper) {
         this.runner = runner;
-        this.settings = settings;
         this.mapper = mapper;
     }
 
-    public List<String> process(Path stem, String sourceExtension, String selectedFormats,
+    public List<String> process(Path stem, String sourceExtension, MediaOutputSettings settings,
                                 BooleanSupplier cancelled) throws IOException {
-        return process(stem, sourceExtension, selectedFormats, cancelled, null);
+        return process(stem, sourceExtension, settings, cancelled, null, null);
     }
 
-    private List<String> process(Path stem, String sourceExtension, String selectedFormats,
-                                 BooleanSupplier cancelled, ArtworkMediaManifest previous) throws IOException {
+    /** 只报告机器阶段与输出序号；原始路径、命令和异常诊断不进入队列状态。 */
+    public record Progress(String phase, String outputFormat, Integer outputIndex, Integer outputCount) {}
+
+    public List<String> process(Path stem, String sourceExtension, MediaOutputSettings settings,
+                                BooleanSupplier cancelled, Consumer<Progress> progress) throws IOException {
+        return process(stem, sourceExtension, settings, cancelled, null, progress);
+    }
+
+    private List<String> process(Path stem, String sourceExtension, MediaOutputSettings settings,
+                                 BooleanSupplier cancelled, ArtworkMediaManifest previous,
+                                 Consumer<Progress> progress) throws IOException {
         List<String> selected = MediaOutputSettings.parseFormats(
-                selectedFormats == null ? settings.getImageFormats() : selectedFormats, MediaOutputSettings.IMAGE_FORMATS);
+                settings.getImageFormats(), MediaOutputSettings.IMAGE_FORMATS);
         if (selected.stream().allMatch(format -> format.equals("original") || format.equals(sourceExtension)
                 || format.equals("jpg") && sourceExtension.equals("jpeg"))) return List.of(sourceExtension);
         Path source = withExtension(stem, sourceExtension);
-        checkInput(source, cancelled);
+        int outputCount = (int) selected.stream().filter(format -> !format.equals("original")
+                && !format.equals(sourceExtension) && !(format.equals("jpg") && sourceExtension.equals("jpeg"))).count();
+        checkInput(source, cancelled, progress(progress, "verifying", null, null, outputCount));
         LinkedHashSet<String> outputs = new LinkedHashSet<>();
         if (selected.contains("original")) outputs.add(sourceExtension);
         List<Path> pending = new ArrayList<>();
         List<Path> destinations = new ArrayList<>();
+        int outputIndex = 0;
         try {
             for (String format : selected) {
                 if (format.equals("original")) continue;
@@ -60,6 +71,7 @@ public final class ImageOutputService {
                     continue;
                 }
                 Path destination = withExtension(stem, format);
+                int index = ++outputIndex;
                 Path temporary = Files.createTempFile(stem.toAbsolutePath().getParent(), ".media-", "." + format);
                 pending.add(temporary);
                 destinations.add(destination);
@@ -83,14 +95,17 @@ public final class ImageOutputService {
                 if (!filters.isEmpty()) args.addAll(List.of("-vf", String.join(",", filters)));
                 args.add(temporary.toAbsolutePath().toString());
                 runner.run(FfmpegRunner.Tool.FFMPEG, args, null, temporary,
-                        PixivImageTransferObserver.MAX_IMAGE_BYTES, TIMEOUT, cancelled);
-                checkInput(temporary, cancelled);
+                        PixivImageTransferObserver.MAX_IMAGE_BYTES, TIMEOUT, cancelled,
+                        phase -> report(progress, phase == FfmpegRunner.Phase.WAITING ? "ffmpeg-waiting" : "ffmpeg",
+                                format, index, outputCount));
+                checkInput(temporary, cancelled, progress(progress, "verifying", format, index, outputCount));
                 outputs.add(format);
             }
             if (outputs.contains("webp") && (previous == null || !Files.exists(stem.resolveSibling(stem.getFileName() + "_thumb.jpg")))) {
-                writeThumbnail(source, stem, cancelled);
+                writeThumbnail(source, stem, cancelled, progress(progress, "thumbnail", null, null, outputCount));
             }
             checkCancelled(cancelled);
+            report(progress, "finalizing", null, null, outputCount);
             for (int index = 0; index < pending.size(); index++) {
                 if (previous == null) publish(pending.get(index), destinations.get(index));
                 else {
@@ -135,11 +150,13 @@ public final class ImageOutputService {
             if (!format.equals("original") && !Files.exists(withExtension(stem, format))) missing.add(format);
         }
         if (missing.size() == 1) return;
-        process(stem, extension, String.join(",", missing), cancelled,
-                previous.orElse(new ArtworkMediaManifest(extension, List.of(extension))));
+        var settings = new MediaOutputSettings();
+        settings.setImageFormats(String.join(",", missing));
+        process(stem, extension, settings, cancelled,
+                previous.orElse(new ArtworkMediaManifest(extension, List.of(extension))), null);
     }
 
-    private void checkInput(Path source, BooleanSupplier cancelled) throws IOException {
+    private void checkInput(Path source, BooleanSupplier cancelled, Consumer<FfmpegRunner.Phase> progress) throws IOException {
         checkCancelled(cancelled);
         long bytes = Files.size(source);
         if (bytes <= 0 || bytes > PixivImageTransferObserver.MAX_IMAGE_BYTES) throw new IOException("Invalid image byte size");
@@ -162,7 +179,7 @@ public final class ImageOutputService {
             String json = runner.run(FfmpegRunner.Tool.FFPROBE,
                     List.of("-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
                             "-of", "json", source.toAbsolutePath().toString()),
-                    null, null, 0, Duration.ofSeconds(30), cancelled);
+                    null, null, 0, Duration.ofSeconds(30), cancelled, progress);
             var stream = mapper.readTree(json).path("streams").path(0);
             width = stream.path("width").asInt();
             height = stream.path("height").asInt();
@@ -172,7 +189,8 @@ public final class ImageOutputService {
         }
     }
 
-    private void writeThumbnail(Path source, Path stem, BooleanSupplier cancelled) throws IOException {
+    private void writeThumbnail(Path source, Path stem, BooleanSupplier cancelled,
+                                Consumer<FfmpegRunner.Phase> progress) throws IOException {
         Path temporary = Files.createTempFile(stem.toAbsolutePath().getParent(), ".media-thumb-", ".jpg");
         try {
             try {
@@ -184,7 +202,7 @@ public final class ImageOutputService {
                         List.of("-y", "-nostdin", "-v", "error", "-i", source.toAbsolutePath().toString(),
                                 "-frames:v", "1", "-vf", "scale=1600:1600:force_original_aspect_ratio=decrease",
                                 temporary.toAbsolutePath().toString()), null, temporary,
-                        PixivImageTransferObserver.MAX_IMAGE_BYTES, TIMEOUT, cancelled);
+                        PixivImageTransferObserver.MAX_IMAGE_BYTES, TIMEOUT, cancelled, progress);
             }
             publish(temporary, stem.resolveSibling(stem.getFileName() + "_thumb.jpg"));
         } finally {
@@ -198,6 +216,17 @@ public final class ImageOutputService {
         } catch (AtomicMoveNotSupportedException unsupported) {
             Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
         }
+    }
+
+    private static Consumer<FfmpegRunner.Phase> progress(Consumer<Progress> listener, String phase,
+                                                        String format, Integer index, Integer count) {
+        report(listener, phase, format, index, count);
+        return state -> report(listener, state == FfmpegRunner.Phase.WAITING ? "ffmpeg-waiting" : phase,
+                format, index, count);
+    }
+
+    private static void report(Consumer<Progress> listener, String phase, String format, Integer index, Integer count) {
+        if (listener != null) listener.accept(new Progress(phase, format, index, count));
     }
 
     private static Path withExtension(Path stem, String extension) {

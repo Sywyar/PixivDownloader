@@ -369,7 +369,9 @@ class PixivScheduledIllustWorkExecutorTest {
         ScheduledTaskDefinition task = task("""
                 {"kind":"illust","source":{"seriesId":"42"},"filters":{},
                  "download":{"fileNameTemplate":"{artwork_id}_p{page}",
-                             "bookmark":true,"collectionId":"88","imageDelayMs":345}}
+                             "bookmark":true,"collectionId":"88","imageDelayMs":345,
+                             "imageFormats":"webp","ugoiraFormats":"zip,webp",
+                             "mediaQuality":73,"mediaWebpLossless":true,"mediaMaximumEdge":1280}}
                 """);
 
         ScheduledWorkResult result = executor().execute(
@@ -403,6 +405,11 @@ class PixivScheduledIllustWorkExecutorTest {
         assertThat(other.isBookmark()).isTrue();
         assertThat(other.getCollectionId()).isEqualTo(88L);
         assertThat(other.getDelayMs()).isEqualTo(345);
+        assertThat(other.getImageFormats()).isEqualTo("webp");
+        assertThat(other.getUgoiraFormats()).isEqualTo("zip,webp");
+        assertThat(other.getMediaQuality()).isEqualTo(73);
+        assertThat(other.isMediaWebpLossless()).isTrue();
+        assertThat(other.getMediaMaximumEdge()).isEqualTo(1280);
         assertThat(other.isUgoira()).isFalse();
         assertThat(other.getUgoiraZipUrl()).isNull();
         assertThat(other.getUgoiraDelays()).isNull();

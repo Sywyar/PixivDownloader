@@ -286,6 +286,29 @@ class UgoiraServiceTest {
     }
 
     @Test
+    @DisplayName("Ugoira 排队取消仅报告等待，不启动编码或发布成品")
+    void cancelledUgoiraWaitDoesNotReportEncoding() throws Exception {
+        var progress = new ArrayList<UgoiraProgress>();
+        var service = new UgoiraService(archiveDownloader(zip("000000.jpg", jpegFrame())),
+                fallbackResolver(), WorkbenchTestMessages.messages(), cancelled -> {
+                    assertThat(progress.get(progress.size() - 1).getPhase()).isEqualTo("ffmpeg-waiting");
+                    throw new CancellationException("cancel while waiting");
+                });
+        assertThatThrownBy(() -> service.processUgoira(100L, ugoiraRequest("waiting"), tempDir,
+                "https://www.pixiv.net/artworks/100", null, progress::add, () -> false))
+                .isInstanceOf(CancellationException.class);
+        assertThat(progress).filteredOn(p -> "ffmpeg-waiting".equals(p.getPhase())).singleElement()
+                .satisfies(p -> {
+                    assertThat(p.getFfmpegProgress()).isNull();
+                    assertThat(p.getOutputFormat()).isEqualTo("webp");
+                    assertThat(p.getOutputIndex()).isEqualTo(1);
+                    assertThat(p.getOutputCount()).isEqualTo(1);
+                });
+        assertThat(progress).noneMatch(p -> "ffmpeg".equals(p.getPhase()));
+        assertThat(tempDir.resolve("waiting.webp")).doesNotExist();
+    }
+
+    @Test
     @DisplayName("超大像素帧在启动 ffmpeg 前终止并清理")
     void oversizedFrameStopsBeforeFfmpegAndCleansTemporaryFiles() throws IOException {
         byte[] archive = zip("000000.png", pngWithDimensions(10_000, 5_000));
@@ -551,8 +574,7 @@ class UgoiraServiceTest {
                 PixivImageDownloader downloader,
                 FfmpegCommandResolver resolver
         ) {
-            super(downloader, resolver, WorkbenchTestMessages.messages(), cancelled -> () -> {},
-                    new top.sywyar.pixivdownload.download.media.MediaOutputSettings());
+            super(downloader, resolver, WorkbenchTestMessages.messages(), cancelled -> () -> {});
         }
 
         @Override
@@ -580,8 +602,7 @@ class UgoiraServiceTest {
                 long timeoutNanos,
                 long maximumOutputBytes
         ) {
-            super(downloader, resolver, WorkbenchTestMessages.messages(), cancelled -> () -> {},
-                    new top.sywyar.pixivdownload.download.media.MediaOutputSettings());
+            super(downloader, resolver, WorkbenchTestMessages.messages(), cancelled -> () -> {});
             this.childPidFile = childPidFile;
             this.timeoutNanos = timeoutNanos;
             this.maximumOutputBytes = maximumOutputBytes;

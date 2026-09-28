@@ -58,6 +58,7 @@ function setup() {
     for (const file of ['alt-core.js', 'alt-state.js', 'alt-queue.js', 'alt-schedule.js', 'alt-schedule-actions.js', 'alt-schedule-editor.js']) {
         vm.runInContext(readFileSync(resolve(rootPath, file), 'utf8'), c, {filename: file});
     }
+    vm.runInContext(readFileSync(resolve(rootPath, '../pixiv-batch/batch-media-progress.js'), 'utf8'), c);
     Object.assign(c, {
         altQueueTypes: () => runtime,
         bt: (key, fallback, vars) => Object.entries(vars || {}).reduce((str, [k, v]) =>
@@ -242,4 +243,23 @@ test('小说实际贡献的翻译阶段在计划行显示，不推断新的下�
     assert.match(model.rows[0].html, /AI 翻译/);
     assert.match(model.rows[0].html, /12s/);
     assert.equal(h.listeners.size, 0);
+});
+
+
+test('计划媒体状态显示等待格式并正确区分失败和取消', async () => {
+    const h = setup();
+    h.setSnapshot({startedTime: 1, items: [{workType: 'image', workId: '123', status: 'pending'}]});
+    await h.c.loadScheduleQueue(h.task);
+    const send = data => Array.from(h.listeners.get('123')).forEach(fn => fn(data));
+    send({downloadedCount: 0, imageProgress: {phase: 'ffmpeg-waiting', outputFormat: 'png', outputIndex: 1, outputCount: 2}});
+    h.flush();
+    const data = h.c.run('altScheduleQueues.get(1).data');
+    assert.match(h.c.scheduleQueueDetailModel(data).rows[0].html, /queue.media.waiting.*PNG.*1\/2/);
+    send({downloadedCount: 0, imageProgress: null});
+    assert.equal(data.items[0].imageProgress, null);
+    send({completed: true, failed: true});
+    assert.equal(data.items[0].status, 'failed');
+    send({completed: true, cancelled: true});
+    assert.equal(data.items[0].status, 'paused');
+    assert.equal(data.items[0].rawStatus, 'cancelled');
 });

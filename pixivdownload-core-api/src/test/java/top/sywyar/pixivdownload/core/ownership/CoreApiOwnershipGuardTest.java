@@ -210,6 +210,7 @@ class CoreApiOwnershipGuardTest {
     private static final Set<String> APPROVED_PUBLIC_NESTED_TYPES = Set.of(
             "top.sywyar.pixivdownload.core.ffmpeg.FfmpegProcessGate$Permit",
             "top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner$Tool",
+            "top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner$Phase",
             "top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadStatistics$DailyOutcomes",
             "top.sywyar.pixivdownload.core.stats.StatsAggregates$Overview",
             "top.sywyar.pixivdownload.core.stats.StatsAggregates$AuthorStat",
@@ -283,6 +284,7 @@ class CoreApiOwnershipGuardTest {
 
     private static final Map<String, List<String>> APPROVED_ENUM_CONSTANTS_BY_TYPE = Map.ofEntries(
             Map.entry("top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner$Tool", List.of("FFMPEG", "FFPROBE")),
+            Map.entry("top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner$Phase", List.of("WAITING", "RUNNING")),
             Map.entry("top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand$Source",
                     List.of("CUSTOM", "MANAGED", "BUNDLED", "SYSTEM", "FALLBACK")),
             Map.entry("top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFailure",

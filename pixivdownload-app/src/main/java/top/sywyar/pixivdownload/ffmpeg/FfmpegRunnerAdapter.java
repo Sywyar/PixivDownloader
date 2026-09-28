@@ -18,6 +18,7 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 @Component
 public final class FfmpegRunnerAdapter implements FfmpegRunner {
@@ -32,7 +33,8 @@ public final class FfmpegRunnerAdapter implements FfmpegRunner {
 
     @Override
     public String run(Tool tool, List<String> arguments, Path workingDirectory, Path output,
-                      long maximumOutputBytes, Duration timeout, BooleanSupplier cancelled) throws IOException {
+                      long maximumOutputBytes, Duration timeout, BooleanSupplier cancelled,
+                      Consumer<Phase> progress) throws IOException {
         if (timeout == null || timeout.isNegative() || timeout.isZero()
                 || output != null && maximumOutputBytes <= 0) throw new IllegalArgumentException("Invalid media budget");
         String command = resolver.resolve().command();
@@ -46,6 +48,8 @@ public final class FfmpegRunnerAdapter implements FfmpegRunner {
         List<String> argv = new ArrayList<>();
         argv.add(command);
         argv.addAll(arguments);
+        checkCancelled(cancelled);
+        if (progress != null) progress.accept(Phase.WAITING);
         FfmpegProcessGate.Permit permit = gate.acquire(cancelled);
         Process process = null;
         var descendants = new LinkedHashMap<Long, ProcessHandle>();
@@ -54,6 +58,7 @@ public final class FfmpegRunnerAdapter implements FfmpegRunner {
             ProcessBuilder builder = new ProcessBuilder(argv).redirectErrorStream(true);
             if (workingDirectory != null) builder.directory(workingDirectory.toFile());
             process = builder.start();
+            if (progress != null) progress.accept(Phase.RUNNING);
             process.getOutputStream().close();
             Process running = process;
             ByteArrayOutputStream captured = new ByteArrayOutputStream();

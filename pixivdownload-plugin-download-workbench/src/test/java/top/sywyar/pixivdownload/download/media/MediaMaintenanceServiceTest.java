@@ -44,7 +44,7 @@ class MediaMaintenanceServiceTest {
             throw new java.util.concurrent.CancellationException();
         }).when(images).addMissingFormats(eq(source), eq("png"), any());
         try (var service = new MediaMaintenanceService(assets, metadata, query(), images, mock(top.sywyar.pixivdownload.download.UgoiraService.class))) {
-            var desktop = new DesktopMediaMaintenance(service, mock(MediaCapabilityService.class), new MediaOutputSettings());
+            var desktop = new DesktopMediaMaintenance(service, mock(MediaCapabilityService.class));
             var rejected = assertThrows(DesktopMediaTool.OperationException.class, () -> desktop.start("unreviewed").valueOrThrow());
             assertEquals("media.error.preview-required", rejected.text().key());
             var preview = desktop.preview(new DesktopMediaTool.Request( "png", null, false)).valueOrThrow();

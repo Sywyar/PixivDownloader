@@ -51,7 +51,6 @@ public class UgoiraService {
     private final FfmpegCommandResolver ffmpegCommandResolver;
     private final MessageResolver messages;
     private final FfmpegProcessGate ffmpegProcessGate;
-    private final top.sywyar.pixivdownload.download.media.MediaOutputSettings outputSettings;
     private final Map<Path, ProcessingLock> processingLocks = new HashMap<>();
 
     private static final class ProcessingLock {
@@ -62,13 +61,11 @@ public class UgoiraService {
     public UgoiraService(PixivImageDownloader pixivImageDownloader,
                          FfmpegCommandResolver ffmpegCommandResolver,
                          MessageResolver messages,
-                         FfmpegProcessGate ffmpegProcessGate,
-                         top.sywyar.pixivdownload.download.media.MediaOutputSettings outputSettings) {
+                         FfmpegProcessGate ffmpegProcessGate) {
         this.pixivImageDownloader = pixivImageDownloader;
         this.ffmpegCommandResolver = ffmpegCommandResolver;
         this.messages = messages;
         this.ffmpegProcessGate = ffmpegProcessGate;
-        this.outputSettings = outputSettings;
     }
 
     /**
@@ -83,8 +80,7 @@ public class UgoiraService {
 
     public List<String> outputFormats(DownloadRequest.Other other) {
         return top.sywyar.pixivdownload.download.media.MediaOutputSettings.parseFormats(
-                !other.isMediaOutputEnabled() ? "webp"
-                        : other.getUgoiraFormats() == null ? outputSettings.getUgoiraFormats() : other.getUgoiraFormats(),
+                other.resolveMediaOutputSettings().getUgoiraFormats(),
                 top.sywyar.pixivdownload.download.media.MediaOutputSettings.UGOIRA_FORMATS);
     }
 
@@ -182,8 +178,7 @@ public class UgoiraService {
         if (sourceArchive != null) {
             formats = formats.stream().filter(format -> !Files.exists(downloadPath.resolve(outputBaseName + "." + format))).toList();
         }
-        var encodingSettings = other.isMediaOutputEnabled() ? outputSettings
-                : new top.sywyar.pixivdownload.download.media.MediaOutputSettings();
+        var encodingSettings = other.resolveMediaOutputSettings();
 
         String localSuffix = sourceArchive == null ? "" : "_" + UUID.randomUUID();
         Path zipPath = downloadPath.resolve("_ugoira_frames" + localSuffix + ".zip");
@@ -262,6 +257,9 @@ public class UgoiraService {
                     }
                 }
                 if (complete) {
+                    publishProgress(progressListener, UgoiraProgress.builder()
+                            .phase(UgoiraProgress.PHASE_FINALIZING).status(UgoiraProgress.STATUS_RUNNING)
+                            .attempt(attempt).maxAttempts(maxAttempts).zipProgress(100).build());
                     Path thumbnailPath = downloadPath.resolve(outputBaseName + "_thumb.jpg");
                     if (sourceArchive == null || !Files.exists(thumbnailPath)) {
                         BufferedImage thumbnail = top.sywyar.pixivdownload.core.asset.ImageThumbnailScaler.scale(
@@ -492,7 +490,7 @@ public class UgoiraService {
         Path partialOutput = downloadPath.resolve(outputBaseName + "." + format + ".part");
         Path progressFile = tempDir.resolve("ffmpeg-progress.log");
         long durationMs = Math.max(1L, delays.stream().mapToLong(Integer::longValue).sum());
-        publishProgress(progressListener, UgoiraProgress.builder()
+        UgoiraProgress encoding = UgoiraProgress.builder()
                 .phase(UgoiraProgress.PHASE_FFMPEG)
                 .status(UgoiraProgress.STATUS_RUNNING)
                 .attempt(attempt)
@@ -503,7 +501,10 @@ public class UgoiraService {
                 .ffmpegOutTimeMs(0L)
                 .ffmpegDurationMs(durationMs)
                 .ffmpegProgress(0)
-                .build());
+                .build();
+        ensureNotCancelled(cancellationRequested);
+        publishProgress(progressListener, encoding.toBuilder()
+                .phase(UgoiraProgress.PHASE_WAITING_FFMPEG).ffmpegProgress(null).build());
         FfmpegProcessGate.Permit permit = ffmpegProcessGate.acquire(cancellationRequested);
         Process process = null;
         Map<Long, ProcessHandle> descendants = new LinkedHashMap<>();
@@ -537,6 +538,7 @@ public class UgoiraService {
             processBuilder.redirectOutput(ProcessBuilder.Redirect.appendTo(progressFile.toFile()));
             processBuilder.redirectError(ProcessBuilder.Redirect.DISCARD);
             process = startFfmpeg(processBuilder);
+            publishProgress(progressListener, encoding);
             long deadline = System.nanoTime() + ffmpegTimeoutNanos();
             int[] lastProgress = {-1};
             long[] lastAt = {0L};

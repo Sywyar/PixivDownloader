@@ -59,6 +59,48 @@ class FfmpegRunnerAdapterTest {
         } finally { worker.shutdownNow(); }
     }
 
+    @Test
+    @DisplayName("真实进程只在取得额度后报告运行，排队取消不启动进程")
+    void reportsWaitingUntilBudgetIsGranted() throws Exception {
+        var installation = FfmpegLocator.locate();
+        assumeTrue(installation.isPresent(), "FFmpeg required");
+        var properties = new FfmpegProperties();
+        properties.setMaxConcurrent(1);
+        var gate = new FfmpegProcessGateAdapter(properties);
+        var runner = new FfmpegRunnerAdapter(() -> new ResolvedFfmpegCommand(
+                installation.orElseThrow().ffmpegPath().toString(), ResolvedFfmpegCommand.Source.SYSTEM), gate);
+        var worker = Executors.newSingleThreadExecutor();
+        try {
+            for (boolean cancel : List.of(false, true)) {
+                var held = gate.acquire(() -> false);
+                var waiting = new java.util.concurrent.CountDownLatch(1);
+                var phases = new java.util.concurrent.CopyOnWriteArrayList<FfmpegRunner.Phase>();
+                var cancelled = new AtomicBoolean();
+                var result = worker.submit(() -> runner.run(FfmpegRunner.Tool.FFMPEG, List.of("-version"),
+                        null, null, 0, Duration.ofSeconds(10), cancelled::get, phase -> {
+                            phases.add(phase);
+                            if (phase == FfmpegRunner.Phase.WAITING) waiting.countDown();
+                        }));
+                try {
+                    assertTrue(waiting.await(5, TimeUnit.SECONDS));
+                    assertEquals(List.of(FfmpegRunner.Phase.WAITING), phases);
+                    assertFalse(result.isDone());
+                    if (cancel) {
+                        cancelled.set(true);
+                        var failure = assertThrows(java.util.concurrent.ExecutionException.class,
+                                () -> result.get(5, TimeUnit.SECONDS));
+                        assertInstanceOf(CancellationException.class, failure.getCause());
+                        assertEquals(List.of(FfmpegRunner.Phase.WAITING), phases);
+                    } else {
+                        held.close();
+                        assertTrue(result.get(10, TimeUnit.SECONDS).startsWith("ffmpeg version"));
+                        assertEquals(List.of(FfmpegRunner.Phase.WAITING, FfmpegRunner.Phase.RUNNING), phases);
+                    }
+                } finally { held.close(); }
+            }
+        } finally { worker.shutdownNow(); }
+    }
+
     private FfmpegRunnerAdapter runner() {
         var installation = FfmpegLocator.locate();
         assumeTrue(installation.isPresent() && installation.get().ffprobePath() != null, "FFmpeg and ffprobe required");

@@ -162,7 +162,7 @@ private fun FfmpegManagement(
             ToolDisclosure(workspaceText(text, "media-existing"), "tools.media.advanced", advanced) { advanced = !advanced }
             AnimatedVisibility(advanced) {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    form.rows().forEach { ToolField(it.content() as TextInput, text, emit, help = it.help()?.let(text)) }
+                    form.rows().forEach { ToolField(it.content() as TextInput, text, emit, help = null) }
                     buttons.firstOrNull { it.id() == "status.ffmpeg.path.save" }?.let { ToolAction(it, text, emit) }
                 }
             }

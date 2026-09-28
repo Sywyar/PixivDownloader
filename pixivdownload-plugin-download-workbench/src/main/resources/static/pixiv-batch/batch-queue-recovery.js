@@ -75,9 +75,13 @@ function applyQueueRecoveryResult(item, result) {
     }
     if (result.status === 'running') {
         setQueueRecoveryState(item, 'running');
+        item.imageProgress = result.imageProgress || null;
+        item.ugoiraProgress = result.ugoiraProgress || null;
         return;
     }
     delete item.recoveryState;
+    item.imageProgress = null;
+    item.ugoiraProgress = null;
     item.status = result.status === 'cancelled' ? 'paused' : result.status;
     item.statusMessageKey = 'batch:queue.recovery.' + result.status;
     item.lastMessage = '';

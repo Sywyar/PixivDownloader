@@ -78,16 +78,9 @@ public class DownloadTaskController {
         request.getOther().setMediaOutputEnabled(isAdmin);
         if (isAdmin) {
             try {
-                if (request.getOther().getImageFormats() != null) {
-                    top.sywyar.pixivdownload.download.media.MediaOutputSettings.parseFormats(
-                            request.getOther().getImageFormats(), top.sywyar.pixivdownload.download.media.MediaOutputSettings.IMAGE_FORMATS);
-                }
-                if (request.getOther().getUgoiraFormats() != null) {
-                    top.sywyar.pixivdownload.download.media.MediaOutputSettings.parseFormats(
-                            request.getOther().getUgoiraFormats(), top.sywyar.pixivdownload.download.media.MediaOutputSettings.UGOIRA_FORMATS);
-                }
+                request.getOther().resolveMediaOutputSettings();
             } catch (IllegalArgumentException invalid) {
-                throw LocalizedException.badRequest("download.media.invalid-formats", null);
+                throw LocalizedException.badRequest("download.media.invalid-settings", null);
             }
         }
         if (!isAdmin) request.getOther().setPathOverflowAction(null);

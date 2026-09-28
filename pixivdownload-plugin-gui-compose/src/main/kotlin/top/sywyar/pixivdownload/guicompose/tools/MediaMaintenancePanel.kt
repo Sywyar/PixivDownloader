@@ -2,10 +2,12 @@
 
 package top.sywyar.pixivdownload.guicompose.tools
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -171,19 +173,41 @@ internal fun MediaCapabilities(
 ) {
     val palette = LocalExperiencePalette.current
     val nodes = descendants(group).toList()
+    var resultsExpanded by rememberSaveable(group.id()) { mutableStateOf(true) }
     fun message(suffix: String) = nodes.filterIsInstance<Text>().firstOrNull { it.id() == group.id() + suffix }
+    val check = nodes.filterIsInstance<Button>().first { it.id() == group.id() + ".check" }
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         CupertinoText(text(message(".cap-title")!!.text()), fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-        ToolAction(nodes.filterIsInstance<Button>().first { it.id() == group.id() + ".check" }, text, emit)
+        ToolAction(
+            check,
+            text,
+            emit,
+            onClick = {
+                resultsExpanded = true
+                emit(Event(EventType.ACTIVATE, check.id(), Value.empty()))
+            },
+        )
         if (nodes.any { it.id() == group.id() + ".busy" }) CupertinoActivityIndicator(Modifier.size(14.dp))
-        message(".command")?.let {
-            SelectionContainer { CupertinoText(text(it.text()), fontSize = 12.sp, color = palette.secondaryText) }
-        }
-        nodes.filterIsInstance<Text>().filter { it.id().startsWith(group.id() + ".cap.") && it.id().endsWith(".name") }.forEach { name ->
-            val result = nodes.filterIsInstance<Text>().first { it.id() == name.id().removeSuffix(".name") + ".result" }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                CupertinoText(text(name.text()), Modifier.weight(1f), fontSize = 13.sp)
-                CupertinoText(text(result.text()), fontSize = 13.sp, color = palette.secondaryText)
+        message(".command")?.let { command ->
+            ToolDisclosure(
+                workspaceText(text, "media-results"),
+                group.id() + ".results.toggle",
+                resultsExpanded,
+            ) { resultsExpanded = !resultsExpanded }
+            AnimatedVisibility(resultsExpanded) {
+                Column(
+                    Modifier.fillMaxWidth().testTag(group.id() + ".results"),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    SelectionContainer { CupertinoText(text(command.text()), fontSize = 12.sp, color = palette.secondaryText) }
+                    nodes.filterIsInstance<Text>().filter { it.id().startsWith(group.id() + ".cap.") && it.id().endsWith(".name") }.forEach { name ->
+                        val result = nodes.filterIsInstance<Text>().first { it.id() == name.id().removeSuffix(".name") + ".result" }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            CupertinoText(text(name.text()), Modifier.weight(1f), fontSize = 13.sp)
+                            CupertinoText(text(result.text()), fontSize = 13.sp, color = palette.secondaryText)
+                        }
+                    }
+                }
             }
         }
         message(".notice")?.let { ToolNotice(text(it.text()), warning = true) }

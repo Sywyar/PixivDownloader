@@ -341,6 +341,9 @@
 
 .ab-mini-prog-label {
     display: flex;
+    flex-wrap: wrap;
+    gap: 3px 8px;
+    overflow-wrap: anywhere;
     justify-content: space-between;
     font-size: 0.75rem;
     color: var(--muted);
@@ -391,7 +394,21 @@
 }
 
 .ab-mini-prog-fill.is-indeterminate {
-    opacity: .3;
+    animation: ab-progress-active 1.5s ease-in-out infinite;
+}
+
+@keyframes ab-progress-active {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(286%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ab-mini-prog-fill.is-indeterminate { animation: none !important; }
+}
+
+@media (forced-colors: active) {
+    .ab-mini-prog-bar { border: 1px solid CanvasText; }
+    .ab-mini-prog-fill { background: Highlight !important; forced-color-adjust: none; }
 }
 
 .ab-progress-note {

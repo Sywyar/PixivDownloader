@@ -88,6 +88,11 @@ public final class PixivScheduledDefinitionValidator {
             if (!download.isObject()) {
                 throw invalidDefinition();
             }
+            try {
+                top.sywyar.pixivdownload.download.media.MediaOutputSettings.fromJson(download);
+            } catch (IllegalArgumentException invalid) {
+                throw invalidDefinition();
+            }
             validateMinimum(download, "concurrent", 1);
             validateLongMinimum(download, "intervalMs", 0L);
             validateMinimum(download, "imageDelayMs", 0);

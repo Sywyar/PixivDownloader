@@ -380,7 +380,9 @@
                         || (data.completed && data.downloadedCount < data.totalImages) ? 'failed'
                         : data.completed ? 'completed' : 'running',
                     totalImages: data.totalImages,
-                    downloadedCount: data.downloadedCount
+                    downloadedCount: data.downloadedCount,
+                    imageProgress: data.imageProgress || null,
+                    ugoiraProgress: data.ugoiraProgress || null
                 };
             },
             queueTags: pixivQueueTags,

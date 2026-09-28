@@ -114,10 +114,31 @@ class MediaToolsInteractionTest {
                 waitUntil(timeoutMillis = 5_000) { fixture.state.get().state() == "cancelled" }
                 waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(prefix + ".preview").fetchSemanticsNodes().isNotEmpty() }
                 onNodeWithTag("tools.media.tab.ffmpeg").performClick()
+                onNodeWithTag("tools.media.advanced").performScrollTo().performClick()
+                onNodeWithTag("tools.ffmpeg.path").performScrollTo().assertIsDisplayed()
+                onNodeWithText(messages.getProperty("gui.config.field.ffmpeg.executable-path.help")).assertDoesNotExist()
+                onNodeWithTag(prefix + ".results.toggle").assertDoesNotExist()
                 onNodeWithTag(prefix + ".check").performScrollTo().performClick()
                 waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("ffmpeg (system)").fetchSemanticsNodes().isNotEmpty() }
                 onNodeWithText("ffmpeg (system)").performScrollTo().assertIsDisplayed()
                 screenshot("capabilities-$theme", "tools.media.workspace")
+                onNodeWithTag(prefix + ".results.toggle")
+                    .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.Collapse))
+                    .performScrollTo().performClick()
+                onNodeWithText("ffmpeg (system)").assertDoesNotExist()
+                onNodeWithText(messages.getProperty("media.capability.png")).assertDoesNotExist()
+                runOnIdle { model.rebuild() }
+                onNodeWithTag(prefix + ".results").assertDoesNotExist()
+                onNodeWithTag(prefix + ".check").assertIsDisplayed().assertIsEnabled()
+                screenshot("capabilities-collapsed-$theme", "tools.media.workspace")
+                onNodeWithTag(prefix + ".results.toggle")
+                    .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.Expand))
+                    .performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+                    .performKeyInput { pressKey(Key.Enter) }
+                onNodeWithText("ffmpeg (system)").performScrollTo().assertIsDisplayed()
+                onNodeWithTag(prefix + ".results.toggle").performScrollTo().performClick()
+                onNodeWithTag(prefix + ".check").performScrollTo().performClick()
+                onNodeWithText("ffmpeg (system)").performScrollTo().assertIsDisplayed()
                 runOnIdle { fixture.tools.set(emptyList()); model.rebuild() }
                 onNodeWithTag("tools.media.workspace").assertExists()
                 onNodeWithTag("tools.media.tab.$prefix").assertDoesNotExist()

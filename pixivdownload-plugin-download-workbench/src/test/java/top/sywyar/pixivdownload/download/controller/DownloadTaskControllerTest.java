@@ -77,6 +77,11 @@ class DownloadTaskControllerTest {
             request.setArtworkId(12345L);
             request.setTitle("测试作品");
             request.setImageUrls(List.of("https://i.pximg.net/img/12345_p0.jpg"));
+            request.getOther().setImageFormats("webp");
+            request.getOther().setUgoiraFormats("zip,webp");
+            request.getOther().setMediaQuality(73);
+            request.getOther().setMediaWebpLossless(true);
+            request.getOther().setMediaMaximumEdge(1280);
 
             mockMvc.perform(post("/api/download/pixiv")
                             .locale(Locale.US)
@@ -85,6 +90,29 @@ class DownloadTaskControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.success").value(true))
                     .andExpect(jsonPath("$.message").value("Download task has started"));
+            verify(artworkDownloadExecutor).downloadImages(anyLong(), anyString(), anyList(), anyString(),
+                    argThat(other -> other.isMediaOutputEnabled()
+                            && other.resolveMediaOutputSettings().getQuality() == 73
+                            && other.resolveMediaOutputSettings().isWebpLossless()
+                            && other.resolveMediaOutputSettings().getMaximumEdge() == 1280), any(), any());
+        }
+
+        @Test
+        @DisplayName("非法输出参数在进入下载执行器前拒绝")
+        void rejectsInvalidMediaOptionsBeforeAdmission() throws Exception {
+            lenient().when(applicationModeProvider.getMode()).thenReturn("solo");
+            for (String option : List.of("\"mediaQuality\":0", "\"mediaMaximumEdge\":16384", "\"imageFormats\":\"invalid\"")) {
+                mockMvc.perform(post("/api/download/pixiv").contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"artworkId\":42,\"title\":\"test\",\"imageUrls\":[\"https://i.pximg.net/a.jpg\"],\"other\":{" + option + "}}"))
+                        .andExpect(status().isBadRequest());
+            }
+            for (String option : List.of("\"mediaQuality\":1.5", "\"mediaMaximumEdge\":\"100\"", "\"mediaWebpLossless\":\"true\"")) {
+                mockMvc.perform(post("/api/download/pixiv").contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"artworkId\":42,\"title\":\"test\",\"imageUrls\":[\"https://i.pximg.net/a.jpg\"],\"other\":{" + option + "}}"))
+                        .andExpect(status().isBadRequest());
+            }
+            verify(artworkDownloadExecutor, never()).downloadImages(anyLong(), anyString(), anyList(), anyString(),
+                    any(), any(), any());
         }
 
         @Test
@@ -142,6 +170,10 @@ class DownloadTaskControllerTest {
             request.setTitle("测试");
             request.setImageUrls(List.of("https://i.pximg.net/img/12345_p0.jpg"));
             request.getOther().setCollectionId(42L);
+            request.getOther().setImageFormats("webp");
+            request.getOther().setMediaQuality(73);
+            request.getOther().setMediaWebpLossless(true);
+            request.getOther().setMediaMaximumEdge(1280);
 
             mockMvc.perform(post("/api/download/pixiv")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -154,7 +186,11 @@ class DownloadTaskControllerTest {
                     eq("测试"),
                     eq(List.of("https://i.pximg.net/img/12345_p0.jpg")),
                     eq("https://www.pixiv.net/"),
-                    argThat(other -> other != null && other.getCollectionId() == null),
+                    argThat(other -> other != null && other.getCollectionId() == null && !other.isMediaOutputEnabled()
+                            && other.resolveMediaOutputSettings().getImageFormats().equals(
+                                    top.sywyar.pixivdownload.download.media.MediaOutputSettings.DEFAULT_IMAGE_FORMATS)
+                            && other.resolveMediaOutputSettings().getQuality()
+                                    == top.sywyar.pixivdownload.download.media.MediaOutputSettings.DEFAULT_QUALITY),
                     any(),
                     notNull()
             );

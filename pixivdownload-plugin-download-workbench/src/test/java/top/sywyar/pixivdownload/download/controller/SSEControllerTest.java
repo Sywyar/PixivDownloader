@@ -13,6 +13,7 @@ import org.springframework.scheduling.TaskScheduler;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import top.sywyar.pixivdownload.download.ArtworkDownloadExecutor;
 import top.sywyar.pixivdownload.download.DownloadProgressEvent;
 import top.sywyar.pixivdownload.download.DownloadStatus;
 import top.sywyar.pixivdownload.download.response.status.DownloadResponse;
@@ -69,6 +70,9 @@ class SSEControllerTest {
     @Mock
     private ScheduledFuture<?> heartbeatFuture;
 
+    @Mock
+    private ArtworkDownloadExecutor artworkDownloadExecutor;
+
     private SSEController controller;
     private AggregatedSseCloseTokenCodec closeTokenCodec;
     private FakePluginStreamRegistrar pluginStreamRegistrar;
@@ -80,7 +84,7 @@ class SSEControllerTest {
         pluginRuntimeTaskRegistrar = new FakePluginRuntimeTaskRegistrar();
         closeTokenCodec = new AggregatedSseCloseTokenCodec();
         controller = new SSEController(taskScheduler, requestOwnerIdentityResolver, WorkbenchTestMessages.messages(),
-                pluginStreamRegistrar, pluginRuntimeTaskRegistrar, closeTokenCodec);
+                pluginStreamRegistrar, pluginRuntimeTaskRegistrar, closeTokenCodec, artworkDownloadExecutor);
         lenient().when(requestOwnerIdentityResolver.resolve(any()))
                 .thenReturn(RequestOwnerIdentity.adminScope());
         lenient().when(taskScheduler.scheduleAtFixedRate(any(Runnable.class), eq(Duration.ofSeconds(30))))
@@ -210,6 +214,76 @@ class SSEControllerTest {
         SseStatusData adminPayload = (SseStatusData) adminEmitter.events.get(0).payload;
         assertThat(adminPayload.getStatus()).isEqualTo("进度更新");
         assertThat(adminPayload.getMessage()).isEqualTo("下载进度已更新");
+    }
+
+    @Test
+    @DisplayName("媒体处理终态使用对应状态文案，取消和失败优先于完成")
+    void mediaTerminalEventsUseStatusMessages() throws Exception {
+        var emitter = new RecordingSseEmitter();
+        putAggregatedSubscription("terminal", emitter, "owner-a", false, Locale.US);
+        var messages = WorkbenchTestMessages.messages();
+
+        for (String outcome : List.of("failed", "cancelled", "completed")) {
+            var status = new DownloadStatus(123L, "media", 2, "owner-a");
+            status.setCompleted(true);
+            status.setFailed(!"completed".equals(outcome));
+            status.setCancelled("cancelled".equals(outcome));
+            status.setErrorMessage("conversion failed");
+            status.setSuccessCount(1);
+            int expectedEvents = emitter.events.size() + 1;
+
+            controller.handleDownloadProgressEvent(new DownloadProgressEvent(this, 123L, status, "owner-a"));
+
+            waitUntil(() -> emitter.events.size() == expectedEvents);
+            var payload = (SseStatusData) emitter.events.get(expectedEvents - 1).payload;
+            Object[] args = switch (outcome) {
+                case "failed" -> new Object[]{"conversion failed"};
+                case "completed" -> new Object[]{"1", "2"};
+                default -> new Object[0];
+            };
+            assertThat(payload.getMessage()).isEqualTo(messages.get(Locale.US, "download.status." + outcome, args));
+            assertThat(payload.getCancelled()).isEqualTo(status.isCancelled());
+            assertThat(payload.getFailed()).isEqualTo(status.isFailed());
+        }
+    }
+
+    @Test
+    @DisplayName("聚合连接建立与既有心跳均恢复本身份活跃任务")
+    void connectionAndHeartbeatReplayActiveMedia() {
+        when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.owner("owner-a"));
+        controller.createAggregatedSSEConnection(new MockHttpServletRequest());
+        verify(artworkDownloadExecutor).activeStatuses("owner-a", false);
+        var heartbeat = org.mockito.ArgumentCaptor.forClass(Runnable.class);
+        verify(taskScheduler).scheduleAtFixedRate(heartbeat.capture(), eq(Duration.ofSeconds(30)));
+        heartbeat.getValue().run();
+        verify(artworkDownloadExecutor, times(2)).activeStatuses("owner-a", false);
+    }
+
+    @Test
+    @DisplayName("媒体进度恢复仅推送可见 owner，空进度显式清除旧格式")
+    void replaysMediaSnapshotsWithinOwnerScope() throws Exception {
+        var emitter = new RecordingSseEmitter();
+        putAggregatedSubscription("media", emitter, "owner-a", false, Locale.US);
+        var own = new DownloadStatus(123L, "own", 1, "owner-a");
+        own.setImageProgress(top.sywyar.pixivdownload.download.ImageDownloadProgress.builder()
+                .phase("ffmpeg-waiting").status("running").outputFormat("png")
+                .outputIndex(1).outputCount(2).build());
+        var other = new DownloadStatus(456L, "private", 1, "owner-b");
+        when(artworkDownloadExecutor.activeStatuses("owner-a", false)).thenReturn(List.of(own, other));
+        Object subscription = aggregatedEmitters().get("media");
+        assertThat((Boolean) ReflectionTestUtils.invokeMethod(controller, "sendActiveStatuses", subscription)).isTrue();
+        assertThat(emitter.events).hasSize(1);
+        var payload = (SseStatusData) emitter.events.get(0).payload;
+        assertThat(payload.getArtworkId()).isEqualTo(123L);
+        assertThat(payload.getImageProgress().getPhase()).isEqualTo("ffmpeg-waiting");
+        assertThat(payload.getImageProgress().getProgress()).isNull();
+        own.setImageProgress(null);
+        ReflectionTestUtils.invokeMethod(controller, "sendActiveStatuses", subscription);
+        var json = new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(emitter.events.get(1).payload);
+        assertThat(json.has("imageProgress")).isTrue();
+        assertThat(json.get("imageProgress").isNull()).isTrue();
+        assertThat(json.has("ugoiraProgress")).isTrue();
+        assertThat(json.get("ugoiraProgress").isNull()).isTrue();
     }
 
     @Test

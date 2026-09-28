@@ -177,8 +177,7 @@
     function snapshotDownload() {
         return {
             fileNameTemplate: state.settings.fileNameTemplate,
-            imageFormats: state.settings.imageFormats || 'original',
-            ugoiraFormats: state.settings.ugoiraFormats || 'webp',
+            ...window.PixivMediaSettings.snapshot(state.settings),
             pathOverflowAction: state.settings.pathOverflowAction || 'ASK',
             bookmark: !!state.settings.bookmark,
             collectionId: state.settings.collectionId,
@@ -277,8 +276,7 @@
 
     function applyDownload(value) {
         const download = value || {};
-        state.settings.imageFormats = download.imageFormats || 'original';
-        state.settings.ugoiraFormats = download.ugoiraFormats || 'webp';
+        Object.assign(state.settings, window.PixivMediaSettings.snapshot(download));
         window.PixivBatch.queueTypes.contributionsOf('settings').forEach(setting => {
             if (typeof setting.mount === 'function') setting.mount(document.getElementById('type-output-settings'));
         });

@@ -128,12 +128,14 @@ test('active downloads are polled serially, concurrent checks share one run, and
     const first = h.context.reconcileRestoredQueue();
     assert.equal(h.context.reconcileRestoredQueue(), first);
     assert.deepEqual(h.calls.queries, ['1']);
-    release({status: 'running', totalImages: 4, downloadedCount: 1});
+    release({status: 'running', totalImages: 4, downloadedCount: 1,
+        imageProgress: {phase: 'ffmpeg-waiting', outputFormat: 'png', outputIndex: 1, outputCount: 2}});
     await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual(h.calls.queries, ['1', '2']);
     release({status: 'failed'});
     await first;
     assert.equal(h.context.state.queue[0].status, 'downloading');
+    assert.equal(h.context.state.queue[0].imageProgress.phase, 'ffmpeg-waiting');
     assert.equal(h.context.state.queue[1].status, 'failed');
     assert.equal(h.timers.size, 1);
     const poll = [...h.timers.values()][0];
@@ -141,6 +143,7 @@ test('active downloads are polled serially, concurrent checks share one run, and
     await poll.fn();
     assert.equal(h.timers.size, 0);
     assert.equal(h.context.state.queue[0].status, 'completed');
+    assert.equal(h.context.state.queue[0].imageProgress, null);
 });
 
 test('missing capability, missing status and query failure remain unconfirmed across another reload', async () => {

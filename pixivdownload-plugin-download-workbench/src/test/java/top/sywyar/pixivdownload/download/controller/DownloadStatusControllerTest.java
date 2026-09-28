@@ -91,6 +91,30 @@ class DownloadStatusControllerTest {
         }
     }
 
+    @Test
+    @DisplayName("轮询返回本身份的媒体等待状态，不调用管理员查询")
+    void mediaProgressUsesOwnerQuery() throws Exception {
+        var progress = top.sywyar.pixivdownload.download.ImageDownloadProgress.builder()
+                .phase("ffmpeg-waiting").status("running").outputFormat("png")
+                .outputIndex(1).outputCount(2).build();
+        var download = new DownloadStatus(123L, "test", 1, "owner-a");
+        download.setImageProgress(progress);
+        when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.owner("owner-a"));
+        when(artworkDownloadExecutor.getDownloadStatus(123L, "owner-a", false)).thenReturn(download);
+        mockMvc.perform(get("/api/download/status/123"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.completed").value(false))
+                .andExpect(jsonPath("$.imageProgress.phase").value("ffmpeg-waiting"))
+                .andExpect(jsonPath("$.imageProgress.outputFormat").value("png"))
+                .andExpect(jsonPath("$.imageProgress.progress").doesNotExist())
+                .andExpect(jsonPath("$.imageProgress.command").doesNotExist())
+                .andExpect(jsonPath("$.imageProgress.path").doesNotExist());
+        mockMvc.perform(get("/api/download/status/456"))
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.imageProgress").doesNotExist());
+        verify(artworkDownloadExecutor, never()).getDownloadStatus(anyLong());
+    }
+
     // ========== GET /api/download/status/active ==========
 
     @Test

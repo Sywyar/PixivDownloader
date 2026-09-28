@@ -5,6 +5,22 @@ window.PixivMediaSettings = (() => {
         {key: 'imageFormats', name: 'image-formats', initial: 'original', options: ['original', 'png', 'jpg', 'webp']},
         {key: 'ugoiraFormats', name: 'ugoira-formats', initial: 'webp', options: ['webp', 'gif', 'apng', 'mp4', 'zip']}
     ];
+    const encodingFields = [
+        {key: 'mediaQuality', name: 'quality', initial: 90, min: 1, max: 100},
+        {key: 'mediaWebpLossless', name: 'webp-lossless', initial: false},
+        {key: 'mediaMaximumEdge', name: 'maximum-edge', initial: 0, min: 0, max: 16383}
+    ];
+
+    function snapshot(settings) {
+        const result = {};
+        for (const field of fields) result[field.key] = valid(settings[field.key], field.options) ? settings[field.key] : field.initial;
+        for (const field of encodingFields) {
+            const value = settings[field.key];
+            result[field.key] = field.min == null ? value === true
+                : Number.isInteger(value) && value >= field.min && value <= field.max ? value : field.initial;
+        }
+        return result;
+    }
 
     function valid(value, options) {
         if (typeof value !== 'string' || !value) return false;
@@ -17,9 +33,11 @@ window.PixivMediaSettings = (() => {
         container.replaceChildren();
         container.hidden = !admin;
         if (!admin) return;
-        const refreshers = [];
-        const visibleFields = fields;
-        for (const field of visibleFields) {
+        const scope = document.createElement('p');
+        scope.className = 'media-settings-scope';
+        scope.textContent = translate('media.settings.scope');
+        container.append(scope);
+        for (const field of fields) {
             const row = document.createElement('div');
             row.className = 'media-format-row';
             const label = document.createElement('span');
@@ -77,20 +95,48 @@ window.PixivMediaSettings = (() => {
             help.textContent = translate('media.' + field.name + '.help');
             row.append(label, dropdown, help);
             container.append(row);
-            refreshers.push(refresh);
             refresh();
         }
-        fetch('/api/download/media/settings', {credentials: 'same-origin'})
-            .then(response => response.ok ? response.json() : null)
-            .then(defaults => {
-                if (!defaults || !container.isConnected) return;
-                for (const field of visibleFields) {
-                    if (settings[field.key] == null && valid(defaults[field.key], field.options)) {
-                        settings[field.key] = defaults[field.key];
-                    }
-                }
-                refreshers.forEach(refresh => refresh());
-            }).catch(() => {});
+        for (const field of encodingFields) {
+            const row = document.createElement('div');
+            row.className = 'media-format-row';
+            const label = document.createElement('label');
+            label.htmlFor = 'media-setting-' + field.key;
+            label.textContent = translate('media.' + field.name + '.label');
+            const input = document.createElement('input');
+            input.id = label.htmlFor;
+            const checkbox = field.min == null;
+            input.type = checkbox ? 'checkbox' : 'number';
+            if (checkbox) input.checked = snapshot(settings)[field.key];
+            else {
+                input.className = 'ab-input';
+                input.min = String(field.min);
+                input.max = String(field.max);
+                input.step = '1';
+                input.required = true;
+                input.value = String(snapshot(settings)[field.key]);
+            }
+            input.addEventListener('change', () => {
+                if (!input.reportValidity()) return;
+                settings[field.key] = checkbox ? input.checked : input.valueAsNumber;
+                changed();
+            });
+            const help = document.createElement('small');
+            help.id = input.id + '-help';
+            help.textContent = translate('media.' + field.name + '.help');
+            input.setAttribute('aria-describedby', help.id);
+            let control = input;
+            if (checkbox && container.closest('.ab-settings')) {
+                control = document.createElement('label');
+                control.className = 'toggle ab-switch';
+                input.setAttribute('role', 'switch');
+                const icon = document.createElement('span');
+                icon.className = 'toggle-icon';
+                control.append(input, icon);
+            }
+            row.append(label, control, help);
+            container.append(row);
+        }
     }
-    return {mount, valid};
+    return {mount, valid, snapshot};
 })();

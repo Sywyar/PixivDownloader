@@ -284,30 +284,38 @@
     }
 
     function mergeUgoiraProgress(existing, incoming) {
-        if (!incoming) return existing || null;
-        return {...(existing || {}), ...incoming};
+        return incoming === undefined ? existing || null : incoming ? {...incoming} : null;
     }
 
     function clampProgressValue(value) {
+        if (value == null) return null;
         const n = Number(value);
         if (!Number.isFinite(n)) return null;
         return Math.max(0, Math.min(100, Math.round(n)));
     }
 
-    function miniProgressHtml(label, valueText, progress, color) {
+    function miniProgressHtml(label, valueText, progress, color, active = true) {
         const pctValue = clampProgressValue(progress);
         const pctText = pctValue === null ? '' : `${pctValue}%`;
         const right = [valueText, pctText].filter(Boolean).join(' · ');
-        const width = pctValue === null ? 100 : pctValue;
-        const opacity = pctValue === null ? '.28' : '1';
+        const busy = pctValue === null && active;
+        const width = pctValue === null ? 35 : pctValue;
+        const value = pctValue === null ? '' : ` aria-valuenow="${pctValue}"`;
         return `<div class="prog-wrap" style="margin-top:4px;">
         <div class="prog-label"><span>${esc(label)}</span><span>${esc(right)}</span></div>
-        <div class="prog-bg"><div class="prog-fill" style="width:${width}%;background:${color};opacity:${opacity};height:4px;"></div></div>
+        <div class="prog-bg" role="progressbar" aria-label="${esc([label, valueText].filter(Boolean).join(' · '))}" aria-valuemin="0" aria-valuemax="100" aria-busy="${busy}"${value}><div class="prog-fill${busy ? ' is-indeterminate' : ''}" style="width:${width}%;background:${color};height:4px;"></div></div>
        </div>`;
     }
 
     function formatImageDownloadProgressHtml(progress, status) {
-        if (!progress || ['completed', 'failed', 'skipped'].includes(status)) return '';
+        if (!progress || status !== 'downloading') return '';
+        const images = [progress, ...(Array.isArray(progress.processing) ? progress.processing : [])];
+        return images.filter(image => image.phase !== 'processing')
+            .map(image => formatSingleImageProgressHtml(image, status)).join('');
+    }
+
+    function formatSingleImageProgressHtml(progress, status) {
+        if (!progress || status !== 'downloading') return '';
         const imageText = progress.imageNumber && progress.totalImages
             ? bt('queue.image-download.index', '第 {current}/{total} 张', {
                 current: progress.imageNumber,
@@ -318,16 +326,22 @@
             ? `${formatBytes(progress.downloadedBytes || 0)} / ${formatBytes(progress.totalBytes)}`
             : formatBytes(progress.downloadedBytes || 0);
         const valueText = [imageText, bytesText].filter(Boolean).join(' · ');
+        if (progress.phase) {
+            const label = progress.status === 'failed' ? bt('queue.media.failed', null) : mediaProgressLabel(progress);
+            return miniProgressHtml(label, imageText, null,
+                progress.status === 'failed' ? 'var(--danger-bg)' : 'var(--violet)', progress.status !== 'failed');
+        }
         return miniProgressHtml(
             bt('queue.image-download.label', '图片下载'),
             valueText,
             progress.progress,
-            progress.status === 'failed' ? 'var(--danger-bg)' : 'var(--info)'
+            progress.status === 'failed' ? 'var(--danger-bg)' : 'var(--info)',
+            progress.status !== 'failed'
         );
     }
 
     function formatUgoiraProgressHtml(progress, itemStatus) {
-        if (!progress || itemStatus === 'completed' || progress.status === 'completed') return '';
+        if (!progress || itemStatus !== 'downloading') return '';
         const phase = String(progress.phase || '');
         const status = String(progress.status || '');
         const parts = [];
@@ -342,18 +356,21 @@
                 bt('queue.ugoira.zip', '动图压缩包'),
                 zipBytes,
                 progress.zipProgress,
-                'var(--info)'
+                'var(--info)',
+                phase === 'zip' && status !== 'failed'
             ));
         }
 
-        const hasFfmpeg = phase === 'ffmpeg' || progress.ffmpegProgress !== undefined || status === 'completed';
+        if (phase === 'ffmpeg-waiting' || phase === 'finalizing') {
+            parts.push(miniProgressHtml(mediaProgressLabel(progress), '', null, 'var(--violet)', status !== 'failed'));
+        }
+        const hasFfmpeg = phase === 'ffmpeg' && status !== 'failed';
         if (hasFfmpeg) {
             const timeText = progress.ffmpegDurationMs > 0
                 ? `${formatDurationMs(progress.ffmpegOutTimeMs || 0)} / ${formatDurationMs(progress.ffmpegDurationMs)}`
                 : '';
             parts.push(miniProgressHtml(
-                bt('queue.ugoira.ffmpeg', 'ffmpeg 转换') + (progress.outputFormat
-                    ? ' · ' + progress.outputFormat.toUpperCase() + ' (' + progress.outputIndex + '/' + progress.outputCount + ')' : ''),
+                mediaProgressLabel(progress),
                 timeText,
                 progress.ffmpegProgress,
                 status === 'failed' ? 'var(--danger-bg)' : 'var(--violet)'

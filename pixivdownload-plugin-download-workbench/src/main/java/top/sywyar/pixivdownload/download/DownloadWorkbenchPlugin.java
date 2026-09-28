@@ -2,12 +2,6 @@ package top.sywyar.pixivdownload.download;
 
 import top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode;
 import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
-import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
-import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
-import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
-import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
-import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
-import top.sywyar.pixivdownload.download.media.MediaOutputSettings;
 import top.sywyar.pixivdownload.plugin.api.notification.SurveyInboxMessage;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
@@ -110,7 +104,6 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
         // 邀请访客 403 / 不入 monitor。AuthFilter 不为 VISITOR 派生任何清单、命中后落默认会话 / 访客分支，
         // 访问行为与未声明时逐字等价；声明只为消除「未声明路由」歧义、纳入路由归属与全 URL 声明守卫。
         return List.of(
-                WebRouteContribution.admin("/api/download/media/settings"),
                 WebRouteContribution.visitor("/pixiv-batch.html"),
                 WebRouteContribution.visitor("/pixiv-batch/**"),
                 WebRouteContribution.visitor("/pixiv-batch-alt.html"),
@@ -269,51 +262,6 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
                 List.of("illust-extra"),
                 List.of("media-output"),
                 "batch"));
-    }
-
-    @Override
-    public List<GuiConfigContribution> guiConfigContributions() {
-        return List.of(new GuiConfigContribution(List.of(
-                mediaField("image-formats", GuiConfigFieldType.MULTI_ENUM, MediaOutputSettings.DEFAULT_IMAGE_FORMATS,
-                        MediaOutputSettings.IMAGE_FORMATS, null, null, 200),
-                mediaField("ugoira-formats", GuiConfigFieldType.MULTI_ENUM, MediaOutputSettings.DEFAULT_UGOIRA_FORMATS,
-                        MediaOutputSettings.UGOIRA_FORMATS, null, null, 210),
-                mediaField("quality", GuiConfigFieldType.INT, Integer.toString(MediaOutputSettings.DEFAULT_QUALITY),
-                        List.of(), 1, 100, 220),
-                mediaField("webp-lossless", GuiConfigFieldType.BOOL, "false", List.of(), null, null, 230),
-                mediaField("maximum-edge", GuiConfigFieldType.INT, "0", List.of(), 0, 16_383, 240))));
-    }
-
-    private static GuiConfigFieldContribution mediaField(
-            String name,
-            GuiConfigFieldType type,
-            String defaultValue,
-            List<String> options,
-            Integer minimum,
-            Integer maximum,
-            int order
-    ) {
-        java.util.Map<String, String> labels = new java.util.LinkedHashMap<>();
-        for (String option : options) labels.put(option, "media.format." + option);
-        return new GuiConfigFieldContribution(
-                MediaOutputSettings.PREFIX + "." + name,
-                GuiConfigGroups.DOWNLOAD,
-                "media." + name + ".label",
-                "media." + name + ".help",
-                "batch",
-                type,
-                defaultValue,
-                order,
-                false,
-                GuiConfigEffect.BACKEND_RESTART,
-                options,
-                List.of(),
-                List.of(),
-                minimum,
-                maximum,
-                true,
-                labels
-        );
     }
 
     @Override

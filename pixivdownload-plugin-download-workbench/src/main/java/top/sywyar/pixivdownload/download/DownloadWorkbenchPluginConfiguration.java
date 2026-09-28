@@ -90,23 +90,10 @@ public class DownloadWorkbenchPluginConfiguration {
     }
 
     @Bean
-    @ConfigurationProperties(prefix = top.sywyar.pixivdownload.download.media.MediaOutputSettings.PREFIX)
-    public top.sywyar.pixivdownload.download.media.MediaOutputSettings mediaOutputSettings() {
-        return new top.sywyar.pixivdownload.download.media.MediaOutputSettings();
-    }
-
-    @Bean
-    public top.sywyar.pixivdownload.download.media.MediaOutputController mediaOutputController(
-            top.sywyar.pixivdownload.download.media.MediaOutputSettings settings) {
-        return new top.sywyar.pixivdownload.download.media.MediaOutputController(settings);
-    }
-
-    @Bean
     public top.sywyar.pixivdownload.download.media.DesktopMediaMaintenance desktopMediaMaintenance(
             top.sywyar.pixivdownload.download.media.MediaMaintenanceService maintenance,
-            top.sywyar.pixivdownload.download.media.MediaCapabilityService capabilities,
-            top.sywyar.pixivdownload.download.media.MediaOutputSettings settings) {
-        return new top.sywyar.pixivdownload.download.media.DesktopMediaMaintenance(maintenance, capabilities, settings);
+            top.sywyar.pixivdownload.download.media.MediaCapabilityService capabilities) {
+        return new top.sywyar.pixivdownload.download.media.DesktopMediaMaintenance(maintenance, capabilities);
     }
 
     @Bean(destroyMethod = "close")
@@ -130,9 +117,8 @@ public class DownloadWorkbenchPluginConfiguration {
     @Bean
     public top.sywyar.pixivdownload.download.media.ImageOutputService imageOutputService(
             top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner runner,
-            top.sywyar.pixivdownload.download.media.MediaOutputSettings settings,
             ObjectMapper mapper) {
-        return new top.sywyar.pixivdownload.download.media.ImageOutputService(runner, settings, mapper);
+        return new top.sywyar.pixivdownload.download.media.ImageOutputService(runner, mapper);
     }
 
     @Bean("downloadWorkbenchMessages")
@@ -184,9 +170,8 @@ public class DownloadWorkbenchPluginConfiguration {
     public UgoiraService ugoiraService(PixivImageDownloader pixivImageDownloader,
                                        FfmpegCommandResolver ffmpegCommandResolver,
                                        FfmpegProcessGate ffmpegProcessGate,
-                                       top.sywyar.pixivdownload.download.media.MediaOutputSettings outputSettings,
                                        @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
-        return new UgoiraService(pixivImageDownloader, ffmpegCommandResolver, messages, ffmpegProcessGate, outputSettings);
+        return new UgoiraService(pixivImageDownloader, ffmpegCommandResolver, messages, ffmpegProcessGate);
     }
 
     @Bean
@@ -429,13 +414,15 @@ public class DownloadWorkbenchPluginConfiguration {
                                        RequestOwnerIdentityResolver requestOwnerIdentityResolver,
                                        @Qualifier("downloadWorkbenchMessages") MessageResolver messages,
                                        PluginStreamRegistrar pluginStreamRegistrar,
-                                       PluginRuntimeTaskRegistrar pluginRuntimeTaskRegistrar) {
+                                       PluginRuntimeTaskRegistrar pluginRuntimeTaskRegistrar,
+                                       ArtworkDownloadExecutor artworkDownloadExecutor) {
         return new SSEController(
                 taskScheduler,
                 requestOwnerIdentityResolver,
                 messages,
                 pluginStreamRegistrar,
-                pluginRuntimeTaskRegistrar);
+                pluginRuntimeTaskRegistrar,
+                artworkDownloadExecutor);
     }
 
     @Bean

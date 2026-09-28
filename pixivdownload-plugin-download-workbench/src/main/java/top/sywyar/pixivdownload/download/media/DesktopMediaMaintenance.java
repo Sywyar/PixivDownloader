@@ -11,17 +11,15 @@ import java.util.concurrent.Callable;
 public final class DesktopMediaMaintenance implements DesktopMediaTool.Source {
     private final MediaMaintenanceService maintenance;
     private final MediaCapabilityService capabilities;
-    private final MediaOutputSettings settings;
 
-    public DesktopMediaMaintenance(MediaMaintenanceService maintenance, MediaCapabilityService capabilities, MediaOutputSettings settings) {
+    public DesktopMediaMaintenance(MediaMaintenanceService maintenance, MediaCapabilityService capabilities) {
         this.maintenance = maintenance;
         this.capabilities = capabilities;
-        this.settings = settings;
     }
 
     @Override public DesktopMediaTool.Description description() {
         return new DesktopMediaTool.Description(DesktopUiText.plugin("batch", "media.tools.title", "media.tools.title"),
-                "batch", settings.getImageFormats(), settings.getUgoiraFormats());
+                "batch", MediaOutputSettings.DEFAULT_IMAGE_FORMATS, MediaOutputSettings.DEFAULT_UGOIRA_FORMATS);
     }
 
     @Override public DesktopMediaTool.Result<DesktopMediaTool.Preview> preview(DesktopMediaTool.Request request) {

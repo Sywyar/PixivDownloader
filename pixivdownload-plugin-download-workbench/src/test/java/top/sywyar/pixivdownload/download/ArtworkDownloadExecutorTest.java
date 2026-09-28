@@ -137,8 +137,7 @@ class ArtworkDownloadExecutorTest {
                 visitorDownloadQuotaService, pixivImageDownloader, taskScheduler, taskExecutor,
                 pixivBookmarkActions, ugoiraService,
                 new top.sywyar.pixivdownload.download.media.ImageOutputService(
-                        mock(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.class),
-                        new top.sywyar.pixivdownload.download.media.MediaOutputSettings(), new com.fasterxml.jackson.databind.ObjectMapper()),
+                        mock(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.class), new com.fasterxml.jackson.databind.ObjectMapper()),
                 authorObservationService, artworkAuthorLookup, downloadPathGuard,
                 collectionDownloadRootResolver, workCollectionMembership,
                 artworkSeriesObserver, artworkHashIndexMaintenance,
@@ -434,6 +433,38 @@ class ArtworkDownloadExecutorTest {
 
             assertThat(ownerA.isCancelled()).isTrue();
             assertThat(ownerB.isCancelled()).isFalse();
+        }
+
+        @Test
+        @SuppressWarnings("unchecked")
+        @DisplayName("进度恢复过滤 owner 与终态，空身份不能读取或取消管理员任务")
+        void activeMediaStatusDoesNotCrossOwners() {
+            var statuses = (ConcurrentHashMap<String, DownloadStatus>) ReflectionTestUtils
+                    .getField(artworkDownloadExecutor, "downloadStatusMap");
+            var admin = new DownloadStatus(123L, "admin", 1);
+            var owner = new DownloadStatus(123L, "owner", 1, "owner-a");
+            var finished = new DownloadStatus(456L, "finished", 1, "owner-a");
+            finished.setCompleted(true);
+            statuses.put("admin:123", admin);
+            statuses.put("owner-a:123", owner);
+            statuses.put("owner-a:456", finished);
+            owner.setCurrentImageIndex(0);
+            owner.setImageProgress(ImageDownloadProgress.builder().phase("ffmpeg-waiting").build());
+            assertThat(artworkDownloadExecutor.snapshot().runningTasks())
+                    .anySatisfy(task -> {
+                        assertThat(task.status()).isEqualTo(DesktopRunningTaskContribution.Status.QUEUED);
+                        assertThat(task.supportingText().key()).isEqualTo("queue.media.waiting");
+                        assertThat(task.progress()).isNull();
+                    });
+            assertThat(artworkDownloadExecutor.activeStatuses("owner-a", false)).containsExactly(owner);
+            assertThat(artworkDownloadExecutor.activeStatuses(null, true)).containsExactlyInAnyOrder(owner, admin);
+            assertThat(artworkDownloadExecutor.activeStatuses(null, false)).isEmpty();
+            assertThat(artworkDownloadExecutor.getDownloadStatus(123L, null, false)).isNull();
+            assertThat(artworkDownloadExecutor.getDownloadStatus(123L, "other", false)).isNull();
+            artworkDownloadExecutor.cancelDownload(123L, null, false);
+            artworkDownloadExecutor.cancelDownload(123L, "other", false);
+            assertThat(admin.isCancelled()).isFalse();
+            assertThat(owner.isCancelled()).isFalse();
         }
 
         @Test
@@ -985,6 +1016,181 @@ class ArtworkDownloadExecutorTest {
             lenient().when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
             lenient().when(downloadSettings.isUserFlatFolder()).thenReturn(false);
             lenient().when(artworkDownloadHistory.allocateRecordTime(0L)).thenReturn(1700000100L);
+        }
+
+        @Test
+        @DisplayName("下载执行器完整发布转换阶段并在媒体保存后才计入成功")
+        void mediaOutputProgressPrecedesDownloadCompletion() throws Exception {
+            var bytes = new java.io.ByteArrayOutputStream();
+            javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(17, 13,
+                    java.awt.image.BufferedImage.TYPE_INT_RGB), "jpg", bytes);
+            stubSuccessfulImageDownload(IMAGE_URL, bytes.toByteArray());
+            var media = new java.util.ArrayList<ImageDownloadProgress>();
+            doAnswer(invocation -> {
+                Object event = invocation.getArgument(0);
+                if (event instanceof DownloadProgressEvent progress) {
+                    var status = progress.getDownloadStatus();
+                    var image = status.getImageProgress();
+                    image = image == null || image.getProcessing() == null ? null : image.getProcessing().get(0);
+                    if (image != null && (media.isEmpty() || media.get(media.size() - 1) != image)) {
+                        media.add(image);
+                        assertThat(status.isCompleted()).isFalse();
+                        assertThat(status.getDownloadedCount()).isZero();
+                        assertThat(image.getDownloadedBytes()).isNull();
+                        assertThat(image.getProgress()).isNull();
+                    }
+                }
+                return null;
+            }).when(eventPublisher).publishEvent(any(org.springframework.context.ApplicationEvent.class));
+            top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner runner =
+                    (tool, args, cwd, output, limit, timeout, cancelled, progress) -> {
+                        progress.accept(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.Phase.WAITING);
+                        progress.accept(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.Phase.RUNNING);
+                        javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(17, 13,
+                                java.awt.image.BufferedImage.TYPE_INT_RGB), "png", output.toFile());
+                        return "";
+                    };
+            ReflectionTestUtils.setField(artworkDownloadExecutor, "imageOutputService",
+                    new top.sywyar.pixivdownload.download.media.ImageOutputService(runner, new com.fasterxml.jackson.databind.ObjectMapper()));
+            var other = new DownloadRequest.Other();
+            other.setMediaOutputEnabled(true);
+            other.setImageFormats("png");
+            assertThat(artworkDownloadExecutor.downloadImagesBlocking(12345L, "title", List.of(IMAGE_URL),
+                    "https://www.pixiv.net/", other, null, null)).isTrue();
+            assertThat(media).extracting(ImageDownloadProgress::getPhase)
+                    .containsExactly("verifying", "ffmpeg-waiting", "ffmpeg", "verifying", "finalizing");
+            var status = artworkDownloadExecutor.getDownloadStatus(12345L);
+            assertThat(status.isCompleted()).isTrue();
+            assertThat(status.getDownloadedCount()).isEqualTo(1);
+            assertThat(status.getImageProgress()).isNull();
+            assertThat(capturedDownloadCompletion().extensions()).containsExactly("png");
+        }
+
+        @Test
+        @DisplayName("下载与转码重叠且两张背压阻止第三张下载，全部输出后才写历史并清理原图")
+        void pipelineOverlapsAndBoundsInFlightImages() throws Exception {
+            exercisePipeline(false);
+        }
+
+        @Test
+        @DisplayName("停用作品队列必须等待转码线程退出且保留原图，不写历史")
+        void pipelineQuiesceDrainsBeforeReturning() throws Exception {
+            exercisePipeline(true);
+        }
+
+        private void exercisePipeline(boolean cancel) throws Exception {
+            var firstEncoding = new CountDownLatch(1);
+            var bothEncoding = new CountDownLatch(2);
+            var release = new CountDownLatch(1);
+            var downloaded = new AtomicInteger();
+            var separateProgress = new java.util.concurrent.atomic.AtomicBoolean();
+            var sources = new java.util.concurrent.CopyOnWriteArrayList<Path>();
+            var worker = java.util.concurrent.Executors.newSingleThreadExecutor();
+            var pixels = new java.awt.image.BufferedImage(17, 13, java.awt.image.BufferedImage.TYPE_INT_RGB);
+            when(pixivImageDownloader.downloadImage(any(), any(), any(), nullable(String.class), any()))
+                    .thenAnswer(invocation -> {
+                        int number = downloaded.incrementAndGet();
+                        if (number == 2) assertThat(firstEncoding.await(5, TimeUnit.SECONDS)).isTrue();
+                        Path stem = invocation.getArgument(2);
+                        Path source = stem.resolveSibling(stem.getFileName() + ".jpg");
+                        javax.imageio.ImageIO.write(pixels, "jpg", source.toFile());
+                        sources.add(source);
+                        PixivImageTransferObserver observer = invocation.getArgument(4);
+                        observer.onContentLength(Files.size(source));
+                        observer.onBytesTransferred(Files.size(source));
+                        return "jpg";
+                    });
+            doAnswer(invocation -> {
+                if (invocation.getArgument(0) instanceof DownloadProgressEvent event) {
+                    var image = event.getDownloadStatus().getImageProgress();
+                    if (image != null && Integer.valueOf(2).equals(image.getImageNumber())
+                            && image.getProcessing() != null && !image.getProcessing().isEmpty()) {
+                        separateProgress.set(true);
+                    }
+                }
+                return null;
+            }).when(eventPublisher).publishEvent(any(org.springframework.context.ApplicationEvent.class));
+            top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner runner =
+                    (tool, args, cwd, output, limit, timeout, cancelled, progress) -> {
+                        progress.accept(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.Phase.RUNNING);
+                        firstEncoding.countDown();
+                        bothEncoding.countDown();
+                        boolean interrupted = false;
+                        while (release.getCount() > 0) {
+                            try { release.await(50, TimeUnit.MILLISECONDS); }
+                            catch (InterruptedException ex) { interrupted = true; }
+                        }
+                        if (interrupted) Thread.currentThread().interrupt();
+                        if (cancelled.getAsBoolean()) throw new java.util.concurrent.CancellationException();
+                        javax.imageio.ImageIO.write(pixels, "png", output.toFile());
+                        return "";
+                    };
+            ReflectionTestUtils.setField(artworkDownloadExecutor, "imageOutputService",
+                    new top.sywyar.pixivdownload.download.media.ImageOutputService(runner, new com.fasterxml.jackson.databind.ObjectMapper()));
+            var other = new DownloadRequest.Other();
+            other.setMediaOutputEnabled(true);
+            other.setImageFormats("png");
+            var urls = List.of(IMAGE_URL, IMAGE_URL.replace("p0", "p1"), IMAGE_URL.replace("p0", "p2"));
+            var result = worker.submit(() -> artworkDownloadExecutor.downloadImagesBlocking(
+                    12345L, "pipeline", urls, "https://www.pixiv.net/", other, null, "owner"));
+            try {
+                assertThat(bothEncoding.await(5, TimeUnit.SECONDS)).isTrue();
+                assertThat(downloaded.get()).isEqualTo(2);
+                assertThat(separateProgress.get()).isTrue();
+                assertThat(result.isDone()).isFalse();
+                verify(artworkDownloadHistory, never()).record(any());
+                if (cancel) {
+                    QueueGenerationDrain drain = artworkDownloadExecutor.prepareQuiesceDownloads();
+                    artworkDownloadExecutor.cancelQuiescedDownloads();
+                    assertThat(drain.awaitDrained(System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(150))).isFalse();
+                    assertThat(result.isDone()).isFalse();
+                    release.countDown();
+                    assertThat(result.get(5, TimeUnit.SECONDS)).isFalse();
+                    assertThat(drain.awaitDrained(System.nanoTime() + TimeUnit.SECONDS.toNanos(1))).isTrue();
+                    assertThat(downloaded.get()).isEqualTo(2);
+                    assertThat(sources).allMatch(Files::exists);
+                    verify(artworkDownloadHistory, never()).record(any());
+                } else {
+                    release.countDown();
+                    assertThat(result.get(5, TimeUnit.SECONDS)).isTrue();
+                    assertThat(downloaded.get()).isEqualTo(3);
+                    assertThat(capturedDownloadCompletion().extensions()).containsExactly("png");
+                    assertThat(sources).noneMatch(Files::exists);
+                }
+                try (var files = Files.walk(tempDir)) {
+                    assertThat(files.filter(path -> path.getFileName().toString().startsWith(".media-"))).isEmpty();
+                }
+            } finally {
+                release.countDown();
+                worker.shutdownNow();
+                assertThat(worker.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+            }
+        }
+
+        @Test
+        @DisplayName("异步转码失败保留原图并拒绝写入完成历史")
+        void pipelineFailurePreservesOriginal() throws Exception {
+            var bytes = new java.io.ByteArrayOutputStream();
+            javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(17, 13,
+                    java.awt.image.BufferedImage.TYPE_INT_RGB), "jpg", bytes);
+            stubSuccessfulImageDownload(IMAGE_URL, bytes.toByteArray());
+            top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner runner =
+                    (tool, args, cwd, output, limit, timeout, cancelled, progress) -> {
+                        throw new IOException("encoding failed");
+                    };
+            ReflectionTestUtils.setField(artworkDownloadExecutor, "imageOutputService",
+                    new top.sywyar.pixivdownload.download.media.ImageOutputService(runner, new com.fasterxml.jackson.databind.ObjectMapper()));
+            var other = new DownloadRequest.Other();
+            other.setMediaOutputEnabled(true);
+            other.setImageFormats("png");
+            assertThat(artworkDownloadExecutor.downloadImagesBlocking(12345L, "failed", List.of(IMAGE_URL),
+                    "https://www.pixiv.net/", other, null, null)).isFalse();
+            var status = artworkDownloadExecutor.getDownloadStatus(12345L);
+            assertThat(status.isFailed()).isTrue();
+            assertThat(status.getDownloadedCount()).isZero();
+            assertThat(status.getImageProgress()).isNull();
+            assertThat(Path.of(status.getDownloadPath()).resolve(other.getFileNames().get(0) + ".jpg")).exists();
+            verify(artworkDownloadHistory, never()).record(any());
         }
 
         @Test

@@ -5,3 +5,6 @@
 .media-format-options { position: absolute; inset-inline: 0; top: 100%; z-index: 20; padding: 6px; background: Canvas; color: CanvasText; border: 1px solid currentColor; border-radius: 6px; box-shadow: 0 4px 12px color-mix(in srgb, CanvasText 20%, transparent); }
 .media-format-options > label { display: flex; align-items: center; gap: 8px; padding: 8px; cursor: pointer; }
 .media-format-options input { width: auto; margin: 0; }
+.media-settings-scope { margin-block: 12px; font-size: .9em; line-height: 1.5; opacity: .75; }
+#media-output-settings .media-format-row > input[type="number"] { box-sizing: border-box; width: 100%; min-width: 0; }
+.media-format-row > input[type="checkbox"] { width: auto; justify-self: start; margin: 0; }

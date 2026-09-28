@@ -359,3 +359,21 @@ test('pending 原因只展示已注册机器码翻译且不回显未知或畸形
     }, 'douyin.search'), '失败原因不可用');
     assert.equal(h.pendingReason({}, 'douyin.search'), '');
 });
+
+
+test('计划队列接收媒体等待和清空快照，失败与取消不会显示为完成', () => {
+    const h = harness();
+    const item = h.queueItem({workId: '123', workType: 'illust', status: 'pending'}, 'illust');
+    h.setQueueModel(7, [item]);
+    const emit = data => h.applyQueueSse(7, h.queueKey(item), data);
+    emit({downloadedCount: 0, imageProgress: {phase: 'ffmpeg-waiting', outputFormat: 'png'}});
+    assert.equal(item.status, 'downloading');
+    assert.equal(item.imageProgress.phase, 'ffmpeg-waiting');
+    emit({downloadedCount: 0, imageProgress: null});
+    assert.equal(item.imageProgress, null);
+    emit({completed: true, failed: true});
+    assert.equal(item.status, 'failed');
+    emit({completed: true, cancelled: true});
+    assert.equal(item.status, 'paused');
+    assert.equal(item.rawStatus, 'cancelled');
+});
