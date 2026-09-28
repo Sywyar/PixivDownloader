@@ -64,7 +64,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - Web 页面统一设置 CSP（普通页面 `frame-ancestors 'none'`，同源 iframe 为 `'self'`）、`X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`，并关闭 accelerometer、camera、geolocation、gyroscope、magnetometer、microphone、payment、usb 共 8 项浏览器能力；TRACE 请求统一返回 405，并移除内联事件执行路径。
 - Docker 默认以 UID/GID 10001 的非特权用户和只读根文件系统运行，仅绑定 `127.0.0.1:6999`，收回全部 Linux capabilities、启用 `no-new-privileges`，并限制为 256 个进程、2 GiB 内存、2.0 CPU 与 256 MiB 的 `noexec,nosuid,nodev` 临时目录；持久卷只开放插件、配置、状态、数据、下载与日志目录。
 - 小说正文中的 `jumpuri` 只有无用户凭据的绝对 HTTP(S) 地址会生成可点击链接；阅读页、HTML / EPUB 导出与独立下载脚本会把其它协议、相对地址和畸形地址降级为普通文本。
-- Ugoira 处理把 ZIP 下载限制为 100 MiB、最多 500 个条目 / 500 帧、单条目展开 32 MiB、总展开 200 MiB、单帧 25,000,000 像素；ffmpeg 同时最多运行 1 个进程，最长 10 分钟且输出最多 100 MiB，超限会结束进程树并清理临时文件与部分输出。
+- Ugoira 处理把 ZIP 下载限制为 100 MiB、最多 500 个条目 / 500 帧、单条目展开 32 MiB、总展开 200 MiB、单帧 25,000,000 像素；FFmpeg 使用可配置的共享并发额度，单次最长 10 分钟且输出最多 100 MiB，超限会结束进程树并清理临时文件与部分输出。
 - Pixiv 图片的最终扩展名只从 JPEG（`.jpg` / `.jpeg`）、PNG、WebP、GIF 四种已验证格式中选择，并同时核对 URL 路径、响应 `Content-Type` 与文件头；查询参数不会进入文件名，响应类型与内容不一致或文件头不受支持时拒绝落盘。
 - Pixiv 作品图片、小说封面与内嵌图现在同时校验响应声明长度和实际解码流；单张最多 100 MiB，单个作品下载任务累计最多 1 GiB，超限会中止传输并删除部分文件。
 - 图片与作品下载执行器最多保留 100 个排队任务，容量耗尽时同步拒绝新任务并返回本地化 429，避免突发提交形成无界内存队列。
