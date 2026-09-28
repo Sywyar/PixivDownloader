@@ -191,18 +191,75 @@ try {
         }
     }
     & {
+        . (Join-Path $repo 'scripts/plugin-distribution-common.ps1')
         $program = Read-Program (Join-Path $repo 'scripts/generate-market-manifest.ps1')
         foreach ($definition in $program.Functions) { . ([scriptblock]::Create($definition.Extent.Text)) }
-        $projection = @($program.Main.Ast.FindAll({
-            param($node)
-            $node -is [Management.Automation.Language.AssignmentStatementAst] -and
-                $node.Left.Extent.Text -ceq '$manifestRequiredSdk'
-        }, $true))
-        Assert-Equal $projection.Count 1
-        foreach ($requires in @('1.0', '7.2.3-rc.4', '=7.2.3-rc.4', '7.2.3-rc.4-nightly.20260909.1.1')) {
-            $isNightly = $false
-            . ([scriptblock]::Create($projection[0].Extent.Text))
-            Assert-Equal $manifestRequiredSdk $requires
+        $fixtureUtf8 = New-Object System.Text.UTF8Encoding($false)
+        $marketPlugin = @(Get-OfficialRequiredPlugins)[0]
+        $ProjectRoot = $repo
+        $sourceDescriptor = Read-SourceDescriptor $marketPlugin.Module
+        $currentSdk = Get-PixivDownloadSdkVersion -ProjectRoot $repo
+        $marketRoot = Join-Path $fixture 'market'
+        $resources = Join-Path $marketRoot "$($marketPlugin.Module)/src/main/resources"
+        [IO.Directory]::CreateDirectory((Join-Path $resources 'i18n/web')) | Out-Null
+        $descriptorPath = Join-Path $resources 'plugin.properties'
+        $descriptorText = [IO.File]::ReadAllText((Join-Path $repo "$($marketPlugin.Module)/src/main/resources/plugin.properties"), $fixtureUtf8)
+        foreach ($suffix in @('', '_en')) {
+            $bundle = "i18n/web/$($sourceDescriptor['pixiv.display-namespace'])$suffix.properties"
+            Copy-Item -LiteralPath (Join-Path $repo "$($marketPlugin.Module)/src/main/resources/$bundle") -Destination (Join-Path $resources $bundle)
+        }
+        $metadata = 'pixivdownload-sdk-info/src/main/resources/META-INF/pixivdownload-sdk.properties'
+        [IO.Directory]::CreateDirectory((Split-Path -Parent (Join-Path $marketRoot $metadata))) | Out-Null
+        Copy-Item -LiteralPath (Join-Path $repo $metadata) -Destination (Join-Path $marketRoot $metadata)
+        $output = Join-Path $marketRoot 'manifest.json'
+        function Get-OfficialDistributionPlugins { param([switch]$IncludeOptional) return @($marketPlugin) }
+        function Get-OfficialDefaultInstalledPlugins { return @($marketPlugin) }
+        function Resolve-SignatureToolJar { return 'fixture' }
+        function Invoke-PluginSignatureTool {
+            param($Tool, $Arguments)
+            $destination = $Arguments[[Array]::IndexOf($Arguments, '--out') + 1]
+            [IO.File]::WriteAllText($destination, '{"formatVersion":1,"algorithm":"Ed25519","keyId":"fixture","value":"fixture"}', $fixtureUtf8)
+        }
+        function gh {
+            $global:LASTEXITCODE = 0
+            if ($args[0] -eq 'api') { $global:LASTEXITCODE = 1; return }
+            if ($args[0] -eq 'release' -and $args[1] -eq 'view') {
+                return (@{assets=@(@{name=$fixtureAssetName; downloadCount=0}); publishedAt='2026-01-01T00:00:00Z'} | ConvertTo-Json -Depth 5 -Compress)
+            }
+            if ($args[0] -eq 'release' -and $args[1] -eq 'download') {
+                $directory = $args[[Array]::IndexOf($args, '--dir') + 1]
+                $name = $args[[Array]::IndexOf($args, '--pattern') + 1]
+                [IO.File]::WriteAllText((Join-Path $directory $name), 'fixture-artifact', $fixtureUtf8)
+                return
+            }
+            throw 'Unexpected GitHub operation in market fixture.'
+        }
+        $cases = @(
+            @{Required=$sourceDescriptor['plugin.requires']; Expected=$sourceDescriptor['plugin.requires']},
+            @{Required=$currentSdk; Expected=$currentSdk},
+            @{Required="=$currentSdk"; Expected="=$currentSdk"},
+            @{Required='7.2.3-rc.4'; Expected='7.2.3-rc.4'},
+            @{Required='=7.2.3-rc.4'; Expected='=7.2.3-rc.4'},
+            @{Required=$currentSdk; Expected="$currentSdk-nightly.20260909.1.1"; Nightly='8.2.3-nightly.20260909.1.1'}
+        )
+        foreach ($case in $cases) {
+            [IO.File]::WriteAllText($descriptorPath, ($descriptorText -replace '(?m)^plugin\.requires=.*$', "plugin.requires=$($case.Required)"), $fixtureUtf8)
+            $parameters = @{
+                ProjectRoot=$marketRoot; Repo='fixture/distribution'; OfficialKeyId='fixture';
+                PrivateKeyFile=(Join-Path $fixture 'input'); CurationFile=(Join-Path $repo 'scripts/market-curation.json'); OutputFile=$output
+            }
+            $fixtureVersion = $sourceDescriptor['plugin.version']
+            if ($case.ContainsKey('Nightly')) {
+                $parameters.NightlyBuildVersion = $case.Nightly
+                $fixtureVersion += '-nightly.20260909.1.1'
+            }
+            $fixtureAssetName = Get-OfficialPluginArtifactName $marketPlugin $fixtureVersion
+            & $program.Main @parameters
+            $manifest = [IO.File]::ReadAllText($output, $fixtureUtf8) | ConvertFrom-Json
+            Assert-Equal @($manifest.entries).Count 1
+            $package = $manifest.entries[0].packages[0]
+            Assert-Equal $package.requiredSdk $case.Expected
+            Assert-Equal $package.requiredCoreApi $case.Expected
         }
     }
     & {
