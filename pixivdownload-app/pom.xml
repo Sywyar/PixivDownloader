@@ -386,7 +386,6 @@
                         <mail.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-mail/target/classes</mail.plugin.classes>
                         <tts.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-tts/target/classes</tts.plugin.classes>
                         <ai.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-ai/target/classes</ai.plugin.classes>
-                        <douyin.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-douyin/target/classes</douyin.plugin.classes>
                         <recovery-sentinel.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-recovery-sentinel/target/classes</recovery-sentinel.plugin.classes>
                         <external-download-import.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-external-download-import/target/classes</external-download-import.plugin.classes>
                         <download-workbench.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-download-workbench/target/classes</download-workbench.plugin.classes>

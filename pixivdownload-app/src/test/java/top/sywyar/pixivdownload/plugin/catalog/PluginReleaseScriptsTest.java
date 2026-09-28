@@ -341,8 +341,8 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("Douyin 保留同一源码模块和插件身份但退出官方聚合与发布清单")
-    void douyinRetainsIdentityOutsideOfficialReleaseAggregation() throws Exception {
+    @DisplayName("Douyin 源码独立维护且不进入宿主构建与官方发布清单")
+    void douyinSourceIsOutsideHostBuildAndOfficialReleaseAggregation() throws Exception {
         String rootPom = Files.readString(repoRoot().resolve("pom.xml"), StandardCharsets.UTF_8);
         String officialPom = Files.readString(
                 repoRoot().resolve("pixivdownload-official-plugins/pom.xml"), StandardCharsets.UTF_8);
@@ -350,15 +350,13 @@ class PluginReleaseScriptsTest {
         JsonNode curation = new ObjectMapper().readTree(
                 repoRoot().resolve("scripts/market-curation.json").toFile());
 
-        assertThat(rootPom).contains("<module>pixivdownload-plugin-douyin</module>");
+        assertThat(rootPom).doesNotContain("<module>pixivdownload-plugin-douyin</module>");
+        assertThat(repoRoot().resolve("pixivdownload-plugin-douyin/pom.xml")).doesNotExist();
         assertThat(officialPom).doesNotContain("<artifactId>pixivdownload-plugin-douyin</artifactId>");
         assertThat(common).doesNotContain(
                 "Id = \"douyin\"",
                 "Module = \"pixivdownload-plugin-douyin\"");
         assertThat(curation.has("douyin")).isFalse();
-        assertThat(pluginDescriptor("pixivdownload-plugin-douyin")).contains(
-                "plugin.id=douyin",
-                "plugin.requires=1.0");
     }
 
     @Test
