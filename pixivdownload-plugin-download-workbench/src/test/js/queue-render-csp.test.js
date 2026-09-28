@@ -35,7 +35,8 @@ async function fixture(alt, size = 300, production = false) {
     body.querySelector = get;
     const raf = [], errors = [], builds = [], removed = [], cancelled = [];
     let clock = 0, language = 'en';
-    const metrics = {rowVnodes: 0, detachedElements: 0};
+    const metrics = {rowVnodes: 0, detachedElements: 0, currentRenders: 0};
+    let currentApp;
     const state = {queue: Array.from({length:size}, (_,i) => ({id:String(i), kind:'illust', status:i ? 'pending':'downloading', title:'<unsafe '+i+'>', downloadedCount:0, totalImages:100})), stats:{}, isPaused:false};
     const sandbox = {
         state, QUICK_FETCH_MODE: 'quick-fetch', SINGLE_IMPORT_MODE: 'single-import',
@@ -73,7 +74,8 @@ async function fixture(alt, size = 300, production = false) {
             vm.runInContext(fs.readFileSync(path.join(staticRoot,alt?'pixiv-batch-alt':'pixiv-batch',file),'utf8'), sandbox);
         }
         Object.assign(sandbox, facades);
-        if (alt) vm.runInContext("pageI18n = {t: (key, fallback, vars) => key + ':' + JSON.stringify(vars || {})}", sandbox);
+        if (alt) vm.runInContext('pageI18n = {}', sandbox).t =
+            (key, fallback, vars) => language + ':' + key + ':' + JSON.stringify(vars || {});
         else {
             const title = sandbox.queueItemDisplayTitle;
             sandbox.queueItemDisplayTitle = q => {builds.push(q.id);return title(q);};
@@ -96,7 +98,13 @@ async function fixture(alt, size = 300, production = false) {
         patchProp(n,key,old,value){n.props[key]=value;}
     });
     sandbox.PixivVue = {ensure:async()=>Vue,mountOn:async(el,component)=>{
-        const app=renderer.createApp(component);app.mount(el);return {app,el};
+        if (el === current) {
+            const render = component.render;
+            component = {...component, render() { metrics.currentRenders++; return render.call(this); }};
+        }
+        const app=renderer.createApp(component);app.mount(el);
+        if (el === current) currentApp = app;
+        return {app,el};
     }};
     vm.runInContext(fs.readFileSync(path.join(staticRoot,alt?'pixiv-batch-alt/alt-queue-vue.js':'pixiv-batch/batch-queue-vue.js'),'utf8'),sandbox);
     const api = alt ? sandbox.PixivBatchAlt.queueVue : sandbox.PixivBatch.queueVue;
@@ -115,12 +123,50 @@ async function fixture(alt, size = 300, production = false) {
     vm.runInContext(fs.readFileSync(path.join(staticRoot, alt
         ? 'pixiv-batch-alt/alt-engine-stream.js' : 'pixiv-batch/batch-sse.js'), 'utf8'), sandbox);
     return {api,Vue,state,body,stats,current,list,builds,errors,removed,cancelled,sync,flush,metrics,sandbox,
+        unmountCurrent: () => currentApp.unmount(),
         wait: id => sandbox.waitForFinalStatusBySSE(id, 10000),
         emit: (id, event) => state.sseListeners[id].slice().forEach(listener => listener(event)),
         setLanguage(value){language=value;},rowClass:alt?'ab-queue-item':'q-item-host'};
 }
 
 for(const alt of [false,true]) {
+    test((alt?'侧栏':'经典')+'当前卡跳过无关进度，保留状态切换、嵌套更新和空闲语言刷新',async()=>{
+        const f=await fixture(alt,500,true), front=f.state.queue[0], other=f.state.queue[1];
+        other.status='downloading';f.sync();await f.flush();
+        const before=textOf(f.current);
+        f.metrics.currentRenders=0;
+        for(let i=1;i<=100;i++) {
+            other.downloadedCount=i;f.sync(other);await f.flush();
+        }
+        assert.equal(f.metrics.currentRenders,0);
+        assert.equal(textOf(f.current),before);
+        assert.match(textOf(byClass(f.list,f.rowClass)[1]),/100/);
+        front.imageProgress={progress:25,downloadedBytes:1024,totalBytes:4096};f.sync(front);await f.flush();
+        const fill=byClass(f.current,alt?'ab-mini-prog-fill':'prog-fill').at(-1);
+        front.imageProgress.progress=75;f.sync(front);await f.flush();
+        assert.equal(byClass(f.current,alt?'ab-mini-prog-fill':'prog-fill').at(-1),fill);
+        assert.equal(fill.props.style.width,'75%');
+        other.status='completed';f.sync(other);await f.flush();
+        assert.notEqual(textOf(f.current),before);
+        assert.match(textOf(f.current),/498/);
+        front.status='completed';f.sync(front);await f.flush();
+        assert.match(textOf(f.current),/<unsafe 2>/);
+        f.state.queue.reverse();f.sync();await f.flush();
+        assert.match(textOf(f.current),/<unsafe 499>/);
+        f.state.queue=[{id:'499',kind:'novel',status:'pending',title:'same ID, new type'}];
+        f.sync();await f.flush();assert.match(textOf(f.current),/same ID, new type/);
+        (alt?f.api.syncPaused:f.api.syncDownloadPaused)(true);await f.flush();
+        f.setLanguage('fr');f.sync();await f.flush();
+        assert.match(textOf(f.current),/fr:.*current-idle/);
+        f.state.queue=[];f.sync();await f.flush();
+        f.setLanguage('ja');f.sync();await f.flush();
+        assert.match(textOf(f.current),/ja:.*current-idle/);
+        f.unmountCurrent();f.metrics.currentRenders=0;
+        f.state.queue=[{id:'new',kind:'illust',status:'downloading',title:'after unmount'}];
+        f.sync();await f.flush();assert.equal(f.metrics.currentRenders,0);
+        assert.deepEqual(f.errors,[]);
+    });
+
     test((alt?'侧栏':'经典')+'下载队列在禁止动态编译时挂载，进度仅重新计算变动行',async()=>{
         const f=await fixture(alt);
         const rows=()=>byClass(f.list,f.rowClass);

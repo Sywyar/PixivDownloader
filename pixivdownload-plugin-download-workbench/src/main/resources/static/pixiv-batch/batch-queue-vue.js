@@ -213,16 +213,27 @@
     // 与命令式回退共用队首、暂停收尾与剩余计数口径；更新保留卡内真实节点。
     function currentComponent() {
         return {
+            setup: function () {
+                var front = Vue.computed(function () {
+                    return callG('currentFrontItem', [dlStore.items, dlStore.paused], null);
+                });
+                var remaining = Vue.computed(function () {
+                    if (!front.value) return '';
+                    var counts = callG('currentRemainingCounts', [dlStore.items, front.value], { downloading: 0, queued: 0 });
+                    return callG('currentRemainingLineText', [counts.downloading, counts.queued], '');
+                });
+                return { front: front, remaining: remaining };
+            },
             render: function () {
                 var h = Vue.h;
-                var front = callG('currentFrontItem', [dlStore.items, dlStore.paused], null);
+                // 完整同步也承接语言刷新，空队列仍需更新当前卡文案。
+                var front = dlStore.rowKeys.length ? this.front : null;
                 var children = [h('strong', null, tt('label.current', '当前下载:'))];
                 if (front) {
                     children.push(' ' + (front.title == null ? '' : front.title) + ' (ID: ' + (front.id == null ? '' : front.id) + ')');
                     children.push(imageCountProgress(front, true));
                     children.push.apply(children, imageDetails(front));
-                    var counts = callG('currentRemainingCounts', [dlStore.items, front], { downloading: 0, queued: 0 });
-                    var remaining = callG('currentRemainingLineText', [counts.downloading, counts.queued], '');
+                    var remaining = this.remaining;
                     if (remaining) children.push(h('div', { key: 'remaining', class: 'current-remaining' }, remaining));
                 } else {
                     children.push(' ' + tt('status.current-idle', '无'));

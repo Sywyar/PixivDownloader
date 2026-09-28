@@ -212,9 +212,19 @@ function aqvStatsComponent() {
 
 function aqvCurrentComponent() {
     return {
+        setup() {
+            const front = aqvVue.computed(() => currentFrontItem(aqvStore.items, aqvStore.paused));
+            const remaining = aqvVue.computed(() => {
+                if (!front.value) return '';
+                const counts = currentRemainingCounts(aqvStore.items, front.value);
+                return currentRemainingLineText(counts.downloading, counts.queued);
+            });
+            return {front, remaining};
+        },
         render() {
             const h = aqvVue.h;
-            const front = currentFrontItem(aqvStore.items, aqvStore.paused);
+            // 完整同步也承接语言刷新，空队列仍需更新当前卡文案。
+            const front = aqvStore.rowKeys.length ? this.front : null;
             const model = currentCardModel(front);
             const children = [h('div', {class: 'ab-current-head'}, [
                 h('span', {class: 'ab-icon', 'aria-hidden': 'true', innerHTML: aqvIcon('download')}),
@@ -238,8 +248,7 @@ function aqvCurrentComponent() {
                 ]));
                 if (front.totalImages > 0) children.push(aqvMiniProgress(model.progressLabel, null, model.percent, 'is-image', 'images'));
                 children.push(aqvExtras(front));
-                const counts = currentRemainingCounts(aqvStore.items, front);
-                const line = currentRemainingLineText(counts.downloading, counts.queued);
+                const line = this.remaining;
                 if (line) children.push(h('p', {class: 'ab-current-remaining'}, line));
             }
             return h('span', {style: {display: 'contents'}}, children);
