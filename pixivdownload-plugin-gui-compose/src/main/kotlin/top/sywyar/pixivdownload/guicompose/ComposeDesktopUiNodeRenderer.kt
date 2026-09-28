@@ -97,7 +97,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.toComposeImageBitmap
+import top.sywyar.pixivdownload.guicompose.image.rememberPreviewImage
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.onPointerEvent
@@ -133,7 +133,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import org.jetbrains.skia.Image as SkiaImage
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode
@@ -883,13 +882,11 @@ object ComposeDesktopUiNodeRenderer {
         text: (DesktopUiNode.TextToken) -> String,
         modifier: Modifier,
     ) {
-        val source = remember(node.image()) { runCatching { SkiaImage.makeFromEncoded(node.image().bytes()) }.getOrNull() }
-        if (source == null) {
+        val bitmap = rememberPreviewImage(node.image())
+        if (bitmap == null) {
             CupertinoText(resolve(node.altText(), text), modifier = modifier)
             return
         }
-        DisposableEffect(source) { onDispose(source::close) }
-        val bitmap = remember(source) { source.toComposeImageBitmap() }
         val description = resolve(node.altText(), text)
         val scale = when (node.scaleMode()) {
             DesktopUiNode.ScaleMode.NONE -> ContentScale.None
