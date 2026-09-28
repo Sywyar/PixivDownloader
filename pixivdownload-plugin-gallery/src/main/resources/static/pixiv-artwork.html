@@ -45,6 +45,12 @@
         <div class="panel" id="viewerPanel">
             <div class="loading-placeholder" id="viewerLoading">加载中...</div>
             <div class="viewer" id="viewer" style="display:none">
+                <div class="viewer-toolbar" data-layout-height="--layout-viewer-toolbar-height">
+                    <label class="expand-btn original-image-option layout-touch">
+                        <input type="checkbox" id="originalImagesToggle">
+                        <span id="originalImagesLabel" data-i18n="artwork:button.original-image"></span>
+                    </label>
+                </div>
                 <div class="viewer-image" id="mainImage"></div>
                 <div class="more-pages" id="morePages"></div>
                 <div class="viewer-actions" data-layout-height="--layout-actions-height">
@@ -155,9 +161,15 @@
 </div>
 
 <div class="lightbox" id="lightbox" data-pixiv-click="handleLightboxClick(event)">
+    <label class="lightbox-original original-image-option layout-touch">
+        <input type="checkbox" id="lightboxOriginalImagesToggle">
+        <span id="lightboxOriginalImagesLabel" data-i18n="artwork:button.original-image"></span>
+    </label>
     <button class="lightbox-close" data-pixiv-click="closeLightbox()">×</button>
     <button class="lightbox-nav prev" data-pixiv-click="lightboxNav(-1)" data-pixiv-stop="true">‹</button>
-    <img id="lightboxImage" alt="">
+    <div class="lightbox-image-frame">
+        <img id="lightboxImage" alt="">
+    </div>
     <button class="lightbox-nav next" data-pixiv-click="lightboxNav(1)" data-pixiv-stop="true">›</button>
     <div class="lightbox-info" id="lightboxInfo"></div>
 </div>
@@ -202,6 +214,7 @@
 
 <script src="/pixiv-artwork/artwork-core.js"></script>
 <script src="/js/pixiv-layout.js"></script>
+<script src="/pixiv-artwork/artwork-images.js"></script>
 <script src="/pixiv-artwork/artwork-layout.js"></script>
 <script src="/pixiv-artwork/artwork-viewer.js"></script>
 <script src="/pixiv-artwork/artwork-related.js"></script>

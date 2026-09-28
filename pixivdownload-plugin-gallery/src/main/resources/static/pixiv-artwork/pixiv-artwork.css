@@ -137,7 +137,7 @@
 
         .wrapper {
             width: min(calc(100% - var(--layout-inset-left) - var(--layout-inset-right)), calc(max(32rem, min(var(--artwork-natural-width, 60rem), var(--artwork-height) * var(--artwork-ratio, 1.5))) + 2 * var(--layout-panel-padding) + var(--layout-sidebar) + var(--layout-gap)));
-            --artwork-height: max(8rem, calc(100svh - var(--layout-header-height) - var(--layout-actions-height, 3rem) - var(--layout-series-height, 0px) - 2 * var(--layout-panel-padding) - 4rem));
+            --artwork-height: max(8rem, calc(100svh - var(--layout-header-height) - var(--layout-viewer-toolbar-height, 0px) - var(--layout-actions-height, 3rem) - var(--layout-series-height, 0px) - 2 * var(--layout-panel-padding) - 4.75rem));
             margin: 0 auto;
             padding: 1.5rem 0;
             display: grid;
@@ -188,6 +188,12 @@
             align-items: center;
         }
 
+        .viewer-toolbar {
+            display: flex;
+            width: 100%;
+            min-width: 0;
+        }
+
         .viewer-image {
             width: 100%;
             max-width: 100%;
@@ -227,6 +233,11 @@
 
         .more-pages.open {
             max-height: 999999px;
+        }
+
+        .more-pages .viewer-image {
+            aspect-ratio: var(--artwork-ratio, 1);
+            max-height: var(--artwork-height);
         }
 
         .more-pages img {

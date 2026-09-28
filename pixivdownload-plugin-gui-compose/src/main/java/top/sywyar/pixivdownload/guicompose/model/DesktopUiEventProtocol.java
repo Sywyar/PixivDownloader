@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.Selectio
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -24,9 +25,24 @@ final class DesktopUiEventProtocol {
     }
 
     static Map<String, EventEndpoint> index(DesktopUiDocument document) {
+        return index(document, new IdentityHashMap<>());
+    }
+
+    static Map<String, EventEndpoint> index(
+            DesktopUiDocument document,
+            Map<DesktopUiNode, Map<String, EventEndpoint>> previousRoots
+    ) {
         Map<String, EventEndpoint> endpoints = new LinkedHashMap<>();
+        Map<DesktopUiNode, Map<String, EventEndpoint>> currentRoots = new IdentityHashMap<>();
         document.pages().forEach(page -> {
-            indexNode(page.content(), endpoints);
+            Map<String, EventEndpoint> cached = previousRoots.get(page.content());
+            if (cached == null) {
+                Map<String, EventEndpoint> collected = new LinkedHashMap<>();
+                indexNode(page.content(), collected);
+                cached = Map.copyOf(collected);
+            }
+            currentRoots.put(page.content(), cached);
+            cached.forEach((id, endpoint) -> putEndpoint(endpoints, id, endpoint));
             page.floatingAction().ifPresent(node -> indexNode(node, endpoints));
         });
         for (DesktopUiDocument.Dialog dialog : document.dialogs()) {
@@ -65,6 +81,8 @@ final class DesktopUiEventProtocol {
                                 null
                         )
                 )));
+        previousRoots.clear();
+        previousRoots.putAll(currentRoots);
         return Map.copyOf(endpoints);
     }
 
@@ -234,12 +252,24 @@ final class DesktopUiEventProtocol {
             Map<String, EventEndpoint> endpoints,
             List<DesktopUiPluginSnapshot.Fingerprint> sourceFingerprints
     ) {
+        return interactionSignatures(endpoints, sourceFingerprints, Map.of(), Map.of());
+    }
+
+    static Map<String, InteractionSignature> interactionSignatures(
+            Map<String, EventEndpoint> endpoints,
+            List<DesktopUiPluginSnapshot.Fingerprint> sourceFingerprints,
+            Map<String, EventEndpoint> previousEndpoints,
+            Map<String, InteractionSignature> previousSignatures
+    ) {
         Map<String, InteractionSignature> signatures = new LinkedHashMap<>();
         endpoints.forEach((nodeId, endpoint) -> {
             if (endpoint.eventType() != DesktopUiNode.EventType.ACTIVATE) {
+                InteractionSignature previous = previousSignatures.get(nodeId);
                 signatures.put(
                         nodeId,
-                        interactionSignature(nodeId, endpoint, sourceFingerprints)
+                        endpoint == previousEndpoints.get(nodeId) && previous != null
+                                && previous.sourceFingerprints().equals(sourceFingerprints)
+                                ? previous : interactionSignature(nodeId, endpoint, sourceFingerprints)
                 );
             }
         });

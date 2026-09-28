@@ -20,11 +20,15 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.Set;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -358,6 +362,111 @@ class DesktopConfigurationControllerTest {
         synchronized (model) {
             model.dispatch(model.snapshot(), event);
         }
+    }
+
+    @Test
+    @DisplayName("状态刷新复用设置页，编辑后的草稿和保存绑定仍然有效")
+    void statusRefreshReusesSettingsWithoutLosingDraftsOrActions() throws Exception {
+        Map<String, String> stored = new HashMap<>();
+        try (ComposeDesktopUiModel model = model(stored)) {
+            synchronized (model) {
+                model.rebuild();
+                DesktopUiNode original = workspace(model);
+                var securityPage = model.snapshot().document().pages().stream().filter(page -> page.id().equals("security")).findFirst().orElseThrow();
+                var aboutPage = model.snapshot().document().pages().stream().filter(page -> page.id().equals("about")).findFirst().orElseThrow();
+                model.rebuildStatus();
+                assertSame(original, workspace(model));
+                assertSame(securityPage, model.snapshot().document().pages().stream().filter(page -> page.id().equals("security")).findFirst().orElseThrow());
+                assertSame(aboutPage, model.snapshot().document().pages().stream().filter(page -> page.id().equals("about")).findFirst().orElseThrow());
+                select(model, "theme", "dark");
+                assertNotSame(original, workspace(model));
+                assertEquals(1, pendingCount(model));
+                DesktopUiNode edited = workspace(model);
+                long interaction = model.snapshot().interactionRevisions().get("interface.theme.input");
+                model.rebuildStatus();
+                assertSame(edited, workspace(model));
+                assertEquals(interaction, model.snapshot().interactionRevisions().get("interface.theme.input"));
+            }
+            save(model);
+            assertEquals("dark", stored.get("app.theme"));
+            assertEquals(0, pendingCount(model));
+        }
+    }
+
+    @Test
+    @DisplayName("语言、忙碌状态和插件来源变化使状态刷新中的设置页失效")
+    void statusRefreshInvalidatesSettingsForLocaleBusyStateAndSources() throws Exception {
+        Locale previous = Locale.getDefault();
+        AtomicReference<List<DesktopUiPluginSnapshot>> sources = new AtomicReference<>(List.of());
+        try (ComposeDesktopUiModel model = model(new HashMap<>(), Map.of(), sources::get)) {
+            synchronized (model) {
+                model.rebuild();
+                DesktopUiNode original = workspace(model);
+                Locale.setDefault(previous.equals(Locale.US) ? Locale.JAPAN : Locale.US);
+                model.rebuildStatus();
+                assertNotSame(original, workspace(model));
+                sources.set(List.of(new DesktopUiPluginSnapshot(
+                        "third",
+                        false,
+                        "third",
+                        1,
+                        true,
+                        null,
+                        "",
+                        List.of(),
+                        List.of(),
+                        List.of(),
+                        List.of(),
+                        List.of()
+                )));
+                model.rebuildStatus();
+                assertTrue(providerChoice(model).options().stream().anyMatch(option -> option.id().equals("third")));
+                long interaction = model.snapshot().interactionRevisions().get("interface.provider.input");
+                sources.set(List.of(new DesktopUiPluginSnapshot(
+                        "third",
+                        false,
+                        "third",
+                        2,
+                        true,
+                        null,
+                        "",
+                        List.of(),
+                        List.of(),
+                        List.of(),
+                        List.of(),
+                        List.of()
+                )));
+                model.rebuildStatus();
+                assertTrue(model.snapshot().interactionRevisions().get("interface.provider.input") > interaction);
+                model.setBusy(true);
+                model.rebuildStatus();
+                assertFalse(providerChoice(model).enabled());
+                assertTrue(((DesktopUiNode.SecurityOverview) pageContent(model, "security")).busy());
+                model.setBusy(false);
+                model.rebuildStatus();
+                assertTrue(providerChoice(model).enabled());
+                assertFalse(((DesktopUiNode.SecurityOverview) pageContent(model, "security")).busy());
+                sources.set(List.of());
+                model.rebuildStatus();
+                assertFalse(providerChoice(model).options().stream().anyMatch(option -> option.id().equals("third")));
+            }
+        } finally {
+            Locale.setDefault(previous);
+        }
+    }
+
+    private static DesktopUiNode workspace(ComposeDesktopUiModel model) {
+        return nodes(model).filter(node -> node instanceof DesktopUiNode.SettingsWorkspace).findFirst().orElseThrow();
+    }
+
+    private static DesktopUiNode pageContent(ComposeDesktopUiModel model, String id) {
+        return ((DesktopUiNode.Surface) model.snapshot().document().pages().stream()
+                .filter(page -> page.id().equals(id)).findFirst().orElseThrow().content()).content();
+    }
+
+    private static DesktopUiNode.Choice providerChoice(ComposeDesktopUiModel model) {
+        return (DesktopUiNode.Choice) nodes(model).filter(node -> node.id().equals("interface.provider.input"))
+                .findFirst().orElseThrow();
     }
 
     private static void select(ComposeDesktopUiModel model, String preference, String value) {

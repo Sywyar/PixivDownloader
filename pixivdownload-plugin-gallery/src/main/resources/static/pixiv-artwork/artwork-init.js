@@ -28,6 +28,7 @@
             click: {handleLightboxClick, closeLightbox, lightboxNav, closeAddToCollectionModal}
         });
         bindArtworkGalleryReturn();
+        initOriginalImages();
         await initPageI18n();
         setupAdminMode();
         loadArtwork();

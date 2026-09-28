@@ -161,6 +161,28 @@ class LocaleCatalogTest {
     }
 
     @Test
+    @DisplayName("语言对象保留旧语言码、变体与扩展的匹配和歧义语义")
+    void localeFormPreservesLegacyCodesVariantsAndExtensions() {
+        LocaleCatalog original = fixture();
+        LocaleDescriptor hebrew = new LocaleDescriptor("he-IL", "עברית", "he",
+                LocaleStatus.SUPPORTED, "rtl", List.of("he"));
+        var locales = new java.util.ArrayList<>(original.allLocales());
+        locales.add(hebrew);
+        LocaleCatalog catalog = new LocaleCatalog(1, original.sourceLocale(), original.defaultLocale(),
+                original.fallbackLocale(), original.languageCookieName(), original.languageParameterName(), locales);
+
+        assertThat(catalog.match(new Locale("iw", "IL"))).containsSame(hebrew);
+        assertThat(catalog.match(new Locale("iw"))).containsSame(hebrew);
+        assertThat(catalog.match(new Locale("ja", "JP", "JP")).orElseThrow().tag()).isEqualTo("ja-JP");
+        assertThat(catalog.match(new Locale("en", "US", "POSIX"))).containsSame(catalog.fallbackLocale());
+        assertThat(catalog.match(Locale.forLanguageTag("en-US-u-ca-japanese")))
+                .containsSame(catalog.fallbackLocale());
+        assertThat(catalog.match(Locale.forLanguageTag("zh-CN-u-nu-hanidec"))).isEmpty();
+        assertThat(catalog.resolve(Locale.forLanguageTag("zz-ZZ-x-private"))).isSameAs(catalog.defaultLocale());
+        assertThat(catalog.match(Locale.ROOT)).isEmpty();
+    }
+
+    @Test
     @DisplayName("无匹配时 resolve 落到默认语言 en-US")
     void resolveFallsBackToDefaultLocale() {
         LocaleCatalog catalog = fixture();
@@ -195,6 +217,31 @@ class LocaleCatalogTest {
                 .containsExactly("en-US", "zh-CN");
         assertThat(catalog.fallbackChain(zh)).extracting(LocaleDescriptor::tag)
                 .containsExactly("zh-CN", "en-US");
+    }
+
+    @Test
+    @DisplayName("回退链按值去重并保留首次对象，支持源语言兼任回退且结果不可变")
+    void fallbackChainPreservesValueIdentityAndImmutableOrder() {
+        LocaleCatalog catalog = fixture();
+        LocaleDescriptor source = catalog.sourceLocale();
+        LocaleDescriptor fallback = catalog.fallbackLocale();
+        LocaleDescriptor equalFallback = new LocaleDescriptor(fallback.tag(), fallback.nativeName(),
+                fallback.resourceSuffix(), fallback.status(), fallback.direction(), fallback.aliases());
+        var chain = catalog.fallbackChain(equalFallback);
+        assertThat(chain).containsExactly(equalFallback, source);
+        assertThat(chain.get(0)).isSameAs(equalFallback);
+        assertThatThrownBy(() -> chain.add(source)).isInstanceOf(UnsupportedOperationException.class);
+
+        LocaleDescriptor outside = new LocaleDescriptor("de-DE", "Deutsch", "de", LocaleStatus.CANDIDATE, "ltr", List.of());
+        assertThat(catalog.fallbackChain(outside)).containsExactly(outside, fallback, source);
+        assertThatThrownBy(() -> catalog.fallbackChain(outside).clear()).isInstanceOf(UnsupportedOperationException.class);
+        LocaleCatalog sameSourceFallback = new LocaleCatalog(1, source, catalog.defaultLocale(), source,
+                catalog.languageCookieName(), catalog.languageParameterName(), catalog.allLocales());
+        assertThat(sameSourceFallback.fallbackChain(outside)).containsExactly(outside, source);
+        assertThat(sameSourceFallback.fallbackChain(source)).containsExactly(source);
+        assertThatThrownBy(() -> sameSourceFallback.fallbackChain(source).set(0, outside))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> catalog.fallbackChain(null)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

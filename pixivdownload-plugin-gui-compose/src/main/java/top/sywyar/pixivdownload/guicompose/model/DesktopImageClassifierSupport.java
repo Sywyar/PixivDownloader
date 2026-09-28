@@ -11,7 +11,6 @@ import java.io.ByteArrayOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -53,13 +52,13 @@ public final class DesktopImageClassifierSupport {
             BufferedImage rendered = ImageThumbnailScaler.scale(source,
                     Math.max(1, (int) Math.round(width * ratio)),
                     Math.max(1, (int) Math.round(height * ratio)));
-            ByteArrayOutputStream output = new ByteArrayOutputStream();
-            if (!ImageIO.write(rendered, "jpg", output)) return Optional.empty();
-            DesktopUiNode.ImageData data = new DesktopUiNode.ImageData(
-                    "image/jpeg",
-                    Base64.getEncoder().encodeToString(output.toByteArray())
-            );
-            return Optional.of(data);
+            try {
+                ByteArrayOutputStream output = new ByteArrayOutputStream();
+                if (!ImageIO.write(rendered, "jpg", output)) return Optional.empty();
+                return Optional.of(new DesktopUiNode.ImageData("image/jpeg", output.toByteArray()));
+            } finally {
+                rendered.flush();
+            }
         } catch (Exception failure) {
             LOG.warn("Unable to materialize classifier preview {}", image, failure);
             return Optional.empty();

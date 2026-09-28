@@ -1,4 +1,5 @@
 'use strict';
+    let collectionIconPreviewUrl = null;
 
     // ---------- Collections sidebar ----------
     async function loadCollections() {
@@ -144,6 +145,7 @@
         state.editingCollection = null;
         state.pendingIconFile = null;
         state.pendingIconClear = false;
+        updateFormIconPreview(null);
         document.getElementById('collectionFormIconFile').value = '';
         document.getElementById('collectionDownloadRootEnabled').checked = false;
         document.getElementById('collectionDownloadRoot').value = '';
@@ -214,11 +216,12 @@
     }
 
     function updateFormIconPreview(collection) {
+        releaseCollectionIconPreview();
         const preview = document.getElementById('collectionFormIconPreview');
         const clearBtn = document.getElementById('collectionFormIconClear');
         if (state.pendingIconFile) {
-            const url = URL.createObjectURL(state.pendingIconFile);
-            preview.innerHTML = `<img src="${url}" alt="">`;
+            collectionIconPreviewUrl = URL.createObjectURL(state.pendingIconFile);
+            preview.innerHTML = `<img src="${collectionIconPreviewUrl}" alt="">`;
             clearBtn.style.display = '';
         } else if (collection && collection.iconExt && !state.pendingIconClear) {
             preview.innerHTML = `<img src="/api/collections/${collection.id}/icon?v=${Date.now()}" alt="">`;
@@ -227,6 +230,12 @@
             preview.innerHTML = HEART_SVG;
             clearBtn.style.display = 'none';
         }
+    }
+
+    function releaseCollectionIconPreview() {
+        document.getElementById('collectionFormIconPreview').replaceChildren();
+        if (collectionIconPreviewUrl) URL.revokeObjectURL(collectionIconPreviewUrl);
+        collectionIconPreviewUrl = null;
     }
 
     // ---------- Collection context menu ----------

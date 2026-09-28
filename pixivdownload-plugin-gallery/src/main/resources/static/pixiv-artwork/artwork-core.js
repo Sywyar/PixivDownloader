@@ -48,6 +48,10 @@ window.PixivArtwork = window.PixivArtwork || {};
         document.getElementById('mainImage').setAttribute('data-loading-text', wt('status.loading', 'Loading...'));
         document.getElementById('pixivArtworkLinkLabel').textContent = wt('button.pixiv-artwork', 'Open Original on Pixiv');
         document.getElementById('showcaseLinkLabel').textContent = wt('button.showcase', '作品展示(娱乐性功能)');
+        for (const id of ['originalImagesLabel', 'lightboxOriginalImagesLabel']) {
+            document.getElementById(id).textContent = wt('button.original-image', 'Show original images');
+            document.getElementById(id).parentElement.title = wt('hint.original-images', 'Load originals only for visible images. Remembered in this browser.');
+        }
         document.getElementById('detailTagsTitle').textContent = wt('panel.tags', 'Tags');
         document.getElementById('relatedPanelTitle').textContent = wt('panel.related', 'Related Artworks');
         document.getElementById('seriesPanelTitle').textContent = wt('panel.series', 'This Series');
@@ -78,7 +82,7 @@ window.PixivArtwork = window.PixivArtwork || {};
                 if (state.artwork) {
                     renderDetail();
                     renderAuthor();
-                    loadSeriesSections();
+                    refreshRelatedTranslations();
                     updateHeart();
                 }
             }
@@ -88,55 +92,6 @@ window.PixivArtwork = window.PixivArtwork || {};
         });
         applyStaticPageTranslations();
     }
-
-    // ---------- Image cache (in-memory + sessionStorage for thumbs) ----------
-    const ImageCache = (() => {
-        const PREFIX = 'pxImg:';
-        const mem = new Map();
-        const isThumb = url => url.includes('/thumbnail/');
-
-        function get(url) {
-            if (mem.has(url)) return mem.get(url);
-            if (isThumb(url)) {
-                try {
-                    const v = sessionStorage.getItem(PREFIX + url);
-                    if (v) {
-                        mem.set(url, v);
-                        return v;
-                    }
-                } catch (_) {
-                }
-            }
-            return null;
-        }
-
-        function put(url, dataUri) {
-            mem.set(url, dataUri);
-            if (!isThumb(url)) return;
-            try {
-                sessionStorage.setItem(PREFIX + url, dataUri);
-            } catch (_) {
-                const keys = [];
-                for (let i = 0; i < sessionStorage.length; i++) {
-                    const k = sessionStorage.key(i);
-                    if (k && k.startsWith(PREFIX)) keys.push(k);
-                }
-                keys.slice(0, Math.max(1, Math.floor(keys.length / 2)))
-                    .forEach(k => {
-                        try {
-                            sessionStorage.removeItem(k);
-                        } catch (_) {
-                        }
-                    });
-                try {
-                    sessionStorage.setItem(PREFIX + url, dataUri);
-                } catch (_) {
-                }
-            }
-        }
-
-        return {get, put};
-    })();
 
     const ARTWORK_GALLERY_RETURN_KEY = 'pixiv:gallery-return-to';
 
@@ -180,7 +135,6 @@ window.PixivArtwork = window.PixivArtwork || {};
         collections: [],
         collectionMembership: new Set(),
         lightboxIndex: 0,
-        lightboxImages: [],
         seriesNav: null,
     };
 
@@ -277,10 +231,12 @@ window.PixivArtwork = window.PixivArtwork || {};
         return `https://www.pixiv.net/users/${authorId}`;
     }
 
-    async function loadImageToElement(url, target, {onClick} = {}) {
+    async function loadImageToElement(url, target, {onClick, onLoad, onError, signal, loading = 'eager'} = {}) {
         if (url.includes('/thumbnail/')) url = window.PixivLayout.previewUrl(url, target);
+        if (signal?.aborted) return null;
         if (url.includes('/downloaded/image/')) {
-            const response = await fetch(url, {method: 'HEAD', credentials: 'same-origin'}).catch(() => null);
+            const response = await fetch(url, {method: 'HEAD', credentials: 'same-origin', signal}).catch(() => null);
+            if (signal?.aborted) return null;
             if (response && response.ok && (response.headers.get('content-type') || '').startsWith('video/')) {
                 const video = document.createElement('video');
                 video.controls = true;
@@ -289,37 +245,53 @@ window.PixivArtwork = window.PixivArtwork || {};
                 video.preload = 'metadata';
                 video.src = url;
                 video.addEventListener('click', event => event.stopPropagation());
+                signal?.addEventListener('abort', () => {
+                    video.pause();
+                    video.removeAttribute('src');
+                    video.load();
+                    video.remove();
+                }, {once: true});
                 target.replaceChildren(video);
                 target.classList.remove('loading');
                 return null;
             }
         }
-        const attach = src => {
-            const img = document.createElement('img');
-            img.alt = '';
-            if (onClick) img.addEventListener('click', onClick);
-            img.src = src;
-            target.innerHTML = '';
-            target.classList.remove('loading');
-            target.appendChild(img);
-            return img;
-        };
-        const cached = ImageCache.get(url);
-        if (cached) {
-            attach(cached);
-            return cached;
-        }
         return new Promise(resolve => {
             const image = new Image();
+            image.alt = '';
+            image.loading = loading;
+            image.decoding = 'async';
+            if (onClick) image.addEventListener('click', onClick);
+            const abort = () => {
+                releaseArtworkOriginal(image, false);
+                image.onload = image.onerror = null;
+                image.removeAttribute('src');
+                image.remove();
+                resolve(null);
+            };
+            signal?.addEventListener('abort', abort, {once: true});
             image.onload = () => {
-                ImageCache.put(url, url);
-                attach(url);
+                if (image.hidden) {
+                    target.innerHTML = '';
+                    target.appendChild(image);
+                    image.hidden = false;
+                }
+                retainArtworkPreview(image);
+                target.classList.remove('loading');
+                onLoad?.(image);
                 resolve(url);
             };
             image.onerror = () => {
+                releaseArtworkOriginal(image, false);
+                image.hidden = true;
+                target.classList.remove('loading');
                 target.innerHTML = '<span style="color:var(--muted); padding:40px">' + escapeHtml(wt('status.load-failed', 'Load failed')) + '</span>';
+                target.appendChild(image);
+                onError?.(image);
                 resolve(null);
             };
+            target.innerHTML = '';
+            target.appendChild(image);
             image.src = url;
         });
     }
@@ -327,4 +299,4 @@ window.PixivArtwork = window.PixivArtwork || {};
 
 // ---- PixivArtwork facade ----
 window.PixivArtwork.core = window.PixivArtwork.core || {};
-window.PixivArtwork.core = Object.assign(window.PixivArtwork.core, { interpolate, wt, syncExpandButtonText, applyStaticPageTranslations, initPageI18n, ImageCache, state, getQueryParam, api, toast, escapeHtml, formatTime, buildGalleryFilterHref, buildSeriesDirectoryHref, buildPixivArtworkHref, buildShowcaseHref, buildPixivAuthorHref, loadImageToElement, safeArtworkGalleryReturnTo, resolveArtworkGalleryReturnTo, bindArtworkGalleryReturn, HEART_SVG });
+window.PixivArtwork.core = Object.assign(window.PixivArtwork.core, { interpolate, wt, syncExpandButtonText, applyStaticPageTranslations, initPageI18n, state, getQueryParam, api, toast, escapeHtml, formatTime, buildGalleryFilterHref, buildSeriesDirectoryHref, buildPixivArtworkHref, buildShowcaseHref, buildPixivAuthorHref, loadImageToElement, safeArtworkGalleryReturnTo, resolveArtworkGalleryReturnTo, bindArtworkGalleryReturn, HEART_SVG });

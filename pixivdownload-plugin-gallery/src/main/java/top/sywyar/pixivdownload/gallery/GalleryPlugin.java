@@ -66,25 +66,27 @@ public class GalleryPlugin implements PixivFeaturePlugin {
         return PluginKind.FEATURE;
     }
 
+    // 画廊页面 + 画廊自身的 /api/gallery 子面（插画作品与标签），全部 INVITED_GUEST：
+    // 同时进入 monitor 清单与访客邀请白名单（访客仅 GET/HEAD 的收窄由访问级别语义承载）。
+    // /api/gallery API 历史上由单一 /api/gallery/** 覆盖，现按控制器实际归属拆分——画廊只声明
+    // 非小说的 artwork/tags 前缀，小说子面 /api/gallery/novel(s) 由小说插件声明，互不越界。
+    // 无尾斜杠前缀同 /api/authors** 写法：/api/gallery/artwork** 既命中 /api/gallery/artworks
+    // 也命中 /api/gallery/artwork/{id}；/api/gallery/tags** 既命中 /api/gallery/tags 也命中 /tags/lookup。
+    private static final List<WebRouteContribution> ROUTES = List.of(
+        WebRouteContribution.invitedGuest("/pixiv-gallery.html"),
+        WebRouteContribution.invitedGuest("/pixiv-artwork.html"),
+        WebRouteContribution.invitedGuest("/pixiv-showcase.html"),
+        WebRouteContribution.invitedGuest("/pixiv-series.html"),
+        WebRouteContribution.invitedGuest("/pixiv-gallery/**"),
+        WebRouteContribution.invitedGuest("/pixiv-artwork/**"),
+        WebRouteContribution.invitedGuest("/pixiv-showcase/**"),
+        WebRouteContribution.invitedGuest("/pixiv-series/**"),
+        WebRouteContribution.invitedGuest("/api/gallery/artwork**"),
+        WebRouteContribution.invitedGuest("/api/gallery/tags**"));
+
     @Override
     public List<WebRouteContribution> routes() {
-        // 画廊页面 + 画廊自身的 /api/gallery 子面（插画作品与标签），全部 INVITED_GUEST：
-        // 同时进入 monitor 清单与访客邀请白名单（访客仅 GET/HEAD 的收窄由访问级别语义承载）。
-        // /api/gallery API 历史上由单一 /api/gallery/** 覆盖，现按控制器实际归属拆分——画廊只声明
-        // 非小说的 artwork/tags 前缀，小说子面 /api/gallery/novel(s) 由小说插件声明，互不越界。
-        // 无尾斜杠前缀同 /api/authors** 写法：/api/gallery/artwork** 既命中 /api/gallery/artworks
-        // 也命中 /api/gallery/artwork/{id}；/api/gallery/tags** 既命中 /api/gallery/tags 也命中 /tags/lookup。
-        return List.of(
-                WebRouteContribution.invitedGuest("/pixiv-gallery.html"),
-                WebRouteContribution.invitedGuest("/pixiv-artwork.html"),
-                WebRouteContribution.invitedGuest("/pixiv-showcase.html"),
-                WebRouteContribution.invitedGuest("/pixiv-series.html"),
-                WebRouteContribution.invitedGuest("/pixiv-gallery/**"),
-                WebRouteContribution.invitedGuest("/pixiv-artwork/**"),
-                WebRouteContribution.invitedGuest("/pixiv-showcase/**"),
-                WebRouteContribution.invitedGuest("/pixiv-series/**"),
-                WebRouteContribution.invitedGuest("/api/gallery/artwork**"),
-                WebRouteContribution.invitedGuest("/api/gallery/tags**"));
+        return ROUTES;
     }
 
     @Override
@@ -111,58 +113,60 @@ public class GalleryPlugin implements PixivFeaturePlugin {
                 new I18nContribution("series", "i18n.web.series", 11));
     }
 
+    // 画廊主入口：顶部栏 + 画廊家族侧栏（画廊 / 系列页共用）+ 中立主侧栏 app.sidebar（统计等宿主页据此显示
+    // 画廊入口，禁用画廊后自然消失、宿主页不需要知道画廊）与桌面快速开始，并兼任疑似重复页顶部的画廊图标
+    //（duplicates.header-icons）。priority 30（功能区段首位）。href 由贡献方完整声明为 /pixiv-gallery.html?view=all
+    //（与历史入口一致）——前端公共导航渲染器不再为内置插件 id 补默认 query。
+    //
+    // 类型切换入口：向画廊家族共享的 gallery.type-switch 注册本插件自己的「漫画」tab。各画廊页面只声明
+    // 同一个空 slot，不硬编码当前类型或其它插件；导航渲染器按 pathname 标记活动项。label 使用类型名
+    // nav.type-illust=漫画而非页面名 nav.label=画廊，href 显式带 ?view=all。
+    //
+    // 统计页画廊视图快捷入口：向 stats.gallery-links 注册「全部 / 按作者 / 按系列」三条画廊视图链接——
+    // 这三条链接作为「视图」区块（见 pageSections()）内嵌导航 slot 的内容；
+    // priority 31/32/33 仅决定三者相对顺序。全部 INVITED_GUEST，禁用画廊后这些入口（含疑似重复页图标）一并消失。
+    private static final List<NavigationContribution> NAVIGATION = List.of(
+        new NavigationContribution(
+                ID,
+                Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.APP_SIDEBAR,
+                        NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.DUPLICATES_HEADER_ICONS,
+                        NavigationPlacements.DESKTOP_QUICK_START),
+                "gallery", "nav.label", "/pixiv-gallery.html?view=all", "images",
+                AccessPolicy.INVITED_GUEST, 30, Set.of(NavigationMarkers.FIRST_DOWNLOAD_RESULT), "nav.description"),
+        new NavigationContribution(
+                "gallery-type-switch",
+                Set.of(NavigationPlacements.GALLERY_TYPE_SWITCH),
+                "gallery", "nav.type-illust", "/pixiv-gallery.html?view=all", "images",
+                AccessPolicy.INVITED_GUEST, 30),
+        new NavigationContribution(
+                "gallery-view-all",
+                Set.of(NavigationPlacements.STATS_GALLERY_LINKS),
+                "gallery", "nav.all", "/pixiv-gallery.html?view=all", "grid",
+                AccessPolicy.INVITED_GUEST, 31),
+        new NavigationContribution(
+                "gallery-view-authors",
+                Set.of(NavigationPlacements.STATS_GALLERY_LINKS),
+                "gallery", "nav.authors", "/pixiv-gallery.html?view=authors", "users",
+                AccessPolicy.INVITED_GUEST, 32),
+        new NavigationContribution(
+                "gallery-view-series",
+                Set.of(NavigationPlacements.STATS_GALLERY_LINKS),
+                "gallery", "nav.series", "/pixiv-gallery.html?view=series", "book",
+                AccessPolicy.INVITED_GUEST, 33),
+        new NavigationContribution(
+                "gallery-gui-open",
+                Set.of(NavigationPlacements.GUI_STATUS_ACTIONS, NavigationPlacements.GUI_TRAY_ACTIONS),
+                "gallery", "gui.action.open", "/pixiv-gallery.html", "images",
+                AccessPolicy.INVITED_GUEST, 33),
+        new NavigationContribution(
+                "gallery-invite-manage-back",
+                Set.of(NavigationPlacements.INVITE_MANAGE_BACK),
+                "gallery", "invite.manage.back", "/pixiv-gallery.html?view=all", "images",
+                AccessPolicy.INVITED_GUEST, 33));
+
     @Override
     public List<NavigationContribution> navigation() {
-        // 画廊主入口：顶部栏 + 画廊家族侧栏（画廊 / 系列页共用）+ 中立主侧栏 app.sidebar（统计等宿主页据此显示
-        // 画廊入口，禁用画廊后自然消失、宿主页不需要知道画廊）与桌面快速开始，并兼任疑似重复页顶部的画廊图标
-        //（duplicates.header-icons）。priority 30（功能区段首位）。href 由贡献方完整声明为 /pixiv-gallery.html?view=all
-        //（与历史入口一致）——前端公共导航渲染器不再为内置插件 id 补默认 query。
-        //
-        // 类型切换入口：向画廊家族共享的 gallery.type-switch 注册本插件自己的「漫画」tab。各画廊页面只声明
-        // 同一个空 slot，不硬编码当前类型或其它插件；导航渲染器按 pathname 标记活动项。label 使用类型名
-        // nav.type-illust=漫画而非页面名 nav.label=画廊，href 显式带 ?view=all。
-        //
-        // 统计页画廊视图快捷入口：向 stats.gallery-links 注册「全部 / 按作者 / 按系列」三条画廊视图链接——
-        // 这三条链接作为「视图」区块（见 pageSections()）内嵌导航 slot 的内容；
-        // priority 31/32/33 仅决定三者相对顺序。全部 INVITED_GUEST，禁用画廊后这些入口（含疑似重复页图标）一并消失。
-        return List.of(
-                new NavigationContribution(
-                        ID,
-                        Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.APP_SIDEBAR,
-                                NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.DUPLICATES_HEADER_ICONS,
-                                NavigationPlacements.DESKTOP_QUICK_START),
-                        "gallery", "nav.label", "/pixiv-gallery.html?view=all", "images",
-                        AccessPolicy.INVITED_GUEST, 30, Set.of(NavigationMarkers.FIRST_DOWNLOAD_RESULT), "nav.description"),
-                new NavigationContribution(
-                        "gallery-type-switch",
-                        Set.of(NavigationPlacements.GALLERY_TYPE_SWITCH),
-                        "gallery", "nav.type-illust", "/pixiv-gallery.html?view=all", "images",
-                        AccessPolicy.INVITED_GUEST, 30),
-                new NavigationContribution(
-                        "gallery-view-all",
-                        Set.of(NavigationPlacements.STATS_GALLERY_LINKS),
-                        "gallery", "nav.all", "/pixiv-gallery.html?view=all", "grid",
-                        AccessPolicy.INVITED_GUEST, 31),
-                new NavigationContribution(
-                        "gallery-view-authors",
-                        Set.of(NavigationPlacements.STATS_GALLERY_LINKS),
-                        "gallery", "nav.authors", "/pixiv-gallery.html?view=authors", "users",
-                        AccessPolicy.INVITED_GUEST, 32),
-                new NavigationContribution(
-                        "gallery-view-series",
-                        Set.of(NavigationPlacements.STATS_GALLERY_LINKS),
-                        "gallery", "nav.series", "/pixiv-gallery.html?view=series", "book",
-                        AccessPolicy.INVITED_GUEST, 33),
-                new NavigationContribution(
-                        "gallery-gui-open",
-                        Set.of(NavigationPlacements.GUI_STATUS_ACTIONS, NavigationPlacements.GUI_TRAY_ACTIONS),
-                        "gallery", "gui.action.open", "/pixiv-gallery.html", "images",
-                        AccessPolicy.INVITED_GUEST, 33),
-                new NavigationContribution(
-                        "gallery-invite-manage-back",
-                        Set.of(NavigationPlacements.INVITE_MANAGE_BACK),
-                        "gallery", "invite.manage.back", "/pixiv-gallery.html?view=all", "images",
-                        AccessPolicy.INVITED_GUEST, 33));
+        return NAVIGATION;
     }
 
     @Override
@@ -212,22 +216,24 @@ public class GalleryPlugin implements PixivFeaturePlugin {
         return List.of(new StartupRouteContribution("/pixiv-gallery.html", 20, Set.of(StartupRouteContext.SOLO)));
     }
 
+    private static final List<GuiOnboardingStepContribution> GUI_ONBOARDING_STEPS = List.of(new GuiOnboardingStepContribution(
+        "local-gallery-guide",
+        "gallery",
+        "gui.onboarding.title",
+        "gui.onboarding.body",
+        List.of(
+                "gui.onboarding.point.search",
+                "gui.onboarding.point.collections",
+                "gui.onboarding.point.guide"),
+        "gui.onboarding.button",
+        "/pixiv-gallery.html",
+        "gui.onboarding.waiting",
+        "local-gallery-guide",
+        50));
+
     @Override
     public List<GuiOnboardingStepContribution> guiOnboardingSteps() {
-        return List.of(new GuiOnboardingStepContribution(
-                "local-gallery-guide",
-                "gallery",
-                "gui.onboarding.title",
-                "gui.onboarding.body",
-                List.of(
-                        "gui.onboarding.point.search",
-                        "gui.onboarding.point.collections",
-                        "gui.onboarding.point.guide"),
-                "gui.onboarding.button",
-                "/pixiv-gallery.html",
-                "gui.onboarding.waiting",
-                "local-gallery-guide",
-                50));
+        return GUI_ONBOARDING_STEPS;
     }
 
     @Override

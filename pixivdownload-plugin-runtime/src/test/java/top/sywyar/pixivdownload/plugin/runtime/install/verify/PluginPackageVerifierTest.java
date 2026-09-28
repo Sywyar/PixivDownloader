@@ -5,12 +5,17 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.io.ByteArrayOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Arrays;
+import java.util.zip.CRC32;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -324,6 +329,80 @@ class PluginPackageVerifierTest {
 
             assertUnsafe(zip);
         }
+    }
+
+    @Test
+    @DisplayName("嵌套扫描累计各层完整字节和尾随数据，继续验证后续条目")
+    void accountsForNestedArchivesAndTrailingBytes() {
+        byte[] payload = new byte[73];
+        byte[] library = withTrailingBytes(PluginPackageFixtures.zipBytes(Map.of("payload.bin", payload)));
+        Map<String, byte[]> rootEntries = new LinkedHashMap<>();
+        rootEntries.put("lib/private.jar", library);
+        rootEntries.put("after-root.txt", new byte[2]);
+        byte[] root = withTrailingBytes(PluginPackageFixtures.zipBytes(rootEntries));
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        entries.put("plugin.jar", root);
+        entries.put("after-outer.txt", new byte[3]);
+        Path archive = dir.resolve("nested-trailing.zip");
+        PluginPackageFixtures.writeZip(archive, entries);
+        long total = root.length + library.length + payload.length + 2L + 3L;
+
+        assertThat(PluginPackageVerifier.verifyAndMeasure(archive,
+                limits(1 << 20, 5, total, 1 << 20, 1024, Long.MAX_VALUE)))
+                .isEqualTo(new PluginPackageVerifier.VerificationUsage(5, total));
+        assertTooLarge(archive, limits(1 << 20, 5, total - 1, 1 << 20, 1024, Long.MAX_VALUE));
+        assertTooLarge(archive, limits(1 << 20, 4, total, 1 << 20, 1024, Long.MAX_VALUE));
+    }
+
+    @Test
+    @DisplayName("嵌套归档尾随字节仍受单条目和归档大小上限约束")
+    void limitsTrailingBytesInNestedArchive() {
+        byte[] inner = withTrailingBytes(PluginPackageFixtures.zipBytes(Map.of("payload.bin", new byte[1])));
+        Path archive = dir.resolve("nested-size.zip");
+        PluginPackageFixtures.writeZip(archive, Map.of("lib/private.jar", inner));
+
+        assertTooLarge(archive, limits(1 << 20, 100, 1 << 20, 2048, 1024, Long.MAX_VALUE));
+        assertTooLarge(archive, limits(2048, 100, 1 << 20, 1 << 20, 1024, Long.MAX_VALUE));
+    }
+
+    @Test
+    @DisplayName("嵌套归档内部和外层条目的 CRC 损坏都拒绝")
+    void rejectsCorruptNestedAndOuterCrc() throws IOException {
+        byte[] inner = storedZip("payload.bin", new byte[]{1, 2, 3});
+        byte[] brokenInner = inner.clone();
+        brokenInner[14] ^= 1; // ZIP 本地头中 CRC-32 的低字节。
+        byte[] brokenOuter = storedZip("lib/private.jar", withTrailingBytes(inner));
+        brokenOuter[14] ^= 1;
+        for (byte[] bytes : List.of(storedZip("lib/private.jar", brokenInner), brokenOuter)) {
+            Path archive = dir.resolve("bad-crc.zip");
+            Files.write(archive, bytes);
+            assertThatThrownBy(() -> PluginPackageVerifier.verify(archive, PluginPackageLimits.defaults()))
+                    .isInstanceOfSatisfying(PluginPackageException.class, failure -> {
+                        assertThat(failure.reason()).isEqualTo(PluginPackageException.Reason.MALFORMED);
+                        assertThat(failure).hasMessageContaining("CRC");
+                        assertThat(failure.hasVerificationUsage()).isTrue();
+                    });
+        }
+    }
+
+    private static byte[] withTrailingBytes(byte[] archive) {
+        return Arrays.copyOf(archive, archive.length + 20_000);
+    }
+
+    private static byte[] storedZip(String name, byte[] payload) throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(bytes)) {
+            ZipEntry entry = new ZipEntry(name);
+            entry.setMethod(ZipEntry.STORED);
+            entry.setSize(payload.length);
+            CRC32 crc = new CRC32();
+            crc.update(payload);
+            entry.setCrc(crc.getValue());
+            zip.putNextEntry(entry);
+            zip.write(payload);
+            zip.closeEntry();
+        }
+        return bytes.toByteArray();
     }
 
     // ---------- helpers ----------

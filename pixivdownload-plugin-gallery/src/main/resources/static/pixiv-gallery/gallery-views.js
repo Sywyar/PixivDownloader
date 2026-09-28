@@ -77,6 +77,7 @@
             if (requestRevision !== galleryLoadRevision) return;
             state.totalElements = 0;
             setGalleryStatus('failure', {message: e.message});
+            releaseThumbnails(document.getElementById('galleryGrid'));
             document.getElementById('galleryGrid').innerHTML = '';
             document.getElementById('pagination').innerHTML = '';
             setSearchEmptyState(false);
@@ -96,6 +97,7 @@
 
     function renderGallery(items) {
         const grid = document.getElementById('galleryGrid');
+        releaseThumbnails(grid);
         if (!items.length) {
             if (hasActiveGalleryFilters()) {
                 grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">' + escapeHtml(t('status.no-matching-artworks', 'No matching artworks')) + '</div>';
@@ -343,6 +345,10 @@
     function switchView(view) {
         view = normalizeView(view);
         const prev = state.view;
+        if (prev !== view) {
+            ++galleryLoadRevision;
+            releaseThumbnails();
+        }
         state.view = view;
         syncViewParamInUrl();
         syncViewNavigationHrefs();
@@ -394,8 +400,10 @@
 
     // ---------- Authors view ----------
     async function loadAuthorsView() {
+        const requestRevision = ++galleryLoadRevision;
         persistGalleryState();
         const container = document.getElementById('authorView');
+        releaseThumbnails(container);
         setSearchEmptyState(false);
         container.innerHTML = '<div class="author-works-loading">' + escapeHtml(t('status.loading-authors', 'Loading authors...')) + '</div>';
         try {
@@ -405,18 +413,21 @@
             params.set('sort', 'artworks');
             if (state.search) params.set('search', state.search);
             const resp = await api('/api/authors/paged?' + params.toString());
+            if (requestRevision !== galleryLoadRevision) return;
             state.authors.totalPages = resp.totalPages || 0;
             state.authors.totalElements = resp.totalElements || 0;
             state.authors.content = resp.content || [];
             renderAuthorsView();
             renderAuthorsPagination();
         } catch (e) {
+            if (requestRevision !== galleryLoadRevision) return;
             container.innerHTML = `<div class="author-works-loading">${escapeHtml(t('status.load-failed', 'Load failed: {message}', {message: e.message}))}</div>`;
         }
     }
 
     function renderAuthorsView() {
         const container = document.getElementById('authorView');
+        releaseThumbnails(container);
         if (!state.authors.content.length) {
             container.innerHTML = '<div class="empty-state">' + escapeHtml(t('status.no-authors', 'No authors')) + '</div>';
             return;
@@ -479,6 +490,7 @@
     }
 
     async function loadAuthorWorks(authorId, strip) {
+        const requestRevision = galleryLoadRevision;
         try {
             const params = new URLSearchParams();
             params.set('page', 0);
@@ -487,6 +499,8 @@
             params.set('order', 'desc');
             params.set('authorId', authorId);
             const resp = await api('/api/gallery/artworks?' + params.toString());
+            if (!strip.isConnected || requestRevision !== galleryLoadRevision) return;
+            releaseThumbnails(strip);
             const items = resp.content || [];
             if (!items.length) {
                 strip.innerHTML = '<div class="author-works-empty">' + escapeHtml(t('status.no-artworks', 'No artworks')) + '</div>';
@@ -511,6 +525,7 @@
             });
             strip.querySelectorAll('img[data-src]').forEach(img => loadThumbnail(img));
         } catch (e) {
+            if (!strip.isConnected || requestRevision !== galleryLoadRevision) return;
             strip.innerHTML = `<div class="author-works-empty">${escapeHtml(t('status.load-failed', 'Load failed: {message}', {message: e.message}))}</div>`;
         }
     }
@@ -540,8 +555,10 @@
 
     // ---------- Series view ----------
     async function loadSeriesView() {
+        const requestRevision = ++galleryLoadRevision;
         persistGalleryState();
         const container = document.getElementById('authorView');
+        releaseThumbnails(container);
         setSearchEmptyState(false);
         container.innerHTML = '<div class="author-works-loading">' + escapeHtml(t('status.loading-series', 'Loading series...')) + '</div>';
         try {
@@ -551,6 +568,7 @@
             params.set('sort', 'artworks');
             if (state.search) params.set('search', state.search);
             const resp = await api('/api/series/paged?' + params.toString());
+            if (requestRevision !== galleryLoadRevision) return;
             state.series.totalPages = resp.totalPages || 0;
             state.series.totalElements = resp.totalElements || 0;
             state.series.content = resp.content || [];
@@ -562,12 +580,14 @@
             renderSeriesView();
             renderSeriesPagination();
         } catch (e) {
+            if (requestRevision !== galleryLoadRevision) return;
             container.innerHTML = `<div class="author-works-loading">${escapeHtml(t('status.load-failed', 'Load failed: {message}', {message: e.message}))}</div>`;
         }
     }
 
     function renderSeriesView() {
         const container = document.getElementById('authorView');
+        releaseThumbnails(container);
         if (!state.series.content.length) {
             container.innerHTML = '<div class="empty-state">' + escapeHtml(t('status.no-series', 'No series')) + '</div>';
             return;
@@ -630,6 +650,7 @@
     }
 
     async function loadSeriesWorks(seriesId, strip) {
+        const requestRevision = galleryLoadRevision;
         try {
             const params = new URLSearchParams();
             params.set('page', 0);
@@ -638,6 +659,8 @@
             params.set('order', 'asc');
             params.set('seriesId', seriesId);
             const resp = await api('/api/gallery/artworks?' + params.toString());
+            if (!strip.isConnected || requestRevision !== galleryLoadRevision) return;
+            releaseThumbnails(strip);
             const items = resp.content || [];
             if (!items.length) {
                 strip.innerHTML = '<div class="author-works-empty">' + escapeHtml(t('status.no-artworks', 'No artworks')) + '</div>';
@@ -663,6 +686,7 @@
             });
             strip.querySelectorAll('img[data-src]').forEach(img => loadThumbnail(img));
         } catch (e) {
+            if (!strip.isConnected || requestRevision !== galleryLoadRevision) return;
             strip.innerHTML = `<div class="author-works-empty">${escapeHtml(t('status.load-failed', 'Load failed: {message}', {message: e.message}))}</div>`;
         }
     }

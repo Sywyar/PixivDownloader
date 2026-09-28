@@ -29,12 +29,16 @@ class MediaToolsPanelTest {
         var tools = new AtomicReference<>(List.of(new DesktopMediaTool(identity, description)));
         var starts = new AtomicInteger();
         var request = new AtomicReference<DesktopMediaTool.Request>();
+        var previewFiles = new AtomicReference<>(java.util.stream.IntStream.range(0, 25)
+                .mapToObj(index -> new DesktopMediaTool.Item(42 + index, index, "source-" + index + ".jpg", List.of("png"), true)).toList());
+        var formatResolutions = new AtomicInteger();
+        var fileView = new AtomicReference<JTextArea>();
         var state = new AtomicReference<>(new DesktopMediaTool.Status("idle", 0, 0, 0, List.of()));
         var source = new DesktopMediaTool.Source() {
             public DesktopMediaTool.Description description() { return description; }
             public DesktopMediaTool.Result<DesktopMediaTool.Preview> preview(DesktopMediaTool.Request value) {
                 request.set(value);
-                return new DesktopMediaTool.Result<>(new DesktopMediaTool.Preview("preview-token", List.of(new DesktopMediaTool.Item(42, 0, "source.jpg", List.of("png"), true)), 1, 0, false), null);
+                return new DesktopMediaTool.Result<>(new DesktopMediaTool.Preview("preview-token", previewFiles.get(), previewFiles.get().size(), 0, false), null);
             }
             public DesktopMediaTool.Result<DesktopMediaTool.Status> start(String token) {
                 assertEquals("preview-token", token);
@@ -68,6 +72,7 @@ class MediaToolsPanelTest {
                 java.nio.charset.StandardCharsets.UTF_8)) { messages.load(reader); }
         SwingHost.install(new DesktopUiContext(false, 8080, ".", config, "gui-swing", host, List.of(), List::of,
                 text -> {
+                    if (text.key().equals("media.tools.missing-formats")) formatResolutions.incrementAndGet();
                     String pattern = messages.getProperty(text.key(), text.fallback());
                     return text.arguments().isEmpty() ? pattern : java.text.MessageFormat.format(pattern, text.arguments().toArray());
                 }, () -> "system"));
@@ -82,6 +87,27 @@ class MediaToolsPanelTest {
             awaitEnabled(panel, "start");
             assertTrue(request.get().repairThumbnails());
             assertEquals(0, starts.get());
+            SwingUtilities.invokeAndWait(() -> {
+                JTextArea area = descendants(panel).filter(JTextArea.class::isInstance).map(JTextArea.class::cast)
+                        .filter(value -> value.getText().startsWith("42 / 0  source-0.jpg")).findFirst().orElseThrow();
+                fileView.set(area);
+                assertEquals(10, area.getText().lines().count());
+                assertFalse(button(panel, "previous").isEnabled());
+                formatResolutions.set(0);
+                button(panel, "next").doClick();
+                assertEquals(10, formatResolutions.get());
+                assertTrue(area.getText().startsWith("52 / 10  source-10.jpg"));
+                formatResolutions.set(0);
+                button(panel, "next").doClick();
+                assertEquals(5, formatResolutions.get());
+                assertEquals(5, area.getText().lines().count());
+                assertTrue(area.getText().startsWith("62 / 20  source-20.jpg"));
+                assertFalse(button(panel, "next").isEnabled());
+                assertTrue(descendants(panel).filter(JLabel.class::isInstance).map(JLabel.class::cast)
+                        .anyMatch(label -> "3 / 3".equals(label.getText())));
+                button(panel, "previous").doClick();
+                assertTrue(area.getText().startsWith("52 / 10  source-10.jpg"));
+            });
             SwingUtilities.invokeAndWait(() -> {
                 var media = descendants(panel).filter(MediaToolsPanel.class::isInstance)
                         .map(MediaToolsPanel.class::cast).findFirst().orElseThrow();
@@ -113,6 +139,27 @@ class MediaToolsPanelTest {
             SwingUtilities.invokeAndWait(() -> button(panel, "cancel").doClick());
             awaitEnabled(panel, "preview");
             assertEquals("cancelled", state.get().state());
+            state.set(new DesktopMediaTool.Status("completed", 25, 25, 25,
+                    java.util.stream.LongStream.rangeClosed(1, 25).mapToObj(id -> new DesktopMediaTool.Failure(id, 0)).toList()));
+            SwingUtilities.invokeAndWait(() -> button(panel, "refresh").doClick());
+            awaitOnEdt(() -> fileView.get().getText().startsWith("1 / 0\n"));
+            SwingUtilities.invokeAndWait(() -> {
+                button(panel, "next").doClick();
+                button(panel, "next").doClick();
+                assertEquals("21 / 0\n22 / 0\n23 / 0\n24 / 0\n25 / 0", fileView.get().getText());
+            });
+            state.set(new DesktopMediaTool.Status("completed", 2, 2, 2,
+                    List.of(new DesktopMediaTool.Failure(80, 1), new DesktopMediaTool.Failure(90, 2))));
+            SwingUtilities.invokeAndWait(() -> button(panel, "refresh").doClick());
+            awaitOnEdt(() -> fileView.get().getText().equals("80 / 1\n90 / 2"));
+            SwingUtilities.invokeAndWait(() -> {
+                assertFalse(button(panel, "previous").isEnabled());
+                assertFalse(button(panel, "next").isEnabled());
+                previewFiles.set(List.of());
+                button(panel, "preview").doClick();
+            });
+            awaitOnEdt(() -> button(panel, "preview").isEnabled() && fileView.get().getText().isEmpty());
+            SwingUtilities.invokeAndWait(() -> assertFalse(button(panel, "start").isEnabled()));
             SwingUtilities.invokeAndWait(() -> button(panel, "check").doClick());
             awaitEnabled(panel, "preview");
             SwingUtilities.invokeAndWait(() -> {
@@ -126,10 +173,13 @@ class MediaToolsPanelTest {
         } finally { SwingUtilities.invokeAndWait(panel::dispose); }
     }
     private static void awaitEnabled(Component panel, String action) {
+        awaitOnEdt(() -> button(panel, action).isEnabled());
+    }
+    private static void awaitOnEdt(java.util.function.BooleanSupplier condition) {
         assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
             var enabled = new AtomicBoolean();
             while (!enabled.get()) {
-                SwingUtilities.invokeAndWait(() -> enabled.set(button(panel, action).isEnabled()));
+                SwingUtilities.invokeAndWait(() -> enabled.set(condition.getAsBoolean()));
                 if (!enabled.get()) Thread.sleep(10);
             }
         });

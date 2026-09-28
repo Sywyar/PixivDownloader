@@ -8,7 +8,6 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
-import top.sywyar.pixivdownload.i18n.I18nBundleResponse;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.i18n.WebI18nService;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService;
@@ -94,11 +93,10 @@ class GuiPluginControllerTest {
                         PluginStatus.STARTED, PluginRuntimePhase.STARTED, true, false, "1.0.0"),
                 entry("stats", "stats", "plugin.name", "external",
                         PluginStatus.STARTED, PluginRuntimePhase.STARTED, true, false, "1.0.0"))));
-        when(webI18nService.loadBundle(eq("gallery"), any()))
-                .thenReturn(new I18nBundleResponse("gallery", "en", "zh-CN", Map.of(
-                        "plugin.name", "Gallery", "plugin.description", "Browse your saved works")));
-        when(webI18nService.loadBundle(eq("stats"), any()))
-                .thenReturn(new I18nBundleResponse("stats", "en", "zh-CN", Map.of("plugin.name", "Statistics")));
+        when(webI18nService.loadMessages(eq("gallery"), any(), any()))
+                .thenReturn(Map.of("plugin.name", "Gallery", "plugin.description", "Browse your saved works"));
+        when(webI18nService.loadMessages(eq("stats"), any(), any()))
+                .thenReturn(Map.of("plugin.name", "Statistics"));
 
         mockMvc.perform(get("/api/gui/plugins/status"))
                 .andExpect(status().isOk())
@@ -127,7 +125,7 @@ class GuiPluginControllerTest {
                 .andExpect(jsonPath("$.plugins[1].version").value("1.0.0"))
                 .andExpect(jsonPath("$.plugins[1].verification.status")
                         .value(PluginVerificationProjector.UNVERIFIED_LOCAL));
-        verify(webI18nService).loadBundle(eq("gallery"), any());
+        verify(webI18nService).loadMessages(eq("gallery"), any(), eq(java.util.Set.of("plugin.name", "plugin.description")));
     }
 
     @Test
@@ -140,15 +138,12 @@ class GuiPluginControllerTest {
                         PluginStatus.INSTALLED, PluginRuntimePhase.UNLOADED, true, false, "1.0.0"),
                 entry("tts", "tts", "plugin.name", "external",
                         PluginStatus.INSTALLED, PluginRuntimePhase.UNLOADED, true, false, "1.0.0"))));
-        when(webI18nService.loadBundle(eq("mail"), any()))
-                .thenReturn(new I18nBundleResponse("mail", "en", "zh-CN",
-                        Map.of("plugin.name", "Mail Notifications")));
-        when(webI18nService.loadBundle(eq("ai"), any()))
-                .thenReturn(new I18nBundleResponse("ai", "en", "zh-CN",
-                        Map.of("plugin.name", "AI Translation")));
-        when(webI18nService.loadBundle(eq("tts"), any()))
-                .thenReturn(new I18nBundleResponse("tts", "en", "zh-CN",
-                        Map.of("plugin.name", "TTS Narration")));
+        when(webI18nService.loadMessages(eq("mail"), any(), any()))
+                .thenReturn(Map.of("plugin.name", "Mail Notifications"));
+        when(webI18nService.loadMessages(eq("ai"), any(), any()))
+                .thenReturn(Map.of("plugin.name", "AI Translation"));
+        when(webI18nService.loadMessages(eq("tts"), any(), any()))
+                .thenReturn(Map.of("plugin.name", "TTS Narration"));
 
         mockMvc.perform(get("/api/gui/plugins/status"))
                 .andExpect(status().isOk())
@@ -204,7 +199,7 @@ class GuiPluginControllerTest {
                 .andExpect(jsonPath("$.plugins[0].source").value("not-installed"))
                 .andExpect(jsonPath("$.plugins[0].required").value(true));
 
-        verify(webI18nService, never()).loadBundle(any(), any());
+        verify(webI18nService, never()).loadMessages(any(), any(), any());
     }
 
     @Test
@@ -213,13 +208,33 @@ class GuiPluginControllerTest {
         when(managementService.list()).thenReturn(report(false, List.of(
                 entry("probe", "missing-ns", "nav.label", "external",
                         PluginStatus.STARTED, PluginRuntimePhase.STARTED, true, false, "9.9.9"))));
-        when(webI18nService.loadBundle(eq("missing-ns"), any()))
+        when(webI18nService.loadMessages(eq("missing-ns"), any(), any()))
                 .thenThrow(new RuntimeException("unsupported namespace"));
 
         mockMvc.perform(get("/api/gui/plugins/status"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.plugins[0].id").value("probe"))
                 .andExpect(jsonPath("$.plugins[0].name").value("probe"));
+    }
+
+    @Test
+    @DisplayName("相同 namespace 的条目合并所需字段，空白名称仍回退且下次请求重新读取")
+    void groupsDisplayKeysWithinOneRequest() throws Exception {
+        when(managementService.list()).thenReturn(report(false, List.of(
+                entry("first", "shared", "first.name", "external", PluginStatus.STARTED, null, false, false, "9.9.9"),
+                entry("second", "shared", "second.name", "external", PluginStatus.STARTED, null, false, false, "9.9.9"))));
+        when(webI18nService.loadMessages(eq("shared"), any(), any()))
+                .thenReturn(Map.of("first.name", "First", "second.name", "  ", "plugin.description", "Description"))
+                .thenReturn(Map.of("first.name", "Updated", "second.name", "Second"));
+        mockMvc.perform(get("/api/gui/plugins/status"))
+                .andExpect(jsonPath("$.plugins[0].name").value("First"))
+                .andExpect(jsonPath("$.plugins[1].name").value("second"))
+                .andExpect(jsonPath("$.plugins[1].description").value("Description"));
+        verify(webI18nService).loadMessages(eq("shared"), any(),
+                eq(java.util.Set.of("first.name", "second.name", "plugin.description")));
+        mockMvc.perform(get("/api/gui/plugins/status"))
+                .andExpect(jsonPath("$.plugins[0].name").value("Updated"))
+                .andExpect(jsonPath("$.plugins[1].name").value("Second"));
     }
 
     @Test

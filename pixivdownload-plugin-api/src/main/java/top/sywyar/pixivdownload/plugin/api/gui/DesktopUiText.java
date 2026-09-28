@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin.api.gui;
 
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * 宿主或插件拥有的本地化文本语义；它不描述任何工具包控件。
@@ -12,6 +13,7 @@ import java.util.List;
  */
 public record DesktopUiText(String namespace, String key, String fallback, List<String> arguments) {
     private static final int MAX_TEXT_LENGTH = 16_384;
+    private static final Pattern STABLE_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}");
 
     /**
      * 规范化命名空间和消息键，并限制所有文本输入的大小。
@@ -29,7 +31,9 @@ public record DesktopUiText(String namespace, String key, String fallback, List<
         if (arguments.size() > 4_096) {
             throw new IllegalArgumentException("arguments is too large");
         }
-        arguments = arguments.stream().map(value -> bounded(value, "argument")).toList();
+        for (String value : arguments) {
+            bounded(value, "argument");
+        }
         if (key.isBlank() && fallback.isBlank()) {
             throw new IllegalArgumentException("desktop text requires key or fallback");
         }
@@ -81,7 +85,7 @@ public record DesktopUiText(String namespace, String key, String fallback, List<
     }
 
     private static void requireId(String value, String name) {
-        if (!value.matches("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")) {
+        if (!STABLE_ID.matcher(value).matches()) {
             throw new IllegalArgumentException(name + " must be a stable id");
         }
     }

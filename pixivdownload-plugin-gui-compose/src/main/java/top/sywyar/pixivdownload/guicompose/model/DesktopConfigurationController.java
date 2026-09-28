@@ -63,6 +63,7 @@ final class DesktopConfigurationController {
     final Map<FieldKey, String> savedValues = new ConcurrentHashMap<>();
     private final DesktopConfigurationView view;
     private final DesktopConfigurationLoader loader;
+    private SettingsPage cachedPage;
 
     volatile Set<FieldKey> storedCredentialFields = Set.of();
     volatile List<ConfigField> configFields = List.of();
@@ -104,7 +105,29 @@ final class DesktopConfigurationController {
             Map<String, Consumer<List<String>>> nextSelections,
             Map<String, Runnable> nextActions
     ) {
-        return view.controlCenterPage(nextSelections, nextActions);
+        SettingsPage page = cachedPage;
+        if (page == null) {
+            Map<String, Consumer<List<String>>> selections = new LinkedHashMap<>();
+            Map<String, Runnable> actions = new LinkedHashMap<>();
+            DesktopUiNode content = view.controlCenterPage(selections, actions);
+            page = new SettingsPage(content, Map.copyOf(selections), Map.copyOf(actions));
+            if (!owner.busy()) cachedPage = page;
+        }
+        nextSelections.putAll(page.selections());
+        nextActions.putAll(page.actions());
+        return page.content();
+    }
+
+    void invalidatePage() {
+        cachedPage = null;
+    }
+
+    // 仅复用状态轮询之间的页面与绑定；交互、语言和来源换代由模型统一失效，不复制表单凭据。
+    private record SettingsPage(
+            DesktopUiNode content,
+            Map<String, Consumer<List<String>>> selections,
+            Map<String, Runnable> actions
+    ) {
     }
 
     void coreValueSaved(String key, String value) {

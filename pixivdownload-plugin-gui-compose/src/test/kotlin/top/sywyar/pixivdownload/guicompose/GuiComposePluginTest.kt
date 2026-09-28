@@ -380,7 +380,7 @@ class GuiComposePluginTest {
             DesktopUiNode.Scroll("scroll", text("scroll.text")),
             DesktopUiNode.Split("split", DesktopUiNode.Axis.HORIZONTAL, .5, text("split.first"), text("split.second")),
             DesktopUiNode.Icon("icon", DesktopUiIcon.HOME, DesktopUiTone.INFO, raw("Home")),
-            DesktopUiNode.Image("image", DesktopUiNode.ImageData("image/gif", PIXEL_GIF), raw("Pixel"),
+            DesktopUiNode.Image("image", DesktopUiNode.ImageData.fromBase64("image/gif", PIXEL_GIF), raw("Pixel"),
                 16, 16, DesktopUiNode.ScaleMode.FILL, DesktopUiNode.ImageShape.CIRCLE),
             DesktopUiNode.Separator("separator", DesktopUiNode.Axis.HORIZONTAL),
             DesktopUiNode.Spacer("spacer", 4, 4),

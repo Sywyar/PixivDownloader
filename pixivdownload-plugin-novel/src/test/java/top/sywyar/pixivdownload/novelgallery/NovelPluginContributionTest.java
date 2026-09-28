@@ -21,6 +21,16 @@ class NovelPluginContributionTest {
     private final NovelPlugin plugin = new NovelPlugin();
 
     @Test
+    @DisplayName("静态配置与导航声明可复用且调用方不能修改")
+    void reusesImmutableDeclarations() {
+        assertThat(plugin.routes()).isSameAs(plugin.routes());
+        assertThat(plugin.navigation()).isSameAs(plugin.navigation());
+        assertThat(plugin.guiConfigContributions()).isSameAs(plugin.guiConfigContributions());
+        org.junit.jupiter.api.Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> plugin.guiConfigContributions().clear());
+    }
+
+    @Test
     @DisplayName("未发布插件描述符统一要求首个核心 API 1.0")
     void descriptorRequiresInitialApi10() throws Exception {
         Properties descriptor = new Properties();

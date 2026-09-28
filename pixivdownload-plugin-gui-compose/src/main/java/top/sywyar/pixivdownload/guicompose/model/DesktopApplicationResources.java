@@ -8,7 +8,6 @@ import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode;
 import java.io.InputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,7 +47,7 @@ final class DesktopApplicationResources {
             if (stream == null) return Optional.empty();
             return Optional.of(new DesktopUiNode.ImageData(
                     "image/x-icon",
-                    Base64.getEncoder().encodeToString(stream.readAllBytes())
+                    stream.readAllBytes()
             ));
         } catch (Exception failure) {
             LOG.warn("Unable to load the desktop application icon", failure);
@@ -138,11 +137,11 @@ final class DesktopApplicationResources {
             }
             validateHttpsUri(avatarUrl, "avatars.githubusercontent.com");
             validateHttpsUri(profileUrl, "github.com");
-            new DesktopUiNode.ImageData(avatarMediaType, avatarBase64);
+            DesktopUiNode.ImageData.fromBase64(avatarMediaType, avatarBase64);
         }
 
         DesktopUiNode.ImageData avatar() {
-            return new DesktopUiNode.ImageData(avatarMediaType, avatarBase64);
+            return DesktopUiNode.ImageData.fromBase64(avatarMediaType, avatarBase64);
         }
     }
 }

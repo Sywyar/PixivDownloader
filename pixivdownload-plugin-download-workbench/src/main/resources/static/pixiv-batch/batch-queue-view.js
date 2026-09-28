@@ -10,12 +10,19 @@
     // 队列计数门面：始终重算 state.stats 并维护 sr-only #stats-bar（读屏 / 回归保留）。
     // 仪表盘 5 张统计卡：Vue 岛激活时合并进 reactive store（与速度卡同 store），否则命令式逐项写入数字。
     function updateStats() {
-        state.stats.success = state.queue.filter(q => q.status === 'completed').length;
-        state.stats.failed = state.queue.filter(q => q.status === 'failed').length;
-        state.stats.active = state.queue.filter(q => q.status === 'downloading').length;
-        state.stats.skipped = state.queue.filter(q => q.status === 'skipped').length;
-        const pending = state.queue.filter(q =>
-            ['idle', 'pending', 'paused'].includes(q.status)).length;
+        state.stats.success = state.stats.failed = state.stats.active = state.stats.skipped = 0;
+        let pending = 0;
+        for (const item of state.queue) {
+            switch (item.status) {
+                case 'completed': state.stats.success++; break;
+                case 'failed': state.stats.failed++; break;
+                case 'downloading': state.stats.active++; break;
+                case 'skipped': state.stats.skipped++; break;
+                case 'idle':
+                case 'pending':
+                case 'paused': pending++; break;
+            }
+        }
         const statsBar = document.getElementById('stats-bar');
         if (statsBar) {
             statsBar.textContent = formatStatsText(
@@ -195,8 +202,8 @@
         return {downloading, queued};
     }
 
-    // 剩余计数行 HTML（命令式回退与 Vue 路径共用；两项都为 0 时不输出该行）。
-    function buildCurrentRemainingLineHtml(downloading, queued) {
+    // 剩余计数文案按渲染时的语言派生；两项都为 0 时不输出。
+    function currentRemainingLineText(downloading, queued) {
         let text;
         if (downloading > 0 && queued > 0) {
             text = bt('status.current-remaining.both', '还有 {downloading} 个正在下载、{queued} 个排队中…',
@@ -208,7 +215,12 @@
         } else {
             return '';
         }
-        return '<div class="current-remaining">' + esc(text) + '</div>';
+        return text;
+    }
+
+    function buildCurrentRemainingLineHtml(downloading, queued) {
+        const text = currentRemainingLineText(downloading, queued);
+        return text ? '<div class="current-remaining">' + esc(text) + '</div>' : '';
     }
 
     // 当前卡完整 HTML：队首未完成项的进度卡 + 剩余计数行；无未完成项（含暂停）时回退 idle「无」。
@@ -227,7 +239,7 @@
     // 暂停标志（当前卡内容由响应式从镜像派生，Vue 只 patch 单卡）；否则命令式重建整卡。每次刷新都同步队列镜像，
     // 保证任意进度 / 状态事件（setCurrent / renderCurrent / pause / resume）都让当前卡实时重算，不依赖外部是否
     // 另调 renderQueue；镜像同步与 renderQueue 的列表同步同 key 合批去重。按当前卡挂载点单独判定，避免「统计 /
-    // 列表岛激活但当前卡挂载失败」时当前卡永久停留在初始「无」。两条路径共用 computeCurrentCardHtml 同一派生口径。
+    // 列表岛激活但当前卡挂载失败」时当前卡永久停留在初始「无」。两条路径共用队首与剩余计数的派生口径。
     function refreshCurrentCard(changedItem) {
         if (downloadQueueVueActive() && queueVue().isDownloadCurrentActive()) {
             queueVue().syncDownloadList(changedItem);
@@ -242,9 +254,10 @@
     const queueProgressRows = new Set();
     let queueProgressScheduled = false;
 
-    function renderQueue(changedItem) {
-        if (!changedItem) renderQueueRecovery();
+    function renderQueue(changedItem, statusChanged = false) {
+        if (!changedItem || statusChanged) renderQueueRecovery();
         if (changedItem && !downloadQueueVueActive('list')) {
+            if (statusChanged) updateAdminPackButton();
             queueProgressRows.add(changedItem);
             if (!queueProgressScheduled) {
                 queueProgressScheduled = true;
@@ -276,7 +289,7 @@
         } else {
             renderQueueImperative();
         }
-        updateAdminPackButton();
+        if (!changedItem || statusChanged) updateAdminPackButton();
     }
 
     function renderQueueImperative() {
@@ -351,7 +364,7 @@
     // opts.queueKey 给行根节点打一个宿主编码的复合 data-queue-key，供「只替换单行 outerHTML」的局部刷新定位该行
     //（计划任务详情高频 SSE 刷新用，避免整块 innerHTML 重建）；不传则不输出该属性，普通队列调用不受影响。
     function buildQueueItemHtml(q, opts) {
-        const removable = !opts || opts.removable !== false;
+        const model = queueItemModel(q, opts);
         const queueKeyAttr = opts && opts.queueKey != null
             ? ` data-queue-key="${esc(String(opts.queueKey))}"`
             : '';
@@ -364,15 +377,35 @@
             + formatUgoiraProgressHtml(q.ugoiraProgress, q.status)
             + formatNovelProgressHtml(q)
             + formatQueueLiveStatusHtml(q);
+        const tags = model.tags.map(tag => `<span class="${tag.className}"${tag.sourceId != null ? ` data-source-id="${esc(tag.sourceId)}"` : ''}${tag.pluginId != null ? ` data-queue-tag-id="${esc(tag.pluginId)}"` : ''}>${esc(tag.label)}</span>`).join('');
+        const descHtml = model.message.map(part => `<span style="color:${part.color};font-weight:bold;">${esc(part.text)}</span>`).join('');
+        const cancelBtn = model.canCancel
+            ? `<button type="button" class="queue-cancel-btn" data-queue-cancel-id="${esc(String(q.id))}" title="${esc(model.cancelLabel)}" aria-label="${esc(model.cancelLabel)}">■</button>` : '';
+        const removeBtn = model.canRemove
+            ? `<button type="button" class="queue-remove-btn" data-queue-remove-id="${esc(String(q.id))}" title="${esc(model.removeLabel)}">✕</button>` : '';
+        const linkBtn = model.linkHref
+            ? `<a href="${esc(model.linkHref)}" target="_blank" class="queue-source-link" data-pixiv-click="noop()" data-pixiv-stop="true" title="${esc(model.linkLabel)}">🔗</a>` : '';
+        return `<div class="queue-item"${queueKeyAttr} style="border-left-color:${model.color}">
+      <div class="q-title">
+        <span class="q-title-main">${esc(model.title)}</span>
+        ${linkBtn}${cancelBtn}${removeBtn}
+      </div>
+      <div class="q-tags">${tags}</div>
+      <div class="q-meta">ID: ${esc(model.displayId)} | ${descHtml}</div>
+      ${prog}
+      ${detailProg}
+    </div>`;
+    }
+
+    // HTML 与 Vue 共用当次展示数据；不把翻译或插件贡献缓存到队列业务项。
+    function queueItemModel(q, opts) {
+        const removable = !opts || opts.removable !== false;
         const desc = q.statusMessageKey
             ? bt(q.statusMessageKey, q.lastMessage || queueStatusText(q.status))
             : (q.lastMessage || queueStatusText(q.status));
-        const descHtml = renderQueueMessageHtml(q, desc);
         const sourceDescriptor = queueDataSource(q);
-        const sourceLabel = `<span class="queue-tag queue-tag--source" data-source-id="${esc(sourceDescriptor ? sourceDescriptor.id : 'unknown')}">${esc(queueDataSourceText(sourceDescriptor))}</span>`;
         const acquisitionMode = queueAcquisitionMode(q.source);
         const modeClass = acquisitionMode === 'single-import' ? 'import' : acquisitionMode;
-        const modeLabel = `<span class="queue-tag queue-tag--mode queue-tag--mode-${modeClass}">${esc(queueSourceText(q.source))}</span>`;
         const xRestrict = q.xRestrict == null ? null : Number(q.xRestrict);
         const rating = xRestrict === 2
             ? {id: 'r18g', label: 'R-18G'}
@@ -381,39 +414,32 @@
                 : xRestrict === null || !Number.isFinite(xRestrict)
                     ? {id: 'unknown', label: bt('queue.unknown', '未知')}
                     : {id: 'sfw', label: 'SFW'};
-        const ratingLabel = `<span class="queue-tag queue-tag--rating queue-tag--rating-${rating.id}">${esc(rating.label)}</span>`;
+        const tags = [
+            {className: 'queue-tag queue-tag--source', sourceId: sourceDescriptor ? sourceDescriptor.id : 'unknown', label: queueDataSourceText(sourceDescriptor)},
+            {className: 'queue-tag queue-tag--mode queue-tag--mode-' + modeClass, label: queueSourceText(q.source)},
+            {className: 'queue-tag queue-tag--rating queue-tag--rating-' + rating.id, label: rating.label}
+        ];
         const queueTypes = window.PixivBatch && window.PixivBatch.queueTypes;
         const contributedTags = queueTypes && typeof queueTypes.queueTags === 'function'
             ? queueTypes.queueTags(q) : [];
-        const pluginLabels = (Array.isArray(contributedTags) ? contributedTags : [])
-            .map(tag => `<span class="queue-tag queue-tag--plugin" data-queue-tag-id="${esc(tag.id)}">${esc(tag.label)}</span>`)
-            .join('');
+        for (const tag of Array.isArray(contributedTags) ? contributedTags : []) {
+            tags.push({className: 'queue-tag queue-tag--plugin', pluginId: tag.id, label: tag.label});
+        }
         const canRemove = removable && q.status !== 'downloading';
-        const cancelBtn = removable && canCancelQueueItem(q)
-            ? `<button type="button" class="queue-cancel-btn" data-queue-cancel-id="${esc(String(q.id))}" title="${esc(bt('queue.cancel', '取消下载'))}" aria-label="${esc(bt('queue.cancel', '取消下载'))}">■</button>`
-            : '';
-        const removeBtn = canRemove
-            ? `<button type="button" class="queue-remove-btn" data-queue-remove-id="${esc(String(q.id))}" title="${esc(bt('queue.remove', '移除'))}">✕</button>`
-            : '';
+        const canCancel = removable && canCancelQueueItem(q);
         const isNovel = q.kind === 'novel';
         const novelDisplayId = q.novelId != null ? String(q.novelId) : String(q.id).replace(/^n/, '');
         const displayId = isNovel ? `${novelDisplayId} (Novel)` : String(q.id == null ? '' : q.id);
         const linkHref = queueItemCanonicalUrl(q) || (isNovel
             ? `https://www.pixiv.net/novel/show.php?id=${encodeURIComponent(novelDisplayId)}`
             : '');
-        const linkBtn = linkHref
-            ? `<a href="${esc(linkHref)}" target="_blank" class="queue-source-link" data-pixiv-click="noop()" data-pixiv-stop="true" title="${esc(bt('queue.open-artwork', '打开作品页面'))}">🔗</a>`
-            : '';
-        return `<div class="queue-item"${queueKeyAttr} style="border-left-color:${statusColor(q.status)}">
-      <div class="q-title">
-        <span class="q-title-main">${esc(queueItemDisplayTitle(q))}</span>
-        ${linkBtn}${cancelBtn}${removeBtn}
-      </div>
-      <div class="q-tags">${sourceLabel}${modeLabel}${ratingLabel}${pluginLabels}</div>
-      <div class="q-meta">ID: ${esc(displayId)} | ${descHtml}</div>
-      ${prog}
-      ${detailProg}
-    </div>`;
+        return {
+            title: queueItemDisplayTitle(q), color: statusColor(q.status), displayId, linkHref,
+            tags, message: queueMessageModel(q, desc), canRemove, canCancel,
+            cancelLabel: canCancel ? bt('queue.cancel', '取消下载') : '',
+            removeLabel: canRemove ? bt('queue.remove', '移除') : '',
+            linkLabel: linkHref ? bt('queue.open-artwork', '打开作品页面') : ''
+        };
     }
 
     function pct(q) {

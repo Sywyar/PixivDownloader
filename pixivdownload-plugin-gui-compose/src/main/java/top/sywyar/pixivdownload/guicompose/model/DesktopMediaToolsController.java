@@ -83,22 +83,27 @@ final class DesktopMediaToolsController implements AutoCloseable {
                 action(state, "start", editable && state.preview != null && !state.preview.files().isEmpty(), actions, () -> start(state)),
                 action(state, "cancel", state.running() && !state.cancelling, actions, () -> cancel(state)),
                 action(state, "refresh", !state.busy, actions, () -> owner.executeAsync(() -> refresh(state)))));
-        if (state.preview != null) {
-            var files = state.preview.files();
-            body.add(new Text(id + ".ready", token(state, files.isEmpty() ? "media.tools.empty" : "media.tools.ready", files.size(), state.preview.scanned()), TextStyle.BODY, true, false));
-            if (state.preview.skipped() > 0) body.add(new Text(id + ".skipped", token(state, "media.tools.skipped", state.preview.skipped()), TextStyle.WARNING, true, false));
-            if (state.preview.limited()) body.add(new Text(id + ".limited", token(state, "media.tools.limited"), TextStyle.WARNING, true, false));
+        var preview = state.preview;
+        var status = state.status;
+        if (preview != null) {
+            var files = preview.files();
+            body.add(new Text(id + ".ready", token(state, files.isEmpty() ? "media.tools.empty" : "media.tools.ready", files.size(), preview.scanned()), TextStyle.BODY, true, false));
+            if (preview.skipped() > 0) body.add(new Text(id + ".skipped", token(state, "media.tools.skipped", preview.skipped()), TextStyle.WARNING, true, false));
+            if (preview.limited()) body.add(new Text(id + ".limited", token(state, "media.tools.limited"), TextStyle.WARNING, true, false));
         }
-        List<String> files = state.preview != null ? state.preview.files().stream()
-                .map(file -> file.artworkId() + " / " + file.page() + "  " + file.fileName()).toList()
-                : state.status == null ? List.of() : state.status.failures().stream()
-                .map(file -> file.artworkId() + " / " + file.page()).toList();
-        if (!files.isEmpty()) {
-            state.page = Math.min(state.page, (files.size() - 1) / 10);
-            body.add(raw(id + ".files", String.join("\n", files.stream().skip(state.page * 10L).limit(10).toList()), TextStyle.CODE));
-            if (state.preview != null) {
-                for (int index = state.page * 10; index < Math.min(files.size(), (state.page + 1) * 10); index++) {
-                    var file = state.preview.files().get(index);
+        int fileCount = preview != null ? preview.files().size() : status == null ? 0 : status.failures().size();
+        if (fileCount > 0) {
+            state.page = Math.min(state.page, (fileCount - 1) / 10);
+            int from = state.page * 10;
+            int to = Math.min(fileCount, from + 10);
+            List<String> files = preview != null ? preview.files().subList(from, to).stream()
+                    .map(file -> file.artworkId() + " / " + file.page() + "  " + file.fileName()).toList()
+                    : status.failures().subList(from, to).stream()
+                    .map(file -> file.artworkId() + " / " + file.page()).toList();
+            body.add(raw(id + ".files", String.join("\n", files), TextStyle.CODE));
+            if (preview != null) {
+                for (int index = from; index < to; index++) {
+                    var file = preview.files().get(index);
                     String rowId = id + ".file." + (index % 10);
                     if (!file.missingFormats().isEmpty()) body.add(new Text(rowId + ".formats",
                             token(state, "media.tools.missing-formats", String.join(", ", file.missingFormats()).toUpperCase(java.util.Locale.ROOT)), TextStyle.SECONDARY, true, false));
@@ -107,10 +112,9 @@ final class DesktopMediaToolsController implements AutoCloseable {
             }
             body.add(row(id + ".pages",
                     action(state, "previous", state.page > 0, actions, () -> { state.page--; owner.rebuild(); }),
-                    raw(id + ".page", (state.page + 1) + " / " + ((files.size() + 9) / 10), TextStyle.CAPTION),
-                    action(state, "next", (state.page + 1) * 10 < files.size(), actions, () -> { state.page++; owner.rebuild(); })));
+                    raw(id + ".page", (state.page + 1) + " / " + ((fileCount + 9) / 10), TextStyle.CAPTION),
+                    action(state, "next", (state.page + 1) * 10 < fileCount, actions, () -> { state.page++; owner.rebuild(); })));
         }
-        var status = state.status;
         if (status != null && !status.state().equals("idle")) {
             if (state.running()) {
                 body.add(new Progress(id + ".progress", status.total() == 0 ? 0 : (double) status.completed() / status.total(), status.total() == 0,
@@ -241,7 +245,12 @@ final class DesktopMediaToolsController implements AutoCloseable {
     private DesktopMediaTool.Source source(State state) { return host.mediaTool(state.tool.identity()); }
     private boolean active(State state) { return !closed && states.get(state.tool.identity()) == state; }
     private static TextToken token(State state, String key, Object... arguments) {
-        return new TextToken(state.tool.description().namespace(), key, key, Arrays.stream(arguments).map(String::valueOf).toList());
+        return new TextToken(
+                state.tool.description().namespace(),
+                key,
+                key,
+                arguments.length == 0 ? List.of() : Arrays.stream(arguments).map(String::valueOf).toList()
+        );
     }
     private static void fail(State state, RuntimeException failure) {
         DesktopUiText text = failure instanceof DesktopMediaTool.OperationException operation

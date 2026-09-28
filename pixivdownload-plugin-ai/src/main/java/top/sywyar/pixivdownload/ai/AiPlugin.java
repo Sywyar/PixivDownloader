@@ -69,13 +69,15 @@ public class AiPlugin implements PixivFeaturePlugin {
         return PluginKind.FEATURE;
     }
 
+    private static final List<WebRouteContribution> ROUTES = List.of(
+        WebRouteContribution.gui("/api/gui/ai-test"),
+        WebRouteContribution.gui("/api/gui/ai-models"),
+        WebRouteContribution.admin("/api/admin/ai/**"),
+        WebRouteContribution.visitorAndInvitedGuest("/pixiv-ai/**"));
+
     @Override
     public List<WebRouteContribution> routes() {
-        return List.of(
-                WebRouteContribution.gui("/api/gui/ai-test"),
-                WebRouteContribution.gui("/api/gui/ai-models"),
-                WebRouteContribution.admin("/api/admin/ai/**"),
-                WebRouteContribution.visitorAndInvitedGuest("/pixiv-ai/**"));
+        return ROUTES;
     }
 
     @Override
@@ -101,8 +103,14 @@ public class AiPlugin implements PixivFeaturePlugin {
                 new I18nContribution("translate", "i18n.web.translate", 13));
     }
 
+    private static final List<GuiConfigContribution> GUI_CONFIG_CONTRIBUTIONS = createGuiConfigContributions();
+
     @Override
     public List<GuiConfigContribution> guiConfigContributions() {
+        return GUI_CONFIG_CONTRIBUTIONS;
+    }
+
+    private static List<GuiConfigContribution> createGuiConfigContributions() {
         List<GuiConfigFieldContribution> fields = List.of(
                 bool("ai.enabled", "false", 100),
                 string("ai.base-url", "", 110),

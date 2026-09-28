@@ -1,10 +1,10 @@
 package top.sywyar.pixivdownload.plugin.runtime.install.verify;
 
 import java.io.BufferedInputStream;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
@@ -113,7 +113,11 @@ public final class PluginPackageVerifier {
                                     String archiveLabel) throws IOException {
         byte[] buffer = new byte[8192];
         Set<String> entryNames = new HashSet<>();
-        try (ZipInputStream zis = new ZipInputStream(new BufferedInputStream(input))) {
+        BufferedInputStream buffered = new BufferedInputStream(input);
+        try (ZipInputStream zis = new ZipInputStream(buffered)) {
+            if (archiveKind != NestedArchiveKind.TOP_LEVEL) {
+                requireZipSignature(buffered, archiveLabel);
+            }
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 budget.entryCount++;
@@ -136,36 +140,15 @@ public final class PluginPackageVerifier {
                 NestedArchiveKind nestedKind = nestedArchiveKind(
                         entryName, archiveKind == NestedArchiveKind.TOP_LEVEL,
                         archiveKind != NestedArchiveKind.PRIVATE_LIBRARY);
-                ByteArrayOutputStream nestedBytes = nestedKind == null ? null : new ByteArrayOutputStream();
-                long entryUncompressed = 0;
-                int read;
-                while ((read = zis.read(buffer)) != -1) {
-                    entryUncompressed += read;
-                    budget.totalUncompressed += read;
-                    if (entryUncompressed > limits.maxEntryUncompressedBytes()) {
-                        throw tooLarge("zip entry too large when decompressed: " + entryName
-                                + " exceeds " + limits.maxEntryUncompressedBytes() + " bytes");
-                    }
-                    if (budget.totalUncompressed > limits.maxTotalUncompressedBytes()) {
-                        throw tooLarge("total decompressed size including nested plugin jars exceeds "
-                                + limits.maxTotalUncompressedBytes() + " bytes");
-                    }
-                    if (nestedBytes != null) {
-                        nestedBytes.write(buffer, 0, read);
-                    }
+                EntryInputStream entryInput = new EntryInputStream(zis, limits, budget, entryName, nestedKind != null);
+                if (nestedKind != null) {
+                    scanArchive(entryInput, limits, budget, nestedKind, archiveLabel + "!/" + entryName);
                 }
-                assertCompressionRatio(entry, entryUncompressed, limits);
+                // 子 ZIP 可能在中央目录前停止；读完外层条目才能计量尾随字节并验证 CRC。
+                while (entryInput.read(buffer) != -1) {
+                }
+                assertCompressionRatio(entry, entryInput.bytesRead, limits);
                 zis.closeEntry();
-                if (nestedBytes != null) {
-                    byte[] bytes = nestedBytes.toByteArray();
-                    if (bytes.length > limits.maxArchiveBytes()) {
-                        throw tooLarge("nested plugin jar too large: " + entryName);
-                    }
-                    requireZipSignature(bytes, archiveLabel + "!/" + entryName);
-                    scanArchive(new ByteArrayInputStream(bytes), limits, budget,
-                            nestedKind,
-                            archiveLabel + "!/" + entryName);
-                }
             }
         }
     }
@@ -209,8 +192,12 @@ public final class PluginPackageVerifier {
                 ? NestedArchiveKind.PRIVATE_LIBRARY : null;
     }
 
-    private static void requireZipSignature(byte[] bytes, String archiveLabel) {
+    private static void requireZipSignature(BufferedInputStream input, String archiveLabel) throws IOException {
+        input.mark(4);
+        byte[] bytes = input.readNBytes(4);
+        input.reset();
         if (bytes.length < 4 || bytes[0] != 'P' || bytes[1] != 'K') {
+            input.transferTo(OutputStream.nullOutputStream());
             throw new PluginPackageException(PluginPackageException.Reason.MALFORMED,
                     "nested plugin jar is malformed: " + archiveLabel);
         }
@@ -236,6 +223,62 @@ public final class PluginPackageVerifier {
 
     private static PluginPackageException tooLarge(String message) {
         return new PluginPackageException(PluginPackageException.Reason.TOO_LARGE, message);
+    }
+
+    private static final class EntryInputStream extends FilterInputStream {
+        private final PluginPackageLimits limits;
+        private final ScanBudget budget;
+        private final String entryName;
+        private final boolean nested;
+        private long bytesRead;
+
+        private EntryInputStream(InputStream input, PluginPackageLimits limits, ScanBudget budget,
+                                 String entryName, boolean nested) {
+            super(input);
+            this.limits = limits;
+            this.budget = budget;
+            this.entryName = entryName;
+            this.nested = nested;
+        }
+
+        @Override
+        public int read() throws IOException {
+            int value = in.read();
+            if (value != -1) {
+                recordRead(1);
+            }
+            return value;
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) throws IOException {
+            int count = in.read(buffer, offset, length);
+            if (count > 0) {
+                recordRead(count);
+            }
+            return count;
+        }
+
+        private void recordRead(int count) {
+            bytesRead += count;
+            budget.totalUncompressed += count;
+            if (bytesRead > limits.maxEntryUncompressedBytes()) {
+                throw tooLarge("zip entry too large when decompressed: " + entryName
+                        + " exceeds " + limits.maxEntryUncompressedBytes() + " bytes");
+            }
+            if (budget.totalUncompressed > limits.maxTotalUncompressedBytes()) {
+                throw tooLarge("total decompressed size including nested plugin jars exceeds "
+                        + limits.maxTotalUncompressedBytes() + " bytes");
+            }
+            if (nested && bytesRead > limits.maxArchiveBytes()) {
+                throw tooLarge("nested plugin jar too large: " + entryName);
+            }
+        }
+
+        @Override
+        public void close() {
+            // 条目与外层 ZIP 共用输入；递归扫描只关闭自己的解压器。
+        }
     }
 
     private static final class ScanBudget {

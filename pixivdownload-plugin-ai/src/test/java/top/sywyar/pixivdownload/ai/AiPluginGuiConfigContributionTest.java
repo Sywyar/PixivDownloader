@@ -30,6 +30,15 @@ class AiPluginGuiConfigContributionTest {
     private final AiPlugin plugin = new AiPlugin();
 
     @Test
+    @DisplayName("静态配置与路由声明可复用且调用方不能修改")
+    void reusesImmutableDeclarations() {
+        assertThat(plugin.guiConfigContributions()).isSameAs(plugin.guiConfigContributions());
+        assertThat(plugin.routes()).isSameAs(plugin.routes());
+        org.junit.jupiter.api.Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> plugin.guiConfigContributions().clear());
+    }
+
+    @Test
     @DisplayName("启用 AI 时必须输入密钥或沿用可读取的已存凭据")
     void credentialIsRequiredOnlyWhenEnabled() {
         var key = fields().stream().filter(field -> field.key().equals("ai.api-key")).findFirst().orElseThrow();

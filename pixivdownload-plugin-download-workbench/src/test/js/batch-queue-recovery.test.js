@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const {MiniElement} = require('./pixiv-layout-feedback-test-dom');
 
 const root = path.join(__dirname, '../../main/resources/static');
 const source = name => fs.readFileSync(path.join(root, name), 'utf8');
@@ -46,6 +47,47 @@ function harness(queue = []) {
     vm.runInContext(source('pixiv-batch/batch-queue-recovery.js'), context);
     return {context, behavior, timers, listeners, calls};
 }
+
+test('recovery help keeps disclosure and focus while pending actions remain visible', () => {
+    const h = harness([]);
+    const document = {activeElement: null};
+    const host = new MiniElement('div', document);
+    Object.defineProperty(host, 'firstChild', {get: () => host.children[0] || null});
+    document.getElementById = () => host;
+    document.createElement = tag => new MiniElement(tag, document);
+    h.context.document = document;
+    h.context.renderQueueRecovery();
+    const help = host.querySelector('details');
+    const summary = help.querySelector('summary');
+    const actions = host.querySelector('[data-recovery-actions]');
+    const message = host.querySelector('[data-recovery-message]');
+    assert.equal(actions.hidden, true);
+    assert.equal(message.hidden, true);
+    assert.equal(actions.parentNode, host);
+    assert.equal(message.parentNode, host);
+
+    help.open = true;
+    summary.focus();
+    h.context.state.queue.push({id: '1', recoveryState: 'unknown'});
+    h.context.bt = key => 'translated:' + key;
+    h.context.renderQueueRecovery();
+    assert.equal(host.querySelector('details'), help);
+    assert.equal(help.open, true);
+    assert.equal(document.activeElement, summary);
+    assert.equal(summary.textContent, 'translated:batch:queue.recovery.keep-open');
+    assert.equal(actions.hidden, false);
+    assert.equal(message.hidden, false);
+    assert.equal(actions.children[1].disabled, false);
+    help.open = false;
+    h.context.renderQueueRecovery();
+    assert.equal(help.open, false);
+    assert.equal(actions.hidden, false);
+    assert.equal(actions.children[1].listenerCount('click'), 1);
+
+    h.context.isAdmin = false;
+    h.context.renderQueueRecovery();
+    assert.equal(host.hidden, true);
+});
 
 function loadQueue(context, layout) {
     const file = source(layout === 'classic' ? 'pixiv-batch/batch-queue.js' : 'pixiv-batch-alt/alt-queue.js');

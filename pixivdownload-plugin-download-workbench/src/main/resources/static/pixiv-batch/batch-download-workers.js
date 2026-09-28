@@ -139,7 +139,7 @@
         state.queue[idx].statusMessageKey = null;
         state.queue[idx].startTime = new Date().toISOString();
         saveQueue();
-        renderQueue();
+        renderQueue(state.queue[idx], true);
         return state.queue[idx];
     }
 
@@ -153,7 +153,7 @@
         item.lastMessage = bt('queue.message.type-unavailable', '该类型当前不可用（其插件已禁用），已暂停');
         updateStats();
         saveQueue();
-        renderQueue();
+        renderQueue(item, true);
     }
 
     async function processSingle(item) {
@@ -181,7 +181,7 @@
     async function processIllustItem(item, invocation) {
         assertProcessInvocation(invocation);
         item.lastMessage = bt('queue.message.checking-history', '正在检查历史记录...');
-        renderQueue();
+        renderQueue(item, true);
 
         if (state.settings.skipHistory) {
             const downloaded = await checkDownloaded(item.id, invocation);
@@ -194,7 +194,7 @@
                 item.endTime = new Date().toISOString();
                 updateStats();
                 saveQueue();
-                renderQueue();
+                renderQueue(item, true);
                 return;
             } else if (downloaded) {
                 // 若 verifyFiles=true 时是从磁盘恢复出来的裸记录（title 为空），
@@ -202,7 +202,7 @@
                 let recoveredMeta = false;
                 if (state.settings.verifyHistoryFiles && !downloaded.title) {
                     item.lastMessage = bt('queue.message.recovering-metadata', '正在补齐已下载作品的元数据...');
-                    renderQueue();
+                    renderQueue(item, true);
                     try {
                         const meta = await getArtworkMeta(item.id, invocation);
                         assertProcessInvocation(invocation);
@@ -232,7 +232,7 @@
                 item.endTime = new Date().toISOString();
                 updateStats();
                 saveQueue();
-                renderQueue();
+                renderQueue(item, true);
                 return;
             }
         }
@@ -241,7 +241,7 @@
         item.lastMessage = bt('queue.message.fetching-info', '正在获取作品信息...');
         setCurrent(item);
         setStatus(bt('status.fetching-metadata', '获取信息：{id}', {id: item.id}), 'info');
-        renderQueue();
+        renderQueue(item, true);
 
         try {
             const meta = await getArtworkMeta(item.id, invocation);
@@ -260,7 +260,7 @@
                 item.endTime = new Date().toISOString();
                 updateStats();
                 saveQueue();
-                renderQueue();
+                renderQueue(item, true);
                 return;
             }
 
@@ -270,7 +270,7 @@
             let urls, ugoiraData = null;
 
             item.lastMessage = bt('queue.message.fetching-images', '正在获取图片地址...');
-            renderQueue();
+            renderQueue(item, true);
 
             if (meta.illustType === 2) {
                 const ugoira = await getUgoiraMeta(item.id, invocation);
@@ -291,7 +291,7 @@
             item.ugoiraProgress = null;
             item.imageProgress = null;
             saveQueue();
-            renderQueue();
+            renderQueue(item, true);
 
             setStatus(bt('status.downloading-title', '下载中：{title}', {title: item.title}), 'info');
             const fallbackAuthorId = isUserMode ? normalizeAuthorId(state.userId) : null;
@@ -321,14 +321,14 @@
                 item.endTime = new Date().toISOString();
                 updateStats();
                 saveQueue();
-                renderQueue();
+                renderQueue(item, true);
                 setStatus(bt('status.skipped-downloaded-title', '跳过：{title}（已下载）', {title: item.title}), 'info');
                 return;
             }
             openSSE(item.id);
             const ssePromise = waitForFinalStatusBySSE(item.id, STATUS_TIMEOUT_MS, invocation);
             item.lastMessage = bt('queue.message.waiting-completion', '下载中，等待完成...');
-            renderQueue();
+            renderQueue(item, true);
 
             const final = await ssePromise;
             assertProcessInvocation(invocation);
@@ -460,7 +460,7 @@
                 item.endTime = item.endTime || new Date().toISOString();
                 updateStats();
                 saveQueue();
-                renderQueue();
+                renderQueue(item, true);
                 setCurrent(null);
             }
         }

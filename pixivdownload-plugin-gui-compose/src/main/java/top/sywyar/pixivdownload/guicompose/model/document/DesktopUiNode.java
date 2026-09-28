@@ -1281,15 +1281,23 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         public static TextToken raw(String text) { return new TextToken(null, "", text, List.of()); }
     }
 
-    /** 使用 Base64 编码的不可变已物化图像字节。 */
-    record ImageData(String mediaType, String base64) {
+    /** 有界图像字节；构造和读取均隔离调用方的可变数组。 */
+    record ImageData(String mediaType, byte[] bytes) {
         /**
          * @param mediaType 图像媒体类型
-         * @param base64 大小有界的 Base64 图像字节
+         * @param bytes 大小有界的编码图像字节
          */
         public ImageData {
-            mediaType = mediaType == null ? "" : mediaType.trim().toLowerCase();
+            mediaType = mediaType == null ? "" : mediaType.trim().toLowerCase(java.util.Locale.ROOT);
             if (!mediaType.startsWith("image/")) throw new IllegalArgumentException("mediaType must be image/*");
+            if (bytes == null || bytes.length == 0 || bytes.length > maxImageBytes()) {
+                throw new IllegalArgumentException("image data size out of range");
+            }
+            bytes = bytes.clone();
+        }
+
+        /** 从内置资源目录读取 Base64；先校验编码规模，再分配解码结果。 */
+        public static ImageData fromBase64(String mediaType, String base64) {
             base64 = base64 == null ? "" : base64.trim();
             int maximumEncodedLength = ((maxImageBytes() + 2) / 3) * 4 + 4;
             if (base64.length() > maximumEncodedLength) {
@@ -1301,13 +1309,23 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
             } catch (IllegalArgumentException invalid) {
                 throw new IllegalArgumentException("base64 must contain valid image data", invalid);
             }
-            if (decoded.length == 0 || decoded.length > maxImageBytes()) {
-                throw new IllegalArgumentException("image data size out of range");
-            }
+            return new ImageData(mediaType, decoded);
         }
 
-        /** @return 解码后的图像字节 */
-        public byte[] bytes() { return Base64.getDecoder().decode(base64); }
+        /** @return 编码图像字节的独立副本 */
+        @Override
+        public byte[] bytes() { return bytes.clone(); }
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof ImageData image && mediaType.equals(image.mediaType)
+                    && java.util.Arrays.equals(bytes, image.bytes);
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * mediaType.hashCode() + java.util.Arrays.hashCode(bytes);
+        }
     }
 
     /** 标签页描述。 */
@@ -1751,7 +1769,10 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
     private static List<String> copyBoundedStrings(List<String> values, String name) {
         List<String> copy = copyBounded(values == null ? List.of() : values, name);
-        return copy.stream().map(value -> boundedText(Objects.requireNonNull(value, name), name)).toList();
+        for (String value : copy) {
+            boundedText(value, name);
+        }
+        return copy;
     }
 
     private static void requireUnique(List<String> values, String name) {

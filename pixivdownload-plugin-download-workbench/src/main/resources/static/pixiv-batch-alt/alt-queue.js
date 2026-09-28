@@ -231,7 +231,7 @@ function commitQueueItemPatch(item, patch) {
     Object.keys(normalized).forEach(key => { item[key] = normalized[key]; });
     updateStats();
     saveQueue();
-    renderQueue();
+    renderQueue(item, true);
     return item;
 }
 
@@ -289,12 +289,22 @@ function storageKey() {
 }
 
 function saveQueue() {
-    storeSet(storageKey(), JSON.stringify({
+    let snapshot = {
         queue: state.queue,
         isPaused: state.isPaused,
         stats: state.stats,
         savedAt: new Date().toISOString()
-    }));
+    };
+    let serialized;
+    const serialize = () => {
+        if (snapshot) {
+            serialized = JSON.stringify(snapshot);
+            snapshot = null;
+        }
+        return serialized;
+    };
+    // 单人模式在现有保存或同步读取时物化；替换和删除自然释放尚未序列化的队列引用。
+    storeSet(storageKey(), appMode === 'solo' ? {toJSON: serialize, toString: serialize} : serialize());
 }
 
 function loadQueueForMode() {
@@ -374,12 +384,19 @@ function ensureDockVue() {
 }
 
 function updateStats() {
-    state.stats.success = state.queue.filter(q => q.status === 'completed').length;
-    state.stats.failed = state.queue.filter(q => q.status === 'failed').length;
-    state.stats.active = state.queue.filter(q => q.status === 'downloading').length;
-    state.stats.skipped = state.queue.filter(q => q.status === 'skipped').length;
-    const pending = state.queue.filter(q =>
-        ['idle', 'pending', 'paused'].includes(q.status)).length;
+    state.stats.success = state.stats.failed = state.stats.active = state.stats.skipped = 0;
+    let pending = 0;
+    for (const item of state.queue) {
+        switch (item.status) {
+            case 'completed': state.stats.success++; break;
+            case 'failed': state.stats.failed++; break;
+            case 'downloading': state.stats.active++; break;
+            case 'skipped': state.stats.skipped++; break;
+            case 'idle':
+            case 'pending':
+            case 'paused': pending++; break;
+        }
+    }
     if (altQueueVueActive('stats')) {
         altQueueVue().syncStats({
             pending,
@@ -404,7 +421,7 @@ function updateStats() {
         badge.textContent = String(pending);
         badge.hidden = pending === 0;
     }
-    updateButtonsState();
+    updateButtonsState(state.stats);
 }
 
 function renderDownloadSpeed(bytesPerSec) {
@@ -420,7 +437,7 @@ function renderDownloadSpeed(bytesPerSec) {
     if (unitEl) unitEl.textContent = unit;
 }
 
-function updateButtonsState() {
+function updateButtonsState(stats) {
     const startBtn = document.getElementById('abBtnStart');
     const pauseBtn = document.getElementById('abBtnPause');
     if (startBtn) {
@@ -429,19 +446,24 @@ function updateButtonsState() {
     }
     if (pauseBtn) {
         pauseBtn.disabled = !state.isRunning;
-        pauseBtn.innerHTML = '';
-        pauseBtn.appendChild(abIconEl(state.isPaused ? 'play' : 'pause'));
-        pauseBtn.appendChild(el('span', '', state.isPaused
+        const action = state.isPaused ? 'play' : 'pause';
+        if (pauseBtn.dataset.action !== action) {
+            pauseBtn.replaceChildren(abIconEl(action), el('span'));
+            pauseBtn.dataset.action = action;
+        }
+        const label = pauseBtn.lastElementChild;
+        const text = state.isPaused
             ? bt('button.resume', '继续')
-            : bt('button.pause', '暂停')));
+            : bt('button.pause', '暂停');
+        if (label.textContent !== text) label.textContent = text;
     }
     const packBtn = document.getElementById('abBtnPack');
     if (packBtn) {
         packBtn.hidden = !isAdmin;
-        packBtn.disabled = !state.queue.some(q => q.status === 'completed');
+        packBtn.disabled = stats ? stats.success === 0 : !state.queue.some(q => q.status === 'completed');
     }
     const retryBtn = document.getElementById('abBtnRetry');
-    if (retryBtn) retryBtn.disabled = !state.queue.some(q => q.status === 'failed');
+    if (retryBtn) retryBtn.disabled = stats ? stats.failed === 0 : !state.queue.some(q => q.status === 'failed');
 }
 
 function renderDock() {
@@ -488,11 +510,11 @@ function renderDock() {
     btnRow.appendChild(startBtn);
     btnRow.appendChild(pauseBtn);
     controls.appendChild(btnRow);
+    body.appendChild(controls);
     const recovery = el('div');
     recovery.id = 'queue-recovery';
     recovery.dataset.buttonClass = 'ab-btn ab-btn--ghost ab-btn--sm';
-    controls.appendChild(recovery);
-    body.appendChild(controls);
+    body.appendChild(recovery);
 
     // 配额（multi 模式启用配额时）
     const quotaBox = el('div', 'ab-quota card');
@@ -624,6 +646,7 @@ function refreshCurrentCard(changedItem) {
 // 当前卡内容节点构建（命令式回退与 Vue 主路径共用同一外观）：head + 队首进度信息（进度环 + 标题 + 详情 +
 // 流式图片进度条 + 附加进度）；item 为 null（空闲 / 暂停且无收尾任务）时仅 head + idle「无」。
 function buildCurrentCardContent(item) {
+    const model = currentCardModel(item);
     const card = el('div', '');
     const head = el('div', 'ab-current-head');
     head.appendChild(abIconEl('download'));
@@ -634,33 +657,35 @@ function buildCurrentCardContent(item) {
         return card;
     }
     const row = el('div', 'ab-current-row');
-    const percent = item.totalImages > 0 ? pct(item) : 0;
+    const percent = model.percent;
     row.appendChild(progressRing(percent));
     const meta = el('div', 'ab-current-meta');
-    meta.appendChild(el('div', 'ab-current-title', queueItemDisplayTitle(item)));
+    meta.appendChild(el('div', 'ab-current-title', model.title));
     const detail = el('div', 'ab-current-detail');
-    if (item.totalImages > 0) {
-        detail.textContent = bt('status.image-progress', '{downloaded} / {total} 张',
-            {downloaded: item.downloadedCount || 0, total: item.totalImages}) + ' · ' + percent + '%';
-    } else {
-        detail.textContent = queueItemMessage(item);
-    }
+    detail.textContent = model.detail;
     meta.appendChild(detail);
     row.appendChild(meta);
     card.appendChild(row);
     // 流式图片进度条（与列表行 miniProgress 同口径，由 downloadedCount / totalImages 派生，始终实时可见）。
     if (item.totalImages > 0) {
-        card.appendChild(miniProgress(
-            bt('status.image-progress', '{downloaded} / {total} 张',
-                {downloaded: item.downloadedCount || 0, total: item.totalImages}),
-            null, pct(item), 'is-image'));
+        card.appendChild(miniProgress(model.progressLabel, null, percent, 'is-image'));
     }
     const extras = progressExtras(item);
     if (extras) card.appendChild(extras);
     return card;
 }
 
-// 当前卡完整 HTML（Vue 主路径用，与 pixiv-batch.html 的 computeCurrentCardHtml 同手法）：内容节点 +
+// 仅在当前渲染中派生文案，Vue 与命令式路径共用显示口径。
+function currentCardModel(item) {
+    if (!item) return null;
+    const percent = item.totalImages > 0 ? pct(item) : 0;
+    const progressLabel = item.totalImages > 0 ? bt('status.image-progress', '{downloaded} / {total} 张',
+        {downloaded: item.downloadedCount || 0, total: item.totalImages}) : '';
+    return {title: queueItemDisplayTitle(item), percent, progressLabel,
+        detail: item.totalImages > 0 ? progressLabel + ' · ' + percent + '%' : queueItemMessage(item)};
+}
+
+// 计划详情使用的当前卡完整 HTML：内容节点 +
 // 剩余计数行；无未完成项（含暂停且无收尾任务）时回退 idle「无」。
 function computeCurrentCardHtml(queue, isPaused) {
     const front = currentFrontItem(queue, isPaused);
@@ -737,32 +762,48 @@ function miniProgress(label, valueText, progress, cls, active = true) {
 
 // 图片 / 动图 / 小说附加进度（队列项与当前卡共用）
 function progressExtras(q) {
+    const entries = progressExtrasModel(q);
+    if (!entries.length) return null;
     const parts = el('div', 'ab-progress-extras');
+    for (const entry of entries) {
+        if (entry.kind === 'progress') {
+            parts.appendChild(miniProgress(entry.label, entry.value, entry.progress, entry.cls, entry.active));
+        } else {
+            const line = el('p', 'ab-progress-note' + (entry.tone ? ' ab-progress-note--' + entry.tone : ''));
+            if (entry.badge) line.appendChild(el('span', 'ab-mini-badge' + (entry.ai ? ' ab-mini-badge--ai' : ''), entry.badge));
+            line.appendChild(document.createTextNode((entry.badge ? ' ' : '') + entry.text));
+            parts.appendChild(line);
+        }
+    }
+    return parts;
+}
+
+function progressExtrasModel(q) {
+    const parts = [];
     let has = false;
+    const progress = (key, label, value, percent, cls, active = true) => {
+        parts.push({key, kind: 'progress', label, value, progress: percent, cls, active});
+        has = true;
+    };
     const runtime = window.PixivBatch && window.PixivBatch.queueTypes;
     const live = runtime && typeof runtime.queueLiveStatus === 'function' ? runtime.queueLiveStatus(q) : null;
     if (live && live.label && live.message && ['info', 'success', 'warning', 'error'].includes(live.tone)) {
-        const line = el('p', 'ab-progress-note ab-progress-note--' + live.tone);
-        line.appendChild(el('span', 'ab-mini-badge', live.label));
-        line.appendChild(document.createTextNode(' ' + live.message));
-        parts.appendChild(line);
+        parts.push({key: 'live', tone: live.tone, badge: live.label, text: live.message});
         has = true;
     }
     if (q.kind === 'novel' && q.status === 'downloading') {
-        for (const [progress, key, fallback] of [[q.novelText, 'queue.novel-text.label', '小说正文'],
+        for (const [value, key, fallback] of [[q.novelText, 'queue.novel-text.label', '小说正文'],
             [q.novelCover, 'queue.novel-cover.label', '封面']]) {
-            if (!progress || !(progress.done > 0 || progress.total > 0)) continue;
-            const bytes = formatBytes(progress.done || 0) + (progress.total > 0 ? ' / ' + formatBytes(progress.total) : '');
-            parts.appendChild(miniProgress(bt(key, fallback), bytes,
-                progress.total > 0 ? Math.round(progress.done / progress.total * 100) : null, 'is-image'));
-            has = true;
+            if (!value || !(value.done > 0 || value.total > 0)) continue;
+            const bytes = formatBytes(value.done || 0) + (value.total > 0 ? ' / ' + formatBytes(value.total) : '');
+            progress(key, bt(key, fallback), bytes,
+                value.total > 0 ? Math.round(value.done / value.total * 100) : null, 'is-image');
         }
         const embedded = q.novelEmbedded;
         if (embedded && embedded.total > 0) {
-            parts.appendChild(miniProgress(bt('queue.novel-images.label', '内嵌图片'),
+            progress('embedded', bt('queue.novel-images.label', '内嵌图片'),
                 bt('queue.novel-images.count', '{done}/{total} 张', embedded),
-                Math.round((embedded.done || 0) / embedded.total * 100), 'is-image'));
-            has = true;
+                Math.round((embedded.done || 0) / embedded.total * 100), 'is-image');
         }
     }
     const snapshot = q.imageProgress;
@@ -777,13 +818,13 @@ function progressExtras(q) {
                 : formatBytes(ip.downloadedBytes || 0);
             if (ip.phase) {
                 const label = ip.status === 'failed' ? bt('queue.media.failed', null) : mediaProgressLabel(ip);
-                parts.appendChild(miniProgress(label, imageText, null,
-                    ip.status === 'failed' ? 'is-failed' : 'is-ffmpeg', ip.status !== 'failed'));
-            } else parts.appendChild(miniProgress(
+                progress('image-' + (ip.imageNumber || 0) + '-' + ip.phase, label, imageText, null,
+                    ip.status === 'failed' ? 'is-failed' : 'is-ffmpeg', ip.status !== 'failed');
+            } else progress('image-' + (ip.imageNumber || 0),
                 bt('queue.image-download.label', '图片下载'),
                 [imageText, bytesText].filter(Boolean).join(' · '),
                 ip.progress,
-                ip.status === 'failed' ? 'is-failed' : 'is-image', ip.status !== 'failed'));
+                ip.status === 'failed' ? 'is-failed' : 'is-image', ip.status !== 'failed');
             has = true;
         }
     }
@@ -794,42 +835,35 @@ function progressExtras(q) {
             const zipBytes = up.zipTotalBytes > 0
                 ? `${formatBytes(up.zipDownloadedBytes || 0)} / ${formatBytes(up.zipTotalBytes)}`
                 : formatBytes(up.zipDownloadedBytes || 0);
-            parts.appendChild(miniProgress(bt('queue.ugoira.zip', '动图压缩包'), zipBytes, up.zipProgress,
-                'is-zip', phase === 'zip' && up.status !== 'failed'));
-            has = true;
+            progress('zip', bt('queue.ugoira.zip', '动图压缩包'), zipBytes, up.zipProgress,
+                'is-zip', phase === 'zip' && up.status !== 'failed');
         }
         if (phase === 'extract') {
-            parts.appendChild(el('p', 'ab-progress-note',
-                up.totalFrames > 0
+            parts.push({key: 'extract', text: up.totalFrames > 0
                     ? bt('queue.ugoira.extracting-count', '正在解压帧 {current}/{total}', {current: up.extractedFrames || 0, total: up.totalFrames})
-                    : bt('queue.ugoira.extracting', '正在解压帧')));
+                    : bt('queue.ugoira.extracting', '正在解压帧')});
         }
         if (phase === 'ffmpeg-waiting' || phase === 'finalizing') {
-            parts.appendChild(miniProgress(mediaProgressLabel(up), '', null, 'is-ffmpeg', up.status !== 'failed'));
-            has = true;
+            progress('ffmpeg-waiting', mediaProgressLabel(up), '', null, 'is-ffmpeg', up.status !== 'failed');
         }
         if (phase === 'ffmpeg' && up.status !== 'failed') {
             const timeText = up.ffmpegDurationMs > 0
                 ? `${formatDurationMs(up.ffmpegOutTimeMs || 0)} / ${formatDurationMs(up.ffmpegDurationMs)}`
                 : '';
-            parts.appendChild(miniProgress(mediaProgressLabel(up), timeText, up.ffmpegProgress, 'is-ffmpeg'));
-            has = true;
+            progress('ffmpeg', mediaProgressLabel(up), timeText, up.ffmpegProgress, 'is-ffmpeg');
         }
         if (up.status === 'failed') {
-            parts.appendChild(el('p', 'ab-progress-note ab-progress-note--error', bt('queue.ugoira.failed', '动图处理失败')));
+            parts.push({key: 'ugoira-error', tone: 'error', text: bt('queue.ugoira.failed', '动图处理失败')});
         }
     }
     if (q.kind === 'novel' && q.translatePhase) {
         const msg = novelTranslateMessage(q);
         if (msg) {
-            const line = el('p', 'ab-progress-note');
-            line.appendChild(el('span', 'ab-mini-badge ab-mini-badge--ai', bt('queue.translate.label', 'AI 翻译')));
-            line.appendChild(document.createTextNode(' ' + msg));
-            parts.appendChild(line);
+            parts.push({key: 'translate', badge: bt('queue.translate.label', 'AI 翻译'), ai: true, text: msg});
             has = true;
         }
     }
-    return has ? parts : null;
+    return has ? parts : [];
 }
 
 function novelTranslateMessage(q) {
@@ -858,8 +892,8 @@ function novelTranslateMessage(q) {
 const altQueueProgressRows = new Set();
 let altQueueProgressScheduled = false;
 
-function renderQueue(changedItem) {
-    if (!changedItem) renderQueueRecovery();
+function renderQueue(changedItem, statusChanged = false) {
+    if (!changedItem || statusChanged) renderQueueRecovery();
     if (changedItem && !altQueueVueActive('list')) {
         altQueueProgressRows.add(changedItem);
         if (!altQueueProgressScheduled) {

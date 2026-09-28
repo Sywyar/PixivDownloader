@@ -10,6 +10,14 @@
 
     rememberArtworkGalleryLocation();
     window.addEventListener('pagehide', rememberArtworkGalleryLocation);
+    window.addEventListener('pagehide', releaseCollectionIconPreview);
+    window.addEventListener('pagehide', suspendThumbnails);
+    window.addEventListener('pageshow', () => {
+        resumeThumbnails();
+        if (document.getElementById('modalCollectionForm').classList.contains('open')) {
+            updateFormIconPreview(state.editingCollection);
+        }
+    });
 
     function openCollectionIconPicker() {
         document.getElementById('collectionFormIconFile').click();
@@ -402,7 +410,10 @@
 
     document.addEventListener('click', e => {
         const backdrop = e.target.classList && e.target.classList.contains('modal-backdrop');
-        if (backdrop) e.target.classList.remove('open');
+        if (backdrop) {
+            if (e.target.id === 'modalCollectionForm') closeCollectionFormModal();
+            else e.target.classList.remove('open');
+        }
     });
 
     // ---------- View switch ----------

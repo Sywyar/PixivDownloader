@@ -80,7 +80,7 @@ class ComposeDesktopUiConformanceTest {
                 DesktopUiNode.Alignment.CENTER, listOf(
                     DesktopUiNode.Image(
                         "maintainer.avatar",
-                        DesktopUiNode.ImageData(
+                        DesktopUiNode.ImageData.fromBase64(
                             "image/gif",
                             "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==",
                         ),

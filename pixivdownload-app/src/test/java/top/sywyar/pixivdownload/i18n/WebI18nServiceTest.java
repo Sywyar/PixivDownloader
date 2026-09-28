@@ -16,6 +16,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.MissingResourceException;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
 
@@ -61,6 +63,46 @@ class WebI18nServiceTest {
     void unsupportedNamespaceThrows() {
         assertThatThrownBy(() -> service.loadBundle("nope", Locale.SIMPLIFIED_CHINESE))
                 .isInstanceOf(LocalizedException.class);
+        assertThatThrownBy(() -> service.loadMessages("nope", Locale.US, List.of("name")))
+                .isInstanceOf(LocalizedException.class);
+    }
+
+    @Test
+    @DisplayName("按字段读取保留目标语言、回退、空白覆盖，卸载和重新注册立即生效")
+    void selectedMessagesRespectFallbackAndPublication() throws Exception {
+        Path bundles = Files.createDirectories(tempDir.resolve("i18n/web"));
+        Files.writeString(bundles.resolve("selected.properties"),
+                "name=Source\nsource.only=Source only\nblank=Source blank\nextra=Unused\n", StandardCharsets.UTF_8);
+        Files.writeString(bundles.resolve("selected_en.properties"),
+                "name=English\nfallback.only=Fallback only\n", StandardCharsets.UTF_8);
+        Files.writeString(bundles.resolve("selected_ja.properties"),
+                "name=Target\nblank=\\u0020\\u0020\n", StandardCharsets.UTF_8);
+        var registry = new WebI18nBundleRegistry(new PluginRegistry(List.of()));
+        var selectedService = new WebI18nService(registry);
+        var contribution = List.of(new I18nContribution("selected", "i18n.web.selected"));
+        try (var loader = new URLClassLoader(new URL[]{tempDir.toUri().toURL()}, null)) {
+            registry.register("selected", loader, contribution);
+        }
+        var keys = List.of("name", "source.only", "fallback.only", "blank", "missing");
+        assertThat(selectedService.loadMessages("selected", Locale.JAPANESE, keys))
+                .containsExactlyInAnyOrderEntriesOf(Map.of("name", "Target", "source.only", "Source only",
+                        "fallback.only", "Fallback only", "blank", "  "));
+        assertThat(selectedService.loadMessages("selected", Locale.US, List.of("name")))
+                .containsExactlyEntriesOf(Map.of("name", "English"));
+        Files.writeString(bundles.resolve("selected_en.properties"), "name=Replacement\n", StandardCharsets.UTF_8);
+        assertThat(selectedService.loadMessages("selected", Locale.US, List.of("name")))
+                .containsEntry("name", "English");
+        registry.unregister("selected");
+        assertThatThrownBy(() -> selectedService.loadMessages("selected", Locale.US, keys))
+                .isInstanceOf(LocalizedException.class);
+        try (var loader = new URLClassLoader(new URL[]{tempDir.toUri().toURL()}, null)) {
+            registry.register("selected", loader, contribution);
+            assertThat(selectedService.loadMessages("selected", Locale.US, List.of("name")))
+                    .containsEntry("name", "Replacement");
+            registry.register("missing", loader, List.of(new I18nContribution("missing", "i18n.web.missing")));
+            assertThatThrownBy(() -> selectedService.loadMessages("missing", Locale.US, List.of("name")))
+                    .isInstanceOf(MissingResourceException.class);
+        }
     }
 
     @Test
@@ -108,6 +150,16 @@ class WebI18nServiceTest {
 
             assertThat(zh.getMessages()).containsEntry("plugin.name", "邮件通知");
             assertThat(en.getMessages()).containsEntry("plugin.name", "Mail Notifications");
+            assertThat(new WebI18nService(registry).loadMessages("mail", Locale.US,
+                    List.of("plugin.name", "plugin.summary", "missing")))
+                    .containsExactlyInAnyOrderEntriesOf(Map.of(
+                            "plugin.name", "Mail Notifications", "plugin.summary", "English summary"));
+            Files.delete(plugins.resolve("mail-1.0.0.jar"));
+            assertThatThrownBy(() -> new WebI18nService(registry).loadBundle("mail", Locale.US))
+                    .isInstanceOf(MissingResourceException.class);
+            assertThatThrownBy(() -> new WebI18nService(registry)
+                    .loadMessages("mail", Locale.US, List.of("plugin.name")))
+                    .isInstanceOf(MissingResourceException.class);
         }
     }
 

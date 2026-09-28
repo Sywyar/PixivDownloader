@@ -60,7 +60,9 @@ let aqvStore = null;
 let aqvApps = [];
 let aqvActive = false;
 let aqvMounting = false;
-const aqvDirtyRows = new Set();
+const aqvDirtyRows = new Map();
+const aqvRowIndexes = new Map();
+let aqvQueue = null;
 let aqvFullRefresh = false;
 
 function aqvHelper() {
@@ -103,15 +105,40 @@ function aqvBuildStore() {
         stats: {pending: 0, success: 0, failed: 0, active: 0, skipped: 0},
         speed: {value: '0', unit: 'B/s'},
         paused: false,      // 暂停标志镜像（当前卡响应式派生用；暂停 / 恢复时由渲染门面同步）
-        items: []           // state.queue 浅快照（行对象引用，渲染期读最新字段）
+        items: [],          // 行组件直接订阅对应下标，进度变化不触发列表结构重建。
+        rowKeys: []         // 仅完整同步时更新，与索引共用复合键，不保留另一份作品内容。
     });
 }
 
 /* —— 展示模型派生：一次渲染内一次性算出该行全部展示字段，模板只读字段、显隐走方法 —— */
-function aqvExtrasHtml(q) {
-    if (typeof progressExtras !== 'function') return '';
-    const node = progressExtras(q);
-    return node ? node.outerHTML : '';
+function aqvMiniProgress(label, value, progress, cls, key, active = true) {
+    const h = aqvVue.h;
+    const percent = progress == null || !Number.isFinite(Number(progress))
+        ? null : Math.max(0, Math.min(100, Math.round(progress)));
+    return h('div', {key, class: 'ab-mini-prog'}, [
+        h('div', {class: 'ab-mini-prog-label'}, [h('span', label),
+            h('span', [value, percent == null ? '' : percent + '%'].filter(Boolean).join(' · '))]),
+        h('div', {class: 'ab-mini-prog-bar', role: 'progressbar',
+            'aria-label': [label, value].filter(Boolean).join(' · '),
+            'aria-valuemin': '0', 'aria-valuemax': '100',
+            'aria-valuenow': percent == null ? undefined : String(percent),
+            'aria-busy': String(percent == null && active)}, [h('div', {
+            class: ['ab-mini-prog-fill', cls, {'is-indeterminate': percent == null && active}],
+            style: {width: (percent == null ? 35 : percent) + '%'}
+        })])
+    ]);
+}
+
+function aqvExtras(q) {
+    const entries = typeof progressExtrasModel === 'function' ? progressExtrasModel(q) : [];
+    if (!entries.length) return null;
+    const h = aqvVue.h;
+    return h('div', {class: 'ab-progress-extras'}, entries.map(entry => entry.kind === 'progress'
+        ? aqvMiniProgress(entry.label, entry.value, entry.progress, entry.cls, entry.key, entry.active)
+        : h('p', {key: entry.key, class: ['ab-progress-note', entry.tone ? 'ab-progress-note--' + entry.tone : '']}, [
+            entry.badge ? h('span', {class: ['ab-mini-badge', {'ab-mini-badge--ai': entry.ai}]}, entry.badge) : null,
+            (entry.badge ? ' ' : '') + entry.text
+        ])));
 }
 
 function aqvRowModel(q) {
@@ -155,7 +182,6 @@ function aqvRowModel(q) {
             cls: 'is-' + q.status,
             width: percent + '%'
         } : null,
-        extrasHtml: aqvExtrasHtml(q),
         ref: q
     };
 }
@@ -187,18 +213,45 @@ function aqvStatsComponent() {
 function aqvCurrentComponent() {
     return {
         setup() {
-            // 当前卡沿用同一安全 HTML 派生，响应式更新队列镜像和暂停状态。
-            return {
-                store: aqvStore,
-                currentHtml() {
-                    return (typeof computeCurrentCardHtml === 'function')
-                        ? computeCurrentCardHtml(aqvStore.items, aqvStore.paused)
-                        : '';
-                }
-            };
+            const front = aqvVue.computed(() => currentFrontItem(aqvStore.items, aqvStore.paused));
+            const remaining = aqvVue.computed(() => {
+                if (!front.value) return '';
+                const counts = currentRemainingCounts(aqvStore.items, front.value);
+                return currentRemainingLineText(counts.downloading, counts.queued);
+            });
+            return {front, remaining};
         },
         render() {
-            return aqvVue.h('span', {style: {display: 'contents'}, innerHTML: this.currentHtml()});
+            const h = aqvVue.h;
+            // 完整同步也承接语言刷新，空队列仍需更新当前卡文案。
+            const front = aqvStore.rowKeys.length ? this.front : null;
+            const model = currentCardModel(front);
+            const children = [h('div', {class: 'ab-current-head'}, [
+                h('span', {class: 'ab-icon', 'aria-hidden': 'true', innerHTML: aqvIcon('download')}),
+                h('strong', aqvT('current.title', '当前下载'))
+            ])];
+            if (!model) children.push(h('p', {class: 'ab-current-idle'}, aqvT('status.current-idle', '无')));
+            else {
+                const circumference = 2 * Math.PI * 26;
+                children.push(h('div', {class: 'ab-current-row'}, [
+                    h('span', {class: 'ab-ring'}, [
+                        h('svg', {viewBox: '0 0 64 64'}, [
+                            h('circle', {cx: '32', cy: '32', r: '26', class: 'ab-ring-track'}),
+                            h('circle', {cx: '32', cy: '32', r: '26', class: 'ab-ring-fill', style: {
+                                strokeDasharray: String(circumference),
+                                strokeDashoffset: String(circumference * (1 - Math.min(100, Math.max(0, model.percent)) / 100))
+                            }})
+                        ]), h('span', {class: 'ab-ring-text'}, Math.round(model.percent) + '%')
+                    ]),
+                    h('div', {class: 'ab-current-meta'}, [h('div', {class: 'ab-current-title'}, model.title),
+                        h('div', {class: 'ab-current-detail'}, model.detail)])
+                ]));
+                if (front.totalImages > 0) children.push(aqvMiniProgress(model.progressLabel, null, model.percent, 'is-image', 'images'));
+                children.push(aqvExtras(front));
+                const line = this.remaining;
+                if (line) children.push(h('p', {class: 'ab-current-remaining'}, line));
+            }
+            return h('span', {style: {display: 'contents'}}, children);
         }
     };
 }
@@ -229,19 +282,19 @@ function aqvRenderRow(item, vm) {
                 h('span', {class: ['ab-mini-prog-fill', r.progress.cls], style: {transform: 'translate3d(' + (Number.parseFloat(r.progress.width) - 100) + '%, 0, 0)'}})
             ])
         ]) : null,
-        r.extrasHtml ? h('span', {class: 'ab-flatten', innerHTML: r.extrasHtml}) : null
+        aqvExtras(item)
     ]);
 }
 
 const aqvDownloadRow = {
-    props: ['item', 'actions'],
-    render() { return aqvRenderRow(this.item, this.actions); }
+    props: ['index', 'actions'],
+    render() { return aqvRenderRow(aqvStore.items[this.index], this.actions); }
 };
 
 function aqvListComponent() {
     return {
         setup() {
-            const isEmpty = aqvVue.computed(() => !aqvStore.items.length);
+            const isEmpty = aqvVue.computed(() => !aqvStore.rowKeys.length);
             return {
                 store: aqvStore,
                 isEmpty,
@@ -266,7 +319,7 @@ function aqvListComponent() {
             if (this.isEmpty) return h('div', {class: 'ab-empty ab-empty--dock'}, [
                 icon('download'), h('p', null, this.t('status.queue-empty', '队列为空'))
             ]);
-            return this.store.items.map(item => h(aqvDownloadRow, {key: aqvRowKey(item), item, actions: this}));
+            return this.store.rowKeys.map((key, index) => h(aqvDownloadRow, {key, index, actions: this}));
         }
     };
 }
@@ -286,6 +339,9 @@ function aqvMountOne(el, comp, kind) {
 }
 
 function aqvTeardown() {
+    aqvRowIndexes.clear();
+    aqvDirtyRows.clear();
+    aqvQueue = null;
     aqvApps.splice(0).forEach(entry => {
         try { entry.app.unmount(); } catch (e) { /* 卸载失败忽略 */ }
     });
@@ -383,17 +439,33 @@ function aqvSyncPaused(paused) {
 }
 
 function aqvSyncList(changedItem) {
-    if (changedItem) aqvDirtyRows.add(aqvRowKey(changedItem));
+    if (changedItem) aqvDirtyRows.set(aqvRowKey(changedItem), changedItem);
     else aqvFullRefresh = true;
     aqvSchedule('list', () => {
         if (aqvStore && typeof state !== 'undefined') {
-            const previous = new Map(aqvStore.items.map(q => [aqvRowKey(q), q]));
-            // 原始队列在 Vue 之外原地更新，变动行必须更换快照，未变化行继续复用。
-            aqvStore.items = (state.queue || []).map(q => {
-                const key = aqvRowKey(q);
-                return !aqvFullRefresh && !aqvDirtyRows.has(key) && previous.has(key)
-                    ? previous.get(key) : Object.assign({}, q);
+            const queue = state.queue || [];
+            let rebuild = aqvFullRefresh || aqvQueue !== queue || aqvStore.items.length !== queue.length;
+            aqvDirtyRows.forEach((q, key) => {
+                const index = aqvRowIndexes.get(key);
+                if (index === undefined || queue[index] !== q) rebuild = true;
             });
+            if (rebuild) {
+                aqvRowIndexes.clear();
+                aqvQueue = queue;
+                const keys = [];
+                aqvStore.items = queue.map((q, index) => {
+                    const key = aqvRowKey(q);
+                    keys.push(key);
+                    aqvRowIndexes.set(key, index);
+                    return Object.assign({}, q);
+                });
+                aqvStore.rowKeys = keys;
+            } else {
+                // 原始队列在 Vue 外更新，替换脏行快照以保留嵌套字段的刷新语义。
+                aqvDirtyRows.forEach((q, key) => {
+                    aqvStore.items[aqvRowIndexes.get(key)] = Object.assign({}, q);
+                });
+            }
         }
         aqvDirtyRows.clear(); aqvFullRefresh = false;
     });
@@ -557,6 +629,7 @@ window.PixivBatchAlt.queueVue = Object.assign(window.PixivBatchAlt.queueVue || {
         reset: function () {
             aqvJobs.clear();
             aqvDirtyRows.clear(); aqvFullRefresh = false;
+            aqvRowIndexes.clear(); aqvQueue = null;
             aqvRafScheduled = false;
             aqvApps.splice(0).forEach(entry => {
                 try { entry.app.unmount(); } catch (e) { /* 忽略 */ }

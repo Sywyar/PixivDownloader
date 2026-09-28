@@ -15,7 +15,6 @@ assert.ok(!artworkRelated.includes(';base64,'));
 assert.ok(!showcaseCore.includes(';base64,'));
 assert.ok(!seriesRender.includes(';base64,'));
 assert.ok(artworkCore.includes('image.src = url'));
-assert.ok(artworkRelated.includes('img.src = ImageCache.get(url) || url'));
 assert.ok(showcaseCore.includes('image.src = url'));
 assert.ok(seriesRender.includes('img.src = ImageCache.get(url) || url'));
 

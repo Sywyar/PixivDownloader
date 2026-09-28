@@ -15,6 +15,16 @@ class GalleryPluginContributionTest {
     private final GalleryPlugin plugin = new GalleryPlugin();
 
     @Test
+    @DisplayName("静态导航与引导声明可复用且调用方不能修改")
+    void reusesImmutableDeclarations() {
+        assertThat(plugin.routes()).isSameAs(plugin.routes());
+        assertThat(plugin.navigation()).isSameAs(plugin.navigation());
+        assertThat(plugin.guiOnboardingSteps()).isSameAs(plugin.guiOnboardingSteps());
+        org.junit.jupiter.api.Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> plugin.navigation().clear());
+    }
+
+    @Test
     @DisplayName("gallery 默认启动落点由插件声明并绑定 solo 上下文")
     void startupRouteIsOwnedByGalleryPlugin() {
         assertThat(plugin.startupRoutes())

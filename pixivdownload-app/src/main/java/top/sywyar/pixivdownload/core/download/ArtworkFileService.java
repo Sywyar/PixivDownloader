@@ -12,6 +12,7 @@ import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -21,6 +22,7 @@ import java.nio.file.attribute.FileTime;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
 
 /**
  * 已下载插画的本地文件定位与缩略图缓存：缩略图 / 原图文件解析、缩略图生成与缓存。
@@ -37,7 +39,13 @@ public class ArtworkFileService {
     private final ArtworkFileLocator artworkFileLocator;
     private final ArtworkMediaDecoder mediaDecoder;
 
-    private final ConcurrentHashMap<String, Object> thumbnailCacheLocks = new ConcurrentHashMap<>();
+    static final int MAX_CONCURRENT_THUMBNAILS = 4;
+    private final Semaphore thumbnailGenerationSlots = new Semaphore(MAX_CONCURRENT_THUMBNAILS, true);
+    private final ConcurrentHashMap<String, ThumbnailLock> thumbnailCacheLocks = new ConcurrentHashMap<>();
+
+    private static final class ThumbnailLock {
+        int users;
+    }
 
     public record ThumbnailFile(Path path, String extension) {
     }
@@ -80,31 +88,53 @@ public class ArtworkFileService {
         }
         String writeFormat = normalizeThumbnailFormat(getFileExtension(imageFile.getName()).toLowerCase(Locale.ROOT));
         Path cachePath = thumbnailCachePath(artworkId, page, edge, writeFormat);
+        FileTime sourceTime = Files.getLastModifiedTime(imageFile.toPath());
+        if (isFreshThumbnailCache(cachePath, sourceTime)) {
+            return new ThumbnailFile(cachePath, writeFormat);
+        }
         String lockKey = cachePath.toString();
-        Object lock = thumbnailCacheLocks.computeIfAbsent(lockKey, ignored -> new Object());
+        ThumbnailLock lock = thumbnailCacheLocks.compute(lockKey, (key, current) -> {
+            ThumbnailLock value = current == null ? new ThumbnailLock() : current;
+            value.users++;
+            return value;
+        });
         try {
             synchronized (lock) {
-                FileTime sourceTime = Files.getLastModifiedTime(imageFile.toPath());
+                sourceTime = Files.getLastModifiedTime(imageFile.toPath());
                 if (isFreshThumbnailCache(cachePath, sourceTime)) {
                     return new ThumbnailFile(cachePath, writeFormat);
                 }
-                Files.createDirectories(cachePath.getParent());
-                BufferedImage thumbnailImage = mediaDecoder.read(imageFile.toPath(), edge);
-                Path tempPath = Files.createTempFile(cachePath.getParent(), "thumb-", "." + writeFormat);
                 try {
-                    try (OutputStream out = Files.newOutputStream(tempPath)) {
-                        if (!ImageIO.write(thumbnailImage, writeFormat, out)) {
-                            throw new IOException("Unsupported thumbnail format: " + writeFormat);
+                    thumbnailGenerationSlots.acquire();
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new InterruptedIOException("Thumbnail generation interrupted");
+                }
+                try {
+                    Files.createDirectories(cachePath.getParent());
+                    BufferedImage thumbnailImage = mediaDecoder.read(imageFile.toPath(), edge);
+                    try {
+                        Path tempPath = Files.createTempFile(cachePath.getParent(), "thumb-", "." + writeFormat);
+                        try {
+                            try (OutputStream out = Files.newOutputStream(tempPath)) {
+                                if (!ImageIO.write(thumbnailImage, writeFormat, out)) {
+                                    throw new IOException("Unsupported thumbnail format: " + writeFormat);
+                                }
+                            }
+                            moveReplacing(tempPath, cachePath);
+                            Files.setLastModifiedTime(cachePath, sourceTime);
+                        } finally {
+                            Files.deleteIfExists(tempPath);
                         }
+                    } finally {
+                        thumbnailImage.flush();
                     }
-                    moveReplacing(tempPath, cachePath);
-                    Files.setLastModifiedTime(cachePath, sourceTime);
                 } finally {
-                    Files.deleteIfExists(tempPath);
+                    thumbnailGenerationSlots.release();
                 }
             }
         } finally {
-            thumbnailCacheLocks.remove(lockKey, lock);
+            thumbnailCacheLocks.computeIfPresent(lockKey, (key, current) -> --current.users == 0 ? null : current);
         }
         return new ThumbnailFile(cachePath, writeFormat);
     }
