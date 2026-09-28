@@ -198,6 +198,31 @@ class LocaleCatalogTest {
     }
 
     @Test
+    @DisplayName("回退链按值去重并保留首次对象，支持源语言兼任回退且结果不可变")
+    void fallbackChainPreservesValueIdentityAndImmutableOrder() {
+        LocaleCatalog catalog = fixture();
+        LocaleDescriptor source = catalog.sourceLocale();
+        LocaleDescriptor fallback = catalog.fallbackLocale();
+        LocaleDescriptor equalFallback = new LocaleDescriptor(fallback.tag(), fallback.nativeName(),
+                fallback.resourceSuffix(), fallback.status(), fallback.direction(), fallback.aliases());
+        var chain = catalog.fallbackChain(equalFallback);
+        assertThat(chain).containsExactly(equalFallback, source);
+        assertThat(chain.get(0)).isSameAs(equalFallback);
+        assertThatThrownBy(() -> chain.add(source)).isInstanceOf(UnsupportedOperationException.class);
+
+        LocaleDescriptor outside = new LocaleDescriptor("de-DE", "Deutsch", "de", LocaleStatus.CANDIDATE, "ltr", List.of());
+        assertThat(catalog.fallbackChain(outside)).containsExactly(outside, fallback, source);
+        assertThatThrownBy(() -> catalog.fallbackChain(outside).clear()).isInstanceOf(UnsupportedOperationException.class);
+        LocaleCatalog sameSourceFallback = new LocaleCatalog(1, source, catalog.defaultLocale(), source,
+                catalog.languageCookieName(), catalog.languageParameterName(), catalog.allLocales());
+        assertThat(sameSourceFallback.fallbackChain(outside)).containsExactly(outside, source);
+        assertThat(sameSourceFallback.fallbackChain(source)).containsExactly(source);
+        assertThatThrownBy(() -> sameSourceFallback.fallbackChain(source).set(0, outside))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> catalog.fallbackChain(null)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     @DisplayName("Accept-Language 解析基于 catalog 可见语言集，无匹配落到默认")
     void acceptLanguageResolutionIsCatalogDriven() {
         LocaleCatalog catalog = fixture();

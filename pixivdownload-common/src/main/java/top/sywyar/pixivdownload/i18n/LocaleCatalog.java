@@ -248,11 +248,13 @@ public final class LocaleCatalog {
         if (target == null) {
             throw new IllegalArgumentException("fallbackChain target must not be null");
         }
-        List<LocaleDescriptor> chain = java.util.stream.Stream.of(target, fallback, source)
-                .filter(descriptor -> descriptor != null)
-                .distinct()
-                .toList();
-        return chain;
+        if (target.equals(fallback)) {
+            return target.equals(source) ? List.of(target) : List.of(target, source);
+        }
+        if (target.equals(source) || fallback.equals(source)) {
+            return List.of(target, fallback);
+        }
+        return List.of(target, fallback, source);
     }
 
     private Optional<LocaleDescriptor> matchByLanguage(String candidate) {
