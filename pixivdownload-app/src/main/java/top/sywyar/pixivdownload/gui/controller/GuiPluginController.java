@@ -16,9 +16,11 @@ import top.sywyar.pixivdownload.plugin.verification.PluginVerificationView;
 
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
 import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
 
@@ -67,7 +69,11 @@ public class GuiPluginController {
         }
         Locale locale = localeResolver.resolveLocale(req);
         PluginManagementReport report = pluginManagementService.list();
-        DisplayNameResolver resolver = new DisplayNameResolver(webI18nService, locale);
+        DisplayNameResolver resolver = new DisplayNameResolver(
+                webI18nService,
+                locale,
+                report.plugins()
+        );
         List<GuiPluginEntry> plugins = report.plugins().stream()
                 .map(entry -> toEntry(entry, resolver))
                 .toList();
@@ -93,35 +99,42 @@ public class GuiPluginController {
 
     /**
      * 把插件声明的「namespace + 纯 i18n key」在服务端解析为当前 locale 的展示名称：复用 {@link WebI18nService}
-     * 的 classloader-aware bundle 解析（覆盖外置插件），按 namespace 缓存本次请求的 bundle；namespace / key 缺失、
+     * 的 bundle 解析（覆盖外置插件），按 namespace 读取本次请求需要的字段；namespace / key 缺失、
      * namespace 不可解析或 key 缺失时回退到插件 id——绝不抛出，使一个插件的 i18n 缺失不影响整份状态列表。
      */
     private static final class DisplayNameResolver {
 
-        private final WebI18nService webI18nService;
-        private final Locale locale;
         private final Map<String, Map<String, String>> bundleCache = new HashMap<>();
 
-        DisplayNameResolver(WebI18nService webI18nService, Locale locale) {
-            this.webI18nService = webI18nService;
-            this.locale = locale;
+        DisplayNameResolver(
+                WebI18nService webI18nService,
+                Locale locale,
+                List<PluginManagementEntry> entries
+        ) {
+            Map<String, Set<String>> requestedKeys = new HashMap<>();
+            for (PluginManagementEntry entry : entries) {
+                String namespace = entry.displayNamespace();
+                if (namespace == null || namespace.isBlank()) continue;
+                Set<String> keys = requestedKeys.computeIfAbsent(namespace, ignored -> new HashSet<>());
+                if (entry.displayNameKey() != null && !entry.displayNameKey().isBlank()) keys.add(entry.displayNameKey());
+                if (entry.descriptionKey() != null && !entry.descriptionKey().isBlank()) keys.add(entry.descriptionKey());
+            }
+            requestedKeys.forEach((namespace, keys) -> {
+                if (keys.isEmpty()) return;
+                try {
+                    bundleCache.put(namespace, webI18nService.loadMessages(namespace, locale, keys));
+                } catch (RuntimeException ignored) {
+                    // 未注册或缺失资源时保留调用方回退，不影响其它插件条目。
+                }
+            });
         }
 
         String resolve(String namespace, String key, String fallback) {
             if (namespace == null || namespace.isBlank() || key == null || key.isBlank()) {
                 return fallback;
             }
-            String text = bundleCache.computeIfAbsent(namespace, this::loadBundle).get(key);
+            String text = bundleCache.getOrDefault(namespace, Map.of()).get(key);
             return (text == null || text.isBlank()) ? fallback : text;
-        }
-
-        private Map<String, String> loadBundle(String namespace) {
-            try {
-                return webI18nService.loadBundle(namespace, locale).getMessages();
-            } catch (RuntimeException e) {
-                // 未注册 / 不可解析的 namespace（如未安装项、探针插件）：回退到 id，不影响其它条目。
-                return Map.of();
-            }
         }
     }
 

@@ -19,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -138,6 +139,18 @@ public class WebI18nBundleRegistry implements NamespaceMessageResolver {
         /** 运行期展示语义 = effective。 */
         public Map<String, String> load(Locale locale) {
             return loadEffective(locale);
+        }
+
+        /** 只投影需要的文案；安装态资源在本次读取中合并一次，不按字段重复打开归档。 */
+        Map<String, String> loadMessages(Locale locale, Collection<String> keys) {
+            Map<String, String> installed = installedArtifact == null ? null : loadEffective(locale);
+            Map<String, String> selected = new LinkedHashMap<>();
+            for (String key : keys) {
+                if (key == null || key.isBlank()) continue;
+                String value = installed == null ? resolveMessage(locale, key) : installed.get(key);
+                if (value != null) selected.put(key, value);
+            }
+            return selected;
         }
 
         private String resolveMessage(Locale locale, String key) {
