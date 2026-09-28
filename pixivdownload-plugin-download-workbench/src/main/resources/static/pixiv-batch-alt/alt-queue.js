@@ -231,7 +231,7 @@ function commitQueueItemPatch(item, patch) {
     Object.keys(normalized).forEach(key => { item[key] = normalized[key]; });
     updateStats();
     saveQueue();
-    renderQueue();
+    renderQueue(item, true);
     return item;
 }
 
@@ -289,12 +289,22 @@ function storageKey() {
 }
 
 function saveQueue() {
-    storeSet(storageKey(), JSON.stringify({
+    let snapshot = {
         queue: state.queue,
         isPaused: state.isPaused,
         stats: state.stats,
         savedAt: new Date().toISOString()
-    }));
+    };
+    let serialized;
+    const serialize = () => {
+        if (snapshot) {
+            serialized = JSON.stringify(snapshot);
+            snapshot = null;
+        }
+        return serialized;
+    };
+    // 单人模式在现有保存或同步读取时物化；替换和删除自然释放尚未序列化的队列引用。
+    storeSet(storageKey(), appMode === 'solo' ? {toJSON: serialize, toString: serialize} : serialize());
 }
 
 function loadQueueForMode() {
@@ -858,8 +868,8 @@ function novelTranslateMessage(q) {
 const altQueueProgressRows = new Set();
 let altQueueProgressScheduled = false;
 
-function renderQueue(changedItem) {
-    if (!changedItem) renderQueueRecovery();
+function renderQueue(changedItem, statusChanged = false) {
+    if (!changedItem || statusChanged) renderQueueRecovery();
     if (changedItem && !altQueueVueActive('list')) {
         altQueueProgressRows.add(changedItem);
         if (!altQueueProgressScheduled) {

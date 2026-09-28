@@ -154,7 +154,7 @@
         Object.keys(normalized).forEach(key => { item[key] = normalized[key]; });
         updateStats();
         saveQueue();
-        renderQueue();
+        renderQueue(item, true);
         return item;
     }
 

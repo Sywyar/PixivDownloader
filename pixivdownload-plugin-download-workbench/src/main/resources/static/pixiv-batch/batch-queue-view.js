@@ -242,9 +242,10 @@
     const queueProgressRows = new Set();
     let queueProgressScheduled = false;
 
-    function renderQueue(changedItem) {
-        if (!changedItem) renderQueueRecovery();
+    function renderQueue(changedItem, statusChanged = false) {
+        if (!changedItem || statusChanged) renderQueueRecovery();
         if (changedItem && !downloadQueueVueActive('list')) {
+            if (statusChanged) updateAdminPackButton();
             queueProgressRows.add(changedItem);
             if (!queueProgressScheduled) {
                 queueProgressScheduled = true;

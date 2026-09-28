@@ -25,6 +25,7 @@ function captureQueueSaveKeys() {
     const writes = [];
     const sandbox = {
         window: {PixivBatch: {}},
+        appMode: 'multi',
         state: {
             queue: [{id: 'work-1', status: 'idle'}],
             isRunning: false,
