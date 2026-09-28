@@ -5,6 +5,7 @@ param(
     [Parameter(Mandatory = $true)][string]$BuiltProject,
     [Parameter(Mandatory = $true)][string]$WorkDirectory,
     [string]$RuntimeArchive,
+    [string]$TestRepositoryConfig,
     [switch]$Development
 )
 $ErrorActionPreference = 'Stop'
@@ -77,8 +78,11 @@ try {
             [IO.Directory]::CreateDirectory($directory) | Out-Null
             $setupArgs += "-Dpixivdownload.$kind-dir=$directory"
         }
-        [IO.File]::WriteAllText((Join-Path $state 'config/config.yaml'),
-            "app.language: en-US`nproxy.enabled: false`nmaintenance.enabled: false`n", [Text.UTF8Encoding]::new($false))
+        $config = "app.language: en-US`nproxy.enabled: false`nmaintenance.enabled: false`n"
+        if ($TestRepositoryConfig) {
+            $config += [IO.File]::ReadAllText([IO.Path]::GetFullPath($TestRepositoryConfig), [Text.Encoding]::UTF8)
+        }
+        [IO.File]::WriteAllText((Join-Path $state 'config/config.yaml'), $config, [Text.UTF8Encoding]::new($false))
         Invoke-SdkJava ($setupArgs + @('-jar', $hostJar, '--setup', "--username=$Username", "--password=$Password", '--mode=solo', '--proxy-enabled=false')) `
             $project (Join-Path $WorkDirectory "$($example.Name)-setup.log")
         $launchArgs = $toolArgs + @('run', $project, $artifacts[0].FullName, '--no-gui')

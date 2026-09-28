@@ -1,10 +1,10 @@
 // ==UserScript==
-// @name         Pixiv external download gallery sync
-// @name:en      PixivBatchDownloader gallery auto import
-// @name:zh-CN   PixivBatchDownloader 自动导入画廊
-// @name:zh-TW   PixivBatchDownloader 自動匯入畫廊
-// @name:ja      PixivBatchDownloader ギャラリー自動登録
-// @name:ko      PixivBatchDownloader 갤러리 자동 가져오기
+// @name         PixivBatchDownloader 导入支持
+// @name:en      PixivBatchDownloader import support
+// @name:zh-CN   PixivBatchDownloader 导入支持
+// @name:zh-TW   PixivBatchDownloader 匯入支援
+// @name:ja      PixivBatchDownloader インポートサポート
+// @name:ko      PixivBatchDownloader 가져오기 지원
 // @namespace    https://github.com/Sywyar/PixivDownloader
 // @version      1.1.0
 // @description  After one-time download directory setup, automatically add new PixivBatchDownloader illustrations, manga, animations and novels to the local gallery. Keep original files; do not scan past downloads. Allow userscripts and refresh Pixiv before use.

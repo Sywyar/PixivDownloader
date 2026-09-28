@@ -171,7 +171,7 @@ sh run.sh
 **[PixivBatchDownloader](https://github.com/xuejianxianzun/PixivBatchDownloader)**
 如果希望直接在浏览器中下载、不依赖后端程序，可以使用这个扩展。
 
-也可以配合本项目的画廊使用：在下载页的「更多 → 油猴脚本」中安装 **PixivBatchDownloader 自动导入画廊**，按[使用说明](pixivdownload-plugin-external-download-import/README.md#使用)配置一次下载目录并启用脚本后，PixivBatchDownloader 此后成功下载的插画、漫画、动图和小说会自动加入本机画廊，无需手动导入。原文件不复制，删除画廊记录也会保留；安装前的历史下载不会自动扫描。
+也可以配合本项目的画廊使用：在下载页的「更多 → 油猴脚本」中安装 **PixivBatchDownloader 导入支持**，按[使用说明](pixivdownload-plugin-external-download-import/README.md#使用)配置一次下载目录并启用脚本后，PixivBatchDownloader 此后成功下载的插画、漫画、动图和小说会自动加入本机画廊，无需手动导入。原文件不复制，删除画廊记录也会保留；安装前的历史下载不会自动扫描。
 
 功能介绍：
 

@@ -54,19 +54,10 @@ runs:
         GITHUB_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
-        mvn -B -ntp -pl pixivdownload-app,pixivdownload-sdk-tools -am verify \
+        mvn -B -ntp -pl pixivdownload-app,pixivdownload-official-plugins,pixivdownload-sdk-tools -am verify \
           -DskipTests "-Dpixivdownload.source.sha=$SOURCE_SHA"
 
-    - name: Stage fixed signed official plugin input
-      shell: pwsh
-      run: |
-        ./scripts/ci/test/sdk-runtime-input.test.ps1 -TestDirectory target/sdk-runtime-input-tests
-        $signatures = @(Get-ChildItem pixivdownload-plugin-signature/target/pixivdownload-plugin-signature-*.jar -File)
-        if ($signatures.Count -ne 1) { throw 'Expected one plugin signature tool JAR.' }
-        ./scripts/ci/sdk-runtime-inputs.ps1 -OutputDirectory target/sdk-runtime-inputs `
-          -SignatureToolJar $signatures[0].FullName
-
-    - name: Assemble fixed complete development runtime
+    - name: Verify complete candidate runtime with ephemeral custom signatures
       shell: bash
       env:
         SOURCE_SHA: ${{ inputs.source_sha }}
@@ -75,11 +66,7 @@ runs:
         hosts=(pixivdownload-app/target/PixivDownload-*-boot.jar)
         signatures=(pixivdownload-plugin-signature/target/pixivdownload-plugin-signature-*.jar)
         [ "${#hosts[@]}" -eq 1 ] && [ "${#signatures[@]}" -eq 1 ]
-        host_version="$(basename "${hosts[0]}" -boot.jar)"
-        host_version="${host_version#PixivDownload-}"
-        node scripts/ci/sdk-runtime.mjs --repo-root . --source-sha "$SOURCE_SHA" \
-          --host-version "$host_version" --host-jar "${hosts[0]}" \
-          --plugins-directory target/sdk-runtime-inputs/plugins --signature-tool "${signatures[0]}"
+        node scripts/ci/sdk-candidate-runtime.mjs "$SOURCE_SHA" "${hosts[0]}" "${signatures[0]}"
 
     - name: Verify integrated SDK and isolated consumers
       shell: bash
@@ -91,8 +78,11 @@ runs:
         sdk_version="$(node scripts/ci/sdk-version.mjs --repo-root . --json | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')"
         tools=(pixivdownload-sdk-tools/target/pixivdownload-sdk-tools-*.jar)
         [ "${#tools[@]}" -eq 1 ]
+        cp "${tools[0]}" target/sdk-tools.jar
         node scripts/ci/sdk-release.mjs --repo-root . --output target/sdk-release --source-sha "$SOURCE_SHA" \
           --runtime-manifest build/sdk-development-runtime/sdk-runtime.json --tools-jar "${tools[0]}"
+        # 消费者测试会重新生成 flattened POM，先保存已校验且绑定源码的原始输入。
+        node scripts/ci/sdk-publication-inputs.mjs stage "$SOURCE_SHA"
         node scripts/ci/sdk-consumer.mjs --repo-root . \
           --sdk-zip "target/sdk-release/PixivDownloader-Plugin-SDK-$sdk_version.zip" \
           --sdk-repository target/sdk-staging --work-dir target/sdk-staged-consumer
@@ -106,4 +96,5 @@ runs:
         $release = Get-Content -Raw -Encoding UTF8 target/sdk-release/sdk-release.json | ConvertFrom-Json
         ./scripts/ci/sdk-runtime-consumer.ps1 -BuiltProject target/sdk-staged-consumer/project `
           -WorkDirectory target/sdk-host-consumer `
-          -RuntimeArchive (Join-Path target/sdk-release $release.developmentRuntime.archive.file)
+          -RuntimeArchive (Join-Path target/sdk-release $release.developmentRuntime.archive.file) `
+          -TestRepositoryConfig build/sdk-development-runtime/ci-repository.yaml

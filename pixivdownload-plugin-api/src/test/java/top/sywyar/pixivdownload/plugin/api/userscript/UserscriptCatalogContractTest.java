@@ -20,7 +20,7 @@ class UserscriptCatalogContractTest {
         assertThat(UserscriptContribution.class.isRecord()).isTrue();
         assertThat(Arrays.stream(UserscriptContribution.class.getRecordComponents())
                 .map(component -> component.getName()).toList())
-                .containsExactly("id", "classpathResource");
+                .containsExactly("id", "classpathResource", "i18nNamespace");
         assertThat(Arrays.stream(UserscriptContribution.class.getRecordComponents())
                 .map(component -> component.getType().getName()).toList())
                 .containsOnly(String.class.getName());
@@ -48,7 +48,7 @@ class UserscriptCatalogContractTest {
         assertThat(UserscriptArtifact.class.isRecord()).isTrue();
         assertThat(Arrays.stream(UserscriptArtifact.class.getRecordComponents())
                 .map(component -> component.getName()).toList())
-                .containsExactly("id", "displayName", "description", "version", "content");
+                .containsExactly("id", "displayName", "description", "version", "content", "i18nNamespace");
         assertThat(Arrays.stream(UserscriptArtifact.class.getRecordComponents())
                 .map(component -> component.getType().getName()).toList())
                 .containsOnly(String.class.getName());
@@ -62,11 +62,28 @@ class UserscriptCatalogContractTest {
 
         assertThat(artifact.description()).isEmpty();
         assertThat(artifact.version()).isEmpty();
+        assertThat(artifact.i18nNamespace()).isEmpty();
         assertThatThrownBy(() -> new UserscriptArtifact(" ", "Sample", "", "", "content"))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new UserscriptArtifact("sample", null, "", "", "content"))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new UserscriptArtifact("sample", "Sample", "", "", null))
+                .isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    @DisplayName("脚本声明与快照保留独立翻译命名空间且兼容无命名空间构造")
+    void localizationNamespaceIsPreserved() {
+        UserscriptContribution legacy = new UserscriptContribution("sample", "classpath:/sample.user.js");
+        assertThat(legacy.i18nNamespace()).isEmpty();
+
+        UserscriptContribution localized = new UserscriptContribution(
+                "sample", "classpath:/sample.user.js", "sample-script");
+        assertThat(localized.i18nNamespace()).isEqualTo("sample-script");
+        UserscriptArtifact artifact = new UserscriptArtifact(
+                "sample", "Sample", "", "", "content", localized.i18nNamespace());
+        assertThat(artifact.i18nNamespace()).isEqualTo("sample-script");
+        assertThatThrownBy(() -> new UserscriptArtifact("sample", "Sample", "", "", "content", null))
                 .isInstanceOf(NullPointerException.class);
     }
 }

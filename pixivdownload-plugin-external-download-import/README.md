@@ -1,12 +1,12 @@
-# 外部下载自动导入
+# PixivBatchDownloader 导入支持
 
 官方 `external-download-import` 插件配合油猴脚本，将 PixivBatchDownloader 此后下载完成的插画、漫画、动图和小说自动加入本机画廊。首次使用配置一次下载目录，之后无需手动导入。源文件不复制、不移动；删除画廊记录也保留原文件。
 
 ## 使用
 
 1. 在浏览器中安装并启用 PixivBatchDownloader 和 Tampermonkey，允许 Tampermonkey 在 Pixiv 网站运行。Chrome 138+ 还需在「扩展程序 → Tampermonkey → 详情」中开启“允许用户脚本”；其它版本按 [Tampermonkey 的权限说明](https://www.tampermonkey.net/faq.php?ext=dhdg&q=Q209)操作。
-2. 在本程序桌面设置的“外部下载自动导入”中选择 PixivBatchDownloader 使用的浏览器下载根目录，保存并重启后端。文件可保存在该目录的子目录中。也可在 `config/plugins/external-download-import.properties` 设置 `external-download-import.source-root`，使用绝对路径。
-3. 打开本程序下载页的「更多 → 油猴脚本」，单独安装 **PixivBatchDownloader 自动导入画廊**，在 Tampermonkey 安装页确认安装并保持启用。
+2. 在本程序桌面设置的“PixivBatchDownloader 导入支持”中选择 PixivBatchDownloader 使用的浏览器下载根目录，保存并重启后端。文件可保存在该目录的子目录中。也可在 `config/plugins/external-download-import.properties` 设置 `external-download-import.source-root`，使用绝对路径。
+3. 打开本程序下载页的「更多 → 油猴脚本」，单独安装 **PixivBatchDownloader 导入支持**，在 Tampermonkey 安装页确认安装并保持启用。
 4. 刷新已打开的 Pixiv 页面。脚本默认连接 `http://localhost:6999`；若端口不同，在 Pixiv 页面的油猴菜单“设置本机服务地址”中修改一次。
 5. 保持本机后端运行，正常使用 PixivBatchDownloader 抓取和下载。整部作品的所有文件下载完成后会自动加入对应画廊，无需复制或粘贴 JSON。
 

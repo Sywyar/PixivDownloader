@@ -1,12 +1,12 @@
-# External download auto import
+# PixivBatchDownloader import support
 
 The official `external-download-import` plugin and its companion userscript automatically add new PixivBatchDownloader downloads to the local gallery: illustrations, manga, animations and novels. Configure the download directory once; subsequent downloads need no manual import. Original files are referenced in place and retained when gallery records are deleted.
 
 ## Setup
 
 1. Install and enable PixivBatchDownloader and Tampermonkey in your browser, and allow Tampermonkey to run on Pixiv. In Chrome 138+, open **Extensions → Tampermonkey → Details** and enable **Allow User Scripts**. For other versions, follow [Tampermonkey's permission instructions](https://www.tampermonkey.net/faq.php?ext=dhdg&q=Q209).
-2. In this app's desktop **External download auto import** settings, choose the browser download root used by PixivBatchDownloader, save and restart the backend. Files may be in subdirectories. Alternatively, set the absolute `external-download-import.source-root` in `config/plugins/external-download-import.properties`.
-3. On this app's download page, open **More → Userscripts** and separately install **PixivBatchDownloader gallery auto import**. Confirm installation in Tampermonkey and leave the script enabled.
+2. In this app's desktop **PixivBatchDownloader import support** settings, choose the browser download root used by PixivBatchDownloader, save and restart the backend. Files may be in subdirectories. Alternatively, set the absolute `external-download-import.source-root` in `config/plugins/external-download-import.properties`.
+3. On this app's download page, open **More → Userscripts** and separately install **PixivBatchDownloader import support**. Confirm installation in Tampermonkey and leave the script enabled.
 4. Refresh any open Pixiv pages. The default server is `http://localhost:6999`. If you use another port, change it once through **Set local server address** in the userscript menu on Pixiv.
 5. Keep the local backend running, then crawl and download with PixivBatchDownloader. Once every file in a work finishes downloading, the work is added to its gallery automatically. No JSON copying or pasting is needed.
 
