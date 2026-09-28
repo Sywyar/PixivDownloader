@@ -22,7 +22,7 @@ import java.util.List;
  * @param displayNamespace     展示名 / 简介 i18n namespace（可空）
  * @param displayNameKey       展示名 i18n key（纯 key，可空）
  * @param descriptionKey       简介 i18n key（纯 key，可空）
- * @param latestVersion        最新可用版本（取市场元数据声明、否则取首个版本制品；可空）
+ * @param latestVersion        最新可用版本（取有效的市场元数据声明，否则按版本语义取最高版本；可空）
  * @param market               净化后的市场展示元数据（可空）
  * @param packages             可安装版本制品列表
  * @param installStatus        安装状态机机器码（未安装 / 已安装 / 有更新 / 不兼容）
@@ -120,7 +120,7 @@ public record PluginMarketEntryView(
                 compatibilityReason, assuranceLevel, generation, nextCursor, totalApproximate, stale);
     }
 
-    /** 安装目标版本制品（用于兼容判定）：优先版本号等于 {@code latestVersion} 的包，否则首个包（清单约定新版本在前），都无则 {@code null}。 */
+    /** 安装目标版本制品（用于兼容判定）：优先版本号等于 {@code latestVersion} 的包，否则首个包，都无则 {@code null}。 */
     private static PluginMarketPackageView installTarget(List<PluginMarketPackageView> packages, String latestVersion) {
         if (packages.isEmpty()) {
             return null;
@@ -135,12 +135,13 @@ public record PluginMarketEntryView(
         return packages.get(0);
     }
 
-    /** 最新版本：优先市场元数据声明的 {@code latestVersion}，否则取首个版本制品的版本（清单约定新版本在前），都无则 {@code null}。 */
+    /** 最新版本：优先市场元数据声明的可用版本，否则按现有版本比较规则取最高版本。 */
     private static String resolveLatestVersion(PluginMarketMetaView market, List<PluginMarketPackageView> packages) {
         if (market != null && market.latestVersion() != null
                 && packages.stream().anyMatch(pkg -> market.latestVersion().equals(pkg.version()))) {
             return market.latestVersion();
         }
-        return packages.isEmpty() ? null : packages.get(0).version();
+        return packages.stream().map(PluginMarketPackageView::version)
+                .max(SemanticVersion::compare).orElse(null);
     }
 }
