@@ -13,7 +13,7 @@
     "changeNotes": ["下载工作台从核心壳外置为官方必需插件"]
   },
   "external-download-import": {
-    "description": { "zh": "只读采集 PixivBatchDownloader 的下载结果，由管理员确认本地文件后导入插画历史。", "en": "Observes PixivBatchDownloader results without changing downloads and imports local artwork after administrator file confirmation." },
+    "description": { "zh": "在单人模式下安装下载页提供的油猴脚本，配置一次同机下载目录并重启后端，即可自动将 PixivBatchDownloader 后续下载完成的插画、漫画、动图和小说导入对应画廊。直接读取原文件，不复制；删除画廊记录也保留原文件。不扫描历史下载。", "en": "In single-user mode, install the userscript from the download page, configure the download folder on the same machine, and restart the backend. Subsequent illustrations, manga, animations, and novels completed by PixivBatchDownloader are automatically imported into their galleries. Original files are referenced without copying and kept when gallery records are deleted. Existing downloads are not scanned." },
     "author": "Sywyar",
     "sourceType": "official",
     "category": "download",
@@ -22,7 +22,7 @@
     "license": "AGPL-3.0-only",
     "recommended": true,
     "officialRequired": false,
-    "changeNotes": ["新增只读下载采集脚本和管理员本地导入"]
+    "changeNotes": ["新增 PixivBatchDownloader 导入支持，自动导入后续下载完成的插画、漫画、动图和小说，保留原文件"]
   },
   "posthog": {
     "description": { "zh": "提供官方 PostHog 浏览器 SDK 与隔离的命名调查客户端；调查发布插件自持并传入项目参数与调查语义。", "en": "Provides the official PostHog browser SDK and isolated named survey clients; survey-publishing plugins own and pass their project parameters and survey semantics." },
