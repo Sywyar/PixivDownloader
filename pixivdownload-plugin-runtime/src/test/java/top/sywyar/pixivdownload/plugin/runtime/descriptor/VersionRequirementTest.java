@@ -4,10 +4,72 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.sdk.SdkVersion;
 
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.nio.charset.StandardCharsets;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("插件版本要求解析与兼容判定")
 class VersionRequirementTest {
+
+    @Test
+    @DisplayName("重复兼容检查只读取一次打包版本，不同类加载器和缺失资源相互隔离")
+    void readsPackagedVersionOncePerClassLoader() throws Exception {
+        String first = "-nightly.20000101.1.1";
+        String second = "-nightly.20000101.2.1";
+        for (String suffix : new String[]{first, second, null}) {
+            try (var loader = new BuildVersionLoader(suffix == null ? null : "7.2.3" + suffix)) {
+                Class<?> type = loader.loadClass(VersionRequirement.class.getName());
+                var parse = type.getMethod("parse", String.class);
+                var check = type.getMethod("isSatisfiedByCurrentSdk");
+                assertThat(check.invoke(parse.invoke(null, "*"))).isEqualTo(true);
+                assertThat(loader.reads).isZero();
+                Object firstRequirement = parse.invoke(null, SdkVersion.VERSION + first);
+                Object secondRequirement = parse.invoke(null, SdkVersion.VERSION + second);
+                for (int i = 0; i < 20; i++) {
+                    assertThat(check.invoke(firstRequirement)).isEqualTo(first.equals(suffix));
+                    assertThat(check.invoke(secondRequirement)).isEqualTo(second.equals(suffix));
+                }
+                assertThat(loader.reads).isEqualTo(1);
+            }
+        }
+    }
+
+    private static final class BuildVersionLoader extends URLClassLoader {
+        private final String version;
+        private int reads;
+
+        private BuildVersionLoader(String version) {
+            super(new URL[]{VersionRequirement.class.getProtectionDomain().getCodeSource().getLocation()},
+                    VersionRequirement.class.getClassLoader());
+            this.version = version;
+        }
+
+        @Override
+        protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+            if (!name.equals(VersionRequirement.class.getName())
+                    && !name.startsWith(VersionRequirement.class.getName() + "$")) {
+                return super.loadClass(name, resolve);
+            }
+            synchronized (getClassLoadingLock(name)) {
+                Class<?> type = findLoadedClass(name);
+                if (type == null) type = findClass(name);
+                if (resolve) resolveClass(type);
+                return type;
+            }
+        }
+
+        @Override
+        public InputStream getResourceAsStream(String name) {
+            if (!"app-version.properties".equals(name)) return super.getResourceAsStream(name);
+            reads++;
+            return version == null ? null : new ByteArrayInputStream(
+                    ("app.version=" + version).getBytes(StandardCharsets.UTF_8));
+        }
+    }
 
     @Test
     @DisplayName("空 / null 声明解析为未声明：兼容任何版本")
