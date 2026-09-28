@@ -85,14 +85,14 @@ public class GalleryToolsPlugin implements PixivFeaturePlugin {
                 new NavigationContribution(
                         "stats",
                         Set.of(NavigationPlacements.APP_SIDEBAR,
-                                NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.NOVEL_SIDEBAR,
+                                NavigationPlacements.GALLERY_SIDEBAR_TOOLS, NavigationPlacements.NOVEL_SIDEBAR_TOOLS,
                                 NavigationPlacements.DUPLICATES_HEADER_ICONS,
                                 NavigationPlacements.DESKTOP_QUICK_START),
                         "stats", "nav.label", "/pixiv-stats.html", "chart-bar", AccessPolicy.ADMIN, 50),
                 new NavigationContribution(
                         "duplicate",
                         Set.of(NavigationPlacements.APP_SIDEBAR,
-                                NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.NOVEL_SIDEBAR),
+                                NavigationPlacements.GALLERY_SIDEBAR_TOOLS, NavigationPlacements.NOVEL_SIDEBAR_TOOLS),
                         "duplicates", "nav.label", "/pixiv-duplicates.html", "copy", AccessPolicy.ADMIN, 60));
     }
 }

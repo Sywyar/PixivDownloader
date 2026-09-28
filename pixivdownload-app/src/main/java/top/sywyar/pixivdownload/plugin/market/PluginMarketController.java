@@ -20,7 +20,7 @@ import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException;
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryImportService;
-import top.sywyar.pixivdownload.plugin.catalog.repository.RepositoryImportPreview;
+import top.sywyar.pixivdownload.plugin.api.gui.RepositoryImportPreview;
 import top.sywyar.pixivdownload.plugin.catalog.repository.RepositoryTrustResult;
 import top.sywyar.pixivdownload.plugin.catalog.page.PluginCatalogPageQuery;
 

@@ -207,6 +207,17 @@ public interface DesktopUiHost extends DesktopUiToolHost {
                 "Plugin repository persistence is not supported by this host");
     }
 
+    /** 在既有限制内读取描述符事实，不改变配置或信任状态。 */
+    default RepositoryImportPreview previewPluginRepository(String descriptorUrl) throws IOException {
+        throw new UnsupportedOperationException("Repository descriptor import is not supported by this host");
+    }
+
+    /** 复验已确认的描述符并返回草稿；持久化由 writePluginRepositories 完成。 */
+    default RepositoryConfigEntry preparePluginRepository(
+            String descriptorUrl, String expectedSha256, boolean trustConfirmed) throws IOException {
+        throw new UnsupportedOperationException("Repository descriptor import is not supported by this host");
+    }
+
     /**
      * @return 以纯配置值表示的内置官方仓库信任根
      */

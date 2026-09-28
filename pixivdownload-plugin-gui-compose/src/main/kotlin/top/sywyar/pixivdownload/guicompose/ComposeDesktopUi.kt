@@ -816,8 +816,10 @@ internal fun DocumentDialog(
             contentAlignment = Alignment.Center,
         ) {
             val targetSize = dialogWindowSize(dialog, DpSize(maxWidth, maxHeight))
+            val editor = (dialog.content() as? DesktopUiNode.Surface)?.content() as? DesktopUiNode.RepositoryEditor
             CupertinoSurface(
-                modifier = Modifier.size(targetSize)
+                modifier = (if (editor != null) Modifier.width(targetSize.width).heightIn(max = targetSize.height)
+                    else Modifier.size(targetSize))
                     .border(1.dp, LocalExperiencePalette.current.separator, CupertinoTheme.shapes.medium)
                     .semantics { paneTitle = title },
                 shape = CupertinoTheme.shapes.medium,
@@ -838,10 +840,10 @@ internal fun DocumentDialog(
                         }
                     }
                     ComposeDesktopUiNodeRenderer.Render(
-                        root = dialog.content(),
+                        root = editor ?: dialog.content(),
                         textResolver = text,
                         eventSink = emit,
-                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        modifier = Modifier.fillMaxWidth().weight(1f, fill = editor == null),
                         documentRevision = documentRevision,
                     )
                 }

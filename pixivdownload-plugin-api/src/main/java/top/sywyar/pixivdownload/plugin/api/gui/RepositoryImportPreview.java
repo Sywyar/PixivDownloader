@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.catalog.repository;
+package top.sywyar.pixivdownload.plugin.api.gui;
 
 import java.util.List;
 

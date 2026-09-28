@@ -9,6 +9,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.TooltipArea
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.ui.semantics.selected
@@ -179,6 +180,7 @@ object ComposeDesktopUiNodeRenderer {
         modifier: Modifier = Modifier,
     ) {
         when (node) {
+            is DesktopUiNode.RepositoryEditor -> top.sywyar.pixivdownload.guicompose.settings.RepositoryEditorContent(node, text, emit, modifier)
             is DesktopUiNode.AboutOverview -> top.sywyar.pixivdownload.guicompose.about.AboutOverview(node, text, emit, modifier) { child, childModifier ->
                 Node(child, text, emit, childModifier)
             }
@@ -1327,15 +1329,21 @@ object ComposeDesktopUiNodeRenderer {
         val documentRevision = LocalDocumentRevision.current
         var checked by remember(node.id()) { mutableStateOf(node.selected()) }
         LaunchedEffect(documentRevision, node.selected()) { checked = node.selected() }
+        val update: (Boolean) -> Unit = {
+            checked = it
+            emit(change(node.id(), node.bindingId(), DesktopUiNode.Value.bool(it)))
+        }
+        val labelledCheckbox = includeLabel && node.toggleStyle() != DesktopUiNode.ToggleStyle.SWITCH
         Row(
-            modifier,
+            if (labelledCheckbox) modifier.toggleable(
+                value = checked,
+                enabled = node.enabled(),
+                role = Role.Checkbox,
+                onValueChange = update,
+            ) else modifier,
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(9.dp),
         ) {
-            val update: (Boolean) -> Unit = {
-                checked = it
-                emit(change(node.id(), node.bindingId(), DesktopUiNode.Value.bool(it)))
-            }
             if (node.toggleStyle() == DesktopUiNode.ToggleStyle.SWITCH) {
                 CupertinoSwitch(checked, update, enabled = node.enabled(),
                     colors = CupertinoSwitchDefaults.colors(
@@ -1345,8 +1353,8 @@ object ComposeDesktopUiNodeRenderer {
                     ),
                     modifier = Modifier.semantics { contentDescription = resolve(node.label(), text) })
             } else {
-                CupertinoCheckBox(checked, update, enabled = node.enabled(),
-                    modifier = Modifier.semantics { contentDescription = resolve(node.label(), text) })
+                CupertinoCheckBox(checked, if (includeLabel) null else update, enabled = node.enabled(),
+                    modifier = Modifier.semantics { if (!includeLabel) contentDescription = resolve(node.label(), text) })
             }
             if (includeLabel) HintedTitle(help(node.help(), text)) {
                 CupertinoText(resolve(node.label(), text), style = CupertinoTheme.typography.body)

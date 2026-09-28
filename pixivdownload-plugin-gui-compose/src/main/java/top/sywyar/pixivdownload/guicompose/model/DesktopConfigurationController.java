@@ -777,11 +777,11 @@ final class DesktopConfigurationController {
                             if (!entry.getValue().isEmpty())
                                 entry.getKey().writeAll(entry.getValue());
                         }
-                        if (repositoriesChanged) {
-                            host.writePluginRepositories(applicationConfig, repositories.entries());
-                        }
                         for (Map.Entry<String, Map<String, String>> entry : secrets.entrySet()) {
                             host.updateCredentials(entry.getKey(), entry.getValue());
+                        }
+                        if (repositoriesChanged) {
+                            host.writePluginRepositories(applicationConfig, repositories.entries());
                         }
                     }
             );

@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.catalog.repository;
 
+import top.sywyar.pixivdownload.plugin.api.gui.RepositoryImportPreview;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -7,6 +8,7 @@ import top.sywyar.pixivdownload.plugin.catalog.community.CommunityDirectoryServi
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.gui.config.PluginRepositoryConfigEditor;
 import top.sywyar.pixivdownload.plugin.api.gui.RepositoryConfigEntry;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.gui.TrustedKeyConfigEntry;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogHttpClient;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogTrustStores;
@@ -124,6 +126,72 @@ public final class PluginRepositoryImportService {
 
     public RepositoryTrustResult trust(String descriptorUrl, String expectedDescriptorSha256,
                                        boolean trustConfirmed) {
+        VerifiedImport verified = verifyImport(descriptorUrl, expectedDescriptorSha256, trustConfirmed);
+        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(RuntimeFiles.resolveConfigYamlPath());
+        try {
+            List<RepositoryConfigEntry> entries = new ArrayList<>(editor.read());
+            entries.removeIf(current -> current.id().equalsIgnoreCase(verified.entry().id()));
+            entries.add(verified.entry());
+            editor.write(entries);
+            acceptUpdate(verified);
+        } catch (IOException failure) {
+            throw new PluginCatalogException(PluginCatalogErrorCode.REPOSITORY_CONFIG_WRITE_FAILED, failure.getMessage());
+        }
+        return new RepositoryTrustResult(verified.entry().id(), expectedDescriptorSha256,
+                true, true, String.valueOf(verified.entry().extraFields().get("trust-source")));
+    }
+
+    /** 确认只生成草稿；取消设置不会改变信任状态。 */
+    public RepositoryConfigEntry prepare(String descriptorUrl, String expectedSha256, boolean confirmed) {
+        return verifyImport(descriptorUrl, expectedSha256, confirmed).entry();
+    }
+
+    /** 统一设置事务写入仓库列表前，重新验证已变更的描述符快照。 */
+    public void writeDraft(DesktopUiHost.ConfigFile configFile, List<RepositoryConfigEntry> entries) throws IOException {
+        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(configFile);
+        List<RepositoryConfigEntry> saved = editor.read();
+        Map<String, Long> sequences = new LinkedHashMap<>();
+        Set<String> ids = new HashSet<>();
+        for (RepositoryConfigEntry entry : entries) {
+            if (!ids.add(entry.id().toLowerCase(Locale.ROOT))) {
+                throw new PluginCatalogException(PluginCatalogErrorCode.REPOSITORY_ID_CONFLICT, "duplicate repository id");
+            }
+            Object url = entry.extraFields().get("descriptor-url");
+            if (!(url instanceof String descriptorUrl) || descriptorUrl.isBlank()) continue;
+            RepositoryConfigEntry previous = saved.stream()
+                    .filter(value -> value.id().equalsIgnoreCase(entry.id())).findFirst().orElse(null);
+            if (previous != null
+                    && Objects.equals(previous.extraFields().get("descriptor-url"), url)
+                    && Objects.equals(previous.extraFields().get("descriptor-sha256"),
+                            entry.extraFields().get("descriptor-sha256"))) continue;
+            VerifiedImport verified = verifyImport(descriptorUrl,
+                    String.valueOf(entry.extraFields().get("descriptor-sha256")), true);
+            if (!verified.entry().equals(entry)) {
+                throw new PluginCatalogException(PluginCatalogErrorCode.REPOSITORY_DESCRIPTOR_CHANGED,
+                        "repository draft no longer matches the confirmed descriptor");
+            }
+            if (verified.proof() != null) sequences.put(entry.id(), verified.proof().sequence());
+        }
+        DesktopUiHost.ConfigSnapshot before = configFile.snapshot();
+        editor.write(entries);
+        try {
+            stateStore.acceptUpdateSequences(sequences);
+        } catch (IOException failure) {
+            try { configFile.restore(before); }
+            catch (IOException rollback) { failure.addSuppressed(rollback); }
+            throw failure;
+        }
+    }
+
+    private record VerifiedImport(RepositoryConfigEntry entry, RepositoryUpdateDocument proof) {}
+
+    private void acceptUpdate(VerifiedImport verified) throws IOException {
+        if (verified.proof() != null) {
+            stateStore.acceptUpdateSequence(verified.entry().id(), verified.proof().sequence());
+        }
+    }
+
+    private VerifiedImport verifyImport(String descriptorUrl, String expectedDescriptorSha256, boolean trustConfirmed) {
         if (!trustConfirmed) {
             throw new PluginCatalogException(PluginCatalogErrorCode.REPOSITORY_TRUST_CONFIRMATION_REQUIRED,
                     "explicit repository trust confirmation is required");
@@ -150,17 +218,7 @@ public final class PluginRepositoryImportService {
         var certification = certification(parsed);
         boolean communityCertified = certified(parsed, certification);
         RepositoryUpdateDocument proof = updateRequired && !communityCertified ? verifiedUpdateProof(existing, parsed, true) : null;
-        writeConfiguration(parsed, communityCertified ? certification : null);
-        if (proof != null) {
-            try {
-                stateStore.acceptUpdateSequence(parsed.descriptor().repositoryId(), proof.sequence());
-            } catch (IOException failure) {
-                throw new PluginCatalogException(PluginCatalogErrorCode.REPOSITORY_CONFIG_WRITE_FAILED,
-                        "repository saved but update sequence state could not be written: " + failure.getMessage());
-            }
-        }
-        return new RepositoryTrustResult(parsed.descriptor().repositoryId(), parsed.descriptorSha256(),
-                true, true, communityCertified ? "COMMUNITY_VERIFIED" : "SELF_TRUSTED");
+        return new VerifiedImport(configurationEntry(parsed, communityCertified ? certification : null), proof);
     }
 
     private ParsedRepositoryDescriptor fetch(String descriptorUrl) {
@@ -244,7 +302,7 @@ public final class PluginRepositoryImportService {
         }
     }
 
-    private void writeConfiguration(ParsedRepositoryDescriptor parsed, CommunityDirectoryService.Lookup certification) {
+    private RepositoryConfigEntry configurationEntry(ParsedRepositoryDescriptor parsed, CommunityDirectoryService.Lookup certification) {
         RepositoryDescriptor descriptor = parsed.descriptor();
         PluginRepository baseline = registry.find(descriptor.repositoryId())
                 .orElseGet(() -> registry.repositories().get(0));
@@ -267,21 +325,11 @@ public final class PluginRepositoryImportService {
         List<TrustedKeyConfigEntry> keys = parsed.trustedKeys().stream().map(key -> TrustedKeyConfigEntry.create(
                 key.keyId(), key.algorithm(), key.publicKeySpkiBase64(), key.state().name(),
                 key.publisher(), key.trustLabel())).toList();
-        RepositoryConfigEntry entry = new RepositoryConfigEntry(descriptor.repositoryId(), "",
+        return new RepositoryConfigEntry(descriptor.repositoryId(), "",
                 descriptor.catalog().endpoint(), true, parsed.effectiveProxyPolicy(),
                 false, true, false, "github-releases".equals(parsed.effectiveProxyPolicy()),
                 baseline.connectTimeoutMs(), baseline.readTimeoutMs(), baseline.maxManifestBytes(),
                 baseline.maxPackageBytes(), keys, extra);
-        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(RuntimeFiles.resolveConfigYamlPath());
-        try {
-            List<RepositoryConfigEntry> entries = new ArrayList<>(editor.read());
-            entries.removeIf(current -> current.id().equalsIgnoreCase(descriptor.repositoryId()));
-            entries.add(entry);
-            editor.write(entries);
-        } catch (IOException failure) {
-            throw new PluginCatalogException(PluginCatalogErrorCode.REPOSITORY_CONFIG_WRITE_FAILED,
-                    "failed to save trusted repository snapshot: " + failure.getMessage());
-        }
     }
 
     private static Set<String> fingerprints(List<TrustedPluginKey> keys) {

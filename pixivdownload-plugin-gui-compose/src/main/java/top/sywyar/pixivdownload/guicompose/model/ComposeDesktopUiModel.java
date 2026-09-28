@@ -694,6 +694,10 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         rebuild();
     }
 
+    boolean isDialogOpen(String id) {
+        return !closed && dialogState != null && dialogState.id().equals(id);
+    }
+
     void closeDialog() {
         dialogState = null;
     }

@@ -83,7 +83,7 @@ class NavigationRegistryTest {
                     assertThat(registered.navigation().placements()).containsExactly("invite.manage.back");
                 });
         // 邀请码管理 / 插件入口归 core 插件、ADMIN 可见；邀请码管理只进侧栏、不进顶部栏 placement，
-        // 插件入口只进顶部栏 placement（app.top）、不进侧栏。
+        // 插件入口进入顶部栏及画廊家族侧栏的主页面区域。
         assertThat(registry.navigation())
                 .filteredOn(registered -> registered.pluginId().equals("core"))
                 .extracting(registered -> registered.navigation().id())
@@ -92,12 +92,12 @@ class NavigationRegistryTest {
                 .filteredOn(registered -> registered.navigation().id().equals("invite-manage"))
                 .singleElement()
                 .satisfies(registered -> assertThat(registered.navigation().placements())
-                        .containsExactlyInAnyOrder("app.sidebar", "gallery.sidebar", "novel.sidebar", NavigationPlacements.DESKTOP_SECURITY_ACTIONS));
+                        .containsExactlyInAnyOrder("app.sidebar", "gallery.sidebar.tools", "novel.sidebar.tools", NavigationPlacements.DESKTOP_SECURITY_ACTIONS));
         assertThat(registry.navigation())
                 .filteredOn(registered -> registered.navigation().id().equals("plugin-manage"))
                 .singleElement()
                 .satisfies(registered -> assertThat(registered.navigation().placements())
-                        .containsExactly("app.top"));
+                        .containsExactlyInAnyOrder("app.top", "gallery.sidebar", "novel.sidebar"));
         // 插件市场导航归 plugin-market 插件、ADMIN 可见、只进插件页内分段 placement；随插件启停进出快照。
         assertThat(registry.navigation())
                 .filteredOn(registered -> registered.navigation().id().equals("plugin-market"))

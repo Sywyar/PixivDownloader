@@ -57,14 +57,15 @@ class NavigationMarkupGuardTest {
             "monitor.html", List.of(NavigationPlacements.APP_TOP),
             "plugin-manage.html", List.of(NavigationPlacements.APP_TOP, NavigationPlacements.PLUGINS_SEGMENT),
             "plugin-market.html", List.of(NavigationPlacements.APP_TOP),
-            "pixiv-gallery.html", List.of(NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.GALLERY_TYPE_SWITCH),
-            "pixiv-novel-gallery.html", List.of(NavigationPlacements.NOVEL_SIDEBAR, NavigationPlacements.GALLERY_TYPE_SWITCH),
-            "pixiv-series.html", List.of(NavigationPlacements.GALLERY_SIDEBAR));
+            "pixiv-gallery.html", List.of(NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.GALLERY_SIDEBAR_TOOLS, NavigationPlacements.GALLERY_TYPE_SWITCH),
+            "pixiv-novel-gallery.html", List.of(NavigationPlacements.NOVEL_SIDEBAR, NavigationPlacements.NOVEL_SIDEBAR_TOOLS, NavigationPlacements.GALLERY_TYPE_SWITCH),
+            "pixiv-series.html", List.of(NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.GALLERY_SIDEBAR_TOOLS));
 
     /** 全部已知 placement（HTML slot 值必须取自此集合，确保前端 slot 与后端 contribution 名一致）。 */
     private static final Set<String> KNOWN_PLACEMENTS = Set.of(
             NavigationPlacements.APP_TOP, NavigationPlacements.APP_SIDEBAR,
             NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.NOVEL_SIDEBAR,
+            NavigationPlacements.GALLERY_SIDEBAR_TOOLS, NavigationPlacements.NOVEL_SIDEBAR_TOOLS,
             NavigationPlacements.GALLERY_TYPE_SWITCH,
             NavigationPlacements.DUPLICATES_HEADER_ICONS, NavigationPlacements.STATS_GALLERY_LINKS,
             NavigationPlacements.PLUGINS_SEGMENT);

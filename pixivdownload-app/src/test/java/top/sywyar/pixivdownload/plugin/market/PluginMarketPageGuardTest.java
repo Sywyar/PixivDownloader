@@ -90,6 +90,9 @@ class PluginMarketPageGuardTest {
         assertThat(html).contains("id=\"langSwitcherAnchor\"");
         assertThat(html).contains("/plugin-market/plugin-market.css");
         assertThat(html).contains("id=\"pmk-app-root\"");
+        assertThat(html).doesNotContain("repository-import", "pmk-repository-url");
+        assertThat(read(INIT)).doesNotContain("mountRepositoryImport");
+        assertThat(read(API)).doesNotContain("/repositories/import/");
     }
 
     @Test

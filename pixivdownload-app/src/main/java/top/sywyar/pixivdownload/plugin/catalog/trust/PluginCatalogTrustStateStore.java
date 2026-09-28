@@ -62,7 +62,23 @@ public final class PluginCatalogTrustStateStore {
     }
 
     public synchronized void acceptUpdateSequence(String repositoryId, long sequence) throws IOException {
-        mutate(repositoryId, old -> new RepositoryState(Math.max(old.updateSequence(), sequence), old.revocations()));
+        if (repositoryId == null || repositoryId.isBlank()) throw new IOException("repositoryId is required");
+        acceptUpdateSequences(Map.of(repositoryId, sequence));
+    }
+
+    /** 在同一原子信任快照中提交全部已确认的仓库更新。 */
+    public synchronized void acceptUpdateSequences(Map<String, Long> sequences) throws IOException {
+        if (sequences.isEmpty()) return;
+        Map<String, RepositoryState> repositories = new LinkedHashMap<>(read().repositories());
+        for (var entry : sequences.entrySet()) {
+            if (entry.getKey() == null || entry.getKey().isBlank() || entry.getValue() == null) {
+                throw new IOException("repositoryId and sequence are required");
+            }
+            RepositoryState old = repositories.getOrDefault(entry.getKey(), RepositoryState.empty());
+            repositories.put(entry.getKey(), new RepositoryState(
+                    Math.max(old.updateSequence(), entry.getValue()), old.revocations()));
+        }
+        write(new State(1, repositories));
     }
 
     public synchronized void acceptRevocations(String repositoryId, RevocationSnapshot snapshot) throws IOException {
@@ -84,15 +100,6 @@ public final class PluginCatalogTrustStateStore {
     private Optional<RepositoryState> repository(String repositoryId) {
         if (repositoryId == null) return Optional.empty();
         return Optional.ofNullable(read().repositories().get(repositoryId));
-    }
-
-    private void mutate(String repositoryId, java.util.function.UnaryOperator<RepositoryState> change)
-            throws IOException {
-        if (repositoryId == null || repositoryId.isBlank()) throw new IOException("repositoryId is required");
-        State state = read();
-        Map<String, RepositoryState> repositories = new LinkedHashMap<>(state.repositories());
-        repositories.put(repositoryId, change.apply(repositories.getOrDefault(repositoryId, RepositoryState.empty())));
-        write(new State(1, repositories));
     }
 
     private void write(State state) throws IOException {

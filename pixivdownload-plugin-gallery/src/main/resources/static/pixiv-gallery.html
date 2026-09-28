@@ -106,16 +106,25 @@
 
         <div class="sidebar-divider"></div>
 
-        <div class="section-header">
-            <span class="section-title" data-i18n="section.navigation">导航</span>
-        </div>
-        <!-- 跨插件导航 slot（gallery.sidebar placement）：由 /js/pixiv-navigation.js 据 /api/navigation 动态渲染
-             （禁用插件后其入口自然消失，admin-only 入口对受邀访客不返回）。跨画廊类型的入口不属于本 placement，
-             统一由下方「画廊类型切换」slot 承载；当前项按 pathname 自动识别。 -->
-        <nav class="sidebar-nav" data-nav-slot="gallery.sidebar"
-             data-nav-link-class="nav-item" data-nav-active-class="current"
-             data-nav-icon-wrap-class="nav-icon" data-nav-label-class="nav-label"
-             data-nav-target="_blank" data-nav-rel="noopener"></nav>
+        <section class="sidebar-navigation-group">
+            <div class="section-header">
+                <span class="section-title" data-i18n="section.navigation">页面</span>
+            </div>
+            <nav class="sidebar-nav" data-nav-slot="gallery.sidebar"
+                 data-nav-link-class="nav-item" data-nav-active-class="current"
+                 data-nav-icon-wrap-class="nav-icon" data-nav-label-class="nav-label"
+                 data-nav-target="_blank" data-nav-rel="noopener"></nav>
+        </section>
+        <section class="sidebar-navigation-group">
+            <div class="sidebar-divider"></div>
+            <div class="section-header">
+                <span class="section-title" data-i18n="section.tools">工具</span>
+            </div>
+            <nav class="sidebar-nav" data-nav-slot="gallery.sidebar.tools"
+                 data-nav-link-class="nav-item" data-nav-active-class="current"
+                 data-nav-icon-wrap-class="nav-icon" data-nav-label-class="nav-label"
+                 data-nav-target="_blank" data-nav-rel="noopener"></nav>
+        </section>
 
         <div class="sidebar-footer">
             <button type="button" class="nav-item admin-only" id="btnInviteGuest" style="width:100%; margin-bottom:8px; background:none; border:none; text-align:left; cursor:pointer;">
