@@ -7,6 +7,10 @@ import java.util.function.BooleanSupplier;
  */
 @FunctionalInterface
 public interface FfmpegProcessGate {
+    /**
+     * @param cancellationRequested 等待期间检查的取消信号
+     * @return 当前任务取得的进程额度，进程退出后必须关闭
+     */
     Permit acquire(BooleanSupplier cancellationRequested);
 
     /** 进程及其子进程退出后关闭；重复关闭不重复释放预算。 */
