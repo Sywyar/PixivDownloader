@@ -98,6 +98,11 @@ class DesktopMediaToolsControllerTest {
                 "openExternalUri", arguments -> { fail("Native tool must not open a browser"); return null; }))) {
             String prefix = "media.sample.1";
             assertTrue(node(model, prefix + ".images") instanceof DesktopUiNode.Choice);
+            var help = ((DesktopUiNode.Text) node(model, prefix + ".help")).text();
+            assertEquals("batch", help.namespace());
+            assertEquals("media.tools.help", help.key());
+            assertEquals("media.tools.help", help.fallback());
+            assertTrue(help.arguments().isEmpty());
             assertFalse(button(model, prefix + ".start").enabled());
             activate(model, prefix + ".preview");
             await(() -> button(model, prefix + ".start").enabled());

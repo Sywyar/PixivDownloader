@@ -245,7 +245,12 @@ final class DesktopMediaToolsController implements AutoCloseable {
     private DesktopMediaTool.Source source(State state) { return host.mediaTool(state.tool.identity()); }
     private boolean active(State state) { return !closed && states.get(state.tool.identity()) == state; }
     private static TextToken token(State state, String key, Object... arguments) {
-        return new TextToken(state.tool.description().namespace(), key, key, Arrays.stream(arguments).map(String::valueOf).toList());
+        return new TextToken(
+                state.tool.description().namespace(),
+                key,
+                key,
+                arguments.length == 0 ? List.of() : Arrays.stream(arguments).map(String::valueOf).toList()
+        );
     }
     private static void fail(State state, RuntimeException failure) {
         DesktopUiText text = failure instanceof DesktopMediaTool.OperationException operation

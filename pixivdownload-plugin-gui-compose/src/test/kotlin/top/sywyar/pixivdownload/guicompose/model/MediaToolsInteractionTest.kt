@@ -85,6 +85,7 @@ class MediaToolsInteractionTest {
                 onNodeWithTag(prefix + ".preview").assertIsDisplayed().assertIsEnabled()
                 onNodeWithTag(prefix + ".preview").performClick()
                 waitUntil(timeoutMillis = 5_000) { fixture.request.get() != null }
+                waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(prefix + ".start").fetchSemanticsNodes().isNotEmpty() }
                 onNodeWithTag(prefix + ".start").assertIsDisplayed()
                 assertEquals(0, fixture.starts.get())
                 onNodeWithContentDescription(messages.getProperty("media.image-formats.label")).performScrollTo().performClick()
@@ -99,10 +100,12 @@ class MediaToolsInteractionTest {
                 screenshot("form-$theme", "tools.media.workspace")
                 onNodeWithTag(prefix + ".preview").performClick()
                 waitUntil(timeoutMillis = 5_000) { fixture.request.get().imageFormats().contains("png") }
+                waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("42 / 0  source.jpg").fetchSemanticsNodes().isNotEmpty() }
                 onNodeWithText("42 / 0  source.jpg").performScrollTo().assertIsDisplayed()
                 screenshot("preview-$theme", "tools.media.workspace")
                 onNodeWithTag(prefix + ".start").assertIsDisplayed().performClick()
                 waitUntil(timeoutMillis = 5_000) { fixture.starts.get() == 1 }
+                waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(prefix + ".cancel").fetchSemanticsNodes().isNotEmpty() }
                 onNodeWithTag(prefix + ".cancel").assertIsDisplayed()
                 screenshot("running-$theme", "tools.media.workspace")
                 onNodeWithTag(prefix + ".cancel").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
