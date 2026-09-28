@@ -63,48 +63,50 @@ public class NovelPlugin implements PixivFeaturePlugin {
         return PluginKind.FEATURE;
     }
 
+    // 小说下载端点归小说自有前缀 /api/novel/**（端点迁移见 NovelDownloadController）+ 旧址兼容垫片
+    // /api/download/{pixiv/novel,novel/status,novel/translate-status}（NovelDownloadLegacyForwardController
+    // forward 至新址）。普通下载路径一律 VISITOR：复刻插画下载 /api/download/pixiv 的现状——multi 访客可
+    // 下载（走配额）、solo 需会话、邀请访客 403、不入 monitor（AuthFilter 不为该策略派生任何清单、命中后落到
+    // 默认会话/访客分支）。浏览器响应导入仅允许 LOCAL，控制器还会限制为真实 loopback 的 solo 模式。
+    // 声明只为把这些写端点纳入本插件归属、随启停（禁用 → 新旧小说路径一并 404）。
+    private static final List<WebRouteContribution> ROUTES = List.of(
+        WebRouteContribution.visitor("/api/novel/download"),
+        WebRouteContribution.local("/api/novel/browser-import/**"),
+        WebRouteContribution.visitor("/api/novel/status/**"),
+        WebRouteContribution.visitor("/api/novel/translate-status/**"),
+        WebRouteContribution.visitor("/api/novel/*/downloaded"),
+        WebRouteContribution.visitor("/api/novel/series/*/merge"),
+        WebRouteContribution.visitorAndInvitedGuest("/api/novel/series/*/merged"),
+        WebRouteContribution.admin("/api/novel/*/translate"),
+        WebRouteContribution.admin("/api/novel/translate-lang-probe"),
+        WebRouteContribution.admin("/api/novel/series/*/translate-title"),
+        WebRouteContribution.admin("/api/novel/series/*/novel-ids"),
+        WebRouteContribution.admin("/api/admin/glossary**"),
+        WebRouteContribution.admin("/api/narration/**"),
+        WebRouteContribution.visitorAndInvitedGuest("/api/pixiv/novel/*/meta"),
+        WebRouteContribution.visitorAndInvitedGuest("/api/pixiv/novel/*/bookmark-count"),
+        WebRouteContribution.visitor("/api/pixiv/novel/series/*"),
+        WebRouteContribution.visitor("/api/pixiv/novel-search**"),
+        WebRouteContribution.visitor("/api/pixiv/user/*/novels"),
+        WebRouteContribution.visitor("/api/pixiv/user/*/novel-cards"),
+        WebRouteContribution.visitor("/api/pixiv/me/novel-bookmarks"),
+        WebRouteContribution.visitor("/api/download/pixiv/novel"),
+        WebRouteContribution.visitor("/api/download/novel/status/**"),
+        WebRouteContribution.visitor("/api/download/novel/translate-status/**"),
+        WebRouteContribution.invitedGuest("/pixiv-novel-gallery.html"),
+        WebRouteContribution.invitedGuest("/pixiv-novel.html"),
+        WebRouteContribution.invitedGuest("/pixiv-novel-gallery/**"),
+        WebRouteContribution.invitedGuest("/pixiv-novel/**"),
+        WebRouteContribution.invitedGuest("/api/gallery/novel/**"),
+        WebRouteContribution.invitedGuest("/api/gallery/novels/**"),
+        WebRouteContribution.invitedGuest("/api/gallery/novels"),
+        // 下载工作台的小说队列类型行为模块（novel-queue-type.js）serving 目录：由下载页（VISITOR）消费，
+        // 随小说插件启停。VISITOR：multi 访客可加载 / solo 需会话 / 邀请访客 403 / 不入 monitor。
+        WebRouteContribution.visitor("/pixiv-novel-download/**"));
+
     @Override
     public List<WebRouteContribution> routes() {
-        // 小说下载端点归小说自有前缀 /api/novel/**（端点迁移见 NovelDownloadController）+ 旧址兼容垫片
-        // /api/download/{pixiv/novel,novel/status,novel/translate-status}（NovelDownloadLegacyForwardController
-        // forward 至新址）。普通下载路径一律 VISITOR：复刻插画下载 /api/download/pixiv 的现状——multi 访客可
-        // 下载（走配额）、solo 需会话、邀请访客 403、不入 monitor（AuthFilter 不为该策略派生任何清单、命中后落到
-        // 默认会话/访客分支）。浏览器响应导入仅允许 LOCAL，控制器还会限制为真实 loopback 的 solo 模式。
-        // 声明只为把这些写端点纳入本插件归属、随启停（禁用 → 新旧小说路径一并 404）。
-        return List.of(
-                WebRouteContribution.visitor("/api/novel/download"),
-                WebRouteContribution.local("/api/novel/browser-import/**"),
-                WebRouteContribution.visitor("/api/novel/status/**"),
-                WebRouteContribution.visitor("/api/novel/translate-status/**"),
-                WebRouteContribution.visitor("/api/novel/*/downloaded"),
-                WebRouteContribution.visitor("/api/novel/series/*/merge"),
-                WebRouteContribution.visitorAndInvitedGuest("/api/novel/series/*/merged"),
-                WebRouteContribution.admin("/api/novel/*/translate"),
-                WebRouteContribution.admin("/api/novel/translate-lang-probe"),
-                WebRouteContribution.admin("/api/novel/series/*/translate-title"),
-                WebRouteContribution.admin("/api/novel/series/*/novel-ids"),
-                WebRouteContribution.admin("/api/admin/glossary**"),
-                WebRouteContribution.admin("/api/narration/**"),
-                WebRouteContribution.visitorAndInvitedGuest("/api/pixiv/novel/*/meta"),
-                WebRouteContribution.visitorAndInvitedGuest("/api/pixiv/novel/*/bookmark-count"),
-                WebRouteContribution.visitor("/api/pixiv/novel/series/*"),
-                WebRouteContribution.visitor("/api/pixiv/novel-search**"),
-                WebRouteContribution.visitor("/api/pixiv/user/*/novels"),
-                WebRouteContribution.visitor("/api/pixiv/user/*/novel-cards"),
-                WebRouteContribution.visitor("/api/pixiv/me/novel-bookmarks"),
-                WebRouteContribution.visitor("/api/download/pixiv/novel"),
-                WebRouteContribution.visitor("/api/download/novel/status/**"),
-                WebRouteContribution.visitor("/api/download/novel/translate-status/**"),
-                WebRouteContribution.invitedGuest("/pixiv-novel-gallery.html"),
-                WebRouteContribution.invitedGuest("/pixiv-novel.html"),
-                WebRouteContribution.invitedGuest("/pixiv-novel-gallery/**"),
-                WebRouteContribution.invitedGuest("/pixiv-novel/**"),
-                WebRouteContribution.invitedGuest("/api/gallery/novel/**"),
-                WebRouteContribution.invitedGuest("/api/gallery/novels/**"),
-                WebRouteContribution.invitedGuest("/api/gallery/novels"),
-                // 下载工作台的小说队列类型行为模块（novel-queue-type.js）serving 目录：由下载页（VISITOR）消费，
-                // 随小说插件启停。VISITOR：multi 访客可加载 / solo 需会话 / 邀请访客 403 / 不入 monitor。
-                WebRouteContribution.visitor("/pixiv-novel-download/**"));
+        return ROUTES;
     }
 
     @Override
@@ -178,17 +180,19 @@ public class NovelPlugin implements PixivFeaturePlugin {
                 new I18nContribution("narration", "i18n.web.narration", 14));
     }
 
+    private static final List<GuiConfigContribution> GUI_CONFIG_CONTRIBUTIONS = List.of(new GuiConfigContribution(List.of(
+        executionConcurrencyField(
+                NovelExecutionSettings.DOWNLOAD_CONCURRENCY_KEY,
+                "gui.config.field.download.novel-max-concurrent",
+                100),
+        executionConcurrencyField(
+                NovelExecutionSettings.TRANSLATION_CONCURRENCY_KEY,
+                "gui.config.field.download.novel-translate-max-concurrent",
+                110))));
+
     @Override
     public List<GuiConfigContribution> guiConfigContributions() {
-        return List.of(new GuiConfigContribution(List.of(
-                executionConcurrencyField(
-                        NovelExecutionSettings.DOWNLOAD_CONCURRENCY_KEY,
-                        "gui.config.field.download.novel-max-concurrent",
-                        100),
-                executionConcurrencyField(
-                        NovelExecutionSettings.TRANSLATION_CONCURRENCY_KEY,
-                        "gui.config.field.download.novel-translate-max-concurrent",
-                        110))));
+        return GUI_CONFIG_CONTRIBUTIONS;
     }
 
     private static GuiConfigFieldContribution executionConcurrencyField(
@@ -211,22 +215,24 @@ public class NovelPlugin implements PixivFeaturePlugin {
                 null);
     }
 
+    // 小说画廊属于画廊下一级类型页面：Web 通过类型切换与小说侧栏抵达，不重复进入 app.top；
+    // 桌面快速开始是独立宿主入口，继续保留。
+    private static final List<NavigationContribution> NAVIGATION = List.of(
+        new NavigationContribution(
+                "novel-gallery",
+                Set.of(NavigationPlacements.NOVEL_SIDEBAR,
+                        NavigationPlacements.DESKTOP_QUICK_START),
+                "novel-gallery", "nav.label", "/pixiv-novel-gallery.html?view=all", "book",
+                AccessPolicy.INVITED_GUEST, 40, Set.of(), "nav.description"),
+        new NavigationContribution(
+                "novel-type-switch",
+                Set.of(NavigationPlacements.GALLERY_TYPE_SWITCH),
+                "novel-gallery", "nav.type-novel", "/pixiv-novel-gallery.html?view=all", "book",
+                AccessPolicy.INVITED_GUEST, 40));
+
     @Override
     public List<NavigationContribution> navigation() {
-        // 小说画廊属于画廊下一级类型页面：Web 通过类型切换与小说侧栏抵达，不重复进入 app.top；
-        // 桌面快速开始是独立宿主入口，继续保留。
-        return List.of(
-                new NavigationContribution(
-                        "novel-gallery",
-                        Set.of(NavigationPlacements.NOVEL_SIDEBAR,
-                                NavigationPlacements.DESKTOP_QUICK_START),
-                        "novel-gallery", "nav.label", "/pixiv-novel-gallery.html?view=all", "book",
-                        AccessPolicy.INVITED_GUEST, 40, Set.of(), "nav.description"),
-                new NavigationContribution(
-                        "novel-type-switch",
-                        Set.of(NavigationPlacements.GALLERY_TYPE_SWITCH),
-                        "novel-gallery", "nav.type-novel", "/pixiv-novel-gallery.html?view=all", "book",
-                        AccessPolicy.INVITED_GUEST, 40));
+        return NAVIGATION;
     }
 
     @Override

@@ -94,59 +94,61 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
         return PluginKind.FEATURE;
     }
 
+    // 下载页与其提交 / 队列 / 状态 API：下载页 /pixiv-batch.html、其拆分静态目录 /pixiv-batch/**，以及
+    // 下载提交（/api/download/pixiv）、历史取消墓碑（/api/cancel/**、/api/download/cancel/**）、
+    // 精确取消与队列清理（/api/download/queue/**）、批量状态（/api/batch/**）、扩展点装配
+    //（/api/download/extensions）一律
+    // VISITOR——复刻现状「未受管页面 / 未声明 API」的涌现行为：multi 访客可达（走配额） / solo 需会话 /
+    // 邀请访客 403 / 不入 monitor。AuthFilter 不为 VISITOR 派生任何清单、命中后落默认会话 / 访客分支，
+    // 访问行为与未声明时逐字等价；声明只为消除「未声明路由」歧义、纳入路由归属与全 URL 声明守卫。
+    private static final List<WebRouteContribution> ROUTES = List.of(
+        WebRouteContribution.visitor("/pixiv-batch.html"),
+        WebRouteContribution.visitor("/pixiv-batch/**"),
+        WebRouteContribution.visitor("/pixiv-batch-alt.html"),
+        WebRouteContribution.visitor("/pixiv-batch-alt/**"),
+        WebRouteContribution.admin("/pixiv-layout-feedback/embed.html"),
+        WebRouteContribution.publicRoute("/pixiv-layout-feedback/pixiv-layout-feedback.css"),
+        WebRouteContribution.publicRoute("/pixiv-layout-feedback/release-activation.js"),
+        WebRouteContribution.publicRoute("/pixiv-layout-feedback/posthog-config.js"),
+        WebRouteContribution.publicRoute("/pixiv-layout-feedback/pixiv-layout-feedback-core.js"),
+        WebRouteContribution.publicRoute("/pixiv-layout-feedback/pixiv-layout-feedback-server.js"),
+        WebRouteContribution.publicRoute("/pixiv-layout-feedback/pixiv-layout-feedback-state.js"),
+        WebRouteContribution.publicRoute("/pixiv-layout-feedback/pixiv-layout-feedback-survey.js"),
+        WebRouteContribution.publicRoute("/pixiv-layout-feedback/pixiv-layout-feedback-dialog.js"),
+        WebRouteContribution.publicRoute("/pixiv-layout-feedback/pixiv-layout-feedback.js"),
+        WebRouteContribution.publicRoute("/pixiv-layout-feedback/embed.js"),
+        new WebRouteContribution("/api/layout-feedback/state", AccessPolicy.VISITOR,
+                Set.of(HttpMethod.GET, HttpMethod.POST), false),
+        WebRouteContribution.admin("/api/schedule/**"),
+        WebRouteContribution.invitedGuest("/api/download/status/active"),
+        WebRouteContribution.visitorAndInvitedGuest("/api/download/status/**"),
+        WebRouteContribution.local("/api/download/status"),
+        WebRouteContribution.visitorAndInvitedGuest("/api/pixiv/artwork/**"),
+        WebRouteContribution.visitor("/api/pixiv/user/*/artworks"),
+        WebRouteContribution.visitor("/api/pixiv/user/*/request-artworks"),
+        WebRouteContribution.visitor("/api/pixiv/user/*/meta"),
+        WebRouteContribution.visitor("/api/pixiv/user/*/illust-cards"),
+        WebRouteContribution.visitor("/api/pixiv/search**"),
+        WebRouteContribution.visitor("/api/pixiv/series/**"),
+        WebRouteContribution.visitor("/api/pixiv/me/uid"),
+        WebRouteContribution.visitor("/api/pixiv/me/illust-bookmarks"),
+        WebRouteContribution.visitor("/api/pixiv/me/following"),
+        WebRouteContribution.visitor("/api/pixiv/me/follow-latest"),
+        WebRouteContribution.visitor("/api/pixiv/me/collections"),
+        WebRouteContribution.visitor("/api/pixiv/me/collection/*/works"),
+        WebRouteContribution.visitor("/api/pixiv/thumbnail-proxy"),
+        WebRouteContribution.visitor("/api/scripts**"),
+        WebRouteContribution.visitor("/api/sse/**"),
+        WebRouteContribution.visitor("/api/download/pixiv"),
+        WebRouteContribution.visitor("/api/cancel/**"),
+        WebRouteContribution.visitor("/api/download/cancel/**"),
+        WebRouteContribution.visitor("/api/download/queue/**"),
+        WebRouteContribution.visitor("/api/batch/**"),
+        WebRouteContribution.visitor("/api/download/extensions"));
+
     @Override
     public List<WebRouteContribution> routes() {
-        // 下载页与其提交 / 队列 / 状态 API：下载页 /pixiv-batch.html、其拆分静态目录 /pixiv-batch/**，以及
-        // 下载提交（/api/download/pixiv）、历史取消墓碑（/api/cancel/**、/api/download/cancel/**）、
-        // 精确取消与队列清理（/api/download/queue/**）、批量状态（/api/batch/**）、扩展点装配
-        //（/api/download/extensions）一律
-        // VISITOR——复刻现状「未受管页面 / 未声明 API」的涌现行为：multi 访客可达（走配额） / solo 需会话 /
-        // 邀请访客 403 / 不入 monitor。AuthFilter 不为 VISITOR 派生任何清单、命中后落默认会话 / 访客分支，
-        // 访问行为与未声明时逐字等价；声明只为消除「未声明路由」歧义、纳入路由归属与全 URL 声明守卫。
-        return List.of(
-                WebRouteContribution.visitor("/pixiv-batch.html"),
-                WebRouteContribution.visitor("/pixiv-batch/**"),
-                WebRouteContribution.visitor("/pixiv-batch-alt.html"),
-                WebRouteContribution.visitor("/pixiv-batch-alt/**"),
-                WebRouteContribution.admin("/pixiv-layout-feedback/embed.html"),
-                WebRouteContribution.publicRoute("/pixiv-layout-feedback/pixiv-layout-feedback.css"),
-                WebRouteContribution.publicRoute("/pixiv-layout-feedback/release-activation.js"),
-                WebRouteContribution.publicRoute("/pixiv-layout-feedback/posthog-config.js"),
-                WebRouteContribution.publicRoute("/pixiv-layout-feedback/pixiv-layout-feedback-core.js"),
-                WebRouteContribution.publicRoute("/pixiv-layout-feedback/pixiv-layout-feedback-server.js"),
-                WebRouteContribution.publicRoute("/pixiv-layout-feedback/pixiv-layout-feedback-state.js"),
-                WebRouteContribution.publicRoute("/pixiv-layout-feedback/pixiv-layout-feedback-survey.js"),
-                WebRouteContribution.publicRoute("/pixiv-layout-feedback/pixiv-layout-feedback-dialog.js"),
-                WebRouteContribution.publicRoute("/pixiv-layout-feedback/pixiv-layout-feedback.js"),
-                WebRouteContribution.publicRoute("/pixiv-layout-feedback/embed.js"),
-                new WebRouteContribution("/api/layout-feedback/state", AccessPolicy.VISITOR,
-                        Set.of(HttpMethod.GET, HttpMethod.POST), false),
-                WebRouteContribution.admin("/api/schedule/**"),
-                WebRouteContribution.invitedGuest("/api/download/status/active"),
-                WebRouteContribution.visitorAndInvitedGuest("/api/download/status/**"),
-                WebRouteContribution.local("/api/download/status"),
-                WebRouteContribution.visitorAndInvitedGuest("/api/pixiv/artwork/**"),
-                WebRouteContribution.visitor("/api/pixiv/user/*/artworks"),
-                WebRouteContribution.visitor("/api/pixiv/user/*/request-artworks"),
-                WebRouteContribution.visitor("/api/pixiv/user/*/meta"),
-                WebRouteContribution.visitor("/api/pixiv/user/*/illust-cards"),
-                WebRouteContribution.visitor("/api/pixiv/search**"),
-                WebRouteContribution.visitor("/api/pixiv/series/**"),
-                WebRouteContribution.visitor("/api/pixiv/me/uid"),
-                WebRouteContribution.visitor("/api/pixiv/me/illust-bookmarks"),
-                WebRouteContribution.visitor("/api/pixiv/me/following"),
-                WebRouteContribution.visitor("/api/pixiv/me/follow-latest"),
-                WebRouteContribution.visitor("/api/pixiv/me/collections"),
-                WebRouteContribution.visitor("/api/pixiv/me/collection/*/works"),
-                WebRouteContribution.visitor("/api/pixiv/thumbnail-proxy"),
-                WebRouteContribution.visitor("/api/scripts**"),
-                WebRouteContribution.visitor("/api/sse/**"),
-                WebRouteContribution.visitor("/api/download/pixiv"),
-                WebRouteContribution.visitor("/api/cancel/**"),
-                WebRouteContribution.visitor("/api/download/cancel/**"),
-                WebRouteContribution.visitor("/api/download/queue/**"),
-                WebRouteContribution.visitor("/api/batch/**"),
-                WebRouteContribution.visitor("/api/download/extensions"));
+        return ROUTES;
     }
 
     @Override
@@ -165,19 +167,21 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
         return List.of(new StartupRouteContribution("/pixiv-batch.html", 10, Set.of(StartupRouteContext.MULTI)));
     }
 
+    // 下载工作台跨页入口。VISITOR：multi 匿名访客与管理员在 /api/navigation 可见、受邀访客看不到
+    //（下载页对受邀访客 403，故不进其导航栏）。宿主发行策略将本插件列为必选，配置写 false 也仍贡献导航。
+    // placement：顶部栏 + 各侧栏（含中立主侧栏 app.sidebar）+ 桌面快速开始；priority 10 让该官方基础页面
+    // 按既定顺序靠前展示。标签走本插件自有 namespace batch 的 nav.label。
+    private static final List<NavigationContribution> NAVIGATION = List.of(new NavigationContribution(
+        ID,
+        Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.APP_SIDEBAR,
+                NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.NOVEL_SIDEBAR,
+                NavigationPlacements.DESKTOP_QUICK_START),
+        "batch", "nav.label", "/pixiv-batch.html", "download", AccessPolicy.VISITOR, 10,
+        Set.of(PREFERRED_DOWNLOAD_WORKBENCH_MARKER), "nav.description"));
+
     @Override
     public List<NavigationContribution> navigation() {
-        // 下载工作台跨页入口。VISITOR：multi 匿名访客与管理员在 /api/navigation 可见、受邀访客看不到
-        //（下载页对受邀访客 403，故不进其导航栏）。宿主发行策略将本插件列为必选，配置写 false 也仍贡献导航。
-        // placement：顶部栏 + 各侧栏（含中立主侧栏 app.sidebar）+ 桌面快速开始；priority 10 让该官方基础页面
-        // 按既定顺序靠前展示。标签走本插件自有 namespace batch 的 nav.label。
-        return List.of(new NavigationContribution(
-                ID,
-                Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.APP_SIDEBAR,
-                        NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.NOVEL_SIDEBAR,
-                        NavigationPlacements.DESKTOP_QUICK_START),
-                "batch", "nav.label", "/pixiv-batch.html", "download", AccessPolicy.VISITOR, 10,
-                Set.of(PREFERRED_DOWNLOAD_WORKBENCH_MARKER), "nav.description"));
+        return NAVIGATION;
     }
 
     @Override
