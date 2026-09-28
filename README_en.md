@@ -79,6 +79,8 @@ The Java standard package and the full-offline package must be **fully extracted
 the JAR: the launcher scripts and the `plugins/` directory are both required, because external official plugins are
 loaded from the working directory's `plugins/` folder at startup.
 
+Install Douyin separately from the community plugin market. Its source and tests are maintained in the [Douyin plugin repository](https://github.com/Sywyar/PixivDownloader-Plugin-Douyin), outside this repository's Maven reactor.
+
 ### Run
 
 ```bash

@@ -60,7 +60,6 @@ import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
 import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
 
 import java.io.IOException;
-import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -72,8 +71,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -92,7 +89,6 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 @DisplayName("外置 douyin 插件经真实上下文接入中性能力")
 class DouyinExternalPluginBootContextTest {
 
-    private static final String DOUYIN_CLASSES_PROPERTY = "douyin.plugin.classes";
     private static final String THIRD_PARTY_PACKAGE_PROPERTY = "douyin.third-party.package";
     private static final String THIRD_PARTY_MODE_PROPERTY = "douyin.third-party.mode";
     private static final String THIRD_PARTY_STATE_TRANSITION_PROPERTY =
@@ -492,24 +488,7 @@ class DouyinExternalPluginBootContextTest {
                 throw new IllegalStateException("无法安装第三方 Douyin 验收包", ex);
             }
         }
-        try {
-            String configured = System.getProperty(DOUYIN_CLASSES_PROPERTY);
-            if (configured == null || configured.isBlank()) {
-                return StageResult.skipped();
-            }
-            Path classes = Path.of(configured);
-            if (!Files.isDirectory(classes) || !Files.exists(classes.resolve("plugin.properties"))) {
-                return StageResult.skipped();
-            }
-            deleteRecursivelyQuietly(PLUGINS_DIR);
-            Files.createDirectories(PLUGINS_DIR);
-            Path jar = PLUGINS_DIR.resolve("douyin-plugin.jar");
-            zipDirectoryAsJar(classes, jar);
-            PluginTestProvenance.writeVerifiedLocalUpload(PLUGINS_DIR, jar);
-            return new StageResult(true, PluginTestProvenance.verifier(), null, null, jar);
-        } catch (IOException | RuntimeException ex) {
-            return StageResult.skipped();
-        }
+        return StageResult.skipped();
     }
 
     private static StageResult installThirdPartyPackage(Path source) throws IOException {
@@ -604,22 +583,6 @@ class DouyinExternalPluginBootContextTest {
         public void initialize(ConfigurableApplicationContext context) {
             PluginTestProvenance.registerBootstrapSession(
                     context, PluginEnabledSnapshot.empty(), STAGE.verifier());
-        }
-    }
-
-    private static void zipDirectoryAsJar(Path sourceDir, Path jarPath) throws IOException {
-        try (OutputStream out = Files.newOutputStream(jarPath);
-             ZipOutputStream zos = new ZipOutputStream(out)) {
-            List<Path> files;
-            try (var walk = Files.walk(sourceDir)) {
-                files = walk.filter(Files::isRegularFile).sorted().toList();
-            }
-            for (Path file : files) {
-                String entryName = sourceDir.relativize(file).toString().replace('\\', '/');
-                zos.putNextEntry(new ZipEntry(entryName));
-                Files.copy(file, zos);
-                zos.closeEntry();
-            }
         }
     }
 

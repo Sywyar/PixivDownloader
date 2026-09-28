@@ -109,7 +109,6 @@ class DistributionPackagingBoundaryTest {
     private static final String POSTHOG_CLASSES_PROPERTY = "posthog.plugin.classes";
     private static final String MULTI_MODE_DECISION_SURVEY_CLASSES_PROPERTY =
             "multi-mode-decision-survey.plugin.classes";
-    private static final String DOUYIN_CLASSES_PROPERTY = "douyin.plugin.classes";
     private static final String GALLERY_CLASSES_PROPERTY = "gallery.plugin.classes";
     private static final String NOVEL_CLASSES_PROPERTY = "novel.plugin.classes";
     private static final String GALLERY_TOOLS_CLASSES_PROPERTY = "gallery-tools.plugin.classes";
@@ -579,14 +578,6 @@ class DistributionPackagingBoundaryTest {
                 "top/sywyar/pixivdownload/multimodesurvey/MultiModeDecisionSurveyPf4jPlugin.class",
                 "static/pixiv-multi-mode-decision-survey/embed.html",
                 "static/pixiv-multi-mode-decision-survey/survey.js");
-    }
-
-    @Test
-    @DisplayName("douyin 以 thin 外置插件形态打包并携带计划来源模块")
-    void douyinPackagesAsThinExternalPlugin() {
-        assertThinExternalPlugin(DOUYIN_CLASSES_PROPERTY, "pixivdownload-plugin-douyin",
-                "top/sywyar/pixivdownload/douyin/DouyinPf4jPlugin.class",
-                DOUYIN_SCHEDULE_MODULE_ENTRY);
     }
 
     @Test

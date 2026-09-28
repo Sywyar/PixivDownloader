@@ -72,6 +72,8 @@
 Java 标准包和离线全量包必须**完整解压**后使用，不要只提取其中的 JAR：启动脚本与 `plugins/` 目录
 缺一不可，程序启动时会从工作目录的 `plugins/` 加载官方外置插件。
 
+Douyin 从社区插件市场单独安装，源码与测试维护在 [Douyin 插件仓库](https://github.com/Sywyar/PixivDownloader-Plugin-Douyin)，不参与本仓库的 Maven Reactor 构建。
+
 ### 启动
 
 ```bash

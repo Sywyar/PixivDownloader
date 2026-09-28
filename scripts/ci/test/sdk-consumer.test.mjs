@@ -6,12 +6,11 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { inspectSdkVersion } from '../sdk-version.mjs';
 
-import { assertSdkResolution, parsePluginIdentity, stageSdkArtifacts } from '../sdk-consumer.mjs';
+import { assertSdkResolution, parsePluginIdentity, prepareDouyinSource, stageSdkArtifacts, verifyConsumer } from '../sdk-consumer.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const VERSION = inspectSdkVersion(ROOT).version;
-const DESCRIPTOR = fs.readFileSync(path.join(ROOT, 'pixivdownload-plugin-douyin/src/main/resources/plugin.properties'), 'utf8');
-const PLUGIN_VERSION = /^plugin\.version=(.+)$/mu.exec(DESCRIPTOR)[1].trim();
+const PLUGIN_VERSION = '9.8.7-test.5';
 const GROUP_PATH = path.join('io', 'github', 'sywyar', 'pixivdownloader');
 const ARTIFACTS = [
     ['pixivdownload-sdk-bom', ['pom']],
@@ -41,6 +40,34 @@ test('第三方验收签名身份从插件描述符读取', () => {
     assert.throws(() => parsePluginIdentity('plugin.id=douyin\n'), /must declare/u);
     assert.throws(() => parsePluginIdentity(
             `plugin.id=douyin\nplugin.id=other\nplugin.version=${PLUGIN_VERSION}\n`), /more than once/u);
+});
+
+test('独立插件源码输入只复制构建与测试文件，缺失输入或移动 ref 拒绝执行', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pixivdownload-douyin-source-'));
+    const source = path.join(root, 'source');
+    const work = path.join(root, 'work');
+    const descriptor = path.join(source, 'src/main/resources/plugin.properties');
+    try {
+        fs.mkdirSync(path.dirname(descriptor), { recursive: true });
+        fs.mkdirSync(work);
+        fs.writeFileSync(descriptor, `plugin.id=douyin\nplugin.version=${PLUGIN_VERSION}\n`, 'utf8');
+        fs.writeFileSync(path.join(source, 'pom.xml'), '<project/>', 'utf8');
+        fs.writeFileSync(path.join(source, 'local-only.txt'), 'not a build input', 'utf8');
+        const staged = prepareDouyinSource(ROOT, work, source);
+        assert.equal(fs.readFileSync(path.join(staged, 'src/main/resources/plugin.properties'), 'utf8'),
+            fs.readFileSync(descriptor, 'utf8'));
+        assert.equal(fs.existsSync(path.join(staged, 'local-only.txt')), false);
+        fs.mkdirSync(path.join(root, 'missing'));
+        assert.throws(() => prepareDouyinSource(ROOT, path.join(root, 'missing'), path.join(root, 'absent')));
+        fs.mkdirSync(path.join(root, 'scripts/ci'), { recursive: true });
+        fs.writeFileSync(path.join(root, 'scripts/ci/douyin-source.json'), '{"revision":"main"}', 'utf8');
+        assert.throws(() => prepareDouyinSource(root, work), /exact commit/u);
+        const consumer = path.join(ROOT, 'target/source-boundary-check');
+        assert.throws(() => verifyConsumer({ repoRoot: ROOT, sdkZip: '', sdkRepository: '',
+            workDirectory: consumer, douyinSource: path.join(consumer, 'source') }), /outside/u);
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
 });
 
 test('隔离消费者按指定仓库字节离线验证 SDK，不依赖 Maven 来源 marker', () => {
