@@ -1512,7 +1512,9 @@ class PluginReleaseScriptsTest {
         assertThat(dockerfile).contains(
                 "groupadd --gid 10001 pixivdownloader",
                 "useradd --uid 10001 --gid 10001",
-                "USER 10001:10001");
+                "USER 10001:10001",
+                "\"-Dpixivdownload.instance-dir=/app/state/instance\"",
+                "\"-Dorg.sqlite.tmpdir=/app/state\"");
         assertThat(compose).contains(
                 "127.0.0.1:6999:6999",
                 "cap_drop:",
