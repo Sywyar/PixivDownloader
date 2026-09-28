@@ -122,7 +122,12 @@ final class DesktopControlCenterView {
         } catch (Exception ignored) {
             // 无法读取配置时保留未知状态，不把读取失败解释为已关闭代理。
         }
-        return new DesktopUiNode.HomeSystem(proxy, endpoint, owner.pluginSummary());
+        return new DesktopUiNode.HomeSystem(
+                proxy,
+                endpoint,
+                owner.pluginSummary(),
+                host.developmentMode() ? owner.serverPort() : null
+        );
     }
 
     private static TextToken freshness(DesktopUiHost.GuiValue fact) {

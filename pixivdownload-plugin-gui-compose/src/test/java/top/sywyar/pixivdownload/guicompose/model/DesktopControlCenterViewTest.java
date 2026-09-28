@@ -16,6 +16,27 @@ import static org.junit.jupiter.api.Assertions.*;
 @DisplayName("Compose 首页存储指标")
 class DesktopControlCenterViewTest {
     @Test
+    @DisplayName("仅开发模式在首页显示本实例端口，网页入口不被配置端口覆盖")
+    void developmentHomeAndWebUseLaunchPort() throws Exception {
+        for (boolean development : List.of(true, false)) {
+            Map<String, String> config = new HashMap<>(Map.of("server.port", "8123"));
+            var actualPort = new java.util.concurrent.atomic.AtomicInteger(8124);
+            try (var model = DesktopConfigurationControllerTest.model(
+                    config,
+                    Map.of("developmentMode", args -> development, "backendPort", args -> actualPort.get())
+            )) {
+                assertEquals(development ? Integer.valueOf(8124) : null, home(model).system().port());
+                assertEquals(development ? 8124 : 8123, model.webUri("/plugins.html").getPort());
+                actualPort.incrementAndGet();
+                model.rebuild();
+                assertEquals(development ? Integer.valueOf(8125) : null, home(model).system().port());
+                assertEquals(development ? 8125 : 8123, model.webUri("/plugins.html").getPort());
+                assertEquals("8123", config.get("server.port"));
+            }
+        }
+    }
+
+    @Test
     @DisplayName("插件页投影真实描述符与独立状态，读取失败清除旧的恢复模式")
     void projectsPluginMetadataAndClearsUnavailableFacts() throws Exception {
         var response = new java.util.concurrent.atomic.AtomicReference<>(new DesktopUiHost.GuiResponse(

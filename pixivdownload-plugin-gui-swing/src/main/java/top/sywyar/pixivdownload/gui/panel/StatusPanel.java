@@ -1544,7 +1544,8 @@ public class StatusPanel extends JPanel {
         if (!normalizedPath.startsWith("/")) {
             normalizedPath = "/" + normalizedPath;
         }
-        return serverScheme + "://" + serverDomain + ":" + serverPort + normalizedPath;
+        int port = SwingHost.host().developmentMode() ? SwingHost.host().backendPort(serverPort) : serverPort;
+        return serverScheme + "://" + serverDomain + ":" + port + normalizedPath;
     }
 
     public String getBatchUrl() {

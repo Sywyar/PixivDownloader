@@ -529,7 +529,9 @@ private fun HomeSystem(node: DesktopUiNode.HomeOverview, text: (DesktopUiNode.Te
     val palette = LocalExperiencePalette.current
     fun label(suffix: String) = text(DesktopUiNode.TextToken("gui-compose", "gui.compose.home.$suffix", "", emptyList()))
     val items = listOf(
-        Triple("service", text(node.backend().text()), null),
+        Triple("service", text(node.backend().text()), node.system().port()?.let {
+            text(DesktopUiNode.TextToken.key("gui.status.label.port")) + " " + it
+        }),
         Triple("proxy", text(node.system().proxy()), node.system().endpoint()?.let(text)),
         Triple("plugins", text(node.system().plugins()), null),
     )

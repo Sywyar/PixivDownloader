@@ -60,7 +60,7 @@ final class AppDesktopUiHost implements DesktopUiHost {
     }
 
     AppDesktopUiHost(int serverPort, ConfigFile applicationConfig, Supplier<DataSource> backfillDataSource) {
-        this.localApiClient = new DesktopUiLocalApiClient(serverPort);
+        this.localApiClient = new DesktopUiLocalApiClient(() -> backendPort(serverPort));
         this.applicationConfig = applicationConfig;
         this.backfillDataSource = java.util.Objects.requireNonNull(backfillDataSource, "backfillDataSource");
     }
@@ -312,7 +312,20 @@ final class AppDesktopUiHost implements DesktopUiHost {
         };
     }
 
-    @Override public GuiResponse exchangeGui(GuiRequest request) { return localApiClient.exchange(request); }
+    @Override public int backendPort(int startupPort) {
+        if (!developmentMode()) return startupPort;
+        try {
+            return BackendLifecycleManager.requiredBean(org.springframework.core.env.Environment.class)
+                    .getProperty("local.server.port", Integer.class, startupPort);
+        } catch (IllegalStateException unavailable) {
+            return startupPort;
+        }
+    }
+
+    @Override public GuiResponse exchangeGui(GuiRequest request) {
+        if (developmentMode() && !BackendLifecycleManager.isRunning()) return GuiResponse.unreachable();
+        return localApiClient.exchange(request);
+    }
     @Override public OnboardingSnapshot onboardingState(String rootFolder) { return onboardingState.snapshot(rootFolder); }
     @Override public boolean saveOnboardingProgress(int step) { return onboardingState.saveProgress(step); }
     @Override public boolean markOnboardingSeen() { return onboardingState.markSeen(); }

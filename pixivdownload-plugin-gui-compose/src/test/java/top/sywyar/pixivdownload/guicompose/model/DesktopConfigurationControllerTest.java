@@ -575,6 +575,7 @@ class DesktopConfigurationControllerTest {
                         case "loadImageClassifierSettings": return new DesktopUiHost.ImageClassifierSettings(
                                 "", false, "http://localhost:6999", List.of()
                         );
+                        case "backendPort": return arguments[0];
                         case "backendSnapshot": return new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.STOPPED, null);
                         case "maintenanceSnapshot": return new DesktopUiHost.MaintenanceSnapshot(false, "", 0, 0, "", 0, 0, 0);
                         case "onboardingState": return new DesktopUiHost.OnboardingSnapshot(true, true, 0, true, true);
