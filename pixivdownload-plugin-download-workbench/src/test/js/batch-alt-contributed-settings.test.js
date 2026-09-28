@@ -53,6 +53,7 @@ function harness() {
     context.window = context;
     const load = path => vm.runInContext(readFileSync(resolve(repository, path), 'utf8'), context, {filename: path});
     const alt = 'pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch-alt/';
+    load('pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/filename-template-presets.js');
     ['alt-core.js', 'alt-state.js', 'alt-settings.js'].forEach(name => load(alt + name));
     context.storeSet = (_, value) => writes.push(JSON.parse(value));
     vm.runInContext('isAdmin = true', context);

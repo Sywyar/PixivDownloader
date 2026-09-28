@@ -379,7 +379,18 @@ function buildSettingsDrawerBody() {
         namePreview.textContent = bt('settings.filename.preview', '预览：{name}.png', {name: preview[0]});
     }
     previewName();
-    body.appendChild(settingsRow(bt('settings.filename', '文件名模板'), tplInput,
+    const templateControls = el('div', 'filename-template-controls');
+    const templateSelect = el('select', 'ab-input');
+    templateControls.append(tplInput, templateSelect);
+    window.PixivFilenameTemplatePresets.bind(
+        tplInput,
+        templateSelect,
+        s,
+        saveSettings,
+        key => bt('batch:' + key),
+        isAdmin
+    );
+    body.appendChild(settingsRow(bt('settings.filename', '文件名模板'), templateControls,
         bt('settings.filename.help', '生成不含扩展名的文件名主干；重复名称自动追加页码。点击变量插入。')));
     body.appendChild(varChips);
     body.appendChild(namePreview);

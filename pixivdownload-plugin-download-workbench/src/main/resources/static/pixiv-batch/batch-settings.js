@@ -121,6 +121,15 @@
         document.getElementById('s-image-delay').value = state.settings.imageDelay ?? 0;
         state.settings.fileNameTemplate = normalizeFileNameTemplate(state.settings.fileNameTemplate);
         document.getElementById('s-file-name-template').value = state.settings.fileNameTemplate;
+        const templateSelect = document.getElementById('s-file-name-templates');
+        if (templateSelect) window.PixivFilenameTemplatePresets.bind(
+            document.getElementById('s-file-name-template'),
+            templateSelect,
+            state.settings,
+            saveSettings,
+            key => bt('batch:' + key),
+            isAdmin
+        );
         window.PixivBatch.queueTypes.contributionsOf('settings').forEach(setting => {
             if (typeof setting.mount === 'function') setting.mount(document.getElementById('type-output-settings'));
         });

@@ -1,0 +1,30 @@
+.filename-template-controls {
+    display: flex;
+    flex: 1 1 20rem;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .5rem;
+    min-width: 0;
+    max-width: 100%;
+}
+.filename-template-controls > input,
+#download-settings-card .filename-template-controls > #s-file-name-template {
+    flex: 1 1 14rem;
+    width: 0;
+    min-width: 0;
+    max-width: 100%;
+}
+.filename-template-controls > select {
+    flex: 0 1 12rem;
+    width: 12rem;
+    min-width: 0;
+    max-width: 100%;
+}
+#download-settings-card .filename-template-controls > select {
+    padding: .375rem .5rem;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--control-bg);
+    color: var(--text);
+    font-size: .8125rem;
+}
