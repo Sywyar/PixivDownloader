@@ -146,7 +146,7 @@ public record WebRouteContribution(
             return false;
         }
         if (pathPattern.endsWith("**")) {
-            return path.startsWith(pathPattern.substring(0, pathPattern.length() - 2));
+            return path.regionMatches(0, pathPattern, 0, pathPattern.length() - 2);
         }
         if (pathPattern.contains("*")) {
             String[] patternSegments = pathPattern.split("/");

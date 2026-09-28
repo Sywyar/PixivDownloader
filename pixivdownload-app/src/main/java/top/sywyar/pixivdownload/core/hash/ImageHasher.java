@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.core.hash;
 
 import top.sywyar.pixivdownload.core.asset.BoundedImageDecoder;
 
+import java.awt.AlphaComposite;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
@@ -26,19 +27,37 @@ public final class ImageHasher {
             return Optional.empty();
         }
         try {
-            BufferedImage image = BoundedImageDecoder.read(imagePath);
-            if (image == null || image.getWidth() <= 0 || image.getHeight() <= 0) {
-                return Optional.empty();
-            }
-            // 全尺寸铺白副本只构建一次，dHash / aHash 共用它各自缩放，避免对大图重复分配整张画布。
-            // 缩放与采样步骤保持不变，因此与分别调用 dHash(image)/aHash(image) 的结果 bit 级一致。
-            BufferedImage opaque = toOpaque(image);
-            long dHash = dHashFromGray(scaleToGraySamples(opaque, 9, 8));
-            long aHash = aHashFromGray(scaleToGraySamples(opaque, 8, 8));
-            return Optional.of(new Hashes(dHash, aHash));
+            return hashDecodedImage(BoundedImageDecoder.read(imagePath));
         } catch (IOException | RuntimeException e) {
             return Optional.empty();
         }
+    }
+
+    /** 消费本次解码独占的图像；允许原地铺白，调用方不得再复用其透明像素。 */
+    static Optional<Hashes> hashDecodedImage(BufferedImage image) {
+        if (image == null || image.getWidth() <= 0 || image.getHeight() <= 0) {
+            return Optional.empty();
+        }
+        BufferedImage opaque;
+        switch (image.getType()) {
+            case BufferedImage.TYPE_INT_ARGB, BufferedImage.TYPE_INT_ARGB_PRE,
+                    BufferedImage.TYPE_4BYTE_ABGR, BufferedImage.TYPE_4BYTE_ABGR_PRE -> {
+                // 在已有像素后铺白，保留先合成、后双线性采样的顺序和八位舍入。
+                Graphics2D graphics = image.createGraphics();
+                try {
+                    graphics.setComposite(AlphaComposite.DstOver);
+                    graphics.setColor(Color.WHITE);
+                    graphics.fillRect(0, 0, image.getWidth(), image.getHeight());
+                } finally {
+                    graphics.dispose();
+                }
+                opaque = image;
+            }
+            default -> opaque = toOpaque(image);
+        }
+        long dHash = dHashFromGray(scaleToGraySamples(opaque, 9, 8));
+        long aHash = aHashFromGray(scaleToGraySamples(opaque, 8, 8));
+        return Optional.of(new Hashes(dHash, aHash));
     }
 
     public static OptionalLong dHash(BufferedImage image) {
@@ -96,8 +115,15 @@ public final class ImageHasher {
         return scaleToGraySamples(toOpaque(source), width, height);
     }
 
-    /** 把可能带透明通道的原图铺到白底上，得到与原图同尺寸的不透明 RGB 副本。 */
+    /** 复用可直接采样的不透明图像，其它格式保持白底 RGB 转换，且不修改调用方的像素。 */
     private static BufferedImage toOpaque(BufferedImage source) {
+        switch (source.getType()) {
+            case BufferedImage.TYPE_INT_RGB, BufferedImage.TYPE_INT_BGR,
+                    BufferedImage.TYPE_3BYTE_BGR, BufferedImage.TYPE_BYTE_GRAY -> {
+                return source;
+            }
+            default -> { }
+        }
         BufferedImage opaque = new BufferedImage(source.getWidth(), source.getHeight(), BufferedImage.TYPE_INT_RGB);
         Graphics2D baseGraphics = opaque.createGraphics();
         try {
@@ -116,7 +142,7 @@ public final class ImageHasher {
         return opaque;
     }
 
-    /** 把不透明副本双线性缩放到 width×height 的灰度图，并返回逐像素灰度采样。 */
+    /** 把不透明图像双线性缩放到 width×height 的灰度图，并返回逐像素灰度采样。 */
     private static int[][] scaleToGraySamples(BufferedImage opaque, int width, int height) {
         BufferedImage gray = new BufferedImage(width, height, BufferedImage.TYPE_BYTE_GRAY);
         Graphics2D graphics = gray.createGraphics();

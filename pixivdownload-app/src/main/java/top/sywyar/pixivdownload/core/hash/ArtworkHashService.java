@@ -106,9 +106,7 @@ public class ArtworkHashService {
             Optional<ImageHasher.Hashes> hashes = ImageHasher.hash(source.file().toPath());
             if (hashes.isEmpty()) {
                 var image = mediaDecoder.read(source.file().toPath(), 0);
-                var dHash = ImageHasher.dHash(image);
-                var aHash = ImageHasher.aHash(image);
-                if (dHash.isPresent() && aHash.isPresent()) hashes = Optional.of(new ImageHasher.Hashes(dHash.getAsLong(), aHash.getAsLong()));
+                hashes = ImageHasher.hashDecodedImage(image);
             }
             if (hashes.isEmpty()) {
                 log.warn(messages.getForLog("core.hash.log.decode-failed",

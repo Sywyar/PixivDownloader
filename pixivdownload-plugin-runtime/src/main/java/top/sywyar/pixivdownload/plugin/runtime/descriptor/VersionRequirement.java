@@ -112,7 +112,7 @@ public record VersionRequirement(int major, int minor, boolean present, boolean 
     /** 当前 SDK（{@link SdkVersion#MAJOR}/{@link SdkVersion#MINOR}）是否满足本要求。 */
     public boolean isSatisfiedByCurrentSdk() {
         if (present && valid && raw != null && raw.contains("-nightly.")) {
-            return isSatisfiedByNightlyBuild(readAppVersion());
+            return isSatisfiedByNightlyBuild(CurrentAppVersion.VALUE);
         }
         return isSatisfiedBy(SdkVersion.MAJOR, SdkVersion.MINOR);
     }
@@ -140,6 +140,11 @@ public record VersionRequirement(int major, int minor, boolean present, boolean 
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    /** 打包版本在当前类加载器内固定；仅首次 Nightly 判定读取，不保留资源流。 */
+    private static final class CurrentAppVersion {
+        private static final String VALUE = readAppVersion();
     }
 
     /** 人类可读的版本要求（未声明时为 {@code "(unspecified)"}，无效时回显原始串）。 */
