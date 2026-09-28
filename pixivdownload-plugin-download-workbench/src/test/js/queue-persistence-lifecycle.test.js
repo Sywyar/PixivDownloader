@@ -127,6 +127,41 @@ for (const variant of ['classic', 'alt']) {
     });
 }
 
+test('经典打包按钮跳过纯进度扫描，完成、清空和权限刷新仍立即生效', () => {
+    const h = harness('classic');
+    h.run(fs.readFileSync(path.resolve(__dirname, '../../main/resources/static/pixiv-batch/batch-download.js'), 'utf8'));
+    const button = {style: {}, disabled: false};
+    Object.assign(h.context, {
+        isAdmin: true,
+        document: {getElementById: id => id === 'admin-pack-btn' ? button : {}},
+        downloadQueueVueActive: () => true,
+        refreshCurrentCard() {}, renderQueueRecovery() {},
+        queueVue: () => ({syncDownloadList() {}})
+    });
+    h.render();assert.equal(button.disabled, true);
+    const queue = h.run('state.queue');
+    let reads = 0;
+    for (const item of queue) {
+        let status = item.status;
+        Object.defineProperty(item, 'status', {get() { reads++; return status; }, set(value) { status = value; }});
+    }
+    for (let i = 0; i < 100; i++) { queue[0].downloadedCount = i; h.render(queue[0]); }
+    assert.equal(reads, 0);
+    assert.equal(button.disabled, true);
+    queue[0].status = 'completed';h.render(queue[0], true);
+    assert.equal(button.disabled, false);
+    queue[0].status = 'pending';h.render(queue[0], true);
+    assert.equal(button.disabled, true);
+    queue[0].status = 'completed';h.context.updateButtonsState();
+    assert.equal(button.disabled, false);
+    h.context.isAdmin = false;h.context.updateButtonsState();
+    assert.equal(button.disabled, true);assert.equal(button.style.display, 'none');
+    h.context.isAdmin = true;h.context.updateButtonsState();
+    assert.equal(button.disabled, false);assert.equal(button.style.display, 'inline-flex');
+    h.run('state.queue = []');h.render();
+    assert.equal(button.disabled, true);
+});
+
 test('新版队列延迟序列化保持凭据写入顺序，失败后后续保存仍可执行', async () => {
     const h = harness('alt');
     let release;

@@ -289,7 +289,7 @@
         } else {
             renderQueueImperative();
         }
-        updateAdminPackButton();
+        if (!changedItem || statusChanged) updateAdminPackButton();
     }
 
     function renderQueueImperative() {
