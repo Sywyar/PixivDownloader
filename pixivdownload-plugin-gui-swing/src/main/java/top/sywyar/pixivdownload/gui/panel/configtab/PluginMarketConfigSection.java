@@ -287,7 +287,7 @@ public final class PluginMarketConfigSection implements ConfigSection {
             return;
         }
         JDialog progress = new JDialog(SwingUtilities.getWindowAncestor(table),
-                message("gui.config.market.repo.import.loading"), Dialog.ModalityType.APPLICATION_MODAL);
+                SwingHost.host().message("gui.config.market.repo.import.loading"), Dialog.ModalityType.APPLICATION_MODAL);
         progress.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         JProgressBar indicator = new JProgressBar();
         indicator.setIndeterminate(true);
@@ -703,8 +703,8 @@ public final class PluginMarketConfigSection implements ConfigSection {
                     id -> others.stream().noneMatch(entry -> entry.id().equalsIgnoreCase(id)),
                     entry -> { result = entry; dispose(); });
             JTabbedPane modes = new JTabbedPane();
-            modes.addTab(message("gui.config.market.repo.mode.descriptor"), descriptor);
-            modes.addTab(message("gui.config.market.repo.mode.manual"), new JScrollPane(form));
+            modes.addTab(SwingHost.host().message("gui.config.market.repo.mode.descriptor"), descriptor);
+            modes.addTab(SwingHost.host().message("gui.config.market.repo.mode.manual"), new JScrollPane(form));
             modes.setSelectedIndex(existing != null && !existing.extraFields().containsKey("descriptor-url") ? 1 : 0);
             ok.setVisible(modes.getSelectedIndex() == 1);
             modes.addChangeListener(event -> {

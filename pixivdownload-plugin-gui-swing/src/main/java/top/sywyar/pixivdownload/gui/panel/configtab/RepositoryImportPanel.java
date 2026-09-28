@@ -13,10 +13,9 @@ import java.util.function.Predicate;
 
 /** 描述符导入仅向设置弹窗返回已确认的草稿。 */
 final class RepositoryImportPanel extends JPanel {
-    private static final String KEY = "gui.config.market.repo.import.";
     private final JTextField url = new JTextField(36);
-    private final JButton previewButton = new JButton(message("preview"));
-    private final JButton acceptButton = new JButton(message("accept"));
+    private final JButton previewButton = new JButton(SwingHost.host().message("gui.config.market.repo.import.preview"));
+    private final JButton acceptButton = new JButton(SwingHost.host().message("gui.config.market.repo.import.accept"));
     private final JCheckBox confirm = new JCheckBox();
     private final JPanel facts = new JPanel();
     private final JTextArea status = text("");
@@ -33,14 +32,14 @@ final class RepositoryImportPanel extends JPanel {
         this.accept = accept;
         setBorder(BorderFactory.createEmptyBorder(16, 16, 8, 16));
         url.setText(existing == null ? "" : String.valueOf(existing.extraFields().getOrDefault("descriptor-url", "")));
-        JLabel label = new JLabel(message("url"));
+        JLabel label = new JLabel(SwingHost.host().message("gui.config.market.repo.import.url"));
         label.setLabelFor(url);
         JPanel entry = new JPanel(new BorderLayout(8, 6));
         entry.add(label, BorderLayout.NORTH);
         entry.add(url, BorderLayout.CENTER);
         entry.add(previewButton, BorderLayout.EAST);
         JPanel header = new JPanel(new BorderLayout(8, 8));
-        header.add(text(message("description")), BorderLayout.NORTH);
+        header.add(text(SwingHost.host().message("gui.config.market.repo.import.description")), BorderLayout.NORTH);
         header.add(entry, BorderLayout.CENTER);
         add(header, BorderLayout.NORTH);
         facts.setLayout(new BoxLayout(facts, BoxLayout.Y_AXIS));
@@ -48,9 +47,9 @@ final class RepositoryImportPanel extends JPanel {
         scroll.setBorder(BorderFactory.createEmptyBorder());
         add(scroll, BorderLayout.CENTER);
         JPanel consent = new JPanel(new BorderLayout(8, 8));
-        confirm.getAccessibleContext().setAccessibleName(message("confirm"));
+        confirm.getAccessibleContext().setAccessibleName(SwingHost.host().message("gui.config.market.repo.import.confirm"));
         consent.add(confirm, BorderLayout.WEST);
-        JTextArea consentLabel = text(message("confirm"));
+        JTextArea consentLabel = text(SwingHost.host().message("gui.config.market.repo.import.confirm"));
         consentLabel.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override public void mouseClicked(java.awt.event.MouseEvent event) {
                 if (confirm.isEnabled()) confirm.doClick();
@@ -108,13 +107,13 @@ final class RepositoryImportPanel extends JPanel {
             fact("policy", value.effectiveProxyPolicy() + " · " + value.redirectBoundary());
             fact("revocations", value.revocationsUrl());
             fact("update-proof", value.updateProofUrl());
-            fact("proof-status", message("status." + value.updateProofStatus()));
-            fact("directory", message("status." + value.communityDirectoryStatus()));
+            fact("proof-status", SwingHost.host().message("gui.config.market.repo.import.status." + value.updateProofStatus()));
+            fact("directory", SwingHost.host().message("gui.config.market.repo.import.status." + value.communityDirectoryStatus()));
             value.trustedKeys().forEach(key -> fact("key", key.keyId() + " · " + key.algorithm()
                     + " · " + SwingHost.host().message("gui.config.market.repo.trust.state." + key.state().toLowerCase(java.util.Locale.ROOT))
                     + " · " + key.publisher() + " · " + key.trustLabel() + "\n" + key.fingerprint()));
-            facts.add(text(message("executable-warning")));
-            if (value.repositoryIdConflict() || !availableId.test(value.repositoryId())) status.setText(message("conflict"));
+            facts.add(text(SwingHost.host().message("gui.config.market.repo.import.executable-warning")));
+            if (value.repositoryIdConflict() || !availableId.test(value.repositoryId())) status.setText(SwingHost.host().message("gui.config.market.repo.import.conflict"));
         });
     }
 
@@ -128,7 +127,7 @@ final class RepositoryImportPanel extends JPanel {
     private <T> void run(java.util.concurrent.Callable<T> task, Consumer<T> done) {
         if (worker != null) return;
         long expected = ++revision;
-        status.setText(message("loading"));
+        status.setText(SwingHost.host().message("gui.config.market.repo.import.loading"));
         worker = new SwingWorker<T, Void>() {
             @Override protected T doInBackground() throws Exception { return task.call(); }
             @Override protected void done() {
@@ -165,7 +164,7 @@ final class RepositoryImportPanel extends JPanel {
     }
 
     private void fact(String name, String value) {
-        JLabel label = new JLabel(message("field." + name));
+        JLabel label = new JLabel(SwingHost.host().message("gui.config.market.repo.import.field." + name));
         label.setAlignmentX(LEFT_ALIGNMENT);
         facts.add(label);
         facts.add(text(value == null || value.isBlank() ? "—" : value));
@@ -183,5 +182,4 @@ final class RepositoryImportPanel extends JPanel {
         return area;
     }
 
-    private static String message(String key) { return SwingHost.host().message(KEY + key); }
 }
