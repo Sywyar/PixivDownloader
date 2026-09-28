@@ -46,7 +46,7 @@ function harness() {
         }
         get src() { return this.attributes.get('src'); }
         set src(value) { this.complete = false; this.attributes.set('src', value); requests.push({image:this, url:value}); }
-        querySelector() { return this.children.find(c => c.tagName === 'IMG'); }
+        querySelector(selector) { return this.children.find(c => c.tagName === selector.toUpperCase()); }
     }
     const sandbox = {
         fetch: async () => ({ok: true, headers: new Map([['content-type', 'image/png']])}),
@@ -119,6 +119,27 @@ test('视频探测迟到不回写已关闭区域，关闭后停止播放并释�
     assert.equal(video.reloaded, true);
     assert.equal(video.src, undefined);
     assert.equal(target.children.length, 0);
+});
+
+test('仅有 MP4 的作品详情保留视频播放，切换作品释放播放器', async () => {
+    const {sandbox, state, nodes} = harness();
+    state.artwork = {artworkId: 123, count: 1, extensions: 'mp4'};
+    sandbox.fetch = async () => ({ok: true, headers: new Map([['content-type', 'video/mp4']])});
+    sandbox.renderViewer();
+    await new Promise(setImmediate);
+    const main = nodes.get('mainImage');
+    const video = main.querySelector('video');
+    assert.ok(video, '作品入口必须加载可播放资源');
+    assert.equal(video.src, '/api/downloaded/image/123/0');
+    assert.equal(video.controls, true);
+    sandbox.openLightbox(0);
+    assert.equal(nodes.get('lightbox').classList.contains('open'), false);
+    state.artwork = {artworkId: 456, count: 1, extensions: 'jpg'};
+    state.artworkId = 456;
+    sandbox.renderViewer();
+    assert.equal(video.paused, true);
+    assert.equal(video.src, undefined);
+    assert.match(main.querySelector('img').src, /\/thumbnail\/456\/0/);
 });
 
 test('灯箱只请求当前适屏预览，关闭后不再参与尺寸刷新', () => {

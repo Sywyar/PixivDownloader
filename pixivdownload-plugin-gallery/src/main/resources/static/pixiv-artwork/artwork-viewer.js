@@ -154,8 +154,8 @@
     }
 
     function artworkPreviewUrl(index) {
-        // GIF / WebP 可能是动图，静态缩略图不能替代其播放。
-        const animatedFormat = /(?:^|,)(?:gif|webp|apng)(?:,|$)/i.test(state.artwork.extensions || '');
+        // 动图和视频使用播放资源，不能替换成静态缩略图。
+        const animatedFormat = /(?:^|,)(?:gif|webp|apng|mp4)(?:,|$)/i.test(state.artwork.extensions || '');
         const kind = animatedFormat ? 'image' : 'thumbnail';
         return `/api/downloaded/${kind}/${state.artworkId}/${index}`;
     }
@@ -313,6 +313,9 @@
     function openLightbox(index) {
         const count = state.artwork?.count || 1;
         if (!Number.isInteger(index) || index < 0 || index >= count) return;
+        const page = index === 0 ? document.getElementById('mainImage')
+            : document.getElementById('morePages').children[index - 1];
+        if (page?.querySelector('video')) return;
         state.lightboxIndex = index;
         const lightbox = document.getElementById('lightbox');
         const mainImage = document.getElementById('mainImage').querySelector('img');
