@@ -638,6 +638,16 @@ WebSocket 使用 `OutboundWebSocketClientFactory.open(profile)`，客戶端同�
 
 不要自行創建 `java.net.http.HttpClient`、`ProxySelector`，不要依賴 Apache 類型或 app 的 HTTP 配置。鑑權頭、站點請求頭和協議消息屬於插件業務，不能塞進通用傳輸層。Douyin 已使用 `OutboundHttpClient` 作爲完整參考實現。
 
+## 外部工程維護與 SDK 升級
+
+預發布 SDK 使用精確契約，properties 寫為 `plugin.requires==7.2.3-rc.4`（示例）；穩定版使用 `major.minor`。編譯相依、描述檔與執行套件須一致，不同 RC 不預設相容。保留原工程與 `.dev/`，把新 SDK 解壓到另一目錄，成套更新工具、契約資源與執行清單，再合併建置及 IDE 設定。插件負責私有資料遷移；未知格式或失敗時保留舊資料並停止功能啟動，包交易不回復業務資料。
+
+獨立工程執行 `mvnw.cmd clean verify`（Windows）或 `./mvnw clean verify`，再以同一 Wrapper 執行 `verify exec:exec@sdk-run`。透過管理員頁面驗證啟動、停止、再次啟動及策略允許的 reload，核對路由撤回、舊 publication 失效、真實任務排空，以及資料與未完成任務保留。`process-restart` 須完整退出後重新啟動並核對版本。停止開發實例使用 `exec:exec@sdk-stop`。開發目錄的 full-trust 執行不能取代正式 worker 套件驗收。
+
+`DownloadObserver` 是同步盡力通知，不提供持久重播；`DownloadAdmissionPolicy` 在副作用前允許或拒絕，不改寫請求。兩者是宿主管理的可選 full-trust Bean。`WorkFileImporter` 登記唯讀原檔參照，類型 owner 缺席時不可回報成功。請查閱所選 Release 的 Javadoc，確認實際提供的 API。
+
+投稿排障先定位步驟：摘要不符時重取同一發行物，無候選時核對預設分支目前 CI 與 `tools/candidate-projects.json`，登入或 push 失敗時核對目前帳號與權限。審核事實、所有權改變或回應遺失時先查詢原請求，不自動重複投稿。報告保留 ID、版本、來源 commit、SDK 與錯誤碼，分享前移除憑據、私鑰及個人路徑。
+
 ## 構建、測試、調試和安裝
 
 ### 必要測試

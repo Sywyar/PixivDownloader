@@ -139,7 +139,7 @@ The marketplace does not provide arbitrary URL install, auto update, delete, or 
 
 ## Recovery path
 
-A required plugin such as `download-workbench` being missing, corrupted, incompatible, or failing verification puts the app into recovery mode. A crash while any plugin is starting does the same. The Plugin Marketplace banner names the missing required plugin or the plugin that failed to start, includes the available diagnostic, and shows default-installed plugins so they can be repaired. Normal features remain unavailable while the repair entries stay accessible.
+A required plugin such as `download-workbench` being missing, corrupted, incompatible, failing verification, or failing to start puts the app into recovery mode. Optional plugin failures isolate their own capabilities. The Plugin Marketplace banner identifies unavailable required plugins and their diagnostics, and shows default-installed plugins for repair. Management and repair entries remain accessible.
 
 Missing or disabling an official optional plugin such as `gallery-tools`, `gallery`, `novel`, `notification`, `tts`, `ai`, `push`, `mail`, or a desktop GUI provider does not trigger recovery by itself:
 
@@ -170,3 +170,21 @@ The host tightens POSIX permissions or Windows ACLs on managed `plugins/runtime/
 ## See also
 
 - [Configuration](/en/configuration): `plugins.<plugin id>.enabled` plugin enablement switches
+
+## Confirm changes and find installation results
+
+Before a marketplace install, review the target package, dependency sources and versions, consumers of shared dependencies, conflicts, and restart impact together. Execution checks these facts again. If they changed, preview and confirm again. When the catalog lacks the new package's lifecycle policy, the preview can only warn that a restart may be needed; follow the actual installation result.
+
+Each dependency uses its own transaction. If the parent fails, successfully installed dependencies remain. The result lists their versions and transaction IDs. Check Plugin Management before deciding what to do next.
+
+Operation records cover download preparation through installation. Closing the page does not cancel a request already running on the backend. Reopen the market to query it; repeating the same operation ID returns its existing state. Records live only in the current process: at most 64 records, with inactive records retained for up to 24 hours. After restart, expiry, or eviction, the outcome is unknown. Check installed versions, diagnostics, and transaction state before explicitly starting another operation. A failed query never automatically repeats installation.
+
+## Repair a failed startup
+
+A failed external plugin card offers Replace package to repair, using the existing local upload dialog. Select a compatible repair package with the same plugin ID and complete verification and risk confirmation. Required plugins can be replaced but cannot be removed. Optional failed packages can be removed subject to dependency and lifecycle checks. Configuration, data, and unfinished tasks remain; the plugin owns any business-data migration. Optional failures isolate that plugin's capabilities; unavailable required capabilities trigger global recovery.
+
+## Revocation information and running instances
+
+Plugin Management shows the last successful refresh, document expiry, grace deadline, and restriction reasons. An administrator can refresh a configured, enabled source explicitly. Marketplace browsing and installation retain their existing refresh behavior. Management status queries stay offline and there is no background refresh timer. Offline or failed refreshes retain the last verified snapshot.
+
+`YANKED` blocks new installation and updates. `REVOKED` also blocks subsequent loading or starting. New installations fail closed when no verified snapshot is available or the 24-hour grace period has elapsed. The current process may still hold an older instance. Refreshing revocations does not forcibly stop full-trust code; fully exit the application to stop it, check the repair, then restart.

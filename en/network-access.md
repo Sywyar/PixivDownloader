@@ -9,7 +9,7 @@ This page lists the external network destinations that the current PixivDownload
 - AI, TTS, push, mail, and Douyin access external services only when the corresponding feature is configured and invoked. `notification` is the exception: once enabled and started, it automatically checks a fixed announcement index.
 - When online updates and automatic checking are enabled, the application host checks GitHub Releases after startup readiness. The check frequency is limited by a cache interval.
 - When the application intro page is opened, the browser loads Google Fonts. This request is not initiated by the backend and does not use PixivDownloader's outbound proxy.
-- `plugin-catalog.enabled` and the built-in official repository default to enabled. Startup itself does not fetch the catalog; a repository is contacted only when an administrator opens or refreshes the Plugin Market or installs a plugin.
+- `plugin-catalog.enabled` and the built-in official repository default to enabled. Startup itself does not fetch the catalog. Repository requests occur when an administrator opens or refreshes the Plugin Market, installs a plugin, or manually refreshes revocation information in Plugin Management.
 - Each official PostHog survey's four parameters are owned by its publishing plugin, but the release activation bit defaults to `false` for source and fork builds, so they do not contact PostHog by default.
 - Pixiv, Douyin, AI, TTS, push, and mail requests may contain user content or access credentials, as specified in the following sections.
 
@@ -139,6 +139,8 @@ The Mail plugin uses SMTP for configuration tests and business notifications. Th
 An administrator may enter any SMTP host and port and may configure a separate SOCKS proxy. Disable mail notifications, remove the mail settings, or disable `mail` to stop connections.
 
 ## Plugin market, FFmpeg, and userscript updates
+
+An administrator can also refresh revocations explicitly from Plugin Management. The application host requests only the configured source's `revocations.json` and adjacent `.sig`; the request accepts no arbitrary URL and sends no application cookies, artwork, or credentials. It retains that repository's proxy, HTTPS, source, and size checks. Both `plugin-catalog.enabled` and the repository must be enabled. This request occurs only on explicit refresh; management status and operation-record queries read local state and do not schedule repository refreshes.
 
 | Request owner | Destination | Purpose | Trigger and default state |
 | --- | --- | --- | --- |

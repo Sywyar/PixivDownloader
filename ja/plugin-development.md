@@ -182,6 +182,16 @@ public List<I18nContribution> i18n() {
 
 安定した HTTP / WebSocket SDK または `core-api` のポートを使い、ホストの具体的な HTTP クライアントやプロキシ実装に依存しません。URL、Cookie、API キー、リダイレクト、サイズ上限、タイムアウト、ログへの秘匿情報を明示的に設計します。要求所有者とアクセス権をすべての書き込み API で検証します。
 
+## 外部工程の保守と SDK 更新
+
+プレリリース SDK は精密な契約を使い、properties では `plugin.requires==7.2.3-rc.4` と記述します（例）。安定版は `major.minor` です。コンパイル依存、記述子、実行パッケージを揃え、異なる RC 間の互換性を仮定しないでください。元の工程と `.dev/` を残し、新 SDK を別の場所に展開してツール、契約資源、実行マニフェストをまとめて更新します。プライベートデータの移行はプラグイン自身が管理し、未知の形式や失敗時は元データを保持して起動を止めます。
+
+独立工程で `mvnw.cmd clean verify`（Windows）または `./mvnw clean verify` を実行し、同じ Wrapper の `verify exec:exec@sdk-run` で起動します。管理者画面で開始、停止、再開始、許可された reload を試し、ルート撤回、旧 publication の無効化、実タスクの drain とデータ保持を確認します。`process-restart` は全体を終了してから再起動してください。開発環境の停止は `exec:exec@sdk-stop` です。開発ディレクトリの full-trust 実行は正式 worker の検証を代替しません。
+
+`DownloadObserver` は同期 best-effort 通知で永続再生を提供しません。`DownloadAdmissionPolicy` は副作用前に許可・拒否し、要求を書き換えません。どちらも宿主管理の任意 full-trust Bean です。`WorkFileImporter` は元ファイルへの読み取り専用参照を登録し、型 owner が不在なら成功を返しません。対象 Release の Javadoc で API の有無を確認してください。
+
+投稿の問題は失敗した手順から調べます。候補がなければ既定ブランチの現在の CI と `tools/candidate-projects.json`、認証・push 失敗なら現在のアカウントと権限を確認します。ダイジェスト不一致では同じ配布物を再取得してください。事実・所有権の変更や応答喪失では元の要求を再照会し、投稿を自動反復しません。報告には ID、バージョン、ソース commit、SDK、エラーコードを含め、認証情報、秘密鍵、個人パスを除いてください。
+
 ## ビルド、テスト、デバッグ、インストール
 
 ```powershell

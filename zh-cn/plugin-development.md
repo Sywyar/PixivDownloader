@@ -618,6 +618,18 @@ WebSocket 使用 `OutboundWebSocketClientFactory.open(profile)`，客户端同�
 
 不要自行创建 `java.net.http.HttpClient`、`ProxySelector`，不要依赖 Apache 类型或 app 的 HTTP 配置。鉴权头、站点请求头和协议消息属于插件业务，不能塞进通用传输层。Douyin 已使用 `OutboundHttpClient` 作为完整参考实现。
 
+## 维护外部工程与 SDK 升级
+
+预发布 SDK 使用精确合同，properties 写为 `plugin.requires==7.2.3-rc.4`（示例版本）；稳定 SDK 使用 `major.minor`。编译依赖、描述符和配套运行包必须一致，不同 RC 及 RC 与稳定版不默认兼容。旧包只声明主次版本时，无法据此推断其编译 RC，应验证后发布新插件版本，不覆盖旧附件。
+
+升级时保留原工程和 `.dev/` 数据，将新开发包解压到另一目录。对比源码与 Javadoc，成套更新工具、合同资源和运行清单，再逐项合并构建与 IDE 配置。插件私有数据库迁移由本 owner 负责；未知格式或失败须保留旧数据并阻止功能启动，宿主的包事务不回滚业务数据。
+
+在独立工程运行 `mvnw.cmd clean verify`（Windows）或 `./mvnw clean verify`，再用同一 Wrapper 执行 `verify exec:exec@sdk-run`。通过管理员插件管理页验证启动、停用、再次启动和策略允许的 reload；核对路由撤回、旧 publication 失效、真实任务排空、数据与未完成任务保留。`process-restart` 换包必须完整退出后核对新版本。停止开发实例使用 `exec:exec@sdk-stop`。开发目录的 full-trust 执行不能代替正式 worker 包验收。
+
+`DownloadObserver` 是同步尽力观察，不提供持久重放；`DownloadAdmissionPolicy` 在副作用前允许或拒绝，不改写请求。两者是由宿主按 publication 发布和撤回的可选 full-trust Bean。`WorkFileImporter` 登记只读原文件引用，类型 owner 缺席时返回不可用，不能伪报成功。请以所选发行包的 Javadoc 判断 API 是否存在，不能用当前源码推断旧 SDK 的能力。
+
+投稿失败先定位步骤：SDK 摘要不符时重新取得同一发行物；没有候选时核对默认分支当前提交的 CI 和 `tools/candidate-projects.json`；身份或推送失败时检查当前账号、目标仓库和权限。审核事实、所有权或远端状态变化时回读原请求再确认；响应丢失不自动重复投稿。保留插件 ID、版本、源码提交、SDK 身份与错误码，分享诊断前移除凭据、私钥和个人路径。
+
 ## 构建、测试、调试和安装
 
 ### 必要测试
@@ -668,9 +680,9 @@ Windows：
 Linux / macOS：
 
 ```bash
-sh ./mvnw verify exec:exec@sdk-run
-sh ./mvnw verify exec:exec@sdk-debug
-sh ./mvnw exec:exec@sdk-stop
+./mvnw verify exec:exec@sdk-run
+./mvnw verify exec:exec@sdk-debug
+./mvnw exec:exec@sdk-stop
 ```
 
 `sdk-debug` 等待 IDE 附加，不自行打开调试器。只验证插件使用 `clean verify`，只准备运行包使用 `exec:exec@sdk-prepare`。默认产物为 `target/example-minimal-plugin-0.1.0.jar`。

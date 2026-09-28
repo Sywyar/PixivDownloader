@@ -69,6 +69,16 @@ PostHog 기능은 vendor 전용 foundation과 플러그인 소유 consumer를 �
 
 호스트가 제공하는 `OutboundHttpClient`와 proxy 정책을 사용하세요. 플러그인에서 임의의 `HttpClient`나 Apache 타입을 만들지 말고, 인증 헤더와 사이트별 프로토콜은 해당 업무 모듈에 둡니다.
 
+## 외부 프로젝트 유지 관리와 SDK 업그레이드
+
+시험판 SDK는 정확한 계약을 사용하며 properties에 `plugin.requires==7.2.3-rc.4`처럼 씁니다(예시). 안정판은 `major.minor`를 사용합니다. 컴파일 의존성, 설명자와 실행 패키지를 일치시키고 서로 다른 RC의 호환성을 가정하지 마세요. 원래 프로젝트와 `.dev/`를 보존하고 새 SDK를 별도 경로에 풀어 도구, 계약 리소스와 실행 매니페스트를 함께 갱신합니다. 플러그인이 자체 데이터 마이그레이션을 책임지며 알 수 없는 형식이나 실패 시 기존 데이터를 보존하고 시작을 중단해야 합니다.
+
+독립 프로젝트에서 Windows는 `mvnw.cmd clean verify`, 그 외에는 `./mvnw clean verify`를 실행하고 같은 Wrapper의 `verify exec:exec@sdk-run`으로 시작합니다. 관리자 페이지에서 시작, 중지, 재시작과 허용된 reload를 수행하여 라우트 철회, 이전 publication 무효화, 실제 작업 drain과 데이터 보존을 확인하세요. `process-restart`는 완전히 종료한 뒤 다시 시작해야 합니다. 개발 인스턴스 종료는 `exec:exec@sdk-stop`을 사용합니다. 개발 디렉터리의 full-trust 실행은 실제 worker 패키지 검증을 대신하지 않습니다.
+
+`DownloadObserver`는 동기식 best-effort 알림이며 영구 재생을 제공하지 않습니다. `DownloadAdmissionPolicy`는 부작용 전에 허용·거부하고 요청을 수정하지 않습니다. 둘 다 호스트가 관리하는 선택적 full-trust Bean입니다. `WorkFileImporter`는 원본 파일의 읽기 전용 참조를 등록하며 타입 owner가 없으면 성공을 반환하지 않습니다. 선택한 Release의 Javadoc에서 API 제공 여부를 확인하세요.
+
+후보가 없으면 기본 브랜치의 현재 CI와 `tools/candidate-projects.json`을, 인증·push 실패면 현재 계정과 권한을 확인합니다. 해시가 다르면 같은 배포물을 다시 받으세요. 검토 사실·소유권 변경이나 응답 유실 시 원래 요청부터 조회하고 자동 재투고하지 않습니다. 보고에는 ID, 버전, 소스 commit, SDK와 오류 코드를 포함하되 자격 증명, 개인 키와 개인 경로는 제거하세요.
+
 ## 빌드·테스트·디버그·설치
 
 필수 테스트는 Java 단위 테스트, 웹 표준, i18n, 패키지 구조와 격리된 classloader 로딩을 포함합니다. 개발 모드에서 설치한 JAR은 중복 로드되지 않도록 캐시와 이전 아티팩트를 정리하세요.

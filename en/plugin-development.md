@@ -619,6 +619,18 @@ For WebSocket, call `OutboundWebSocketClientFactory.open(profile)`. The resultin
 
 Do not construct `java.net.http.HttpClient` or `ProxySelector` yourself, and do not depend on Apache types or app HTTP configuration. Authentication headers, site-specific headers, and protocol messages belong to plugin business logic, not the generic transport. Douyin uses `OutboundHttpClient` as the complete reference implementation.
 
+## Maintain an external project and upgrade the SDK
+
+A prerelease SDK uses an exact contract, written as `plugin.requires==7.2.3-rc.4` in properties (example version). Stable SDKs use `MAJOR.MINOR`. Keep the compile dependency, descriptor, and runtime package consistent. Compatibility is not assumed across RCs or between an RC and a stable release. A historical major/minor declaration cannot identify its compile-time RC; validate it and publish a new plugin version without replacing old attachments.
+
+Keep the original project and `.dev/` data, and extract the new SDK separately. Compare source and Javadoc, update tools, contract resources, and runtime manifests together, then merge build and IDE configuration changes. The plugin owns its private database migration. Unknown formats or failed migrations must preserve old data and stop the affected capability; host package transactions do not roll back business data.
+
+Run `mvnw.cmd clean verify` on Windows or `./mvnw clean verify` elsewhere. With the same wrapper, run `verify exec:exec@sdk-run`. In administrator Plugin Management, verify start, disable, start again, and reload where the policy permits it. Check route withdrawal, invalid old publications, real task drain, and retained data and unfinished tasks. Replacing a `process-restart` package requires a full exit before checking the loaded version. Use `exec:exec@sdk-stop` to stop the development instance. Full-trust execution of a development directory does not validate a packaged worker.
+
+`DownloadObserver` provides synchronous best-effort observations without durable replay. `DownloadAdmissionPolicy` allows or rejects before side effects and cannot rewrite requests. Both are optional full-trust beans published and withdrawn by the host. `WorkFileImporter` registers read-only source-file references; an unavailable type owner must not report success. Check the selected release's Javadoc rather than assuming an older SDK contains interfaces found in current source.
+
+Identify the failing submission step first. For a digest mismatch, obtain the same release again. For a missing candidate, check the default branch's current CI and `tools/candidate-projects.json`. For identity or push failures, check the active account, repository, and permissions. Reload the original request after review facts, ownership, or remote state change; a lost response must not automatically create another submission. Preserve plugin ID, version, source commit, SDK identity, and error code, and remove credentials, private keys, and personal paths before sharing diagnostics.
+
 ## Build, test, debug, and install
 
 ### Required tests
@@ -669,9 +681,9 @@ Windows:
 Linux / macOS:
 
 ```bash
-sh ./mvnw verify exec:exec@sdk-run
-sh ./mvnw verify exec:exec@sdk-debug
-sh ./mvnw exec:exec@sdk-stop
+./mvnw verify exec:exec@sdk-run
+./mvnw verify exec:exec@sdk-debug
+./mvnw exec:exec@sdk-stop
 ```
 
 `sdk-debug` waits for an IDE to attach; it does not open a debugger. Use `clean verify` to validate the plugin, or `exec:exec@sdk-prepare` to prepare only the runtime. The default artifact is `target/example-minimal-plugin-0.1.0.jar`.
