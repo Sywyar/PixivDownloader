@@ -123,10 +123,10 @@ OpenAI 互換の `/chat/completions` に、翻訳・処理対象のテキスト�
 | Tampermonkey | `https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/*.user.js` | インストール済みスクリプトの更新確認 |
 | オールインワン | `https://github.com/Sywyar/PixivDownloader/releases/latest/download/Pixiv%20All-in-One.user.js` | そのスクリプトをインストールした場合だけ |
 
-## 公式プラグインの任意調査（PostHog）
-
 GUI は記述子のプレビュー時と確認時に通信します。新しい記述子のスナップショットを含む設定を保存する際にも再取得し、同じ SHA-256 であることを検証します。プレビューは設定を変更せず、確認した下書きも設定画面で保存するまではファイルに書き込みません。
 
+
+## 公式プラグインの任意調査（PostHog）
 
 レイアウト調査は `download-workbench`、マルチモード継続調査は `multi-mode-decision-survey` が所有し、PostHog JavaScript SDK は `posthog` が提供します。通常のソース / フォークビルドではリリース有効フラグが `false` です。調査が有効な公式ビルドで、ユーザーが調査を開いたときだけ、ブラウザーが `https://layout-survey.sywyar.top` と `https://us.posthog.com` に接続します。送信されるのは回答、調査 ID、調査専用匿名 ID、イベント時刻、公開プロジェクトトークンなどで、Cookie、作品、ローカルパス、元のインストール ID は送信しません。ブラウザー要求なのでホストプロキシを経由しません。
 

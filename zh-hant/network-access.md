@@ -142,10 +142,10 @@ Mail 插件通過 SMTP 發送配置測試郵件和業務通知。連接會攜帶
 | 油猴腳本管理器，不屬於插件 | `https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/*.user.js` | 檢查和下載六個獨立油猴腳本更新 | 由 Tampermonkey 等腳本管理器按其更新策略觸發；禁用腳本自動更新或卸載腳本即可停止 |
 | All-in-One 油猴腳本管理器，不屬於插件 | `https://github.com/Sywyar/PixivDownloader/releases/latest/download/Pixiv%20All-in-One.user.js` | 檢查或下載構建生成的合併腳本 | 僅安裝該發行腳本後由腳本管理器觸發 |
 
-## 官方插件的可選調查（PostHog）
-
 GUI 預覽及確認描述檔時會連線；儲存含有新描述檔快照的設定時，會再次取得描述檔並核對相同的 SHA-256。預覽不修改設定，確認後的草稿也必須在設定頁統一儲存才會寫入檔案。
 
+
+## 官方插件的可選調查（PostHog）
 
 佈局反饋調查屬於 `download-workbench` 插件；多人模式保留意願調查屬於 `multi-mode-decision-survey` 插件，並且只在管理員站內信中顯示。獨立的 `posthog` 插件提供 PostHog JavaScript SDK 和調用方配置的隔離客戶端。SDK 已隨插件靜態資源打包，不會從 CDN 加載。
 

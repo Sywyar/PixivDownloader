@@ -151,10 +151,10 @@ Mail 插件通过 SMTP 发送配置测试邮件和业务通知。连接会携带
 | 油猴脚本管理器，不属于插件 | `https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/*.user.js` | 检查和下载六个独立油猴脚本更新 | 由 Tampermonkey 等脚本管理器按其更新策略触发；禁用脚本自动更新或卸载脚本即可停止 |
 | All-in-One 油猴脚本管理器，不属于插件 | `https://github.com/Sywyar/PixivDownloader/releases/latest/download/Pixiv%20All-in-One.user.js` | 检查或下载构建生成的合并脚本 | 仅安装该发行脚本后由脚本管理器触发 |
 
-## 官方插件的可选调查（PostHog）
-
 GUI 预览和确认描述符时会联网；保存包含新描述符快照的设置时，会再次获取描述符并校验同一 SHA-256。确认前不修改配置，确认后的草稿也必须通过设置页统一保存才会写盘。
 
+
+## 官方插件的可选调查（PostHog）
 
 布局反馈调查属于 `download-workbench` 插件；多人模式保留意愿调查属于 `multi-mode-decision-survey` 插件，并且只在管理员站内信中显示。独立的 `posthog` 插件提供 PostHog JavaScript SDK 和调用方配置的隔离客户端。SDK 已随插件静态资源打包，不会从 CDN 加载。
 

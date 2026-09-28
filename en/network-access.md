@@ -151,9 +151,9 @@ An administrator may enter any SMTP host and port and may configure a separate S
 | Userscript manager, not a plugin | `https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/*.user.js` | Checks and downloads updates for the six standalone userscripts | Triggered by Tampermonkey or another manager according to its update policy. Disable automatic updates or uninstall the script to stop it |
 | All-in-One userscript manager, not a plugin | `https://github.com/Sywyar/PixivDownloader/releases/latest/download/Pixiv%20All-in-One.user.js` | Checks or downloads the generated combined userscript | Triggered only after that release script is installed |
 
-## Optional surveys in official plugins (PostHog)
-
 The GUI fetches descriptors during preview and confirmation. Saving settings that contain a new descriptor snapshot fetches it again and checks the same SHA-256. Preview does not change configuration, and a confirmed draft is written only when settings are saved.
+
+## Optional surveys in official plugins (PostHog)
 
 The layout feedback survey belongs to the `download-workbench` plugin. The multi-user-mode retention survey belongs to the `multi-mode-decision-survey` plugin and appears only in the administrator inbox. A separate `posthog` plugin provides the PostHog JavaScript SDK and caller-configured isolated clients. The SDK is bundled as a static plugin resource and is not downloaded from a CDN.
 
