@@ -196,6 +196,8 @@ Mail 插件通过 SMTP 发送配置测试邮件和业务通知。连接会携带
 
 社区 Gate 在排队期间遇到 PR head、基线或开闭状态变化时，会通过 GitHub CLI 重新读取当前 PR、文件、审核及所需签名证据，完整校验后才更新检查结果。这些请求访问 `api.github.com` 下社区仓库及经身份校验的投稿 fork，使用受保护 job 的 GitHub 凭据和现有代理、TLS、单请求六十秒 / 32 MiB 预算。每个 PR 每次出队最多重新进行一次完整版本校验；校验期间事实再次变化会阻断。此过程由既有 Gate 事件或维护者手动运行触发，可取消对应 workflow 停止后续请求。平台 API 失败日志只保留受控原因、请求方法、资源类别、HTTP 状态和退出码，不记录完整查询参数、请求正文、凭据或原始命令输出。
 
+社区发布、主线 Gate 和回执迁移复核已合并结果时，通过 `api.github.com/repos/Sywyar/PixivDownloader-community-plugins/git/commits/<SHA>` 与 `git/trees/<SHA>?recursive=1` 读取实际合并父链和完整 Git 树，以合并提交的第一父节点与生成 head 计算文件差异，不再请求该历史 PR 的 `/pulls/<number>/files`。开放 PR 的审核仍读取原生文件列表。请求由既有发布或 Gate workflow、维护者显式执行迁移触发，沿用 GitHub CLI 认证、代理、TLS 和单次六十秒 / 32 MiB 预算，仅向 GitHub 发送仓库路径、提交标识及 GitHub 凭据；取消 workflow 或停止迁移命令可停止后续请求。
+
 向导展示已登记版本时，会通过 GitHub CLI 查询社区仓库的 `GET /repos/Sywyar/PixivDownloader-community-plugins/releases/tags/<tag>` 与 `GET /repos/Sywyar/PixivDownloader-community-plugins/releases/<id>/assets`。tag 来自受保护发布记录中的原发布者、插件 ID 和版本；请求使用当前 GitHub CLI 认证、代理及既有六十秒和 32 MiB 预算。检查仅比较 Release 公开标志及包资产名称、大小和摘要，不下载包、不发布 Draft。查不到对象或读取失败时显示尚无法确认，不据此推断发布失败。恢复旧请求及浏览转移申请时，还会读取当前归属、发布者和紧急封禁状态；过时申请只显示原因与原 PR 链接。
 
 运行中社区主线推进时，向导自动刷新社区状态，每次操作最多恢复三轮，继续沿用原请求字节。恢复会通过 GitHub CLI 读取当前账号、分支、Git 树和原 PR，并在复用原投稿分支前调用 `GET /repos/Sywyar/PixivDownloader-community-plugins/compare/<原基线SHA>...<当前SHA>` 核对祖先关系；SHA 分别来自保存的请求与当前受保护分支。请求使用当前 GitHub CLI 的认证、代理、TLS 校验及每次六十秒、32 MiB 预算。每轮按最新状态重新校验，写入前重新确认；身份、内容或分支冲突仍会停止。达到恢复上限后保留已保存进度，不无限轮询。退出向导会停止这些请求。
