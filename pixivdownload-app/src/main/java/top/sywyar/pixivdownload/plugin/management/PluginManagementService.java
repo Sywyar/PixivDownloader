@@ -239,7 +239,8 @@ public class PluginManagementService {
                 retainedProcess).withDescriptor(descriptor);
         List<String> actions = availableActions(managed, phase, allowDisable, installedOnly);
         if (allowLifecycleReads && allowProvenanceReads && coordinator != null && allowDisable
-                && lifecyclePolicy == PluginLifecyclePolicy.PROCESS_RESTART
+                && (lifecyclePolicy == PluginLifecyclePolicy.PROCESS_RESTART
+                || descriptor != null && diagnostic.status() == PluginStatus.FAILED && phase == null)
                 && installedArtifacts.getOrDefault(id, List.of()).size() == 1) {
             actions = List.of("remove");
         }
@@ -586,6 +587,11 @@ public class PluginManagementService {
         var report = pluginStatusService.report();
         var diagnostic = report != null ? report.byId(id) : Optional.<PluginDiagnostic>empty();
         PluginDescriptor descriptor = diagnostic.map(PluginDiagnostic::descriptor).orElse(null);
+        // 启动失败的包可能还没有应用 generation；移除仍经统一协调器，required 守卫随后执行。
+        if (descriptor != null && diagnostic.get().status() == PluginStatus.FAILED
+                && action == LifecycleAction.REMOVE && coordinator != null) {
+            return;
+        }
         if (descriptor != null && descriptor.lifecyclePolicy() == PluginLifecyclePolicy.PROCESS_RESTART
                 && action == LifecycleAction.REMOVE && coordinator != null) {
             return;

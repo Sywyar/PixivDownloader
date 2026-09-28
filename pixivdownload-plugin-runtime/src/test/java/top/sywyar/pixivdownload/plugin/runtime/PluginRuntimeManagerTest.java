@@ -2745,7 +2745,7 @@ class PluginRuntimeManagerTest {
         }
 
         @Override
-        void persistOfflineVerification(Path artifactPath, PluginProvenanceRecord provenance) throws IOException {
+        protected void persistOfflineVerification(Path artifactPath, PluginProvenanceRecord provenance) throws IOException {
             throw new IOException("simulated provenance write-back failure");
         }
     }

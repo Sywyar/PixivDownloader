@@ -116,6 +116,14 @@ final class ExternalPluginRuntimeController {
             return new UnloadedPluginPackage(packageId, installed.path(), installed.version(), 0L);
         }
         requireNoActiveDependents(packageId);
+        var packagePhase = runtimeManager.packagePhases().get(packageId);
+        if (!lifecycleService.managedPluginIds().contains(packageId) && phase(packageId) == null
+                && lifecycleService.generation(packageId).isEmpty()
+                && (packagePhase == top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackagePhase.LOADED
+                || packagePhase == top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackagePhase.STOPPED)) {
+            // PF4J 启动失败但尚未接入服务足迹时，仅释放物理包；有应用代际的包仍走完整 drain。
+            return runtimeManager.unloadPlugin(packageId);
+        }
         stop(packageId);
         long generation = lifecycleService.generation(packageId).orElseThrow(() ->
                 new PluginLifecycleException("missing managed generation for " + packageId));
