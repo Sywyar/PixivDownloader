@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.config;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.catalina.connector.Connector;
+import org.apache.catalina.Lifecycle;
 import org.apache.tomcat.util.descriptor.web.SecurityCollection;
 import org.apache.tomcat.util.descriptor.web.SecurityConstraint;
 import org.springframework.boot.web.embedded.tomcat.TomcatServletWebServerFactory;
@@ -12,6 +13,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 
 /**
  * 根据 {@code ssl.type} 选择性地加载 PEM 或 JKS 证书，并配置 HTTPS 连接器。
@@ -50,7 +52,15 @@ public class HttpsWebServerCustomizer implements WebServerFactoryCustomizer<Tomc
             int httpsPort = environment.getProperty("server.port", Integer.class, 6999);
             int httpPort = sslConfig.getHttpRedirectPort();
             log.info(message("https.log.redirect.enabled", httpPort, httpsPort));
-            factory.addAdditionalTomcatConnectors(createHttpConnector(httpPort, httpsPort));
+            Connector redirect = createHttpConnector(httpPort, httpsPort);
+            factory.addAdditionalTomcatConnectors(redirect);
+            if (PluginDevelopmentArtifacts.enabled()) {
+                factory.addConnectorCustomizers(primary -> primary.addLifecycleListener(event -> {
+                    if (Lifecycle.AFTER_START_EVENT.equals(event.getType()) && primary.getLocalPort() > 0) {
+                        redirect.setRedirectPort(primary.getLocalPort());
+                    }
+                }));
+            }
             factory.addContextCustomizers(context -> {
                 SecurityConstraint constraint = new SecurityConstraint();
                 constraint.setUserConstraint("CONFIDENTIAL");
@@ -99,7 +109,9 @@ public class HttpsWebServerCustomizer implements WebServerFactoryCustomizer<Tomc
     }
 
     private Connector createHttpConnector(int httpPort, int httpsPort) {
-        Connector connector = new Connector("org.apache.coyote.http11.Http11NioProtocol");
+        Connector connector = new Connector(PluginDevelopmentArtifacts.enabled()
+                ? DevelopmentWebServerCustomizer.DevelopmentProtocol.class.getName()
+                : "org.apache.coyote.http11.Http11NioProtocol");
         connector.setScheme("http");
         connector.setPort(httpPort);
         connector.setSecure(false);

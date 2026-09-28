@@ -761,7 +761,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         }
     }
 
-    record HomeSystem(TextToken proxy, TextToken endpoint, TextToken plugins) {
+    record HomeSystem(TextToken proxy, TextToken endpoint, TextToken plugins, Integer port) {
         public HomeSystem {
             Objects.requireNonNull(proxy, "proxy");
             Objects.requireNonNull(plugins, "plugins");

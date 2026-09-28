@@ -540,6 +540,16 @@ public interface DesktopUiHost extends DesktopUiToolHost {
     BackendSnapshot backendSnapshot();
 
     /**
+     * 查询当前后端的监听端口，供本实例的桌面链接与状态展示使用。
+     * 宿主拥有此只读事实；后端未运行或宿主不提供动态端口时返回调用方的启动端口，
+     * 后端重启后应重新查询，不持久化该值。
+     *
+     * @param startupPort 本次桌面启动时的端口
+     * @return 当前监听端口，尚不可用时为 startupPort
+     */
+    default int backendPort(int startupPort) { return startupPort; }
+
+    /**
      * 订阅后端生命周期变化。
      *
      * @param listener 生命周期监听器

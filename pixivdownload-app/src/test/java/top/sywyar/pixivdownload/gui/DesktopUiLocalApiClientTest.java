@@ -20,6 +20,46 @@ class DesktopUiLocalApiClientTest {
     private HttpServer server;
 
     @Test
+    @DisplayName("开发模式请求跟随真实后端端口及重启，后端未运行时不请求其它实例")
+    void developmentRequestsFollowCurrentBackendPort() throws Exception {
+        String property = "pixivdownload.plugin-dev.enabled";
+        String previous = System.getProperty(property);
+        BackendLifecycleManager.resetForTests();
+        try {
+            System.setProperty(property, "true");
+            server = server(exchange -> respond(exchange, 200, "{}".getBytes(StandardCharsets.UTF_8)));
+            var host = new AppDesktopUiHost(1);
+            assertThat(host.guiGet("status", 2_000).reachable()).isFalse();
+            for (int attempt = 0; attempt < 2; attempt++) {
+                if (attempt > 0) {
+                    server.stop(0);
+                    server = server(exchange -> respond(exchange, 200, "{}".getBytes(StandardCharsets.UTF_8)));
+                }
+                var context = new org.springframework.context.annotation.AnnotationConfigApplicationContext();
+                context.getEnvironment().getPropertySources().addFirst(new org.springframework.core.env.MapPropertySource(
+                        "bound-port", Map.of("local.server.port", port())));
+                context.refresh();
+                var ready = new java.util.concurrent.CompletableFuture<Void>();
+                try (var registration = BackendLifecycleManager.configure(new String[0],
+                        ready::completeExceptionally, args -> context)) {
+                    assertThat(BackendLifecycleManager.startAsync(() -> ready.complete(null))).isTrue();
+                    ready.get(10, java.util.concurrent.TimeUnit.SECONDS);
+                    assertThat(host.backendPort(1)).isEqualTo(port());
+                    assertThat(host.guiGet("status", 2_000).successful()).isTrue();
+                } finally {
+                    BackendLifecycleManager.resetForTests();
+                    context.close();
+                }
+                assertThat(host.guiGet("status", 2_000).reachable()).isFalse();
+            }
+        } finally {
+            BackendLifecycleManager.resetForTests();
+            if (previous == null) System.clearProperty(property);
+            else System.setProperty(property, previous);
+        }
+    }
+
+    @Test
     @DisplayName("命令行端口覆盖配置后，管理员初始化与插件状态请求使用同一后端")
     void launchPortOverrideReachesSetupAndPluginStatus() throws Exception {
         AtomicReference<String> requestPath = new AtomicReference<>();

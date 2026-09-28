@@ -15,16 +15,19 @@ import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.cert.X509Certificate;
+import java.util.function.IntSupplier;
 
 /** 应用拥有的本地桌面界面请求认证传输层。 */
 @Slf4j
 final class DesktopUiLocalApiClient {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final SSLContext TRUST_ALL_SSL = trustAllSslContext();
-    private final int serverPort;
+    private final IntSupplier serverPort;
     private volatile String preferredScheme = "http";
 
-    DesktopUiLocalApiClient(int serverPort) { this.serverPort = serverPort; }
+    DesktopUiLocalApiClient(int serverPort) { this(() -> serverPort); }
+
+    DesktopUiLocalApiClient(IntSupplier serverPort) { this.serverPort = serverPort; }
 
     DesktopUiHost.GuiResponse exchange(DesktopUiHost.GuiRequest request) {
         for (String scheme : schemes()) {
@@ -47,7 +50,7 @@ final class DesktopUiLocalApiClient {
     }
 
     private HttpURLConnection open(String scheme, DesktopUiHost.GuiRequest request) throws Exception {
-        var url = new URI(scheme + "://localhost:" + serverPort + request.path()).toURL();
+        var url = new URI(scheme + "://localhost:" + serverPort.getAsInt() + request.path()).toURL();
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         if (connection instanceof HttpsURLConnection https && TRUST_ALL_SSL != null) {
             https.setSSLSocketFactory(TRUST_ALL_SSL.getSocketFactory());

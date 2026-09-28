@@ -32,6 +32,23 @@ import kotlin.test.assertTrue
 @DisplayName("Compose 首页概览")
 class HomeOverviewTest {
     @Test
+    @DisplayName("网络和插件状态显示本实例端口，普通模式不增加端口信息")
+    fun systemStatusShowsPortOnlyWhenProvided() = runComposeUiTest {
+        var port by mutableStateOf<Int?>(8124)
+        setContent {
+            PixivDownloaderTheme("light") {
+                Box(Modifier.size(1000.dp, 800.dp)) {
+                    HomeOverview(home(empty = true, port = port), ::resolve, {})
+                }
+            }
+        }
+        onNodeWithTag("home.system.expand").performScrollTo().performClick()
+        onNodeWithText("gui.status.label.port 8124").performScrollTo().assertIsDisplayed()
+        runOnIdle { port = null }
+        onNodeWithText("gui.status.label.port 8124").assertDoesNotExist()
+    }
+
+    @Test
     @DisplayName("启动超过预期后显示按秒刷新的计时，提示与运行状态切换不移动首页内容")
     fun startupStatusTicksWithoutRebuildingTheHomeDocument() = runComposeUiTest {
         var snapshot by mutableStateOf(home(empty = true))
@@ -397,7 +414,7 @@ class HomeOverviewTest {
         private fun resolveKey(suffix: String, vararg args: Any): String =
             MessageFormat.format(messages.getProperty("gui.compose.home.$suffix"), *args)
         private fun raw(value: String) = DesktopUiNode.TextToken.raw(value)
-        fun home(progress: Double = .42, empty: Boolean = false, known: Boolean = true, metricCount: Int = 4, startingAt: Long = 0L): DesktopUiNode.HomeOverview {
+        fun home(progress: Double = .42, empty: Boolean = false, known: Boolean = true, metricCount: Int = 4, startingAt: Long = 0L, port: Int? = null): DesktopUiNode.HomeOverview {
             val shortcuts = listOf("download", "images", "book", "chart-bar").map { symbol ->
                 DesktopUiNode.HomeShortcut(
                     DesktopUiNode.Button("shortcut.$symbol", "open.$symbol", raw(when (symbol) {
@@ -420,7 +437,7 @@ class HomeOverviewTest {
                 DesktopUiNode.Text("backend", raw(if (startingAt > 0L) "Starting..." else "Service running"),
                     DesktopUiNode.TextStyle.SUCCESS, true, false),
                 startingAt,
-                DesktopUiNode.HomeSystem(raw("Configured"), raw("127.0.0.1:7890"), raw("8 running / 9 total")),
+                DesktopUiNode.HomeSystem(raw("Configured"), raw("127.0.0.1:7890"), raw("8 running / 9 total"), port),
             )
         }
     }

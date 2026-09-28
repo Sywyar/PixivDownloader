@@ -38,6 +38,7 @@ import top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationAdmi
 import top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogTrustStateStore;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginEnabledSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
@@ -176,17 +177,20 @@ public class GuiLauncher {
         CliSetupCommand.validateArgsOrExit(args);
 
         boolean startupLaunch = AutoStartManager.isStartupLaunch(args);
+        // 开发进程允许并存；CLI 管理命令仍需单实例检查，避免并发修改初始化配置。
+        boolean singleInstanceRequired = !PluginDevelopmentArtifacts.enabled()
+                || CliSetupCommand.containsCliCommand(args);
 
         SingleInstanceManager singleInstanceManager;
         try {
-            singleInstanceManager = SingleInstanceManager.acquire();
+            singleInstanceManager = singleInstanceRequired ? SingleInstanceManager.acquire() : null;
         } catch (Exception e) {
             log.error(logMessage("gui.launcher.log.single-instance.init-failed"), e);
             showSingleInstanceInitError(e);
             throw e;
         }
 
-        if (singleInstanceManager == null) {
+        if (singleInstanceRequired && singleInstanceManager == null) {
             // CLI 管理命令需要排他写入 setup_config.json，无法与运行中的实例共存：
             // 直接退出并提示用户先停止服务，而不是去激活另一个 GUI 窗口或静默退出。
             if (CliSetupCommand.containsCliCommand(args)) {
@@ -207,7 +211,9 @@ public class GuiLauncher {
             }
             return;
         }
-        registerSingleInstanceShutdown(singleInstanceManager);
+        if (singleInstanceManager != null) {
+            registerSingleInstanceShutdown(singleInstanceManager);
+        }
 
         // ── 0c. CLI 管理命令（--setup / --change-password / --reset-password）─────
         //    必须在单实例锁取得之后执行：避免与正在运行的实例并发写 setup_config.json。
@@ -323,7 +329,9 @@ public class GuiLauncher {
                     ),
                     session -> {
                         ACTIVE_UI.set(session);
-                        singleInstanceManager.setActivationHandler(session == null ? () -> {} : session::activate);
+                        if (singleInstanceManager != null) {
+                            singleInstanceManager.setActivationHandler(session == null ? () -> {} : session::activate);
+                        }
                     },
                     () -> openPluginMarketWithoutDesktopProvider(configPath, port, desktopUiHost),
                     (source, failure) -> pluginSession.manager().reportPluginFailure(
@@ -419,8 +427,8 @@ public class GuiLauncher {
                 message("gui.launcher.dialog.no-provider.confirm"));
         if (!confirmed) return;
 
-        URI marketUri = pluginMarketUri(configPath, port);
         Runnable openMarket = () -> {
+            URI marketUri = pluginMarketUri(configPath, desktopUiHost.backendPort(port));
             try {
                 desktopUiHost.openExternalUri(marketUri);
             } catch (Exception failure) {
