@@ -56,12 +56,13 @@ PixivDownloader は、ダウンロード作品、ホストの実行時ファイ�
 | `{root}/{artworkId}/` | 単作品、URL 一括、検索のダウンロード |
 | `{root}/{artist}/{artworkId}/` | 作者単位のダウンロード（`download.user-flat-folder=true` なら作者階層を省略） |
 | `{root}/{artworkId}/{filename}_p0.webp` + `..._p0_thumb.jpg` | うごイラの WebP と先頭フレーム |
-| `{root}/{artworkId}/{artworkId}.meta.json` | 取得済みデータから生成した構造化 Pixiv メタデータ |
 | `{root}/artwork-series-{seriesId}/cover.{ext}` | マンガシリーズのカバー |
 | `{root}/novel-{novelId}/` | 小説の TXT / HTML / EPUB と関連ファイル |
 | `{root}/novel-series-{seriesId}/` | 小説シリーズのカバーと任意の結合物 |
 | `{root}/douyin/{owner}/...` | Douyin プラグインの既定出力 |
 | `{root}/_archives/{token}.zip` | 一時的なクォータ・ギャラリーのエクスポート |
+
+Pixiv 作品のメタデータとページ別の保存形式は `data/pixiv_download.db` に保存され、新しいダウンロードでは `.meta.json` や `.media.properties` を作成しません。取得済みの応答からページ情報、元画像の URL、投稿日時や翻訳を保存するため、Pixiv への追加リクエストは発生しません。バックアップや移行では、データベースとメディアファイルを一緒に保管してください。ギャラリーはファイルだけから作品の登録情報を復元できません。既存の付随ファイルは自動で一括削除されません。Ugoira ZIP を保存する場合は、フレーム時間の `.frames.properties` も保存されます。
 
 サードパーティのダウンロード種別も、通常は `download.root-folder` 下のプラグイン ID ディレクトリか、プラグイン設定で選択した作業ディレクトリに保存します。`state/{pluginId}` と `data/{pluginId}` は補助状態・データ用で、作品の保存先ではありません。
 

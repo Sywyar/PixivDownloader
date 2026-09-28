@@ -80,12 +80,13 @@ PixivDownloader 把下载作品、宿主运行期文件和外置插件安装包�
 | `{root}/{artworkId}/` | 单作品、URL 批量、搜索等 Pixiv 插画下载 |
 | `{root}/{artist}/{artworkId}/` | 画师批量下载；`download.user-flat-folder=true` 时省略画师层 |
 | `{root}/{artworkId}/{filename}_p0.webp` + `..._p0_thumb.jpg` | 动图合成后的 WebP 与首帧缩略图 |
-| `{root}/{artworkId}/{artworkId}.meta.json` | 网页、油猴脚本和计划任务下载时从已有响应生成的 Pixiv 结构性元数据，不会额外请求 Pixiv；随作品移动 / 删除，且不计入配额打包或小说导出（小说使用 `novel-{novelId}/{novelId}.meta.json`） |
 | `{root}/artwork-series-{seriesId}/cover.{ext}` | Pixiv 漫画系列封面 |
 | `{root}/novel-{novelId}/` | 单本小说的 TXT/HTML/EPUB 与相关作品文件 |
 | `{root}/novel-series-{seriesId}/` | 小说系列封面和可选合订文件 |
 | `{root}/douyin/{owner}/...` | Douyin 插件的默认下载位置 |
 | `{root}/_archives/{token}.zip` | 多人模式配额和画廊导出的短期归档 |
+
+Pixiv 作品元数据和逐页媒体格式记录保存在 `data/pixiv_download.db`，新下载不生成 `.meta.json` / `.media.properties`。元数据来自已有响应，保留分页、原图地址、发布时间和翻译等资料，不额外请求 Pixiv。备份或迁移时须同时保留数据库和媒体文件；数据库丢失后，画廊不能仅凭目录文件恢复作品登记。现存附属文件不会自动批量删除；保存 Ugoira ZIP 时仍保留配套的 `.frames.properties` 帧时序文件。
 
 Douyin 的默认根由 `DownloadSettings.getRootFolder()` 加上 `douyin` 得到，然后按请求 owner 隔离；插件配置 `douyin.download.directory` 非空时改用该目录。它不会使用旧的 `data/douyin/downloads`。收藏夹也可以配置独立的作品下载根，该路径可能位于默认下载根之外。
 
