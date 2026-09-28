@@ -81,7 +81,11 @@ For **managed external plugins**, the card footer offers buttons for the current
 | Unload | Stop, then remove it from the registry |
 | Reload | Stop, then start again |
 
-The switch in the card header enables / disables (maps to start / stop).
+The switch in the card header enables or disables the plugin. For `hot-reload` plugins it starts or stops the instance; other policies save the setting and prompt for the required restart.
+
+Optional `process-restart` plugins also offer Remove. It deletes the installed package and its provenance while retaining configuration, credentials, databases, state and downloaded files. If the current process has loaded the plugin, that instance keeps running until you fully exit and restart the application. Removal is blocked for required plugins and plugins with active dependents.
+
+After an update or removal, the page reports the installed state separately from the version still loaded in the current process and shows that a restart is needed. The new package is verified against its own bytes and provenance; verification of the old instance cannot validate the replacement. Reinstalling the plugin can reuse the retained data.
 
 !> **Built-in plugins** don't show these buttons — they're compiled in and can't be hot-toggled. **Required plugins** cannot be disabled.
 
