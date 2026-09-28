@@ -313,8 +313,12 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
         @Override public Kind kind() { return Kind.FORM; }
         @Override public List<DesktopUiNode> childNodes() {
-            return rows.stream().flatMap(row -> java.util.stream.Stream.of(row.content(), row.trailing()))
-                    .filter(Objects::nonNull).toList();
+            List<DesktopUiNode> children = new ArrayList<>(rows.size() * 2);
+            for (FormRow row : rows) {
+                children.add(row.content());
+                if (row.trailing() != null) children.add(row.trailing());
+            }
+            return List.copyOf(children);
         }
     }
 

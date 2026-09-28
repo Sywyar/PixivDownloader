@@ -16,6 +16,51 @@ import static org.junit.jupiter.api.Assertions.*;
 @DisplayName("Compose 页面事件索引复用")
 class DesktopUiEventProtocolTest {
     @Test
+    @DisplayName("表单遍历保留字段与尾随动作的顺序、不可变性和跨行标识校验")
+    void formTraversalPreservesFieldsAndTrailingActions() {
+        var label = DesktopUiNode.TextToken.raw("Action");
+        var first = actionButton("first");
+        var trailing = actionButton("trailing");
+        var second = actionButton("second");
+        var form = new DesktopUiNode.Form(
+                "form",
+                DesktopUiNode.FormStyle.RESPONSIVE,
+                null,
+                List.of(
+                        new DesktopUiNode.FormRow("row.first", label, null, first, trailing),
+                        new DesktopUiNode.FormRow("row.second", label, null, second, null)
+                )
+        );
+        assertEquals(List.of(first, trailing, second), form.childNodes());
+        assertThrows(UnsupportedOperationException.class, () -> form.childNodes().clear());
+        var document = new DesktopUiDocument(List.of(new DesktopUiDocument.Page("page", label, form)));
+        var endpoints = DesktopUiEventProtocol.index(document);
+        assertEquals("trailing.action", endpoints.get("trailing").targetId());
+        assertEquals("second.action", endpoints.get("second").targetId());
+        var duplicate = new DesktopUiNode.Form(
+                "duplicate",
+                DesktopUiNode.FormStyle.RESPONSIVE,
+                null,
+                List.of(
+                        new DesktopUiNode.FormRow("row.one", label, null, first, trailing),
+                        new DesktopUiNode.FormRow("row.two", label, null, trailing, null)
+                )
+        );
+        assertThrows(IllegalArgumentException.class, () -> DesktopUiNode.validateTree(duplicate));
+    }
+
+    private static DesktopUiNode.Button actionButton(String id) {
+        return new DesktopUiNode.Button(
+                id,
+                id + ".action",
+                DesktopUiNode.TextToken.raw("Action"),
+                null,
+                DesktopUiNode.ButtonStyle.NORMAL,
+                true
+        );
+    }
+
+    @Test
     @DisplayName("复用端点仍拒绝重复标识，输入约束与来源换代仍更新签名")
     void retainsValidationAcrossReusedPages() {
         var cache = new IdentityHashMap<DesktopUiNode, Map<String, DesktopUiEventProtocol.EventEndpoint>>();
