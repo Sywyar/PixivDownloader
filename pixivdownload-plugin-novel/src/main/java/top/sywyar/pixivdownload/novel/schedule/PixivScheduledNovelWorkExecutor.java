@@ -257,7 +257,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
         try {
             workMetadataCapture.capture(WorkType.NOVEL, novelId, body.toString(), "schedule");
         } catch (RuntimeException e) {
-            log.warn("Scheduled novel sidecar capture failed: novelId={}, errorType={}",
+            log.warn("Scheduled novel metadata capture failed: novelId={}, errorType={}",
                     novelId, e.getClass().getSimpleName());
         }
         return new ScheduledWorkResult(

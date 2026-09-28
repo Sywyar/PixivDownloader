@@ -31,6 +31,8 @@ function renderQuickIllustGrid() {}
 function pixivQuickInnerCard() { return ''; }
 function setCurrent(item) { renderCurrent(item); }
 function setStatus(message, tone) { setDockStatus(message, tone); }
+function updateAuthButtons() { renderAuthButton(); }
+function updateAdminPackButton() { updateButtonsState(); }
 function syncSettings() { saveSettings(); }
 function getSearchFiltersFromUI() { return normalizeSearchFilters(extraFilters); }
 function defaultNovelTranslateLang() { return bt('ai:batch.translate-lang-default', 'english'); }

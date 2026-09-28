@@ -7,6 +7,7 @@ import org.springframework.util.StringUtils;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.common.PlainFilePathGuard;
 import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
+import top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest;
 import top.sywyar.pixivdownload.core.asset.StagedFileDeletion.UnsafeDeletionPathException;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
@@ -35,12 +36,13 @@ import java.util.stream.Stream;
 @RequiredArgsConstructor
 public class ArtworkFileLocator {
 
-    private static final Set<String> HASHABLE_IMAGE_EXTENSIONS = Set.of("jpg", "jpeg", "png", "gif", "webp");
+    private static final Set<String> HASHABLE_IMAGE_EXTENSIONS = Set.of("jpg", "jpeg", "png", "gif", "webp", "apng", "mp4");
 
     private final PixivDatabase pixivDatabase;
     private final DownloadConfig downloadConfig;
     private final AppMessages messages;
     private final StagedFileDeletion stagedFileDeletion;
+    private final top.sywyar.pixivdownload.core.asset.ArtworkMediaStore mediaStore;
 
     public record LocatedArtworkFile(File file, String extension) {
     }
@@ -62,14 +64,25 @@ public class ArtworkFileLocator {
         }
         String baseName = resolveStoredFileBaseName(artwork, page);
         String[] extensions = artwork.extensions() == null ? new String[0] : artwork.extensions().split(",");
-        File imageFile;
-        if (extensions.length > 1) {
-            imageFile = findFileByName(directoryPath, baseName);
-        } else {
-            String extension = extensions.length == 0 || !StringUtils.hasText(extensions[0]) ? "jpg" : extensions[0];
-            imageFile = Paths.get(directoryPath, baseName + "." + extension).toFile();
+        LinkedHashSet<String> priority = new LinkedHashSet<>();
+        boolean hasManifest = false;
+        try {
+            var manifest = mediaStore.find(artwork.artworkId(), page);
+            hasManifest = manifest.isPresent();
+            manifest.filter(ArtworkMediaManifest::originalRetained)
+                    .ifPresent(saved -> priority.add(saved.originalExtension()));
+        } catch (IOException invalid) {
+            log.debug("Cannot read media manifest for {}", artwork.artworkId(), invalid);
         }
-        return imageFile != null && imageFile.exists() ? imageFile : null;
+        if (!hasManifest && extensions.length == 1 && StringUtils.hasText(extensions[0])) priority.add(extensions[0]);
+        priority.addAll(List.of("webp", "png", "jpg", "jpeg", "gif", "apng", "mp4"));
+        for (String extension : priority) {
+            if (extension.equals("zip")) continue;
+            Path file = Paths.get(directoryPath, baseName + "." + extension);
+            if (Files.isRegularFile(file)) return file.toFile();
+        }
+        Path thumbnail = Paths.get(directoryPath, baseName + "_thumb.jpg");
+        return Files.isRegularFile(thumbnail) ? thumbnail.toFile() : null;
     }
 
     public LocatedArtworkFile resolveHashSourceFile(ArtworkRecord artwork, int page) {
@@ -81,13 +94,13 @@ public class ArtworkFileLocator {
         if (!HASHABLE_IMAGE_EXTENSIONS.contains(extension)) {
             return null;
         }
-        if (!"webp".equals(extension)) {
+        if (!Set.of("webp", "mp4", "apng").contains(extension)) {
             return new LocatedArtworkFile(imageFile, extension);
         }
         String directoryPath = resolveArtworkDirectory(artwork);
         String baseName = resolveStoredFileBaseName(artwork, page);
         File thumbFile = Paths.get(directoryPath, baseName + "_thumb.jpg").toFile();
-        return thumbFile.exists() ? new LocatedArtworkFile(thumbFile, "webp") : null;
+        return new LocatedArtworkFile(thumbFile.exists() ? thumbFile : imageFile, extension);
     }
 
     public String resolveStoredFileBaseName(ArtworkRecord artwork, int page) {
@@ -224,6 +237,8 @@ public class ArtworkFileLocator {
                 if (StringUtils.hasText(baseName)) {
                     stems.add(baseName);
                     stems.add(baseName + "_thumb");
+                    stems.add(baseName + ".media");
+                    stems.add(baseName + ".frames");
                 }
             } catch (Exception e) {
                 log.warn(logMessage("download.file.log.filename-parse-failed", artwork.artworkId(), page));

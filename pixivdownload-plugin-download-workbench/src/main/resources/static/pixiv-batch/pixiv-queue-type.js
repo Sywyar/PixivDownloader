@@ -6,6 +6,8 @@
 
     queueTypes.registerModule(function (context) {
         const type = context.type;
+        let mediaCard = null;
+        context.onCleanup(() => { if (mediaCard) mediaCard.remove(); });
 
         function acquisitionCredentialHeaders() {
             const credential = getCookie();
@@ -378,7 +380,9 @@
                         || (data.completed && data.downloadedCount < data.totalImages) ? 'failed'
                         : data.completed ? 'completed' : 'running',
                     totalImages: data.totalImages,
-                    downloadedCount: data.downloadedCount
+                    downloadedCount: data.downloadedCount,
+                    imageProgress: data.imageProgress || null,
+                    ugoiraProgress: data.ugoiraProgress || null
                 };
             },
             queueTags: pixivQueueTags,
@@ -457,6 +461,21 @@
                     };
                 },
                 source: SINGLE_IMPORT_MODE
+            },
+            settings: {
+                'media-output': {
+                    mount(root) {
+                        context.assertActive();
+                        if (!root) return;
+                        if (mediaCard) mediaCard.remove();
+                        const card = document.createElement('div');
+                        mediaCard = card;
+                        card.id = 'media-output-settings';
+                        root.append(card);
+                        window.PixivMediaSettings.mount(card, state.settings, saveSettings,
+                            key => bt('batch:' + key, key), isAdmin);
+                    }
+                }
             },
             filters: {
                 'illust-extra': {

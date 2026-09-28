@@ -5,6 +5,8 @@ import com.fasterxml.jackson.annotation.JsonSetter;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
+import com.fasterxml.jackson.databind.JsonNode;
+import top.sywyar.pixivdownload.download.media.MediaOutputSettings;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
 
 import java.util.List;
@@ -28,6 +30,40 @@ public class DownloadRequest {
 
     @Data
     public static class Other {
+        private String imageFormats;
+        private String ugoiraFormats;
+        private int mediaQuality = MediaOutputSettings.DEFAULT_QUALITY;
+        private boolean mediaWebpLossless;
+        private int mediaMaximumEdge;
+
+        @JsonSetter("mediaQuality")
+        public void readMediaQuality(JsonNode value) {
+            mediaQuality = MediaOutputSettings.readInteger(value, MediaOutputSettings.DEFAULT_QUALITY);
+        }
+
+        @JsonSetter("mediaMaximumEdge")
+        public void readMediaMaximumEdge(JsonNode value) {
+            mediaMaximumEdge = MediaOutputSettings.readInteger(value, 0);
+        }
+
+        @JsonSetter("mediaWebpLossless")
+        public void readMediaWebpLossless(JsonNode value) {
+            mediaWebpLossless = MediaOutputSettings.readBoolean(value);
+        }
+
+        public MediaOutputSettings resolveMediaOutputSettings() {
+            var settings = new MediaOutputSettings();
+            if (!mediaOutputEnabled) return settings;
+            if (imageFormats != null) settings.setImageFormats(imageFormats);
+            if (ugoiraFormats != null) settings.setUgoiraFormats(ugoiraFormats);
+            settings.setQuality(mediaQuality);
+            settings.setWebpLossless(mediaWebpLossless);
+            settings.setMaximumEdge(mediaMaximumEdge);
+            return settings;
+        }
+
+        @com.fasterxml.jackson.annotation.JsonIgnore
+        private boolean mediaOutputEnabled = true;
         private boolean isUserDownload;
         private String username;
         private Long authorId;
@@ -59,7 +95,7 @@ public class DownloadRequest {
         /**
          * 前端转发的、轻剪枝后的 Pixiv 作品原始 body（{@code /ajax/illust/{id}}）JSON 串。
          * 由油猴脚本在下载前顺手附带（脚本本就已抓到完整 body，零额外请求），下载成功且作品行已落库后，
-         * 后端旁路归一化为 meta sidecar + {@code upload_time}/{@code is_original} 列投影；best-effort，
+         * 后端旁路归一化为 meta 数据库快照 + {@code upload_time}/{@code is_original} 列投影；best-effort，
          * 解析 / 落盘失败不影响下载结果。仅前端交互下载链路填充；计划任务走后端自抓 body，不读此字段。
          */
         private String rawMetaJson;

@@ -111,6 +111,8 @@ function waitForFinalStatusBySSE(artworkId, timeoutMs) {
         let timer = null;
         let pollTimer = null;
         let listener = null;
+        let polling = false;
+        let revision = 0;
 
         const cleanup = () => {
             clearTimeout(timer);
@@ -133,14 +135,19 @@ function waitForFinalStatusBySSE(artworkId, timeoutMs) {
                 clearInterval(pollTimer);
                 return;
             }
+            if (polling) return;
+            polling = true;
+            const observedRevision = revision;
             try {
                 const status = await getDownloadStatus(String(artworkId));
-                if (status && (status.completed || status.failed)) finish(status);
+                if (!settled && observedRevision === revision && status && status.success !== false) listener(status);
             } catch {
-            }
+            } finally { polling = false; }
         }, 5000);
 
         listener = data => {
+            if (settled) return;
+            revision += 1;
             if (data && (data.completed || data.failed || data.cancelled)) {
                 finish(data);
             } else if (data && data.downloadedCount !== undefined) {
@@ -148,7 +155,7 @@ function waitForFinalStatusBySSE(artworkId, timeoutMs) {
                 if (q) {
                     q.downloadedCount = data.downloadedCount;
                     q.ugoiraProgress = mergeUgoiraProgress(q.ugoiraProgress, data.ugoiraProgress);
-                    q.imageProgress = data.imageProgress || q.imageProgress || null;
+                    q.imageProgress = data.imageProgress || null;
                     renderQueue(q);
                     renderCurrent(q);
                 }
@@ -161,8 +168,7 @@ function waitForFinalStatusBySSE(artworkId, timeoutMs) {
 }
 
 function mergeUgoiraProgress(existing, incoming) {
-    if (!incoming) return existing || null;
-    return {...(existing || {}), ...incoming};
+    return incoming === undefined ? existing || null : incoming ? {...incoming} : null;
 }
 
 /* ============================================================

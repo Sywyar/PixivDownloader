@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import top.sywyar.pixivdownload.download.DownloadProgressEvent;
 import top.sywyar.pixivdownload.download.DownloadStatus;
+import top.sywyar.pixivdownload.download.ArtworkDownloadExecutor;
 import top.sywyar.pixivdownload.download.response.status.DownloadResponse;
 import top.sywyar.pixivdownload.download.response.status.SseStatusData;
 import top.sywyar.pixivdownload.plugin.api.stream.PluginStream;
@@ -54,6 +55,7 @@ public class SSEController {
     private static final long CLOSE_TOKEN_MAX_AGE_MILLIS = Duration.ofHours(25).toMillis();
 
     private final TaskScheduler taskScheduler;
+    private final ArtworkDownloadExecutor artworkDownloadExecutor;
     private final RequestOwnerIdentityResolver requestOwnerIdentityResolver;
     private final MessageResolver messages;
     private final PluginStreamRegistrar pluginStreamRegistrar;
@@ -74,9 +76,10 @@ public class SSEController {
                          RequestOwnerIdentityResolver requestOwnerIdentityResolver,
                          MessageResolver messages,
                          PluginStreamRegistrar pluginStreamRegistrar,
-                         PluginRuntimeTaskRegistrar pluginRuntimeTaskRegistrar) {
+                         PluginRuntimeTaskRegistrar pluginRuntimeTaskRegistrar,
+                         ArtworkDownloadExecutor artworkDownloadExecutor) {
         this(taskScheduler, requestOwnerIdentityResolver, messages, pluginStreamRegistrar,
-                pluginRuntimeTaskRegistrar, new AggregatedSseCloseTokenCodec());
+                pluginRuntimeTaskRegistrar, new AggregatedSseCloseTokenCodec(), artworkDownloadExecutor);
     }
 
     SSEController(
@@ -85,8 +88,10 @@ public class SSEController {
             MessageResolver messages,
             PluginStreamRegistrar pluginStreamRegistrar,
             PluginRuntimeTaskRegistrar pluginRuntimeTaskRegistrar,
-            AggregatedSseCloseTokenCodec closeTokenCodec) {
+            AggregatedSseCloseTokenCodec closeTokenCodec,
+            ArtworkDownloadExecutor artworkDownloadExecutor) {
         this.taskScheduler = taskScheduler;
+        this.artworkDownloadExecutor = Objects.requireNonNull(artworkDownloadExecutor, "artworkDownloadExecutor");
         this.requestOwnerIdentityResolver = requestOwnerIdentityResolver;
         this.messages = messages;
         this.pluginStreamRegistrar = pluginStreamRegistrar;
@@ -231,7 +236,7 @@ public class SSEController {
         if (!sendEvent(emitter, SseEmitter.event()
                 .id(String.valueOf(System.currentTimeMillis()))
                 .name("aggregated-ready")
-                .data(closeToken))) {
+                .data(closeToken)) || !sendActiveStatuses(subscription)) {
             cleanupAggregatedEmitter(connectionId, subscription);
             log.debug(logMessage("sse.log.aggregated.initial-send-failed", connectionId, "client disconnected"));
             return emitter;
@@ -240,10 +245,10 @@ public class SSEController {
         try {
             if (!scheduleHeartbeat(connectionId, aggregatedHeartbeats, () -> {
                 AggregatedSubscription sub = aggregatedEmitters.get(connectionId);
-                if (sub != null && !sendEvent(sub.emitter(), SseEmitter.event()
+                if (sub != null && (!sendEvent(sub.emitter(), SseEmitter.event()
                         .id(String.valueOf(System.currentTimeMillis()))
                         .name("heartbeat")
-                        .data("ping"))) {
+                        .data("ping")) || !sendActiveStatuses(sub))) {
                     cleanupAggregatedEmitter(connectionId, subscription);
                 }
             })) {
@@ -707,6 +712,16 @@ public class SSEController {
         return shouldDeliverToSubscription(sub.admin(), sub.ownerUuid(), eventOwnerUuid);
     }
 
+    private boolean sendActiveStatuses(AggregatedSubscription subscription) {
+        for (DownloadStatus status : artworkDownloadExecutor.activeStatuses(subscription.ownerUuid(), subscription.admin())) {
+            if (!shouldDeliverToSubscription(subscription, status.getOwnerUuid())) continue;
+            if (!sendEvent(subscription.emitter(), SseEmitter.event()
+                    .name("download-status")
+                    .data(buildProgressPayload(status.getArtworkId(), status, subscription.locale())))) return false;
+        }
+        return true;
+    }
+
     private boolean shouldDeliverToSubscription(boolean admin, String ownerUuid, String eventOwnerUuid) {
         if (admin) {
             return true;
@@ -776,6 +791,11 @@ public class SSEController {
                     .collectionResult(downloadStatus.getCollectionResult())
                     .ugoiraProgress(downloadStatus.getUgoiraProgress())
                     .imageProgress(downloadStatus.getImageProgress());
+
+            if (downloadStatus.isCancelled() || downloadStatus.isFailed() || downloadStatus.isCompleted()) {
+                builder.message(messages.get(locale, downloadStatus.getStatusMessageCode(),
+                        downloadStatus.getStatusMessageArgs()));
+            }
 
             if (downloadStatus.getTotalImages() > 0) {
                 int progress = (int) ((double) downloadStatus.getDownloadedCount()

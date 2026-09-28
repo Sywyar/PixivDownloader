@@ -627,6 +627,7 @@ final class DesktopConfigurationLoader {
             return switch (field.spec().type()) {
                 case BOOL -> "true".equalsIgnoreCase(value) || "false".equalsIgnoreCase(value);
                 case ENUM -> field.spec().enumValues().contains(value);
+                case MULTI_ENUM -> GuiConfigFieldType.validMultiSelection(value, field.spec().enumValues());
                 case INT -> {
                     int number = Integer.parseInt(value);
                     yield (field.spec().minValue() == null || number >= field.spec().minValue()) && (field.spec().maxValue() == null || number <= field.spec().maxValue());
@@ -859,8 +860,11 @@ final class DesktopConfigurationLoader {
         try {
             host.requireSafeConfigKey(field.key());
             host.requireSafeConfigValue(field.defaultValue());
-            if (field.type() == GuiConfigFieldType.ENUM) {
-                if (field.enumValues().isEmpty() || !field.enumValues().contains(field.defaultValue()) || field.enumValues().stream().anyMatch(
+            if (field.type() == GuiConfigFieldType.ENUM || field.type() == GuiConfigFieldType.MULTI_ENUM) {
+                boolean validDefault = field.type() == GuiConfigFieldType.MULTI_ENUM
+                        ? GuiConfigFieldType.validMultiSelection(field.defaultValue(), field.enumValues())
+                        : field.enumValues().contains(field.defaultValue());
+                if (field.enumValues().isEmpty() || !validDefault || field.enumValues().stream().anyMatch(
                         Objects::isNull) || new LinkedHashSet<>(field.enumValues()).size() != field.enumValues().size())
                     return false;
                 for (String value : field.enumValues()) host.requireSafeConfigValue(value);

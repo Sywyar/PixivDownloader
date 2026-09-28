@@ -33,6 +33,7 @@ public class ToolsPanel extends JPanel {
     private static final String MIGRATION_COUNTING_STATUS = message("gui.tools.migration.status.counting");
 
     private final Path configPath;
+    private final MediaToolsPanel mediaTools = new MediaToolsPanel(SwingHost.context());
 
     private final JLabel backendStateLabel = new JLabel(message("gui.tools.backend-status", message("gui.tools.backend-status.detecting")));
     private final JLabel exclusiveToolLabel = new JLabel(message("gui.tools.exclusive-tool", message("gui.value.none")));
@@ -84,6 +85,10 @@ public class ToolsPanel extends JPanel {
         content.add(buildOverviewCard());
         content.add(Box.createVerticalStrut(12));
         content.add(buildImageClassifierCard());
+        content.add(mediaTools);
+        addHierarchyListener(event -> {
+            if ((event.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) mediaTools.refreshTools();
+        });
         content.add(Box.createVerticalStrut(12));
         content.add(buildFolderCheckerCard());
         content.add(Box.createVerticalStrut(12));
@@ -805,6 +810,7 @@ public class ToolsPanel extends JPanel {
     }
 
     private void handleBackendState(SwingBackendLifecycle.Snapshot snapshot) {
+        mediaTools.refreshTools();
         backendStateLabel.setText(message("gui.tools.backend-status", switch (snapshot.state()) {
             case RUNNING -> message("gui.backend.state.running");
             case STARTING -> message("gui.tools.backend-status.starting");
@@ -929,6 +935,7 @@ public class ToolsPanel extends JPanel {
     }
 
     public void dispose() {
+        mediaTools.close();
         SwingBackendLifecycle.removeListener(backendListener);
         closeBackfillLogSession();
         closeMigrationLogSession();

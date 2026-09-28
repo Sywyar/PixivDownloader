@@ -63,6 +63,13 @@ public class LocalWorkAssetService implements WorkAssetService {
     }
 
     @Override
+    public Optional<WorkAssetFile> existingThumbnail(WorkType workType, long workId, int page) throws IOException {
+        if (workType == WorkType.NOVEL) return novelCover(workId);
+        var file = artworkFileService.existingThumbnail(workId, page);
+        return file == null ? Optional.empty() : Optional.of(new WorkAssetFile(page, file.path(), file.extension()));
+    }
+
+    @Override
     public Optional<WorkAssetFile> thumbnail(WorkType workType, long workId, int page) throws IOException {
         return switch (workType) {
             case ARTWORK -> artworkThumbnail(workId, page);

@@ -18,6 +18,24 @@ public enum GuiConfigFieldType {
     TIME,
     /** 受控枚举选择。 */
     ENUM,
+    /** 非空枚举多选，以逗号分隔的标量保存；选项值不得包含逗号。 */
+    MULTI_ENUM,
     /** 敏感密码输入。 */
-    PASSWORD
+    PASSWORD;
+
+    /**
+     * 校验多选标量，拒绝空选择、重复值和未声明的值。
+     * @param value 逗号分隔的选中值
+     * @param options 可选值列表，每个值必须非空且不含逗号
+     * @return 选择非空、没有重复且全部属于可选值时为 {@code true}
+     */
+    public static boolean validMultiSelection(String value, java.util.List<String> options) {
+        if (value == null || value.isBlank() || options.isEmpty()
+                || options.stream().anyMatch(option -> option == null || option.isBlank() || option.contains(","))) {
+            return false;
+        }
+        var selected = java.util.Arrays.asList(value.split(",", -1));
+        return new java.util.HashSet<>(selected).size() == selected.size()
+                && options.containsAll(selected);
+    }
 }

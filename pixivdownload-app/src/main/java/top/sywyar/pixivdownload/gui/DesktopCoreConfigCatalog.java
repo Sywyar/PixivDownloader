@@ -8,6 +8,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroupContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogProperties;
+import top.sywyar.pixivdownload.ffmpeg.FfmpegProperties;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -109,6 +110,16 @@ final class DesktopCoreConfigCatalog {
                 GuiConfigEffect.HOT_RELOAD,
                 null,
                 null,
+                order++
+        ));
+        fields.add(core(
+                "ffmpeg.max-concurrent",
+                GuiConfigGroups.DOWNLOAD,
+                GuiConfigFieldType.INT,
+                Integer.toString(FfmpegProperties.DEFAULT_MAX_CONCURRENT),
+                GuiConfigEffect.BACKEND_RESTART,
+                1,
+                FfmpegProperties.MAX_CONCURRENT_LIMIT,
                 order++
         ));
         fields.add(core(

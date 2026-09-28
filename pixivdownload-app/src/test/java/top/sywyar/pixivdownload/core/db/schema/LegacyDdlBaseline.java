@@ -47,7 +47,7 @@ final class LegacyDdlBaseline {
                     + "deleted INTEGER NOT NULL DEFAULT 0,"
                     + "upload_time INTEGER,"
                     + "is_original INTEGER,"
-                    + "file_name_max_length INTEGER NOT NULL DEFAULT 180)",
+                    + "file_name_max_length INTEGER NOT NULL DEFAULT 180,metadata_json TEXT)",
             "CREATE TABLE IF NOT EXISTS statistics ("
                     + "id INTEGER PRIMARY KEY CHECK (id = 1),"
                     + "total_artworks INTEGER DEFAULT 0,"
@@ -65,6 +65,9 @@ final class LegacyDdlBaseline {
                     + "tag_id INTEGER NOT NULL,"
                     + "PRIMARY KEY (artwork_id, tag_id))",
             "CREATE INDEX IF NOT EXISTS idx_artwork_tags_tag_id ON artwork_tags(tag_id)",
+            "CREATE TABLE IF NOT EXISTS artwork_media (artwork_id INTEGER NOT NULL, page INTEGER NOT NULL,"
+                    + "original_extension TEXT NOT NULL, extensions TEXT NOT NULL, original_retained INTEGER NOT NULL,"
+                    + "PRIMARY KEY(artwork_id, page))",
             "CREATE TABLE IF NOT EXISTS artwork_image_hashes ("
                     + "artwork_id INTEGER NOT NULL,"
                     + "page INTEGER NOT NULL,"
@@ -174,7 +177,7 @@ final class LegacyDdlBaseline {
                     + "cover_ext TEXT DEFAULT NULL,"
                     + "deleted INTEGER NOT NULL DEFAULT 0,"
                     + "upload_time INTEGER,"
-                    + "file_name_max_length INTEGER NOT NULL DEFAULT 180)",
+                    + "file_name_max_length INTEGER NOT NULL DEFAULT 180,metadata_json TEXT)",
             "CREATE INDEX IF NOT EXISTS idx_novels_author_id ON novels(author_id)",
             "CREATE INDEX IF NOT EXISTS idx_novels_series_order ON novels(series_id, series_order)",
             "CREATE TABLE IF NOT EXISTS novel_series ("

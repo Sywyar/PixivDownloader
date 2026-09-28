@@ -11,11 +11,11 @@ public class DownloadStatus {
     private String title;
     private String ownerUuid;
     private int totalImages;
-    private int downloadedCount;
+    private volatile int downloadedCount;
     private int currentImageIndex;
     private boolean completed;
     private boolean failed;
-    private boolean cancelled;
+    private volatile boolean cancelled;
     private String errorMessage;
     private String folderName;
     private String downloadPath;
@@ -25,8 +25,26 @@ public class DownloadStatus {
     private WorkActionResult collectionResult;
     private UgoiraProgress ugoiraProgress;
     private ImageDownloadProgress imageProgress;
+    @lombok.Getter(lombok.AccessLevel.NONE)
+    @lombok.Setter(lombok.AccessLevel.NONE)
+    private final java.util.Map<Integer, ImageDownloadProgress> processingImages = new java.util.TreeMap<>();
     private LocalDateTime startTime;
     private LocalDateTime endTime;
+
+    public synchronized ImageDownloadProgress getImageProgress() {
+        if (processingImages.isEmpty()) return imageProgress;
+        return (imageProgress == null ? ImageDownloadProgress.builder().phase("processing") : imageProgress.toBuilder())
+                .processing(java.util.List.copyOf(processingImages.values())).build();
+    }
+
+    public synchronized void setImageProgress(ImageDownloadProgress progress) {
+        imageProgress = progress == null ? null : progress.toBuilder().processing(null).build();
+    }
+
+    synchronized void updateProcessingImage(int number, ImageDownloadProgress progress) {
+        if (progress == null) processingImages.remove(number);
+        else processingImages.put(number, progress);
+    }
 
     public DownloadStatus(Long artworkId, String title, int totalImages) {
         this(artworkId, title, totalImages, null);

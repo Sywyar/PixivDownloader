@@ -46,13 +46,25 @@ public final class ArtworkSchemaContribution {
                                 column("deleted", "INTEGER", true, "0", 0),
                                 column("upload_time", "INTEGER", false, null, 0),
                                 column("is_original", "INTEGER", false, null, 0),
-                                column("file_name_max_length", "INTEGER", true, "180", 0)
+                                column("file_name_max_length", "INTEGER", true, "180", 0),
+                                column("metadata_json", "TEXT", false, null, 0)
                         ),
                         List.of(
                                 uniqueConstraint("time"),
                                 explicitIndex("idx_artworks_author_time", false, "author_id", "time"),
                                 explicitIndex("idx_artworks_series_order", false, "series_id", "series_order")
                         )
+                ),
+                new TableSpec(
+                        "artwork_media",
+                        List.of(
+                                column("artwork_id", "INTEGER", true, null, 1),
+                                column("page", "INTEGER", true, null, 2),
+                                column("original_extension", "TEXT", true, null, 0),
+                                column("extensions", "TEXT", true, null, 0),
+                                column("original_retained", "INTEGER", true, null, 0)
+                        ),
+                        List.of()
                 ),
                 new TableSpec(
                         "artwork_tags",

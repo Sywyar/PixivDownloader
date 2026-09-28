@@ -12,6 +12,7 @@ public enum FieldType {
     INT,
     STRING,
     ENUM,
+    MULTI_ENUM,
     PASSWORD;
 
     /** 始终为 false：config.yaml 中不允许出现被注释的配置行。 */

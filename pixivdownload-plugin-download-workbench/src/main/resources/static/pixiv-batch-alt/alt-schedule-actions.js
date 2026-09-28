@@ -184,7 +184,7 @@ function mapScheduleQueueItem(item, task) {
 }
 
 function localizedScheduleQueueItem(item) {
-    const messages = {'paused': ['path.overflow.waiting', null],
+    const messages = {'cancelled': ['queue.stage.cancelled', null], 'paused': ['path.overflow.waiting', null],
         'skipped-downloaded': ['schedule.queue.status.skipped-downloaded', '已存在，跳过'],
         'skipped-filter': ['schedule.queue.status.skipped-filter', '被筛选条件跳过']};
     const message = messages[item.rawStatus];
@@ -240,18 +240,19 @@ function subscribeScheduleQueue(task, entry) {
     });
     entry.listeners = eligible.map(item => {
         const listener = data => {
-            if (altScheduleQueues.get(task.id) !== entry || data.cancelled) return;
+            if (altScheduleQueues.get(task.id) !== entry) return;
             const type = String(data.workType || '').trim();
             if (type ? runtime.queueKey(type, item.workId) !== item.queueKey
                 : identities.get(item.workId).size > 1) return;
-            if (data.completed) { item.status = 'completed'; item.rawStatus = 'downloaded'; }
+            if (data.cancelled) { item.status = 'paused'; item.rawStatus = 'cancelled'; item.statusMessageKey = 'queue.stage.cancelled'; }
+            else if (data.completed && !data.failed) { item.status = 'completed'; item.rawStatus = 'downloaded'; }
             else if (data.failed) { item.status = 'failed'; item.rawStatus = 'failed'; }
             else if (data.downloadedCount !== undefined || data.totalImages !== undefined) {
                 item.status = 'downloading';
                 item.rawStatus = 'downloading';
                 if (data.totalImages !== undefined) item.totalImages = data.totalImages;
                 if (data.downloadedCount !== undefined) item.downloadedCount = data.downloadedCount;
-                item.imageProgress = data.imageProgress || item.imageProgress;
+                item.imageProgress = data.imageProgress || null;
                 item.ugoiraProgress = mergeUgoiraProgress(item.ugoiraProgress, data.ugoiraProgress);
             }
             if (entry.frame == null) entry.frame = requestAnimationFrame(() => {

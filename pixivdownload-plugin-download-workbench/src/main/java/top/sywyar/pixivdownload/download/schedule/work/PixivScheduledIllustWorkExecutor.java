@@ -224,6 +224,11 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
         other.setSeriesOrder(meta.seriesOrder());
         other.setIllustType(meta.illustType());
         other.setFileNameTemplate(download.fileNameTemplate());
+        other.setImageFormats(download.imageFormats());
+        other.setUgoiraFormats(download.ugoiraFormats());
+        other.setMediaQuality(download.mediaQuality());
+        other.setMediaWebpLossless(download.mediaWebpLossless());
+        other.setMediaMaximumEdge(download.mediaMaximumEdge());
         other.setPathOverflowAction(context.userAction("DOWNLOAD_PATH_ACTION_REQUIRED")
                 .orElse(download.pathOverflowAction().name()));
         other.setBookmark(download.bookmark());
@@ -372,7 +377,7 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
                     rawJson(pagesBody),
                     "schedule");
         } catch (RuntimeException failure) {
-            log.warn("Scheduled artwork sidecar capture failed: artworkId={}, errorType={}",
+            log.warn("Scheduled artwork metadata capture failed: artworkId={}, errorType={}",
                     artworkId, failure.getClass().getSimpleName());
         }
     }

@@ -107,6 +107,8 @@
             let timer = null;
             let pollTimer = null;
             let listener = null;
+            let polling = false;
+            let revision = 0;
 
             const cleanup = () => {
                 clearTimeout(timer);
@@ -147,16 +149,21 @@
                     clearInterval(pollTimer);
                     return;
                 }
+                if (polling) return;
+                polling = true;
+                const observedRevision = revision;
                 try {
                     const status = await getDownloadStatus(String(artworkId), invocation);
                     if (invocation) invocation.assertActive();
-                    if (status && (status.completed || status.failed)) finish(status);
+                    if (!settled && observedRevision === revision && status && status.success !== false) listener(status);
                 } catch (error) {
                     if (invocation && !invocation.isActive()) fail(error);
-                }
+                } finally { polling = false; }
             }, 5000);
 
             listener = data => {
+                if (settled) return;
+                revision += 1;
                 try {
                     if (invocation) invocation.assertActive();
                 } catch (error) {
@@ -170,7 +177,7 @@
                     if (q) {
                         q.downloadedCount = data.downloadedCount;
                         q.ugoiraProgress = mergeUgoiraProgress(q.ugoiraProgress, data.ugoiraProgress);
-                        q.imageProgress = data.imageProgress || q.imageProgress || null;
+                        q.imageProgress = data.imageProgress || null;
                         renderQueue(q);
                         setCurrent(q);
                     }

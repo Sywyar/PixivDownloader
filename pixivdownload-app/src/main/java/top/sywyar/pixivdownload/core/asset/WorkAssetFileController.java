@@ -84,6 +84,8 @@ public class WorkAssetFileController {
             case "jpg", "jpeg" -> MediaType.IMAGE_JPEG;
             case "gif" -> MediaType.IMAGE_GIF;
             case "webp" -> MediaType.parseMediaType("image/webp");
+            case "apng" -> MediaType.parseMediaType("image/apng");
+            case "mp4" -> MediaType.parseMediaType("video/mp4");
             default -> MediaType.IMAGE_PNG;
         };
     }

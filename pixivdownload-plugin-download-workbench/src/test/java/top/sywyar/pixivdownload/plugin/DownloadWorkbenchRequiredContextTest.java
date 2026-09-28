@@ -71,6 +71,9 @@ class DownloadWorkbenchRequiredContextTest {
             assertRoute(path, HttpMethod.GET, AccessPolicy.VISITOR);
         }
         assertRoute("/api/schedule/tasks", HttpMethod.GET, AccessPolicy.ADMIN);
+        assertThat(plugin.routes()).noneMatch(route -> route.pathPattern().startsWith("/api/download/media/"));
+        assertThat(plugin.guiConfigContributions()).isEmpty();
+        assertThat(plugin.routes()).noneMatch(route -> route.pathPattern().contains("pixiv-media"));
     }
 
     @Test
@@ -147,13 +150,14 @@ class DownloadWorkbenchRequiredContextTest {
     @Test
     @DisplayName("导航、默认落点和插画下载类型由插件声明")
     void navigationStartupAndDownloadTypeDeclared() {
-        assertThat(plugin.navigation()).singleElement()
+        assertThat(plugin.navigation()).filteredOn(nav -> nav.id().equals("download-workbench")).singleElement()
                 .satisfies(nav -> {
                     assertThat(nav.id()).isEqualTo("download-workbench");
                     assertThat(nav.href()).isEqualTo("/pixiv-batch.html");
                     assertThat(nav.placements()).contains(NavigationPlacements.DESKTOP_QUICK_START);
                     assertThat(nav.markers()).containsExactly("preferred-download-workbench");
                 });
+        assertThat(plugin.navigation()).noneMatch(nav -> nav.href().equals("/pixiv-media.html"));
         assertThat(plugin.startupRoutes()).singleElement().satisfies(route -> {
             assertThat(route.path()).isEqualTo("/pixiv-batch.html");
             assertThat(route.order()).isEqualTo(10);

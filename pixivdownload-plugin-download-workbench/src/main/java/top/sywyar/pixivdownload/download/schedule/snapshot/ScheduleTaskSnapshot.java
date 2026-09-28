@@ -60,6 +60,7 @@ public record ScheduleTaskSnapshot(
 
     /** 解析任务快照中的下载设置。 */
     public static Download parseDownload(JsonNode download) {
+        var media = top.sywyar.pixivdownload.download.media.MediaOutputSettings.fromJson(download);
         String template = download.path("fileNameTemplate").asText("");
         return new Download(
                 template.isBlank() ? null : template,
@@ -76,7 +77,9 @@ public record ScheduleTaskSnapshot(
                 download.path("novelAutoTranslate").asBoolean(false),
                 download.path("novelTranslateLanguage").asText(""),
                 intOrNull(download.path("novelTranslateSegmentSize")),
-                DownloadPathAction.parse(download.path("pathOverflowAction").asText(null)));
+                DownloadPathAction.parse(download.path("pathOverflowAction").asText(null)),
+                media.getImageFormats(), media.getUgoiraFormats(),
+                media.getQuality(), media.isWebpLossless(), media.getMaximumEdge());
     }
 
     /**
@@ -155,6 +158,8 @@ public record ScheduleTaskSnapshot(
                            boolean redownloadDeleted,
                            String novelFormat, boolean novelMerge, String novelMergeFormat,
                            boolean novelAutoTranslate, String novelTranslateLanguage,
-                           Integer novelTranslateSegmentSize, DownloadPathAction pathOverflowAction) {
+                           Integer novelTranslateSegmentSize, DownloadPathAction pathOverflowAction,
+                           String imageFormats, String ugoiraFormats,
+                           int mediaQuality, boolean mediaWebpLossless, int mediaMaximumEdge) {
     }
 }

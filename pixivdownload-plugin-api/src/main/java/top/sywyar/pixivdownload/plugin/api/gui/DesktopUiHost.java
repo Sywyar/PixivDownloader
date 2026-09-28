@@ -13,6 +13,21 @@ import java.util.function.Consumer;
  * 桌面界面可消费的稳定、工具包无关宿主业务契约。
  */
 public interface DesktopUiHost extends DesktopUiToolHost {
+    /** @return 活动媒体维护能力的纯值快照；缺席时不显示工具入口 */
+    default List<top.sywyar.pixivdownload.plugin.api.gui.media.DesktopMediaTool> mediaTools() {
+        return List.of();
+    }
+
+    /**
+     * @param identity 发现期的精确 publication
+     * @return 可撤回的业务代理；撤回或后端停止时拒绝命令，不改投替代来源
+     */
+    default top.sywyar.pixivdownload.plugin.api.gui.media.DesktopMediaTool.Source mediaTool(
+            top.sywyar.pixivdownload.plugin.api.gui.media.DesktopMediaTool.Identity identity) {
+        throw new top.sywyar.pixivdownload.plugin.api.gui.media.DesktopMediaTool.OperationException(
+                DesktopUiText.key("gui.message.backend-busy"));
+    }
+
     /**
      * @return 桌面界面显示的产品名称
      */

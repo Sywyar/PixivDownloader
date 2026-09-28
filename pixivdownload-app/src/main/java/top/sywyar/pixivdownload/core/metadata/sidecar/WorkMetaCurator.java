@@ -16,24 +16,24 @@ import java.util.Set;
 
 /**
  * 作品 meta 归一化器（捕获 meta 的唯一 curation 规范化器）：把一份捕获到的 Pixiv 原始 body
- * （计划任务后端自抓 / 后续前端转发）归一化成可落盘的 sidecar 文档（schemaVersion=1）+ 列投影值。
+ * （计划任务后端抓取 / 前端转发）归一化成可入库的快照文档（schemaVersion=1）与列投影值。
  *
  * <p><b>后端是「剪枝 + 白名单」权威</b>：无论来源是否可信，都在此独立剪一遍——剥掉 C 类
  * （计数族 / 会话私有 {@code bookmarkData}/{@code likeData} / 巨型噪声 {@code userIllusts}/{@code zoneConfig}/…），
  * 小说额外剥正文 {@code content}（已在 {@code raw_content}）与内嵌图 {@code textEmbeddedImages}（已在 {@code novel_images}）；
  * 高价值 B 抽成 {@code normalized} typed 块，其余 A+B 原样留在剪枝后的 {@code raw} 块。整体设总上限兜底超大字段。
  *
- * <p>本类不做 IO；落盘与列写入由 {@link WorkSidecarStore} / {@link WorkMetaCaptureService} 承担。
+ * <p>本类不做 IO；快照与列写入由 {@link top.sywyar.pixivdownload.core.metadata.WorkMetadataStore} / {@link WorkMetaCaptureService} 承担。
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class WorkMetaCurator {
 
-    /** sidecar 顶层 schema 版本。 */
+    /**快照顶层 schema 版本。 */
     static final int SCHEMA_VERSION = 1;
 
-    /** sidecar 文档序列化后的总上限（字节）；超限<b>拒绝整份 sidecar</b>，绝不落出 {@code raw} 残缺的半成品。 */
+    /**快照文档序列化后的总上限（字节）；超限<b>拒绝整份快照</b>，绝不落出 {@code raw} 残缺的半成品。 */
     private static final int MAX_DOCUMENT_BYTES = 256 * 1024;
 
     /** 高价值 typed 文本字段的单字段长度上限。 */
@@ -49,7 +49,7 @@ public class WorkMetaCurator {
             "contestBanners", "contestData", "pollData",
             "descriptionBoothId", "descriptionYoutubeId");
 
-    /** 小说额外剔除：正文与内嵌图已有专属落点，留在 sidecar 会成倍冗余。 */
+    /** 小说额外剔除：正文与内嵌图已有专属落点，留在快照会成倍冗余。 */
     private static final Set<String> NOVEL_EXTRA_STRIP = Set.of("content", "textEmbeddedImages");
 
     private final ObjectMapper objectMapper;
@@ -116,10 +116,10 @@ public class WorkMetaCurator {
         doc.set("normalized", normalized);
         doc.set("raw", raw);
 
-        // 总上限兜底：超大（典型为恶意 / 异常巨型 raw）时<b>拒绝整份 sidecar</b>——绝不落出 raw 残缺的半成品，
-        // 否则插件会看到「存在但 raw 不可恢复」的假成功 sidecar。列投影（uploadTime/isOriginal）随返回值带出、仍有效。
+        // 总上限兜底：超大（典型为恶意 / 异常巨型 raw）时<b>拒绝整份快照</b>——绝不落出 raw 残缺的半成品，
+        // 否则插件会看到「存在但 raw 不可恢复」的假成功快照。列投影（uploadTime/isOriginal）随返回值带出、仍有效。
         if (estimateBytes(doc) > MAX_DOCUMENT_BYTES) {
-            log.warn("sidecar document for {} {} exceeds {} bytes; rejecting sidecar (column projection kept)",
+            log.warn("Metadata snapshot for {} {} exceeds {} bytes; rejecting snapshot (column projection kept)",
                     workType, workId, MAX_DOCUMENT_BYTES);
             return new CuratedWorkMeta(uploadTime, isOriginal, null);
         }

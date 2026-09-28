@@ -46,7 +46,7 @@
 - Novel AI translation (requires an LLM configured): translate a novel or a whole series into a chosen language and store it locally, with a content-language switch between the original and translations
 - Novel AI multi-voice narration (beta): an LLM attributes sentences to speakers, each character synthesized with a fixed voice and played back with follow-along highlighting; analysis is cached for replay
 
-- Animated image (Ugoira) auto-conversion to WebP
+- Save images in original, PNG, JPG and WebP formats; save Ugoira as WebP, GIF, APNG, MP4 and the original ZIP
 - Custom file naming templates (11 variables)
 - Downloaded-state verification: stale DB records auto-pruned; missing records reconstructed from disk to skip re-download
 - Quota and rate limiting for multi-user scenarios
@@ -98,6 +98,14 @@ sh run.sh
 
 After first startup, follow the wizard to complete setup, then visit `http://localhost:6999/pixiv-batch.html` to start
 downloading.
+
+Choose image and Ugoira formats, conversion quality, lossless WebP and maximum edge in the web download settings. Options are saved in server workbench state in solo mode and in the current browser in multi-user mode, then sent with new downloads. New schedules retain the options chosen when created; later browser changes do not affect them. Images default to the original format and Ugoira to WebP. Deselecting the original removes it only after all selected outputs succeed. Selecting the source format reuses the original without quality or size changes. Desktop download settings manage backend operation and resource limits, such as download and FFmpeg concurrency; each field indicates when changes take effect.
+
+When image conversion is selected, downloads can overlap with conversion, with at most two images in flight per artwork. FFmpeg still uses the configured shared concurrency limit. The queue shows download and conversion progress separately, and the artwork is recorded as complete only after every image succeeds. Cancellation or conversion failure keeps originals whose conversion has not succeeded.
+
+For existing works, open **Tools → FFmpeg and tools → Process downloaded media** in the Compose desktop UI, select target formats, and detect missing files without entering artwork IDs. Review the results and start explicitly. Processing adds missing formats and thumbnails while keeping existing files; going back does not cancel the task. Swing provides the same detection and processing on its Tools page. Ugoira conversion requires a retained ZIP and frame timing. FFmpeg management can test actual codec support; MP4 requires an H.264 encoder.
+
+Work metadata and per-page media format records are stored in the database. New downloads no longer create `.meta.json` or `.media.properties` files. Back up or move the media files together with `data/pixiv_download.db`; the gallery cannot rebuild work records from files alone if the database is lost. Existing sidecar files are not automatically deleted in bulk.
 
 ### Route web Pixiv through the backend-configured proxy (no system proxy needed)
 

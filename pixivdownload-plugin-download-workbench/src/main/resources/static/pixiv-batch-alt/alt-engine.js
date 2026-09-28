@@ -108,6 +108,7 @@ async function sendDownload(artworkId, imageUrls, title, isUserDownload, usernam
         description: description || null,
         tags: Array.isArray(tags) && tags.length ? tags : null,
         fileNameTemplate,
+        ...window.PixivMediaSettings.snapshot(state.settings),
         fileNames,
         fileNameTimestamp
     };

@@ -351,7 +351,8 @@
             flex-shrink: 0;
         }
 
-        .setting-item input[type=number] {
+        .setting-item input[type=number],
+        .media-format-row > input[type=number] {
             width: 56px;
             padding: 4px 6px;
             border: 1px solid var(--line);
@@ -647,6 +648,9 @@
 
         .prog-label {
             display: flex;
+            flex-wrap: wrap;
+            gap: 2px 8px;
+            overflow-wrap: anywhere;
             justify-content: space-between;
             font-size: 0.625rem;
             color: var(--muted);
@@ -668,6 +672,24 @@
         .prog-fill.green {
             background: var(--brand);
             height: 6px;
+        }
+
+        .prog-fill.is-indeterminate {
+            animation: batch-progress-active 1.5s ease-in-out infinite;
+        }
+
+        @keyframes batch-progress-active {
+            from { transform: translateX(-100%); }
+            to { transform: translateX(286%); }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .prog-fill.is-indeterminate { animation: none !important; }
+        }
+
+        @media (forced-colors: active) {
+            .prog-bg { border: 1px solid CanvasText; }
+            .prog-fill { background: Highlight !important; forced-color-adjust: none; }
         }
 
         /* Small utility */

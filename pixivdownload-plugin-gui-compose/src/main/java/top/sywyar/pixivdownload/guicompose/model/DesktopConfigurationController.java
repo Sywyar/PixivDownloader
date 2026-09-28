@@ -823,6 +823,10 @@ final class DesktopConfigurationController {
                 if (spec.type() == GuiConfigFieldType.ENUM && !spec.enumValues().contains(value)) {
                     throw new IllegalArgumentException(spec.key());
                 }
+                if (spec.type() == GuiConfigFieldType.MULTI_ENUM
+                        && !GuiConfigFieldType.validMultiSelection(value, spec.enumValues())) {
+                    throw new IllegalArgumentException(spec.key());
+                }
                 if (spec.key().startsWith("maintenance.") && spec.key().endsWith(".time") && !host.validMaintenanceTime(value)) {
                     throw new IllegalArgumentException(spec.key());
                 }

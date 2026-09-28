@@ -860,12 +860,13 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     }
 
     /** 工具目录与可收起的执行面板，动作仍由工具控制器持有。 */
-    record ToolsOverview(String id, Text backend, List<DesktopUiNode> tools, Group media,
+    record ToolsOverview(String id, Text backend, List<DesktopUiNode> tools, Group media, List<DesktopUiNode> mediaTools,
                          DesktopUiNode history, ToolActivity activity, ToolWorkspace workspace) implements DesktopUiNode {
         public ToolsOverview {
             id = requireId(id, "id");
             Objects.requireNonNull(backend, "backend");
             tools = copyBounded(tools, "tools");
+            mediaTools = copyBounded(mediaTools, "mediaTools");
             Objects.requireNonNull(media, "media");
             Objects.requireNonNull(history, "history");
         }
@@ -875,6 +876,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
             List<DesktopUiNode> nodes = new ArrayList<>(tools);
             nodes.add(backend);
             nodes.add(media);
+            nodes.addAll(mediaTools);
             nodes.add(history);
             if (workspace != null) {
                 nodes.add(workspace.content());
@@ -1087,7 +1089,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
             if (selectionMode == SelectionMode.SINGLE && selectedIds.size() > 1) {
                 throw new IllegalArgumentException("single selection accepts at most one selected id");
             }
-            if ((choiceStyle == ChoiceStyle.COMBO_BOX || choiceStyle == ChoiceStyle.RADIO_BUTTONS)
+            if (choiceStyle == ChoiceStyle.RADIO_BUTTONS
                     && selectionMode != SelectionMode.SINGLE) {
                 throw new IllegalArgumentException(choiceStyle + " requires single selection");
             }

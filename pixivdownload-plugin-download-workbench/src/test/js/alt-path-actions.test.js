@@ -39,7 +39,7 @@ function harness(choice) {
                 } : action === 'CANCEL' ? {code: 'DOWNLOAD_PATH_CANCELLED'} : {alreadyDownloaded: true}};
         }
     });
-    for (const file of ['pixiv-batch-alt/alt-state.js', 'pixiv-batch-alt/alt-settings.js',
+    for (const file of ['pixiv-batch/media-settings.js', 'pixiv-batch-alt/alt-state.js', 'pixiv-batch-alt/alt-settings.js',
         'pixiv-batch-alt/alt-engine.js', 'pixiv-batch-alt/alt-engine-workers.js', 'pixiv-batch/batch-path-actions.js']) {
         vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), context, {filename: file});
     }
@@ -104,7 +104,37 @@ test('新版下载设置经共用来源模块存入计划快照', () => {
     initializer({descriptors: [{sourceType: 'user-new'}], registerSource: (_id, value) => { source = value; }});
     for (const value of ['ASK', 'TRUNCATE', 'DEFAULT_NAME', 'CANCEL']) {
         h.state.settings.pathOverflowAction = value;
+        Object.assign(h.state.settings, {imageFormats: 'png,webp', ugoiraFormats: 'zip,gif',
+            mediaQuality: 73, mediaWebpLossless: true, mediaMaximumEdge: 1920});
         const snapshot = JSON.parse(JSON.stringify(source.capture({mode: 'user'}).params));
         assert.equal(snapshot.download.pathOverflowAction, value);
+        assert.equal(snapshot.download.imageFormats, 'png,webp');
+        assert.equal(snapshot.download.ugoiraFormats, 'zip,gif');
+        assert.equal(snapshot.download.mediaQuality, 73);
+        assert.equal(snapshot.download.mediaWebpLossless, true);
+        assert.equal(snapshot.download.mediaMaximumEdge, 1920);
+        h.context.document.querySelector = () => null;
+        h.context.window.PixivBatch.queueTypes.contributionsOf = () => [];
+        for (const name of ['switchMode', 'applyKindSwitcherUI', 'updateMergeFormatVisibility',
+            'updateNovelTranslateVisibility', 'setSearchFiltersUI', 'applyNovelSettingsVisibility',
+            'updateExtraFiltersCardVisibility']) h.context[name] = () => {};
+        h.context.normalizeSearchFilters = value => value;
+        Object.assign(h.state.settings, {mediaQuality: 30, mediaWebpLossless: false, mediaMaximumEdge: 0});
+        source.restore({paramsJson: JSON.stringify(snapshot)});
+        assert.equal(h.state.settings.mediaQuality, 73);
+        assert.equal(h.state.settings.mediaWebpLossless, true);
+        assert.equal(h.state.settings.mediaMaximumEdge, 1920);
     }
+});
+
+test('网页输出选项保存重载后随实际下载请求发送', async () => {
+    const h = harness(null);
+    const selected = {imageFormats: 'webp', ugoiraFormats: 'zip,webp',
+        mediaQuality: 73, mediaWebpLossless: true, mediaMaximumEdge: 1280};
+    Object.assign(h.state.settings, selected, {pathOverflowAction: 'DEFAULT_NAME'});
+    h.context.saveSettings();
+    Object.assign(h.state.settings, h.context.window.PixivMediaSettings.snapshot({}));
+    h.context.loadSettings();
+    await h.run([1]);
+    for (const [key, value] of Object.entries(selected)) assert.equal(h.requests.at(-1).other[key], value);
 });

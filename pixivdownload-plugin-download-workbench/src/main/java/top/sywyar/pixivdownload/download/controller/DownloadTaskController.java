@@ -75,6 +75,14 @@ public class DownloadTaskController {
         RequestOwnerIdentity identity = requestOwnerIdentityResolver.resolve(httpRequest);
         String userUuid = null;
         boolean isAdmin = identity.admin();
+        request.getOther().setMediaOutputEnabled(isAdmin);
+        if (isAdmin) {
+            try {
+                request.getOther().resolveMediaOutputSettings();
+            } catch (IllegalArgumentException invalid) {
+                throw LocalizedException.badRequest("download.media.invalid-settings", null);
+            }
+        }
         if (!isAdmin) request.getOther().setPathOverflowAction(null);
         stripUnauthorizedCollectionSelection(request, mode, isAdmin);
         if (!isAdmin && "multi".equals(mode)) {

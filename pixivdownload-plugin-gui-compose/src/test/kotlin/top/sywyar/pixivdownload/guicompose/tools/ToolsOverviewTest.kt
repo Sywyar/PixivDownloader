@@ -79,7 +79,7 @@ class ToolsOverviewTest {
         onNodeWithTag("tools.entry.media").performScrollTo().performClick()
         onNodeWithTag("status.ffmpeg.install").assertIsDisplayed()
         screenshot("media-dark")
-        onNodeWithTag("tools.sheet.close").performClick()
+        onNodeWithTag("tools.media.back").performClick()
         onNodeWithTag("tools.history.all").performScrollTo().performClick()
         onNodeWithTag("tools.history.detail.history.1").performClick()
         onNodeWithText("2").assertExists()
@@ -89,7 +89,7 @@ class ToolsOverviewTest {
 
     private fun ComposeUiTest.screenshot(name: String) {
         val target = File("target/tools-ui/$name.png").apply { parentFile.mkdirs() }
-        val tag = if (onAllNodesWithTag("tools.sheet").fetchSemanticsNodes().isEmpty()) "tools.overview" else "tools.sheet"
+        val tag = if (onAllNodesWithTag("tools.media.workspace").fetchSemanticsNodes().isNotEmpty()) "tools.media.workspace" else if (onAllNodesWithTag("tools.sheet").fetchSemanticsNodes().isEmpty()) "tools.overview" else "tools.sheet"
         ImageIO.write(onNodeWithTag(tag).captureToImage().toAwtImage(), "png", target)
     }
 
@@ -99,7 +99,7 @@ class ToolsOverviewTest {
         }
         private fun resolve(token: TextToken) = if (token.key().isBlank()) token.fallback() else messages.getProperty(token.key(), token.key())
         private fun sample(values: Map<String, String> = mapOf("db" to "artworks.db", "proxy-host" to "localhost", "proxy-port" to "7890", "delay" to "800", "limit" to "0"),
-                           activity: ToolActivity? = null): DesktopUiNode.ToolsOverview {
+                           activity: ToolActivity? = null, mediaTools: List<DesktopUiNode> = emptyList()): DesktopUiNode.ToolsOverview {
             fun button(id: String) = Button(id, id, TextToken.raw(id.substringAfterLast('.')), null, ButtonStyle.NORMAL, true)
             fun column(id: String, children: List<DesktopUiNode>) = Container(id, ContainerLayout.COLUMN, 1, 12, Alignment.START, children)
             fun content(id: String, form: Form? = null) = Group("tools.$id", TextToken.raw(id), column("tools.$id.body", listOfNotNull(form, button("tools.$id.run"))), false)
@@ -112,7 +112,7 @@ class ToolsOverviewTest {
             val history = Table("history", "history.selection", listOf("tool", "outcome", "start", "end", "processed").map { TableColumn(it, TextToken.raw(it), 80) },
                 listOf(TableRow("history.1", listOf("Backfill", "Succeeded", "09:01", "09:02", "2"))), SelectionMode.SINGLE, emptyList(), false)
             return DesktopUiNode.ToolsOverview("tools.workspace", Text("backend", TextToken.raw("Service running"), TextStyle.CAPTION, true, false),
-                listOf(content("classifier"), content("folder"), content("backfill", Form("form.backfill", FormStyle.COMPACT, null, rows)), content("migration")), media, history, activity, null)
+                listOf(content("classifier"), content("folder"), content("backfill", Form("form.backfill", FormStyle.COMPACT, null, rows)), content("migration")), media, mediaTools, history, activity, null)
         }
     }
 }

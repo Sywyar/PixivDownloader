@@ -358,7 +358,7 @@ final class DesktopToolsView {
         );
     }
 
-    DesktopUiNode controlCenterPage(Map<String, Runnable> nextActions, DesktopUiNode.Group media) {
+    DesktopUiNode controlCenterPage(Map<String, Runnable> nextActions, DesktopUiNode.Group media, List<DesktopUiNode> mediaTools) {
         DesktopUiNode.ToolWorkspace workspace = null;
         if (model.toolDialog != null) {
             boolean folder = model.toolDialog == DesktopToolsController.ToolDialog.FOLDER_CHECKER;
@@ -380,6 +380,7 @@ final class DesktopToolsView {
                 raw("tools.backend", model.owner.backendMessage(), TextStyle.CAPTION),
                 toolCards(nextActions),
                 media,
+                mediaTools,
                 toolHistoryContent(),
                 model.activity,
                 workspace

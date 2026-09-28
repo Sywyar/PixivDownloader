@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.config;
 
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogProperties;
+import top.sywyar.pixivdownload.ffmpeg.FfmpegProperties;
 
 import java.util.Locale;
 import java.util.function.Function;
@@ -47,6 +48,8 @@ public final class DefaultConfigTemplate {
         appendSetting(config, messages, "download.user-flat-folder: false", "config.template.download.user-flat-folder.comment");
         appendSetting(config, messages, "download.max-concurrent: 10", "config.template.download.max-concurrent.comment");
         appendSetting(config, messages, "ffmpeg.executable-path: \"\"", "config.template.ffmpeg.executable-path.comment");
+        appendSetting(config, messages, "ffmpeg.max-concurrent: " + FfmpegProperties.DEFAULT_MAX_CONCURRENT,
+                "config.template.ffmpeg.max-concurrent.comment");
         appendBlankLine(config);
 
         appendSetting(config, messages, "database.maximum-pool-size: 28", "config.template.database.maximum-pool-size.comment");

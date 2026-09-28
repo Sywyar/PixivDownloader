@@ -86,6 +86,7 @@ public final class FieldRenderer {
             case PATH_DIR -> renderPath(spec, true);
             case PATH_FILE -> renderPath(spec, false);
             case ENUM -> renderEnum(spec);
+            case MULTI_ENUM -> renderMultiEnum(spec);
             case PASSWORD -> renderPassword(spec);
             case STRING -> renderString(spec);
         };
@@ -170,6 +171,42 @@ public final class FieldRenderer {
                 cb::setSelectedItem,
                 cb,
                 p.validationError());
+    }
+
+    private static RenderedField renderMultiEnum(ConfigFieldSpec spec) {
+        JButton button = new JButton();
+        button.setHorizontalAlignment(SwingConstants.LEADING);
+        JPopupMenu popup = new JPopupMenu();
+        var selected = new java.util.LinkedHashSet<String>();
+        Runnable refresh = () -> button.setText(spec.enumValues().stream()
+                .filter(selected::contains)
+                .map(value -> spec.enumValueLabels().getOrDefault(value, value))
+                .collect(java.util.stream.Collectors.joining(", ")) + "  ⌄");
+        var items = new java.util.LinkedHashMap<String, JCheckBoxMenuItem>();
+        for (String value : spec.enumValues()) {
+            JCheckBoxMenuItem item = new JCheckBoxMenuItem(spec.enumValueLabels().getOrDefault(value, value));
+            item.addActionListener(event -> {
+                if (item.isSelected()) selected.add(value);
+                else if (selected.size() > 1) selected.remove(value);
+                item.setSelected(selected.contains(value));
+                refresh.run();
+            });
+            items.put(value, item);
+            popup.add(item);
+        }
+        button.addActionListener(event -> popup.show(button, 0, button.getHeight()));
+        Consumer<String> setter = value -> {
+            selected.clear();
+            if (value != null) selected.addAll(java.util.Arrays.asList(value.split(",", -1)));
+            items.forEach((id, item) -> item.setSelected(selected.contains(id)));
+            refresh.run();
+        };
+        setter.accept(spec.defaultValue());
+        RenderedPanel panel = renderFieldPanel(spec, button);
+        return new RenderedField(panel.panel(),
+                () -> spec.enumValues().stream().filter(selected::contains)
+                        .collect(java.util.stream.Collectors.joining(",")),
+                setter, button, panel.validationError());
     }
 
     private static RenderedField renderPassword(ConfigFieldSpec spec) {

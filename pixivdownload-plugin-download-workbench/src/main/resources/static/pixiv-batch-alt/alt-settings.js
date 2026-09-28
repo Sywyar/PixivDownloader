@@ -136,7 +136,8 @@ function buildDownloadFileNames(template, vars, count) {
    ============================================================ */
 let batchCollections = [];
 
-async function refreshBatchCollections() {
+async function refreshBatchCollections(invocation) {
+    if (invocation) invocation.assertActive();
     const canUseCollections = appMode === 'solo' || isAdmin;
     if (!canUseCollections) {
         batchCollections = [];
@@ -144,20 +145,26 @@ async function refreshBatchCollections() {
         return {collectionId: null, collections: []};
     }
     try {
-        const res = await fetch(BASE + '/api/collections', {credentials: 'same-origin'});
+        const res = await fetch(BASE + '/api/collections', {
+            credentials: 'same-origin', signal: invocation ? invocation.signal : undefined
+        });
+        if (invocation) invocation.assertActive();
         if (!res.ok) {
             batchCollections = [];
             state.settings.collectionId = null;
             return {collectionId: null, collections: []};
         }
         const data = await res.json();
+        if (invocation) invocation.assertActive();
         batchCollections = Array.isArray(data.collections) ? data.collections : [];
         const validIds = new Set(batchCollections.map(c => normalizeBatchCollectionId(c.id)).filter(id => id !== null));
         const current = normalizeBatchCollectionId(state.settings.collectionId);
         state.settings.collectionId = current !== null && validIds.has(current) ? current : null;
         return {collectionId: state.settings.collectionId, collections: batchCollections};
     } catch {
+        if (invocation) invocation.assertActive();
         batchCollections = [];
+        state.settings.collectionId = null;
         return {collectionId: null, collections: []};
     }
 }
@@ -245,7 +252,7 @@ function numberWithUnit(value, unit, onValue, onUnit) {
 function buildSettingsDrawerBody() {
     const s = state.settings;
     const body = el('div', 'ab-settings');
-    body.appendChild(el('p', 'ab-field-note', bt('settings.scope', '更改会立即保存在此浏览器中，供后续下载使用；不会修改桌面的全局配置。')));
+    body.appendChild(el('p', 'ab-field-note', bt('settings.scope', '更改供后续下载使用。单人模式保存在服务端工作台状态，多人模式保存在此浏览器。')));
 
     // —— 节奏 ——
     body.appendChild(el('h4', 'ab-settings-group', bt('settings.group.pace', '下载节奏')));
@@ -376,6 +383,13 @@ function buildSettingsDrawerBody() {
         bt('settings.filename.help', '生成不含扩展名的文件名主干；重复名称自动追加页码。点击变量插入。')));
     body.appendChild(varChips);
     body.appendChild(namePreview);
+    const typeSettings = el('div');
+    typeSettings.id = 'type-output-settings';
+    body.appendChild(typeSettings);
+    const runtime = altQueueTypes();
+    if (runtime) runtime.contributionsOf('settings').forEach(setting => {
+        if (typeof setting.mount === 'function') setting.mount(typeSettings);
+    });
 
     if (isAdmin) {
         const pathAction = el('select', 'ab-input');

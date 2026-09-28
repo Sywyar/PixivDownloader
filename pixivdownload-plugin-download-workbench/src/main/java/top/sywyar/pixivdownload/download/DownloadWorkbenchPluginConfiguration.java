@@ -14,6 +14,7 @@ import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.download.InteractiveDownloadExecutionLane;
 import top.sywyar.pixivdownload.core.ffmpeg.FfmpegCommandResolver;
+import top.sywyar.pixivdownload.core.ffmpeg.FfmpegProcessGate;
 import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetcher;
 import top.sywyar.pixivdownload.plugin.api.download.control.DownloadControlPlane;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
@@ -88,6 +89,39 @@ public class DownloadWorkbenchPluginConfiguration {
         return new DownloadWorkbenchPlugin();
     }
 
+    @Bean
+    public top.sywyar.pixivdownload.download.media.DesktopMediaMaintenance desktopMediaMaintenance(
+            top.sywyar.pixivdownload.download.media.MediaMaintenanceService maintenance,
+            top.sywyar.pixivdownload.download.media.MediaCapabilityService capabilities) {
+        return new top.sywyar.pixivdownload.download.media.DesktopMediaMaintenance(maintenance, capabilities);
+    }
+
+    @Bean(destroyMethod = "close")
+    public top.sywyar.pixivdownload.download.media.MediaMaintenanceService mediaMaintenanceService(
+            top.sywyar.pixivdownload.core.work.service.WorkAssetService assets,
+            top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository metadata,
+            top.sywyar.pixivdownload.core.work.service.WorkQueryService query,
+            top.sywyar.pixivdownload.download.media.ImageOutputService images,
+            UgoiraService animations, top.sywyar.pixivdownload.core.asset.ArtworkMediaStore mediaStore) {
+        return new top.sywyar.pixivdownload.download.media.MediaMaintenanceService(assets, metadata, query, images, animations, mediaStore);
+    }
+
+    @Bean
+    public top.sywyar.pixivdownload.download.media.MediaCapabilityService mediaCapabilityService(
+            top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner runner,
+            top.sywyar.pixivdownload.core.ffmpeg.FfmpegCommandResolver resolver,
+            RuntimePathProvider paths) {
+        return new top.sywyar.pixivdownload.download.media.MediaCapabilityService(runner, resolver, paths);
+    }
+
+    @Bean
+    public top.sywyar.pixivdownload.download.media.ImageOutputService imageOutputService(
+            top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner runner,
+            ObjectMapper mapper,
+            top.sywyar.pixivdownload.core.asset.ArtworkMediaStore mediaStore) {
+        return new top.sywyar.pixivdownload.download.media.ImageOutputService(runner, mapper, mediaStore);
+    }
+
     @Bean("downloadWorkbenchMessages")
     public MessageResolver downloadWorkbenchMessages(MessageResolver messages, LocaleBundlePolicy localeBundlePolicy) {
         return ResourceBundleMessageResolver.of(
@@ -136,8 +170,10 @@ public class DownloadWorkbenchPluginConfiguration {
     @Bean
     public UgoiraService ugoiraService(PixivImageDownloader pixivImageDownloader,
                                        FfmpegCommandResolver ffmpegCommandResolver,
-                                       @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
-        return new UgoiraService(pixivImageDownloader, ffmpegCommandResolver, messages);
+                                       FfmpegProcessGate ffmpegProcessGate,
+                                       @Qualifier("downloadWorkbenchMessages") MessageResolver messages,
+                                       top.sywyar.pixivdownload.core.asset.ArtworkMediaStore mediaStore) {
+        return new UgoiraService(pixivImageDownloader, ffmpegCommandResolver, messages, ffmpegProcessGate, mediaStore);
     }
 
     @Bean
@@ -166,6 +202,7 @@ public class DownloadWorkbenchPluginConfiguration {
                                                            InteractiveDownloadExecutionLane interactiveDownloadExecutionLane,
                                                            PixivBookmarkActions pixivBookmarkActions,
                                                            UgoiraService ugoiraService,
+                                                           top.sywyar.pixivdownload.download.media.ImageOutputService imageOutputService,
                                                            AuthorObservationService authorObservationService,
                                                            ArtworkAuthorLookup artworkAuthorLookup,
                                                            DownloadPathGuard downloadPathGuard,
@@ -179,7 +216,7 @@ public class DownloadWorkbenchPluginConfiguration {
                 artworkDownloadHistory, artworkDownloadLookup, artworkDownloadStatistics,
                 visitorDownloadQuotaService,
                 pixivImageDownloader, taskScheduler, interactiveDownloadExecutionLane,
-                pixivBookmarkActions, ugoiraService, authorObservationService,
+                pixivBookmarkActions, ugoiraService, imageOutputService, authorObservationService,
                 artworkAuthorLookup, downloadPathGuard,
                 collectionDownloadRootResolver, workCollectionMembership,
                 artworkSeriesObserver, artworkHashIndexMaintenance, workMetadataCapture,
@@ -379,13 +416,15 @@ public class DownloadWorkbenchPluginConfiguration {
                                        RequestOwnerIdentityResolver requestOwnerIdentityResolver,
                                        @Qualifier("downloadWorkbenchMessages") MessageResolver messages,
                                        PluginStreamRegistrar pluginStreamRegistrar,
-                                       PluginRuntimeTaskRegistrar pluginRuntimeTaskRegistrar) {
+                                       PluginRuntimeTaskRegistrar pluginRuntimeTaskRegistrar,
+                                       ArtworkDownloadExecutor artworkDownloadExecutor) {
         return new SSEController(
                 taskScheduler,
                 requestOwnerIdentityResolver,
                 messages,
                 pluginStreamRegistrar,
-                pluginRuntimeTaskRegistrar);
+                pluginRuntimeTaskRegistrar,
+                artworkDownloadExecutor);
     }
 
     @Bean

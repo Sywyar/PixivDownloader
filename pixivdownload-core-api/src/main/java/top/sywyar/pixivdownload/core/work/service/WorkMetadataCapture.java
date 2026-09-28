@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.core.work.service;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 
 /**
- * 把上游作品响应捕获到核心 sidecar 与共享可重建投影的稳定端口。
+ * 把上游作品响应捕获到核心 数据库快照 与共享可重建投影的稳定端口。
  *
  * <p>调用方只传递原始 UTF-8 JSON 文本；介质私有记录、内容与持久化模型不属于此契约。
  */

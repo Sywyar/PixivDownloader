@@ -7,6 +7,12 @@ import java.util.List;
 
 @Mapper
 public interface PixivMapper {
+    @Delete("DELETE FROM artwork_media WHERE artwork_id = #{artworkId}")
+    void deleteArtworkMedia(@Param("artworkId") long artworkId);
+
+    @Delete("DELETE FROM artwork_media WHERE artwork_id = #{artworkId}"
+            + " AND page >= (SELECT count FROM artworks WHERE artwork_id = #{artworkId})")
+    void deleteUnusedArtworkMedia(@Param("artworkId") long artworkId);
 
     @Update("UPDATE artworks SET file_name_max_length = #{length} WHERE artwork_id = #{id}")
     void updateFileNameMaxLength(@Param("id") long id, @Param("length") int length);
@@ -156,8 +162,8 @@ public interface PixivMapper {
     @Delete("DELETE FROM artworks WHERE artwork_id = #{artworkId}")
     void deleteById(long artworkId);
 
-    /** 软删除标记：主行保留（供下载判重识别「已下载但被删除」），仅置 deleted 位。 */
-    @Update("UPDATE artworks SET deleted = 1 WHERE artwork_id = #{artworkId}")
+    /** 保留主行用于下载判重，同时清除元数据快照。 */
+    @Update("UPDATE artworks SET deleted = 1, metadata_json = NULL WHERE artwork_id = #{artworkId}")
     void markDeletedById(long artworkId);
 
     /** 仅清除软删除残留行：重新下载落库前调用，使 INSERT OR IGNORE 能写入全新行（deleted 复位）。 */
@@ -225,16 +231,6 @@ public interface PixivMapper {
     void updateSeriesInfo(@Param("artworkId") long artworkId,
                           @Param("seriesId") Long seriesId,
                           @Param("seriesOrder") Long seriesOrder);
-
-    /**
-     * 写入作品的上传元数据列投影（{@code upload_time} 毫秒、{@code is_original} 三态）。
-     * sidecar 是权威落点，这两列是可重建投影；写失败由调用方 warn-continue 自愈。
-     */
-    @Update("UPDATE artworks SET upload_time = #{uploadTime}, is_original = #{isOriginal}"
-            + " WHERE artwork_id = #{artworkId}")
-    void updateUploadMeta(@Param("artworkId") long artworkId,
-                          @Param("uploadTime") Long uploadTime,
-                          @Param("isOriginal") Boolean isOriginal);
 
     /**
      * 查询所有 {@code series_id IS NULL} 的作品 ID，用于 {@link top.sywyar.pixivdownload.tools.ArtworksBackFill}

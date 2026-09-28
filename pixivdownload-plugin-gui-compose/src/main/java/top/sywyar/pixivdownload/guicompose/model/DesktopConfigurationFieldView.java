@@ -270,7 +270,7 @@ final class DesktopConfigurationFieldView {
                     1,
                     enabled
             );
-            case ENUM -> {
+            case ENUM, MULTI_ENUM -> {
                 List<DesktopUiNode.Option> options = new ArrayList<>();
                 for (int index = 0; index < spec.enumValues().size(); index++) {
                     String option = spec.enumValues().get(index);
@@ -280,10 +280,24 @@ final class DesktopConfigurationFieldView {
                             true
                     ));
                 }
-                int selectedIndex = spec.enumValues().indexOf(value);
+                boolean multiple = spec.type() == GuiConfigFieldType.MULTI_ENUM;
+                List<String> selectedValues = multiple ? java.util.Arrays.asList(value.split(",", -1)) : List.of(value);
+                List<String> selectedOptions = new ArrayList<>();
+                for (int index = 0; index < spec.enumValues().size(); index++) {
+                    if (selectedValues.contains(spec.enumValues().get(index))) selectedOptions.add("option." + index);
+                }
                 nextSelections.put(
                         binding,
                         selectedIds -> {
+                            if (multiple) {
+                                List<String> selection = new ArrayList<>();
+                                for (int index = 0; index < spec.enumValues().size(); index++) {
+                                    if (selectedIds.contains("option." + index)) selection.add(spec.enumValues().get(index));
+                                }
+                                if (!selection.isEmpty()) values.put(field.key(), String.join(",", selection));
+                                owner.rebuild();
+                                return;
+                            }
                             String selectedId = first(selectedIds);
                             int index = selectedId.startsWith("option.") ? parseInt(
                                     selectedId.substring("option.".length()),
@@ -301,9 +315,9 @@ final class DesktopConfigurationFieldView {
                         label,
                         help,
                         ChoiceStyle.COMBO_BOX,
-                        SelectionMode.SINGLE,
+                        multiple ? SelectionMode.MULTIPLE : SelectionMode.SINGLE,
                         options,
-                        selectedIndex < 0 ? List.of() : List.of("option." + selectedIndex),
+                        selectedOptions,
                         enabled
                 );
             }
@@ -324,7 +338,7 @@ final class DesktopConfigurationFieldView {
                     enabled
             );
         };
-        if (spec.type() != GuiConfigFieldType.ENUM) nextBindings.put(binding, field);
+        if (spec.type() != GuiConfigFieldType.ENUM && spec.type() != GuiConfigFieldType.MULTI_ENUM) nextBindings.put(binding, field);
         if (node instanceof DesktopUiNode.TextInput input && spec.sensitive()) {
             node = new DesktopUiNode.TextInput(input.id(), input.bindingId(), input.label(), input.help(),
                     InputKind.PASSWORD, "", input.columns(), input.rows(), input.enabled(), model.credentialRevisions.getOrDefault(field.key(), 0L));

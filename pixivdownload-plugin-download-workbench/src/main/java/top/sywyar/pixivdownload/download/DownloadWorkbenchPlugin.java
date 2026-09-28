@@ -260,7 +260,7 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
                         DownloadAcquisitionMode.QUICK),
                 true,
                 List.of("illust-extra"),
-                List.of(),
+                List.of("media-output"),
                 "batch"));
     }
 

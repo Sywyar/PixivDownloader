@@ -1267,6 +1267,9 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             case ENUM -> spec.enumValues().isEmpty() || spec.enumValues().contains(safe)
                     ? null
                     : message("gui.config.validation.valid-enum");
+            case MULTI_ENUM -> top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType.validMultiSelection(safe, spec.enumValues())
+                    ? null
+                    : message("gui.config.validation.valid-enum");
             case INT -> {
                 try {
                     Integer.parseInt(safe);
@@ -1744,7 +1747,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
     private static boolean shouldUseDefaultForBlankStoredValue(ConfigFieldSpec spec) {
         return switch (spec.type()) {
-            case BOOL, ENUM, INT, PORT -> true;
+            case BOOL, ENUM, MULTI_ENUM, INT, PORT -> true;
             case PATH_DIR, PATH_FILE, STRING, PASSWORD -> false;
         };
     }
@@ -1897,6 +1900,8 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             cb.addItemListener(e -> handleFieldChanged(key));
         } else if (control instanceof JComboBox<?> combo) {
             combo.addActionListener(e -> handleFieldChanged(key));
+        } else if (control instanceof JButton button) {
+            button.addPropertyChangeListener("text", event -> handleFieldChanged(key));
         } else if (control instanceof JSpinner sp) {
             sp.addChangeListener(e -> handleFieldChanged(key));
         } else if (control instanceof JTextField tf) {

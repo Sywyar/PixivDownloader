@@ -1059,7 +1059,7 @@ public class StatusPanel extends JPanel {
         void run() throws Exception;
     }
 
-    private void openWebPage(String path) {
+    public void openWebPage(String path) {
         runShellAction("gui-open-web-page",
                 () -> SwingHost.host().openExternalUri(new URI(getWebUrl(path))),
                 failure -> {

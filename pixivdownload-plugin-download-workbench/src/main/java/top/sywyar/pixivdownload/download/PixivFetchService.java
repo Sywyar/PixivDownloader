@@ -125,7 +125,7 @@ public class PixivFetchService {
 
     /**
      * 同 {@link #fetchArtworkMeta}，但<b>额外保留</b>原始 {@code /ajax/illust/{id}} body，
-     * 供 meta 桥在下载已抓 body 上归一化 sidecar + 列投影（零额外 Pixiv 请求）。
+     * 供 meta 桥在下载已抓 body 上归一化 数据库快照 + 列投影（零额外 Pixiv 请求）。
      */
     public ArtworkMetaCapture fetchArtworkMetaCapture(String artworkId, String cookie) throws IOException {
         JsonNode b = requireBody(proxyGet(
@@ -182,7 +182,7 @@ public class PixivFetchService {
 
     /**
      * 同 {@link #resolveImageUrls}，但<b>额外保留</b> {@code /pages} 的原始 body（逐页尺寸 / 各页原图 URL），
-     * 供 meta 桥在 sidecar 里记录逐页 {@code width}/{@code height}/{@code original}（零额外请求）。
+     * 供 meta 桥在 数据库快照 里记录逐页 {@code width}/{@code height}/{@code original}（零额外请求）。
      */
     public ArtworkPages resolveArtworkPages(String artworkId, String cookie) throws IOException {
         JsonNode body = requireBody(proxyGet(
@@ -691,13 +691,13 @@ public class PixivFetchService {
     }
 
     /**
-     * 插画发现结果 + 原始 illust body（用于在已抓 body 上归一化 meta sidecar，零额外请求）。
+     * 插画发现结果 + 原始 illust body（用于在已抓 body 上归一化 meta 数据库快照，零额外请求）。
      * {@code body} 是 {@code /ajax/illust/{id}} 的 body 节点。
      */
     public record ArtworkMetaCapture(ArtworkMeta meta, JsonNode body) {
     }
 
-    /** 单作品逐页原图 URL + 原始 {@code /pages} body（逐页尺寸），供 meta sidecar 记录逐页信息。 */
+    /** 单作品逐页原图 URL + 原始 {@code /pages} body（逐页尺寸），供 meta 数据库快照 记录逐页信息。 */
     public record ArtworkPages(List<String> urls, JsonNode body) {
     }
 

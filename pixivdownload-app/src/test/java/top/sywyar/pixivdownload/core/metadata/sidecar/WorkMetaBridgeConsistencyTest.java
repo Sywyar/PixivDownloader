@@ -46,12 +46,12 @@ import static org.mockito.Mockito.when;
 
 /**
  * meta 捕获端到端一致性守卫：钉住「捕获真写一遍后，<b>列投影读</b>（{@link WorkMetadataRepository}）与
- * <b>sidecar 落盘文档</b>来自同一份值」的持久化 round-trip，以及软删除下列投影过滤、文件保留的语义。
+ * <b>数据库快照</b>来自同一份值」的持久化往返，以及软删除下列投影过滤、记录清理的语义。
  *
- * <p>这是 sidecar↔列投影一致性的<b>持久化端到端</b>那一截（curator 内存级一致性已由
+ * <p>这是 快照↔列投影一致性的<b>持久化端到端</b>那一截（curator 内存级一致性已由
  * {@code WorkMetaCuratorTest} 钉），用真 in-memory SQLite + 真文件系统跑通两类媒体。
  */
-@DisplayName("meta 捕获一致性：sidecar 落盘、列投影与软删除")
+@DisplayName("元数据捕获一致性：数据库快照、列投影与软删除")
 class WorkMetaBridgeConsistencyTest {
 
     private static final String UPLOAD_ISO = "2026-06-06T21:27:00+00:00";
@@ -67,7 +67,7 @@ class WorkMetaBridgeConsistencyTest {
     private PixivDatabase pixivDatabase;
     private NovelMetadataRepository novelMetadataRepository;
 
-    // 写入侧（捕获 → 列投影 + sidecar）
+    // 写入侧（捕获 → 列投影 + 快照）
     private WorkMetaCaptureService captureService;
     // 读取侧列投影
     private WorkMetadataRepository metadataRepository;
@@ -94,7 +94,7 @@ class WorkMetaBridgeConsistencyTest {
                 TestI18nBeans.appMessages(), event -> {});
         initializer.initialize();
 
-        // 作品目录置于下载根下 → 路径列走符号根 {0}，编码/解码可复现，sidecar 落点 == 读点
+        // 作品目录置于下载根下 → 路径列走符号根 {0}，编码/解码可复现，快照 落点 == 读点
         DownloadConfig downloadConfig = new DownloadConfig();
         downloadConfig.setRootFolder(tempDir.toAbsolutePath().normalize().toString());
         PathPrefixCodec codec = new PathPrefixCodec(
@@ -106,14 +106,8 @@ class WorkMetaBridgeConsistencyTest {
         pixivDatabase.init();
         novelMetadataRepository = new NovelMetadataRepository(dataSource, codec);
 
-        StagedFileDeletion stagedFileDeletion = new StagedFileDeletion(TestI18nBeans.appMessages());
-        ArtworkFileLocator artworkFileLocator = new ArtworkFileLocator(
-                pixivDatabase, downloadConfig, TestI18nBeans.appMessages(), stagedFileDeletion);
-        WorkSidecarStore sidecarStore = new WorkSidecarStore(mapper);
-
         captureService = new WorkMetaCaptureService(
-                new WorkMetaCurator(mapper), sidecarStore, pixivDatabase, novelMetadataRepository,
-                artworkFileLocator, mapper);
+                new WorkMetaCurator(mapper), new top.sywyar.pixivdownload.core.metadata.WorkMetadataStore(dataSource, initializer), mapper);
 
         AuthorService authorService = mock(AuthorService.class);
         when(authorService.getAuthorNames(anyCollection())).thenReturn(java.util.Map.of());
@@ -138,9 +132,12 @@ class WorkMetaBridgeConsistencyTest {
         }
     }
 
-    private JsonNode readSidecar(Path dir, long id) {
+    private JsonNode readSnapshot(Path dir, long id) {
         try {
-            return mapper.readTree(dir.resolve(WorkSidecarFiles.fileName(id)).toFile());
+            return mapper.readTree(java.util.Objects.requireNonNullElse(new JdbcTemplate(dataSource).queryForObject(
+                    dir.getFileName().toString().startsWith("novel-")
+                            ? "SELECT metadata_json FROM novels WHERE novel_id = ?"
+                            : "SELECT metadata_json FROM artworks WHERE artwork_id = ?", String.class, id), "null"));
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -181,12 +178,12 @@ class WorkMetaBridgeConsistencyTest {
     }
 
     @Nested
-    @DisplayName("持久化 round-trip：列投影与落盘 sidecar 同源")
+    @DisplayName("持久化 round-trip：列投影与数据库快照 同源")
     class RoundTrip {
 
         @Test
-        @DisplayName("插画：捕获后 upload_time/is_original 列投影与 sidecar normalized 逐字段一致")
-        void artworkColumnAndSidecarAgree() {
+        @DisplayName("插画：捕获后 upload_time/is_original 列投影与 快照 normalized 逐字段一致")
+        void artworkColumnAndSnapshotAgree() {
             long id = 7L;
             pixivDatabase.insertArtwork(InsertArtworkArgument.builder()
                     .artworkId(id)
@@ -204,20 +201,20 @@ class WorkMetaBridgeConsistencyTest {
                     + "\"description\":\"d\"}"), null, "schedule");
 
             WorkMetadata fromColumn = metadataRepository.find(WorkType.ARTWORK, id).orElseThrow();
-            JsonNode fromSidecar = readSidecar(artworkDir(id), id);
+            JsonNode fromSnapshot = readSnapshot(artworkDir(id), id);
 
             assertThat(fromColumn.uploadTime())
-                    .isEqualTo(fromSidecar.path("normalized").path("uploadTime").longValue())
+                    .isEqualTo(fromSnapshot.path("normalized").path("uploadTime").longValue())
                     .isEqualTo(UPLOAD_MILLIS);
             assertThat(fromColumn.isOriginal())
-                    .isEqualTo(fromSidecar.path("normalized").path("isOriginal").booleanValue())
+                    .isEqualTo(fromSnapshot.path("normalized").path("isOriginal").booleanValue())
                     .isEqualTo(true);
-            assertThat(fromSidecar.path("source").asText()).isEqualTo("schedule");
+            assertThat(fromSnapshot.path("source").asText()).isEqualTo("schedule");
         }
 
         @Test
-        @DisplayName("小说：捕获后 upload_time 列投影与 sidecar normalized 一致；is_original 顶层与小说块同源")
-        void novelColumnAndSidecarAgree() {
+        @DisplayName("小说：捕获后 upload_time 列投影与 快照 normalized 一致；is_original 顶层与小说块同源")
+        void novelColumnAndSnapshotAgree() {
             long id = 42L;
             insertNovel(id, novelDir(id), true);
 
@@ -225,26 +222,26 @@ class WorkMetaBridgeConsistencyTest {
                     + "\"content\":\"很长的正文……\",\"description\":\"d\"}"), "schedule");
 
             WorkMetadata fromColumn = metadataRepository.find(WorkType.NOVEL, id).orElseThrow();
-            JsonNode fromSidecar = readSidecar(novelDir(id), id);
+            JsonNode fromSnapshot = readSnapshot(novelDir(id), id);
 
             assertThat(fromColumn.uploadTime())
-                    .isEqualTo(fromSidecar.path("normalized").path("uploadTime").longValue())
+                    .isEqualTo(fromSnapshot.path("normalized").path("uploadTime").longValue())
                     .isEqualTo(UPLOAD_MILLIS);
-            // 列 is_original 来自 insert（捕获不写小说 is_original 列），sidecar 来自捕获 body，两者同值
+            // 列 is_original 来自 insert（捕获不写小说 is_original 列），快照 来自捕获 body，两者同值
             assertThat(fromColumn.isOriginal())
-                    .isEqualTo(fromSidecar.path("normalized").path("isOriginal").booleanValue())
+                    .isEqualTo(fromSnapshot.path("normalized").path("isOriginal").booleanValue())
                     .isEqualTo(true);
-            assertThat(fromSidecar.path("source").asText()).isEqualTo("schedule");
+            assertThat(fromSnapshot.path("source").asText()).isEqualTo("schedule");
         }
     }
 
     @Nested
-    @DisplayName("软删除语义：sidecar 文件保留 + 查询层过滤")
+    @DisplayName("软删除语义：清理数据库快照 + 查询层过滤")
     class SoftDelete {
 
         @Test
-        @DisplayName("插画软删后：sidecar 文件保留，列投影 find 返回 empty")
-        void artworkSoftDeleteKeepsSidecarButFiltersColumnRead() {
+        @DisplayName("插画软删后：清理数据库快照，列投影 find 返回 empty")
+        void artworkSoftDeleteKeepsSnapshotButFiltersColumnRead() {
             long id = 8L;
             Path dir = artworkDir(id);
             pixivDatabase.insertArtwork(InsertArtworkArgument.builder()
@@ -260,30 +257,55 @@ class WorkMetaBridgeConsistencyTest {
                     .build());
             captureService.captureArtwork(id, json("{\"uploadDate\":\"" + UPLOAD_ISO + "\",\"isOriginal\":true}"),
                     null, "schedule");
-            assertThat(Files.exists(dir.resolve(id + ".meta.json"))).isTrue();
+            assertThat(readSnapshot(dir, id).isObject()).isTrue();
+            assertThat(Files.exists(dir.resolve(id + ".meta.json"))).isFalse();
 
             pixivDatabase.markArtworkDeleted(id);
 
-            // 软删除是软删除：sidecar 文件不被移除（仅硬删除链路才删文件）
-            assertThat(Files.exists(dir.resolve(id + ".meta.json"))).as("软删后 sidecar 文件保留").isTrue();
+            // 软删除同时清理数据库快照，避免重下载误用旧事实。
+            assertThat(readSnapshot(dir, id).isNull()).isTrue();
             // 查询层（列投影桥）按 deleted=1 过滤，软删行视为不存在
             assertThat(metadataRepository.find(WorkType.ARTWORK, id)).as("列投影读过滤软删").isEmpty();
         }
 
         @Test
-        @DisplayName("小说软删后：sidecar 文件保留，列投影 find 返回 empty")
-        void novelSoftDeleteKeepsSidecarButFiltersColumnRead() {
+        @DisplayName("小说软删后：清理数据库快照，列投影 find 返回 empty")
+        void novelSoftDeleteKeepsSnapshotButFiltersColumnRead() {
             long id = 43L;
             Path dir = novelDir(id);
             insertNovel(id, dir, true);
             captureService.captureNovel(id, json("{\"uploadDate\":\"" + UPLOAD_ISO + "\",\"isOriginal\":true}"),
                     "schedule");
-            assertThat(Files.exists(dir.resolve(id + ".meta.json"))).isTrue();
+            assertThat(readSnapshot(dir, id).isObject()).isTrue();
+            assertThat(Files.exists(dir.resolve(id + ".meta.json"))).isFalse();
 
             novelMetadataRepository.markNovelDeleted(id);
 
-            assertThat(Files.exists(dir.resolve(id + ".meta.json"))).as("软删后 sidecar 文件保留").isTrue();
+            assertThat(readSnapshot(dir, id).isNull()).isTrue();
             assertThat(metadataRepository.find(WorkType.NOVEL, id)).as("列投影读过滤软删").isEmpty();
         }
+    }
+
+    @Test
+    @DisplayName("软删硬删与重下载同步维护逐页媒体记录，新下载的媒体事实不被旧行清理误删")
+    void mediaRecordsFollowWorkLifecycle() throws Exception {
+        var store = new top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaStoreImpl(dataSource, null);
+        var original = new top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest("jpg", java.util.List.of("jpg"));
+        var converted = new top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest("jpg", java.util.List.of("webp"), false);
+        var row = InsertArtworkArgument.builder().artworkId(55L).title("作品").folder(artworkDir(55).toString())
+                .count(1).extensions("jpg").time(1000L).fileName(1L).build();
+        store.save(55L, 0, original);
+        store.save(55L, 3, original);
+        pixivDatabase.insertArtwork(row);
+        assertThat(store.find(55L, 3)).isEmpty();
+        assertThat(store.find(55L, 0)).contains(original);
+        pixivDatabase.markArtworkDeleted(55L);
+        assertThat(store.find(55L, 0)).isEmpty();
+        store.save(55L, 0, converted);
+        pixivDatabase.insertArtwork(row);
+        assertThat(store.find(55L, 0)).contains(converted);
+        pixivDatabase.deleteArtwork(55L);
+        assertThat(store.find(55L, 0)).isEmpty();
+        assertThat(pixivDatabase.getArtwork(55L)).isNull();
     }
 }

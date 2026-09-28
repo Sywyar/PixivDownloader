@@ -41,8 +41,13 @@ class ArtworkFileServiceTest {
 
         try (var runtime = mockStatic(RuntimeFiles.class)) {
             runtime.when(RuntimeFiles::galleryThumbnailDirectory).thenReturn(tempDir.resolve("thumbnails"));
-            var service = new ArtworkFileService(database, locator);
+            var service = new ArtworkFileService(database, locator,
+                    new top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaDecoder(
+                            mock(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.class), new com.fasterxml.jackson.databind.ObjectMapper()));
+            assertThat(service.existingThumbnail(119L, 0)).isNull();
+            assertThat(Files.exists(tempDir.resolve("thumbnails"))).isFalse();
             var result = service.getThumbnailFile(119L, 0);
+            assertThat(service.existingThumbnail(119L, 0)).isEqualTo(result);
             BufferedImage thumbnail = ImageIO.read(result.path().toFile());
             assertThat(thumbnail.getWidth()).isEqualTo(512);
             assertThat(thumbnail.getHeight()).isEqualTo(490);
@@ -54,6 +59,8 @@ class ArtworkFileServiceTest {
             var large = service.getThumbnailFile(119L, 0, Integer.MAX_VALUE);
             assertThat(ImageIO.read(large.path().toFile()).getWidth()).isEqualTo(1600);
             assertThat(small.path()).isNotEqualTo(large.path());
+            Files.setLastModifiedTime(result.path(), java.nio.file.attribute.FileTime.fromMillis(0));
+            assertThat(service.existingThumbnail(119L, 0)).isNull();
         }
         assertThat(Files.readAllBytes(source)).containsExactly(original);
     }

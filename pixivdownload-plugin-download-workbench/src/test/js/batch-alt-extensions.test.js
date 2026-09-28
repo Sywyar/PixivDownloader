@@ -123,6 +123,13 @@ const sandbox = {
 vm.createContext(sandbox);
 vm.runInContext(source, sandbox);
 
+const authRefreshes = [];
+sandbox.renderAuthButton = () => authRefreshes.push('auth');
+sandbox.updateButtonsState = () => authRefreshes.push('actions');
+sandbox.updateAuthButtons();
+sandbox.updateAdminPackButton();
+assert.deepStrictEqual(authRefreshes, ['auth', 'actions'], '贡献模块的会话失效应刷新新版登录与操作状态');
+
 const parsed = sandbox.altParseImportText([
     '123 | bare',
     'https://www.pixiv.net/artworks/456 | pixiv',

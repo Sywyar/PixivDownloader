@@ -145,6 +145,9 @@
     // 不在这里 bake bt() 结果：模型会落到 localStorage 与跨语言切换的渲染轮次，bake 后无法跟随语言变化。
     function scheduleStatusToQueue(it) {
         switch (it.status) {
+            case 'cancelled':
+                lastMessage = bt('queue.stage.cancelled', null);
+                break;
             case 'paused':
                 return {status: 'paused', rawStatus: 'paused'};
             case 'downloaded':
@@ -242,6 +245,9 @@
         let lastMessage;
         const rawStatus = q.status === 'failed' ? 'failed' : q.rawStatus;
         switch (rawStatus) {
+            case 'cancelled':
+                lastMessage = bt('queue.stage.cancelled', null);
+                break;
             case 'paused':
                 lastMessage = bt('path.overflow.waiting', null);
                 break;
@@ -697,11 +703,15 @@
         const model = scheduleQueueModels[id];
         if (!model || !data) return;
         const q = model.find(item => scheduleQueueItemKey(item) === queueKey);
-        if (!q || data.cancelled) return;
+        if (!q) return;
         // SSE 同步对齐 rawStatus，让 localizeScheduleQueueItem 在渲染时派生出正确语言的 lastMessage；
         // downloading 不对应后端 raw 状态，置为 'downloading' 与 q.status 同步，localizer 走默认分支
         // 让共享渲染器用 queueStatusText(status) 兜底显示「下载中」。
-        if (data.completed) {
+        if (data.cancelled) {
+            q.status = 'paused';
+            q.rawStatus = 'cancelled';
+            q.statusMessageKey = 'queue.stage.cancelled';
+        } else if (data.completed && !data.failed) {
             q.status = 'completed';
             q.rawStatus = 'downloaded';
         } else if (data.failed) {
@@ -712,7 +722,7 @@
             q.rawStatus = 'downloading';
             if (data.totalImages !== undefined) q.totalImages = data.totalImages;
             if (data.downloadedCount !== undefined) q.downloadedCount = data.downloadedCount;
-            q.imageProgress = data.imageProgress || q.imageProgress || null;
+            q.imageProgress = data.imageProgress || null;
             q.ugoiraProgress = mergeUgoiraProgress(q.ugoiraProgress, data.ugoiraProgress);
         }
         // 只 patch 模型 + 标记脏行：不在每个事件里整块重建 DOM。合批后只替换变化的单行，
