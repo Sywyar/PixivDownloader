@@ -53,6 +53,9 @@ public class LocalWorkAssetService implements WorkAssetService {
     private final DownloadConfig downloadConfig;
     private final AppMessages messages;
     private final StagedFileDeletion stagedFileDeletion;
+    private final top.sywyar.pixivdownload.core.asset.ExternalWorkFiles externalFiles;
+
+    @Override public boolean isReadOnly(WorkType type, long id) { return externalFiles.contains(type, id); }
 
     @Override
     public Optional<LocalWorkAsset> findAsset(WorkType workType, long workId) {
@@ -94,6 +97,7 @@ public class LocalWorkAssetService implements WorkAssetService {
 
     @Override
     public boolean deleteLocalFiles(WorkType workType, long workId) {
+        if (isReadOnly(workType, workId)) return true;
         return switch (workType) {
             case ARTWORK -> artworkFileLocator.deleteArtworkFiles(pixivDatabase.getArtwork(workId));
             case NOVEL -> deleteNovelFiles(workId);
@@ -144,6 +148,15 @@ public class LocalWorkAssetService implements WorkAssetService {
     // ── 小说侧 ─────────────────────────────────────────────────────────────────
 
     private Optional<LocalWorkAsset> findNovelAsset(long workId) {
+        if (isReadOnly(WorkType.NOVEL, workId)) {
+            List<WorkAssetFile> result = new ArrayList<>();
+            List<Path> paths = externalFiles.files(WorkType.NOVEL, workId);
+            for (int i = 0; i < paths.size(); i++) {
+                Path file = paths.get(i);
+                if (file != null) result.add(new WorkAssetFile(i, file, extensionOf(file.getFileName().toString())));
+            }
+            return Optional.of(new LocalWorkAsset(WorkType.NOVEL, workId, null, paths.size(), result));
+        }
         NovelMetadataRow novel = novelMetadataRepository.getNovel(workId);
         if (novel == null) {
             return Optional.empty();
@@ -179,6 +192,7 @@ public class LocalWorkAssetService implements WorkAssetService {
 
     /** 小说缩略图 = 封面文件 {@code {存储基名}_thumb.{coverExt}}；page 参数无意义，返回页号恒为 0。 */
     private Optional<WorkAssetFile> novelCover(long workId) {
+        if (isReadOnly(WorkType.NOVEL, workId)) return Optional.empty();
         NovelMetadataRow novel = novelMetadataRepository.getNovel(workId);
         if (novel == null || !StringUtils.hasText(novel.coverExt()) || !StringUtils.hasText(novel.folder())) {
             return Optional.empty();

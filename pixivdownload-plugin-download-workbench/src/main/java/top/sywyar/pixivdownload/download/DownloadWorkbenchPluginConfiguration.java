@@ -211,7 +211,8 @@ public class DownloadWorkbenchPluginConfiguration {
                                                            ArtworkSeriesObserver artworkSeriesObserver,
                                                            ArtworkHashIndexMaintenance artworkHashIndexMaintenance,
                                                            WorkMetadataCapture workMetadataCapture,
-                                                           @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
+                                                           @Qualifier("downloadWorkbenchMessages") MessageResolver messages,
+                                                           top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadLifecycle downloadLifecycle) {
         return new ArtworkDownloadExecutor(downloadSettings, eventPublisher,
                 artworkDownloadHistory, artworkDownloadLookup, artworkDownloadStatistics,
                 visitorDownloadQuotaService,
@@ -220,7 +221,7 @@ public class DownloadWorkbenchPluginConfiguration {
                 artworkAuthorLookup, downloadPathGuard,
                 collectionDownloadRootResolver, workCollectionMembership,
                 artworkSeriesObserver, artworkHashIndexMaintenance, workMetadataCapture,
-                messages);
+                messages, downloadLifecycle);
     }
 
     @Bean
@@ -399,8 +400,9 @@ public class DownloadWorkbenchPluginConfiguration {
 
     @Bean
     public ScriptController scriptController(UserscriptCatalog userscriptCatalog,
-                                             @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
-        return new ScriptController(userscriptCatalog, messages);
+                                             @Qualifier("downloadWorkbenchMessages") MessageResolver messages,
+                                             top.sywyar.pixivdownload.i18n.NamespaceMessageResolver namespaceMessages) {
+        return new ScriptController(userscriptCatalog, messages, namespaceMessages);
     }
 
     @Bean

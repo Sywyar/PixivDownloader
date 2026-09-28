@@ -90,6 +90,7 @@ public final class MediaMaintenanceService implements AutoCloseable {
                     scanned++;
                     int before = files.size();
                     long id = work.workId();
+                    if (assets.isReadOnly(WorkType.ARTWORK, id)) { skipped++; continue; }
                     var asset = assets.findAsset(WorkType.ARTWORK, id);
                     if (asset.isPresent() && !asset.get().files().isEmpty()) {
                         for (WorkAssetFile file : asset.get().files()) {
@@ -198,7 +199,8 @@ public final class MediaMaintenanceService implements AutoCloseable {
                 try {
                     requirePlain(file.path());
                     var current = assets.rawFile(WorkType.ARTWORK, candidate.artworkId(), file.page());
-                    if (metadata.find(WorkType.ARTWORK, candidate.artworkId()).isEmpty() || current.isEmpty()
+                    if (assets.isReadOnly(WorkType.ARTWORK, candidate.artworkId())
+                            || metadata.find(WorkType.ARTWORK, candidate.artworkId()).isEmpty() || current.isEmpty()
                             || !current.get().path().equals(file.path()) || Files.size(file.path()) != candidate.bytes()
                             || Files.getLastModifiedTime(file.path()).toMillis() != candidate.modified()) {
                         throw new IOException("Source changed after preview");

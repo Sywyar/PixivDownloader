@@ -89,6 +89,8 @@ public class ScriptRegistry implements UserscriptCatalog {
                 String content = readUtf8(resource);
                 UserscriptArtifact artifact =
                         parseScript(registered.contribution().id(), fileName, content);
+                artifact = new UserscriptArtifact(artifact.id(), artifact.displayName(), artifact.description(),
+                        artifact.version(), artifact.content(), registered.contribution().i18nNamespace());
                 String existingFileName = fileNameById.putIfAbsent(artifact.id(), fileName);
                 if (existingFileName != null) {
                     throw new IllegalStateException("duplicate userscript id: " + artifact.id()

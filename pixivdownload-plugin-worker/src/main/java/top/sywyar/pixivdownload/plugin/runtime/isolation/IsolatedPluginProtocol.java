@@ -156,6 +156,9 @@ final class IsolatedPluginProtocol {
 
         Snapshot {
             routes = List.copyOf(routes);
+            if (routes.stream().anyMatch(route -> !route.trustedWriteOrigins().isEmpty())) {
+                throw new IllegalArgumentException("isolated static plugins cannot contribute script writes");
+            }
             staticResources = List.copyOf(staticResources);
             i18n = List.copyOf(i18n);
             navigation = List.copyOf(navigation);

@@ -43,6 +43,7 @@ public class CsrfProtectionFilter extends OncePerRequestFilter {
 
     private final AppLocaleResolver localeResolver;
     private final AppMessages messages;
+    private final top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry routes;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -70,8 +71,8 @@ public class CsrfProtectionFilter extends OncePerRequestFilter {
             return;
         }
 
-        if (isTrustedUserscriptSource(request)
-                && isUserscriptWriteEndpoint(request)
+        if ((isTrustedUserscriptSource(request) && isUserscriptWriteEndpoint(request)
+                || isDeclaredScriptWrite(request))
                 && !hasAmbientCredential(request)) {
             filterChain.doFilter(request, response);
             return;
@@ -88,6 +89,20 @@ public class CsrfProtectionFilter extends OncePerRequestFilter {
                 request.getMethod(), request.getRequestURI(),
                 request.getHeader(HttpHeaders.ORIGIN), request.getHeader(HttpHeaders.REFERER));
         sendJsonError(request, response);
+    }
+
+    private boolean isDeclaredScriptWrite(HttpServletRequest request) {
+        if (!"POST".equalsIgnoreCase(request.getMethod())) return false;
+        String source = request.getHeader(HttpHeaders.ORIGIN);
+        if (!StringUtils.hasText(source)) source = request.getHeader(HttpHeaders.REFERER);
+        try {
+            URI uri = URI.create(source == null ? "" : source);
+            if (uri.getUserInfo() != null || uri.getHost() == null || uri.getPort() != -1) return false;
+            String origin = uri.getScheme() + "://" + uri.getHost();
+            return SafeRequestPath.resolve(request).flatMap(path -> routes.resolve(path,
+                    top.sywyar.pixivdownload.plugin.api.web.HttpMethod.POST))
+                    .map(route -> route.route().trustedWriteOrigins().contains(origin)).orElse(false);
+        } catch (IllegalArgumentException invalid) { return false; }
     }
 
     static boolean requiresSameOriginCheck(HttpServletRequest request) {

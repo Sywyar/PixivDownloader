@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
 import top.sywyar.pixivdownload.plugin.api.userscript.UserscriptArtifact;
 import top.sywyar.pixivdownload.plugin.api.userscript.UserscriptCatalog;
 
@@ -25,6 +26,7 @@ public class ScriptController {
 
     private final UserscriptCatalog userscriptCatalog;
     private final MessageResolver messages;
+    private final NamespaceMessageResolver namespaceMessages;
 
     /**
      * 返回可安装的脚本列表及当前请求的 host（用于前端提示 @connect 将指向的地址）。
@@ -35,8 +37,8 @@ public class ScriptController {
         List<ScriptListResponse.ScriptItem> items = userscriptCatalog.scripts().stream()
                 .map(s -> new ScriptListResponse.ScriptItem(
                         s.id(),
-                        messages.getOrDefault(displayNameCode(s.id()), s.displayName()),
-                        messages.getOrDefault(descriptionCode(s.id()), s.description()),
+                        localized(s, displayNameCode(s.id()), s.displayName()),
+                        localized(s, descriptionCode(s.id()), s.description()),
                         s.version()
                 ))
                 .toList();
@@ -143,6 +145,14 @@ public class ScriptController {
 
     private static String displayNameCode(String id) {
         return "script.meta." + id + ".name";
+    }
+
+    private String localized(UserscriptArtifact script, String key, String fallback) {
+        if (!script.i18nNamespace().isEmpty()) {
+            return namespaceMessages.resolve(script.i18nNamespace(), messages.currentLocale(), key)
+                    .orElse(fallback);
+        }
+        return messages.getOrDefault(key, fallback);
     }
 
     private static String descriptionCode(String id) {

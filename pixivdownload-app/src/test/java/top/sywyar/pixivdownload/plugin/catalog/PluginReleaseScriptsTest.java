@@ -328,7 +328,7 @@ class PluginReleaseScriptsTest {
     void distributionSeparatesDefaultInstalledAndValidationFixtures() throws Exception {
         assertThat(officialPluginIds("Get-OfficialDefaultInstalledPlugins"))
                 .containsExactly(
-                        "download-workbench", "gui-compose", "gui-swing", "gallery-tools", "posthog", "gallery",
+                        "download-workbench", "external-download-import", "gui-compose", "gui-swing", "gallery-tools", "posthog", "gallery",
                         "novel", "notification", "multi-mode-decision-survey", "push", "mail", "tts", "ai");
         assertThat(runPowerShell(
                 "$ErrorActionPreference='Stop'; "

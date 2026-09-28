@@ -47,10 +47,11 @@ class CsrfProtectionFilterTest {
     private FilterChain filterChain;
 
     private CsrfProtectionFilter filter;
+    private final top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry routes = org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry.class);
 
     @BeforeEach
     void setUp() {
-        filter = new CsrfProtectionFilter(localeResolver, messages);
+        filter = new CsrfProtectionFilter(localeResolver, messages, routes);
         lenient().when(localeResolver.resolveLocale(any())).thenReturn(Locale.CHINA);
         lenient().when(messages.getOrDefault(nullable(Locale.class), anyString(), anyString()))
                 .thenAnswer(inv -> inv.getArgument(2));
@@ -361,6 +362,27 @@ class CsrfProtectionFilterTest {
         filter.doFilterInternal(request, response, filterChain);
 
         verify(filterChain).doFilter(request, response);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"https://www.pixiv.net,false,200", "https://evil.example,false,403", "https://www.pixiv.net,true,403"})
+    @DisplayName("脚本来源只对当前精确声明且无环境凭据的请求放行")
+    void declaredScriptOrigin(String origin, boolean cookie, int status) throws Exception {
+        String path = "/api/test-collector";
+        var route = new top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution(path,
+                top.sywyar.pixivdownload.plugin.api.web.AccessPolicy.LOCAL,
+                java.util.Set.of(top.sywyar.pixivdownload.plugin.api.web.HttpMethod.POST), false,
+                java.util.Set.of("https://www.pixiv.net"));
+        org.mockito.Mockito.when(routes.resolve(path, top.sywyar.pixivdownload.plugin.api.web.HttpMethod.POST))
+                .thenReturn(java.util.Optional.of(new top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry.RegisteredRoute("test", route, null)));
+        var request = request("POST", path);
+        request.addHeader("Origin", origin);
+        if (cookie) request.setCookies(new Cookie("pixiv_session", "ambient"));
+        var response = new MockHttpServletResponse();
+        filter.doFilterInternal(request, response, filterChain);
+        assertThat(response.getStatus()).isEqualTo(status);
+        if (status == 200) verify(filterChain).doFilter(request, response);
+        else verify(filterChain, never()).doFilter(request, response);
     }
 
     private static MockHttpServletRequest request(String method, String path) {

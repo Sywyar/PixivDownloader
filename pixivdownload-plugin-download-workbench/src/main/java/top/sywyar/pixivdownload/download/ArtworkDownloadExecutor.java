@@ -23,6 +23,9 @@ import top.sywyar.pixivdownload.core.download.InteractiveDownloadExecutionLane;
 import top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
+import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadAttempt;
+import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadEvent;
+import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadLifecycle;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopControlCenterAvailability;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardCardContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardSnapshot;
@@ -101,6 +104,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
     private final ArtworkHashIndexMaintenance artworkHashIndexMaintenance;
     private final WorkMetadataCapture workMetadataCapture;
     private final MessageResolver messages;
+    private final DownloadLifecycle downloadLifecycle;
 
     // 存储下载状态
     private final ConcurrentHashMap<String, DownloadStatus> downloadStatusMap = new ConcurrentHashMap<>();
@@ -127,7 +131,8 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                                    ArtworkSeriesObserver artworkSeriesObserver,
                                    ArtworkHashIndexMaintenance artworkHashIndexMaintenance,
                                    WorkMetadataCapture workMetadataCapture,
-                                   MessageResolver messages) {
+                                   MessageResolver messages,
+                                   DownloadLifecycle downloadLifecycle) {
         this.downloadSettings = downloadSettings;
         this.eventPublisher = eventPublisher;
         this.artworkDownloadHistory = artworkDownloadHistory;
@@ -149,21 +154,27 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
         this.artworkHashIndexMaintenance = artworkHashIndexMaintenance;
         this.workMetadataCapture = workMetadataCapture;
         this.messages = messages;
+        this.downloadLifecycle = downloadLifecycle;
     }
 
     @Override
     public void downloadImages(Long artworkId, String title, List<String> imageUrls,
                                String referer, DownloadRequest.Other other, String cookie,
                                String userUuid) {
+        DownloadAttempt attempt = admit(artworkId);
         FileNamePlan plan = buildFileNamePlan(artworkId, title, imageUrls.size(),
                 other == null ? new DownloadRequest.Other() : other);
         QueueTaskTracker.Task task = taskTracker.prepareQueued(userUuid);
-        task.bind(() -> downloadImagesTracked(task, artworkId, title, imageUrls,
-                referer, other, cookie, userUuid, plan));
         try {
+            downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.ACCEPTED));
+            task.bind(() -> downloadImagesTracked(task, artworkId, title, imageUrls,
+                    referer, other, cookie, userUuid, plan, attempt));
             interactiveDownloadExecutionLane.execute(task);
         } catch (RuntimeException | Error failure) {
             task.rejectSubmission();
+            if (!(failure instanceof VirtualMachineError) && !(failure instanceof ThreadDeath)) {
+                downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.FAILED));
+            }
             throw failure;
         }
     }
@@ -172,11 +183,13 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
     public boolean downloadImagesBlocking(Long artworkId, String title, List<String> imageUrls,
                                           String referer, DownloadRequest.Other other, String cookie,
                                           String userUuid) {
+        DownloadAttempt attempt = admit(artworkId);
         FileNamePlan plan = buildFileNamePlan(artworkId, title, imageUrls.size(),
                 other == null ? new DownloadRequest.Other() : other);
         QueueTaskTracker.Task task = taskTracker.beginRunning(userUuid);
         try {
-            return downloadImagesTracked(task, artworkId, title, imageUrls, referer, other, cookie, userUuid, plan);
+            downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.ACCEPTED));
+            return downloadImagesTracked(task, artworkId, title, imageUrls, referer, other, cookie, userUuid, plan, attempt);
         } finally {
             task.completeRunning();
         }
@@ -185,8 +198,9 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
     private boolean downloadImagesTracked(QueueTaskTracker.Task task,
                                           Long artworkId, String title, List<String> imageUrls,
                                           String referer, DownloadRequest.Other other, String cookie,
-                                          String userUuid, FileNamePlan fileNamePlan) {
+                                          String userUuid, FileNamePlan fileNamePlan, DownloadAttempt attempt) {
         boolean succeeded = false;
+        boolean recorded = false;
         if (other == null) {
             other = new DownloadRequest.Other();
         }
@@ -195,6 +209,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
         String statusKey = statusKey(artworkId, userUuid);
         task.onCancellation(() -> cancelTrackedStatus(statusKey, status));
         if (!task.publishIfActive(() -> downloadStatusMap.put(statusKey, status))) {
+            downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.CANCELLED));
             return false;
         }
 
@@ -203,6 +218,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
 
         try {
             ensureNotCancelled(status);
+            downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.STARTED));
             other.setFileNames(fileNamePlan.baseNames());
             Path downloadRoot = fileNamePlan.root();
             Path downloadPath = fileNamePlan.directory();
@@ -313,6 +329,8 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                     successCount.get(), other.getXRestrict(), other.isAi(), other.getAuthorId(), other.getDescription(), other.getTags(),
                     fileNamePlan.template(), fileNamePlan.recordTime(), fileNamePlan.normalizedAuthorName(),
                     other.getSeriesId(), other.getSeriesOrder(), fileNamePlan.maxLength());
+            recorded = true;
+            downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.COMPLETED));
 
             recordAuthorInfo(artworkId, other, cookie);
             recordSeriesInfo(artworkId, other, cookie);
@@ -376,6 +394,10 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
             status.setEndTime(java.time.LocalDateTime.now());
             eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
         } finally {
+            if (!recorded) {
+                downloadLifecycle.publish(new DownloadEvent(attempt, status.isCancelled()
+                        ? DownloadEvent.Phase.CANCELLED : DownloadEvent.Phase.FAILED));
+            }
             if (!succeeded && status.isCompleted() && status.isFailed() && !status.isCancelled()) {
                 recordDownloadFailureStatistics();
             }
@@ -419,6 +441,16 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                 }
             }
         }
+    }
+
+    private DownloadAttempt admit(long artworkId) {
+        DownloadAttempt attempt = new DownloadAttempt(UUID.randomUUID(), "artwork", Long.toString(artworkId));
+        try {
+            downloadLifecycle.checkAdmission(attempt);
+        } catch (top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadAdmissionRejectedException rejected) {
+            throw LocalizedException.badRequest("download.admission.rejected", "Download admission rejected");
+        }
+        return attempt;
     }
 
     private Path resolveEffectiveDownloadRoot(DownloadRequest.Other other) {

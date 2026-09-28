@@ -25,6 +25,33 @@ class MediaMaintenanceServiceTest {
     @TempDir Path directory;
 
     @Test
+    @DisplayName("外部只读作品不参与媒体写入，预览后所有权变化也拒绝处理")
+    void externalFilesRemainReadOnly() throws Exception {
+        Path source = directory.resolve("42_p0.jpg");
+        Files.writeString(source, "original");
+        var assets = mock(WorkAssetService.class);
+        var metadata = mock(WorkMetadataRepository.class);
+        var images = mock(ImageOutputService.class);
+        var animations = mock(top.sywyar.pixivdownload.download.UgoiraService.class);
+        var file = new WorkAssetFile(0, source, "jpg");
+        when(metadata.find(WorkType.ARTWORK, 42L)).thenReturn(Optional.of(mock(WorkMetadata.class)));
+        when(assets.findAsset(WorkType.ARTWORK, 42L)).thenReturn(Optional.of(new LocalWorkAsset(WorkType.ARTWORK, 42, directory, 1, List.of(file))));
+        when(assets.rawFile(WorkType.ARTWORK, 42L, 0)).thenReturn(Optional.of(file));
+        try (var service = new MediaMaintenanceService(assets, metadata, query(), images, animations, new MemoryMediaStore())) {
+            when(assets.isReadOnly(WorkType.ARTWORK, 42L)).thenReturn(true);
+            assertTrue(service.preview(new MediaMaintenanceService.Request("png", null, false)).files().isEmpty());
+            when(assets.isReadOnly(WorkType.ARTWORK, 42L)).thenReturn(false);
+            var preview = service.preview(new MediaMaintenanceService.Request("png", null, false));
+            when(assets.isReadOnly(WorkType.ARTWORK, 42L)).thenReturn(true);
+            service.start(preview.token());
+            awaitFinished(service);
+            assertEquals(1, service.status().failed());
+            verifyNoInteractions(images, animations);
+            assertEquals("original", Files.readString(source));
+        }
+    }
+
+    @Test
     @DisplayName("只预览不处理，开始消费一次凭据，取消后保留输入")
     void explicitStartAndCancellation() throws Exception {
         Path source = directory.resolve("42_p0.jpg");

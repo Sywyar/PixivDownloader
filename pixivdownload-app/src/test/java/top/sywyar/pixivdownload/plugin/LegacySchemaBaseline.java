@@ -22,6 +22,15 @@ final class LegacySchemaBaseline {
     static DatabaseSchema spec() {
         LinkedHashMap<String, TableSpec> tables = new LinkedHashMap<>();
 
+        tables.put("external_work_files", new TableSpec("external_work_files", List.of(
+                column("reference_id", "TEXT", true, null, 1),
+                column("work_type", "TEXT", true, null, 0),
+                column("work_id", "INTEGER", true, null, 0),
+                column("page", "INTEGER", true, null, 0),
+                column("root_path", "TEXT", true, null, 0),
+                column("file_path", "TEXT", true, null, 0),
+                column("record_time", "INTEGER", true, null, 0)
+        ), List.of(uniqueConstraint("work_type", "work_id", "page"))));
         tables.put("path_prefixes", new TableSpec(
                 "path_prefixes",
                 List.of(

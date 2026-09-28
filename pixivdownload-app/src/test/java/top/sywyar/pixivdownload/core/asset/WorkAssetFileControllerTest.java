@@ -56,6 +56,19 @@ class WorkAssetFileControllerTest {
         Files.write(webpFile, new byte[]{1, 2, 3, 4});
     }
 
+    @Test
+    @DisplayName("ZIP 画廊图片使用首帧，原文件端点仍返回归档字节")
+    void previewsArchiveWithoutChangingOriginalDownload() throws Exception {
+        Path zip = tempDir.resolve("animation.zip");
+        Files.write(zip, new byte[]{80,75,3,4});
+        when(workAssetService.rawFile(WorkType.ARTWORK, 12345L, 0)).thenReturn(Optional.of(new WorkAssetFile(0, zip, "zip")));
+        when(workAssetService.thumbnail(WorkType.ARTWORK, 12345L, 0)).thenReturn(Optional.of(new WorkAssetFile(0, pngFile, "png")));
+        mockMvc.perform(get("/api/downloaded/image/12345/0")).andExpect(status().isOk())
+                .andExpect(content().contentType("image/png")).andExpect(content().bytes(Files.readAllBytes(pngFile)));
+        mockMvc.perform(get("/api/downloaded/rawfile/12345/0")).andExpect(status().isOk())
+                .andExpect(content().contentType("application/zip")).andExpect(content().bytes(Files.readAllBytes(zip)));
+    }
+
     // ========== GET /api/downloaded/thumbnail（二进制缩略图） ==========
 
     @Test

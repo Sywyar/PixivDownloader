@@ -59,6 +59,8 @@ const EXPLICIT_ALLOWED_FILES = {
         'Inno Setup 安装器的语言集（en / zh-CN）受安装器自带语言文件限制，与应用 UI 语言目录相互独立。',
     'scripts/userscript-snippets/pixiv-userscript-i18n.js':
         'userscript 是运行在 pixiv.net 的独立运行时，不依赖应用后端与 catalog，语言集由 sync-shared-snippets.ps1 原样嵌入生成的 .user.js。',
+    'pixivdownload-plugin-external-download-import/src/main/resources/userscripts/external-download-observer.user.js':
+        '采集 userscript 在 pixiv.net 独立运行，菜单翻译随脚本交付；本机自动导入桥、脚本列表和配置使用插件 i18n contribution。',
     'pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch-alt/alt-extensions.js':
         'AI 翻译目标语言的默认值（novelTranslateLang 设置缺省时的产品默认），是数据默认值而非语言清单/菜单/切换；batch 与 alt 两页默认语义本就不同，统一迁移留待页面合并。',
 };

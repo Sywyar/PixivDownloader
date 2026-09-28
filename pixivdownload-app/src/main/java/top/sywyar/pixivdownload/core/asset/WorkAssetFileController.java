@@ -51,17 +51,24 @@ public class WorkAssetFileController {
         return fileResponse(thumbnail, true);
     }
 
-    @GetMapping({
-            "/downloaded/rawfile/{artworkId}/{page}",
-            "/downloaded/image/{artworkId}/{page}"
-    })
+    @GetMapping("/downloaded/image/{artworkId}/{page}")
     public ResponseEntity<Resource> getImage(
             @PathVariable Long artworkId,
             @PathVariable int page,
             HttpServletRequest httpRequest) throws IOException {
         guestAccessGuard.requireVisible(httpRequest, artworkId);
         WorkAssetFile raw = workAssetService.rawFile(WorkType.ARTWORK, artworkId, page).orElse(null);
+        if (raw != null && "zip".equalsIgnoreCase(raw.extension())) {
+            return fileResponse(workAssetService.thumbnail(WorkType.ARTWORK, artworkId, page).orElse(null), true);
+        }
         return fileResponse(raw, false);
+    }
+
+    @GetMapping("/downloaded/rawfile/{artworkId}/{page}")
+    public ResponseEntity<Resource> getRawFile(@PathVariable Long artworkId, @PathVariable int page,
+                                               HttpServletRequest httpRequest) throws IOException {
+        guestAccessGuard.requireVisible(httpRequest, artworkId);
+        return fileResponse(workAssetService.rawFile(WorkType.ARTWORK, artworkId, page).orElse(null), false);
     }
 
     private ResponseEntity<Resource> fileResponse(WorkAssetFile file, boolean cacheable) throws IOException {
@@ -85,6 +92,8 @@ public class WorkAssetFileController {
             case "gif" -> MediaType.IMAGE_GIF;
             case "webp" -> MediaType.parseMediaType("image/webp");
             case "apng" -> MediaType.parseMediaType("image/apng");
+            case "webm" -> MediaType.parseMediaType("video/webm");
+            case "zip" -> MediaType.parseMediaType("application/zip");
             case "mp4" -> MediaType.parseMediaType("video/mp4");
             default -> MediaType.IMAGE_PNG;
         };

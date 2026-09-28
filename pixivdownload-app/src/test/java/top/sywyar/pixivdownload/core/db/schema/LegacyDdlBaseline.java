@@ -15,6 +15,7 @@ final class LegacyDdlBaseline {
     private LegacyDdlBaseline() {}
 
     static final List<String> STATEMENTS = List.of(
+            "CREATE TABLE IF NOT EXISTS external_work_files (reference_id TEXT NOT NULL PRIMARY KEY, work_type TEXT NOT NULL, work_id INTEGER NOT NULL, page INTEGER NOT NULL, root_path TEXT NOT NULL, file_path TEXT NOT NULL, record_time INTEGER NOT NULL, UNIQUE(work_type, work_id, page))",
             // ── PathPrefixMapper ───────────────────────────────────────────────
             "CREATE TABLE IF NOT EXISTS path_prefixes ("
                     + "id INTEGER PRIMARY KEY,"
