@@ -4,9 +4,62 @@
 
 The extracted root is a standalone Maven project with sources in `src/`. Its SDK identity is `@SDK_RELEASE_ID@`, built from main-repository commit `@SOURCE_SHA@`. Open `docs/javadocs/index.html` for the API reference.
 
-New SDK prereleases use `alpha.N`, `beta.N`, or `rc.N`, with a positive sequence and no leading zeros. The tools also read historical compact suffixes. Keep the selected Release's exact spelling in Maven / Gradle / sbt dependencies and runtime manifests; do not rename `rcN` to `rc.N`. Plugins maintain their own versions, while `plugin.requires` continues to declare the SDK `major.minor` compatibility line.
+New SDK prereleases use `alpha.N`, `beta.N`, or `rc.N`, with a positive sequence and no leading zeros. The tools also read historical compact suffixes. Keep the selected Release's exact spelling in Maven / Gradle / sbt dependencies and runtime manifests; do not rename `rcN` to `rc.N`. Plugins maintain their own versions. Set `plugin.requires` to `=FULL_SDK_VERSION` for a prerelease SDK, or `MAJOR.MINOR` for a stable SDK.
+
+An exact requirement is written as `plugin.requires==7.2.3-rc.4` in a properties file (example version). The first equals sign separates the property name and value; the second requests an exact contract. Compatibility is not promised across RCs or between an RC and a stable release. Older hosts reject this syntax before executing the plugin. A historical package declaring only `1.0` does not identify its build-time RC; its author must verify it and publish a new package. Nightly plugins remain bound to their matching host build.
 
 The package includes `.git/` with an initial commit on `main` containing all delivered files. Use `git status` and `git diff` to review your changes. Configure your Git name and email before committing your work, and add a remote when you need one. The `.gitignore` excludes build output, local IDE settings, and `.dev/` runtime data.
+
+## Upgrade the SDK
+
+1. Keep your existing project, sources and `.dev/` data. Extract the target SDK development package into a separate directory. Review its release notes and Javadoc for removed or changed APIs before updating your code.
+2. Update both the Maven / Gradle / sbt SDK dependency and `plugin.requires` in your project. Use an exact requirement for a prerelease; changing only the compile dependency is insufficient.
+3. Compare the two projects. Update the target package's tools, contract resources and pinned runtime manifests together, and merge build and IDE configuration changes while preserving your plugin IDs, sources and data. Do not overwrite the project or replace only `sdk-tools.jar`.
+4. Run your project's `clean verify`, then check loading, startup, absent capabilities, stopping and restart against the target runtime. Asynchronous plugins must also stop accepting work, drain existing tasks and release resources. A successful build does not prove those lifecycle behaviors.
+5. Build and submit a candidate with a new plugin version. Published SDK and plugin attachments are immutable. Unsupported combinations must fail before plugin execution. Forward data migration does not imply downgrade support; preserve the plugin's format constraints.
+
+## Data migration and startup failures
+
+Access a plugin's private database through its owner-bound `PluginDataSource`. The plugin owns format versions and migrations. Put related DDL, data changes and the version marker in one JDBC transaction, and commit only on success. Roll back and stop the affected capability from starting if the format is unknown or migration fails. Do not delete and recreate the database or treat an error as empty data. The host's installation transaction protects plugin artifacts; it does not roll back business data. Reinstalling an older package cannot undo a committed data migration.
+
+| Data | Maintenance contract |
+| --- | --- |
+| Private database | Use only your owner's `PluginDataSource`. Make migration retryable and commit the version marker with the transaction. Do not close the host-owned data source. |
+| Configuration, state and files | Resolve paths through the owner-bound `RuntimePathProvider`. Write a temporary file in the same directory, verify it, then replace the destination. Read back the result before removing the old source; preserve originals on conflict. |
+| Credentials | Use host-managed credential contributions and storage for your owner. Keep secrets out of ordinary configuration, logs, task definitions and checkpoints. |
+| Schedule definitions, pending work and checkpoints | Migrate only schemas and versions owned by your plugin. Preserve unknown input and report failure without advancing completed progress. |
+| Shared host data | Use public semantic ports. Private migrations must not change host tables or another plugin's tables. |
+
+Test with populated old-format data, inject a migration failure, then start twice. Verify that records, credentials and checkpoints survive and migration is not duplicated. Also check that unsupported formats prevent the feature from starting while management still reports diagnostics. Installation, pending restart and a started feature are separate states. Record the plugin version, host SDK, execution mode and safe error codes when troubleshooting. Removing a plugin preserves its data by default.
+
+## Verify the lifecycle
+
+In the standalone project, run `mvnw.cmd clean verify` on Windows or `./mvnw clean verify` elsewhere, then `verify exec:exec@sdk-run` with the same wrapper to start the matching host. Sign in as administrator and record the package version, generation, policy, and diagnostics in Plugin Management. Use `exec:exec@sdk-stop` to stop the development instance.
+
+| Action | Expected result |
+| --- | --- |
+| Install and start | Routes, resources, and capabilities work under the reported execution mode. A development directory running as full-trust does not validate the packaged worker mode. |
+| Stop a plugin that supports stopping at runtime | New work is rejected, existing work drains, and routes and capabilities are withdrawn. Data and unfinished tasks remain. |
+| Disable a process-restart plugin | The current instance keeps running. After a full exit and restart, it no longer loads; management should show when the change takes effect. |
+| Start again | Capabilities return, while old publication tokens and handles remain invalid and cannot reach the replacement. |
+| Reload | For a policy supporting hot reload, the physical generation and classloader change and old resources are released. |
+| Replace a process-restart package | Installation reports a pending restart. Fully exit, restart, and check the version actually loaded. |
+| Deliberately fail startup | Optional failures isolate that plugin; management still permits repair or eligible removal. The host decides required status. |
+
+`DownloadObserver` and `DownloadAdmissionPolicy` are optional full-trust beans published and withdrawn by the host. Observations are synchronous best-effort notifications with no durable replay. Policies allow or reject before side effects and cannot rewrite requests. `WorkFileImporter` registers read-only source-file references; an unavailable type owner must not produce success. Check the selected release's Javadoc: an interface in current source is not evidence that an older public SDK includes it.
+
+## Troubleshoot submissions
+
+| Symptom | Next action |
+| --- | --- |
+| Compilation succeeds but loading fails | Compare the compile SDK, `plugin.requires`, pinned runtime manifest, and actual host SDK. Do not edit a signed package's descriptor. |
+| `SDK_ARTIFACT_MISMATCH` | Preserve diagnostics, obtain the same release again, and verify its digest. Keep tools, resources, and runtime attachments from one release together. |
+| No current CI candidate | Check the default branch's current commit, its `Plugin candidate` run, and project selection in `tools/candidate-projects.json`. An older successful run is insufficient. |
+| Login, permission, or Git push failure | Check the active GitHub identity, target repository, and specific permission. Preserve the submission record instead of creating another request to hide an unknown outcome. |
+| Review facts or ownership changed | Reload the current binding and original request in the wizard. Check source, version, signatures, and changes before confirming again. A historical signature does not prove current ownership. |
+| Download or write response lost | Reopen the original project and submission record, then check the remote object and the wizard's available recovery options. Preserve uncertain results instead of automatically repeating publication, pushes, or submissions. |
+
+Include the plugin ID, version, source commit, SDK identity, failing step, and error code in a diagnostic report. Remove credentials, private keys, signed download URL query parameters, and personal paths before sharing.
 
 ## Start developing
 
@@ -43,9 +96,9 @@ Windows:
 Linux / macOS:
 
 ```bash
-sh ./mvnw verify exec:exec@sdk-run
-sh ./mvnw verify exec:exec@sdk-debug
-sh ./mvnw exec:exec@sdk-stop
+./mvnw verify exec:exec@sdk-run
+./mvnw verify exec:exec@sdk-debug
+./mvnw exec:exec@sdk-stop
 ```
 
 `sdk-debug` waits for an IDE to attach; it does not open a debugger. Use `clean verify` to validate the plugin, or `exec:exec@sdk-prepare` to prepare only the runtime. The default artifact is `target/example-minimal-plugin-0.1.0.jar`.
@@ -68,7 +121,7 @@ java -jar tools/sdk-tools.jar stop <absolute-project-path>
 | `examples/gradle-plugin/` | Build the basic feature plugin with Gradle | In that directory: `gradlew runPlugin`, `gradlew debugPlugin`, `gradlew stopPlugin` |
 | `examples/sbt-plugin/` | Build the same feature plugin with sbt | Install sbt, then run `sbt runPlugin` or `sbt debugPlugin` in that directory; stop from another terminal with `java -jar ../../tools/sdk-tools.jar stop .` |
 
-Use `mvnw.cmd` / `gradlew.bat` on Windows, or `sh ./mvnw` / `sh ./gradlew` on Linux / macOS. Import each example separately. Each owns its `sdk-project.json` and `.dev/`, and uses the root `tools/sdk-tools.jar`. Gradle Wrapper pins 9.5.0; the sbt project pins 1.10.11. Gradle / sbt examples compile, package, and check JavaScript syntax. Maven projects also include JUnit and thin JAR checks.
+Use `mvnw.cmd` / `gradlew.bat` on Windows, or `./mvnw` / `./gradlew` on Linux / macOS. Import each example separately. Each owns its `sdk-project.json` and `.dev/`, and uses the root `tools/sdk-tools.jar`. Gradle Wrapper pins 9.5.0; the sbt project pins 1.10.11. Gradle / sbt examples compile, package, and check JavaScript syntax. Maven projects also include JUnit and thin JAR checks.
 
 ## One SDK dependency
 
