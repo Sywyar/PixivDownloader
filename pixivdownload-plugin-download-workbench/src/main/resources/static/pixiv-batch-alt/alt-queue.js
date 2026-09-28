@@ -384,12 +384,19 @@ function ensureDockVue() {
 }
 
 function updateStats() {
-    state.stats.success = state.queue.filter(q => q.status === 'completed').length;
-    state.stats.failed = state.queue.filter(q => q.status === 'failed').length;
-    state.stats.active = state.queue.filter(q => q.status === 'downloading').length;
-    state.stats.skipped = state.queue.filter(q => q.status === 'skipped').length;
-    const pending = state.queue.filter(q =>
-        ['idle', 'pending', 'paused'].includes(q.status)).length;
+    state.stats.success = state.stats.failed = state.stats.active = state.stats.skipped = 0;
+    let pending = 0;
+    for (const item of state.queue) {
+        switch (item.status) {
+            case 'completed': state.stats.success++; break;
+            case 'failed': state.stats.failed++; break;
+            case 'downloading': state.stats.active++; break;
+            case 'skipped': state.stats.skipped++; break;
+            case 'idle':
+            case 'pending':
+            case 'paused': pending++; break;
+        }
+    }
     if (altQueueVueActive('stats')) {
         altQueueVue().syncStats({
             pending,
@@ -414,7 +421,7 @@ function updateStats() {
         badge.textContent = String(pending);
         badge.hidden = pending === 0;
     }
-    updateButtonsState();
+    updateButtonsState(state.stats);
 }
 
 function renderDownloadSpeed(bytesPerSec) {
@@ -430,7 +437,7 @@ function renderDownloadSpeed(bytesPerSec) {
     if (unitEl) unitEl.textContent = unit;
 }
 
-function updateButtonsState() {
+function updateButtonsState(stats) {
     const startBtn = document.getElementById('abBtnStart');
     const pauseBtn = document.getElementById('abBtnPause');
     if (startBtn) {
@@ -439,19 +446,24 @@ function updateButtonsState() {
     }
     if (pauseBtn) {
         pauseBtn.disabled = !state.isRunning;
-        pauseBtn.innerHTML = '';
-        pauseBtn.appendChild(abIconEl(state.isPaused ? 'play' : 'pause'));
-        pauseBtn.appendChild(el('span', '', state.isPaused
+        const action = state.isPaused ? 'play' : 'pause';
+        if (pauseBtn.dataset.action !== action) {
+            pauseBtn.replaceChildren(abIconEl(action), el('span'));
+            pauseBtn.dataset.action = action;
+        }
+        const label = pauseBtn.lastElementChild;
+        const text = state.isPaused
             ? bt('button.resume', '继续')
-            : bt('button.pause', '暂停')));
+            : bt('button.pause', '暂停');
+        if (label.textContent !== text) label.textContent = text;
     }
     const packBtn = document.getElementById('abBtnPack');
     if (packBtn) {
         packBtn.hidden = !isAdmin;
-        packBtn.disabled = !state.queue.some(q => q.status === 'completed');
+        packBtn.disabled = stats ? stats.success === 0 : !state.queue.some(q => q.status === 'completed');
     }
     const retryBtn = document.getElementById('abBtnRetry');
-    if (retryBtn) retryBtn.disabled = !state.queue.some(q => q.status === 'failed');
+    if (retryBtn) retryBtn.disabled = stats ? stats.failed === 0 : !state.queue.some(q => q.status === 'failed');
 }
 
 function renderDock() {

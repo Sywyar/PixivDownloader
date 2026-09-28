@@ -10,12 +10,19 @@
     // 队列计数门面：始终重算 state.stats 并维护 sr-only #stats-bar（读屏 / 回归保留）。
     // 仪表盘 5 张统计卡：Vue 岛激活时合并进 reactive store（与速度卡同 store），否则命令式逐项写入数字。
     function updateStats() {
-        state.stats.success = state.queue.filter(q => q.status === 'completed').length;
-        state.stats.failed = state.queue.filter(q => q.status === 'failed').length;
-        state.stats.active = state.queue.filter(q => q.status === 'downloading').length;
-        state.stats.skipped = state.queue.filter(q => q.status === 'skipped').length;
-        const pending = state.queue.filter(q =>
-            ['idle', 'pending', 'paused'].includes(q.status)).length;
+        state.stats.success = state.stats.failed = state.stats.active = state.stats.skipped = 0;
+        let pending = 0;
+        for (const item of state.queue) {
+            switch (item.status) {
+                case 'completed': state.stats.success++; break;
+                case 'failed': state.stats.failed++; break;
+                case 'downloading': state.stats.active++; break;
+                case 'skipped': state.stats.skipped++; break;
+                case 'idle':
+                case 'pending':
+                case 'paused': pending++; break;
+            }
+        }
         const statsBar = document.getElementById('stats-bar');
         if (statsBar) {
             statsBar.textContent = formatStatsText(
