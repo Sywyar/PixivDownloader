@@ -132,7 +132,8 @@
             stats: { pending: 0, success: 0, failed: 0, active: 0, skipped: 0 },
             speed: { value: '0', unit: 'B/s' },
             paused: false,   // 暂停标志镜像（当前卡响应式派生用；暂停 / 恢复时由渲染门面同步）
-            items: []        // 变动行复制字段，未变化行保留快照身份以跳过子组件重算。
+            items: [],       // 行组件直接订阅对应下标，进度变化不触发列表结构重建。
+            rowKeys: []      // 仅完整同步时更新，与索引共用复合键，不保留另一份作品内容。
         });
     }
 
@@ -193,9 +194,9 @@
 
     // 独立行组件配合稳定快照，避免每次进度更新都重新生成全部行的 HTML。
     var downloadRowComponent = {
-        props: ['item'],
+        props: ['index'],
         render: function () {
-            return Vue.h('div', { class: 'q-item-host', innerHTML: rowHtmlOf(this.item, { removable: true }) });
+            return Vue.h('div', { class: 'q-item-host', innerHTML: rowHtmlOf(dlStore.items[this.index], { removable: true }) });
         }
     };
 
@@ -210,9 +211,8 @@
                 };
             },
             render: function () {
-                var vm = this;
-                return this.store.items.length ? this.store.items.map(function (q) {
-                    return Vue.h(downloadRowComponent, { key: vm.rowKey(q), item: q });
+                return this.store.rowKeys.length ? this.store.rowKeys.map(function (key, index) {
+                    return Vue.h(downloadRowComponent, { key: key, index: index });
                 }) : Vue.h('div', { class: 'queue-empty' }, this.emptyText());
             }
         };
@@ -305,10 +305,14 @@
                 if (rebuild) {
                     dlRowIndexes.clear();
                     dlQueue = queue;
+                    var keys = [];
                     dlStore.items = queue.map(function (q, index) {
-                        dlRowIndexes.set(queueRowKey(q), index);
+                        var key = queueRowKey(q);
+                        keys.push(key);
+                        dlRowIndexes.set(key, index);
                         return Object.assign({}, q);
                     });
+                    dlStore.rowKeys = keys;
                 } else {
                     // 替换脏行快照，嵌套字段原地变化也能触发子组件刷新。
                     dlDirtyRows.forEach(function (q, key) {

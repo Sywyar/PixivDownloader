@@ -130,6 +130,11 @@ function renderNodes(component) {
     return nodes;
 }
 
+function currentText(api) {
+    return renderNodes(api.__test.currentComponent()).map(node =>
+        String(node.props?.class || '') + ' ' + (typeof node.children === 'string' ? node.children : '')).join(' ');
+}
+
 function makePixivVue(opts, record) {
     opts = opts || {};
     const vue = makeVueRuntime();
@@ -176,7 +181,7 @@ function loadVue(opts) {
         queueItemDisplayTitle: q => (q && q.title) || ('作品 ' + (q && q.id)),
         queueItemCanonicalUrl: item => item && item.canonicalUrl ? item.canonicalUrl : 'https://www.pixiv.net/artworks/' + (item && item.id),
         queueItemMessage: q => q && q.lastMessage ? q.lastMessage : '排队中',
-        progressExtras: q => (q && q.extras) ? { outerHTML: '<span class="progress-extra">' + q.extras + '</span>' } : null,
+        progressExtrasModel: q => (q && q.extras) ? [{key: 'fixture', text: q.extras}] : [],
         // 当前卡派生口径桩（alt-queue.js 顶层函数；此处隔离注入，与真实实现同语义：暂停期间仍展示收尾下载项）。
         currentFrontItem: (queue, isPaused) => {
             const downloading = queue.find(q => q.status === 'downloading');
@@ -196,18 +201,12 @@ function loadVue(opts) {
             return {downloading, queued};
         },
         currentRemainingLineText: (d, q) => (d || q) ? '还有 ' + d + ' 个正在下载、' + q + ' 个排队中' : '',
-        computeCurrentCardHtml: (queue, isPaused) => {
-            const front = sandbox.currentFrontItem(queue, isPaused);
-            const head = '<div class="ab-current-head"><strong>当前下载</strong></div>';
-            if (!front) return head + '<p class="ab-current-idle">无</p>';
-            const counts = sandbox.currentRemainingCounts(queue, front);
+        currentCardModel: front => {
+            if (!front) return null;
             const pctV = front.totalImages > 0 ? Math.round((front.downloadedCount || 0) / front.totalImages * 100) : 0;
-            const prog = front.totalImages > 0
-                ? '<div class="ab-mini-prog"><span>' + (front.downloadedCount || 0) + '/' + front.totalImages + ' ' + pctV + '%</span></div>'
-                : '';
-            const line = sandbox.currentRemainingLineText(counts.downloading, counts.queued);
-            return head + '<div class="ab-current-row">' + (front.title || ('作品 ' + front.id)) + '</div>'
-                + prog + (line ? '<p class="ab-current-remaining">' + line + '</p>' : '');
+            return {title: front.title || ('作品 ' + front.id), percent: pctV,
+                progressLabel: front.totalImages > 0 ? 'Images' : '',
+                detail: (front.downloadedCount || 0) + '/' + front.totalImages + ' ' + pctV + '%'};
         },
         requestQueueItemCancel() {},
         removeFromQueue: id => { record.removeCalls = (record.removeCalls || 0) + 1; return true; },
@@ -261,9 +260,9 @@ async function main() {
         ok('1: 挂载后回灌列表（3 项快照）', store.items.length === 3);
         ok('1: 挂载后回灌暂停标志（false）', store.paused === false);
         ok('1: 当前卡由队列镜像派生队首（id=2）', api.isCurrentActive() === true
-            && api.__test.currentComponent().setup().currentHtml().indexOf('作品 2') >= 0);
+            && currentText(api).indexOf('作品 2') >= 0);
         ok('1: 剩余计数行排除队首（0 正在下载、1 排队中）',
-            api.__test.currentComponent().setup().currentHtml().indexOf('ab-current-remaining') >= 0);
+            currentText(api).indexOf('ab-current-remaining') >= 0);
         ok('1: 幂等：再次 ensure 不重复挂 app', (await api.ensure()) === true && record.mounts.length === 3);
     }
 
@@ -327,7 +326,7 @@ async function main() {
         const { api, state } = loadVue({ state: st });
         await api.ensure();
         api.flush();
-        const curHtml = () => api.__test.currentComponent().setup().currentHtml();
+        const curHtml = () => currentText(api);
         ok('5b: 初始派生（0/3 0%）', curHtml().indexOf('0/3 0%') >= 0);
         // 模拟 SSE 进度事件：字段变更 + 列表同步 → 当前卡实时更新。
         state.queue[0].downloadedCount = 2;
@@ -369,23 +368,23 @@ async function main() {
         ok('6: 统计标签在渲染时本地化', statNodes.some(n => n.children === '队列'));
         const cur = api.__test.currentComponent();
         const currentNode = renderNodes(cur)[0];
-        ok('6: 当前卡沿用安全 HTML 派生与无容器布局', currentNode.props.style.display === 'contents' && currentNode.props.innerHTML === cur.setup().currentHtml());
-        ok('6: 空队列 + 未暂停 → idle「无」', cur.setup().currentHtml().indexOf('ab-current-idle') >= 0);
+        ok('6: 当前卡使用实际子节点与无容器布局', currentNode.props.style.display === 'contents' && Array.isArray(currentNode.children));
+        ok('6: 空队列 + 未暂停 → idle「无」', currentText(api).indexOf('ab-current-idle') >= 0);
         // 队列镜像同步后由响应式自动派生队首 + 流式图片进度条 + 剩余计数行。
         state.queue.push({ id: '9', status: 'downloading', totalImages: 3, downloadedCount: 1, title: 'T9' }, { id: '10', status: 'pending' });
         api.syncList(); api.flush();
-        const derivedHtml = cur.setup().currentHtml();
+        const derivedHtml = currentText(api);
         ok('6: 列表同步后当前卡自动派生队首 + 流式图片进度条 + 剩余计数行',
             derivedHtml.indexOf('T9') >= 0 && derivedHtml.indexOf('1/3 33%') >= 0 && derivedHtml.indexOf('ab-current-remaining') >= 0);
         // 暂停（停止接受新任务）期间仍展示正在收尾下载的作品（drain，不回归「无」）。
         api.syncPaused(true); api.flush();
         ok('6: 暂停期间仍展示正在收尾下载的作品（drain）',
-            cur.setup().currentHtml().indexOf('ab-current-idle') < 0 && cur.setup().currentHtml().indexOf('T9') >= 0);
+            currentText(api).indexOf('ab-current-idle') < 0 && currentText(api).indexOf('T9') >= 0);
         // 收尾完成后暂停期间回退 idle「无」、无剩余计数行。
         state.queue[0].status = 'completed';
         api.syncList(); api.flush();
         ok('6: 暂停（无收尾下载项）→ 回退 idle「无」、无剩余计数行',
-            cur.setup().currentHtml().indexOf('ab-current-idle') >= 0 && cur.setup().currentHtml().indexOf('ab-current-remaining') < 0);
+            currentText(api).indexOf('ab-current-idle') >= 0 && currentText(api).indexOf('ab-current-remaining') < 0);
     }
 
     /* ===== 7) 计划任务详情岛：ensure → 异步挂载 → active → reactive 同步，连续同步不整块重建 ===== */
