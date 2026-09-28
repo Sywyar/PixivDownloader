@@ -4,6 +4,7 @@ import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * 活动插件向桌面 GUI 暴露的不可变业务语义快照。
@@ -36,6 +37,8 @@ public record DesktopUiPluginSnapshot(
         List<WebRouteContribution> routes,
         List<NavigationContribution> navigation
 ) {
+    private static final Pattern STABLE_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}");
+
     /**
      * 校验标识与代际，并把所有贡献复制为不可变列表。
      *
@@ -108,7 +111,7 @@ public record DesktopUiPluginSnapshot(
     }
 
     private static String requireId(String value, String name) {
-        if (value == null || !value.matches("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")) {
+        if (value == null || !STABLE_ID.matcher(value).matches()) {
             throw new IllegalArgumentException(name + " must be a stable id");
         }
         return value;
