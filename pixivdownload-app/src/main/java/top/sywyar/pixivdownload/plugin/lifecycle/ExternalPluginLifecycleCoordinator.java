@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.UnloadedPluginPackage;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
@@ -29,8 +30,8 @@ import top.sywyar.pixivdownload.plugin.management.PluginManagementErrorCode;
 import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 
 /**
- * 外置插件全部运行期写动作的唯一编排入口。固定顺序为应用足迹清退、PF4J 物理生命周期、代际替换，
- * 并以 packageId 锁阻止同包动作交错。
+ * 外置插件全部运行期写动作的唯一编排入口。可即时生效的替换依次清退应用足迹、执行 PF4J 物理生命周期和代际替换；
+ * process-restart 安装与移除保留当前实例至进程退出。packageId 锁阻止同包动作交错。
  */
 @Service
 public class ExternalPluginLifecycleCoordinator {
@@ -147,15 +148,19 @@ public class ExternalPluginLifecycleCoordinator {
         });
     }
 
-    /** 物理卸载后删除磁盘包。 */
-    public void remove(String packageId) {
-        withLock(packageId, ExternalPluginOperation.REMOVING, () -> {
+    /** 删除安装包；返回是否保留当前实例至完整进程重启，不删除插件用户数据。 */
+    public boolean remove(String packageId) {
+        return withLock(packageId, ExternalPluginOperation.REMOVING, () -> {
             boolean wasLoaded = runtimeController.isLoaded(packageId);
+            boolean effectiveAfterRestart = wasLoaded && runtimeController.requiresProcessRestart(packageId);
+            if (effectiveAfterRestart) {
+                runtimeController.requireNoActiveDependents(packageId);
+            }
             Path previousArtifact = runtimeController.artifactPath(packageId)
                     .orElseGet(() -> runtimeController.installedArtifact(packageId));
             PluginRemovalAttempt removal = new PluginRemovalAttempt(packageId);
             try {
-                if (wasLoaded) {
+                if (wasLoaded && !effectiveAfterRestart) {
                     runtimeController.unload(packageId);
                 }
                 if (!installer.removeInstalled(removal)) {
@@ -165,7 +170,7 @@ public class ExternalPluginLifecycleCoordinator {
                 PluginLifecycleFailureAccumulator failures = new PluginLifecycleFailureAccumulator(failure);
                 if (removal.outcome() == PluginRemovalAttempt.Outcome.REMOVED) {
                     try {
-                        finishDurableRemoval(packageId);
+                        finishDurableRemoval(packageId, effectiveAfterRestart);
                     } catch (Throwable projectionFailure) {
                         failures.record(projectionFailure);
                     }
@@ -173,7 +178,7 @@ public class ExternalPluginLifecycleCoordinator {
                             + packageId + "'");
                 }
                 boolean runtimeRestored = removal.outcome() != PluginRemovalAttempt.Outcome.UNSAFE
-                        && (!wasLoaded || restoreOldRuntime(packageId, previousArtifact, failures));
+                        && (effectiveAfterRestart || !wasLoaded || restoreOldRuntime(packageId, previousArtifact, failures));
                 if (!runtimeRestored) {
                     operations.put(packageId, new ExternalPluginOperationSnapshot(packageId,
                             ExternalPluginOperation.FAILED, currentTransaction(packageId),
@@ -185,13 +190,18 @@ public class ExternalPluginLifecycleCoordinator {
                 }
                 throw failures.propagate("remove failed for '" + packageId + "'");
             }
-            finishDurableRemoval(packageId);
-            return null;
+            finishDurableRemoval(packageId, effectiveAfterRestart);
+            return effectiveAfterRestart;
         });
     }
 
     public Optional<ExternalPluginOperationSnapshot> operation(String packageId) {
         return Optional.ofNullable(operations.get(packageId));
+    }
+
+    /** 当前进程仍持有的描述符；安装目录的替换或删除不改变此运行期身份。 */
+    public Optional<PluginDescriptor> processRestartDescriptor(String packageId) {
+        return runtimeController.processRestartDescriptor(packageId);
     }
 
     /** 管理读模型的跨组件一致性版本；奇数时不得发布来源证明结论。 */
@@ -452,10 +462,12 @@ public class ExternalPluginLifecycleCoordinator {
         return blocked;
     }
 
-    private void finishDurableRemoval(String packageId) {
+    private void finishDurableRemoval(String packageId, boolean effectiveAfterRestart) {
         Throwable failure = null;
         try {
-            runtimeController.forgetInstallation(packageId);
+            if (!effectiveAfterRestart) {
+                runtimeController.forgetInstallation(packageId);
+            }
         } catch (Throwable cleanupFailure) {
             failure = cleanupFailure;
         }

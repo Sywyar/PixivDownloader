@@ -324,9 +324,14 @@
             tags: tags,
             sdk: entry.sdkRequirement || null,
             deps: entry.dependencies || [],
-            messages: (entry.messages || []).concat(entry.operationDiagnostic ? [entry.operationDiagnostic] : []),
-            // 只有热重载策略继续暴露既有运行期动词；其余策略统一走持久化启停开关。
-            availableActions: lifecyclePolicy === 'HOT_RELOAD' ? (entry.availableActions || []) : [],
+            messages: (entry.messages || []).concat(entry.operationDiagnostic ? [entry.operationDiagnostic] : [])
+                .concat(entry.effectiveAfterRestart ? [t('state.pending-restart',
+                    '安装状态已更改；当前进程仍载入版本 {version}。完整退出并重新启动软件后生效。',
+                    { version: entry.loadedVersion || '' })] : []),
+            // 非热重载策略只展示后端明确允许的安装包移除。
+            availableActions: (entry.availableActions || []).filter(function (action) {
+                return lifecyclePolicy === 'HOT_RELOAD' || action === 'remove';
+            }),
             managed: !!entry.managed,
             toggleable: toggleable,
             requiredByPolicy: !!entry.requiredByPolicy,

@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.plugin.lifecycle;
 
 import top.sywyar.pixivdownload.plugin.management.PluginManagementErrorCode;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
@@ -34,6 +35,24 @@ final class ExternalPluginRuntimeController {
 
     boolean isLoaded(String packageId) {
         return runtimeManager.packagePhases().containsKey(packageId);
+    }
+
+    boolean requiresProcessRestart(String packageId) {
+        return processRestartDescriptor(packageId).isPresent();
+    }
+
+    Optional<PluginDescriptor> processRestartDescriptor(String packageId) {
+        return runtimeManager.loadedDescriptor(packageId)
+                .filter(descriptor -> descriptor.lifecyclePolicy().requiresProcessRestart());
+    }
+
+    void requireNoActiveDependents(String packageId) {
+        List<String> blockers = runtimeManager.activeDependents(packageId);
+        if (!blockers.isEmpty()) {
+            throw new ClassifiedPluginLifecycleException(PluginManagementErrorCode.DEPENDENCY_BLOCKED,
+                    "plugin package '" + packageId
+                            + "' is required by: " + String.join(", ", blockers));
+        }
     }
 
     Optional<Path> artifactPath(String packageId) {
@@ -96,12 +115,7 @@ final class ExternalPluginRuntimeController {
                             "installed artifact not found: " + packageId));
             return new UnloadedPluginPackage(packageId, installed.path(), installed.version(), 0L);
         }
-        List<String> blockers = runtimeManager.activeDependents(packageId);
-        if (!blockers.isEmpty()) {
-            throw new ClassifiedPluginLifecycleException(PluginManagementErrorCode.DEPENDENCY_BLOCKED,
-                    "plugin package '" + packageId
-                            + "' is required by: " + String.join(", ", blockers));
-        }
+        requireNoActiveDependents(packageId);
         stop(packageId);
         long generation = lifecycleService.generation(packageId).orElseThrow(() ->
                 new PluginLifecycleException("missing managed generation for " + packageId));

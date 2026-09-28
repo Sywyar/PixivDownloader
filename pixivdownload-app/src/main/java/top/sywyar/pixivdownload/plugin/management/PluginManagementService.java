@@ -205,10 +205,26 @@ public class PluginManagementService {
             boolean allowLifecycleReads) {
         String id = diagnostic.id();
         PluginDescriptor descriptor = diagnostic.descriptor();
+        PluginDescriptor loadedProcess = allowLifecycleReads && coordinator != null
+                ? coordinator.processRestartDescriptor(id).orElse(null) : null;
+        List<InstalledPluginSnapshot> installed = installedArtifacts.getOrDefault(id, List.of());
+        boolean retainedProcess = loadedProcess != null && !pluginLifecycleService.isDevelopmentArtifact(id);
+        boolean removedInstalledPackage = retainedProcess && allowProvenanceReads && installed.isEmpty();
+        if (retainedProcess && installed.size() == 1) {
+            descriptor = installed.get(0).plugin().descriptor();
+        }
+        boolean effectiveAfterRestart = retainedProcess && allowProvenanceReads
+                && (installed.size() != 1
+                || !loadedProcess.version().equals(installed.get(0).plugin().version())
+                || (!runtimeVerifications.getOrDefault(id, List.of()).isEmpty()
+                && runtimeVerifications.get(id).stream().noneMatch(proof -> proof.binds(
+                        installed.get(0).plugin().path(), id, installed.get(0).plugin().version(),
+                        installed.get(0).artifactSizeBytes(), installed.get(0).artifactSha256()))));
         PluginRuntimePhase phase = allowLifecycleReads
                 ? pluginLifecycleService.phase(id).orElse(null) : null;
         boolean builtIn = BuiltInPlugins.isBuiltIn(id);
-        PluginLifecyclePolicy lifecyclePolicy = descriptor != null ? descriptor.lifecyclePolicy() : null;
+        PluginLifecyclePolicy lifecyclePolicy = retainedProcess ? PluginLifecyclePolicy.PROCESS_RESTART
+                : descriptor != null ? descriptor.lifecyclePolicy() : null;
         boolean installedOnly = descriptor != null && !builtIn
                 && diagnostic.status() == PluginStatus.INSTALLED && phase == null;
         boolean managed = allowLifecycleReads && lifecyclePolicy == PluginLifecyclePolicy.HOT_RELOAD
@@ -219,8 +235,14 @@ public class PluginManagementService {
         ExternalPluginOperationSnapshot operation = allowLifecycleReads && coordinator != null
                 ? coordinator.operation(id).orElse(null) : null;
         PluginVerificationView verification = verificationOf(id, descriptor, phase, installedArtifacts,
-                runtimeVerifications, expectedGate, allowProvenanceReads, allowLifecycleReads).withDescriptor(descriptor);
+                runtimeVerifications, expectedGate, allowProvenanceReads, allowLifecycleReads,
+                retainedProcess).withDescriptor(descriptor);
         List<String> actions = availableActions(managed, phase, allowDisable, installedOnly);
+        if (allowLifecycleReads && allowProvenanceReads && coordinator != null && allowDisable
+                && lifecyclePolicy == PluginLifecyclePolicy.PROCESS_RESTART
+                && installedArtifacts.getOrDefault(id, List.of()).size() == 1) {
+            actions = List.of("remove");
+        }
         if ("REVOKED".equals(verification.revocationStatus())) {
             actions = actions.stream().filter(action -> !List.of("load", "start", "restart", "reload").contains(action)).toList();
         }
@@ -231,7 +253,7 @@ public class PluginManagementService {
                 descriptor != null ? descriptor.description() : null,
                 iconTokenOf(descriptor),
                 colorTokenOf(descriptor),
-                descriptor != null ? descriptor.version() : null,
+                removedInstalledPackage ? null : descriptor != null ? descriptor.version() : null,
                 descriptor != null ? descriptor.kind() : null,
                 descriptor != null ? SdkRequirementView.from(descriptor.requires()) : null,
                 dependencyViews(descriptor),
@@ -244,7 +266,8 @@ public class PluginManagementService {
                 actions,
                 List.copyOf(diagnostic.messages()),
                 verification,
-                trustOf(id, descriptor, installedArtifacts, allowProvenanceReads, allowLifecycleReads),
+                removedInstalledPackage ? PluginTrustView.state(PluginTrustState.NOT_INSTALLED)
+                        : trustOf(id, descriptor, installedArtifacts, allowProvenanceReads, allowLifecycleReads),
                 allowLifecycleReads ? pluginLifecycleService.generation(id).orElse(null) : null,
                 operation != null ? operation.operation() : ExternalPluginOperation.IDLE,
                 operation != null ? operation.transactionId() : null,
@@ -252,7 +275,9 @@ public class PluginManagementService {
                 descriptor != null ? descriptor.executionMode() : null,
                 lifecyclePolicy,
                 pluginToggles.isEnabled(id),
-                toggleable);
+                toggleable && !removedInstalledPackage,
+                loadedProcess != null ? loadedProcess.version() : null,
+                effectiveAfterRestart);
     }
 
     public PluginTrustView approveTrust(String pluginId, String confirmedArtifactSha256) {
@@ -336,7 +361,8 @@ public class PluginManagementService {
             Map<String, List<PluginRuntimeVerificationSnapshot>> runtimeVerifications,
             PluginRecoveryGateSnapshot expectedGate,
             boolean allowProvenanceReads,
-            boolean allowLifecycleReads) {
+            boolean allowLifecycleReads,
+            boolean retainedProcess) {
         if (descriptor == null) {
             return PluginVerificationProjector.notInstalled();
         }
@@ -360,14 +386,16 @@ public class PluginManagementService {
             return PluginVerificationProjector.invalidProvenance();
         }
         if (installed.isEmpty()) {
-            return PluginVerificationProjector.invalidProvenance();
+            return retainedProcess ? PluginVerificationProjector.notInstalled()
+                    : PluginVerificationProjector.invalidProvenance();
         }
         InstalledPluginSnapshot snapshot = installed.get(0);
         Path snapshotPath = snapshot.plugin().path().toAbsolutePath().normalize();
         boolean runtimeArtifactRequired = phase != null && phase != PluginRuntimePhase.UNLOADED;
-        if (runtimeArtifactRequired && runtimePath.isEmpty()
+        // 驻留进程实例与安装包分别报告；以下证明仍只绑定当前磁盘快照，旧离线结果不可代替新包验签。
+        if (!retainedProcess && (runtimeArtifactRequired && runtimePath.isEmpty()
                 || runtimePath.isPresent() && !runtimePath.get().equals(snapshotPath)
-                || !descriptor.version().equals(snapshot.plugin().version())) {
+                || !descriptor.version().equals(snapshot.plugin().version()))) {
             return PluginVerificationProjector.invalidProvenance();
         }
         requireStableRecoveryGate(expectedGate);
@@ -531,6 +559,11 @@ public class PluginManagementService {
         }
         try {
             if (coordinator != null) {
+                if (action == LifecycleAction.REMOVE) {
+                    boolean effectiveAfterRestart = coordinator.remove(id);
+                    return new PluginActionResult(id, action.token(),
+                            pluginLifecycleService.phase(id).orElse(null), effectiveAfterRestart);
+                }
                 action.apply(coordinator, id);
             } else {
                 action.apply(pluginLifecycleService, id);
@@ -553,6 +586,10 @@ public class PluginManagementService {
         var report = pluginStatusService.report();
         var diagnostic = report != null ? report.byId(id) : Optional.<PluginDiagnostic>empty();
         PluginDescriptor descriptor = diagnostic.map(PluginDiagnostic::descriptor).orElse(null);
+        if (descriptor != null && descriptor.lifecyclePolicy() == PluginLifecyclePolicy.PROCESS_RESTART
+                && action == LifecycleAction.REMOVE && coordinator != null) {
+            return;
+        }
         if (descriptor != null && descriptor.lifecyclePolicy() != PluginLifecyclePolicy.HOT_RELOAD) {
             throw new PluginManagementException(PluginManagementErrorCode.RESTART_REQUIRED_PLUGIN,
                     id, action.token(), null,
@@ -757,6 +794,8 @@ public class PluginManagementService {
      * @param lifecyclePolicy  描述符声明的生命周期策略（无描述符时为 {@code null}）
      * @param configuredEnabled 当前配置中的期望启用态（缺项默认 {@code true}）
      * @param toggleable       是否允许管理入口修改期望启用态（内置 / 必选 / 无描述符均为 {@code false}）
+     * @param loadedVersion    当前进程仍持有的 process-restart 插件版本，与磁盘安装版本独立
+     * @param effectiveAfterRestart 安装状态已变化，驻留实例需要完整进程重启才能替换或移除
      */
     public record PluginManagementEntry(
             String id,
@@ -786,7 +825,9 @@ public class PluginManagementService {
             PluginExecutionMode executionMode,
             PluginLifecyclePolicy lifecyclePolicy,
             boolean configuredEnabled,
-            boolean toggleable) {
+            boolean toggleable,
+            String loadedVersion,
+            boolean effectiveAfterRestart) {
 
         /** 兼容不关心运行操作元数据的调用方与测试夹具。 */
         public PluginManagementEntry(
@@ -814,7 +855,7 @@ public class PluginManagementService {
                     PluginTrustView.state(PluginTrustState.INVALID), null,
                     ExternalPluginOperation.IDLE, null, null,
                     PluginExecutionMode.HOST_PROCESS_FULL_TRUST,
-                    PluginLifecyclePolicy.HOT_RELOAD, true, false);
+                    PluginLifecyclePolicy.HOT_RELOAD, true, false, null, false);
         }
 
         /** 兼容需要显式断言启用配置与生命周期策略、但不关心运行操作元数据的调用方。 */
@@ -846,7 +887,7 @@ public class PluginManagementService {
                     PluginTrustView.state(PluginTrustState.INVALID), null,
                     ExternalPluginOperation.IDLE, null, null,
                     PluginExecutionMode.HOST_PROCESS_FULL_TRUST,
-                    lifecyclePolicy, configuredEnabled, toggleable);
+                    lifecyclePolicy, configuredEnabled, toggleable, null, false);
         }
     }
 
@@ -938,8 +979,13 @@ public class PluginManagementService {
      *
      * @param id     插件 id
      * @param action 执行的动词标记
-     * @param phase  执行后的运行期阶段（{@code null} 表示未受管，理论上不会出现在成功路径）
+     * @param phase  执行后的运行期阶段（{@code null} 表示当前没有受管实例）
+     * @param effectiveAfterRestart 移除安装包后是否仍需完整进程重启以撤回驻留实例
      */
-    public record PluginActionResult(String id, String action, PluginRuntimePhase phase) {
+    public record PluginActionResult(String id, String action, PluginRuntimePhase phase,
+                                     boolean effectiveAfterRestart) {
+        public PluginActionResult(String id, String action, PluginRuntimePhase phase) {
+            this(id, action, phase, false);
+        }
     }
 }

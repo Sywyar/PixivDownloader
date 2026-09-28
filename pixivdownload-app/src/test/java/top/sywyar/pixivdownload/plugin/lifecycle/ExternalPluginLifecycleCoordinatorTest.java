@@ -1093,6 +1093,63 @@ class ExternalPluginLifecycleCoordinatorTest {
                 pluginId, previousArtifact, "1.0.0", 7L));
     }
 
+    @Test
+    @DisplayName("进程重启插件移除安装包时保留当前运行实例")
+    void processRestartRemovalPreservesRuntime() {
+        String pluginId = "retained-process-plugin";
+        when(runtimeManager.packagePhases()).thenReturn(
+                Map.of(pluginId, PluginRuntimePackagePhase.STARTED));
+        when(runtimeManager.loadedDescriptor(pluginId)).thenReturn(
+                Optional.of(descriptor(pluginId, PluginLifecyclePolicy.PROCESS_RESTART)));
+        when(runtimeManager.artifactPath(pluginId)).thenReturn(Optional.of(Path.of("plugins", pluginId + ".jar")));
+        confirmDurableRemoval();
+
+        assertThat(coordinator().remove(pluginId)).isTrue();
+
+        verify(installer).removeInstalled(any(PluginRemovalAttempt.class));
+        verify(runtimeManager, never()).stopPlugin(pluginId);
+        verify(runtimeManager, never()).unloadPlugin(pluginId);
+        verify(lifecycleService, never()).stop(pluginId);
+        verify(lifecycleService, never()).forgetInstallation(pluginId);
+        verify(recoveryModeService).refresh();
+    }
+
+    @Test
+    @DisplayName("进程重启插件删除文件失败时不重启或卸载原实例")
+    void processRestartRemovalFailurePreservesRuntime() {
+        String pluginId = "retained-process-failure";
+        when(runtimeManager.packagePhases()).thenReturn(Map.of(pluginId, PluginRuntimePackagePhase.LOADED));
+        when(runtimeManager.loadedDescriptor(pluginId)).thenReturn(
+                Optional.of(descriptor(pluginId, PluginLifecyclePolicy.PROCESS_RESTART)));
+        when(runtimeManager.artifactPath(pluginId)).thenReturn(Optional.of(Path.of("plugins", pluginId + ".jar")));
+        IllegalStateException failure = new IllegalStateException("disk failure");
+        when(installer.removeInstalled(any(PluginRemovalAttempt.class))).thenThrow(failure);
+
+        assertThatThrownBy(() -> coordinator().remove(pluginId)).isSameAs(failure);
+
+        verify(runtimeManager, never()).stopPlugin(pluginId);
+        verify(runtimeManager, never()).unloadPlugin(pluginId);
+        verifyOldRuntimeWasNotRestored(pluginId);
+        verify(lifecycleService, never()).forgetInstallation(pluginId);
+    }
+
+    @Test
+    @DisplayName("进程重启插件仍被活动插件依赖时拒绝删除安装包")
+    void processRestartRemovalRejectsActiveDependents() {
+        String pluginId = "retained-process-dependency";
+        when(runtimeManager.packagePhases()).thenReturn(Map.of(pluginId, PluginRuntimePackagePhase.STARTED));
+        when(runtimeManager.loadedDescriptor(pluginId)).thenReturn(
+                Optional.of(descriptor(pluginId, PluginLifecyclePolicy.PROCESS_RESTART)));
+        when(runtimeManager.activeDependents(pluginId)).thenReturn(List.of("dependent-plugin"));
+
+        assertThatThrownBy(() -> coordinator().remove(pluginId))
+                .isInstanceOfSatisfying(ClassifiedPluginLifecycleException.class,
+                        failure -> assertThat(failure.code()).isEqualTo(PluginManagementErrorCode.DEPENDENCY_BLOCKED));
+
+        verify(installer, never()).removeInstalled(any(PluginRemovalAttempt.class));
+        verify(runtimeManager, never()).unloadPlugin(pluginId);
+    }
+
     private void confirmDurableRemoval() {
         when(installer.removeInstalled(any(PluginRemovalAttempt.class))).thenAnswer(invocation -> {
             PluginRemovalAttempt attempt = invocation.getArgument(0);
