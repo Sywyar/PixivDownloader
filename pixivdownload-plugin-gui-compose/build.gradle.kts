@@ -258,6 +258,7 @@ tasks.named("compileJava") { dependsOn(verifyMavenClasspath) }
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
+    testLogging.exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
     systemProperty("user.language", "en")
     systemProperty("user.country", "US")
     enabled = providers.gradleProperty("mavenSkipTests").orNull != "true"

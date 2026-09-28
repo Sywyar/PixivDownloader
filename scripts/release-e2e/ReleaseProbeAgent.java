@@ -46,6 +46,19 @@ public final class ReleaseProbeAgent {
         // 观测器不得替应用保活，否则会掩盖启动失败后的正常退出。
         observer.setDaemon(true);
         observer.start();
+        Thread sampler = new Thread(() -> {
+            // 启动可能在首次桌面查询前失败；采样不依赖 EDT 或 IPC，也不替应用保活。
+            try {
+                for (int sample = 1; sample <= 6; sample++) {
+                    Thread.sleep(10_000);
+                    saveThreads("startup-threads-" + sample + ".txt", "Startup sample: " + sample);
+                }
+            } catch (Exception failure) {
+                failure.printStackTrace();
+            }
+        }, "release-e2e-startup-sampler");
+        sampler.setDaemon(true);
+        sampler.start();
     }
 
     private static void observe() {
@@ -268,7 +281,8 @@ public final class ReleaseProbeAgent {
             task.cancel(false);
             EdtTimeoutException failure = new EdtTimeoutException(started, cause);
             // 不依赖已阻塞的 EDT 保存现场，也不让诊断失败覆盖原始超时。
-            try { saveThreads(started); } catch (Exception diagnostic) { failure.addSuppressed(diagnostic); }
+            try { saveThreads("edt-timeout.txt", "EDT task started: " + started); }
+            catch (Exception diagnostic) { failure.addSuppressed(diagnostic); }
             throw failure;
         }
     }
@@ -283,10 +297,11 @@ public final class ReleaseProbeAgent {
         }
     }
 
-    private static void saveThreads(boolean started) throws Exception {
+    private static void saveThreads(String filename, String heading) throws Exception {
         var threads = ManagementFactory.getThreadMXBean().dumpAllThreads(true, true, 128);
-        try (var output = Files.newBufferedWriter(directory.resolve("edt-timeout.txt"), StandardCharsets.UTF_8)) {
-            output.write("EDT task started: " + started + "\n");
+        Path temporary = directory.resolve(filename + ".tmp");
+        try (var output = Files.newBufferedWriter(temporary, StandardCharsets.UTF_8)) {
+            output.write(java.time.Instant.now() + " " + heading + "\n");
             for (int i = 0; i < Math.min(threads.length, 256); i++) {
                 var thread = threads[i];
                 output.write("\n" + thread.getThreadName() + " #" + thread.getThreadId() + " "
@@ -295,6 +310,8 @@ public final class ReleaseProbeAgent {
                 for (var frame : thread.getStackTrace()) output.write("\tat " + frame + "\n");
             }
         }
+        Files.move(temporary, directory.resolve(filename), StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.ATOMIC_MOVE);
     }
 
     private static Object field(Class<?> type, Object object, String name) throws Exception {
