@@ -143,6 +143,22 @@ public class PluginMarketController {
         return installResponseMapper.toResponse(report, request);
     }
 
+    @GetMapping("/{repositoryId}/{pluginId}/{version}/install-preview")
+    public top.sywyar.pixivdownload.plugin.catalog.PluginCatalogInstallPreview.View installPreview(
+            @PathVariable String repositoryId, @PathVariable String pluginId, @PathVariable String version) {
+        return marketService.preview(repositoryId, pluginId, version);
+    }
+
+    @PostMapping("/{repositoryId}/{pluginId}/{version}/install-preview")
+    public ResponseEntity<PluginInstallResponse> installPreviewed(
+            @PathVariable String repositoryId, @PathVariable String pluginId, @PathVariable String version,
+            @RequestBody InstallPreviewRequest confirmation, HttpServletRequest request) {
+        return installResponseMapper.toResponse(marketService.installPreviewed(repositoryId, pluginId, version,
+                confirmation.confirmTrust(), confirmation.fingerprint()), request);
+    }
+
+    public record InstallPreviewRequest(String fingerprint, String confirmTrust) { }
+
     /**
      * catalog / 下载层失败：返回「稳定机器码 {@code code} + 本地化 {@code message} + 诊断上下文」。{@code code} 取
      * {@code PluginCatalogErrorCode.name()}（与界面语言无关），HTTP 状态与 i18n 文案 key 均由稳定码派生。

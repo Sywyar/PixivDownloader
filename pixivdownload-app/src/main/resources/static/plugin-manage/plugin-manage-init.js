@@ -94,7 +94,9 @@
         PM.renderAll();
         try {
             try {
-                await PM.setEnabled(vm.id, targetEnabled);
+                var fingerprint = await PM.confirmImpact(vm.id, targetEnabled ? 'start' : 'stop');
+                if (!fingerprint) return;
+                await PM.setEnabled(vm.id, targetEnabled, fingerprint);
             } catch (e) {
                 var saveMessage = (e && e.message) || PM.t('toggle.error.generic', '保存插件启停设置失败');
                 PM.toast(PM.t('toggle.failed', '保存插件启停设置失败：{message}', { message: saveMessage }), 'error');
@@ -146,7 +148,9 @@
         PM.state.busyId = id;
         PM.renderAll();
         try {
-            var result = await PM.performAction(id, verb);
+            var fingerprint = await PM.confirmImpact(id, verb);
+            if (!fingerprint) return;
+            var result = await PM.performAction(id, verb, fingerprint);
             var actionLabel = PM.t('action.' + (result && result.action || verb), (result && result.action) || verb);
             PM.toast(PM.t('action.done', '已执行：{action}', { action: actionLabel }), 'ok');
             if (result && result.effectiveAfterRestart) {
@@ -162,9 +166,27 @@
             PM.toast(PM.t('action.failed', '操作失败：{message}', { message: message }), 'error');
         } finally {
             PM.state.busyId = null;
+            PM.renderAll();
         }
         await load();
         if (global.PixivNav) PixivNav.refresh();
+    }
+
+    async function onRevocationRefresh(repositoryId, button) {
+        if (button.disabled || PM.state.revocationRefreshing) return;
+        PM.state.revocationRefreshing = true;
+        button.disabled = true;
+        try {
+            var result = await PM.refreshRevocations(repositoryId);
+            PM.toast(result.refreshed ? PM.t('revocation.refreshed') : PM.t('revocation.failed', '', {code: result.code}),
+                result.refreshed ? 'ok' : 'error');
+        } catch (failure) {
+            PM.toast(PM.t('revocation.failed', '', {code: failure.code || failure.message}), 'error');
+        } finally {
+            button.disabled = false;
+            PM.state.revocationRefreshing = false;
+            await load();
+        }
     }
 
     async function onTrustAction(id, action) {
@@ -348,6 +370,16 @@
         }
 
         grid.addEventListener('click', function (e) {
+            var repair = e.target.closest('[data-pm-repair]');
+            if (repair && !repair.disabled && !PM.state.installBusy) {
+                PM.openInstallModal();
+                return;
+            }
+            var refresh = e.target.closest('[data-pm-revocations]');
+            if (refresh) {
+                onRevocationRefresh(refresh.getAttribute('data-pm-revocations'), refresh);
+                return;
+            }
             var toggle = e.target.closest('[data-pm-toggle]');
             if (toggle && !toggle.disabled) {
                 onToggle(toggle.getAttribute('data-pm-toggle'));

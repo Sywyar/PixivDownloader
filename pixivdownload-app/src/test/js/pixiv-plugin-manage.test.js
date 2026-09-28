@@ -343,6 +343,8 @@ const DESC_NOT_INSTALLED = '该插件尚未安装。';
 
     const failed = PM.renderCardHtml(vmOf({ id: 'bad-one', source: 'external', status: 'FAILED', managed: false }));
     ok('失败状态卡片抬升左侧色条', failed.indexOf('pm-card--bad') !== -1);
+    ok('失败外置插件提供换包修复', failed.includes('data-pm-repair'));
+    ok('内置插件不提供换包修复', !plain.includes('data-pm-repair'));
 })();
 
 // —— 4) iconKey 受控白名单：已知 / 未知 / 缺失 ——
@@ -733,9 +735,13 @@ async function removalInteractionTest() {
     };
     const context = { document, console, FormData: FormDataStub,
         addEventListener() {}, PixivActions: { bind() {} },
-        PixivFeedback: { async alert(options) { alerts.push(options); } },
+        PixivFeedback: { async alert(options) { alerts.push(options); }, async confirm() { return true; } },
         fetch: async (url, options) => {
             requests.push({ url, options });
+            if (url.endsWith('/impact')) return { ok: true, json: async () => ({
+                fingerprint: 'a'.repeat(64), plugin: {id: 'sample', version: '1.0.0',
+                    lifecyclePolicy: 'PROCESS_RESTART'}, consumers: []
+            }) };
             return { ok: true, json: async () => ({ id: 'sample', action: 'remove', effectiveAfterRestart: true }) };
         }
     };
@@ -752,11 +758,18 @@ async function removalInteractionTest() {
     const action = { disabled: false, getAttribute(name) { return name === 'data-pm-id' ? 'sample' : 'remove'; } };
     elements.get('pm-grid').click({ target: { closest(selector) { return selector === '[data-pm-action]' ? action : null; } } });
     await new Promise(resolve => setImmediate(resolve));
-    eq('移除点击只向统一管理端点发送一次请求', requests.length, 1);
-    eq('移除请求使用已有 remove 动词', requests[0].url, '/api/plugins/sample/remove');
+    eq('移除点击先读影响再执行一次动作', requests.length, 2);
+    eq('移除请求使用确认过的 remove 动词', requests[1].url, '/api/plugins/sample/actions/remove');
+    eq('移除绑定当前影响指纹', JSON.parse(requests[1].options.body).fingerprint, 'a'.repeat(64));
     eq('待重启移除显示明确提示', alerts.length, 1);
     ok('重启提示使用移除文案而非启停设置文案', alerts[0].message.includes('remove.restart-message'));
     eq('移除反馈结束后解除忙状态', manage.state.busyId, null);
+    let opened = 0;
+    manage.openInstallModal = () => { opened++; };
+    const repair = {disabled: false};
+    elements.get('pm-grid').click({target: {closest(selector) {return selector === '[data-pm-repair]' ? repair : null;}}});
+    eq('失败卡片修复复用上传弹窗', opened, 1);
+    eq('打开修复入口不会直接提交安装', requests.length, 2);
 }
 
 (async function () {

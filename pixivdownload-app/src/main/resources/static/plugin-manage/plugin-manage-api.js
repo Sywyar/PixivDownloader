@@ -22,11 +22,12 @@
 
     // POST /api/plugins/{id}/{verb}（verb ∈ load/start/quiesce/stop/unload/restart/reload）。
     // 成功 → { id, action, phase }；失败 → 抛出携 { code, error, httpStatus, pluginId, action } 的错误。
-    async function performAction(id, verb) {
-        var url = PM.ACTION_URL_PREFIX + encodeURIComponent(id) + '/' + encodeURIComponent(verb);
+    async function performAction(id, verb, fingerprint) {
+        var url = PM.ACTION_URL_PREFIX + encodeURIComponent(id) + (fingerprint ? '/actions/' : '/') + encodeURIComponent(verb);
         var res = await fetch(url, {
             method: 'POST',
-            headers: { 'Accept': 'application/json' },
+            headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+            body: fingerprint ? JSON.stringify({fingerprint: fingerprint}) : undefined,
             credentials: 'same-origin'
         });
         var body = null;
@@ -47,8 +48,8 @@
     }
 
     // PUT /api/plugins/{id}/enabled，持久化插件启停配置；实际生效方式由 lifecyclePolicy 决定。
-    async function setEnabled(id, enabled) {
-        var url = PM.ACTION_URL_PREFIX + encodeURIComponent(id) + '/enabled';
+    async function setEnabled(id, enabled, fingerprint) {
+        var url = PM.ACTION_URL_PREFIX + encodeURIComponent(id) + (fingerprint ? '/enabled-preview' : '/enabled');
         var res = await fetch(url, {
             method: 'PUT',
             headers: {
@@ -56,7 +57,7 @@
                 'Content-Type': 'application/json'
             },
             credentials: 'same-origin',
-            body: JSON.stringify({ enabled: enabled === true })
+            body: JSON.stringify({ enabled: enabled === true, fingerprint: fingerprint })
         });
         var body = null;
         try {
@@ -177,6 +178,49 @@
     }
 
     PM.fetchStatus = fetchStatus;
+    PM.refreshRevocations = async function (repositoryId) {
+        var res = await fetch(PM.ACTION_URL_PREFIX + 'revocations/' + encodeURIComponent(repositoryId) + '/refresh', {
+            method: 'POST', headers: { 'Accept': 'application/json' }, credentials: 'same-origin'
+        });
+        var result = await res.json();
+        if (!res.ok) {
+            var failure = new Error('HTTP ' + res.status);
+            failure.code = result.code;
+            throw failure;
+        }
+        return result;
+    };
+    PM.fetchImpact = async function (id) {
+        var res = await fetch(PM.ACTION_URL_PREFIX + encodeURIComponent(id) + '/impact', {
+            headers: { 'Accept': 'application/json' }, credentials: 'same-origin'
+        });
+        var body = await res.json();
+        if (!res.ok) throw new Error(body.error || body.message || ('HTTP ' + res.status));
+        return body;
+    };
+    PM.confirmImpact = async function (id, action) {
+        var preview = await PM.fetchImpact(id);
+        if (!preview || !/^[0-9a-f]{64}$/.test(preview.fingerprint)
+                || !global.PixivFeedback || typeof global.PixivFeedback.confirm !== 'function') {
+            throw new Error(PM.t('impact.unavailable'));
+        }
+        var plugin = preview.plugin;
+        var consumers = (preview.consumers || []).map(function (entry) {
+            return entry.id + ' (' + (entry.loadedVersion || entry.version) + ', '
+                + (entry.runtimePhase || entry.status) + ')';
+        });
+        var confirmed = await global.PixivFeedback.confirm({
+            title: PM.t('impact.title'),
+            message: PM.t('impact.message', '', {
+                action: PM.t('action.' + action, action), plugin: plugin.id,
+                version: plugin.version || '—', loaded: plugin.loadedVersion || '—',
+                policy: PM.t(PM.lifecyclePolicyMeta(plugin.lifecyclePolicy).key),
+                consumers: consumers.join(', ') || '—'
+            }),
+            confirmLabel: PM.t('impact.confirm'), cancelLabel: PM.t('trust.confirm.cancel')
+        });
+        return confirmed ? preview.fingerprint : null;
+    };
     PM.performAction = performAction;
     PM.setEnabled = setEnabled;
     PM.restartBackend = restartBackend;

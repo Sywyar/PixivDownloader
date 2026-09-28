@@ -24,6 +24,9 @@ import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageVersion;
+import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginOperation;
+import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginOperationSnapshot;
+import java.util.function.Consumer;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -54,6 +57,7 @@ public class PluginCatalogAcquisitionService {
     private final PluginDependencyResolver dependencyResolver;
     private final PluginCatalogRevocationService revocations;
     private CommunityPackageService communityPackages;
+    private PluginCatalogInstallPreview installPreview;
 
     public PluginCatalogAcquisitionService(PluginCatalogService catalogService,
                                            PluginPackageDownloader downloader,
@@ -70,9 +74,11 @@ public class PluginCatalogAcquisitionService {
     @Autowired
     public PluginCatalogAcquisitionService(PluginCatalogService catalogService, PluginPackageDownloader downloader,
                                            PluginInstallService installService, PluginDependencyResolver dependencyResolver,
-                                           PluginCatalogRevocationService revocations, CommunityPackageService communityPackages) {
+                                           PluginCatalogRevocationService revocations, CommunityPackageService communityPackages,
+                                           PluginCatalogInstallPreview installPreview) {
         this(catalogService, downloader, installService, dependencyResolver, revocations);
         this.communityPackages = communityPackages;
+        this.installPreview = installPreview;
     }
 
     public PluginCatalogAcquisitionService(PluginCatalogService catalogService,
@@ -122,6 +128,51 @@ public class PluginCatalogAcquisitionService {
         return installFrom(resolved.repository(), manifest, pluginId, version, confirmedTrustSha256);
     }
 
+    public PluginCatalogInstallPreview.View preview(String repositoryId, String pluginId, String version) {
+        return installPreview.preview(repositoryId, pluginId, version);
+    }
+
+    /** 只执行管理员刚确认的完整目录计划；各包的实际事务及部分成功结果仍由原安装链持有。 */
+    public PluginInstallReport installPreviewed(String repositoryId, String pluginId, String version,
+                                               String confirmedTrustSha256, String fingerprint) {
+        return installPreviewed(repositoryId, pluginId, version, confirmedTrustSha256, fingerprint, ignored -> { });
+    }
+
+    public PluginInstallReport installPreviewed(String repositoryId, String pluginId, String version,
+            String confirmedTrustSha256, String fingerprint, Consumer<ExternalPluginOperationSnapshot> progress) {
+        return installPreview.execute(repositoryId, pluginId, version, fingerprint, plan -> {
+            List<PluginDependencyInstallResult> completed = new ArrayList<>();
+            try {
+                for (var selected : plan.packages()) {
+                    String id = selected.entry().pluginId();
+                    var report = downloadAndInstall(selected.repository(), id, selected.pkg().version(),
+                            confirmedTrustSha256, selected, progress);
+                    progress.accept(new ExternalPluginOperationSnapshot(id, report.operation(), report.transactionId(), null));
+                    if (id.equals(pluginId) || !report.accepted() || report.recoveryBlocked()) {
+                        return report.withDependencyInstallResults(completed);
+                    }
+                    completed.add(PluginDependencyInstallResult.from(report));
+                }
+                throw new IllegalStateException("catalog plan has no target package");
+            } catch (PluginCatalogException failure) {
+                throw failure.withDependencyInstallResults(completed);
+            } catch (RuntimeException failure) {
+                log.error("Catalog installation failed for {} {}", pluginId, version, failure);
+                throw new PluginCatalogException(PluginCatalogErrorCode.OPERATION_FAILED, pluginId, version,
+                        "catalog installation failed").withDependencyInstallResults(completed);
+            }
+        });
+    }
+
+    private void requireSameSelection(PluginCatalogService.ResolvedPackage expected) {
+        var actual = catalogService.resolvePackage(expected.repository().repositoryId(),
+                expected.entry().pluginId(), expected.pkg().version());
+        if (!expected.repository().equals(actual.repository()) || !expected.pkg().equals(actual.pkg())) {
+            throw new PluginCatalogException(PluginCatalogErrorCode.INSTALL_PREVIEW_CHANGED,
+                    expected.entry().pluginId(), expected.pkg().version(), "catalog package changed after preview");
+        }
+    }
+
     /**
      * 在<b>给定仓库</b>的清单里按 id+version 选包 → 经<b>该仓库</b>装配的客户端 SSRF 安全下载到临时文件 → 受信完整性 /
      * 结构 / 兼容校验落盘 → 删临时文件。下载始终用 {@code repository}（清单的来源仓库），不退回默认 / 全局客户端。
@@ -153,7 +204,6 @@ public class PluginCatalogAcquisitionService {
         PluginCatalogPackage pkg = selected.pkg();
         repository = selected.repository();
         if (revocations != null) revocations.requireInstallAllowed(repository, pluginId, pkg);
-
         if (!VersionRequirement.parseSdk(pkg.requiredSdk()).isSatisfiedByCurrentSdk()) {
             return new PluginInstallReport(PluginInstallOutcome.REJECTED_INCOMPATIBLE, false, false,
                     pluginId, version, null, List.of(), List.of(),
@@ -276,20 +326,37 @@ public class PluginCatalogAcquisitionService {
 
     private PluginInstallReport downloadAndInstall(PluginRepository repository, String pluginId, String version,
                                                    String confirmedTrustSha256) {
+        return downloadAndInstall(repository, pluginId, version, confirmedTrustSha256, null);
+    }
+
+    private PluginInstallReport downloadAndInstall(PluginRepository repository, String pluginId, String version,
+            String confirmedTrustSha256, PluginCatalogService.ResolvedPackage expected) {
+        return downloadAndInstall(repository, pluginId, version, confirmedTrustSha256, expected, ignored -> { });
+    }
+
+    private PluginInstallReport downloadAndInstall(PluginRepository repository, String pluginId, String version,
+            String confirmedTrustSha256, PluginCatalogService.ResolvedPackage expected,
+            Consumer<ExternalPluginOperationSnapshot> progress) {
 
         var resolved = catalogService.resolvePackage(repository.repositoryId(), pluginId, version);
+        if (expected != null) {
+            requireSameSelection(expected);
+            resolved = expected;
+        }
         repository = resolved.repository();
         PluginCatalogPackage pkg = resolved.pkg();
         if (revocations != null) revocations.requireInstallAllowed(repository, pluginId, pkg);
 
         // throws PROXY_POLICY_UNSUPPORTED / INSECURE_URL / BLOCKED_ADDRESS / TOO_LARGE / FAILED / INVALID
+        progress.accept(new ExternalPluginOperationSnapshot(pluginId, ExternalPluginOperation.DOWNLOADING, null, null));
         Path temp = downloader.downloadToTemp(repository, pkg);
         try {
+            if (expected != null) requireSameSelection(expected);
             PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog(
                     repository.repositoryId(), repository.official(), pkg.expectedSizeBytes(), pkg.sha256(),
                     pkg.signature(), pluginId, version,
-                    repository.pagedCatalog() ? (pkg.requiredSdk() != null ? pkg.requiredSdk() : "*") : null,
-                    repository.pagedCatalog() ? pkg.dependencies() : null,
+                    repository.pagedCatalog() || expected != null ? (pkg.requiredSdk() != null ? pkg.requiredSdk() : "*") : null,
+                    repository.pagedCatalog() || expected != null ? pkg.dependencies() : null,
                     pkg.identityMigrationSignatures(), confirmedTrustSha256);
             if (repository.community()) {
                 if (communityPackages == null) throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE,
@@ -297,6 +364,7 @@ public class PluginCatalogAcquisitionService {
                 origin = origin.withCommunityEvidence(communityPackages.verify(temp, repository, pluginId, pkg));
             }
             if (revocations != null) revocations.requireInstallAllowed(repository, pluginId, pkg);
+            progress.accept(new ExternalPluginOperationSnapshot(pluginId, ExternalPluginOperation.INSTALLING, null, null));
             return installService.installTrustedFile(temp, false, origin);
         } finally {
             deleteQuietly(temp);

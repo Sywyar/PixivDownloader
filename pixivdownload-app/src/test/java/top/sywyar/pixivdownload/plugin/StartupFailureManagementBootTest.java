@@ -119,7 +119,9 @@ class StartupFailureManagementBootTest {
         var originalTask = tasks.findById(task);
         mvc.perform(post("/api/plugins/" + REQUIRED + "/remove"))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("REQUIRED_PLUGIN"));
-        mvc.perform(post("/api/plugins/" + OPTIONAL + "/remove"))
+        String confirmation = management.previewImpact(OPTIONAL).fingerprint();
+        mvc.perform(post("/api/plugins/" + OPTIONAL + "/actions/remove").contentType("application/json")
+                        .content("{\"fingerprint\":\"" + confirmation + "\"}"))
                 .andExpect(status().isOk());
         assertThat(runtime.packagePhases()).doesNotContainKey(OPTIONAL);
         assertThat(home.resolve("plugins/" + OPTIONAL + "-7.2.0.jar")).doesNotExist();

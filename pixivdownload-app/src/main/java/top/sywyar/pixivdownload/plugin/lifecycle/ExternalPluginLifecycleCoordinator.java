@@ -209,14 +209,28 @@ public class ExternalPluginLifecycleCoordinator {
         return lifecycleMutationEpoch.get();
     }
 
-    /** 统一的本地/市场安装更新事务；全局写预约从安全校验前持续到提交或回滚终态。 */
-    public PluginActivationResult installOrUpdate(Path packageFile, boolean allowDowngrade,
-                                                  PluginPackageOrigin origin) {
-        boolean outermostMutation = !lifecycleMutationLock.isHeldByCurrentThread();
+    /** 预约一组目录安装；下载不改变读模型 epoch，各包仍独立提交，不提供跨包回滚。 */
+    public <T> T withMutationReservation(java.util.function.Supplier<T> action) {
+        // ponytail: 复用全局写预约串行获取；若下载占用影响维护，再拆分预下载与短提交预约。
         if (!lifecycleMutationLock.tryLock()) {
             throw new ClassifiedPluginLifecycleException(PluginManagementErrorCode.OPERATION_IN_PROGRESS,
                     "another plugin lifecycle mutation is already in progress");
         }
+        try {
+            return action.get();
+        } finally {
+            lifecycleMutationLock.unlock();
+        }
+    }
+
+    /** 统一的本地/市场安装更新事务；全局写预约从安全校验前持续到提交或回滚终态。 */
+    public PluginActivationResult installOrUpdate(Path packageFile, boolean allowDowngrade,
+                                                  PluginPackageOrigin origin) {
+        if (!lifecycleMutationLock.tryLock()) {
+            throw new ClassifiedPluginLifecycleException(PluginManagementErrorCode.OPERATION_IN_PROGRESS,
+                    "another plugin lifecycle mutation is already in progress");
+        }
+        boolean outermostMutation = (lifecycleMutationEpoch.get() & 1L) == 0L;
         if (outermostMutation) {
             lifecycleMutationEpoch.incrementAndGet();
         }
@@ -711,11 +725,11 @@ public class ExternalPluginLifecycleCoordinator {
 
     private <T> T withLock(String packageId, ExternalPluginOperation operation,
                            String transactionId, Operation<T> action) {
-        boolean outermostMutation = !lifecycleMutationLock.isHeldByCurrentThread();
         if (!lifecycleMutationLock.tryLock()) {
             throw new ClassifiedPluginLifecycleException(PluginManagementErrorCode.OPERATION_IN_PROGRESS,
                     "another plugin lifecycle mutation is already in progress");
         }
+        boolean outermostMutation = (lifecycleMutationEpoch.get() & 1L) == 0L;
         if (outermostMutation) {
             lifecycleMutationEpoch.incrementAndGet();
         }

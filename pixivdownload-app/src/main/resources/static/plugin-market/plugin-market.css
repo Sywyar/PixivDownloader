@@ -791,3 +791,5 @@ textarea {
 .pixiv-theme-toggle--green svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 html[data-theme="dark"] .pixiv-lang-switcher--green .pixiv-lang-switcher__select option { background: var(--surface); color: var(--text); }
+
+.pmk-operation-entry { white-space: pre-wrap; overflow-wrap: anywhere; }

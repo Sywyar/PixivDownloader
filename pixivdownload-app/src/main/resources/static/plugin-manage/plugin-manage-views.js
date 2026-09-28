@@ -191,6 +191,12 @@
             parts.push('<p class="pm-card-desc" title="' + E(vm.desc) + '">' + E(vm.desc) + '</p>');
         }
 
+        if (vm.source === 'external' && vm.status === 'FAILED') {
+            parts.push('<button type="button" class="pm-btn" data-pm-repair'
+                + (busy || PM.state.installBusy ? ' disabled' : '') + '>'
+                + E(PM.t('repair.replace', '换包修复')) + '</button>');
+        }
+
         // 包级写操作状态。
         if (vm.updating) {
             parts.push('<div class="pm-progress"><div class="pm-progress-head"><span>'
@@ -210,6 +216,11 @@
             parts.push('<details class="pm-notes"><summary>' + E(PM.t('trust.facts', '来源与能力声明')) + '</summary>'
                 + vm.trustLines.map(function (line) { return '<div class="pm-note">' + E(line) + '</div>'; }).join('')
                 + '</details>');
+            if (vm.trustFacts.revocation && vm.trustFacts.revocation.refreshAvailable) {
+                parts.push('<button type="button" class="pm-btn" data-pm-revocations="'
+                    + E(vm.trustFacts.revocation.repositoryId) + '"' + (busy ? ' disabled' : '') + '>'
+                    + E(PM.t('revocation.refresh', '刷新撤销信息')) + '</button>');
+            }
         }
 
         // 底栏：轻量元信息（执行信任级别 / 生命周期 / SDK / 依赖数 / 验签）+ 浮层操作菜单。

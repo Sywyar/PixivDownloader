@@ -55,6 +55,12 @@ public enum PluginCatalogErrorCode {
             "plugin.catalog.error.repository-update-rollback"),
     REVOCATION_UNAVAILABLE(HttpStatus.BAD_GATEWAY, "plugin.catalog.error.revocation-unavailable"),
     REVOCATION_REJECTED(HttpStatus.UNPROCESSABLE_ENTITY, "plugin.catalog.error.revocation-rejected"),
+    INSTALL_PREVIEW_CHANGED(HttpStatus.CONFLICT, "plugin.catalog.error.install-preview-changed"),
+    INSTALL_PREVIEW_BLOCKED(HttpStatus.CONFLICT, "plugin.catalog.error.install-preview-blocked"),
+    OPERATION_IN_PROGRESS(HttpStatus.CONFLICT, "plugin.manage.error.operation-in-progress"),
+    OPERATION_NOT_FOUND(HttpStatus.GONE, "plugin.catalog.error.operation-not-found"),
+    OPERATION_CAPACITY(HttpStatus.CONFLICT, "plugin.catalog.error.operation-capacity"),
+    OPERATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "plugin.catalog.error.operation-failed"),
 
     /** 仓库代理策略不受支持（无法识别的未知策略串；{@code direct-strict} 与 {@code proxy-trusted} 均已接线）。 */
     PROXY_POLICY_UNSUPPORTED(HttpStatus.UNPROCESSABLE_ENTITY, "plugin.catalog.error.proxy-policy-unsupported"),

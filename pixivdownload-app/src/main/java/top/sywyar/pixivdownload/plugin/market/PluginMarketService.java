@@ -210,6 +210,16 @@ public class PluginMarketService {
         return acquisitionService.install(repositoryId, pluginId, version, confirmedTrustSha256);
     }
 
+    public top.sywyar.pixivdownload.plugin.catalog.PluginCatalogInstallPreview.View preview(
+            String repositoryId, String pluginId, String version) {
+        return acquisitionService.preview(repositoryId, pluginId, version);
+    }
+
+    public PluginInstallReport installPreviewed(String repositoryId, String pluginId, String version,
+            String confirmedTrustSha256, String fingerprint) {
+        return acquisitionService.installPreviewed(repositoryId, pluginId, version, confirmedTrustSha256, fingerprint);
+    }
+
     /**
      * 把 {@code repositoryId}（空 → 默认仓库）解析为一个<b>已启用</b>仓库；无可用默认仓库 → {@code CATALOG_DISABLED}、
      * 未知 id → {@code UNKNOWN_REPOSITORY}、目标仓库禁用 → {@code REPOSITORY_DISABLED}。

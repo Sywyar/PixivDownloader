@@ -16,6 +16,36 @@ function page() {
     return sandbox;
 }
 
+test('撤销快照时间、限制原因和驻留实例风险分别展示且文本转义', () => {
+    const p = page();
+    const client = { t: key => key };
+    const revoked = { revocationStatus: 'REVOKED', revocation: {
+        status: 'REVOKED', freshness: 'EXPIRED', fetchedAt: '2033-01-02T03:04:05Z',
+        generatedTime: '2033-01-01T00:00:00Z', nextUpdate: '2033-01-02T00:00:00Z',
+        graceUntil: '2033-01-03T00:00:00Z', installBlocked: true, executionBlocked: true,
+        refreshAvailable: true, repositoryId: 'sample', restrictions: [{
+            scope: 'PACKAGE_SHA256', action: 'REVOKED', reasonCode: '<img onerror=alert(1)>',
+            effectiveTime: '2033-01-01T04:00:00Z'
+        }]
+    }};
+    const lines = p.PixivPluginPresentationTokens.trustLines(revoked, client, true);
+    assert.ok(lines.some(line => line.includes(revoked.revocation.fetchedAt)));
+    for (const key of ['revocation-install-blocked', 'revocation-execution-blocked', 'revocation-running', 'freshness.EXPIRED']) {
+        assert.ok(lines.some(line => line.includes(key)));
+    }
+    assert.ok(!p.PixivPluginPresentationTokens.trustLines(revoked, client, false)
+        .some(line => line.includes('revocation-running')));
+    const local = {revocation: {status: 'NOT_PROVIDED', freshness: 'NOT_PROVIDED'}};
+    assert.ok(!p.PixivPluginPresentationTokens.trustLines(local, client, true)
+        .some(line => line.includes('revocation-running')));
+    p.PixivPluginManage.applyReport({plugins: [{id: 'demo', source: 'external', status: 'STARTED',
+        executionMode: 'HOST_PROCESS_FULL_TRUST', verification: revoked, messages: []}]}, true);
+    const html = p.PixivPluginManage.renderCardHtml(p.PixivPluginManage.allViewModels()[0]);
+    assert.ok(html.includes('&lt;img'));
+    assert.ok(!html.includes('<img onerror'));
+    assert.ok(html.includes('data-pm-revocations="sample"'));
+});
+
 test('来源、版本审核和声明彼此独立，未知 token 保留且空声明不表示安全', () => {
     const p = page();
     const client = { t: (key, fallback) => key };

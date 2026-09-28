@@ -106,6 +106,19 @@ class PluginManagementControllerTest {
     }
 
     @Test
+    @DisplayName("管理确认透传当前指纹且状态变化不会回退到无预览执行")
+    void managementPreviewDoesNotRetryStaleConfirmation() throws Exception {
+        String fingerprint = "b".repeat(64);
+        when(service.performPreviewed("sample", LifecycleAction.REMOVE, fingerprint)).thenThrow(
+                new PluginManagementException(PluginManagementErrorCode.IMPACT_CHANGED,
+                        "sample", "remove", null, "changed"));
+        mockMvc.perform(post("/api/plugins/sample/actions/remove").contentType("application/json")
+                        .content("{\"fingerprint\":\"" + fingerprint + "\"}"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("IMPACT_CHANGED"));
+        verify(service, never()).perform(anyString(), any());
+    }
+
+    @Test
     @DisplayName("GET /api/plugins/status 返回恢复原因与插件管理视图 JSON")
     void statusReturnsReport() throws Exception {
         when(service.list()).thenReturn(new PluginManagementService.PluginManagementReport(
