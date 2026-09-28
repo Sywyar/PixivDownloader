@@ -1026,6 +1026,119 @@ class PluginManagementServiceTest {
                 REQUIRED_EXTERNAL_ID, VersionRequirement.unspecified(), false, "plugin.recovery.blocked")));
     }
 
+    @Test
+    @DisplayName("进程重启插件移除可在禁用态执行并保留必选守卫")
+    void removeDisabledProcessPlugin() {
+        PluginStatusService status = mock(PluginStatusService.class);
+        PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
+        ExternalPluginLifecycleCoordinator coordinator = mock(ExternalPluginLifecycleCoordinator.class);
+        PluginDescriptor descriptor = processDescriptor(EXTERNAL_ID, "7.2.0");
+        when(status.report()).thenReturn(new PluginStatusReport(List.of(
+                new PluginDiagnostic(EXTERNAL_ID, PluginStatus.DISABLED, descriptor, false, List.of()))));
+        when(coordinator.remove(EXTERNAL_ID)).thenReturn(true);
+        PluginManagementService service = new PluginManagementService(status, lifecycle,
+                RequiredPluginPolicy.empty(), mock(RecoveryModeService.class), coordinator,
+                mock(ExternalPluginInstaller.class), new PluginToggleProperties());
+
+        var result = service.perform(EXTERNAL_ID, PluginManagementService.LifecycleAction.REMOVE);
+        assertThat(result.effectiveAfterRestart()).isTrue();
+        assertThat(result.phase()).isNull();
+        verify(lifecycle, never()).stop(EXTERNAL_ID);
+
+        when(status.report()).thenReturn(new PluginStatusReport(List.of(new PluginDiagnostic(
+                REQUIRED_EXTERNAL_ID, PluginStatus.DISABLED,
+                processDescriptor(REQUIRED_EXTERNAL_ID, "7.2.0"), true, List.of()))));
+        PluginManagementService requiredService = new PluginManagementService(status, lifecycle,
+                requiredPolicy(), mock(RecoveryModeService.class), coordinator,
+                mock(ExternalPluginInstaller.class), new PluginToggleProperties());
+        assertManagementError(() -> requiredService.perform(REQUIRED_EXTERNAL_ID, PluginManagementService.LifecycleAction.REMOVE),
+                PluginManagementErrorCode.REQUIRED_PLUGIN);
+        verify(coordinator, never()).remove(REQUIRED_EXTERNAL_ID);
+    }
+
+    @Test
+    @DisplayName("待进程重启分别报告安装版本与驻留版本且不复用旧字节证明")
+    void processRestartProjectionSeparatesInstalledAndLoadedArtifacts() {
+        PluginDescriptor loaded = processDescriptor(EXTERNAL_ID, "7.2.0");
+        PluginDescriptor installed = processDescriptor(EXTERNAL_ID, "7.3.0");
+        Path path = Path.of("plugins", "pending-plugin.jar");
+        PluginProvenanceRecord provenance = new PluginProvenanceRecord(
+                top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource.LOCAL_UPLOAD,
+                null, false, true, null, null, 1L, "a".repeat(64), null,
+                VerificationStatus.UNSIGNED_ALLOWED, null, null, null,
+                Instant.parse("2026-07-22T00:00:00Z"), null, null, "UNSIGNED_ALLOWED");
+        PluginStatusService status = mock(PluginStatusService.class);
+        PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
+        ExternalPluginLifecycleCoordinator coordinator = mock(ExternalPluginLifecycleCoordinator.class);
+        ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
+        when(status.recoveryGateSnapshot()).thenReturn(safeRecoveryGate());
+        when(status.report(org.mockito.ArgumentMatchers.anyList())).thenReturn(new PluginStatusReport(List.of(
+                new PluginDiagnostic(EXTERNAL_ID, PluginStatus.STARTED, loaded, false, List.of()))));
+        when(lifecycle.phase(EXTERNAL_ID)).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
+        when(lifecycle.artifactPath(EXTERNAL_ID)).thenReturn(Optional.of(Path.of("plugins", "previous-plugin.jar")));
+        when(coordinator.processRestartDescriptor(EXTERNAL_ID)).thenReturn(Optional.of(loaded));
+        when(installer.snapshotInstalledWithProvenance(512, 64L * 1024L * 1024L)).thenReturn(
+                new InstalledPluginInventorySnapshot(List.of(new InstalledPluginSnapshot(
+                        new InstalledPlugin(installed, path), 1L, "a".repeat(64),
+                        ProvenanceSnapshotState.PRESENT, provenance, 128L)), false));
+        PluginManagementService service = new PluginManagementService(status, lifecycle, RequiredPluginPolicy.empty(),
+                mock(RecoveryModeService.class), coordinator, installer, new PluginToggleProperties());
+
+        var upgraded = entry(service.list(), EXTERNAL_ID);
+        assertThat(upgraded.version()).isEqualTo("7.3.0");
+        assertThat(upgraded.loadedVersion()).isEqualTo("7.2.0");
+        assertThat(upgraded.effectiveAfterRestart()).isTrue();
+        assertThat(upgraded.verification().status()).isEqualTo("UNSIGNED_ALLOWED");
+        assertThat(upgraded.availableActions()).containsExactly("remove");
+
+        when(installer.snapshotInstalledWithProvenance(512, 64L * 1024L * 1024L)).thenReturn(
+                new InstalledPluginInventorySnapshot(List.of(new InstalledPluginSnapshot(
+                        new InstalledPlugin(installed, path), 1L, "b".repeat(64),
+                        ProvenanceSnapshotState.PRESENT, provenance, 128L)), false));
+        assertThat(entry(service.list(), EXTERNAL_ID).verification().status()).isEqualTo("PROVENANCE_INVALID");
+
+        when(installer.snapshotInstalledWithProvenance(512, 64L * 1024L * 1024L)).thenReturn(
+                new InstalledPluginInventorySnapshot(List.of(), false));
+        var removed = entry(service.list(), EXTERNAL_ID);
+        assertThat(removed.version()).isNull();
+        assertThat(removed.loadedVersion()).isEqualTo("7.2.0");
+        assertThat(removed.effectiveAfterRestart()).isTrue();
+        assertThat(removed.verification().status()).isEqualTo("NOT_INSTALLED");
+        assertThat(removed.trust().state()).isEqualTo(PluginManagementService.PluginTrustState.NOT_INSTALLED);
+        assertThat(removed.availableActions()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("进程重启策略的开发产物不因没有安装包而显示待移除")
+    void developmentProcessPluginRetainsVersionAndToggle() {
+        PluginDescriptor descriptor = processDescriptor(EXTERNAL_ID, "7.2.0");
+        PluginStatusService status = mock(PluginStatusService.class);
+        PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
+        ExternalPluginLifecycleCoordinator coordinator = mock(ExternalPluginLifecycleCoordinator.class);
+        ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
+        when(status.recoveryGateSnapshot()).thenReturn(safeRecoveryGate());
+        when(status.report(org.mockito.ArgumentMatchers.anyList())).thenReturn(new PluginStatusReport(List.of(
+                new PluginDiagnostic(EXTERNAL_ID, PluginStatus.STARTED, descriptor, false, List.of()))));
+        when(lifecycle.isDevelopmentArtifact(EXTERNAL_ID)).thenReturn(true);
+        when(coordinator.processRestartDescriptor(EXTERNAL_ID)).thenReturn(Optional.of(descriptor));
+        when(installer.snapshotInstalledWithProvenance(512, 64L * 1024L * 1024L)).thenReturn(
+                new InstalledPluginInventorySnapshot(List.of(), false));
+        PluginManagementService service = new PluginManagementService(status, lifecycle, RequiredPluginPolicy.empty(),
+                mock(RecoveryModeService.class), coordinator, installer, new PluginToggleProperties());
+
+        var entry = entry(service.list(), EXTERNAL_ID);
+        assertThat(entry.version()).isEqualTo("7.2.0");
+        assertThat(entry.effectiveAfterRestart()).isFalse();
+        assertThat(entry.toggleable()).isTrue();
+        assertThat(entry.trust().state()).isEqualTo(PluginManagementService.PluginTrustState.DEVELOPMENT);
+    }
+
+    private static PluginDescriptor processDescriptor(String id, String version) {
+        return new PluginDescriptor(id, id, version, VersionRequirement.unspecified(), List.of(),
+                id + ".Plugin", id, "nav.label", null, "puzzle", "neutral", PluginKind.FEATURE,
+                List.of(), PluginLifecyclePolicy.PROCESS_RESTART);
+    }
+
     private static PluginManagementService.PluginManagementEntry entry(
             PluginManagementService.PluginManagementReport report, String id) {
         return report.plugins().stream().filter(e -> e.id().equals(id)).findFirst().orElseThrow();

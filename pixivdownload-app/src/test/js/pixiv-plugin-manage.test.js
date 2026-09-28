@@ -276,6 +276,9 @@ const DESC_NOT_INSTALLED = '该插件尚未安装。';
     eq('PROCESS_RESTART tone', process.lifecycleTone, 'process');
     ok('PROCESS_RESTART 可不受热生命周期管理但仍允许持久化启停', process.toggleable === true && process.enabled === true);
     eq('PROCESS_RESTART 不暴露热生命周期动词', process.availableActions.length, 0);
+    const removable = vmOf({ id: 'process-removable', source: 'external',
+        lifecyclePolicy: 'PROCESS_RESTART', availableActions: ['stop', 'remove', 'reload'] });
+    eq('PROCESS_RESTART 保留后端明确允许的移除动作', removable.availableActions.join(','), 'remove');
 
     const builtIn = vmOf({
         id: 'core', source: 'built-in', status: 'STARTED', managed: false,
@@ -713,8 +716,52 @@ async function apiTests() {
     PM.installPackage = originalInstallPackage;
 }
 
+async function removalInteractionTest() {
+    const elements = new Map();
+    const alerts = [];
+    const requests = [];
+    const document = {
+        readyState: 'loading', body: {},
+        addEventListener(name, listener) { this[name] = listener; },
+        getElementById(id) {
+            if (!elements.has(id)) elements.set(id, {
+                addEventListener(name, listener) { this[name] = listener; },
+                querySelectorAll() { return []; }
+            });
+            return elements.get(id);
+        }
+    };
+    const context = { document, console, FormData: FormDataStub,
+        addEventListener() {}, PixivActions: { bind() {} },
+        PixivFeedback: { async alert(options) { alerts.push(options); } },
+        fetch: async (url, options) => {
+            requests.push({ url, options });
+            return { ok: true, json: async () => ({ id: 'sample', action: 'remove', effectiveAfterRestart: true }) };
+        }
+    };
+    context.window = context;
+    vm.createContext(context);
+    for (const source of [TOKENS_SRC, CORE_SRC, API_SRC]) vm.runInContext(source, context);
+    const manage = context.PixivPluginManage;
+    manage.i18n.client = { apply() {}, t(key) { return key; } };
+    manage.renderAll = function () {};
+    manage.toast = function () {};
+    manage.fetchStatus = async () => ({ plugins: [] });
+    vm.runInContext(fs.readFileSync(path.join(STATIC, 'plugin-manage-init.js'), 'utf8'), context);
+    await document.DOMContentLoaded();
+    const action = { disabled: false, getAttribute(name) { return name === 'data-pm-id' ? 'sample' : 'remove'; } };
+    elements.get('pm-grid').click({ target: { closest(selector) { return selector === '[data-pm-action]' ? action : null; } } });
+    await new Promise(resolve => setImmediate(resolve));
+    eq('移除点击只向统一管理端点发送一次请求', requests.length, 1);
+    eq('移除请求使用已有 remove 动词', requests[0].url, '/api/plugins/sample/remove');
+    eq('待重启移除显示明确提示', alerts.length, 1);
+    ok('重启提示使用移除文案而非启停设置文案', alerts[0].message.includes('remove.restart-message'));
+    eq('移除反馈结束后解除忙状态', manage.state.busyId, null);
+}
+
 (async function () {
     await apiTests();
+    await removalInteractionTest();
     console.log('pixiv-plugin-manage.test.js: ' + passed + ' assertions passed');
 })().catch(err => {
     console.error('TEST FAILED:', err && err.message ? err.message : err);

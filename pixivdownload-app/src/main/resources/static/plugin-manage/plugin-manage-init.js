@@ -149,6 +149,14 @@
             var result = await PM.performAction(id, verb);
             var actionLabel = PM.t('action.' + (result && result.action || verb), (result && result.action) || verb);
             PM.toast(PM.t('action.done', '已执行：{action}', { action: actionLabel }), 'ok');
+            if (result && result.effectiveAfterRestart) {
+                await global.PixivFeedback.alert({
+                    title: PM.t('restart.process.title', '需要重启软件'),
+                    message: PM.t('remove.restart-message',
+                        '插件包已移除，用户数据已保留。当前加载的插件会在完整退出并重新启动软件后移除。'),
+                    confirmLabel: PM.t('restart.process.done', '知道了')
+                });
+            }
         } catch (e) {
             var message = (e && e.message) || PM.t('action.error.generic', '操作失败');
             PM.toast(PM.t('action.failed', '操作失败：{message}', { message: message }), 'error');
