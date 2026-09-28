@@ -69,6 +69,7 @@ async function fixture(alt, size = 300, production = false) {
     sandbox.PixivBatchAlt = {};
     vm.createContext(sandbox, {codeGeneration:{strings:false,wasm:false}});
     if (production || !alt) {
+        vm.runInContext(fs.readFileSync(path.join(staticRoot,'pixiv-batch','batch-media-progress.js'),'utf8'), sandbox);
         const facades = Object.fromEntries(['updateStats','renderQueue','renderCurrent','setCurrent'].map(key => [key, sandbox[key]]));
         for (const file of alt ? ['alt-core.js','alt-queue.js'] : ['batch-queue-model.js','batch-queue-view.js']) {
             vm.runInContext(fs.readFileSync(path.join(staticRoot,alt?'pixiv-batch-alt':'pixiv-batch',file),'utf8'), sandbox);
@@ -130,6 +131,40 @@ async function fixture(alt, size = 300, production = false) {
 }
 
 for(const alt of [false,true]) {
+    test((alt?'侧栏':'经典')+'真实队列同时显示下载与媒体处理，失败停止动画并保留可访问状态',async()=>{
+        const f=await fixture(alt,2,true), q=f.state.queue[0];
+        q.imageProgress={imageNumber:3,totalImages:5,progress:25,downloadedBytes:1024,totalBytes:4096,
+            processing:[{imageNumber:1,totalImages:5,phase:'ffmpeg-waiting'},
+                {imageNumber:2,totalImages:5,phase:'verifying',outputFormat:'webp',outputIndex:1,outputCount:2}]};
+        f.sync(q);await f.flush();
+        for(const root of [f.list,f.current]) {
+            assert.match(textOf(root),/queue.image-download.label/);
+            assert.match(textOf(root),/queue.media.waiting/);
+            assert.match(textOf(root),/queue.media.verifying.*WEBP.*1\/2/);
+            const bars=all(root,n=>n.props.role==='progressbar');
+            assert.equal(bars.filter(n=>n.props['aria-busy']==='true').length,2);
+            assert.equal(bars.filter(n=>n.props['aria-valuenow']==='25').length,1);
+        }
+        q.imageProgress={phase:'processing',processing:[{imageNumber:1,totalImages:5,phase:'thumbnail',status:'failed'}]};
+        f.sync(q);await f.flush();
+        assert.match(textOf(f.current),/queue.media.failed/);
+        assert.doesNotMatch(textOf(f.current),/queue.image-download.label/);
+        assert.equal(byClass(f.current,'is-indeterminate').length,0);
+        delete q.imageProgress;
+        for(const phase of ['ffmpeg-waiting','finalizing']) {
+            q.ugoiraProgress={phase};f.sync(q);await f.flush();
+            assert.match(textOf(f.current),phase==='finalizing'?/queue.media.finalizing/:/queue.media.waiting/);
+            const bar=all(f.current,n=>n.props.role==='progressbar').at(-1);
+            assert.equal(bar.props['aria-busy'],'true');
+            assert.equal(bar.props['aria-valuenow'],undefined);
+            q.ugoiraProgress.status='failed';f.sync(q);await f.flush();
+            assert.equal(bar.props['aria-busy'],'false');
+            assert.equal(byClass(f.current,'is-indeterminate').length,0);
+            assert.match(textOf(f.current),/queue.ugoira.failed/);
+        }
+        assert.deepEqual(f.errors,[]);
+    });
+
     test((alt?'侧栏':'经典')+'当前卡跳过无关进度，保留状态切换、嵌套更新和空闲语言刷新',async()=>{
         const f=await fixture(alt,500,true), front=f.state.queue[0], other=f.state.queue[1];
         other.status='downloading';f.sync();await f.flush();

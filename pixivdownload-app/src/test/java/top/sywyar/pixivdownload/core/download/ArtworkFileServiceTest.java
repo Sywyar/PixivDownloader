@@ -90,7 +90,12 @@ class ArtworkFileServiceTest {
         when(database.getArtwork(anyLong())).thenReturn(artwork);
         when(artwork.count()).thenReturn(1);
         when(locator.resolveImageFile(artwork, 0)).thenReturn(source.toFile());
-        var service = new ArtworkFileService(database, locator);
+        var runner = mock(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.class);
+        org.mockito.Mockito.doThrow(new IOException("fixture fallback")).when(runner).run(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), anyLong(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        var service = new ArtworkFileService(database, locator,
+                new top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaDecoder(runner, new com.fasterxml.jackson.databind.ObjectMapper()));
         Path cache = tempDir.resolve("thumbnails");
         int capacity = ArtworkFileService.MAX_CONCURRENT_THUMBNAILS;
         var started = new CountDownLatch(capacity);

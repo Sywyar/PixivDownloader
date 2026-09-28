@@ -29,6 +29,9 @@ function harness() {
         set innerHTML(value) { for (const child of [...this.children]) child.remove(); }
         get innerHTML() { return ''; }
         addEventListener(name, callback) { this.listeners.set(name, callback); }
+        replaceChildren(...children) { this.innerHTML = ''; children.forEach(child => this.appendChild(child)); }
+        pause() { this.paused = true; }
+        load() { this.reloaded = true; }
         getBoundingClientRect() { return this.rect; }
         decode() { return Promise.resolve(); }
         finish(width = 768, height = 1024) {
@@ -46,6 +49,7 @@ function harness() {
         querySelector() { return this.children.find(c => c.tagName === 'IMG'); }
     }
     const sandbox = {
+        fetch: async () => ({ok: true, headers: new Map([['content-type', 'image/png']])}),
         window: {location: {origin: 'http://localhost'}, innerWidth: 1440, innerHeight: 900,
             addEventListener(name, callback) {
                 const list = events.get(name) || []; list.push(callback); events.set(name, list);
@@ -88,6 +92,34 @@ function harness() {
     const displayedRequests = () => requests.filter(r => r.image.parentElement || r.image === nodes.get('lightboxImage'));
     return {sandbox, state, nodes, requests, observers, storage, events, displayedRequests, toasts};
 }
+
+test('视频探测迟到不回写已关闭区域，关闭后停止播放并释放资源地址', async () => {
+    const {sandbox} = harness();
+    const target = sandbox.document.getElementById('videoTarget');
+    let respond, requestSignal;
+    sandbox.fetch = (url, options) => {
+        requestSignal = options.signal;
+        return new Promise(resolve => { respond = resolve; });
+    };
+    const cancelled = new AbortController();
+    const pending = sandbox.loadImageToElement('/api/downloaded/image/123/0', target, {signal: cancelled.signal});
+    cancelled.abort();
+    respond({ok: true, headers: new Map([['content-type', 'video/mp4']])});
+    await pending;
+    assert.equal(requestSignal.aborted, true);
+    assert.equal(target.children.length, 0);
+    sandbox.fetch = async () => ({ok: true, headers: new Map([['content-type', 'video/mp4']])});
+    const playing = new AbortController();
+    await sandbox.loadImageToElement('/api/downloaded/image/123/0', target, {signal: playing.signal});
+    const video = target.children[0];
+    assert.equal(video.tagName, 'VIDEO');
+    assert.equal(video.controls, true);
+    playing.abort();
+    assert.equal(video.paused, true);
+    assert.equal(video.reloaded, true);
+    assert.equal(video.src, undefined);
+    assert.equal(target.children.length, 0);
+});
 
 test('灯箱只请求当前适屏预览，关闭后不再参与尺寸刷新', () => {
     const {sandbox, state, nodes, requests} = harness();
@@ -208,6 +240,7 @@ test('已访问预览按数量和像素预算复用，原图不进入缓存，�
         box.querySelector('img').finish(width, height); await loaded;
         assert.equal(requests.length, before + 1, '复用同一 URL 不建立第二份保持引用');
         const original = sandbox.loadImageToElement('/api/downloaded/image/123/0', box);
+        await new Promise(resolve => setImmediate(resolve));
         box.querySelector('img').finish(6000, 8000); await original;
         assert.equal(requests.length, before + 2, '原图只有显示节点，没有额外缓存引用');
         for (const callback of events.get('pagehide')) callback({});
