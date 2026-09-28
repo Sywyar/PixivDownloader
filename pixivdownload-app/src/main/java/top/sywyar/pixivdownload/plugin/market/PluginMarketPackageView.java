@@ -51,6 +51,18 @@ public record PluginMarketPackageView(
 
     static PluginMarketPackageView from(PluginRepository repository, PluginCatalogPackage pkg,
                                          String revocationStatus, boolean installable) {
+        return from(pkg, PluginVerificationProjector.forCatalogPackage(repository, pkg)
+                .withRevocation(revocationStatus), installable);
+    }
+
+    static PluginMarketPackageView from(PluginRepository repository, PluginCatalogPackage pkg,
+            top.sywyar.pixivdownload.plugin.verification.PluginRevocationView revocation) {
+        return from(pkg, PluginVerificationProjector.forCatalogPackage(repository, pkg)
+                .withRevocation(revocation), !revocation.installBlocked());
+    }
+
+    private static PluginMarketPackageView from(PluginCatalogPackage pkg,
+                                                PluginVerificationView verification, boolean installable) {
         boolean compatible = VersionRequirement.parseSdk(pkg.requiredSdk()).isSatisfiedByCurrentSdk();
         return new PluginMarketPackageView(
                 pkg.version(),
@@ -65,7 +77,7 @@ public record PluginMarketPackageView(
                 pkg.changeNotes(),
                 pkg.channel(),
                 pkg.deprecated(),
-                PluginVerificationProjector.forCatalogPackage(repository, pkg).withRevocation(revocationStatus),
+                verification,
                 installable);
     }
 }

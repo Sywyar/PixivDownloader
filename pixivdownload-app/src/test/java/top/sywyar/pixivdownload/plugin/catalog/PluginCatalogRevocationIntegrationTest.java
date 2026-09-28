@@ -81,6 +81,58 @@ class PluginCatalogRevocationIntegrationTest {
     }
 
     @Test
+    @DisplayName("撤销展示区分成功刷新、离线保留、宽限期与恢复联网，并保持执行准入一致")
+    void snapshotFactsSurviveOfflineAndUpdateAfterReconnect() throws Exception {
+        publish(1, List.of(), Instant.now().plusSeconds(3600));
+        assertThat(revocations.refreshConfigured(repository.repositoryId()).refreshed()).isTrue();
+        var first = revocations.details(repository, "demo", entry.packages().get(0),
+                store.revocations(repository.repositoryId()).orElseThrow());
+        assertThat(first.freshness()).isEqualTo("FRESH");
+        assertThat(first.fetchedAt()).isNotBlank();
+        assertThat(first.generatedTime()).isNotBlank();
+        assertThat(first.nextUpdate()).isNotBlank();
+        assertThat(first.graceUntil()).isNotBlank();
+        assertThat(first.refreshAvailable()).isTrue();
+        assertThat(first.installBlocked()).isFalse();
+        responses.clear();
+        assertThat(revocations.refreshConfigured(repository.repositoryId()).code()).isEqualTo("CATALOG_UNAVAILABLE");
+        var offline = market.pluginDetail(repository.repositoryId(), "demo").packages().get(0).verification().revocation();
+        assertThat(offline).isEqualTo(first);
+
+        publish(2, List.of(restriction("ab", "YANKED")), Instant.now().minusSeconds(60));
+        var yanked = market.pluginDetail(repository.repositoryId(), "demo").packages().get(0).verification().revocation();
+        assertThat(yanked.freshness()).isEqualTo("GRACE");
+        assertThat(yanked.installBlocked()).isTrue();
+        assertThat(yanked.executionBlocked()).isFalse();
+        assertThat(yanked.restrictions()).singleElement().satisfies(item -> {
+            assertThat(item.scope()).isEqualTo("PACKAGE_SHA256");
+            assertThat(item.reasonCode()).isEqualTo("MAINTAINER_WITHDRAWAL");
+            assertThat(item.effectiveTime()).isNotBlank();
+        });
+
+        publish(3, List.of(restriction("ab", "REVOKED")), Instant.now().minusSeconds(2 * 86400));
+        var revoked = market.pluginDetail(repository.repositoryId(), "demo").packages().get(0).verification().revocation();
+        assertThat(revoked.freshness()).isEqualTo("EXPIRED");
+        assertThat(revoked.installBlocked()).isTrue();
+        assertThat(revoked.executionBlocked()).isTrue();
+        responses.clear();
+        assertThat(revocations.refreshConfigured(repository.repositoryId()).refreshed()).isFalse();
+        assertThat(new PluginCatalogRevocationAdmissionPolicy(registry, store).evaluate(request("ab")).allowed()).isFalse();
+        assertThat(market.pluginDetail(repository.repositoryId(), "demo").packages().get(0).verification().revocation()).isEqualTo(revoked);
+
+        publish(4, List.of(), Instant.now().plusSeconds(3600));
+        assertThat(revocations.refreshConfigured(repository.repositoryId()).refreshed()).isTrue();
+        var restored = market.pluginDetail(repository.repositoryId(), "demo").packages().get(0).verification().revocation();
+        assertThat(restored.status()).isEqualTo("CLEAR");
+        assertThat(restored.executionBlocked()).isFalse();
+        assertThat(restored.installBlocked()).isFalse();
+        assertThat(restored.restrictions()).isEmpty();
+        assertThat(new PluginCatalogRevocationAdmissionPolicy(registry, store).evaluate(request("ab")).allowed()).isTrue();
+        when(registry.featureEnabled()).thenReturn(false);
+        assertThat(revocations.refreshConfigured(repository.repositoryId()).code()).isEqualTo("CATALOG_DISABLED");
+    }
+
+    @Test
     @DisplayName("首次浏览取回状态，隐藏最新版本保留旧版本，恢复与全部隐藏同步更新列表和详情")
     void publishedYankedRestoredAndEmpty() throws Exception {
         publish(1, List.of(), Instant.now().plusSeconds(3600));

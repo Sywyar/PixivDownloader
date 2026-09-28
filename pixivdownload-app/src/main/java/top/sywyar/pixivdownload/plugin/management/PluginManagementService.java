@@ -437,7 +437,12 @@ public class PluginManagementService {
 
     private PluginVerificationView withRevocations(PluginVerificationView view, PluginProvenanceRecord provenance,
                                                    PluginDescriptor descriptor) {
-        return revocations == null ? view : view.withRevocation(revocations.status(provenance, descriptor.id(), descriptor.version()));
+        return revocations == null ? view : view.withRevocation(revocations.details(provenance, descriptor.id(), descriptor.version()));
+    }
+
+    public top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationService.RefreshResult
+            refreshRevocations(String repositoryId) {
+        return revocations.refreshConfigured(repositoryId);
     }
 
     private Map<String, List<InstalledPluginSnapshot>> installedArtifactsById() {

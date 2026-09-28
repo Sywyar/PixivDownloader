@@ -60,6 +60,7 @@ import top.sywyar.pixivdownload.plugin.management.PluginManagementService;
 import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
 import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 import top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector;
+import top.sywyar.pixivdownload.plugin.verification.PluginRevocationView;
 
 /**
  * {@link PluginManagementService} 单测：读模型合并（来源 / 受管 / 阶段 / 必选 / 可用动词）与运行期动词前置守卫
@@ -93,10 +94,14 @@ class PluginManagementServiceTest {
                         ProvenanceSnapshotState.PRESENT, provenance, 0L)), false));
         var service = new PluginManagementService(status, lifecycle, RequiredPluginPolicy.empty(),
                 mock(RecoveryModeService.class), coordinator, installer, new PluginToggleProperties(), revocations);
-        when(revocations.status(provenance, EXTERNAL_ID, descriptor.version())).thenReturn("REVOKED");
+        when(revocations.details(provenance, EXTERNAL_ID, descriptor.version())).thenReturn(
+                new PluginRevocationView("sample", "REVOKED", null, null, null, null,
+                        "FRESH", true, true, true, List.of()));
         assertThat(entry(service.list(), EXTERNAL_ID).availableActions()).contains("remove", "unload")
                 .doesNotContain("load", "start", "restart", "reload");
-        when(revocations.status(provenance, EXTERNAL_ID, descriptor.version())).thenReturn("YANKED");
+        when(revocations.details(provenance, EXTERNAL_ID, descriptor.version())).thenReturn(
+                new PluginRevocationView("sample", "YANKED", null, null, null, null,
+                        "FRESH", true, false, true, List.of()));
         assertThat(entry(service.list(), EXTERNAL_ID).availableActions()).contains("start", "restart", "reload");
     }
 

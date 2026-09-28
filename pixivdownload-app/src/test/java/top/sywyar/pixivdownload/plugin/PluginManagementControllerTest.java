@@ -95,6 +95,17 @@ class PluginManagementControllerTest {
     }
 
     @Test
+    @DisplayName("显式撤销刷新走核心管理路由且失败使用非成功状态")
+    void refreshRevocationsReportsFailure() throws Exception {
+        when(service.refreshRevocations("sample")).thenReturn(
+                new top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationService.RefreshResult(false, "CATALOG_UNAVAILABLE"));
+        mockMvc.perform(post("/api/plugins/revocations/sample/refresh")).andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error").value("localized:plugin.catalog.error.unavailable"))
+                .andExpect(jsonPath("$.code").value("CATALOG_UNAVAILABLE"));
+        verify(service).refreshRevocations("sample");
+    }
+
+    @Test
     @DisplayName("GET /api/plugins/status 返回恢复原因与插件管理视图 JSON")
     void statusReturnsReport() throws Exception {
         when(service.list()).thenReturn(new PluginManagementService.PluginManagementReport(

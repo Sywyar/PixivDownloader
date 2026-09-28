@@ -82,6 +82,16 @@ public class PluginManagementController {
         return pluginManagementService.list();
     }
 
+    @PostMapping("/revocations/{repositoryId}/refresh")
+    public ResponseEntity<?> refreshRevocations(@PathVariable String repositoryId, HttpServletRequest request) {
+        var result = pluginManagementService.refreshRevocations(repositoryId);
+        if (result.refreshed()) return ResponseEntity.ok(result);
+        var code = top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode.valueOf(result.code());
+        String error = messages.getOrDefault(localeResolver.resolveLocale(request), code.messageKey(), code.name());
+        return ResponseEntity.status(code.status()).body(
+                top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse.of(code.name(), error));
+    }
+
     /** 把一个已卸下的外置插件重新接入核心注册中心。 */
     @PostMapping("/{id}/load")
     public PluginActionResult load(@PathVariable String id) {
