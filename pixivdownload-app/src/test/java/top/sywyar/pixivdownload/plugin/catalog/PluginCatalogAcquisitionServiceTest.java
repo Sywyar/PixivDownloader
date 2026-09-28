@@ -202,6 +202,55 @@ class PluginCatalogAcquisitionServiceTest {
     }
 
     @Test
+    @DisplayName("不兼容的目标 SDK 要求在下载目标及自动依赖之前拒绝")
+    void rejectsIncompatibleTargetBeforeDependencySideEffects() {
+        server = CatalogTestSupport.startServer();
+        CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture();
+        byte[] beta = CatalogTestSupport.explodedPluginZip("beta", "1.0.0", null);
+        byte[] alpha = CatalogTestSupport.explodedPluginZip("alpha", "1.0.0", null, "beta@1.0");
+        AtomicInteger downloads = new AtomicInteger();
+        String betaUrl = serveCountingPackage("/beta.zip", beta, downloads);
+        String alphaUrl = serveCountingPackage("/alpha.zip", alpha, downloads);
+        PluginCatalogAcquisitionService service = setUpManifest(signing,
+                entryJson("beta", "1.0.0", betaUrl, beta, signing, List.of()),
+                entryJson("alpha", "1.0.0", alphaUrl, alpha, signing, List.of("beta@1.0"), "=7.2.3-rc.4"));
+
+        PluginInstallReport report = service.install("alpha", "1.0.0");
+
+        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.REJECTED_INCOMPATIBLE);
+        assertThat(downloads).hasValue(0);
+        assertThat(installedFiles()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("自动依赖选择跳过 SDK 不兼容的较新版本")
+    void selectsDependencyCompatibleWithHostSdk() throws IOException {
+        server = CatalogTestSupport.startServer();
+        CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture();
+        byte[] beta = CatalogTestSupport.explodedPluginZip("beta", "1.0.0", null);
+        byte[] betaNew = CatalogTestSupport.explodedPluginZip("beta", "1.1.0", "=7.2.3-rc.4");
+        byte[] alpha = CatalogTestSupport.explodedPluginZip("alpha", "1.0.0", null, "beta@1.0");
+        AtomicInteger incompatibleDownloads = new AtomicInteger();
+        String betaUrl = servePackage("/beta.zip", beta);
+        String betaNewUrl = serveCountingPackage("/beta-new.zip", betaNew, incompatibleDownloads);
+        String alphaUrl = servePackage("/alpha.zip", alpha);
+        var json = new com.fasterxml.jackson.databind.ObjectMapper();
+        var betaEntry = json.readTree(entryJson("beta", "1.0.0", betaUrl, beta, signing, List.of()));
+        var betaNewEntry = json.readTree(entryJson("beta", "1.1.0", betaNewUrl, betaNew, signing,
+                List.of(), "=7.2.3-rc.4"));
+        ((com.fasterxml.jackson.databind.node.ArrayNode) betaEntry.get("packages"))
+                .add(betaNewEntry.get("packages").get(0));
+        PluginCatalogAcquisitionService service = setUpManifest(signing, betaEntry.toString(),
+                entryJson("alpha", "1.0.0", alphaUrl, alpha, signing, List.of("beta@1.0")));
+
+        PluginInstallReport report = installConfirmed(service, "alpha", "1.0.0");
+
+        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
+        assertThat(installedFiles()).containsExactly("alpha-1.0.0.zip", "beta-1.0.0.zip");
+        assertThat(incompatibleDownloads).hasValue(0);
+    }
+
+    @Test
     @DisplayName("依赖闭环：安装 alpha 时从同一 catalog 自动先安装 beta")
     void installsRequiredDependencyFromSameCatalog() {
         server = CatalogTestSupport.startServer();
@@ -730,12 +779,19 @@ class PluginCatalogAcquisitionServiceTest {
     private static String entryJson(String pluginId, String version, String pkgUrl, byte[] body,
                                     CatalogTestSupport.SigningFixture signing,
                                     List<String> dependencies) {
+        return entryJson(pluginId, version, pkgUrl, body, signing, dependencies, null);
+    }
+
+    private static String entryJson(String pluginId, String version, String pkgUrl, byte[] body,
+                                    CatalogTestSupport.SigningFixture signing,
+                                    List<String> dependencies, String requiredSdk) {
         SignatureMetadata signature = signing.artifactSignature(pluginId, version, body);
         return "{\"pluginId\":\"" + pluginId + "\",\"packages\":[{"
                 + "\"version\":\"" + version + "\","
                 + "\"packageUrl\":\"" + pkgUrl + "\","
                 + "\"expectedSizeBytes\":" + body.length + ","
                 + "\"sha256\":\"" + CatalogTestSupport.sha256Hex(body) + "\","
+                + (requiredSdk == null ? "" : "\"requiredSdk\":\"" + requiredSdk + "\",")
                 + "\"dependencies\":" + dependenciesJson(dependencies) + ","
                 + "\"signature\":" + signing.signatureJson(signature)
                 + "}]}";

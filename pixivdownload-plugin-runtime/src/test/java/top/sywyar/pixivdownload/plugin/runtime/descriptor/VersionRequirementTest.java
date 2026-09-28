@@ -72,6 +72,37 @@ class VersionRequirementTest {
     }
 
     @Test
+    @DisplayName("SDK 精确声明仅匹配相同发行，旧最低版本解析器明确拒绝")
+    void exactSdkRequirementCannotFallBackToMajorMinor() {
+        String exact = "=7.2.3-rc.12";
+        VersionRequirement requirement = VersionRequirement.parseSdk(exact);
+        assertThat(requirement.valid()).isTrue();
+        assertThat(requirement.isSatisfiedBySdk("7.2.3-rc12")).isTrue();
+        for (String other : new String[]{"7.2.3-rc.11", "7.2.3-rc.13", "7.2.3", "7.3.0-rc.12"}) {
+            assertThat(requirement.isSatisfiedBySdk(other)).as(other).isFalse();
+        }
+        assertThat(requirement.isSatisfiedBy(7, 2)).isFalse();
+        assertThat(requirement.display()).isEqualTo(exact);
+        assertThat(VersionRequirement.parse(exact).valid()).isFalse();
+        assertThat(VersionRequirement.parseSdk("=7.2.3").isSatisfiedBySdk("7.2.3")).isTrue();
+        assertThat(VersionRequirement.parseSdk("=7.2.3").isSatisfiedBySdk("7.2.4")).isFalse();
+        for (String invalid : new String[]{"=7.2", "==7.2.3", "= 7.2.3", "=7.2.3-unknown.1"}) {
+            assertThat(VersionRequirement.parseSdk(invalid).valid()).as(invalid).isFalse();
+        }
+    }
+
+    @Test
+    @DisplayName("历史候选声明精确匹配，稳定最低要求保留主次版本兼容")
+    void prereleaseAndStableRequirementsKeepSeparateContracts() {
+        assertThat(VersionRequirement.parseSdk("7.2.3-rc12").isSatisfiedBySdk("7.2.3-rc.12")).isTrue();
+        assertThat(VersionRequirement.parseSdk("7.2.3-rc.12").isSatisfiedBySdk("7.2.3")).isFalse();
+        assertThat(VersionRequirement.parseSdk(">=7.2.3-rc.12").isSatisfiedBySdk("7.2.3-rc.13")).isFalse();
+        assertThat(VersionRequirement.parseSdk("7.2").isSatisfiedBySdk("7.3.1")).isTrue();
+        assertThat(VersionRequirement.parseSdk("7.2").isSatisfiedBySdk("8.2.0")).isFalse();
+        assertThat(VersionRequirement.parseSdk("7.2").isSatisfiedBySdk("invalid")).isFalse();
+    }
+
+    @Test
     @DisplayName("空 / null 声明解析为未声明：兼容任何版本")
     void blankParsesToUnspecified() {
         for (String raw : new String[]{null, "", "   "}) {
@@ -200,5 +231,17 @@ class VersionRequirementTest {
                 .isSatisfiedByCurrentSdk()).isTrue();
         assertThat(VersionRequirement.parse(">= " + required)
                 .isSatisfiedByNightlyBuild("1.14.0-" + suffix)).isFalse();
+    }
+
+    @Test
+    @DisplayName("不同候选 SDK 不能仅因主次版本相同而被放行")
+    void rejectsDifferentPrereleaseContract() {
+        String core = SdkVersion.MAJOR + "." + SdkVersion.MINOR + "." + SdkVersion.PATCH;
+        String other = core + "-rc." + (SdkVersion.PRERELEASE_SEQUENCE + 1);
+        VersionRequirement requirement = VersionRequirement.parse(other);
+
+        assertThat(requirement.valid()).isTrue();
+        assertThat(requirement.isSatisfiedByCurrentSdk()).isFalse();
+        assertThat(requirement.display()).isEqualTo(other);
     }
 }

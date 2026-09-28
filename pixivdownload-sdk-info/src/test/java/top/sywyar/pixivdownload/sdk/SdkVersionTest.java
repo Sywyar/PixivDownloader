@@ -10,6 +10,20 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class SdkVersionTest {
 
     @Test
+    @DisplayName("精确 SDK 契约包含补丁与候选身份，历史拼写可等价")
+    void exactReleaseIncludesPrereleaseAndPatch() {
+        assertThat(SdkVersion.isSameRelease("7.2.3-rc.12", "7.2.3-rc12")).isTrue();
+        assertThat(SdkVersion.isSameRelease("7.2.3-rc.12", "7.2.3-rc.11")).isFalse();
+        assertThat(SdkVersion.isSameRelease("7.2.3-rc.12", "7.2.3-beta.12")).isFalse();
+        assertThat(SdkVersion.isSameRelease("7.2.3-rc.12", "7.2.3")).isFalse();
+        assertThat(SdkVersion.isSameRelease("7.2.3", "7.2.4")).isFalse();
+        assertThat(SdkVersion.isSameRelease("7.2.3", "7.2.3")).isTrue();
+        for (String invalid : new String[]{null, "", "7.2", "7.2.3-preview.1", "7.2.3-rc.99999999999999999999"}) {
+            assertThat(SdkVersion.isSameRelease("7.2.3", invalid)).isFalse();
+        }
+    }
+
+    @Test
     @DisplayName("SDK 元数据派生统一的预发布身份和兼容版本")
     void metadataAndCompatibilityUseOneSdkVersion() throws Exception {
         Properties properties = new Properties();

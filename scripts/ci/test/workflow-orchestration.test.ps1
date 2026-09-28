@@ -191,6 +191,21 @@ try {
         }
     }
     & {
+        $program = Read-Program (Join-Path $repo 'scripts/generate-market-manifest.ps1')
+        foreach ($definition in $program.Functions) { . ([scriptblock]::Create($definition.Extent.Text)) }
+        $projection = @($program.Main.Ast.FindAll({
+            param($node)
+            $node -is [Management.Automation.Language.AssignmentStatementAst] -and
+                $node.Left.Extent.Text -ceq '$manifestRequiredSdk'
+        }, $true))
+        Assert-Equal $projection.Count 1
+        foreach ($requires in @('1.0', '7.2.3-rc.4', '=7.2.3-rc.4', '7.2.3-rc.4-nightly.20260909.1.1')) {
+            $isNightly = $false
+            . ([scriptblock]::Create($projection[0].Extent.Text))
+            Assert-Equal $manifestRequiredSdk $requires
+        }
+    }
+    & {
         $program = Read-Program (Join-Path $repo 'scripts/publish-plugin-releases.ps1')
         $rewrite = @($program.Functions | Where-Object { $_.Name -eq 'Set-StagedPluginVersion' })
         Assert-Equal $rewrite.Count 1
@@ -200,7 +215,7 @@ try {
         $check = Join-Path $fixture 'nightly-descriptor-check'
         [IO.Directory]::CreateDirectory($source) | Out-Null
         [IO.Directory]::CreateDirectory($check) | Out-Null
-        [IO.File]::WriteAllText((Join-Path $source 'plugin.properties'), "plugin.id=first`nplugin.version=1.0.0`nplugin.requires=1.0`n")
+        [IO.File]::WriteAllText((Join-Path $source 'plugin.properties'), "plugin.id=first`nplugin.version=1.0.0`nplugin.requires==7.2.3-rc.4`n")
         $artifact = Join-Path $fixture 'nightly-descriptor.jar'
         $jar = (Get-Command jar).Source
         & $jar --create --file $artifact -C $source plugin.properties

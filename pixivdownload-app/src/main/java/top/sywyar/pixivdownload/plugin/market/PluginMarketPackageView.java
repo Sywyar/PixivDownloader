@@ -51,7 +51,7 @@ public record PluginMarketPackageView(
 
     static PluginMarketPackageView from(PluginRepository repository, PluginCatalogPackage pkg,
                                          String revocationStatus, boolean installable) {
-        boolean compatible = VersionRequirement.parse(pkg.requiredSdk()).isSatisfiedByCurrentSdk();
+        boolean compatible = VersionRequirement.parseSdk(pkg.requiredSdk()).isSatisfiedByCurrentSdk();
         return new PluginMarketPackageView(
                 pkg.version(),
                 pkg.expectedSizeBytes() != null ? pkg.expectedSizeBytes() : 0L,

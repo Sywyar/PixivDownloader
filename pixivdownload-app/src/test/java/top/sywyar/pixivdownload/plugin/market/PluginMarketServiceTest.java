@@ -65,6 +65,23 @@ class PluginMarketServiceTest {
     }
 
     @Test
+    @DisplayName("市场兼容投影保留精确 SDK 合同并拒绝其它 RC")
+    void packageViewMatchesExactSdkContract() {
+        PluginRepository repository = new PluginRepositoryRegistry(enabledWithCustom())
+                .find(PluginRepository.OFFICIAL_ID).orElseThrow();
+        String matching = "=" + SdkVersion.VERSION;
+        String other = "=" + SdkVersion.MAJOR + "." + SdkVersion.MINOR + "." + SdkVersion.PATCH
+                + "-rc." + (SdkVersion.PRERELEASE_SEQUENCE + 1);
+        for (String requirement : List.of(matching, other)) {
+            PluginCatalogPackage pkg = new PluginCatalogPackage("2.0.0", "https://example.com/plugin.jar",
+                    100L, "ab", null, null, requirement, List.of(), null, List.of(), "stable", false);
+            PluginMarketPackageView view = PluginMarketPackageView.from(repository, pkg);
+            assertThat(view.requiredSdk()).isEqualTo(requirement);
+            assertThat(view.compatible()).isEqualTo(requirement.equals(matching));
+        }
+    }
+
+    @Test
     @DisplayName("repositories：主开关状态 + SDK 版本 + 默认仓库 id + 官方/内嵌/兼容/默认标记")
     void repositoriesProjection() {
         PluginMarketRepositoriesView view = service(enabledWithCustom()).repositories();

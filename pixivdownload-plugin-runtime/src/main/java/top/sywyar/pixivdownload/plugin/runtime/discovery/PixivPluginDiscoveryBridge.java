@@ -215,7 +215,7 @@ public final class PixivPluginDiscoveryBridge {
         String sourcePluginId = wrapper.getPluginId();
         ClassLoader classLoader = wrapper.getPluginClassLoader();
         org.pf4j.PluginDescriptor pf4jDescriptor = wrapper.getDescriptor();
-        VersionRequirement requires = VersionRequirement.parse(
+        VersionRequirement requires = VersionRequirement.parseSdk(
                 pf4jDescriptor != null ? pf4jDescriptor.getRequires() : null);
         PluginDescriptor packageDescriptor = packageDescriptor(sourcePluginId, pf4jDescriptor, requires);
 

@@ -17,9 +17,11 @@ Replace these values consistently before using the template:
 | `com.example.pixivdownload.minimal` | Your Java package, including matching source directories |
 | `ExampleMinimal*` | Your Java class prefix |
 | `0.1.0` | Your artifact and `plugin.version` value |
-| `plugin.requires=1.0` | The compatible PixivDownloader SDK major/minor requirement |
+| `plugin.requires` | `=FULL_SDK_VERSION` for a prerelease SDK; `MAJOR.MINOR` for a stable SDK |
 | `plugin.provider=Example Developer` | Your provider name |
 
 After replacement, update every formal-locale i18n bundle and run `mvn clean verify` again. Keep feature id, routes, static paths, namespace, and tests aligned. Do not add dependencies on the host app/core/runtime, signature internals, installer code, official-plugin services, or root-context component scanning.
+
+Update the compile dependency and `plugin.requires` together. In a properties file an exact requirement has two equals signs, for example `plugin.requires==7.2.3-rc.4`: the first separates the property name from its value. Prerelease APIs may change between candidates, so use the matching SDK runtime. Hosts without exact-requirement support reject this declaration before executing the plugin. A historical package declaring only `1.0` does not identify the RC used to build it; its author must verify compatibility and publish a new package. See the SDK development package's upgrade instructions before changing versions.
 
 The verified descriptor declares `declarative-process`, `hot-reload`, and no `pixiv.configuration-classes`. Keep it declarative: configuration classes, controllers, queue behavior, schedules, and other in-process callbacks are not supported by this execution mode. If a plugin needs private persistence or behavioral capabilities, use only an execution mode and host capability surface that explicitly supports them; do not relabel unsupported code as isolated.

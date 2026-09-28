@@ -39,7 +39,11 @@ class ExampleMinimalPluginTest {
 
         assertEquals("example-minimal", descriptor.getProperty("plugin.id"));
         assertEquals("0.1.0", descriptor.getProperty("plugin.version"));
-        assertEquals("1.0", descriptor.getProperty("plugin.requires"));
+        assertEquals(top.sywyar.pixivdownload.sdk.SdkVersion.isPrerelease()
+                        ? "=" + top.sywyar.pixivdownload.sdk.SdkVersion.VERSION
+                        : top.sywyar.pixivdownload.sdk.SdkVersion.MAJOR + "."
+                                + top.sywyar.pixivdownload.sdk.SdkVersion.MINOR,
+                descriptor.getProperty("plugin.requires"));
         assertEquals("com.example.pixivdownload.minimal.ExampleMinimalPf4jPlugin",
                 descriptor.getProperty("plugin.class"));
         assertEquals("example-minimal", descriptor.getProperty("pixiv.display-namespace"));

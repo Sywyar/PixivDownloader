@@ -344,7 +344,7 @@ public final class PluginPackageReader {
         String version = trimToNull(properties.getProperty(KEY_VERSION));
         String pluginClass = trimToNull(properties.getProperty(KEY_CLASS));
         String pf4jDescription = trimToNull(properties.getProperty(KEY_DESCRIPTION));
-        VersionRequirement requires = VersionRequirement.parse(properties.getProperty(KEY_REQUIRES));
+        VersionRequirement requires = VersionRequirement.parseSdk(properties.getProperty(KEY_REQUIRES));
         List<PluginDependencyRef> dependencies = parseDependencies(properties.getProperty(KEY_DEPENDENCIES));
         String displayNamespace = trimToNull(properties.getProperty(KEY_PIXIV_DISPLAY_NAMESPACE));
         String displayName = trimToNull(properties.getProperty(KEY_PIXIV_DISPLAY_NAME_KEY));

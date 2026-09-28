@@ -88,6 +88,29 @@ public final class SdkVersion {
         return requiredMajor == providedMajor && requiredMinor <= providedMinor;
     }
 
+    /**
+     * 判断两个完整 SDK 版本是否表示同一发行契约，兼容历史紧连预发布后缀。
+     *
+     * @param providedVersion 宿主提供的完整 SDK 版本
+     * @param requiredVersion 插件要求的完整 SDK 版本
+     * @return 主、次、补丁、预发布渠道和序号全部相同时为真；非法版本为假
+     */
+    public static boolean isSameRelease(String providedVersion, String requiredVersion) {
+        if (providedVersion == null || requiredVersion == null) {
+            return false;
+        }
+        try {
+            Metadata provided = parse(providedVersion);
+            Metadata required = parse(requiredVersion);
+            return provided.major() == required.major() && provided.minor() == required.minor()
+                    && provided.patch() == required.patch()
+                    && provided.prereleaseChannel().equals(required.prereleaseChannel())
+                    && provided.prereleaseSequence() == required.prereleaseSequence();
+        } catch (IllegalStateException | NumberFormatException invalid) {
+            return false;
+        }
+    }
+
     private static Metadata load() {
         Properties properties = new Properties();
         try (InputStream input = SdkVersion.class.getResourceAsStream(RESOURCE)) {

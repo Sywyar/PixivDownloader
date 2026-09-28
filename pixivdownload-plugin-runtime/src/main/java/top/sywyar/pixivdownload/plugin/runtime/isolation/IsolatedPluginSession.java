@@ -14,6 +14,7 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationException;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
+import top.sywyar.pixivdownload.sdk.SdkVersion;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -589,6 +590,7 @@ public final class IsolatedPluginSession {
         Set<String> entries = new LinkedHashSet<>();
         addCodeSource(entries, IsolatedPluginWorkerMain.class);
         addCodeSource(entries, PixivFeaturePlugin.class);
+        addCodeSource(entries, SdkVersion.class);
         addCodeSource(entries, org.pf4j.Plugin.class);
         addCodeSource(entries, org.slf4j.LoggerFactory.class);
         try {

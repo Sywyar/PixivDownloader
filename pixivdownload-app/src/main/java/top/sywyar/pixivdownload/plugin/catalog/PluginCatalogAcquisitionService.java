@@ -154,6 +154,12 @@ public class PluginCatalogAcquisitionService {
         repository = selected.repository();
         if (revocations != null) revocations.requireInstallAllowed(repository, pluginId, pkg);
 
+        if (!VersionRequirement.parseSdk(pkg.requiredSdk()).isSatisfiedByCurrentSdk()) {
+            return new PluginInstallReport(PluginInstallOutcome.REJECTED_INCOMPATIBLE, false, false,
+                    pluginId, version, null, List.of(), List.of(),
+                    List.of("catalog package requires an incompatible SDK: " + pkg.requiredSdk()));
+        }
+
         stack.addLast(pluginId);
         try {
             List<PluginDependencyRef> declared = catalogDependencies(pkg);
@@ -311,6 +317,7 @@ public class PluginCatalogAcquisitionService {
         var snapshot = revocations != null ? revocations.requireCurrent(repository) : null;
         return entry.packages().stream()
                 .filter(pkg -> revocations == null || revocations.allowsInstall(repository, entry.pluginId(), pkg, snapshot))
+                .filter(pkg -> VersionRequirement.parseSdk(pkg.requiredSdk()).isSatisfiedByCurrentSdk())
                 .filter(pkg -> dependencyVersionSatisfied(dependency, pkg.version()))
                 .max(Comparator.comparing(pkg -> PluginPackageVersion.parse(pkg.version())));
     }

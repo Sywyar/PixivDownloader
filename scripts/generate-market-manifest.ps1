@@ -80,14 +80,6 @@ function Has-Property($obj, [string]$name) {
     return ($null -ne $obj) -and ($obj.PSObject.Properties.Name -contains $name)
 }
 
-# major.minor from a plugin.requires string (e.g. "1.0" / "1.0.0" -> "1.0").
-function Get-RequiredSdk([string]$requires) {
-    if ($requires -and ($requires -match '(\d+)\.(\d+)')) {
-        return "$($Matches[1]).$($Matches[2])"
-    }
-    return $requires
-}
-
 function Get-PluginDependencies([string]$value) {
     if ([string]::IsNullOrWhiteSpace($value)) { return @() }
     $dependencies = @()
@@ -200,7 +192,7 @@ try {
             $sourceVersion
         }
         $requires = if ($isNightly) { $nightlySdkVersion } else { $d["plugin.requires"] }
-        $manifestRequiredSdk = if ($isNightly) { $requires } else { Get-RequiredSdk $requires }
+        $manifestRequiredSdk = $requires
         $dependencies = @(Get-PluginDependencies $d["plugin.dependencies"])
         if ($id -ne $plugin.Id) {
             throw "plugin.id '$id' in module $($plugin.Module) does not match expected '$($plugin.Id)'."

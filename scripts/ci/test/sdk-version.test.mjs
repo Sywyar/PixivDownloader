@@ -57,6 +57,8 @@ function createFixture() {
                 '<groupId>io.github.sywyar.pixivdownloader</groupId>'
                 + '<artifactId>pixivdownload-sdk</artifactId>'
                 + `<properties><pixivdownload.sdk.version>${CURRENT.version}</pixivdownload.sdk.version></properties>`);
+        write(root, `plugin-templates/${template}/src/main/resources/plugin.properties`,
+                `plugin.requires=${CURRENT.prerelease ? '=' + CURRENT.version : CURRENT.compatibilityVersion}\n`);
     }
     return root;
 }
@@ -101,6 +103,18 @@ test('SDK 身份事实源与 Maven、BOM 及模板投影必须一致', () => {
                 + '<artifactId>pixivdownload-sdk</artifactId>'
                 + `<pixivdownload.sdk.version>${NEXT}</pixivdownload.sdk.version>`, 'utf8');
         assert.throws(() => inspectSdkVersion(root), error => error.message.includes('minimal-feature-plugin') && error.message.includes(`must be ${CURRENT.version}`));
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test('模板的 SDK 要求不能从精确候选退化为主次版本', () => {
+    const root = createFixture();
+    try {
+        const descriptor = 'plugin-templates/minimal-feature-plugin/src/main/resources/plugin.properties';
+        const wrong = CURRENT.prerelease ? CURRENT.compatibilityVersion : '=' + NEXT;
+        write(root, descriptor, `plugin.requires=${wrong}\n`);
+        assert.throws(() => inspectSdkVersion(root), /SDK requirement/u);
     } finally {
         fs.rmSync(root, { recursive: true, force: true });
     }

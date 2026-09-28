@@ -3038,8 +3038,8 @@ public class ExternalPluginInstaller implements AutoCloseable {
         if (origin.expectedVersion() != null && !origin.expectedVersion().equals(descriptor.version())) {
             errors.add("catalog version does not match the frozen package descriptor");
         }
-        if (origin.expectedRequiredSdk() != null && !requirementBinding(
-                VersionRequirement.parse(origin.expectedRequiredSdk())).equals(requirementBinding(descriptor.requires()))) {
+        if (origin.expectedRequiredSdk() != null && !VersionRequirement.parseSdk(
+                origin.expectedRequiredSdk()).display().equals(descriptor.requires().display())) {
             errors.add("catalog SDK requirement does not match the frozen package descriptor");
         }
         if (origin.expectedDependencies() != null

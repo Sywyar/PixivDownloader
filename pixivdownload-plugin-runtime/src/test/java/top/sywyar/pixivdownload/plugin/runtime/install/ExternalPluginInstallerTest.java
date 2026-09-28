@@ -627,6 +627,30 @@ class ExternalPluginInstallerTest {
         }
     }
 
+    @Test
+    @DisplayName("目录与包要求不同 RC 时即使主次版本相同仍拒绝安装")
+    void catalogCannotSubstitutePrereleaseRequirement() throws IOException {
+        Path src = PluginPackageFixtures.explodedZip(home.resolve("candidate.zip"), "ext", "1.0.0",
+                "=" + SdkVersion.VERSION, "com.example.ExtPlugin");
+        PluginSigningTestSupport signing = PluginSigningTestSupport.create();
+        PluginPackageOrigin signed = signing.originFor("test-repository", src, "ext", "1.0.0");
+        String otherCandidate = "=" + SdkVersion.MAJOR + "." + SdkVersion.MINOR + "."
+                + SdkVersion.PATCH + "-rc." + (SdkVersion.PRERELEASE_SEQUENCE + 1);
+        PluginPackageOrigin bound = PluginPackageOrigin.forTrustedCatalog(
+                signed.repositoryId(), false, signed.expectedSizeBytes(), signed.expectedSha256(), signed.signature(),
+                "ext", "1.0.0", otherCandidate, List.of());
+        installer.close();
+        try (ExternalPluginInstaller signedInstaller = new ExternalPluginInstaller(
+                pluginsDir, PluginPackageLimits.defaults(), signing.verifier())) {
+            assertThat(signedInstaller.recoverPendingTransactions().safeToScan()).isTrue();
+            PluginInstallResult result = installFully(signedInstaller, src, false, bound);
+            assertThat(result.outcome()).isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
+            assertThat(result.messages()).containsExactly(
+                    "catalog SDK requirement does not match the frozen package descriptor");
+            assertThat(signedInstaller.listInstalled()).isEmpty();
+        }
+    }
+
     // ---------- 管理快照原子性与 provenance 累计预算 ----------
 
     @Test

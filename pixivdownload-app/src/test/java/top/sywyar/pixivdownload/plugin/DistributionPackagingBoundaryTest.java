@@ -456,6 +456,7 @@ class DistributionPackagingBoundaryTest {
                     .filter(name -> name.startsWith("BOOT-INF/lib/") && name.endsWith(".jar"))
                     .toList())
                     .anyMatch(name -> name.matches("BOOT-INF/lib/pixivdownload-plugin-api-[^/]+\\.jar"))
+                    .anyMatch(name -> name.matches("BOOT-INF/lib/pixivdownload-sdk-info-[^/]+\\.jar"))
                     .anyMatch(name -> name.matches("BOOT-INF/lib/pf4j-[^/]+\\.jar"))
                     .anyMatch(name -> name.matches("BOOT-INF/lib/java-semver-[^/]+\\.jar"))
                     .anyMatch(name -> name.matches("BOOT-INF/lib/slf4j-api-[^/]+\\.jar"))
