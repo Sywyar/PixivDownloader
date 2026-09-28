@@ -135,7 +135,8 @@ public class ThumbnailManager {
         loadThumbnail(imageFile, targetLabel, thumbW, thumbH, null);
     }
 
-    public void loadThumbnail(File imageFile, JLabel targetLabel, int thumbW, int thumbH, String badgeText) {
+    public synchronized void loadThumbnail(File imageFile, JLabel targetLabel, int thumbW, int thumbH, String badgeText) {
+        if (executor.isShutdown()) return;
         // WebP 动图：使用伴随的 _thumb.jpg 文件供 ImageIO 解码
         if (imageFile != null && imageFile.getName().toLowerCase().endsWith(".webp")) {
             String base = imageFile.getName().substring(0, imageFile.getName().lastIndexOf('.'));
@@ -145,6 +146,7 @@ public class ThumbnailManager {
 
         if (imageFile == null || !imageFile.exists()) {
             SwingUtilities.invokeLater(() -> {
+                if (executor.isShutdown()) return;
                 targetLabel.setIcon(null);
                 targetLabel.setText(message("gui.image-classifier.thumbnail.empty"));
             });
@@ -155,6 +157,7 @@ public class ThumbnailManager {
         ImageIcon cached = cache.get(key);
         if (cached != null) {
             SwingUtilities.invokeLater(() -> {
+                if (executor.isShutdown()) return;
                 targetLabel.setIcon(cached);
                 applyBadge(targetLabel, badgeText);
             });
@@ -163,6 +166,7 @@ public class ThumbnailManager {
 
         // set a lightweight placeholder immediately (so UI stays responsive)
         SwingUtilities.invokeLater(() -> {
+            if (executor.isShutdown()) return;
             targetLabel.setIcon(null);
             targetLabel.setText(message("gui.image-classifier.thumbnail.loading"));
         });
@@ -173,16 +177,22 @@ public class ThumbnailManager {
             try {
                 BufferedImage dst = getThumbnail(finalImageFile, thumbW, thumbH);
                 ImageIcon icon = new ImageIcon(dst);
-                cache.put(key, icon);
+                synchronized (cache) {
+                    if (executor.isShutdown()) return;
+                    cache.put(key, icon);
+                }
 
                 // Update label on EDT
                 SwingUtilities.invokeLater(() -> {
+                    if (executor.isShutdown()) return;
                     targetLabel.setIcon(icon);
                     applyBadge(targetLabel, badgeText);
                 });
             } catch (Exception e) {
+                if (executor.isShutdown()) return;
                 log.error("Failed to load thumbnail for {}", finalImageFile, e);
                 SwingUtilities.invokeLater(() -> {
+                    if (executor.isShutdown()) return;
                     targetLabel.setIcon(null);
                     targetLabel.setText(message("gui.image-classifier.thumbnail.load-failed"));
                 });
@@ -204,15 +214,17 @@ public class ThumbnailManager {
      * Prefetch a list of files into the cache. This doesn't touch the UI; useful for warming the
      * cache for the "next" or "previous" group so navigation feels instant.
      */
-    public void prefetch(List<File> files, int thumbW, int thumbH) {
-        if (files == null) return;
+    public synchronized void prefetch(List<File> files, int thumbW, int thumbH) {
+        if (files == null || executor.isShutdown()) return;
         for (File f : files) {
             final String key = f.getAbsolutePath();
             if (cache.containsKey(key)) continue;
             executor.submit(() -> {
                 try {
                     BufferedImage dst = getThumbnail(f, thumbW, thumbH);
-                    cache.put(key, new ImageIcon(dst));
+                    synchronized (cache) {
+                        if (!executor.isShutdown()) cache.put(key, new ImageIcon(dst));
+                    }
                 } catch (IOException ignored) {
                 }
             });
@@ -229,8 +241,9 @@ public class ThumbnailManager {
     /**
      * Shutdown the background loader. Call this when your window closes.
      */
-    public void shutdown() {
+    public synchronized void shutdown() {
         executor.shutdownNow();
+        cache.clear();
     }
 
     private static int[] fitTo(int srcW, int srcH, int maxW, int maxH) {

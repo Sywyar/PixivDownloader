@@ -107,6 +107,15 @@ public class ImageClassifier extends JFrame {
         autoOpenDefaultFolder();
     }
 
+    @Override
+    public void dispose() {
+        thumbnailManager.shutdown();
+        for (JLabel label : thumbnailLabels) {
+            if (label != null) label.setIcon(null);
+        }
+        super.dispose();
+    }
+
     // =========================================================================
     // 配置管理
     // =========================================================================
