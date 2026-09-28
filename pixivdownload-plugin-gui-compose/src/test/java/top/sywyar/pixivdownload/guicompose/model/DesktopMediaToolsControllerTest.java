@@ -34,6 +34,57 @@ class DesktopMediaToolsControllerTest {
             assertEquals("21 / 0\n22 / 0\n23 / 0\n24 / 0\n25 / 0",
                     ((DesktopUiNode.Text) node(model, "media.sample.1.files")).text().fallback());
             assertFalse(button(model, "media.sample.1.next").enabled());
+            fixture.state.set(new DesktopMediaTool.Status("completed", 2, 2, 2,
+                    List.of(new DesktopMediaTool.Failure(80, 1), new DesktopMediaTool.Failure(90, 2))));
+            activate(model, "media.sample.1.refresh");
+            await(() -> ((DesktopUiNode.Text) node(model, "media.sample.1.files")).text().fallback().equals("80 / 1\n90 / 2"));
+            assertEquals("1 / 1", ((DesktopUiNode.Text) node(model, "media.sample.1.page")).text().fallback());
+            assertFalse(button(model, "media.sample.1.previous").enabled());
+            assertFalse(button(model, "media.sample.1.next").enabled());
+            fixture.state.set(new DesktopMediaTool.Status("completed", 2, 2, 0, List.of()));
+            activate(model, "media.sample.1.refresh");
+            await(() -> nodes(model).noneMatch(value -> value.id().equals("media.sample.1.files")));
+        }
+    }
+
+    @Test
+    @DisplayName("预览按页保留文件提示与总数，重新预览和空结果不沿用旧页")
+    void previewPagesRetainDetailsAndReset() throws Exception {
+        var fixture = new Fixture();
+        fixture.files.set(java.util.stream.IntStream.rangeClosed(1, 25)
+                .mapToObj(id -> new DesktopMediaTool.Item(id, 0, "file-" + id + ".png", List.of("webp"), true)).toList());
+        try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), Map.of(
+                "mediaTools", arguments -> fixture.tools.get(),
+                "mediaTool", arguments -> fixture.source))) {
+            String prefix = "media.sample.1";
+            activate(model, prefix + ".preview");
+            await(() -> button(model, prefix + ".start").enabled());
+            assertEquals(List.of("25", "25"), ((DesktopUiNode.Text) node(model, prefix + ".ready")).text().arguments());
+            assertEquals(10, ((DesktopUiNode.Text) node(model, prefix + ".files")).text().fallback().lines().count());
+            activate(model, prefix + ".next");
+            activate(model, prefix + ".next");
+            var files = ((DesktopUiNode.Text) node(model, prefix + ".files")).text().fallback();
+            assertTrue(files.startsWith("21 / 0  file-21.png\n"));
+            assertTrue(files.endsWith("25 / 0  file-25.png"));
+            assertEquals(5, files.lines().count());
+            assertEquals("3 / 3", ((DesktopUiNode.Text) node(model, prefix + ".page")).text().fallback());
+            assertEquals(List.of("WEBP"), ((DesktopUiNode.Text) node(model, prefix + ".file.4.formats")).text().arguments());
+            assertEquals("media.tools.thumbnail", ((DesktopUiNode.Text) node(model, prefix + ".file.4.thumbnail")).text().key());
+            assertTrue(nodes(model).noneMatch(value -> value.id().equals(prefix + ".file.5.formats")));
+            assertFalse(button(model, prefix + ".next").enabled());
+            activate(model, prefix + ".previous");
+            assertTrue(((DesktopUiNode.Text) node(model, prefix + ".files")).text().fallback().startsWith("11 / 0"));
+            fixture.files.set(fixture.files.get().subList(0, 1));
+            activate(model, prefix + ".preview");
+            await(() -> button(model, prefix + ".start").enabled());
+            assertEquals("1 / 1", ((DesktopUiNode.Text) node(model, prefix + ".page")).text().fallback());
+            assertFalse(button(model, prefix + ".previous").enabled());
+            fixture.files.set(List.of());
+            activate(model, prefix + ".preview");
+            await(() -> button(model, prefix + ".preview").enabled());
+            assertFalse(button(model, prefix + ".start").enabled());
+            assertTrue(nodes(model).noneMatch(value -> value.id().equals(prefix + ".files")));
+            assertEquals("media.tools.empty", ((DesktopUiNode.Text) node(model, prefix + ".ready")).text().key());
         }
     }
 
@@ -79,12 +130,14 @@ class DesktopMediaToolsControllerTest {
         final AtomicReference<List<DesktopMediaTool>> tools = new AtomicReference<>(List.of(tool));
         final AtomicInteger starts = new AtomicInteger();
         final AtomicReference<DesktopMediaTool.Request> request = new AtomicReference<>();
+        final AtomicReference<List<DesktopMediaTool.Item>> files = new AtomicReference<>(List.of(
+                new DesktopMediaTool.Item(42, 0, "source.jpg", List.of("png"), true)));
         final AtomicReference<DesktopMediaTool.Status> state = new AtomicReference<>(new DesktopMediaTool.Status("idle", 0, 0, 0, List.of()));
         final DesktopMediaTool.Source source = new DesktopMediaTool.Source() {
             public DesktopMediaTool.Description description() { return tool.description(); }
             public DesktopMediaTool.Result<DesktopMediaTool.Preview> preview(DesktopMediaTool.Request value) {
                 request.set(value);
-                return new DesktopMediaTool.Result<>(new DesktopMediaTool.Preview("confirmed-preview", List.of(new DesktopMediaTool.Item(42, 0, "source.jpg", List.of("png"), true)), 1, 0, false), null);
+                return new DesktopMediaTool.Result<>(new DesktopMediaTool.Preview("confirmed-preview", files.get(), files.get().size(), 0, false), null);
             }
             public DesktopMediaTool.Result<DesktopMediaTool.Status> start(String token) {
                 assertEquals("confirmed-preview", token);

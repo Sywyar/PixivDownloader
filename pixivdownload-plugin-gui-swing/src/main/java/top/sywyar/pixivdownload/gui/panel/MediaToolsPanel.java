@@ -259,20 +259,23 @@ final class MediaToolsPanel extends JPanel {
         }
 
         private void showFiles() {
-            List<String> rows = preview != null ? preview.files().stream()
+            int fileCount = preview != null ? preview.files().size() : status == null ? 0 : status.failures().size();
+            page = Math.min(page, Math.max(0, (fileCount - 1) / 10));
+            int from = page * 10;
+            int to = Math.min(fileCount, from + 10);
+            List<String> rows = preview != null ? preview.files().subList(from, to).stream()
                     .map(file -> file.artworkId() + " / " + file.page() + "  " + file.fileName() + "  "
                             + (file.missingFormats().isEmpty() ? "" : text("media.tools.missing-formats", String.join(", ", file.missingFormats()).toUpperCase(java.util.Locale.ROOT)))
                             + (file.missingThumbnail() ? "  " + text("media.tools.thumbnail") : "")).toList()
-                    : status == null ? List.of() : status.failures().stream().map(file -> file.artworkId() + " / " + file.page()).toList();
-            page = Math.min(page, Math.max(0, (rows.size() - 1) / 10));
-            files.setText(String.join("\n", rows.stream().skip(page * 10L).limit(10).toList()));
-            previewLabel.setText(preview == null ? "" : text(rows.isEmpty() ? "media.tools.empty" : "media.tools.ready", rows.size(), preview.scanned()));
+                    : status == null ? List.of() : status.failures().subList(from, to).stream().map(file -> file.artworkId() + " / " + file.page()).toList();
+            files.setText(String.join("\n", rows));
+            previewLabel.setText(preview == null ? "" : text(fileCount == 0 ? "media.tools.empty" : "media.tools.ready", fileCount, preview.scanned()));
             if (preview != null && (preview.skipped() > 0 || preview.limited())) notice.setText(
                     (preview.skipped() > 0 ? text("media.tools.skipped", preview.skipped()) : "")
                             + (preview.limited() ? "\n" + text("media.tools.limited") : ""));
-            pageLabel.setText(rows.isEmpty() ? "" : (page + 1) + " / " + ((rows.size() + 9) / 10));
+            pageLabel.setText(fileCount == 0 ? "" : (page + 1) + " / " + ((fileCount + 9) / 10));
             previousButton.setEnabled(page > 0);
-            nextButton.setEnabled((page + 1) * 10 < rows.size());
+            nextButton.setEnabled((page + 1) * 10 < fileCount);
             revalidate();
         }
 
