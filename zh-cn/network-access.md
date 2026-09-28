@@ -36,6 +36,7 @@ Pixiv 业务请求的 HTTP 传输由应用宿主提供，业务触发方则可�
 | 应用宿主共享图片传输，调用方主要为 `download-workbench`、`novel` | HTTPS `*.pximg.net`；缩略图还允许 `embed.pixiv.net` | 下载 Pixiv 原图、封面、缩略图、动图压缩包和小说内嵌图片；通常发送 Pixiv Referer，图片地址来自 Pixiv API 响应 | 下载作品、生成封面/缩略图、浏览预览或生成小说文件时触发 | 使用 Pixiv 图片下载路由；停止相关下载或预览即可避免 |
 | 根目录油猴脚本，不属于插件 | `https://www.pixiv.net/ajax/**`、HTTPS `*.pximg.net` | 在 Pixiv 网页中直接读取作品/小说信息、收藏作品或下载文件；`GM_xmlhttpRequest` 会使用浏览器/Pixiv 登录态 | 用户在 Pixiv 页面点击脚本功能、抓取页面或执行本地下载时触发 | 由浏览器/脚本管理器直连，不经过宿主代理；禁用或卸载相应脚本即可停用 |
 | 根目录油猴脚本，不属于插件 | 管理员配置的 PixivDownloader 地址，默认 `http://localhost:6999` | 调用下载提交、队列、状态和 SSE 等后端 API；发送所选作品和下载参数。本机单人模式下载小说时，还会把脚本从 Pixiv 取得的有界小说响应发送给本机小说插件，换取短期一次性票据；不发送 Pixiv Cookie | 使用 Java 后端版、批量脚本或工具箱功能时触发 | 默认仅连接本机；配置为远端地址后，请求将发送至相应远端服务器，但小说响应导入会关闭并改由后端自行抓取 |
+| 官方 `external-download-import` 插件的采集油猴 | 本机 `http://localhost:6999/api/external-download-import/token` 与 `/api/external-download-import`；可配置 loopback 主机、端口及 HTTP/HTTPS | 将 PixivBatchDownloader 的成功文件路径、作品元数据和小说正文发送到同一机器的服务，登记原文件引用；不发送 Pixiv Cookie、管理员密码或环境 cookie，也不重新请求 Pixiv 媒体 | 安装脚本并刷新 Pixiv 页面后监听成功事件；完整作品自动发送，页面打开时对离线队列退避重试。服务端须先配置一次下载根目录，且仅支持单人模式 | 由脚本管理器访问本机，不经过宿主出站代理。停用脚本可停止发送；禁用插件或清空源目录后重启会停止接收。原文件不复制，删除画廊记录保留原文件 |
 
 后端对普通 Pixiv JSON 使用 4 MiB 响应预算，对小说系列详情与分页内容响应使用 1 MiB 预算；存在 `Content-Length` 时会先校验声明长度，并始终按实际流读取量执行上限，超限时中止处理并返回受控错误。小说元数据最多接受 512 个内嵌图片映射；短期票据只保留移除正文和内嵌图片表后的原始元数据，且不超过 256 KiB。
 
