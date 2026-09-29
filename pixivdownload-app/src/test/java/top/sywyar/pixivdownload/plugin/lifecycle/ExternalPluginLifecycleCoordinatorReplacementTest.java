@@ -28,9 +28,11 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -123,20 +125,27 @@ class ExternalPluginLifecycleCoordinatorReplacementTest {
                 prepared.stagedArtifact(), false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
         when(dependencyResolver.activationProblems(descriptor)).thenReturn(List.of());
         when(installer.listInstalled()).thenReturn(List.of(retired));
-        when(runtimeManager.packagePhases()).thenReturn(
-                Map.of(retiredId, PluginRuntimePackagePhase.STARTED),
-                Map.of(retiredId, PluginRuntimePackagePhase.STARTED),
-                Map.of(),
-                Map.of());
+        AtomicBoolean wrapperPresent = new AtomicBoolean(true);
+        AtomicReference<PluginRuntimePhase> phase = new AtomicReference<>(PluginRuntimePhase.STARTED);
+        when(runtimeManager.packagePhases()).thenAnswer(ignored -> wrapperPresent.get()
+                ? Map.of(retiredId, PluginRuntimePackagePhase.STARTED) : Map.of());
         when(runtimeManager.activeDependents(retiredId)).thenReturn(List.of());
         when(lifecycleService.phase("replacement")).thenReturn(Optional.empty());
-        when(lifecycleService.phase(retiredId)).thenReturn(
-                Optional.of(PluginRuntimePhase.STOPPED),
-                Optional.of(PluginRuntimePhase.STARTED));
+        when(lifecycleService.phase(retiredId)).thenAnswer(ignored -> Optional.of(phase.get()));
+        doAnswer(ignored -> { phase.set(PluginRuntimePhase.STOPPED); return null; })
+                .when(lifecycleService).stop(retiredId);
+        doAnswer(ignored -> { phase.set(PluginRuntimePhase.STARTED); return null; })
+                .when(lifecycleService).start(retiredId);
         when(lifecycleService.generation(retiredId)).thenReturn(Optional.of(7L));
-        doThrow(new AssertionError("wrapper removed before unload failure"))
+        doAnswer(ignored -> {
+            wrapperPresent.set(false);
+            throw new AssertionError("wrapper removed before unload failure");
+        })
                 .when(runtimeManager).unloadPlugin(retiredId);
-        when(runtimeManager.loadPlugin(retiredArtifact)).thenReturn(reloaded);
+        when(runtimeManager.loadPlugin(retiredArtifact)).thenAnswer(ignored -> {
+            wrapperPresent.set(true);
+            return reloaded;
+        });
         when(runtimeManager.initializePlugin(retiredId)).thenReturn(reloaded);
         when(installer.discardPrepared(prepared)).thenReturn(true);
 
@@ -145,6 +154,9 @@ class ExternalPluginLifecycleCoordinatorReplacementTest {
                 .installOrUpdate(prepared.stagedArtifact(), false, PluginPackageOrigin.localUpload());
 
         assertThat(activation.installResult().outcome()).isEqualTo(PluginInstallOutcome.FAILED);
+        assertThat(wrapperPresent).isTrue();
+        assertThat(phase).hasValue(PluginRuntimePhase.STARTED);
+        verify(runtimeManager).unloadPlugin(retiredId);
         verify(runtimeManager).loadPlugin(retiredArtifact);
         verify(lifecycleService).adoptLoadedPackage(reloaded);
         verify(runtimeManager).startPlugin(retiredId);

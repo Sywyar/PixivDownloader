@@ -637,6 +637,13 @@ async function apiTests() {
     eq('setEnabled body = {enabled:false}', JSON.parse(fetchCalls[0].opts.body).enabled, false);
     eq('setEnabled 带 same-origin 凭据', fetchCalls[0].opts.credentials, 'same-origin');
 
+    fetchCalls.length = 0;
+    const impactFingerprint = 'b'.repeat(64);
+    await PM.setEnabled('demo plugin', false, impactFingerprint);
+    eq('确认后的启停走预览执行入口', fetchCalls[0].url, '/api/plugins/demo%20plugin/enabled-preview');
+    eq('确认后的启停保留目标状态', JSON.parse(fetchCalls[0].opts.body).enabled, false);
+    eq('确认后的启停绑定影响指纹', JSON.parse(fetchCalls[0].opts.body).fingerprint, impactFingerprint);
+
     // A-9) 持久化失败保留后端稳定错误码与 HTTP 状态。
     fetchCalls.length = 0;
     nextFetchResponse = { ok: false, status: 409, body: { code: 'REQUIRED_PLUGIN', message: 'required' } };
