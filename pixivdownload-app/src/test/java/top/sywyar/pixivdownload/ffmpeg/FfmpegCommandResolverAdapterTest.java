@@ -103,6 +103,20 @@ class FfmpegCommandResolverAdapterTest {
         }
     }
 
+    @Test
+    @DisplayName("ffprobe 使用安装记录中的独立路径，缺失时使用平台回退命令")
+    void probeUsesRecordedPath(@TempDir Path directory) throws Exception {
+        Path probe = Files.writeString(directory.resolve("independent-probe"), "");
+        var installation = new FfmpegInstallation(directory.resolve("encoder/ffmpeg"), probe, directory,
+                FfmpegInstallation.Source.CUSTOM);
+        var adapter = new FfmpegCommandResolverAdapter(() -> Optional.of(installation), () -> "unused");
+        assertThat(adapter.resolve(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.Tool.FFPROBE).command())
+                .isEqualTo(probe.toString());
+        Files.delete(probe);
+        assertThat(adapter.resolve(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.Tool.FFPROBE).command())
+                .isEqualTo(FfmpegLocator.probeExecutableName());
+    }
+
     private static ResolvedFfmpegCommand.Source expectedSource(FfmpegInstallation.Source source) {
         return switch (source) {
             case CUSTOM -> ResolvedFfmpegCommand.Source.SYSTEM;

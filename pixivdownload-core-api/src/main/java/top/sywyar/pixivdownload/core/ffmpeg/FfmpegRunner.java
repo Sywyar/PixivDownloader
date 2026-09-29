@@ -57,4 +57,27 @@ public interface FfmpegRunner {
     String run(Tool tool, List<String> arguments, Path workingDirectory, Path output,
                long maximumOutputBytes, Duration timeout, BooleanSupplier cancelled,
                Consumer<Phase> progress) throws IOException;
+
+    /**
+     * 在宿主受控进程中逐行观察标准输出，诊断仍单独有界保留。
+     * 宿主在返回前结束观察；回调必须快速返回，不保留后台工作或发布原始诊断到用户进度。
+     * 单行最多 4096 字节，超限或回调失败终止进程；取消保持取消语义。
+     * @param tool 媒体工具
+     * @param arguments 命令参数
+     * @param workingDirectory 工作目录
+     * @param output 待监控的输出文件
+     * @param maximumOutputBytes 输出字节上限
+     * @param timeout 执行时限
+     * @param cancelled 取消信号
+     * @param progress 执行阶段回调
+     * @param outputLine 标准输出行回调，在当前调用线程调用；待处理队列最多 64 行
+     * @return 有界诊断输出
+     * @throws IOException 执行失败或输出行超限
+     */
+    default String run(Tool tool, List<String> arguments, Path workingDirectory, Path output,
+                       long maximumOutputBytes, Duration timeout, BooleanSupplier cancelled,
+                       Consumer<Phase> progress, Consumer<String> outputLine) throws IOException {
+        if (outputLine != null) throw new UnsupportedOperationException("Streaming media progress unavailable");
+        return run(tool, arguments, workingDirectory, output, maximumOutputBytes, timeout, cancelled, progress);
+    }
 }

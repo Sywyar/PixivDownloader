@@ -13,8 +13,6 @@ import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.download.InteractiveDownloadExecutionLane;
-import top.sywyar.pixivdownload.core.ffmpeg.FfmpegCommandResolver;
-import top.sywyar.pixivdownload.core.ffmpeg.FfmpegProcessGate;
 import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetcher;
 import top.sywyar.pixivdownload.plugin.api.download.control.DownloadControlPlane;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
@@ -169,11 +167,10 @@ public class DownloadWorkbenchPluginConfiguration {
 
     @Bean
     public UgoiraService ugoiraService(PixivImageDownloader pixivImageDownloader,
-                                       FfmpegCommandResolver ffmpegCommandResolver,
-                                       FfmpegProcessGate ffmpegProcessGate,
+                                       top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner ffmpegRunner,
                                        @Qualifier("downloadWorkbenchMessages") MessageResolver messages,
                                        top.sywyar.pixivdownload.core.asset.ArtworkMediaStore mediaStore) {
-        return new UgoiraService(pixivImageDownloader, ffmpegCommandResolver, messages, ffmpegProcessGate, mediaStore);
+        return new UgoiraService(pixivImageDownloader, ffmpegRunner, messages, mediaStore);
     }
 
     @Bean

@@ -7,12 +7,15 @@ import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import java.io.IOException;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
+import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.FileTime;
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Objects;
 
 /**
  * 统一定位 FFmpeg，供桌面 GUI 与后端服务共用。
@@ -22,6 +25,9 @@ public final class FfmpegLocator {
     public static final String CONFIG_KEY = "ffmpeg.executable-path";
     private static final String OS_NAME = System.getProperty("os.name", "");
     private static final boolean WINDOWS = OS_NAME.toLowerCase(Locale.ROOT).contains("win");
+    private static ConfiguredPath cachedConfig;
+
+    private record ConfiguredPath(Path file, FileTime modified, long size, Object key, String value) {}
 
     private FfmpegLocator() {}
 
@@ -47,7 +53,7 @@ public final class FfmpegLocator {
 
     static Optional<FfmpegInstallation> locate(Path configFile) {
         try {
-            String configured = new ConfigFileEditor(configFile).read(CONFIG_KEY);
+            String configured = configuredPath(configFile);
             if (configured != null && !configured.isBlank()) {
                 return Optional.of(requireConfiguredInstallation(configured));
             }
@@ -65,6 +71,23 @@ public final class FfmpegLocator {
         }
 
         return systemInstallation();
+    }
+
+    private static synchronized String configuredPath(Path configFile) throws IOException {
+        Path file = configFile.toAbsolutePath().normalize();
+        if (!Files.exists(file)) {
+            cachedConfig = null;
+            return null;
+        }
+        BasicFileAttributes attributes = Files.readAttributes(file, BasicFileAttributes.class);
+        if (cachedConfig == null || !cachedConfig.file().equals(file)
+                || !cachedConfig.modified().equals(attributes.lastModifiedTime())
+                || cachedConfig.size() != attributes.size()
+                || !Objects.equals(cachedConfig.key(), attributes.fileKey())) {
+            String value = new ConfigFileEditor(file).read(CONFIG_KEY);
+            cachedConfig = new ConfiguredPath(file, attributes.lastModifiedTime(), attributes.size(), attributes.fileKey(), value);
+        }
+        return cachedConfig.value();
     }
 
     /** GUI 保存前校验；空值表示恢复自动查找。 */
@@ -88,9 +111,9 @@ public final class FfmpegLocator {
             }
             Path realExecutable = executable.toRealPath();
             Path directory = realExecutable.getParent();
-            Path probe = directory.resolve(probeExecutableName());
+            Path probe = probePath(directory);
             return new FfmpegInstallation(realExecutable,
-                    Files.isRegularFile(probe) ? probe : null,
+                    probe,
                     directory,
                     FfmpegInstallation.Source.CUSTOM);
         } catch (IOException | RuntimeException invalid) {
@@ -139,10 +162,10 @@ public final class FfmpegLocator {
             return Optional.empty();
         }
 
-        Path ffprobePath = root.resolve(probeExecutableName());
+        Path ffprobePath = probePath(root);
         return Optional.of(new FfmpegInstallation(
                 ffmpegPath,
-                Files.isRegularFile(ffprobePath) ? ffprobePath : null,
+                ffprobePath,
                 root,
                 source
         ));
@@ -168,39 +191,34 @@ public final class FfmpegLocator {
     }
 
     static Optional<FfmpegInstallation> systemInstallation() {
-        String[] command = WINDOWS
-                ? new String[]{"where", executableName()}
-                : new String[]{"which", executableName()};
-        try {
-            Process process = new ProcessBuilder(command)
-                    .redirectErrorStream(true)
-                    .start();
-            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
-            if (process.waitFor() != 0 || output.isBlank()) {
-                return Optional.empty();
-            }
+        return findOnPath(executableName(), System.getenv("PATH"), Path.of(""), WINDOWS)
+                .map(executable -> new FfmpegInstallation(executable, probePath(executable.getParent()),
+                        executable.getParent(), FfmpegInstallation.Source.SYSTEM));
+    }
 
-            String firstLine = output.lines()
-                    .map(String::trim)
-                    .filter(line -> !line.isEmpty())
-                    .findFirst()
-                    .orElse("");
-            if (firstLine.isBlank()) {
-                return Optional.empty();
-            }
+    private static Path probePath(Path directory) {
+        Path sibling = directory.resolve(probeExecutableName());
+        if (Files.isRegularFile(sibling)) return sibling;
+        return findOnPath(probeExecutableName(), System.getenv("PATH"), Path.of(""), WINDOWS).orElse(null);
+    }
 
-            Path ffmpegPath = Path.of(firstLine);
-            Path root = ffmpegPath.getParent();
-            Path ffprobePath = root == null ? null : root.resolve(probeExecutableName());
-            return Optional.of(new FfmpegInstallation(
-                    ffmpegPath,
-                    ffprobePath != null && Files.isRegularFile(ffprobePath) ? ffprobePath : null,
-                    root == null ? ffmpegPath : root,
-                    FfmpegInstallation.Source.SYSTEM
-            ));
-        } catch (Exception ignored) {
-            return Optional.empty();
+    static Optional<Path> findOnPath(String executable, String path, Path workingDirectory, boolean windows) {
+        LinkedHashSet<Path> directories = new LinkedHashSet<>();
+        if (windows) directories.add(workingDirectory);
+        if (path != null) {
+            for (String entry : path.split(java.util.regex.Pattern.quote(File.pathSeparator), -1)) {
+                if (entry.length() >= 2 && entry.startsWith("\"") && entry.endsWith("\"")) {
+                    entry = entry.substring(1, entry.length() - 1);
+                }
+                try { directories.add(entry.isEmpty() ? workingDirectory : workingDirectory.resolve(entry)); }
+                catch (java.nio.file.InvalidPathException ignored) { /* 无效 PATH 项不遮挡后续安装。 */ }
+            }
         }
+        for (Path directory : directories) {
+            Path candidate = directory.resolve(executable).toAbsolutePath().normalize();
+            if (Files.isRegularFile(candidate) && (windows || Files.isExecutable(candidate))) return Optional.of(candidate);
+        }
+        return Optional.empty();
     }
 
     private static Optional<Path> currentProcessRoot() {
