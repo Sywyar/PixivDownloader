@@ -42,18 +42,28 @@
     }
 
     let _saveTimer = null;
+    let _saveRequest = Promise.resolve();
 
     function scheduleServerSave() {
         if (_saveTimer) clearTimeout(_saveTimer);
-        _saveTimer = setTimeout(() => {
-            fetch(BASE + '/api/batch/state', {
+        _saveTimer = setTimeout(() => flushServerState().catch(() => {}), 400);
+    }
+
+    function flushServerState() {
+        if (_saveTimer) clearTimeout(_saveTimer);
+        _saveTimer = null;
+        if (appMode !== 'solo') return Promise.resolve();
+        // 切换页面前等待当前快照落盘；先前的自动保存不能在后面覆盖它。
+        _saveRequest = _saveRequest.catch(() => {}).then(async () => {
+            const response = await fetch(BASE + '/api/batch/state', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({state: serverState}),
                 credentials: 'same-origin'
-            }).catch(() => {
             });
-        }, 400);
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+        });
+        return _saveRequest;
     }
 
     /** 统一存储读取：solo 模式读服务器内存，multi 模式读 localStorage */
@@ -82,15 +92,9 @@
     async function doLogout() {
         // solo 模式下退出登录同时清除服务器保存的 Cookie；必须在 logout 使 session 失效前持久化
         if (appMode === 'solo') {
-            if (_saveTimer) clearTimeout(_saveTimer);
             delete serverState['pixiv_cookie'];
             try {
-                await fetch(BASE + '/api/batch/state', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({state: serverState}),
-                    credentials: 'same-origin'
-                });
+                await flushServerState();
             } catch {
             }
         }

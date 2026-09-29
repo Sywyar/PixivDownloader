@@ -254,6 +254,12 @@ function scheduleServerSave() {
     }, 400);
 }
 
+function flushServerState() {
+    if (_saveTimer) clearTimeout(_saveTimer);
+    _saveTimer = null;
+    return appMode === 'solo' ? persistStoreEntries({}) : Promise.resolve();
+}
+
 /** 统一存储读取：solo 模式读服务器内存，multi 模式读 localStorage */
 function storeGet(key) {
     if (appMode === 'solo') {
@@ -290,7 +296,7 @@ async function doLogout() {
         await fetch('/api/auth/logout', {method: 'POST', credentials: 'same-origin'});
     } catch {
     }
-    window.location.href = '/pixiv-batch-alt.html';
+    window.location.href = '/pixiv-batch.html';
 }
 
 window.PixivBatchAlt.state = Object.assign(window.PixivBatchAlt.state, {

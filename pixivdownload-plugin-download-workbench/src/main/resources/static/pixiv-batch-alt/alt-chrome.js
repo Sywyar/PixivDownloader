@@ -95,7 +95,7 @@ function bindAuthButton() {
     if (!btn) return;
     btn.addEventListener('click', async () => {
         if (!isAdmin) {
-            window.location.href = '/login.html?redirect=/pixiv-batch-alt.html';
+            window.location.href = '/login.html?redirect=/pixiv-batch.html';
             return;
         }
         if (!await abConfirm('dialog.confirm-logout', '确认退出登录？')) return;

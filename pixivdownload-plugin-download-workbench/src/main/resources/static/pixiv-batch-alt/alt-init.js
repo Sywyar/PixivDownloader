@@ -153,6 +153,7 @@ async function init() {
     }
 
     loadSettings();
+    window.PixivBatchPageLayout.bind(isAdmin, () => bt('batch:page.layout-save-failed'), flushServerState);
     loadSearchFilterPrefs();
     const blurPref = storeGet('pixiv_search_blur_r18');
     if (blurPref !== null) searchState.blurR18 = blurPref === 'true';

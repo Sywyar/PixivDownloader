@@ -219,6 +219,10 @@ class DownloadWorkbenchExternalPluginBootContextTest {
         assertThat(child.getBeanNamesForType(scheduleController)).isNotEmpty();
         assertThat(applicationContext.getBeanNamesForType(queueController)).isEmpty();
         assertThat(applicationContext.getBeanNamesForType(scheduleController)).isEmpty();
+        Class<?> pageController = externalClassLoader.loadClass(
+                "top.sywyar.pixivdownload.download.controller.DownloadPageController");
+        assertThat(child.getBeanNamesForType(pageController)).isNotEmpty();
+        assertThat(applicationContext.getBeanNamesForType(pageController)).isEmpty();
 
         assertThat(child.getBeansOfType(ScheduledSourceExecutor.class).values())
                 .hasSize(7)
@@ -249,6 +253,32 @@ class DownloadWorkbenchExternalPluginBootContextTest {
                 .isSameAs(externalClassLoader);
         assertThat(handlerBean("/api/schedule/sources").getClass().getClassLoader())
                 .isSameAs(externalClassLoader);
+    }
+
+    @Test
+    @DisplayName("真实插件页面映射优先于静态资源，偏好写入仅声明管理员权限")
+    void downloadPagesUsePluginControllerBeforeStaticResources() throws Exception {
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppContextSetup(
+                (org.springframework.web.context.WebApplicationContext) applicationContext).build();
+        assertRoute("/api/batch/page", AccessPolicy.ADMIN);
+        var selectClassic = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/batch/page")
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .content("{\"page\":\"pixiv-batch.html\"}");
+        mvc.perform(selectClassic).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNoContent());
+        try {
+            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/batch/page")
+                            .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                            .content("{\"page\":\"pixiv-batch-alt.html\"}"))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNoContent());
+            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/pixiv-batch.html"))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl("/pixiv-batch-alt.html"));
+            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/pixiv-batch-alt.html"))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                            .string(org.hamcrest.Matchers.containsString("id=\"abRail\"")));
+        } finally {
+            mvc.perform(selectClassic).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNoContent());
+        }
     }
 
     @Test

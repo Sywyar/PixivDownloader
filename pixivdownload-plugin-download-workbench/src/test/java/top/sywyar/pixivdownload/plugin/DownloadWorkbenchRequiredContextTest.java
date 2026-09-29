@@ -71,6 +71,7 @@ class DownloadWorkbenchRequiredContextTest {
             assertRoute(path, HttpMethod.GET, AccessPolicy.VISITOR);
         }
         assertRoute("/api/schedule/tasks", HttpMethod.GET, AccessPolicy.ADMIN);
+        assertRoute("/api/batch/page", HttpMethod.POST, AccessPolicy.ADMIN);
         assertThat(plugin.routes()).noneMatch(route -> route.pathPattern().startsWith("/api/download/media/"));
         assertThat(plugin.guiConfigContributions()).isEmpty();
         assertThat(plugin.routes()).noneMatch(route -> route.pathPattern().contains("pixiv-media"));

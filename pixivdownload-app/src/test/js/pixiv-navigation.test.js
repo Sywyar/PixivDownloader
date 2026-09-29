@@ -219,7 +219,7 @@ async function main() {
         ok('1: Vue 稳态 refresh() 不重复 mountOn（复用既有 app）', record.mounts.length === 2);
     }
 
-    // ===== 场景 7：工作台页面记录自身地址，导航项与站内信式独立返回链接读取同一偏好 =====
+    // ===== 场景 7：导航统一使用贡献地址，已有浏览器偏好不改写入口 =====
     {
         const preferredKey = 'pixiv:nav-preferred:preferred-download-workbench';
         const download = {
@@ -231,8 +231,8 @@ async function main() {
             rootAttrs: {'data-nav-remember-marker': 'preferred-download-workbench'}
         });
         await first.PixivNav.ready();
-        ok('7: 新版工作台把当前地址记录到 marker 对应偏好',
-            first.localStorage.value(preferredKey) === '/pixiv-batch-alt.html');
+        ok('7: 打开新版工作台不再写入浏览器偏好',
+            first.localStorage.value(preferredKey) == null);
 
         const top = navSlot('app.top', {'data-nav-link-class': 'app-nav-link'});
         const back = new El('a');
@@ -243,16 +243,22 @@ async function main() {
             storage: {[preferredKey]: '/pixiv-batch-alt.html'}
         });
         await second.PixivNav.ready();
-        ok('7: 顶部下载导航使用最近打开的工作台地址',
-            top.innerHTML.indexOf('href="/pixiv-batch-alt.html"') >= 0);
-        ok('7: 独立返回链接使用同一 marker 目标', back.getAttribute('href') === '/pixiv-batch-alt.html');
+        ok('7: 顶部下载导航保持统一入口',
+            top.innerHTML.indexOf('href="/pixiv-batch.html"') >= 0);
+        ok('7: 独立返回链接保持统一入口', back.getAttribute('href') === '/pixiv-batch.html');
+        const vueTop = navSlot('app.top');
+        const vuePage = load({slots: [vueTop], items: [download], pixivVue: true,
+            storage: {[preferredKey]: '/pixiv-batch-alt.html'}});
+        await vuePage.PixivNav.ready();
+        ok('7: Vue 渲染同样忽略浏览器旧偏好',
+            vueTop.children.some(link => link.attrs.href === '/pixiv-batch.html'));
 
         const unsafe = load({
             slots: [navSlot('app.top')], items: [download], pathname: '/monitor.html',
             storage: {[preferredKey]: '//example.invalid/steal'}
         });
         await unsafe.PixivNav.ready();
-        ok('7: 非同源偏好值被拒绝并回退贡献方默认地址',
+        ok('7: 非同源旧偏好也不会影响贡献方地址',
             unsafe.slots[0].innerHTML.indexOf('href="/pixiv-batch.html"') >= 0);
     }
 

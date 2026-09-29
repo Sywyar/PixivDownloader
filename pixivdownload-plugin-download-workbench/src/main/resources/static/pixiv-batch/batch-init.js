@@ -252,6 +252,7 @@
 
         // Settings
         loadSettings();
+        window.PixivBatchPageLayout.bind(isAdmin, () => bt('batch:page.layout-save-failed'), flushServerState);
         window.PixivBatch.modes.user.initUserInputDraftPersistence();
         await refreshBatchCollections();
         applyCookieDependentUi();

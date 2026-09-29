@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="zh-CN"
-      data-nav-remember-marker="preferred-download-workbench"
       data-batch-layout="landscape"
       data-batch-layout-default="landscape">
 <head>
@@ -63,13 +62,14 @@
           data-nav-target="_blank" data-nav-rel="noopener" style="display:contents"></span>
     <div class="app-nav-spacer"></div>
     <div class="app-nav-actions" id="langSwitcherAnchor">
-        <a class="batch-layout-toggle batch-page-layout-link" href="/pixiv-batch-alt.html"
+        <button type="button" class="batch-layout-toggle batch-page-layout-link" id="batch-page-layout-switch"
+           data-download-page="pixiv-batch-alt.html" hidden
            data-i18n-title="page.switch-to-new-layout"
            data-i18n-aria-label="page.switch-to-new-layout"
            title="新布局" aria-label="新布局">
             <i class="fa-solid fa-border-all" aria-hidden="true"></i>
             <span class="batch-layout-toggle-label" data-i18n="page.switch-to-new-layout">新布局</span>
-        </a>
+        </button>
         <button type="button" id="batch-layout-toggle" class="batch-layout-toggle" hidden disabled>
             <i class="fa-solid fa-table-columns" aria-hidden="true"></i>
             <span class="batch-layout-toggle-label"></span>
@@ -817,6 +817,7 @@
 <script src="/pixiv-batch/batch-cookie.js"></script>
 <script src="/pixiv-batch/media-settings.js"></script>
 <script src="/pixiv-batch/filename-template-presets.js"></script>
+<script src="/pixiv-batch/page-layout.js"></script>
 <script src="/pixiv-batch/batch-settings.js"></script>
 <script src="/pixiv-batch/batch-filters.js"></script>
 <script src="/pixiv-batch/batch-media-progress.js"></script>

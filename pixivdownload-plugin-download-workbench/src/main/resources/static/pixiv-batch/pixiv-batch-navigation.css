@@ -97,6 +97,10 @@
             color: var(--brand);
         }
 
+        #batch-page-layout-switch[hidden] {
+            display: none;
+        }
+
         .batch-page-layout-link:hover {
             background: color-mix(in srgb, var(--brand-text) 88%, transparent);
         }

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN" class="ab-workbench ios" data-theme="light" data-nav-remember-marker="preferred-download-workbench">
+<html lang="zh-CN" class="ab-workbench ios" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -57,12 +57,13 @@
                 <button type="button" class="ab-menu-item button" id="abScriptsBtn" data-i18n-title="scripts.entry" title="油猴脚本">
                     <span class="ab-icon" data-icon="puzzle" aria-hidden="true"></span><span data-i18n="scripts.entry">油猴脚本</span>
                 </button>
-                <a class="ab-menu-item button" href="/pixiv-batch.html"
+                <button type="button" class="ab-menu-item button" id="batch-page-layout-switch"
+                   data-download-page="pixiv-batch.html" hidden
                    data-i18n-title="page.switch-to-old-layout"
                    data-i18n-aria-label="page.switch-to-old-layout"
                    title="旧布局" aria-label="旧布局">
                     <span class="ab-icon" data-icon="grid" aria-hidden="true"></span><span data-i18n="page.switch-to-old-layout">旧布局</span>
-                </a>
+                </button>
                 <div class="ab-menu-preferences"><span id="abLangAnchor"></span><span id="abThemeAnchor"></span></div>
                 <div class="ab-menu-head">
                     <strong id="abAppName">PixivDownloader</strong>
@@ -155,6 +156,7 @@
 <script src="/pixiv-batch-alt/alt-filters.js"></script>
 <script src="/pixiv-batch/media-settings.js"></script>
 <script src="/pixiv-batch/filename-template-presets.js"></script>
+<script src="/pixiv-batch/page-layout.js"></script>
 <script src="/pixiv-batch-alt/alt-settings.js"></script>
 <script src="/pixiv-batch-alt/alt-chrome.js"></script>
 <script src="/pixiv-batch-alt/alt-selection.js"></script>
