@@ -192,7 +192,7 @@
         }
 
         if (vm.source === 'external' && vm.status === 'FAILED') {
-            parts.push('<button type="button" class="pm-btn" data-pm-repair'
+            parts.push('<button type="button" class="pm-btn pm-btn--gray" data-pm-repair'
                 + (busy || PM.state.installBusy ? ' disabled' : '') + '>'
                 + E(PM.t('repair.replace', '换包修复')) + '</button>');
         }
@@ -217,7 +217,7 @@
                 + vm.trustLines.map(function (line) { return '<div class="pm-note">' + E(line) + '</div>'; }).join('')
                 + '</details>');
             if (vm.trustFacts.revocation && vm.trustFacts.revocation.refreshAvailable) {
-                parts.push('<button type="button" class="pm-btn" data-pm-revocations="'
+                parts.push('<button type="button" class="pm-btn pm-btn--gray" data-pm-revocations="'
                     + E(vm.trustFacts.revocation.repositoryId) + '"' + (busy ? ' disabled' : '') + '>'
                     + E(PM.t('revocation.refresh', '刷新撤销信息')) + '</button>');
             }
