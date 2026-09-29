@@ -1,0 +1,43 @@
+.filename-template-controls {
+    position: relative;
+    flex: 1 1 20rem;
+    min-width: 0;
+    max-width: 100%;
+}
+.filename-template-controls > input,
+.filename-template-controls > input.ab-input,
+#download-settings-card .filename-template-controls > #s-file-name-template {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    margin: 0;
+    padding-inline-end: 2.75rem;
+}
+.filename-template-controls > select,
+.ab-setting-row .filename-template-controls > select {
+    position: absolute;
+    inset-block: 1px;
+    inset-inline-end: 1px;
+    width: 2.25rem;
+    min-width: 0;
+    margin: 0;
+    padding: 0 .5rem;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    appearance: auto;
+    cursor: pointer;
+}
+.filename-template-controls > select:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: -2px;
+}
+.filename-template-controls > select > option {
+    background: var(--control-bg);
+    color: var(--text);
+}
+.ab-setting-row .filename-template-controls {
+    margin-top: 8px;
+}

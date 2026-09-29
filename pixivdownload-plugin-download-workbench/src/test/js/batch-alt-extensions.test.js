@@ -216,12 +216,12 @@ assert.strictEqual(sandbox.scheduleStatusLabel(suspendedTask), '风控原因详�
     assert.strictEqual(appliedLanguage, 'new-owner', '迟到的资源响应不得覆盖新的插件语言快照');
     assert(pageSource.includes('data-nav-link-class="ab-topnav-link"'));
     assert(pageSource.includes('data-nav-current="download-workbench"'));
-    assert(pageSource.includes('href="/pixiv-batch.html"'));
+    assert(pageSource.includes('data-download-page="pixiv-batch.html"'));
     assert(pageSource.includes('data-i18n-title="page.switch-to-old-layout"'));
     assert(pageSource.includes('data-i18n-aria-label="page.switch-to-old-layout"'));
     assert(pageSource.includes('data-icon="grid"'));
-    const oldLayoutLink = pageSource.match(/<a[^>]*href="\/pixiv-batch.html"[^>]*>/)[0];
-    assert(!oldLayoutLink.includes('data-i18n='), '翻译文本应在子节点，保留链接图标');
+    const oldLayoutButton = pageSource.match(/<button[^>]*data-download-page="pixiv-batch.html"[^>]*>/)[0];
+    assert(!oldLayoutButton.includes('data-i18n='), '翻译文本应在子节点，保留按钮图标');
     const altStyleOrder = [
         'pixiv-batch-alt.css', 'pixiv-batch-alt-layout.css', 'pixiv-batch-alt-dock.css',
         'pixiv-batch-alt-schedule.css', 'pixiv-batch-alt-overlays.css',

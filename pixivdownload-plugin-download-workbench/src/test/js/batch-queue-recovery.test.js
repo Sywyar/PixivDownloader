@@ -121,12 +121,13 @@ test('alt: initial page load initializes recovery once and language refresh only
         appMode: 'solo', isAdmin: true, chromeState: {}, state: {}, searchState: {}, pageI18n: null,
         lastAcquisitionMode: 'single-import',
         AB_MODES: [{id: 'single-import'}], QUICK_FETCH_MODE: 'single-import', SINGLE_IMPORT_MODE: 'single-import',
-        storeGet: () => null, checkBackend: async () => true,
+        storeGet: () => null, checkBackend: async () => true, flushServerState: async () => {},
         debounce: fn => fn, moveRailIndicator() {},
         loadQueueForMode: () => calls.push('load'),
         renderDock: () => calls.push('render'),
         initQueueRecovery: () => calls.push('recovery')
     });
+    vm.runInContext(source('pixiv-batch/page-layout.js'), context);
     vm.runInContext(source('pixiv-batch-alt/alt-init.js'), context);
     for (const name of ['hydrateIcons', 'initPageI18n', 'detectMode', 'detectAuthState',
         'loadServerState', 'loadSettings', 'loadSearchFilterPrefs', 'bindChrome', 'bindScheduleMenus', 'loadAppInfo',

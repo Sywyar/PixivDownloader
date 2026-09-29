@@ -216,7 +216,7 @@ class BatchLayoutContractTest {
 
         assertThat(baseCssAt).as("下载页必须加载共享基础 CSS").isGreaterThanOrEqualTo(0);
         assertThat(html)
-                .contains("href=\"/pixiv-batch-alt.html\"")
+                .contains("data-download-page=\"pixiv-batch-alt.html\"")
                 .contains("data-i18n=\"page.switch-to-new-layout\"");
         assertThat(links)
                 .extracting(LayoutStyleLink::href)

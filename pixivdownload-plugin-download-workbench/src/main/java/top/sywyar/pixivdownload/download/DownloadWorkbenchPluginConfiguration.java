@@ -38,6 +38,7 @@ import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.download.controller.BatchStateController;
+import top.sywyar.pixivdownload.download.controller.DownloadPageController;
 import top.sywyar.pixivdownload.download.controller.DownloadQueueController;
 import top.sywyar.pixivdownload.download.controller.DownloadStatusController;
 import top.sywyar.pixivdownload.download.controller.DownloadTaskController;
@@ -63,6 +64,7 @@ import top.sywyar.pixivdownload.download.schedule.source.executor.PixivSeriesSch
 import top.sywyar.pixivdownload.download.schedule.source.executor.PixivUserNewScheduledSourceExecutor;
 import top.sywyar.pixivdownload.download.schedule.source.executor.PixivUserRequestScheduledSourceExecutor;
 import top.sywyar.pixivdownload.download.state.BatchStateFiles;
+import top.sywyar.pixivdownload.download.state.DownloadPagePreference;
 import top.sywyar.pixivdownload.download.state.LayoutFeedbackStateFiles;
 import top.sywyar.pixivdownload.download.state.LayoutFeedbackStateStore;
 import top.sywyar.pixivdownload.i18n.LocaleBundlePolicy;
@@ -347,6 +349,12 @@ public class DownloadWorkbenchPluginConfiguration {
     public BatchStateController batchStateController(BatchStateFiles batchStateFiles,
                                                      ApplicationModeProvider applicationModeProvider) {
         return new BatchStateController(batchStateFiles, applicationModeProvider);
+    }
+
+    @Bean
+    public DownloadPageController downloadPageController(RuntimePathProvider runtimePathProvider,
+                                                         @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
+        return new DownloadPageController(new DownloadPagePreference(runtimePathProvider), messages);
     }
 
     @Bean

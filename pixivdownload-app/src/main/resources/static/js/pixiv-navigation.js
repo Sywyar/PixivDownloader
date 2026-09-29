@@ -43,7 +43,6 @@
     // ============================================================
 
     var NAV_ENDPOINT = '/api/navigation';
-    var PREFERRED_HREF_PREFIX = 'pixiv:nav-preferred:';
 
     // 图标 token → 内联 SVG 内容。与各页面既有 nav 图标一致，自带 fill/stroke 故任何页面都能正确渲染。
     var ICON_PATHS = {
@@ -126,46 +125,9 @@
         }).filter(Boolean) : [];
     }
 
-    function safeSameOriginHref(value) {
-        if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//')
-            || /[\u0000-\u0020\\]/.test(value)) return null;
-        try {
-            var resolved = new global.URL(value, global.location.origin);
-            if (resolved.origin !== global.location.origin || resolved.username || resolved.password || resolved.hash) {
-                return null;
-            }
-            return resolved.pathname + resolved.search;
-        } catch (e) {
-            return null;
-        }
-    }
-
-    function preferredHref(marker) {
-        try {
-            return safeSameOriginHref(global.localStorage.getItem(PREFERRED_HREF_PREFIX + marker));
-        } catch (e) {
-            return null;
-        }
-    }
-
     function hrefFor(item) {
-        var markers = itemMarkers(item);
-        for (var i = 0; i < markers.length; i++) {
-            var remembered = preferredHref(markers[i]);
-            if (remembered) return remembered;
-        }
         // href 由贡献方完整声明（含任何 query）；公共渲染器不为任何插件 id 补默认 query。
         return item.href || '#';
-    }
-
-    function rememberCurrentHref(items) {
-        var root = global.document.documentElement;
-        var marker = root && root.getAttribute('data-nav-remember-marker');
-        marker = marker == null ? '' : String(marker).trim();
-        if (!marker || !items.some(function (item) { return itemMarkers(item).indexOf(marker) !== -1; })) return;
-        var current = safeSameOriginHref((global.location.pathname || '') + (global.location.search || ''));
-        if (!current) return;
-        try { global.localStorage.setItem(PREFERRED_HREF_PREFIX + marker, current); } catch (e) { /* optional preference */ }
     }
 
     function applyPreferredHrefAnchors(items) {
@@ -444,7 +406,6 @@
         inFlight = true;
         try {
             state.items = await fetchNav();
-            rememberCurrentHref(state.items);
             loaded = true;
         } catch (e) {
             state.items = null;

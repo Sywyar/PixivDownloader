@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="zh-CN"
-      data-nav-remember-marker="preferred-download-workbench"
       data-batch-layout="landscape"
       data-batch-layout-default="landscape">
 <head>
@@ -32,6 +31,7 @@
     <link rel="stylesheet" href="/css/pixiv-scrollbar.css">
     <link rel="stylesheet" href="/pixiv-batch/pixiv-batch.css">
     <link rel="stylesheet" href="/pixiv-batch/media-settings.css">
+    <link rel="stylesheet" href="/pixiv-batch/filename-template-presets.css">
     <link rel="stylesheet" href="/pixiv-batch/pixiv-batch-components.css">
     <link rel="stylesheet" href="/pixiv-batch/pixiv-batch-queue-recovery.css">
     <link rel="stylesheet" href="/pixiv-batch/pixiv-batch-navigation.css">
@@ -62,13 +62,14 @@
           data-nav-target="_blank" data-nav-rel="noopener" style="display:contents"></span>
     <div class="app-nav-spacer"></div>
     <div class="app-nav-actions" id="langSwitcherAnchor">
-        <a class="batch-layout-toggle batch-page-layout-link" href="/pixiv-batch-alt.html"
+        <button type="button" class="batch-layout-toggle batch-page-layout-link" id="batch-page-layout-switch"
+           data-download-page="pixiv-batch-alt.html" hidden
            data-i18n-title="page.switch-to-new-layout"
            data-i18n-aria-label="page.switch-to-new-layout"
            title="新布局" aria-label="新布局">
             <i class="fa-solid fa-border-all" aria-hidden="true"></i>
             <span class="batch-layout-toggle-label" data-i18n="page.switch-to-new-layout">新布局</span>
-        </a>
+        </button>
         <button type="button" id="batch-layout-toggle" class="batch-layout-toggle" hidden disabled>
             <i class="fa-solid fa-table-columns" aria-hidden="true"></i>
             <span class="batch-layout-toggle-label"></span>
@@ -593,7 +594,10 @@
                     <div id="type-output-settings"></div>
                     <div class="setting-item filename-setting">
                         <label for="s-file-name-template" data-i18n="label.settings.filename-template">文件名格式:</label>
-                        <input type="text" id="s-file-name-template" value="{artwork_id}_p{page}" spellcheck="false">
+                        <div class="filename-template-controls">
+                            <input type="text" id="s-file-name-template" value="{artwork_id}_p{page}" spellcheck="false">
+                            <select id="s-file-name-templates" hidden></select>
+                        </div>
                     </div>
                     <details class="filename-help">
                         <summary data-i18n="filename.help.summary">模块变量</summary>
@@ -812,6 +816,8 @@
 <script src="/pixiv-batch/batch-userscripts.js"></script>
 <script src="/pixiv-batch/batch-cookie.js"></script>
 <script src="/pixiv-batch/media-settings.js"></script>
+<script src="/pixiv-batch/filename-template-presets.js"></script>
+<script src="/pixiv-batch/page-layout.js"></script>
 <script src="/pixiv-batch/batch-settings.js"></script>
 <script src="/pixiv-batch/batch-filters.js"></script>
 <script src="/pixiv-batch/batch-media-progress.js"></script>
