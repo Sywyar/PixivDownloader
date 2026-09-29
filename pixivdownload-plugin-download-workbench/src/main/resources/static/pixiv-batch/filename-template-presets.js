@@ -29,7 +29,9 @@ window.PixivFilenameTemplatePresets = {
                 select.appendChild(node);
                 return node;
             }
-            option('', label, 'template-set.label');
+            const placeholder = option('', '');
+            placeholder.hidden = true;
+            placeholder.disabled = true;
             values.forEach((value, index) => option(String(index), value));
             const current = input.value.trim();
             option('save', text('template-set.save'), 'template-set.save').disabled = !current || values.includes(current);

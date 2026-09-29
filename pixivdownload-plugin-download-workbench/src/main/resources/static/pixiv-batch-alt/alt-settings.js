@@ -380,7 +380,7 @@ function buildSettingsDrawerBody() {
     }
     previewName();
     const templateControls = el('div', 'filename-template-controls');
-    const templateSelect = el('select', 'ab-input');
+    const templateSelect = el('select');
     templateControls.append(tplInput, templateSelect);
     window.PixivFilenameTemplatePresets.bind(
         tplInput,

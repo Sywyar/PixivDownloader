@@ -60,6 +60,11 @@ test('模板集保存输入内容、去重、恢复，并通过原有 change 事
 test('空白与损坏条目不进入选项，模板文本不作为 HTML 解析，语言在显示时更新', () => {
     const f = fixture({fileNameTemplates: [null, 5, '', '  ', '<img src=x>', '<img src=x>']});
     assert.equal(f.select.children.length, 3);
+    assert.equal(f.select.children[0].hidden, true);
+    assert.equal(f.select.children[0].disabled, true);
+    assert.equal(f.select.children[0].textContent, '');
+    assert.deepEqual(f.select.children.filter(option => !option.hidden).map(option => option.textContent),
+        ['<img src=x>', 'en:template-set.save']);
     assert.equal(f.select.children[1].textContent, '<img src=x>');
     assert.equal(f.select.children[1].children.length, 0);
     f.input.value = '  ';
