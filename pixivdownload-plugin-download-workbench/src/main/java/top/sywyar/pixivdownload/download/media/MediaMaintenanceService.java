@@ -41,6 +41,8 @@ public final class MediaMaintenanceService implements AutoCloseable {
     private volatile boolean cancelled;
     private volatile Status status = new Status("idle", 0, 0, 0, List.of());
     private boolean closed;
+    private Thread worker;
+    private java.util.concurrent.CompletableFuture<Preview> pendingPreview;
 
     public MediaMaintenanceService(WorkAssetService assets, WorkMetadataRepository metadata, WorkQueryService query, ImageOutputService images,
                                    top.sywyar.pixivdownload.download.UgoiraService animations, ArtworkMediaStore mediaStore) {
@@ -61,7 +63,7 @@ public final class MediaMaintenanceService implements AutoCloseable {
                              List<String> formats, boolean thumbnail, boolean animation, boolean unavailable) {}
     private record Plan(String token, List<Candidate> files) {}
 
-    public synchronized Preview preview(Request request) throws IOException {
+    public synchronized java.util.concurrent.CompletableFuture<Preview> preview(Request request) {
         requireIdle();
         preview = null;
         if (request == null) throw LocalizedException.badRequest("download.media.invalid-formats", null);
@@ -72,6 +74,22 @@ public final class MediaMaintenanceService implements AutoCloseable {
         catch (IllegalArgumentException invalid) { throw LocalizedException.badRequest("download.media.invalid-formats", null); }
         cancelled = false;
         status = new Status("scanning", 0, 0, 0, List.of());
+        var result = new java.util.concurrent.CompletableFuture<Preview>();
+        pendingPreview = result;
+        executor.execute(() -> {
+            synchronized (this) { worker = Thread.currentThread(); }
+            Preview value = null;
+            Throwable error = null;
+            try { value = scan(request); }
+            catch (Throwable failure) { error = cancelled ? new CancellationException() : failure; }
+            finally { synchronized (this) { worker = null; pendingPreview = null; } }
+            if (error == null) result.complete(value);
+            else result.completeExceptionally(error);
+        });
+        return result;
+    }
+
+    private Preview scan(Request request) throws IOException {
         List<Candidate> files = new ArrayList<>();
         int scanned = 0;
         int skipped = 0;
@@ -112,11 +130,13 @@ public final class MediaMaintenanceService implements AutoCloseable {
                     }
                 }
             }
-            checkCancelled();
-            preview = files.isEmpty() ? null : new Plan(UUID.randomUUID().toString(), List.copyOf(files));
-            return new Preview(preview == null ? "" : preview.token(), files.stream()
-                    .map(item -> new Item(item.artworkId(), item.file().page(), item.file().path().getFileName().toString(),
-                            item.formats(), item.thumbnail())).toList(), scanned, skipped, limited);
+            synchronized (this) {
+                checkCancelled();
+                preview = files.isEmpty() ? null : new Plan(UUID.randomUUID().toString(), List.copyOf(files));
+                return new Preview(preview == null ? "" : preview.token(), files.stream()
+                        .map(item -> new Item(item.artworkId(), item.file().page(), item.file().path().getFileName().toString(),
+                                item.formats(), item.thumbnail())).toList(), scanned, skipped, limited);
+            }
         } finally {
             status = new Status(cancelled ? "cancelled" : "idle", 0, 0, 0, List.of());
         }
@@ -182,12 +202,20 @@ public final class MediaMaintenanceService implements AutoCloseable {
         preview = null;
         cancelled = false;
         status = new Status("running", plan.files().size(), 0, 0, List.of());
-        executor.execute(() -> run(plan));
+        executor.execute(() -> {
+            synchronized (this) { worker = Thread.currentThread(); }
+            try { run(plan); }
+            finally { synchronized (this) { worker = null; } }
+        });
         return status;
     }
 
     public Status status() { return status; }
-    public void cancel() { cancelled = true; }
+    public synchronized void cancel() {
+        cancelled = true;
+        preview = null;
+        if (worker != null) worker.interrupt();
+    }
 
     private void run(Plan plan) {
         int completed = 0;
@@ -231,7 +259,7 @@ public final class MediaMaintenanceService implements AutoCloseable {
     }
 
     private void requireIdle() {
-        if (closed || status.state().equals("running") || status.state().equals("scanning")) {
+        if (closed || worker != null || pendingPreview != null || status.state().equals("running") || status.state().equals("scanning")) {
             throw LocalizedException.badRequest("download.media.busy", null);
         }
     }
@@ -248,9 +276,17 @@ public final class MediaMaintenanceService implements AutoCloseable {
 
     @Override
     public void close() {
-        cancelled = true;
-        synchronized (this) { closed = true; preview = null; cancelled = true; }
-        executor.shutdownNow();
+        synchronized (this) {
+            closed = true;
+            cancelled = true;
+            preview = null;
+            executor.shutdownNow();
+            if (pendingPreview != null && worker == null) {
+                pendingPreview.completeExceptionally(new CancellationException());
+                pendingPreview = null;
+                status = new Status("cancelled", 0, 0, 0, List.of());
+            }
+        }
         boolean interrupted = Thread.interrupted();
         try {
             while (!executor.isTerminated()) {

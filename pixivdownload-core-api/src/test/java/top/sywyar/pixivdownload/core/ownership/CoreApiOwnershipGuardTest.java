@@ -691,7 +691,9 @@ class CoreApiOwnershipGuardTest {
                         "public failure():top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFailure",
                         "public statusCode():int");
         assertThat(publicDeclaredMethodSignatures(FfmpegCommandResolver.class))
-                .containsExactly("public abstract resolve():top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand");
+                .containsExactlyInAnyOrder(
+                        "public abstract resolve():top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand",
+                        "public resolve(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner$Tool):top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand");
         assertThat(publicDeclaredMethodSignatures(ResolvedFfmpegCommand.class))
                 .containsExactlyInAnyOrder(
                         "public command():java.lang.String",

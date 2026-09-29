@@ -3,9 +3,7 @@ package top.sywyar.pixivdownload.download;
 import top.sywyar.pixivdownload.core.asset.ArtworkMediaStore;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import top.sywyar.pixivdownload.core.ffmpeg.FfmpegCommandResolver;
-import top.sywyar.pixivdownload.core.ffmpeg.FfmpegProcessGate;
-import top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand;
+import top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner;
 import top.sywyar.pixivdownload.core.pixiv.PixivImageDownloader;
 import top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
@@ -49,9 +47,8 @@ public class UgoiraService {
     static final long MAX_FFMPEG_OUTPUT_BYTES = MAX_ZIP_BYTES;
 
     private final PixivImageDownloader pixivImageDownloader;
-    private final FfmpegCommandResolver ffmpegCommandResolver;
+    private final FfmpegRunner ffmpegRunner;
     private final MessageResolver messages;
-    private final FfmpegProcessGate ffmpegProcessGate;
     private final ArtworkMediaStore mediaStore;
     private final Map<Path, ProcessingLock> processingLocks = new HashMap<>();
 
@@ -61,13 +58,12 @@ public class UgoiraService {
     }
 
     public UgoiraService(PixivImageDownloader pixivImageDownloader,
-                         FfmpegCommandResolver ffmpegCommandResolver,
+                         FfmpegRunner ffmpegRunner,
                          MessageResolver messages,
-                         FfmpegProcessGate ffmpegProcessGate, ArtworkMediaStore mediaStore) {
+                         ArtworkMediaStore mediaStore) {
         this.pixivImageDownloader = pixivImageDownloader;
-        this.ffmpegCommandResolver = ffmpegCommandResolver;
+        this.ffmpegRunner = ffmpegRunner;
         this.messages = messages;
-        this.ffmpegProcessGate = ffmpegProcessGate;
         this.mediaStore = mediaStore;
     }
 
@@ -186,9 +182,8 @@ public class UgoiraService {
         String localSuffix = sourceArchive == null ? "" : "_" + UUID.randomUUID();
         Path zipPath = downloadPath.resolve("_ugoira_frames" + localSuffix + ".zip");
         Path tempDir = downloadPath.resolve("_frames_tmp" + localSuffix);
-        Path partialOutput = partialOutputPath(downloadPath, outputBaseName);
         int maxAttempts = 3;
-        cleanup(zipPath, tempDir, partialOutput);
+        cleanup(zipPath, tempDir);
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
@@ -296,7 +291,7 @@ public class UgoiraService {
                 log.error(message("ugoira.log.processing.failed", id(artworkId), e.getMessage()), e);
                 break; // 非ZIP格式异常不重试
             } finally {
-                cleanup(zipPath, tempDir, partialOutput);
+                cleanup(zipPath, tempDir);
             }
 
             if (attempt < maxAttempts) {
@@ -441,31 +436,6 @@ public class UgoiraService {
         return artworkId + "_p0";
     }
 
-    /**
-     * 从宿主取得 FFmpeg 命令并记录已探测来源。
-     */
-    String detectFfmpegCommand() {
-        ResolvedFfmpegCommand resolved = ffmpegCommandResolver.resolve();
-        if (resolved.source() != ResolvedFfmpegCommand.Source.FALLBACK) {
-            log.info(message("ugoira.log.ffmpeg.detected",
-                    message(ffmpegSourceMessageCode(resolved.source())), resolved.command()));
-            return resolved.command();
-        }
-
-        log.warn(message("ugoira.log.ffmpeg.missing"));
-        return resolved.command();
-    }
-
-    private String ffmpegSourceMessageCode(ResolvedFfmpegCommand.Source source) {
-        return switch (source) {
-            case CUSTOM -> "ffmpeg.source.custom";
-            case MANAGED -> "ffmpeg.source.managed";
-            case BUNDLED -> "ffmpeg.source.bundled";
-            case SYSTEM -> "ffmpeg.source.system";
-            case FALLBACK -> throw new IllegalArgumentException("fallback command has no detected source");
-        };
-    }
-
     private boolean runFfmpeg(Long artworkId, List<Map.Entry<String, Path>> orderedFrames,
                               List<Integer> delays, Path tempDir, Path downloadPath,
                               String outputBaseName, String format,
@@ -491,7 +461,6 @@ public class UgoiraService {
 
         Path outputPath = downloadPath.resolve(outputBaseName + "." + format);
         Path partialOutput = downloadPath.resolve(outputBaseName + "." + format + ".part");
-        Path progressFile = tempDir.resolve("ffmpeg-progress.log");
         long durationMs = Math.max(1L, delays.stream().mapToLong(Integer::longValue).sum());
         UgoiraProgress encoding = UgoiraProgress.builder()
                 .phase(UgoiraProgress.PHASE_FFMPEG)
@@ -506,22 +475,11 @@ public class UgoiraService {
                 .ffmpegProgress(0)
                 .build();
         ensureNotCancelled(cancellationRequested);
-        publishProgress(progressListener, encoding.toBuilder()
-                .phase(UgoiraProgress.PHASE_WAITING_FFMPEG).ffmpegProgress(null).build());
-        FfmpegProcessGate.Permit permit = ffmpegProcessGate.acquire(cancellationRequested);
-        Process process = null;
-        Map<Long, ProcessHandle> descendants = new LinkedHashMap<>();
         try {
-            ensureNotCancelled(cancellationRequested);
             Files.deleteIfExists(partialOutput);
-            Files.deleteIfExists(progressFile);
-            Files.createFile(progressFile);
-            String command = detectFfmpegCommand();
-            Path executable = Path.of(command);
-            if (executable.getParent() != null) command = executable.toAbsolutePath().toString();
             Path workingDirectory = ffmpegWorkingDirectory(downloadPath);
             List<String> commandLine = new ArrayList<>(List.of(
-                    command, "-y", "-nostdin",
+                    "-y", "-nostdin",
                     "-nostats",
                     "-stats_period", "0.5",
                     "-progress", "pipe:1",
@@ -536,54 +494,22 @@ public class UgoiraService {
                 commandLine.addAll(List.of("-t", Double.toString(durationMs / 1000.0)));
             }
             commandLine.add(workingDirectory.relativize(partialOutput.toAbsolutePath()).toString());
-            ProcessBuilder processBuilder = new ProcessBuilder(commandLine);
-            processBuilder.directory(workingDirectory.toFile());
-            processBuilder.redirectOutput(ProcessBuilder.Redirect.appendTo(progressFile.toFile()));
-            processBuilder.redirectError(ProcessBuilder.Redirect.DISCARD);
-            process = startFfmpeg(processBuilder);
-            publishProgress(progressListener, encoding);
-            long deadline = System.nanoTime() + ffmpegTimeoutNanos();
             int[] lastProgress = {-1};
             long[] lastAt = {0L};
-            int progressLineCount = 0;
-            while (true) {
-                process.descendants().forEach(child -> descendants.put(child.pid(), child));
-                ensureNotCancelled(cancellationRequested);
-                enforceFfmpegOutputLimit(partialOutput);
-                progressLineCount = publishFfmpegProgress(
-                        progressFile, progressLineCount, durationMs, orderedFrames.size(), attempt,
-                        maxAttempts, progressListener, lastProgress, lastAt);
-                long remainingNanos = deadline - System.nanoTime();
-                if (remainingNanos <= 0) {
-                    throw resourceLimit("ugoira.log.limit.ffmpeg-timeout", FFMPEG_TIMEOUT.toMinutes());
-                }
-                long waitMillis = Math.max(1L, Math.min(200L,
-                        TimeUnit.NANOSECONDS.toMillis(remainingNanos)));
-                if (process.waitFor(waitMillis, TimeUnit.MILLISECONDS)) {
-                    break;
-                }
-            }
-            progressLineCount = publishFfmpegProgress(
-                    progressFile, progressLineCount, durationMs, orderedFrames.size(), attempt,
-                    maxAttempts, progressListener, lastProgress, lastAt);
-            enforceFfmpegOutputLimit(partialOutput);
-            int exitCode = process.exitValue();
-
-            if (exitCode != 0) {
-                log.error(message("ugoira.log.ffmpeg.failed", id(artworkId), text(exitCode)));
-                publishProgress(progressListener, UgoiraProgress.builder()
-                        .phase(UgoiraProgress.PHASE_FFMPEG)
-                        .status(UgoiraProgress.STATUS_FAILED)
-                        .attempt(attempt)
-                        .maxAttempts(maxAttempts)
-                        .zipProgress(100)
-                        .extractedFrames(orderedFrames.size())
-                        .totalFrames(orderedFrames.size())
-                        .ffmpegDurationMs(durationMs)
-                        .ffmpegProgress(Math.max(lastProgress[0], 0))
-                        .build());
-                return false;
-            }
+            ffmpegRunner.run(FfmpegRunner.Tool.FFMPEG, commandLine, workingDirectory, partialOutput,
+                    MAX_FFMPEG_OUTPUT_BYTES, FFMPEG_TIMEOUT, cancellationRequested,
+                    phase -> publishProgress(progressListener, phase == FfmpegRunner.Phase.WAITING
+                            ? encoding.toBuilder().phase(UgoiraProgress.PHASE_WAITING_FFMPEG).ffmpegProgress(null).build()
+                            : encoding),
+                    line -> {
+                        Long outTimeMs = parseFfmpegOutTimeMs(line);
+                        if (outTimeMs == null) return;
+                        int progress = Math.min(99, Math.max(0, (int) Math.round(outTimeMs * 100.0 / durationMs)));
+                        if (shouldEmitStepProgress(progress, lastProgress, lastAt)) {
+                            publishProgress(progressListener, encoding.toBuilder()
+                                    .ffmpegOutTimeMs(Math.min(outTimeMs, durationMs)).ffmpegProgress(progress).build());
+                        }
+                    });
             ensureNotCancelled(cancellationRequested);
             if (!Files.isRegularFile(partialOutput) || Files.size(partialOutput) == 0) return false;
             publishOutput(partialOutput, outputPath);
@@ -600,15 +526,9 @@ public class UgoiraService {
                     .ffmpegProgress(100)
                     .build());
             return true;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new CancellationException("download cancelled");
         } finally {
-            if (process == null) permit.close();
-            else terminateProcessTree(process, permit, descendants);
             try {
                 Files.deleteIfExists(partialOutput);
-                Files.deleteIfExists(progressFile);
             } catch (IOException cleanupFailure) {
                 log.debug("Could not remove FFmpeg temporary output", cleanupFailure);
             }
@@ -853,100 +773,12 @@ public class UgoiraService {
         return working;
     }
 
-    Process startFfmpeg(ProcessBuilder processBuilder) throws IOException {
-        return processBuilder.start();
-    }
-
-    long ffmpegTimeoutNanos() {
-        return FFMPEG_TIMEOUT.toNanos();
-    }
-
-    long maxFfmpegOutputBytes() {
-        return MAX_FFMPEG_OUTPUT_BYTES;
-    }
-
-    private void enforceFfmpegOutputLimit(Path partialOutput) throws IOException {
-        if (Files.exists(partialOutput) && Files.size(partialOutput) > maxFfmpegOutputBytes()) {
-            throw resourceLimit(
-                    "ugoira.log.limit.ffmpeg-output", MAX_FFMPEG_OUTPUT_BYTES / MIB);
-        }
-    }
-
-    private int publishFfmpegProgress(
-            Path progressFile,
-            int consumedLines,
-            long durationMs,
-            int frameCount,
-            int attempt,
-            int maxAttempts,
-            Consumer<UgoiraProgress> progressListener,
-            int[] lastProgress,
-            long[] lastAt
-    ) throws IOException {
-        List<String> lines = Files.readAllLines(progressFile, StandardCharsets.UTF_8);
-        for (int i = consumedLines; i < lines.size(); i++) {
-            Long outTimeMs = parseFfmpegOutTimeMs(lines.get(i));
-            if (outTimeMs == null) {
-                continue;
-            }
-            int progress = Math.min(99, Math.max(0,
-                    (int) Math.round(outTimeMs * 100.0 / durationMs)));
-            if (shouldEmitStepProgress(progress, lastProgress, lastAt)) {
-                publishProgress(progressListener, UgoiraProgress.builder()
-                        .phase(UgoiraProgress.PHASE_FFMPEG)
-                        .status(UgoiraProgress.STATUS_RUNNING)
-                        .attempt(attempt)
-                        .maxAttempts(maxAttempts)
-                        .zipProgress(100)
-                        .extractedFrames(frameCount)
-                        .totalFrames(frameCount)
-                        .ffmpegOutTimeMs(Math.min(outTimeMs, durationMs))
-                        .ffmpegDurationMs(durationMs)
-                        .ffmpegProgress(progress)
-                        .build());
-            }
-        }
-        return lines.size();
-    }
-
-    private void terminateProcessTree(Process process, FfmpegProcessGate.Permit permit, Map<Long, ProcessHandle> knownChildren) {
-        ProcessHandle parent = process.toHandle();
-        try {
-            parent.descendants().forEach(child -> knownChildren.put(child.pid(), child));
-        } catch (RuntimeException ignored) {}
-        List<ProcessHandle> descendants = List.copyOf(knownChildren.values());
-        if (parent.isAlive()) parent.destroyForcibly();
-        for (int i = descendants.size() - 1; i >= 0; i--) {
-            descendants.get(i).destroyForcibly();
-        }
-        List<ProcessHandle> handles = new ArrayList<>(descendants);
-        handles.add(parent);
-        java.util.concurrent.CompletableFuture.allOf(handles.stream().map(ProcessHandle::onExit)
-                .toArray(java.util.concurrent.CompletableFuture[]::new)).thenRun(permit::close);
-        boolean interrupted = Thread.interrupted();
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-        while (System.nanoTime() < deadline
-                && (parent.isAlive() || descendants.stream().anyMatch(ProcessHandle::isAlive))) {
-            try {
-                Thread.sleep(50);
-            } catch (InterruptedException e) {
-                interrupted = true;
-            }
-        }
-        if (interrupted) Thread.currentThread().interrupt();
-    }
-
-    private static Path partialOutputPath(Path downloadPath, String outputBaseName) {
-        return downloadPath.resolve(outputBaseName + ".webp.part");
-    }
-
     private UgoiraResourceLimitException resourceLimit(String code, Object... args) {
         return new UgoiraResourceLimitException(message(code, args));
     }
 
-    private void cleanup(Path zipPath, Path tempDir, Path partialOutput) {
+    private void cleanup(Path zipPath, Path tempDir) {
         try { Files.deleteIfExists(zipPath); } catch (Exception ignored) {}
-        try { Files.deleteIfExists(partialOutput); } catch (Exception ignored) {}
         try {
             if (Files.exists(tempDir)) {
                 try (var paths = Files.walk(tempDir)) {

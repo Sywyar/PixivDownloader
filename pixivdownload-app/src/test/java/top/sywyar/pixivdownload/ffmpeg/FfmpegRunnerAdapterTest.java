@@ -101,6 +101,93 @@ class FfmpegRunnerAdapterTest {
         } finally { worker.shutdownNow(); }
     }
 
+    @Test
+    @DisplayName("探测调用实际执行安装记录里的独立 ffprobe")
+    void executesIndependentProbePath() throws Exception {
+        var installation = new FfmpegInstallation(directory.resolve("missing/ffmpeg"), Path.of(javaCommand()),
+                directory, FfmpegInstallation.Source.CUSTOM);
+        var resolver = new FfmpegCommandResolverAdapter(() -> java.util.Optional.of(installation), () -> "unused");
+        var runner = new FfmpegRunnerAdapter(resolver, new FfmpegProcessGateAdapter(new FfmpegProperties()));
+        assertTrue(runner.run(FfmpegRunner.Tool.FFPROBE, List.of("-version"), directory, null, 0,
+                Duration.ofSeconds(10), () -> false).contains("version"));
+    }
+
+    @Test
+    @DisplayName("进度逐行只交付一次，标准错误保留有界尾部，失败带出诊断")
+    void boundedProgressAndDiagnostics() throws Exception {
+        var runner = fixtureRunner();
+        var lines = new java.util.ArrayList<String>();
+        Thread caller = Thread.currentThread();
+        String diagnostic = runner.run(FfmpegRunner.Tool.FFMPEG, fixtureArgs("progress"),
+                directory, null, 0, Duration.ofSeconds(10), () -> false, null, line -> {
+                    assertSame(caller, Thread.currentThread());
+                    lines.add(line);
+                });
+        assertEquals(2001, lines.size());
+        assertEquals("out_time_ms=0", lines.get(0));
+        assertEquals("progress=end", lines.get(lines.size() - 1));
+        assertTrue(diagnostic.endsWith("diagnostic-tail"));
+        assertEquals(65_536, diagnostic.getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
+        var failure = assertThrows(java.io.IOException.class, () -> runner.run(FfmpegRunner.Tool.FFMPEG,
+                fixtureArgs("failure"), directory, null, 0, Duration.ofSeconds(10), () -> false, null, line -> {}));
+        assertTrue(failure.getMessage().contains("encoder-failure"));
+        assertThrows(java.io.IOException.class, () -> runner.run(FfmpegRunner.Tool.FFMPEG,
+                fixtureArgs("long-line"), directory, null, 0, Duration.ofSeconds(10), () -> false, null, line -> {}));
+    }
+
+    @Test
+    @DisplayName("媒体超时回收父子进程并归还共享额度")
+    void timeoutTerminatesProcessTree() throws Exception {
+        var runner = fixtureRunner();
+        Path pid = directory.resolve("child.pid");
+        assertThrows(java.io.IOException.class, () -> runner.run(FfmpegRunner.Tool.FFMPEG,
+                fixtureArgs(pid.toString()), directory, null, 0, Duration.ofSeconds(3), () -> false));
+        assertTrue(Files.isRegularFile(pid));
+        long child = Long.parseLong(Files.readString(pid));
+        assertFalse(ProcessHandle.of(child).map(ProcessHandle::isAlive).orElse(false));
+        assertTrue(runner.run(FfmpegRunner.Tool.FFMPEG, fixtureArgs("alive"),
+                directory, null, 0, Duration.ofSeconds(5), () -> false).endsWith("alive"));
+    }
+
+    private static String javaCommand() {
+        return Path.of(System.getProperty("java.home"), "bin", FfmpegLocator.isWindows() ? "java.exe" : "java").toString();
+    }
+
+    private static List<String> fixtureArgs(String mode) {
+        return List.of("-cp", System.getProperty("java.class.path"), OutputFixture.class.getName(), mode);
+    }
+
+    private FfmpegRunnerAdapter fixtureRunner() {
+        var properties = new FfmpegProperties();
+        properties.setMaxConcurrent(1);
+        return new FfmpegRunnerAdapter(() -> new ResolvedFfmpegCommand(javaCommand(), ResolvedFfmpegCommand.Source.SYSTEM),
+                new FfmpegProcessGateAdapter(properties));
+    }
+
+    public static final class OutputFixture {
+        public static void main(String[] args) throws Exception {
+            switch (args[0]) {
+                case "progress" -> {
+                    for (int i = 0; i < 2000; i++) System.out.println("out_time_ms=" + i);
+                    System.out.print("progress=end");
+                    System.err.print("x".repeat(100_000) + "diagnostic-tail");
+                }
+                case "failure" -> { System.err.print("encoder-failure"); System.exit(7); }
+                case "long-line" -> { System.out.print("x".repeat(4097)); System.out.flush(); Thread.sleep(10_000); }
+                case "alive" -> System.out.print("alive");
+                case "child" -> Thread.sleep(60_000);
+                default -> {
+                    var command = new java.util.ArrayList<String>();
+                    command.add(javaCommand());
+                    command.addAll(fixtureArgs("child"));
+                    Process child = new ProcessBuilder(command).start();
+                    Files.writeString(Path.of(args[0]), Long.toString(child.pid()));
+                    Thread.sleep(60_000);
+                }
+            }
+        }
+    }
+
     private FfmpegRunnerAdapter runner() {
         var installation = FfmpegLocator.locate();
         assumeTrue(installation.isPresent() && installation.get().ffprobePath() != null, "FFmpeg and ffprobe required");

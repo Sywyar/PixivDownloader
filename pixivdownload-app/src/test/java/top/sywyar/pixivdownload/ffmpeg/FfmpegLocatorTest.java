@@ -89,4 +89,43 @@ class FfmpegLocatorTest {
         Path wrongName = Files.writeString(tempDir.resolve("not-ffmpeg"), "binary", StandardCharsets.UTF_8);
         assertThrows(IOException.class, () -> FfmpegLocator.validateConfiguredPath(wrongName.toString()));
     }
+    @Test
+    @org.junit.jupiter.api.DisplayName("未变化配置只读取一次，内容变化后重新解析且不缓存安装状态")
+    void configurationCacheRefreshes() throws Exception {
+        Path first = Files.createDirectories(tempDir.resolve("first"));
+        Path second = Files.createDirectories(tempDir.resolve("second"));
+        Files.writeString(first.resolve(FfmpegLocator.executableName()), "");
+        Files.writeString(second.resolve(FfmpegLocator.executableName()), "");
+        Path config = Files.writeString(tempDir.resolve("cache.yaml"), "a");
+        try (var editors = org.mockito.Mockito.mockConstruction(ConfigFileEditor.class, (editor, context) -> {
+            org.mockito.Mockito.when(editor.read(FfmpegLocator.CONFIG_KEY))
+                    .thenAnswer(call -> Files.readString(config).equals("a") ? first.toString() : second.toString());
+        })) {
+            assertEquals(first.toRealPath(), FfmpegLocator.locate(config).orElseThrow().homeDir());
+            FfmpegLocator.locate(config);
+            assertEquals(1, editors.constructed().size());
+            Files.writeString(config, "changed");
+            assertEquals(second.toRealPath(), FfmpegLocator.locate(config).orElseThrow().homeDir());
+            assertEquals(2, editors.constructed().size());
+            Files.delete(second.resolve(FfmpegLocator.executableName()));
+            assertTrue(FfmpegLocator.locate(config).filter(value -> value.source() == FfmpegInstallation.Source.CUSTOM).isEmpty());
+        }
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("PATH 顺序与工作目录直接解析文件，安装删除后不使用旧路径")
+    void findsFilesWithoutLocatorProcess() throws Exception {
+        Path first = Files.createDirectories(tempDir.resolve("first"));
+        Path second = Files.createDirectories(tempDir.resolve("with spaces"));
+        String name = FfmpegLocator.executableName();
+        Path binary = Files.writeString(second.resolve(name), "");
+        String path = first + java.io.File.pathSeparator + "\"" + second + "\"";
+        assertEquals(binary.toAbsolutePath(), FfmpegLocator.findOnPath(name, path, tempDir, true).orElseThrow());
+        Path local = Files.writeString(tempDir.resolve(name), "");
+        assertEquals(local, FfmpegLocator.findOnPath(name, path, tempDir, true).orElseThrow());
+        Files.delete(local);
+        Files.delete(binary);
+        assertTrue(FfmpegLocator.findOnPath(name, path, tempDir, true).isEmpty());
+    }
+
 }

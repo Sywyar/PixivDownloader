@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.core.ffmpeg.FfmpegCommandResolver;
+import top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner;
 import top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand;
 import top.sywyar.pixivdownload.core.pixiv.PixivImageDownloader;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
@@ -291,10 +292,11 @@ class UgoiraServiceTest {
     void cancelledUgoiraWaitDoesNotReportEncoding() throws Exception {
         var progress = new ArrayList<UgoiraProgress>();
         var service = new UgoiraService(archiveDownloader(zip("000000.jpg", jpegFrame())),
-                fallbackResolver(), WorkbenchTestMessages.messages(), cancelled -> {
+                (ProgressRunner) (tool, args, cwd, output, max, timeout, cancelled, phases, lines) -> {
+                    phases.accept(FfmpegRunner.Phase.WAITING);
                     assertThat(progress.get(progress.size() - 1).getPhase()).isEqualTo("ffmpeg-waiting");
                     throw new CancellationException("cancel while waiting");
-                }, mediaStore);
+                }, WorkbenchTestMessages.messages(), mediaStore);
         assertThatThrownBy(() -> service.processUgoira(100L, ugoiraRequest("waiting"), tempDir,
                 "https://www.pixiv.net/artworks/100", null, progress::add, () -> false))
                 .isInstanceOf(CancellationException.class);
@@ -359,46 +361,32 @@ class UgoiraServiceTest {
     }
 
     @Test
-    @DisplayName("ffmpeg 超时后结束进程树并清理部分输出")
-    void ffmpegTimeoutTerminatesProcessTreeAndCleansPartialOutput() throws Exception {
-        Path childPidFile = tempDir.resolve("ffmpeg-child.pid");
-        ProcessFixtureUgoiraService service = new ProcessFixtureUgoiraService(
-                archiveDownloader(zip("000000.jpg", jpegFrame())),
-                fallbackResolver(),
-                childPidFile,
-                Duration.ofSeconds(5).toNanos(),
-                Long.MAX_VALUE
-        );
-
-        assertThat(service.processUgoira(
-                100L,
-                ugoiraRequest("ffmpeg-timeout"),
-                tempDir,
-                "https://www.pixiv.net/artworks/100",
-                null
-        )).isZero();
-
-        assertThat(childPidFile).exists();
-        long childPid = Long.parseLong(Files.readString(childPidFile).trim());
-        assertThat(awaitProcessExit(childPid, Duration.ofSeconds(5))).isTrue();
-        assertThat(tempDir.resolve("_ugoira_frames.zip")).doesNotExist();
-        assertThat(tempDir.resolve("_frames_tmp")).doesNotExist();
-        assertThat(tempDir.resolve("ffmpeg-timeout.webp.part")).doesNotExist();
-        assertThat(tempDir.resolve("ffmpeg-timeout.webp")).doesNotExist();
-        assertThat(tempDir.resolve("ffmpeg-timeout_thumb.jpg")).doesNotExist();
-    }
-
-    @Test
-    @DisplayName("受控来源和回退来源均应保留宿主解析命令")
-    void resolvedAndFallbackSourcesPreserveHostCommand() {
-        for (ResolvedFfmpegCommand.Source source : ResolvedFfmpegCommand.Source.values()) {
-            String command = "ffmpeg-" + source.name().toLowerCase();
-            TestUgoiraService service = service(
-                    (sourceUri, refererUri, target, cookie, observer) -> false,
-                    () -> new ResolvedFfmpegCommand(command, source)
-            );
-
-            assertThat(service.detectFfmpegCommand()).isEqualTo(command);
+    @DisplayName("宿主编码失败后清理实际格式的部分文件，保留诊断并报告失败")
+    void runnerFailureCleansEveryFormat() throws Exception {
+        for (String format : List.of("webp", "gif", "apng", "mp4")) {
+            var progress = new ArrayList<UgoiraProgress>();
+            ProgressRunner runner = (tool, args, cwd, output, max, timeout, cancelled, phases, lines) -> {
+                assertThat(tool).isEqualTo(FfmpegRunner.Tool.FFMPEG);
+                assertThat(args).contains("-progress", "pipe:1");
+                assertThat(output.getFileName().toString()).isEqualTo("failed." + format + ".part");
+                assertThat(max).isEqualTo(UgoiraService.MAX_FFMPEG_OUTPUT_BYTES);
+                assertThat(timeout).isEqualTo(UgoiraService.FFMPEG_TIMEOUT);
+                phases.accept(FfmpegRunner.Phase.WAITING);
+                phases.accept(FfmpegRunner.Phase.RUNNING);
+                lines.accept("out_time_ms=50000");
+                Files.writeString(output, "partial");
+                throw new IOException("encoder diagnostic");
+            };
+            var service = new UgoiraService(archiveDownloader(zip("000000.jpg", jpegFrame())),
+                    runner, WorkbenchTestMessages.messages(), mediaStore);
+            var request = ugoiraRequest("failed");
+            request.setUgoiraFormats(format);
+            assertThat(service.processUgoira(100L, request, tempDir, null, null, progress::add)).isZero();
+            assertThat(progress).anyMatch(value -> Integer.valueOf(50).equals(value.getFfmpegProgress()));
+            assertThat(progress.get(progress.size() - 1).getStatus()).isEqualTo(UgoiraProgress.STATUS_FAILED);
+            assertThat(tempDir.resolve("failed." + format + ".part")).doesNotExist();
+            assertThat(tempDir.resolve("failed." + format)).doesNotExist();
+            assertThat(tempDir.resolve("_frames_tmp")).doesNotExist();
         }
     }
 
@@ -505,7 +493,7 @@ class UgoiraServiceTest {
         org.mockito.Mockito.doThrow(new IOException("database unavailable")).when(failedStore)
                 .save(org.mockito.ArgumentMatchers.eq(100L), org.mockito.ArgumentMatchers.eq(0), org.mockito.ArgumentMatchers.any());
         var service = new UgoiraService(archiveDownloader(zip("000000.jpg", jpegFrame())),
-                fallbackResolver(), WorkbenchTestMessages.messages(), cancelled -> () -> {}, failedStore);
+                testRunner(fallbackResolver()), WorkbenchTestMessages.messages(), failedStore);
         var request = ugoiraRequest("archive");
         request.setUgoiraFormats("zip");
         assertThat(service.processUgoira(100L, request, tempDir, null, null)).isZero();
@@ -573,17 +561,6 @@ class UgoiraServiceTest {
         return png;
     }
 
-    private static boolean awaitProcessExit(long pid, Duration timeout) throws InterruptedException {
-        long deadline = System.nanoTime() + timeout.toNanos();
-        while (System.nanoTime() < deadline) {
-            if (ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false) == false) {
-                return true;
-            }
-            Thread.sleep(50);
-        }
-        return ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false) == false;
-    }
-
     private final class TestUgoiraService extends UgoiraService {
         private final List<Long> retryDelays = new ArrayList<>();
 
@@ -591,7 +568,7 @@ class UgoiraServiceTest {
                 PixivImageDownloader downloader,
                 FfmpegCommandResolver resolver
         ) {
-            super(downloader, resolver, WorkbenchTestMessages.messages(), cancelled -> () -> {}, mediaStore);
+            super(downloader, testRunner(resolver), WorkbenchTestMessages.messages(), mediaStore);
         }
 
         @Override
@@ -607,75 +584,46 @@ class UgoiraServiceTest {
         }
     }
 
-    private static final class ProcessFixtureUgoiraService extends UgoiraService {
-        private final Path childPidFile;
-        private final long timeoutNanos;
-        private final long maximumOutputBytes;
-
-        private ProcessFixtureUgoiraService(
-                PixivImageDownloader downloader,
-                FfmpegCommandResolver resolver,
-                Path childPidFile,
-                long timeoutNanos,
-                long maximumOutputBytes
-        ) {
-            super(downloader, resolver, WorkbenchTestMessages.messages(), cancelled -> () -> {}, new top.sywyar.pixivdownload.download.media.MemoryMediaStore());
-            this.childPidFile = childPidFile;
-            this.timeoutNanos = timeoutNanos;
-            this.maximumOutputBytes = maximumOutputBytes;
-        }
-
+    @FunctionalInterface
+    private interface ProgressRunner extends FfmpegRunner {
         @Override
-        Process startFfmpeg(ProcessBuilder processBuilder) throws IOException {
-            List<String> command = processBuilder.command();
-            Path partialOutput = processBuilder.directory().toPath().resolve(command.get(command.size() - 1));
-            return new ProcessBuilder(
-                    javaCommand(),
-                    "-cp",
-                    System.getProperty("java.class.path"),
-                    ProcessTreeFixture.class.getName(),
-                    childPidFile.toString(),
-                    partialOutput.toString()
-            ).start();
+        default String run(Tool tool, List<String> args, Path cwd, Path output, long maximum,
+                           Duration timeout, BooleanSupplier cancelled, java.util.function.Consumer<Phase> phases) throws IOException {
+            return run(tool, args, cwd, output, maximum, timeout, cancelled, phases, null);
         }
-
         @Override
-        long ffmpegTimeoutNanos() {
-            return timeoutNanos;
-        }
-
-        @Override
-        long maxFfmpegOutputBytes() {
-            return maximumOutputBytes;
-        }
+        String run(Tool tool, List<String> args, Path cwd, Path output, long maximum, Duration timeout,
+                   BooleanSupplier cancelled, java.util.function.Consumer<Phase> phases,
+                   java.util.function.Consumer<String> lines) throws IOException;
     }
 
-    public static final class ProcessTreeFixture {
-        private ProcessTreeFixture() {
-        }
-
-        public static void main(String[] args) throws Exception {
-            if (args.length == 1 && "child".equals(args[0])) {
-                Thread.sleep(Duration.ofMinutes(1).toMillis());
-                return;
+    // 真实编码测试只提供进程夹具；宿主的取消、预算和诊断由 Runner 的测试验证。
+    private static FfmpegRunner testRunner(FfmpegCommandResolver resolver) {
+        return (ProgressRunner) (tool, args, cwd, output, maximum, timeout, cancelled, phases, lines) -> {
+            var command = new ArrayList<String>();
+            command.add(resolver.resolve().command());
+            command.addAll(args);
+            Path diagnostics = Files.createTempFile("ugoira-test-", ".log");
+            Process process = null;
+            try {
+                if (phases != null) phases.accept(FfmpegRunner.Phase.WAITING);
+                process = new ProcessBuilder(command).directory(cwd.toFile()).redirectError(diagnostics.toFile()).start();
+                if (phases != null) phases.accept(FfmpegRunner.Phase.RUNNING);
+                try (var reader = process.inputReader(java.nio.charset.StandardCharsets.UTF_8)) {
+                    String line;
+                    while ((line = reader.readLine()) != null) if (lines != null) lines.accept(line);
+                }
+                if (!process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS)) throw new IOException("Fixture timed out");
+                String diagnostic = Files.readString(diagnostics);
+                if (process.exitValue() != 0) throw new IOException(diagnostic);
+                return diagnostic;
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new CancellationException();
+            } finally {
+                if (process != null && process.isAlive()) process.destroyForcibly();
+                Files.deleteIfExists(diagnostics);
             }
-            Files.write(Path.of(args[1]), new byte[16]);
-            Process child = new ProcessBuilder(
-                    javaCommand(),
-                    "-cp",
-                    System.getProperty("java.class.path"),
-                    ProcessTreeFixture.class.getName(),
-                    "child"
-            ).start();
-            Files.writeString(Path.of(args[0]), Long.toString(child.pid()));
-            Thread.sleep(Duration.ofMinutes(1).toMillis());
-        }
-    }
-
-    private static String javaCommand() {
-        String executable = System.getProperty("os.name", "").toLowerCase().contains("win")
-                ? "java.exe"
-                : "java";
-        return Path.of(System.getProperty("java.home"), "bin", executable).toString();
+        };
     }
 }

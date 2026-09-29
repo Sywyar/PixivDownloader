@@ -24,8 +24,18 @@ public final class DesktopMediaMaintenance implements DesktopMediaTool.Source {
 
     @Override public DesktopMediaTool.Result<DesktopMediaTool.Preview> preview(DesktopMediaTool.Request request) {
         return invoke(() -> {
-            var preview = maintenance.preview(new MediaMaintenanceService.Request(request.imageFormats(),
-                    request.ugoiraFormats(), request.repairThumbnails()));
+            MediaMaintenanceService.Preview preview;
+            try {
+                preview = maintenance.preview(new MediaMaintenanceService.Request(request.imageFormats(),
+                        request.ugoiraFormats(), request.repairThumbnails())).get();
+            } catch (InterruptedException interrupted) {
+                maintenance.cancel();
+                Thread.currentThread().interrupt();
+                throw new java.util.concurrent.CancellationException();
+            } catch (java.util.concurrent.ExecutionException failure) {
+                if (failure.getCause() instanceof Exception cause) throw cause;
+                throw failure;
+            }
             return new DesktopMediaTool.Preview(preview.token(), preview.files().stream()
                     .map(file -> new DesktopMediaTool.Item(file.artworkId(), file.page(), file.fileName(),
                             file.missingFormats(), file.missingThumbnail())).toList(), preview.scanned(), preview.skipped(), preview.limited());

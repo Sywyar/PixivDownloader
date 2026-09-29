@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.ffmpeg;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.core.ffmpeg.FfmpegCommandResolver;
 import top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand;
+import top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner;
 
 import java.util.Objects;
 import java.util.Optional;
@@ -37,6 +38,17 @@ public class FfmpegCommandResolverAdapter implements FfmpegCommandResolver {
                         fallbackCommand.get(),
                         ResolvedFfmpegCommand.Source.FALLBACK
                 ));
+    }
+
+    @Override
+    public ResolvedFfmpegCommand resolve(FfmpegRunner.Tool tool) {
+        Objects.requireNonNull(tool, "tool");
+        if (tool == FfmpegRunner.Tool.FFMPEG) return resolve();
+        return installationLocator.get().filter(FfmpegInstallation::hasFfprobe)
+                .map(installation -> new ResolvedFfmpegCommand(
+                        installation.ffprobePath().toString(), resolved(installation).source()))
+                .orElseGet(() -> new ResolvedFfmpegCommand(
+                        FfmpegLocator.probeExecutableName(), ResolvedFfmpegCommand.Source.FALLBACK));
     }
 
     private static ResolvedFfmpegCommand resolved(FfmpegInstallation installation) {
