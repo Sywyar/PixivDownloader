@@ -61,6 +61,25 @@ class PluginMarketControllerTest {
     }
 
     @Test
+    @DisplayName("安装预览接口绑定受控身份与指纹，陈旧确认返回明确冲突")
+    void installationPreviewUsesBoundIdentity() throws Exception {
+        String fingerprint = "a".repeat(64);
+        when(marketService.preview("official", "sample", "1.0.0")).thenReturn(
+                new top.sywyar.pixivdownload.plugin.catalog.PluginCatalogInstallPreview.View(
+                        fingerprint, List.of(), List.of()));
+        mockMvc.perform(get("/api/plugin-market/official/sample/1.0.0/install-preview"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.fingerprint").value(fingerprint));
+        when(marketService.installPreviewed("official", "sample", "1.0.0", null, fingerprint))
+                .thenThrow(new PluginCatalogException(PluginCatalogErrorCode.INSTALL_PREVIEW_CHANGED, "changed"));
+        mockMvc.perform(post("/api/plugin-market/official/sample/1.0.0/install-preview")
+                        .contentType("application/json")
+                        .content("{\"fingerprint\":\"" + fingerprint + "\",\"url\":\"https://ignored.example/pkg\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INSTALL_PREVIEW_CHANGED"));
+        verify(marketService).installPreviewed("official", "sample", "1.0.0", null, fingerprint);
+    }
+
+    @Test
     @DisplayName("信任仓库接口只接受描述符地址、摘要与显式确认")
     void trustRepositoryUsesOnlyDescriptorUrlDigestAndExplicitConfirmation() throws Exception {
         when(repositoryImportService.trust("https://repo.example/repository.json", "a".repeat(64), true))
@@ -202,7 +221,7 @@ class PluginMarketControllerTest {
                 .withDependencyInstallResults(List.of(new PluginDependencyInstallResult(
                         "beta", "1.0.0", null, "beta", "1.0.0",
                         "INSTALLED", true, false, true, false, null,
-                        "INSTALLING", "STARTED", false, false)));
+                        "INSTALLING", "STARTED", false, false, "dependency-transaction")));
         when(marketService.install("official", "demo", "1.0.0", (String) null)).thenReturn(report);
 
         mockMvc.perform(post("/api/plugin-market/official/demo/1.0.0/install"))

@@ -4,9 +4,62 @@
 
 解压后的根目录是独立 Maven 插件工程，源码位于 `src/`。SDK 身份为 `@SDK_RELEASE_ID@`，源码对应主仓库提交 `@SOURCE_SHA@`。API 文档入口为 `docs/javadocs/index.html`。
 
-新 SDK 预发布版本使用 `alpha.N`、`beta.N`、`rc.N`，序号从 1 开始且不补零；工具兼容历史紧连后缀。Maven / Gradle / sbt 依赖版本及运行清单都须保留所选 Release 的原始拼写，不能自行把 `rcN` 改成 `rc.N`。插件版本由插件自身维护，`plugin.requires` 继续声明 SDK 的 `major.minor` 兼容线。
+新 SDK 预发布版本使用 `alpha.N`、`beta.N`、`rc.N`，序号从 1 开始且不补零；工具兼容历史紧连后缀。Maven / Gradle / sbt 依赖版本及运行清单须保留所选 Release 的原始拼写，不能自行把 `rcN` 改成 `rc.N`。插件版本由插件自身维护。预发布 SDK 的 `plugin.requires` 值为 `=完整SDK版本`；稳定 SDK 使用 `major.minor` 兼容线。
+
+在 properties 文件中，精确要求写成 `plugin.requires==7.2.3-rc.4`（版本仅为示例）。第一个等号分隔属性名和值，第二个表示精确合同。不同 RC、RC 与稳定版之间不承诺兼容；旧宿主不识别此格式时会在执行插件前拒绝。历史包若只声明 `1.0`，不能由此判断编译时的 RC，需要作者重新验证并发布新包。Nightly 插件继续绑定其配套宿主构建。
 
 开发包自带 `.git/`，`main` 分支的初始提交包含全部交付文件，可直接用 `git status` 和 `git diff` 查看自己的修改。仓库未配置远端；提交自己的代码前，按需设置 Git 用户名、邮箱和远端地址。构建产物、IDE 本地配置与 `.dev/` 运行数据由 `.gitignore` 排除。
+
+## 升级 SDK
+
+1. 保留现有工程、源码和 `.dev/` 数据，将目标 SDK 开发包解压到另一个目录。先查看该版本说明和 Javadoc 中删除或改变的 API，再修改调用代码。
+2. 在原工程中更新 Maven / Gradle / sbt 的 SDK 依赖及 `plugin.requires`。预发布版本使用精确要求；不要只把依赖版本改成新 RC。
+3. 对比两份工程，将目标开发包的工具、合同资源和固定运行清单作为一套更新；逐项合并构建和 IDE 配置，保留自己的插件 ID、源码及数据。不要覆盖整个工程或只替换 `sdk-tools.jar`。
+4. 执行原工程的 `clean verify`，再用目标运行包检查加载、启动、能力缺席、停用及重启。异步任务还须证明停止接收新工作、排空旧任务和释放资源；普通构建通过不能代替生命周期验证。
+5. 使用新的插件版本生成候选并投稿。已发布的 SDK 与插件附件不可覆盖；不支持的组合应在插件执行前被拒绝。升级数据不代表支持降级，保留插件自身的格式约束。
+
+## 数据迁移与启动失败
+
+插件私有数据库通过当前 owner 的 `PluginDataSource` 访问，插件负责格式版本和迁移。把相关 DDL、数据变更与版本标记放在同一个 JDBC 事务内，成功后提交；遇到不认识的格式或迁移失败时回滚并停止启动受影响能力。不得删除数据库后重新建库，也不得把异常当成空数据继续运行。宿主安装事务保护插件包，不负责回滚插件业务数据；重新安装旧包也不能撤销已提交的数据迁移。
+
+| 数据 | 维护约定 |
+| --- | --- |
+| 私有数据库 | 只访问本 owner 的 `PluginDataSource`；迁移可重试，版本标记只随成功事务提交。不要关闭宿主拥有的数据源。 |
+| 普通配置、状态与文件 | 通过 owner-bound `RuntimePathProvider` 定位；先写同目录临时文件，验证成功后替换。清理旧来源前回读目标，冲突时保留原件。 |
+| 凭证 | 使用宿主的 owner-scoped 凭证贡献与存储，不写进普通配置、日志、任务定义或 checkpoint。 |
+| 计划定义、pending 与 checkpoint | 只迁移所属 schema/version；无法解释时保留旧输入并报告失败，不推进已完成位置。 |
+| 宿主共享数据 | 只用公开语义端口；插件私有迁移不得修改宿主或其它插件的表。 |
+
+在自己的测试中放入有记录的旧格式，注入一次迁移失败，再连续启动两次，核对旧记录、凭证和 checkpoint 未丢失且没有重复迁移。另验证不支持的格式会阻止功能启动，而管理页仍能报告诊断。安装成功、等待重启和功能已启动是不同状态；排障时记录插件版本、宿主 SDK、执行模式和安全错误码，移除插件默认保留数据。
+
+## 生命周期验收
+
+在独立工程执行 `mvnw.cmd clean verify`（Windows）或 `./mvnw clean verify`，再执行 `verify exec:exec@sdk-run` 启动配套宿主。用管理员账号打开插件管理页，记录包版本、generation、策略和诊断；停止整套开发实例使用 `exec:exec@sdk-stop`。
+
+| 操作 | 应检查的结果 |
+| --- | --- |
+| 安装并启动 | 描述符与实际执行模式一致，所属路由、资源和能力可用。开发目录的 full-trust 转换不代表正式 worker 已验收。 |
+| 支持运行中停止的插件执行 stop | 新工作被拒绝，旧工作按契约排空，路由与能力撤回；数据和未完成任务保留。 |
+| 禁用 process-restart 插件 | 当前实例继续运行；完整退出后再启动时不再加载，页面应提示生效边界。 |
+| 再启动 | 能力恢复，旧 publication 的令牌和句柄仍失效，不能转投新实例。 |
+| reload | 仅适用于支持热重载的策略；物理 generation 和 classloader 换代，旧资源释放。 |
+| process-restart 换包 | 安装结果提示等待重启；完整退出后再启动，核对真正加载的新版本。 |
+| 故意启动失败 | 可选插件只隔离自身能力，管理页仍可移除或换包；required 限制由宿主决定。 |
+
+`DownloadObserver` 和 `DownloadAdmissionPolicy` 是可选 full-trust Bean，经宿主管理 publication。观察是同步尽力通知，不提供持久重放；规则在副作用前允许或拒绝，不改写请求。`WorkFileImporter` 登记只读源文件引用；类型 owner 缺席时不得报告成功。使用这些 API 前核对所选发行包的 Javadoc；源码中存在接口不代表旧公开 SDK 已包含它。
+
+## 投稿排障
+
+| 现象 | 下一步 |
+| --- | --- |
+| 编译成功但加载被拒绝 | 核对编译 SDK、`plugin.requires`、配套运行清单与实际宿主 SDK；不要编辑已签名包内描述符。 |
+| `SDK_ARTIFACT_MISMATCH` | 保留诊断，重新取得同一发行物并核对摘要；不要混用不同版本的工具、资源和运行附件。 |
+| 没有当前 CI 候选 | 检查源码默认分支的当前提交与 `Plugin candidate` 运行，以及 `tools/candidate-projects.json` 的工程选择；旧成功运行不能代替当前候选。 |
+| 登录、权限或 Git 推送失败 | 核对当前 GitHub 身份、目标仓库与具体权限；保存原投稿记录。不要通过创建另一请求掩盖原请求的未知结果。 |
+| 审核事实或所有权变化 | 回到向导读取当前绑定和原请求，重新核对来源、版本、签名与差异，再明确确认。历史签名不证明当前所有权。 |
+| 下载或写入响应丢失 | 重新打开原工程与投稿记录，核对远端对象和向导提供的恢复选项；结果不明确时保留现场，不自动重复发布、推送或投稿。 |
+
+诊断材料应包含插件 ID、版本、源码提交、SDK 身份、失败步骤和错误码。分享前去掉凭据、私钥、签名下载 URL 的查询参数及个人路径。
 
 ## 开始开发
 
@@ -43,9 +96,9 @@ Windows：
 Linux / macOS：
 
 ```bash
-sh ./mvnw verify exec:exec@sdk-run
-sh ./mvnw verify exec:exec@sdk-debug
-sh ./mvnw exec:exec@sdk-stop
+./mvnw verify exec:exec@sdk-run
+./mvnw verify exec:exec@sdk-debug
+./mvnw exec:exec@sdk-stop
 ```
 
 `sdk-debug` 等待 IDE 附加，不自行打开调试器。只验证插件使用 `clean verify`，只准备运行包使用 `exec:exec@sdk-prepare`。默认产物为 `target/example-minimal-plugin-0.1.0.jar`。
@@ -68,7 +121,7 @@ java -jar tools/sdk-tools.jar stop <工程绝对路径>
 | `examples/gradle-plugin/` | 用 Gradle 构建基础功能插件 | 进入目录执行 `gradlew runPlugin`、`gradlew debugPlugin`、`gradlew stopPlugin` |
 | `examples/sbt-plugin/` | 用 sbt 构建同一基础功能插件 | 安装 sbt 后进入目录执行 `sbt runPlugin` 或 `sbt debugPlugin`；停止使用另一终端执行 `java -jar ../../tools/sdk-tools.jar stop .` |
 
-Windows 使用 `mvnw.cmd` / `gradlew.bat`；Linux / macOS 使用 `sh ./mvnw` / `sh ./gradlew`。每个示例单独导入，拥有自己的 `sdk-project.json` 和 `.dev/`，共用根目录 `tools/sdk-tools.jar`。Gradle Wrapper 固定为 9.5.0，sbt 工程固定为 1.10.11。Gradle / sbt 示例提供编译、打包和 JavaScript 语法检查；Maven 工程另含 JUnit 与 thin JAR 验证。
+Windows 使用 `mvnw.cmd` / `gradlew.bat`；Linux / macOS 使用 `./mvnw` / `./gradlew`。每个示例单独导入，拥有自己的 `sdk-project.json` 和 `.dev/`，共用根目录 `tools/sdk-tools.jar`。Gradle Wrapper 固定为 9.5.0，sbt 工程固定为 1.10.11。Gradle / sbt 示例提供编译、打包和 JavaScript 语法检查；Maven 工程另含 JUnit 与 thin JAR 验证。
 
 ## 单个 SDK 依赖
 

@@ -30,7 +30,8 @@ public record PluginVerificationView(
         String executionMode,
         PluginRiskDeclaration riskDeclaration,
         String previousExecutionMode,
-        PluginRiskDeclaration previousRiskDeclaration) {
+        PluginRiskDeclaration previousRiskDeclaration,
+        PluginRevocationView revocation) {
 
     public PluginVerificationView(String status, String source, String keyId, String publisher, String trustLabel,
                                   String lastVerifiedAt, boolean offlineReverifySuccess, String diagnosticCode) {
@@ -39,14 +40,14 @@ public record PluginVerificationView(
                         : "local".equals(source) ? "LOCAL" : "SELF_TRUSTED",
                 "VERIFIED_OFFICIAL".equals(status) ? "OFFICIAL"
                         : "VERIFIED_CUSTOM".equals(status) ? "PUBLISHER_SIGNED" : "UNVERIFIED",
-                "NOT_CHECKED", null, null, null, null);
+                "NOT_CHECKED", null, null, null, null, null);
     }
 
     public PluginVerificationView withCommunity(String assurance) {
         return new PluginVerificationView("VERIFIED_CUSTOM".equals(status) ? "VERIFIED_COMMUNITY" : status,
                 "community", keyId, publisher, trustLabel, lastVerifiedAt, offlineReverifySuccess, diagnosticCode,
                 "COMMUNITY_VERIFIED", assurance, revocationStatus, executionMode, riskDeclaration,
-                previousExecutionMode, previousRiskDeclaration);
+                previousExecutionMode, previousRiskDeclaration, revocation);
     }
 
     public PluginVerificationView withFacts(String revocation, String mode, PluginRiskDeclaration risk,
@@ -54,7 +55,7 @@ public record PluginVerificationView(
         return new PluginVerificationView(status, source, keyId, publisher, trustLabel, lastVerifiedAt,
                 offlineReverifySuccess, diagnosticCode, repositoryTrustSource, assuranceLevel, revocation, mode, risk,
                 previous != null ? previous.executionMode().descriptorValue() : null,
-                previous != null ? previous.riskDeclaration() : null);
+                previous != null ? previous.riskDeclaration() : null, this.revocation);
     }
 
     public PluginVerificationView withDescriptor(PluginDescriptor descriptor) {
@@ -65,6 +66,12 @@ public record PluginVerificationView(
     public PluginVerificationView withRevocation(String revocation) {
         return new PluginVerificationView(status, source, keyId, publisher, trustLabel, lastVerifiedAt,
                 offlineReverifySuccess, diagnosticCode, repositoryTrustSource, assuranceLevel, revocation,
-                executionMode, riskDeclaration, previousExecutionMode, previousRiskDeclaration);
+                executionMode, riskDeclaration, previousExecutionMode, previousRiskDeclaration, this.revocation);
+    }
+
+    public PluginVerificationView withRevocation(PluginRevocationView details) {
+        return new PluginVerificationView(status, source, keyId, publisher, trustLabel, lastVerifiedAt,
+                offlineReverifySuccess, diagnosticCode, repositoryTrustSource, assuranceLevel, details.status(),
+                executionMode, riskDeclaration, previousExecutionMode, previousRiskDeclaration, details);
     }
 }

@@ -70,8 +70,11 @@ public record PluginRuntimeStatus(
         PluginDirectoryState refreshedState = Files.isDirectory(directory)
                 ? (phases.isEmpty() ? PluginDirectoryState.EMPTY : PluginDirectoryState.POPULATED)
                 : PluginDirectoryState.ABSENT;
-        // 已恢复的执行故障不再作为当前失败；后续正常 stop 不能重新激活旧崩溃诊断。
+        // 修复或移除的启动故障不再属于当前包；正常 stop 不能重新激活旧故障。
         List<PluginLoadFailure> currentFailures = failures.stream()
+                .filter(failure -> !"plugin-start".equals(failure.phase())
+                        || phases.containsKey(failure.source())
+                        && phases.get(failure.source()) != PluginRuntimePackagePhase.STARTED)
                 .filter(failure -> !"plugin-execution".equals(failure.phase())
                         || phases.get(failure.source()) != PluginRuntimePackagePhase.STARTED)
                 .toList();

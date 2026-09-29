@@ -411,7 +411,11 @@ public class PluginRuntimeManager {
             try {
                 startPlugin(packageId);
             } catch (RuntimeException e) {
-                failures.add(new PluginLoadFailure(packageId, describe(e)));
+                Entry entry = packageIndex.get(packageId);
+                failures.add(new PluginLoadFailure(packageId, describe(e),
+                        top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus.FAILED,
+                        "plugin-start", entry == null ? 0L : entry.generation(),
+                        entry == null ? null : entry.version(), 1, null));
                 log.error("Failed to start plugin package {}: {}", packageId, describe(e));
             }
         }
@@ -1387,7 +1391,7 @@ public class PluginRuntimeManager {
         return provenanceStore.readMeasuredCompatible(artifactPath, maximumBytes);
     }
 
-    void persistOfflineVerification(Path artifactPath, PluginProvenanceRecord provenance) throws IOException {
+    protected void persistOfflineVerification(Path artifactPath, PluginProvenanceRecord provenance) throws IOException {
         provenanceStore.write(artifactPath, provenance);
     }
 

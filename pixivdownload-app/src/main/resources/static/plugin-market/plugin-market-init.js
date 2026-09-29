@@ -26,6 +26,7 @@
             onChange: function (nextClient) {
                 PMK.state.i18n.client = nextClient;
                 applyStaticTranslations();
+                if (PMK.operations) PMK.operations.refresh();
                 if (global.PixivNav) PixivNav.refresh();
                 if (PMK.state.activeView && PMK.state.activeView.rerender) {
                     PMK.state.activeView.rerender();
@@ -64,6 +65,7 @@
     async function init() {
         PixivActions.bind(document, { click: { pmkLogout: global.pmkLogout } });
         await ensureI18n();   // 初始 i18n（plugin-market + common）+ 挂载语言 / 主题切换
+        if (PMK.operations) PMK.operations.mount();
         var root = document.getElementById('pmk-app-root');
         var mounted = false;
         try {

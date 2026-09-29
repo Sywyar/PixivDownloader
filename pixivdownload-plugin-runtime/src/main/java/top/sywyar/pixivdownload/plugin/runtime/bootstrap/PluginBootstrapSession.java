@@ -558,6 +558,13 @@ public final class PluginBootstrapSession implements AutoCloseable {
         }
 
         @Override
+        protected void persistOfflineVerification(Path artifactPath,
+                top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord provenance)
+                throws java.io.IOException {
+            installer.persistOfflineVerification(artifactPath, provenance);
+        }
+
+        @Override
         public synchronized LoadedPluginPackage loadPlugin(Path artifactPath) {
             requireRecoverySafe("load plugin package");
             return super.loadPlugin(artifactPath);

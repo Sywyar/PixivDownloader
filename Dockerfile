@@ -41,7 +41,8 @@ USER 10001:10001
 EXPOSE 6999
 
 # Containers are headless; GuiLauncher automatically follows the --no-gui path.
-ENTRYPOINT ["java", "-Djava.awt.headless=true", "-jar", "app.jar"]
+# The state volume holds the instance lease and SQLite native extraction; /tmp stays noexec.
+ENTRYPOINT ["java", "-Djava.awt.headless=true", "-Dpixivdownload.instance-dir=/app/state/instance", "-Dorg.sqlite.tmpdir=/app/state", "-jar", "app.jar"]
 
 # Health uses the public actuator endpoint allowed by AuthFilter.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \

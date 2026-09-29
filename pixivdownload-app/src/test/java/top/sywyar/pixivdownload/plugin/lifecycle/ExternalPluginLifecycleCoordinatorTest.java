@@ -66,6 +66,41 @@ class ExternalPluginLifecycleCoordinatorTest {
     PluginDependencyResolver dependencyResolver;
 
     @Test
+    @DisplayName("下载预约保持读取可用、排斥其它写入，嵌套安装仍推进变更代次")
+    void catalogReservationSerializesWritesAndPreservesEpoch() throws Exception {
+        var coordinator = coordinator();
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        Path file = Path.of("candidate.jar");
+        doAnswer(call -> {
+            assertThat(coordinator.lifecycleMutationEpoch() & 1L).isEqualTo(1L);
+            throw new IllegalArgumentException("invalid package");
+        }).when(installer).prepareTransaction(file, false, PluginPackageOrigin.localUpload());
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> pending = executor.submit(() -> coordinator.withMutationReservation(() -> {
+                entered.countDown();
+                awaitLatch(release, "download release");
+                assertThatThrownBy(() -> coordinator.installOrUpdate(file, false, PluginPackageOrigin.localUpload()))
+                        .isInstanceOf(IllegalArgumentException.class);
+                assertThat(coordinator.lifecycleMutationEpoch()).isEqualTo(2L);
+                return null;
+            }));
+            awaitLatch(entered, "download entry");
+            assertThat(coordinator.lifecycleMutationEpoch()).isZero();
+            assertThatThrownBy(() -> coordinator.remove("other"))
+                    .isInstanceOf(ClassifiedPluginLifecycleException.class);
+            release.countDown();
+            pending.get(5, TimeUnit.SECONDS);
+            assertThat(coordinator.lifecycleMutationEpoch()).isEqualTo(2L);
+            coordinator.withMutationReservation(() -> null);
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     @DisplayName("服务重启启动失败后立即刷新恢复模式投影且不覆盖主失败")
     void restartStartFailureRefreshesRecoveryProjection() {
         String pluginId = "restart-failure-plugin";

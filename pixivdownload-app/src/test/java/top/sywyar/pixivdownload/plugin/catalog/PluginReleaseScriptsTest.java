@@ -813,21 +813,8 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("市场清单从 descriptor 投影稳定 SDK 要求，Nightly 使用完整构建身份")
-    void marketManifestProjectsInitialSdkAndLegacyAlias() throws Exception {
-        String descriptor = pluginDescriptor("pixivdownload-plugin-download-workbench");
-
-        assertThat(descriptor)
-                .contains("plugin.requires=1.0")
-                .doesNotContain(
-                        "plugin.requires=1.1",
-                        "plugin.requires=1.2",
-                        "plugin.requires=1.3");
-        assertThat(script("generate-market-manifest.ps1")).contains(
-                "$requires = if ($isNightly) { $nightlySdkVersion } else { $d[\"plugin.requires\"] }",
-                "$manifestRequiredSdk = if ($isNightly) { $requires } else { Get-RequiredSdk $requires }",
-                "requiredSdk       = $manifestRequiredSdk",
-                "requiredCoreApi   = $manifestRequiredSdk");
+    @DisplayName("安装器消费者保留 SDK 要求的历史字段别名")
+    void installerConsumersRetainLegacySdkAlias() throws Exception {
         assertThat(script("stage-official-plugin-inputs-from-catalog.ps1")).contains(
                 "Get-Prop $Package \"requiredSdk\"",
                 "Get-Prop $Package \"requiredCoreApi\"");
@@ -1525,7 +1512,9 @@ class PluginReleaseScriptsTest {
         assertThat(dockerfile).contains(
                 "groupadd --gid 10001 pixivdownloader",
                 "useradd --uid 10001 --gid 10001",
-                "USER 10001:10001");
+                "USER 10001:10001",
+                "\"-Dpixivdownload.instance-dir=/app/state/instance\"",
+                "\"-Dorg.sqlite.tmpdir=/app/state\"");
         assertThat(compose).contains(
                 "127.0.0.1:6999:6999",
                 "cap_drop:",

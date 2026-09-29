@@ -84,8 +84,61 @@
             return global.PixivFeedback && typeof global.PixivFeedback.confirm === 'function';
         }
         var confirmedArtifacts = Object.create(null);
+        var completedDependencies = Object.create(null);
+        function rememberDependencies(response) {
+            var body = response.body || {};
+            (body.dependencyInstallResults || []).forEach(function (item) {
+                completedDependencies[item.pluginId] = item;
+            });
+            body.dependencyInstallResults = Object.keys(completedDependencies).map(function (id) {
+                return completedDependencies[id];
+            });
+            response.body = body;
+            return response;
+        }
+        function previewAndAttempt(confirmations) {
+            return PMK.api.previewInstall(repositoryId, pluginId, version).then(function (preview) {
+                if (!canConfirm() || !preview || !/^[0-9a-f]{64}$/.test(preview.fingerprint)) {
+                    throw new Error(PMK.t('install.preview.unavailable'));
+                }
+                var lines = (preview.packages || []).map(function (item) {
+                    return PMK.t('install.preview.package', '', {
+                        plugin: item.pluginId, version: item.version,
+                        source: item.repositoryId || PMK.t('install.preview.local'),
+                        previous: item.installedVersion || '—',
+                        previousSource: item.installedRepositoryId || PMK.t('install.preview.local'),
+                        publisher: item.publisher || '—', sha256: item.sha256 || '—',
+                        action: PMK.t('install.preview.action.' + String(item.action).toLowerCase()),
+                        consumers: (item.consumers || []).join(', ') || '—',
+                        active: (item.activeConsumers || []).join(', ') || '—'
+                    });
+                });
+                (preview.conflicts || []).forEach(function (conflict) {
+                    lines.push(PMK.t('install.preview.conflict.' + conflict.code.toLowerCase(), '', {
+                        plugin: conflict.pluginId, details: (conflict.arguments || []).join(', ')
+                    }));
+                });
+                lines.push(PMK.t('install.preview.boundary'));
+                if ((preview.conflicts || []).length) {
+                    return rememberDependencies({kind: 'error', body: {
+                        code: 'INSTALL_PREVIEW_BLOCKED', message: lines.join('\n\n')
+                    }});
+                }
+                return global.PixivFeedback.confirm({
+                    title: PMK.t('install.preview.title'), message: lines.join('\n\n'),
+                    confirmLabel: PMK.t('install.preview.confirm'), cancelLabel: PMK.t('install.trust.cancel')
+                }).then(function (confirmed) {
+                    if (!confirmed) return rememberDependencies({ kind: 'error', body: {
+                        code: 'CANCELLED', message: PMK.t('install.preview.cancelled')
+                    } });
+                    confirmations.fingerprint = preview.fingerprint;
+                    return attempt(confirmations);
+                });
+            });
+        }
         function attempt(confirmations) {
             return PMK.api.installPlugin(repositoryId, pluginId, version, confirmations).then(function (response) {
+                rememberDependencies(response);
                 var body = response.body || {};
                 var trustRequired = body.outcome === PMK.TRUST_CONFIRMATION_REQUIRED
                     || body.code === PMK.TRUST_CONFIRMATION_REQUIRED;
@@ -96,13 +149,18 @@
                         .then(function (confirmed) {
                         if (!confirmed) return response;
                         confirmedArtifacts[sha256] = true;
-                        return attempt({ trustSha256: sha256 });
+                        return previewAndAttempt({ trustSha256: sha256 });
                     });
                 }
                 return response;
             });
         }
-        return attempt({ trustSha256: null });
+        return previewAndAttempt({ trustSha256: null }).catch(function (failure) {
+            return rememberDependencies({kind: 'error', body: {
+                code: failure.body && failure.body.code || 'REQUEST_FAILED',
+                message: failure.message || PMK.t('install.preview.unavailable')
+            }});
+        });
     };
 
     PMK.currentLang = function () {

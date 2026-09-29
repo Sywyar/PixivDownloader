@@ -70,8 +70,8 @@ import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 @Service
 public class PluginManagementService {
 
-    private static final int MAX_MANAGEMENT_PROVENANCE_RECORDS = 512;
-    private static final long MAX_MANAGEMENT_PROVENANCE_BYTES = 64L * 1024L * 1024L;
+    private static final int MAX_MANAGEMENT_PROVENANCE_RECORDS = InstalledPluginInventorySnapshot.MAX_RECORDS;
+    private static final long MAX_MANAGEMENT_PROVENANCE_BYTES = InstalledPluginInventorySnapshot.MAX_PROVENANCE_BYTES;
 
     private final PluginStatusService pluginStatusService;
     private final PluginLifecycleService pluginLifecycleService;
@@ -239,7 +239,8 @@ public class PluginManagementService {
                 retainedProcess).withDescriptor(descriptor);
         List<String> actions = availableActions(managed, phase, allowDisable, installedOnly);
         if (allowLifecycleReads && allowProvenanceReads && coordinator != null && allowDisable
-                && lifecyclePolicy == PluginLifecyclePolicy.PROCESS_RESTART
+                && (lifecyclePolicy == PluginLifecyclePolicy.PROCESS_RESTART
+                || descriptor != null && diagnostic.status() == PluginStatus.FAILED && phase == null)
                 && installedArtifacts.getOrDefault(id, List.of()).size() == 1) {
             actions = List.of("remove");
         }
@@ -436,7 +437,12 @@ public class PluginManagementService {
 
     private PluginVerificationView withRevocations(PluginVerificationView view, PluginProvenanceRecord provenance,
                                                    PluginDescriptor descriptor) {
-        return revocations == null ? view : view.withRevocation(revocations.status(provenance, descriptor.id(), descriptor.version()));
+        return revocations == null ? view : view.withRevocation(revocations.details(provenance, descriptor.id(), descriptor.version()));
+    }
+
+    public top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationService.RefreshResult
+            refreshRevocations(String repositoryId) {
+        return revocations.refreshConfigured(repositoryId);
     }
 
     private Map<String, List<InstalledPluginSnapshot>> installedArtifactsById() {
@@ -542,6 +548,66 @@ public class PluginManagementService {
         return List.copyOf(actions);
     }
 
+    /** 停用与移除前展示当前身份和反向消费者；不自动级联停止或删除其它插件。 */
+    public PluginImpactPreview previewImpact(String id) {
+        return reserveImpact(id, () -> impact(id));
+    }
+
+    private PluginImpactPreview impact(String id) {
+        var report = list();
+        if (!report.transactionRecovery().safeToScan()) {
+            throw new PluginManagementException(PluginManagementErrorCode.OPERATION_IN_PROGRESS,
+                    id, "preview", null, "plugin inventory is not stable");
+        }
+        var entries = report.plugins();
+        var target = entries.stream().filter(entry -> entry.id().equals(id)).findFirst()
+                .orElseThrow(() -> new PluginManagementException(PluginManagementErrorCode.UNKNOWN_PLUGIN,
+                        id, "preview", null, "unknown plugin"));
+        var consumers = entries.stream().filter(entry -> entry.dependencies().stream()
+                        .anyMatch(dep -> !dep.optional() && dep.pluginId().equals(id)))
+                .sorted(java.util.Comparator.comparing(PluginManagementEntry::id)).toList();
+        String facts = impactFacts(target) + consumers.stream().map(PluginManagementService::impactFacts).toList();
+        try {
+            String fingerprint = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(facts.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            return new PluginImpactPreview(fingerprint, target, consumers);
+        } catch (java.security.NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException(impossible);
+        }
+    }
+
+    private static String impactFacts(PluginManagementEntry entry) {
+        return java.util.Arrays.asList(entry.id(), entry.version(), entry.loadedVersion(), entry.generation(),
+                entry.status(), entry.runtimePhase(), entry.dependencies(), entry.configuredEnabled(),
+                entry.lifecyclePolicy(), entry.availableActions(), entry.trust(), entry.source(),
+                entry.allowDisable(), entry.toggleable()).toString();
+    }
+
+    public <T> T confirmImpact(String id, String fingerprint, java.util.function.Supplier<T> action) {
+        return reserveImpact(id, () -> {
+            if (!impact(id).fingerprint().equals(fingerprint)) {
+                throw new PluginManagementException(PluginManagementErrorCode.IMPACT_CHANGED, id,
+                        "preview", null, "plugin impact changed; review the current state");
+            }
+            return action.get();
+        });
+    }
+
+    public PluginActionResult performPreviewed(String id, LifecycleAction action, String fingerprint) {
+        return confirmImpact(id, fingerprint, () -> perform(id, action));
+    }
+
+    private <T> T reserveImpact(String id, java.util.function.Supplier<T> action) {
+        try {
+            return coordinator.withMutationReservation(action);
+        } catch (ClassifiedPluginLifecycleException failure) {
+            throw new PluginManagementException(failure.code(), id, "preview", null, failure.getMessage());
+        }
+    }
+
+    public record PluginImpactPreview(String fingerprint, PluginManagementEntry plugin,
+                                      List<PluginManagementEntry> consumers) { }
+
     /**
      * 执行一个运行期生命周期动词。前置守卫（受管 / 内置 / 未激活 / 未知 / 必选不可停用）不满足即抛
      * {@link PluginManagementException}；委托 {@link PluginLifecycleService} 时其非法流转
@@ -586,6 +652,11 @@ public class PluginManagementService {
         var report = pluginStatusService.report();
         var diagnostic = report != null ? report.byId(id) : Optional.<PluginDiagnostic>empty();
         PluginDescriptor descriptor = diagnostic.map(PluginDiagnostic::descriptor).orElse(null);
+        // 启动失败的包可能还没有应用 generation；移除仍经统一协调器，required 守卫随后执行。
+        if (descriptor != null && diagnostic.get().status() == PluginStatus.FAILED
+                && action == LifecycleAction.REMOVE && coordinator != null) {
+            return;
+        }
         if (descriptor != null && descriptor.lifecyclePolicy() == PluginLifecyclePolicy.PROCESS_RESTART
                 && action == LifecycleAction.REMOVE && coordinator != null) {
             return;

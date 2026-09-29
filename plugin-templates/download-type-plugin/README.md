@@ -13,7 +13,7 @@ Before publishing a real plugin, replace these identities consistently:
 | `com.example.pixivdownload.downloadtype` | Your Java package |
 | `ExampleDownload*` | Your Java class prefix |
 | `0.1.0` | Your plugin artifact version |
-| `plugin.requires=1.0` | The compatible PixivDownloader SDK major/minor requirement |
+| `plugin.requires` | `=FULL_SDK_VERSION` for a prerelease SDK; `MAJOR.MINOR` for a stable SDK |
 | `plugin.provider=Example Developer` | Your provider name |
 | `example-download` i18n namespace | Your unique web i18n namespace |
 | `/api/example-download/**` and `/example-download/**` | Plugin-owned API and static paths |
@@ -21,6 +21,8 @@ Before publishing a real plugin, replace these identities consistently:
 Build with JDK 17, Maven and Node.js using `mvn clean verify`, or build both repository templates with `mvn -f ../pom.xml clean verify`. The POM declares one `pixivdownload-sdk` dependency with `provided` scope, plus JUnit for tests. The SDK supplies public contracts, PF4J, Spring, Servlet and Jackson transitively. The output remains a thin PF4J JAR without copies of those libraries. The configured candidate SDK version must be available in your Maven repository.
 
 The verified `pixiv.kind`, `pixiv.configuration-classes`, `pixiv.execution-mode`, and `pixiv.lifecycle-policy` entries in `plugin.properties` are authoritative at runtime. Keep the compatibility `configurationClasses()` result aligned with the descriptor for older hosts and SDK tooling.
+
+Update the compile dependency and `plugin.requires` together. For a prerelease SDK, write `plugin.requires==FULL_SDK_VERSION` and test with its matching runtime. The first equals sign is the properties separator; the second requests an exact SDK contract. Older hosts reject this declaration. A historical `major.minor` declaration does not prove compatibility with a specific RC. Publish a new verified package instead of editing an existing release.
 
 ## Stable examples included
 

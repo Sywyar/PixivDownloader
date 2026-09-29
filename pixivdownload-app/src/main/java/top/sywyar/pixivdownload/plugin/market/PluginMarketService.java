@@ -95,6 +95,7 @@ public class PluginMarketService {
                 .filter(item -> pluginId.equals(item.id())).map(PluginDiagnostic::descriptor)
                 .filter(java.util.Objects::nonNull).findFirst().orElse(null);
         String revocation = revocations != null ? revocations.status(repository, pluginId, pkg, snapshot) : "NOT_CHECKED";
+        if (revocations != null) view = view.withRevocation(revocations.details(repository, pluginId, pkg, snapshot));
         if (!repository.community()) return view.withFacts(revocation, null, null, previous);
         if (communityPackages == null) throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE,
                 "community package verifier is unavailable");
@@ -177,8 +178,7 @@ public class PluginMarketService {
         var packages = entry.packages().stream().map(pkg -> revocations == null
                 ? PluginMarketPackageView.from(repository, pkg)
                 : PluginMarketPackageView.from(repository, pkg,
-                    revocations.status(repository, entry.pluginId(), pkg, snapshot),
-                    revocations.allowsInstall(repository, entry.pluginId(), pkg, snapshot))).toList();
+                    revocations.details(repository, entry.pluginId(), pkg, snapshot))).toList();
         return PluginMarketEntryView.from(entry, installed, installedVersions.get(entry.pluginId()), packages);
     }
 
@@ -208,6 +208,16 @@ public class PluginMarketService {
     public PluginInstallReport install(String repositoryId, String pluginId, String version,
                                        String confirmedTrustSha256) {
         return acquisitionService.install(repositoryId, pluginId, version, confirmedTrustSha256);
+    }
+
+    public top.sywyar.pixivdownload.plugin.catalog.PluginCatalogInstallPreview.View preview(
+            String repositoryId, String pluginId, String version) {
+        return acquisitionService.preview(repositoryId, pluginId, version);
+    }
+
+    public PluginInstallReport installPreviewed(String repositoryId, String pluginId, String version,
+            String confirmedTrustSha256, String fingerprint) {
+        return acquisitionService.installPreviewed(repositoryId, pluginId, version, confirmedTrustSha256, fingerprint);
     }
 
     /**

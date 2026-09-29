@@ -1,6 +1,8 @@
-# 构建产物 / 本地生成物（容器内会重新生成）
+# 本地构建输出（已组装的签名分发目录除外）
 target/
-build/
+build/*
+# Dockerfile consumes the assembled signed distribution.
+!build/dist/
 *.iml
 
 # 运行时数据与配置（应通过 volume 持久化，绝不烘进镜像）

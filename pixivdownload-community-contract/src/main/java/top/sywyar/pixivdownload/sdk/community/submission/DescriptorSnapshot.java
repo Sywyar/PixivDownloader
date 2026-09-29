@@ -33,7 +33,7 @@ public record DescriptorSnapshot(String requiredSdk, String executionMode, List<
         byte[] bytes = CommunityJson.encode(this);
         CommunityJson.validateStructure("descriptor", CommunityJson.strictTree(bytes, bytes.length));
         CommunityValues.unique(dependencies, PluginDependencyRef::pluginId, "/descriptor/dependencies");
-        if (!VersionRequirement.parse(requiredSdk).valid()) throw new ContractException("DESCRIPTOR_MISMATCH", "/descriptor/requiredSdk");
+        if (!VersionRequirement.parseSdk(requiredSdk).valid()) throw new ContractException("DESCRIPTOR_MISMATCH", "/descriptor/requiredSdk");
         for (var dependency : dependencies) if (!dependency.requirement().valid()) {
             throw new ContractException("DESCRIPTOR_MISMATCH", "/descriptor/dependencies");
         }

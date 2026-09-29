@@ -34,6 +34,8 @@ public enum PluginManagementErrorCode {
 
     OPERATION_IN_PROGRESS(HttpStatus.CONFLICT, "plugin.manage.error.operation-in-progress"),
 
+    IMPACT_CHANGED(HttpStatus.CONFLICT, "plugin.manage.error.impact-changed"),
+
     DEPENDENCY_BLOCKED(HttpStatus.CONFLICT, "plugin.manage.error.dependency-blocked"),
 
     DEPENDENCY_UNSATISFIED(HttpStatus.CONFLICT, "plugin.manage.error.dependency-unsatisfied"),

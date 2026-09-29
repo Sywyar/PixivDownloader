@@ -82,6 +82,44 @@ public class PluginManagementController {
         return pluginManagementService.list();
     }
 
+    @PostMapping("/revocations/{repositoryId}/refresh")
+    public ResponseEntity<?> refreshRevocations(@PathVariable String repositoryId, HttpServletRequest request) {
+        var result = pluginManagementService.refreshRevocations(repositoryId);
+        if (result.refreshed()) return ResponseEntity.ok(result);
+        var code = top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode.valueOf(result.code());
+        String error = messages.getOrDefault(localeResolver.resolveLocale(request), code.messageKey(), code.name());
+        return ResponseEntity.status(code.status()).body(
+                top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse.of(code.name(), error));
+    }
+
+    @GetMapping("/{id}/impact")
+    public PluginManagementService.PluginImpactPreview impact(@PathVariable String id) {
+        return pluginManagementService.previewImpact(id);
+    }
+
+    @PostMapping("/{id}/actions/{verb}")
+    public PluginActionResult performPreviewed(@PathVariable String id, @PathVariable String verb,
+                                               @RequestBody PluginImpactRequest request) {
+        LifecycleAction action = java.util.Arrays.stream(LifecycleAction.values())
+                .filter(value -> value.token().equals(verb)).findFirst()
+                .orElseThrow(() -> new PluginManagementException(PluginManagementErrorCode.ILLEGAL_TRANSITION,
+                        id, verb, null, "unknown lifecycle action"));
+        return pluginManagementService.performPreviewed(id, action, request.fingerprint());
+    }
+
+    @PutMapping("/{id}/enabled-preview")
+    public PluginEnabledConfigurationService.PluginEnabledState enabledPreviewed(
+            @PathVariable String id, @RequestBody PluginImpactRequest request) {
+        if (request.enabled() == null) {
+            throw new PluginManagementException(PluginManagementErrorCode.INVALID_TOGGLE_REQUEST,
+                    id, "update-enabled", null, "enabled is required");
+        }
+        return pluginManagementService.confirmImpact(id, request.fingerprint(),
+                () -> enabledConfigurationService.update(id, request.enabled()));
+    }
+
+    public record PluginImpactRequest(String fingerprint, Boolean enabled) { }
+
     /** 把一个已卸下的外置插件重新接入核心注册中心。 */
     @PostMapping("/{id}/load")
     public PluginActionResult load(@PathVariable String id) {

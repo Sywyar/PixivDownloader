@@ -95,6 +95,30 @@ class PluginManagementControllerTest {
     }
 
     @Test
+    @DisplayName("显式撤销刷新走核心管理路由且失败使用非成功状态")
+    void refreshRevocationsReportsFailure() throws Exception {
+        when(service.refreshRevocations("sample")).thenReturn(
+                new top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationService.RefreshResult(false, "CATALOG_UNAVAILABLE"));
+        mockMvc.perform(post("/api/plugins/revocations/sample/refresh")).andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error").value("localized:plugin.catalog.error.unavailable"))
+                .andExpect(jsonPath("$.code").value("CATALOG_UNAVAILABLE"));
+        verify(service).refreshRevocations("sample");
+    }
+
+    @Test
+    @DisplayName("管理确认透传当前指纹且状态变化不会回退到无预览执行")
+    void managementPreviewDoesNotRetryStaleConfirmation() throws Exception {
+        String fingerprint = "b".repeat(64);
+        when(service.performPreviewed("sample", LifecycleAction.REMOVE, fingerprint)).thenThrow(
+                new PluginManagementException(PluginManagementErrorCode.IMPACT_CHANGED,
+                        "sample", "remove", null, "changed"));
+        mockMvc.perform(post("/api/plugins/sample/actions/remove").contentType("application/json")
+                        .content("{\"fingerprint\":\"" + fingerprint + "\"}"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("IMPACT_CHANGED"));
+        verify(service, never()).perform(anyString(), any());
+    }
+
+    @Test
     @DisplayName("GET /api/plugins/status 返回恢复原因与插件管理视图 JSON")
     void statusReturnsReport() throws Exception {
         when(service.list()).thenReturn(new PluginManagementService.PluginManagementReport(

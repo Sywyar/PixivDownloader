@@ -132,7 +132,9 @@ test('Wrapper 纯权限变化不属于 SDK 语义合同', () => {
             'pixivdownload-sdk-bom/pom.xml',
             'pixivdownload-sdk/pom.xml',
             'plugin-templates/minimal-feature-plugin/pom.xml',
-            'plugin-templates/download-type-plugin/pom.xml'
+            'plugin-templates/download-type-plugin/pom.xml',
+            'plugin-templates/minimal-feature-plugin/src/main/resources/plugin.properties',
+            'plugin-templates/download-type-plugin/src/main/resources/plugin.properties'
         ]) copy(root, relativePath);
         fs.writeFileSync(path.join(root, 'mvnw'), '#!/bin/sh\n', 'utf8');
         git(root, ['add', '-A']);

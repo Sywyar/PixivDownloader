@@ -12,7 +12,9 @@
     async function getJson(url) {
         var res = await fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
         if (!res.ok) {
-            var error = new Error('HTTP ' + res.status);
+            var body = await res.json().catch(function () { return null; });
+            var error = new Error(body && (body.error || body.message) || ('HTTP ' + res.status));
+            error.body = body;
             error.httpStatus = res.status;
             throw error;
         }
@@ -57,12 +59,68 @@
         return getJson('/api/plugin-market/plugins/' + enc(repositoryId) + '/' + enc(pluginId) + '/' + enc(version) + '/facts');
     };
 
+    function postJson(url, body) {
+        return fetch(url, {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        }).then(function (res) {
+            return res.json().catch(function () { return null; }).then(function (data) {
+                if (!res.ok) {
+                    var error = new Error(data && (data.error || data.message) || ('HTTP ' + res.status));
+                    error.body = data; error.httpStatus = res.status; throw error;
+                }
+                return data;
+            });
+        });
+    }
+
+    API.previewInstall = function (repositoryId, pluginId, version) {
+        return getJson('/api/plugin-market/' + enc(repositoryId) + '/' + enc(pluginId)
+            + '/' + enc(version) + '/install-preview');
+    };
+
+    API.fetchOperations = function () { return getJson('/api/plugins/acquisitions'); };
+    API.fetchOperation = function (id) { return getJson('/api/plugins/acquisitions/' + enc(id)); };
+
+    function operationResult(value) {
+        if (value.finished && value.result) return { kind: 'install', body: value.result, httpStatus: value.result.status };
+        if (value.finished && value.failure) return { kind: 'error', body: value.failure, httpStatus: value.failure.status };
+        return { kind: 'error', body: {code: 'OPERATION_RUNNING', operationId: value.id,
+            message: PMK.t('operations.running', '', {id: value.id})} };
+    }
+
+    async function executeConfirmedPlan(repositoryId, pluginId, version, confirmations) {
+        var prepared = await postJson('/api/plugin-market/operations', {
+            repositoryId: repositoryId, pluginId: pluginId, version: version,
+            fingerprint: confirmations.fingerprint, confirmTrust: confirmations.trustSha256
+        });
+        if (!prepared || !prepared.id) throw new Error(PMK.t('operations.unknown'));
+        if (PMK.operations) PMK.operations.watch(prepared.id);
+        try {
+            return operationResult(await postJson('/api/plugin-market/operations/' + enc(prepared.id) + '/execute', {}));
+        } catch (failure) {
+            // 已取得身份后只读查询；丢失 HTTP 响应不意味着安装失败，也不重新提交执行。
+            try {
+                return operationResult(await API.fetchOperation(prepared.id));
+            } catch (queryFailure) {
+                return {kind: 'error', body: {code: 'OPERATION_UNKNOWN', operationId: prepared.id,
+                    message: PMK.t('operations.unknown') + ' (' + prepared.id + ')'}};
+            }
+        } finally {
+            if (PMK.operations) PMK.operations.settled(prepared.id);
+        }
+    }
+
     // POST /api/plugin-market/{repositoryId}/{pluginId}/{version}/install（请求体不含 URL）。
     // 后端对「已决安装结局」返回 PluginInstallResponse（带稳定 outcome，含各类拒绝），对「拿到包之前的 catalog / 下载层
     // 失败」返回错误体（带稳定 code）。据响应体字段归一化：outcome → install；code → error；都没有 → 抛错（如 401 跳登录）。
     API.installPlugin = function (repositoryId, pluginId, version, confirmations) {
         var url = '/api/plugin-market/' + enc(repositoryId) + '/' + enc(pluginId) + '/' + enc(version) + '/install';
         confirmations = confirmations || {};
+        if (confirmations.fingerprint) {
+            return executeConfirmedPlan(repositoryId, pluginId, version, confirmations);
+        }
         var query = [];
         if (confirmations.trustSha256) query.push('confirmTrust=' + enc(confirmations.trustSha256));
         if (query.length) url += '?' + query.join('&');

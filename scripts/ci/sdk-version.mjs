@@ -164,6 +164,11 @@ export function inspectSdkVersion(repoRoot, ref = '') {
                 `${templatePom} SDK version`
         );
         assertEqual(templateVersion, version, `${templatePom} SDK version`);
+        const descriptorPath = templatePom.replace(/pom\.xml$/u, 'src/main/resources/plugin.properties');
+        const descriptor = parseProperties(readText(repoRoot, descriptorPath, ref));
+        assertEqual(descriptor.get('plugin.requires'),
+                identity.prerelease ? `=${version}` : identity.compatibilityVersion,
+                `${descriptorPath} SDK requirement`);
     }
     return identity;
 }

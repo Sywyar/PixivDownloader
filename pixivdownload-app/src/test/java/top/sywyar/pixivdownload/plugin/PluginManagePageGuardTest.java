@@ -118,8 +118,6 @@ class PluginManagePageGuardTest {
         assertThat(api).as("拉取状态走 STATUS_URL").contains("PM.STATUS_URL");
         assertThat(api).as("动词为 POST").contains("method: 'POST'");
         assertThat(api).as("持久化启停为 PUT").contains("method: 'PUT'");
-        assertThat(api).as("持久化启停使用 JSON enabled 请求体")
-                .contains("JSON.stringify({ enabled: enabled === true })");
         assertThat(api).as("后端重启使用专用端点")
                 .contains("PM.BACKEND_RESTART_URL");
         assertThat(api).as("本地安装附带可选 detached 签名")

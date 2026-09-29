@@ -60,6 +60,7 @@ import top.sywyar.pixivdownload.plugin.management.PluginManagementService;
 import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
 import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 import top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector;
+import top.sywyar.pixivdownload.plugin.verification.PluginRevocationView;
 
 /**
  * {@link PluginManagementService} 单测：读模型合并（来源 / 受管 / 阶段 / 必选 / 可用动词）与运行期动词前置守卫
@@ -67,6 +68,37 @@ import top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector;
  */
 @DisplayName("PluginManagementService 插件管理后端服务")
 class PluginManagementServiceTest {
+
+    @Test
+    @DisplayName("移除影响预览保留反向消费者，运行代次变化后拒绝旧确认")
+    void revalidatesImpactBeforeManagementMutation() {
+        var coordinator = mock(ExternalPluginLifecycleCoordinator.class);
+        when(coordinator.withMutationReservation(org.mockito.ArgumentMatchers.any())).thenAnswer(call ->
+                ((java.util.function.Supplier<?>) call.getArgument(0)).get());
+        var service = org.mockito.Mockito.spy(new PluginManagementService(mock(PluginStatusService.class),
+                mock(PluginLifecycleService.class), RequiredPluginPolicy.empty(), mock(RecoveryModeService.class),
+                coordinator, mock(ExternalPluginInstaller.class), new PluginToggleProperties()));
+        var target = mock(PluginManagementService.PluginManagementEntry.class);
+        when(target.id()).thenReturn("shared");
+        when(target.generation()).thenReturn(1L);
+        var consumer = mock(PluginManagementService.PluginManagementEntry.class);
+        when(consumer.id()).thenReturn("consumer");
+        when(consumer.dependencies()).thenReturn(List.of(
+                new PluginManagementService.PluginDependencyView("shared", "1.0", false)));
+        org.mockito.Mockito.doReturn(new PluginManagementService.PluginManagementReport(false, false,
+                new PluginManagementService.TransactionRecoveryView("SAFE", true, List.of()), List.of(),
+                List.of(target, consumer))).when(service).list();
+        var preview = service.previewImpact("shared");
+        assertThat(preview.consumers()).containsExactly(consumer);
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        service.confirmImpact("shared", preview.fingerprint(), calls::incrementAndGet);
+        assertThat(calls).hasValue(1);
+        when(target.generation()).thenReturn(2L);
+        assertThatThrownBy(() -> service.confirmImpact("shared", preview.fingerprint(), calls::incrementAndGet))
+                .isInstanceOfSatisfying(PluginManagementException.class,
+                        failure -> assertThat(failure.code()).isEqualTo(PluginManagementErrorCode.IMPACT_CHANGED));
+        assertThat(calls).hasValue(1);
+    }
 
     @Test
     @DisplayName("已知撤销移除执行入口但保留清理动作，隐藏版本不改变运行期动作")
@@ -93,10 +125,14 @@ class PluginManagementServiceTest {
                         ProvenanceSnapshotState.PRESENT, provenance, 0L)), false));
         var service = new PluginManagementService(status, lifecycle, RequiredPluginPolicy.empty(),
                 mock(RecoveryModeService.class), coordinator, installer, new PluginToggleProperties(), revocations);
-        when(revocations.status(provenance, EXTERNAL_ID, descriptor.version())).thenReturn("REVOKED");
+        when(revocations.details(provenance, EXTERNAL_ID, descriptor.version())).thenReturn(
+                new PluginRevocationView("sample", "REVOKED", null, null, null, null,
+                        "FRESH", true, true, true, List.of()));
         assertThat(entry(service.list(), EXTERNAL_ID).availableActions()).contains("remove", "unload")
                 .doesNotContain("load", "start", "restart", "reload");
-        when(revocations.status(provenance, EXTERNAL_ID, descriptor.version())).thenReturn("YANKED");
+        when(revocations.details(provenance, EXTERNAL_ID, descriptor.version())).thenReturn(
+                new PluginRevocationView("sample", "YANKED", null, null, null, null,
+                        "FRESH", true, false, true, List.of()));
         assertThat(entry(service.list(), EXTERNAL_ID).availableActions()).contains("start", "restart", "reload");
     }
 

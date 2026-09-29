@@ -138,12 +138,14 @@ class VersionSubmissionTest {
     void extractsFrozenDescriptor() throws Exception {
         VersionSubmission submission = read(fixture());
         Path artifact = directory.resolve("plugin.jar");
-        for (String declaration : List.of("", "pixiv.risk-signals=\n", "pixiv.risk-signals=FILE_WRITE,NETWORK\n")) {
+        for (String declaration : List.of("", "pixiv.risk-signals=\n", "pixiv.risk-signals=FILE_WRITE,NETWORK\n",
+                "plugin.requires==" + top.sywyar.pixivdownload.sdk.SdkVersion.VERSION + "\n")) {
             writePackage(artifact, declaration);
             var descriptor = top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader.inspect(artifact).descriptor();
             var snapshot = DescriptorSnapshot.from(descriptor, submission.pluginId(), submission.version());
-            assertThat(snapshot.riskDeclaration().present()).isEqualTo(!declaration.isEmpty());
-            assertThat(snapshot.requiredSdk()).isEqualTo("1.0");
+            assertThat(snapshot.riskDeclaration().present()).isEqualTo(declaration.startsWith("pixiv.risk-signals="));
+            assertThat(snapshot.requiredSdk()).isEqualTo(declaration.startsWith("plugin.requires=")
+                    ? "=" + top.sywyar.pixivdownload.sdk.SdkVersion.VERSION : "1.0");
             assertThat(snapshot.dependencies()).extracting(top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef::pluginId)
                     .containsExactly("alpha", "zeta");
         }

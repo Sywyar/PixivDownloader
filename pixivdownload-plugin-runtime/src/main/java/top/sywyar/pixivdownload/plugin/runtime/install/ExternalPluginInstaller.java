@@ -266,6 +266,32 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 : Objects.requireNonNull(directorySessionLock, "directorySessionLock");
     }
 
+    /**
+     * 离线复验只在没有已发布文件事务时写回，避免改变恢复清单已绑定的 sidecar 摘要。
+     * 事务期间最新复验仍由运行时快照持有，磁盘记录在后续无事务复验时更新。
+     */
+    public void persistOfflineVerification(Path artifact, PluginProvenanceRecord provenance) throws IOException {
+        installLock.lock();
+        try {
+            acquireDirectorySessionLockForMutation();
+            requireRecoverySafe("persist offline verification");
+            Path staging = pluginsDir.resolve(STAGING_DIR);
+            BasicFileAttributes attributes = readAttributesIfPresent(staging).orElse(null);
+            if (attributes != null) {
+                if (attributes.isSymbolicLink() || attributes.isOther() || !attributes.isDirectory()) {
+                    throw new IOException("staging root must be a plain directory");
+                }
+                // 只检查是否有条目，不枚举整份事务或重复构建恢复清单。
+                try (var entries = Files.newDirectoryStream(staging)) {
+                    if (entries.iterator().hasNext()) return;
+                }
+            }
+            provenanceStore.write(artifact, provenance);
+        } finally {
+            installLock.unlock();
+        }
+    }
+
     /** 规范化后的绝对安装目录。 */
     public Path pluginsDirectory() {
         return pluginsDir;
@@ -3038,8 +3064,8 @@ public class ExternalPluginInstaller implements AutoCloseable {
         if (origin.expectedVersion() != null && !origin.expectedVersion().equals(descriptor.version())) {
             errors.add("catalog version does not match the frozen package descriptor");
         }
-        if (origin.expectedRequiredSdk() != null && !requirementBinding(
-                VersionRequirement.parse(origin.expectedRequiredSdk())).equals(requirementBinding(descriptor.requires()))) {
+        if (origin.expectedRequiredSdk() != null && !VersionRequirement.parseSdk(
+                origin.expectedRequiredSdk()).display().equals(descriptor.requires().display())) {
             errors.add("catalog SDK requirement does not match the frozen package descriptor");
         }
         if (origin.expectedDependencies() != null

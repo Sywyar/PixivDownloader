@@ -63,6 +63,8 @@ class CsrfProtectionFilterTest {
             "POST,/api/plugins/demo/start",
             "PUT,/api/plugins/demo/enabled",
             "POST,/api/plugin-market/official/demo/1.0.0/install",
+            "POST,/api/plugin-market/operations",
+            "POST,/api/plugin-market/operations/fixture/execute",
             "POST,/api/plugin-market/repositories/import/preview",
             "POST,/api/plugin-market/repositories/import/trust",
             "POST,/api/collections/7/icon",
@@ -86,6 +88,26 @@ class CsrfProtectionFilterTest {
                 .contains("\"code\":\"auth.csrf.invalid\"")
                 .contains("\"error\":\"Request origin verification failed\"");
         verify(filterChain, never()).doFilter(request, response);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "/api/plugin-market/operations,Origin,http://localhost:8080,200",
+            "/api/plugin-market/operations,Origin,https://untrusted.example,403",
+            "/api/plugin-market/operations,Referer,http://localhost:8080/plugin-market.html,200",
+            "/api/plugin-market/operations/fixture/execute,Origin,http://localhost:8080,200",
+            "/api/plugin-market/operations/fixture/execute,Origin,https://untrusted.example,403",
+            "/api/plugin-market/operations/fixture/execute,Referer,http://localhost:8080/plugin-market.html,200"
+    })
+    @DisplayName("安装操作准备与执行只接受同源来源信号")
+    void acquisitionRequiresSameOrigin(String path, String header, String value, int expectedStatus) throws Exception {
+        MockHttpServletRequest request = request("POST", path);
+        request.addHeader(header, value);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.doFilterInternal(request, response, filterChain);
+        assertThat(response.getStatus()).isEqualTo(expectedStatus);
+        if (expectedStatus == 200) verify(filterChain).doFilter(request, response);
+        else verify(filterChain, never()).doFilter(request, response);
     }
 
     @Test

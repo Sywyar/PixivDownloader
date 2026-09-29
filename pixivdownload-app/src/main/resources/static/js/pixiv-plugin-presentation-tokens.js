@@ -111,7 +111,7 @@
     }
 
     // 各来源共用同一声明语义；只返回文本，渲染器负责转义。
-    function trustLines(facts, client) {
+    function trustLines(facts, client, instancePresent) {
         var f = facts || {};
         function t(key, fallback) {
             return client ? client.t('common:plugin-trust.' + key, fallback) : fallback;
@@ -132,6 +132,29 @@
             t('execution', 'Execution mode') + ': ' + value('execution', String(f.executionMode || '').replace(/-/g, '_').toUpperCase()),
             t('declaration', 'Declared capabilities') + ': ' + risk(f.riskDeclaration)
         ];
+        var revocation = f.revocation;
+        if (revocation) {
+            lines.push(t('revocation-freshness', 'Snapshot freshness') + ': ' + value('freshness', revocation.freshness));
+            [
+                ['revocation-fetched', 'Last successful refresh', revocation.fetchedAt],
+                ['revocation-generated', 'Snapshot generated', revocation.generatedTime],
+                ['revocation-next', 'Valid until', revocation.nextUpdate],
+                ['revocation-grace', 'Installation grace ends', revocation.graceUntil]
+            ].forEach(function (field) {
+                if (field[2]) lines.push(t(field[0], field[1]) + ': ' + field[2]);
+            });
+            (revocation.restrictions || []).forEach(function (restriction) {
+                lines.push(t('revocation-reason', 'Restriction') + ': '
+                    + value('revocation', restriction.action) + ' / ' + restriction.scope
+                    + ' / ' + restriction.reasonCode + ' / ' + restriction.effectiveTime);
+            });
+            if (revocation.installBlocked) lines.push(t('revocation-install-blocked', 'New installation or update is blocked.'));
+            if (revocation.executionBlocked) lines.push(t('revocation-execution-blocked', 'Subsequent loading or starting is blocked.'));
+            if (instancePresent && (revocation.executionBlocked || ['GRACE', 'EXPIRED', 'UNKNOWN'].indexOf(revocation.freshness) !== -1)) {
+                lines.push(t('revocation-running', 'The process may still hold plugin code, including an older version. This check does not terminate it. To stop that code, exit the application completely and check the package before starting again.'));
+            }
+            if (revocation.status === 'YANKED') lines.push(t('revocation-yanked-note', 'Withdrawal blocks installation and updates; it does not revoke execution of an installed instance.'));
+        }
         if (f.previousRiskDeclaration) {
             var previous = f.previousRiskDeclaration.signals || [];
             var next = f.riskDeclaration ? f.riskDeclaration.signals : [];

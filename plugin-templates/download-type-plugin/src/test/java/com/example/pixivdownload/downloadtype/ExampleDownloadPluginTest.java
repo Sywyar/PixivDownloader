@@ -33,7 +33,11 @@ class ExampleDownloadPluginTest {
         }
         assertEquals("example-download", properties.getProperty("plugin.id"));
         assertEquals("0.1.0", properties.getProperty("plugin.version"));
-        assertEquals("1.0", properties.getProperty("plugin.requires"));
+        assertEquals(top.sywyar.pixivdownload.sdk.SdkVersion.isPrerelease()
+                        ? "=" + top.sywyar.pixivdownload.sdk.SdkVersion.VERSION
+                        : top.sywyar.pixivdownload.sdk.SdkVersion.MAJOR + "."
+                                + top.sywyar.pixivdownload.sdk.SdkVersion.MINOR,
+                properties.getProperty("plugin.requires"));
         assertEquals(
                 ExampleDownloadPf4jPlugin.class.getName(),
                 properties.getProperty("plugin.class"));

@@ -1,0 +1,201 @@
+package top.sywyar.pixivdownload.plugin.catalog.operation;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogAcquisitionService;
+import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogService;
+import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode;
+import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException;
+import top.sywyar.pixivdownload.plugin.install.PluginDependencyInstallResult;
+import top.sywyar.pixivdownload.plugin.install.PluginInstallReport;
+import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginLifecycleCoordinator;
+import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginOperation;
+import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginOperationSnapshot;
+
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
+
+/** 获取期的有界纯值记录；实际工作仍在原请求线程执行，各包事务继续由协调器持有。 */
+@Service
+public class PluginAcquisitionOperations {
+    static final int MAX_RECORDS = 64;
+    static final Duration RETENTION = Duration.ofHours(24);
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(PluginAcquisitionOperations.class);
+    private final PluginCatalogService catalog;
+    private final PluginCatalogAcquisitionService acquisition;
+    private final ExternalPluginLifecycleCoordinator coordinator;
+    private final Clock clock;
+    private final Map<String, Entry> entries = new LinkedHashMap<>();
+
+    @Autowired
+    public PluginAcquisitionOperations(PluginCatalogService catalog, PluginCatalogAcquisitionService acquisition,
+                                       ExternalPluginLifecycleCoordinator coordinator) {
+        this(catalog, acquisition, coordinator, Clock.systemUTC());
+    }
+
+    PluginAcquisitionOperations(PluginCatalogService catalog, PluginCatalogAcquisitionService acquisition,
+                                ExternalPluginLifecycleCoordinator coordinator, Clock clock) {
+        this.catalog = catalog;
+        this.acquisition = acquisition;
+        this.coordinator = coordinator;
+        this.clock = clock;
+    }
+
+    /** 先返回查询身份；只有取得此身份的显式执行请求才可能产生安装副作用。 */
+    public Snapshot prepare(String repositoryId, String pluginId, String version, String fingerprint, String confirmTrust) {
+        if (fingerprint == null || !fingerprint.matches("[0-9a-f]{64}")
+                || confirmTrust != null && !confirmTrust.matches("[0-9a-fA-F]{64}")) {
+            throw new PluginCatalogException(PluginCatalogErrorCode.INSTALL_PREVIEW_CHANGED, "invalid preview confirmation");
+        }
+        var selected = catalog.resolvePackage(repositoryId, pluginId, version);
+        var preview = acquisition.preview(repositoryId, pluginId, version);
+        if (!fingerprint.equals(preview.fingerprint())) {
+            throw new PluginCatalogException(PluginCatalogErrorCode.INSTALL_PREVIEW_CHANGED, "preview changed");
+        }
+        synchronized (this) {
+            expire();
+            // ponytail: 只有一条实际写链且不排队；需要多仓库并行时再细分预约域。
+            if (entries.size() >= MAX_RECORDS) {
+                entries.values().stream().filter(value -> !value.started || value.finished).findFirst()
+                        .ifPresent(oldest -> entries.remove(oldest.id));
+            }
+            if (entries.size() >= MAX_RECORDS) {
+                throw new PluginCatalogException(PluginCatalogErrorCode.OPERATION_CAPACITY, "operation history is full");
+            }
+            String id = UUID.randomUUID().toString();
+            var entry = new Entry(id, selected.repository().repositoryId(), selected.entry().pluginId(),
+                    selected.pkg().version(), fingerprint, confirmTrust, clock.instant());
+            entries.put(id, entry);
+            return snapshot(entry);
+        }
+    }
+
+    /** 重复调用返回原记录；未知或过期身份不会重新创建执行。客户端断开不取消已开始的安装。 */
+    public Snapshot execute(String id) {
+        Entry entry;
+        synchronized (this) {
+            entry = require(id);
+            if (entry.started || entry.finished) return snapshot(entry);
+            if (entries.values().stream().anyMatch(value -> value.started && !value.finished)) {
+                throw new PluginCatalogException(PluginCatalogErrorCode.OPERATION_IN_PROGRESS, "another acquisition is running");
+            }
+            entry.started = true;
+            entry.updatedAt = clock.instant();
+        }
+        try {
+            var report = acquisition.installPreviewed(entry.repositoryId, entry.pluginId, entry.version,
+                    entry.confirmTrust, entry.fingerprint, progress -> update(entry, progress));
+            synchronized (this) {
+                entry.report = report;
+                entry.operation = report.accepted() ? ExternalPluginOperation.IDLE : ExternalPluginOperation.FAILED;
+                entry.transactionId = report.transactionId();
+            }
+        } catch (PluginCatalogException failure) {
+            synchronized (this) {
+                entry.failure = new Failure(failure.code(), failure.pluginId(), failure.version(), failure.dependencyInstallResults());
+                entry.operation = ExternalPluginOperation.FAILED;
+            }
+        } catch (Throwable failure) {
+            synchronized (this) {
+                entry.failure = new Failure(PluginCatalogErrorCode.OPERATION_FAILED, entry.pluginId, entry.version, List.of());
+                entry.operation = ExternalPluginOperation.FAILED;
+            }
+            if (failure instanceof VirtualMachineError fatal) throw fatal;
+            if (failure instanceof ThreadDeath fatal) throw fatal;
+            log.error("Plugin acquisition {} failed", id, failure);
+        } finally {
+            synchronized (this) {
+                entry.finished = true;
+                entry.updatedAt = clock.instant();
+            }
+        }
+        synchronized (this) {
+            return snapshot(entry);
+        }
+    }
+
+    public synchronized Snapshot get(String id) {
+        return snapshot(require(id));
+    }
+
+    public synchronized List<Snapshot> list() {
+        expire();
+        return entries.values().stream().map(this::snapshot)
+                .sorted(java.util.Comparator.comparing(Snapshot::createdAt).reversed()).toList();
+    }
+
+    private synchronized void update(Entry entry, ExternalPluginOperationSnapshot progress) {
+        entry.currentPluginId = progress.packageId();
+        entry.operation = progress.operation();
+        entry.transactionId = progress.transactionId();
+        entry.previousTransactionId = coordinator.operation(progress.packageId())
+                .map(ExternalPluginOperationSnapshot::transactionId).orElse(null);
+        entry.updatedAt = clock.instant();
+    }
+
+    private Snapshot snapshot(Entry entry) {
+        ExternalPluginOperation operation = entry.operation;
+        String transactionId = entry.transactionId;
+        if (!entry.finished && transactionId == null && operation == ExternalPluginOperation.INSTALLING) {
+            var current = coordinator.operation(entry.currentPluginId).orElse(null);
+            if (current != null && !Objects.equals(current.transactionId(), entry.previousTransactionId)) {
+                operation = current.operation();
+                transactionId = current.transactionId();
+            }
+        }
+        return new Snapshot(entry.id, entry.repositoryId, entry.pluginId, entry.version, entry.currentPluginId,
+                operation, transactionId, entry.createdAt, entry.updatedAt, entry.started, entry.finished,
+                entry.report, entry.failure);
+    }
+
+    private Entry require(String id) {
+        expire();
+        Entry entry = entries.get(id);
+        if (entry == null) throw new PluginCatalogException(PluginCatalogErrorCode.OPERATION_NOT_FOUND,
+                "operation expired or belongs to a previous process; inspect installed state before starting a new operation");
+        return entry;
+    }
+
+    private void expire() {
+        Instant cutoff = clock.instant().minus(RETENTION);
+        entries.values().removeIf(entry -> (!entry.started || entry.finished) && !entry.updatedAt.isAfter(cutoff));
+    }
+
+    public record Failure(PluginCatalogErrorCode code, String pluginId, String version,
+                          List<PluginDependencyInstallResult> dependencyInstallResults) {
+        public Failure { dependencyInstallResults = List.copyOf(dependencyInstallResults); }
+    }
+    public record Snapshot(String id, String repositoryId, String pluginId, String version, String currentPluginId,
+            ExternalPluginOperation operation, String transactionId, Instant createdAt, Instant updatedAt,
+            boolean started, boolean finished, PluginInstallReport report, Failure failure) { }
+
+    private static final class Entry {
+        final String id, repositoryId, pluginId, version, fingerprint, confirmTrust;
+        final Instant createdAt;
+        Instant updatedAt;
+        String currentPluginId, transactionId, previousTransactionId;
+        ExternalPluginOperation operation = ExternalPluginOperation.PREPARING;
+        boolean started, finished;
+        PluginInstallReport report;
+        Failure failure;
+
+        Entry(String id, String repositoryId, String pluginId, String version,
+              String fingerprint, String confirmTrust, Instant now) {
+            this.id = id;
+            this.repositoryId = repositoryId;
+            this.pluginId = pluginId;
+            this.version = version;
+            this.fingerprint = fingerprint;
+            this.confirmTrust = confirmTrust;
+            this.currentPluginId = pluginId;
+            this.createdAt = now;
+            this.updatedAt = now;
+        }
+    }
+}

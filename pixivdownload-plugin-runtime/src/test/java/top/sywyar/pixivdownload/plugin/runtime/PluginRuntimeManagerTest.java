@@ -18,6 +18,7 @@ import top.sywyar.pixivdownload.runtimeprobe.DependencyOrderProbeFeaturePlugin;
 import top.sywyar.pixivdownload.runtimeprobe.DependencyOrderProbePlugin;
 import top.sywyar.pixivdownload.runtimeprobe.IsolatedStaticProbeFeaturePlugin;
 import top.sywyar.pixivdownload.runtimeprobe.IsolatedStaticProbePlugin;
+import top.sywyar.pixivdownload.runtimeprobe.SdkContractProbePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
@@ -1368,10 +1369,48 @@ class PluginRuntimeManagerTest {
     }
 
     @ParameterizedTest
+    @CsvSource({"host-process-full-trust", "declarative-process"})
+    @DisplayName("精确匹配当前 SDK 的生产包可加载启动并在重新扫描后保持可用")
+    void startsPackageWithExactSdkRequirement(String executionMode) throws IOException {
+        Path plugins = tempDir.resolve("exact-sdk");
+        Path artifact = plugins.resolve("probe.jar");
+        writeDeclarativeProbeJar(artifact);
+        try (var zip = FileSystems.newFileSystem(artifact)) {
+            Path descriptorPath = zip.getPath("/plugin.properties");
+            String descriptor = Files.readString(descriptorPath, StandardCharsets.UTF_8)
+                    .replaceAll("(?m)^plugin\\.requires=.*$", "plugin.requires==" + SdkVersion.VERSION)
+                    .replace(BootstrapProbePlugin.class.getName(),
+                            SdkContractProbePlugin.class.getName())
+                    .replace("pixiv.execution-mode=declarative-process", "pixiv.execution-mode=" + executionMode);
+            Files.writeString(descriptorPath, descriptor, StandardCharsets.UTF_8);
+            String classResource = "/" + SdkContractProbePlugin.class
+                    .getName().replace('.', '/') + ".class";
+            try (var source = getClass().getResourceAsStream(classResource)) {
+                Files.copy(source, zip.getPath(classResource));
+            }
+        }
+        writeConfirmedLocalProvenance(plugins, artifact);
+        var manager = new top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager(plugins, () -> false);
+        try {
+            manager.loadPlugin(artifact);
+            manager.initializePlugin(PROBE_ID);
+            assertThat(manager.startPlugin(PROBE_ID).phase()).isEqualTo(PluginRuntimePackagePhase.STARTED);
+            manager.shutdown();
+            PluginRuntimeStatus status = manager.start();
+            assertThat(status.failures()).isEmpty();
+            assertThat(status.startedPluginIds()).containsExactly(PROBE_ID);
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @ParameterizedTest
     @CsvSource({
             "host-process-full-trust, stable", "declarative-process, stable",
             "host-process-full-trust, nightly", "declarative-process, nightly",
-            "host-process-full-trust, legacy-nightly", "declarative-process, legacy-nightly"
+            "host-process-full-trust, legacy-nightly", "declarative-process, legacy-nightly",
+            "host-process-full-trust, candidate", "declarative-process, candidate",
+            "host-process-full-trust, exact-candidate", "declarative-process, exact-candidate"
     })
     @DisplayName("两种执行模式均在单包加载和启动扫描时拒绝 SDK 不兼容的生产包")
     void rejectsIncompatibleSdkBeforeLoading(String executionMode, String requirement) throws IOException {
@@ -1388,6 +1427,9 @@ class PluginRuntimeManagerTest {
             String requires = switch (requirement) {
                 case "stable" -> (SdkVersion.MAJOR + 1) + ".0";
                 case "nightly" -> SdkVersion.VERSION + "-nightly.20000101.1.1";
+                case "candidate", "exact-candidate" -> (requirement.startsWith("exact") ? "=" : "")
+                        + SdkVersion.MAJOR + "." + SdkVersion.MINOR + "." + SdkVersion.PATCH
+                        + "-rc." + (SdkVersion.PRERELEASE_SEQUENCE + 1);
                 default -> SdkVersion.MAJOR + "." + SdkVersion.MINOR;
             };
             properties.setProperty("plugin.requires", requires);
@@ -2703,7 +2745,7 @@ class PluginRuntimeManagerTest {
         }
 
         @Override
-        void persistOfflineVerification(Path artifactPath, PluginProvenanceRecord provenance) throws IOException {
+        protected void persistOfflineVerification(Path artifactPath, PluginProvenanceRecord provenance) throws IOException {
             throw new IOException("simulated provenance write-back failure");
         }
     }

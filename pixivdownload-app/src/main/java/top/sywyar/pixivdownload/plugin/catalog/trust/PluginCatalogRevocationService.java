@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.plugin.signature.PluginRevocationsVerificationRe
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.VerificationPolicy;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
+import top.sywyar.pixivdownload.plugin.verification.PluginRevocationView;
 
 import java.io.IOException;
 import java.time.Duration;
@@ -155,20 +156,79 @@ public final class PluginCatalogRevocationService {
 
     public String status(top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord provenance,
                          String pluginId, String version) {
-        if (provenance == null) return "NOT_CHECKED";
-        if (provenance.repositoryId() == null) return "NOT_PROVIDED";
+        return details(provenance, pluginId, version).status();
+    }
+
+    public PluginRevocationView details(
+            top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord provenance,
+            String pluginId, String version) {
+        if (provenance == null) return unavailable(null, "NOT_CHECKED");
+        if (provenance.repositoryId() == null) return unavailable(null, "NOT_PROVIDED");
         var repository = repositories != null ? repositories.find(provenance.repositoryId()).orElse(null) : null;
-        if (repository == null) return "NOT_CHECKED";
-        if (!repository.revocationsRequired()) return "NOT_PROVIDED";
+        if (repository == null) return unavailable(provenance.repositoryId(), "NOT_CHECKED");
         String publisherId = repository.publisherId();
         if (provenance.communityEvidence() != null) {
             try { publisherId = top.sywyar.pixivdownload.sdk.community.review.CommunityReview
                     .read(provenance.communityEvidence()).owner().publisherId(); }
-            catch (RuntimeException invalid) { return "NOT_CHECKED"; }
+            catch (RuntimeException invalid) { return unavailable(repository.repositoryId(), "NOT_CHECKED"); }
         }
-        return status(repository, pluginId, version, provenance.artifactSha256(), provenance.keyId(), publisherId,
+        return details(repository, pluginId, version, provenance.artifactSha256(), provenance.keyId(), publisherId,
                 stateStore.revocations(repository.repositoryId()).orElse(null));
     }
+
+    public PluginRevocationView details(PluginRepository repository, String pluginId, PluginCatalogPackage pkg,
+                                        PluginCatalogTrustStateStore.RevocationSnapshot snapshot) {
+        return details(repository, pluginId, pkg.version(), pkg.sha256(),
+                pkg.signature() == null ? null : pkg.signature().keyId(), publisherId(repository, pkg), snapshot);
+    }
+
+    private PluginRevocationView details(PluginRepository repository, String pluginId, String version, String sha256,
+            String keyId, String publisherId, PluginCatalogTrustStateStore.RevocationSnapshot snapshot) {
+        if (!repository.revocationsRequired()) return unavailable(repository.repositoryId(), "NOT_PROVIDED");
+        boolean refreshAvailable = repository.enabled() && repositories != null && repositories.featureEnabled();
+        if (snapshot == null) return new PluginRevocationView(repository.repositoryId(), "NOT_CHECKED", null, null,
+                null, null, "UNKNOWN", true, false, refreshAvailable, List.of());
+        String status = status(repository, pluginId, version, sha256, keyId, publisherId, snapshot);
+        String graceUntil = null;
+        String freshness = "EXPIRED";
+        try {
+            Instant next = Instant.parse(snapshot.nextUpdate());
+            graceUntil = next.plus(GRACE).toString();
+            freshness = Instant.now().isBefore(next) ? "FRESH" : withinGrace(snapshot) ? "GRACE" : "EXPIRED";
+        } catch (java.time.DateTimeException | ArithmeticException invalid) {
+            // 损坏的时效不能投影成新鲜；执行仍由原准入策略决定。
+        }
+        var restrictions = snapshot.entries().stream()
+                .filter(entry -> matches(entry, repository, pluginId, version, sha256, keyId, publisherId))
+                .map(entry -> new PluginRevocationView.Restriction(
+                        entry.scope(), entry.action(), entry.reasonCode(), entry.effectiveTime())).toList();
+        return new PluginRevocationView(repository.repositoryId(), status, snapshot.verifiedAt(), snapshot.generatedTime(),
+                snapshot.nextUpdate(), graceUntil, freshness, !withinGrace(snapshot) || isWithdrawn(status),
+                "REVOKED".equals(status), refreshAvailable, restrictions);
+    }
+
+    private static PluginRevocationView unavailable(String repositoryId, String status) {
+        return new PluginRevocationView(repositoryId, status, null, null, null, null,
+                "NOT_PROVIDED".equals(status) ? "NOT_PROVIDED" : "UNKNOWN",
+                !"NOT_PROVIDED".equals(status), false, false, List.of());
+    }
+
+    /** 管理员显式刷新一个已配置来源，不由状态轮询触发外联。 */
+    public RefreshResult refreshConfigured(String repositoryId) {
+        if (repositories == null || !repositories.featureEnabled()) return new RefreshResult(false, "CATALOG_DISABLED");
+        var repository = repositories.find(repositoryId).orElse(null);
+        if (repository == null) return new RefreshResult(false, "UNKNOWN_REPOSITORY");
+        if (!repository.enabled()) return new RefreshResult(false, "REPOSITORY_DISABLED");
+        if (!repository.revocationsRequired()) return new RefreshResult(false, "REVOCATION_UNAVAILABLE");
+        try {
+            refresh(repository);
+            return new RefreshResult(true, null);
+        } catch (PluginCatalogException failure) {
+            return new RefreshResult(false, failure.code().name());
+        }
+    }
+
+    public record RefreshResult(boolean refreshed, String code) { }
 
     private String status(PluginRepository repository, String pluginId, String version, String sha256,
                           String keyId, String publisherId, PluginCatalogTrustStateStore.RevocationSnapshot snapshot) {
@@ -204,7 +264,7 @@ public final class PluginCatalogRevocationService {
     private boolean withinGrace(PluginCatalogTrustStateStore.RevocationSnapshot snapshot) {
         try {
             return Instant.now().isBefore(Instant.parse(snapshot.nextUpdate()).plus(GRACE));
-        } catch (DateTimeParseException failure) {
+        } catch (java.time.DateTimeException | ArithmeticException failure) {
             return false;
         }
     }

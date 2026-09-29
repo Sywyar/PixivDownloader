@@ -8,6 +8,9 @@ public record InstalledPluginInventorySnapshot(
         List<InstalledPluginSnapshot> entries,
         boolean budgetExhausted) {
 
+    public static final int MAX_RECORDS = 512;
+    public static final long MAX_PROVENANCE_BYTES = 64L * 1024L * 1024L;
+
     public InstalledPluginInventorySnapshot {
         entries = List.copyOf(Objects.requireNonNull(entries, "entries"));
     }

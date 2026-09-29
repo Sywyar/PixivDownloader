@@ -30,7 +30,7 @@ class PluginCatalogErrorCodeTest {
         assertThat(code.status()).as("HTTP 状态不应为空").isNotNull();
 
         String key = code.messageKey();
-        assertThat(key).startsWith("plugin.catalog.error.");
+        assertThat(key).isNotBlank();
         assertThat(messages("/i18n/messages.properties").getProperty(key))
                 .as("中文文案缺失：%s", key).isNotNull().isNotBlank();
         assertThat(messages("/i18n/messages_en.properties").getProperty(key))

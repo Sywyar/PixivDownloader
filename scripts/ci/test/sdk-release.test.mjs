@@ -41,6 +41,11 @@ test('SDK 的四个可选工程在归档及初始 Git 树中保留相同的标�
         const markers = ['', 'examples/download-type-plugin/', 'examples/gradle-plugin/', 'examples/sbt-plugin/']
                 .map(prefix => `${prefix}.pixivdownloader-plugin-project`).sort();
         const tracked = git(['ls-files', '-z']).toString('utf8').split('\0').filter(Boolean);
+        for (const prefix of ['', 'examples/download-type-plugin/', 'examples/gradle-plugin/', 'examples/sbt-plugin/']) {
+            const descriptor = fs.readFileSync(path.join(extracted, prefix, 'src/main/resources/plugin.properties'), 'utf8');
+            const required = descriptor.match(/^plugin\.requires=(.+)$/mu)?.[1].trim();
+            assert.equal(required, IDENTITY.prerelease ? '=' + IDENTITY.version : IDENTITY.compatibilityVersion);
+        }
         assert.deepEqual(tracked.filter(file => file.endsWith('.pixivdownloader-plugin-project')).sort(), markers);
         for (const marker of markers) {
             const bytes = Buffer.from('pixivdownloader-plugin-project-v1\n', 'ascii');

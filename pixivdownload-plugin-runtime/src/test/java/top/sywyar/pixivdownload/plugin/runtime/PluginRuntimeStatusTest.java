@@ -24,6 +24,23 @@ class PluginRuntimeStatusTest {
     Path tempDir;
 
     @Test
+    @DisplayName("启动失败在修复或移除后清除，正常停用不恢复历史失败，入库失败仍保留")
+    void repairedStartupFailureDoesNotReturnAfterNormalStop() {
+        var startup = new PluginLoadFailure("alpha", "failed",
+                top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus.FAILED,
+                "plugin-start", 1L, "7.2.0", 1, null);
+        var admission = new PluginLoadFailure("broken.jar", "invalid package");
+        var failed = PluginRuntimeStatus.populated(tempDir, Map.of("alpha", PluginRuntimePackagePhase.LOADED),
+                List.of(startup, admission));
+        assertThat(failed.refreshed(Map.of("alpha", PluginRuntimePackagePhase.LOADED)).failures())
+                .containsExactly(startup, admission);
+        assertThat(failed.refreshed(Map.of()).failures()).containsExactly(admission);
+        var repaired = failed.refreshed(Map.of("alpha", PluginRuntimePackagePhase.STARTED));
+        assertThat(repaired.refreshed(Map.of("alpha", PluginRuntimePackagePhase.STOPPED)).failures())
+                .containsExactly(admission);
+    }
+
+    @Test
     @DisplayName("运行时状态投影会保留失败、替换旧插件复验并限制保留数量")
     void projectsRuntimePhasesAndRetainsBoundedLatestVerifications() {
         Map<String, PluginRuntimePackagePhase> phases = new LinkedHashMap<>();

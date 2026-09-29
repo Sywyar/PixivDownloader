@@ -24,9 +24,28 @@ sandbox.window = sandbox;
 const fetchCalls = [];
 let nextFetchResponse = { status: 200, body: {} };
 const queuedFetchResponses = [];
+let previewResponse = { status: 200, body: { fingerprint: 'd'.repeat(64), packages: [], conflicts: [] } };
+const operations = new Map();
+let operationSequence = 0;
+let loseExecutionResponse = false;
 sandbox.fetch = function (url, opts) {
     fetchCalls.push({ url, opts });
-    const response = queuedFetchResponses.length ? queuedFetchResponses.shift() : nextFetchResponse;
+    let response;
+    if (url.endsWith('/install-preview') && (!opts || opts.method !== 'POST')) response = previewResponse;
+    else if (url === '/api/plugin-market/operations') response = {status: 200, body: {id: 'operation-' + (++operationSequence)}};
+    else if (url.startsWith('/api/plugins/acquisitions/')) response = {status: 200, body: operations.get(url.split('/').pop())};
+    else {
+        response = queuedFetchResponses.length ? queuedFetchResponses.shift() : nextFetchResponse;
+        if (url.endsWith('/execute')) {
+            const id = url.split('/').at(-2);
+            const result = response.body;
+            result.status = response.status;
+            response = {status: 200, body: {id, finished: true, result: result.outcome ? result : null,
+                failure: result.outcome ? null : result}};
+            operations.set(id, response.body);
+            if (loseExecutionResponse) return Promise.reject(new Error('connection lost'));
+        }
+    }
     return Promise.resolve({
         status: response.status,
         ok: response.status >= 200 && response.status < 300,
@@ -273,6 +292,7 @@ eq('市场 recoveryBlocked toast 保留后端 message', blockedFeedback.message,
     queuedFetchResponses.push(
         {status: 409, body: {
             outcome: 'TRUST_CONFIRMATION_REQUIRED',
+            dependencyInstallResults: [{pluginId: 'already-installed', accepted: true}],
             trustRequirement: {
                 pluginId: 'demo plugin', version: '1.0.0', source: 'MARKET_CATALOG',
                 repositoryId: 'custom repo', signed: true, publisher: 'Demo Publisher',
@@ -301,20 +321,20 @@ eq('市场 recoveryBlocked toast 保留后端 message', blockedFeedback.message,
     };
     const confirmed = await PMK.installPluginWithConfirmation('custom repo', 'demo plugin', '1.0.0');
     eq('签名与依赖信任确认后返回最终安装结果', confirmed.body.outcome, 'INSTALLED');
-    eq('两个安全挑战都使用共享 PixivFeedback 确认框', confirmationOptions.length, 2);
-    ok('执行信任提示只使用后端核验的发布者事实', confirmationOptions[0].message.includes('Demo Publisher'));
-    ok('执行信任提示显示精确制品摘要和完全访问模式', confirmationOptions[0].message.includes(firstSha)
-        && confirmationOptions[0].message.includes('HOST_PROCESS_FULL_TRUST'));
+    eq('重新确认后仍显示此前成功安装的依赖', confirmed.body.dependencyInstallResults[0].pluginId, 'already-installed');
+    eq('每次执行都重新确认预览，两个安全挑战独立确认', confirmationOptions.length, 5);
+    ok('执行信任提示只使用后端核验的发布者事实', confirmationOptions[1].message.includes('Demo Publisher'));
+    ok('执行信任提示显示精确制品摘要和完全访问模式', confirmationOptions[1].message.includes(firstSha)
+        && confirmationOptions[1].message.includes('HOST_PROCESS_FULL_TRUST'));
     ok('市场在高权限宿主上提示 full-trust 插件继承同等权限',
-        confirmationOptions[0].message.includes('将继承同等权限'));
-    ok('未签名依赖使用更强风险提示', confirmationOptions[1].message.includes('没有发布者签名')
-        && confirmationOptions[1].message.includes('demo dependency'));
-    eq('首次请求不携带确认', fetchCalls[0].url,
-        '/api/plugin-market/custom%20repo/demo%20plugin/1.0.0/install');
-    eq('首次信任只携带后端返回的精确摘要', fetchCalls[1].url,
-        '/api/plugin-market/custom%20repo/demo%20plugin/1.0.0/install?confirmTrust=' + firstSha);
-    eq('依赖确认不能复用顶层制品摘要', fetchCalls[2].url,
-        '/api/plugin-market/custom%20repo/demo%20plugin/1.0.0/install?confirmTrust=' + dependencySha);
+        confirmationOptions[1].message.includes('将继承同等权限'));
+    ok('未签名依赖使用更强风险提示', confirmationOptions[3].message.includes('没有发布者签名')
+        && confirmationOptions[3].message.includes('demo dependency'));
+    const installs = fetchCalls.filter(call => call.url === '/api/plugin-market/operations');
+    eq('首次请求只携带当前预览', JSON.parse(installs[0].opts.body).confirmTrust, null);
+    eq('首次信任只携带后端返回的精确摘要', JSON.parse(installs[1].opts.body).confirmTrust, firstSha);
+    eq('依赖确认不能复用顶层制品摘要', JSON.parse(installs[2].opts.body).confirmTrust, dependencySha);
+    ok('每次安装都绑定预览指纹', installs.every(call => JSON.parse(call.opts.body).fingerprint === 'd'.repeat(64)));
 
     fetchCalls.length = 0;
     confirmationOptions.length = 0;
@@ -336,7 +356,33 @@ eq('市场 recoveryBlocked toast 保留后端 message', blockedFeedback.message,
     );
     const repeated = await PMK.installPluginWithConfirmation('custom repo', 'loop', '1.0.0');
     eq('后端重复同一摘要时停止确认循环', repeated.body.outcome, 'TRUST_CONFIRMATION_REQUIRED');
-    eq('同一摘要最多向管理员确认一次', confirmationOptions.length, 1);
+    eq('同一摘要最多确认一次，两次执行分别确认预览', confirmationOptions.length, 3);
+    fetchCalls.length = 0;
+    sandbox.PixivFeedback.confirm = () => Promise.resolve(false);
+    const cancelled = await PMK.installPluginWithConfirmation('official', 'cancelled', '1.0.0');
+    eq('取消预览返回取消状态', cancelled.body.code, 'CANCELLED');
+    ok('取消后不提交安装', fetchCalls.every(call => call.opts.method !== 'POST'));
+    previewResponse = { status: 200, body: { fingerprint: 'e'.repeat(64), packages: [],
+        conflicts: [{code: 'SOURCE_CONFLICT', pluginId: 'shared', arguments: ['other', 'official']}] } };
+    fetchCalls.length = 0;
+    const conflict = await PMK.installPluginWithConfirmation('official', 'blocked', '1.0.0');
+    eq('冲突详情以结果返回给两种渲染器', conflict.body.code, 'INSTALL_PREVIEW_BLOCKED');
+    ok('冲突预览不提交安装', fetchCalls.every(call => call.opts.method !== 'POST'));
+    previewResponse = { status: 200, body: { fingerprint: 'e'.repeat(64), packages: [], conflicts: [] } };
+    sandbox.PixivFeedback.confirm = () => Promise.resolve(true);
+    nextFetchResponse = {status: 409, body: {code: 'INSTALL_PREVIEW_CHANGED'}};
+    fetchCalls.length = 0;
+    const stale = await PMK.installPluginWithConfirmation('official', 'stale', '1.0.0');
+    eq('陈旧预览返回原阻断结果', stale.body.code, 'INSTALL_PREVIEW_CHANGED');
+    eq('陈旧预览不自动重试副作用', fetchCalls.filter(call => call.url.endsWith('/execute')).length, 1);
+    nextFetchResponse = {status: 200, body: {outcome: 'INSTALLED', accepted: true}};
+    loseExecutionResponse = true;
+    fetchCalls.length = 0;
+    const recovered = await PMK.installPluginWithConfirmation('official', 'recovered', '1.0.0');
+    eq('执行响应丢失后按查询身份恢复原安装结果', recovered.body.outcome, 'INSTALLED');
+    eq('断网恢复不重新执行安装', fetchCalls.filter(call => call.url.endsWith('/execute')).length, 1);
+    eq('响应丢失只追加一次只读操作查询', fetchCalls.filter(call => call.url.startsWith('/api/plugins/acquisitions/')).length, 1);
+    loseExecutionResponse = false;
     PMK.state.hostElevated = false;
     console.log('pixiv-plugin-market.test.js: ' + passed + ' assertions passed');
 })().catch(err => {

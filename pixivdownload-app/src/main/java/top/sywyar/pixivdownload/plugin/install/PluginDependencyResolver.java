@@ -130,12 +130,20 @@ public class PluginDependencyResolver {
 
     private Map<String, DependencyTarget> installedTargets() {
         Map<String, DependencyTarget> targets = new LinkedHashMap<>();
+        installedDescriptors(installer.listInstalled()).forEach((id, descriptor) ->
+                targets.put(id, new DependencyTarget(descriptor, true, "INSTALLED")));
+        return targets;
+    }
+
+    /** 同一清点复用其磁盘事实，避免预览逐依赖重复扫描和计算归档摘要。 */
+    public Map<String, PluginDescriptor> installedDescriptors(List<InstalledPlugin> installedPlugins) {
+        Map<String, PluginDescriptor> targets = new LinkedHashMap<>();
         for (PixivFeaturePlugin plugin : BuiltInPlugins.createAll()) {
             PluginDescriptor descriptor = PluginDescriptor.forBuiltIn(plugin);
-            targets.put(descriptor.id(), new DependencyTarget(descriptor, true, "INSTALLED"));
+            targets.put(descriptor.id(), descriptor);
         }
-        for (InstalledPlugin installed : installer.listInstalled()) {
-            targets.put(installed.id(), new DependencyTarget(installed.descriptor(), true, "INSTALLED"));
+        for (InstalledPlugin installed : installedPlugins) {
+            targets.put(installed.id(), installed.descriptor());
         }
         return targets;
     }

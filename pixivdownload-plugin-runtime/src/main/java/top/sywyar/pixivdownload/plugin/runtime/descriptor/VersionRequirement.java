@@ -10,7 +10,7 @@ import java.util.regex.Pattern;
 /**
  * 一个对某个 semver 提供方（SDK 或被依赖插件）的版本要求，由插件描述符的 {@code requires} /
  * 依赖的 {@code versionSupport} 字段解析而来。稳定要求按 {@code major.minor} 判定；
- * Nightly SDK 要求与宿主构建身份精确匹配。PATCH 不参与稳定兼容判定，见 {@link SdkVersion}。
+ * SDK 精确要求及候选要求比较完整发行契约，Nightly SDK 要求比较宿主构建身份。
  *
  * <p>三态：
  * <ul>
@@ -21,8 +21,8 @@ import java.util.regex.Pattern;
  *       这是描述符错误，{@link #isSatisfiedBy(int, int)} 恒为 {@code false}。</li>
  * </ul>
  *
- * <p>纯 JDK + SDK info（仅 {@link SdkVersion}）。兼容规则<b>不在本类实现</b>，统一委托
- * {@link SdkVersion#isCompatible(int, int, int, int)}，避免复制版本判断逻辑。
+ * <p>纯 JDK + SDK info（仅 {@link SdkVersion}）。主次版本兼容与完整发行契约比较委托
+ * {@link SdkVersion}；Nightly 另行校验宿主构建身份。
  *
  * @param major   所需主版本号（未声明 / 无效时为 {@code -1}）
  * @param minor   所需次版本号（未声明 / 无效时为 {@code -1}）
@@ -91,6 +91,25 @@ public record VersionRequirement(int major, int minor, boolean present, boolean 
         }
     }
 
+    /**
+     * 解析 SDK 要求；{@code =完整版本} 表示精确发行契约，旧宿主会拒绝该声明。
+     * 插件间依赖继续使用 {@link #parse(String)} 的最低主次版本规则。
+     *
+     * @param raw 包描述符或目录提供的 SDK 要求
+     * @return 已解析要求；非法的精确版本失败关闭
+     */
+    public static VersionRequirement parseSdk(String raw) {
+        if (raw == null || !raw.trim().startsWith("=")) {
+            return parse(raw);
+        }
+        String version = raw.trim().substring(1);
+        if (!SdkVersion.isSameRelease(version, version)) {
+            return invalid(raw);
+        }
+        VersionRequirement parsed = parse(version);
+        return new VersionRequirement(parsed.major(), parsed.minor(), true, true, "=" + version);
+    }
+
     private static VersionRequirement invalid(String raw) {
         return new VersionRequirement(-1, -1, true, false, raw);
     }
@@ -103,18 +122,43 @@ public record VersionRequirement(int major, int minor, boolean present, boolean 
         if (!present) {
             return true;
         }
-        if (!valid) {
+        if (!valid || raw != null && raw.startsWith("=")) {
             return false;
         }
         return SdkVersion.isCompatible(providedMajor, providedMinor, major, minor);
     }
 
-    /** 当前 SDK（{@link SdkVersion#MAJOR}/{@link SdkVersion#MINOR}）是否满足本要求。 */
+    /** 当前 SDK 发行契约或 Nightly 宿主构建是否满足本要求。 */
     public boolean isSatisfiedByCurrentSdk() {
         if (present && valid && raw != null && raw.contains("-nightly.")) {
             return isSatisfiedByNightlyBuild(CurrentAppVersion.VALUE);
         }
-        return isSatisfiedBy(SdkVersion.MAJOR, SdkVersion.MINOR);
+        return isSatisfiedBySdk(SdkVersion.VERSION);
+    }
+
+    /**
+     * 对指定 SDK 执行兼容判定；候选版本不继承其它候选或稳定版的兼容承诺。
+     *
+     * @param providedVersion 宿主提供的完整 SDK 版本
+     * @return 精确要求匹配发行契约，稳定最低要求匹配主次版本
+     */
+    public boolean isSatisfiedBySdk(String providedVersion) {
+        if (!valid || !SdkVersion.isSameRelease(providedVersion, providedVersion)) {
+            return false;
+        }
+        if (!present) {
+            return true;
+        }
+        String required = raw == null ? "" : raw.trim();
+        if (required.startsWith("=")) {
+            return SdkVersion.isSameRelease(providedVersion, required.substring(1));
+        }
+        if (required.contains("-")) {
+            // 预发布 API 可能破坏兼容；不能把 >= 候选声明解释为允许后续候选。
+            return SdkVersion.isSameRelease(providedVersion, required);
+        }
+        VersionRequirement provided = parse(providedVersion);
+        return isSatisfiedBy(provided.major(), provided.minor());
     }
 
     boolean isSatisfiedByNightlyBuild(String appVersion) {
@@ -155,7 +199,7 @@ public record VersionRequirement(int major, int minor, boolean present, boolean 
         if (!valid) {
             return raw + " (unparseable)";
         }
-        if (raw != null && raw.contains("-nightly.")) {
+        if (raw != null && (raw.contains("-") || raw.startsWith("="))) {
             return raw;
         }
         return major + "." + minor;
