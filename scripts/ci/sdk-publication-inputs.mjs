@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { inspectSdkVersion, SDK_ARTIFACTS, SDK_GROUP_ID } from './sdk-version.mjs';
 import { sha256 } from './sdk-release.mjs';
@@ -104,9 +105,13 @@ if (path.resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {
         for (const [name, packaging] of SDK_ARTIFACTS) {
             const destination = path.resolve('target/sdk-staging', SDK_GROUP_ID.replaceAll('.', '/'), name, identity.version);
             fs.mkdirSync(destination, { recursive: true });
-            fs.copyFileSync(`${name}/target/flattened-pom.xml`, path.join(destination, `${name}-${identity.version}.pom`));
-            if (packaging === 'jar') fs.copyFileSync(`${name}/target/${name}-${identity.version}.jar`,
-                path.join(destination, `${name}-${identity.version}.jar`));
+            for (const extension of packaging === 'jar' ? ['pom', 'jar'] : ['pom']) {
+                const artifact = `${name}-${identity.version}.${extension}`;
+                const source = `${name}/target/${extension === 'pom' ? 'flattened-pom.xml' : artifact}`;
+                const target = path.join(destination, artifact);
+                fs.copyFileSync(source, target);
+                fs.writeFileSync(`${target}.sha1`, `${createHash('sha1').update(fs.readFileSync(target)).digest('hex')}\n`, 'utf8');
+            }
         }
     }
 }
