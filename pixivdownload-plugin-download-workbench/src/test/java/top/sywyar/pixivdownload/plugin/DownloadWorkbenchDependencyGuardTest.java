@@ -7,11 +7,13 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -23,6 +25,7 @@ import java.util.stream.Stream;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 下载工作台外置模块自己的编译边界守卫。
@@ -165,12 +168,32 @@ class DownloadWorkbenchDependencyGuardTest {
         Path root = repositoryRoot().resolve("pixivdownload-plugin-download-workbench/src/main");
         try (Stream<Path> sources = Files.walk(root)) {
             for (Path source : sources.filter(Files::isRegularFile).sorted().toList()) {
-                assertThat(read(source))
-                        .as(root.relativize(source).toString())
-                        .doesNotContainIgnoringCase("douyin")
-                        .doesNotContain("抖音");
+                assertNoOptionalDownloadTypes(source);
             }
         }
+    }
+
+    @Test
+    @DisplayName("下载类型扫描接受二进制资源，但仍拒绝其中夹带的可选类型标识")
+    void optionalTypeScanChecksTextInsideBinaryResources(@TempDir Path directory) throws IOException {
+        Path resource = directory.resolve("resource.bin");
+        byte[] binary = {0, (byte) 0xff, (byte) 0x81};
+        Files.write(resource, binary);
+        assertNoOptionalDownloadTypes(resource);
+        for (String forbidden : List.of("DoUyIn", "抖音")) {
+            Files.writeString(resource, forbidden, StandardCharsets.UTF_8, StandardOpenOption.APPEND);
+            assertThatThrownBy(() -> assertNoOptionalDownloadTypes(resource))
+                    .isInstanceOf(AssertionError.class);
+            Files.write(resource, binary);
+        }
+    }
+
+    private static void assertNoOptionalDownloadTypes(Path source) throws IOException {
+        // 标识 lint 也遍历二进制资源，无效 UTF-8 字节不应阻止检查其中的合法文本片段。
+        assertThat(new String(Files.readAllBytes(source), StandardCharsets.UTF_8))
+                .as(source.toString())
+                .doesNotContainIgnoringCase("douyin")
+                .doesNotContain("抖音");
     }
 
     @Test
