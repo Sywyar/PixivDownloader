@@ -3025,26 +3025,25 @@
         },
         // 三态判重：null = 未下载；{deleted:false} = 已下载；{deleted:true} = 已下载但被画廊删除（软删除）
         checkDownloaded(artworkId, verifyFiles = false) {
-            return new Promise((resolve) => {
+            return new Promise((resolve, reject) => {
                 const query = verifyFiles ? '?verifyFiles=true' : '';
+                const fail = () => reject(new Error(t('page.err.backend-failed', '后端请求失败')));
                 GM_xmlhttpRequest({
                     method: 'GET', url: `${serverBase}/api/downloaded/${artworkId}${query}`,
                     onload: (res) => {
+                        if (res.status === 400) { resolve(null); return; }
+                        if (res.status !== 200) { fail(); return; }
                         try {
-                            if (res.status !== 200) {
-                                resolve(null);
-                                return;
-                            }
                             const data = JSON.parse(res.responseText);
-                            resolve(data.artworkId ? {deleted: !!data.deleted} : null);
-                        } catch {
-                            resolve(null);
-                        }
+                            if (!data.artworkId) { fail(); return; }
+                            resolve({deleted: !!data.deleted});
+                        } catch { fail(); }
                     },
-                    onerror: () => resolve(null), ontimeout: () => resolve(null)
+                    onerror: fail, ontimeout: fail
                 });
             });
         },
+
         getNovelMeta(novelId) {
             // 直连 Pixiv：GM_xmlhttpRequest 会带上浏览器的登录 Cookie（含 HttpOnly 的
             // PHPSESSID），从而能取到受限 / R18 小说的完整 meta（含正文 content）。
@@ -3079,23 +3078,21 @@
         },
         // 三态判重：null = 未下载；{deleted:false} = 已下载；{deleted:true} = 已下载但被画廊删除（软删除）
         checkNovelDownloaded(novelId) {
-            return new Promise((resolve) => {
+            return new Promise((resolve, reject) => {
+                const fail = () => reject(new Error(t('page.err.backend-failed', '后端请求失败')));
                 GM_xmlhttpRequest({
                     method: 'GET',
                     url: `${serverBase}/api/novel/${encodeURIComponent(novelId)}/downloaded`,
-                    onload: (res) => {
+                    timeout: 5000,
+                    onload: res => {
+                        if (res.status !== 200) { fail(res.status); return; }
                         try {
-                            if (res.status !== 200) {
-                                resolve(null);
-                                return;
-                            }
                             const data = JSON.parse(res.responseText);
-                            resolve(data.downloaded ? {deleted: !!data.deleted} : null);
-                        } catch {
-                            resolve(null);
-                        }
+                            if (!data || typeof data.downloaded !== 'boolean' || typeof data.deleted !== 'boolean') { fail(); return; }
+                            resolve(data.downloaded ? {deleted: data.deleted} : null);
+                        } catch { fail(); }
                     },
-                    onerror: () => resolve(null), ontimeout: () => resolve(null)
+                    onerror: () => fail(), ontimeout: () => fail()
                 });
             });
         },
@@ -4028,26 +4025,26 @@
             item.lastMessage = '正在检查历史记录...';
             this.ui.renderQueue(this.queue);
 
-            if (this.globalSettings.skipHistory) {
-                const downloaded = await Api.checkDownloaded(item.id, this.globalSettings.verifyHistoryFiles);
-                // 软删除记录 + 允许重下：当作未下载继续走正常下载流程（落库后删除标记自动复位）
-                if (downloaded && !(downloaded.deleted && this.globalSettings.redownloadDeleted)) {
-                    item.status = 'skipped';
-                    item.lastMessage = downloaded.deleted ? '跳过 — 已经下载过，但被删除' : '跳过 — 历史记录中已存在';
-                    item.endTime = new Date().toISOString();
-                    this.updateStats();
-                    this.saveToStorage();
-                    this.ui.renderQueue(this.queue);
-                    return;
-                }
-            }
-
-            item.lastMessage = '正在获取作品信息...';
-            this.ui.setCurrent(item);
-            this.ui.setStatus(`获取信息：${item.id}`, 'info');
-            this.ui.renderQueue(this.queue);
-
             try {
+                if (this.globalSettings.skipHistory) {
+                    const downloaded = await Api.checkDownloaded(item.id, this.globalSettings.verifyHistoryFiles);
+                    // 软删除记录 + 允许重下：当作未下载继续走正常下载流程（落库后删除标记自动复位）
+                    if (downloaded && !(downloaded.deleted && this.globalSettings.redownloadDeleted)) {
+                        item.status = 'skipped';
+                        item.lastMessage = downloaded.deleted ? '跳过 — 已经下载过，但被删除' : '跳过 — 历史记录中已存在';
+                        item.endTime = new Date().toISOString();
+                        this.updateStats();
+                        this.saveToStorage();
+                        this.ui.renderQueue(this.queue);
+                        return;
+                    }
+                }
+
+                item.lastMessage = '正在获取作品信息...';
+                this.ui.setCurrent(item);
+                this.ui.setStatus(`获取信息：${item.id}`, 'info');
+                this.ui.renderQueue(this.queue);
+
                 const meta = await Api.getArtworkMeta(item.id);
                 const safeTitle = (meta && meta.illustTitle) ? meta.illustTitle : `Artwork ${item.id}`;
                 item.title = safeTitle;

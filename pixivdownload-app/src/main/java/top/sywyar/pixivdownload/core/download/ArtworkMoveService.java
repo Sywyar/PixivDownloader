@@ -36,18 +36,20 @@ public class ArtworkMoveService {
 
     @Async
     public void moveArtWork(Long artworkId, String movePath, Long moveTime, String classifierTargetFolder) {
-        try {
-            ArtworkRecord existing = pixivDatabase.getArtwork(artworkId);
-            if (existing == null) {
-                return;
+        try (var workFileLease = top.sywyar.pixivdownload.core.work.service.WorkFileLock.acquire(top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK, artworkId)) {
+            try {
+                ArtworkRecord existing = pixivDatabase.getArtwork(artworkId);
+                if (existing == null) {
+                    return;
+                }
+                pixivDatabase.updateArtworkMove(artworkId, movePath,
+                        EpochMillisNormalizer.normalize(moveTime), classifierTargetFolder);
+                if (!existing.moved()) {
+                    pixivDatabase.incrementMoved();
+                }
+            } catch (Exception e) {
+                log.error(messages.getForLog("download.log.move-record.failed", e.getMessage()), e);
             }
-            pixivDatabase.updateArtworkMove(artworkId, movePath,
-                    EpochMillisNormalizer.normalize(moveTime), classifierTargetFolder);
-            if (!existing.moved()) {
-                pixivDatabase.incrementMoved();
-            }
-        } catch (Exception e) {
-            log.error(messages.getForLog("download.log.move-record.failed", e.getMessage()), e);
         }
     }
 }

@@ -192,25 +192,33 @@ public class ArtworkFileService {
     }
 
     /**
-     * 作品目录中是否至少有一页可识别的图片文件。verifyFiles 去重 / 脏记录检测复用此判定，
+     * 数据库登记的每一页是否都有可读、非空的媒体产物，缩略图不计入。verifyFiles 判重复用此判定，
      * 软删除作品不在此校验（由调用方按 {@code deleted} 短路）。
      */
     public boolean hasArtworkFiles(ArtworkRecord artwork) {
-        String directoryPath = resolveArtworkDirectory(artwork);
-        if (!StringUtils.hasText(directoryPath)) {
-            return false;
-        }
-        File directory = new File(directoryPath);
-        if (!directory.isDirectory()) {
-            return false;
-        }
-        for (int page = 0; page < Math.max(artwork.count(), 1); page++) {
-            File file = resolveImageFile(artwork, page);
-            if (file != null && IMAGE_EXTENSIONS.contains(getFileExtension(file.getName()).toLowerCase(Locale.ROOT))) {
-                return true;
+        if (artwork == null || artwork.count() <= 0) return false;
+        if (!artworkFileLocator.isReadOnly(artwork)) {
+            String directory = resolveArtworkDirectory(artwork);
+            if (!StringUtils.hasText(directory)) throw new IllegalStateException("Missing artwork directory record");
+            Path path = Path.of(directory);
+            if (Files.notExists(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) return false;
+            try (var entries = Files.newDirectoryStream(path)) {
+                entries.iterator().hasNext();
+            } catch (IOException failure) {
+                throw new java.io.UncheckedIOException(failure);
             }
         }
-        return false;
+        for (File file : artworkFileLocator.resolveImageFiles(artwork, false)) {
+            if (file == null || !IMAGE_EXTENSIONS.contains(getFileExtension(file.getName()).toLowerCase(Locale.ROOT))) {
+                return false;
+            }
+            try (var input = Files.newByteChannel(file.toPath())) {
+                if (input.size() == 0) return false;
+            } catch (IOException failure) {
+                throw new java.io.UncheckedIOException(failure);
+            }
+        }
+        return true;
     }
 
     private File resolveImageFile(ArtworkRecord artwork, int page) {

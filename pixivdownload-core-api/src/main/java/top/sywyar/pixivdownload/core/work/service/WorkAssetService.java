@@ -5,6 +5,8 @@ import top.sywyar.pixivdownload.core.work.model.WorkAssetFile;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 
 import java.io.IOException;
+import java.nio.file.Path;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -19,6 +21,30 @@ import java.util.Optional;
  * 文件名、迁移方式或递归删除守卫，这些布局细节由实际资产 owner 保持私有。
  */
 public interface WorkAssetService {
+
+    /** 同卷发布临时文件需要的 ASCII 文件名长度预算，下载路径预检必须保留。 */
+    int PUBLICATION_TEMPORARY_NAME_LENGTH = 64;
+
+    /**
+     * 核对当前登记的正文 / 全部页面及已登记资源，缺失不修改历史。
+     * @param workType 作品类型
+     * @param workId 作品标识
+     * @return 登记产物完整时返回 {@code true}；缺失或不支持检查时返回 {@code false}
+     */
+    default boolean hasCompleteFiles(WorkType workType, long workId) { return false; }
+
+    /**
+     * 发布暂存产物并在同一主库事务保存记录；失败回滚，无法复原时保留备份。
+     * @param workType 作品类型
+     * @param workId 作品标识
+     * @param stagedByTarget 目标文件到对应暂存文件的映射
+     * @param commitRecord 文件发布后在主库事务中同步执行的记录保存操作
+     * @throws IOException 文件发布或恢复失败
+     */
+    default void publishFiles(WorkType workType, long workId, Map<Path, Path> stagedByTarget,
+                              Runnable commitRecord) throws IOException {
+        throw new UnsupportedOperationException("File publication is unavailable");
+    }
 
     /**
      * 外部登记的文件只供读取；删除记录不删除文件，媒体维护不得修改文件。

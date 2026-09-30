@@ -56,6 +56,15 @@ public final class ArtworkSchemaContribution {
                         )
                 ),
                 new TableSpec(
+                        "artwork_file_names",
+                        List.of(
+                                column("artwork_id", "INTEGER", true, null, 1),
+                                column("page", "INTEGER", true, null, 2),
+                                column("base_name", "TEXT", true, null, 0)
+                        ),
+                        List.of()
+                ),
+                new TableSpec(
                         "artwork_media",
                         List.of(
                                 column("artwork_id", "INTEGER", true, null, 1),

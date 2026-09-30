@@ -26,6 +26,34 @@ class PixivImageDownloaderTest {
     Path tempDir;
 
     @Test
+    @DisplayName("同目标并发下载使用独立暂存，失败任务不清理成功任务的文件")
+    void concurrentTransfersDoNotShareStaging() throws Exception {
+        var workers = java.util.concurrent.Executors.newFixedThreadPool(2);
+        var ready = new java.util.concurrent.CountDownLatch(2);
+        var paths = java.util.concurrent.ConcurrentHashMap.<Path>newKeySet();
+        PixivImageDownloader downloader = (source, referer, target, cookie, observer) -> {
+            paths.add(target);
+            Files.write(target, PNG_BYTES);
+            observer.onContentType("image/png");
+            ready.countDown();
+            try { if (!ready.await(5, java.util.concurrent.TimeUnit.SECONDS)) throw new IOException("Transfer did not start"); }
+            catch (InterruptedException interrupted) { throw new IOException(interrupted); }
+            return !source.getPath().contains("fail");
+        };
+        try {
+            var successful = workers.submit(() -> downloader.downloadImage(URI.create("https://i.pximg.net/image.png"),
+                    URI.create("https://www.pixiv.net/"), tempDir.resolve("shared"), null, new PixivImageTransferObserver() {}));
+            var failed = workers.submit(() -> downloader.downloadImage(URI.create("https://i.pximg.net/fail.png"),
+                    URI.create("https://www.pixiv.net/"), tempDir.resolve("shared"), null, new PixivImageTransferObserver() {}));
+            assertThat(successful.get(10, java.util.concurrent.TimeUnit.SECONDS)).isEqualTo("png");
+            assertThat(failed.get(10, java.util.concurrent.TimeUnit.SECONDS)).isNull();
+            assertThat(paths).hasSize(2);
+            assertThat(tempDir.resolve("shared.png")).hasBinaryContent(PNG_BYTES);
+            for (Path path : paths) assertThat(path).doesNotExist();
+        } finally { workers.shutdownNow(); }
+    }
+
+    @Test
     @DisplayName("查询参数中的点和非法文件名字符不会影响图片扩展名")
     void queryDoesNotAffectImageExtension() throws Exception {
         PixivImageDownloader downloader = downloader(JPEG_BYTES, "image/jpeg");

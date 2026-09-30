@@ -1,222 +1,280 @@
 package top.sywyar.pixivdownload.core.asset;
 
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import top.sywyar.pixivdownload.config.DeleteStagingManifest;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.common.PlainFilePathGuard;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import java.io.IOException;
-import java.nio.file.FileAlreadyExistsException;
-import java.nio.file.Files;
-import java.nio.file.LinkOption;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import java.util.stream.Stream;
+import java.nio.channels.FileChannel;
+import java.nio.file.*;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.*;
 
-/**
- * 原子文件删除：把一组待删文件先复制到 {@code data/delete-staging/} 下的独立子目录（暂存，并写一份恢复清单
- * {@code manifest.properties} 记录每个原文件路径与暂存副本名），再逐个删除原文件；任一删除失败就从暂存把已删掉的
- * 原文件复制回原位（回滚），使删除对调用方是「要么全删、要么全保留」，不再留下部分删除的中间态（删除失败时作品
- * 不会半损坏 / 裂图）。写清单 / 复制阶段（删任何原文件之前）失败同样视为删除失败，此时只需清掉暂存即等于回滚。
- *
- * <p>删除全部成功、或删除失败且回滚<b>完全</b>成功时，删掉暂存子目录（删暂存失败仅记小日志、忽略）。
- * 回滚中任一文件复制失败时<b>保留</b>暂存子目录（含恢复清单）作为最后备份、绝不清理——这些原文件已删却未能复原，
- * 只能由 {@link DeleteStagingManifest#recoverLeftovers 启动恢复} 或人工据清单恢复。同理，进程在删除中途崩溃时
- * 暂存子目录也会留存，由启动恢复据清单复原。
- *
- * <p>无状态、线程安全：每次 {@link #deleteAtomically} 使用独立的暂存子目录，彼此不干扰。
- */
+/** 文件删除和替换共用耐久备份；主库提交标记决定启动时复原还是清理。 */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class StagedFileDeletion {
-
+    private static final int MAX_FILES = 10_000;
     private final AppMessages messages;
+    private final FileOperationJournal journal;
 
-    /**
-     * 原子删除给定文件集合。{@code null} / 已确认缺失的路径按幂等 no-op 处理，重复路径去重；
-     * 任一现存目标不是普通文件时在暂存前抛出 {@link UnsafeDeletionPathException}。
-     *
-     * @return {@code true} 表示全部删除成功（或集合中没有需要删除的文件）；{@code false} 表示有文件删除失败、
-     *         已回滚到删除前状态（原文件复原），调用方应据此中止后续清理（如软删数据库）
-     */
-    public boolean deleteAtomically(Collection<Path> files) {
-        List<Path> targets = validatedExistingFiles(files);
-        if (targets.isEmpty()) {
-            return true;
+    @PostConstruct
+    public void recoverPending() {
+        for (String operation : journal.operations()) {
+            try {
+                Path directory = stagingDirectory(operation);
+                List<FileOperationJournal.Entry> entries = journal.entries(operation);
+                cleanInstallTemporaries(entries, directory);
+                if (!journal.committed(operation)) restore(entries, directory);
+                cleanStaging(directory);
+                journal.forget(operation);
+            } catch (IOException failure) {
+                throw new IllegalStateException("File operation recovery failed: " + operation, failure);
+            }
         }
+    }
 
-        Path stagingDir = RuntimeFiles.deleteStagingDirectory().resolve(UUID.randomUUID().toString());
-        Map<Path, Path> stagedByOriginal = new LinkedHashMap<>();
+    public boolean deleteAtomically(Collection<Path> files) {
+        return deleteAtomically(files, () -> {});
+    }
+
+    /** 回调内的主库写入与提交标记同事务完成，回调不得开启独立事务。 */
+    public boolean deleteAtomically(Collection<Path> files, Runnable commitRecord) {
+        Map<Path, Path> targets = new LinkedHashMap<>();
+        if (files != null) for (Path file : files) {
+            if (file == null) continue;
+            Path target = file.toAbsolutePath().normalize();
+            if (Files.notExists(target, LinkOption.NOFOLLOW_LINKS)) continue;
+            requireSafeDeleteTarget(target);
+            targets.put(target, null);
+        }
         try {
-            Files.createDirectories(stagingDir);
-            PlainFilePathGuard.requirePlainParent(stagingDir.resolve(".staging-check"), false);
-            List<DeleteStagingManifest.Entry> manifestEntries = new ArrayList<>(targets.size());
-            int index = 0;
-            for (Path original : targets) {
-                String stagedName = index + "_" + original.getFileName();
-                stagedByOriginal.put(original, stagingDir.resolve(stagedName));
-                manifestEntries.add(new DeleteStagingManifest.Entry(
-                        original.toAbsolutePath().normalize(), stagedName));
-                index++;
-            }
-            // 先写恢复清单再复制原文件：进程在删除中途崩溃时，下次启动可据清单把已删原文件从暂存复制回原位。
-            DeleteStagingManifest.write(stagingDir, manifestEntries);
-            for (Map.Entry<Path, Path> staged : stagedByOriginal.entrySet()) {
-                requireSafeDeleteTarget(staged.getKey());
-                Files.copy(staged.getKey(), staged.getValue(),
-                        StandardCopyOption.COPY_ATTRIBUTES, LinkOption.NOFOLLOW_LINKS);
-            }
-        } catch (UnsafeDeletionPathException e) {
-            cleanStaging(stagingDir);
-            throw e;
-        } catch (IOException e) {
-            // 写清单 / 复制阶段失败：尚未删除任何原文件，回滚 = 仅清理暂存
-            log.warn(messages.getForLog("download.delete.log.stage-failed", e.getMessage()));
-            cleanStaging(stagingDir);
+            changeFiles(targets, commitRecord);
+            return true;
+        } catch (IOException failure) {
+            log.warn(messages.getForLog("download.delete.log.stage-failed", failure.getMessage()));
             return false;
         }
+    }
 
-        List<Path> deleted = new ArrayList<>(targets.size());
-        for (Path original : targets) {
-            try {
-                deleteFile(original);
-                deleted.add(original);
-            } catch (UnsafeDeletionPathException e) {
-                finishRollback(deleted, stagedByOriginal, stagingDir);
-                throw e;
-            } catch (IOException e) {
-                log.warn(messages.getForLog("download.delete.log.delete-failed", original));
-                finishRollback(deleted, stagedByOriginal, stagingDir);
-                return false;
+    /** 将已完成的暂存文件发布到目标路径；失败恢复旧文件，记录提交后才释放备份。 */
+    public void publishFiles(Map<Path, Path> stagedByTarget, Runnable commitRecord) throws IOException {
+        Map<Path, Path> targets = new LinkedHashMap<>();
+        for (var file : stagedByTarget.entrySet()) {
+            Path target = file.getKey().toAbsolutePath().normalize();
+            Path staged = file.getValue().toAbsolutePath().normalize();
+            if (target.equals(staged) || targets.putIfAbsent(target, staged) != null) {
+                throw new IOException("Duplicate file publication target");
             }
+            PlainFilePathGuard.requirePlainRegularFile(staged);
         }
-
-        cleanStaging(stagingDir);
-        return true;
+        changeFiles(targets, commitRecord);
     }
 
-    /** 删除单个原文件。protected 仅供测试注入删除失败（不要在生产代码中改写其语义）。 */
-    protected void deleteFile(Path original) throws IOException {
-        requireSafeDeleteTarget(original);
-        Files.deleteIfExists(original);
-    }
-
-    /** 把暂存副本复制回原位（回滚单个原文件）。protected 仅供测试注入回滚复制失败（不要在生产代码中改写其语义）。 */
-    protected void restoreFile(Path staged, Path original) throws IOException {
-        PlainFilePathGuard.requirePlainRegularFile(staged);
-        PlainFilePathGuard.requirePlainParent(original, true);
-        try {
-            Files.copy(staged, original,
-                    StandardCopyOption.COPY_ATTRIBUTES, LinkOption.NOFOLLOW_LINKS);
-        } catch (FileAlreadyExistsException conflict) {
-            PlainFilePathGuard.requirePlainRegularFile(original);
-            if (Files.mismatch(staged, original) != -1L) {
-                throw conflict;
-            }
+    private void changeFiles(Map<Path, Path> targets, Runnable commitRecord) throws IOException {
+        Objects.requireNonNull(commitRecord);
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException("File publication must own its database transaction");
         }
-        PlainFilePathGuard.requirePlainRegularFile(original);
-    }
-
-    /**
-     * 把已删掉的原文件从暂存逐个复制回原位。回滚复制失败是真正的数据风险点（原文件已删又无法复原），
-     * 记 error 并附原文件路径与暂存目录供人工恢复。
-     *
-     * @return {@code true} 表示全部已删原文件都复原成功；{@code false} 表示至少有一个复原失败，
-     *         调用方必须<b>保留</b>暂存子目录（含恢复清单）、不可清理
-     */
-    private boolean rollback(List<Path> deleted, Map<Path, Path> stagedByOriginal, Path stagingDir) {
-        boolean fullyRestored = true;
-        for (Path original : deleted) {
-            try {
-                restoreFile(stagedByOriginal.get(original), original);
-            } catch (IOException e) {
-                log.error(messages.getForLog("download.delete.log.rollback-failed", original, stagingDir));
-                fullyRestored = false;
-            }
-        }
-        return fullyRestored;
-    }
-
-    private void finishRollback(List<Path> deleted, Map<Path, Path> stagedByOriginal, Path stagingDir) {
-        if (rollback(deleted, stagedByOriginal, stagingDir)) {
-            cleanStaging(stagingDir);
-        } else {
-            // 回滚未完全成功：保留暂存子目录（含恢复清单）作为最后备份，绝不清理；交由启动恢复 / 人工据清单恢复。
-            log.error(messages.getForLog("download.delete.log.staging-retained", stagingDir));
-        }
-    }
-
-    /** 删除暂存子目录树；仅在删除全部成功、或回滚全部成功后调用。删失败仅记小日志、忽略（不影响删除结果）。 */
-    private void cleanStaging(Path stagingDir) {
-        if (!PlainFilePathGuard.isPlainDirectory(stagingDir)) {
+        if (targets.size() > MAX_FILES) throw new IOException("Too many files in one file operation");
+        String operation = UUID.randomUUID().toString();
+        if (targets.isEmpty()) {
+            journal.commit(operation, commitRecord);
             return;
         }
-        try (Stream<Path> tree = Files.walk(stagingDir)) {
-            tree.sorted(Comparator.reverseOrder()).forEach(path -> {
-                try {
-                    Files.deleteIfExists(path);
-                } catch (IOException ignored) {
-                    // 单个暂存条目删不掉时继续清理其余
+        Path directory = stagingDirectory(operation);
+        Files.createDirectories(directory);
+        PlainFilePathGuard.requirePlainParent(directory.resolve("check"), false);
+        var entries = new ArrayList<FileOperationJournal.Entry>();
+        boolean prepared = false;
+        boolean committed = false;
+        try {
+            for (var target : targets.entrySet()) {
+                Path file = target.getKey();
+                PlainFilePathGuard.requirePlainParent(file, true);
+                String oldHash = null;
+                int index = entries.size();
+                if (!Files.notExists(file, LinkOption.NOFOLLOW_LINKS)) {
+                    requireSafeDeleteTarget(file);
+                    Path backup = directory.resolve(index + ".old");
+                    durableCopy(file, backup);
+                    oldHash = digest(backup);
                 }
-            });
-        } catch (IOException e) {
-            log.warn(messages.getForLog("download.delete.log.staging-cleanup-failed", stagingDir));
+                String newHash = null;
+                if (target.getValue() != null) {
+                    Path replacement = directory.resolve(index + ".new");
+                    durableCopy(target.getValue(), replacement);
+                    newHash = digest(replacement);
+                }
+                entries.add(new FileOperationJournal.Entry(index, file, oldHash, newHash));
+            }
+            journal.prepare(operation, entries);
+            prepared = true;
+            for (var entry : entries) {
+                requireContent(entry.target(), entry.oldHash());
+                if (entry.newHash() == null) deleteFile(entry.target());
+                else install(directory.resolve(entry.index() + ".new"), entry.target());
+            }
+            journal.commit(operation, commitRecord);
+            committed = true;
+        } catch (IOException | RuntimeException | Error failure) {
+            try {
+                // COMMIT 响应异常时重新读取耐久标记，不能把已提交的文件复原。
+                if (prepared && !journal.committed(operation)) restore(entries, directory);
+                cleanStaging(directory);
+                journal.forget(operation);
+            } catch (Exception recoveryFailure) {
+                failure.addSuppressed(recoveryFailure);
+                log.error(messages.getForLog("download.delete.log.staging-retained", directory));
+            }
+            throw failure;
+        }
+        if (committed) {
+            try {
+                cleanStaging(directory);
+                journal.forget(operation);
+            } catch (IOException | RuntimeException failure) {
+                // 提交已完成，残留只作清理，不把成功反报为失败或复原文件。
+                log.warn(messages.getForLog("download.delete.log.staging-cleanup-failed", directory), failure);
+            }
         }
     }
 
-    private static List<Path> validatedExistingFiles(Collection<Path> files) {
-        if (files == null || files.isEmpty()) {
-            return List.of();
-        }
-        List<Path> targets = new ArrayList<>(files.size());
-        LinkedHashSet<Path> seen = new LinkedHashSet<>();
-        for (Path path : files) {
-            if (path == null) {
-                continue;
+    private void restore(List<FileOperationJournal.Entry> entries, Path directory) throws IOException {
+        cleanInstallTemporaries(entries, directory);
+        IOException failure = null;
+        for (var entry : entries) {
+            try {
+                String current = currentDigest(entry.target());
+                if (Objects.equals(current, entry.oldHash())) continue;
+                if (current != null && !Objects.equals(current, entry.newHash())) {
+                    throw new IOException("Recovery target changed: " + entry.target());
+                }
+                if (entry.oldHash() == null) {
+                    if (current != null) deleteFile(entry.target());
+                } else {
+                    Path backup = directory.resolve(entry.index() + ".old");
+                    requireContent(backup, entry.oldHash());
+                    restoreFile(backup, entry.target());
+                }
+            } catch (IOException | UnsafeDeletionPathException error) {
+                if (failure == null) failure = new IOException("File rollback incomplete");
+                failure.addSuppressed(error);
             }
-            Path normalized = path.toAbsolutePath().normalize();
-            if (!seen.add(normalized) || Files.notExists(normalized, LinkOption.NOFOLLOW_LINKS)) {
-                continue;
-            }
-            requireSafeDeleteTarget(normalized);
-            targets.add(normalized);
         }
-        return targets;
+        if (failure != null) throw failure;
+    }
+
+    protected void deleteFile(Path original) throws IOException {
+        requireSafeDeleteTarget(original);
+        Files.delete(original);
+    }
+
+    protected void restoreFile(Path staged, Path original) throws IOException {
+        install(staged, original);
+    }
+
+    private static void install(Path staged, Path target) throws IOException {
+        PlainFilePathGuard.requirePlainRegularFile(staged);
+        PlainFilePathGuard.requirePlainParent(target, true);
+        Path temporary = installTemporary(staged, target);
+        Files.createFile(temporary);
+        try {
+            Files.copy(staged, temporary, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
+            force(temporary);
+            // 不支持原子替换的文件系统拒绝发布，不能退化为可能留下半个文件的覆盖复制。
+            Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
+    }
+
+    private static Path installTemporary(Path staged, Path target) {
+        return target.resolveSibling(".work-file-" + staged.getParent().getFileName()
+                + "-" + staged.getFileName() + ".part");
+    }
+
+    /** 清理同卷发布中断留下的本操作临时文件；备份仍在独立数据目录。 */
+    private static void cleanInstallTemporaries(List<FileOperationJournal.Entry> entries, Path directory) throws IOException {
+        for (var entry : entries) {
+            for (String suffix : List.of(".old", ".new")) {
+                Path file = installTemporary(directory.resolve(entry.index() + suffix), entry.target());
+                if (!Files.notExists(file, LinkOption.NOFOLLOW_LINKS)) {
+                    PlainFilePathGuard.requirePlainRegularFile(file);
+                    Files.delete(file);
+                }
+            }
+        }
+    }
+
+    private static void durableCopy(Path source, Path target) throws IOException {
+        PlainFilePathGuard.requirePlainRegularFile(source);
+        Files.copy(source, target, StandardCopyOption.COPY_ATTRIBUTES, LinkOption.NOFOLLOW_LINKS);
+        force(target);
+    }
+
+    private static void force(Path file) throws IOException {
+        try (var channel = FileChannel.open(file, StandardOpenOption.WRITE)) { channel.force(true); }
+    }
+
+    private static void requireContent(Path file, String expected) throws IOException {
+        if (!Objects.equals(currentDigest(file), expected)) throw new IOException("File operation source changed: " + file);
+    }
+
+    private static String currentDigest(Path file) throws IOException {
+        if (Files.notExists(file, LinkOption.NOFOLLOW_LINKS)) return null;
+        PlainFilePathGuard.requirePlainRegularFile(file);
+        return digest(file);
+    }
+
+    private static String digest(Path file) throws IOException {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            try (var input = Files.newInputStream(file)) {
+                byte[] buffer = new byte[64 * 1024];
+                int read;
+                while ((read = input.read(buffer)) != -1) digest.update(buffer, 0, read);
+            }
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (NoSuchAlgorithmException impossible) { throw new AssertionError(impossible); }
+    }
+
+    private static Path stagingDirectory(String operation) throws IOException {
+        if (!UUID.fromString(operation).toString().equals(operation)) throw new IOException("Invalid file operation ID");
+        return RuntimeFiles.deleteStagingDirectory().resolve(operation);
+    }
+
+    private static void cleanStaging(Path directory) throws IOException {
+        if (Files.notExists(directory, LinkOption.NOFOLLOW_LINKS)) return;
+        if (!PlainFilePathGuard.isPlainDirectory(directory)) throw new IOException("Unsafe staging directory");
+        try (var files = Files.list(directory)) {
+            for (Path file : files.toList()) {
+                PlainFilePathGuard.requirePlainRegularFile(file);
+                Files.delete(file);
+            }
+        }
+        Files.delete(directory);
     }
 
     private static void requireSafeDeleteTarget(Path path) {
-        if (!PlainFilePathGuard.isPlainRegularFile(path)) {
-            throw new UnsafeDeletionPathException(path);
-        }
+        if (!PlainFilePathGuard.isPlainRegularFile(path)) throw new UnsafeDeletionPathException(path);
     }
 
     public static final class UnsafeDeletionPathException extends RuntimeException {
-
         private final String path;
-
         public UnsafeDeletionPathException(Path path) {
             this(path == null ? "" : path.toAbsolutePath().normalize().toString());
         }
-
         public UnsafeDeletionPathException(String path) {
             super("Unsafe deletion path: " + path);
             this.path = path == null ? "" : path;
         }
-
-        public String path() {
-            return path;
-        }
+        public String path() { return path; }
     }
 }

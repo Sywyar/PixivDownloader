@@ -34,6 +34,9 @@ import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
 
 import java.nio.file.Files;
+import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
+import top.sywyar.pixivdownload.core.work.service.WorkFileLock;
+import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
@@ -72,6 +75,8 @@ public class NovelDownloadService implements NovelDownloader {
         }
     }
 
+    private final WorkAssetService workAssets;
+    private final RuntimePathProvider runtimePaths;
     private final DownloadSettings downloadConfig;
     private final WorkFileNameCatalog workFileNameCatalog;
     private final DownloadPathGuard downloadPathGuard;
@@ -110,7 +115,10 @@ public class NovelDownloadService implements NovelDownloader {
                                 MessageResolver messages,
                                 NovelAutoTranslateService novelAutoTranslateService,
                                 WorkMetadataCapture workMetadataCapture,
-                                @Qualifier("novelQueueTaskTracker") QueueTaskTracker taskTracker) {
+                                @Qualifier("novelQueueTaskTracker") QueueTaskTracker taskTracker,
+                                WorkAssetService workAssets, RuntimePathProvider runtimePaths) {
+        this.workAssets = workAssets;
+        this.runtimePaths = runtimePaths;
         this.downloadConfig = downloadConfig;
         this.workFileNameCatalog = workFileNameCatalog;
         this.downloadPathGuard = downloadPathGuard;
@@ -128,7 +136,7 @@ public class NovelDownloadService implements NovelDownloader {
         this.workMetadataCapture = workMetadataCapture;
         this.taskTracker = taskTracker;
         this.documentWriter = new NovelDownloadDocumentWriter(messages);
-        this.mediaDownloader = new NovelDownloadMediaDownloader(novelDatabase, pixivImageDownloader, messages);
+        this.mediaDownloader = new NovelDownloadMediaDownloader(pixivImageDownloader, messages);
     }
 
     @Override
@@ -164,6 +172,7 @@ public class NovelDownloadService implements NovelDownloader {
         String template = PixivWorkFileNameFormatter.normalizeTemplate(other.getFileNameTemplate());
         var supported = downloadPathGuard.pathSupport(directory);
         List<String> fixed = new java.util.ArrayList<>();
+        fixed.add("0".repeat(WorkAssetService.PUBLICATION_TEMPORARY_NAME_LENGTH));
         if (other.getEmbeddedImages() != null) other.getEmbeddedImages().keySet().forEach(
                 id -> fixed.add("embed_" + id + ".image-download.part"));
         List<String> suffixes = new java.util.ArrayList<>();
@@ -224,7 +233,8 @@ public class NovelDownloadService implements NovelDownloader {
             return false;
         }
 
-        try {
+        Path stagedDirectory = null;
+        try (var ignored = WorkFileLock.acquire(WorkType.NOVEL, novelId)) {
             String rawContent = request.getContent() == null ? "" : request.getContent();
             status.setStage("preparing");
             ensureNotCancelled(status);
@@ -236,6 +246,11 @@ public class NovelDownloadService implements NovelDownloader {
             Files.createDirectories(downloadPath);
             status.setDownloadPath(downloadPath.toString());
             ensureNotCancelled(status);
+
+            Path stagingRoot = runtimePaths.dataDirectory().resolve("download-staging");
+            Files.createDirectories(stagingRoot);
+            stagedDirectory = Files.createTempDirectory(stagingRoot, "novel-");
+            Path outputPath = stagedDirectory;
 
             // Resolve filename template
             long timestamp = plan.timestamp();
@@ -250,7 +265,7 @@ public class NovelDownloadService implements NovelDownloader {
             // Best-effort 内嵌图片下载（与正文同目录、embed_{id}.{ext}）；
             // 写入 HTML/EPUB 之前完成，使写入时即可解析为本地图片链接。
             Map<String, String> embeddedExts = mediaDownloader.downloadEmbeddedImages(
-                    novelId, rawContent, other.getEmbeddedImages(), downloadPath, request.getCookie(), status,
+                    novelId, rawContent, other.getEmbeddedImages(), outputPath, request.getCookie(), status,
                     remainingImageBytes);
             ensureNotCancelled(status);
 
@@ -260,7 +275,7 @@ public class NovelDownloadService implements NovelDownloader {
                 status.setStage("downloading-cover");
             }
             String coverExt = mediaDownloader.downloadCover(
-                    novelId, other.getCoverUrl(), downloadPath, baseName, request.getCookie(), status,
+                    novelId, other.getCoverUrl(), outputPath, baseName, request.getCookie(), status,
                     remainingImageBytes);
             ensureNotCancelled(status);
 
@@ -273,7 +288,7 @@ public class NovelDownloadService implements NovelDownloader {
                     title,
                     other,
                     rawContent,
-                    downloadPath,
+                    outputPath,
                     baseName,
                     coverExt,
                     embeddedExts
@@ -284,18 +299,27 @@ public class NovelDownloadService implements NovelDownloader {
             status.setStage("saving");
             String description = PixivDescriptionHtml.normalizeLinks(other.getDescription());
             long uniqueTime = timestamp;
-            novelDatabase.insertNovel(novelId, title, downloadPath.toAbsolutePath().toString(), 1, ext, uniqueTime,
-                    other.getXRestrict(), other.isAi(), other.getAuthorId(), description,
-                    templateId, fileAuthorNameId, other.getSeriesId(), other.getSeriesOrder(),
-                    other.getWordCount(), other.getTextLength(), other.getReadingTimeSeconds(),
-                    other.getPageCount(), other.isOriginal(), other.getLanguage(), rawContent, coverExt,
-                    plan.names().maxLength());
-
-            // Tags
-            if (other.getTags() != null && !other.getTags().isEmpty()) {
-                novelDatabase.clearNovelTags(novelId);
-                novelDatabase.saveNovelTags(novelId, other.getTags());
+            Map<Path, Path> publications = new java.util.LinkedHashMap<>();
+            try (var files = Files.list(outputPath)) {
+                files.forEach(file -> publications.put(downloadPath.resolve(file.getFileName()), file));
             }
+            workAssets.publishFiles(WorkType.NOVEL, novelId, publications, () -> {
+                ensureNotCancelled(status);
+                novelDatabase.insertNovel(novelId, title, downloadPath.toAbsolutePath().toString(), 1, ext, uniqueTime,
+                        other.getXRestrict(), other.isAi(), other.getAuthorId(), description,
+                        templateId, fileAuthorNameId, other.getSeriesId(), other.getSeriesOrder(),
+                        other.getWordCount(), other.getTextLength(), other.getReadingTimeSeconds(),
+                        other.getPageCount(), other.isOriginal(), other.getLanguage(), rawContent, coverExt,
+                        plan.names().maxLength());
+
+                novelDatabase.saveFileBaseName(novelId, baseName);
+                novelDatabase.clearNovelTags(novelId);
+                if (other.getTags() != null) novelDatabase.saveNovelTags(novelId, other.getTags());
+                novelDatabase.clearNovelImages(novelId);
+                embeddedExts.forEach((id, imageExt) -> novelDatabase.saveNovelImage(novelId, id, imageExt));
+                ensureNotCancelled(status);
+            });
+
             // Author + series
             if (other.getAuthorId() != null && other.getAuthorId() > 0) {
                 authorObservationService.observe(other.getAuthorId(), other.getAuthorName());
@@ -381,6 +405,16 @@ public class NovelDownloadService implements NovelDownloader {
                     ? messages.get("download.path.segment.invalid", other.getUsername())
                     : e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
         } finally {
+            if (stagedDirectory != null) {
+                try {
+                    try (var files = Files.list(stagedDirectory)) {
+                        for (Path file : files.toList()) Files.delete(file);
+                    }
+                    Files.delete(stagedDirectory);
+                } catch (java.io.IOException failure) {
+                    log.warn("novel download staging cleanup failed: {}", stagedDirectory, failure);
+                }
+            }
             if (statusMap.get(statusKey) == status) {
                 QueueStatusRetention.schedule(
                         taskTracker,
@@ -407,6 +441,10 @@ public class NovelDownloadService implements NovelDownloader {
         } catch (RuntimeException e) {
             log.warn("Failed to capture forwarded novel meta for {}: {}", novelId, e.getMessage());
         }
+    }
+
+    public boolean hasCompleteFiles(long novelId) {
+        return workAssets.hasCompleteFiles(WorkType.NOVEL, novelId);
     }
 
     public NovelDownloadStatus getStatus(Long novelId) {

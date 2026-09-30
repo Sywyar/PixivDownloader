@@ -72,6 +72,7 @@ class PixivScheduledNovelWorkExecutorTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    @Mock private top.sywyar.pixivdownload.core.work.service.WorkAssetService workAssets;
     @Mock
     private PixivAjaxClient pixivAjaxProxyClient;
     @Mock
@@ -116,7 +117,7 @@ class PixivScheduledNovelWorkExecutorTest {
                         novelDownloader,
                         novelMergeService,
                         novelAutoTranslateService,
-                        new NovelDownloadExecutionLane(new SyncTaskExecutor(), 3));
+                        new NovelDownloadExecutionLane(new SyncTaskExecutor(), 3), workAssets);
 
         assertThat(executor.workType()).isEqualTo("novel");
         assertThat(executor.maxConcurrency()).isEqualTo(3);
@@ -162,19 +163,19 @@ class PixivScheduledNovelWorkExecutorTest {
         assertThat(normalResult.outcome()).isEqualTo(ScheduledWorkResult.Outcome.ALREADY_COMPLETED);
         assertThat(normalResult.liveStatusAvailable()).isFalse();
         verify(workQueryService).hasWork(WorkType.NOVEL, 123L);
-        verify(workQueryService, never()).hasActiveWork(WorkType.NOVEL, 123L);
         verify(normal.credential(), never()).copySecret();
 
         reset(workQueryService);
         char[] redownloadSecret = "second-cookie".toCharArray();
         ContextFixture redownload = context(definition(true, false), ScheduledNetworkRoute.direct(), redownloadSecret);
         when(workQueryService.hasActiveWork(WorkType.NOVEL, 123L)).thenReturn(true);
+        when(workAssets.hasCompleteFiles(WorkType.NOVEL, 123L)).thenReturn(true);
 
         ScheduledWorkResult redownloadResult = executor().execute(work("123"), redownload.context());
 
         assertThat(redownloadResult.outcome()).isEqualTo(ScheduledWorkResult.Outcome.ALREADY_COMPLETED);
         assertThat(redownloadResult.liveStatusAvailable()).isFalse();
-        verify(workQueryService).hasActiveWork(WorkType.NOVEL, 123L);
+
         verify(workQueryService, never()).hasWork(WorkType.NOVEL, 123L);
         verify(redownload.credential(), never()).copySecret();
         verifyNoInteractions(pixivAjaxProxyClient, novelDownloader);
@@ -629,7 +630,7 @@ class PixivScheduledNovelWorkExecutorTest {
                 novelDownloader,
                 novelMergeService,
                 novelAutoTranslateService,
-                downloadExecutionLane);
+                downloadExecutionLane, workAssets);
     }
 
     private boolean workerRouteOverrideActive() throws Exception {

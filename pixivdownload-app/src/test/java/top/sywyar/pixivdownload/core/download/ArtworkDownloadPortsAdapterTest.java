@@ -54,7 +54,7 @@ class ArtworkDownloadPortsAdapterTest {
 
         verify(pixivDatabase).getOrCreateFileNameTemplateId("{artwork_title}_p{page}");
         verify(pixivDatabase).getOrCreateFileAuthorNameId("author");
-        verify(pixivDatabase).insertArtwork(InsertArtworkArgument.builder()
+        verify(pixivDatabase).recordDownloadedArtwork(InsertArtworkArgument.builder()
                 .artworkId(42L)
                 .title("title")
                 .folder(tempDir.resolve("42").toAbsolutePath().toString())
@@ -88,7 +88,7 @@ class ArtworkDownloadPortsAdapterTest {
         PixivDatabase pixivDatabase = mock(PixivDatabase.class);
         ArtworkDownloadHistoryAdapter adapter = new ArtworkDownloadHistoryAdapter(pixivDatabase);
         RuntimeException failure = new RuntimeException("insert failed");
-        doThrow(failure).when(pixivDatabase).insertArtwork(any(InsertArtworkArgument.class));
+        doThrow(failure).when(pixivDatabase).recordDownloadedArtwork(any(InsertArtworkArgument.class));
 
         assertThatThrownBy(() -> adapter.record(sampleCompletion())).isSameAs(failure);
 
@@ -105,7 +105,7 @@ class ArtworkDownloadPortsAdapterTest {
 
         assertThatThrownBy(() -> adapter.record(sampleCompletion())).isSameAs(failure);
 
-        verify(pixivDatabase).insertArtwork(any(InsertArtworkArgument.class));
+        verify(pixivDatabase).recordDownloadedArtwork(any(InsertArtworkArgument.class));
     }
 
     @Test
@@ -124,7 +124,7 @@ class ArtworkDownloadPortsAdapterTest {
                 0, false, null, " ", "{artwork_id}_p{page}", null,
                 null, null, null));
 
-        verify(pixivDatabase).insertArtwork(InsertArtworkArgument.builder()
+        verify(pixivDatabase).recordDownloadedArtwork(InsertArtworkArgument.builder()
                 .artworkId(42L)
                 .title("旧标题")
                 .folder(tempDir.resolve("42").toAbsolutePath().toString())

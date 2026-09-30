@@ -193,8 +193,8 @@ async function processIllustItem(item, invocation) {
             renderQueue(item, true);
             return;
         } else if (downloaded) {
-            // 若 verifyFiles=true 时是从磁盘恢复出来的裸记录（title 为空），
-            // 拉 Pixiv meta 补齐后再跳过，避免画廊里这些恢复出的作品没有标题/作者/简介。
+            // 若已有记录缺少标题，
+            // 拉取 Pixiv 元数据补齐标题、作者和简介后再跳过。
             let recoveredMeta = false;
             if (state.settings.verifyHistoryFiles && !downloaded.title) {
                 item.lastMessage = bt('queue.message.recovering-metadata', '正在补齐已下载作品的元数据...');

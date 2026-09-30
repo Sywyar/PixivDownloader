@@ -53,6 +53,18 @@ class ArtworkMetadataRecoveryServiceTest {
     @DisplayName("recoverMetadata 两阶段恢复")
     class RecoverMetadataTests {
 
+        @Test
+        @DisplayName("连续页码缺少末页或未知总页数时不能恢复完整记录")
+        void rejectsMissingLastPageOrUnknownPageCount() throws Exception {
+            Path dir = Files.createDirectories(tempDir.resolve("33333"));
+            Files.write(dir.resolve("33333_p0.jpg"), new byte[]{1});
+            for (Integer count : new Integer[]{null, 0, 2}) {
+                var request = new RecoverMetadataRequest("title", null, null, 0, false, "", count);
+                assertThat(recoveryService.recoverMetadata(33333L, request)).isNull();
+            }
+            verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
+        }
+
         @BeforeEach
         void setupRootFolder() {
             lenient().when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
@@ -66,7 +78,7 @@ class ArtworkMetadataRecoveryServiceTest {
                     3, "jpg", 1600000000L, false, null, null, 0, false, 999L, "原简介", 1L, null, null, null);
             when(pixivDatabase.getArtwork(11111L)).thenReturn(existing);
             RecoverMetadataRequest req = new RecoverMetadataRequest(
-                    "新标题", 1234L, "newauthor", 1, true, "新简介");
+                    "新标题", 1234L, "newauthor", 1, true, "新简介", 2);
 
             ArtworkRecord result = recoveryService.recoverMetadata(11111L, req);
 
@@ -85,7 +97,7 @@ class ArtworkMetadataRecoveryServiceTest {
                     2, "jpg", 1600000000L, false, null, null, 1, true, 1234L, "新简介", 1L, null, null, null);
             when(pixivDatabase.getArtwork(22222L)).thenReturn(bareRecord, enriched);
             RecoverMetadataRequest req = new RecoverMetadataRequest(
-                    "新标题", 1234L, "newauthor", 1, true, "新简介");
+                    "新标题", 1234L, "newauthor", 1, true, "新简介", 2);
 
             ArtworkRecord result = recoveryService.recoverMetadata(22222L, req);
 
@@ -108,7 +120,7 @@ class ArtworkMetadataRecoveryServiceTest {
                     2, "jpg", 1700000300L, false, null, null, 1, true, 5678L, "简介", 1L, null, null, null);
             when(pixivDatabase.getArtwork(artworkId)).thenReturn(null, inserted);
             RecoverMetadataRequest req = new RecoverMetadataRequest(
-                    "Pixiv 标题", 5678L, "auth", 1, true, "简介");
+                    "Pixiv 标题", 5678L, "auth", 1, true, "简介", 2);
 
             ArtworkRecord result = recoveryService.recoverMetadata(artworkId, req);
 
@@ -136,7 +148,7 @@ class ArtworkMetadataRecoveryServiceTest {
             Files.write(dir.resolve("66667_p1.jpg"), new byte[]{1});
             when(pixivDatabase.getArtwork(artworkId)).thenReturn(null);
             RecoverMetadataRequest req = new RecoverMetadataRequest(
-                    "标题", 1234L, "auth", 0, false, "简介");
+                    "标题", 1234L, "auth", 0, false, "简介", 2);
 
             assertThat(recoveryService.recoverMetadata(artworkId, req)).isNull();
             verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
@@ -148,7 +160,7 @@ class ArtworkMetadataRecoveryServiceTest {
         void shouldReturnNullWhenDbEmptyAndDiskEmpty() {
             when(pixivDatabase.getArtwork(44444L)).thenReturn(null);
             RecoverMetadataRequest req = new RecoverMetadataRequest(
-                    "标题", 1234L, "auth", 0, false, "简介");
+                    "标题", 1234L, "auth", 0, false, "简介", 2);
 
             assertThat(recoveryService.recoverMetadata(44444L, req)).isNull();
             verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
@@ -168,16 +180,8 @@ class ArtworkMetadataRecoveryServiceTest {
 
             ArtworkRecord result = recoveryService.recoverMetadata(artworkId, null);
 
-            assertThat(result).isSameAs(inserted);
-            verify(pixivDatabase).insertArtwork(InsertArtworkArgument.builder()
-                    .artworkId(artworkId)
-                    .title("")
-                    .folder(absolute)
-                    .count(1)
-                    .extensions("jpg")
-                    .time(1700000300L)
-                    .description("")
-                    .build());
+            assertThat(result).isNull();
+            verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
         }
     }
 }

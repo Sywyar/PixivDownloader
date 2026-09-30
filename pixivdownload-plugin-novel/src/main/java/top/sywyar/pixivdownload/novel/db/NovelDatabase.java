@@ -282,6 +282,10 @@ public class NovelDatabase {
 
     // ── Embedded images ────────────────────────────────────────────────────────
 
+    public void saveFileBaseName(long id, String name) {
+        novelMapper.updateFileBaseName(id, name);
+    }
+
     public void saveNovelImage(long novelId, String imageId, String ext) {
         if (imageId == null || imageId.isBlank() || ext == null || ext.isBlank()) return;
         novelMapper.insertNovelImage(novelId, imageId, ext);

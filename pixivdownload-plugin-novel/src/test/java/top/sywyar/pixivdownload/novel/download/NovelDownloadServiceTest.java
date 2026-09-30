@@ -102,11 +102,20 @@ class NovelDownloadServiceTest {
     @Mock
     private WorkMetadataCapture workMetadataCapture;
 
+    @Mock private top.sywyar.pixivdownload.core.work.service.WorkAssetService workAssets;
+    @Mock private top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider runtimePaths;
     private NovelDownloadService service;
     private final TaskExecutor downloadTaskExecutor = Runnable::run;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
+        lenient().when(runtimePaths.dataDirectory()).thenReturn(tempDir.resolve("runtime"));
+        lenient().doAnswer(call -> {
+            java.util.Map<Path, Path> files = call.getArgument(2);
+            for (var file : files.entrySet()) Files.copy(file.getValue(), file.getKey(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            call.<Runnable>getArgument(3).run();
+            return null;
+        }).when(workAssets).publishFiles(any(), anyLong(), any(), any());
         LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
         lenient().when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
         lenient().when(downloadConfig.isUserFlatFolder()).thenReturn(false);
@@ -130,7 +139,7 @@ class NovelDownloadServiceTest {
                 novelSeriesService, authorObservationService, workCollectionMembership,
                 collectionDownloadRootResolver, pixivBookmarkActions, visitorDownloadQuotaService,
                 pixivImageDownloader, taskScheduler, executionLane, NOVEL_MESSAGES,
-                novelAutoTranslateService, workMetadataCapture, taskTracker);
+                novelAutoTranslateService, workMetadataCapture, taskTracker, workAssets, runtimePaths);
     }
 
     /** 构造一个最简的 TXT 交互式小说下载请求（无封面 / 无内嵌图 / 无系列 / 无收藏）。 */
@@ -144,6 +153,34 @@ class NovelDownloadServiceTest {
         other.setRawMetaJson(rawMetaJson);
         request.setOther(other);
         return request;
+    }
+
+    @Test
+    @DisplayName("小说发布失败时保留旧正文，暂存图片不提前修改数据库")
+    void failedPublicationPreservesExistingNovel() throws Exception {
+        NovelDownloadRequest request = txtRequest(7L, null);
+        assertThat(service.downloadBlocking(request, null)).isTrue();
+        Path body;
+        try (var files = Files.list(tempDir.resolve("novel-7"))) {
+            body = files.filter(file -> file.toString().endsWith(".txt")).findFirst().orElseThrow();
+        }
+        String original = Files.readString(body);
+        org.mockito.Mockito.clearInvocations(novelDatabase);
+        request.setContent("replacement [uploadedimage:123]");
+        request.getOther().setEmbeddedImages(Map.of("123", "https://i.pximg.net/embed.png"));
+        when(pixivImageDownloader.downloadImage(any(), any(), any(), any(), any())).thenAnswer(call -> {
+            Path stem = call.getArgument(2);
+            Files.writeString(stem.resolveSibling(stem.getFileName() + ".png"), "image");
+            return "png";
+        });
+        org.mockito.Mockito.doThrow(new java.io.IOException("publication failed"))
+                .when(workAssets).publishFiles(any(), anyLong(), any(), any());
+        assertThat(service.downloadBlocking(request, null)).isFalse();
+        assertThat(Files.readString(body)).isEqualTo(original);
+        assertThat(tempDir.resolve("novel-7/embed_123.png")).doesNotExist();
+        verify(novelDatabase, never()).clearNovelImages(7L);
+        verify(novelDatabase, never()).saveNovelImage(anyLong(), any(), any());
+        try (var files = Files.list(tempDir.resolve("runtime/download-staging"))) { assertThat(files).isEmpty(); }
     }
 
     @ParameterizedTest
@@ -234,7 +271,10 @@ class NovelDownloadServiceTest {
                     observer.onContentLength(20);
                     observer.onBytesTransferred(12);
                     URI source = invocation.getArgument(0);
-                    return source.getPath().endsWith(".gif") ? "gif" : "png";
+                    String extension = source.getPath().endsWith(".gif") ? "gif" : "png";
+                    Path stem = invocation.getArgument(2);
+                    Files.writeString(stem.resolveSibling(stem.getFileName() + "." + extension), "image");
+                    return extension;
                 });
 
         boolean ok = service.downloadBlocking(request, null);

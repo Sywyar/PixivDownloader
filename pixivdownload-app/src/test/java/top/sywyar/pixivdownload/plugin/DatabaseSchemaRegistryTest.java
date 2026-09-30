@@ -396,7 +396,8 @@ class DatabaseSchemaRegistryTest {
                 new PathPrefixColumns.TableColumns("manga_series", "series_id", List.of("cover_folder")),
                 new PathPrefixColumns.TableColumns("novel_series", "series_id", List.of("cover_folder")),
                 new PathPrefixColumns.TableColumns("collections", "id", List.of("download_root")),
-                new PathPrefixColumns.TableColumns("external_work_files", "reference_id", List.of("root_path", "file_path")));
+                new PathPrefixColumns.TableColumns("external_work_files", "reference_id", List.of("root_path", "file_path")),
+                new PathPrefixColumns.TableColumns("file_operation_entries", "entry_id", List.of("target_path")));
     }
 
     @Test

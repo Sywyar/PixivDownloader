@@ -11,6 +11,7 @@ import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.core.metadata.ArtworkMetadataQuality;
 
 import java.util.List;
+import top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter;
 
 /**
  * 将插画下载历史端口适配到宿主数据库。
@@ -63,7 +64,7 @@ public class ArtworkDownloadHistoryAdapter implements ArtworkDownloadHistory {
         if (resolvedFileAuthorNameId > 0) {
             fileAuthorNameId = resolvedFileAuthorNameId;
         }
-        pixivDatabase.insertArtwork(
+        pixivDatabase.recordDownloadedArtwork(
                 InsertArtworkArgument.builder()
                         .artworkId(completion.artworkId())
                         .title(title)
@@ -99,6 +100,10 @@ public class ArtworkDownloadHistoryAdapter implements ArtworkDownloadHistory {
                 .toList();
         pixivDatabase.replaceArtworkTagsAfterDownload(completion.artworkId(), tags);
         pixivDatabase.updateFileNameMaxLength(completion.artworkId(), completion.fileNameMaxLength());
+        pixivDatabase.replaceArtworkFileNames(completion.artworkId(), PixivWorkFileNameFormatter.formatAll(
+                completion.fileNameTemplate(), completion.artworkId(), completion.title(), completion.authorId(),
+                completion.normalizedAuthorName(), completion.recordTime(), completion.imageCount(),
+                completion.aiGenerated(), completion.restriction(), completion.fileNameMaxLength()));
     }
 
     private static <T> T valueOrPrevious(T value, T previous) {

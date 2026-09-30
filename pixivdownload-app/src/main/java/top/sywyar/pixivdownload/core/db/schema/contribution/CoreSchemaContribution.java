@@ -23,6 +23,15 @@ public final class CoreSchemaContribution {
 
     private static SchemaContribution createContribution() {
         List<TableSpec> tables = List.of(
+                new TableSpec("file_operation_entries", List.of(
+                        column("entry_id", "TEXT", true, null, 1),
+                        column("operation_id", "TEXT", true, null, 0),
+                        column("ordinal", "INTEGER", true, null, 0),
+                        column("target_path", "TEXT", true, null, 0),
+                        column("old_hash", "TEXT", false, null, 0),
+                        column("new_hash", "TEXT", false, null, 0),
+                        column("committed", "INTEGER", true, "0", 0)
+                ), List.of(uniqueConstraint("operation_id", "ordinal"), uniqueConstraint("target_path"))),
                 new TableSpec("external_work_files", List.of(
                         column("reference_id", "TEXT", true, null, 1),
                         column("work_type", "TEXT", true, null, 0),
@@ -45,6 +54,7 @@ public final class CoreSchemaContribution {
         );
 
         return new SchemaContribution(tables, List.of(), List.of(
-                new top.sywyar.pixivdownload.plugin.api.schema.PathColumnSpec("external_work_files", "reference_id", List.of("root_path", "file_path"))));
+                new top.sywyar.pixivdownload.plugin.api.schema.PathColumnSpec("external_work_files", "reference_id", List.of("root_path", "file_path")),
+                new top.sywyar.pixivdownload.plugin.api.schema.PathColumnSpec("file_operation_entries", "entry_id", List.of("target_path"))));
     }
 }

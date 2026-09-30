@@ -47,21 +47,16 @@ async function getUgoiraMeta(artworkId) {
 }
 
 async function checkDownloaded(artworkId) {
-    try {
-        const query = state.settings.verifyHistoryFiles ? '?verifyFiles=true' : '';
-        const res = await fetch(`${BASE}/api/downloaded/${artworkId}${query}`);
-        if (res.status === 200) {
-            const data = await res.json();
-            if (!data.artworkId) return null;
-            return data;
-        }
-        return null;
-    } catch {
-        return null;
-    }
+    const query = state.settings.verifyHistoryFiles ? '?verifyFiles=true' : '';
+    const res = await fetch(`${BASE}/api/downloaded/${artworkId}${query}`);
+    if (res.status === 400) return null;
+    if (res.status !== 200) throw new Error(bt('queue.message.failed-status-error', '失败 — 状态查询异常'));
+    const data = await res.json();
+    if (!data.artworkId) throw new Error(bt('queue.message.failed-status-error', '失败 — 状态查询异常'));
+    return data;
 }
 
-// 两阶段恢复：磁盘恢复出的裸记录用前端拉到的 Pixiv 元数据补齐缺失字段（后端幂等）。
+// 补齐旧记录缺失的元数据，后端仅填空字段。
 async function recoverArtworkMetadata(artworkId, meta) {
     try {
         const res = await fetch(`${BASE}/api/downloaded/${artworkId}/recover-metadata`, {

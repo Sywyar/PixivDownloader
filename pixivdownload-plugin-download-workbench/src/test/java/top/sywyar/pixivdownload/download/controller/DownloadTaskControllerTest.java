@@ -98,6 +98,19 @@ class DownloadTaskControllerTest {
         }
 
         @Test
+        @DisplayName("多人模式中的缺页记录不能提前返回已下载")
+        void partialHistoryDoesNotSkipDownload() throws Exception {
+            when(applicationModeProvider.getMode()).thenReturn("multi");
+            when(multiModeSettings.getPostDownloadMode()).thenReturn("never-delete");
+            when(workQueryService.hasActiveWork(top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK, 42L)).thenReturn(true);
+            when(artworkDownloadExecutor.isArtworkDownloaded(42L, true)).thenReturn(false);
+            mockMvc.perform(post("/api/download/pixiv").contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"artworkId\":42,\"title\":\"test\",\"imageUrls\":[\"https://i.pximg.net/a.jpg\"]}"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.alreadyDownloaded").doesNotExist());
+            verify(artworkDownloadExecutor).downloadImages(anyLong(), anyString(), anyList(), anyString(), any(), any(), any());
+        }
+
+        @Test
         @DisplayName("非法输出参数在进入下载执行器前拒绝")
         void rejectsInvalidMediaOptionsBeforeAdmission() throws Exception {
             lenient().when(applicationModeProvider.getMode()).thenReturn("solo");

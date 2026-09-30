@@ -65,7 +65,8 @@ public class DownloadTaskController {
         if ("multi".equals(mode)) {
             String pdMode = multiModeSettings.getPostDownloadMode();
             if ("never-delete".equals(pdMode) || "timed-delete".equals(pdMode)) {
-                if (workQueryService.hasActiveWork(WorkType.ARTWORK, request.getArtworkId())) {
+                if (workQueryService.hasActiveWork(WorkType.ARTWORK, request.getArtworkId())
+                        && artworkDownloadExecutor.isArtworkDownloaded(request.getArtworkId(), true)) {
                     return ResponseEntity.ok(new AlreadyDownloadedResponse(
                             true, true, messages.get("download.already-downloaded")));
                 }

@@ -258,13 +258,17 @@ public class DownloadWorkbenchPluginConfiguration {
     @Bean
     public PixivScheduledLocalWorkLookup pixivScheduledLocalWorkLookup(
             ArtworkDownloader artworkDownloader,
-            WorkQueryService workQueryService) {
+            WorkQueryService workQueryService,
+            top.sywyar.pixivdownload.core.work.service.WorkAssetService workAssets) {
         return (key, download) -> {
             long id = Long.parseLong(key.id());
             if (PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL.equals(key.workType())) {
-                return download.redownloadDeleted()
-                        ? workQueryService.hasActiveWork(WorkType.NOVEL, id)
-                        : workQueryService.hasWork(WorkType.NOVEL, id);
+                try (var ignored = top.sywyar.pixivdownload.core.work.service.WorkFileLock.acquire(WorkType.NOVEL, id)) {
+                    if (workQueryService.hasActiveWork(WorkType.NOVEL, id)) {
+                        return workAssets.hasCompleteFiles(WorkType.NOVEL, id);
+                    }
+                    return !download.redownloadDeleted() && workQueryService.hasWork(WorkType.NOVEL, id);
+                }
             }
             if (download.redownloadDeleted()) {
                 return download.verifyFiles()

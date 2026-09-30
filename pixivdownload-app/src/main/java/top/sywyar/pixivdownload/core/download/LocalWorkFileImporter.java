@@ -61,53 +61,55 @@ public final class LocalWorkFileImporter implements WorkFileImporter {
         try { return importOne(request); } finally { admission.unlock(); }
     }
     private boolean importOne(WorkFileImportRequest request) throws IOException {
-        WorkFileImportHandler handler = handlers.get(request.workType());
-        if (request.workType() != WorkType.ARTWORK && handler == null) throw new IOException("IMPORT_OWNER_UNAVAILABLE");
-        if (request.workType() == WorkType.ARTWORK && !ArtworkMetadataQuality.isMeaningfulTitle(request.workId(), request.title()))
-            throw new IllegalArgumentException("INVALID_WORK_TITLE");
-        DownloadAttempt attempt = new DownloadAttempt(UUID.randomUUID(), request.workType().name().toLowerCase(Locale.ROOT), Long.toString(request.workId()));
-        lifecycle.checkAdmission(attempt);
-        Path root = request.sourceRoot().normalize();
-        if (!PlainFilePathGuard.isPlainDirectory(root)) throw new IOException("INVALID_SOURCE_ROOT");
-        Set<Path> unique = new HashSet<>();
-        Set<String> extensions = new LinkedHashSet<>();
-        List<BasicFileAttributes> attributes = new ArrayList<>();
-        long total = 0;
-        for (Path supplied : request.pageFiles()) {
-            Path source = root.resolve(supplied).toAbsolutePath().normalize();
-            if (!source.startsWith(root) || !unique.add(source)) throw new IOException("INVALID_SOURCE_PATH");
-            PlainFilePathGuard.requirePlainRegularFile(source);
-            BasicFileAttributes facts = Files.readAttributes(source, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-            total = Math.addExact(total, facts.size());
-            if (facts.size() < 1 || facts.size() > 1024L * 1024 * 1024 || total > 8L * 1024 * 1024 * 1024)
-                throw new IOException("IMPORT_SIZE_LIMIT");
-            extensions.add(validateFormat(source, request.workType())); attributes.add(facts);
-        }
-        lifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.ACCEPTED));
-        lifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.STARTED));
-        try {
-            boolean written = Boolean.TRUE.equals(transaction.execute(status -> {
-                for (int page = 0; page < request.pageFiles().size(); page++) {
-                    Path source = root.resolve(request.pageFiles().get(page)).normalize();
-                    try {
-                        PlainFilePathGuard.requirePlainRegularFile(source);
-                        var now = Files.readAttributes(source, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-                        var before = attributes.get(page);
-                        if (!Objects.equals(now.fileKey(), before.fileKey()) || now.size() != before.size()
-                                || !now.lastModifiedTime().equals(before.lastModifiedTime())) throw new IOException("SOURCE_CHANGED");
-                    } catch (IOException changed) { throw new java.io.UncheckedIOException(changed); }
-                }
-                authors.observe(request.authorId(), request.authorName());
-                boolean created = request.workType() == WorkType.ARTWORK ? registerArtwork(request, extensions) : handler.register(request);
-                if (created) files.save(request);
-                return created;
-            }));
-            lifecycle.publish(new DownloadEvent(attempt, written ? DownloadEvent.Phase.COMPLETED : DownloadEvent.Phase.CANCELLED));
-            return written;
-        } catch (RuntimeException failure) {
-            lifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.FAILED));
-            if (failure instanceof java.io.UncheckedIOException io) throw io.getCause();
-            throw failure;
+        try (var workFileLease = top.sywyar.pixivdownload.core.work.service.WorkFileLock.acquire(request.workType(), request.workId())) {
+            WorkFileImportHandler handler = handlers.get(request.workType());
+            if (request.workType() != WorkType.ARTWORK && handler == null) throw new IOException("IMPORT_OWNER_UNAVAILABLE");
+            if (request.workType() == WorkType.ARTWORK && !ArtworkMetadataQuality.isMeaningfulTitle(request.workId(), request.title()))
+                throw new IllegalArgumentException("INVALID_WORK_TITLE");
+            DownloadAttempt attempt = new DownloadAttempt(UUID.randomUUID(), request.workType().name().toLowerCase(Locale.ROOT), Long.toString(request.workId()));
+            lifecycle.checkAdmission(attempt);
+            Path root = request.sourceRoot().normalize();
+            if (!PlainFilePathGuard.isPlainDirectory(root)) throw new IOException("INVALID_SOURCE_ROOT");
+            Set<Path> unique = new HashSet<>();
+            Set<String> extensions = new LinkedHashSet<>();
+            List<BasicFileAttributes> attributes = new ArrayList<>();
+            long total = 0;
+            for (Path supplied : request.pageFiles()) {
+                Path source = root.resolve(supplied).toAbsolutePath().normalize();
+                if (!source.startsWith(root) || !unique.add(source)) throw new IOException("INVALID_SOURCE_PATH");
+                PlainFilePathGuard.requirePlainRegularFile(source);
+                BasicFileAttributes facts = Files.readAttributes(source, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+                total = Math.addExact(total, facts.size());
+                if (facts.size() < 1 || facts.size() > 1024L * 1024 * 1024 || total > 8L * 1024 * 1024 * 1024)
+                    throw new IOException("IMPORT_SIZE_LIMIT");
+                extensions.add(validateFormat(source, request.workType())); attributes.add(facts);
+            }
+            lifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.ACCEPTED));
+            lifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.STARTED));
+            try {
+                boolean written = Boolean.TRUE.equals(transaction.execute(status -> {
+                    for (int page = 0; page < request.pageFiles().size(); page++) {
+                        Path source = root.resolve(request.pageFiles().get(page)).normalize();
+                        try {
+                            PlainFilePathGuard.requirePlainRegularFile(source);
+                            var now = Files.readAttributes(source, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+                            var before = attributes.get(page);
+                            if (!Objects.equals(now.fileKey(), before.fileKey()) || now.size() != before.size()
+                                    || !now.lastModifiedTime().equals(before.lastModifiedTime())) throw new IOException("SOURCE_CHANGED");
+                        } catch (IOException changed) { throw new java.io.UncheckedIOException(changed); }
+                    }
+                    authors.observe(request.authorId(), request.authorName());
+                    boolean created = request.workType() == WorkType.ARTWORK ? registerArtwork(request, extensions) : handler.register(request);
+                    if (created) files.save(request);
+                    return created;
+                }));
+                lifecycle.publish(new DownloadEvent(attempt, written ? DownloadEvent.Phase.COMPLETED : DownloadEvent.Phase.CANCELLED));
+                return written;
+            } catch (RuntimeException failure) {
+                lifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.FAILED));
+                if (failure instanceof java.io.UncheckedIOException io) throw io.getCause();
+                throw failure;
+            }
         }
     }
     private boolean registerArtwork(WorkFileImportRequest r, Set<String> extensions) {

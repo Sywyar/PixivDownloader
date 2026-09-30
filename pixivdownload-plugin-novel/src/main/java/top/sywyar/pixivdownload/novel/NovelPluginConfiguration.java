@@ -214,13 +214,14 @@ public class NovelPluginConfiguration {
             @Qualifier("novelPluginMessages") MessageResolver messages,
             NovelAutoTranslateService novelAutoTranslateService,
             WorkMetadataCapture workMetadataCapture,
-            @Qualifier("novelQueueTaskTracker") QueueTaskTracker taskTracker) {
+            @Qualifier("novelQueueTaskTracker") QueueTaskTracker taskTracker,
+            top.sywyar.pixivdownload.core.work.service.WorkAssetService workAssets, RuntimePathProvider runtimePaths) {
         return new NovelDownloadService(downloadConfig, workFileNameCatalog, downloadPathGuard,
                 novelDatabase, novelSeriesService,
                 authorObservationService, workCollectionMembership, collectionDownloadRootResolver,
                 pixivBookmarkActions, visitorDownloadQuotaService, pixivImageDownloader,
                 statusRetentionScheduler, downloadExecutionLane, messages, novelAutoTranslateService,
-                workMetadataCapture, taskTracker);
+                workMetadataCapture, taskTracker, workAssets, runtimePaths);
     }
 
     @Bean
@@ -239,11 +240,12 @@ public class NovelPluginConfiguration {
             NovelDownloader novelDownloader,
             NovelMergeService novelMergeService,
             NovelAutoTranslateService novelAutoTranslateService,
-            NovelDownloadExecutionLane downloadExecutionLane) {
+            NovelDownloadExecutionLane downloadExecutionLane,
+            top.sywyar.pixivdownload.core.work.service.WorkAssetService workAssets) {
         return new PixivScheduledNovelWorkExecutor(
                 objectMapper, pixivAjaxClient, workQueryService,
                 workMetadataCapture, novelDownloader, novelMergeService,
-                novelAutoTranslateService, downloadExecutionLane);
+                novelAutoTranslateService, downloadExecutionLane, workAssets);
     }
 
     @Bean

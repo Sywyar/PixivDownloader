@@ -10,6 +10,11 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
+import top.sywyar.pixivdownload.common.PlainFilePathGuard;
+import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.service.WorkDeletionService;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarFiles;
@@ -32,18 +37,30 @@ public class UserQuotaService {
     private final DownloadConfig downloadConfig;
     private final PixivDatabase pixivDatabase;
     private final AppMessages messages;
+    private final ArtworkFileLocator artworkFileLocator;
+    private final NovelMetadataRepository novelMetadataRepository;
+    private final WorkDeletionService workDeletionService;
+    private final top.sywyar.pixivdownload.core.work.service.WorkAssetService workAssetService;
     private final TaskExecutor archiveTaskExecutor;
 
     public UserQuotaService(MultiModeConfig config,
                             DownloadConfig downloadConfig,
                             PixivDatabase pixivDatabase,
                             AppMessages messages,
-                            @Qualifier("archiveTaskExecutor") TaskExecutor archiveTaskExecutor) {
+                            @Qualifier("archiveTaskExecutor") TaskExecutor archiveTaskExecutor,
+                            ArtworkFileLocator artworkFileLocator,
+                            NovelMetadataRepository novelMetadataRepository,
+                            WorkDeletionService workDeletionService,
+                            top.sywyar.pixivdownload.core.work.service.WorkAssetService workAssetService) {
         this.config = config;
         this.downloadConfig = downloadConfig;
         this.pixivDatabase = pixivDatabase;
         this.messages = messages;
         this.archiveTaskExecutor = archiveTaskExecutor;
+        this.artworkFileLocator = artworkFileLocator;
+        this.novelMetadataRepository = novelMetadataRepository;
+        this.workDeletionService = workDeletionService;
+        this.workAssetService = workAssetService;
     }
 
     /** UUID → 用户配额信息 */
@@ -218,7 +235,7 @@ public class UserQuotaService {
             quota.setArchiveToken(token);
         }
 
-        archiveTaskExecutor.execute(() -> buildArchive(token, uuid));
+        submitArchive(entry, () -> buildArchive(token, uuid));
         return token;
     }
 
@@ -230,7 +247,8 @@ public class UserQuotaService {
         entry.setExportType("pack");
         entry.setWorkCount(folders == null ? 0 : folders.size());
         archiveMap.put(token, entry);
-        archiveTaskExecutor.execute(() -> buildAdminArchive(token, folders));
+        List<Path> snapshot = folders == null ? List.of() : new ArrayList<>(folders);
+        submitArchive(entry, () -> buildAdminArchive(token, snapshot));
         return token;
     }
 
@@ -240,6 +258,11 @@ public class UserQuotaService {
      */
     public String triggerAdminFileArchive(List<ArchiveItem> items, String exportType, int workCount,
                                           Runnable afterReady) {
+        return triggerAdminFileArchive(items, exportType, workCount, afterReady, () -> () -> {});
+    }
+
+    public String triggerAdminFileArchive(List<ArchiveItem> items, String exportType, int workCount,
+                                          Runnable afterReady, java.util.function.Supplier<AutoCloseable> sourceLease) {
         String token = UUID.randomUUID().toString();
         long expireTime = System.currentTimeMillis()
                 + (long) config.getQuota().getArchiveExpireMinutes() * 60_000;
@@ -247,7 +270,15 @@ public class UserQuotaService {
         entry.setExportType(exportType);
         entry.setWorkCount(workCount);
         archiveMap.put(token, entry);
-        archiveTaskExecutor.execute(() -> buildAdminFileArchive(token, items, afterReady));
+        List<ArchiveItem> snapshot = items == null ? List.of() : new ArrayList<>(items);
+        submitArchive(entry, () -> {
+            try (var ignored = sourceLease.get()) {
+                buildAdminFileArchive(token, snapshot, afterReady);
+            } catch (Exception failure) {
+                entry.setStatus("error");
+                log.error(message("archive.log.admin.create.failed", token), failure);
+            }
+        });
         return token;
     }
 
@@ -260,125 +291,92 @@ public class UserQuotaService {
                 .toList();
     }
 
-    private void buildArchive(String token, String uuid) {
-        ArchiveEntry entry = archiveMap.get(token);
-        if (entry == null) return;
-
-        entry.setStatus("creating");
-
-        UserQuota quota = quotaMap.get(uuid);
-        if (quota == null || quota.getDownloadedFolders().isEmpty()) {
-            entry.setStatus("empty");
-            log.info(message("archive.log.user.empty", token, uuid));
-            return;
-        }
-
-        List<Path> folders = new ArrayList<>(quota.getDownloadedFolders());
-
+    private void submitArchive(ArchiveEntry entry, Runnable task) {
         try {
-            Path archiveDir = Paths.get(downloadConfig.getRootFolder(), "_archives");
-            Files.createDirectories(archiveDir);
-            Path archivePath = archiveDir.resolve(token + ".zip");
-
-            try (ZipOutputStream zos = new ZipOutputStream(
-                    new BufferedOutputStream(new FileOutputStream(archivePath.toFile()),
-                            64 * 1024))) {
-                zos.setLevel(Deflater.BEST_COMPRESSION);
-
-                for (Path folder : folders) {
-                    if (!Files.exists(folder)) continue;
-                    String folderName = folder.getFileName().toString();
-                    try (var stream = Files.walk(folder)) {
-                        // meta sidecar 是作品元数据、非下载内容，配额打包排除 *.meta.json。
-                        stream.filter(Files::isRegularFile)
-                                .filter(file -> !WorkSidecarFiles.isSidecarFile(file))
-                                .forEach(file -> {
-                            try {
-                                String entryName = folderName + "/" + file.getFileName();
-                                zos.putNextEntry(new ZipEntry(entryName));
-                                Files.copy(file, zos);
-                                zos.closeEntry();
-                            } catch (IOException e) {
-                                throw new UncheckedIOException(e);
-                            }
-                        });
-                    }
+            archiveTaskExecutor.execute(task);
+        } catch (RuntimeException failure) {
+            archiveMap.remove(entry.getToken(), entry);
+            UserQuota quota = entry.getUserUuid() == null ? null : quotaMap.get(entry.getUserUuid());
+            if (quota != null) {
+                synchronized (quota) {
+                    if (entry.getToken().equals(quota.getArchiveToken())) quota.setArchiveToken(null);
                 }
             }
-
-            entry.setArchivePath(archivePath);
-            entry.setStatus("ready");
-            log.info(message("archive.log.created", token, archivePath));
-
-            // pack-and-delete 模式：打包后立即删除源文件及下载历史记录
-            // never-delete / timed-delete 模式：保留源文件，不删除历史记录
-            String pdMode = config.getPostDownloadMode();
-            if (!"never-delete".equals(pdMode) && !"timed-delete".equals(pdMode)) {
-                for (Path folder : folders) {
-                    deleteArtworkFolder(folder);
-                }
-            }
-            quota.getDownloadedFolders().removeAll(folders);
-
-        } catch (Exception e) {
-            entry.setStatus("error");
-            deletePartialArchive(token);
-            log.error(message("archive.log.create.failed", token, uuid), e);
+            throw failure;
         }
     }
 
+    private void buildArchive(String token, String uuid) {
+        UserQuota quota = quotaMap.get(uuid);
+        List<Path> folders = quota == null ? List.of() : new ArrayList<>(quota.getDownloadedFolders());
+        try (var artworks = top.sywyar.pixivdownload.core.work.service.WorkFileLock.acquireAll(WorkType.ARTWORK, folderWorkIds(folders, false));
+             var novels = top.sywyar.pixivdownload.core.work.service.WorkFileLock.acquireAll(WorkType.NOVEL, folderWorkIds(folders, true))) {
+            Map<Path, java.util.function.BooleanSupplier> deletions = new LinkedHashMap<>();
+            for (Path folder : folders) deletions.put(folder, prepareFolderDeletion(folder));
+            buildFolderArchive(token, folders, () -> {
+                String mode = config.getPostDownloadMode();
+                for (Path folder : folders) {
+                    if ("never-delete".equals(mode) || "timed-delete".equals(mode) || deletions.get(folder).getAsBoolean()) {
+                        quota.getDownloadedFolders().remove(folder);
+                    }
+                }
+            });
+        } catch (Exception failure) {
+            ArchiveEntry entry = archiveMap.get(token);
+            if (entry != null) entry.setStatus("error");
+            log.error(message("archive.log.admin.create.failed", token), failure);
+        }
+    }
+
+    private static List<Long> folderWorkIds(List<Path> folders, boolean novels) {
+        List<Long> ids = new ArrayList<>();
+        for (Path folder : folders) {
+            if (folder.getFileName() == null) continue;
+            String name = folder.getFileName().toString();
+            if (novels != name.startsWith("novel-")) continue;
+            try { ids.add(Long.parseLong(novels ? name.substring(6) : name)); }
+            catch (NumberFormatException ignored) { /* 非作品目录不参与作品删除。 */ }
+        }
+        return ids;
+    }
+
     private void buildAdminArchive(String token, List<Path> folders) {
+        buildFolderArchive(token, folders, null);
+    }
+
+    private void buildFolderArchive(String token, List<Path> folders, Runnable afterReady) {
         ArchiveEntry entry = archiveMap.get(token);
         if (entry == null) return;
-
-        entry.setStatus("creating");
-
-        if (folders == null || folders.isEmpty()) {
-            entry.setStatus("empty");
+        if (folders.isEmpty()) {
+            buildAdminFileArchive(token, List.of(), afterReady);
             return;
         }
-
         try {
-            Path archiveDir = Paths.get(downloadConfig.getRootFolder(), "_archives");
-            Files.createDirectories(archiveDir);
-            Path archivePath = archiveDir.resolve(token + ".zip");
-
-            try (ZipOutputStream zos = new ZipOutputStream(
-                    new BufferedOutputStream(new FileOutputStream(archivePath.toFile()),
-                            64 * 1024))) {
-                zos.setLevel(Deflater.BEST_COMPRESSION);
-
-                int processed = 0;
-                for (Path folder : folders) {
-                    processed++;
-                    entry.setProcessedWorks(processed);
-                    if (folder == null || !Files.exists(folder)) continue;
-                    String folderName = folder.getFileName().toString();
-                    try (var stream = Files.walk(folder)) {
-                        // meta sidecar 是作品元数据、非下载内容，配额打包排除 *.meta.json。
-                        stream.filter(Files::isRegularFile)
-                                .filter(file -> !WorkSidecarFiles.isSidecarFile(file))
-                                .forEach(file -> {
-                            try {
-                                String entryName = folderName + "/" + file.getFileName();
-                                zos.putNextEntry(new ZipEntry(entryName));
-                                Files.copy(file, zos);
-                                zos.closeEntry();
-                            } catch (IOException e) {
-                                throw new UncheckedIOException(e);
-                            }
-                        });
+            List<ArchiveItem> items = new ArrayList<>();
+            Path archiveDir = Paths.get(downloadConfig.getRootFolder(), "_archives").toAbsolutePath().normalize();
+            for (Path folder : folders) {
+                Path source = folder.toAbsolutePath().normalize();
+                if (!PlainFilePathGuard.isPlainDirectory(source)) throw new IOException("Unsafe archive directory: " + source);
+                // 输入不能包含输出目录，也不能位于输出目录内。
+                if (archiveDir.startsWith(source) || source.startsWith(archiveDir)) {
+                    throw new IOException("Archive source overlaps its output directory");
+                }
+                try (var stream = Files.walk(source)) {
+                    var iterator = stream.iterator();
+                    while (iterator.hasNext()) {
+                        Path file = iterator.next();
+                        if (PlainFilePathGuard.isPlainDirectory(file)) continue;
+                        PlainFilePathGuard.requirePlainRegularFile(file);
+                        if (WorkSidecarFiles.isSidecarFile(file)) continue;
+                        String name = source.getFileName() + "/" + source.relativize(file).toString().replace('\\', '/');
+                        items.add(ArchiveItem.file(file, name));
                     }
                 }
             }
-
-            entry.setArchivePath(archivePath);
-            entry.setStatus("ready");
-            log.info(message("archive.log.admin.created", token, archivePath, folders.size()));
-        } catch (Exception e) {
+            buildAdminFileArchive(token, items, afterReady);
+        } catch (Exception failure) {
             entry.setStatus("error");
-            deletePartialArchive(token);
-            log.error(message("archive.log.admin.create.failed", token), e);
+            log.error(message("archive.log.admin.create.failed", token), failure);
         }
     }
 
@@ -386,7 +384,10 @@ public class UserQuotaService {
         ArchiveEntry entry = archiveMap.get(token);
         if (entry == null) return;
 
-        entry.setStatus("creating");
+        synchronized (entry) {
+            if (archiveMap.get(token) != entry || "cancelled".equals(entry.getStatus()) || entry.getExpireTime() <= System.currentTimeMillis()) return;
+            entry.setStatus("creating");
+        }
 
         if (items == null || items.isEmpty()) {
             entry.setStatus("empty");
@@ -400,6 +401,8 @@ public class UserQuotaService {
             Set<String> entryNames = new HashSet<>();
             Set<Long> startedWorks = new HashSet<>();
             int written = 0;
+            Map<Path, java.nio.file.attribute.BasicFileAttributes> sources = new LinkedHashMap<>();
+            entry.setArchivePath(archivePath);
 
             try (ZipOutputStream zos = new ZipOutputStream(
                     new BufferedOutputStream(new FileOutputStream(archivePath.toFile()),
@@ -407,22 +410,30 @@ public class UserQuotaService {
                 zos.setLevel(Deflater.BEST_COMPRESSION);
 
                 for (ArchiveItem item : items) {
-                    if (item == null) continue;
+                    if (archiveMap.get(token) != entry || "cancelled".equals(entry.getStatus()) || entry.getExpireTime() <= System.currentTimeMillis()) {
+                        throw new IOException("Archive task is no longer active");
+                    }
+                    if (item == null) throw new IOException("Missing archive item");
                     if (item.workId() != null && startedWorks.add(item.workId())) {
                         entry.setProcessedWorks(startedWorks.size());
                     }
                     String entryName = uniqueEntryName(safeZipEntryName(item.entryName()), entryNames);
-                    if (entryName == null) continue;
+                    if (entryName == null) throw new IOException("Invalid archive entry name");
                     try {
                         if (item.bytes() != null) {
                             zos.putNextEntry(new ZipEntry(entryName));
                             zos.write(item.bytes());
                             zos.closeEntry();
                             written++;
-                        } else if (item.path() != null && Files.isRegularFile(item.path())) {
+                        } else {
+                            PlainFilePathGuard.requirePlainRegularFile(item.path());
+                            var before = Files.readAttributes(item.path(), java.nio.file.attribute.BasicFileAttributes.class,
+                                    LinkOption.NOFOLLOW_LINKS);
                             zos.putNextEntry(new ZipEntry(entryName));
                             Files.copy(item.path(), zos);
                             zos.closeEntry();
+                            requireUnchangedSource(item.path(), before);
+                            sources.put(item.path(), before);
                             written++;
                         }
                     } catch (IOException e) {
@@ -437,21 +448,29 @@ public class UserQuotaService {
                 return;
             }
 
-            if (afterReady != null) {
-                try {
-                    afterReady.run();
-                } catch (Exception e) {
-                    log.warn(message("archive.log.admin.post-action.failed", token), e);
+            synchronized (entry) {
+                if (archiveMap.get(token) != entry || "cancelled".equals(entry.getStatus()) || entry.getExpireTime() <= System.currentTimeMillis()) {
+                    deletePartialArchive(entry);
+                    archiveMap.remove(token, entry);
+                    return;
                 }
+                if (afterReady != null) {
+                    try {
+                        for (var source : sources.entrySet()) requireUnchangedSource(source.getKey(), source.getValue());
+                        afterReady.run();
+                    } catch (Exception e) {
+                        // ZIP 已完整关闭；删源失败必须保留这份可下载副本。
+                        log.warn(message("archive.log.admin.post-action.failed", token), e);
+                    }
+                }
+                entry.setFileCount(written);
+                entry.setStatus("ready");
             }
-
-            entry.setArchivePath(archivePath);
-            entry.setFileCount(written);
-            entry.setStatus("ready");
             log.info(message("archive.log.admin.file-archive.created", token, archivePath, written));
         } catch (Exception e) {
-            entry.setStatus("error");
-            deletePartialArchive(token);
+            boolean cancelled = "cancelled".equals(entry.getStatus()) || archiveMap.get(token) != entry;
+            entry.setStatus(cancelled ? "cancelled" : "error");
+            deletePartialArchive(entry);
             log.error(message("archive.log.admin.create.failed", token), e);
         }
     }
@@ -505,26 +524,40 @@ public class UserQuotaService {
     }
 
     public void deleteArchive(String token) {
-        ArchiveEntry entry = archiveMap.remove(token);
-        if (entry != null && entry.getArchivePath() != null) {
-            try {
-                Files.deleteIfExists(entry.getArchivePath());
-            } catch (Exception e) {
-                log.warn(message("archive.log.file.delete.failed", entry.getArchivePath()), e);
+        ArchiveEntry entry = archiveMap.get(token);
+        if (entry == null) return;
+        synchronized (entry) {
+            entry.setStatus("cancelled");
+            if (entry.getArchivePath() != null) {
+                try {
+                    Files.deleteIfExists(entry.getArchivePath());
+                } catch (IOException failure) {
+                    log.warn(message("archive.log.file.delete.failed", entry.getArchivePath()), failure);
+                    return;
+                }
             }
+            archiveMap.remove(token, entry);
+        }
+    }
+
+    private static void requireUnchangedSource(Path path, java.nio.file.attribute.BasicFileAttributes before)
+            throws IOException {
+        PlainFilePathGuard.requirePlainRegularFile(path);
+        var after = Files.readAttributes(path, java.nio.file.attribute.BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+        if (before.size() != after.size() || !before.lastModifiedTime().equals(after.lastModifiedTime())
+                || !Objects.equals(before.fileKey(), after.fileKey())) {
+            throw new IOException("Archive source changed: " + path);
         }
     }
 
     /**
-     * 归档构建失败时删除可能已部分写入的 zip。失败的条目永远不会 {@code setArchivePath}，
-     * 因此残留文件不会被运行期或过期清理触达，必须在此就地删除，避免留到下次启动清理。
+     * 归档失败或取消后清理实际输出路径；失败时保留条目，供过期清理重试。
      */
-    private void deletePartialArchive(String token) {
+    private void deletePartialArchive(ArchiveEntry entry) {
         try {
-            Path archivePath = Paths.get(downloadConfig.getRootFolder(), "_archives", token + ".zip");
-            Files.deleteIfExists(archivePath);
+            if (entry.getArchivePath() != null) Files.deleteIfExists(entry.getArchivePath());
         } catch (Exception e) {
-            log.warn(message("archive.log.partial.delete.failed", token), e);
+            log.warn(message("archive.log.partial.delete.failed", entry.getToken()), e);
         }
     }
 
@@ -563,21 +596,11 @@ public class UserQuotaService {
     @Scheduled(fixedRate = 60_000)
     public void cleanupExpiredArchives() {
         long now = System.currentTimeMillis();
-        archiveMap.entrySet().removeIf(e -> {
-            ArchiveEntry ae = e.getValue();
-            if (now > ae.getExpireTime()) {
-                if (ae.getArchivePath() != null) {
-                    try {
-                        Files.deleteIfExists(ae.getArchivePath());
-                    } catch (Exception e1) {
-                        log.warn(message("archive.log.expired-file.delete.failed", ae.getArchivePath()), e1);
-                    }
-                }
-                log.info(message("archive.log.expired.deleted", e.getKey()));
-                return true;
+        for (ArchiveEntry entry : archiveMap.values()) {
+            if (now > entry.getExpireTime() || "cancelled".equals(entry.getStatus())) {
+                deleteArchive(entry.getToken());
             }
-            return false;
-        });
+        }
     }
 
     /** timed-delete 模式：每小时扫描并删除超过 deleteAfterHours 的作品文件 */
@@ -593,65 +616,48 @@ public class UserQuotaService {
         }
     }
 
-    /** 删除作品文件夹及其下载历史记录（统计数据不受影响）。*/
-    private void deleteArtworkFolder(Path folder) {
-        deleteArtworkFolder(folder, tryParseArtworkId(folder));
-    }
-
-    /** 删除作品文件夹及其下载历史记录（统计数据不受影响）。*/
-    private void deleteArtworkFolder(ArtworkRecord artwork) {
-        if (artwork == null) {
-            return;
-        }
-        deleteArtworkFolder(resolveArtworkFolder(artwork), artwork.artworkId());
-    }
-
-    /** 删除作品文件夹及其下载历史记录（统计数据不受影响）。*/
-    private void deleteArtworkFolder(Path folder, Long artworkId) {
+    /** 固定归档开始时的作品记录；目录名只作查库线索，不构成删除授权。 */
+    private java.util.function.BooleanSupplier prepareFolderDeletion(Path folder) {
+        if (folder == null || folder.getFileName() == null) return () -> false;
         try {
-            if (folder != null && Files.exists(folder)) {
-                try (var stream = Files.walk(folder)) {
-                    stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
-                }
-                log.info(message("quota.log.folder.deleted", folder));
+            String name = folder.getFileName().toString();
+            if (name.startsWith("novel-")) {
+                long id = Long.parseLong(name.substring(6));
+                var novel = novelMetadataRepository.getNovel(id);
+                if (novel == null || novel.deleted() || !samePath(folder, novel.folder())) return () -> false;
+                return () -> {
+                    try (var ignored = top.sywyar.pixivdownload.core.work.service.WorkFileLock.acquire(WorkType.NOVEL, id)) {
+                        return novel.equals(novelMetadataRepository.getNovel(id))
+                                && workAssetService.hasCompleteFiles(WorkType.NOVEL, id)
+                                && workDeletionService.delete(WorkType.NOVEL, id);
+                    }
+                };
             }
-        } catch (Exception e) {
-            log.warn(message("quota.log.folder.delete.failed", folder), e);
-        }
-        try {
-            if (artworkId == null) {
-                return;
-            }
-            pixivDatabase.deleteArtwork(artworkId);
-            log.info(message("quota.log.history.deleted", artworkId));
-        } catch (Exception e) {
-            log.warn(message("quota.log.history.delete.failed", folder), e);
+            long id = Long.parseLong(name);
+            ArtworkRecord artwork = pixivDatabase.getArtwork(id);
+            if (artwork == null || !samePath(folder, artworkFileLocator.resolveArtworkDirectory(artwork))) return () -> false;
+            return () -> workAssetService.hasCompleteFiles(WorkType.ARTWORK, id) && deleteArtworkFolder(artwork);
+        } catch (Exception failure) {
+            log.warn(message("quota.log.folder.delete.failed", folder), failure);
+            return () -> false;
         }
     }
 
-    private Path resolveArtworkFolder(ArtworkRecord artwork) {
-        if (artwork == null) {
-            return null;
+    private boolean deleteArtworkFolder(ArtworkRecord artwork) {
+        if (artwork == null || artwork.deleted() || artworkFileLocator.isReadOnly(artwork)) return false;
+        try (var ignored = top.sywyar.pixivdownload.core.work.service.WorkFileLock.acquire(WorkType.ARTWORK, artwork.artworkId())) {
+            if (!artwork.equals(pixivDatabase.getArtwork(artwork.artworkId()))) return false;
+            return artworkFileLocator.deleteArtworkFiles(artwork,
+                    () -> pixivDatabase.deleteArtwork(artwork.artworkId()));
+        } catch (Exception failure) {
+            log.warn(message("quota.log.folder.delete.failed", artwork.folder()), failure);
+            return false;
         }
-        String folder = artwork.moved() && artwork.moveFolder() != null && !artwork.moveFolder().isBlank()
-                ? artwork.moveFolder()
-                : artwork.folder();
-        if (folder == null || folder.isBlank()) {
-            return null;
-        }
-        return Paths.get(folder);
     }
 
-    private Long tryParseArtworkId(Path folder) {
-        if (folder == null || folder.getFileName() == null) {
-            return null;
-        }
-        try {
-            return Long.parseLong(folder.getFileName().toString());
-        } catch (NumberFormatException ignored) {
-            // 文件夹名不是纯数字（如用户名子目录），跳过
-            return null;
-        }
+    private static boolean samePath(Path path, String stored) {
+        return stored != null && !stored.isBlank()
+                && path.toAbsolutePath().normalize().equals(Paths.get(stored).toAbsolutePath().normalize());
     }
 
     private String message(String code, Object... args) {

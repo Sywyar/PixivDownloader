@@ -2,7 +2,12 @@ package top.sywyar.pixivdownload.core.db;
 
 import org.apache.ibatis.mapping.Environment;
 import org.apache.ibatis.session.*;
-import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
+import org.mybatis.spring.transaction.SpringManagedTransactionFactory;
+import org.mybatis.spring.SqlSessionTemplate;
+import org.springframework.aop.framework.ProxyFactory;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
+import org.springframework.transaction.interceptor.TransactionInterceptor;
 import org.junit.jupiter.api.*;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
@@ -17,6 +22,9 @@ import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
 
 @DisplayName("PixivDatabase 集成测试")
 class PixivDatabaseTest {
+    @org.junit.jupiter.api.AfterEach
+    void closeFileOperationTestDatabases() { top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.close(); }
+
 
     private PixivDatabase pixivDatabase;
     private SingleConnectionDataSource dataSource;
@@ -29,14 +37,14 @@ class PixivDatabaseTest {
         dataSource.setUrl("jdbc:sqlite::memory:");
         dataSource.setSuppressClose(true);
 
-        Environment env = new Environment("test", new JdbcTransactionFactory(), dataSource);
+        Environment env = new Environment("test", new SpringManagedTransactionFactory(), dataSource);
         Configuration config = new Configuration(env);
         config.setMapUnderscoreToCamelCase(true);
         config.addMapper(PixivMapper.class);
         config.addMapper(PathPrefixMapper.class);
 
         SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
-        sqlSession = factory.openSession(true); // auto-commit
+        sqlSession = new SqlSessionTemplate(factory);
         PixivMapper mapper = sqlSession.getMapper(PixivMapper.class);
         PathPrefixMapper pathPrefixMapper = sqlSession.getMapper(PathPrefixMapper.class);
 
@@ -59,12 +67,40 @@ class PixivDatabaseTest {
 
         pixivDatabase = new PixivDatabase(mapper, TestI18nBeans.appMessages(), codec, initializer);
         pixivDatabase.init();
+        ProxyFactory proxy = new ProxyFactory(pixivDatabase);
+        proxy.addAdvice(new TransactionInterceptor(new DataSourceTransactionManager(dataSource),
+                new AnnotationTransactionAttributeSource()));
+        pixivDatabase = (PixivDatabase) proxy.getProxy();
     }
 
     @AfterEach
     void tearDown() {
-        sqlSession.close();
         dataSource.destroy();
+    }
+
+    @Test
+    @DisplayName("真实 SQLite 软删除事务失败时同时恢复文件、命名事实与作品记录")
+    void deletionRollsBackFilesAndDatabase(@org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
+        String property = top.sywyar.pixivdownload.config.RuntimeFiles.DATA_DIR_PROPERTY;
+        String previous = System.getProperty(property);
+        System.setProperty(property, directory.resolve("data").toString());
+        try {
+            java.nio.file.Path image = directory.resolve("image.png");
+            java.nio.file.Files.writeString(image, "original bytes", java.nio.charset.StandardCharsets.UTF_8);
+            insertArtwork(12345L, "fixture", directory.toString(), 1, "png", 100L, 0);
+            pixivDatabase.replaceArtworkFileNames(12345L, List.of("image"));
+            var jdbc = new org.springframework.jdbc.core.JdbcTemplate(dataSource);
+            jdbc.execute("CREATE TRIGGER fail_delete BEFORE UPDATE OF deleted ON artworks "
+                    + "BEGIN SELECT RAISE(ABORT, 'injected transaction failure'); END");
+            var deletion = new top.sywyar.pixivdownload.core.asset.StagedFileDeletion(TestI18nBeans.appMessages(), top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.journal(dataSource));
+            assertThatThrownBy(() -> deletion.deleteAtomically(List.of(image),
+                    () -> pixivDatabase.markArtworkDeleted(12345L))).isInstanceOf(RuntimeException.class);
+            assertThat(java.nio.file.Files.readString(image)).isEqualTo("original bytes");
+            assertThat(pixivDatabase.hasActiveArtwork(12345L)).isTrue();
+            assertThat(pixivDatabase.getArtworkFileNames(12345L)).containsExactly("image");
+        } finally {
+            if (previous == null) System.clearProperty(property); else System.setProperty(property, previous);
+        }
     }
 
     // ========== insertArtwork & getArtwork ==========
@@ -202,6 +238,49 @@ class PixivDatabaseTest {
             ArtworkRecord record = pixivDatabase.getArtwork(12345L);
             assertThat(record.title()).isEqualTo("原始标题");
             assertThat(record.folder()).isEqualTo("/path/1");
+        }
+
+        @Test
+        @DisplayName("成功重下更新目录页数格式时间并清除旧移动位置")
+        void redownloadReplacesStoredFileFacts() {
+            insertArtwork(42L, "old", "/old/42", 3, "jpg", 100L, 0);
+            pixivDatabase.updateArtworkMove(42L, "/moved/42", 200L);
+            new top.sywyar.pixivdownload.core.download.ArtworkDownloadHistoryAdapter(pixivDatabase).record(
+                    new top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadCompletion(
+                            42L, "new", java.nio.file.Path.of("new", "42"), 2, java.util.Set.of("png"), 300L,
+                            0, false, null, null, "{artwork_id}_p{page}", null, null, null, List.of()));
+            ArtworkRecord saved = pixivDatabase.getArtwork(42L);
+            assertThat(saved.folder()).isEqualTo(java.nio.file.Path.of("new", "42").toAbsolutePath().toString());
+            assertThat(saved.count()).isEqualTo(2);
+            assertThat(saved.extensions()).isEqualTo("png");
+            assertThat(saved.time()).isEqualTo(300L);
+            assertThat(saved.moved()).isFalse();
+            assertThat(saved.moveFolder()).isNull();
+            assertThat(saved.moveTime()).isNull();
+        }
+
+        @Test
+        @DisplayName("下载基名快照不随标题和分级回填变化且软硬删除均清理快照")
+        void fileNamesSurviveMetadataChangesAndFollowDeletion() {
+            var history = new top.sywyar.pixivdownload.core.download.ArtworkDownloadHistoryAdapter(pixivDatabase);
+            var completion = new top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadCompletion(
+                    43L, "Original title", java.nio.file.Path.of("43"), 1, java.util.Set.of("jpg"), 400L,
+                    0, false, null, null, "{artwork_title}_p{page}", null, null, null, List.of());
+            history.record(completion);
+            pixivDatabase.refreshArtworkMetadataAfterDownload(43L, "Updated title", 2, true,
+                    null, null, pixivDatabase.getArtwork(43L).fileName(), null, null, null);
+            var locator = new top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator(
+                    pixivDatabase, new top.sywyar.pixivdownload.core.appconfig.DownloadConfig(), TestI18nBeans.appMessages(),
+                    new top.sywyar.pixivdownload.core.asset.StagedFileDeletion(TestI18nBeans.appMessages(), top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.journal(dataSource)),
+                    org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ArtworkMediaStore.class),
+                    org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ExternalWorkFiles.class));
+            assertThat(locator.resolveStoredFileBaseName(pixivDatabase.getArtwork(43L), 0)).isEqualTo("Original title_p0");
+            pixivDatabase.markArtworkDeleted(43L);
+            assertThat(pixivDatabase.getArtworkFileNames(43L)).isEmpty();
+            history.record(completion);
+            assertThat(pixivDatabase.getArtworkFileNames(43L)).containsExactly("Original title_p0");
+            pixivDatabase.deleteArtwork(43L);
+            assertThat(pixivDatabase.getArtworkFileNames(43L)).isEmpty();
         }
 
         @Test

@@ -28,6 +28,7 @@ import static org.mockito.Mockito.when;
 @DisplayName("小说画廊可见性与批量下载状态")
 class NovelGalleryControllerDownloadedBatchTest {
 
+    private WorkAssetService assets;
     private NovelDatabase novelDatabase;
     private NovelGalleryService novelGalleryService;
     private WorkVisibilityService workVisibilityService;
@@ -35,6 +36,8 @@ class NovelGalleryControllerDownloadedBatchTest {
 
     @BeforeEach
     void setUp() {
+        assets = mock(WorkAssetService.class);
+        when(assets.hasCompleteFiles(WorkType.NOVEL, 1L)).thenReturn(true);
         novelDatabase = mock(NovelDatabase.class);
         novelGalleryService = mock(NovelGalleryService.class);
         workVisibilityService = mock(WorkVisibilityService.class);
@@ -43,8 +46,17 @@ class NovelGalleryControllerDownloadedBatchTest {
                 mock(NovelBatchService.class),
                 mock(NovelSeriesService.class),
                 novelDatabase,
-                mock(WorkAssetService.class),
+                assets,
                 workVisibilityService);
+    }
+
+    @Test
+    @DisplayName("已登记但文件不完整的小说不进入已下载 ID 集合")
+    void incompleteNovelIsNotDownloaded() {
+        when(novelDatabase.getDownloadedStatuses(List.of(1L))).thenReturn(List.of(new NovelDownloadedStatusRow(1L, false)));
+        when(assets.hasCompleteFiles(WorkType.NOVEL, 1L)).thenReturn(false);
+        var response = controller.downloadedBatch(new NovelGalleryController.NovelDownloadedBatchRequest(List.of(1L)), WorkVisibilityScope.unrestricted());
+        assertThat(response.getBody().novelIds()).isEmpty();
     }
 
     @Test

@@ -1777,25 +1777,22 @@
 
     // 小说三态判重：null = 未下载；{deleted:false} = 已下载；{deleted:true} = 已下载但被画廊删除（软删除）
     async function checkNovelDownloaded(novelId) {
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
+            const fail = (status = 0) => reject(new Error(t('single.alert.download-failed', null,
+                        {message: 'HTTP ' + status})));
             GM_xmlhttpRequest({
                 method: 'GET',
                 url: `${serverBase}/api/novel/${encodeURIComponent(novelId)}/downloaded`,
                 timeout: 5000,
-                onload: (res) => {
+                onload: res => {
+                    if (res.status !== 200) { fail(res.status); return; }
                     try {
-                        if (res.status !== 200) {
-                            resolve(null);
-                            return;
-                        }
                         const data = JSON.parse(res.responseText);
-                        resolve(data.downloaded ? {deleted: !!data.deleted} : null);
-                    } catch (e) {
-                        resolve(null);
-                    }
+                        if (!data || typeof data.downloaded !== 'boolean' || typeof data.deleted !== 'boolean') { fail(); return; }
+                        resolve(data.downloaded ? {deleted: data.deleted} : null);
+                    } catch { fail(); }
                 },
-                onerror: () => resolve(null),
-                ontimeout: () => resolve(null)
+                onerror: () => fail(), ontimeout: () => fail()
             });
         });
     }
@@ -1811,18 +1808,18 @@
             alert(t('single.alert.backend-not-running', null, {serverBase: serverBase}));
             return;
         }
-        const skipHistory = GM_getValue(KEY_SKIP_HISTORY, false);
-        if (skipHistory) {
-            const already = await checkNovelDownloaded(novelId);
-            // 软删除记录 + 允许重下：当作未下载继续走正常下载流程（落库后删除标记自动复位）
-            if (already && !(already.deleted && GM_getValue(KEY_REDOWNLOAD_DELETED, false))) {
-                alert(already.deleted
-                    ? t('single.alert.novel-history-skipped-deleted', null, {novelId: novelId})
-                    : t('single.alert.novel-history-skipped', null, {novelId: novelId}));
-                return;
-            }
-        }
         try {
+            const skipHistory = GM_getValue(KEY_SKIP_HISTORY, false);
+            if (skipHistory) {
+                const already = await checkNovelDownloaded(novelId);
+                // 软删除记录 + 允许重下：当作未下载继续走正常下载流程（落库后删除标记自动复位）
+                if (already && !(already.deleted && GM_getValue(KEY_REDOWNLOAD_DELETED, false))) {
+                    alert(already.deleted
+                        ? t('single.alert.novel-history-skipped-deleted', null, {novelId: novelId})
+                        : t('single.alert.novel-history-skipped', null, {novelId: novelId}));
+                    return;
+                }
+            }
             alert(t('single.alert.novel-start-download', null, {novelId: novelId}));
             const meta = await getNovelMeta(novelId);
             if (!UserscriptDownloadOptions.matches(meta, 'novel')) {
@@ -2132,36 +2129,24 @@
 
     // 下载图片
     async function checkDownloaded(artworkId, verifyFiles = false) {
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
             const query = verifyFiles ? '?verifyFiles=true' : '';
+            const fail = (status = 0) => reject(new Error(t('single.alert.download-failed', null,
+                    {message: 'HTTP ' + status})));
             GM_xmlhttpRequest({
-                method: 'GET',
-                url: `${getDownloadedCheckBase()}/${artworkId}${query}`,
+                method: 'GET', url: `${getDownloadedCheckBase()}/${artworkId}${query}`,
                 timeout: 5000,
-                onload: function (response) {
-                    if (response.status === 401) {
-                        handleUnauthorized();
-                        resolve(null);
-                        return;
-                    }
-                    if (response.status !== 200) {
-                        resolve(null);
-                        return;
-                    }
+                onload: response => {
+                    if (response.status === 401) handleUnauthorized();
+                    if (response.status === 400) { resolve(null); return; }
+                    if (response.status !== 200) { fail(response.status); return; }
                     try {
                         const data = JSON.parse(response.responseText);
-                        // 三态判重：null = 未下载；{deleted} = 已下载（deleted 表示已被画廊软删除）
-                        resolve(data.artworkId ? {deleted: !!data.deleted} : null);
-                    } catch (e) {
-                        resolve(null);
-                    }
+                        if (!data.artworkId) { fail(response.status); return; }
+                        resolve({deleted: !!data.deleted});
+                    } catch { fail(response.status); }
                 },
-                onerror: function () {
-                    resolve(null);
-                },
-                ontimeout: function () {
-                    resolve(null);
-                }
+                onerror: () => fail(), ontimeout: () => fail()
             });
         });
     }
@@ -2183,21 +2168,21 @@
             return;
         }
 
-        // 检查是否已下载
-        const skipHistory = GM_getValue(KEY_SKIP_HISTORY, false);
-        const verifyHistoryFiles = skipHistory && GM_getValue(KEY_VERIFY_HISTORY_FILES, false);
-        if (skipHistory) {
-            const downloaded = await checkDownloaded(artworkId, verifyHistoryFiles);
-            // 软删除记录 + 允许重下：当作未下载继续走正常下载流程（落库后删除标记自动复位）
-            if (downloaded && !(downloaded.deleted && GM_getValue(KEY_REDOWNLOAD_DELETED, false))) {
-                alert(downloaded.deleted
-                    ? t('single.alert.history-skipped-deleted', null, { artworkId: artworkId })
-                    : t('single.alert.history-skipped', null, { artworkId: artworkId }));
-                return;
-            }
-        }
-
         try {
+            // 检查是否已下载
+            const skipHistory = GM_getValue(KEY_SKIP_HISTORY, false);
+            const verifyHistoryFiles = skipHistory && GM_getValue(KEY_VERIFY_HISTORY_FILES, false);
+            if (skipHistory) {
+                const downloaded = await checkDownloaded(artworkId, verifyHistoryFiles);
+                // 软删除记录 + 允许重下：当作未下载继续走正常下载流程（落库后删除标记自动复位）
+                if (downloaded && !(downloaded.deleted && GM_getValue(KEY_REDOWNLOAD_DELETED, false))) {
+                    alert(downloaded.deleted
+                        ? t('single.alert.history-skipped-deleted', null, { artworkId: artworkId })
+                        : t('single.alert.history-skipped', null, { artworkId: artworkId }));
+                    return;
+                }
+            }
+
             // 显示下载开始提示
             alert(t('single.alert.start-download', null, { artworkId: artworkId }));
 

@@ -1,6 +1,14 @@
 package top.sywyar.pixivdownload.quota;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
+import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
+import top.sywyar.pixivdownload.core.asset.ArtworkMediaStore;
+import top.sywyar.pixivdownload.core.asset.ExternalWorkFiles;
+import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
+import top.sywyar.pixivdownload.core.work.service.WorkDeletionService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -24,12 +32,15 @@ import java.util.zip.ZipInputStream;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.*;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("UserQuotaService 单元测试")
 class UserQuotaServiceTest {
+    @org.junit.jupiter.api.AfterEach
+    void closeFileOperationTestDatabases() { top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.close(); }
+
     private static final TaskExecutor DIRECT_EXECUTOR = Runnable::run;
 
     @TempDir
@@ -40,11 +51,18 @@ class UserQuotaServiceTest {
     @Mock
     private PixivDatabase pixivDatabase;
 
+    @Mock private NovelMetadataRepository novelMetadataRepository;
+    @Mock private WorkDeletionService workDeletionService;
+    @Mock private top.sywyar.pixivdownload.core.work.service.WorkAssetService workAssetService;
+    private ArtworkFileLocator locator;
     private MultiModeConfig multiModeConfig;
     private UserQuotaService userQuotaService;
 
     @BeforeEach
     void setUp() {
+        System.setProperty(RuntimeFiles.DATA_DIR_PROPERTY, tempDir.resolve("data").toString());
+        locator = new ArtworkFileLocator(pixivDatabase, downloadConfig, TestI18nBeans.appMessages(),
+                new StagedFileDeletion(TestI18nBeans.appMessages(), top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.journal()), mock(ArtworkMediaStore.class), mock(ExternalWorkFiles.class));
         multiModeConfig = new MultiModeConfig();
         multiModeConfig.getQuota().setEnabled(true);
         multiModeConfig.getQuota().setMaxArtworks(3);
@@ -57,8 +75,13 @@ class UserQuotaServiceTest {
                 downloadConfig,
                 pixivDatabase,
                 TestI18nBeans.appMessages(),
-                DIRECT_EXECUTOR
+                DIRECT_EXECUTOR, locator, novelMetadataRepository, workDeletionService, workAssetService
         );
+    }
+
+    @AfterEach
+    void restoreDataDirectory() {
+        System.clearProperty(RuntimeFiles.DATA_DIR_PROPERTY);
     }
 
     // ========== checkAndReserve ==========
@@ -118,7 +141,7 @@ class UserQuotaServiceTest {
                     downloadConfig,
                     pixivDatabase,
                     TestI18nBeans.appMessages(),
-                    DIRECT_EXECUTOR
+                    DIRECT_EXECUTOR, locator, novelMetadataRepository, workDeletionService, workAssetService
             );
         }
 
@@ -308,7 +331,7 @@ class UserQuotaServiceTest {
         }
 
         @Test
-        @DisplayName("archive build should be submitted to executor")
+        @DisplayName("压缩任务应提交到执行器")
         void shouldSubmitArchiveBuildToExecutor() {
             List<Runnable> submitted = new ArrayList<>();
             UserQuotaService queuedService = new UserQuotaService(
@@ -316,7 +339,7 @@ class UserQuotaServiceTest {
                     downloadConfig,
                     pixivDatabase,
                     TestI18nBeans.appMessages(),
-                    submitted::add
+                    submitted::add, locator, novelMetadataRepository, workDeletionService, workAssetService
             );
             queuedService.checkAndReserve("user1", 1);
 
@@ -406,12 +429,125 @@ class UserQuotaServiceTest {
                 null
         );
         when(pixivDatabase.getArtworksOlderThan(anyLong())).thenReturn(List.of(artwork));
+        when(pixivDatabase.getArtwork(12345L)).thenReturn(artwork);
+        when(pixivDatabase.getFileNameTemplate(anyLong())).thenReturn("{artwork_id}_p{page}");
+        when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
 
         userQuotaService.cleanupTimedDeleteArtworks();
 
-        assertThat(Files.exists(movedFolder)).isFalse();
+        assertThat(movedFolder.resolve("12345_p0.jpg")).doesNotExist();
+        assertThat(movedFolder).isDirectory();
         assertThat(Files.exists(originalFolder)).isTrue();
         verify(pixivDatabase).deleteArtwork(12345L);
+    }
+
+    @Test
+    @DisplayName("部分源文件缺失时不能因其它文件打包成功而删源")
+    void partialArchiveDoesNotDeleteSources() throws Exception {
+        when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+        Path source = Files.writeString(tempDir.resolve("present.txt"), "keep");
+        var called = new java.util.concurrent.atomic.AtomicBoolean();
+        String token = userQuotaService.triggerAdminFileArchive(List.of(
+                UserQuotaService.ArchiveItem.file(source, "present.txt"),
+                UserQuotaService.ArchiveItem.file(tempDir.resolve("missing.txt"), "missing.txt")),
+                "artworks", 2, () -> called.set(true));
+        assertThat(userQuotaService.getArchive(token).getStatus()).isEqualTo("error");
+        assertThat(called).isFalse();
+        assertThat(source).hasContent("keep");
+        assertThat(tempDir.resolve("_archives").resolve(token + ".zip")).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("创建中的归档取消后不执行删源并清理迟到产物")
+    void cancelledBuildCannotDeleteSources() throws Exception {
+        List<Runnable> submitted = new ArrayList<>();
+        userQuotaService = new UserQuotaService(multiModeConfig, downloadConfig, pixivDatabase,
+                TestI18nBeans.appMessages(), submitted::add, locator, novelMetadataRepository, workDeletionService, workAssetService);
+        var called = new java.util.concurrent.atomic.AtomicBoolean();
+        String token = userQuotaService.triggerAdminFileArchive(List.of(
+                UserQuotaService.ArchiveItem.bytes("a.txt", new byte[]{1})), "artworks", 1, () -> called.set(true));
+        when(downloadConfig.getRootFolder()).thenAnswer(call -> {
+            assertThat(userQuotaService.getArchive(token).getStatus()).isEqualTo("creating");
+            userQuotaService.deleteArchive(token);
+            return tempDir.toString();
+        });
+        submitted.get(0).run();
+        assertThat(called).isFalse();
+        assertThat(userQuotaService.getArchive(token)).isNull();
+        assertThat(tempDir.resolve("_archives").resolve(token + ".zip")).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("已过期的排队归档不执行删源")
+    void expiredBuildCannotDeleteSources() {
+        List<Runnable> submitted = new ArrayList<>();
+        multiModeConfig.getQuota().setArchiveExpireMinutes(-1);
+        userQuotaService = new UserQuotaService(multiModeConfig, downloadConfig, pixivDatabase,
+                TestI18nBeans.appMessages(), submitted::add, locator, novelMetadataRepository, workDeletionService, workAssetService);
+        var called = new java.util.concurrent.atomic.AtomicBoolean();
+        String token = userQuotaService.triggerAdminFileArchive(List.of(
+                UserQuotaService.ArchiveItem.bytes("a.txt", new byte[]{1})), "artworks", 1, () -> called.set(true));
+        userQuotaService.cleanupExpiredArchives();
+        submitted.get(0).run();
+        assertThat(called).isFalse();
+        assertThat(userQuotaService.getArchive(token)).isNull();
+    }
+
+    @Test
+    @DisplayName("目录归档保留子目录结构和同名文件内容")
+    void directoryArchivePreservesRelativePaths() throws Exception {
+        when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+        Path folder = Files.createDirectories(tempDir.resolve("novel-1"));
+        Files.writeString(Files.createDirectories(folder.resolve("a")).resolve("image.png"), "first");
+        Files.writeString(Files.createDirectories(folder.resolve("b")).resolve("image.png"), "second");
+        String token = userQuotaService.triggerAdminArchive(List.of(folder));
+        assertThat(userQuotaService.getArchive(token).getStatus()).isEqualTo("ready");
+        var content = new java.util.HashMap<String, String>();
+        try (ZipInputStream zip = new ZipInputStream(Files.newInputStream(userQuotaService.getArchive(token).getArchivePath()))) {
+            ZipEntry item;
+            while ((item = zip.getNextEntry()) != null) {
+                content.put(item.getName(), new String(zip.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+            }
+        }
+        assertThat(content).containsEntry("novel-1/a/image.png", "first").containsEntry("novel-1/b/image.png", "second");
+    }
+
+    @Test
+    @DisplayName("自动删除数据库失败时恢复作品并保留目录内无关文件")
+    void timedDeleteRollsBackDatabaseFailure() throws Exception {
+        multiModeConfig.setPostDownloadMode("timed-delete");
+        when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+        Path folder = Files.createDirectories(tempDir.resolve("42"));
+        Path image = Files.writeString(folder.resolve("42_p0.jpg"), "original");
+        Path unrelated = Files.writeString(folder.resolve("notes.txt"), "user notes");
+        ArtworkRecord record = new ArtworkRecord(42L, "title", folder.toString(), 1, "jpg", 1L,
+                false, null, null, 0, false, null, null);
+        when(pixivDatabase.getArtwork(42L)).thenReturn(record);
+        when(pixivDatabase.getArtworksOlderThan(anyLong())).thenReturn(List.of(record));
+        when(pixivDatabase.getFileNameTemplate(anyLong())).thenReturn("{artwork_id}_p{page}");
+        doThrow(new org.springframework.dao.DataAccessResourceFailureException("database unavailable"))
+                .when(pixivDatabase).deleteArtwork(42L);
+        userQuotaService.cleanupTimedDeleteArtworks();
+        verify(pixivDatabase).deleteArtwork(42L);
+        assertThat(image).hasContent("original");
+        assertThat(unrelated).hasContent("user notes");
+    }
+
+    @Test
+    @DisplayName("只有数字目录名但与登记路径不符时不能删除作品或记录")
+    void numericDirectoryNameDoesNotAuthorizeDeletion() throws Exception {
+        when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+        Path folder = Files.createDirectories(tempDir.resolve("42"));
+        Path source = Files.writeString(folder.resolve("keep.txt"), "keep");
+        when(pixivDatabase.getArtwork(42L)).thenReturn(new ArtworkRecord(42L, "title", "elsewhere", 1,
+                "jpg", 1L, false, null, null, 0, false, null, null));
+        userQuotaService.checkAndReserve("visitor", 1);
+        userQuotaService.recordFolder("visitor", folder);
+        String token = userQuotaService.triggerArchive("visitor");
+        assertThat(userQuotaService.getArchive(token).getStatus()).isEqualTo("ready");
+        assertThat(source).hasContent("keep");
+        assertThat(userQuotaService.getQuotaForUser("visitor").getDownloadedFolders()).contains(folder);
+        verify(pixivDatabase, never()).deleteArtwork(anyLong());
     }
 
     // ========== UserQuota inner class ==========
@@ -499,7 +635,7 @@ class UserQuotaServiceTest {
         }
 
         @Test
-        @DisplayName("无可写入条目时应标记为 empty 且不执行回调")
+        @DisplayName("请求文件缺失时应报告失败且不执行回调")
         void shouldMarkEmptyWhenNothingWritten() {
             when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
             java.util.concurrent.atomic.AtomicBoolean ran = new java.util.concurrent.atomic.AtomicBoolean(false);
@@ -508,7 +644,7 @@ class UserQuotaServiceTest {
                     UserQuotaService.ArchiveItem.file(tempDir.resolve("missing.png"), "x/missing.png")
             ), "artworks", 1, () -> ran.set(true));
 
-            assertThat(userQuotaService.getArchive(token).getStatus()).isEqualTo("empty");
+            assertThat(userQuotaService.getArchive(token).getStatus()).isEqualTo("error");
             assertThat(ran).isFalse();
         }
 

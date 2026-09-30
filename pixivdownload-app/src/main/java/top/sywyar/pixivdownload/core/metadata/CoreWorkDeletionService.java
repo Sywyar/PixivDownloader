@@ -7,8 +7,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.download.LocalWorkAssetService;
 import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.core.work.service.WorkDeletionException;
 import top.sywyar.pixivdownload.core.work.service.WorkDeletionService;
 import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
@@ -18,14 +18,8 @@ import java.util.Collection;
 import java.util.LinkedHashSet;
 
 /**
- * {@link WorkDeletionService} 的核心实现：统一删除编排收敛在这里——判存
- * （{@link WorkQueryService#hasActiveWork}）→ 删磁盘文件（{@link WorkAssetService#deleteLocalFiles}）→
- * 文件全删成功后软删 DB 主行（插画代理 {@link PixivDatabase#markArtworkDeleted}、小说代理
- * {@link NovelMetadataRepository#markNovelDeleted}；小说普通关系由插件数据库触发器清理，可再生 FTS
- * 由查询过滤软删除行并在小说插件启动时 best-effort 回收）。
- * 磁盘文件未能全部删除时抛出纯领域失败、数据库不触碰，
- * 故 {@code delete()} 对调用方是「要么文件全删 + DB 软删、要么 DB 完全未变」。被注入的查询 / 资产服务
- * 实现均不反向依赖本服务，无 Bean 环。
+ * 统一编排文件删除与数据库软删除。文件备份保留至记录事务完成；事务失败时尝试回滚文件。
+ * 无法复原的副本由暂存区保留，不能把删除失败等同于已经完整恢复。
  */
 @Slf4j
 @Component
@@ -33,25 +27,26 @@ import java.util.LinkedHashSet;
 public class CoreWorkDeletionService implements WorkDeletionService {
 
     private final WorkQueryService workQueryService;
-    private final WorkAssetService workAssetService;
+    private final LocalWorkAssetService workAssetService;
     private final PixivDatabase pixivDatabase;
     private final NovelMetadataRepository novelMetadataRepository;
     private final AppMessages messages;
 
     @Override
     public boolean delete(WorkType workType, long workId) {
-        if (!workQueryService.hasActiveWork(workType, workId)) {
-            return false;
+        try (var workFileLease = top.sywyar.pixivdownload.core.work.service.WorkFileLock.acquire(workType, workId)) {
+            if (!workQueryService.hasActiveWork(workType, workId)) {
+                return false;
+            }
+            if (!workAssetService.deleteLocalFiles(workType, workId, () -> markDeleted(workType, workId))) {
+                throw new WorkDeletionException(
+                        WorkDeletionException.Reason.LOCAL_FILE_DELETE_FAILED,
+                        workType,
+                        workId);
+            }
+            log.info(messages.getForLog("work.delete.log.deleted", typeNounForLog(workType), workId));
+            return true;
         }
-        if (!workAssetService.deleteLocalFiles(workType, workId)) {
-            throw new WorkDeletionException(
-                    WorkDeletionException.Reason.LOCAL_FILE_DELETE_FAILED,
-                    workType,
-                    workId);
-        }
-        markDeleted(workType, workId);
-        log.info(messages.getForLog("work.delete.log.deleted", typeNounForLog(workType), workId));
-        return true;
     }
 
     @Override
