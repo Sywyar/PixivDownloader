@@ -40,6 +40,10 @@ The application host supplies the Pixiv HTTP transport, while the business reque
 
 The backend applies a 4 MiB response budget to ordinary Pixiv JSON and a 1 MiB budget to novel-series details and paginated-content responses. It checks a declared `Content-Length` when present and always enforces the limit on the bytes actually read, aborting oversized responses with a controlled error. Novel metadata accepts at most 512 embedded-image mappings. Short-lived tickets retain only raw metadata with the novel content and embedded-image table removed, capped at 256 KiB.
 
+The four backend downloader userscripts call `GET /api/collections` on the configured backend when the user refreshes collections or submits a download with a selected collection. When automatic novel translation is enabled, they check the administrator session through `GET /api/auth/check` and send the target language, segment size, and compilation options with the download request. They then observe translation through `GET /api/novel/translate-status/{id}`; the single-work script first waits for download completion through `GET /api/novel/status/{id}`. These requests use the userscript manager's existing backend session and do not send the Pixiv cookie to the backend. The backend invokes the configured AI service. Closing the script page stops status checks; submitted backend tasks may continue.
+
+New scripts installed through a backend page can run on that backend address’s two download pages to answer script ID and version queries. They do not run Pixiv download logic there. Detection uses messages within the current page; it does not send an installation inventory, cookies, or script settings to a server or third party. A missing response is shown as “Not detected.” Reload the page after installing, updating, enabling, or disabling a script.
+
 ## `douyin` plugin
 
 `douyin` is an on-demand plugin and is not preinstalled by the default Windows installer or Java standard archive. These requests occur only after it is installed, enabled, and used.
