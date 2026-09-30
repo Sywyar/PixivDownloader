@@ -102,6 +102,10 @@ class ToolsWorkspaceLayoutTest {
                 onNodeWithTag("classifier.open").performClick()
                 waitUntil(timeoutMillis = 5_000) { model.snapshot().document().pages().flatMap { descendants(it.content()).toList() }.any { it.id() == "classifier.image.0.open" } }
                 onNodeWithTag("classifier.image.0.open").assertIsDisplayed()
+                waitUntil(timeoutMillis = 10_000) {
+                    onAllNodesWithContentDescription("sample-0.png").fetchSemanticsNodes().isNotEmpty()
+                }
+                onNodeWithContentDescription("sample-0.png").assertIsDisplayed()
                 onNodeWithTag("classifier.category.0.select").performClick().assertIsSelected()
                 onNodeWithTag("classifier.classify").assertIsEnabled()
                 screenshot("actual-classifier")

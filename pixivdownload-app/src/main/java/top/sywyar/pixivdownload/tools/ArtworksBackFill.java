@@ -85,20 +85,27 @@ public class ArtworksBackFill {
 
     public static Summary run(Options options) throws Exception {
         try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(options.dbPath())) {
-            return run(options, database, true);
+            return run(options, database, true, (processed, total) -> {});
         }
     }
 
     public static Summary run(Options options, DataSource dataSource) throws Exception {
+        return run(options, dataSource, (processed, total) -> {});
+    }
+
+    public static Summary run(Options options, DataSource dataSource,
+            java.util.function.BiConsumer<Integer, Integer> progress) throws Exception {
+        java.util.Objects.requireNonNull(progress, "progress");
         try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(dataSource, options.dbPath())) {
-            return run(options, database, false);
+            return run(options, database, false, progress);
         }
     }
 
     private static Summary run(
             Options options,
             ArtworksBackFillDatabase database,
-            boolean requiresStoppedBackend
+            boolean requiresStoppedBackend,
+            java.util.function.BiConsumer<Integer, Integer> progress
     ) throws Exception {
         log.info(logMessage(
                 "artworks-backfill.log.started",
@@ -134,6 +141,7 @@ public class ArtworksBackFill {
                 log.info(logMessage("artworks-backfill.unreachable.skipped-existing", previouslyUnreachable));
             }
             log.info(logMessage("artworks-backfill.log.candidates.count", candidates.size()));
+            reportProgress(progress, 0, candidates.size());
             if (candidates.isEmpty()) {
                 Summary summary = new Summary(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, previouslyUnreachable, 0, options.dryRun(), false);
                 logSummary(summary);
@@ -151,8 +159,10 @@ public class ArtworksBackFill {
             int skipped = 0;
 
             for (int i = 0; i < candidates.size(); i++) {
+                reportProgress(progress, i, candidates.size());
                 ArtworksBackFillDatabase.Candidate candidate = candidates.get(i);
                 ArtworksBackFillPixivClient.LookupResult result = pixivClient.query(candidate.artworkId());
+                reportProgress(progress, i, candidates.size());
                 String prefix = "[" + (i + 1) + "/" + candidates.size() + "] artwork="
                         + candidate.artworkId() + " missing=[" + describeMissing(candidate) + "]";
 
@@ -267,6 +277,7 @@ public class ArtworksBackFill {
                     }
                 }
 
+                reportProgress(progress, i + 1, candidates.size());
                 if (i < candidates.size() - 1) {
                     Thread.sleep(options.delayMs());
                 }
@@ -292,6 +303,12 @@ public class ArtworksBackFill {
             logSummary(summary);
             return summary;
         }
+    }
+
+    private static void reportProgress(java.util.function.BiConsumer<Integer, Integer> progress,
+            int processed, int total) throws InterruptedException {
+        if (Thread.currentThread().isInterrupted()) throw new InterruptedException("Backfill interrupted");
+        progress.accept(processed, total);
     }
 
     private static void persistUnreachable(ArtworksBackFillUnreachableStore store, Path path) {

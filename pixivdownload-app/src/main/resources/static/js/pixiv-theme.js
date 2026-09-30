@@ -13,6 +13,22 @@
     var themeChannelInitialized = false;
     var storageListenerInitialized = false;
     var buttons = [];
+    var translationRevision = 0;
+    var unsubscribeLanguage = null;
+
+    async function refreshTitles(lang) {
+        if (!global.PixivI18n || !buttons.length) return;
+        var revision = ++translationRevision;
+        try {
+            var client = await global.PixivI18n.create({ namespaces: ['status'], lang: lang });
+            if (revision !== translationRevision || !buttons.length) return;
+            titleDark = client.t('theme.to-light', titleDark);
+            titleLight = client.t('theme.to-dark', titleLight);
+            buttons.forEach(syncButton);
+        } catch (e) {
+            // 语言资源加载失败时保留已有标签。
+        }
+    }
 
     var MOON_ICON = '' +
         '<svg viewBox="0 0 24 24" aria-hidden="true">' +
@@ -173,6 +189,12 @@
         buttons.push(button);
         mountPoint.appendChild(button);
         syncButton(button);
+        if (!unsubscribeLanguage && global.PixivI18n) {
+            unsubscribeLanguage = global.PixivI18n.onLanguageChange(function (event) {
+                refreshTitles(event.lang);
+            });
+        }
+        refreshTitles();
         return {
             element: button,
             refresh: function () {
@@ -183,6 +205,11 @@
                 buttons = buttons.filter(function (item) {
                     return item !== button;
                 });
+                if (!buttons.length) {
+                    translationRevision++;
+                    if (unsubscribeLanguage) unsubscribeLanguage();
+                    unsubscribeLanguage = null;
+                }
                 if (button.parentNode) {
                     button.parentNode.removeChild(button);
                 }

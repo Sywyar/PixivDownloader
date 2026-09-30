@@ -93,3 +93,20 @@ test('存储失败保留输入与原模板集，重新绑定不重复触发，�
     assert.equal(guest.select.disabled, true);
     assert.equal(guest.select.onchange, null);
 });
+
+test('移除当前模板只更新模板集，保留输入，保存失败时恢复原集合', () => {
+    const f = fixture({fileNameTemplates: ['first', 'second'], fileNameTemplate: 'second'});
+    f.choose('1');
+    assert.equal(f.select.children.at(-1).value, 'remove');
+    f.choose('remove');
+    assert.deepEqual(f.saved().fileNameTemplates, ['first']);
+    assert.equal(f.input.value, 'second');
+    assert.equal(f.settings.fileNameTemplate, 'second');
+    assert.equal(f.changes(), 1);
+    f.choose('0');
+    f.fail();
+    f.choose('remove');
+    assert.deepEqual(Array.from(f.settings.fileNameTemplates), ['first']);
+    assert.equal(f.input.value, 'first');
+    assert.match(f.select.validationMessage, /template-set.save-failed/);
+});

@@ -20,7 +20,6 @@ import java.util.regex.Pattern;
 public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
                                 List<KeyboardShortcut> shortcuts, Optional<Tray> tray,
                                 boolean navigationVisible) {
-    private static final Pattern STABLE_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}");
     private static final Pattern PHYSICAL_KEY = Pattern.compile("[A-Za-z][A-Za-z0-9]{0,31}");
     /**
      * 创建没有已打开对话框或快捷键的文档。
@@ -367,8 +366,20 @@ public record DesktopUiDocument(List<Page> pages, List<Dialog> dialogs,
     }
 
     static void requireStableId(String value, String name) {
-        if (value == null || !STABLE_ID.matcher(value).matches()) {
+        if (!isStableId(value)) {
             throw new IllegalArgumentException(name + " must be a stable id");
         }
+    }
+
+    /** 校验内部文档的 ASCII 标识，不为每个节点创建正则匹配器。 */
+    public static boolean isStableId(String value) {
+        if (value == null || value.isEmpty() || value.length() > 128) return false;
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9') continue;
+            if (i > 0 && (c == '.' || c == '_' || c == ':' || c == '-')) continue;
+            return false;
+        }
+        return true;
     }
 }

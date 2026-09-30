@@ -2,6 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const {installVue} = require('../../../../pixivdownload-app/src/test/js/vue-render-fixture');
 
 const STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch');
 const SOURCE = [
@@ -27,6 +28,12 @@ class El {
         this.onload = null;
         this.onerror = null;
         this.src = '';
+        this.props = {};
+        if (tag === 'template') this.content = {childNodes: []};
+    }
+    set innerHTML(value) {
+        this.replaceChildren();
+        if (this.content) this.content.childNodes = value ? [{}] : [];
     }
     appendChild(child) {
         child.parentNode = this;
@@ -203,6 +210,7 @@ function harness(manifests, moduleScripts, options = {}) {
     const attempts = new Map();
     let fetchIndex = 0;
     const vueRecord = {mounts: 0, unmounts: 0, pendingMounts: []};
+    let vueRuntime;
     const listeners = new Map();
     const testWindow = {
         location: {origin: 'https://local.test'},
@@ -220,9 +228,10 @@ function harness(manifests, moduleScripts, options = {}) {
     };
     if (options.pixivVue) {
         const completeVueMount = (host, component) => {
-            host.insertAdjacentHTML('beforeend', component.template);
+            const app = vueRuntime.createApp(component);
+            app.mount(host);
             return {
-                app: {unmount() { vueRecord.unmounts++; host.replaceChildren(); }},
+                app: {unmount() { vueRecord.unmounts++; app.unmount(); }},
                 el: host
             };
         };
@@ -232,6 +241,7 @@ function harness(manifests, moduleScripts, options = {}) {
             pending.resolve(completeVueMount(pending.host, pending.component));
         };
         testWindow.PixivVue = {
+            ensure: async () => vueRuntime,
             prepareSlotHosts() {},
             mountOn(host, component) {
                 vueRecord.mounts++;
@@ -268,7 +278,8 @@ function harness(manifests, moduleScripts, options = {}) {
             return Promise.resolve({ok: true, status: 200, json: () => Promise.resolve(data)});
         }
     };
-    vm.createContext(sandbox);
+    vm.createContext(sandbox, {codeGeneration: {strings: false, wasm: false}});
+    if (options.pixivVue) vueRuntime = installVue(sandbox);
     vm.runInContext(SOURCE, sandbox);
     const qt = sandbox.window.PixivBatch.queueTypes;
 

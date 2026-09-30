@@ -5,6 +5,8 @@ window.PixivBatch.queueTypes.registerSubmodule(function (shared) {
 let _novelSearchVue = null;          // { app, vm, state, root, area } 或 null（未挂载）
 let _novelSearchLatestModel = null;  // 供在途异步挂载读取的最新模型
 let _novelSearchMounting = false;    // 防止并发触发多次挂载
+let _novelSearchArea = null;
+let _novelSearchGeneration = 0;
 
 // 渲染钩子（descriptor.acquisition.search.render）：优先 Vue reactive 挂载，Vue 不可用即命令式回退。
 function renderNovelSearchResults(area, view) {
@@ -16,6 +18,7 @@ function renderNovelSearchResults(area, view) {
     }
     const model = buildNovelSearchModel(view);
     _novelSearchLatestModel = model;
+    _novelSearchArea = area;
     // 已挂载且根节点仍在当前 area 内 → 仅更新 reactive 状态，卡片 / in-queue 由 Vue 自动重渲染。
     if (_novelSearchVue && _novelSearchVue.area === area && area.contains(_novelSearchVue.root)) {
         assignNovelSearchState(_novelSearchVue.state, model);
@@ -32,8 +35,12 @@ function renderNovelSearchResults(area, view) {
 function ensureNovelSearchMounted(area) {
     if (_novelSearchMounting) return;
     _novelSearchMounting = true;
+    const generation = _novelSearchGeneration;
+    let mountingApp = null;
     window.PixivVue.ensure().then(function (Vue) {
-        if (!shared.context || !shared.context.isActive()) return;
+        if (generation !== _novelSearchGeneration || !shared.context || !shared.context.isActive()) return;
+        area = _novelSearchArea;
+        if (!area || area.isConnected === false) return;
         // 卸载可能存在的旧 app（area 曾被宿主清空 → 旧挂载已失效，避免悬挂的 vnode 树）。
         if (_novelSearchVue) {
             try { _novelSearchVue.app.unmount(); } catch (e) { /* 卸载失败忽略 */ }
@@ -45,9 +52,9 @@ function ensureNovelSearchMounted(area) {
         // 此刻尚未触碰 area，命令式首屏结果（applyNovelSearchImperative 已写入 area）保持完整。
         const root = document.createElement('div');
         root.className = 'novel-search-vue-root';
-        const app = Vue.createApp(buildNovelSearchComponent(state));
+        const app = mountingApp = Vue.createApp(buildNovelSearchComponent(state, Vue));
         const vm = app.mount(root);
-        if (!shared.context || !shared.context.isActive()) {
+        if (generation !== _novelSearchGeneration || !shared.context || !shared.context.isActive()) {
             try { app.unmount(); } catch (e) { /* best effort */ }
             return;
         }
@@ -58,10 +65,14 @@ function ensureNovelSearchMounted(area) {
     }).catch(function (e) {
         // Vue 运行时不可用 / createApp / mount 抛错 → 命令式首屏结果原样保留（area 未被清空），
         // _novelSearchVue 置空，绝不向宿主 init 抛异常（优雅降级）。
+        if (mountingApp) {
+            try { mountingApp.unmount(); } catch (_) { /* 清理未完成的首屏挂载 */ }
+        }
+        if (generation !== _novelSearchGeneration) return;
         _novelSearchVue = null;
         console.warn('[novel-search] Vue 运行时不可用，沿用命令式渲染：', e);
     }).finally(function () {
-        _novelSearchMounting = false;
+        if (generation === _novelSearchGeneration) _novelSearchMounting = false;
     });
 }
 
@@ -107,32 +118,8 @@ function assignNovelSearchState(target, model) {
     target.inQueueIds = new Set(model.inQueueIds);
 }
 
-// 小说搜索网格 Vue 组件模板：文案全部经 t* 方法在渲染期派生（不 bake 进模型）；in-queue 高亮与 tooltip
-// 经 isInQueue() 读 reactive inQueueIds，队列变化时自动更新；点击入队复用宿主 addSearchItemToQueue。
-const NOVEL_SEARCH_TEMPLATE = `
-<div v-if="state.noCookie" style="font-size:12px;color:var(--warning-text);margin-bottom:8px;">{{ tNoCookie() }}</div>
-<div style="font-size:12px;color:var(--muted);margin-bottom:10px;">
-  <template v-for="(s, i) in state.summary" :key="i"><span>{{ s }}</span>{{ i < state.summary.length - 1 ? sep() : '' }}</template>
-</div>
-<div class="novel-search-grid">
-  <div v-for="card in state.cards" :key="card.queueId" class="novel-search-card"
-       :class="{ 'in-queue': isInQueue(card) }" :data-novel-idx="card.idx"
-       :title="cardTitle(card)" @click="onCardClick(card.idx)">
-    <div class="nsc-title">{{ displayTitle(card) }}</div>
-    <div class="nsc-author">{{ displayAuthor(card) }}</div>
-    <div class="nsc-meta">
-      <span v-if="card.xr === 1" class="nsc-r18">R-18</span>
-      <span v-else-if="card.xr === 2" class="nsc-r18g">R-18G</span>
-      <span v-if="card.isAi" class="nsc-ai">AI</span>
-      <span v-if="card.isOriginal" class="nsc-original">{{ tOriginal() }}</span>
-      <span v-if="card.wc > 0">{{ tWords(card.wc) }}</span>
-      <span v-if="card.bookmarkCount !== null">{{ tBookmark(card.bookmarkCount) }}</span>
-    </div>
-    <span class="nsc-in-queue-mark">✓</span>
-  </div>
-</div>`;
-
-function buildNovelSearchComponent(reactiveState) {
+// 卡片用稳定作品键复用节点，文案在渲染时派生。
+function buildNovelSearchComponent(reactiveState, Vue) {
     return {
         setup() {
             const tNoCookie = () => bt('status.search-no-cookie-warning', '⚠ 未保存 Cookie，搜索结果可能减少');
@@ -155,7 +142,36 @@ function buildNovelSearchComponent(reactiveState) {
                 displayTitle, displayAuthor, isInQueue, cardTitle, sep, onCardClick
             };
         },
-        template: NOVEL_SEARCH_TEMPLATE
+        render() {
+            const h = Vue.h;
+            return [
+                this.state.noCookie ? h('div', {
+                    style: {fontSize: '12px', color: 'var(--warning-text)', marginBottom: '8px'}
+                }, this.tNoCookie()) : null,
+                h('div', {style: {fontSize: '12px', color: 'var(--muted)', marginBottom: '10px'}},
+                    this.state.summary.flatMap((value, index) => [
+                        h('span', {key: index}, value), index < this.state.summary.length - 1 ? this.sep() : ''
+                    ])),
+                h('div', {class: 'novel-search-grid'}, this.state.cards.map(card => {
+                    const meta = [];
+                    if (card.xr === 1) meta.push(h('span', {class: 'nsc-r18'}, 'R-18'));
+                    else if (card.xr === 2) meta.push(h('span', {class: 'nsc-r18g'}, 'R-18G'));
+                    if (card.isAi) meta.push(h('span', {class: 'nsc-ai'}, 'AI'));
+                    if (card.isOriginal) meta.push(h('span', {class: 'nsc-original'}, this.tOriginal()));
+                    if (card.wc > 0) meta.push(h('span', null, this.tWords(card.wc)));
+                    if (card.bookmarkCount !== null) meta.push(h('span', null, this.tBookmark(card.bookmarkCount)));
+                    return h('div', {
+                        key: card.queueId, class: ['novel-search-card', {'in-queue': this.isInQueue(card)}],
+                        'data-novel-idx': card.idx, title: this.cardTitle(card), onClick: () => this.onCardClick(card.idx)
+                    }, [
+                        h('div', {class: 'nsc-title'}, this.displayTitle(card)),
+                        h('div', {class: 'nsc-author'}, this.displayAuthor(card)),
+                        h('div', {class: 'nsc-meta'}, meta),
+                        h('span', {class: 'nsc-in-queue-mark'}, '✓')
+                    ]);
+                }))
+            ];
+        }
     };
 }
 
@@ -230,7 +246,9 @@ function syncNovelSearchQueueState(results, inQueue) {
 // —— User 模式：画师小说作品网格 ——
 
 function disposeNovelSearch() {
+    ++_novelSearchGeneration;
     _novelSearchLatestModel = null;
+    _novelSearchArea = null;
     _novelSearchMounting = false;
     if (_novelSearchVue) {
         try { _novelSearchVue.app.unmount(); } catch (e) { /* best effort */ }
@@ -239,7 +257,7 @@ function disposeNovelSearch() {
 }
 Object.assign(shared, {
     renderNovelSearchResults, ensureNovelSearchMounted, buildNovelSearchModel, buildEmptyNovelSearchState,
-    assignNovelSearchState, NOVEL_SEARCH_TEMPLATE, buildNovelSearchComponent, applyNovelSearchImperative,
+    assignNovelSearchState, buildNovelSearchComponent, applyNovelSearchImperative,
     syncNovelSearchQueueState, disposeNovelSearch
 });
 });

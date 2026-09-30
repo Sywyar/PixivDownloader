@@ -43,7 +43,7 @@ function makeFetch(options) {
                 return Promise.reject(new Error('backend unavailable'));
             }
             const body = config.backendMeta !== undefined ? config.backendMeta : META;
-            return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
+            return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(JSON.parse(JSON.stringify(body))) });
         }
         if (url.indexOf('i18n-static/meta.json') === 0) {
             if (config.staticMeta === null) {
@@ -105,6 +105,59 @@ async function main() {
     ok('a: 空白 namespace 退化为 t()', i18n.tns('  ', 'nav.label') === 'Common Nav');
     ok('a: tns 命中路径插值', i18n.tns('common', 'greeting', null, { name: 'World' }) === 'Hi World!');
     ok('a: fallback 串参与插值', i18n.tns('missing', 'x', 'Hello {n}', { n: 'Y' }) === 'Hello Y');
+
+    // 重复 apply 不重建同文案节点；参数或语言变化仍更新。
+    {
+        let writes = 0;
+        function binding(marker, property, key) {
+            const attrs = {[marker]: key, 'data-i18n-args': '{"name":"A"}'};
+            const node = {querySelectorAll: () => [], matches: selector => selector === '[' + marker + ']',
+                getAttribute: name => attrs[name] ?? null,
+                setAttribute(name, value) { attrs[name] = value; writes++; }};
+            let value = '';
+            if (property) Object.defineProperty(node, property, {get: () => value,
+                set(next) { value = next; writes++; }});
+            return node;
+        }
+        const label = binding('data-i18n', 'textContent', 'greeting');
+        const html = binding('data-i18n-html', 'innerHTML', 'nav.label');
+        const attr = binding('data-i18n-title', null, 'nav.label');
+        const root = {querySelectorAll: selector => [label, html, attr].filter(n => n.matches(selector))};
+        i18n.apply(root);
+        const firstWrites = writes;
+        for (let i = 0; i < 20; i++) i18n.apply(root);
+        ok('重复应用同文案不写 DOM', firstWrites === 3 && writes === firstWrites);
+        label.setAttribute('data-i18n-args', '{"name":"B"}');
+        i18n.apply(root);
+        ok('参数更新仍生效', label.textContent === 'Hi B!');
+        const next = await createClient(['common'], {bundles: {common: {
+            greeting: '你好 {name}', 'nav.label': '导航'
+        }}});
+        next.client.apply(root);
+        ok('语言更新覆盖文本、HTML 与属性', label.textContent === '你好 B'
+            && html.innerHTML === '导航' && attr.getAttribute('title') === '导航');
+    }
+
+    {
+        const sandbox = createSandbox(makeFetch({bundles: BUNDLES}));
+        let stored = 'en-US', releaseOld;
+        sandbox.localStorage = {getItem: () => stored, setItem: (_, value) => { stored = value; }};
+        sandbox.document = {documentElement: {lang: stored}};
+        const baseFetch = sandbox.fetch;
+        sandbox.fetch = url => {
+            if (url.includes('/api/i18n/messages/common') && url.includes('lang=en-US') && !releaseOld) {
+                return new Promise(resolve => { releaseOld = () => baseFetch(url).then(resolve); });
+            }
+            return baseFetch(url);
+        };
+        const pending = sandbox.PixivI18n.create({namespaces: ['common']});
+        while (!releaseOld) await Promise.resolve();
+        await sandbox.PixivI18n.create({namespaces: ['common'], lang: 'zh-CN'});
+        releaseOld();
+        const refreshed = await pending;
+        ok('迟到的隐式语言客户端跟随当前选择且不回写旧语言', refreshed.lang === 'zh-CN'
+            && stored === 'zh-CN' && sandbox.document.documentElement.lang === 'zh-CN');
+    }
 
     // ===== b) 后端 meta 优先 =====
     const { client: backendClient } = await createClient(['common'], {});
@@ -200,14 +253,18 @@ async function main() {
 
     // ===== f) 跨标签页语言切换（无 BroadcastChannel 环境不抛错、可退订） =====
     const sandboxF = createSandbox(makeFetch({ backendMeta: META }));
+    const localChanges = [];
     const unsubscribeF = await new Promise((resolve) => {
         const client = sandboxF.PixivI18n;
-        resolve(client.onLanguageChange(function () {}));
+        resolve(client.onLanguageChange(function (event) { localChanges.push(event.lang); }));
     });
     ok('f: onLanguageChange 返回退订函数', typeof unsubscribeF === 'function');
     assert.doesNotThrow(() => sandboxF.PixivI18n.notifyLanguageChange('en-US'));
+    assert.deepStrictEqual(localChanges, ['en-US']);
     passed++;
     unsubscribeF();
+    sandboxF.PixivI18n.notifyLanguageChange('zh-CN');
+    assert.deepStrictEqual(localChanges, ['en-US']);
     const { client: clientF } = await createClient(['common'], {});
     ok('f: setLanguage 保留跨标签同步契约（返回新客户端）', typeof clientF.setLanguage('en-US').then === 'function');
 

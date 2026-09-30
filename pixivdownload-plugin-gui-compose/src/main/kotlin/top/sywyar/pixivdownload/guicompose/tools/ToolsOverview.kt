@@ -257,7 +257,9 @@ private fun ToolsSheet(
                         .testTag("tools.sheet").animateContentSize(spring(dampingRatio = 1f, stiffness = 550f))) {
                         AnimatedContent(retained,
                             transitionSpec = { fadeIn(tween(180, 40)) togetherWith fadeOut(tween(100)) },
-                            label = "tool-detail") { current -> current?.let { content(it) } }
+                            label = "tool-detail") { current ->
+                            GuardClipboardReads { current?.let { content(it) } }
+                        }
                     }
                 }
             }

@@ -35,6 +35,7 @@ window.PixivFilenameTemplatePresets = {
             values.forEach((value, index) => option(String(index), value));
             const current = input.value.trim();
             option('save', text('template-set.save'), 'template-set.save').disabled = !current || values.includes(current);
+            if (values.includes(current)) option('remove', text('template-set.remove'), 'template-set.remove');
             select.value = '';
         }
 
@@ -43,11 +44,12 @@ window.PixivFilenameTemplatePresets = {
             const chosen = select.value;
             const values = templates();
             select.setCustomValidity('');
-            if (chosen === 'save') {
+            if (chosen === 'save' || chosen === 'remove') {
                 const current = input.value.trim();
-                if (current && !values.includes(current)) {
+                if (current && (chosen === 'remove' ? values.includes(current) : !values.includes(current))) {
                     const previous = settings.fileNameTemplates;
-                    settings.fileNameTemplates = [...values, current];
+                    settings.fileNameTemplates = chosen === 'remove'
+                        ? values.filter(value => value !== current) : [...values, current];
                     try {
                         save();
                     } catch {

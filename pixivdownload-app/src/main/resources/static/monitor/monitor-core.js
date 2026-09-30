@@ -17,8 +17,8 @@
     }
 
     function localeTag() {
-        // pageI18n.lang 已由 meta 归一化为正式 tag；无 meta 时返回空串（不写死任何语言）
-        return pageI18n ? pageI18n.lang : '';
+        // 语言尚未就绪时由 Intl 使用运行环境默认值；空字符串不是合法语言标签。
+        return pageI18n ? pageI18n.lang : undefined;
     }
 
     function applyStaticPageTranslations() {

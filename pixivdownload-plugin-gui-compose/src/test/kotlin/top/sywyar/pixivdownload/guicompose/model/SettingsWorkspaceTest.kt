@@ -80,7 +80,7 @@ class SettingsWorkspaceTest {
             query.performClick()
             waitUntil(timeoutMillis = 5000) { !model.busy() }
             val editor = onNodeWithContentDescription("demo.value")
-            editor.assertTextEquals("test/0+测试")
+            editor.assertTextEquals("initial")
             val choice = onNode(
                 hasContentDescription("Fetch available models") and hasAnyAncestor(hasTestTag("config.demo.demo.value.row")),
             )

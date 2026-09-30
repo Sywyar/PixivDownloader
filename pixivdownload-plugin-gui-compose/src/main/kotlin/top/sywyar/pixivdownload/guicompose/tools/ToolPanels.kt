@@ -257,6 +257,7 @@ internal fun ToolPanel(
         when (phase) {
             "running" -> {
                 CupertinoText(label("running-background"), Modifier.weight(1f), fontSize = 11.sp, color = palette.secondaryText)
+                buttons.firstOrNull { it.id().endsWith(".cancel") }?.let { ToolAction(it, text, emit) }
                 ToolButton(label("keep-running"), "tools.minimize", onClick = close)
             }
             "result" -> {
@@ -282,7 +283,7 @@ internal fun ToolPanel(
                     Column(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(20.dp)) {
                         ToolIcon(if (state == "running") icon else if (activity!!.failed()) Icons.Default.ErrorOutline else Icons.Default.CheckCircleOutline)
                         SelectionContainer {
-                            CupertinoText(activity?.message()?.let(text) ?: progress?.text()?.let(text).orEmpty(),
+                            CupertinoText(progress?.text()?.let(text) ?: activity?.message()?.let(text).orEmpty(),
                                 fontSize = 16.sp, fontWeight = FontWeight.Medium,
                                 modifier = Modifier.testTag("tools.result").semantics { liveRegion = LiveRegionMode.Polite })
                         }

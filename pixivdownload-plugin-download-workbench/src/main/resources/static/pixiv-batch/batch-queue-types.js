@@ -647,7 +647,14 @@ window.PixivBatch.queueTypes = (function () {
         const groups = behavior && isPlainObject(behavior.settings) ? behavior.settings : {};
         return Object.keys(groups).some(key => {
             const cardId = text(groups[key] && groups[key].cardId);
-            return !!cardId && !!document.getElementById(cardId);
+            const card = cardId && document.getElementById(cardId);
+            if (!card) return false;
+            // 已挂载的贡献卡不属于宿主原生卡，重复刷新应保留它。
+            for (let node = card; node; node = node.parentNode) {
+                if (typeof node.getAttribute === 'function'
+                    && node.getAttribute('data-vue-slot') === 'settings-card') return false;
+            }
+            return true;
         });
     }
 
@@ -714,13 +721,16 @@ window.PixivBatch.queueTypes = (function () {
 
     function cleanupSlotRecord(record) {
         if (!record) return;
-        record.apps.splice(0).reverse().forEach(app => {
-            try { app.unmount(); } catch (e) { console.warn('[queueTypes] Vue 槽位卸载失败：', e); }
+        record.anchors.forEach(anchor => {
+            if (anchor.app) {
+                try { anchor.app.unmount(); } catch (e) { console.warn('[queueTypes] Vue 槽位卸载失败：', e); }
+                anchor.app = null;
+            }
+            (anchor.cleanups || []).splice(0).reverse().forEach(cleanup => {
+                try { cleanup(); } catch (e) { console.warn('[queueTypes] 命令式槽位清理失败：', e); }
+            });
+            clearSlotHost(anchor.host);
         });
-        record.cleanups.splice(0).reverse().forEach(cleanup => {
-            try { cleanup(); } catch (e) { console.warn('[queueTypes] 命令式槽位清理失败：', e); }
-        });
-        record.anchors.forEach(anchor => clearSlotHost(anchor.host));
     }
 
     function clearRenderedSlots() {
@@ -729,13 +739,19 @@ window.PixivBatch.queueTypes = (function () {
         slotMounts.clear();
     }
 
-    async function mountSlot(target, contributions, anchors, record) {
+    async function mountSlot(target, contributions, anchors) {
         if (!window.PixivVue || contributions.some(value => typeof value !== 'string')) return false;
         const helper = window.PixivVue;
         if (typeof helper.mountOn !== 'function' && typeof helper.mount !== 'function') return false;
-        const component = {template: contributions.join('')};
+        const handles = [];
         try {
-            const handles = [];
+            const Vue = await helper.ensure();
+            const html = contributions.join('');
+            const fragment = document.createElement('template');
+            fragment.innerHTML = html;
+            const count = fragment.content.childNodes.length;
+            // HTML 贡献是静态片段；由 Vue 持有节点，不调用模板编译器。
+            const component = {render: () => count ? Vue.createStaticVNode(html, count) : []};
             if (typeof helper.mountOn === 'function') {
                 for (const anchor of anchors) handles.push(await helper.mountOn(anchor.host, component));
             } else {
@@ -749,9 +765,14 @@ window.PixivBatch.queueTypes = (function () {
                 });
                 return false;
             }
-            handles.forEach(handle => record.apps.push(handle.app));
+            handles.forEach((handle, index) => { anchors[index].app = handle.app; });
             return true;
         } catch (e) {
+            handles.forEach(handle => {
+                if (handle && handle.app) {
+                    try { handle.app.unmount(); } catch (_) { /* 释放已完成的部分挂载 */ }
+                }
+            });
             return false;
         }
     }
@@ -765,13 +786,13 @@ window.PixivBatch.queueTypes = (function () {
         return null;
     }
 
-    function mountNodeContribution(anchor, contribution, record) {
+    function mountNodeContribution(anchor, contribution) {
         if (!contribution || typeof contribution !== 'object') return false;
         try {
             if (typeof contribution.mount === 'function') {
                 const result = contribution.mount(anchor.host, anchor.marker);
                 const cleanup = contributionCleanup(result, contribution, anchor.host, anchor.marker);
-                if (cleanup) record.cleanups.push(cleanup);
+                if (cleanup) (anchor.cleanups || (anchor.cleanups = [])).push(cleanup);
                 return true;
             }
             if (typeof Node !== 'undefined' && contribution instanceof Node) {
@@ -790,7 +811,7 @@ window.PixivBatch.queueTypes = (function () {
         record.anchors.forEach(anchor => {
             if (html) anchor.host.insertAdjacentHTML('beforeend', html);
             contributions.filter(value => typeof value !== 'string')
-                .forEach(value => mountNodeContribution(anchor, value, record));
+                .forEach(value => mountNodeContribution(anchor, value));
         });
     }
 
@@ -800,12 +821,30 @@ window.PixivBatch.queueTypes = (function () {
         if (window.PixivVue && typeof window.PixivVue.prepareSlotHosts === 'function') {
             window.PixivVue.prepareSlotHosts(document);
         }
+        for (const [target, record] of slotMounts) {
+            if (!byTarget.has(target)) {
+                cleanupSlotRecord(record);
+                slotMounts.delete(target);
+            }
+        }
         for (const [target, contributions] of byTarget) {
             if (sequence !== slotRenderSequence || snapshot !== current) return;
-            const record = {identity: snapshot.identity, anchors: slotAnchors(target), apps: [], cleanups: []};
+            let anchors = slotAnchors(target);
+            const previous = slotMounts.get(target);
+            const unchanged = previous && previous.identity === snapshot.identity
+                && previous.contributions.length === contributions.length
+                && previous.contributions.every((value, index) => value === contributions[index]);
+            if (unchanged) {
+                cleanupSlotRecord({anchors: previous.anchors.filter(old =>
+                    !anchors.some(anchor => anchor.host === old.host))});
+                anchors = anchors.map(anchor => previous.anchors.find(old => old.host === anchor.host) || anchor);
+            } else if (previous) cleanupSlotRecord(previous);
+            const added = unchanged ? anchors.filter(anchor => !previous.anchors.includes(anchor)) : anchors;
+            const record = {identity: snapshot.identity, contributions, anchors};
             slotMounts.set(target, record);
-            if (!await mountSlot(target, contributions, record.anchors, record)) {
-                injectSlotFallback(contributions, record);
+            if (!added.length) continue;
+            if (!await mountSlot(target, contributions, added)) {
+                injectSlotFallback(contributions, {anchors: added});
             }
             if (sequence !== slotRenderSequence || snapshot !== current) {
                 // clearRenderedSlots 可能已把 record 从 map 移除，但 mountOn 可能在此后才返回 app。
@@ -828,7 +867,7 @@ window.PixivBatch.queueTypes = (function () {
     }
 
     function renderSlots() {
-        clearRenderedSlots();
+        // 普通刷新只协调变化；撤回 / 换代仍由 clearRenderedSlots 使在途挂载失效。
         const sequence = slotRenderSequence;
         const snapshot = current;
         const queued = slotRenderTail.catch(() => undefined)

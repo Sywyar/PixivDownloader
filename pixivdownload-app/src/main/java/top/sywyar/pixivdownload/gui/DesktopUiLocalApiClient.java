@@ -85,8 +85,11 @@ final class DesktopUiLocalApiClient {
     private static Body readBody(HttpURLConnection connection, int status, int maxBytes) {
         try (InputStream input = status >= 400 ? connection.getErrorStream() : connection.getInputStream()) {
             if (input == null) return new Body("", false);
-            ByteArrayOutputStream output = new ByteArrayOutputStream(Math.min(maxBytes, 8 * 1024));
-            byte[] chunk = new byte[4 * 1024];
+            long contentLength = connection.getContentLengthLong();
+            int initialSize = (int) Math.min(maxBytes,
+                    contentLength < 0 ? 1024 : Math.min(contentLength, 8 * 1024));
+            ByteArrayOutputStream output = new ByteArrayOutputStream(initialSize);
+            byte[] chunk = new byte[Math.max(1, Math.min(initialSize, 4 * 1024))];
             int total = 0;
             for (int read; (read = input.read(chunk)) >= 0;) {
                 if (read == 0) continue;

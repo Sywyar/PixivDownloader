@@ -96,7 +96,21 @@ public interface DesktopUiToolHost {
      * @return 聚合结果
      * @throws Exception 回填失败时抛出
      */
-    BackfillSummary runBackfill(BackfillOptions options) throws Exception;
+    default BackfillSummary runBackfill(BackfillOptions options) throws Exception {
+        return runBackfill(options, (processed, total) -> {});
+    }
+
+    /**
+     * 执行回填并在逐项请求与写入边界报告已处理数量。回调可抛出
+     * {@link java.util.concurrent.CancellationException} 取消，已完成写入保留；线程中断同样终止任务。
+     *
+     * @param options 回填选项
+     * @param progress 已处理数量与本轮候选总数；在调用线程同步执行，不保留回调
+     * @return 聚合结果
+     * @throws Exception 回填失败或中断时抛出
+     */
+    BackfillSummary runBackfill(BackfillOptions options, java.util.function.BiConsumer<Integer, Integer> progress)
+            throws Exception;
 
     /**
      * 统计旧 JSON 到数据库迁移的候选项。

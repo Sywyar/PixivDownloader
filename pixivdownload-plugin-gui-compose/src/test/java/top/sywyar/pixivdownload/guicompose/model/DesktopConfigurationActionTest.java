@@ -28,8 +28,8 @@ class DesktopConfigurationActionTest {
                 await(model);
                 var choice = choices(model).findFirst().orElseThrow();
                 assertEquals(35, choice.options().size());
-                assertEquals(List.of("item.0"), choice.selectedIds());
-                assertEquals("test/0+测试", input(model).value());
+                assertEquals(List.of(), choice.selectedIds());
+                assertEquals("initial", input(model).value());
                 assertTrue(fieldNodes(model).anyMatch(node -> node.id().equals(choice.id())));
                 select(model, choice.id(), choice.options().get(34).id());
                 assertEquals("test/34+测试", input(model).value());

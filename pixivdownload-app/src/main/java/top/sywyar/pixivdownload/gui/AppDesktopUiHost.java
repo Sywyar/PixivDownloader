@@ -321,8 +321,9 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override public int countBackfillCandidates(BackfillOptions options) throws Exception {
         return ArtworksBackFill.countCandidates(map(options), requireBackfillDataSource());
     }
-    @Override public BackfillSummary runBackfill(BackfillOptions options) throws Exception {
-        var value = ArtworksBackFill.run(map(options), requireBackfillDataSource());
+    @Override public BackfillSummary runBackfill(BackfillOptions options,
+            java.util.function.BiConsumer<Integer, Integer> progress) throws Exception {
+        var value = ArtworksBackFill.run(map(options), requireBackfillDataSource(), progress);
         return new BackfillSummary(value.totalCandidates(), value.processed(), value.filledAuthor(), value.filledR18(),
                 value.filledAi(), value.filledDescription(), value.filledTags(), value.filledSeries(), value.deletedCount(),
                 value.skipped(), value.previouslyUnreachable(), value.newlyUnreachable(), value.dryRun(), value.rateLimited());
@@ -377,10 +378,16 @@ final class AppDesktopUiHost implements DesktopUiHost {
     private final DesktopUiTools desktopUiTools = new DesktopUiTools();
 
     @Override public FolderCheckResult checkArtworkFolders(Path databasePath) throws Exception {
-        return desktopUiTools.checkArtworkFolders(databasePath);
+        return desktopUiTools.checkArtworkFolders(databasePath, folderCheckRoot());
     }
     @Override public void updateArtworkFolder(Path databasePath, long artworkId, boolean moved, String newPath) throws Exception {
-        desktopUiTools.updateArtworkFolder(databasePath, artworkId, moved, newPath);
+        desktopUiTools.updateArtworkFolder(databasePath, folderCheckRoot(), artworkId, moved, newPath);
+    }
+
+    private String folderCheckRoot() throws IOException {
+        String configured = applicationConfig.read("download.root-folder");
+        return configured == null || configured.isBlank()
+                ? new top.sywyar.pixivdownload.core.appconfig.DownloadConfig().getRootFolder() : configured;
     }
     @Override public ImageClassifierSettings loadImageClassifierSettings(String rootFolder) throws IOException {
         return desktopUiTools.loadImageClassifierSettings(rootFolder);

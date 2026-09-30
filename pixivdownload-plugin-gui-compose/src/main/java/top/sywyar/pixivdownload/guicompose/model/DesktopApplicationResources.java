@@ -1,6 +1,8 @@
 package top.sywyar.pixivdownload.guicompose.model;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode;
@@ -122,9 +124,22 @@ final class DesktopApplicationResources {
             String role,
             String avatarUrl,
             String profileUrl,
-            String avatarMediaType,
-            String avatarBase64
+            DesktopUiNode.ImageData avatar
     ) {
+        @JsonCreator
+        Maintainer(
+                @JsonProperty("id") long id,
+                @JsonProperty("login") String login,
+                @JsonProperty("role") String role,
+                @JsonProperty("avatarUrl") String avatarUrl,
+                @JsonProperty("profileUrl") String profileUrl,
+                @JsonProperty("avatarMediaType") String avatarMediaType,
+                @JsonProperty("avatarBase64") String avatarBase64
+        ) {
+            this(id, login, role, avatarUrl, profileUrl,
+                    DesktopUiNode.ImageData.fromBase64(avatarMediaType, avatarBase64));
+        }
+
         Maintainer {
             if (id <= 0L || !MAINTAINER_LOGIN.matcher(Objects.requireNonNull(
                     login,
@@ -137,11 +152,7 @@ final class DesktopApplicationResources {
             }
             validateHttpsUri(avatarUrl, "avatars.githubusercontent.com");
             validateHttpsUri(profileUrl, "github.com");
-            DesktopUiNode.ImageData.fromBase64(avatarMediaType, avatarBase64);
-        }
-
-        DesktopUiNode.ImageData avatar() {
-            return DesktopUiNode.ImageData.fromBase64(avatarMediaType, avatarBase64);
+            Objects.requireNonNull(avatar, "avatar");
         }
     }
 }

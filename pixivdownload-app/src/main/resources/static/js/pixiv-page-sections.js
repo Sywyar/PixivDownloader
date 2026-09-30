@@ -59,6 +59,7 @@
     var vueState = null;           // Vue.reactive({ i18n })：各 slot app 共享，置换 i18n 即触发标题重译
     var slotApps = [];             // [{ el, app }] 已挂载的 slot Vue app（幂等复用）
     var vueMode = false;           // 是否已进入 Vue 主渲染稳态
+    var renderTail = global.Promise.resolve();
 
     var resolveReady;
     var readyPromise = new global.Promise(function (resolve) { resolveReady = resolve; });
@@ -148,29 +149,9 @@
 
     // —— Vue 主渲染 ——
 
-    // 区块骨架模板：page-section / header / 标题 / 操作入口 / 空内嵌导航 slot / 空 body 容器 / 分隔线均为真实
-    // Vue 元素。**内嵌 <nav data-nav-slot> 与 .page-section-body 刻意无 Vue 子节点**——Vue 重渲染对「无子节点」
-    // 元素不动其实际子节点，故 PixivNav 填的链接 / 贡献方模块填的列表不被覆盖（职责分离）。属性为 null 时 Vue 省略。
-    var SECTION_TEMPLATE =
-        '<template v-for="s in sections" :key="s.id">'
-        + '<div class="page-section" :data-section-id="s.id">'
-        + '<div :class="cls.header">'
-        + '<span :class="cls.title">{{ titleOf(s) }}</span>'
-        + '<a v-if="s.actionHref" :class="cls.action" :href="s.actionHref" :title="actionTitleOf(s)"'
-        + ' :aria-label="actionTitleOf(s)" v-html="actionIconOf(s)"></a>'
-        + '</div>'
-        + '<nav v-if="s.navPlacement" :class="cls.nav" :data-nav-slot="s.navPlacement"'
-        + ' :data-nav-link-class="cls.navLink" :data-nav-active-class="cls.navActive"'
-        + ' :data-nav-icon-wrap-class="cls.navIconWrap" :data-nav-label-class="cls.navLabel"></nav>'
-        + '<div v-if="s.moduleUrl" :class="cls.body" class="page-section-body" :data-section-id="s.id"></div>'
-        + '</div>'
-        + '<div v-if="cls.divider" :class="cls.divider"></div>'
-        + '</template>';
-
     // 据 slotState 构造其 Vue 组件：读取一次该 slot 的部件 class 与（fetch 一次得到的、静态的）sections，
     // 标题 / 操作标题渲染读共享 reactive 状态（vueState.i18n）——语言变化即自动重译。
-    function buildSectionComponent(slotState) {
-        var sections = slotState.sections || [];
+    function buildSectionComponent(slotState, state) {
         var cls = {
             header: classFor(slotState, 'header'), title: classFor(slotState, 'title'),
             action: classFor(slotState, 'action'), nav: classFor(slotState, 'nav'),
@@ -181,7 +162,6 @@
         return {
             setup: function () {
                 return {
-                    sections: sections,
                     cls: cls,
                     titleOf: function (s) { return resolveText(vueState.i18n, s.titleNamespace, s.titleI18nKey, s.id); },
                     actionTitleOf: function (s) {
@@ -191,7 +171,31 @@
                     actionIconOf: function (s) { return actionIconSvg(s.actionIcon); }
                 };
             },
-            template: SECTION_TEMPLATE
+            render: function () {
+                var h = vueRuntime.h;
+                var self = this;
+                return state.sections.map(function (s) {
+                    var header = [h('span', {class: cls.title}, self.titleOf(s))];
+                    if (s.actionHref) header.push(h('a', {
+                        class: cls.action, href: s.actionHref, title: self.actionTitleOf(s),
+                        'aria-label': self.actionTitleOf(s), innerHTML: self.actionIconOf(s)
+                    }));
+                    var children = [h('div', {class: cls.header}, header)];
+                    // 空子树由导航 / 贡献方持有，语言刷新只更新骨架属性。
+                    if (s.navPlacement) children.push(h('nav', {
+                        class: cls.nav, 'data-nav-slot': s.navPlacement,
+                        'data-nav-link-class': cls.navLink, 'data-nav-active-class': cls.navActive,
+                        'data-nav-icon-wrap-class': cls.navIconWrap, 'data-nav-label-class': cls.navLabel
+                    }));
+                    if (s.moduleUrl) children.push(h('div', {
+                        class: [cls.body, 'page-section-body'], 'data-section-id': s.id
+                    }));
+                    return h(vueRuntime.Fragment, {key: s.id}, [
+                        h('div', {class: 'page-section', 'data-section-id': s.id}, children),
+                        cls.divider ? h('div', {class: cls.divider}) : null
+                    ]);
+                });
+            }
         };
     }
 
@@ -213,11 +217,26 @@
             vueRuntime = Vue;
             if (!vueState) vueState = Vue.reactive({ i18n: null });
             vueState.i18n = currentI18n;
+            slotApps = slotApps.filter(function (record) {
+                if (slotsState.some(function (ss) {
+                    return ss.el === record.el && ss.placement === record.placement && ss.sections !== null;
+                })) return true;
+                record.app.unmount();
+                return false;
+            });
             var pending = [];
             slotsState.forEach(function (ss) {
-                if (!ss.placement || ss.sections == null || hasSlotApp(ss.el)) return;
-                pending.push(global.PixivVue.mountOn(ss.el, buildSectionComponent(ss)).then(function (handle) {
-                    if (handle && handle.app) slotApps.push({ el: ss.el, app: handle.app });
+                if (!ss.placement || ss.sections == null) return;
+                var existing = slotApps.find(function (record) { return record.el === ss.el; });
+                if (existing) {
+                    existing.state.sections = ss.sections;
+                    return;
+                }
+                var state = Vue.shallowReactive({sections: ss.sections});
+                pending.push(global.PixivVue.mountOn(ss.el, buildSectionComponent(ss, state)).then(function (handle) {
+                    if (handle && handle.app) slotApps.push({
+                        el: ss.el, placement: ss.placement, app: handle.app, state: state
+                    });
                 }));
             });
             return global.Promise.all(pending).then(function () {
@@ -301,6 +320,12 @@
         resolveReady();
     }
 
+    function queueRender() {
+        var pending = renderTail.catch(function () {}).then(renderAll);
+        renderTail = pending.catch(function () {});
+        return pending;
+    }
+
     function subscribeLanguageOnce() {
         if (languageSubscribed) return;
         if (global.PixivI18n && typeof global.PixivI18n.onLanguageChange === 'function') {
@@ -328,7 +353,7 @@
         } finally {
             inFlight = false;
         }
-        await renderAll();
+        await queueRender();
         subscribeLanguageOnce();
         markReady();
     }
@@ -336,7 +361,7 @@
     async function refresh() {
         if (inFlight) return;
         if (!loaded) return mount();
-        await renderAll();
+        await queueRender();
     }
 
     function autoMount() {

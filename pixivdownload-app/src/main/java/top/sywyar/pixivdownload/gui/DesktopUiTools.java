@@ -11,6 +11,9 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefix;
+import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
+import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarFiles;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
@@ -44,10 +47,10 @@ final class DesktopUiTools {
 
     private final RestTemplate restTemplate = new RestTemplate();
 
-    DesktopUiHost.FolderCheckResult checkArtworkFolders(Path databasePath) throws SQLException {
+    DesktopUiHost.FolderCheckResult checkArtworkFolders(Path databasePath, String rootFolder) throws SQLException {
         List<DesktopUiHost.FolderArtwork> all;
         try (Connection connection = openDatabase(databasePath)) {
-            all = loadArtworks(connection,
+            all = loadArtworks(connection, loadPathCodec(connection, rootFolder),
                     "SELECT artwork_id, title, folder, moved, move_folder FROM artworks"
                             + " WHERE deleted = 0 ORDER BY time DESC");
         } catch (SQLException exception) {
@@ -55,7 +58,7 @@ final class DesktopUiTools {
                 throw exception;
             }
             try (Connection connection = openDatabase(databasePath)) {
-                all = loadArtworks(connection,
+                all = loadArtworks(connection, loadPathCodec(connection, rootFolder),
                         "SELECT artwork_id, title, folder, moved, move_folder FROM artworks ORDER BY time DESC");
             }
         }
@@ -66,12 +69,12 @@ final class DesktopUiTools {
         return new DesktopUiHost.FolderCheckResult(all.size(), inaccessible);
     }
 
-    void updateArtworkFolder(Path databasePath, long artworkId, boolean moved, String newPath) throws SQLException {
+    void updateArtworkFolder(Path databasePath, String rootFolder, long artworkId, boolean moved, String newPath) throws SQLException {
         String column = moved ? "move_folder" : "folder";
         try (Connection connection = openDatabase(databasePath);
              PreparedStatement statement = connection.prepareStatement(
                      "UPDATE artworks SET " + column + " = ? WHERE artwork_id = ?")) {
-            statement.setString(1, newPath);
+            statement.setString(1, loadPathCodec(connection, rootFolder).encode(newPath));
             statement.setLong(2, artworkId);
             if (statement.executeUpdate() == 0) {
                 throw new SQLException("Artwork " + artworkId + " was not found");
@@ -298,7 +301,20 @@ final class DesktopUiTools {
         return DriverManager.getConnection("jdbc:sqlite:" + databasePath, configuration.toProperties());
     }
 
-    private static List<DesktopUiHost.FolderArtwork> loadArtworks(Connection connection, String sql) throws SQLException {
+    private static StoredPathCodec loadPathCodec(Connection connection, String rootFolder) throws SQLException {
+        List<PathPrefix> prefixes = new ArrayList<>();
+        try (ResultSet tables = connection.getMetaData().getTables(null, null, "path_prefixes", null)) {
+            if (tables.next()) {
+                try (Statement statement = connection.createStatement();
+                     ResultSet rows = statement.executeQuery("SELECT id, path FROM path_prefixes")) {
+                    while (rows.next()) prefixes.add(new PathPrefix(rows.getLong("id"), rows.getString("path")));
+                }
+            }
+        }
+        return PathPrefixCodec.snapshot(rootFolder, prefixes);
+    }
+
+    private static List<DesktopUiHost.FolderArtwork> loadArtworks(Connection connection, StoredPathCodec codec, String sql) throws SQLException {
         List<DesktopUiHost.FolderArtwork> artworks = new ArrayList<>();
         try (Statement statement = connection.createStatement(); ResultSet result = statement.executeQuery(sql)) {
             while (result.next()) {
@@ -306,7 +322,7 @@ final class DesktopUiTools {
                 String movedFolder = result.getString("move_folder");
                 String path = moved && movedFolder != null ? movedFolder : result.getString("folder");
                 artworks.add(new DesktopUiHost.FolderArtwork(
-                        result.getLong("artwork_id"), result.getString("title"), path, moved));
+                        result.getLong("artwork_id"), result.getString("title"), codec.resolve(path), moved));
             }
         }
         return artworks;
