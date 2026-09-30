@@ -2,7 +2,7 @@
 // @name              Pixiv作品图片下载器(Local download)
 // @name:en           Pixiv Artwork Downloader (Local download)
 // @namespace         http://tampermonkey.net/
-// @version           1.4.0
+// @version           1.4.1
 // @updateURL         https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20%E5%8D%95%E4%BD%9C%E5%93%81%E5%9B%BE%E7%89%87%E4%B8%8B%E8%BD%BD%E5%99%A8(Local%20Download).user.js
 // @downloadURL       https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20%E5%8D%95%E4%BD%9C%E5%93%81%E5%9B%BE%E7%89%87%E4%B8%8B%E8%BD%BD%E5%99%A8(Local%20Download).user.js
 // @description       下载 Pixiv 单个作品的所有图片，并记录已下载的作品（本地存储，不通过后端数据库）
@@ -24,6 +24,7 @@
 
 (function () {
     'use strict';
+    // @pixiv-presence-bootstrap
 
     /* ========== PixivUserscriptI18n：跨脚本一致的 i18n 运行时 ==========
      * 同源所有脚本共享 localStorage['pixiv_userscript_lang'] 与 BroadcastChannel

@@ -897,7 +897,10 @@
             color: var(--text);
         }
 
+        .userscript-card { overflow-wrap: anywhere; }
+
         .userscript-card-head {
+            flex-wrap: wrap;
             display: flex;
             align-items: center;
             gap: 8px;

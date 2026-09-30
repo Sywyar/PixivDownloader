@@ -361,7 +361,7 @@
             runScriptCookieImport();
             return;
         }
-        // 未安装工具箱：复用引导遮罩，门槛步骤须先点安装按钮才能进入下一步
+        // 未检测到工具箱时显示安装引导，重新检测成功后再进入下一步
         if (typeof PixivTour === 'undefined') {
             setCookieStatus(bt('status.cookie-import-need-toolbox',
                 '请先在「油猴脚本」面板安装「体验增强工具箱」'), 'error');
@@ -384,11 +384,10 @@
                         setTimeout(() => ctrl.refresh(), 400);
                     },
                     gate: () => isToolboxInstalled(),
-                    actionKey: 'tour:batch.cookie-import.install.have-aio',
-                    onAction: ctrl => {
-                        // 用户声明已装 All-in-One（含工具箱）：记录并直接结束引导、开始获取
-                        markScriptInstalled(SCRIPT_ID_ALL_IN_ONE);
-                        ctrl.end(true, 'finish');
+                    actionKey: 'batch:userscripts.detect-again',
+                    onAction: async ctrl => {
+                        await PixivUserscriptDetection.probe([SCRIPT_ID_TOOLBOX, SCRIPT_ID_ALL_IN_ONE]);
+                        ctrl.refresh();
                     }
                 },
                 {

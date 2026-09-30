@@ -123,6 +123,7 @@ html:has(.ab-drawer-root[open]) { overflow: hidden; }
 }
 
 .ab-script-card {
+    overflow-wrap: anywhere;
     padding: 13px 15px;
 }
 
@@ -135,7 +136,7 @@ html:has(.ab-drawer-root[open]) { overflow: hidden; }
 
 .ab-script-name {
     font-size: 0.84375rem;
-    flex: 1;
+    flex: 1 1 12rem;
     min-width: 0;
 }
 

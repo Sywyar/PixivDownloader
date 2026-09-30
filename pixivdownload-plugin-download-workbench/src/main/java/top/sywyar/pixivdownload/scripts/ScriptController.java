@@ -92,6 +92,7 @@ public class ScriptController {
         String host = request.getServerName();
         String installUrl = buildInstallUrl(id, request);
         content = applyInstallReplacements(content, host, installUrl);
+        content = UserscriptPresenceInstaller.apply(content, artifact.id(), installUrl);
 
         if (raw) {
             // 查看源码：text/plain + UTF-8，不加 Content-Disposition 让浏览器直接内联显示

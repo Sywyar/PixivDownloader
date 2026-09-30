@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv作品图片下载器（Java后端版）
 // @namespace    http://tampermonkey.net/
-// @version      2.1.0
+// @version      2.2.0
 // @updateURL    https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20%E5%8D%95%E4%BD%9C%E5%93%81%E5%9B%BE%E7%89%87%E4%B8%8B%E8%BD%BD%E5%99%A8(Java%E5%90%8E%E7%AB%AF%E7%89%88).user.js
 // @downloadURL  https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20%E5%8D%95%E4%BD%9C%E5%93%81%E5%9B%BE%E7%89%87%E4%B8%8B%E8%BD%BD%E5%99%A8(Java%E5%90%8E%E7%AB%AF%E7%89%88).user.js
 // @description  通过Java后端服务下载 Pixiv 单个作品图片
@@ -20,6 +20,7 @@
 
 (function () {
     'use strict';
+    // @pixiv-presence-bootstrap
 
     // 配置后端服务地址
     const KEY_SERVER_URL = 'pixiv_server_base';
@@ -740,12 +741,599 @@
 
     const t = (key, fallback, args) => PixivUserscriptI18n.t(key, fallback, args);
 
+    const USERSCRIPT_DOWNLOAD_OPTIONS_KEY = 'pixiv_single_download_options';
+
+    // >>> SHARED:download-options-i18n.js
+    PixivUserscriptI18n.register({
+        'en-US': {
+            'download.options.title': 'More download options',
+            'download.options.content': 'Content rating', 'download.options.all': 'All',
+            'download.options.safe': 'All ages only', 'download.options.r18plus': 'R-18 + R-18G',
+            'download.options.r18': 'R-18 only', 'download.options.r18g': 'R-18G only',
+            'download.options.ai': 'AI-generated works', 'download.options.exclude': 'Exclude', 'download.options.only': 'Only',
+            'download.options.type': 'Image type', 'download.options.illust': 'Illustration',
+            'download.options.manga': 'Manga', 'download.options.ugoira': 'Ugoira',
+            'download.options.tagsExact': 'Exact tags (comma-separated, all required)',
+            'download.options.tagsFuzzy': 'Partial tags (comma-separated, all required)',
+            'download.options.bookmark': 'Pixiv bookmarks', 'download.options.page': 'Image pages',
+            'download.options.words': 'Novel words', 'download.options.min': 'Minimum', 'download.options.max': 'Maximum',
+            'download.options.fileNameTemplate': 'Filename template',
+            'download.options.template-hint': 'Blank uses the server default. Example: {artwork_title}_{artwork_id}_p{page}',
+            'download.options.collection': 'Local collection', 'download.options.none': 'Do not add to a collection',
+            'download.options.refresh': 'Refresh collections',
+            'download.options.autoTranslate': 'Automatically translate new novels',
+            'download.options.autoTranslateLanguage': 'Translation language',
+            'download.options.autoTranslateSegmentSize': 'Segment size (0 = automatic)',
+            'download.options.autoTranslateMerge': 'Merge translated series',
+            'download.options.autoTranslateMergeFormat': 'Merged translation format',
+            'download.options.admin': 'Log in to the backend as an administrator; translation also requires configured AI.',
+            'download.options.live': 'Changes apply to work that has not started. Running downloads keep their submitted settings.',
+            'download.options.filtered': 'Skipped — does not match the current filters',
+            'download.options.unavailable': 'Cannot read backend data. Check the server address, login and installed plugins.',
+            'download.options.collection-changed': 'The selected collection is no longer available. Refresh and select it again.',
+            'download.options.invalid': 'Check the filename template, language and segment size.',
+            'download.options.translate.QUEUED': 'Translation queued',
+            'download.options.translate.WAITING_SERIES': 'Waiting for earlier chapters ({pending})',
+            'download.options.translate.RESOLVING': 'Preparing translation',
+            'download.options.translate.TRANSLATING': 'Translating ({seconds}s)',
+            'download.options.translate.MERGING': 'Merging translations',
+            'download.options.translate.DONE': 'Translation complete',
+            'download.options.translate.SAME_LANGUAGE': 'Already in the target language',
+            'download.options.translate.FAILED': 'Translation failed; the download is saved',
+            'download.options.translate.UNAVAILABLE': 'Translation status unavailable; check the backend',
+            'download.options.translate.STOPPED': 'Stopped checking translation status; check the backend'
+        },
+        'zh-CN': {
+            'download.options.title': '更多下载设置',
+            'download.options.content': '内容分级', 'download.options.all': '不限',
+            'download.options.safe': '仅全年龄', 'download.options.r18plus': 'R-18 + R-18G',
+            'download.options.r18': '仅 R-18', 'download.options.r18g': '仅 R-18G',
+            'download.options.ai': 'AI 作品', 'download.options.exclude': '排除', 'download.options.only': '仅此类',
+            'download.options.type': '图片类型', 'download.options.illust': '插画',
+            'download.options.manga': '漫画', 'download.options.ugoira': '动图',
+            'download.options.tagsExact': '精确标签（逗号分隔，全部匹配）',
+            'download.options.tagsFuzzy': '模糊标签（逗号分隔，全部匹配）',
+            'download.options.bookmark': 'Pixiv 收藏数', 'download.options.page': '图片页数',
+            'download.options.words': '小说字数', 'download.options.min': '最小值', 'download.options.max': '最大值',
+            'download.options.fileNameTemplate': '文件名模板',
+            'download.options.template-hint': '留空使用服务端默认值。例如：{artwork_title}_{artwork_id}_p{page}',
+            'download.options.collection': '本地收藏夹', 'download.options.none': '不加入收藏夹',
+            'download.options.refresh': '刷新收藏夹',
+            'download.options.autoTranslate': '新下载小说自动翻译',
+            'download.options.autoTranslateLanguage': '翻译目标语言',
+            'download.options.autoTranslateSegmentSize': '分段大小（0 为自动）',
+            'download.options.autoTranslateMerge': '合订系列译文',
+            'download.options.autoTranslateMergeFormat': '译文合订格式',
+            'download.options.admin': '需在后端以管理员身份登录；翻译还需配置 AI。',
+            'download.options.live': '更改对尚未开始的任务生效。进行中的下载保留提交时的设置。',
+            'download.options.filtered': '跳过 — 不符合当前筛选条件',
+            'download.options.unavailable': '无法读取后端数据，请检查服务器地址、登录状态和插件。',
+            'download.options.collection-changed': '所选收藏夹已不可用，请刷新后重新选择。',
+            'download.options.invalid': '请检查文件名模板、目标语言及分段大小。',
+            'download.options.translate.QUEUED': '翻译排队中',
+            'download.options.translate.WAITING_SERIES': '等待前面的章节翻译（{pending}）',
+            'download.options.translate.RESOLVING': '准备翻译',
+            'download.options.translate.TRANSLATING': '翻译中（{seconds} 秒）',
+            'download.options.translate.MERGING': '合订译文中',
+            'download.options.translate.DONE': '翻译完成',
+            'download.options.translate.SAME_LANGUAGE': '已是目标语言',
+            'download.options.translate.FAILED': '翻译失败，下载文件已保留',
+            'download.options.translate.UNAVAILABLE': '翻译状态不可用，请到后端查看',
+            'download.options.translate.STOPPED': '已停止查询翻译状态，请到后端查看'
+        },
+        'zh-Hant': {
+            'download.options.title': '更多下載設定',
+            'download.options.content': '內容分級', 'download.options.all': '不限',
+            'download.options.safe': '僅全年齡', 'download.options.r18plus': 'R-18 + R-18G',
+            'download.options.r18': '僅 R-18', 'download.options.r18g': '僅 R-18G',
+            'download.options.ai': 'AI 作品', 'download.options.exclude': '排除', 'download.options.only': '僅此類',
+            'download.options.type': '圖片類型', 'download.options.illust': '插畫',
+            'download.options.manga': '漫畫', 'download.options.ugoira': '動圖',
+            'download.options.tagsExact': '精確標籤（逗號分隔，全部符合）',
+            'download.options.tagsFuzzy': '模糊標籤（逗號分隔，全部符合）',
+            'download.options.bookmark': 'Pixiv 收藏數', 'download.options.page': '圖片頁數',
+            'download.options.words': '小說字數', 'download.options.min': '最小值', 'download.options.max': '最大值',
+            'download.options.fileNameTemplate': '檔名範本',
+            'download.options.template-hint': '留空使用伺服器預設值。例如：{artwork_title}_{artwork_id}_p{page}',
+            'download.options.collection': '本機收藏夾', 'download.options.none': '不加入收藏夾',
+            'download.options.refresh': '重新整理收藏夾',
+            'download.options.autoTranslate': '自動翻譯新下載的小說',
+            'download.options.autoTranslateLanguage': '翻譯目標語言',
+            'download.options.autoTranslateSegmentSize': '分段大小（0 為自動）',
+            'download.options.autoTranslateMerge': '合訂系列譯文',
+            'download.options.autoTranslateMergeFormat': '譯文合訂格式',
+            'download.options.admin': '需在後端以管理員身分登入；翻譯還需設定 AI。',
+            'download.options.live': '變更對尚未開始的工作生效。進行中的下載保留送出時的設定。',
+            'download.options.filtered': '略過 — 不符合目前的篩選條件',
+            'download.options.unavailable': '無法讀取後端資料，請檢查伺服器位址、登入狀態與外掛。',
+            'download.options.collection-changed': '所選收藏夾已無法使用，請重新整理後再選取。',
+            'download.options.invalid': '請檢查檔名範本、目標語言與分段大小。',
+            'download.options.translate.QUEUED': '翻譯排隊中',
+            'download.options.translate.WAITING_SERIES': '等待前面的章節翻譯（{pending}）',
+            'download.options.translate.RESOLVING': '準備翻譯',
+            'download.options.translate.TRANSLATING': '翻譯中（{seconds} 秒）',
+            'download.options.translate.MERGING': '合訂譯文中',
+            'download.options.translate.DONE': '翻譯完成',
+            'download.options.translate.SAME_LANGUAGE': '已是目標語言',
+            'download.options.translate.FAILED': '翻譯失敗，下載檔案已保留',
+            'download.options.translate.UNAVAILABLE': '翻譯狀態無法取得，請到後端查看',
+            'download.options.translate.STOPPED': '已停止查詢翻譯狀態，請到後端查看'
+        },
+        'ja-JP': {
+            'download.options.title': 'その他のダウンロード設定',
+            'download.options.content': '年齢制限', 'download.options.all': '指定なし',
+            'download.options.safe': '全年齢のみ', 'download.options.r18plus': 'R-18 + R-18G',
+            'download.options.r18': 'R-18 のみ', 'download.options.r18g': 'R-18G のみ',
+            'download.options.ai': 'AI 生成作品', 'download.options.exclude': '除外', 'download.options.only': '該当作品のみ',
+            'download.options.type': '画像の種類', 'download.options.illust': 'イラスト',
+            'download.options.manga': '漫画', 'download.options.ugoira': 'うごイラ',
+            'download.options.tagsExact': '完全一致タグ（カンマ区切り、すべて必須）',
+            'download.options.tagsFuzzy': '部分一致タグ（カンマ区切り、すべて必須）',
+            'download.options.bookmark': 'Pixiv ブックマーク数', 'download.options.page': '画像ページ数',
+            'download.options.words': '小説の文字数', 'download.options.min': '最小値', 'download.options.max': '最大値',
+            'download.options.fileNameTemplate': 'ファイル名テンプレート',
+            'download.options.template-hint': '空欄の場合はサーバーの既定値を使用します。例：{artwork_title}_{artwork_id}_p{page}',
+            'download.options.collection': 'ローカルコレクション', 'download.options.none': 'コレクションに追加しない',
+            'download.options.refresh': 'コレクションを更新',
+            'download.options.autoTranslate': '新しくダウンロードした小説を自動翻訳',
+            'download.options.autoTranslateLanguage': '翻訳先の言語',
+            'download.options.autoTranslateSegmentSize': '分割サイズ（0 = 自動）',
+            'download.options.autoTranslateMerge': 'シリーズの訳文を合本にする',
+            'download.options.autoTranslateMergeFormat': '翻訳合本の形式',
+            'download.options.admin': 'バックエンドへの管理者ログインが必要です。翻訳には AI の設定も必要です。',
+            'download.options.live': '変更は未開始のタスクに適用されます。実行中のダウンロードは送信時の設定を維持します。',
+            'download.options.filtered': 'スキップ — 現在の絞り込み条件に一致しません',
+            'download.options.unavailable': 'バックエンドのデータを取得できません。アドレス、ログイン状態、プラグインを確認してください。',
+            'download.options.collection-changed': '選択したコレクションは利用できなくなりました。更新して選び直してください。',
+            'download.options.invalid': 'ファイル名テンプレート、翻訳先言語、分割サイズを確認してください。',
+            'download.options.translate.QUEUED': '翻訳待ち',
+            'download.options.translate.WAITING_SERIES': '前の章の翻訳を待機中（{pending}）',
+            'download.options.translate.RESOLVING': '翻訳を準備中',
+            'download.options.translate.TRANSLATING': '翻訳中（{seconds} 秒）',
+            'download.options.translate.MERGING': '訳文を合本中',
+            'download.options.translate.DONE': '翻訳完了',
+            'download.options.translate.SAME_LANGUAGE': 'すでに翻訳先の言語です',
+            'download.options.translate.FAILED': '翻訳失敗。ダウンロード済みファイルは保持されています',
+            'download.options.translate.UNAVAILABLE': '翻訳状態を取得できません。バックエンドで確認してください',
+            'download.options.translate.STOPPED': '翻訳状態の確認を停止しました。バックエンドで確認してください'
+        },
+        'ko-KR': {
+            'download.options.title': '추가 다운로드 설정',
+            'download.options.content': '연령 등급', 'download.options.all': '제한 없음',
+            'download.options.safe': '전체 연령만', 'download.options.r18plus': 'R-18 + R-18G',
+            'download.options.r18': 'R-18만', 'download.options.r18g': 'R-18G만',
+            'download.options.ai': 'AI 생성 작품', 'download.options.exclude': '제외', 'download.options.only': '해당 작품만',
+            'download.options.type': '이미지 유형', 'download.options.illust': '일러스트',
+            'download.options.manga': '만화', 'download.options.ugoira': '움짤',
+            'download.options.tagsExact': '정확한 태그 (쉼표로 구분, 모두 일치)',
+            'download.options.tagsFuzzy': '부분 태그 (쉼표로 구분, 모두 일치)',
+            'download.options.bookmark': 'Pixiv 북마크 수', 'download.options.page': '이미지 페이지 수',
+            'download.options.words': '소설 글자 수', 'download.options.min': '최솟값', 'download.options.max': '최댓값',
+            'download.options.fileNameTemplate': '파일 이름 템플릿',
+            'download.options.template-hint': '비워 두면 서버 기본값을 사용합니다. 예: {artwork_title}_{artwork_id}_p{page}',
+            'download.options.collection': '로컬 컬렉션', 'download.options.none': '컬렉션에 추가하지 않음',
+            'download.options.refresh': '컬렉션 새로 고침',
+            'download.options.autoTranslate': '새로 다운로드한 소설 자동 번역',
+            'download.options.autoTranslateLanguage': '번역 대상 언어',
+            'download.options.autoTranslateSegmentSize': '분할 크기 (0 = 자동)',
+            'download.options.autoTranslateMerge': '시리즈 번역문 합본 생성',
+            'download.options.autoTranslateMergeFormat': '번역 합본 형식',
+            'download.options.admin': '백엔드에 관리자로 로그인해야 합니다. 번역하려면 AI 설정도 필요합니다.',
+            'download.options.live': '변경 사항은 아직 시작하지 않은 작업에 적용됩니다. 진행 중인 다운로드는 요청 시 설정을 유지합니다.',
+            'download.options.filtered': '건너뜀 — 현재 필터 조건과 일치하지 않음',
+            'download.options.unavailable': '백엔드 데이터를 읽을 수 없습니다. 서버 주소, 로그인 상태와 플러그인을 확인하세요.',
+            'download.options.collection-changed': '선택한 컬렉션을 더 이상 사용할 수 없습니다. 새로 고친 후 다시 선택하세요.',
+            'download.options.invalid': '파일 이름 템플릿, 대상 언어와 분할 크기를 확인하세요.',
+            'download.options.translate.QUEUED': '번역 대기 중',
+            'download.options.translate.WAITING_SERIES': '앞선 장의 번역 대기 중 ({pending})',
+            'download.options.translate.RESOLVING': '번역 준비 중',
+            'download.options.translate.TRANSLATING': '번역 중 ({seconds}초)',
+            'download.options.translate.MERGING': '번역문 합본 생성 중',
+            'download.options.translate.DONE': '번역 완료',
+            'download.options.translate.SAME_LANGUAGE': '이미 대상 언어입니다',
+            'download.options.translate.FAILED': '번역 실패. 다운로드한 파일은 보존됩니다',
+            'download.options.translate.UNAVAILABLE': '번역 상태를 확인할 수 없습니다. 백엔드에서 확인하세요',
+            'download.options.translate.STOPPED': '번역 상태 확인을 중지했습니다. 백엔드에서 확인하세요'
+        }
+    });
+    // <<< SHARED:download-options-i18n.js
+    // >>> SHARED:download-options.js
+    // 四个独立下载器共用设置与请求参数；收藏夹只在当前后端会话内选择。
+    const UserscriptDownloadOptions = (() => {
+        const STORAGE_KEY = USERSCRIPT_DOWNLOAD_OPTIONS_KEY;
+        let collection = null;
+        const text = (key, args) => PixivUserscriptI18n.t('download.options.' + key, null, args);
+        const scope = () => serverBase + '\n' + (userUUID || '');
+        const choice = (value, values, fallback) => values.includes(value) ? value : fallback;
+        const number = value => value === '' || value == null || !Number.isSafeInteger(Number(value))
+            || Number(value) < 0 ? null : Number(value);
+
+        function read(legacyR18 = false) {
+            const saved = GM_getValue(STORAGE_KEY, {}) || {};
+            const settings = {
+                content: choice(saved.content, ['all', 'safe', 'r18plus', 'r18', 'r18g'], legacyR18 ? 'r18plus' : 'all'),
+                ai: choice(saved.ai, ['all', 'exclude', 'only'], 'all'),
+                type: choice(saved.type, ['all', 'illust', 'manga', 'ugoira'], 'all'),
+                tagsExact: String(saved.tagsExact || ''),
+                tagsFuzzy: String(saved.tagsFuzzy || ''),
+                fileNameTemplate: String(saved.fileNameTemplate || ''),
+                autoTranslate: saved.autoTranslate === true,
+                autoTranslateLanguage: String(saved.autoTranslateLanguage || ''),
+                autoTranslateSegmentSize: number(saved.autoTranslateSegmentSize) ?? 0,
+                autoTranslateMerge: saved.autoTranslateMerge === true,
+                autoTranslateMergeFormat: choice(saved.autoTranslateMergeFormat, ['txt', 'html', 'epub'], 'epub')
+            };
+            for (const prefix of ['bookmark', 'page', 'words']) {
+                settings[prefix + 'Min'] = number(saved[prefix + 'Min']);
+                settings[prefix + 'Max'] = number(saved[prefix + 'Max']);
+                if (settings[prefix + 'Min'] !== null && settings[prefix + 'Max'] !== null
+                    && settings[prefix + 'Min'] > settings[prefix + 'Max']) {
+                    [settings[prefix + 'Min'], settings[prefix + 'Max']] = [settings[prefix + 'Max'], settings[prefix + 'Min']];
+                }
+            }
+            return settings;
+        }
+
+        function matches(meta, kind, legacyR18 = false) {
+            const f = read(legacyR18);
+            const xr = Number(meta.xRestrict ?? meta.xrestrict ?? 0);
+            if (f.content === 'safe' && xr !== 0 || f.content === 'r18plus' && xr !== 1 && xr !== 2
+                || f.content === 'r18' && xr !== 1 || f.content === 'r18g' && xr !== 2) return false;
+            const ai = Number(meta.aiType ?? (meta.isAi ? 2 : 0)) >= 2;
+            if (f.ai === 'exclude' && ai || f.ai === 'only' && !ai) return false;
+            const tags = (Array.isArray(meta.tags) ? meta.tags : meta.tags?.tags || []).flatMap(tag =>
+                typeof tag === 'string' ? [tag] : [tag?.name || tag?.tag, tag?.translatedName || tag?.translation?.en]
+            ).filter(Boolean).map(tag => String(tag).toLowerCase());
+            const terms = value => value.split(/[,，\n]/).map(tag => tag.trim().toLowerCase()).filter(Boolean);
+            if (!terms(f.tagsExact).every(term => tags.includes(term))
+                || !terms(f.tagsFuzzy).every(term => tags.some(tag => tag.includes(term)))) return false;
+            const within = (value, prefix) => {
+                const min = f[prefix + 'Min'], max = f[prefix + 'Max'];
+                if (min === null && max === null) return true;
+                const n = number(value);
+                return n !== null && (min === null || n >= min) && (max === null || n <= max);
+            };
+            if (!within(meta.bookmarkCount, 'bookmark')) return false;
+            if (kind === 'novel') return within(meta.wordCount, 'words');
+            const types = {illust: 0, manga: 1, ugoira: 2};
+            return (f.type === 'all' || Number(meta.illustType) === types[f.type]) && within(meta.pageCount, 'page');
+        }
+
+        function request(path, base = serverBase) {
+            return new Promise((resolve, reject) => {
+                const headers = {Accept: 'application/json'};
+                if (userUUID) headers['X-User-UUID'] = userUUID;
+                GM_xmlhttpRequest({
+                    method: 'GET', url: base + path, headers, timeout: 10000,
+                    onload: response => {
+                        try {
+                            resolve({status: response.status, data: response.status === 204 ? null : JSON.parse(response.responseText)});
+                        } catch (_) { reject(new Error(text('unavailable'))); }
+                    },
+                    onerror: () => reject(new Error(text('unavailable'))),
+                    ontimeout: () => reject(new Error(text('unavailable')))
+                });
+            });
+        }
+
+        async function collections() {
+            const captured = scope();
+            const result = await request('/api/collections');
+            if (captured !== scope()) throw new Error(text('unavailable'));
+            if (result.status !== 200 || !Array.isArray(result.data?.collections)) {
+                collection = null;
+                throw new Error(text('unavailable'));
+            }
+            const rows = result.data.collections.filter(row => number(row.id) > 0);
+            if (collection && (collection.scope !== captured || !rows.some(row => Number(row.id) === collection.id))) collection = null;
+            return rows;
+        }
+
+        function selectCollection(id) {
+            collection = number(id) > 0 ? {id: number(id), scope: scope()} : null;
+        }
+
+        async function other(kind) {
+            const settings = read();
+            if (settings.fileNameTemplate.length > 512 || settings.autoTranslateLanguage.length > 100
+                || settings.autoTranslateSegmentSize > 1000000) throw new Error(text('invalid'));
+            const captured = scope();
+            if (collection?.scope !== captured) collection = null;
+            const selected = collection;
+            if (selected) {
+                await collections();
+                if (collection !== selected) throw new Error(text('collection-changed'));
+            }
+            const result = {fileNameTemplate: settings.fileNameTemplate || null, collectionId: collection?.id || null};
+            if (kind === 'novel') {
+                if (settings.autoTranslate) {
+                    const auth = await request('/api/auth/check');
+                    if (auth.status !== 200 || auth.data?.valid !== true) throw new Error(text('admin'));
+                }
+                Object.assign(result, {
+                    autoTranslate: settings.autoTranslate,
+                    autoTranslateLanguage: settings.autoTranslateLanguage || null,
+                    autoTranslateSegmentSize: settings.autoTranslateSegmentSize,
+                    autoTranslateMerge: settings.autoTranslateMerge,
+                    autoTranslateMergeFormat: settings.autoTranslateMergeFormat
+                });
+            }
+            if (captured !== scope()) throw new Error(text('unavailable'));
+            return result;
+        }
+
+        const selectedCollectionId = () => collection?.scope === scope() ? collection.id : null;
+        return {STORAGE_KEY, text, read, matches, request, collections, selectCollection, selectedCollectionId, other};
+    })();
+    // <<< SHARED:download-options.js
+    // >>> SHARED:download-options-ui.js
+    function applyUserscriptPanelStyle(container) {
+        container.classList.add('pixiv-download-panel');
+        if (document.getElementById('pixiv-download-panel-style')) return;
+        const style = document.createElement('style');
+        style.id = 'pixiv-download-panel-style';
+        const dark = `color-scheme:dark;
+            --pixiv-panel-bg:#202124;--pixiv-panel-surface:#303134;
+            --pixiv-panel-text:#f1f3f4;--pixiv-panel-muted:#bdc1c6;--pixiv-panel-line:#686b70;
+            --pixiv-panel-info:#8ab4f8;--pixiv-panel-success:#81c995;--pixiv-panel-danger:#f28b82;
+            --pixiv-panel-warning:#fdd663;--pixiv-panel-warning-bg:#40351c;--pixiv-panel-teal:#78d9cc;`;
+        style.textContent = `
+            .pixiv-download-panel {
+                color-scheme:light;
+                --pixiv-panel-bg:#fff;--pixiv-panel-surface:#f8f9fa;
+                --pixiv-panel-text:#333;--pixiv-panel-muted:#62666b;--pixiv-panel-line:#ccc;
+                --pixiv-panel-info:#0066cc;--pixiv-panel-success:#187a35;--pixiv-panel-danger:#c62828;
+                --pixiv-panel-warning:#805400;--pixiv-panel-warning-bg:#fff4db;--pixiv-panel-teal:#08796e;
+                width:420px;color:var(--pixiv-panel-text);overflow-wrap:anywhere;
+            }
+            @media (prefers-color-scheme:dark) {
+                :root:not([data-theme="light"]) .pixiv-download-panel { ${dark} }
+            }
+            :root[data-theme="dark"] .pixiv-download-panel { ${dark} }
+            .pixiv-download-panel, .pixiv-download-panel * { box-sizing:border-box; }
+            .pixiv-download-panel :is(input,select,textarea) {
+                min-width:0;max-width:100%;color:var(--pixiv-panel-text);
+                background:var(--pixiv-panel-bg);border:1px solid var(--pixiv-panel-line);
+            }
+            .pixiv-download-panel :is(input,textarea)::placeholder { color:var(--pixiv-panel-muted);opacity:1; }
+            .pixiv-download-settings div { flex-wrap:wrap; }
+            .pixiv-download-settings :is(input[type="text"],select) { min-width:min(140px,100%); }
+            .pixiv-download-panel button {
+                color:var(--pixiv-panel-text);background:var(--pixiv-panel-surface);
+                border:1px solid var(--pixiv-panel-line);padding:4px 8px;font-family:inherit;
+            }
+            .pixiv-download-panel :is(button,input,select,textarea,summary):focus-visible {
+                outline:2px solid var(--pixiv-panel-info);outline-offset:2px;
+            }
+            .pixiv-download-options p { margin:10px 0;line-height:1.5; }
+            .pixiv-download-options summary { cursor:pointer; }
+        `;
+        document.head.appendChild(style);
+    }
+
+    function mountUserscriptDownloadOptions(container, legacyR18 = false) {
+        applyUserscriptPanelStyle(container);
+        const options = UserscriptDownloadOptions;
+        const text = options.text;
+        const settings = options.read(legacyR18);
+        const details = document.createElement('details');
+        details.className = 'pixiv-download-options';
+        details.style.cssText = 'margin:8px 0;padding:8px;border:1px solid var(--pixiv-panel-line);border-radius:6px;background:var(--pixiv-panel-surface);font-size:12px;min-width:0;';
+        const summary = document.createElement('summary');
+        summary.textContent = text('title');
+        details.appendChild(summary);
+        const note = document.createElement('p');
+        note.textContent = text('live');
+        details.appendChild(note);
+        function field(key, type, values, label = key) {
+            const row = document.createElement('label');
+            row.style.cssText = 'display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:8px 0;';
+            const caption = document.createElement('span');
+            caption.textContent = text(label);
+            caption.style.cssText = 'flex:1 1 130px;';
+            const input = document.createElement(values ? 'select' : 'input');
+            input.dataset.downloadOption = key;
+            input.style.cssText = 'box-sizing:border-box;min-width:0;max-width:100%;font:inherit;';
+            if (values) for (const value of values) {
+                const option = document.createElement('option');
+                option.value = value;
+                option.textContent = ['txt', 'html', 'epub'].includes(value) ? value.toUpperCase() : text(value);
+                input.appendChild(option);
+            } else {
+                input.type = type;
+                if (type === 'number') { input.min = '0'; input.step = '1'; input.max = String(Number.MAX_SAFE_INTEGER); }
+            }
+            if (type === 'checkbox') input.checked = settings[key];
+            else { input.value = settings[key] ?? ''; input.style.width = '160px'; }
+            if (key === 'fileNameTemplate') { input.maxLength = 512; input.title = text('template-hint'); }
+            if (key === 'autoTranslateLanguage') input.maxLength = 100;
+            if (key === 'autoTranslateSegmentSize') input.max = '1000000';
+            input.addEventListener('change', () => {
+                if (key === 'collection') return;
+                if (!input.reportValidity()) return;
+                const current = options.read(legacyR18);
+                current[key] = type === 'checkbox' ? input.checked : input.value;
+                GM_setValue(options.STORAGE_KEY, current);
+            });
+            row.append(caption, input);
+            details.appendChild(row);
+            return input;
+        }
+        field('content', 'select', ['all', 'safe', 'r18plus', 'r18', 'r18g']);
+        field('ai', 'select', ['all', 'exclude', 'only']);
+        field('type', 'select', ['all', 'illust', 'manga', 'ugoira']);
+        field('tagsExact', 'text');
+        field('tagsFuzzy', 'text');
+        for (const prefix of ['bookmark', 'page', 'words']) {
+            for (const bound of ['Min', 'Max']) {
+                const input = field(prefix + bound, 'number', null, prefix);
+                input.setAttribute('aria-label', text(prefix) + ' — ' + text(bound.toLowerCase()));
+                input.placeholder = text(bound.toLowerCase());
+            }
+        }
+        field('fileNameTemplate', 'text');
+        const collection = field('collection', 'select', ['none']);
+        collection.options[0].value = '';
+        collection.value = '';
+        const selected = options.selectedCollectionId();
+        if (selected) {
+            const option = document.createElement('option');
+            option.value = String(selected);
+            option.textContent = String(selected);
+            collection.appendChild(option);
+            collection.value = String(selected);
+        }
+        collection.disabled = !selected;
+        collection.addEventListener('change', () => options.selectCollection(collection.value));
+        const refresh = document.createElement('button');
+        refresh.type = 'button';
+        refresh.textContent = text('refresh');
+        details.appendChild(refresh);
+        const message = document.createElement('p');
+        message.setAttribute('role', 'status');
+        details.appendChild(message);
+        refresh.addEventListener('click', async () => {
+            refresh.disabled = true;
+            collection.disabled = true;
+            message.textContent = '';
+            try {
+                const rows = await options.collections();
+                if (!details.isConnected) return;
+                collection.replaceChildren();
+                for (const row of [{id: '', name: text('none')}, ...rows]) {
+                    const option = document.createElement('option');
+                    option.value = String(row.id);
+                    option.textContent = String(row.name || row.id);
+                    collection.appendChild(option);
+                }
+                collection.value = String(options.selectedCollectionId() || '');
+                collection.disabled = false;
+            } catch (_) {
+                collection.value = '';
+                options.selectCollection(null);
+                message.textContent = text('unavailable');
+            } finally { refresh.disabled = false; }
+        });
+        const admin = document.createElement('p');
+        admin.textContent = text('admin');
+        details.appendChild(admin);
+        field('autoTranslate', 'checkbox');
+        field('autoTranslateLanguage', 'text');
+        field('autoTranslateSegmentSize', 'number');
+        field('autoTranslateMerge', 'checkbox');
+        field('autoTranslateMergeFormat', 'select', ['epub', 'txt', 'html']);
+        container.appendChild(details);
+        // 原分级开关的保存值仍作为首次使用的默认值，界面只保留一份分级控件。
+        const oldRating = container.querySelector('#r18-only, #pbd-r18-only');
+        if (oldRating) oldRating.parentElement.style.display = 'none';
+        container.style.boxSizing = 'border-box';
+        container.style.maxHeight = `calc(100vh - ${(parseFloat(container.style.top) || 20) + 20}px)`;
+        container.style.overflowY = 'auto';
+        container.style.minWidth = '0';
+        container.style.maxWidth = 'calc(100vw - 96px)';
+        const notice = document.createElement('div');
+        notice.className = 'pixiv-download-options-notice';
+        notice.setAttribute('role', 'status');
+        container.appendChild(notice);
+        return details;
+    }
+
+    function showUserscriptDownloadNotice(message) {
+        const notice = document.querySelector('#pixiv-java-downloader-ui .pixiv-download-options-notice');
+        if (notice) notice.textContent = message;
+    }
+    // <<< SHARED:download-options-ui.js
+    // >>> SHARED:novel-translate-monitor.js
+    // 翻译由服务端执行，状态观察独立于下载 worker；只保留原始状态，不展示上游错误正文。
+    const UserscriptNovelTranslation = (() => {
+        const pending = new Map();
+        let timer = null;
+        let stopped = false;
+        let polling = false;
+        const phases = ['QUEUED', 'WAITING_SERIES', 'RESOLVING', 'TRANSLATING', 'MERGING',
+            'DONE', 'SAME_LANGUAGE', 'FAILED', 'UNAVAILABLE', 'STOPPED'];
+        function label(item) {
+            if (!item.translatePhase) return '';
+            let phase = phases.includes(item.translatePhase) ? item.translatePhase : 'UNAVAILABLE';
+            if (!pending.has(item) && ['QUEUED', 'WAITING_SERIES', 'RESOLVING', 'TRANSLATING', 'MERGING'].includes(phase)) phase = 'STOPPED';
+            return UserscriptDownloadOptions.text('translate.' + phase, {
+                seconds: item.translateElapsed || 0, pending: item.translateSeriesPending || 0
+            });
+        }
+        function finish(item, watch, phase) {
+            pending.delete(item);
+            if (!stopped && watch.base === serverBase && watch.uuid === userUUID && watch.current()) { item.translatePhase = phase; watch.update(); }
+        }
+        async function poll(item, watch) {
+            if (!watch.current() || watch.base !== serverBase || watch.uuid !== userUUID || stopped) { pending.delete(item); return; }
+            if (Date.now() - watch.started > 30 * 60 * 1000) { finish(item, watch, 'STOPPED'); return; }
+            try {
+                const path = watch.waitDownload ? '/api/novel/status/' : '/api/novel/translate-status/';
+                const result = await UserscriptDownloadOptions.request(path + encodeURIComponent(watch.id), watch.base);
+                if (!watch.current() || watch.base !== serverBase || watch.uuid !== userUUID || stopped || pending.get(item) !== watch) return;
+                if ([401, 403, 404].includes(result.status)) { finish(item, watch, 'UNAVAILABLE'); return; }
+                const status = result.data;
+                if (result.status !== 200 || !status) {
+                    if (++watch.missing >= 10) finish(item, watch, 'UNAVAILABLE');
+                    return;
+                }
+                if (watch.waitDownload) {
+                    if (status.failed) { finish(item, watch, 'UNAVAILABLE'); return; }
+                    if (status.completed) watch.waitDownload = false;
+                    return;
+                }
+                if (!phases.includes(status.phase)) {
+                    if (++watch.missing >= 10) finish(item, watch, 'UNAVAILABLE');
+                    return;
+                }
+                watch.missing = 0;
+                item.translatePhase = status.failed ? 'FAILED' : status.done && status.phase !== 'SAME_LANGUAGE' ? 'DONE' : status.phase;
+                item.translateElapsed = Math.max(0, Number(status.elapsedSeconds) || 0);
+                item.translateSeriesPending = Math.max(0, Number(status.seriesPending) || 0);
+                watch.update();
+                if (status.done || status.failed || ['DONE', 'FAILED', 'SAME_LANGUAGE'].includes(status.phase)) pending.delete(item);
+            } catch (_) {
+                if (pending.get(item) === watch && ++watch.missing >= 10) finish(item, watch, 'UNAVAILABLE');
+            }
+        }
+        async function tick() {
+            timer = null;
+            if (stopped) return;
+            polling = true;
+            const batch = [...pending.entries()].slice(0, 4);
+            // 轮转观察，避免较早的长篇翻译独占状态请求。
+            for (const [item, watch] of batch) { pending.delete(item); pending.set(item, watch); }
+            await Promise.all(batch.map(([item, watch]) => poll(item, watch)));
+            polling = false;
+            if (pending.size && !stopped) timer = setTimeout(tick, 1500);
+        }
+        function watch(item, id, current, update, waitDownload = false) {
+            if (stopped) return;
+            const entry = {id, current, update, waitDownload, base: serverBase, uuid: userUUID, started: Date.now(), missing: 0};
+            // ponytail: 每脚本最多观察 128 项；更大批次的完整观察交给后端工作台。
+            if (pending.size >= 128 && !pending.has(item)) { finish(item, entry, 'STOPPED'); return; }
+            item.translatePhase = 'QUEUED';
+            pending.set(item, entry);
+            update();
+            if (timer === null && !polling && !stopped) timer = setTimeout(tick, 1500);
+        }
+        window.addEventListener('pagehide', () => {
+            for (const [item, entry] of pending) finish(item, entry, 'STOPPED');
+            stopped = true;
+            clearTimeout(timer);
+            timer = null;
+            pending.clear();
+        });
+        window.addEventListener('pageshow', () => { stopped = false; });
+        return {watch, label};
+    })();
+    // <<< SHARED:novel-translate-monitor.js
     function buildLangSwitcher() {
         const wrapper = document.createElement('span');
         wrapper.style.cssText = 'display:inline-flex;align-items:center;gap:6px;flex-shrink:0;';
         const select = document.createElement('select');
         select.title = t('switcher.label', 'Language');
-        select.style.cssText = 'padding:2px 4px;border:1px solid #ccc;border-radius:4px;background:#fff;color:#333;font-size:11px;';
+        select.style.cssText = 'padding:2px 4px;border:1px solid var(--pixiv-panel-line, #ccc);border-radius:4px;background:var(--pixiv-panel-bg, #fff);color:var(--pixiv-panel-text, #333);font-size:11px;';
         PixivUserscriptI18n.listSupported().forEach(lang => {
             const option = document.createElement('option');
             option.value = lang;
@@ -1152,6 +1740,8 @@
         return Object.freeze({importResponse});
     })();
     // <<< SHARED:novel-browser-import.js
+    let singleNovelTranslation = null;
+
     // Pixiv 小说元数据（直连 Pixiv：GM_xmlhttpRequest 会带上浏览器的登录 Cookie，
     // 含 HttpOnly 的 PHPSESSID，从而能取到受限 / R18 小说的完整 meta 与正文 content。
     // 不要走后端代理 + document.cookie —— document.cookie 取不到 HttpOnly 会话 Cookie，
@@ -1235,6 +1825,10 @@
         try {
             alert(t('single.alert.novel-start-download', null, {novelId: novelId}));
             const meta = await getNovelMeta(novelId);
+            if (!UserscriptDownloadOptions.matches(meta, 'novel')) {
+                showUserscriptDownloadNotice(UserscriptDownloadOptions.text('filtered'));
+                return;
+            }
             const fmt = (GM_getValue(KEY_NOVEL_FORMAT, 'txt') || 'txt').toLowerCase();
             const bookmark = GM_getValue(KEY_BOOKMARK_AFTER_DL, false);
             const body = {
@@ -1244,7 +1838,7 @@
                     // bookmark 由脚本侧直连 Pixiv 完成（见下方 pixivBookmarkNovel 调用），
                     // 永远不让后端代发 —— document.cookie 取不到 HttpOnly PHPSESSID。
                     bookmark: false,
-                    collectionId: null,
+                    ...await UserscriptDownloadOptions.other('novel'),
                     format: fmt
                 }
             };
@@ -1282,6 +1876,13 @@
                 quotaInfo.artworksUsed = Math.min(quotaInfo.maxArtworks, quotaInfo.artworksUsed + 1);
             }
             updateDownloadUI();
+            if (body.other.autoTranslate && !response.alreadyDownloaded) {
+                const item = {novelId};
+                singleNovelTranslation = item;
+                UserscriptNovelTranslation.watch(item, novelId,
+                    () => singleNovelTranslation === item && String(getNovelId()) === String(novelId),
+                    () => showUserscriptDownloadNotice(UserscriptNovelTranslation.label(item)), true);
+            }
             const typeHint = t('single.type.novel', '小说（{format}）', {format: fmt.toUpperCase()});
             alert(t('single.alert.download-submitted', null, {
                 typeHint: typeHint,
@@ -1464,6 +2065,7 @@
 
     // 发送下载请求到后端
     async function sendDownloadRequest(artworkId, title, imageUrls, other) {
+        other = {...other, ...await UserscriptDownloadOptions.other('illust')};
         return new Promise((resolve, reject) => {
             const requestData = {
                 artworkId: parseInt(artworkId),
@@ -1601,6 +2203,10 @@
 
             // 获取作品元数据（用于标题和类型检测）
             const meta = await getArtworkMeta(artworkId);
+            if (!UserscriptDownloadOptions.matches(meta, 'illust')) {
+                showUserscriptDownloadNotice(UserscriptDownloadOptions.text('filtered'));
+                return;
+            }
             const title = (meta && meta.illustTitle) ? meta.illustTitle : `Artwork ${artworkId}`;
             const parsedAuthorId = Number.parseInt(String(meta?.userId || ''), 10);
             const authorId = Number.isFinite(parsedAuthorId) ? parsedAuthorId : null;
@@ -1725,7 +2331,7 @@
             top: 260px;
             right: 80px;
             z-index: 9999;
-            background: white;
+            background: var(--pixiv-panel-bg, white);
             border: 2px solid #0096fa;
             border-radius: 8px;
             padding: 10px;
@@ -1740,7 +2346,7 @@
             align-items: center;
             gap: 8px;
             margin-bottom: 5px;
-            border-bottom: 1px solid #eee;
+            border-bottom: 1px solid var(--pixiv-panel-line, #eee);
             padding-bottom: 5px;
         `;
 
@@ -1750,7 +2356,7 @@
             : t('single.title', 'Pixiv下载器 (Java后端)');
         titleDiv.style.cssText = `
             font-weight: bold;
-            color: #333;
+            color: var(--pixiv-panel-text, #333);
             text-align: center;
             font-size: 16px;
             flex: 1;
@@ -1758,7 +2364,7 @@
         const collapseBtn = document.createElement('button');
         collapseBtn.textContent = '◀';
         collapseBtn.title = t('single.action.collapse', '收起');
-        collapseBtn.style.cssText = 'background:none;border:1px solid #ccc;border-radius:4px;cursor:pointer;font-size:12px;padding:2px 6px;color:#666;flex-shrink:0;';
+        collapseBtn.style.cssText = 'background:none;border:1px solid var(--pixiv-panel-line, #ccc);border-radius:4px;cursor:pointer;font-size:12px;padding:2px 6px;color:var(--pixiv-panel-muted, #666);flex-shrink:0;';
         collapseBtn.addEventListener('click', () => toggleSinglePanel(true));
         titleRow.appendChild(collapseBtn);
         titleRow.appendChild(titleDiv);
@@ -1771,7 +2377,7 @@
         statusDiv.style.cssText = `
             font-weight: bold;
             margin-bottom: 8px;
-            color: #0096fa;
+            color: var(--pixiv-panel-info, #0096fa);
             text-align: center;
             font-size: 14px;
         `;
@@ -1803,7 +2409,7 @@
 
         // 下载后收藏开关
         const bookmarkRow = document.createElement('div');
-        bookmarkRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:6px;font-size:12px;color:#555;';
+        bookmarkRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:6px;font-size:12px;color:var(--pixiv-panel-text, #555);';
         const bookmarkChk = document.createElement('input');
         bookmarkChk.type = 'checkbox';
         bookmarkChk.id = 'pixiv-dl-bookmark';
@@ -1817,7 +2423,7 @@
         bookmarkRow.appendChild(bookmarkLabel);
 
         const skipHistoryRow = document.createElement('div');
-        skipHistoryRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:6px;font-size:12px;color:#555;';
+        skipHistoryRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:6px;font-size:12px;color:var(--pixiv-panel-text, #555);';
         const skipHistoryChk = document.createElement('input');
         skipHistoryChk.type = 'checkbox';
         skipHistoryChk.id = 'pixiv-dl-skip-history';
@@ -1830,7 +2436,7 @@
         skipHistoryRow.appendChild(skipHistoryLabel);
 
         const verifyHistoryFilesRow = document.createElement('div');
-        verifyHistoryFilesRow.style.cssText = `display:${skipHistoryEnabled ? 'flex' : 'none'};align-items:center;gap:6px;margin-bottom:6px;font-size:12px;color:#555;`;
+        verifyHistoryFilesRow.style.cssText = `display:${skipHistoryEnabled ? 'flex' : 'none'};align-items:center;gap:6px;margin-bottom:6px;font-size:12px;color:var(--pixiv-panel-text, #555);`;
         const verifyHistoryFilesChk = document.createElement('input');
         verifyHistoryFilesChk.type = 'checkbox';
         verifyHistoryFilesChk.id = 'pixiv-dl-verify-history-files';
@@ -1842,13 +2448,13 @@
         const verifyHistoryFilesHelp = document.createElement('span');
         verifyHistoryFilesHelp.textContent = '?';
         verifyHistoryFilesHelp.title = t('common.option.verify-history-files.tooltip', VERIFY_HISTORY_FILES_TOOLTIP);
-        verifyHistoryFilesHelp.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border:1px solid #999;border-radius:50%;color:#666;font-size:10px;font-weight:700;line-height:1;cursor:help;user-select:none;flex-shrink:0;';
+        verifyHistoryFilesHelp.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border:1px solid var(--pixiv-panel-muted, #999);border-radius:50%;color:var(--pixiv-panel-muted, #666);font-size:10px;font-weight:700;line-height:1;cursor:help;user-select:none;flex-shrink:0;';
         verifyHistoryFilesRow.appendChild(verifyHistoryFilesChk);
         verifyHistoryFilesRow.appendChild(verifyHistoryFilesLabel);
         verifyHistoryFilesRow.appendChild(verifyHistoryFilesHelp);
 
         const redownloadDeletedRow = document.createElement('div');
-        redownloadDeletedRow.style.cssText = `display:${skipHistoryEnabled ? 'flex' : 'none'};align-items:center;gap:6px;margin-bottom:6px;font-size:12px;color:#555;`;
+        redownloadDeletedRow.style.cssText = `display:${skipHistoryEnabled ? 'flex' : 'none'};align-items:center;gap:6px;margin-bottom:6px;font-size:12px;color:var(--pixiv-panel-text, #555);`;
         const redownloadDeletedChk = document.createElement('input');
         redownloadDeletedChk.type = 'checkbox';
         redownloadDeletedChk.id = 'pixiv-dl-redownload-deleted';
@@ -1860,7 +2466,7 @@
         const redownloadDeletedHelp = document.createElement('span');
         redownloadDeletedHelp.textContent = '?';
         redownloadDeletedHelp.title = t('common.option.redownload-deleted.tooltip', '通过画廊删除的作品会保留删除标记：不勾选（默认）时视为已下载而跳过；勾选后重新下载，成功后删除标记自动清除');
-        redownloadDeletedHelp.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border:1px solid #999;border-radius:50%;color:#666;font-size:10px;font-weight:700;line-height:1;cursor:help;user-select:none;flex-shrink:0;';
+        redownloadDeletedHelp.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border:1px solid var(--pixiv-panel-muted, #999);border-radius:50%;color:var(--pixiv-panel-muted, #666);font-size:10px;font-weight:700;line-height:1;cursor:help;user-select:none;flex-shrink:0;';
         redownloadDeletedRow.appendChild(redownloadDeletedChk);
         redownloadDeletedRow.appendChild(redownloadDeletedLabel);
         redownloadDeletedRow.appendChild(redownloadDeletedHelp);
@@ -1879,13 +2485,13 @@
 
         // 小说格式选择（仅小说页面显示）
         const novelFormatRow = document.createElement('div');
-        novelFormatRow.style.cssText = `display:${isNovel ? 'flex' : 'none'};align-items:center;gap:6px;margin-bottom:6px;font-size:12px;color:#555;`;
+        novelFormatRow.style.cssText = `display:${isNovel ? 'flex' : 'none'};align-items:center;gap:6px;margin-bottom:6px;font-size:12px;color:var(--pixiv-panel-text, #555);`;
         const novelFormatLabel = document.createElement('label');
         novelFormatLabel.htmlFor = 'pixiv-dl-novel-format';
         novelFormatLabel.textContent = t('single.novel.format-label', '小说格式:');
         const novelFormatSel = document.createElement('select');
         novelFormatSel.id = 'pixiv-dl-novel-format';
-        novelFormatSel.style.cssText = 'flex:1;padding:3px 4px;border:1px solid #ddd;border-radius:4px;font-size:12px;';
+        novelFormatSel.style.cssText = 'flex:1;padding:3px 4px;border:1px solid var(--pixiv-panel-line, #ddd);border-radius:4px;font-size:12px;';
         [['txt', t('single.novel.format-txt', '纯文本（TXT）')],
             ['html', t('single.novel.format-html', '网页（HTML）')],
             ['epub', t('single.novel.format-epub', '电子书（EPUB）')]].forEach(([val, label]) => {
@@ -1905,7 +2511,7 @@
             : t('single.artwork-id', '作品ID: {id}', { id: artworkId });
         artworkIdDiv.style.cssText = `
             font-size: 12px;
-            color: #666;
+            color: var(--pixiv-panel-muted, #666);
             text-align: center;
             margin-bottom: 5px;
         `;
@@ -1915,7 +2521,7 @@
         backendStatusDiv.textContent = t('single.backend.checking', '检查后端状态...');
         backendStatusDiv.style.cssText = `
             font-size: 11px;
-            color: #888;
+            color: var(--pixiv-panel-muted, #888);
             text-align: center;
             margin-bottom: 5px;
         `;
@@ -1924,19 +2530,19 @@
         infoDiv.textContent = t('single.info', '使用Java后端服务下载，支持完整文件夹结构');
         infoDiv.style.cssText = `
             font-size: 10px;
-            color: #999;
+            color: var(--pixiv-panel-muted, #999);
             text-align: center;
         `;
 
         // 配额栏
         const quotaBarDiv = document.createElement('div');
         quotaBarDiv.id = 'pixiv-single-quota-bar';
-        quotaBarDiv.style.cssText = 'display:none;margin-bottom:6px;padding:5px 6px;background:#f8f9fa;border-radius:4px;font-size:11px;color:#555;';
+        quotaBarDiv.style.cssText = 'display:none;margin-bottom:6px;padding:5px 6px;background:var(--pixiv-panel-surface, #f8f9fa);border-radius:4px;font-size:11px;color:var(--pixiv-panel-text, #555);';
 
         // 压缩包下载卡片
         const archiveCardDiv = document.createElement('div');
         archiveCardDiv.id = 'pixiv-single-archive-card';
-        archiveCardDiv.style.cssText = 'display:none;margin-bottom:8px;padding:8px;background:#fff8e1;border:2px solid #ffc107;border-radius:4px;font-size:11px;';
+        archiveCardDiv.style.cssText = 'display:none;margin-bottom:8px;padding:8px;background:var(--pixiv-panel-warning-bg, #fff8e1);border:2px solid #ffc107;border-radius:4px;font-size:11px;';
 
         container.appendChild(titleRow);
         container.appendChild(statusDiv);
@@ -1950,12 +2556,16 @@
             container.appendChild(verifyHistoryFilesRow);
             container.appendChild(redownloadDeletedRow);
         }
+        mountUserscriptDownloadOptions(container);
         container.appendChild(artworkIdDiv);
         container.appendChild(backendStatusDiv);
         container.appendChild(infoDiv);
         container.appendChild(quotaBarDiv);
         container.appendChild(archiveCardDiv);
         document.body.appendChild(container);
+        if (isNovel && singleNovelTranslation && String(singleNovelTranslation.novelId) === String(artworkId)) {
+            showUserscriptDownloadNotice(UserscriptNovelTranslation.label(singleNovelTranslation));
+        }
 
         // Mini FAB（收起态显示，固定在视口右侧，堆叠在工具箱 FAB 下方）
         const miniFab = document.createElement('button');
@@ -1987,7 +2597,7 @@
                 statusDiv.textContent = available
                     ? t('single.backend.available', '✅ 后端服务可用')
                     : t('single.backend.unavailable', '❌ 后端服务未启动');
-                statusDiv.style.color = available ? '#28a745' : '#dc3545';
+                statusDiv.style.color = available ? 'var(--pixiv-panel-success)' : 'var(--pixiv-panel-danger)';
             }
         });
     }
@@ -2001,10 +2611,10 @@
         bar.style.display = 'block';
         bar.innerHTML = `<div style="display:flex;align-items:center;gap:5px;">
           <span style="white-space:nowrap;">${t('common.quota.summary', '配额：{used}/{max}', { used: quotaInfo.artworksUsed, max: quotaInfo.maxArtworks })}</span>
-          <div style="flex:1;height:4px;background:#e0e0e0;border-radius:2px;overflow:hidden;">
+          <div style="flex:1;height:4px;background:var(--pixiv-panel-line, #e0e0e0);border-radius:2px;overflow:hidden;">
             <div style="height:100%;width:${pct}%;background:${color};border-radius:2px;"></div>
           </div>
-          <span style="color:#888;">${pct}%</span>
+          <span style="color:var(--pixiv-panel-muted, #888);">${pct}%</span>
         </div>`;
     }
 
@@ -2013,10 +2623,10 @@
         const card = document.getElementById('pixiv-single-archive-card');
         if (!card) return;
         card.style.display = 'block';
-        card.innerHTML = `<div style="font-weight:bold;color:#856404;margin-bottom:4px;">${t('single.archive.download-limit', '已达到下载限额')}</div>
-          <div id="pixiv-single-ac-status" style="color:#666;">${ready ? t('common.archive.ready', '压缩包已就绪：') : t('common.archive.preparing', '正在打包已下载文件，请稍候...')}</div>
+        card.innerHTML = `<div style="font-weight:bold;color:var(--pixiv-panel-warning, #856404);margin-bottom:4px;">${t('single.archive.download-limit', '已达到下载限额')}</div>
+          <div id="pixiv-single-ac-status" style="color:var(--pixiv-panel-muted, #666);">${ready ? t('common.archive.ready', '压缩包已就绪：') : t('common.archive.preparing', '正在打包已下载文件，请稍候...')}</div>
           <div id="pixiv-single-ac-dl" style="display:${ready ? 'block' : 'none'};margin-top:4px;"></div>
-          <div id="pixiv-single-ac-expired" style="display:none;color:#dc3545;font-weight:bold;">${t('common.archive.expired', '下载链接已过期')}</div>`;
+          <div id="pixiv-single-ac-expired" style="display:none;color:var(--pixiv-panel-danger, #dc3545);font-weight:bold;">${t('common.archive.expired', '下载链接已过期')}</div>`;
         if (ready) {
             activateSingleArchiveDl(token, expireSec);
         } else {
@@ -2065,7 +2675,7 @@
                      border-radius:4px;text-decoration:none;font-size:11px;font-weight:bold;">
               ${t('common.archive.download-link', '下载压缩包')}
             </a>
-            <span id="pixiv-single-ac-countdown" style="font-size:10px;color:#888;margin-left:6px;"></span>`;
+            <span id="pixiv-single-ac-countdown" style="font-size:10px;color:var(--pixiv-panel-muted, #888);margin-left:6px;"></span>`;
             let remaining = Math.max(0, parseInt(expireSec));
             const fmtSec = (s) => {
                 s = Math.max(0, Math.round(s));

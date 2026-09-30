@@ -140,6 +140,9 @@ function buildOnboardingConfig(savedName) {
     };
 }
 
+// 在页面异步初始化前查询，避免覆盖用户已经打开的脚本面板查询。
+PixivUserscriptDetection.probe([SCRIPT_ID_TOOLBOX, SCRIPT_ID_ALL_IN_ONE]);
+
 async function init() {
     hydrateIcons(document);
     await initPageI18n();
