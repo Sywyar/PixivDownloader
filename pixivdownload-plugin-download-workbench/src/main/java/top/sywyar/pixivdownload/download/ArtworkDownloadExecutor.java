@@ -216,7 +216,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
         // 发送初始状态更新
         eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
 
-        try {
+        try (var workFileLease = top.sywyar.pixivdownload.core.work.service.WorkFileLock.acquire(WorkType.ARTWORK, artworkId)) {
             ensureNotCancelled(status);
             downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.STARTED));
             other.setFileNames(fileNamePlan.baseNames());
@@ -1113,7 +1113,8 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                         title, other.getAuthorId(), other.getAuthorName(), recordTime, count, other.isAi(), other.getXRestrict()),
                 other.isUgoira() ? List.of(".webp", ".webp.part", "_thumb.jpg", ".frames.properties")
                         : List.of(".jpg", ".image-download.part", "_thumb.jpg"),
-                other.isUgoira() ? List.of("_ugoira_frames.zip.part", "_frames_tmp/ffmpeg-progress.log") : List.of(),
+                other.isUgoira() ? List.of("_ugoira_frames.zip.part", "_frames_tmp/ffmpeg-progress.log")
+                        : List.of(".image-download-00000000000000000000.part.part"),
                 DownloadPathAction.parse(other.getPathOverflowAction()));
         List<String> computed = resolved.baseNames();
         List<String> provided = PixivWorkFileNameFormatter.normalizeProvidedBaseNames(other.getFileNames(), count, artworkId);

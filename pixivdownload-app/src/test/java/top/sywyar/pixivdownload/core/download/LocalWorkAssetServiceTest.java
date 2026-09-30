@@ -35,6 +35,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class LocalWorkAssetServiceTest {
+    @org.junit.jupiter.api.AfterEach
+    void closeFileOperationTestDatabases() { top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.close(); }
+
 
     @TempDir
     Path tempDir;
@@ -57,7 +60,7 @@ class LocalWorkAssetServiceTest {
         downloadConfig = mock(DownloadConfig.class);
         service = new LocalWorkAssetService(artworkFileService, artworkFileLocator, pixivDatabase,
                 novelMetadataRepository, downloadConfig, TestI18nBeans.appMessages(),
-                new StagedFileDeletion(TestI18nBeans.appMessages()), org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ExternalWorkFiles.class));
+                new StagedFileDeletion(TestI18nBeans.appMessages(), top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.journal()), org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ExternalWorkFiles.class));
     }
 
     @AfterEach
@@ -126,11 +129,11 @@ class LocalWorkAssetServiceTest {
     void deleteLocalFilesDelegatesFileCleanupResult() {
         ArtworkRecord record = artwork(42L, 2);
         when(pixivDatabase.getArtwork(42L)).thenReturn(record);
-        when(artworkFileLocator.deleteArtworkFiles(record)).thenReturn(true);
+        when(artworkFileLocator.deleteArtworkFiles(org.mockito.ArgumentMatchers.eq(record), org.mockito.ArgumentMatchers.any())).thenReturn(true);
 
         assertTrue(service.deleteLocalFiles(WorkType.ARTWORK, 42L));
 
-        when(artworkFileLocator.deleteArtworkFiles(record)).thenReturn(false);
+        when(artworkFileLocator.deleteArtworkFiles(org.mockito.ArgumentMatchers.eq(record), org.mockito.ArgumentMatchers.any())).thenReturn(false);
 
         assertFalse(service.deleteLocalFiles(WorkType.ARTWORK, 42L));
     }
@@ -139,7 +142,7 @@ class LocalWorkAssetServiceTest {
     @DisplayName("deleteLocalFiles 无下载记录时视为无事可做（透传 locator 对 null 的语义）")
     void deleteLocalFilesTreatsMissingRecordAsNoOp() {
         when(pixivDatabase.getArtwork(404L)).thenReturn(null);
-        when(artworkFileLocator.deleteArtworkFiles(null)).thenReturn(true);
+        when(artworkFileLocator.deleteArtworkFiles(org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.any())).thenReturn(true);
 
         assertTrue(service.deleteLocalFiles(WorkType.ARTWORK, 404L));
     }
@@ -160,9 +163,7 @@ class LocalWorkAssetServiceTest {
         File page2 = new File("folder/42", "42_p2.webp");
         when(pixivDatabase.getArtwork(42L)).thenReturn(record);
         when(artworkFileLocator.resolveArtworkDirectory(record)).thenReturn("folder/42");
-        when(artworkFileLocator.resolveImageFile(record, 0)).thenReturn(page0);
-        when(artworkFileLocator.resolveImageFile(record, 1)).thenReturn(null);
-        when(artworkFileLocator.resolveImageFile(record, 2)).thenReturn(page2);
+        when(artworkFileLocator.resolveImageFiles(record, false)).thenReturn(java.util.Arrays.asList(page0, null, page2));
 
         Optional<LocalWorkAsset> asset = service.findAsset(WorkType.ARTWORK, 42L);
 
@@ -182,7 +183,7 @@ class LocalWorkAssetServiceTest {
         ArtworkRecord record = artwork(42L, 1);
         when(pixivDatabase.getArtwork(42L)).thenReturn(record);
         when(artworkFileLocator.resolveArtworkDirectory(record)).thenReturn(" ");
-        when(artworkFileLocator.resolveImageFile(record, 0)).thenReturn(null);
+        when(artworkFileLocator.resolveImageFiles(record, false)).thenReturn(java.util.Arrays.asList((File) null));
 
         Optional<LocalWorkAsset> asset = service.findAsset(WorkType.ARTWORK, 42L);
 
@@ -195,6 +196,24 @@ class LocalWorkAssetServiceTest {
     @Nested
     @DisplayName("小说侧（novel-{id} 独占目录语义）")
     class NovelAssetTests {
+
+        @Test
+        @DisplayName("小说完整性检查正文和登记图片，沿用下载时名称，不以封面或旧产物代替正文")
+        void checksBodyAndRegisteredResources() throws Exception {
+            when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+            Path dir = novelDir(7L);
+            when(novelMetadataRepository.getNovel(7L)).thenReturn(novel(7L, dir.toString(), null, "jpg"));
+            when(novelMetadataRepository.getFileBaseName(7L)).thenReturn("saved-name");
+            when(novelMetadataRepository.getImageFileNames(7L)).thenReturn(List.of("embed_1.png"));
+            Files.writeString(dir.resolve("saved-name_thumb.jpg"), "cover");
+            assertFalse(service.hasCompleteFiles(WorkType.NOVEL, 7L));
+            Files.writeString(dir.resolve("saved-name.txt"), "body");
+            assertFalse(service.hasCompleteFiles(WorkType.NOVEL, 7L));
+            Files.writeString(dir.resolve("embed_1.png"), "embedded image");
+            assertTrue(service.hasCompleteFiles(WorkType.NOVEL, 7L));
+            Files.writeString(dir.resolve("saved-name.txt"), "");
+            assertFalse(service.hasCompleteFiles(WorkType.NOVEL, 7L));
+        }
 
         private NovelMetadataRow novel(long novelId, String folder, Long fileName, String coverExt) {
             return new NovelMetadataRow(novelId, "小说标题", folder, 1, "txt", 1000L, 0, false, 88L,
@@ -389,7 +408,7 @@ class LocalWorkAssetServiceTest {
     /** 删除指定路径时抛 IOException 的 StagedFileDeletion，用于确定性模拟删除失败。 */
     private static StagedFileDeletion failOn(Path poison) {
         Path normalizedPoison = poison.toAbsolutePath().normalize();
-        return new StagedFileDeletion(TestI18nBeans.appMessages()) {
+        return new StagedFileDeletion(TestI18nBeans.appMessages(), top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.journal()) {
             @Override
             protected void deleteFile(Path original) throws java.io.IOException {
                 if (original.toAbsolutePath().normalize().equals(normalizedPoison)) {

@@ -126,7 +126,8 @@ public class NovelDownloadController {
             String pdMode = multiModeSettings.getPostDownloadMode();
             // 软删除的小说文件已不在磁盘，视为未下载放行（是否真正重下由客户端的下载设置决定）
             if (("never-delete".equals(pdMode) || "timed-delete".equals(pdMode))
-                    && novelDatabase.hasActiveNovel(command.getNovelId())) {
+                    && novelDatabase.hasActiveNovel(command.getNovelId())
+                    && novelDownloadService.hasCompleteFiles(command.getNovelId())) {
                 return ResponseEntity.ok(new NovelAlreadyDownloadedResponse(
                         true, true, messages.get("download.already-downloaded")));
             }
@@ -359,9 +360,11 @@ public class NovelDownloadController {
      */
     @GetMapping("/novel/{novelId}/downloaded")
     public ResponseEntity<NovelDownloadedStateResponse> novelDownloadedState(@PathVariable long novelId) {
-        var record = novelDatabase.getNovel(novelId);
-        return ResponseEntity.ok(new NovelDownloadedStateResponse(
-                record != null, record != null && record.deleted()));
+        try (var ignored = top.sywyar.pixivdownload.core.work.service.WorkFileLock.acquire(WorkType.NOVEL, novelId)) {
+            var record = novelDatabase.getNovel(novelId);
+            boolean downloaded = record != null && (record.deleted() || novelDownloadService.hasCompleteFiles(novelId));
+            return ResponseEntity.ok(new NovelDownloadedStateResponse(downloaded, record != null && record.deleted()));
+        }
     }
 
     @PostMapping("/novel/series/{seriesId}/merge")

@@ -7,9 +7,9 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * pixiv-batch 两阶段恢复用：当 GET verifyFiles 命中 fallback「裸记录」恢复（无元数据）后，
+ * 恢复已存在文件的记录时，页数必须来自作品元数据；
  * 前端调 Pixiv 拉回作品元数据，再 POST 给 /api/downloaded/{id}/recover-metadata 把缺的字段补齐。
- * 也支持「DB 完全无记录但磁盘已有文件」时直接写一条带 meta 的完整记录。
+ * DB 无记录时仅在已知总页数且各页文件齐全后登记。
  */
 @Data
 @NoArgsConstructor
@@ -21,6 +21,7 @@ public class RecoverMetadataRequest {
     private Integer xRestrict;
     private Boolean isAi;
     private String description;
+    private Integer pageCount;
 
     @JsonGetter("xRestrict")
     public Integer getXRestrict() {

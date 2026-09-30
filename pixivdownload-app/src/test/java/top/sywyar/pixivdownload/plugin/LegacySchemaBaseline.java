@@ -22,6 +22,15 @@ final class LegacySchemaBaseline {
     static DatabaseSchema spec() {
         LinkedHashMap<String, TableSpec> tables = new LinkedHashMap<>();
 
+        tables.put("file_operation_entries", new TableSpec("file_operation_entries", List.of(
+                column("entry_id", "TEXT", true, null, 1),
+                column("operation_id", "TEXT", true, null, 0),
+                column("ordinal", "INTEGER", true, null, 0),
+                column("target_path", "TEXT", true, null, 0),
+                column("old_hash", "TEXT", false, null, 0),
+                column("new_hash", "TEXT", false, null, 0),
+                column("committed", "INTEGER", true, "0", 0)
+        ), List.of(uniqueConstraint("operation_id", "ordinal"), uniqueConstraint("target_path"))));
         tables.put("external_work_files", new TableSpec("external_work_files", List.of(
                 column("reference_id", "TEXT", true, null, 1),
                 column("work_type", "TEXT", true, null, 0),
@@ -42,6 +51,11 @@ final class LegacySchemaBaseline {
                 )
         ));
 
+        tables.put("artwork_file_names", new TableSpec("artwork_file_names", List.of(
+                column("artwork_id", "INTEGER", true, null, 1),
+                column("page", "INTEGER", true, null, 2),
+                column("base_name", "TEXT", true, null, 0)
+        ), List.of()));
         tables.put("artworks", new TableSpec(
                 "artworks",
                 List.of(
@@ -308,6 +322,7 @@ final class LegacySchemaBaseline {
                         column("x_language", "TEXT", false, null, 0),
                         column("raw_content", "TEXT", false, null, 0),
                         column("cover_ext", "TEXT", false, null, 0),
+                        column("file_base_name", "TEXT", false, null, 0),
                         column("deleted", "INTEGER", true, "0", 0),
                         column("upload_time", "INTEGER", false, null, 0),
                         column("file_name_max_length", "INTEGER", true, "180", 0),

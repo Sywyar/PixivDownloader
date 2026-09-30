@@ -15,6 +15,7 @@ final class LegacyDdlBaseline {
     private LegacyDdlBaseline() {}
 
     static final List<String> STATEMENTS = List.of(
+            "CREATE TABLE file_operation_entries (entry_id TEXT NOT NULL PRIMARY KEY, operation_id TEXT NOT NULL, ordinal INTEGER NOT NULL, target_path TEXT NOT NULL, old_hash TEXT, new_hash TEXT, committed INTEGER NOT NULL DEFAULT 0, UNIQUE(operation_id, ordinal), UNIQUE(target_path))",
             "CREATE TABLE IF NOT EXISTS external_work_files (reference_id TEXT NOT NULL PRIMARY KEY, work_type TEXT NOT NULL, work_id INTEGER NOT NULL, page INTEGER NOT NULL, root_path TEXT NOT NULL, file_path TEXT NOT NULL, record_time INTEGER NOT NULL, UNIQUE(work_type, work_id, page))",
             // ── PathPrefixMapper ───────────────────────────────────────────────
             "CREATE TABLE IF NOT EXISTS path_prefixes ("
@@ -66,6 +67,8 @@ final class LegacyDdlBaseline {
                     + "tag_id INTEGER NOT NULL,"
                     + "PRIMARY KEY (artwork_id, tag_id))",
             "CREATE INDEX IF NOT EXISTS idx_artwork_tags_tag_id ON artwork_tags(tag_id)",
+            "CREATE TABLE IF NOT EXISTS artwork_file_names (artwork_id INTEGER NOT NULL, page INTEGER NOT NULL,"
+                    + " base_name TEXT NOT NULL, PRIMARY KEY (artwork_id, page))",
             "CREATE TABLE IF NOT EXISTS artwork_media (artwork_id INTEGER NOT NULL, page INTEGER NOT NULL,"
                     + "original_extension TEXT NOT NULL, extensions TEXT NOT NULL, original_retained INTEGER NOT NULL,"
                     + "PRIMARY KEY(artwork_id, page))",
@@ -176,6 +179,7 @@ final class LegacyDdlBaseline {
                     + "x_language TEXT DEFAULT NULL,"
                     + "raw_content TEXT DEFAULT NULL,"
                     + "cover_ext TEXT DEFAULT NULL,"
+                    + "file_base_name TEXT,"
                     + "deleted INTEGER NOT NULL DEFAULT 0,"
                     + "upload_time INTEGER,"
                     + "file_name_max_length INTEGER NOT NULL DEFAULT 180,metadata_json TEXT)",

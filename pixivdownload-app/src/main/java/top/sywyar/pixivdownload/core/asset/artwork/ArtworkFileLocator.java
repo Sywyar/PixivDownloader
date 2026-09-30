@@ -27,6 +27,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Stream;
@@ -63,6 +64,11 @@ public class ArtworkFileLocator {
     }
 
     public File resolveImageFile(ArtworkRecord artwork, int page) {
+        return resolveImageFile(artwork, page, true);
+    }
+
+    /** 判重必须检查正式产物，不能以缩略图代替下载页面。 */
+    public File resolveImageFile(ArtworkRecord artwork, int page, boolean allowThumbnail) {
         if (artwork == null) return null;
         if (externalFiles.contains(top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK, artwork.artworkId())) {
             Path file = externalFiles.file(top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK, artwork.artworkId(), page);
@@ -72,7 +78,27 @@ public class ArtworkFileLocator {
         if (!StringUtils.hasText(directoryPath)) {
             return null;
         }
-        String baseName = resolveStoredFileBaseName(artwork, page);
+        return resolveImageFile(artwork, page, allowThumbnail, resolveStoredFileBaseName(artwork, page));
+    }
+
+    /** 单次作品扫描只读取、计算一次完整命名快照。 */
+    public List<File> resolveImageFiles(ArtworkRecord artwork, boolean allowThumbnail) {
+        int count = Math.max(artwork.count(), 1);
+        if (isReadOnly(artwork)) {
+            List<Path> paths = externalFiles.files(top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK, artwork.artworkId());
+            List<File> files = new ArrayList<>(count);
+            for (int page = 0; page < count; page++) files.add(page < paths.size() && paths.get(page) != null ? paths.get(page).toFile() : null);
+            return files;
+        }
+        List<String> names = resolveStoredFileBaseNames(artwork, count);
+        List<File> files = new ArrayList<>(count);
+        for (int page = 0; page < count; page++) files.add(resolveImageFile(artwork, page, allowThumbnail, names.get(page)));
+        return files;
+    }
+
+    private File resolveImageFile(ArtworkRecord artwork, int page, boolean allowThumbnail, String baseName) {
+        String directoryPath = resolveArtworkDirectory(artwork);
+        if (!StringUtils.hasText(directoryPath)) return null;
         String[] extensions = artwork.extensions() == null ? new String[0] : artwork.extensions().split(",");
         LinkedHashSet<String> priority = new LinkedHashSet<>();
         boolean hasManifest = false;
@@ -87,10 +113,11 @@ public class ArtworkFileLocator {
         if (!hasManifest && extensions.length == 1 && StringUtils.hasText(extensions[0])) priority.add(extensions[0]);
         priority.addAll(List.of("webp", "png", "jpg", "jpeg", "gif", "apng", "mp4", "webm", "zip"));
         for (String extension : priority) {
-            if (extension.equals("zip")) continue;
+            if (allowThumbnail && extension.equals("zip")) continue;
             Path file = Paths.get(directoryPath, baseName + "." + extension);
             if (Files.isRegularFile(file)) return file.toFile();
         }
+        if (!allowThumbnail) return null;
         Path thumbnail = Paths.get(directoryPath, baseName + "_thumb.jpg");
         return Files.isRegularFile(thumbnail) ? thumbnail.toFile() : null;
     }
@@ -115,11 +142,23 @@ public class ArtworkFileLocator {
     }
 
     public String resolveStoredFileBaseName(ArtworkRecord artwork, int page) {
+        return resolveStoredFileBaseNames(artwork, Math.max(artwork.count(), page + 1)).get(page);
+    }
+
+    private List<String> resolveStoredFileBaseNames(ArtworkRecord artwork, int count) {
+        List<String> saved = pixivDatabase.getArtworkFileNames(artwork.artworkId());
+        if (!saved.isEmpty()) {
+            if (saved.size() != count) throw new IllegalStateException("Incomplete artwork filename record");
+            for (String name : saved) {
+                if (!StringUtils.hasText(name) || name.contains("/") || name.contains("\\")
+                        || name.equals(".") || name.equals("..")) throw new UnsafeDeletionPathException(name);
+            }
+            return saved;
+        }
         long fileNameId = artwork.fileName() == null
                 ? PixivDatabase.DEFAULT_FILE_NAME_TEMPLATE_ID
                 : artwork.fileName();
         String template = pixivDatabase.getFileNameTemplate(fileNameId);
-        int count = Math.max(artwork.count(), page + 1);
         String authorName = resolveStoredFileAuthorName(artwork);
         if (authorName == null && template != null && template.contains("{author_name}")) {
             log.warn(logMessage("download.file.log.author-name-missing", artwork.artworkId()));
@@ -136,7 +175,7 @@ public class ArtworkFileLocator {
                 artwork.xRestrict(),
                 storedMaxLength(artwork.artworkId())
         );
-        return baseNames.get(page);
+        return baseNames;
     }
 
     private int storedMaxLength(long artworkId) {
@@ -157,28 +196,19 @@ public class ArtworkFileLocator {
     }
 
     /**
-     * 删除一个作品在磁盘上的全部留存文件：每页的图片文件（任意扩展名）与对应的
-     * {@code _thumb.jpg} 缩略图、动图的 {@code _thumb.jpg}，以及作品 meta sidecar
-     * {@code {artworkId}.meta.json}。这些文件经共享 {@link StagedFileDeletion} <b>原子删除</b>
-     * （先暂存再删，任一删除失败回滚到删除前状态）——失败时作品文件原样保留、不会半损坏 / 裂图。
-     * 文件全删成功后，若该作品独占的 {@code {rootFolder}/{artworkId}/} 目录已空则一并移除空目录；
-     * 经分类器移动到共享目录（{@code move_folder}）时不会误删共享目录。
+     * 按数据库记录解析本作品的文件和遗留附属文件，暂存后删除；解析失败时中止整个操作。
+     * 失败时尝试回滚，未恢复的副本留在暂存区。只移除已空的作品 ID 目录，缩略图缓存清理为 best-effort。
      *
-     * <p>图库缩略图二进制缓存 {@code ./data/gallery_thumbs/{artworkId}/} 是可再生缓存，按
-     * best-effort 处理：删失败不计入本方法成败、不阻断数据库清理（不触发 409），仅记日志。
-     *
-     * <p>磁盘边界守卫（避免污染的 folder / move_folder 把删除范围扩大到 root 之外或共享目录）：
-     * 解析后的目录必须有效、非 OS / 驱动盘根、且不等于配置的 {@code download.root-folder} 本身；
-     * 已确认缺失的目录视为幂等 no-op，其它不安全目录会使整次删除失败。基于已知文件名前缀（{@code stems}）做枚举式匹配而非递归 walk，
-     * 即使目录指向共享路径也只会触碰当前作品命名空间内的文件。
-     *
-     * @return 文件层清理结果：{@code true} 表示作品文件全部删除成功（或没有可删的文件），
-     *         调用方可以继续删除 DB 行；{@code false} 表示有文件因锁定 / 权限不足等原因删除失败、已回滚复原，
-     *         调用方必须中止 DB 清理以避免 DB 与磁盘状态不一致。
+     * @return 文件删除是否成功；false 时调用方不得继续删除数据库记录
      */
     public boolean deleteArtworkFiles(ArtworkRecord artwork) {
-        if (artwork != null && externalFiles.contains(top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK, artwork.artworkId())) return true;
-        if (artwork == null) {
+        return deleteArtworkFiles(artwork, () -> {});
+    }
+
+    /** 暂存文件保留至记录事务完成，异常时由暂存器恢复。 */
+    public boolean deleteArtworkFiles(ArtworkRecord artwork, Runnable commitRecord) {
+        if (artwork == null || isReadOnly(artwork)) {
+            commitRecord.run();
             return true;
         }
         boolean filesDeleted = true;
@@ -190,7 +220,7 @@ public class ArtworkFileLocator {
                     throw new UnsafeDeletionPathException(safeDir);
                 }
                 try {
-                    filesDeleted = stagedFileDeletion.deleteAtomically(resolveArtworkFiles(safeDir, artwork));
+                    filesDeleted = stagedFileDeletion.deleteAtomically(resolveArtworkFiles(safeDir, artwork), commitRecord);
                 } catch (IOException e) {
                     log.warn(logMessage("download.file.log.directory-unreadable", artwork.artworkId(), safeDir));
                     filesDeleted = false;
@@ -198,7 +228,11 @@ public class ArtworkFileLocator {
                 if (filesDeleted) {
                     removeOwnedEmptyDirectory(safeDir, artwork.artworkId());
                 }
+            } else {
+                commitRecord.run();
             }
+        } else {
+            throw new UnsafeDeletionPathException(directoryPath);
         }
         // 图库缩略图缓存可再生，best-effort：删失败不影响删除成败、不触发 409。
         deleteGalleryThumbnailCache(artwork.artworkId());
@@ -242,19 +276,15 @@ public class ArtworkFileLocator {
      */
     private Set<Path> resolveArtworkFiles(Path directory, ArtworkRecord artwork) throws IOException {
         Set<String> stems = new HashSet<>();
-        int count = Math.max(artwork.count(), 1);
-        for (int page = 0; page < count; page++) {
-            try {
-                String baseName = resolveStoredFileBaseName(artwork, page);
-                if (StringUtils.hasText(baseName)) {
-                    stems.add(baseName);
-                    stems.add(baseName + "_thumb");
-                    stems.add(baseName + ".media");
-                    stems.add(baseName + ".frames");
-                }
-            } catch (Exception e) {
-                log.warn(logMessage("download.file.log.filename-parse-failed", artwork.artworkId(), page));
+        try {
+            for (String baseName : resolveStoredFileBaseNames(artwork, Math.max(artwork.count(), 1))) {
+                stems.add(baseName);
+                stems.add(baseName + "_thumb");
+                stems.add(baseName + ".media");
+                stems.add(baseName + ".frames");
             }
+        } catch (Exception failure) {
+            throw new IOException("Cannot resolve every artwork page", failure);
         }
         // 作品 meta sidecar（{artworkId}.meta.json）随作品删除一并清除；按 artworkId 键的 stem，
         // 即使目录是共享分类目录也只触本作品命名空间。

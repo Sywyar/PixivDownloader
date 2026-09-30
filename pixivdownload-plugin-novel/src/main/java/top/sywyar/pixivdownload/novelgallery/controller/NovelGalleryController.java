@@ -449,7 +449,7 @@ public class NovelGalleryController {
         for (NovelDownloadedStatusRow status : novelDatabase.getDownloadedStatuses(ids)) {
             if (status.deleted()) {
                 if (includeDeleted) deletedIds.add(status.novelId());
-            } else {
+            } else if (workAssetService.hasCompleteFiles(WorkType.NOVEL, status.novelId())) {
                 downloadedIds.add(status.novelId());
             }
         }

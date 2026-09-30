@@ -83,14 +83,40 @@ public class PixivDatabase {
 
     @Transactional
     public void insertArtwork(InsertArtworkArgument argument) {
+        insertArtworkRow(argument);
+        pixivMapper.deleteUnusedArtworkMedia(argument.artworkId());
+    }
+
+    private void insertArtworkRow(InsertArtworkArgument argument) {
         // 软删除残留行的 folder/time 已失效，先清掉再写入全新行，重新下载即复位 deleted 标记；
         // 普通已下载行不受影响（INSERT OR IGNORE 保持原有的不覆盖语义）。
-        pixivMapper.deleteIfMarkedDeleted(argument.artworkId());
+        if (pixivMapper.deleteIfMarkedDeleted(argument.artworkId()) > 0) {
+            pixivMapper.deleteArtworkFileNames(argument.artworkId());
+        }
         pixivMapper.insertOrIgnore(argument.artworkId(), argument.title(), encodePath(argument.folder()),
                 argument.count(), argument.extensions(), argument.time(), argument.xRestrict(), argument.isAi(),
                 argument.authorId(), argument.description(), argument.fileName(), argument.fileAuthorNameId(),
                 argument.seriesId(), argument.seriesOrder());
+    }
+
+    /** 完整下载的落盘事实可替换存量记录；普通导入仍沿用 insertArtwork 的不覆盖语义。 */
+    @Transactional
+    public void recordDownloadedArtwork(InsertArtworkArgument argument) {
+        insertArtworkRow(argument);
+        pixivMapper.updateDownloadedFiles(argument.artworkId(), encodePath(argument.folder()),
+                argument.count(), argument.extensions(), argument.time());
         pixivMapper.deleteUnusedArtworkMedia(argument.artworkId());
+    }
+
+    /** 保存下载时实际采用的逐页基名，不随展示元数据变化。 */
+    @Transactional
+    public void replaceArtworkFileNames(long artworkId, List<String> names) {
+        pixivMapper.deleteArtworkFileNames(artworkId);
+        if (!names.isEmpty()) pixivMapper.insertArtworkFileNames(artworkId, names);
+    }
+
+    public List<String> getArtworkFileNames(long artworkId) {
+        return pixivMapper.findArtworkFileNames(artworkId);
     }
 
     @Transactional
@@ -242,6 +268,7 @@ public class PixivDatabase {
      */
     @Transactional
     public void deleteArtwork(long artworkId) {
+        pixivMapper.deleteArtworkFileNames(artworkId);
         pixivMapper.deleteArtworkMedia(artworkId);
         pixivMapper.deleteImageHashesByArtwork(artworkId);
         pixivMapper.deleteArtworkTags(artworkId);
@@ -256,6 +283,7 @@ public class PixivDatabase {
      */
     @Transactional
     public void markArtworkDeleted(long artworkId) {
+        pixivMapper.deleteArtworkFileNames(artworkId);
         pixivMapper.deleteArtworkMedia(artworkId);
         pixivMapper.deleteImageHashesByArtwork(artworkId);
         pixivMapper.deleteArtworkTags(artworkId);

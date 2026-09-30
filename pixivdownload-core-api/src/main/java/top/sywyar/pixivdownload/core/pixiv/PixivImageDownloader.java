@@ -59,7 +59,8 @@ public interface PixivImageDownloader {
         Objects.requireNonNull(targetStem, "targetStem");
         Objects.requireNonNull(observer, "observer");
         Path fileName = Objects.requireNonNull(targetStem.getFileName(), "targetStem file name");
-        Path staging = targetStem.resolveSibling(fileName + ".image-download");
+        Files.createDirectories(targetStem.toAbsolutePath().getParent());
+        Path staging = Files.createTempFile(targetStem.toAbsolutePath().getParent(), ".image-download-", ".part");
         String[] contentType = {null};
         try {
             boolean downloaded = download(source, referer, staging, cookie, new PixivImageTransferObserver() {

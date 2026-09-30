@@ -83,18 +83,16 @@ const {
     // 三态判重：null = 未下载；{downloaded:true, deleted:false} = 已下载；{downloaded:true, deleted:true} = 已下载但被画廊删除
     async function checkNovelDownloaded(novelId, invocation) {
         assertNovelProcess(invocation);
-        try {
-            const res = await fetch(`${BASE}/api/novel/${encodeURIComponent(novelId)}/downloaded`,
-                {credentials: 'same-origin', signal: invocation.signal});
-            assertNovelProcess(invocation);
-            if (!res.ok) return null;
-            const data = await res.json();
-            assertNovelProcess(invocation);
-            return data && data.downloaded ? data : null;
-        } catch {
-            assertNovelProcess(invocation);
-            return null;
+        const res = await fetch(`${BASE}/api/novel/${encodeURIComponent(novelId)}/downloaded`,
+            {credentials: 'same-origin', signal: invocation.signal});
+        assertNovelProcess(invocation);
+        if (!res.ok) throw new Error(bt('queue.message.failed-status-error', '失败 — 状态查询异常'));
+        const data = await res.json();
+        assertNovelProcess(invocation);
+        if (!data || typeof data.downloaded !== 'boolean' || typeof data.deleted !== 'boolean') {
+            throw new Error(bt('queue.message.failed-status-error', '失败 — 状态查询异常'));
         }
+        return data.downloaded ? data : null;
     }
 
     async function processNovelItem(item, invocation) {

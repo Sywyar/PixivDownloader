@@ -38,6 +38,9 @@ import static org.mockito.Mockito.when;
 
 @DisplayName("作品删除文件失败时的原子回滚（端到端：编排 + 资产 + 原子删除）")
 class WorkDeletionFileRollbackTest {
+    @org.junit.jupiter.api.AfterEach
+    void closeFileOperationTestDatabases() { top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.close(); }
+
 
     @TempDir
     Path tempDir;
@@ -149,7 +152,7 @@ class WorkDeletionFileRollbackTest {
                 null, null, null, "jpg", false, null));
         when(workQueryService.hasActiveWork(WorkType.NOVEL, 8L)).thenReturn(true);
 
-        WorkDeletionService deletionService = deletionService(new StagedFileDeletion(TestI18nBeans.appMessages()));
+        WorkDeletionService deletionService = deletionService(new StagedFileDeletion(TestI18nBeans.appMessages(), top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.journal()));
 
         assertThatThrownBy(() -> deletionService.delete(WorkType.NOVEL, 8L))
                 .isInstanceOfSatisfying(UnsafeDeletionPathException.class, exception ->
@@ -181,7 +184,7 @@ class WorkDeletionFileRollbackTest {
                 null, null, null, "jpg", false, null));
         when(workQueryService.hasActiveWork(WorkType.NOVEL, 9L)).thenReturn(true);
 
-        WorkDeletionService deletionService = deletionService(new StagedFileDeletion(TestI18nBeans.appMessages()));
+        WorkDeletionService deletionService = deletionService(new StagedFileDeletion(TestI18nBeans.appMessages(), top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.journal()));
 
         try {
             assertThatThrownBy(() -> deletionService.delete(WorkType.NOVEL, 9L))
@@ -198,7 +201,7 @@ class WorkDeletionFileRollbackTest {
 
     private static StagedFileDeletion failOn(Path poison) {
         Path normalizedPoison = poison.toAbsolutePath().normalize();
-        return new StagedFileDeletion(TestI18nBeans.appMessages()) {
+        return new StagedFileDeletion(TestI18nBeans.appMessages(), top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.journal()) {
             @Override
             protected void deleteFile(Path original) throws IOException {
                 if (original.toAbsolutePath().normalize().equals(normalizedPoison)) {
@@ -207,5 +210,64 @@ class WorkDeletionFileRollbackTest {
                 super.deleteFile(original);
             }
         };
+    }
+
+    @Test
+    @DisplayName("数据库软删除失败时恢复已经删除的插画文件及内容")
+    void restoresArtworkWhenDatabaseCommitFails() throws Exception {
+        Path dir = Files.createDirectories(tempDir.resolve("301"));
+        Path file = Files.writeString(dir.resolve("301_p0.jpg"), "original image");
+        when(pixivDatabase.getArtwork(301L)).thenReturn(new ArtworkRecord(
+                301L, "t", dir.toString(), 1, "jpg", 1000L, false, null, null, 0, false, null, null));
+        when(workQueryService.hasActiveWork(WorkType.ARTWORK, 301L)).thenReturn(true);
+        org.mockito.Mockito.doAnswer(invocation -> {
+            assertThat(file).doesNotExist();
+            throw new org.springframework.dao.DataAccessResourceFailureException("commit failed");
+        }).when(pixivDatabase).markArtworkDeleted(301L);
+
+        WorkDeletionService service = deletionService(new StagedFileDeletion(TestI18nBeans.appMessages(), top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.journal()));
+        assertThatThrownBy(() -> service.delete(WorkType.ARTWORK, 301L))
+                .isInstanceOf(org.springframework.dao.DataAccessResourceFailureException.class);
+        assertThat(Files.readString(file)).isEqualTo("original image");
+    }
+
+    @Test
+    @DisplayName("文件名重建失败时不删除任一页或数据库记录")
+    void abortsBeforeDeletionWhenNameReconstructionFails() throws Exception {
+        Path dir = Files.createDirectories(tempDir.resolve("302"));
+        Path file = Files.writeString(dir.resolve("302_p0.jpg"), "original image");
+        when(pixivDatabase.getArtwork(302L)).thenReturn(new ArtworkRecord(
+                302L, "t", dir.toString(), 2, "jpg", 1000L, false, null, null, 0, false, null, null));
+        when(pixivDatabase.getFileNameMaxLength(302L, false))
+                .thenThrow(new IllegalStateException("name lookup failed"));
+        when(workQueryService.hasActiveWork(WorkType.ARTWORK, 302L)).thenReturn(true);
+
+        WorkDeletionService service = deletionService(new StagedFileDeletion(TestI18nBeans.appMessages(), top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.journal()));
+        assertThatThrownBy(() -> service.delete(WorkType.ARTWORK, 302L))
+                .isInstanceOf(WorkDeletionException.class);
+        assertThat(Files.readString(file)).isEqualTo("original image");
+        verify(pixivDatabase, never()).markArtworkDeleted(anyLong());
+    }
+
+    @Test
+    @DisplayName("小说目录壳清理不删除文件枚举后出现的新文件")
+    void directoryCleanupPreservesNewNovelFiles() throws Exception {
+        Path dir = Files.createDirectories(tempDir.resolve("novel-10"));
+        Path body = Files.writeString(dir.resolve("10_p0.txt"), "old text");
+        Path later = dir.resolve("later.txt");
+        when(novelMetadataRepository.getNovel(10L)).thenReturn(new NovelMetadataRow(
+                10L, "小说", dir.toString(), 1, "txt", 1000L, 0, false, 88L, null, null, null,
+                null, null, null, null, false, null));
+        when(workQueryService.hasActiveWork(WorkType.NOVEL, 10L)).thenReturn(true);
+        StagedFileDeletion helper = new StagedFileDeletion(TestI18nBeans.appMessages(), top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.journal()) {
+            @Override protected void deleteFile(Path original) throws IOException {
+                super.deleteFile(original);
+                Files.writeString(later, "new text");
+            }
+        };
+
+        assertThat(deletionService(helper).delete(WorkType.NOVEL, 10L)).isTrue();
+        assertThat(body).doesNotExist();
+        assertThat(Files.readString(later)).isEqualTo("new text");
     }
 }

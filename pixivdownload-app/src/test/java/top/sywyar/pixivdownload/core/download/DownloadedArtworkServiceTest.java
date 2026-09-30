@@ -31,6 +31,9 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 @DisplayName("DownloadedArtworkService 单元测试")
 class DownloadedArtworkServiceTest {
+    @org.junit.jupiter.api.AfterEach
+    void closeFileOperationTestDatabases() { top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.close(); }
+
     private static final AppMessages APP_MESSAGES = TestI18nBeans.appMessages();
 
     @TempDir
@@ -49,15 +52,14 @@ class DownloadedArtworkServiceTest {
     void setUp() {
         LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
         ArtworkFileLocator artworkFileLocator = new ArtworkFileLocator(pixivDatabase, downloadConfig, APP_MESSAGES,
-                new StagedFileDeletion(APP_MESSAGES), org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ArtworkMediaStore.class), org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ExternalWorkFiles.class));
+                new StagedFileDeletion(APP_MESSAGES, top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.journal()), org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ArtworkMediaStore.class), org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ExternalWorkFiles.class));
         ArtworkFileService artworkFileService = new ArtworkFileService(pixivDatabase, artworkFileLocator,
                 new top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaDecoder(
                         org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.class),
                         new com.fasterxml.jackson.databind.ObjectMapper()));
         ArtworkMetadataRecoveryService artworkMetadataRecoveryService =
                 new ArtworkMetadataRecoveryService(pixivDatabase, authorService, downloadConfig, APP_MESSAGES);
-        downloadedArtworkService = new DownloadedArtworkService(pixivDatabase, artworkFileService,
-                artworkMetadataRecoveryService, artworkFileLocator, APP_MESSAGES);
+        downloadedArtworkService = new DownloadedArtworkService(pixivDatabase, artworkFileService);
     }
 
     // ========== getDownloadedRecord ==========
@@ -99,7 +101,7 @@ class DownloadedArtworkServiceTest {
         }
 
         @Test
-        @DisplayName("verifyFiles=true 且目录为空时应删除脏记录")
+        @DisplayName("verifyFiles=true 且目录为空时允许重下但保留登记")
         void shouldDeleteStaleRecordWhenDirectoryIsEmpty() throws Exception {
             Path folder = Files.createDirectories(tempDir.resolve("12345"));
             ArtworkRecord record = new ArtworkRecord(12345L, "测试作品", folder.toString(),
@@ -109,11 +111,11 @@ class DownloadedArtworkServiceTest {
             ArtworkRecord result = downloadedArtworkService.getDownloadedRecord(12345L, true);
 
             assertThat(result).isNull();
-            verify(pixivDatabase).deleteArtwork(12345L);
+            verify(pixivDatabase, never()).deleteArtwork(12345L);
         }
 
         @Test
-        @DisplayName("verifyFiles=true 且目录里没有作品图片文件时应删除脏记录")
+        @DisplayName("verifyFiles=true 且目录里没有作品图片时保留登记")
         void shouldDeleteStaleRecordWhenDirectoryHasNoArtworkImages() throws Exception {
             Path folder = Files.createDirectories(tempDir.resolve("22345"));
             Files.writeString(folder.resolve("note.txt"), "orphan");
@@ -125,7 +127,22 @@ class DownloadedArtworkServiceTest {
             ArtworkRecord result = downloadedArtworkService.getDownloadedRecord(22345L, true);
 
             assertThat(result).isNull();
-            verify(pixivDatabase).deleteArtwork(22345L);
+            verify(pixivDatabase, never()).deleteArtwork(22345L);
+        }
+
+        @Test
+        @DisplayName("缺页作品及仅余缩略图的作品允许重下但不删除原登记")
+        void incompleteArtworkKeepsItsRecord() throws Exception {
+            Path folder = Files.createDirectories(tempDir.resolve("33"));
+            Files.writeString(folder.resolve("33_p0.jpg"), "page zero");
+            Files.writeString(folder.resolve("33_p1_thumb.jpg"), "thumbnail only");
+            ArtworkRecord record = new ArtworkRecord(33L, "title", folder.toString(), 2, "jpg", 1L,
+                    false, null, null, 0, false, null, null);
+            when(pixivDatabase.getArtwork(33L)).thenReturn(record);
+            assertThat(downloadedArtworkService.getDownloadedRecord(33L, true)).isNull();
+            verify(pixivDatabase, never()).deleteArtwork(33L);
+            Files.writeString(folder.resolve("33_p1.jpg"), "page one");
+            assertThat(downloadedArtworkService.getDownloadedRecord(33L, true)).isSameAs(record);
         }
 
         @Test
@@ -161,160 +178,15 @@ class DownloadedArtworkServiceTest {
         }
     }
 
-    @Nested
-    @DisplayName("getDownloadedRecord 磁盘反向恢复")
-    class FindArtworkOnDiskTests {
-
-        @BeforeEach
-        void setupRootFolder() {
-            lenient().when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
-            lenient().when(pixivDatabase.getUniqueTime()).thenReturn(1700000200L);
-        }
-
-        @Test
-        @DisplayName("verifyFiles=false 时即便磁盘有文件也不应恢复")
-        void shouldNotRecoverWhenVerifyFilesFalse() throws Exception {
-            Path dir = Files.createDirectories(tempDir.resolve("11111"));
-            Files.write(dir.resolve("11111_p0.jpg"), new byte[]{1});
-            when(pixivDatabase.getArtwork(11111L)).thenReturn(null);
-
-            ArtworkRecord result = downloadedArtworkService.getDownloadedRecord(11111L, false);
-
-            assertThat(result).isNull();
-            verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
-        }
-
-        @Test
-        @DisplayName("根目录不存在时应返回 null")
-        void shouldReturnNullWhenRootFolderMissing() {
-            when(downloadConfig.getRootFolder()).thenReturn(tempDir.resolve("no-such-root").toString());
-            when(pixivDatabase.getArtwork(22222L)).thenReturn(null);
-
-            assertThat(downloadedArtworkService.getDownloadedRecord(22222L, true)).isNull();
-            verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
-        }
-
-        @Test
-        @DisplayName("作品目录不存在时应返回 null")
-        void shouldReturnNullWhenArtworkDirMissing() {
-            when(pixivDatabase.getArtwork(33333L)).thenReturn(null);
-
-            assertThat(downloadedArtworkService.getDownloadedRecord(33333L, true)).isNull();
-            verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
-        }
-
-        @Test
-        @DisplayName("目录仅含非匹配文件时不应恢复")
-        void shouldNotRecoverWhenNoMatchingFiles() throws Exception {
-            Path dir = Files.createDirectories(tempDir.resolve("44444"));
-            Files.writeString(dir.resolve("note.txt"), "x");
-            // 不同作品 ID 的图片不应被算作匹配
-            Files.write(dir.resolve("99999_p0.jpg"), new byte[]{1});
-            // 非默认模板格式
-            Files.write(dir.resolve("44444-title_p0.jpg"), new byte[]{1});
-            when(pixivDatabase.getArtwork(44444L)).thenReturn(null);
-
-            assertThat(downloadedArtworkService.getDownloadedRecord(44444L, true)).isNull();
-            verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
-        }
-
-        @Test
-        @DisplayName("单页同扩展名应按实际页数与扩展名恢复")
-        void shouldRecoverSinglePage() throws Exception {
-            long artworkId = 55555L;
-            Path dir = Files.createDirectories(tempDir.resolve(String.valueOf(artworkId)));
-            Files.write(dir.resolve("55555_p0.jpg"), new byte[]{1, 2});
-            String absolute = dir.toAbsolutePath().toString();
-            ArtworkRecord inserted = new ArtworkRecord(artworkId, "", absolute, 1, "jpg",
-                    1700000200L, false, null, null, null, null, null, "", 1L, null, null, null);
-            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null, inserted);
-
-            ArtworkRecord result = downloadedArtworkService.getDownloadedRecord(artworkId, true);
-
-            assertThat(result).isSameAs(inserted);
-            verify(pixivDatabase).insertArtwork(recoveredArtwork(artworkId, absolute, 1, "jpg"));
-        }
-
-        @Test
-        @DisplayName("多页同扩展名应记 count=最大页号+1，extensions 去重为单值")
-        void shouldRecoverMultiPageSameExt() throws Exception {
-            long artworkId = 66666L;
-            Path dir = Files.createDirectories(tempDir.resolve(String.valueOf(artworkId)));
-            Files.write(dir.resolve("66666_p0.png"), new byte[]{1});
-            Files.write(dir.resolve("66666_p1.png"), new byte[]{1});
-            Files.write(dir.resolve("66666_p2.png"), new byte[]{1});
-            String absolute = dir.toAbsolutePath().toString();
-            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null,
-                    new ArtworkRecord(artworkId, "", absolute, 3, "png",
-                            1700000200L, false, null, null, null, null, null, "", 1L, null, null, null));
-
-            downloadedArtworkService.getDownloadedRecord(artworkId, true);
-
-            verify(pixivDatabase).insertArtwork(recoveredArtwork(artworkId, absolute, 3, "png"));
-        }
-
-        @Test
-        @DisplayName("多页混合扩展名应按逗号拼接 extensions")
-        void shouldRecoverMultiPageMixedExt() throws Exception {
-            long artworkId = 77777L;
-            Path dir = Files.createDirectories(tempDir.resolve(String.valueOf(artworkId)));
-            Files.write(dir.resolve("77777_p0.jpg"), new byte[]{1});
-            Files.write(dir.resolve("77777_p1.png"), new byte[]{1});
-            String absolute = dir.toAbsolutePath().toString();
-            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null,
-                    new ArtworkRecord(artworkId, "", absolute, 2, "jpg,png",
-                            1700000200L, false, null, null, null, null, null, "", 1L, null, null, null));
-
-            downloadedArtworkService.getDownloadedRecord(artworkId, true);
-
-            // 按页号升序拼接 extensions（p0=jpg, p1=png）
-            verify(pixivDatabase).insertArtwork(recoveredArtwork(artworkId, absolute, 2, "jpg,png"));
-        }
-
-        @Test
-        @DisplayName("页号有空洞时不应恢复为已下载记录")
-        void shouldNotRecoverWhenPagesHaveGap() throws Exception {
-            long artworkId = 88888L;
-            Path dir = Files.createDirectories(tempDir.resolve(String.valueOf(artworkId)));
-            Files.write(dir.resolve("88888_p0.jpg"), new byte[]{1});
-            Files.write(dir.resolve("88888_p3.jpg"), new byte[]{1});
-            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null);
-
-            assertThat(downloadedArtworkService.getDownloadedRecord(artworkId, true)).isNull();
-            verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
-        }
-
-        @Test
-        @DisplayName("缺第 0 页（部分失败残留）时不应恢复为已下载记录")
-        void shouldNotRecoverWhenFirstPageMissing() throws Exception {
-            long artworkId = 88889L;
-            Path dir = Files.createDirectories(tempDir.resolve(String.valueOf(artworkId)));
-            Files.write(dir.resolve("88889_p1.jpg"), new byte[]{1});
-            Files.write(dir.resolve("88889_p2.jpg"), new byte[]{1});
-            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null);
-
-            assertThat(downloadedArtworkService.getDownloadedRecord(artworkId, true)).isNull();
-            verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
-        }
-
-        @Test
-        @DisplayName("大小写后缀应被识别且归一化为小写")
-        void shouldRecognizeUppercaseExtensions() throws Exception {
-            long artworkId = 99998L;
-            Path dir = Files.createDirectories(tempDir.resolve(String.valueOf(artworkId)));
-            Files.write(dir.resolve("99998_p0.JPG"), new byte[]{1});
-            String absolute = dir.toAbsolutePath().toString();
-            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null,
-                    new ArtworkRecord(artworkId, "", absolute, 1, "jpg",
-                            1700000200L, false, null, null, null, null, null, "", 1L, null, null, null));
-
-            downloadedArtworkService.getDownloadedRecord(artworkId, true);
-
-            verify(pixivDatabase).insertArtwork(recoveredArtwork(artworkId, absolute, 1, "jpg"));
-        }
+    @Test
+    @DisplayName("无记录时连续页号也不补登记，不能由现有文件推断尾页完整")
+    void queryNeverRecoversUnregisteredFiles() throws Exception {
+        Path dir = Files.createDirectories(tempDir.resolve("77777"));
+        Files.writeString(dir.resolve("77777_p0.jpg"), "first page");
+        Files.writeString(dir.resolve("77777_p1.jpg"), "second page");
+        assertThat(downloadedArtworkService.getDownloadedRecord(77777L, true)).isNull();
+        verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
     }
-
-    // ========== getSortTimeArtworkPaged ==========
 
     @Nested
     @DisplayName("getSortTimeArtworkPaged")
@@ -334,6 +206,17 @@ class DownloadedArtworkServiceTest {
     }
 
     // ========== getArtworkCount ==========
+
+    @Test
+    @DisplayName("仅保留原始 ZIP 的动图仍按正式产物判定完整")
+    void recognizesRetainedUgoiraZip() throws Exception {
+        Path folder = Files.createDirectories(tempDir.resolve("456"));
+        Files.write(folder.resolve("456_p0.zip"), new byte[]{1, 2});
+        ArtworkRecord record = new ArtworkRecord(456L, "fixture", folder.toString(),
+                1, "zip", 1L, false, null, null, 0, false, null, null);
+        when(pixivDatabase.getArtwork(456L)).thenReturn(record);
+        assertThat(downloadedArtworkService.getDownloadedRecord(456L, true)).isSameAs(record);
+    }
 
     @Test
     @DisplayName("getArtworkCount 应委托给数据库")

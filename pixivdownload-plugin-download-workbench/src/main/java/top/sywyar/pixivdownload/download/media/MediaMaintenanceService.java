@@ -224,7 +224,7 @@ public final class MediaMaintenanceService implements AutoCloseable {
             for (Candidate candidate : plan.files()) {
                 if (cancelled || Thread.currentThread().isInterrupted()) break;
                 WorkAssetFile file = candidate.file();
-                try {
+                try (var workFileLease = top.sywyar.pixivdownload.core.work.service.WorkFileLock.acquire(WorkType.ARTWORK, candidate.artworkId())) {
                     requirePlain(file.path());
                     var current = assets.rawFile(WorkType.ARTWORK, candidate.artworkId(), file.page());
                     if (assets.isReadOnly(WorkType.ARTWORK, candidate.artworkId())

@@ -7,6 +7,17 @@ import java.util.List;
 
 @Mapper
 public interface PixivMapper {
+    @Select("SELECT base_name FROM artwork_file_names WHERE artwork_id = #{artworkId} ORDER BY page")
+    List<String> findArtworkFileNames(long artworkId);
+
+    @Delete("DELETE FROM artwork_file_names WHERE artwork_id = #{artworkId}")
+    void deleteArtworkFileNames(long artworkId);
+
+    @Insert({"<script>", "INSERT INTO artwork_file_names(artwork_id, page, base_name) VALUES",
+            "<foreach collection='names' item='name' index='page' separator=','>",
+            "(#{artworkId}, #{page}, #{name})", "</foreach>", "</script>"})
+    void insertArtworkFileNames(@Param("artworkId") long artworkId, @Param("names") List<String> names);
+
     @Delete("DELETE FROM artwork_media WHERE artwork_id = #{artworkId}")
     void deleteArtworkMedia(@Param("artworkId") long artworkId);
 
@@ -110,6 +121,14 @@ public interface PixivMapper {
                         @Param("fileAuthorNameId") Long fileAuthorNameId,
                         @Param("seriesId") Long seriesId,
                         @Param("seriesOrder") Long seriesOrder);
+
+    /** 下载成功后替换落盘事实，清除已经失效的移动位置。 */
+    @Update("UPDATE artworks SET folder = #{folder}, count = #{count}, extensions = #{extensions},"
+            + " time = #{time}, moved = 0, move_folder = NULL, move_time = NULL"
+            + " WHERE artwork_id = #{artworkId} AND deleted = 0")
+    void updateDownloadedFiles(@Param("artworkId") long artworkId, @Param("folder") String folder,
+                               @Param("count") int count, @Param("extensions") String extensions,
+                               @Param("time") long time);
 
     @Select(SELECT_ARTWORK + " WHERE RTRIM(RTRIM(move_folder, '/'), '\\') = #{moveFolder} AND deleted = 0")
     ArtworkRecord findByNormalizedMoveFolder(String moveFolder);

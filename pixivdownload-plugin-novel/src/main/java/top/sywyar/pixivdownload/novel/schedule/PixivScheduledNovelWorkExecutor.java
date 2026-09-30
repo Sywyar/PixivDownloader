@@ -59,6 +59,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
     private final ObjectMapper objectMapper;
     private final PixivAjaxClient pixivAjaxClient;
     private final WorkQueryService workQueryService;
+    private final top.sywyar.pixivdownload.core.work.service.WorkAssetService workAssets;
     private final WorkMetadataCapture workMetadataCapture;
     private final NovelDownloader novelDownloader;
     private final NovelMergeService novelMergeService;
@@ -76,7 +77,9 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
             NovelDownloader novelDownloader,
             NovelMergeService novelMergeService,
             NovelAutoTranslateService novelAutoTranslateService,
-            NovelDownloadExecutionLane downloadExecutionLane) {
+            NovelDownloadExecutionLane downloadExecutionLane,
+            top.sywyar.pixivdownload.core.work.service.WorkAssetService workAssets) {
+        this.workAssets = workAssets;
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
         this.pixivAjaxClient = Objects.requireNonNull(pixivAjaxClient, "pixivAjaxClient");
         this.workQueryService = Objects.requireNonNull(workQueryService, "workQueryService");
@@ -157,7 +160,8 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
         boolean alreadyDownloaded = definition.download().redownloadDeleted()
                 ? workQueryService.hasActiveWork(WorkType.NOVEL, novelId)
                 : workQueryService.hasWork(WorkType.NOVEL, novelId);
-        if (alreadyDownloaded) {
+        if (alreadyDownloaded && (!workQueryService.hasActiveWork(WorkType.NOVEL, novelId)
+                || workAssets.hasCompleteFiles(WorkType.NOVEL, novelId))) {
             return ScheduledWorkResult.alreadyCompleted();
         }
 

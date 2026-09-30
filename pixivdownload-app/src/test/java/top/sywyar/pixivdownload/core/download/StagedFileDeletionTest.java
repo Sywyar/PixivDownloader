@@ -26,11 +26,15 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @DisplayName("StagedFileDeletion 原子删除（暂存 + 回滚）")
 class StagedFileDeletionTest {
+    @org.junit.jupiter.api.AfterEach
+    void closeFileOperationTestDatabases() { top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.close(); }
+
 
     @TempDir
     Path tempDir;
 
-    private final StagedFileDeletion deletion = new StagedFileDeletion(TestI18nBeans.appMessages());
+    private final top.sywyar.pixivdownload.core.asset.FileOperationJournal journal = top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.journal();
+    private final StagedFileDeletion deletion = new StagedFileDeletion(TestI18nBeans.appMessages(), journal);
 
     @BeforeEach
     void isolateStagingDirectory() {
@@ -72,6 +76,22 @@ class StagedFileDeletionTest {
     }
 
     @Test
+    @DisplayName("暂存后被改写的文件不删除并回滚先前删除的文件")
+    void preservesFilesChangedAfterStaging() throws Exception {
+        Path first = Files.writeString(tempDir.resolve("first.jpg"), "old first");
+        Path second = Files.writeString(tempDir.resolve("second.jpg"), "old second");
+        var changed = new StagedFileDeletion(TestI18nBeans.appMessages(), journal) {
+            @Override protected void deleteFile(Path file) throws IOException {
+                super.deleteFile(file);
+                if (file.equals(first)) Files.writeString(second, "new second");
+            }
+        };
+        assertFalse(changed.deleteAtomically(List.of(first, second)));
+        assertEquals("old first", Files.readString(first));
+        assertEquals("new second", Files.readString(second));
+    }
+
+    @Test
     @DisplayName("某文件删除失败：全部原文件复原、暂存已清、返回 false")
     void rollsBackAllFilesWhenOneDeletionFails() throws Exception {
         Path dir = Files.createDirectories(tempDir.resolve("work"));
@@ -80,7 +100,7 @@ class StagedFileDeletionTest {
         Path c = Files.writeString(dir.resolve("c.txt"), "c");
         Path poison = b.toAbsolutePath().normalize();
 
-        StagedFileDeletion failing = new StagedFileDeletion(TestI18nBeans.appMessages()) {
+        StagedFileDeletion failing = new StagedFileDeletion(TestI18nBeans.appMessages(), journal) {
             @Override
             protected void deleteFile(Path original) throws IOException {
                 if (original.toAbsolutePath().normalize().equals(poison)) {
@@ -128,8 +148,8 @@ class StagedFileDeletionTest {
 
         assertEquals("new", Files.readString(restored), "并发创建的新内容不得被回滚覆盖");
         Path stagingDir = stagingSubdirectories().get(0);
-        assertTrue(Files.exists(stagingDir.resolve("manifest.properties")), "恢复清单应保留");
-        assertEquals("old", Files.readString(stagingDir.resolve("0_a.jpg")), "原内容应保留在暂存备份中");
+        assertEquals(1, journal.operations().size());
+        assertEquals("old", Files.readString(stagingDir.resolve("0.old")), "原内容应保留在暂存备份中");
     }
 
     @Test
@@ -139,7 +159,7 @@ class StagedFileDeletionTest {
         Path restored = Files.writeString(dir.resolve("a.jpg"), "a");
         Path poison = Files.writeString(dir.resolve("b.jpg"), "b");
         Path normalizedPoison = poison.toAbsolutePath().normalize();
-        StagedFileDeletion failing = new StagedFileDeletion(TestI18nBeans.appMessages()) {
+        StagedFileDeletion failing = new StagedFileDeletion(TestI18nBeans.appMessages(), journal) {
             @Override
             protected void deleteFile(Path original) throws IOException {
                 if (original.toAbsolutePath().normalize().equals(normalizedPoison)) {
@@ -154,8 +174,8 @@ class StagedFileDeletionTest {
 
         assertTrue(Files.isDirectory(restored), "并发创建的目录不得被回滚替换");
         Path stagingDir = stagingSubdirectories().get(0);
-        assertTrue(Files.exists(stagingDir.resolve("manifest.properties")), "恢复清单应保留");
-        assertEquals("a", Files.readString(stagingDir.resolve("0_a.jpg")), "原内容应保留在暂存备份中");
+        assertEquals(1, journal.operations().size());
+        assertEquals("a", Files.readString(stagingDir.resolve("0.old")), "原内容应保留在暂存备份中");
     }
 
     @Test
@@ -178,8 +198,8 @@ class StagedFileDeletionTest {
         List<Path> residue = stagingSubdirectories();
         assertEquals(1, residue.size(), "回滚未完全成功应保留暂存子目录");
         Path subdir = residue.get(0);
-        assertTrue(Files.exists(subdir.resolve("manifest.properties")), "恢复清单应保留");
-        assertTrue(Files.exists(subdir.resolve("1_b.jpg")), "未复原的 b 应留有暂存备份");
+        assertEquals(1, journal.operations().size());
+        assertTrue(Files.exists(subdir.resolve("1.old")), "未复原的 b 应留有暂存备份");
     }
 
     @Test
@@ -195,7 +215,7 @@ class StagedFileDeletionTest {
         assertEquals(1, stagingSubdirectories().size(), "前置：暂存子目录被保留");
 
         // 模拟下次启动：恢复入口据清单把仍缺失的 b 从暂存复原
-        RuntimeFiles.recoverDeleteStagingLeftovers(tempDir.toString());
+        new StagedFileDeletion(TestI18nBeans.appMessages(), journal).recoverPending();
 
         assertTrue(Files.exists(b), "启动恢复应复原 b");
         assertEquals("b", Files.readString(b), "复原内容应一致");
@@ -282,10 +302,10 @@ class StagedFileDeletionTest {
     }
 
     /** 删除 {@code deletePoison} 时抛 IOException（触发回滚），回滚复原 {@code restorePoison} 时再抛 IOException。 */
-    private static StagedFileDeletion failDeleteAndRestore(Path deletePoison, Path restorePoison) {
+    private StagedFileDeletion failDeleteAndRestore(Path deletePoison, Path restorePoison) {
         Path deleteTarget = deletePoison.toAbsolutePath().normalize();
         Path restoreTarget = restorePoison.toAbsolutePath().normalize();
-        return new StagedFileDeletion(TestI18nBeans.appMessages()) {
+        return new StagedFileDeletion(TestI18nBeans.appMessages(), journal) {
             @Override
             protected void deleteFile(Path original) throws IOException {
                 if (original.toAbsolutePath().normalize().equals(deleteTarget)) {
@@ -304,9 +324,9 @@ class StagedFileDeletionTest {
         };
     }
 
-    private static StagedFileDeletion failAfterRecreating(Path deletePoison, Path restoreTarget, String content) {
+    private StagedFileDeletion failAfterRecreating(Path deletePoison, Path restoreTarget, String content) {
         Path normalizedPoison = deletePoison.toAbsolutePath().normalize();
-        return new StagedFileDeletion(TestI18nBeans.appMessages()) {
+        return new StagedFileDeletion(TestI18nBeans.appMessages(), journal) {
             @Override
             protected void deleteFile(Path original) throws IOException {
                 if (original.toAbsolutePath().normalize().equals(normalizedPoison)) {

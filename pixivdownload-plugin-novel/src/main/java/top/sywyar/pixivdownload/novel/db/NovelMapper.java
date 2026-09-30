@@ -16,6 +16,9 @@ import java.util.List;
 @Mapper
 public interface NovelMapper {
 
+    @Update("UPDATE novels SET file_base_name = #{name} WHERE novel_id = #{id}")
+    void updateFileBaseName(@Param("id") long id, @Param("name") String name);
+
     @Update("UPDATE novels SET file_name_max_length = #{length} WHERE novel_id = #{id}")
     void updateFileNameMaxLength(@Param("id") long id, @Param("length") int length);
 

@@ -19,6 +19,7 @@ import top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarFiles;
 import top.sywyar.pixivdownload.core.work.model.LocalWorkAsset;
 import top.sywyar.pixivdownload.core.work.model.WorkAssetFile;
 import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
+import top.sywyar.pixivdownload.core.work.service.WorkFileLock;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 
 import java.io.File;
@@ -33,6 +34,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * {@link WorkAssetService} 的核心实现。插画侧代理 {@link ArtworkFileService}（缩略图缓存 /
@@ -56,6 +58,62 @@ public class LocalWorkAssetService implements WorkAssetService {
     private final top.sywyar.pixivdownload.core.asset.ExternalWorkFiles externalFiles;
 
     @Override public boolean isReadOnly(WorkType type, long id) { return externalFiles.contains(type, id); }
+
+    @Override
+    public void publishFiles(WorkType type, long id, java.util.Map<Path, Path> files, Runnable records) throws IOException {
+        try (var ignored = WorkFileLock.acquire(type, id)) {
+            stagedFileDeletion.publishFiles(files, records);
+        }
+    }
+
+    @Override
+    public boolean hasCompleteFiles(WorkType type, long id) {
+        try (var ignored = WorkFileLock.acquire(type, id)) {
+            if (type == WorkType.ARTWORK) {
+                ArtworkRecord record = pixivDatabase.getArtwork(id);
+                return record != null && !record.deleted() && artworkFileService.hasArtworkFiles(record);
+            }
+            NovelMetadataRow record = novelMetadataRepository.getNovel(id);
+            if (record == null || record.deleted()) return false;
+            if (isReadOnly(type, id)) {
+                List<Path> files = externalFiles.files(type, id);
+                if (files.isEmpty()) return false;
+                for (Path file : files) if (!completeFile(file)) return false;
+                return true;
+            }
+            Path directory = exclusiveNovelDirectory(record, false);
+            if (directory == null || !StringUtils.hasText(record.extensions())) return false;
+            String baseName = resolveStoredNovelBaseName(record);
+            for (String extension : record.extensions().split(",")) {
+                if (!Set.of("txt", "html", "epub").contains(extension)
+                        || !completeFile(directory.resolve(baseName + "." + extension))) return false;
+            }
+            for (String name : novelMetadataRepository.getImageFileNames(id)) {
+                requireFileName(name);
+                if (!completeFile(directory.resolve(name))) return false;
+            }
+            if (StringUtils.hasText(record.coverExt())) {
+                String name = baseName + "_thumb." + record.coverExt();
+                requireFileName(name);
+                if (!completeFile(directory.resolve(name))) return false;
+            }
+            return true;
+        } catch (IOException failure) {
+            throw new java.io.UncheckedIOException(failure);
+        }
+    }
+
+    private static boolean completeFile(Path file) throws IOException {
+        if (file == null || Files.notExists(file, LinkOption.NOFOLLOW_LINKS)) return false;
+        PlainFilePathGuard.requirePlainRegularFile(file);
+        if (!Files.isReadable(file)) throw new IOException("Unreadable work file: " + file);
+        return Files.size(file) > 0;
+    }
+
+    private static void requireFileName(String name) {
+        if (!StringUtils.hasText(name) || name.contains("/") || name.contains("\\")
+                || name.equals(".") || name.equals("..")) throw new UnsafeDeletionPathException(name);
+    }
 
     @Override
     public Optional<LocalWorkAsset> findAsset(WorkType workType, long workId) {
@@ -97,11 +155,21 @@ public class LocalWorkAssetService implements WorkAssetService {
 
     @Override
     public boolean deleteLocalFiles(WorkType workType, long workId) {
-        if (isReadOnly(workType, workId)) return true;
-        return switch (workType) {
-            case ARTWORK -> artworkFileLocator.deleteArtworkFiles(pixivDatabase.getArtwork(workId));
-            case NOVEL -> deleteNovelFiles(workId);
-        };
+        return deleteLocalFiles(workType, workId, () -> {});
+    }
+
+    /** 宿主删除编排在文件备份尚未释放时完成记录事务。 */
+    public boolean deleteLocalFiles(WorkType workType, long workId, Runnable commitRecord) {
+        try (var workFileLease = top.sywyar.pixivdownload.core.work.service.WorkFileLock.acquire(workType, workId)) {
+            if (isReadOnly(workType, workId)) {
+                commitRecord.run();
+                return true;
+            }
+            return switch (workType) {
+                case ARTWORK -> artworkFileLocator.deleteArtworkFiles(pixivDatabase.getArtwork(workId), commitRecord);
+                case NOVEL -> deleteNovelFiles(workId, commitRecord);
+            };
+        }
     }
 
     // ── 插画侧 ─────────────────────────────────────────────────────────────────
@@ -114,8 +182,9 @@ public class LocalWorkAssetService implements WorkAssetService {
         String directoryPath = artworkFileLocator.resolveArtworkDirectory(artwork);
         int pageCount = Math.max(artwork.count(), 1);
         List<WorkAssetFile> files = new ArrayList<>();
+        List<File> images = artworkFileLocator.resolveImageFiles(artwork, false);
         for (int page = 0; page < pageCount; page++) {
-            File file = artworkFileLocator.resolveImageFile(artwork, page);
+            File file = images.get(page);
             if (file == null) {
                 continue;
             }
@@ -221,6 +290,11 @@ public class LocalWorkAssetService implements WorkAssetService {
      * （{@code fileName} 为空回退默认模板），与小说下载链路的命名规则一致。
      */
     private String resolveStoredNovelBaseName(NovelMetadataRow novel) {
+        String saved = novelMetadataRepository.getFileBaseName(novel.novelId());
+        if (StringUtils.hasText(saved)) {
+            requireFileName(saved);
+            return saved;
+        }
         String template = novel.fileName() == null
                 ? PixivWorkFileNameFormatter.DEFAULT_TEMPLATE
                 : pixivDatabase.getFileNameTemplate(novel.fileName());
@@ -237,24 +311,18 @@ public class LocalWorkAssetService implements WorkAssetService {
     }
 
     /**
-     * 删除小说磁盘文件：每本小说独占 {@code {rootFolder}/novel-{novelId}/} 目录（小说无重定位语义），
-     * 因此目录名必须匹配 {@code novel-{novelId}} 才会被删除。目录下全部常规文件（含 meta sidecar
-     * 与子目录内嵌资源）经共享 {@link StagedFileDeletion} <b>原子删除</b>（先暂存再删，任一失败回滚到删除前状态）——
-     * 失败时小说文件原样保留、不会半损坏。文件全删成功后再移除清空的目录壳（子目录 + {@code novel-{id}} 本身），
-     * 目录壳可再生，移除失败仅记日志、不影响删除成败。守卫逻辑自小说画廊服务下沉，无下载记录视为「无事可做」（{@code true}）。
-     *
-     * @return 文件层清理结果：{@code true} 表示文件全部删除成功（或没有可删的文件），
-     *         调用方可继续删 DB 行；{@code false} 表示有文件因锁定 / 权限不足等原因删除失败、已回滚复原，
-     *         调用方必须中止 DB 清理；现存但不安全的目录或条目会抛出
-     *         {@link UnsafeDeletionPathException}。
+     * 暂存小说独占目录中的文件，在记录提交成功后仅移除空目录。
+     * 删除或记录提交失败时尝试回滚，未恢复的备份继续保留。
      */
-    private boolean deleteNovelFiles(long workId) {
+    private boolean deleteNovelFiles(long workId, Runnable commitRecord) {
         NovelMetadataRow record = novelMetadataRepository.getNovel(workId);
         if (record == null) {
+            commitRecord.run();
             return true;
         }
         Path dir = exclusiveNovelDirectory(record, true);
         if (dir == null) {
+            commitRecord.run();
             return true;
         }
         List<Path> files;
@@ -267,7 +335,7 @@ public class LocalWorkAssetService implements WorkAssetService {
             log.warn(logMessage("novel.gallery.log.clean-directory-failed", record.novelId(), record.folder()));
             return false;
         }
-        if (!stagedFileDeletion.deleteAtomically(files)) {
+        if (!stagedFileDeletion.deleteAtomically(files, commitRecord)) {
             return false;
         }
         removeEmptyDirectoryTree(dir, record);
@@ -277,7 +345,7 @@ public class LocalWorkAssetService implements WorkAssetService {
     /** 移除已清空的小说独占目录壳（子目录 + 目录本身）；可再生，删失败仅记日志、不影响删除成败。 */
     private void removeEmptyDirectoryTree(Path dir, NovelMetadataRow record) {
         try (var stream = Files.walk(dir)) {
-            stream.sorted(Comparator.reverseOrder()).forEach(p -> {
+            stream.filter(PlainFilePathGuard::isPlainDirectory).sorted(Comparator.reverseOrder()).forEach(p -> {
                 try {
                     Files.deleteIfExists(p);
                 } catch (IOException e) {
@@ -302,6 +370,7 @@ public class LocalWorkAssetService implements WorkAssetService {
     private Path exclusiveNovelDirectory(NovelMetadataRow record, boolean logRefusals) {
         String folder = record.folder();
         if (folder == null || folder.isBlank()) {
+            if (logRefusals) throw new UnsafeDeletionPathException(folder);
             return null;
         }
         Path dir;

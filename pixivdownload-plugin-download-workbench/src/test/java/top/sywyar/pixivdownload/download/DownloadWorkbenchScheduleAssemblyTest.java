@@ -55,8 +55,9 @@ class DownloadWorkbenchScheduleAssemblyTest {
                 new DownloadWorkbenchPluginConfiguration();
         ArtworkDownloader artworkDownloader = mock(ArtworkDownloader.class);
         WorkQueryService workQueryService = mock(WorkQueryService.class);
+        var workAssets = mock(top.sywyar.pixivdownload.core.work.service.WorkAssetService.class);
         var lookup = configuration.pixivScheduledLocalWorkLookup(
-                artworkDownloader, workQueryService);
+                artworkDownloader, workQueryService, workAssets);
         ScheduleTaskSnapshot.Download keepDeleted = ScheduleTaskSnapshot.parseDownload(
                 new ObjectMapper().readTree("{}"));
         ScheduleTaskSnapshot.Download redownloadDeletedAndVerify = ScheduleTaskSnapshot.parseDownload(
@@ -66,10 +67,11 @@ class DownloadWorkbenchScheduleAssemblyTest {
         when(workQueryService.hasWork(WorkType.ARTWORK, 124L)).thenReturn(true);
         when(workQueryService.hasActiveWork(WorkType.ARTWORK, 124L)).thenReturn(true);
         when(artworkDownloader.isArtworkDownloaded(124L, true)).thenReturn(true);
-        when(artworkDownloader.isArtworkDownloaded(127L, true)).thenReturn(true);
+        when(artworkDownloader.isArtworkDownloaded(127L, true)).thenReturn(false);
         when(workQueryService.hasWork(WorkType.ARTWORK, 128L)).thenReturn(true);
         when(workQueryService.hasWork(WorkType.NOVEL, 125L)).thenReturn(true);
         when(workQueryService.hasActiveWork(WorkType.NOVEL, 126L)).thenReturn(true);
+        when(workAssets.hasCompleteFiles(WorkType.NOVEL, 126L)).thenReturn(true);
 
         assertThat(lookup.isAlreadyCompleted(
                 new ScheduledWorkKey("illust", "123"), keepDeleted)).isTrue();
@@ -77,8 +79,8 @@ class DownloadWorkbenchScheduleAssemblyTest {
                 new ScheduledWorkKey("illust", "124"), redownloadDeletedAndVerify)).isTrue();
         assertThat(lookup.isAlreadyCompleted(
                 new ScheduledWorkKey("illust", "127"), redownloadDeletedAndVerify))
-                .as("数据库缺行但磁盘已有文件时应进入恢复补登记语义")
-                .isTrue();
+                .as("数据库缺行时不从磁盘连续页号推断下载完成")
+                .isFalse();
         assertThat(lookup.isAlreadyCompleted(
                 new ScheduledWorkKey("illust", "128"), redownloadDeletedAndVerify))
                 .as("软删除作品即使文件仍在也应允许重新下载")
@@ -100,6 +102,24 @@ class DownloadWorkbenchScheduleAssemblyTest {
                 .isArtworkDownloaded(128L, true);
         verify(workQueryService).hasWork(WorkType.NOVEL, 125L);
         verify(workQueryService).hasActiveWork(WorkType.NOVEL, 126L);
+    }
+
+    @Test
+    @DisplayName("小说缺失文件不能作为来源扫描结束边界，检查失败向上传播")
+    void incompleteNovelDoesNotEndSourceDiscovery() throws Exception {
+        var queries = mock(WorkQueryService.class);
+        var assets = mock(top.sywyar.pixivdownload.core.work.service.WorkAssetService.class);
+        var lookup = new DownloadWorkbenchPluginConfiguration().pixivScheduledLocalWorkLookup(
+                mock(ArtworkDownloader.class), queries, assets);
+        var key = new ScheduledWorkKey("novel", "129");
+        var options = ScheduleTaskSnapshot.parseDownload(new ObjectMapper().readTree("{}"));
+        when(queries.hasActiveWork(WorkType.NOVEL, 129L)).thenReturn(true);
+        assertThat(lookup.isAlreadyCompleted(key, options)).isFalse();
+        when(assets.hasCompleteFiles(WorkType.NOVEL, 129L)).thenReturn(true);
+        assertThat(lookup.isAlreadyCompleted(key, options)).isTrue();
+        when(assets.hasCompleteFiles(WorkType.NOVEL, 129L)).thenThrow(new IllegalStateException("unreadable"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> lookup.isAlreadyCompleted(key, options))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test

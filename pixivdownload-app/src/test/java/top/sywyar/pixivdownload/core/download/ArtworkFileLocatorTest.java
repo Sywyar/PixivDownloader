@@ -26,6 +26,9 @@ import static org.mockito.Mockito.when;
 
 @DisplayName("ArtworkFileLocator 删除链路")
 class ArtworkFileLocatorTest {
+    @org.junit.jupiter.api.AfterEach
+    void closeFileOperationTestDatabases() { top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.close(); }
+
 
     @Test
     @DisplayName("按实际存在的原图 WebP PNG JPG 顺序选择并随作品删除媒体清单")
@@ -58,7 +61,7 @@ class ArtworkFileLocatorTest {
     private final top.sywyar.pixivdownload.core.asset.ArtworkMediaStore mediaStore = org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ArtworkMediaStore.class);
     private final PixivDatabase pixivDatabase = mock(PixivDatabase.class);
     private final DownloadConfig downloadConfig = mock(DownloadConfig.class);
-    private final StagedFileDeletion stagedFileDeletion = new StagedFileDeletion(TestI18nBeans.appMessages());
+    private final StagedFileDeletion stagedFileDeletion = new StagedFileDeletion(TestI18nBeans.appMessages(), top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.journal());
     private final ArtworkFileLocator locator =
             new ArtworkFileLocator(pixivDatabase, downloadConfig, TestI18nBeans.appMessages(), stagedFileDeletion, mediaStore, org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ExternalWorkFiles.class));
 
@@ -166,7 +169,7 @@ class ArtworkFileLocatorTest {
 
     private static StagedFileDeletion failOn(Path poison) {
         Path normalizedPoison = poison.toAbsolutePath().normalize();
-        return new StagedFileDeletion(TestI18nBeans.appMessages()) {
+        return new StagedFileDeletion(TestI18nBeans.appMessages(), top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.journal()) {
             @Override
             protected void deleteFile(Path original) throws java.io.IOException {
                 if (original.toAbsolutePath().normalize().equals(normalizedPoison)) {

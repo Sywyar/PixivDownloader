@@ -69,6 +69,18 @@ class NovelDownloadControllerIdentityTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
+    @DisplayName("小说单项判重核对文件完整性并独立保留软删除状态")
+    void downloadedStateChecksFiles() {
+        var record = org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.db.NovelRecord.class);
+        when(novelDatabase.getNovel(123L)).thenReturn(record);
+        assertThat(controller().novelDownloadedState(123L).getBody().downloaded()).isFalse();
+        when(novelDownloadService.hasCompleteFiles(123L)).thenReturn(true);
+        assertThat(controller().novelDownloadedState(123L).getBody().downloaded()).isTrue();
+        when(record.deleted()).thenReturn(true);
+        assertThat(controller().novelDownloadedState(123L).getBody().deleted()).isTrue();
+    }
+
+    @Test
     @DisplayName("路径确认重试保留浏览器取得的正文并签发新一次性票据")
     void pathConfirmationRenewsBrowserTicketWithoutRefetch() throws Exception {
         when(applicationModeProvider.getMode()).thenReturn("solo");

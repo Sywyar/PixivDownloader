@@ -190,7 +190,7 @@ class CoreApiOwnershipGuardTest {
                             "AuthorObservationService", "DownloadPathGuard", "DownloadPathRejectedException",
                             // 宿主查询卷能力，插画和小说共用授权码与命名规划，不包含插件目录布局。
                             "DownloadPathAction", "DownloadPathLimits", "DownloadPathPlan",
-                            "WorkAssetService",
+                            "WorkAssetService", "WorkFileLock",
                             "WorkDeletionException", "WorkDeletionService", "WorkFileNameCatalog",
                             "WorkMetadataCapture", "WorkMetadataRepository", "WorkQueryService", "WorkTagCatalog",
                             "WorkVisibilityDeniedException", "WorkVisibilityService"))),
@@ -249,6 +249,7 @@ class CoreApiOwnershipGuardTest {
             Map.entry("top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter#MAX_BASENAME_LENGTH:int", 180),
             Map.entry("top.sywyar.pixivdownload.core.work.service.DownloadPathLimits#UNKNOWN:top.sywyar.pixivdownload.core.work.service.DownloadPathLimits",
                     new DownloadPathLimits(0, 0, false)),
+            Map.entry("top.sywyar.pixivdownload.core.work.service.WorkAssetService#PUBLICATION_TEMPORARY_NAME_LENGTH:int", 64),
             Map.entry("top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarFiles#SIDECAR_SUFFIX:java.lang.String",
                     ".meta.json"),
             Map.entry("top.sywyar.pixivdownload.core.work.WorkActionResult#SUCCESS:java.lang.String", "success"),

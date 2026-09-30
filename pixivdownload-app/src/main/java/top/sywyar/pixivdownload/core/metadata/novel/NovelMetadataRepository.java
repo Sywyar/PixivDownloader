@@ -55,6 +55,17 @@ public class NovelMetadataRepository {
 
     // ── Novel rows ───────────────────────────────────────────────────────────────
 
+    public String getFileBaseName(long id) {
+        List<String> names = jdbc.queryForList("SELECT file_base_name FROM novels WHERE novel_id = :id",
+                Map.of("id", id), String.class);
+        return names.isEmpty() ? null : names.get(0);
+    }
+
+    public List<String> getImageFileNames(long id) {
+        return jdbc.query("SELECT image_id, ext FROM novel_images WHERE novel_id = :id",
+                Map.of("id", id), (rs, row) -> "embed_" + rs.getString(1) + "." + rs.getString(2));
+    }
+
     public boolean hasNovel(long novelId) {
         Long count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM novels WHERE novel_id = :novelId",

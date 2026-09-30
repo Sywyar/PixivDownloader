@@ -5,7 +5,6 @@ import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivImageDownloader;
 import top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
-import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 
 import java.io.IOException;
 import java.net.URI;
@@ -23,21 +22,19 @@ final class NovelDownloadMediaDownloader {
     /** 单本小说最多下载多少张内嵌图，避免极端情况吃满磁盘。 */
     private static final int MAX_EMBEDDED_IMAGES_PER_NOVEL = 200;
 
-    private final NovelDatabase novelDatabase;
     private final PixivImageDownloader pixivImageDownloader;
     private final MessageResolver messages;
 
-    NovelDownloadMediaDownloader(NovelDatabase novelDatabase,
+    NovelDownloadMediaDownloader(
                                  PixivImageDownloader pixivImageDownloader,
                                  MessageResolver messages) {
-        this.novelDatabase = novelDatabase;
         this.pixivImageDownloader = pixivImageDownloader;
         this.messages = messages;
     }
 
     /**
      * 扫描 raw 中出现的 {@code [uploadedimage:id]}，逐张下载至 {@code {downloadPath}/embed_{id}.{ext}}，
-     * 持久化映射到 {@code novel_images} 表。
+     * 返回成功取得的映射，由正文发布事务统一保存。
      * Best-effort：单张失败不抛异常；URL 缺失或非 pximg.net 一律跳过。
      *
      * @return id → 实际落盘扩展名的映射（仅成功的条目）。
@@ -53,7 +50,6 @@ final class NovelDownloadMediaDownloader {
             return Map.of();
         }
         // 清掉历史记录，避免遗留旧 ext
-        novelDatabase.clearNovelImages(novelId);
         // 实际会尝试下载的张数（有 URL 的占位符，受预算上限约束），用于进度展示
         int plannedTotal = 0;
         for (String id : ids) {
@@ -170,7 +166,6 @@ final class NovelDownloadMediaDownloader {
                     cancellationObserver(status),
                     remainingImageBytes);
             if (extension != null) {
-                novelDatabase.saveNovelImage(novelId, imageId, extension);
                 return extension;
             }
             log.warn("novel embed image non-2xx: novelId={}, id={}", novelId, imageId);

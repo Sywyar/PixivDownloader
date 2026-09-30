@@ -52,6 +52,7 @@ public final class NovelSchemaContribution {
                                 column("x_language", "TEXT", false, null, 0),
                                 column("raw_content", "TEXT", false, null, 0),
                                 column("cover_ext", "TEXT", false, null, 0),
+                        column("file_base_name", "TEXT", false, null, 0),
                                 column("deleted", "INTEGER", true, "0", 0),
                                 column("upload_time", "INTEGER", false, null, 0),
                                 column("file_name_max_length", "INTEGER", true, "180", 0),
