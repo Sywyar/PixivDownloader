@@ -41,6 +41,10 @@ final class DesktopToolsController {
     volatile String classifierNotice = "";
     volatile String folderNotice = "";
     volatile String backfillNotice = "";
+    volatile DesktopUiNode.Progress backfillProgress;
+    volatile boolean backfillCancelRequested;
+    private final Object backfillLock = new Object();
+    private Thread backfillThread;
     volatile String migrationNotice = "";
     volatile List<DesktopUiNode.TableRow> folderRows = List.of();
     volatile Map<String, DesktopUiHost.FolderArtwork> folderArtworks = Map.of();
@@ -242,30 +246,68 @@ final class DesktopToolsController {
         runExclusiveTool(
                 host.message("gui.tools.card.backfill.title"),
                 () -> {
-                    int count = host.countBackfillCandidates(options);
-                    backfillNotice = count == 0 ? host.message(
-                            "gui.tools.backfill.status.none-found") : host.message(
-                                    "gui.tools.backfill.status.pending-found",
-                                    count
+                    synchronized (backfillLock) {
+                        backfillThread = Thread.currentThread();
+                    }
+                    try {
+                        int count = host.countBackfillCandidates(options);
+                        if (backfillCancelRequested) throw new java.util.concurrent.CancellationException();
+                        backfillNotice = count == 0 ? host.message(
+                                "gui.tools.backfill.status.none-found") : host.message(
+                                        "gui.tools.backfill.status.pending-found",
+                                        count
+                                );
+                        owner.rebuild();
+                        try (DesktopUiHost.ToolLogSession log = host.openToolLog("artworks-backfill")) {
+                            log.openLatestInBrowser();
+                            DesktopUiHost.BackfillSummary summary = host.runBackfill(options, (processed, total) -> {
+                                if (backfillCancelRequested) throw new java.util.concurrent.CancellationException();
+                                var progress = new DesktopUiNode.Progress("tools.backfill.progress",
+                                        total == 0 ? 1d : (double) processed / total, false,
+                                        new TextToken("gui-compose", "gui.compose.tools.workspace.progress", "",
+                                                List.of(Integer.toString(processed), Integer.toString(total))),
+                                        DesktopUiNode.ProgressStyle.LINEAR);
+                                if (!progress.equals(backfillProgress)) {
+                                    backfillProgress = progress;
+                                    owner.rebuild();
+                                }
+                            });
+                            String result = host.message(summary.rateLimited() ? "gui.tools.backfill.result.rate-limited" : "gui.tools.backfill.result.completed");
+                            backfillNotice = host.message("gui.tools.dialog.backfill.completed.message",
+                                    result, summary.processed(), summary.totalCandidates());
+                            return new ToolCompletion(
+                                    summary.processed(),
+                                    null,
+                                    null,
+                                    log.sessionPath()
                             );
-                    owner.rebuild();
-                    try (DesktopUiHost.ToolLogSession log = host.openToolLog("artworks-backfill")) {
-                        log.openLatestInBrowser();
-                        DesktopUiHost.BackfillSummary summary = host.runBackfill(options);
-                        String result = host.message(summary.rateLimited() ? "gui.tools.backfill.result.rate-limited" : "gui.tools.backfill.result.completed");
-                        backfillNotice = host.message("gui.tools.dialog.backfill.completed.message",
-                                result, summary.processed(), summary.totalCandidates());
-                        return new ToolCompletion(
-                                summary.processed(),
-                                null,
-                                null,
-                                log.sessionPath()
-                        );
+                        }
+                    } catch (Exception failure) {
+                        if (!backfillCancelRequested) throw failure;
+                        var cancelled = new java.util.concurrent.CancellationException();
+                        cancelled.initCause(failure);
+                        throw cancelled;
+                    } finally {
+                        synchronized (backfillLock) {
+                            backfillThread = null;
+                            if (backfillCancelRequested) Thread.interrupted();
+                        }
+                        backfillProgress = null;
                     }
                 },
                 DesktopUiToolHost.ToolId.ARTWORKS_BACKFILL,
                 false
         );
+    }
+
+    void cancelBackfill() {
+        synchronized (backfillLock) {
+            if (activity == null || !activity.toolId().equals("backfill") || !activity.running()
+                    || backfillCancelRequested) return;
+            backfillCancelRequested = true;
+            if (backfillThread != null) backfillThread.interrupt();
+        }
+        owner.rebuild();
     }
 
     void runMigration() {
@@ -929,6 +971,7 @@ final class DesktopToolsController {
             return;
         }
         String activityId = toolId == DesktopUiToolHost.ToolId.ARTWORKS_BACKFILL ? "backfill" : "migration";
+        if (toolId == DesktopUiToolHost.ToolId.ARTWORKS_BACKFILL) backfillCancelRequested = false;
         activity = new DesktopUiNode.ToolActivity(activityId, true, false,
                 new TextToken("gui-compose", "gui.compose.tools.workspace.running", "", List.of()));
         exclusiveToolName = toolName;
@@ -964,8 +1007,11 @@ final class DesktopToolsController {
                         completion.failedCount(),
                         completion.logPath()
                 );
-            } catch (InterruptedException interrupted) {
-                Thread.currentThread().interrupt();
+            } catch (InterruptedException | java.util.concurrent.CancellationException interrupted) {
+                if (interrupted instanceof InterruptedException
+                        && !(toolId == DesktopUiToolHost.ToolId.ARTWORKS_BACKFILL && backfillCancelRequested)) {
+                    Thread.currentThread().interrupt();
+                }
                 host.recordToolHistory(
                         toolId,
                         DesktopUiToolHost.ToolOutcome.CANCELLED,
@@ -976,8 +1022,8 @@ final class DesktopToolsController {
                         null
                 );
                 LOG.warn("Desktop tool was interrupted", interrupted);
-                activity = new DesktopUiNode.ToolActivity(activityId, false, true,
-                        TextToken.key("desktop.ui.tools.operation-failed"));
+                activity = new DesktopUiNode.ToolActivity(activityId, false, false,
+                        new TextToken("gui-compose", "gui.compose.tools.workspace.cancelled", "", List.of()));
             } catch (Exception failure) {
                 host.recordToolHistory(
                         toolId,

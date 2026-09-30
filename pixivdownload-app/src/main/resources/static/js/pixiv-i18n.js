@@ -165,6 +165,7 @@
             lang: normalizedLang,
             source: INSTANCE_ID
         };
+        emitLanguageChange(payload);
         var channel = ensureLanguageChannel();
         if (channel) {
             try {
@@ -304,20 +305,21 @@
 
     function applyAttributeBinding(root, client, selector, attrName, keyAttrName) {
         findElements(root, selector).forEach(function (element) {
-            element.setAttribute(
-                attrName,
-                translate(client, element.getAttribute(keyAttrName), element.getAttribute(attrName), parseArgsAttribute(element))
-            );
+            var previous = element.getAttribute(attrName);
+            var value = translate(client, element.getAttribute(keyAttrName), previous, parseArgsAttribute(element));
+            if (previous !== value) element.setAttribute(attrName, value);
         });
     }
 
     function applyBindings(root, client) {
         findElements(root, '[data-i18n]').forEach(function (element) {
-            element.textContent = translate(client, element.getAttribute('data-i18n'), element.textContent, parseArgsAttribute(element));
+            var value = translate(client, element.getAttribute('data-i18n'), element.textContent, parseArgsAttribute(element));
+            if (element.textContent !== value) element.textContent = value;
         });
 
         findElements(root, '[data-i18n-html]').forEach(function (element) {
-            element.innerHTML = translate(client, element.getAttribute('data-i18n-html'), element.innerHTML, parseArgsAttribute(element));
+            var value = translate(client, element.getAttribute('data-i18n-html'), element.innerHTML, parseArgsAttribute(element));
+            if (element.innerHTML !== value) element.innerHTML = value;
         });
 
         applyAttributeBinding(root, client, '[data-i18n-placeholder]', 'placeholder', 'data-i18n-placeholder');
@@ -378,7 +380,8 @@
         var namespaces = Array.isArray(config.namespaces) && config.namespaces.length
             ? config.namespaces.slice()
             : [DEFAULT_NAMESPACE];
-        var preferredLang = normalizeLang(config.lang || readStoredLang() || global.navigator.language);
+        var storedLang = readStoredLang();
+        var preferredLang = normalizeLang(config.lang || storedLang || global.navigator.language);
         var meta = await fetchMeta(preferredLang);
         if (!meta || !meta.defaultLang || !meta.currentLang) {
             // 后端与静态 meta 都不可用：客户端仍可工作，但语言菜单 / 归一化缺失，
@@ -404,9 +407,14 @@
             bundleMap[namespace] = bundle.messages || {};
         }
 
-        writeStoredLang(meta.currentLang);
-        if (global.document && global.document.documentElement) {
-            global.document.documentElement.lang = meta.currentLang;
+        // 字典请求期间可能已切换语言；旧客户端不能把共享偏好写回去。
+        if (readStoredLang() !== storedLang) {
+            if (!config.lang) return create(config);
+        } else {
+            writeStoredLang(meta.currentLang);
+            if (global.document && global.document.documentElement) {
+                global.document.documentElement.lang = meta.currentLang;
+            }
         }
 
         return buildClient(meta, namespaces, bundleMap);

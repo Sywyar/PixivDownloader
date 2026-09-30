@@ -123,6 +123,27 @@ class DesktopUiLocalApiClientTest {
     }
 
     @Test
+    @DisplayName("未知响应长度时按实际字节执行上限并保留边界内的 UTF-8 内容")
+    void boundsChunkedResponsesByActualBytes() throws Exception {
+        AtomicReference<byte[]> payload = new AtomicReference<>("汉".repeat(100).getBytes(StandardCharsets.UTF_8));
+        server = server(exchange -> {
+            exchange.sendResponseHeaders(200, 0);
+            try (var output = exchange.getResponseBody()) { output.write(payload.get()); }
+        });
+        var client = new DesktopUiLocalApiClient(port());
+        var request = DesktopUiHost.GuiRequest.json("mail/test", Map.of(), 2_000, "mail");
+        assertThat(client.exchange(request).rawBody()).isEqualTo("汉".repeat(100));
+        payload.set("x".repeat(64 * 1024).getBytes(StandardCharsets.UTF_8));
+        var boundary = client.exchange(request);
+        assertThat(boundary.bodyLimitExceeded()).isFalse();
+        assertThat(boundary.rawBody()).hasSize(64 * 1024);
+        payload.set("x".repeat(64 * 1024 + 1).getBytes(StandardCharsets.UTF_8));
+        var oversized = client.exchange(request);
+        assertThat(oversized.bodyLimitExceeded()).isTrue();
+        assertThat(oversized.rawBody()).isEmpty();
+    }
+
+    @Test
     void invalidJsonKeepsSuccessfulHttpResponseWithoutParsedBody() throws Exception {
         server = server(exchange -> respond(exchange, 200, "{invalid".getBytes(StandardCharsets.UTF_8)));
 

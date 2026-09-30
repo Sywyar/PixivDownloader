@@ -17,6 +17,7 @@ class DesktopUiToolsTest {
     Path tempDir;
 
     @Test
+    @org.junit.jupiter.api.DisplayName("检查真实目录并修复缺失路径，兼容未建立前缀表的数据库")
     void checksAndUpdatesArtworkFoldersThroughTheHostEngine() throws Exception {
         Path database = tempDir.resolve("artworks.db");
         Path existing = Files.createDirectory(tempDir.resolve("existing"));
@@ -32,12 +33,47 @@ class DesktopUiToolsTest {
         }
 
         DesktopUiTools tools = new DesktopUiTools();
-        DesktopUiToolHost.FolderCheckResult before = tools.checkArtworkFolders(database);
+        DesktopUiToolHost.FolderCheckResult before = tools.checkArtworkFolders(database, tempDir.toString());
         assertThat(before.total()).isEqualTo(3);
         assertThat(before.inaccessible()).extracting(DesktopUiToolHost.FolderArtwork::artworkId).containsExactly(2L);
 
-        tools.updateArtworkFolder(database, 2, false, existing.toString());
-        assertThat(tools.checkArtworkFolders(database).inaccessible()).isEmpty();
+        tools.updateArtworkFolder(database, tempDir.toString(), 2, false, existing.toString());
+        assertThat(tools.checkArtworkFolders(database, tempDir.toString()).inaccessible()).isEmpty();
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("目录检查解析符号根和编号前缀，修正移动目录时按最长前缀编码")
+    void checksEncodedPathsAndEncodesRepairs() throws Exception {
+        Path database = tempDir.resolve("encoded.db");
+        Path existing = Files.createDirectory(tempDir.resolve("existing"));
+        try (var connection = DriverManager.getConnection("jdbc:sqlite:" + database);
+             var statement = connection.createStatement()) {
+            statement.execute("CREATE TABLE path_prefixes (id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE)");
+            statement.execute("INSERT INTO path_prefixes VALUES (1, '" + sql(tempDir) + "'), (2, '" + sql(existing) + "')");
+            statement.execute("CREATE TABLE artworks (artwork_id INTEGER PRIMARY KEY, title TEXT, folder TEXT,"
+                    + " moved INTEGER, move_folder TEXT, deleted INTEGER, time INTEGER)");
+            statement.execute("INSERT INTO artworks VALUES (1, 'symbolic', '{0}/existing', 0, NULL, 0, 5),"
+                    + "(2, 'moved', '{0}/gone', 1, '{1}/existing', 0, 4),"
+                    + "(3, 'missing', '{0}/gone', 0, NULL, 0, 3),"
+                    + "(4, 'unknown', '{999}/gone', 1, '{999}/gone', 0, 2),"
+                    + "(5, 'deleted', '{0}/gone', 0, NULL, 1, 1)");
+        }
+        DesktopUiTools tools = new DesktopUiTools();
+        var result = tools.checkArtworkFolders(database, tempDir.toString());
+        assertThat(result.total()).isEqualTo(4);
+        assertThat(result.inaccessible()).extracting(DesktopUiToolHost.FolderArtwork::artworkId).containsExactly(3L, 4L);
+        assertThat(Path.of(result.inaccessible().get(0).path())).isEqualTo(tempDir.resolve("gone"));
+        assertThat(result.inaccessible().get(1).path()).isEqualTo("{999}/gone");
+        tools.updateArtworkFolder(database, tempDir.toString(), 4, true, existing.toString());
+        try (var connection = DriverManager.getConnection("jdbc:sqlite:" + database);
+             var statement = connection.createStatement();
+             var rows = statement.executeQuery("SELECT folder, move_folder FROM artworks WHERE artwork_id = 4")) {
+            assertThat(rows.next()).isTrue();
+            assertThat(rows.getString("folder")).isEqualTo("{999}/gone");
+            assertThat(rows.getString("move_folder")).isEqualTo("{2}");
+        }
+        assertThat(tools.checkArtworkFolders(database, tempDir.toString()).inaccessible())
+                .extracting(DesktopUiToolHost.FolderArtwork::artworkId).containsExactly(3L);
     }
 
     @Test

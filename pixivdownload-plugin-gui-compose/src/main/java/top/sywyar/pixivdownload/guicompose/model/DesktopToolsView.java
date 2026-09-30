@@ -396,6 +396,7 @@ final class DesktopToolsView {
     }
 
     private List<DesktopUiNode> toolCards(Map<String, Runnable> nextActions) {
+        var backfillProgress = model.backfillProgress;
         List<DesktopUiNode> cards = new ArrayList<>();
         cards.add(group(
                 "tools.image-classifier",
@@ -558,8 +559,16 @@ final class DesktopToolsView {
                                 model.backfillNotice.isBlank() ? model.host.message(
                                         "gui.tools.backfill.status.idle") : model.backfillNotice
                         ),
+                        backfillProgress == null
+                                ? new DesktopUiNode.Container("tools.backfill.progress.idle", DesktopUiNode.ContainerLayout.COLUMN,
+                                        1, 0, DesktopUiNode.Alignment.START, List.of())
+                                : backfillProgress,
                         row(
                                 "tools.backfill.actions",
+                                button("tools.backfill.cancel", "tools.backfill.cancel", "desktop.ui.action.cancel",
+                                        model.activity != null && model.activity.toolId().equals("backfill")
+                                                && model.activity.running() && !model.backfillCancelRequested,
+                                        nextActions, model::cancelBackfill),
                                 button(
                                         "tools.backfill.run",
                                         "tools.backfill.run",

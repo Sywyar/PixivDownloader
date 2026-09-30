@@ -71,6 +71,7 @@
     const FLYOUT_HIDE_DELAY_MS = 200;
 
     let i18nClient = null;
+    let languageRevision = 0;
     let sidebar = null;
     let tabsEl = null;
 
@@ -720,6 +721,16 @@
         observer.observe(document.body, {attributes: true, attributeFilter: ['class']});
     }
 
+    async function refreshLanguage(lang) {
+        const revision = ++languageRevision;
+        try {
+            const client = await window.PixivI18n.create({namespaces: ['common'], lang});
+            if (revision !== languageRevision) return;
+            i18nClient = client;
+            applyTexts();
+        } catch (_) { /* 保留已有文案 */ }
+    }
+
     async function init() {
         sidebar = document.getElementById('sidebar');
         if (!sidebar) return;
@@ -727,10 +738,8 @@
         buildDom();
         watchAdminMode();
         if (window.PixivI18n && typeof window.PixivI18n.create === 'function') {
-            try {
-                i18nClient = await window.PixivI18n.create({namespaces: ['common']});
-                applyTexts();
-            } catch (_) { /* 回退到内置文案 */ }
+            window.PixivI18n.onLanguageChange(event => refreshLanguage(event.lang));
+            await refreshLanguage();
         }
     }
 

@@ -8,6 +8,8 @@ import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.function.LongFunction;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -161,13 +163,17 @@ public class PathPrefixCodec implements StoredPathCodec {
      * 已编码值（以 {@code {} 开头）会被原样返回，调用方可放心多次调用。
      */
     public String encode(String absolutePath) {
+        return encode(absolutePath, currentEncodeCandidates());
+    }
+
+    private static String encode(String absolutePath, List<PathPrefix> candidates) {
         if (absolutePath == null) return null;
         String stripped = stripTrailingSeparators(absolutePath);
         if (stripped.isEmpty()) return stripped;
-        if (looksEncoded(stripped)) return stripped;
+        if (ENCODED_PATTERN.matcher(stripped).matches()) return stripped;
 
         String inputNorm = normalizeForCompare(stripped);
-        for (PathPrefix prefix : currentEncodeCandidates()) {
+        for (PathPrefix prefix : candidates) {
             String prefixStripped = stripTrailingSeparators(prefix.path());
             if (prefixStripped == null || prefixStripped.isEmpty()) continue;
             String prefixNorm = normalizeForCompare(prefixStripped);
@@ -189,6 +195,16 @@ public class PathPrefixCodec implements StoredPathCodec {
      * 将 DB 中存储的值还原为绝对路径。无前缀引用的值原样返回。
      */
     public String resolve(String storedValue) {
+        return resolve(storedValue, symbolicRootPath, id -> {
+            String prefix = lookupPrefix(id);
+            if (prefix == null) {
+                log.warn(logMessage("download.db.log.prefix-id-not-found", id, storedValue));
+            }
+            return prefix;
+        });
+    }
+
+    private static String resolve(String storedValue, String symbolicRootPath, LongFunction<String> lookup) {
         if (storedValue == null) return null;
         Matcher matcher = ENCODED_PATTERN.matcher(storedValue);
         if (!matcher.matches()) {
@@ -208,9 +224,8 @@ public class PathPrefixCodec implements StoredPathCodec {
             }
             return symbolicRootPath + "/" + rest0;
         }
-        String prefix = lookupPrefix(id);
+        String prefix = lookup.apply(id);
         if (prefix == null) {
-            log.warn(logMessage("download.db.log.prefix-id-not-found", id, storedValue));
             return storedValue;
         }
         String rest = matcher.group(2);
@@ -218,6 +233,23 @@ public class PathPrefixCodec implements StoredPathCodec {
             return stripTrailingSeparators(prefix);
         }
         return stripTrailingSeparators(prefix) + "/" + rest;
+    }
+
+    /** 后端停止时，维护工具用当前数据库前缀和下载根建立只读编解码快照，不创建或修改前缀表。 */
+    public static StoredPathCodec snapshot(String rootFolder, List<PathPrefix> prefixes) {
+        Path root = Path.of(rootFolder);
+        String symbolicRoot = stripTrailingSeparators(root.toAbsolutePath().normalize().toString());
+        var paths = new HashMap<Long, String>();
+        prefixes.forEach(prefix -> paths.put(prefix.id(), prefix.path()));
+        var candidates = new ArrayList<>(prefixes);
+        if (!root.isAbsolute()) candidates.add(new PathPrefix(SYMBOLIC_ROOT_ID, symbolicRoot));
+        candidates.sort(Comparator.comparingInt((PathPrefix prefix) -> prefix.path().length()).reversed()
+                .thenComparingLong(PathPrefix::id));
+        List<PathPrefix> encoding = List.copyOf(candidates);
+        return new StoredPathCodec() {
+            @Override public String encode(String path) { return PathPrefixCodec.encode(path, encoding); }
+            @Override public String resolve(String path) { return PathPrefixCodec.resolve(path, symbolicRoot, paths::get); }
+        };
     }
 
     /**

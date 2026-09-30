@@ -109,7 +109,10 @@ final class DesktopConfigurationLoader {
             ));
             for (GuiConfigContribution contribution : safeContributions) {
                 for (GuiConfigGroupContribution group : contribution.groups()) {
-                    if (validGroup(group)) groups.putIfAbsent(group.groupId(), group);
+                    if (validGroup(group)) groups.putIfAbsent(group.groupId(), new GuiConfigGroupContribution(
+                            group.groupId(), group.labelKey(),
+                            group.i18nNamespace() == null ? namespace : group.i18nNamespace(),
+                            group.order(), group.visibleInTabs()));
                 }
             }
         }

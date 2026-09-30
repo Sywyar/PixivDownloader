@@ -22,11 +22,17 @@
                     || !global.PixivVue || typeof global.PixivVue.mountUiSlot !== 'function') return;
             mounting = true;
             global.PixivVue.mountUiSlot(slot, {
-                template: '<div class="example-download-vue-slot">'
-                    + '<button type="button" class="btn btn-green quick-action" data-quick="example-featured" '
-                    + '@click="activate" data-i18n="example-download:slot.quick.action"></button>'
-                    + '<span v-if="showReady()" data-i18n="example-download:slot.quick.ready"></span>'
-                    + '</div>',
+                render: function () {
+                    var h = global.Vue.h;
+                    return h('div', {class: 'example-download-vue-slot'}, [
+                        h('button', {
+                            type: 'button', class: 'btn btn-green quick-action',
+                            'data-quick': 'example-featured', onClick: this.activate,
+                            'data-i18n': 'example-download:slot.quick.action'
+                        }),
+                        h('span', {hidden: !this.showReady(), 'data-i18n': 'example-download:slot.quick.ready'})
+                    ]);
+                },
                 setup: function () {
                     var Vue = global.Vue;
                     var ready = Vue && typeof Vue.ref === 'function' ? Vue.ref(false) : {value: false};

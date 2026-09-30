@@ -205,7 +205,6 @@ final class DesktopConfigurationController {
                 if (!options.isEmpty() && revision == actionRevision && source != null
                         && source.equals(actionSource(action))) {
                     actionChoices = new ActionChoices(action, source, revision, options);
-                    selectActionValue(actionChoices, options.get(0));
                 }
             } catch (Exception failure) {
                 configNoticeToken = appToken(

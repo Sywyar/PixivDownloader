@@ -226,7 +226,8 @@ function altScheduleSourceContext(fetchLimit) {
         seriesState.seriesId = seriesState.info.seriesId;
     }
     altCompatibilityInput('user-id-input', userState.input || userState.userId);
-    altCompatibilityInput('search-word', searchState.word);
+    const searchInput = document.getElementById('abSearchInput');
+    altCompatibilityInput('search-word', searchInput ? searchInput.value : searchState.word);
     altCompatibilityInput('search-content-filter', searchApiMode());
     altCompatibilityRadio('search-smode', searchState.sMode);
     altCompatibilityRadio('search-order', searchState.order);

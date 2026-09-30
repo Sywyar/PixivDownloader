@@ -166,8 +166,11 @@ object ComposeDesktopUiNodeRenderer {
         documentRevision: Long = 0L,
     ) {
         remember(root) { DesktopUiNode.validateTree(root) }
-        CompositionLocalProvider(LocalDocumentRevision provides documentRevision) {
-            Node(root, textResolver, eventSink, modifier)
+        // 弹窗会重新提供平台剪贴板，保护必须位于各文档的内容入口。
+        GuardClipboardReads {
+            CompositionLocalProvider(LocalDocumentRevision provides documentRevision) {
+                Node(root, textResolver, eventSink, modifier)
+            }
         }
     }
 

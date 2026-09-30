@@ -10,6 +10,18 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class DesktopUiIdentifierTest {
     @Test
+    @DisplayName("标识快速校验对每个 UTF-16 字符保留原来的 ASCII 规则")
+    void identifierScanPreservesCharacterRules() {
+        var contract = java.util.regex.Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}");
+        for (int c = Character.MIN_VALUE; c <= Character.MAX_VALUE; c++) {
+            String character = Character.toString((char) c);
+            assertEquals(contract.matcher(character).matches(), DesktopUiDocument.isStableId(character));
+            String suffix = "a" + character;
+            assertEquals(contract.matcher(suffix).matches(), DesktopUiDocument.isStableId(suffix));
+        }
+    }
+
+    @Test
     @DisplayName("节点与页面标识及物理键保留字符和长度边界")
     void identifiersKeepTheirValidationBoundaries() {
         var title = DesktopUiNode.TextToken.raw("Title");

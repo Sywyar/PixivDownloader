@@ -318,6 +318,33 @@ function ok(label, condition) {
         ok('renderSlots 重入后锚点与模板仍在', h.slotMarker.parentNode === h.slotParent);
     }
 
+    {
+        const h = harness([manifest(1, [typeDescriptor()], 'epoch-a', [uiSlotDescriptor({
+            slotId: 'demo.cookie', target: 'cookie-tools', moduleUrl: '/modules/demo.js',
+            owner: {pluginId: 'demo-owner', packageId: 'demo-package', generation: 1, publicationId: 1}
+        })])], {'/modules/demo.js': {initializer: BASIC_INITIALIZER}}, {
+            slotTarget: 'cookie-tools', pixivVue: true
+        });
+        await h.qt.bootstrap();
+        const host = h.slotParent.querySelectorAll('[data-vue-slot]')[0];
+        const node = host.children[0];
+        await Promise.all(Array.from({length: 20}, () => h.qt.renderSlots()));
+        ok('严格 CSP 下连续刷新复用实际 Vue 实例和节点',
+            h.vueRecord.mounts === 1 && h.vueRecord.unmounts === 0 && host.children[0] === node);
+        const extra = new El('div');
+        const marker = new El('template');
+        marker.setAttribute('data-qt-slot', 'cookie-tools');
+        extra.appendChild(marker);
+        h.slotParent.appendChild(extra);
+        await h.qt.renderSlots();
+        ok('增加另一宿主只挂新实例且保留原节点',
+            h.vueRecord.mounts === 2 && h.vueRecord.unmounts === 0 && host.children[0] === node);
+        extra.remove();
+        await h.qt.renderSlots();
+        ok('撤走宿主仅释放对应实例',
+            h.vueRecord.unmounts === 1 && host.children[0] === node);
+    }
+
     console.log(`batch-queue-types-ui.test.js: ${passed} assertions passed ✓`);
 })().catch(error => {
     console.error('TEST FAILED:', error && error.stack ? error.stack : error);

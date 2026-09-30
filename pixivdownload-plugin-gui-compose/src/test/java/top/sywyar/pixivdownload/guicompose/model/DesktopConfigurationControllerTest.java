@@ -35,6 +35,35 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @DisplayName("Compose 配置未保存状态")
 class DesktopConfigurationControllerTest {
     @Test
+    @DisplayName("插件分组未指定语言命名空间时沿用插件展示命名空间")
+    void inheritsGroupTranslationNamespace() throws Exception {
+        var field = new GuiConfigFieldContribution("demo.enabled", "demo", "enabled", GuiConfigFieldType.BOOL, "false", 1);
+        var source = new DesktopUiPluginSnapshot("demo", false, "demo", 1, false, "demo-messages", "plugin.name",
+                List.of(), List.of(new GuiConfigContribution(
+                        List.of(new GuiConfigGroupContribution("demo", "group.name", 1)),
+                        List.of(field), List.of())), List.of(), List.of(), List.of());
+        DesktopUiHost.ConfigFile file = new DesktopUiHost.ConfigFile() {
+            public Map<String, String> readAll(Collection<String> keys) { return Map.of("demo.enabled", "false"); }
+            public void writeAll(Map<String, String> values) { throw new AssertionError("unexpected write"); }
+            public void removeAll(Collection<String> keys) { throw new AssertionError("unexpected removal"); }
+            public DesktopUiHost.ConfigSnapshot snapshot() { return new DesktopUiHost.ConfigSnapshot(false, List.of()); }
+            public void restore(DesktopUiHost.ConfigSnapshot snapshot) { throw new AssertionError("unexpected rollback"); }
+        };
+        try (var model = model(new HashMap<>(), Map.of(
+                "pluginConfig", args -> file,
+                "snapshotCredentials", args -> new DesktopUiHost.CredentialSnapshot(false, new byte[0])
+        ), () -> List.of(source))) {
+            var categories = nodes(model).filter(DesktopUiNode.Choice.class::isInstance)
+                    .map(DesktopUiNode.Choice.class::cast)
+                    .filter(node -> node.id().equals("settings.categories")).findFirst().orElseThrow();
+            var group = categories.options().stream().filter(option -> option.id().equals("config.demo"))
+                    .findFirst().orElseThrow();
+            assertEquals("demo-messages", group.label().namespace());
+            assertEquals("group.name", group.label().key());
+        }
+    }
+
+    @Test
     @DisplayName("保存按当前凭据检查必填，空框沿用、外部删除及显式清除不会误判")
     @SuppressWarnings("unchecked")
     void validatesEffectiveCredentialsBeforeSaving() throws Exception {

@@ -6,6 +6,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopControlCenterAvailability;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode;
+import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiDocument;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.Alignment;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.ButtonStyle;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.ContainerLayout;
@@ -32,14 +33,13 @@ import static top.sywyar.pixivdownload.guicompose.model.GuiActionResponseSafety.
  * 桌面文档节点、文本令牌与受控展示值的共享构造函数。
  */
 final class DesktopUiNodes {
-    private static final Pattern VALID_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:-]{0,120}");
     private static final Pattern UNSAFE_ID_CHARACTER = Pattern.compile("[^A-Za-z0-9._:-]");
 
     private DesktopUiNodes() {
     }
 
     static boolean validId(String value) {
-        return value != null && VALID_ID.matcher(value).matches();
+        return DesktopUiDocument.isStableId(value) && value.length() <= 121;
     }
 
     static DesktopUiNode.Container column(String id, DesktopUiNode... children) {
@@ -345,7 +345,9 @@ final class DesktopUiNodes {
     }
 
     static String safeId(String value) {
-        String safe = UNSAFE_ID_CHARACTER.matcher(nullToEmpty(value).trim()).replaceAll("-");
+        String normalized = nullToEmpty(value).trim();
+        if (normalized.length() <= 120 && validId(normalized)) return normalized;
+        String safe = UNSAFE_ID_CHARACTER.matcher(normalized).replaceAll("-");
         if (safe.isBlank() || !Character.isLetterOrDigit(safe.charAt(0))) safe = "id-" + safe;
         return safe.length() <= 120 ? safe : safe.substring(
                 0,

@@ -117,7 +117,7 @@ private fun ClassifierWorkspace(
                                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                         images.forEach { item ->
                                             val children = descendants(item).toList()
-                                            val image = children.filterIsInstance<DesktopUiNode.Image>().firstOrNull()
+                                            val image = children.firstOrNull { it is DesktopUiNode.Image || it is LocalImage }
                                             val action = children.filterIsInstance<Button>().first()
                                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                                                 Box(
