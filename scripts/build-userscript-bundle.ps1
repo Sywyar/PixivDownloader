@@ -210,6 +210,7 @@ $null = $metadataLines.Add("// ==/UserScript==")
 $bootstrap = @"
 (function () {
     'use strict';
+    // @pixiv-presence-bootstrap
 
 @MODULE_DEFINITIONS@
 

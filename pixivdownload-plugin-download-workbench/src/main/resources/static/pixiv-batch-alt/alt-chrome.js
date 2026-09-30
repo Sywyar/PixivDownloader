@@ -353,46 +353,15 @@ function openCookieModal() {
 }
 
 /* ============================================================
-   油猴脚本弹窗（/api/scripts + 安装追踪逐字移植）
+   油猴脚本弹窗与当前页面运行状态检测
    ============================================================ */
 const SCRIPT_ID_TOOLBOX = 'experience-toolbox';
 const SCRIPT_ID_ALL_IN_ONE = 'all-in-one';
-const ALL_IN_ONE_SCRIPT_IDS = [
-    'experience-toolbox', 'artwork-java', 'user-batch', 'page-batch', 'import-batch'
-];
-const INSTALLED_SCRIPTS_KEY = 'pixiv_userscript_installed';
-
-function getInstalledScripts() {
-    try {
-        return JSON.parse(localStorage.getItem(INSTALLED_SCRIPTS_KEY) || '{}') || {};
-    } catch (e) {
-        return {};
-    }
-}
-
-function markScriptInstalled(id) {
-    const map = getInstalledScripts();
-    map[id] = true;
-    if (id === SCRIPT_ID_ALL_IN_ONE) {
-        ALL_IN_ONE_SCRIPT_IDS.forEach(sid => {
-            map[sid] = true;
-        });
-    }
-    try {
-        localStorage.setItem(INSTALLED_SCRIPTS_KEY, JSON.stringify(map));
-    } catch (e) {
-        /* 隐私模式等场景静默降级 */
-    }
-}
-
 function isToolboxInstalled() {
-    const map = getInstalledScripts();
-    return map[SCRIPT_ID_TOOLBOX] === true || map[SCRIPT_ID_ALL_IN_ONE] === true;
+    return PixivUserscriptDetection.has(SCRIPT_ID_TOOLBOX);
 }
 
 function installScript(id) {
-    // 记录该脚本安装按钮已被点击（All-in-One 连带标记其覆盖的脚本）
-    markScriptInstalled(id);
     // URL 必须以 .user.js 结尾，Tampermonkey 才会拦截并弹出安装确认页
     window.location.href = '/api/scripts/' + encodeURIComponent(id) + '.user.js';
 }
@@ -437,19 +406,24 @@ async function openScriptsModal() {
         body.appendChild(el('p', 'ab-empty-line', bt('userscripts.empty', '暂无可安装的脚本。')));
         return;
     }
-    const installed = getInstalledScripts();
+    if (!body.isConnected) return;
+    body.appendChild(el('p', 'ab-script-desc', bt('batch:userscripts.detection-hint')));
+    const refresh = el('button', 'ab-btn ab-btn--ghost ab-btn--sm', bt('batch:userscripts.detect-again'));
+    refresh.type = 'button';
+    body.appendChild(refresh);
+    const statuses = [];
     result.items.forEach((s, idx) => {
         const card = el('div', 'ab-script-card card');
         card.style.setProperty('--stagger', String(idx));
         const head = el('div', 'ab-script-head');
         head.appendChild(el('strong', 'ab-script-name', s.name));
-        if (s.version) head.appendChild(el('span', 'ab-script-version', 'v' + s.version));
-        if (installed[s.id]) {
-            const done = el('span', 'ab-pill ab-pill--ok', bt('scripts.installed', '已安装'));
-            head.appendChild(done);
-        }
+        if (s.version) head.appendChild(el('span', 'ab-script-version', bt('batch:userscripts.available-version', undefined, {version: s.version})));
         card.appendChild(head);
         if (s.description) card.appendChild(el('p', 'ab-script-desc', s.description));
+        const status = el('p', 'ab-script-desc', bt('batch:userscripts.detecting'));
+        status.setAttribute('role', 'status');
+        statuses.push([s.id, status]);
+        card.appendChild(status);
         const actions = el('div', 'ab-script-actions');
         const installBtn = el('button', 'ab-btn ab-btn--primary ab-btn--sm');
         installBtn.type = 'button';
@@ -467,6 +441,16 @@ async function openScriptsModal() {
         card.appendChild(actions);
         body.appendChild(card);
     });
+    const detect = async () => {
+        refresh.disabled = true;
+        statuses.forEach(([, node]) => { node.textContent = bt('batch:userscripts.detecting'); });
+        const found = await PixivUserscriptDetection.probe(result.items.map(s => s.id));
+        if (!body.isConnected) return;
+        statuses.forEach(([id, node]) => { node.textContent = PixivUserscriptDetection.describe(id, found, bt); });
+        refresh.disabled = false;
+    };
+    refresh.addEventListener('click', detect);
+    await detect();
 }
 
 /* ============================================================
@@ -550,6 +534,6 @@ function bindChrome() {
 window.PixivBatchAlt.chrome = Object.assign(window.PixivBatchAlt.chrome, {
     loadAppInfo, renderAuthButton, bindChrome,
     refreshCookieUi, openCookieModal, updateCookieImportStatus,
-    openScriptsModal, isToolboxInstalled, markScriptInstalled,
+    openScriptsModal, isToolboxInstalled,
     renderBackendBanner, toggleDock, openDock
 });

@@ -4,6 +4,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.web.servlet.MockMvc;
@@ -14,8 +16,10 @@ import top.sywyar.pixivdownload.plugin.api.userscript.UserscriptArtifact;
 import top.sywyar.pixivdownload.plugin.api.userscript.UserscriptCatalog;
 
 import java.util.List;
+import java.net.URI;
 
 import static org.hamcrest.Matchers.*;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -43,7 +47,10 @@ class ScriptControllerTest {
                     // @connect      i.pximg.net
                     // @connect      YOUR_SERVER_HOST
                     // ==/UserScript==
-                    (function(){'use strict';})();""";
+                    (function(){'use strict';
+                    // @pixiv-presence-bootstrap
+                    window.originalScriptRan = true;
+                    })();""";
 
     private static final UserscriptArtifact SAMPLE_ARTIFACT = new UserscriptArtifact(
             "test-script",
@@ -173,5 +180,50 @@ class ScriptControllerTest {
 
         mockMvc.perform(get("/api/scripts/no-such-id/install"))
                 .andExpect(status().isNotFound());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"http://localhost:6999", "http://127.0.0.1:8080", "https://example.com", "http://[::1]:6999"})
+    @DisplayName("安装响应只增加安装站点下载页面的检测入口，并保留原脚本主体")
+    void installedScriptBindsPresenceToItsOrigin(String origin) throws Exception {
+        when(userscriptCatalog.scripts()).thenReturn(List.of(SAMPLE_ARTIFACT));
+        String body = mockMvc.perform(get(URI.create(origin + "/api/scripts/test-script.user.js"))
+                        .with(request -> {
+                            URI address = URI.create(origin);
+                            request.setServerPort(address.getPort() >= 0 ? address.getPort()
+                                    : ("https".equals(address.getScheme()) ? 443 : 80));
+                            return request;
+                        }))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertTrue(body.contains("\"origin\":\"" + origin + "\""), body);
+        assertTrue(body.contains("\"id\":\"test-script\""));
+        assertTrue(body.contains("GM_info"));
+        assertTrue(body.contains("window.originalScriptRan = true;"));
+        assertFalse(body.contains("// @pixiv-presence-bootstrap"));
+        assertEquals(1, body.lines().filter(line -> line.startsWith("// @include ")).count());
+        String include = body.lines().filter(line -> line.startsWith("// @include ")).findFirst().orElseThrow();
+        String regex = include.substring("// @include /".length(), include.length() - 1);
+        assertTrue((origin + "/pixiv-batch.html").matches(regex));
+        assertTrue((origin + "/pixiv-batch-alt.html?lang=en").matches(regex));
+        assertFalse((origin + "/other.html").matches(regex));
+        assertFalse((origin + ".attacker.example/pixiv-batch.html").matches(regex));
+        assertFalse(("https://attacker.example/?url=" + origin + "/pixiv-batch.html").matches(regex));
+    }
+
+    @Test
+    @DisplayName("未声明检测入口的第三方脚本不增加运行站点或改变主体")
+    void leavesNonParticipatingScriptsUnchanged() {
+        String original = SCRIPT_CONTENT.replace("// @pixiv-presence-bootstrap", "");
+        assertEquals(original, UserscriptPresenceInstaller.apply(original, "third-party",
+                "http://localhost:6999/api/scripts/third-party.user.js"));
+    }
+
+    @Test
+    @DisplayName("检测地址规范化默认端口并保留后端上下文路径")
+    void normalizesDefaultPortAndContextPath() {
+        String installed = UserscriptPresenceInstaller.apply(SCRIPT_CONTENT, "test-script",
+                "https://EXAMPLE.com:443/downloads/api/scripts/test-script.user.js");
+        assertTrue(installed.contains("\"origin\":\"https://example.com\""));
+        assertTrue(installed.contains("\"page\":\"/downloads/pixiv-batch\""));
     }
 }

@@ -820,6 +820,8 @@ const initSandbox = {
         visibilityState: 'hidden'
     },
     state: {mode: 'user'},
+    PixivUserscriptDetection: {probe: async () => new Map()},
+    SCRIPT_ID_TOOLBOX: 'experience-toolbox', SCRIPT_ID_ALL_IN_ONE: 'all-in-one',
     QUICK_FETCH_MODE: 'quick-fetch',
     applyCookieHint() {},
     updateBatchLimitNote() {},

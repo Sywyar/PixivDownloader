@@ -6,7 +6,7 @@
 // @name:ja      PixivBatchDownloader インポートサポート
 // @name:ko      PixivBatchDownloader 가져오기 지원
 // @namespace    https://github.com/Sywyar/PixivDownloader
-// @version      1.1.0
+// @version      1.1.1
 // @description  After one-time download directory setup, automatically add new PixivBatchDownloader illustrations, manga, animations and novels to the local gallery. Keep original files; do not scan past downloads. Allow userscripts and refresh Pixiv before use.
 // @description:zh-CN 配置一次下载目录、启用用户脚本权限并刷新 Pixiv 页面后，自动将 PixivBatchDownloader 此后下载完成的插画、漫画、动图和小说加入本机画廊。保留原文件，不扫描历史下载。
 // @description:zh-TW 設定一次下載目錄、啟用使用者腳本權限並重新整理 Pixiv 頁面後，自動將 PixivBatchDownloader 此後下載完成的插畫、漫畫、動圖和小說加入本機畫廊。保留原始檔案，不掃描歷史下載。
@@ -28,6 +28,7 @@
 
 (() => {
     'use strict';
+    // @pixiv-presence-bootstrap
     const MAX_WORKS = 1000, MAX_FILES = 5000, MAX_BYTES = 8 * 1024 * 1024;
     const PREFIX = 'gallery-sync.work.';
     const metadata = new Map();

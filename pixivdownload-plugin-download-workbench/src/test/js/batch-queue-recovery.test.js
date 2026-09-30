@@ -120,6 +120,8 @@ test('alt: initial page load initializes recovery once and language refresh only
         document: {addEventListener() {}, getElementById: () => null},
         appMode: 'solo', isAdmin: true, chromeState: {}, state: {}, searchState: {}, pageI18n: null,
         lastAcquisitionMode: 'single-import',
+        PixivUserscriptDetection: {probe: async () => { calls.push('probe'); return new Map(); }},
+        SCRIPT_ID_TOOLBOX: 'experience-toolbox', SCRIPT_ID_ALL_IN_ONE: 'all-in-one',
         AB_MODES: [{id: 'single-import'}], QUICK_FETCH_MODE: 'single-import', SINGLE_IMPORT_MODE: 'single-import',
         storeGet: () => null, checkBackend: async () => true, flushServerState: async () => {},
         debounce: fn => fn, moveRailIndicator() {},
@@ -135,10 +137,11 @@ test('alt: initial page load initializes recovery once and language refresh only
         'renderRail', 'renderStage', 'renderBackendBanner', 'syncFilterButtonBadge',
         'setupOnboardingOrTour', 'refreshGuideFab']) context[name] = () => {};
     context.bt = key => key;
+    assert.deepEqual(calls, ['probe']);
     await context.init();
-    assert.deepEqual(calls, ['load', 'render', 'recovery']);
+    assert.deepEqual(calls, ['probe', 'load', 'render', 'recovery']);
     context.applyPageLanguageViews(null);
-    assert.deepEqual(calls, ['load', 'render', 'recovery', 'render']);
+    assert.deepEqual(calls, ['probe', 'load', 'render', 'recovery', 'render']);
 });
 
 for (const layout of ['classic', 'alt']) {
