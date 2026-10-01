@@ -81,6 +81,26 @@ class DownloadTasksTest {
         assertThat(queue).hasSize(1);
     }
 
+    @Test @DisplayName("同步提交绑定执行句柄时不会重复发布接纳事件")
+    void synchronousSubmissionPublishesAdmissionOnce() {
+        var handler = new DownloadSubmissionHandler() {
+            @Override public String workType() { return "example"; }
+            @Override public void submit(DownloadSubmission command, DownloadAttempt attempt, String credential) {
+                var task = new QueueTaskTracker("example").beginRunning(null);
+                try {
+                    lifecycle.track(attempt, task, null, "example", "Title", false);
+                    lifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.STARTED));
+                    lifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.COMPLETED));
+                } finally { task.completeRunning(); }
+            }
+        };
+        lifecycle.register(owner, new DownloadLifecycleRegistry.Contribution(
+                List.of(event -> events.add(event.phase())), List.of(), List.of(), Map.of("example", handler)));
+        lifecycle.submit(command(), null, admin);
+        assertThat(events).containsExactly(DownloadEvent.Phase.ACCEPTED,
+                DownloadEvent.Phase.STARTED, DownloadEvent.Phase.COMPLETED);
+    }
+
     @Test @DisplayName("排队取消产生终态且旧句柄不影响同作品的新下载")
     void cancellationOnlyTargetsCapturedTask() {
         install();

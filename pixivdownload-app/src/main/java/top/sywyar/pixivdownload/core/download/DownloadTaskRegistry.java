@@ -46,6 +46,7 @@ public final class DownloadTaskRegistry {
         final RequestKey request;
         final byte[] fingerprint;
         QueueTaskTracker.Task task;
+        DownloadEvent.Phase publishedPhase;
         Entry(DownloadTaskSnapshot value, String owner, RequestKey request, byte[] fingerprint) {
             this.value = value;
             this.owner = owner;
@@ -111,10 +112,12 @@ public final class DownloadTaskRegistry {
         if (!entry.value.attempt().equals(event.attempt())) throw new IllegalArgumentException("download identity mismatch");
         if (entry.value.terminal()) return false;
         DownloadEvent.Phase before = entry.value.phase();
+        if (entry.publishedPhase == event.phase()) return false;
         if (event.phase() == DownloadEvent.Phase.ACCEPTED && before != DownloadEvent.Phase.ACCEPTED) return false;
         if (event.phase() == DownloadEvent.Phase.QUEUED && before != DownloadEvent.Phase.ACCEPTED) return false;
         if (event.phase() == DownloadEvent.Phase.STARTED && before == DownloadEvent.Phase.STARTED) return false;
         entry.value = value(event.attempt(), entry.value.queueType(), entry.value.title(), event.phase());
+        entry.publishedPhase = event.phase();
         if (entry.value.terminal()) entry.task = null;
         return true;
     }

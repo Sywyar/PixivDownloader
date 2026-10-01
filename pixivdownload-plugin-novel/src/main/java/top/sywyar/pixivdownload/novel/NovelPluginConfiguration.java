@@ -88,6 +88,12 @@ import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceSelector;
 @Configuration
 @Import(NovelExecutionConfiguration.class)
 public class NovelPluginConfiguration {
+
+    @Bean
+    public top.sywyar.pixivdownload.novel.download.NovelSubmissionHandler novelSubmissionHandler(
+            PixivAjaxClient client, ObjectMapper mapper, NovelDownloadService downloads) {
+        return new top.sywyar.pixivdownload.novel.download.NovelSubmissionHandler(client, mapper, downloads);
+    }
     @Bean
     public top.sywyar.pixivdownload.novel.download.NovelFileImportHandler novelFileImportHandler(
             NovelDatabase database, top.sywyar.pixivdownload.core.work.service.WorkFileNameCatalog names) {
@@ -215,13 +221,14 @@ public class NovelPluginConfiguration {
             NovelAutoTranslateService novelAutoTranslateService,
             WorkMetadataCapture workMetadataCapture,
             @Qualifier("novelQueueTaskTracker") QueueTaskTracker taskTracker,
-            top.sywyar.pixivdownload.core.work.service.WorkAssetService workAssets, RuntimePathProvider runtimePaths) {
+            top.sywyar.pixivdownload.core.work.service.WorkAssetService workAssets, RuntimePathProvider runtimePaths,
+            top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadLifecycle downloadLifecycle) {
         return new NovelDownloadService(downloadConfig, workFileNameCatalog, downloadPathGuard,
                 novelDatabase, novelSeriesService,
                 authorObservationService, workCollectionMembership, collectionDownloadRootResolver,
                 pixivBookmarkActions, visitorDownloadQuotaService, pixivImageDownloader,
                 statusRetentionScheduler, downloadExecutionLane, messages, novelAutoTranslateService,
-                workMetadataCapture, taskTracker, workAssets, runtimePaths);
+                workMetadataCapture, taskTracker, workAssets, runtimePaths, downloadLifecycle);
     }
 
     @Bean

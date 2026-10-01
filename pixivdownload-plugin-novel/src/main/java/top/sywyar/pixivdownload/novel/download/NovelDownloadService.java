@@ -37,6 +37,9 @@ import java.nio.file.Files;
 import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.core.work.service.WorkFileLock;
 import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
+import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadAttempt;
+import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadEvent;
+import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadLifecycle;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
@@ -94,6 +97,7 @@ public class NovelDownloadService implements NovelDownloader {
     private final WorkMetadataCapture workMetadataCapture;
     private final NovelDownloadDocumentWriter documentWriter;
     private final NovelDownloadMediaDownloader mediaDownloader;
+    private final DownloadLifecycle downloadLifecycle;
 
     private final ConcurrentHashMap<String, NovelDownloadStatus> statusMap = new ConcurrentHashMap<>();
     private final QueueTaskTracker taskTracker;
@@ -116,7 +120,9 @@ public class NovelDownloadService implements NovelDownloader {
                                 NovelAutoTranslateService novelAutoTranslateService,
                                 WorkMetadataCapture workMetadataCapture,
                                 @Qualifier("novelQueueTaskTracker") QueueTaskTracker taskTracker,
-                                WorkAssetService workAssets, RuntimePathProvider runtimePaths) {
+                                WorkAssetService workAssets, RuntimePathProvider runtimePaths,
+                                DownloadLifecycle downloadLifecycle) {
+        this.downloadLifecycle = downloadLifecycle;
         this.workAssets = workAssets;
         this.runtimePaths = runtimePaths;
         this.downloadConfig = downloadConfig;
@@ -141,15 +147,50 @@ public class NovelDownloadService implements NovelDownloader {
 
     @Override
     public void download(NovelDownloadRequest request, String userUuid) {
+        submit(null, request, userUuid);
+    }
+
+    /** 将公开提交身份交给小说自有队列，保留真实取消与 drain。 */
+    public void submit(DownloadAttempt suppliedAttempt, NovelDownloadRequest request, String userUuid) {
+        DownloadAttempt attempt = prepareAttempt(suppliedAttempt, request);
         FilePlan plan = filePlan(request);
         QueueTaskTracker.Task task = taskTracker.prepareQueued(NovelQueueTaskOwners.download(userUuid));
-        task.bind(() -> downloadTracked(task, request, userUuid, plan));
         try {
+            downloadLifecycle.track(attempt, task, userUuid, "novel", request.getTitle(), true);
+            task.bind(() -> downloadTracked(task, request, userUuid, plan, attempt));
             downloadExecutionLane.execute(task);
         } catch (RuntimeException | Error failure) {
-            task.rejectSubmission();
+            try {
+                if (!(failure instanceof VirtualMachineError) && !(failure instanceof ThreadDeath))
+                    downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.FAILED));
+            } finally { task.rejectSubmission(); }
             throw failure;
         }
+    }
+
+    private DownloadAttempt prepareAttempt(DownloadAttempt supplied, NovelDownloadRequest request) {
+        DownloadAttempt attempt = supplied == null
+                ? new DownloadAttempt(java.util.UUID.randomUUID(), "novel", String.valueOf(request.getNovelId()))
+                : supplied;
+        if (!attempt.workType().equals("novel") || !attempt.workId().equals(String.valueOf(request.getNovelId())))
+            throw new IllegalArgumentException("download attempt identity mismatch");
+        downloadLifecycle.checkAdmission(attempt);
+        if (request.getOther() == null) request.setOther(new NovelDownloadRequest.Other());
+        var other = request.getOther();
+        var options = Map.of(
+                "fileNameTemplate", other.getFileNameTemplate() == null ? "" : other.getFileNameTemplate(),
+                "format", NovelFormat.parse(other.getFormat()).ext());
+        var result = downloadLifecycle.options(attempt, options);
+        if (!options.keySet().containsAll(result.keySet()))
+            throw new IllegalArgumentException("unsupported novel download option");
+        if (result.containsKey("fileNameTemplate")) other.setFileNameTemplate(result.get("fileNameTemplate"));
+        if (result.containsKey("format")) {
+            String format = result.get("format");
+            if (!java.util.Set.of("txt", "html", "epub").contains(format))
+                throw new IllegalArgumentException("unsupported novel format");
+            other.setFormat(format);
+        }
+        return attempt;
     }
 
     private FilePlan filePlan(NovelDownloadRequest request) {
@@ -207,10 +248,12 @@ public class NovelDownloadService implements NovelDownloader {
     }
 
     private boolean downloadBlockingInLane(NovelDownloadRequest request, String userUuid) {
+        DownloadAttempt attempt = prepareAttempt(null, request);
         FilePlan plan = filePlan(request);
         QueueTaskTracker.Task task = taskTracker.beginRunning(NovelQueueTaskOwners.download(userUuid));
         try {
-            return downloadTracked(task, request, userUuid, plan);
+            downloadLifecycle.track(attempt, task, userUuid, "novel", request.getTitle(), false);
+            return downloadTracked(task, request, userUuid, plan, attempt);
         } finally {
             task.completeRunning();
         }
@@ -218,8 +261,9 @@ public class NovelDownloadService implements NovelDownloader {
 
     private boolean downloadTracked(QueueTaskTracker.Task task,
                                     NovelDownloadRequest request,
-                                    String userUuid, FilePlan plan) {
+                                    String userUuid, FilePlan plan, DownloadAttempt attempt) {
         boolean succeeded = false;
+        boolean recorded = false;
         Long novelId = request.getNovelId();
         NovelDownloadRequest.Other other = request.getOther() == null
                 ? new NovelDownloadRequest.Other() : request.getOther();
@@ -230,6 +274,7 @@ public class NovelDownloadService implements NovelDownloader {
         AtomicLong remainingImageBytes = new AtomicLong(PixivImageTransferObserver.MAX_TASK_BYTES);
         task.onCancellation(() -> cancelTrackedStatus(statusKey, status));
         if (!task.publishIfActive(() -> statusMap.put(statusKey, status))) {
+            downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.CANCELLED));
             return false;
         }
 
@@ -238,6 +283,7 @@ public class NovelDownloadService implements NovelDownloader {
             String rawContent = request.getContent() == null ? "" : request.getContent();
             status.setStage("preparing");
             ensureNotCancelled(status);
+            downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.STARTED));
 
             Path downloadRoot = plan.root();
             Path downloadPath = plan.directory();
@@ -373,6 +419,8 @@ public class NovelDownloadService implements NovelDownloader {
             status.setEndTime(java.time.LocalDateTime.now());
             log.info("novel download completed: id={}, format={}, path={}", novelId, ext, downloadPath);
             succeeded = true;
+            recorded = true;
+            downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.COMPLETED));
 
             // 前端转发的原始 meta（若有）：下载成功、小说行已落库后旁路归一化为 数据库快照 + 列投影。
             // 零额外请求、best-effort，绝不反报已成功的下载。
@@ -405,6 +453,8 @@ public class NovelDownloadService implements NovelDownloader {
                     ? messages.get("download.path.segment.invalid", other.getUsername())
                     : e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
         } finally {
+            if (!recorded) downloadLifecycle.publish(new DownloadEvent(attempt, status.isCancelled()
+                    ? DownloadEvent.Phase.CANCELLED : DownloadEvent.Phase.FAILED));
             if (stagedDirectory != null) {
                 try {
                     try (var files = Files.list(stagedDirectory)) {

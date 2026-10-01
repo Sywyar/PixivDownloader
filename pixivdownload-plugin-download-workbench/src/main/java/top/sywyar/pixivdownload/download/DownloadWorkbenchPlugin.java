@@ -145,7 +145,9 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
         WebRouteContribution.visitor("/api/download/cancel/**"),
         WebRouteContribution.visitor("/api/download/queue/**"),
         WebRouteContribution.visitor("/api/batch/**"),
-        WebRouteContribution.visitor("/api/download/extensions"));
+        WebRouteContribution.visitor("/api/download/extensions"),
+        WebRouteContribution.admin("/api/download/tasks"),
+        WebRouteContribution.admin("/api/download/tasks/**"));
 
     @Override
     public List<WebRouteContribution> routes() {

@@ -589,6 +589,10 @@ function renderDock() {
     list.id = 'abQueueList';
     body.appendChild(list);
 
+    const backend = el('section');
+    body.appendChild(backend);
+    mountBackendTasks(backend);
+
     renderDockStatus();
     renderCurrent(null);
     renderQueue();

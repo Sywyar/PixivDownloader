@@ -85,6 +85,19 @@ import top.sywyar.pixivdownload.schedule.ScheduleService;
 public class DownloadWorkbenchPluginConfiguration {
 
     @Bean
+    public top.sywyar.pixivdownload.download.controller.DownloadTasksController downloadTasksController(
+            top.sywyar.pixivdownload.plugin.api.download.task.DownloadTasks tasks,
+            RequestOwnerIdentityResolver identities,
+            @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
+        return new top.sywyar.pixivdownload.download.controller.DownloadTasksController(tasks, identities, messages);
+    }
+
+    @Bean
+    public ArtworkSubmissionHandler artworkSubmissionHandler(PixivFetchService fetch, ArtworkDownloadExecutor executor) {
+        return new ArtworkSubmissionHandler(fetch, executor);
+    }
+
+    @Bean
     public DownloadWorkbenchPlugin downloadWorkbenchPlugin() {
         return new DownloadWorkbenchPlugin();
     }

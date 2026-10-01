@@ -263,6 +263,7 @@
         // Queue
         loadQueueForMode();
         initQueueRecovery();
+        mountBackendTasks(document.getElementById('backend-tasks'));
         window.PixivBatch.queue.bindQueueActions(document);
         updateButtonsState();
         updateStats();

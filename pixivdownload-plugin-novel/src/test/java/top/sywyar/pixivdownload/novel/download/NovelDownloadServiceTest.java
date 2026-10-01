@@ -104,6 +104,7 @@ class NovelDownloadServiceTest {
 
     @Mock private top.sywyar.pixivdownload.core.work.service.WorkAssetService workAssets;
     @Mock private top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider runtimePaths;
+    @Mock private top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadLifecycle downloadLifecycle;
     private NovelDownloadService service;
     private final TaskExecutor downloadTaskExecutor = Runnable::run;
 
@@ -139,7 +140,7 @@ class NovelDownloadServiceTest {
                 novelSeriesService, authorObservationService, workCollectionMembership,
                 collectionDownloadRootResolver, pixivBookmarkActions, visitorDownloadQuotaService,
                 pixivImageDownloader, taskScheduler, executionLane, NOVEL_MESSAGES,
-                novelAutoTranslateService, workMetadataCapture, taskTracker, workAssets, runtimePaths);
+                novelAutoTranslateService, workMetadataCapture, taskTracker, workAssets, runtimePaths, downloadLifecycle);
     }
 
     /** 构造一个最简的 TXT 交互式小说下载请求（无封面 / 无内嵌图 / 无系列 / 无收藏）。 */
@@ -153,6 +154,35 @@ class NovelDownloadServiceTest {
         other.setRawMetaJson(rawMetaJson);
         request.setOther(other);
         return request;
+    }
+
+    @Test
+    @DisplayName("选项扩展影响实际小说文件，统一事件与执行结果一致")
+    void appliesOptionsAndReportsCompletion() throws Exception {
+        when(downloadLifecycle.options(any(), any())).thenReturn(Map.of("format", "html", "fileNameTemplate", "hooked"));
+        var request = txtRequest(89L, null);
+        assertThat(service.downloadBlocking(request, null)).isTrue();
+        assertThat(tempDir.resolve("novel-89/hooked.html")).exists();
+        var events = org.mockito.ArgumentCaptor.forClass(
+                top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadEvent.class);
+        verify(downloadLifecycle, times(2)).publish(events.capture());
+        assertThat(events.getAllValues()).extracting(event -> event.phase().name())
+                .containsExactly("STARTED", "COMPLETED");
+        assertThat(events.getAllValues()).extracting(event -> event.attempt())
+                .containsOnly(events.getValue().attempt());
+    }
+
+    @Test
+    @DisplayName("落盘失败只发布失败终态，不产生完成事件")
+    void reportsPublicationFailure() throws Exception {
+        doThrow(new java.io.IOException("publication failed"))
+                .when(workAssets).publishFiles(any(), anyLong(), any(), any());
+        assertThat(service.downloadBlocking(txtRequest(90L, null), null)).isFalse();
+        var events = org.mockito.ArgumentCaptor.forClass(
+                top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadEvent.class);
+        verify(downloadLifecycle, times(2)).publish(events.capture());
+        assertThat(events.getAllValues()).extracting(event -> event.phase().name())
+                .containsExactly("STARTED", "FAILED");
     }
 
     @Test
