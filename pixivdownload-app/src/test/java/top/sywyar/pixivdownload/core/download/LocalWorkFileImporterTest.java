@@ -38,12 +38,12 @@ class LocalWorkFileImporterTest {
     private top.sywyar.pixivdownload.author.AuthorMapper authorMapper;
     private top.sywyar.pixivdownload.author.AuthorService authors;
     private final List<DownloadEvent> events = new ArrayList<>();
-    private final DownloadLifecycle lifecycle = new DownloadLifecycle() {
-        public void checkAdmission(DownloadAttempt attempt) {}
-        public void publish(DownloadEvent event) { events.add(event); }
-    };
+    private final DownloadLifecycleRegistry lifecycle = new DownloadLifecycleRegistry();
 
     @BeforeEach void setUp() throws Exception {
+        lifecycle.register(new top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityOwner(
+                "import-observer", "import-observer", 1, 1),
+                new DownloadLifecycleRegistry.Contribution(List.of(events::add), List.of()));
         source = Files.createDirectory(temp.resolve("source"));
         output = Files.createDirectory(temp.resolve("output"));
         ImageIO.write(new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB), "png", source.resolve("custom.png").toFile());

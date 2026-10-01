@@ -190,6 +190,8 @@ public final class QueueTaskTracker {
         private boolean cancellationDelivered;
         private Runnable cancellationAction;
         private Runnable delegate;
+        private Runnable terminationAction;
+        private boolean terminationNotified;
 
         private Task(State tracker, String ownerKey, int phase, boolean visibleInSnapshot) {
             this.tracker = tracker;
@@ -214,6 +216,38 @@ public final class QueueTaskTracker {
          */
         public synchronized boolean isCancellationRequested() {
             return cancellationRequested;
+        }
+
+        /** 请求取消本次精确任务；运行中仍需等待实际执行退出。 */
+        public void cancel() {
+            requestCancellation();
+        }
+
+        /**
+         * 登记一次实际退出回调，供宿主补齐排队取消等终态。已退出时立即调用；回调在任务锁外运行。
+         * @param action 退出回调，不得等待本任务
+         */
+        public void onTermination(Runnable action) {
+            Objects.requireNonNull(action, "action");
+            boolean immediate;
+            synchronized (this) {
+                if (terminationAction != null || terminationNotified)
+                    throw new IllegalStateException("queue termination callback already bound");
+                immediate = phase == TERMINAL;
+                if (immediate) terminationNotified = true;
+                else terminationAction = action;
+            }
+            if (immediate) action.run();
+        }
+
+        private void notifyTermination() {
+            Runnable action;
+            synchronized (this) {
+                action = terminationAction;
+                terminationAction = null;
+                if (action != null) terminationNotified = true;
+            }
+            if (action != null) action.run();
         }
 
         /**
@@ -290,7 +324,8 @@ public final class QueueTaskTracker {
                 }
             }
             if (release) {
-                tracker.release(this);
+                try { notifyTermination(); }
+                finally { tracker.release(this); }
                 return false;
             }
             return true;
@@ -312,7 +347,8 @@ public final class QueueTaskTracker {
                 }
             }
             if (release) {
-                tracker.release(this);
+                try { notifyTermination(); }
+                finally { tracker.release(this); }
             }
         }
 
@@ -361,7 +397,13 @@ public final class QueueTaskTracker {
                 }
             }
             if (release) {
-                tracker.release(this);
+                try {
+                    notifyTermination();
+                } catch (Throwable failure) {
+                    callbackFailure = State.mergeFailure(callbackFailure, failure);
+                } finally {
+                    tracker.release(this);
+                }
             }
             rethrow(callbackFailure);
         }

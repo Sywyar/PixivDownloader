@@ -18,6 +18,40 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class QueueTaskTrackerTest {
 
     @Test
+    @DisplayName("终结回调参与排空且只执行一次，晚登记仍能观察结束")
+    void terminationIsPartOfDrain() throws Exception {
+        var tracker = new QueueTaskTracker("probe");
+        var task = tracker.prepareQueued(null);
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var calls = new AtomicInteger();
+        task.onTermination(() -> {
+            calls.incrementAndGet();
+            entered.countDown();
+            try { assertThat(release.await(5, TimeUnit.SECONDS)).isTrue(); }
+            catch (InterruptedException interrupted) { throw new AssertionError(interrupted); }
+        });
+        var drain = tracker.prepareQuiesce();
+        var worker = new Thread(task::cancel);
+        worker.start();
+        try {
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(drain.isDrained()).isFalse();
+        } finally { release.countDown(); worker.join(5_000); }
+        assertThat(worker.isAlive()).isFalse();
+        task.cancel();
+        task.run();
+        assertThat(calls).hasValue(1);
+        assertThat(drain.isDrained()).isTrue();
+        var finished = new QueueTaskTracker("late").beginRunning(null);
+        finished.completeRunning();
+        finished.onTermination(calls::incrementAndGet);
+        assertThat(calls).hasValue(2);
+        assertThatThrownBy(() -> finished.onTermination(calls::incrementAndGet))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     @DisplayName("计数快照区分排队、运行和停止接收状态")
     void snapshotsQueuedRunningAndAcceptingState() throws Exception {
         QueueTaskTracker tracker = new QueueTaskTracker("probe");

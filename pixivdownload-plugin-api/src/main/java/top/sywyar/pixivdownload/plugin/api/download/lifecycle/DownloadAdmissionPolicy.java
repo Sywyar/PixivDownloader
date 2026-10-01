@@ -14,7 +14,7 @@ public interface DownloadAdmissionPolicy {
         REJECT
     }
     /**
-     * 同步判断一次尝试，不修改请求。
+     * 同步判断一次尝试，不修改请求。同一 attempt 可在准备与实际执行前重复检查，规则应无副作用。
      * @param attempt 不含凭据和路径的执行身份
      * @return 允许或拒绝；null 与普通异常按拒绝处理
      */

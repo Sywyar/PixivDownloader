@@ -84,6 +84,7 @@ public final class LocalWorkFileImporter implements WorkFileImporter {
                     throw new IOException("IMPORT_SIZE_LIMIT");
                 extensions.add(validateFormat(source, request.workType())); attributes.add(facts);
             }
+            lifecycle.register(attempt, null, "", request.title());
             lifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.ACCEPTED));
             lifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.STARTED));
             try {
