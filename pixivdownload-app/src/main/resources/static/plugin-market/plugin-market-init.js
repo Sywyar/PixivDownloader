@@ -26,7 +26,10 @@
             onChange: function (nextClient) {
                 PMK.state.i18n.client = nextClient;
                 applyStaticTranslations();
-                if (PMK.operations) PMK.operations.refresh();
+                if (PMK.operations) {
+                    PMK.operations.render();
+                    PMK.operations.refresh();
+                }
                 if (global.PixivNav) PixivNav.refresh();
                 if (PMK.state.activeView && PMK.state.activeView.rerender) {
                     PMK.state.activeView.rerender();

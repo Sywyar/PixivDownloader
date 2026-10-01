@@ -792,4 +792,59 @@ textarea {
 
 html[data-theme="dark"] .pixiv-lang-switcher--green .pixiv-lang-switcher__select option { background: var(--surface); color: var(--text); }
 
-.pmk-operation-entry { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* 安装记录在标题操作区展开；列表保持普通分隔行，诊断信息按需查看。 */
+.pmk-operations-trigger { display: inline-flex; min-width: 0; }
+.pmk-operations {
+    padding: 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+}
+.pmk-operations[hidden] { display: none; }
+.pmk-operations-head, .pmk-operation-head {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    flex-wrap: wrap; gap: .75rem 1rem;
+}
+.pmk-operations-head h2 { font-size: 1rem; font-weight: 700; }
+.pmk-operations-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.pmk-operations .pmk-btn, .pmk-operations-trigger .pmk-btn {
+    white-space: normal; padding-block: .4rem; text-decoration: none;
+}
+.pmk-operation-count {
+    padding: .1rem .45rem; border-radius: var(--radius-pill);
+    background: var(--soft-bg); color: var(--text-secondary);
+    font-variant-numeric: tabular-nums; font-size: .75rem; white-space: nowrap;
+}
+.pmk-operation-count--bad { color: var(--accent-red); }
+.pmk-operation-list { list-style: none; margin: .75rem 0 0; padding: 0; }
+.pmk-operation { padding: 1rem 0; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+.pmk-operation-name { font-size: .875rem; font-weight: 650; min-width: 0; }
+.pmk-operation-meta { margin-top: .35rem; color: var(--text-secondary); font-size: .8125rem; }
+.pmk-operation-message { margin-top: .5rem; color: var(--text-secondary); white-space: pre-wrap; }
+.pmk-operation-status { font-size: .8125rem; font-weight: 650; }
+.pmk-operation-status--info { color: var(--text-secondary); }
+.pmk-operation-status--ok { color: color-mix(in srgb, var(--accent-green) 60%, var(--text)); }
+.pmk-operation-status--warn { color: var(--warning-text); }
+.pmk-operation-status--bad { color: var(--accent-red); }
+.pmk-operation-details { margin-top: .65rem; }
+.pmk-operation-details summary, .pmk-operation-about summary {
+    width: fit-content; max-width: 100%; cursor: pointer; color: var(--text-secondary);
+    font-size: .8125rem; padding-block: .3rem;
+}
+.pmk-operation-diagnostic {
+    margin-top: .5rem; color: var(--text-secondary); font-family: var(--font-mono);
+    font-size: .75rem; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.pmk-operation-notice { padding: 1.25rem 0; color: var(--text-secondary); }
+.pmk-operation-notice--error { color: var(--accent-red); }
+.pmk-operation-about { padding-top: .65rem; border-top: 1px solid var(--border); }
+.pmk-operation-about p { max-width: var(--layout-reading); line-height: 1.6; }
+.pmk-operations :focus-visible, .pmk-operations-trigger :focus-visible {
+    outline: 2px solid var(--accent-blue); outline-offset: 3px;
+}
+@media (max-width: 37.5em) {
+    .pmk-operations { padding: 1rem; }
+    .pmk-operations-trigger { flex: 1 1 12rem; }
+    .pmk-operations-actions { width: 100%; }
+    .pmk-operations-actions .pmk-btn { flex: 1 1 auto; }
+}

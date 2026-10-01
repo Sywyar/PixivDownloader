@@ -235,9 +235,11 @@
                         h('a', { class: 'pmk-seg-item', href: '/plugin-manage.html' }, [icon('fa-solid fa-puzzle-piece'),
                             h('span', t('seg.installed', '已安装')), h('span', { class: 'pmk-seg-count' }, String(vm.installedCount))])
                     ]),
+                    PMK.operations ? h('span', { class: 'pmk-operations-trigger', ref: PMK.operations.mountButton }) : null,
                     h('button', { class: 'pmk-btn pmk-btn--teal', onClick: vm.reload, disabled: vm.loading }, [icon('fa-solid fa-rotate'), h('span', t('refresh', '刷新'))])
                 ])
             ]),
+            PMK.operations ? h('div', { ref: PMK.operations.mountPanel }) : null,
             vm.loading ? loading() : vm.error ? h('div', { class: 'pmk-banner pmk-banner--error' },
                 [icon('fa-solid fa-triangle-exclamation'), h('div', { class: 'pmk-banner-body' }, vm.error)]) : [
                 vm.recoveryMode ? h('div', { class: 'pmk-banner pmk-banner--error' }, [icon('fa-solid fa-triangle-exclamation'), h('div', { class: 'pmk-banner-body' }, [
