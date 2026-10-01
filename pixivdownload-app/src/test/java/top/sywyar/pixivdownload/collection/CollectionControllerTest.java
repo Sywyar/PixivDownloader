@@ -3,6 +3,8 @@ package top.sywyar.pixivdownload.collection;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
@@ -20,6 +22,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
+import java.util.Collections;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -140,6 +144,81 @@ class CollectionControllerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getHeaders().getFirst("X-Content-Type-Options")).isEqualTo("nosniff");
         assertThat(response.getHeaders().getFirst(HttpHeaders.CACHE_CONTROL)).isEqualTo("public, max-age=3600");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("访客批量归属只查询可见作品并仅返回可见收藏")
+    void guestMembershipsFilterBothVisibilityBoundaries(boolean novel) {
+        MockHttpServletRequest request = guestRequest();
+        GuestInviteSession session = GuestAccessGuard.extractSession(request);
+        if (novel) {
+            when(guestAccessGuard.isNovelVisibleToGuest(123L, session)).thenReturn(true);
+            when(collectionService.novelMembershipsOf(List.of(123L))).thenReturn(Map.of(123L, List.of(7L, 8L)));
+        } else {
+            when(guestAccessGuard.isVisibleToGuest(123L, session)).thenReturn(true);
+            when(collectionService.membershipsOf(List.of(123L))).thenReturn(Map.of(123L, List.of(7L, 8L)));
+        }
+        when(galleryRepository.findVisibleCollectionIds(any())).thenReturn(Set.of(8L));
+
+        assertThat(memberships(novel, List.of(123L, 456L, 123L), request).memberships())
+                .containsExactlyEntriesOf(Map.of(123L, List.of(8L)));
+        if (novel) verify(collectionService).novelMembershipsOf(List.of(123L));
+        else verify(collectionService).membershipsOf(List.of(123L));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("空列表和全部不可见作品不查询收藏成员关系")
+    void guestEmptyMembershipsDoNotReadCollections(boolean novel) {
+        MockHttpServletRequest request = guestRequest();
+        assertThat(memberships(novel, List.of(), request).memberships()).isEmpty();
+        assertThat(memberships(novel, List.of(456L), request).memberships()).isEmpty();
+        verifyNoInteractions(collectionService, galleryRepository);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("访客批量输入在可见性检查前整体拒绝超限和非法 ID")
+    void guestMembershipsRejectInvalidInputBeforeWork(boolean novel) {
+        MockHttpServletRequest request = guestRequest();
+        for (List<Long> ids : List.of(Collections.nCopies(501, 123L), List.of(0L),
+                List.of(-1L), Collections.<Long>singletonList(null))) {
+            assertThatThrownBy(() -> memberships(novel, ids, request))
+                    .isInstanceOf(LocalizedException.class)
+                    .satisfies(e -> assertThat(((LocalizedException) e).getStatus()).isEqualTo(HttpStatus.BAD_REQUEST));
+        }
+        verifyNoInteractions(guestAccessGuard, collectionService, galleryRepository);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("访客上限边界可用且先去重再检查可见性")
+    void guestMembershipsAllowBoundary(boolean novel) {
+        MockHttpServletRequest request = guestRequest();
+        assertThat(memberships(novel, Collections.nCopies(500, 123L), request).memberships()).isEmpty();
+        GuestInviteSession session = GuestAccessGuard.extractSession(request);
+        if (novel) verify(guestAccessGuard).isNovelVisibleToGuest(123L, session);
+        else verify(guestAccessGuard).isVisibleToGuest(123L, session);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("管理员批量查询保持原有容量和完整收藏结果")
+    void administratorMembershipsKeepExistingContract(boolean novel) {
+        List<Long> ids = Collections.nCopies(501, 123L);
+        Map<Long, List<Long>> expected = Map.of(123L, List.of(7L, 8L));
+        if (novel) when(collectionService.novelMembershipsOf(ids)).thenReturn(expected);
+        else when(collectionService.membershipsOf(ids)).thenReturn(expected);
+        assertThat(memberships(novel, ids, new MockHttpServletRequest()).memberships()).isEqualTo(expected);
+        verifyNoInteractions(guestAccessGuard, galleryRepository);
+    }
+
+    private CollectionController.MembershipsResponse memberships(
+            boolean novel, List<Long> ids, MockHttpServletRequest request) {
+        return novel
+                ? controller.novelMemberships(new CollectionController.NovelMembershipsRequest(ids), request).getBody()
+                : controller.memberships(new CollectionController.ArtworkMembershipsRequest(ids), request).getBody();
     }
 
     private MockHttpServletRequest guestRequest() {

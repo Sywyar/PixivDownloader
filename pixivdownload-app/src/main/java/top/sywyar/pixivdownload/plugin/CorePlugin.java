@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
+import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
@@ -149,6 +150,10 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.invitedGuest("/api/authors**"),
                 WebRouteContribution.invitedGuest("/api/series**"),
                 WebRouteContribution.invitedGuest("/api/collections**"),
+                new WebRouteContribution("/api/collections/memberships", AccessPolicy.INVITED_GUEST,
+                        Set.of(HttpMethod.POST), false),
+                new WebRouteContribution("/api/collections/novels/memberships", AccessPolicy.INVITED_GUEST,
+                        Set.of(HttpMethod.POST), false),
                 // ── 访客可达、不入 monitor：共享只读静态依赖（multi 普通访客 GET 亦可达）──────────
                 // 跨页共享只读静态依赖（访客可读、不入 monitor）。公开资源只在下方 PUBLIC 清单登记，
                 // 避免同一路径出现互相冲突的访问策略。
@@ -164,6 +169,13 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-drilldowns.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-side-modules.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-vue.js"),
+                WebRouteContribution.visitorAndInvitedGuest("/vendor/vue/vue.global.prod.js"),
+                WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-onboarding-core.js"),
+                WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-onboarding-overlay.js"),
+                WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-onboarding-download.js"),
+                WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-onboarding-gallery.js"),
+                WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-onboarding.js"),
+                WebRouteContribution.visitorAndInvitedGuest("/css/pixiv-onboarding.css"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-ui-slots.js"),
                 // 核心导航装配端点（NavigationController 读 NavigationRegistry 跨插件聚合、按身份可见性过滤）：
                 // 改为 VISITOR_AND_INVITED_GUEST，使受邀访客也能为其画廊 / 小说页拉取动态导航（历史 VISITOR 会被

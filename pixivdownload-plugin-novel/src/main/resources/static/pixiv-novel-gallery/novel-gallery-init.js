@@ -326,8 +326,8 @@ function setupEventHandlers() {
 
 async function setupAdminMode() {
     try {
-        const ok = await fetch('/api/admin/invites/access-check', { credentials: 'same-origin' });
-        if (ok.ok) {
+        const ok = await fetch('/api/auth/check', { credentials: 'same-origin' });
+        if (ok.ok && (await ok.json()).valid === true) {
             document.body.classList.add('admin-mode');
             isNovelAdmin = true;
             updateBatchButtonVisibility();

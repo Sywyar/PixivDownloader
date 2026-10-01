@@ -2,8 +2,8 @@
     // ---------- Delete (admin only) ----------
     async function setupAdminMode() {
         try {
-            const res = await fetch('/api/admin/invites/access-check', {credentials: 'same-origin'});
-            if (!res.ok) return;
+            const res = await fetch('/api/auth/check', {credentials: 'same-origin'});
+            if (!res.ok || (await res.json()).valid !== true) return;
             document.body.classList.add('admin-mode');
             const btn = document.getElementById('deleteArtworkBtn');
             if (btn) btn.style.display = '';
