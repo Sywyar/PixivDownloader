@@ -144,6 +144,8 @@ sh run.sh
 
 插件开发包提供单个 `pixivdownload-sdk` 编译依赖、独立 Maven 工程及 Gradle / sbt 示例。带固定运行清单的 SDK 可通过自带 Run / Debug 入口构建当前插件，自动准备配套宿主和完整官方插件；运行数据保存在各工程的 `.dev/`。可下载版本及具体用法以对应 Release 和包内 README 为准。
 
+当前源码的下载任务契约支持插件注册提交处理器、选项扩展和事件观察者，提供请求去重、精确取消及重连快照；无需继承 SDK 抽象基类。[下载类型模板](plugin-templates/download-type-plugin/)演示这些接口的用法，需要使用包含相同契约的 SDK 与宿主。
+
 发布者签名 CLI 位于 `pixivdownload-plugin-signature`，只需 JDK 17。在仓库根执行 `./mvnw -pl pixivdownload-plugin-signature package` 后，以 `java -cp <该模块生成的JAR> top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool <命令>` 调用：
 
 - `keygen --directory <新目录>`：生成 `private-key.pem`（PKCS#8）和配套 `public-key.pem`（SPKI），目录及私钥仅允许当前用户访问。请选择源码仓库和临时目录之外的位置，备份这两个文件；命令不覆盖已有目录。

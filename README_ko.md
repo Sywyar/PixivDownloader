@@ -136,6 +136,8 @@ sh run.sh
 - [❓ FAQ](https://sywyar.github.io/PixivDownloader/#/ko/faq)
 - [🛠️ 개발](https://sywyar.github.io/PixivDownloader/#/ko/development)
 
+현재 소스의 다운로드 작업 API는 플러그인이 제출 처리기, 옵션 훅, 이벤트 관찰자를 등록할 수 있도록 지원합니다. 요청 중복 방지, 특정 실행 취소, 재연결 시 상태 스냅샷을 제공하며 SDK 기본 클래스를 상속할 필요가 없습니다. [다운로드 유형 템플릿](plugin-templates/download-type-plugin/)에서 사용법을 확인할 수 있습니다. 같은 계약이 포함된 SDK와 호스트를 사용하세요.
+
 ---
 
 ## 게시자 서명 도구

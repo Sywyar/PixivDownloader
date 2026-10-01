@@ -136,6 +136,8 @@ sh run.sh
 - [❓ 常見問題](https://sywyar.github.io/PixivDownloader/#/zh-hant/faq)
 - [🛠️ 開發指南](https://sywyar.github.io/PixivDownloader/#/zh-hant/development)
 
+目前原始碼的下載工作契約支援外掛註冊提交處理器、選項擴充及事件觀察者，提供請求去重、精確取消和重新連線快照，無須繼承 SDK 抽象基底類別。[下載類型範本](plugin-templates/download-type-plugin/)示範這些介面的用法，需使用包含相同契約的 SDK 與主程式。
+
 ---
 
 ## 發布者簽名工具

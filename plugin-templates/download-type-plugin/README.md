@@ -26,6 +26,10 @@ Update the compile dependency and `plugin.requires` together. For a prerelease S
 
 ## Stable examples included
 
+The download lifecycle example uses interfaces registered as child-context beans: `ExampleDownloadSubmission` implements `DownloadSubmissionHandler`, and the configuration publishes a `DownloadOptionsHook` and `DownloadObserver`. No SDK base class is required. The handler uses a real `QueueTaskTracker` handle and emits completion only after the in-memory domain action succeeds. The host drains the synchronous capability call before closing the child context.
+
+An administrator can submit this type through `DownloadTasks.submit(new DownloadSubmission(requestId, "example-download", "123", Map.of()), null, identity)`, using a trusted request identity supplied by the host. The workbench exposes the same operation at `POST /api/download/tasks` with JSON `{"requestId":"<UUID>","workType":"example-download","workId":"123","options":{}}`. The title hook supplies a default title only for this type; the observer records its events at Java logging level `FINE`. Query the returned attempt ID through `DownloadTasks.find`, or use `snapshot` after reconnecting. Reuse the request UUID only for an identical retry within the retention window. These are current source contracts; build against a matching SDK candidate rather than an older published SDK.
+
 Keep `.pixivdownloader-plugin-project` in the selected project directory and track it with Git. Generated markers contain `pixivdownloader-plugin-project-v1` followed by LF; readers also accept a UTF-8 BOM and no line ending or CRLF. The marker identifies the project format and proves neither publisher identity nor code safety. It stays out of the plugin JAR.
 
 The package declares `pixiv.risk-signals=HOST_DATA_ACCESS` because its controller and scheduled executors consume host-provided identity and task contexts. The example does not download remote content or write artwork files. Update the declaration when adding behavior. Declarations describe capabilities; they do not grant permissions or establish that a plugin is safe.

@@ -161,6 +161,8 @@ For detailed installation steps, usage guides, configuration reference, and deve
 
 The plugin SDK provides one `pixivdownload-sdk` compile dependency, an independent Maven project, and Gradle / sbt examples. Packages with a fixed runtime manifest include Run / Debug entries that build the current plugin and prepare its matching host and complete official plugin set. Each project keeps runtime data in `.dev/`. Check the selected Release and its README for availability and instructions.
 
+The task contracts in the current source let plugins register submission handlers, option hooks and event observers, with request deduplication, cancellation of a specific attempt and reconnect snapshots. No SDK base class is required. The [download type template](plugin-templates/download-type-plugin/) demonstrates these interfaces; use an SDK and host that include the same contracts.
+
 The publisher signing CLI is in `pixivdownload-plugin-signature` and requires only JDK 17. Run `./mvnw -pl pixivdownload-plugin-signature package` from the repository root, then invoke `java -cp <JAR produced by that module> top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool <command>`:
 
 - `keygen --directory <new-directory>` creates `private-key.pem` (PKCS#8) and its matching `public-key.pem` (SPKI), with access to the directory and private key restricted to the current user. Choose a location outside source repositories and temporary directories, and back up both files. The command never replaces an existing directory.

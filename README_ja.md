@@ -136,6 +136,8 @@ OS またはブラウザーの「自動プロキシ設定スクリプト（PAC�
 - [❓ FAQ](https://sywyar.github.io/PixivDownloader/#/ja/faq)
 - [🛠️ 開発](https://sywyar.github.io/PixivDownloader/#/ja/development)
 
+現在のソースにあるダウンロードタスク API では、プラグインが送信ハンドラー、オプションフック、イベント監視を登録できます。リクエストの重複排除、特定の実行のキャンセル、再接続時のスナップショットに対応し、SDK の基底クラスを継承する必要はありません。[ダウンロード種別テンプレート](plugin-templates/download-type-plugin/)で使い方を確認できます。同じ契約を含む SDK とホストを使用してください。
+
 ---
 
 ## 発行者の署名ツール

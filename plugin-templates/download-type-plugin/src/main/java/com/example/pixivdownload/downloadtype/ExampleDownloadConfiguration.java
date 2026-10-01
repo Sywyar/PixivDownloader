@@ -1,6 +1,7 @@
 package com.example.pixivdownload.downloadtype;
 
 import com.example.pixivdownload.downloadtype.queue.ExampleDownloadQueue;
+import com.example.pixivdownload.downloadtype.queue.ExampleDownloadSubmission;
 import com.example.pixivdownload.downloadtype.schedule.ExampleScheduledSourceExecutor;
 import com.example.pixivdownload.downloadtype.schedule.ExampleScheduledWorkExecutor;
 import com.example.pixivdownload.downloadtype.web.ExampleDownloadController;
@@ -8,8 +9,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
+import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadLifecycle;
+import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadOptionsHook;
+import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadObserver;
 
-/** Explicit child-context assembly. The host does not component-scan third-party plugins. */
+/** 显式装配 child context；宿主不扫描第三方插件的组件。 */
 @Configuration
 public class ExampleDownloadConfiguration {
 
@@ -21,6 +25,32 @@ public class ExampleDownloadConfiguration {
     @Bean
     public ExampleDownloadQueue exampleDownloadQueue() {
         return new ExampleDownloadQueue();
+    }
+
+    @Bean
+    public ExampleDownloadSubmission exampleDownloadSubmission(
+            ExampleDownloadQueue queue, DownloadLifecycle lifecycle) {
+        return new ExampleDownloadSubmission(queue, lifecycle);
+    }
+
+    @Bean
+    public DownloadOptionsHook exampleTitleHook() {
+        return (attempt, options) -> {
+            if (!attempt.workType().equals(ExampleDownloadQueue.QUEUE_TYPE) || options.containsKey("title"))
+                return options;
+            var updated = new java.util.HashMap<>(options);
+            updated.put("title", "Example " + attempt.workId());
+            return updated;
+        };
+    }
+
+    @Bean
+    public DownloadObserver exampleDownloadObserver() {
+        var logger = java.util.logging.Logger.getLogger(ExampleDownloadSubmission.class.getName());
+        return event -> {
+            if (event.attempt().workType().equals(ExampleDownloadQueue.QUEUE_TYPE))
+                logger.fine(() -> event.attempt().attemptId() + " " + event.phase());
+        };
     }
 
     @Bean
