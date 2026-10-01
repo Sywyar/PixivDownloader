@@ -589,7 +589,7 @@ final class DesktopToolsController {
 
     void showClassifierSettings() {
         owner.showDialog(
-                "classifier.settings",
+                "classifier.settings.dialog",
                 "gui.image-classifier.button.settings",
                 DesktopUiDocument.DialogStyle.INFO,
                 (nextActions, dismissAction, dismiss) -> column(
@@ -971,6 +971,10 @@ final class DesktopToolsController {
             return;
         }
         String activityId = toolId == DesktopUiToolHost.ToolId.ARTWORKS_BACKFILL ? "backfill" : "migration";
+        TextToken cancelled = toolId == DesktopUiToolHost.ToolId.ARTWORKS_BACKFILL
+                && boolForm("tools.backfill.dry", false)
+                ? TextToken.key("gui.tools.history.outcome.cancelled")
+                : new TextToken("gui-compose", "gui.compose.tools.workspace.cancelled", "", List.of());
         if (toolId == DesktopUiToolHost.ToolId.ARTWORKS_BACKFILL) backfillCancelRequested = false;
         activity = new DesktopUiNode.ToolActivity(activityId, true, false,
                 new TextToken("gui-compose", "gui.compose.tools.workspace.running", "", List.of()));
@@ -1023,7 +1027,7 @@ final class DesktopToolsController {
                 );
                 LOG.warn("Desktop tool was interrupted", interrupted);
                 activity = new DesktopUiNode.ToolActivity(activityId, false, false,
-                        new TextToken("gui-compose", "gui.compose.tools.workspace.cancelled", "", List.of()));
+                        cancelled);
             } catch (Exception failure) {
                 host.recordToolHistory(
                         toolId,

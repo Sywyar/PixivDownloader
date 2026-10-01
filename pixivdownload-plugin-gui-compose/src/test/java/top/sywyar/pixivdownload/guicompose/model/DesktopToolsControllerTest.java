@@ -23,68 +23,94 @@ import java.util.function.Function;
 @DisplayName("Compose 工具表单默认值")
 class DesktopToolsControllerTest {
     @Test
+    @DisplayName("分类器设置在工具工作区中打开、编辑并关闭时端点保持唯一")
+    void classifierSettingsKeepUniqueEndpoints() throws Exception {
+        try (var model = DesktopConfigurationControllerTest.model(new HashMap<>())) {
+            awaitMediaReady(model);
+            activate(model, "tools.image-classifier.open");
+            activate(model, "classifier.settings");
+            var document = model.snapshot().document();
+            assertEquals(1, document.dialogs().size());
+            assertTrue(DesktopUiEventProtocol.index(document).containsKey("classifier.settings"));
+            assertTrue(DesktopUiEventProtocol.index(document).containsKey("classifier.settings.folder"));
+            model.dispatch(model.snapshot(), new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
+                    "classifier.settings.folder", DesktopUiNode.Value.text("test-folder")));
+            activate(model, "classifier.settings.cancel");
+            assertTrue(model.snapshot().document().dialogs().isEmpty());
+            assertTrue(DesktopUiEventProtocol.index(model.snapshot().document()).containsKey("classifier.settings"));
+        }
+    }
+
+    @Test
     @DisplayName("回填展示真实进度，取消后释放互锁且不把中断带入后续动作")
     @SuppressWarnings("unchecked")
     void cancelsBackfillWithoutInterruptingLaterWork() throws Exception {
         for (boolean cancelDuringCount : List.of(false, true)) {
-        var started = new java.util.concurrent.CountDownLatch(1);
-        var records = new java.util.concurrent.CopyOnWriteArrayList<Object[]>();
-        Map<String, Function<Object[], Object>> overrides = new HashMap<>();
-        overrides.put("backendSnapshot", args -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null));
-        overrides.put("countBackfillCandidates", args -> {
-            if (cancelDuringCount) {
-                started.countDown();
-                try { new java.util.concurrent.CountDownLatch(1).await(); }
-                catch (InterruptedException expected) {
-                    Thread.currentThread().interrupt();
-                    throw new IllegalStateException(new java.sql.SQLException("connection wait interrupted", expected));
+            for (boolean dryRun : List.of(false, true)) {
+                var started = new java.util.concurrent.CountDownLatch(1);
+                var records = new java.util.concurrent.CopyOnWriteArrayList<Object[]>();
+                Map<String, Function<Object[], Object>> overrides = new HashMap<>();
+                overrides.put("backendSnapshot", args -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null));
+                overrides.put("countBackfillCandidates", args -> {
+                    if (cancelDuringCount) {
+                        started.countDown();
+                        try { new java.util.concurrent.CountDownLatch(1).await(); }
+                        catch (InterruptedException expected) {
+                            Thread.currentThread().interrupt();
+                            throw new IllegalStateException(new java.sql.SQLException("connection wait interrupted", expected));
+                        }
+                    }
+                    return 3;
+                });
+                overrides.put("recordToolHistory", args -> {
+                    assertFalse(Thread.currentThread().isInterrupted());
+                    records.add(args);
+                    return null;
+                });
+                overrides.put("openToolLog", args -> new DesktopUiHost.ToolLogSession() {
+                    public Path latestPath() { return Path.of("latest.html"); }
+                    public Path sessionPath() { return Path.of("session.html"); }
+                    public void openLatestInBrowser() {}
+                    public void close() {}
+                });
+                overrides.put("runBackfill", args -> {
+                    var progress = (java.util.function.BiConsumer<Integer, Integer>) args[1];
+                    progress.accept(1, 3);
+                    started.countDown();
+                    try { new java.util.concurrent.CountDownLatch(1).await(); }
+                    catch (InterruptedException expected) {
+                        Thread.currentThread().interrupt();
+                        progress.accept(1, 3);
+                    }
+                    throw new AssertionError("cancel must abort the operation");
+                });
+                try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), overrides)) {
+                    awaitMediaReady(model);
+                    model.dispatch(model.snapshot(), new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
+                            "tools.backfill.dry", DesktopUiNode.Value.bool(dryRun)));
+                    activate(model, "tools.backfill.run");
+                    assertTrue(started.await(5, java.util.concurrent.TimeUnit.SECONDS));
+                    if (!cancelDuringCount) {
+                        var progress = descendants(overview(model)).filter(DesktopUiNode.Progress.class::isInstance)
+                                .map(DesktopUiNode.Progress.class::cast)
+                                .filter(node -> node.id().equals("tools.backfill.progress")).findFirst().orElseThrow();
+                        assertEquals(1d / 3, progress.progress());
+                    }
+                    activate(model, "tools.backfill.cancel");
+                    assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+                        while (model.busy() || overview(model).activity().running()) Thread.sleep(10);
+                    });
+                    assertFalse(overview(model).activity().running());
+                    assertFalse(overview(model).activity().failed());
+                    assertEquals(dryRun ? "gui.tools.history.outcome.cancelled" : "gui.compose.tools.workspace.cancelled",
+                            overview(model).activity().message().key());
+                    assertEquals("gui.tools.backend-status", overview(model).backend().text().key());
+                    assertEquals(DesktopUiHost.ToolOutcome.CANCELLED, records.get(0)[1]);
+                    var next = new java.util.concurrent.CompletableFuture<Boolean>();
+                    model.executeAsync(() -> next.complete(Thread.currentThread().isInterrupted()));
+                    assertFalse(next.get(5, java.util.concurrent.TimeUnit.SECONDS));
                 }
             }
-            return 3;
-        });
-        overrides.put("recordToolHistory", args -> {
-            assertFalse(Thread.currentThread().isInterrupted());
-            records.add(args);
-            return null;
-        });
-        overrides.put("openToolLog", args -> new DesktopUiHost.ToolLogSession() {
-            public Path latestPath() { return Path.of("latest.html"); }
-            public Path sessionPath() { return Path.of("session.html"); }
-            public void openLatestInBrowser() {}
-            public void close() {}
-        });
-        overrides.put("runBackfill", args -> {
-            var progress = (java.util.function.BiConsumer<Integer, Integer>) args[1];
-            progress.accept(1, 3);
-            started.countDown();
-            try { new java.util.concurrent.CountDownLatch(1).await(); }
-            catch (InterruptedException expected) {
-                Thread.currentThread().interrupt();
-                progress.accept(1, 3);
-            }
-            throw new AssertionError("cancel must abort the operation");
-        });
-        try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), overrides)) {
-            awaitMediaReady(model);
-            activate(model, "tools.backfill.run");
-            assertTrue(started.await(5, java.util.concurrent.TimeUnit.SECONDS));
-            if (!cancelDuringCount) {
-                var progress = descendants(overview(model)).filter(DesktopUiNode.Progress.class::isInstance)
-                    .map(DesktopUiNode.Progress.class::cast)
-                    .filter(node -> node.id().equals("tools.backfill.progress")).findFirst().orElseThrow();
-                assertEquals(1d / 3, progress.progress());
-            }
-            activate(model, "tools.backfill.cancel");
-            assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
-                while (model.busy()) Thread.sleep(10);
-            });
-            assertFalse(overview(model).activity().running());
-            assertFalse(overview(model).activity().failed());
-            assertEquals(DesktopUiHost.ToolOutcome.CANCELLED, records.get(0)[1]);
-            var next = new java.util.concurrent.CompletableFuture<Boolean>();
-            model.executeAsync(() -> next.complete(Thread.currentThread().isInterrupted()));
-            assertFalse(next.get(5, java.util.concurrent.TimeUnit.SECONDS));
-        }
         }
     }
 
