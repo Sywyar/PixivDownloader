@@ -146,6 +146,8 @@ An administrator may enter any SMTP host and port and may configure a separate S
 
 ## Plugin market, FFmpeg, and userscript updates
 
+When the latest plugin version is incompatible with the current SDK, browsing the market automatically queries older versions in the same repository and selects the highest compatible, installable version by default. The page shows both the latest and selected versions, and distinguishes no compatible version from an incomplete search. Paged repositories may receive additional detail requests, limited to 10 pages of up to 100 versions per plugin. All compatibility lookups in one page request share a 10-second budget for starting further requests; requests already in flight still use the repository's network timeout. These requests use the repository's existing address and network settings and read version metadata only. Packages are downloaded only after the user confirms installation. An installed newer version is never automatically downgraded.
+
 An administrator can also refresh revocations explicitly from Plugin Management. The application host requests only the configured source's `revocations.json` and adjacent `.sig`; the request accepts no arbitrary URL and sends no application cookies, artwork, or credentials. It retains that repository's proxy, HTTPS, source, and size checks. Both `plugin-catalog.enabled` and the repository must be enabled. This request occurs only on explicit refresh; management status and operation-record queries read local state and do not schedule repository refreshes.
 
 | Request owner | Destination | Purpose | Trigger and default state |

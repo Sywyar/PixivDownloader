@@ -121,6 +121,8 @@ The page supports:
 - Showing local install state as not installed / installed / update available / incompatible / no installable version
 - Installing a version from the repository and reporting whether its lifecycle policy activates it immediately or requires a process restart
 
+If the latest version is incompatible with the current SDK, the market automatically selects the highest compatible, installable older version from the same repository. Cards and details explain the default selection. The compatibility filter keeps these plugins visible, and the detail view still lets you select versions manually. An incomplete search is shown separately from no compatible version and can be retried by refreshing. Installation still requires confirmation; installed newer versions are not automatically downgraded.
+
 The marketplace itself is provided by the built-in `plugin-market` plugin. With `plugins.plugin-market.enabled=false`, the market page, APIs, static resources, i18n, navigation entry, and the "Market" entry on the Plugin Management page are withdrawn and direct access returns 404.
 
 The network master switch `plugin-catalog.enabled` and the built-in official repository default to enabled. Startup itself does not access repositories; network access starts only when an administrator opens or refreshes the Plugin Market or installs a plugin. The master switch or official repository can be disabled separately. Custom repositories, proxy policies, timeouts, and size limits can be maintained in `config.yaml` or in the desktop GUI "Config -> Plugins" page. See [Configuration](/en/configuration).
