@@ -2,11 +2,11 @@
 /*
  * single-import.js 的运行态测试（启用 / 禁用作品类型时的批量导入解析行为）。
  *
- * 无浏览器 / 无 jsdom：在 Node 的 vm 沙箱里加载**真实**的 queueTypes 模块 + single-import.js，
- * 用最小 DOM + 宿主工具函数桩驱动**真实**的 parseSingleImport（不只测 registry），验证：
+ * 无浏览器 / 无 jsdom：在 Node 的 vm 沙箱里加载真实 core、queueTypes 和 single-import 模块，
+ * 用最小 DOM 驱动 parseSingleImport 与状态栏渲染，验证：
  *   a) novel 可用 → `novel:` 区段裸 ID + 显式 novel URL 正常构造 novel 队列项并入队。
  *   b) novel 不可用 → `novel:` 区段裸 ID 跳过、计入 unavailable、不入队。
- *   c) novel 不可用 → 显式 novel URL 跳过、计入 unavailable、不入队，状态 key = status.single-import-skipped-unavailable。
+ *   c) novel 不可用 → 显式 novel URL 无 owner 认领、不入队，显示未解析到作品。
  *   d) novel 不可用 → 插画 URL / 裸 ID 仍按旧行为入队。
  *   e) novel 不可用 + 混合输入 → 可用插画照常入队、novel URL 跳过、不破坏旧成功路径。
  *
@@ -19,6 +19,7 @@ const assert = require('assert');
 
 const ROOT = path.resolve(__dirname, '../../../..');
 const STATIC = path.join(ROOT, 'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources', 'static', 'pixiv-batch');
+const CORE_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-core.js'), 'utf8');
 const QT_SOURCE = [
     'batch-queue-types-normalize.js',
     'batch-queue-types-runtime.js',
@@ -36,6 +37,7 @@ const DOUYIN_MODULES = Object.fromEntries([
 // ---- 最小 DOM（够 batch-queue-types 的 bootstrap/renderSlots + single-import 读 textarea 用）----
 function makeDocument(textareaValue) {
     const textarea = {value: textareaValue};
+    const statusBar = {textContent: '', style: {}};
     const noopEl = () => ({
         dataset: {}, setAttribute() {}, getAttribute() {}, appendChild(child) {
             if (typeof this.onAppend === 'function') this.onAppend(child);
@@ -44,7 +46,7 @@ function makeDocument(textareaValue) {
     });
     const head = noopEl();
     return {
-        getElementById: id => (id === 'single-import-textarea' ? textarea : null),
+        getElementById: id => ({'single-import-textarea': textarea, 'status-bar': statusBar}[id] || null),
         querySelectorAll: () => [],            // 本测试不放 slot 锚点 → renderSlots 无注入目标
         createElement: tag => Object.assign(noopEl(), {tag, src: '', onload: null, onerror: null}),
         currentScript: null,
@@ -98,8 +100,7 @@ function structuredImportDescriptor() {
     };
 }
 
-// 在沙箱里加载真实 registry + 真实 single-import，按启用类型装配后跑 parseSingleImport。
-// 返回捕获的 setStatus / addItemsToQueue 调用，供断言。
+// 状态语义从真实渲染器的翻译请求读取，提示级别从实际状态栏样式读取。
 async function runParse(textareaValue, {
     novelEnabled = false,
     douyinEnabled = false,
@@ -109,7 +110,7 @@ async function runParse(textareaValue, {
     secondBareDefaultEnabled = false
 }) {
     const enqueued = [];   // [{ids, items, source}]
-    let status = null;     // {message, level}
+    let translatedStatus = null;
     const document = makeDocument(textareaValue);
     const downloadTypes = [];
     if (pixivEnabled) downloadTypes.push({
@@ -157,8 +158,6 @@ async function runParse(textareaValue, {
     const sandbox = {
         window: {location: {origin: 'https://local.test'}, addEventListener() {}, removeEventListener() {}, dispatchEvent() {}},
         document,
-        BASE: '',
-        pageI18n: {apply() {}},
         console: {warn() {}, log() {}, error() {}},
         setTimeout, clearTimeout, Promise, URL, AbortController,
         CustomEvent: function CustomEvent(type, init) { return {type, detail: init && init.detail}; },
@@ -171,15 +170,30 @@ async function runParse(textareaValue, {
         })}),
         // —— 宿主工具函数桩 ——
         SINGLE_IMPORT_MODE: 'single-import',
-        bt: key => key,   // 让状态 message === i18n key，便于断言所用 key
+        applyCookieHint() {},
+        syncCookieToggleLabel() {},
         dedupeQueueItems: items => {
             const seen = new Set();
             return items.filter(x => (seen.has(x.id) ? false : (seen.add(x.id), true)));
         },
-        addItemsToQueue: (ids, items, source) => { enqueued.push({ids, items, source}); return items.length; },
-        setStatus: (message, level) => { status = {message, level}; }
+        addItemsToQueue: (ids, items, source) => { enqueued.push({ids, items, source}); return items.length; }
     };
     vm.createContext(sandbox);
+    vm.runInContext(CORE_SOURCE, sandbox);
+    function setLanguage(lang) {
+        sandbox.installPageI18nClient({
+            lang,
+            apply() {},
+            t(key, fallback, args) {
+                if (key.startsWith('batch:status.')) {
+                    translatedStatus = {message: key.slice('batch:'.length), args: JSON.parse(JSON.stringify(args || {}))};
+                }
+                return `${lang}:${key}:${JSON.stringify(args || {})}`;
+            }
+        }, ['batch']);
+        sandbox.applyStaticPageTranslations();
+    }
+    setLanguage('en-US');
     vm.runInContext(QT_SOURCE, sandbox);
     const qt = sandbox.window.PixivBatch.queueTypes;
     const initializers = {
@@ -242,11 +256,24 @@ async function runParse(textareaValue, {
     await qt.bootstrap();
     vm.runInContext(SI_SOURCE, sandbox);
     sandbox.window.PixivBatch.modes.singleImport.parseSingleImport();
+    const statusBar = document.getElementById('status-bar');
+    const status = {...translatedStatus, level: {
+        'var(--brand)': 'success', 'var(--warning-accent)': 'warning', 'var(--danger-bg)': 'error'
+    }[statusBar.style.color]};
+    const expectedSuffix = `batch:${status.message}:${JSON.stringify(status.args)}`;
+    ok('状态栏实际渲染英文翻译及参数', statusBar.textContent === `en-US:${expectedSuffix}`);
+    const queuedBeforeSwitch = JSON.stringify(enqueued);
+    const colorBeforeSwitch = statusBar.style.color;
+    setLanguage('zh-CN');
+    ok('已有状态随语言切换重新渲染', statusBar.textContent === `zh-CN:${expectedSuffix}`);
+    ok('语言切换保留状态级别', statusBar.style.color === colorBeforeSwitch);
+    ok('语言切换不重复解析或入队', JSON.stringify(enqueued) === queuedBeforeSwitch);
     return {enqueued, status};
 }
 
 let passed = 0;
 function ok(label, cond) { assert.ok(cond, label); passed++; }
+function equal(label, actual, expected) { assert.deepStrictEqual(actual, expected, label); passed++; }
 const bySource = (enqueued, source) => { const b = enqueued.find(e => e.source === source); return b ? b.items : []; };
 const novelItems = enqueued => bySource(enqueued, 'single-import-novel');
 const illustItems = enqueued => bySource(enqueued, 'single-import');
@@ -266,6 +293,7 @@ const douyinItems = enqueued => bySource(enqueued, 'single-import-douyin');
         ok('a: 显式 URL 标题被采用', ni.some(x => x.id === 'n456' && x.title === '标题'));
         ok('a: 无插画桶', illustItems(enqueued).length === 0);
         ok('a: 状态为成功汇总', !!status && status.message === 'status.parsed-summary' && status.level === 'success');
+        equal('a: 汇总传入实际解析与新增数量', status.args, {total: 2, added: 2});
     }
 
     // ===== b) novel 不可用：`novel:` 区段裸 ID → 跳过、计 unavailable、不入队 =====
@@ -274,6 +302,7 @@ const douyinItems = enqueued => bySource(enqueued, 'single-import-douyin');
         ok('b: 无任何入队', enqueued.length === 0);
         ok('b: 状态 key = skipped-unavailable', !!status && status.message === 'status.single-import-skipped-unavailable');
         ok('b: 状态级别 warning', !!status && status.level === 'warning');
+        equal('b: 警告传入实际不可用数量', status.args, {count: 1});
     }
 
     // ===== c) novel 不可用：其 URL 无 owner hook 认领，不入队、不误判为其它类型 =====
@@ -359,6 +388,7 @@ const douyinItems = enqueued => bySource(enqueued, 'single-import-douyin');
         ok('k: 两个 URL matcher 同时认领时不按 order 偷选', enqueued.length === 0);
         ok('k: URL 归属歧义使用明确 warning 状态', !!status
             && status.message === 'status.single-import-ambiguous' && status.level === 'warning');
+        equal('k: 警告传入实际拒绝数量', status.args, {count: 1});
     }
 
     {
