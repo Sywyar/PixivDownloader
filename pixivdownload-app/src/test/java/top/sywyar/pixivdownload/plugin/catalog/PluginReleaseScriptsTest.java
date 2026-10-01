@@ -324,20 +324,22 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("默认安装集合同时携带 Compose 与 Swing，官方可选集合只保留显式夹具")
-    void distributionSeparatesDefaultInstalledAndValidationFixtures() throws Exception {
+    @DisplayName("默认安装保留桌面插件，导入支持按需安装且随离线全量包分发，验证夹具须显式包含")
+    void distributionSeparatesDefaultInstalledOptionalAndValidationPlugins() throws Exception {
         assertThat(officialPluginIds("Get-OfficialDefaultInstalledPlugins"))
                 .containsExactly(
-                        "download-workbench", "external-download-import", "gui-compose", "gui-swing", "gallery-tools", "posthog", "gallery",
+                        "download-workbench", "gui-compose", "gui-swing", "gallery-tools", "posthog", "gallery",
                         "novel", "notification", "multi-mode-decision-survey", "push", "mail", "tts", "ai");
-        assertThat(runPowerShell(
-                "$ErrorActionPreference='Stop'; "
-                        + ". './scripts/plugin-distribution-common.ps1'; "
-                        + "@(Get-OfficialOptionalPlugins).Count"))
-                .isEqualTo("0");
+        assertThat(officialPluginIds("Get-OfficialOptionalPlugins"))
+                .containsExactly("pixiv-batch-downloader-import");
+        assertThat(officialPluginIds("Get-OfficialDistributionPlugins"))
+                .containsExactlyElementsOf(officialPluginIds("Get-OfficialDefaultInstalledPlugins"));
         assertThat(officialPluginIds())
                 .doesNotContain("recovery-sentinel")
+                .contains("pixiv-batch-downloader-import")
                 .containsAll(officialPluginIds("Get-OfficialDefaultInstalledPlugins"));
+        assertThat(officialPluginIds("Get-OfficialOptionalPlugins -IncludeSentinel"))
+                .containsExactly("pixiv-batch-downloader-import", "recovery-sentinel");
     }
 
     @Test

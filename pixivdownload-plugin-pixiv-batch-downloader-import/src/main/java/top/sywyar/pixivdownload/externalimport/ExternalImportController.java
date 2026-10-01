@@ -40,7 +40,7 @@ public final class ExternalImportController {
                 && LocalRequestTrust.isLocalRequest(request.getRemoteAddr(), request.getHeader("Host"),
                     request.getHeader("X-Forwarded-For"), request.getHeader("X-Real-IP"), request.getHeader("Forwarded"));
     }
-    @GetMapping("/api/external-download-import/token")
+    @GetMapping("/api/pixiv-batch-downloader-import/token")
     public synchronized ResponseEntity<?> token(HttpServletRequest request) {
         if (!local(request)) return error(request, 403, "LOCAL_ONLY");
         if (sourceRoot.isBlank()) return error(request, 503, "SOURCE_ROOT_REQUIRED");
@@ -55,7 +55,7 @@ public final class ExternalImportController {
         Long expiry = tokens.remove(token);
         return expiry != null && expiry >= System.nanoTime();
     }
-    @PostMapping(value = "/api/external-download-import", consumes = "application/json")
+    @PostMapping(value = "/api/pixiv-batch-downloader-import", consumes = "application/json")
     public ResponseEntity<?> importWork(HttpServletRequest request) {
         if (!local(request)) return error(request, 403, "LOCAL_ONLY");
         if (sourceRoot.isBlank()) return error(request, 503, "SOURCE_ROOT_REQUIRED");

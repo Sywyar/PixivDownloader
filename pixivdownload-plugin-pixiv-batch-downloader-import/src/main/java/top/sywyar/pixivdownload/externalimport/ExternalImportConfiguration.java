@@ -13,6 +13,6 @@ public class ExternalImportConfiguration {
     @Bean public ExternalImportController externalImportController(WorkFileImporter importer,
             NamespaceMessageResolver messages, Environment environment, ApplicationModeProvider mode) {
         return new ExternalImportController(importer, messages,
-                environment.getProperty("external-download-import.source-root", ""), mode);
+                environment.getProperty("pixiv-batch-downloader-import.source-root", ""), mode);
     }
 }

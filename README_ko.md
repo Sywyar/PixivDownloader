@@ -169,7 +169,7 @@ sh run.sh
 **[PixivBatchDownloader](https://github.com/xuejianxianzun/PixivBatchDownloader)**
 백엔드 없이 브라우저에서 직접 다운로드하고 싶다면 이 확장 프로그램을 사용해 보세요.
 
-다운로드한 작품을 이 프로젝트의 갤러리에 자동으로 가져올 수도 있습니다. 다운로드 페이지의 **더 보기 → 사용자 스크립트**에서 **PixivBatchDownloader 가져오기 지원**을 설치하고, [설정 안내(영어)](pixivdownload-plugin-external-download-import/README_en.md#setup)에 따라 다운로드 폴더를 한 번 설정한 뒤 스크립트를 활성화하세요. 이후 PixivBatchDownloader가 다운로드를 완료한 일러스트, 만화, 애니메이션, 소설이 같은 컴퓨터의 갤러리에 자동으로 추가되므로 수동으로 가져올 필요가 없습니다. 원본 파일은 복사하지 않으며, 갤러리 기록을 삭제해도 그대로 남습니다. 설치 전에 받은 파일은 자동으로 검색하지 않습니다.
+공식 **PixivBatchDownloader 가져오기 지원** 플러그인과 사용자 스크립트로 이후 다운로드가 완료된 일러스트, 만화, 애니메이션, 소설을 원본 파일을 유지하면서 로컬 갤러리에 자동으로 추가할 수 있습니다. [사용 안내(영어)](https://sywyar.github.io/PixivDownloader/#/en/pixiv-batch-downloader-import)를 참고하세요.
 
 기능:
 

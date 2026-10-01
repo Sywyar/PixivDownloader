@@ -12,13 +12,13 @@
     "officialRequired": true,
     "changeNotes": ["下载工作台从核心壳外置为官方必需插件"]
   },
-  "external-download-import": {
-    "description": { "zh": "在单人模式下安装下载页提供的油猴脚本，配置一次同机下载目录并重启后端，即可自动将 PixivBatchDownloader 后续下载完成的插画、漫画、动图和小说导入对应画廊。直接读取原文件，不复制；删除画廊记录也保留原文件。不扫描历史下载。", "en": "In single-user mode, install the userscript from the download page, configure the download folder on the same machine, and restart the backend. Subsequent illustrations, manga, animations, and novels completed by PixivBatchDownloader are automatically imported into their galleries. Original files are referenced without copying and kept when gallery records are deleted. Existing downloads are not scanned." },
+  "pixiv-batch-downloader-import": {
+    "description": { "zh": "官方可选插件，普通发行包不预装，离线全量包包含。安装插件后须完全退出并重新启动本程序。在单人模式下安装下载页提供的油猴脚本，配置一次同机下载目录并重启后端，即可自动将 PixivBatchDownloader 后续下载完成的插画、漫画、动图和小说导入对应画廊。直接读取原文件，不复制；删除画廊记录也保留原文件。不扫描历史下载。", "en": "Optional official plugin, available from the plugin market and included in the full offline bundle. Standard distributions do not preinstall it. Fully exit and restart the app after installing the plugin. In single-user mode, install the userscript from the download page, configure the download folder on the same machine, and restart the backend. Subsequent illustrations, manga, animations, and novels completed by PixivBatchDownloader are automatically imported into their galleries. Original files are referenced without copying and kept when gallery records are deleted. Existing downloads are not scanned." },
     "author": "Sywyar",
     "sourceType": "official",
     "category": "download",
     "tags": ["download", "import", "local", "userscript"],
-    "homepageUrl": "https://github.com/Sywyar/PixivDownloader",
+    "homepageUrl": "https://sywyar.github.io/PixivDownloader/#/zh-cn/pixiv-batch-downloader-import",
     "license": "AGPL-3.0-only",
     "recommended": true,
     "officialRequired": false,

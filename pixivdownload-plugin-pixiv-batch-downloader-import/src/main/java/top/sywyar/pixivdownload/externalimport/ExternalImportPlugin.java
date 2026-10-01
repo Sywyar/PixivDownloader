@@ -11,16 +11,16 @@ import top.sywyar.pixivdownload.plugin.api.gui.*;
 public final class ExternalImportPlugin extends Plugin implements PixivPluginProvider {
     @Override public PixivFeaturePlugin featurePlugin() {
         return new PixivFeaturePlugin() {
-            @Override public String id() { return "external-download-import"; }
+            @Override public String id() { return "pixiv-batch-downloader-import"; }
             @Override public String displayName() { return "plugin.name"; }
             @Override public String description() { return "plugin.summary"; }
             @Override public String iconKey() { return "download"; }
             @Override public String colorToken() { return "blue"; }
             @Override public PluginKind kind() { return PluginKind.FEATURE; }
             @Override public List<WebRouteContribution> routes() {
-                return List.of(new WebRouteContribution("/api/external-download-import", AccessPolicy.LOCAL,
+                return List.of(new WebRouteContribution("/api/pixiv-batch-downloader-import", AccessPolicy.LOCAL,
                         Set.of(HttpMethod.POST), false, Set.of("https://www.pixiv.net", "https://pixiv.net")),
-                        new WebRouteContribution("/api/external-download-import/token", AccessPolicy.LOCAL, Set.of(HttpMethod.GET), false));
+                        new WebRouteContribution("/api/pixiv-batch-downloader-import/token", AccessPolicy.LOCAL, Set.of(HttpMethod.GET), false));
             }
             @Override public List<I18nContribution> i18n() {
                 return List.of(new I18nContribution("external-import", "i18n.web.external-import"));
@@ -28,7 +28,7 @@ public final class ExternalImportPlugin extends Plugin implements PixivPluginPro
             @Override public List<GuiConfigContribution> guiConfigContributions() {
                 return List.of(new GuiConfigContribution(
                         List.of(new GuiConfigGroupContribution("external-import", "plugin.name", 75)),
-                        List.of(new GuiConfigFieldContribution("external-download-import.source-root", "external-import",
+                        List.of(new GuiConfigFieldContribution("pixiv-batch-downloader-import.source-root", "external-import",
                                 "config.root.label", "config.root.help", GuiConfigFieldType.PATH_DIR, "", 10, false,
                                 GuiConfigEffect.BACKEND_RESTART))));
             }

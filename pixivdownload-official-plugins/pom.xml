@@ -16,7 +16,7 @@
     <dependencies>
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
-            <artifactId>pixivdownload-plugin-external-download-import</artifactId>
+            <artifactId>pixivdownload-plugin-pixiv-batch-downloader-import</artifactId>
             <version>${project.version}</version>
             <scope>test</scope>
         </dependency>

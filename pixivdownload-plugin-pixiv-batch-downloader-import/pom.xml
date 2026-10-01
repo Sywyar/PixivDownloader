@@ -8,7 +8,7 @@
         <version>1.0.0</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
-    <artifactId>pixivdownload-plugin-external-download-import</artifactId>
+    <artifactId>pixivdownload-plugin-pixiv-batch-downloader-import</artifactId>
     <name>PixivBatchDownloader Import Support Plugin</name>
     <description>Automatic gallery registration of verified external downloads with read-only original files.</description>
     <properties>

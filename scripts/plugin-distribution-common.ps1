@@ -50,7 +50,6 @@ function Get-OfficialDefaultInstalledPlugins {
     param()
     $plugins = @(Get-OfficialRequiredPlugins)
     $plugins += @(
-        [pscustomobject]@{ Id = "external-download-import"; Module = "pixivdownload-plugin-external-download-import"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{
             Id = "gui-compose"; Module = "pixivdownload-plugin-gui-compose"; Format = "jar"; PrivateLibs = $true;
             ClassPrefix = "top/sywyar/pixivdownload/guicompose/";
@@ -102,11 +101,13 @@ function Get-OfficialDefaultInstalledPlugins {
 }
 
 # recovery-sentinel is a recovery-mode validation fixture, not a user-facing official plugin, so it is only
-# included on demand (assembler -IncludeSentinel). There are currently no user-facing optional official packages.
+# included on demand (assembler -IncludeSentinel).
 function Get-OfficialOptionalPlugins {
     [CmdletBinding()]
     param([switch]$IncludeSentinel)
-    $plugins = @()
+    $plugins = @(
+        [pscustomobject]@{ Id = "pixiv-batch-downloader-import"; Module = "pixivdownload-plugin-pixiv-batch-downloader-import"; Format = "jar"; PrivateLibs = $false }
+    )
     if ($IncludeSentinel) {
         $plugins += [pscustomobject]@{ Id = "recovery-sentinel"; Module = "pixivdownload-plugin-recovery-sentinel"; Format = "jar"; PrivateLibs = $false }
     }
@@ -537,7 +538,7 @@ function Assert-BootJarBoundary {
         "BOOT-INF/classes/mail/",
         "BOOT-INF/classes/notification/templates/",
         "BOOT-INF/classes/org/pf4j/",
-        "BOOT-INF/classes/static/external-download-import/",
+        "BOOT-INF/classes/static/pixiv-batch-downloader-import/",
         "BOOT-INF/classes/userscripts/external-download-observer.user.js",
         "BOOT-INF/classes/top/sywyar/pixivdownload/externalimport/",
         "BOOT-INF/classes/static/pixiv-ai",

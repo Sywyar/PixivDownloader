@@ -145,9 +145,9 @@
                 let work;
                 try { work = JSON.parse(GM_getValue(key, '')); } catch (_) { lastError = 'INVALID_SAVED_WORK'; continue; }
                 if (work.error || work.files.length !== work.metadata.pageCount) continue;
-                const token = await request(base, '/api/external-download-import/token');
+                const token = await request(base, '/api/pixiv-batch-downloader-import/token');
                 if (token.status !== 200 || typeof token.body.token !== 'string') throw new Error(token.body.code || `HTTP_${token.status}`);
-                const result = await request(base, '/api/external-download-import', {
+                const result = await request(base, '/api/pixiv-batch-downloader-import', {
                     headers: {'Content-Type':'application/json', 'X-Import-Token':token.body.token}, data: JSON.stringify(work)
                 });
                 if (result.status === 200 && ['IMPORTED', 'ALREADY_RECORDED'].includes(result.body.code)) {

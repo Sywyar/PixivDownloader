@@ -74,7 +74,7 @@ class ObservationImportTest {
         assertTrue(feature.navigation().isEmpty()); assertTrue(feature.staticResources().isEmpty());
         assertTrue(feature.routes().stream().allMatch(route -> route.accessPolicy() == AccessPolicy.LOCAL));
         assertEquals("external-download-observer", feature.userscripts().get(0).id());
-        assertEquals("external-download-import.source-root", feature.guiConfigContributions().get(0).fields().get(0).key());
+        assertEquals("pixiv-batch-downloader-import.source-root", feature.guiConfigContributions().get(0).fields().get(0).key());
     }
     @Test @DisplayName("单次令牌、本机来源、启用目录和严格 JSON 共同约束自动接收")
     void protectsLocalBridge() throws Exception {

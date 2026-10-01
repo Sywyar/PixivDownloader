@@ -93,7 +93,7 @@ class DistributionPackagingBoundaryTest {
             "BOOT-INF/classes/top/sywyar/pixivdownload/plugin/runtime/isolated-plugin-worker.jar";
     private static final Set<String> PROGUARD_RELEASE_ARTIFACT_IDS = Set.of(
             "pixivdownload-plugin-download-workbench",
-            "pixivdownload-plugin-external-download-import",
+            "pixivdownload-plugin-pixiv-batch-downloader-import",
             "pixivdownload-plugin-gui-compose",
             "pixivdownload-plugin-gui-swing",
             "pixivdownload-plugin-gallery-tools",
@@ -253,7 +253,7 @@ class DistributionPackagingBoundaryTest {
         assertThat(canLoad(host, "top.sywyar.pixivdownload.guicompose.GuiComposePf4jPlugin"))
                 .as("外置 gui-compose 插件类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.externalimport.ExternalImportPlugin")).isFalse();
-        assertThat(host.getResource("static/external-download-import/index.html")).isNull();
+        assertThat(host.getResource("static/pixiv-batch-downloader-import/index.html")).isNull();
         assertThat(host.getResource("userscripts/external-download-observer.user.js")).isNull();
         // gui-swing 是本模块的 test-scope 依赖；其独立产物边界由下方 JAR-with-lib 用例验证。
         assertThat(canLoad(host, "top.sywyar.pixivdownload.notificationbase.NotificationPf4jPlugin"))
@@ -556,10 +556,10 @@ class DistributionPackagingBoundaryTest {
     }
 
     @Test
-    @DisplayName("external-download-import 随独立官方产物携带自动采集脚本")
+    @DisplayName("pixiv-batch-downloader-import 随独立官方产物携带自动采集脚本")
     void externalDownloadImportPackagesAsThinExternalPlugin() {
-        assertThinExternalPlugin("external-download-import.plugin.classes",
-                "pixivdownload-plugin-external-download-import",
+        assertThinExternalPlugin("pixiv-batch-downloader-import.plugin.classes",
+                "pixivdownload-plugin-pixiv-batch-downloader-import",
                 "top/sywyar/pixivdownload/externalimport/ExternalImportPlugin.class",
                 "userscripts/external-download-observer.user.js");
     }

@@ -40,6 +40,9 @@ test('all four types upload complete events automatically without copy or confir
     assert.deepEqual(posts.map(x=>JSON.parse(x.data).metadata.type),[0,1,2,3]);
     assert.equal(posts[0].anonymous,true);
     assert.equal(posts[0].headers['X-Import-Token'],'once');
+    assert.ok(posts.every(call=>new URL(call.url).pathname==='/api/pixiv-batch-downloader-import'));
+    assert.ok(b.calls.filter(call=>call.method==='GET').every(call=>
+        new URL(call.url).pathname==='/api/pixiv-batch-downloader-import/token'));
     assert.ok(b.calls.every(call=>call.headers.Origin==='https://www.pixiv.net' && call.anonymous));
     assert.equal(b.alerts.length,0);
     assert.equal(b.storage.size,0);
