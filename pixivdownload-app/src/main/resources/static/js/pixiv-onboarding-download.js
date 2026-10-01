@@ -9,8 +9,8 @@
 
     var EXAMPLE_ID = ctx.EXAMPLE_ID;
     var EXAMPLE_URL = ctx.EXAMPLE_URL;
-    var t = ctx.t;
-    var escapeHtml = ctx.escapeHtml;
+    var t = ctx.message;
+    var escapeHtml = ctx.messageHtml;
     var loadState = ctx.loadState;
     var patchState = ctx.patchState;
     var markCompleted = ctx.markCompleted;
@@ -52,8 +52,8 @@
                 '<h3 class="po-pop-title">' + escapeHtml(t('onboarding.welcome.title', '👋 欢迎使用 PixivDownloader')) + '</h3>'
                 + '<div class="po-pop-body">'
                 + '<p>' + escapeHtml(t('onboarding.welcome.intro', '初次见面！我会带你下载第一份示例作品，熟悉整个流程。先告诉我，怎么称呼你？')) + '</p>'
-                + '<input type="text" class="po-input" id="po-name-input" maxlength="40" placeholder="'
-                + escapeHtml(t('onboarding.welcome.name-placeholder', '输入你的称呼（可留空）')) + '" value="' + escapeHtml(existing) + '">'
+                + '<input type="text" class="po-input" id="po-name-input" maxlength="40" data-i18n-placeholder="tour:onboarding.welcome.name-placeholder" placeholder="'
+                + ctx.escapeHtml(ctx.t('onboarding.welcome.name-placeholder', '输入你的称呼（可留空）')) + '" value="' + escapeHtml(existing) + '">'
                 + '<div class="po-hint" id="po-name-hint"></div>'
                 + '</div>'
                 + footHtml([
@@ -286,10 +286,10 @@
     function copyExampleUrl(btn) {
         var done = function () {
             btn.classList.add('po-copied');
-            btn.textContent = t('onboarding.common.copied', '已复制');
+            ctx.setMessage(btn, t('onboarding.common.copied', '已复制'));
             global.setTimeout(function () {
                 btn.classList.remove('po-copied');
-                btn.textContent = t('onboarding.common.copy', '复制');
+                ctx.setMessage(btn, t('onboarding.common.copy', '复制'));
             }, 1500);
         };
         if (global.navigator && global.navigator.clipboard && global.navigator.clipboard.writeText) {
@@ -341,12 +341,13 @@
             if (hint) {
                 if (verdict.ok) {
                     hint.className = 'po-hint po-hint-ok';
-                    hint.textContent = t('onboarding.download.paste.ok', '✓ 已识别示例作品，点「下一步」继续');
+                    ctx.setMessage(hint, t('onboarding.download.paste.ok', '✓ 已识别示例作品，点「下一步」继续'));
                 } else if (verdict.foreign) {
                     hint.className = 'po-hint po-hint-error';
-                    hint.textContent = t('onboarding.download.paste.foreign', '检测到其它内容，请先完成指引哦～本步只粘贴上面的示例链接');
+                    ctx.setMessage(hint, t('onboarding.download.paste.foreign', '检测到其它内容，请先完成指引哦～本步只粘贴上面的示例链接'));
                 } else {
                     hint.className = 'po-hint';
+                    hint.removeAttribute('data-po-message');
                     hint.textContent = '';
                 }
             }

@@ -85,12 +85,24 @@
             }
         }
         var self = this;
+        var renderedPop = this.pop;
         global.requestAnimationFrame(function () {
+            if (self.pop !== renderedPop) return;
             global.setTimeout(function () {
+                if (self.pop !== renderedPop) return;
                 self._reposition();
-                self.pop.classList.add('po-in');
+                renderedPop.classList.add('po-in');
             }, 60);
         });
+    };
+
+    Overlay.prototype.refreshTranslations = function () {
+        if (!this.pop) return;
+        this.pop.querySelectorAll('[data-po-message]').forEach(function (element) {
+            element.textContent = ctx.resolveMessage(JSON.parse(element.getAttribute('data-po-message')));
+        });
+        if (ctx.i18n && typeof ctx.i18n.apply === 'function') ctx.i18n.apply(this.pop);
+        this._reposition();
     };
 
     Overlay.prototype._clearInteractive = function () {
@@ -177,13 +189,13 @@
     function footHtml(buttons, progress) {
         var parts = ['<div class="po-foot">'];
         if (progress) {
-            parts.push('<span class="po-progress">' + escapeHtml(progress) + '</span>');
+            parts.push('<span class="po-progress">' + ctx.messageHtml(progress) + '</span>');
         }
         buttons.forEach(function (b) {
             var cls = 'po-btn' + (b.variant ? ' po-btn-' + b.variant : '');
             var dis = b.disabled ? ' disabled' : '';
             parts.push('<button type="button" class="' + cls + '" data-act="' + b.act + '"' + dis + '>'
-                + escapeHtml(b.label) + '</button>');
+                + ctx.messageHtml(b.label) + '</button>');
         });
         parts.push('</div>');
         return parts.join('');
