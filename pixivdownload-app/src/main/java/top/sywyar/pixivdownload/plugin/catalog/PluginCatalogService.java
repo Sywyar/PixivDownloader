@@ -158,32 +158,49 @@ public class PluginCatalogService {
     }
 
     public PluginCatalogEntry loadEntry(String repositoryId, String pluginId) {
+        return loadEntrySnapshot(repositoryId, pluginId).item();
+    }
+
+    /** 有界读取完整版本集合，并保留其代次及离线回退事实，供兼容版本选择复用。 */
+    public PluginCatalogDetailPage loadEntrySnapshot(String repositoryId, String pluginId) {
+        return loadEntrySnapshot(repositoryId, pluginId, 0L);
+    }
+
+    /** deadlineNanos 为调用方共享的单调截止时间；0 表示只使用页数及单次网络限制。 */
+    public PluginCatalogDetailPage loadEntrySnapshot(String repositoryId, String pluginId, long deadlineNanos) {
         PluginRepository repository = resolveRepository(repositoryId);
         if (!repository.pagedCatalog()) {
-            return loadRepository(repository).findEntry(pluginId)
-                    .orElseThrow(() -> unknownPlugin(pluginId));
+            return loadEntryPage(repositoryId, pluginId, null, ENTRY_PAGE_SIZE);
         }
         String cursor = null;
         String generation = null;
         PluginCatalogEntry entry = null;
         Map<String, PluginCatalogPackage> packages = new LinkedHashMap<>();
+        boolean stale = false;
         for (int pageNumber = 0; pageNumber < MAX_ENTRY_PAGES; pageNumber++) {
+            if (deadlineNanos != 0L && System.nanoTime() - deadlineNanos >= 0L) {
+                throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE,
+                        "catalog compatibility search exceeded its time budget");
+            }
             PluginCatalogDetailPage page = loadEntryPage(repositoryId, pluginId, cursor, ENTRY_PAGE_SIZE);
             if (generation != null && !generation.equals(page.generation())) {
                 packages.clear();
                 entry = null;
+                stale = false;
             }
             generation = page.generation();
             entry = page.item();
+            stale |= page.stale();
             entry.packages().forEach(pkg -> packages.putIfAbsent(pkg.version(), pkg));
             cursor = page.nextCursor();
             if (cursor == null) {
-                return new PluginCatalogEntry(entry.pluginId(), entry.displayNamespace(), entry.displayNameKey(),
-                        entry.descriptionKey(), entry.market(), List.copyOf(packages.values()));
+                return new PluginCatalogDetailPage(new PluginCatalogEntry(entry.pluginId(), entry.displayNamespace(),
+                        entry.displayNameKey(), entry.descriptionKey(), entry.market(), List.copyOf(packages.values())),
+                        generation, null, (long) packages.size(), stale);
             }
         }
         throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE,
-                "paged catalog entry exceeded the dependency resolution page limit");
+                "paged catalog entry exceeded the version page limit");
     }
 
     /** 返回单个插件的一页版本摘要；paged-v2 cursor 保持不透明，manifest-v1 保持既有完整详情。 */

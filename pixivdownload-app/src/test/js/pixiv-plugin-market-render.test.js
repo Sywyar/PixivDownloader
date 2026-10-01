@@ -45,7 +45,7 @@ function entry(id, { category = 'utility', defaultInstalled = false } = {}) {
     };
 }
 
-async function mountMarket({ community = false, revocation = null } = {}) {
+async function mountMarket({ community = false, revocation = null, compatibleOlder = false } = {}) {
     const errors = [];
     const document = { createElement: tag => node(tag), addEventListener() {}, removeEventListener() {}, body: { style: {} } };
     const sandbox = { document, console: { warn: (...args) => errors.push(args), error: (...args) => errors.push(args) } };
@@ -82,6 +82,11 @@ async function mountMarket({ community = false, revocation = null } = {}) {
     const market = sandbox.PixivPluginMarket;
     market.state.i18n.client = { lang: 'en-US', t: (key, fallback, vars) => key + (vars ? JSON.stringify(vars) : '') };
     const entries = [entry('visible'), entry('bundled', { defaultInstalled: true }), entry('dependency', { category: 'dependency' })];
+    if (compatibleOlder) {
+        entries[0].recommendedVersion = '1.0.0';
+        entries[0].compatibilityReason = '999.0';
+        entries[0].packages[0].compatible = false;
+    }
     if (community) {
         entries[0].assuranceLevel = 'SOURCE_REVIEWED';
         entries[0].market.sourceType = 'community';
@@ -199,6 +204,32 @@ test('市场在禁止动态代码编译时挂载，筛选、详情、安装结�
     assert.deepEqual(page.errors, []);
 });
 
+test('卡片与详情默认安装兼容旧版，兼容筛选保留条目且仍可手动查看最新版', async () => {
+    const page = await mountMarket({compatibleOlder: true});
+    const {root, flush} = page;
+    assert.match(textOf(root), /compat.fallback/);
+    elements(root, 'pmk-switch')[3].props.onClick();
+    await flush();
+    assert.equal(elements(root, 'pmk-card').length, 1);
+    elements(root, 'pmk-card-name')[0].props.onClick();
+    await flush();
+    const select = elements(root, 'pmk-version-select')[0];
+    assert.equal(select.selectedIndex, 1);
+    assert.equal(page.factCalls.at(-1)[2], '1.0.0');
+    const install = () => elements(root, 'pmk-modal-actionbar-right')[0].children.find(n => n.tagName === 'BUTTON');
+    select.options.forEach(option => { option.selected = option.value === '2.0.0'; });
+    select.listeners.change();
+    await flush();
+    assert.equal(install().props.disabled, true);
+    select.options.forEach(option => { option.selected = option.value === '1.0.0'; });
+    select.listeners.change();
+    await flush();
+    install().props.onClick();
+    await flush();
+    assert.deepEqual(page.installCalls, [['repo', 'visible', '1.0.0']]);
+    assert.deepEqual(page.errors, []);
+});
+
 test('历史版本的隐藏、撤销、未知及过期状态禁用真实详情安装控件', async () => {
     for (const revocation of ['YANKED', 'REVOKED', 'NOT_CHECKED', 'STALE']) {
         const page = await mountMarket({ revocation });
@@ -255,10 +286,11 @@ test('社区版本保障与包内声明在 CSP 渲染中展示并随版本切换
     assert.deepEqual(page.errors, []);
 });
 
-test('基础视图取回新撤销事实后立即禁用原可安装控件', async () => {
+test('基础视图默认安装兼容旧版，取回新撤销事实后立即禁用控件', async () => {
     const handlers = {};
-    const root = { innerHTML: '', addEventListener(name, callback) { handlers[name] = callback; } };
-    const sandbox = { document: {}, console };
+    const root = { innerHTML: '', addEventListener(name, callback) { handlers[name] = callback; },
+        querySelector: () => null, querySelectorAll: () => [] };
+    const sandbox = { document: {getElementById: () => null}, console };
     sandbox.window = sandbox;
     vm.createContext(sandbox, { codeGeneration: { strings: false, wasm: false } });
     for (const resource of ['js/pixiv-plugin-presentation-tokens.js', 'plugin-market/plugin-market-core.js',
@@ -268,6 +300,14 @@ test('基础视图取回新撤销事实后立即禁用原可安装控件', async
     const market = sandbox.PixivPluginMarket;
     market.state.i18n.client = { lang: 'en-US', t: key => key };
     const plugin = entry('visible');
+    plugin.recommendedVersion = '1.0.0';
+    plugin.packages[0].compatible = false;
+    plugin.compatibilityReason = '999.0';
+    const installCalls = [];
+    market.installPluginWithConfirmation = (...args) => {
+        installCalls.push(args);
+        return Promise.resolve({kind: 'install', body: {accepted: true, activated: true, message: 'installed'}});
+    };
     market.api = {
         fetchRepositories: async () => ({ enabled: true, defaultRepositoryId: 'repo',
             repositories: [{ repositoryId: 'repo', enabled: true }] }),
@@ -280,11 +320,20 @@ test('基础视图取回新撤销事实后立即禁用原可安装控件', async
     market.fallback.render(root);
     await new Promise(resolve => setImmediate(resolve));
     assert.match(root.innerHTML, /data-pmk-install="visible"/);
+    assert.match(root.innerHTML, /compat.fallback/);
+    const installTag = root.innerHTML.match(/<button[^>]*data-pmk-install="visible"[^>]*>/)[0];
+    assert.match(installTag, /data-pmk-version="1.0.0"/);
+    handlers.click({target: {closest: selector => selector === '[data-pmk-install]' ? {
+        disabled: false, getAttribute: name => ({'data-pmk-repo': 'repo', 'data-pmk-install': 'visible',
+            'data-pmk-version': '1.0.0'})[name]
+    } : null}});
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(installCalls, [['repo', 'visible', '1.0.0']]);
     const actions = { innerHTML: '' };
     const details = { innerHTML: '' };
     const facts = {
         parentElement: { querySelector: () => details },
-        getAttribute: name => name === 'data-pmk-facts' ? 'visible' : '2.0.0',
+        getAttribute: name => name === 'data-pmk-facts' ? 'visible' : '1.0.0',
         closest: () => ({ querySelector: () => actions })
     };
     handlers.click({ target: { closest: () => facts } });
@@ -293,5 +342,5 @@ test('基础视图取回新撤销事实后立即禁用原可安装控件', async
     assert.doesNotMatch(actions.innerHTML, /data-pmk-install/);
     assert.match(actions.innerHTML, /common:plugin-trust.revocation.REVOKED/);
     assert.match(details.innerHTML, /revocation.REVOKED/);
-    assert.deepEqual(errors, []);
+    assert.deepEqual(errors, ['plugin-market:install.toast.activated']);
 });

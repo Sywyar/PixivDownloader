@@ -9,11 +9,11 @@ import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
  *
  * <ul>
  *   <li>{@link #NOT_INSTALLED} —— 本机未安装该插件，且其最新可安装版本兼容当前SDK（可安装）。</li>
- *   <li>{@link #INSTALLED} —— 本机已安装且为最新版本（无<b>严格更高</b>的可用更新）。</li>
+ *   <li>{@link #INSTALLED} —— 本机已安装，无<b>严格更高</b>的兼容更新。</li>
  *   <li>{@link #UPDATE_AVAILABLE} —— 本机已安装、市场存在<b>严格更高且兼容</b>的版本（更新走事务化替换并即时激活，
  *       <b>非</b>热升级）。版本高低按 {@link top.sywyar.pixivdownload.common.SemanticVersion} 语义比较，语义等价
  *       （如 {@code 1.2} 与 {@code 1.2.0}）不算更新，本机版本更高时保持已安装。</li>
- *   <li>{@link #INCOMPATIBLE} —— 本机未安装且最新可安装版本声明的 SDK 要求不被当前宿主 SDK 满足（需先升级应用）。</li>
+ *   <li>{@link #INCOMPATIBLE} —— 本机未安装，且没有满足当前宿主 SDK 要求的可安装版本（需先升级应用）。</li>
  *   <li>{@link #UNAVAILABLE} —— 本机未安装且该条目<b>没有任何可安装版本制品</b>（清单未提供可下载的版本）：稳定降级为
  *       不可安装状态，前端不渲染可点击但无响应的安装按钮。</li>
  * </ul>
@@ -31,7 +31,7 @@ public enum MarketInstallStatus {
     UNAVAILABLE;
 
     /**
-     * 据「是否已安装 / 是否有可安装版本 / 是否有严格更高的兼容更新 / 最新可安装版本是否兼容」推导安装状态。已安装时
+     * 据「是否已安装 / 是否有可安装版本 / 是否有严格更高的兼容更新 / 推荐版本是否兼容」推导安装状态。已安装时
      * 有严格更高的兼容更新→有更新、否则→已安装（最新 / 本机更高 / 无更新都收敛为已安装，当前版本仍可用）；未安装时无可安装
      * 版本→不可安装，否则兼容→可安装、不兼容→需升级应用。
      */

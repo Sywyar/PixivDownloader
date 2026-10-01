@@ -101,6 +101,94 @@ class PluginMarketInstallStatusTest {
         return view.entries().stream().filter(e -> e.pluginId().equals(pluginId)).findFirst().orElseThrow();
     }
 
+    private static PluginMarketPackageView projected(String version, boolean compatible, String revocation) {
+        return new PluginMarketPackageView(version, 100, "digest", true,
+                compatible ? null : "999.0", compatible, false, List.of(), null, List.of(), "stable", false,
+                top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector.builtInOfficial()
+                        .withRevocation(revocation),
+                !List.of("REVOKED", "YANKED", "NOT_CHECKED").contains(revocation));
+    }
+
+    @Test
+    @DisplayName("最新版不兼容时选择版本号最高的安全兼容旧版，并据推荐版本判断更新")
+    void selectsHighestCompatibleOlderVersion() {
+        var versions = List.of(projected("8.0", false, "CLEAR"), projected("6.0", true, "CLEAR"),
+                projected("7.0", true, "YANKED"), projected("5.0", true, "CLEAR"));
+        var selected = PluginMarketEntryView.from(entry("example"), true, "5.0", versions);
+        assertThat(selected.latestVersion()).isEqualTo("8.0");
+        assertThat(selected.recommendedVersion()).isEqualTo("6.0");
+        assertThat(selected.compatibilityReason()).isEqualTo("999.0");
+        assertThat(selected.compatible()).isTrue();
+        assertThat(selected.installStatus()).isEqualTo(MarketInstallStatus.UPDATE_AVAILABLE);
+        var newerInstalled = PluginMarketEntryView.from(entry("example"), true, "7.5", versions);
+        assertThat(newerInstalled.updateAvailable()).isFalse();
+        assertThat(newerInstalled.installStatus()).isEqualTo(MarketInstallStatus.INSTALLED);
+    }
+
+    @Test
+    @DisplayName("最新版兼容时仍选最新版，受限旧版和未知签名不能成为自动推荐")
+    void preservesLatestAndRejectsUnsafeFallbacks() {
+        var latest = PluginMarketEntryView.from(entry("example"), false, null,
+                List.of(projected("8.0", true, "CLEAR"), projected("6.0", true, "CLEAR")));
+        assertThat(latest.recommendedVersion()).isEqualTo("8.0");
+        var unsigned = PluginMarketPackageView.from(new PluginRepositoryRegistry(new PluginCatalogProperties())
+                .defaultRepository().orElseThrow(), pkg("5.0", null));
+        var unavailable = PluginMarketEntryView.from(entry("example"), false, null,
+                List.of(projected("8.0", false, "CLEAR"), projected("7.0", true, "REVOKED"),
+                        projected("6.0", true, "NOT_CHECKED"), unsigned));
+        assertThat(unavailable.recommendedVersion()).isNull();
+        assertThat(unavailable.compatible()).isFalse();
+        assertThat(unavailable.installStatus()).isEqualTo(MarketInstallStatus.INCOMPATIBLE);
+    }
+
+    @Test
+    @DisplayName("分页市场从完整同代版本选择旧版，卡片摘要不回传全部历史")
+    void selectsCompatibleVersionBeyondSummaryPage() {
+        var props = new PluginCatalogProperties();
+        var registry = mock(PluginRepositoryRegistry.class);
+        var repository = org.mockito.Mockito.spy(new PluginRepositoryRegistry(props).defaultRepository().orElseThrow());
+        when(repository.pagedCatalog()).thenReturn(true);
+        when(registry.featureEnabled()).thenReturn(true);
+        when(registry.find("official")).thenReturn(java.util.Optional.of(repository));
+        var signature = new top.sywyar.pixivdownload.plugin.signature.SignatureMetadata(
+                1, "Ed25519", repository.trustedKeys().get(0).keyId(), "AA==");
+        var current = new PluginCatalogPackage("8.0", "https://example.test/new.jar", 100L, "ab",
+                signature, null, "999.0", List.of(), null, List.of(), "stable", false);
+        var older = new PluginCatalogPackage("6.0", "https://example.test/old.jar", 100L, "cd",
+                signature, null, null, List.of(), null, List.of(), "stable", false);
+        var oldest = new PluginCatalogPackage("5.0", "https://example.test/oldest.jar", 100L, "ef",
+                signature, null, null, List.of(), null, List.of(), "stable", false);
+        var summary = entry("example", current);
+        var complete = entry("example", current, oldest, older);
+        when(statusService.report()).thenReturn(new PluginStatusReport(List.of()));
+        when(catalogService.loadPage(eq("official"), any())).thenReturn(
+                new PluginCatalogPage("g1", List.of(summary), null, 1L, Map.of(), false));
+        when(catalogService.loadEntrySnapshot(eq("official"), eq("example"), org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(new PluginCatalogDetailPage(complete, "g1", null, 3L, false));
+        when(catalogService.loadEntryPage("official", "example", null, 24))
+                .thenReturn(new PluginCatalogDetailPage(summary, "g1", "older", 3L, false));
+        var market = new PluginMarketService(registry, catalogService, acquisitionService, statusService);
+        var card = entryOf(market.catalog("official"), "example");
+        assertThat(card.recommendedVersion()).isEqualTo("6.0");
+        assertThat(card.packages()).extracting(PluginMarketPackageView::version).containsExactly("8.0", "6.0");
+        var detail = market.pluginDetail("official", "example");
+        assertThat(detail.recommendedVersion()).isEqualTo("6.0");
+        assertThat(detail.nextVersionCursor()).isEqualTo("older");
+        assertThat(detail.packages()).extracting(PluginMarketPackageView::version).containsExactly("8.0", "6.0");
+
+        when(catalogService.loadEntrySnapshot(eq("official"), eq("example"), org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(new PluginCatalogDetailPage(complete, "g2", null, 3L, false),
+                        new PluginCatalogDetailPage(complete, "g1", null, 3L, true))
+                .thenThrow(new top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException(
+                        top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode.CATALOG_UNAVAILABLE, "offline"));
+        for (int attempt = 0; attempt < 3; attempt++) {
+            var incomplete = entryOf(market.catalog("official"), "example");
+            assertThat(incomplete.compatibilitySearchIncomplete()).isTrue();
+            assertThat(incomplete.recommendedVersion()).isNull();
+            assertThat(incomplete.installStatus()).isEqualTo(MarketInstallStatus.UNAVAILABLE);
+        }
+    }
+
     @Test
     @DisplayName("未安装：报告无该 id → NOT_INSTALLED、installedVersion=null、updateAvailable=false")
     void notInstalled() {

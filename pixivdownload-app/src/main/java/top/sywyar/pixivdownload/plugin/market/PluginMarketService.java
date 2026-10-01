@@ -47,6 +47,7 @@ import java.util.Optional;
  * <b>绝不</b>暴露 load / start / stop 等运行期动词——那属于插件管理职责，与市场浏览 / 安装正交。
  */
 public class PluginMarketService {
+    private static final long COMPATIBILITY_SEARCH_BUDGET_NANOS = java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
 
     private final PluginRepositoryRegistry repositoryRegistry;
     private final PluginCatalogService catalogService;
@@ -136,8 +137,10 @@ public class PluginMarketService {
         RevocationSnapshot snapshot = refreshRevocations(repository);
         PluginCatalogPage page = catalogService.loadPage(repository.repositoryId(), query);
         Map<String, String> installed = installedVersionsById();
+        long compatibilityDeadline = System.nanoTime() + COMPATIBILITY_SEARCH_BUDGET_NANOS;
         List<PluginMarketEntryView> entries = page.items().stream()
-                .map(entry -> projectEntry(repository, entry, installed, snapshot))
+                .map(entry -> selectVersion(repository, entry, installed, snapshot, page.generation(),
+                        repository.pagedCatalog(), compatibilityDeadline))
                 .filter(entry -> entry.packages().isEmpty() || entry.latestVersion() != null)
                 .toList();
         var visibleIds = entries.stream().map(PluginMarketEntryView::pluginId).collect(java.util.stream.Collectors.toSet());
@@ -167,8 +170,43 @@ public class PluginMarketService {
         RevocationSnapshot snapshot = refreshRevocations(repository);
         PluginCatalogDetailPage page = catalogService.loadEntryPage(
                 repository.repositoryId(), pluginId, cursor, limit);
-        return projectEntry(repository, page.item(), installedVersionsById(), snapshot)
+        var installed = installedVersionsById();
+        var first = cursor == null || !repository.pagedCatalog() ? page
+                : catalogService.loadEntryPage(repository.repositoryId(), pluginId, null, limit);
+        var selected = selectVersion(repository, first.item(), installed, snapshot, first.generation(),
+                first.nextCursor() != null, System.nanoTime() + COMPATIBILITY_SEARCH_BUDGET_NANOS);
+        // 后续历史页只贡献该页版本，不覆盖默认选择；不同代次不混合。
+        if (!page.generation().equals(first.generation())) page = first;
+        var visible = new LinkedHashMap<String, PluginMarketPackageView>();
+        projectEntry(repository, page.item(), installed, snapshot).packages()
+                .forEach(pkg -> visible.put(pkg.version(), pkg));
+        if (cursor == null) selected.packages().stream()
+                .filter(pkg -> pkg.version().equals(selected.recommendedVersion())
+                        || pkg.version().equals(selected.latestVersion()))
+                .forEach(pkg -> visible.putIfAbsent(pkg.version(), pkg));
+        return selected.withPackages(List.copyOf(visible.values()), selected.compatibilitySearchIncomplete())
                 .withVersionPage(page.generation(), page.nextCursor(), page.totalApproximate(), page.stale());
+    }
+
+    private PluginMarketEntryView selectVersion(PluginRepository repository, PluginCatalogEntry entry,
+            Map<String, String> installed, RevocationSnapshot snapshot, String generation, boolean incomplete,
+            long deadlineNanos) {
+        var view = projectEntry(repository, entry, installed, snapshot);
+        if (!incomplete || view.compatibilityReason() == null) return view;
+        try {
+            var complete = catalogService.loadEntrySnapshot(repository.repositoryId(), entry.pluginId(), deadlineNanos);
+            if (complete.stale() || !generation.equals(complete.generation())) {
+                return view.withPackages(view.packages(), true);
+            }
+            var selected = projectEntry(repository, complete.item(), installed, snapshot);
+            // 列表只返回最新与推荐制品；完整历史仍由详情分页按需返回。
+            var summary = selected.packages().stream()
+                    .filter(pkg -> pkg.version().equals(selected.latestVersion())
+                            || pkg.version().equals(selected.recommendedVersion())).toList();
+            return selected.withPackages(summary, false);
+        } catch (PluginCatalogException failure) {
+            return view.withPackages(view.packages(), true);
+        }
     }
 
     /** 据已安装快照把一个 catalog 条目投影为市场视图条目（含安装状态机推导）。 */

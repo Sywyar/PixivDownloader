@@ -43,11 +43,11 @@
         }
         var meta = PMK.installMeta(status);
         var label = status === 'UPDATE_AVAILABLE'
-            ? t('install.action.update-to', '更新到 v{v}', { v: card.latestVersion })
+            ? t('install.action.update-to', '更新到 v{v}', { v: card.targetVersion })
             : t(meta.labelKey, meta.status);
         var attrs = meta.disabled ? ' disabled'
             : ' data-pmk-repo="' + esc(card.repositoryId || '') + '" data-pmk-install="' + esc(card.pluginId) +
-              '" data-pmk-version="' + esc(card.latestVersion || '') + '"';
+              '" data-pmk-version="' + esc(card.targetVersion || '') + '"';
         return '<button class="pmk-btn pmk-install pmk-btn--' + meta.variant + '"' + attrs + '>' +
             '<i class="fa-solid fa-' + esc(meta.icon) + '"></i><span>' + esc(label) + '</span></button>';
     }
@@ -91,7 +91,8 @@
             tags +
             (meta ? '<div class="pmk-card-meta">' + esc(meta) + '</div>' : '') +
             compat +
-            '<details><summary data-pmk-facts="' + esc(card.pluginId) + '" data-pmk-version="' + esc(card.latestVersion) + '">'
+            (card.compatibilityNotice ? '<p class="pmk-card-compat pmk-card-compat--notice">' + esc(card.compatibilityNotice) + '</p>' : '') +
+            '<details><summary data-pmk-facts="' + esc(card.pluginId) + '" data-pmk-version="' + esc(card.targetVersion) + '">'
                 + esc(t('trust.facts', '来源与能力声明')) + '</summary><div data-pmk-facts-content>'
                 + global.PixivPluginPresentationTokens.trustLines(card.verification, PMK.state.i18n.client)
                     .map(function (line) { return '<p>' + esc(line) + '</p>'; }).join('') + '</div></details>' +
