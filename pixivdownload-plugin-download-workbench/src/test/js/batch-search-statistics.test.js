@@ -203,11 +203,53 @@ test('Pixiv 各取得入口在顶层携带原始数字取消键', () => {
     assert.strictEqual(scheduled.isAi, true);
 });
 
-test('搜索批量抓取与筛选状态统一走来源统计格式化入口', () => {
-    assert.ok(!SEARCH_SOURCE.includes("bt('search.summary.pixiv-total'"));
-    assert.ok(!FILTER_SOURCE.includes("bt('search.summary.pixiv-total'"));
-    assert.match(SEARCH_SOURCE, /parts\.push\(searchStatText\('total', searchState\.total\)\)/);
-    assert.match(SEARCH_SOURCE, /searchStatText\('batch-fetched', searchState\.rawResults\.length\)/);
-    assert.match(FILTER_SOURCE, /searchStatText\('current-page', stats\.rawCount\)/);
-    assert.match(FILTER_SOURCE, /searchStatText\('total', searchState\.total\)/);
+test('搜索和批量筛选摘要按来源渲染，切换语言保留原始计数', async () => {
+    let lang = 'en';
+    const calls = [];
+    const nodes = new Map();
+    const sandbox = vm.createContext({
+        window: {}, console, URLSearchParams,
+        storeSet() {},
+        document: {getElementById(id) {
+            if (!nodes.has(id)) nodes.set(id, {style: {}, value: '', textContent: ''});
+            return nodes.get(id);
+        }}
+    });
+    vm.runInContext(fs.readFileSync(path.join(BATCH_ROOT, 'batch-core.js'), 'utf8'), sandbox);
+    vm.runInContext(FILTER_SOURCE, sandbox);
+    vm.runInContext(SEARCH_SOURCE, sandbox);
+    sandbox.window.PixivBatch.queueTypes = {
+        manifestDescriptor: () => ({owner: {pluginId: 'fixture', generation: 1, publicationId: 1}}),
+        filtersFor: () => null,
+        acquisition: () => ({formatStats(metric, facts) {
+            calls.push([metric, facts.count, facts.submode]);
+            return `${lang}:${metric}:${facts.count}`;
+        }})
+    };
+    sandbox.renderSearchResults = sandbox.renderSearchPagination = sandbox.updateBatchQueueButtons = () => {};
+    sandbox.translator = {t(key, _fallback, args) { return interpolate(key, args); }};
+    vm.runInContext('pageI18n = translator', sandbox);
+    for (const submode of ['search', 'batch']) {
+        calls.length = 0;
+        lang = 'en';
+        vm.runInContext(`Object.assign(searchState, {
+            kind: 'fixture', submode: '${submode}', currentWord: 'fixture', total: 91,
+            rawResults: [{id: '1'}, {id: '2'}]
+        })`, sandbox);
+        const stats = await sandbox.applyCurrentSearchFilters({setStatus: true, filters: {}});
+        assert.strictEqual(stats.rawCount, 2);
+        assert.strictEqual(stats.filteredCount, 2);
+        const metric = submode === 'batch' ? 'batch-fetched' : 'current-page';
+        assert.ok(nodes.get('status-bar').textContent.includes(`en:${metric}:2`));
+        assert.ok(nodes.get('status-bar').textContent.includes('en:total:91'));
+        vm.runInContext('searchState.rawResults = []; searchState.total = 0', sandbox);
+        lang = 'ja';
+        sandbox.renderStatus();
+        assert.ok(nodes.get('status-bar').textContent.includes(`ja:${metric}:2`));
+        assert.ok(nodes.get('status-bar').textContent.includes('ja:total:91'));
+        assert.deepStrictEqual(calls, [
+            [metric, 2, submode], ['total', 91, submode],
+            [metric, 2, submode], ['total', 91, submode]
+        ]);
+    }
 });

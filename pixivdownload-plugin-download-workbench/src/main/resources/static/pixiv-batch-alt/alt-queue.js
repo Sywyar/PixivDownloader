@@ -240,7 +240,7 @@ function commitQueueItemPatch(item, patch) {
 function queueItemMessage(q) {
     if (!q) return '';
     return q.statusMessageKey
-        ? bt(q.statusMessageKey, q.lastMessage || queueStatusText(q.status))
+        ? bt(q.statusMessageKey, q.lastMessage || queueStatusText(q.status), {count: q.downloadedCount})
         : q.lastMessage || queueStatusText(q.status);
 }
 
@@ -269,7 +269,7 @@ async function handleExport() {
     }
     const lines = buildQueueExportLines(state.queue);
     downloadTxt(lines.join('\n'), `pixiv_all_list_${Date.now()}.txt`);
-    setDockStatus(bt('status.exported-all', '已导出 {count} 个作品', {count: lines.length}), 'success');
+    setDockStatus({key: 'status.exported-all', fallback: '已导出 {count} 个作品', args: {count: lines.length}}, 'success');
 }
 
 async function handleExportFailed() {
@@ -280,7 +280,7 @@ async function handleExportFailed() {
     }
     const lines = buildQueueExportLines(items);
     downloadTxt(lines.join('\n'), `pixiv_undownloaded_list_${Date.now()}.txt`);
-    setDockStatus(bt('status.exported-undownloaded', '已导出 {count} 个未下载作品', {count: lines.length}), 'success');
+    setDockStatus({key: 'status.exported-undownloaded', fallback: '已导出 {count} 个未下载作品', args: {count: lines.length}}, 'success');
 }
 
 /* ============================================================
@@ -365,12 +365,19 @@ function clearSavedQueue() {
 /* ============================================================
    下载坞渲染
    ============================================================ */
-function setDockStatus(text, tone) {
-    dockState.statusText = text || '';
+function setDockStatus(message, tone) {
+    dockState.statusMessage = message;
     dockState.statusTone = tone || 'info';
+    renderDockStatus();
+}
+
+function renderDockStatus() {
     const node = document.getElementById('abDockStatus');
     if (!node) return;
-    node.textContent = dockState.statusText;
+    const message = dockState.statusMessage;
+    node.textContent = message && typeof message === 'object'
+        ? bt(message.key, message.fallback, message.args)
+        : message || bt('status.ready', '准备就绪');
     node.dataset.tone = dockState.statusTone;
 }
 
@@ -513,8 +520,6 @@ function renderDock() {
     const controls = el('div', 'ab-dock-controls card');
     const statusLine = el('p', 'ab-dock-status');
     statusLine.id = 'abDockStatus';
-    statusLine.dataset.tone = 'info';
-    statusLine.textContent = dockState.statusText || bt('status.ready', '准备就绪');
     controls.appendChild(statusLine);
     const btnRow = el('div', 'ab-dock-btns');
     const startBtn = el('button', 'ab-btn ab-btn--primary');
@@ -584,6 +589,7 @@ function renderDock() {
     list.id = 'abQueueList';
     body.appendChild(list);
 
+    renderDockStatus();
     renderCurrent(null);
     renderQueue();
     updateStats();

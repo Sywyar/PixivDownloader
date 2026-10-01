@@ -264,6 +264,10 @@
     }
 
     function queueMessageModel(q, fallbackText) {
+        if (q.status === 'completed' && q.statusMessageKey) {
+            return buildPostDownloadMessageParts(fallbackText, 'success', q)
+                .map(part => ({text: part.text, color: toneColor(part.tone, statusColor(q.status))}));
+        }
         if (!q.statusMessageKey && Array.isArray(q.lastMessageParts) && q.lastMessageParts.length) {
             return q.lastMessageParts
                 .map(part => ({text: part.text, color: toneColor(part.tone, statusColor(q.status))}));

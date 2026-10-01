@@ -107,12 +107,16 @@
             variant: userState.variant
         };
     }
-    function userEmptyMessage() {
+    function userEmptyStatusMessage() {
+        return {userEmpty: {kind: userState.kind, owner: statusAcquisitionOwner(userState.kind),
+            context: userAcquisitionContext()}};
+    }
+    function userEmptyMessage(snapshot) {
         const fallback = bt('status.user-no-artworks', '该用户暂无作品');
-        const acq = userAcq();
+        const acq = snapshot ? statusAcquisition(snapshot, 'user') : userAcq();
         if (!acq || typeof acq.emptyMessage !== 'function') return fallback;
         try {
-            const message = acq.emptyMessage(userAcquisitionContext());
+            const message = acq.emptyMessage(snapshot ? snapshot.context : userAcquisitionContext());
             return typeof message === 'string' && message.trim() ? message : fallback;
         } catch (e) {
             console.warn('[user] 获取空态文案失败：', e);

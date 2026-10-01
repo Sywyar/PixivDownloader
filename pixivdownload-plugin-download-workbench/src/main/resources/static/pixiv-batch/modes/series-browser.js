@@ -209,9 +209,9 @@
                         await loadSeriesSelection(acquisition.type, selection);
                     } catch (error) {
                         if (!isCurrent()) return;
-                        setStatus(bt('status.series-load-failed', '加载失败：{message}', {
+                        setStatus({key: 'status.series-load-failed', fallback: '加载失败：{message}', args: {
                             message: error && error.message ? error.message : String(error)
-                        }), 'error');
+                        }}, 'error');
                     }
                 });
                 list.appendChild(button);

@@ -4,12 +4,12 @@
         if (state.queue.some(item => item.recoveryState)) {
             await reconcileRestoredQueue();
             if (state.queue.some(item => item.recoveryState)) {
-                setStatus(bt('batch:queue.recovery.waiting'), 'warning');
+                setStatus({key: 'batch:queue.recovery.waiting'}, 'warning');
                 return;
             }
         }
         if (state.queue.length === 0) {
-            setStatus(bt('status.queue-empty', '队列为空'), 'error');
+            setStatus({key: 'status.queue-empty', fallback: '队列为空'}, 'error');
             return;
         }
         if (!await checkBackend()) {
@@ -38,7 +38,7 @@
             updateStats();
             saveQueue();
             renderQueue();
-            setStatus(bt('status.batch-finished', '批量下载结束'), 'info');
+            setStatus({key: 'status.batch-finished', fallback: '批量下载结束'}, 'info');
             updateButtonsState();
             return;
         }
@@ -50,8 +50,7 @@
         saveQueue();
         renderQueue();
         setStatus(
-            bt('status.start-download', '开始下载 (并发:{concurrent}, 间隔:{intervalMs}ms)',
-                {concurrent: desiredConcurrency(), intervalMs: getIntervalMs()}),
+            {key: 'status.start-download', fallback: '开始下载 (并发:{concurrent}, 间隔:{intervalMs}ms)', args: {concurrent: desiredConcurrency(), intervalMs: getIntervalMs()}},
             'info'
         );
 
@@ -90,7 +89,7 @@
         closeAllSSE();
         state.isRunning = false;
         saveQueue();
-        setStatus(bt('status.batch-finished', '批量下载结束'), 'info');
+        setStatus({key: 'status.batch-finished', fallback: '批量下载结束'}, 'info');
         updateButtonsState();
         // 多人模式：队列完成后自动打包已下载文件（配额超限时已在 handleQuotaExceeded 中触发打包，不重复）
         if (quotaInfo.enabled) {
@@ -180,6 +179,7 @@
     // 插画 / 漫画 / 动图下载流程（注册为内置 illust 作品类型的下载行为）。
     async function processIllustItem(item, invocation) {
         assertProcessInvocation(invocation);
+        item.statusMessageKey = null;
         item.lastMessage = bt('queue.message.checking-history', '正在检查历史记录...');
         renderQueue(item, true);
 
@@ -240,7 +240,7 @@
         assertProcessInvocation(invocation);
         item.lastMessage = bt('queue.message.fetching-info', '正在获取作品信息...');
         setCurrent(item);
-        setStatus(bt('status.fetching-metadata', '获取信息：{id}', {id: item.id}), 'info');
+        setStatus({key: 'status.fetching-metadata', fallback: '获取信息：{id}', args: {id: item.id}}, 'info');
         renderQueue(item, true);
 
         try {
@@ -293,7 +293,7 @@
             saveQueue();
             renderQueue(item, true);
 
-            setStatus(bt('status.downloading-title', '下载中：{title}', {title: item.title}), 'info');
+            setStatus({key: 'status.downloading-title', fallback: '下载中：{title}', args: {title: item.title}}, 'info');
             const fallbackAuthorId = isUserMode ? normalizeAuthorId(state.userId) : null;
             const fallbackAuthorName = isUserMode ? (item.username || state.username || state.userId || '') : '';
             const seriesInfo = (item.seriesId && item.seriesId > 0)
@@ -322,7 +322,7 @@
                 updateStats();
                 saveQueue();
                 renderQueue(item, true);
-                setStatus(bt('status.skipped-downloaded-title', '跳过：{title}（已下载）', {title: item.title}), 'info');
+                setStatus({key: 'status.skipped-downloaded-title', fallback: '跳过：{title}（已下载）', args: {title: item.title}}, 'info');
                 return;
             }
             openSSE(item.id);
@@ -359,16 +359,13 @@
                         final
                     );
                     item.lastMessageParts = buildPostDownloadMessageParts(baseMessage, 'error', final);
-                    setStatus(bt('status.failed-files-missing-title', '失败：{title} (文件缺失)', {title: item.title}), 'error');
+                    setStatus({key: 'status.failed-files-missing-title', fallback: '失败：{title} (文件缺失)', args: {title: item.title}}, 'error');
                 } else {
                     item.status = 'completed';
-                    const baseMessage = bt('queue.message.completed-images', '已完成，共 {count} 张', {count: dCount});
-                    item.lastMessage = appendPostDownloadOutcome(
-                        baseMessage,
-                        final
-                    );
-                    item.lastMessageParts = buildPostDownloadMessageParts(baseMessage, 'success', final);
-                    setStatus(bt('status.completed-title', '完成：{title}', {title: item.title}), 'success');
+                    item.statusMessageKey = 'batch:queue.message.completed-images';
+                    item.lastMessage = '';
+                    item.lastMessageParts = null;
+                    setStatus({key: 'status.completed-title', fallback: '完成：{title}', args: {title: item.title}}, 'success');
                     // 刷新配额显示（每完成一个作品计 1）
                     if (quotaInfo.enabled) {
                         quotaInfo.artworksUsed = Math.min(quotaInfo.maxArtworks, quotaInfo.artworksUsed + 1);
@@ -384,7 +381,7 @@
                     '失败 — {message}',
                     {message: final.message || bt('status.backend-failure', '后端返回失败')}
                 );
-                setStatus(bt('status.failed-title', '失败：{title}', {title: item.title}), 'error');
+                setStatus({key: 'status.failed-title', fallback: '失败：{title}', args: {title: item.title}}, 'error');
             } else {
                 try {
                     const check = await getDownloadStatus(item.id, invocation);
@@ -420,16 +417,9 @@
                             item.lastMessageParts = buildPostDownloadMessageParts(baseMessage, 'error', check);
                         } else {
                             item.status = 'completed';
-                            const baseMessage = bt(
-                                'queue.message.completed-confirmed',
-                                '已完成（确认），共 {count} 张',
-                                {count: dCount}
-                            );
-                            item.lastMessage = appendPostDownloadOutcome(
-                                baseMessage,
-                                check
-                            );
-                            item.lastMessageParts = buildPostDownloadMessageParts(baseMessage, 'success', check);
+                            item.statusMessageKey = 'batch:queue.message.completed-confirmed';
+                            item.lastMessage = '';
+                            item.lastMessageParts = null;
                         }
                     } else {
                         item.status = 'failed';
@@ -443,6 +433,7 @@
             }
         } catch (e) {
             assertProcessInvocation(invocation);
+            item.statusMessageKey = null;
             if (handlePathActionError(item, e)) {
                 // 用户取消只跳过此作品，关闭弹窗则保留为待处理。
             } else if (e.message === 'quota_exceeded') {
@@ -452,7 +443,7 @@
             } else {
                 item.status = 'failed';
                 item.lastMessage = bt('queue.message.failed-backend', '失败 — {message}', {message: e.message});
-                setStatus(bt('status.error-item', '错误：{id} — {message}', {id: item.id, message: e.message}), 'error');
+                setStatus({key: 'status.error-item', fallback: '错误：{id} — {message}', args: {id: item.id, message: e.message}}, 'error');
             }
         } finally {
             closeSSE(item.id);

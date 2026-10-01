@@ -93,6 +93,24 @@ function quickType(type, extra = {}) {
     };
 }
 
+test('快捷获取空作品与越界空页不请求卡片，仍发布完整空结果', async () => {
+    for (const [ids, page] of [[[], 1], [['1', '2'], 2]]) {
+        const descriptor = {allIdsFastPath: true};
+        const acquisition = quickType('image', {buildMyWorksIdsRequest: id => ({endpoint: '/ids/' + id})});
+        const h = harness({quick: {image: acquisition}}, ({operation}) => {
+            assert.equal(operation, 'ids');
+            return {ids};
+        });
+        h.c.run("Object.assign(quickState, {source:'fixture', kind:'image', uid:'author'})");
+        await h.c.loadQuickWorks({id: 'my-works', descriptor}, page);
+        assert.equal(h.c.run('quickState.error'), '');
+        assert.equal(h.c.run('quickState.loading'), false);
+        assert.equal(h.c.run('quickState.items.length'), 0);
+        assert.equal(h.c.run('quickState.total'), ids.length);
+        assert.equal(h.calls.length, 1);
+    }
+});
+
 test('关注用户展开支持所有已贡献类型、完整分页和全量入队', async () => {
     const action = {viewType: 'following-list', userWorkTypes: ['image', 'text']};
     const image = quickType('image', {actions: {following: action}});
@@ -112,6 +130,24 @@ test('关注用户展开支持所有已贡献类型、完整分页和全量入�
     assert.deepEqual(h.batches[0].ids, ['text:1', 'text:2', 'text:3', 'text:4', 'text:5']);
     assert.equal(h.batches[0].metas[4].typeData.author, 'author');
     assert.equal(h.batches[0].metas[4].canonicalUrl, 'https://example.test/5');
+});
+
+test('空画师列表不请求卡片，保持正常空结果与分页状态', async () => {
+    const acquisition = quickType('image', {
+        parseInput: value => value,
+        fetchIds: async () => [],
+        cardsEndpoint: id => '/cards/' + id
+    });
+    const h = harness({user: {image: acquisition}}, () => {
+        throw new Error('empty card request');
+    });
+    h.c.run("Object.assign(userState, {source:'fixture',kind:'image',input:'author'})");
+    await h.c.loadUserWorks(1);
+    assert.equal(h.c.run('userState.error'), '');
+    assert.equal(h.c.run('userState.loading'), false);
+    assert.equal(h.c.run('userState.rawItems.length'), 0);
+    assert.equal(h.c.run('userState.total'), 0);
+    assert.equal(h.calls.length, 0);
 });
 
 test('游标关注作品翻回已访问页使用对应游标，不借用下一页游标', async () => {

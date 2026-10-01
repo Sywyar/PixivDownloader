@@ -452,24 +452,20 @@
         updateBatchQueueButtons();
 
         if (options.setStatus && searchState.currentWord) {
-            const prefix = options.statusPrefix || bt('status.search-filters-applied', '已应用筛选：');
+            const prefix = options.statusPrefix || {key: 'status.search-filters-applied', fallback: '已应用筛选：'};
             const parts = [searchState.submode === 'batch'
-                ? searchStatText('batch-fetched', stats.rawCount)
-                : searchStatText('current-page', stats.rawCount)];
+                ? searchStatMessage('batch-fetched', stats.rawCount)
+                : searchStatMessage('current-page', stats.rawCount)];
             if (hasExtraSearchFilter(filters)) {
-                parts.push(bt('search.summary.filtered-count', '筛选后 {count} 个', {count: stats.filteredCount}));
+                parts.push({key: 'search.summary.filtered-count', fallback: '筛选后 {count} 个', args: {count: stats.filteredCount}});
                 if (stats.bookmarkMetaMissing > 0) {
-                    parts.push(bt(
-                        'search.summary.bookmark-missing',
-                        '{count} 个收藏数不可用已排除',
-                        {count: stats.bookmarkMetaMissing}
-                    ));
+                    parts.push({key: 'search.summary.bookmark-missing', fallback: '{count} 个收藏数不可用已排除', args: {count: stats.bookmarkMetaMissing}});
                 }
             } else {
-                parts.push(bt('status.search-no-extra-filters', '未启用附加筛选'));
+                parts.push({key: 'status.search-no-extra-filters', fallback: '未启用附加筛选'});
             }
-            parts.push(searchStatText('total', searchState.total));
-            setStatus(prefix + summaryJoin(parts), 'success');
+            parts.push(searchStatMessage('total', searchState.total));
+            setStatus([prefix, {parts, separator: 'enum'}], 'success');
         }
 
         return stats;

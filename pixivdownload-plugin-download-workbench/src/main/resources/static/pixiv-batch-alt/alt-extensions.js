@@ -58,7 +58,15 @@ let altLanguageRevision = 0;
 async function refreshAltI18n() {
     if (!window.PixivI18n) return;
     const revision = ++altLanguageRevision;
-    const client = await PixivI18n.create({namespaces: await altI18nNamespaces()});
+    const namespaces = await altI18nNamespaces();
+    let client;
+    while (revision === altLanguageRevision) {
+        const previous = pageI18n;
+        const lang = previous && previous.lang;
+        client = await PixivI18n.create({namespaces, lang});
+        if (revision !== altLanguageRevision) return;
+        if (pageI18n === previous && (!previous || previous.lang === lang)) break;
+    }
     if (revision !== altLanguageRevision) return;
     pageI18n = client;
     pageI18n.apply();

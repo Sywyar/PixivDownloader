@@ -213,8 +213,9 @@ async function loadQuickWorks(action, page) {
                 }
                 total = quickState.allIds.length;
                 const pageIds = quickState.allIds.slice((page - 1) * limit, page * limit);
-                const data = await altAcquisitionJson(acquisition.type, 'quick',
-                    (descriptor.buildCardsRequest || acquisition.buildCardsRequest)(quickState.uid, pageIds), 'cards', context);
+                const data = pageIds.length ? await altAcquisitionJson(acquisition.type, 'quick',
+                    (descriptor.buildCardsRequest || acquisition.buildCardsRequest)(quickState.uid, pageIds), 'cards', context)
+                    : {items: []};
                 items = normalizeAcquisitionItems(data.items || [], acquisition, context, 'quick');
                 totalPages = Math.max(1, Math.ceil(total / limit));
             } else {

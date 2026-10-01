@@ -119,13 +119,13 @@
                     saveQueue();
                     renderQueue();
                 }
-                setStatus(bt('status.already-in-queue', '已在队列中：{title}', {title: item.title}), 'info');
+                setStatus({key: 'status.already-in-queue', fallback: '已在队列中：{title}', args: {title: item.title}}, 'info');
                 return;
             }
             const removed = removeFromQueue(queueId);
             setStatus(removed
-                    ? bt('status.removed-from-queue', '已从队列移除：{title}', {title: item.title})
-                    : bt('status.cannot-remove-downloading', '无法移除（正在下载中）：{title}', {title: item.title}),
+                    ? {key: 'status.removed-from-queue', fallback: '已从队列移除：{title}', args: {title: item.title}}
+                    : {key: 'status.cannot-remove-downloading', fallback: '无法移除（正在下载中）：{title}', args: {title: item.title}},
                 removed ? 'info' : 'warning');
             return;
         }
@@ -138,8 +138,8 @@
             userState.username || userState.userId
         );
         setStatus(added > 0
-                ? bt('status.added-to-queue', '已加入队列：{title}', {title: item.title})
-                : bt('status.already-in-queue', '已在队列中：{title}', {title: item.title}),
+                ? {key: 'status.added-to-queue', fallback: '已加入队列：{title}', args: {title: item.title}}
+                : {key: 'status.already-in-queue', fallback: '已在队列中：{title}', args: {title: item.title}},
             added > 0 ? 'success' : 'info');
         syncUserResultsQueueState();
     }
@@ -153,8 +153,7 @@
             userState.username || userState.userId, userState.userId, userState.username || userState.userId
         );
         setStatus(
-            bt('status.added-current-series-page-to-queue', '已将当前页 {added} 个作品加入队列（本页 {total} 个，{existing} 个已在队列中）',
-                {added, total: ids.length, existing: ids.length - added}),
+            {key: 'status.added-current-series-page-to-queue', fallback: '已将当前页 {added} 个作品加入队列（本页 {total} 个，{existing} 个已在队列中）', args: {added, total: ids.length, existing: ids.length - added}},
             added > 0 ? 'success' : 'info'
         );
         syncUserResultsQueueState();
@@ -174,8 +173,7 @@
                 userState.username || userState.userId, userState.userId, userState.username || userState.userId
             );
             setStatus(
-                bt('status.added-many-to-queue', '已将 {added} 个作品加入队列（共 {total} 个，{existing} 个已在队列中）',
-                    {added, total: ids.length, existing: ids.length - added}),
+                {key: 'status.added-many-to-queue', fallback: '已将 {added} 个作品加入队列（共 {total} 个，{existing} 个已在队列中）', args: {added, total: ids.length, existing: ids.length - added}},
                 added > 0 ? 'success' : 'info'
             );
             syncUserResultsQueueState();
@@ -211,10 +209,10 @@
                     const pageData = await fetchUserPage(page, lease);
                     lease.assertCurrent();
                     if (requestSeq !== userState.requestSeq) return;
-                    setStatus(bt('status.user-fetch-all-progress', '正在抓取画师作品卡片 {done} / {total}...', {
+                    setStatus({key: 'status.user-fetch-all-progress', fallback: '正在抓取画师作品卡片 {done} / {total}...', args: {
                         done: Math.min(page * pageSize, pageData.total),
                         total: pageData.total
-                    }), 'info');
+                    }}, 'info');
                     if (hasExtraSearchFilter(filters)) {
                         const result = await computeFilteredItems(pageData.items, filters, kind, () => false);
                         lease.assertCurrent();
@@ -230,10 +228,10 @@
                 const total = userState.allIds.length;
                 for (let i = 0; i < userState.allIds.length; i += pageSize) {
                     const slice = userState.allIds.slice(i, i + pageSize);
-                    setStatus(bt('status.user-fetch-all-progress', '正在抓取画师作品卡片 {done} / {total}...', {
+                    setStatus({key: 'status.user-fetch-all-progress', fallback: '正在抓取画师作品卡片 {done} / {total}...', args: {
                         done: Math.min(i + pageSize, total),
                         total
-                    }), 'info');
+                    }}, 'info');
                     const cards = await ensureUserCards(slice);
                     lease.assertCurrent();
                     if (requestSeq !== userState.requestSeq) return;
@@ -252,14 +250,13 @@
                 userState.username || userState.userId, userState.userId, userState.username || userState.userId
             );
             setStatus(
-                bt('status.added-many-to-queue', '已将 {added} 个作品加入队列（共 {total} 个，{existing} 个已在队列中）',
-                    {added, total: ids.length, existing: ids.length - added}),
+                {key: 'status.added-many-to-queue', fallback: '已将 {added} 个作品加入队列（共 {total} 个，{existing} 个已在队列中）', args: {added, total: ids.length, existing: ids.length - added}},
                 added > 0 ? 'success' : 'info'
             );
             syncUserResultsQueueState();
         } catch (e) {
             if (requestSeq !== userState.requestSeq || !lease.isCurrent()) return;
-            setStatus(bt('status.fetch-failed', '获取作品列表失败：{message}', {message: e.message}), 'error');
+            setStatus({key: 'status.fetch-failed', fallback: '获取作品列表失败：{message}', args: {message: e.message}}, 'error');
         } finally {
             if (requestSeq !== userState.requestSeq || !lease.isCurrent()) return;
             updateUserQueueButtons();

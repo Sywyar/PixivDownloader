@@ -544,7 +544,7 @@ ok('search submode switcher 使用稳定 root 事件委托',
     ok('search 保留旧 type 但能力已撤回时两种入口都只报告类型不可用',
         statuses.length === 2
         && statuses.every(status => status.level === 'warning'
-            && status.message.includes('该类型当前不可用')));
+            && status.message.key === 'queue.message.type-unavailable'));
     ok('unsupported search 两种入口不进入 acquisition 或网络请求',
         acquisitionCalls === 0 && fetchCalls === 0);
     ok('unsupported search 两种入口不清空既有预览 state 与 DOM',

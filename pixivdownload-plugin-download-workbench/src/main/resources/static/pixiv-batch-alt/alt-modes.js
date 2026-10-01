@@ -210,7 +210,9 @@ function filterButton(id = 'abFilterBtn') {
     btn.id = id;
     btn.type = 'button';
     btn.appendChild(abIconEl('filter'));
-    btn.appendChild(el('span', '', bt('filters.title', '附加筛选')));
+    const label = el('span', '', bt('filters.title', '附加筛选'));
+    label.setAttribute('data-i18n', 'batch-alt:filters.title');
+    btn.appendChild(label);
     const badge = el('span', 'ab-badge');
     badge.dataset.filterBadge = '1';
     badge.hidden = true;
@@ -224,7 +226,9 @@ function settingsButton(id = 'abSettingsBtn') {
     btn.id = id;
     btn.type = 'button';
     btn.appendChild(abIconEl('sliders'));
-    btn.appendChild(el('span', '', bt('settings.title', '下载设置')));
+    const label = el('span', '', bt('settings.title', '下载设置'));
+    label.setAttribute('data-i18n', 'batch-alt:settings.title');
+    btn.appendChild(label);
     btn.addEventListener('click', openSettingsDrawer);
     return btn;
 }

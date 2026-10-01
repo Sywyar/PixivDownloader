@@ -146,11 +146,16 @@
     }
 
     // 来源只负责格式化自己的统计标签；宿主继续拥有统计口径、组合顺序与中性回退。
-    function searchStatText(metric, count) {
+    function searchStatMessage(metric, count) {
+        return {searchStat: {metric, count, submode: searchState.submode, kind: searchState.kind,
+            owner: statusAcquisitionOwner(searchState.kind)}};
+    }
+
+    function searchStatText(metric, count, snapshot) {
         const numericCount = Number(count);
         const safeCount = Number.isFinite(numericCount) ? Math.max(0, numericCount) : 0;
-        const context = Object.freeze({count: safeCount, submode: searchState.submode});
-        const acq = searchAcq();
+        const context = Object.freeze({count: safeCount, submode: snapshot ? snapshot.submode : searchState.submode});
+        const acq = snapshot ? statusAcquisition(snapshot, 'search') : searchAcq();
         if (acq && typeof acq.formatStats === 'function') {
             try {
                 const formatted = acq.formatStats(metric, context);
@@ -244,7 +249,7 @@
     async function performSearch(page) {
         const word = document.getElementById('search-word').value.trim();
         if (!word) {
-            setStatus(bt('alert.search-keyword-required', '请输入搜索关键词'), 'error');
+            setStatus({key: 'alert.search-keyword-required', fallback: '请输入搜索关键词'}, 'error');
             return;
         }
 
@@ -253,7 +258,7 @@
         const order = document.querySelector('input[name="search-order"]:checked').value;
         const kind = searchKindOwner(state.settings.searchKind);
         if (!kind) {
-            setStatus(bt('queue.message.type-unavailable', '该类型当前不可用（其插件已禁用），已暂停'), 'warning');
+            setStatus({key: 'queue.message.type-unavailable', fallback: '该类型当前不可用（其插件已禁用），已暂停'}, 'warning');
             return;
         }
 
@@ -308,41 +313,33 @@
             if (!filterStats) return;
             if (clientFilter > 0) {
                 const label = clientFilter === 2
-                    ? bt('search.content.r18g', 'R-18G ⚠')
-                    : bt('search.content.r18', 'R-18 ⚠');
+                    ? {key: 'search.content.r18g', fallback: 'R-18G ⚠'}
+                    : {key: 'search.content.r18', fallback: 'R-18 ⚠'};
                 const parts = [
-                    bt('search.summary.r18plus-raw', 'R-18+ 当前页原始 {count} 个', {count: pixivPageCount}),
-                    bt('search.summary.client-filtered', '{label} 筛后 {count} 个', {
+                    {key: 'search.summary.r18plus-raw', fallback: 'R-18+ 当前页原始 {count} 个', args: {count: pixivPageCount}},
+                    {key: 'search.summary.client-filtered', fallback: '{label} 筛后 {count} 个', args: {
                         label,
                         count: searchState.rawResults.length
-                    })
+                    }}
                 ];
                 if (hasExtraSearchFilter()) {
-                    parts.push(bt('search.summary.extra-filtered', '附加筛选后 {count} 个', {count: searchState.results.length}));
+                    parts.push({key: 'search.summary.extra-filtered', fallback: '附加筛选后 {count} 个', args: {count: searchState.results.length}});
                     if (searchState.filterSummary.bookmarkMetaMissing > 0) {
-                        parts.push(bt(
-                            'search.summary.bookmark-missing',
-                            '{count} 个收藏数不可用已排除',
-                            {count: searchState.filterSummary.bookmarkMetaMissing}
-                        ));
+                        parts.push({key: 'search.summary.bookmark-missing', fallback: '{count} 个收藏数不可用已排除', args: {count: searchState.filterSummary.bookmarkMetaMissing}});
                     }
                 }
-                parts.push(searchStatText('total', searchState.total));
-                setStatus(bt('status.search-complete', '搜索完成：{summary}', {summary: summaryJoin(parts)}), 'success');
+                parts.push(searchStatMessage('total', searchState.total));
+                setStatus({key: 'status.search-complete', fallback: '搜索完成：{summary}', args: {summary: {parts, separator: 'enum'}}}, 'success');
             } else {
-                const parts = [searchStatText('current-page', searchState.pixivPageCount)];
+                const parts = [searchStatMessage('current-page', searchState.pixivPageCount)];
                 if (hasExtraSearchFilter()) {
-                    parts.push(bt('search.summary.extra-filtered', '附加筛选后 {count} 个', {count: searchState.results.length}));
+                    parts.push({key: 'search.summary.extra-filtered', fallback: '附加筛选后 {count} 个', args: {count: searchState.results.length}});
                     if (searchState.filterSummary.bookmarkMetaMissing > 0) {
-                        parts.push(bt(
-                            'search.summary.bookmark-missing',
-                            '{count} 个收藏数不可用已排除',
-                            {count: searchState.filterSummary.bookmarkMetaMissing}
-                        ));
+                        parts.push({key: 'search.summary.bookmark-missing', fallback: '{count} 个收藏数不可用已排除', args: {count: searchState.filterSummary.bookmarkMetaMissing}});
                     }
                 }
-                parts.push(searchStatText('total', searchState.total));
-                setStatus(bt('status.search-complete', '搜索完成：{summary}', {summary: summaryJoin(parts)}), 'success');
+                parts.push(searchStatMessage('total', searchState.total));
+                setStatus({key: 'status.search-complete', fallback: '搜索完成：{summary}', args: {summary: {parts, separator: 'enum'}}}, 'success');
             }
         } catch (e) {
             if (requestSeq !== searchState.requestSeq || (request && !request.lease.isCurrent())) return;
@@ -588,21 +585,21 @@
                     saveQueue();
                     renderQueue();
                 }
-                setStatus(bt('status.already-in-queue', '已在队列中：{title}', {title: item.title}), 'info');
+                setStatus({key: 'status.already-in-queue', fallback: '已在队列中：{title}', args: {title: item.title}}, 'info');
                 return;
             }
             const removed = removeFromQueue(queueId);
             if (removed) {
-                setStatus(bt('status.removed-from-queue', '已从队列移除：{title}', {title: item.title}), 'info');
+                setStatus({key: 'status.removed-from-queue', fallback: '已从队列移除：{title}', args: {title: item.title}}, 'info');
             } else {
-                setStatus(bt('status.cannot-remove-downloading', '无法移除（正在下载中）：{title}', {title: item.title}), 'warning');
+                setStatus({key: 'status.cannot-remove-downloading', fallback: '无法移除（正在下载中）：{title}', args: {title: item.title}}, 'warning');
             }
             return;
         }
         const added = addItemsToQueue([queueId], [meta], searchQueueSource(), '');
         setStatus(added > 0
-                ? bt('status.added-to-queue', '已加入队列：{title}', {title: item.title})
-                : bt('status.already-in-queue', '已在队列中：{title}', {title: item.title}),
+                ? {key: 'status.added-to-queue', fallback: '已加入队列：{title}', args: {title: item.title}}
+                : {key: 'status.already-in-queue', fallback: '已在队列中：{title}', args: {title: item.title}},
             added > 0 ? 'success' : 'info');
     }
 
@@ -612,11 +609,7 @@
         const metas = searchState.results.map(searchQueueMeta);
         const added = addItemsToQueue(ids, metas, searchQueueSource(), '');
         setStatus(
-            bt(
-                'status.added-many-to-queue',
-                '已将 {added} 个作品加入队列（共 {total} 个，{existing} 个已在队列中）',
-                {added, total: ids.length, existing: ids.length - added}
-            ),
+            {key: 'status.added-many-to-queue', fallback: '已将 {added} 个作品加入队列（共 {total} 个，{existing} 个已在队列中）', args: {added, total: ids.length, existing: ids.length - added}},
             'success'
         );
     }
@@ -837,7 +830,7 @@
     async function runBatchFetch() {
         const word = document.getElementById('search-word').value.trim();
         if (!word) {
-            setStatus(bt('alert.search-keyword-required', '请输入搜索关键词'), 'error');
+            setStatus({key: 'alert.search-keyword-required', fallback: '请输入搜索关键词'}, 'error');
             return;
         }
         const {start, end} = getBatchRange();
@@ -848,7 +841,7 @@
         const order = document.querySelector('input[name="search-order"]:checked').value;
         const kind = searchKindOwner(state.settings.searchKind);
         if (!kind) {
-            setStatus(bt('queue.message.type-unavailable', '该类型当前不可用（其插件已禁用），已暂停'), 'warning');
+            setStatus({key: 'queue.message.type-unavailable', fallback: '该类型当前不可用（其插件已禁用），已暂停'}, 'warning');
             return;
         }
 
@@ -913,22 +906,20 @@
             if (!filterStats) return;
 
             const parts = [
-                searchStatText('batch-fetched', searchState.rawResults.length),
-                bt('search.batch.summary.range', '范围第 {start}–{end} 页', {
+                searchStatMessage('batch-fetched', searchState.rawResults.length),
+                {key: 'search.batch.summary.range', fallback: '范围第 {start}–{end} 页', args: {
                     start: data.startPage,
                     end: data.endPage
-                })
+                }}
             ];
             if (data.acceptedPages < data.requestedPages) {
-                parts.push(bt('search.batch.summary.limit-applied',
-                    'multi 模式上限 {limit} 页，请求 {requested} 页已限制',
-                    {limit: data.limitPage, requested: data.requestedPages}));
+                parts.push({key: 'search.batch.summary.limit-applied', fallback: 'multi 模式上限 {limit} 页，请求 {requested} 页已限制', args: {limit: data.limitPage, requested: data.requestedPages}});
             }
             if (hasExtraSearchFilter()) {
-                parts.push(bt('search.summary.extra-filtered', '附加筛选后 {count} 个', {count: searchState.results.length}));
+                parts.push({key: 'search.summary.extra-filtered', fallback: '附加筛选后 {count} 个', args: {count: searchState.results.length}});
             }
-            parts.push(searchStatText('total', searchState.total));
-            setStatus(bt('status.batch-fetch-complete', '批量获取完成：{summary}', {summary: summaryJoin(parts)}), 'success');
+            parts.push(searchStatMessage('total', searchState.total));
+            setStatus({key: 'status.batch-fetch-complete', fallback: '批量获取完成：{summary}', args: {summary: {parts, separator: 'enum'}}}, 'success');
         } catch (e) {
             if (requestSeq !== searchState.requestSeq || (request && !request.lease.isCurrent())) return;
             document.getElementById('search-results-area').innerHTML =
@@ -948,11 +939,7 @@
         const metas = view.items.map(searchQueueMeta);
         const added = addItemsToQueue(ids, metas, searchQueueSource(), '');
         setStatus(
-            bt(
-                'status.added-many-to-queue',
-                '已将 {added} 个作品加入队列（共 {total} 个，{existing} 个已在队列中）',
-                {added, total: ids.length, existing: ids.length - added}
-            ),
+            {key: 'status.added-many-to-queue', fallback: '已将 {added} 个作品加入队列（共 {total} 个，{existing} 个已在队列中）', args: {added, total: ids.length, existing: ids.length - added}},
             'success'
         );
     }
