@@ -18,7 +18,7 @@
     },
     "jsonSchemaValidator": "2.0.1",
     "jsonCanonicalization": "1.1",
-    "webpDecoder": "3.13.1"
+    "webpDecoder": "3.14.0"
   },
   "files": [
     {
