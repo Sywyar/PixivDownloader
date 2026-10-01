@@ -194,7 +194,7 @@
         if (!monthly || !monthly.length) {
             var empty = document.createElement('div');
             empty.className = 'empty-hint';
-            empty.textContent = t('monthly.empty', '暂无下载记录');
+            empty.textContent = t('monthly.empty', '暂无作品记录');
             wrap.appendChild(empty);
             show('monthlyPanel');
             return;
@@ -208,7 +208,7 @@
         var maxCount = monthly.reduce(function (m, x) { return Math.max(m, x.count); }, 0) || 1;
 
         var svg = svgEl('svg', { viewBox: '0 0 ' + W + ' ' + H, width: W, height: H,
-            role: 'img', 'aria-label': t('monthly.title', '按月下载量') });
+            role: 'img', 'aria-label': t('monthly.title', '现存作品按月分布') });
 
         svg.appendChild(svgEl('line', { class: 'chart-axis',
             x1: padL, y1: padT + innerH, x2: padL + innerW, y2: padT + innerH }));

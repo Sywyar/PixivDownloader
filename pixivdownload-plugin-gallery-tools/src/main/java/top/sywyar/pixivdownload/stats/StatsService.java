@@ -45,7 +45,7 @@ public class StatsService implements DesktopDashboardSource {
     }
 
     /**
-     * 发布现有统计总览能够直接证明的插画总数，不为桌面卡片新增查询或推断口径。
+     * 发布现有统计总览的累计作品下载次数，与 Web 仪表盘使用同一统计口径。
      *
      * @return stats owner 的桌面首页只读快照
      */
@@ -56,7 +56,7 @@ public class StatsService implements DesktopDashboardSource {
         DesktopDashboardCardContribution card = new DesktopDashboardCardContribution(
                 "total-artworks",
                 40,
-                text("overview.artworks", "Total artworks"),
+                text("overview.artworks", "Cumulative artwork downloads"),
                 DesktopUiText.raw(Long.toString(overview.totalArtworks())),
                 text("plugin.summary",
                         "Dashboard of download statistics such as artwork and image counts (admin only)."),
