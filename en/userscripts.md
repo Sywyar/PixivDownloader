@@ -18,7 +18,7 @@ Userscripts let you operate directly on Pixiv pages — while browsing, when you
 
 | Script Name | Purpose |
 |-------------|---------|
-| **All-in-One Bundle** | Includes all scripts below (recommended — install just this one) |
+| **All-in-One Bundle** | Includes the built-in download helpers; scripts supplied separately by plugins are not included |
 | Page Scrape Downloader | Batch check and download from search pages, ranking pages, etc. |
 | User Batch Downloader | One-click batch download all works from an artist profile page |
 | URL Batch Importer | Open a panel on any page to paste links for batch download |
@@ -27,6 +27,10 @@ Userscripts let you operate directly on Pixiv pages — while browsing, when you
 | Enhancement Toolbox | Downloaded artwork border markers, one-click cookie import, etc. |
 
 ---
+
+## Scripts supplied by plugins
+
+[PixivBatchDownloader import support](/en/pixiv-batch-downloader-import) automatically adds works completed by the external downloader to the gallery. Install the official plugin and restart the app, then install its companion userscript separately. All-in-One does not include this script. The plugin guide covers installation, the download directory and permissions.
 
 ## Installation
 
@@ -50,7 +54,7 @@ Userscripts let you operate directly on Pixiv pages — while browsing, when you
 
 ### All-in-One Bundle (Recommended)
 
-Install this package to get all features. If you already have standalone scripts installed, disable them after installing All-in-One to **avoid duplicate panel conflicts**.
+Install this package to get the built-in download helpers. If you already have standalone versions of its scripts installed, disable those versions after installing All-in-One to **avoid duplicate panel conflicts**. Keep the import script supplied separately by the plugin enabled.
 
 ### Page Scrape Downloader
 

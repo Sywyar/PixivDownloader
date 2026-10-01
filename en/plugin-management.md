@@ -52,6 +52,7 @@ Invalid values fail plugin-runtime initialization instead of silently falling ba
 - **Required external**: `download-workbench` provides the download page, download APIs, queue, userscript entry, Pixiv artwork proxy, and scheduled-task host. The default downloader package and default Windows installer bundle it. If it is missing, corrupted, incompatible, or fails verification, the app enters the recovery path.
 - **Official optional external plugins**: `gui-compose`, `gui-swing`, `gallery-tools`, `posthog`, `gallery`, `novel`, `notification`, `multi-mode-decision-survey`, `push`, `mail`, `tts`, and `ai` remain separate packages under the working directory's `plugins/` folder. Missing or disabling one withdraws only its own contributions and does not by itself trigger recovery.
 - **Required but not installed**: a plugin declared required but currently missing shows up as a "Not installed" placeholder so you can add it.
+- **Official plugins installed on demand**: [PixivBatchDownloader import support](/en/pixiv-batch-downloader-import) is available from the plugin market. Standard Windows and Java distributions do not preinstall it; the full offline bundle includes it.
 
 ---
 

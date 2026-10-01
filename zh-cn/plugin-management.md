@@ -53,7 +53,7 @@ worker 默认使用 128 MiB heap、128 MiB metaspace、64 MiB direct memory，�
 
 ### 发行包预置
 
-Windows、Java 标准包和 full-offline 包在 `plugins/` 预置同一官方分发集合，包括 required `download-workbench`、默认 `gui-compose` 和后备 `gui-swing`。Douyin 是普通第三方插件，只从自定义仓库或本地包安装。预置插件仍是独立 artifact，不会合入核心 Boot JAR。
+Windows 安装包与 Java 标准包在 `plugins/` 预置默认官方插件，包括 required `download-workbench`、默认 `gui-compose` 和后备 `gui-swing`。full-offline 包还包含官方可选插件。[PixivBatchDownloader 导入支持](/zh-cn/pixiv-batch-downloader-import)属于按需安装的官方插件，普通包不预装，离线全量包包含。Douyin 是普通第三方插件，只从自定义仓库或本地包安装。预置插件仍是独立 artifact，不会合入核心 Boot JAR。
 
 ### 本地上传
 

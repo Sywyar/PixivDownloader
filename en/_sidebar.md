@@ -13,6 +13,7 @@
   - [🖼️ Artwork Gallery](/en/gallery)
   - [⏰ Scheduled Tasks](/en/scheduled-tasks)
   - [🧩 Userscripts](/en/userscripts)
+  - [PixivBatchDownloader import support](/en/pixiv-batch-downloader-import)
 
 - **Reference**
   - [⚙️ Configuration](/en/configuration)

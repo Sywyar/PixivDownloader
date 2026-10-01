@@ -13,6 +13,7 @@
   - [🖼️ 作品画廊](/zh-cn/gallery)
   - [⏰ 计划任务](/zh-cn/scheduled-tasks)
   - [🧩 油猴脚本](/zh-cn/userscripts)
+  - [PixivBatchDownloader 导入支持](/zh-cn/pixiv-batch-downloader-import)
 
 - **参考**
   - [⚙️ 配置参考](/zh-cn/configuration)
