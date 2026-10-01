@@ -5,10 +5,12 @@ import lombok.extern.slf4j.Slf4j;
 import jakarta.validation.ConstraintViolation;
 import org.springframework.core.task.TaskRejectedException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.RestClientResponseException;
@@ -183,6 +185,15 @@ public class GlobalExceptionHandler {
                 : rawMessage;
         log.warn(logMessage("error.log.request.failed", fallbackLogDetail(rawMessage, e.getClass().getSimpleName())));
         return ResponseEntity.badRequest().body(error("error.request.param.invalid", message));
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ApiErrorResponse> handleMissingParameter(
+            MissingServletRequestParameterException e, Locale locale) {
+        String message = messages.getOrDefault(locale, "error.request.param.invalid", "请求参数错误");
+        log.warn(logMessage("error.log.request.param.validation-failed", e.getParameterName()));
+        return ResponseEntity.badRequest().contentType(MediaType.APPLICATION_JSON)
+                .body(error("error.request.param.invalid", message));
     }
 
     @ExceptionHandler(IOException.class)
