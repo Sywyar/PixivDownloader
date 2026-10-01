@@ -7,6 +7,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.graphics.toAwtImage
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -24,11 +25,17 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost
 import java.awt.Color
 import java.awt.image.BufferedImage
 import java.io.File
+import java.io.IOException
+import java.nio.file.Files
 import java.nio.file.Path
 import java.text.MessageFormat
 import java.util.Locale
 import java.util.Optional
 import java.util.Properties
+import java.util.concurrent.Semaphore
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.function.Function
 import javax.imageio.ImageIO
 import kotlin.test.*
@@ -36,6 +43,137 @@ import kotlin.test.*
 @OptIn(ExperimentalTestApi::class)
 class ToolsWorkspaceLayoutTest {
     @TempDir lateinit var temp: Path
+
+    @Test
+    @DisplayName("分类忙碌与失败保留缩略图，移动成功只解码下一组图片")
+    fun classificationRetainsPreviewUntilFolderChanges() = runComposeUiTest {
+        val folders = listOf(Files.createDirectory(temp.resolve("123")), Files.createDirectory(temp.resolve("456")))
+        val images = folders.mapIndexed { index, folder ->
+            folder.resolve("sample-$index.png").also {
+                ImageIO.write(BufferedImage(120, 160, BufferedImage.TYPE_INT_RGB), "png", it.toFile())
+            }
+        }
+        val target = Files.createDirectory(temp.resolve("classified"))
+        val attempts = AtomicInteger()
+        val proceed = Semaphore(0)
+        val succeeds = AtomicBoolean()
+        val overrides = hashMapOf<String, Function<Array<Any>, Any?>>(
+            "message" to Function { args -> message(args[0].toString(), *(args.getOrNull(1) as? Array<*> ?: emptyArray<Any>())) },
+            "loadImageClassifierSettings" to Function { DesktopUiToolHost.ImageClassifierSettings(temp.toString(), true, "http://localhost:6999", listOf(DesktopUiToolHost.ImageClassifierTarget(target.toString(), "Illustrations"))) },
+            "recordToolHistory" to Function { null },
+            "isImageClassifierDirectory" to Function { true },
+            "listImageClassifierFolders" to Function { folders },
+            "listImageClassifierImages" to Function { args -> listOf(images[folders.indexOf(args[0])]) },
+            "checkImageClassifierServer" to Function { DesktopUiToolHost.ImageClassifierServer(true, "http://localhost:6999") },
+            "resolveImageClassifierArtwork" to Function { args -> Optional.of(DesktopUiToolHost.ImageClassifierArtwork((args[0] as Path).fileName.toString().toLong(), "Example", 0)) },
+            "classifyImageFolder" to Function {
+                attempts.incrementAndGet()
+                check(proceed.tryAcquire(10, TimeUnit.SECONDS))
+                if (!succeeds.get()) throw IOException("Classification failed")
+                Files.move(images[0], target.resolve(images[0].fileName))
+                target
+            },
+            "deleteImageClassifierFolderIfEmpty" to Function { args -> Files.delete(args[0] as Path); null },
+        )
+        CountingPngReads().use { reads ->
+            DesktopConfigurationControllerTest.model(hashMapOf(), overrides).use { model ->
+                var snapshot by mutableStateOf(model.snapshot())
+                model.subscribeSnapshots { snapshot = it }.use {
+                    setContent {
+                        PixivDownloaderTheme("light") {
+                            DesktopShell(snapshot.document(), snapshot.revision(), ::resolve) { model.dispatch(snapshot, it) }
+                        }
+                    }
+                    onNodeWithText(message("desktop.ui.page.tools")).performClick()
+                    onNodeWithTag("tools.entry.classifier").performClick()
+                    waitUntilExactlyOneExists(hasContentDescription("sample-0.png"), timeoutMillis = 10_000)
+                    assertEquals(1, reads.count.get())
+                    onNodeWithTag("classifier.category.0.select").performClick()
+                    try {
+                        repeat(2) { attempt ->
+                            succeeds.set(attempt == 1)
+                            onNodeWithTag("classifier.classify").performClick()
+                            waitUntil { attempts.get() == attempt + 1 }
+                            onNodeWithTag("classifier.image.0.open").assertIsNotEnabled()
+                            waitForIdle()
+                            onNodeWithContentDescription("sample-0.png").assertIsDisplayed()
+                            assertEquals(1, reads.count.get(), "Busy state must preserve the decoded preview")
+                            proceed.release()
+                            waitUntil { !model.busy() }
+                            if (attempt == 0) {
+                                waitUntilExactlyOneExists(hasTestTag("classifier.image.0.open") and isEnabled())
+                                onNodeWithTag("classifier.image.0.open").assertIsEnabled()
+                                onNodeWithContentDescription("sample-0.png").assertIsDisplayed()
+                                assertEquals(1, reads.count.get(), "Failed move must retain the original preview")
+                                assertTrue(Files.exists(images[0]))
+                            }
+                        }
+                        waitUntilExactlyOneExists(hasContentDescription("sample-1.png"), timeoutMillis = 10_000)
+                        waitForIdle()
+                        onNodeWithContentDescription("sample-0.png").assertDoesNotExist()
+                        assertEquals(2, reads.count.get(), "Only the next folder needs a new decode")
+                        assertFalse(Files.exists(folders[0]))
+                        assertTrue(Files.exists(target.resolve(images[0].fileName)))
+                    } finally {
+                        proceed.release(2)
+                    }
+                    onNodeWithTag("tools.sheet.close").performClick()
+                }
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("打开与关闭分类预览保留当前缩略图，只有查看器执行新解码")
+    fun classifierPreviewRetainsThumbnail() = runComposeUiTest {
+        val image = temp.resolve("sample.png")
+        ImageIO.write(BufferedImage(120, 160, BufferedImage.TYPE_INT_RGB), "png", image.toFile())
+        val overrides = hashMapOf<String, Function<Array<Any>, Any?>>(
+            "message" to Function { args -> message(args[0].toString(), *(args.getOrNull(1) as? Array<*> ?: emptyArray<Any>())) },
+            "loadImageClassifierSettings" to Function { DesktopUiToolHost.ImageClassifierSettings(temp.toString(), true, "http://localhost:6999", emptyList()) },
+            "recordToolHistory" to Function { null },
+            "isImageClassifierDirectory" to Function { true },
+            "listImageClassifierFolders" to Function { listOf(temp.resolve("123")) },
+            "listImageClassifierImages" to Function { listOf(image) },
+            "checkImageClassifierServer" to Function { DesktopUiToolHost.ImageClassifierServer(true, "http://localhost:6999") },
+            "resolveImageClassifierArtwork" to Function { Optional.of(DesktopUiToolHost.ImageClassifierArtwork(123L, "Example", 0)) },
+        )
+        CountingPngReads().use { reads ->
+            DesktopConfigurationControllerTest.model(hashMapOf(), overrides).use { model ->
+                var snapshot by mutableStateOf(model.snapshot())
+                model.subscribeSnapshots { snapshot = it }.use {
+                    setContent {
+                        PixivDownloaderTheme("light") {
+                            DesktopShell(snapshot.document(), snapshot.revision(), ::resolve) { model.dispatch(snapshot, it) }
+                            snapshot.document().dialogs().forEach { dialog ->
+                                DocumentDialog(dialog, ::resolve, "Close", { model.dispatch(snapshot, it) }, snapshot.revision())
+                            }
+                        }
+                    }
+                    onNodeWithText(message("desktop.ui.page.tools")).performClick()
+                    onNodeWithTag("tools.entry.classifier").performClick()
+                    waitUntil(timeoutMillis = 10_000) {
+                        onAllNodesWithContentDescription("sample.png").fetchSemanticsNodes().isNotEmpty()
+                    }
+                    assertEquals(1, reads.count.get())
+                    repeat(2) { index ->
+                        onNodeWithTag("classifier.image.0.open").performClick()
+                        val viewer = hasContentDescription("sample.png") and !hasTestTag("classifier.image.0.open")
+                        waitUntilExactlyOneExists(viewer, timeoutMillis = 10_000)
+                        assertEquals(index + 2, reads.count.get(), "Viewer must decode once")
+                        onNode(viewer).performKeyInput { pressKey(Key.Escape) }
+                        waitUntil(timeoutMillis = 10_000) {
+                            onAllNodesWithTag("classifier.image.0.open").fetchSemanticsNodes().isNotEmpty() &&
+                                onAllNodesWithContentDescription("sample.png").fetchSemanticsNodes().isNotEmpty()
+                        }
+                        assertEquals(index + 2, reads.count.get(), "Thumbnail must survive viewer close")
+                    }
+                    onNodeWithTag("tools.sheet.close").performClick()
+                    onNodeWithTag("tools.sheet").assertDoesNotExist()
+                }
+            }
+        }
+    }
 
     @Test
     @DisplayName("真实工具模型直接进入分类与目录检查，紧凑表单、选择和修正动作保持可用")

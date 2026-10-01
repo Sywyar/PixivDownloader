@@ -109,7 +109,14 @@ private fun ClassifierWorkspace(
                         CupertinoText(label("classifier.empty-help"), fontSize = 12.sp, color = palette.secondaryText)
                     }
                 } else {
-                    AnimatedContent(thumbnails, transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(100)) }, label = "classifier-previews") { retained ->
+                    AnimatedContent(
+                        targetState = thumbnails,
+                        transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(100)) },
+                        contentKey = { items ->
+                            items.map { item -> descendants(item).firstOrNull { it is DesktopUiNode.Image || it is LocalImage } }
+                        },
+                        label = "classifier-previews",
+                    ) { retained ->
                         BoxWithConstraints {
                             val count = if (maxWidth < 450.dp) 3 else 4
                             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
