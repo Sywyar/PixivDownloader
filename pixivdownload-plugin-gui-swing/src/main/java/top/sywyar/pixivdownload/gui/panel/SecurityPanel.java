@@ -36,9 +36,7 @@ public class SecurityPanel extends JPanel {
         setLayout(new BorderLayout(0, 0));
         setBorder(BorderFactory.createEmptyBorder(16, 24, 16, 24));
 
-        JPanel content = new JPanel();
-        content.setOpaque(false);
-        content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
+        JPanel content = new ScrollablePagePanel();
         content.add(buildChangePasswordCard());
         content.add(Box.createVerticalGlue());
 
@@ -109,12 +107,15 @@ public class SecurityPanel extends JPanel {
         panel.add(form, BorderLayout.CENTER);
         panel.add(bottom, BorderLayout.SOUTH);
 
-        panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
         return panel;
     }
 
     private static JPanel createCard(String title) {
-        JPanel panel = new JPanel();
+        JPanel panel = new JPanel() {
+            @Override public Dimension getMaximumSize() {
+                return new Dimension(Integer.MAX_VALUE, getPreferredSize().height);
+            }
+        };
         panel.setOpaque(false);
         TitledBorder border = BorderFactory.createTitledBorder(title);
         border.setTitleJustification(TitledBorder.LEFT);
@@ -123,7 +124,6 @@ public class SecurityPanel extends JPanel {
                 BorderFactory.createEmptyBorder(10, 12, 12, 12)
         ));
         panel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
         return panel;
     }
 
@@ -257,9 +257,7 @@ public class SecurityPanel extends JPanel {
     }
 
     private static JLabel secondaryLabel(String text) {
-        JLabel label = new JLabel(text);
-        label.setForeground(Color.GRAY);
-        return label;
+        return ScrollablePagePanel.secondaryLabel(text);
     }
 
     private static String message(String code, Object... args) {
