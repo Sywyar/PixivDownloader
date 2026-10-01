@@ -27,6 +27,8 @@
 
 Pixiv 业务请求的 HTTP 传输由应用宿主提供，业务触发方则可能是下载工作台、小说插件或油猴脚本。下表按业务请求归属进行区分，不将共享传输层请求统一归类为核心请求。
 
+支持任务提交契约的宿主中，插件调用 SDK `DownloadTasks.submit`，或管理员向 `POST /api/download/tasks` 提交作品类型、ID 和输出选项，也会触发所属插件的下载。官方插画与小说处理器先从 Pixiv 取得元数据或正文，再沿用既有媒体下载与代理路由；取得凭据通过独立参数或 `X-Acquisition-Credential` 请求头传递，不进入公开事件和任务快照。工作台每 2 秒从同源 `GET /api/download/tasks` 刷新任务，页面隐藏或退出时停止轮询；取消按钮向具体任务的 `/cancel` 地址发送 POST，只请求该次执行协作停止。查询与取消本身不向 Pixiv 提交新的下载，刷新页面也不会重新提交任务。新接口以实际安装的宿主和 SDK 版本为准。
+
 | 请求所有者 | 目标地址 | 用途与主要发送内容 | 触发场景 | 代理与关闭方式 |
 | --- | --- | --- | --- | --- |
 | `download-workbench` 插件 | `https://www.pixiv.net/ajax/illust/**`、`/ajax/user/**`、`/ajax/search/artworks/**`、`/ajax/series/**`、`/ajax/collection/**`、`/ajax/follow_latest/illust`、`/rpc/index.php` | 获取插画、动图、画师、系列、搜索、收藏夹、关注动态和约稿等元数据；需要登录的请求会使用已配置的 Pixiv Cookie | 预览、快捷获取、提交下载、执行计划任务、回填作品信息或浏览相关取得模式时触发 | 经宿主提供给插件的 Pixiv HTTP 能力和所选代理路由；`download-workbench` 是必需插件（required），其缺失或不可用时主要下载功能不可用 |
