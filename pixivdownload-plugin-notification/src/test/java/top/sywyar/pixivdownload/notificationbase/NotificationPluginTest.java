@@ -168,6 +168,9 @@ class NotificationPluginTest {
         assertThat(plugin.uiSlots()).singleElement().satisfies(slot -> {
             assertThat(slot.target()).isEqualTo("topbar-actions");
             assertThat(slot.moduleUrl()).isEqualTo("/pixiv-notifications/batch-inbox-slot.js");
+            assertThat(slot.i18nNamespace()).isEqualTo(NotificationPlugin.ID);
+            assertThat(plugin.i18n()).anySatisfy(bundle ->
+                    assertThat(bundle.namespace()).isEqualTo(slot.i18nNamespace()));
         });
         assertThat(plugin.schema()).singleElement().satisfies(schema -> {
             assertThat(schema.tables()).hasSize(3);

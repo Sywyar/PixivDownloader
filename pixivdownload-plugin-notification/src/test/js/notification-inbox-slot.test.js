@@ -5,8 +5,12 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const {pathToFileURL} = require('node:url');
 
+const REPO = path.resolve(__dirname, '../../../..');
 const STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static');
+const I18N_SOURCE = fs.readFileSync(path.join(REPO,
+    'pixivdownload-app/src/main/resources/static/js/pixiv-i18n.js'), 'utf8');
 const SLOT_SOURCE = fs.readFileSync(path.join(STATIC, 'pixiv-notifications', 'batch-inbox-slot.js'), 'utf8');
 const PAGE_SOURCE = fs.readFileSync(path.join(STATIC, 'pixiv-notifications', 'pixiv-notifications.js'), 'utf8');
 const PAGE_HTML = fs.readFileSync(path.join(STATIC, 'pixiv-notifications.html'), 'utf8');
@@ -112,6 +116,8 @@ class El {
         if (selector.startsWith('.')) return this._classes().includes(selector.slice(1));
         const attribute = /^\[([^=]+)="([\s\S]*)"\]$/.exec(selector);
         if (attribute) return this.getAttribute(attribute[1]) === attribute[2];
+        const presentAttribute = /^\[([^=]+)\]$/.exec(selector);
+        if (presentAttribute) return this.getAttribute(presentAttribute[1]) !== null;
         return this.tag === selector.toLowerCase();
     }
     querySelectorAll(selector) {
@@ -354,12 +360,31 @@ function listTitle(document) {
     return title ? title.textContent : '';
 }
 
-test('下载页站内信槽位按真实响应渲染，并在未授权或 publication 清理时撤销', async () => {
+test('下载页站内信槽位保留节点热切语言，并在未授权或 publication 清理时撤销', async () => {
     const document = createDocument({slot: true});
     const location = createLocation();
     const window = createWindow(location);
     const requests = fetchQueue();
     requests.enqueue(response({messages: [pageMessage()], unreadCount: 3}));
+    const {parse} = await import(pathToFileURL(path.join(REPO, 'scripts/i18n/lib/properties-parser.mjs')));
+    const bundles = {};
+    for (const [lang, suffix] of [['en-US', '_en'], ['zh-CN', '']]) {
+        const parsed = parse(fs.readFileSync(path.join(STATIC, '..', 'i18n', 'web',
+            'notification' + suffix + '.properties'), 'utf8'));
+        assert.deepEqual(parsed.errors, []);
+        bundles[lang] = Object.fromEntries(parsed.entries.map(entry => [entry.key, entry.value]));
+    }
+    window.document = document;
+    window.fetch = async url => {
+        const parsed = new URL(url, location.origin);
+        const lang = parsed.searchParams.get('lang');
+        if (parsed.pathname === '/api/i18n/meta') return response({
+            currentLang: lang, defaultLang: 'en-US',
+            supportedLocales: Object.keys(bundles).map(tag => ({tag}))
+        });
+        assert.equal(parsed.pathname, '/api/i18n/messages/notification');
+        return response({messages: bundles[lang]});
+    };
     let initializer;
     let cleanup;
     let prepareCalls = 0;
@@ -368,11 +393,12 @@ test('下载页站内信槽位按真实响应渲染，并在未授权或 publica
     const sandbox = {
         window, document, location, fetch: requests.fetch, URLSearchParams,
         HTMLElement: function HTMLElement() {},
-        pageI18n: {lang: 'en-US', t: (_key, fallback) => fallback},
         console: {warn() {}, error() {}, log() {}}
     };
     sandbox.HTMLElement.prototype.popover = '';
     vm.createContext(sandbox);
+    vm.runInContext(I18N_SOURCE, sandbox);
+    sandbox.pageI18n = await window.PixivI18n.create({namespaces: ['notification'], lang: 'en-US'});
     vm.runInContext(SLOT_SOURCE, sandbox);
     assert.equal(typeof initializer, 'function');
     initializer({signal: new AbortController().signal, isActive: () => true, onCleanup(fn) { cleanup = fn; }});
@@ -382,11 +408,33 @@ test('下载页站内信槽位按真实响应渲染，并在未授权或 publica
     const button = host.querySelector('.notification-inbox-button');
     const popover = document.body.querySelector('.notification-inbox-popover');
     assert.equal(prepareCalls, 1);
-    assert.equal(button.getAttribute('aria-label'), '打开站内信');
+    assert.equal(button.getAttribute('aria-label'), bundles['en-US']['inbox.open']);
     assert.equal(popover.getAttribute('popover'), 'auto');
     assert.equal(button.querySelector('.notification-inbox-badge').textContent, '3');
     assert.match(requests.calls[0].url, /lang=en-US/);
     assert.equal(window.intervalCount(), 1);
+
+    popover.showPopover();
+    const category = popover.querySelector('.notification-category');
+    const title = popover.querySelector('.notification-item-title');
+    for (const lang of ['zh-CN', 'en-US']) {
+        sandbox.pageI18n = await sandbox.pageI18n.setLanguage(lang);
+        sandbox.pageI18n.apply();
+        assert.equal(host.querySelector('.notification-inbox-button'), button);
+        assert.equal(document.body.querySelector('.notification-inbox-popover'), popover);
+        assert.equal(popover.querySelector('.notification-category'), category);
+        assert.equal(popover.matches(':popover-open'), true);
+        assert.equal(button.getAttribute('aria-label'), bundles[lang]['inbox.open']);
+        assert.equal(button.getAttribute('title'), bundles[lang]['inbox.open']);
+        assert.equal(popover.getAttribute('aria-label'), bundles[lang]['inbox.latest']);
+        assert.equal(popover.querySelector('strong').textContent, bundles[lang]['inbox.latest']);
+        assert.equal(popover.querySelector('.notification-popover-all').textContent, bundles[lang]['inbox.view-all']);
+        assert.equal(category.textContent, bundles[lang]['inbox.category.system']);
+        assert.equal(popover.querySelector('.notification-item-title'), title);
+        assert.equal(title.textContent, pageMessage().title);
+        assert.equal(window.intervalCount(), 1);
+        assert.equal(requests.calls.length, 1);
+    }
 
     cleanup();
     assert.equal(host.querySelector('.notification-inbox-slot'), null);
