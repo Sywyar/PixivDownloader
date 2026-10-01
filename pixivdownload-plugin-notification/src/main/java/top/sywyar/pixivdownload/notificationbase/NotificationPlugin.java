@@ -25,6 +25,7 @@ import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 通知基础插件：拥有 {@code notification.scenario.*} 配置与管理员站内信介质。
@@ -98,8 +99,12 @@ public class NotificationPlugin implements PixivFeaturePlugin {
     @Override
     public List<WebUiSlotContribution> uiSlots() {
         return List.of(new WebUiSlotContribution(
-                ID + ".batch-topbar", "topbar-actions",
-                "/pixiv-notifications/batch-inbox-slot.js", 10));
+                ID + ".batch-topbar",
+                "topbar-actions",
+                "/pixiv-notifications/batch-inbox-slot.js",
+                10,
+                Map.of(),
+                ID));
     }
 
     @Override

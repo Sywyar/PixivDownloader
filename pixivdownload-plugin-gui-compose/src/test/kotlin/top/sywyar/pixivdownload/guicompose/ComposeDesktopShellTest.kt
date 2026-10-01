@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -26,6 +27,31 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 @DisplayName("Compose 根页面外壳")
 class ComposeDesktopShellTest {
+    @Test
+    @DisplayName("离开页面及重新进入后拒绝上一访问留下的点击回调")
+    fun rejectsActionsFromPreviousPageVisit() = runComposeUiTest {
+        var calls = 0
+        val button = DesktopUiNode.Button("run", "run.action", raw("Run"), null, DesktopUiNode.ButtonStyle.PRIMARY, true)
+        setContent {
+            PixivDownloaderTheme("light") {
+                DesktopShell(document(true, button), 1L, { it.fallback() }, { calls++ })
+            }
+        }
+        val oldClick = onNodeWithText("Run").fetchSemanticsNode().config[SemanticsActions.OnClick].action!!
+        onNodeWithText("Settings").performClick()
+        runOnIdle {
+            oldClick()
+            assertEquals(0, calls, "Leaving the page must revoke its callbacks")
+        }
+        onNodeWithText("Home").performClick()
+        runOnIdle {
+            oldClick()
+            assertEquals(0, calls, "Returning must not revive the previous page visit")
+        }
+        onNodeWithText("Run").performClick()
+        assertEquals(1, calls)
+    }
+
     @Test
     @DisplayName("引导进行中隐藏导航并让向导占满窗口")
     fun hidesNavigationWhileOnboardingIsIncomplete() = runComposeUiTest {

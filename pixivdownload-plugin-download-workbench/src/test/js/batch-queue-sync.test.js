@@ -526,7 +526,7 @@ function relationMergeBehavior(reasons) {
         cancelledItem === item && cancelledItem.cancelWorkKey === 'raw/work-key');
     ok('14: 取消请求成功只显示瞬时 i18n 状态提示',
         calls.statuses.at(-1).tone === 'success'
-        && calls.statuses.at(-1).message === '已请求取消下载'
+        && calls.statuses.at(-1).message.key === 'status.cancel-requested'
         && !Object.prototype.hasOwnProperty.call(item, 'cancelRequested'));
 
     sandbox.window.PixivBatch.queueTypes.cancel = async () => { throw new Error('HTTP 503'); };
@@ -534,7 +534,7 @@ function relationMergeBehavior(reasons) {
     await new Promise(resolve => setImmediate(resolve));
     ok('14: HTTP 失败只显示错误提示且不留下永久请求态',
         calls.statuses.at(-1).tone === 'error'
-        && calls.statuses.at(-1).message === '取消下载请求失败'
+        && calls.statuses.at(-1).message.key === 'status.cancel-failed'
         && !Object.prototype.hasOwnProperty.call(item, 'cancelRequested'));
 }
 

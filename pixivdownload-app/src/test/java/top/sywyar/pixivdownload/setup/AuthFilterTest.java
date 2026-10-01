@@ -542,6 +542,9 @@ class AuthFilterTest {
         @ValueSource(strings = {
                 "/css/admin-visibility.css",
                 "/vendor/fontawesome/css/all.min.css",
+                "/vendor/vue/vue.global.prod.js",
+                "/js/pixiv-onboarding.js",
+                "/css/pixiv-onboarding.css",
                 "/vendor/chartjs/chart.umd.js"
         })
         @DisplayName("solo 模式下非 intro/login/访客相关静态资源不应无条件公开")
@@ -820,7 +823,14 @@ class AuthFilterTest {
                 "/js/pixiv-side-modules.js",
                 "/js/pixiv-navigation.js",
                 "/js/pixiv-page-sections.js",
-                "/js/pixiv-drilldowns.js"
+                "/js/pixiv-drilldowns.js",
+                "/vendor/vue/vue.global.prod.js",
+                "/js/pixiv-onboarding-core.js",
+                "/js/pixiv-onboarding-overlay.js",
+                "/js/pixiv-onboarding-download.js",
+                "/js/pixiv-onboarding-gallery.js",
+                "/js/pixiv-onboarding.js",
+                "/css/pixiv-onboarding.css"
         })
         @DisplayName("访客邀请会话应能加载画廊/小说页共享静态依赖（含导航、页面区块与下钻渲染器）")
         void shouldAllowGuestInviteToLoadSharedStaticResource(String path) throws Exception {
@@ -839,6 +849,112 @@ class AuthFilterTest {
 
             verify(filterChain).doFilter(request, response);
             verify(guestInviteService).recordHit(1L);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {
+                "/vendor/chartjs/chart.umd.js",
+                "/vendor/vue/private.js",
+                "/api/admin/invites/access-check",
+                "/api/plugins/status"
+        })
+        @DisplayName("共享资源放行不应扩展到其它 vendor 资源或管理员 API")
+        void shouldRejectGuestOutsideSharedAssetAllowlist(String path) throws Exception {
+            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+                    1L, "invite-code", true, false, false,
+                    true, Set.of(), true, Set.of(),
+                    true, Set.of(), true, Set.of()
+            )));
+            request.setMethod("GET");
+            request.setRequestURI(path);
+            request.setRemoteAddr("192.168.1.100");
+            request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(403);
+            verify(filterChain, never()).doFilter(request, response);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"/api/collections/memberships", "/api/collections/novels/memberships"})
+        @DisplayName("访客可以调用精确声明的收藏归属只读 POST")
+        void shouldAllowGuestMembershipRead(String path) throws Exception {
+            when(rateLimitService.isAllowedForInvite("invite:invite-code")).thenReturn(true);
+            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+                    1L, "invite-code", true, false, false,
+                    true, Set.of(), true, Set.of(), true, Set.of(), true, Set.of())));
+            request.setMethod("POST");
+            request.setRequestURI(path);
+            request.setRemoteAddr("192.168.1.100");
+            request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
+            authFilter.doFilterInternal(request, response, filterChain);
+            assertThat(response.getStatus()).isEqualTo(200);
+            verify(rateLimitService).isAllowedForInvite("invite:invite-code");
+            verify(filterChain).doFilter(request, response);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"/api/collections/memberships", "/api/collections/novels/memberships"})
+        @DisplayName("收藏归属读取仍遵守邀请限流")
+        void shouldRateLimitGuestMembershipRead(String path) throws Exception {
+            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(userscriptGuest()));
+            request.setMethod("POST");
+            request.setRequestURI(path);
+            request.setRemoteAddr("192.168.1.100");
+            request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
+            authFilter.doFilterInternal(request, response, filterChain);
+            assertThat(response.getStatus()).isEqualTo(429);
+            verify(rateLimitService).isAllowedForInvite("invite:invite-code");
+            verify(filterChain, never()).doFilter(request, response);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"/api/collections", "/api/collections/7/artworks/123",
+                "/api/collections/7/novels/456", "/api/collections/7/icon"})
+        @DisplayName("收藏归属读取不扩大访客收藏写入能力")
+        void shouldRejectGuestCollectionWrites(String path) throws Exception {
+            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+                    1L, "invite-code", true, false, false,
+                    true, Set.of(), true, Set.of(), true, Set.of(), true, Set.of())));
+            request.setMethod("POST");
+            request.setRequestURI(path);
+            request.setRemoteAddr("192.168.1.100");
+            request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
+            authFilter.doFilterInternal(request, response, filterChain);
+            assertThat(response.getStatus()).isEqualTo(403);
+            verify(filterChain, never()).doFilter(request, response);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"/api/collections/memberships", "/api/collections/novels/memberships"})
+        @DisplayName("无会话请求不能调用收藏归属读取")
+        void shouldRejectUnauthenticatedMembershipRead(String path) throws Exception {
+            request.setMethod("POST");
+            request.setRequestURI(path);
+            request.setRemoteAddr("192.168.1.100");
+            authFilter.doFilterInternal(request, response, filterChain);
+            assertThat(response.getStatus()).isEqualTo(401);
+            verify(filterChain, never()).doFilter(request, response);
+        }
+
+        @Test
+        @DisplayName("访客共享资源只允许安全读取")
+        void shouldRejectGuestWriteToSharedAsset() throws Exception {
+            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+                    1L, "invite-code", true, false, false,
+                    true, Set.of(), true, Set.of(),
+                    true, Set.of(), true, Set.of()
+            )));
+            request.setMethod("POST");
+            request.setRequestURI("/vendor/vue/vue.global.prod.js");
+            request.setRemoteAddr("192.168.1.100");
+            request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(403);
+            verify(filterChain, never()).doFilter(request, response);
         }
 
         @ParameterizedTest

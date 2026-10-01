@@ -164,7 +164,7 @@
         saveUserInputDraft(selectedUserSourceId() || userInputDraftSourceId, rawInput);
         const selected = resolveUserSelection(state.settings.userKind, rawInput);
         if (!selected) {
-            setStatus(bt('queue.message.type-unavailable', '该类型当前不可用（其插件已禁用），已暂停'), 'warning');
+            setStatus({key: 'queue.message.type-unavailable', fallback: '该类型当前不可用（其插件已禁用），已暂停'}, 'warning');
             return;
         }
         const userId = selected.acquisition.parseInput(rawInput);
@@ -222,7 +222,7 @@
                 userState.totalPages = Math.max(1, Math.ceil(userState.total / userPageSize()));
                 if (!userState.allIds.length) {
                     const emptyMessage = userEmptyMessage();
-                    setStatus(emptyMessage, 'warning');
+                    setStatus(userEmptyStatusMessage(), 'warning');
                     const area = document.getElementById('user-results-area');
                     if (area) area.innerHTML = `<div class="preview-message preview-message--compact">${esc(emptyMessage)}</div>`;
                     renderUserPagination();
@@ -235,7 +235,7 @@
             if (requestSeq !== userState.requestSeq || !lease.isCurrent()) return;
             const area = document.getElementById('user-results-area');
             if (area) area.innerHTML = `<div class="preview-message preview-message--error">${esc(bt('status.fetch-failed', '获取作品列表失败：{message}', {message: e.message}))}</div>`;
-            setStatus(bt('status.fetch-failed', '获取作品列表失败：{message}', {message: e.message}), 'error');
+            setStatus({key: 'status.fetch-failed', fallback: '获取作品列表失败：{message}', args: {message: e.message}}, 'error');
             updateUserQueueButtons();
         }
     }
@@ -305,7 +305,7 @@
             if (userState.pagedAcquisition && p === 1 && !cards.length
                 && !userState.pageCache.get(p).hasMore) {
                 const emptyMessage = userEmptyMessage();
-                setStatus(emptyMessage, 'warning');
+                setStatus(userEmptyStatusMessage(), 'warning');
                 const area = document.getElementById('user-results-area');
                 if (area) area.innerHTML = `<div class="preview-message preview-message--compact">${esc(emptyMessage)}</div>`;
                 renderUserPagination();
@@ -317,16 +317,16 @@
             if (requestSeq !== userState.requestSeq) return;
             renderUserPagination();
             updateUserQueueButtons();
-            setStatus(bt('status.user-preview-loaded', '画师预览已加载：{name}（第 {page} / {total} 页）', {
+            setStatus({key: 'status.user-preview-loaded', fallback: '画师预览已加载：{name}（第 {page} / {total} 页）', args: {
                 name: userState.username,
                 page: userState.currentPage,
                 total: userState.totalPages
-            }), 'success');
+            }}, 'success');
         } catch (e) {
             if (requestSeq !== userState.requestSeq || !lease.isCurrent()) return;
             const area = document.getElementById('user-results-area');
             if (area) area.innerHTML = `<div class="preview-message preview-message--error">${esc(bt('status.fetch-failed', '获取作品列表失败：{message}', {message: e.message}))}</div>`;
-            setStatus(bt('status.fetch-failed', '获取作品列表失败：{message}', {message: e.message}), 'error');
+            setStatus({key: 'status.fetch-failed', fallback: '获取作品列表失败：{message}', args: {message: e.message}}, 'error');
             updateUserQueueButtons();
         }
     }
@@ -359,16 +359,16 @@
         updateUserQueueButtons();
 
         if (options.setStatus) {
-            const parts = [bt('search.summary.current-page', '当前页 {count} 个', {count: result.stats.rawCount})];
+            const parts = [{key: 'search.summary.current-page', fallback: '当前页 {count} 个', args: {count: result.stats.rawCount}}];
             if (hasExtraSearchFilter(filters)) {
-                parts.push(bt('search.summary.extra-filtered', '附加筛选后 {count} 个', {count: result.stats.filteredCount}));
+                parts.push({key: 'search.summary.extra-filtered', fallback: '附加筛选后 {count} 个', args: {count: result.stats.filteredCount}});
                 if (result.stats.bookmarkMetaMissing > 0) {
-                    parts.push(bt('search.summary.bookmark-missing', '{count} 个收藏数不可用已排除', {count: result.stats.bookmarkMetaMissing}));
+                    parts.push({key: 'search.summary.bookmark-missing', fallback: '{count} 个收藏数不可用已排除', args: {count: result.stats.bookmarkMetaMissing}});
                 }
             } else {
-                parts.push(bt('status.search-no-extra-filters', '未启用附加筛选'));
+                parts.push({key: 'status.search-no-extra-filters', fallback: '未启用附加筛选'});
             }
-            setStatus(bt('status.search-filters-applied', '已应用筛选：') + summaryJoin(parts), 'success');
+            setStatus([{key: 'status.search-filters-applied', fallback: '已应用筛选：'}, {parts, separator: 'enum'}], 'success');
         }
         return result.stats;
     }

@@ -196,7 +196,7 @@
         }
         const lines = buildQueueExportLines(state.queue);
         downloadTxt(lines.join('\n'), `pixiv_all_list_${Date.now()}.txt`);
-        setStatus(bt('status.exported-all', '已导出 {count} 个作品', {count: lines.length}), 'success');
+        setStatus({key: 'status.exported-all', fallback: '已导出 {count} 个作品', args: {count: lines.length}}, 'success');
     }
 
     async function handleExportFailed() {
@@ -208,7 +208,7 @@
         const lines = buildQueueExportLines(items);
         downloadTxt(lines.join('\n'), `pixiv_undownloaded_list_${Date.now()}.txt`);
         setStatus(
-            bt('status.exported-undownloaded', '已导出 {count} 个未下载作品', {count: lines.length}),
+            {key: 'status.exported-undownloaded', fallback: '已导出 {count} 个未下载作品', args: {count: lines.length}},
             'success'
         );
     }

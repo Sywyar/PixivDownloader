@@ -477,21 +477,21 @@
                     saveQueue();
                     renderQueue();
                 }
-                setStatus(bt('status.already-in-queue', '已在队列中：{title}', {title: item.title || id}), 'info');
+                setStatus({key: 'status.already-in-queue', fallback: '已在队列中：{title}', args: {title: item.title || id}}, 'info');
                 return;
             }
             const removed = removeFromQueue(id);
             setStatus(removed
-                    ? bt('status.removed-from-queue', '已从队列移除：{title}', {title: item.title || id})
-                    : bt('status.cannot-remove-downloading', '无法移除（正在下载中）：{title}', {title: item.title || id}),
+                    ? {key: 'status.removed-from-queue', fallback: '已从队列移除：{title}', args: {title: item.title || id}}
+                    : {key: 'status.cannot-remove-downloading', fallback: '无法移除（正在下载中）：{title}', args: {title: item.title || id}},
                 removed ? 'info' : 'warning');
             syncQuickQueueState();
             return;
         }
         const added = addItemsToQueue([id], [meta], QUICK_FETCH_MODE, '', meta.authorId, meta.authorName);
         setStatus(added > 0
-                ? bt('status.added-to-queue', '已加入队列：{title}', {title: item.title || id})
-                : bt('status.already-in-queue', '已在队列中：{title}', {title: item.title || id}),
+                ? {key: 'status.added-to-queue', fallback: '已加入队列：{title}', args: {title: item.title || id}}
+                : {key: 'status.already-in-queue', fallback: '已在队列中：{title}', args: {title: item.title || id}},
             added > 0 ? 'success' : 'info');
         syncQuickQueueState();
     }
@@ -502,8 +502,7 @@
         const metas = quickInner.items.map(item => buildQuickQueueMeta(item, item.kind || quickInner.kind));
         const added = addItemsToQueue(ids, metas, QUICK_FETCH_MODE, '', null, '');
         setStatus(
-            bt('status.added-current-series-page-to-queue', '已将当前页 {added} 个作品加入队列（本页 {total} 个，{existing} 个已在队列中）',
-                {added, total: ids.length, existing: ids.length - added}),
+            {key: 'status.added-current-series-page-to-queue', fallback: '已将当前页 {added} 个作品加入队列（本页 {total} 个，{existing} 个已在队列中）', args: {added, total: ids.length, existing: ids.length - added}},
             added > 0 ? 'success' : 'info'
         );
         syncQuickQueueState();
@@ -550,21 +549,19 @@
                         if (innerLoadSeq !== quickInner.loadSeq || quickInner.id !== collectionId) return;
                         acc(pageData.items);
                         hasMore = pageData.hasMore;
-                        setStatus(bt('status.series-fetch-all-progress', '正在补齐系列分页 {page} / {total}...',
-                            {page, total: Math.max(page, expectedPages)}), 'info');
+                        setStatus({key: 'status.series-fetch-all-progress', fallback: '正在补齐系列分页 {page} / {total}...', args: {page, total: Math.max(page, expectedPages)}}, 'info');
                         page++;
                     }
                 } catch (e) {
                     if (shouldIgnoreQuickOperationError(e, isCurrent())) return;
-                    setStatus(bt('status.fetch-failed', '获取作品列表失败：{message}', {message: e.message}), 'error');
+                    setStatus({key: 'status.fetch-failed', fallback: '获取作品列表失败：{message}', args: {message: e.message}}, 'error');
                     return;
                 } finally {
                     setQuickBtnLoading('quick-inner-add-all', false);
                 }
             }
             const added = addItemsToQueue(ids, metas, QUICK_FETCH_MODE, '', null, '');
-            setStatus(bt('status.added-many-to-queue', '已将 {added} 个作品加入队列（共 {total} 个，{existing} 个已在队列中）',
-                {added, total: ids.length, existing: ids.length - added}), added > 0 ? 'success' : 'info');
+            setStatus({key: 'status.added-many-to-queue', fallback: '已将 {added} 个作品加入队列（共 {total} 个，{existing} 个已在队列中）', args: {added, total: ids.length, existing: ids.length - added}}, added > 0 ? 'success' : 'info');
             syncQuickQueueState();
             return;
         }
@@ -608,29 +605,26 @@
                     if (innerLoadSeq !== quickInner.loadSeq || quickInner.userId !== userId) return;
                     acc(pageData.items);
                     hasMore = pageData.hasMore;
-                    setStatus(bt('status.user-fetch-all-progress', '正在抓取画师作品卡片 {done} / {total}...',
-                        {done: ids.length, total: pageData.total}), 'info');
+                    setStatus({key: 'status.user-fetch-all-progress', fallback: '正在抓取画师作品卡片 {done} / {total}...', args: {done: ids.length, total: pageData.total}}, 'info');
                     page++;
                 }
             } else {
                 for (let p = 1; p <= totalPages; p++) {
                     if (p === quickInner.page) continue;
-                    setStatus(bt('status.user-fetch-all-progress', '正在抓取画师作品卡片 {done} / {total}...',
-                        {done: ids.length, total: quickInner.total}), 'info');
+                    setStatus({key: 'status.user-fetch-all-progress', fallback: '正在抓取画师作品卡片 {done} / {total}...', args: {done: ids.length, total: quickInner.total}}, 'info');
                     acc(await quickFetchInnerPage(p, kind));
                     if (innerLoadSeq !== quickInner.loadSeq || quickInner.userId !== userId) return;
                 }
             }
             const added = addItemsToQueue(ids, metas, QUICK_FETCH_MODE, '', null, '');
             setStatus(
-                bt('status.added-many-to-queue', '已将 {added} 个作品加入队列（共 {total} 个，{existing} 个已在队列中）',
-                    {added, total: ids.length, existing: ids.length - added}),
+                {key: 'status.added-many-to-queue', fallback: '已将 {added} 个作品加入队列（共 {total} 个，{existing} 个已在队列中）', args: {added, total: ids.length, existing: ids.length - added}},
                 added > 0 ? 'success' : 'info'
             );
             syncQuickQueueState();
         } catch (e) {
             if (shouldIgnoreQuickOperationError(e, isCurrent())) return;
-            setStatus(bt('status.fetch-failed', '获取作品列表失败：{message}', {message: e.message}), 'error');
+            setStatus({key: 'status.fetch-failed', fallback: '获取作品列表失败：{message}', args: {message: e.message}}, 'error');
         } finally {
             setQuickBtnLoading('quick-inner-add-all', false);
         }

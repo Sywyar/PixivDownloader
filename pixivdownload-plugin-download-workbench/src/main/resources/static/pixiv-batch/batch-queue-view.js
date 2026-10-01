@@ -319,17 +319,17 @@
         const queueTypes = window.PixivBatch && window.PixivBatch.queueTypes;
         if (!item || item.status !== 'downloading' || !queueTypes
             || typeof queueTypes.cancel !== 'function' || !canCancelQueueItem(item)) {
-            setStatus(bt('status.cancel-failed', '取消下载请求失败'), 'error');
+            setStatus({key: 'status.cancel-failed', fallback: '取消下载请求失败'}, 'error');
             renderQueue();
             return false;
         }
         try {
             await queueTypes.cancel(item);
-            setStatus(bt('status.cancel-requested', '已请求取消下载'), 'success');
+            setStatus({key: 'status.cancel-requested', fallback: '已请求取消下载'}, 'success');
             return true;
         } catch (e) {
             console.warn('[queue] 队列单项取消请求失败：', item.kind, e);
-            setStatus(bt('status.cancel-failed', '取消下载请求失败'), 'error');
+            setStatus({key: 'status.cancel-failed', fallback: '取消下载请求失败'}, 'error');
             renderQueue();
             return false;
         }
@@ -401,7 +401,7 @@
     function queueItemModel(q, opts) {
         const removable = !opts || opts.removable !== false;
         const desc = q.statusMessageKey
-            ? bt(q.statusMessageKey, q.lastMessage || queueStatusText(q.status))
+            ? bt(q.statusMessageKey, q.lastMessage || queueStatusText(q.status), {count: q.downloadedCount})
             : (q.lastMessage || queueStatusText(q.status));
         const sourceDescriptor = queueDataSource(q);
         const acquisitionMode = queueAcquisitionMode(q.source);

@@ -97,6 +97,7 @@ const {
 
     async function processNovelItem(item, invocation) {
         assertNovelProcess(invocation);
+        item.statusMessageKey = null;
         item.lastMessage = bt('queue.message.fetching-info', '正在获取作品信息...');
         setCurrent(item);
         renderQueue();
@@ -234,7 +235,8 @@ const {
                         item.downloadedCount = 1;
                         item.bookmarkResult = status.bookmarkResult || null;
                         item.collectionResult = status.collectionResult || null;
-                        item.lastMessage = bt('queue.message.completed', '完成');
+                        item.statusMessageKey = 'batch:queue.message.completed';
+                        item.lastMessage = '';
                     }
                     item.endTime = new Date().toISOString();
                     updateStats();
@@ -265,6 +267,7 @@ const {
             renderQueue();
         } catch (e) {
             assertNovelProcess(invocation);
+            item.statusMessageKey = null;
             if (window.PixivBatch.pathActions.handleError(item, e)) {
                 updateStats();
                 saveQueue();
@@ -317,21 +320,19 @@ const {
                 isAdmin = false;
                 updateAuthButtons();
                 updateAdminPackButton();
-                setStatus(bt('status.login-expired', '登录状态已失效，请重新登录'), 'error');
+                setStatus({key: 'status.login-expired', fallback: '登录状态已失效，请重新登录'}, 'error');
                 return;
             }
             if (!res.ok || !data || data.success !== true) {
                 const message = data && (data.error || data.message) ? (data.error || data.message) : `HTTP ${res.status}`;
                 throw new Error(message);
             }
-            setStatus(bt('status.novel-series-merged', '小说系列合订本已生成（系列 {id}）', {id: seriesId}), 'success');
+            setStatus({key: 'status.novel-series-merged', fallback: '小说系列合订本已生成（系列 {id}）', args: {id: seriesId}}, 'success');
         } catch (e) {
             assertNovelProcess(invocation);
             console.warn(bt('download.log.novel-merge-failed', '小说合订本生成失败: seriesId={id}', {id: seriesId}), e);
             _novelMergeFiredSeries.delete(seriesId);
-            setStatus(bt('status.novel-series-merge-failed',
-                '小说系列合订本生成失败（系列 {id}）：{message}',
-                {id: seriesId, message: e.message || String(e)}), 'error');
+            setStatus({key: 'status.novel-series-merge-failed', fallback: '小说系列合订本生成失败（系列 {id}）：{message}', args: {id: seriesId, message: e.message || String(e)}}, 'error');
         }
     }
 

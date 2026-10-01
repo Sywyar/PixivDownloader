@@ -92,6 +92,9 @@ function userHarness(acquisition, fetchImpl) {
         uiConfirmKey: async () => true
     };
     vm.createContext(sandbox);
+    const fixtureBindings = {...sandbox};
+    vm.runInContext(fs.readFileSync(path.join(STATIC, 'batch-core.js'), 'utf8'), sandbox);
+    Object.assign(sandbox, fixtureBindings);
     vm.runInContext(USER_SOURCE
         + '\nwindow.__pagedUserTest = {userState, loadUserPreviewPage, renderUserResults,'
         + ' buildUserQueueMeta, addAllUserResultsToQueue, resetUserState, clearUserPreview};', sandbox);
@@ -171,8 +174,10 @@ test('user 空态钩子获得 variant 上下文并替换通用文案', async () 
     await h.loadPage(1);
 
     assert.match(h.elements['user-results-area'].innerHTML, /该二级列表为空或不可见/);
-    assert.deepStrictEqual(h.statuses[h.statuses.length - 1], {
-        message: '该二级列表为空或不可见', level: 'warning'
+    const status = h.statuses[h.statuses.length - 1];
+    assert.strictEqual(status.level, 'warning');
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(status.message.userEmpty.context)), {
+        userId: 'user-1', username: 'User', variant: 'demo-hidden-list'
     });
     assert.deepStrictEqual(contexts, [{
         userId: 'user-1', username: 'User', variant: 'demo-hidden-list'

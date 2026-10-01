@@ -4,6 +4,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.task.TaskRejectedException;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 import top.sywyar.pixivdownload.core.asset.StagedFileDeletion.UnsafeDeletionPathException;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
@@ -18,11 +22,36 @@ import java.io.IOException;
 import java.util.Locale;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @DisplayName("GlobalExceptionHandler 单元测试")
 class GlobalExceptionHandlerTest {
 
     private final GlobalExceptionHandler handler = new GlobalExceptionHandler(TestI18nBeans.appMessages());
+
+    @Test
+    @DisplayName("缺少必填查询参数应经真实绑定返回本地化 JSON 400")
+    void missingQueryParameterReturnsBadRequest() throws Exception {
+        var mvc = MockMvcBuilders.standaloneSetup(new ParameterController())
+                .setControllerAdvice(handler).build();
+        mvc.perform(get("/api/parameter-fixture").locale(Locale.US).accept("text/html"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith("application/json"))
+                .andExpect(jsonPath("$.code").value("error.request.param.invalid"))
+                .andExpect(jsonPath("$.error").value(TestI18nBeans.appMessages()
+                        .get(Locale.US, "error.request.param.invalid")));
+        mvc.perform(get("/api/parameter-fixture").param("ids", "42"))
+                .andExpect(status().isOk()).andExpect(content().string("42"));
+    }
+
+    @RestController
+    static class ParameterController {
+        @GetMapping("/api/parameter-fixture")
+        String read(@RequestParam("ids") String ids) {
+            return ids;
+        }
+    }
 
     @Test
     @DisplayName("SecurityException 应返回 400 和错误消息")

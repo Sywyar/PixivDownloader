@@ -25,37 +25,37 @@ const NOVEL_SLOTS = {
     // 快捷获取二层预览的 kind 单选「小说」选项（珍藏集 / 用户作品里切换插画 / 小说网格）
     'kind-option-quick':
         '<label data-quick-kind="novel"><input type="radio" name="quick-inner-kind" value="novel">' +
-        ' <span data-i18n="quick.preview.kind-novel">小说</span></label>',
+        ' <span data-i18n="batch:quick.preview.kind-novel">小说</span></label>',
     // 快捷获取「我的收藏（小说）」入口按钮（公开 / 不公开）
     'quick-actions-bookmarks':
         '<button class="btn btn-blue quick-action" data-quick="my-novel-bookmarks-show"' +
-        ' data-pixiv-click="quickLoad(\'my-novel-bookmarks-show\')" data-i18n="quick.action.novel-bookmarks-show">📚 我的收藏（小说，公开）</button>' +
+        ' data-pixiv-click="quickLoad(\'my-novel-bookmarks-show\')" data-i18n="batch:quick.action.novel-bookmarks-show">📚 我的收藏（小说，公开）</button>' +
         '<button class="btn btn-purple quick-action" data-quick="my-novel-bookmarks-hide"' +
-        ' data-pixiv-click="quickLoad(\'my-novel-bookmarks-hide\')" data-i18n="quick.action.novel-bookmarks-hide">🔒 我的收藏（小说，不公开）</button>',
+        ' data-pixiv-click="quickLoad(\'my-novel-bookmarks-hide\')" data-i18n="batch:quick.action.novel-bookmarks-hide">🔒 我的收藏（小说，不公开）</button>',
     // 快捷获取「我自己的作品（小说）」入口按钮
     'quick-actions-mine':
         '<button class="btn btn-green quick-action" data-quick="my-novels"' +
-        ' data-pixiv-click="quickLoad(\'my-novels\')" data-i18n="quick.action.my-novels">✍ 我自己的作品（小说，含 hide）</button>',
+        ' data-pixiv-click="quickLoad(\'my-novels\')" data-i18n="batch:quick.action.my-novels">✍ 我自己的作品（小说，含 hide）</button>',
     // 批量导入单作品的小说链接示例
     'import-hint':
-        '<div><span data-i18n="label.import-novel-example">小说链接示例：</span>' +
-        '<span class="import-example-code" data-i18n="label.import-novel-example-value">' +
+        '<div><span data-i18n="batch:label.import-novel-example">小说链接示例：</span>' +
+        '<span class="import-example-code" data-i18n="batch:label.import-novel-example-value">' +
         'https://www.pixiv.net/novel/show.php?id=12345678 | 示例标题</span></div>',
     // 附加筛选里的小说专属字段（最少 / 最多字数）；保留 .search-novel-only，由宿主 applySearchKindUI 按模式显隐
     'search-filter':
         '<div class="search-extra-item search-novel-only" style="display:none;">' +
         '<label for="search-words-min" data-i18n="novel:batch.search.words-min">最少字数</label>' +
-        '<input type="number" id="search-words-min" min="0" step="100" data-i18n-placeholder="search.unlimited" placeholder="不限"' +
+        '<input type="number" id="search-words-min" min="0" step="100" data-i18n-placeholder="batch:search.unlimited" placeholder="不限"' +
         ' data-pixiv-change="handleSearchFilterChange()"></div>' +
         '<div class="search-extra-item search-novel-only" style="display:none;">' +
         '<label for="search-words-max" data-i18n="novel:batch.search.words-max">最多字数</label>' +
-        '<input type="number" id="search-words-max" min="0" step="100" data-i18n-placeholder="search.unlimited" placeholder="不限"' +
+        '<input type="number" id="search-words-max" min="0" step="100" data-i18n-placeholder="batch:search.unlimited" placeholder="不限"' +
         ' data-pixiv-change="handleSearchFilterChange()"></div>',
     // 小说设置卡（格式 / 合订）；下载即自动翻译由 AI 插件追加到本卡片内。
     // id / class 与宿主 loadSettings/syncSettings/applyNovelSettingsVisibility 既有契约一致
     'settings-card':
         '<div class="card" id="novel-settings-card">' +
-        '<div class="card-title" data-i18n="card.novel-settings">小说设置</div>' +
+        '<div class="card-title" data-i18n="batch:card.novel-settings">小说设置</div>' +
         '<div class="settings-grid">' +
         '<div class="setting-item">' +
         '<label for="s-novel-format" data-i18n="novel:batch.format-label">小说格式:</label>' +

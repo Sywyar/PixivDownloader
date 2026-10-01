@@ -186,8 +186,9 @@
     }
 
     function validateAndParseCookie(raw, fmt) {
+        const invalidResult = message => ({ok: false, error: resolveStatusMessage(message), errorMessage: message});
         if (!raw.trim()) {
-            return {ok: false, error: bt('cookie.error.empty', 'Cookie 不能为空')};
+            return invalidResult({key: 'cookie.error.empty', fallback: 'Cookie 不能为空'});
         }
 
         let headerString;
@@ -195,7 +196,8 @@
             if (fmt === 'json') {
                 const obj = JSON.parse(raw);
                 if (typeof obj !== 'object' || Array.isArray(obj) || obj === null)
-                    throw new Error(bt('cookie.error.invalid-json', '需要 JSON 对象格式 {"key":"value",...}'));
+                    return invalidResult({key: 'cookie.error.parse-failed', fallback: '格式解析失败：{message}',
+                        args: {message: {key: 'cookie.error.invalid-json', fallback: '需要 JSON 对象格式 {"key":"value",...}'}}});
                 headerString = Object.entries(obj).map(([k, v]) => `${k}=${String(v)}`).join('; ');
             } else if (fmt === 'netscape') {
                 const lines = raw.split('\n')
@@ -206,40 +208,32 @@
                     })
                     .filter(Boolean);
                 if (!lines.length) {
-                    throw new Error(bt('cookie.error.invalid-netscape', '未解析到有效的 Cookie 行（需要 7 列 tab 分隔格式）'));
+                    return invalidResult({key: 'cookie.error.parse-failed', fallback: '格式解析失败：{message}',
+                        args: {message: {key: 'cookie.error.invalid-netscape', fallback: '未解析到有效的 Cookie 行（需要 7 列 tab 分隔格式）'}}});
                 }
                 headerString = lines.join('; ');
             } else {
                 headerString = raw.trim();
             }
         } catch (e) {
-            return {
-                ok: false,
-                error: bt('cookie.error.parse-failed', '格式解析失败：{message}', {message: e.message})
-            };
+            return invalidResult({key: 'cookie.error.parse-failed', fallback: '格式解析失败：{message}', args: {message: e.message}});
         }
 
         // 校验所有键值对格式是否合法
         const pairs = headerString.split(';').map(s => s.trim()).filter(Boolean);
         const invalid = pairs.filter(p => !/^[^=]+=/.test(p));
         if (invalid.length) {
-            return {
-                ok: false,
-                error: bt(
-                    'cookie.error.invalid-pairs',
-                    '包含无效键值对：{pairs}',
-                    {pairs: invalid.slice(0, 3).map(s => `"${s}"`).join(punct('enum'))}
-                )
-            };
+            return invalidResult({key: 'cookie.error.invalid-pairs', fallback: '包含无效键值对：{pairs}',
+                args: {pairs: {parts: invalid.slice(0, 3).map(s => `"${s}"`), separator: 'enum'}}});
         }
 
         // 警告：缺少关键字段
-        const warnings = [];
+        const warningMessages = [];
         if (!pairs.some(p => p.startsWith('PHPSESSID='))) {
-            warnings.push(bt('cookie.warning.no-phpsessid', '未检测到 PHPSESSID，可能无法访问需要登录的内容'));
+            warningMessages.push({key: 'cookie.warning.no-phpsessid', fallback: '未检测到 PHPSESSID，可能无法访问需要登录的内容'});
         }
 
-        return {ok: true, count: pairs.length, warnings};
+        return {ok: true, count: pairs.length, warnings: warningMessages.map(resolveStatusMessage), warningMessages};
     }
 
     function pixivHeader() {
@@ -248,14 +242,24 @@
     }
 
     // Cookie 相关提示显示在 Cookie 区域，而非下载队列状态栏
+    let currentCookieStatus = null;
+    let currentCookieStatusType = 'info';
     function setCookieStatus(msg, type = 'info') {
+        currentCookieStatus = msg;
+        currentCookieStatusType = type;
         const el = document.getElementById('cookie-status');
         if (!el) {
             setStatus(msg, type);
             return;
         }
-        el.textContent = msg;
-        el.style.color = STATUS_COLORS[type] || 'var(--muted)';
+        renderCookieStatus();
+    }
+
+    function renderCookieStatus() {
+        const el = document.getElementById('cookie-status');
+        if (!el || currentCookieStatus == null) return;
+        el.textContent = resolveStatusMessage(currentCookieStatus);
+        el.style.color = STATUS_COLORS[currentCookieStatusType] || 'var(--muted)';
     }
 
     function hasPixivCookie() {
@@ -294,16 +298,15 @@
         applyCookieDependentUi();
         const hasPhp = /(?:^|;\s*)PHPSESSID=/.test(snapshot.cookie);
         if (hasPhp) {
-            setCookieStatus(bt('status.cookie-imported', '已从 Pixiv 自动导入并保存 Cookie'), 'success');
+            setCookieStatus({key: 'status.cookie-imported', fallback: '已从 Pixiv 自动导入并保存 Cookie'}, 'success');
         } else {
-            setCookieStatus(bt('status.cookie-imported-no-phpsessid',
-                '已导入 Cookie，但未检测到 PHPSESSID，可能未登录 Pixiv'), 'warning');
+            setCookieStatus({key: 'status.cookie-imported-no-phpsessid', fallback: '已导入 Cookie，但未检测到 PHPSESSID，可能未登录 Pixiv'}, 'warning');
         }
     }
 
     function runScriptCookieImport() {
         if (appMode !== 'solo') {
-            setCookieStatus(bt('status.cookie-import-solo-only', '一键导入仅在 solo 模式可用'), 'error');
+            setCookieStatus({key: 'status.cookie-import-solo-only', fallback: '一键导入仅在 solo 模式可用'}, 'error');
             return;
         }
         // window.open 必须在用户手势内同步调用（await 会让弹窗被拦截），故同步取
@@ -317,11 +320,10 @@
             'width=560,height=420'
         );
         if (!win) {
-            setCookieStatus(bt('status.cookie-import-popup-blocked',
-                '弹窗被拦截，请允许本站弹窗后重试'), 'error');
+            setCookieStatus({key: 'status.cookie-import-popup-blocked', fallback: '弹窗被拦截，请允许本站弹窗后重试'}, 'error');
             return;
         }
-        setCookieStatus(bt('status.cookie-import-opening', '正在打开 Pixiv 自动获取 Cookie...'), 'info');
+        setCookieStatus({key: 'status.cookie-import-opening', fallback: '正在打开 Pixiv 自动获取 Cookie...'}, 'info');
         const deadline = Date.now() + 25000;
         const poll = () => {
             setTimeout(async () => {
@@ -335,14 +337,12 @@
                     if (cur.syncStatus === 'ok' || /(?:^|;\s*)PHPSESSID=/.test(cur.cookie || '')) {
                         applyImportedCookie(cur);
                     } else {
-                        setCookieStatus(bt('status.cookie-imported-no-phpsessid',
-                            '已导入 Cookie，但未检测到 PHPSESSID，可能未登录 Pixiv'), 'error');
+                        setCookieStatus({key: 'status.cookie-imported-no-phpsessid', fallback: '已导入 Cookie，但未检测到 PHPSESSID，可能未登录 Pixiv'}, 'error');
                     }
                     return;
                 }
                 if (Date.now() > deadline) {
-                    setCookieStatus(bt('status.cookie-import-timeout',
-                        '未能自动获取 Cookie，请确认已安装并启用「体验增强工具箱」且已登录 Pixiv，或手动粘贴'),
+                    setCookieStatus({key: 'status.cookie-import-timeout', fallback: '未能自动获取 Cookie，请确认已安装并启用「体验增强工具箱」且已登录 Pixiv，或手动粘贴'},
                         'error');
                     return;
                 }
@@ -354,7 +354,7 @@
 
     function importCookieViaScript() {
         if (appMode !== 'solo') {
-            setCookieStatus(bt('status.cookie-import-solo-only', '一键导入仅在 solo 模式可用'), 'error');
+            setCookieStatus({key: 'status.cookie-import-solo-only', fallback: '一键导入仅在 solo 模式可用'}, 'error');
             return;
         }
         if (isToolboxInstalled()) {
@@ -363,8 +363,7 @@
         }
         // 未检测到工具箱时显示安装引导，重新检测成功后再进入下一步
         if (typeof PixivTour === 'undefined') {
-            setCookieStatus(bt('status.cookie-import-need-toolbox',
-                '请先在「油猴脚本」面板安装「体验增强工具箱」'), 'error');
+            setCookieStatus({key: 'status.cookie-import-need-toolbox', fallback: '请先在「油猴脚本」面板安装「体验增强工具箱」'}, 'error');
             ensureUserscriptsExpanded();
             return;
         }

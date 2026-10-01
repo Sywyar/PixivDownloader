@@ -86,6 +86,7 @@ class El {
         this._actionButtons = [];
     }
     setAttribute(k, v) { this.attrs[k] = String(v); }
+    removeAttribute(k) { delete this.attrs[k]; }
     getAttribute(k) { return Object.prototype.hasOwnProperty.call(this.attrs, k) ? this.attrs[k] : null; }
     appendChild(child) { child.parentNode = this; this.children.push(child); return child; }
     removeChild(child) {
@@ -107,6 +108,18 @@ class El {
     set innerHTML(value) {
         this._html = String(value);
         this._actionButtons = [];
+        this._messages = Array.from(this._html.matchAll(/<span data-po-message="([^"]+)">([^<]*)<\/span>/g), match => {
+            const element = new El('span');
+            element.setAttribute('data-po-message', decodeHtml(match[1]));
+            element.textContent = decodeHtml(match[2]);
+            return element;
+        });
+        this._input = null;
+        const inputTag = /<input[^>]*id="po-name-input"[^>]*>/.exec(this._html);
+        if (inputTag) {
+            this._input = new El('input');
+            this._input.setAttribute('data-i18n-placeholder', 'tour:onboarding.welcome.name-placeholder');
+        }
         const re = /data-act="([^"]+)"/g;
         let m;
         while ((m = re.exec(this._html)) !== null) {
@@ -116,6 +129,7 @@ class El {
         }
     }
     querySelector(selector) {
+        if (selector === '#po-name-input') return this._input;
         if (selector === '.po-help-fab-label') {
             if (!this._helpLabel) {
                 this._helpLabel = new El('span');
@@ -129,11 +143,33 @@ class El {
         return null;
     }
     querySelectorAll(selector) {
+        if (selector === '[data-po-message]') return this._messages || [];
+        if (selector === '[data-i18n-placeholder]') return this._input ? [this._input] : [];
         if (selector !== '[data-act]') {
             return [];
         }
         return this._actionButtons;
     }
+}
+
+function decodeHtml(value) {
+    return value.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+}
+
+function translatedClient(lang) {
+    const suffix = lang === 'zh-CN' ? '' : '_en';
+    const bundle = Object.fromEntries(fs.readFileSync(path.join(__dirname,
+        '../../main/resources/i18n/web/tour' + suffix + '.properties'), 'utf8')
+        .split(/\r?\n/).filter(line => line && !line.startsWith('#') && line.includes('='))
+        .map(line => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)]));
+    return {lang, t(key, fallback, args) {
+        return String(bundle[key.replace(/^tour:/, '')] ?? fallback ?? key)
+            .replace(/\{([^}]+)\}/g, (match, key) => args?.[key] ?? match);
+    }, apply(root) {
+        root.querySelectorAll('[data-i18n-placeholder]').forEach(node => {
+            node.placeholder = this.t(node.getAttribute('data-i18n-placeholder'));
+        });
+    }};
 }
 
 function makeDocument(hasResultEntry) {
@@ -171,6 +207,8 @@ function findByClass(root, className) {
 }
 
 function loadScenario(hasResultEntry) {
+    const languageListeners = [];
+    const languageRequests = [];
     const document = makeDocument(hasResultEntry);
     const storage = {};
     storage[STORAGE_KEY] = JSON.stringify({ status: 'active', phase: 'await-gallery', downloaded: true });
@@ -190,6 +228,12 @@ function loadScenario(hasResultEntry) {
         setInterval() { return 1; },
         clearInterval() {},
         fetch() { throw new Error('unexpected fetch'); },
+        PixivI18n: {
+            onLanguageChange(listener) { languageListeners.push(listener); },
+            create(options) {
+                return new Promise(resolve => languageRequests.push({options, resolve}));
+            }
+        },
         PixivNav: {
             ready() {
                 return {
@@ -213,6 +257,7 @@ function loadScenario(hasResultEntry) {
         storage,
         pop: findByClass(document.body, 'po-pop'),
         resultEntry: document.resultEntry,
+        sandbox, document, languageListeners, languageRequests,
         onboarding: sandbox.PixivOnboarding
     };
 }
@@ -373,6 +418,84 @@ async function main() {
         ok('B: marker 缺席时显示中性的下载结果完成提示',
             pop && pop.innerHTML.indexOf('当前没有可打开的下载结果入口') >= 0);
         ok('B: marker 缺席时没有被高亮的入口元素', resultEntry === null);
+    }
+
+    {
+        const {sandbox, storage, onboarding} = loadScenario(true);
+        const ctx = sandbox.PixivOnboardingRuntime;
+        ctx.gallery.phaseGalleryRedirect();
+        const pop = ctx.overlay.pop;
+        const go = pop.querySelector('[data-act="go"]');
+        const state = storage[STORAGE_KEY];
+        onboarding.refreshFab(translatedClient('en-US'));
+        const title = pop.querySelectorAll('[data-po-message]').find(node =>
+            JSON.parse(node.getAttribute('data-po-message')).key === 'onboarding.redirect.title');
+        assert.strictEqual(title.textContent, translatedClient('en-US').t('tour:onboarding.redirect.title'));
+        assert.strictEqual(ctx.overlay.pop, pop);
+        assert.strictEqual(pop.querySelector('[data-act="go"]'), go);
+        assert.strictEqual(storage[STORAGE_KEY], state);
+        go.click();
+        assert.strictEqual(sandbox.location.href, '/pixiv-batch.html');
+        passed++;
+
+        ctx.patchState({name: '', phase: 'welcome'});
+        ctx.download.phaseWelcome();
+        const namePop = ctx.overlay.pop;
+        const input = namePop.querySelector('#po-name-input');
+        input.value = 'draft <name>';
+        onboarding.refreshFab(translatedClient('zh-CN'));
+        assert.strictEqual(ctx.overlay.pop, namePop);
+        assert.strictEqual(namePop.querySelector('#po-name-input'), input);
+        assert.strictEqual(input.value, 'draft <name>');
+        assert.strictEqual(input.focused, true);
+        assert.strictEqual(input.placeholder, translatedClient('zh-CN').t('tour:onboarding.welcome.name-placeholder'));
+        passed++;
+    }
+
+    {
+        const {sandbox, languageListeners, languageRequests} = loadScenario(true);
+        const ctx = sandbox.PixivOnboardingRuntime;
+        ctx.gallery.phaseGalleryRedirect();
+        const pop = ctx.overlay.pop;
+        const oldChange = languageListeners[0]({lang: 'zh-CN'});
+        const newChange = languageListeners[0]({lang: 'en-US'});
+        languageRequests[1].resolve(translatedClient('en-US'));
+        await newChange;
+        languageRequests[0].resolve(translatedClient('zh-CN'));
+        await oldChange;
+        assert.strictEqual(ctx.i18n.lang, 'en-US');
+        assert.strictEqual(ctx.overlay.pop, pop);
+        const title = pop.querySelectorAll('[data-po-message]').find(node =>
+            JSON.parse(node.getAttribute('data-po-message')).key === 'onboarding.redirect.title');
+        assert.strictEqual(title.textContent, translatedClient('en-US').t('tour:onboarding.redirect.title'));
+        passed++;
+    }
+
+    {
+        const {sandbox} = loadScenario(true);
+        const ctx = sandbox.PixivOnboardingRuntime;
+        const frames = [], timers = [];
+        sandbox.requestAnimationFrame = callback => frames.push(callback);
+        sandbox.setTimeout = callback => timers.push(callback);
+        ctx.gallery.phaseGalleryRedirect();
+        frames.shift()();
+        ctx.overlay.destroy();
+        assert.doesNotThrow(() => timers.shift()());
+        ctx.gallery.phaseGalleryRedirect();
+        frames.shift()();
+        ctx.overlay.destroy();
+        ctx.gallery.phaseGalleryRedirect();
+        const current = ctx.overlay.pop;
+        timers.shift()();
+        assert.strictEqual(current.classList.contains('po-in'), false);
+        frames.shift()();
+        timers.shift()();
+        assert.strictEqual(current.classList.contains('po-in'), true);
+        ctx.gallery.phaseGalleryRedirect();
+        ctx.overlay.destroy();
+        assert.doesNotThrow(() => frames.shift()());
+        assert.strictEqual(timers.length, 0);
+        passed++;
     }
 
     console.log(`\npixiv-onboarding.test.js: ${passed} assertions passed ✓`);

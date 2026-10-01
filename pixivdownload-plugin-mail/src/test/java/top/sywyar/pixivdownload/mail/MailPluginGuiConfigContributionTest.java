@@ -16,14 +16,43 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionNoticeContributio
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionNoticeStyle;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("mail 插件 GUI 配置贡献")
 class MailPluginGuiConfigContributionTest {
 
     private final MailPlugin plugin = new MailPlugin();
+
+    @Test
+    @DisplayName("重复读取复用不可变邮件声明，语言切换不把翻译烘焙进贡献")
+    void reusesImmutableLocaleIndependentContributions() {
+        var contributions = plugin.guiConfigContributions();
+        Locale previous = Locale.getDefault();
+        try {
+            for (Locale locale : List.of(Locale.US, Locale.SIMPLIFIED_CHINESE)) {
+                Locale.setDefault(locale);
+                assertThat(new MailPlugin().guiConfigContributions()).isSameAs(contributions);
+                assertThat(contributions.get(0).fields()).allSatisfy(field -> {
+                    assertThat(field.labelKey()).isEqualTo("gui.config.field." + field.key() + ".label");
+                    assertThat(field.helpKey()).isEqualTo("gui.config.field." + field.key() + ".help");
+                });
+            }
+        } finally {
+            Locale.setDefault(previous);
+        }
+        assertThatThrownBy(contributions::clear).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(contributions.get(0).fields()::clear).isInstanceOf(UnsupportedOperationException.class);
+        var presets = serviceSection().presets();
+        assertThatThrownBy(presets::clear).isInstanceOf(UnsupportedOperationException.class);
+        var preset = presets.stream().filter(value -> !value.values().isEmpty()).findFirst().orElseThrow();
+        assertThatThrownBy(() -> preset.values().put("mail.host", "changed.invalid"))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThat(presets.stream().map(GuiConfigPresetContribution::order).toList()).isSorted();
+    }
 
     @Test
     @DisplayName("只贡献 mail 自己的通知字段")

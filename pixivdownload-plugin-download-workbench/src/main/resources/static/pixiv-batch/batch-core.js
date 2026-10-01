@@ -112,6 +112,8 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
         applyCookieHint();
         syncCookieToggleLabel();
         renderFooterInfo();
+        renderStatus();
+        if (typeof renderCookieStatus === 'function') renderCookieStatus();
     }
 
     function addI18nNamespace(out, seen, value) {
@@ -395,10 +397,42 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
         warning: 'var(--warning-accent)'
     };
 
-    function setStatus(msg, type = 'info') {
+    let currentStatusMessage = null;
+    let currentStatusType = 'info';
+
+    function setStatus(message, type = 'info') {
+        currentStatusMessage = message;
+        currentStatusType = type;
+        renderStatus();
+    }
+
+    function renderStatus() {
         const el = document.getElementById('status-bar');
-        el.textContent = msg;
-        el.style.color = STATUS_COLORS[type] || 'var(--muted)';
+        if (!el || currentStatusMessage == null) return;
+        el.textContent = resolveStatusMessage(currentStatusMessage);
+        el.style.color = STATUS_COLORS[currentStatusType] || 'var(--muted)';
+    }
+
+    function resolveStatusMessage(message) {
+        if (message == null) return '';
+        if (Array.isArray(message)) return message.map(resolveStatusMessage).join('');
+        if (typeof message !== 'object') return message;
+        if (message.searchStat) return searchStatText(message.searchStat.metric, message.searchStat.count, message.searchStat);
+        if (message.userEmpty) return userEmptyMessage(message.userEmpty);
+        if (message.parts) return message.parts.map(resolveStatusMessage).filter(Boolean).join(punct(message.separator));
+        const args = Object.fromEntries(Object.entries(message.args || {})
+            .map(([key, value]) => [key, resolveStatusMessage(value)]));
+        return bt(message.key, message.fallback, args);
+    }
+
+    function statusAcquisitionOwner(kind) {
+        const types = window.PixivBatch.queueTypes;
+        return types && types.manifestDescriptor ? types.manifestDescriptor(kind)?.owner || null : null;
+    }
+
+    function statusAcquisition(snapshot, mode) {
+        if (JSON.stringify(statusAcquisitionOwner(snapshot.kind)) !== JSON.stringify(snapshot.owner)) return null;
+        return window.PixivBatch.queueTypes.acquisition(snapshot.kind, mode);
     }
 
     function esc(s) {

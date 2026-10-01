@@ -140,20 +140,20 @@
             const raw = document.getElementById('cookie-input').value.trim();
             const result = validateAndParseCookie(raw, getCookieFmt());
             if (!result.ok) {
-                setCookieStatus(bt('status.cookie-save-failed', 'Cookie 保存失败：{message}', {message: result.error}), 'error');
+                setCookieStatus({key: 'status.cookie-save-failed', fallback: 'Cookie 保存失败：{message}', args: {message: result.errorMessage}}, 'error');
                 return;
             }
             storeSet('pixiv_cookie', raw);
             if (result.warnings.length) {
                 setCookieStatus(
-                    bt('status.cookie-saved-warning', 'Cookie 已保存（{count} 个字段）⚠ {warnings}', {
+                    {key: 'status.cookie-saved-warning', fallback: 'Cookie 已保存（{count} 个字段）⚠ {warnings}', args: {
                         count: result.count,
-                        warnings: result.warnings.join(punct('semicolon'))
-                    }),
+                        warnings: {parts: result.warningMessages, separator: 'semicolon'}
+                    }},
                     'warning'
                 );
             } else {
-                setCookieStatus(bt('status.cookie-saved', 'Cookie 已保存，共 {count} 个字段', {count: result.count}), 'success');
+                setCookieStatus({key: 'status.cookie-saved', fallback: 'Cookie 已保存，共 {count} 个字段', args: {count: result.count}}, 'success');
             }
             applyCookieDependentUi();
         });
@@ -172,7 +172,7 @@
             if (!await uiConfirmKey('dialog.confirm-clear-cookie', '确认清除已保存的 Cookie？')) return;
             storeRemove('pixiv_cookie');
             document.getElementById('cookie-input').value = '';
-            setCookieStatus(bt('status.cookie-cleared', 'Cookie 已清除'), 'success');
+            setCookieStatus({key: 'status.cookie-cleared', fallback: 'Cookie 已清除'}, 'success');
             applyCookieDependentUi();
         });
 

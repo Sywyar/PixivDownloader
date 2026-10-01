@@ -126,18 +126,15 @@
         if (!total) {
             setStatus(
                 parsed.rejected.length > 0
-                    ? bt('status.single-import-ambiguous',
-                        '已拒绝 {count} 个归属不明确的单作品输入', {count: parsed.rejected.length})
+                    ? {key: 'status.single-import-ambiguous', fallback: '已拒绝 {count} 个归属不明确的单作品输入', args: {count: parsed.rejected.length}}
                     : parsed.skippedUnavailable > 0
-                    ? bt('status.single-import-skipped-unavailable',
-                        '已跳过 {count} 个：所属作品类型当前不可用', {count: parsed.skippedUnavailable})
-                    : bt('status.single-import-none', '未解析到任何单作品链接'),
+                    ? {key: 'status.single-import-skipped-unavailable', fallback: '已跳过 {count} 个：所属作品类型当前不可用', args: {count: parsed.skippedUnavailable}}
+                    : {key: 'status.single-import-none', fallback: '未解析到任何单作品链接'},
                 (parsed.rejected.length > 0 || parsed.skippedUnavailable > 0) ? 'warning' : 'error');
             return;
         }
         setStatus(
-            bt('status.parsed-summary', '解析完成：共 {total} 个，新增 {added} 个',
-                {total, added}),
+            {key: 'status.parsed-summary', fallback: '解析完成：共 {total} 个，新增 {added} 个', args: {total, added}},
             'success'
         );
     }

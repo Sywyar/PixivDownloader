@@ -79,12 +79,11 @@ public class ToolsPanel extends JPanel {
         setLayout(new BorderLayout(0, 0));
         setBorder(BorderFactory.createEmptyBorder(16, 24, 16, 24));
 
-        JPanel content = new JPanel();
-        content.setOpaque(false);
-        content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
+        JPanel content = new ScrollablePagePanel();
         content.add(buildOverviewCard());
         content.add(Box.createVerticalStrut(12));
         content.add(buildImageClassifierCard());
+        mediaTools.setAlignmentX(Component.LEFT_ALIGNMENT);
         content.add(mediaTools);
         addHierarchyListener(event -> {
             if ((event.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) mediaTools.refreshTools();
@@ -925,9 +924,7 @@ public class ToolsPanel extends JPanel {
     }
 
     private static JLabel secondaryLabel(String text) {
-        JLabel label = new JLabel(text);
-        label.setForeground(Color.GRAY);
-        return label;
+        return ScrollablePagePanel.secondaryLabel(text);
     }
 
     private static String defaultIfBlank(String value, String fallback) {

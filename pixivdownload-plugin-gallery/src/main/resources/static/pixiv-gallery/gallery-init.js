@@ -505,8 +505,8 @@
     // ---------- 邀请访客 ----------
     (async function setupInviteEntry() {
         try {
-            const ok = await fetch('/api/admin/invites/access-check', { credentials: 'same-origin' });
-            if (!ok.ok) return;
+            const response = await fetch('/api/auth/check', { credentials: 'same-origin' });
+            if (!response.ok || !(await response.json()).valid) return;
         } catch (_) { return; }
         document.body.classList.add('admin-mode');
         isGalleryAdmin = true;

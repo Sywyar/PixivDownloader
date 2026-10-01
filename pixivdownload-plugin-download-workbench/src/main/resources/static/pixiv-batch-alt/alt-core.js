@@ -25,7 +25,8 @@ function interpolate(template, vars) {
 
 function bt(key, fallback, vars) {
     if (pageI18n) {
-        return pageI18n.t(key.includes(':') ? key : 'batch-alt:' + key, fallback, vars);
+        if (key.includes(':')) return pageI18n.t(key, fallback, vars);
+        return pageI18n.t('batch-alt:' + key, pageI18n.t('batch:' + key, fallback), vars);
     }
     return interpolate(fallback != null ? fallback : key, vars);
 }

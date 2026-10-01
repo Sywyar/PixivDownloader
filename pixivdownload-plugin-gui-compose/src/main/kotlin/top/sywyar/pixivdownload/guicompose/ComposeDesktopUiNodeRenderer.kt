@@ -856,11 +856,13 @@ object ComposeDesktopUiNodeRenderer {
         modifier: Modifier,
     ) {
         var size by remember(node.path()) { mutableStateOf(IntSize.Zero) }
-        val data by produceState<DesktopUiNode.ImageData?>(null, node.path(), size) {
+        // 请求尺寸与协程键保持同代，避免布局回调使初始零尺寸任务提前解码。
+        val requestedSize = size
+        val data by produceState<DesktopUiNode.ImageData?>(null, node.path(), requestedSize) {
             value = null
-            if (size.width > 0 && size.height > 0) {
+            if (requestedSize.width > 0 && requestedSize.height > 0) {
                 value = withContext(previewDispatcher) {
-                    DesktopImageClassifierSupport.materializeImage(node.path(), size.width, size.height).orElse(null)
+                    DesktopImageClassifierSupport.materializeImage(node.path(), requestedSize.width, requestedSize.height).orElse(null)
                 }
             }
         }

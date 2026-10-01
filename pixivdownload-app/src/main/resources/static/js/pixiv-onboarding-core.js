@@ -45,6 +45,30 @@
             .replace(/"/g, '&quot;');
     }
 
+    function message(key, fallback, args) {
+        return {key: key, fallback: fallback, args: args};
+    }
+
+    function resolveMessage(value) {
+        if (!value || typeof value !== 'object') return String(value == null ? '' : value);
+        var args = {};
+        Object.keys(value.args || {}).forEach(function (key) {
+            args[key] = resolveMessage(value.args[key]);
+        });
+        return t(value.key, value.fallback, args);
+    }
+
+    function messageHtml(value) {
+        if (!value || typeof value !== 'object') return escapeHtml(value);
+        return '<span data-po-message="' + escapeHtml(JSON.stringify(value)) + '">'
+            + escapeHtml(resolveMessage(value)) + '</span>';
+    }
+
+    function setMessage(element, value) {
+        element.setAttribute('data-po-message', JSON.stringify(value));
+        element.textContent = resolveMessage(value);
+    }
+
     // ── 跨页状态 ────────────────────────────────────────────────────────────────
     function loadState() {
         try {
@@ -96,7 +120,7 @@
     }
 
     var SKIP_BTN = function () {
-        return {act: 'skip', label: t('onboarding.common.skip', '跳过指引'), variant: 'ghost'};
+        return {act: 'skip', label: message('onboarding.common.skip', '跳过指引'), variant: 'ghost'};
     };
 
     // ── 右下角「操作指引」FAB（仅下载页注册；复用 pixiv-tour.css 的 .pt-help-fab 样式） ────────
@@ -237,6 +261,10 @@
     ctx.POP_GAP = POP_GAP;
     ctx.VIEWPORT_MARGIN = VIEWPORT_MARGIN;
     ctx.t = t;
+    ctx.message = message;
+    ctx.resolveMessage = resolveMessage;
+    ctx.messageHtml = messageHtml;
+    ctx.setMessage = setMessage;
     ctx.escapeHtml = escapeHtml;
     ctx.loadState = loadState;
     ctx.saveState = saveState;

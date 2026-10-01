@@ -23,6 +23,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.function.LongPredicate;
 import java.util.Map;
 import java.util.Set;
 
@@ -30,6 +32,8 @@ import java.util.Set;
 @RequestMapping("/api/collections")
 @RequiredArgsConstructor
 public class CollectionController {
+
+    private static final int MAX_GUEST_MEMBERSHIP_IDS = 500;
 
     private static final String X_CONTENT_TYPE_OPTIONS = "X-Content-Type-Options";
 
@@ -141,10 +145,14 @@ public class CollectionController {
     }
 
     @PostMapping("/memberships")
-    public ResponseEntity<MembershipsResponse> memberships(@RequestBody ArtworkMembershipsRequest body) {
+    public ResponseEntity<MembershipsResponse> memberships(
+            @RequestBody ArtworkMembershipsRequest body,
+            HttpServletRequest request) {
         List<Long> ids = body == null || body.artworkIds() == null ? List.of() : body.artworkIds();
-        Map<Long, List<Long>> memberships = collectionService.membershipsOf(ids);
-        return ResponseEntity.ok(new MembershipsResponse(memberships));
+        GuestInviteSession session = GuestAccessGuard.extractSession(request);
+        ids = visibleMembershipIds(ids, session, id -> guestAccessGuard.isVisibleToGuest(id, session));
+        Map<Long, List<Long>> memberships = ids.isEmpty() ? Map.of() : collectionService.membershipsOf(ids);
+        return ResponseEntity.ok(new MembershipsResponse(visibleMemberships(memberships, session)));
     }
 
     @PostMapping("/{id}/novels/{novelId}")
@@ -169,10 +177,39 @@ public class CollectionController {
     }
 
     @PostMapping("/novels/memberships")
-    public ResponseEntity<MembershipsResponse> novelMemberships(@RequestBody NovelMembershipsRequest body) {
+    public ResponseEntity<MembershipsResponse> novelMemberships(
+            @RequestBody NovelMembershipsRequest body,
+            HttpServletRequest request) {
         List<Long> ids = body == null || body.novelIds() == null ? List.of() : body.novelIds();
-        Map<Long, List<Long>> memberships = collectionService.novelMembershipsOf(ids);
-        return ResponseEntity.ok(new MembershipsResponse(memberships));
+        GuestInviteSession session = GuestAccessGuard.extractSession(request);
+        ids = visibleMembershipIds(ids, session, id -> guestAccessGuard.isNovelVisibleToGuest(id, session));
+        Map<Long, List<Long>> memberships = ids.isEmpty() ? Map.of() : collectionService.novelMembershipsOf(ids);
+        return ResponseEntity.ok(new MembershipsResponse(visibleMemberships(memberships, session)));
+    }
+
+    private List<Long> visibleMembershipIds(
+            List<Long> ids,
+            GuestInviteSession session,
+            LongPredicate visible) {
+        if (session == null) return ids;
+        if (ids.size() > MAX_GUEST_MEMBERSHIP_IDS
+                || ids.stream().anyMatch(id -> id == null || id <= 0)) {
+            throw LocalizedException.badRequest("error.request.param.invalid", "请求参数不合法");
+        }
+        return ids.stream().distinct().filter(id -> visible.test(id)).toList();
+    }
+
+    private Map<Long, List<Long>> visibleMemberships(
+            Map<Long, List<Long>> memberships,
+            GuestInviteSession session) {
+        if (session == null || memberships.isEmpty()) return memberships;
+        Set<Long> visible = galleryRepository.findVisibleCollectionIds(GuestRestriction.from(session));
+        Map<Long, List<Long>> result = new LinkedHashMap<>();
+        memberships.forEach((id, collectionIds) -> {
+            List<Long> allowed = collectionIds.stream().filter(visible::contains).toList();
+            if (!allowed.isEmpty()) result.put(id, allowed);
+        });
+        return result;
     }
 
     public record SortOrderRequest(Integer sortOrder) {}

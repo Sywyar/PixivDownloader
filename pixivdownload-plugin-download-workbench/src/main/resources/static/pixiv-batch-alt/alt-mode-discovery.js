@@ -137,9 +137,9 @@ async function loadUserWorks(page) {
             userState.ids = (ids || []).map(String);
             userState.total = userState.ids.length;
             const pageIds = userState.ids.slice((page - 1) * userState.pageSize, page * userState.pageSize);
-            const data = await altAcquisitionJson(acquisition.type, 'user', {
+            const data = pageIds.length ? await altAcquisitionJson(acquisition.type, 'user', {
                 endpoint: acquisition.cardsEndpoint(userId), params: {ids: pageIds}
-            }, 'cards', {userId, ids: pageIds});
+            }, 'cards', {userId, ids: pageIds}) : {items: []};
             rawItems = data.items || [];
         }
         userState.rawItems = normalizeAcquisitionItems(rawItems, acquisition, context, 'user');

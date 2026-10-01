@@ -377,7 +377,9 @@ final class DesktopToolsView {
         }
         return new DesktopUiNode.ToolsOverview(
                 "tools.workspace",
-                raw("tools.backend", model.owner.backendMessage(), TextStyle.CAPTION),
+                new DesktopUiNode.Text("tools.backend",
+                        new TextToken(null, "gui.tools.backend-status", "", List.of(model.owner.backendMessage())),
+                        TextStyle.CAPTION, true, false),
                 toolCards(nextActions),
                 media,
                 mediaTools,

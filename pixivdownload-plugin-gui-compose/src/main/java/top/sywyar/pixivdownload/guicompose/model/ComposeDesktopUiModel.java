@@ -72,6 +72,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
     private volatile Map<String, Runnable> actions = Map.of();
     private volatile Map<String, EventEndpoint> eventEndpoints = Map.of();
     private Map<String, InteractionSignature> interactionSignatures = Map.of();
+    private Map<String, ActionScope> actionScopes = Map.of();
     private final Map<DesktopUiNode, Map<String, EventEndpoint>> pageEventIndexes = new IdentityHashMap<>();
     private StablePages stablePages;
 
@@ -79,6 +80,13 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
             DesktopUiDocument.Page security,
             DesktopUiDocument.Page about,
             Map<String, Runnable> actions
+    ) {}
+
+    private record ActionScope(
+            Object owner,
+            List<DesktopUiDocument.Dialog> dialogs,
+            List<DesktopUiPluginSnapshot.Fingerprint> sources,
+            long revision
     ) {}
     private long interactionRevisionSequence;
     private volatile DesktopUiSnapshot snapshot;
@@ -206,11 +214,11 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
     public void dispatch(DesktopUiSnapshot observed, DesktopUiNode.Event event) {
         Objects.requireNonNull(observed, "observed");
         DesktopUiNode.Event value = Objects.requireNonNull(event, "event");
-        if (value.type() == DesktopUiNode.EventType.ACTIVATE) {
+        Long interactionRevision = observed.interactionRevisions().get(value.nodeId());
+        if (value.type() == DesktopUiNode.EventType.ACTIVATE && interactionRevision == null) {
             dispatch(value.atRevision(observed.revision()));
             return;
         }
-        Long interactionRevision = observed.interactionRevisions().get(value.nodeId());
         if (interactionRevision == null) {
             throw new IllegalArgumentException(
                     "snapshot has no interaction revision for node " + value.nodeId());
@@ -233,7 +241,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         if (closed) return;
         DesktopUiSnapshot currentSnapshot = snapshot;
         EventEndpoint endpoint = eventEndpoints.get(event.nodeId());
-        if (event.type() == DesktopUiNode.EventType.ACTIVATE) {
+        if (event.type() == DesktopUiNode.EventType.ACTIVATE && event.interactionRevision() < 0L) {
             if (event.documentRevision() != currentSnapshot.revision()) {
                 LOG.warn(
                         "Ignored stale desktop UI event (nodeId={}, type={}, reason=stale-document)",
@@ -394,7 +402,11 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
                     interactionSignatures
             );
             Map<String, Long> nextInteractionRevisions = interactionRevisions(
-                    nextInteractionSignatures);
+                    nextInteractionSignatures,
+                    nextDocument,
+                    nextEventEndpoints,
+                    sourceFingerprints
+            );
             selectionBindings = Map.copyOf(nextSelections);
             actions = Map.copyOf(nextActions);
             eventEndpoints = nextEventEndpoints;
@@ -487,8 +499,20 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         if (busy) stablePages = null;
     }
 
-    private Map<String, Long> interactionRevisions(Map<String, InteractionSignature> signatures) {
-        if (snapshot != null && signatures.equals(interactionSignatures)) return snapshot.interactionRevisions();
+    private Map<String, Long> interactionRevisions(
+            Map<String, InteractionSignature> signatures,
+            DesktopUiDocument document,
+            Map<String, EventEndpoint> endpoints,
+            List<DesktopUiPluginSnapshot.Fingerprint> sources
+    ) {
+        Map<String, ActionScope> nextScopes = new LinkedHashMap<>();
+        document.pages().forEach(page -> nextScopes.put("page:" + page.id(),
+                actionScope("page:" + page.id(), page, document.dialogs(), sources)));
+        document.dialogs().forEach(dialog -> nextScopes.put("dialog:" + dialog.id(),
+                actionScope("dialog:" + dialog.id(), dialog, document.dialogs(), sources)));
+        if (snapshot != null && signatures.equals(interactionSignatures) && nextScopes.equals(actionScopes)) {
+            return snapshot.interactionRevisions();
+        }
         Map<String, Long> revisions = new LinkedHashMap<>();
         Map<String, Long> previous = snapshot == null ? Map.of() : snapshot.interactionRevisions();
         signatures.forEach((nodeId, signature) -> {
@@ -496,7 +520,26 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
                     nodeId) : null;
             revisions.put(nodeId, revision == null ? nextInteractionRevision() : revision);
         });
+        endpoints.forEach((nodeId, endpoint) -> {
+            if (endpoint.eventType() == DesktopUiNode.EventType.ACTIVATE && endpoint.scopeId() != null) {
+                revisions.put(nodeId, nextScopes.get(endpoint.scopeId()).revision());
+            }
+        });
+        actionScopes = Map.copyOf(nextScopes);
         return Map.copyOf(revisions);
+    }
+
+    private ActionScope actionScope(
+            String id,
+            Object owner,
+            List<DesktopUiDocument.Dialog> dialogs,
+            List<DesktopUiPluginSnapshot.Fingerprint> sources
+    ) {
+        ActionScope previous = actionScopes.get(id);
+        if (previous != null && previous.owner().equals(owner)
+                && previous.dialogs().equals(dialogs) && previous.sources().equals(sources)) return previous;
+        // 只和上一版比较；关闭后重开相同内容也必须获得新的动作上下文。
+        return new ActionScope(owner, dialogs, sources, nextInteractionRevision());
     }
 
     private long nextInteractionRevision() {

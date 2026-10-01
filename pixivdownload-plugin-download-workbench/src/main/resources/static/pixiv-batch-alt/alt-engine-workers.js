@@ -8,12 +8,12 @@ async function start() {
     if (state.queue.some(item => item.recoveryState)) {
         await reconcileRestoredQueue();
         if (state.queue.some(item => item.recoveryState)) {
-            setDockStatus(bt('batch:queue.recovery.waiting'), 'warning');
+            setDockStatus({key: 'batch:queue.recovery.waiting'}, 'warning');
             return;
         }
     }
     if (state.queue.length === 0) {
-        setDockStatus(bt('status.queue-empty', '队列为空'), 'error');
+        setDockStatus({key: 'status.queue-empty', fallback: '队列为空'}, 'error');
         return;
     }
     if (!await checkBackend()) {
@@ -41,7 +41,7 @@ async function start() {
         updateStats();
         saveQueue();
         renderQueue();
-        setDockStatus(bt('status.batch-finished', '批量下载结束'), 'info');
+        setDockStatus({key: 'status.batch-finished', fallback: '批量下载结束'}, 'info');
         updateButtonsState();
         return;
     }
@@ -53,8 +53,7 @@ async function start() {
     saveQueue();
     renderQueue();
     setDockStatus(
-        bt('status.start-download', '开始下载 (并发:{concurrent}, 间隔:{intervalMs}ms)',
-            {concurrent: desiredConcurrency(), intervalMs: getIntervalMs()}),
+        {key: 'status.start-download', fallback: '开始下载 (并发:{concurrent}, 间隔:{intervalMs}ms)', args: {concurrent: desiredConcurrency(), intervalMs: getIntervalMs()}},
         'info');
 
     // 并发数与作品间隔实时生效：worker 池按当前目标并发动态伸缩，间隔在每次作品之间实时读取。
@@ -92,7 +91,7 @@ function finishBatch() {
     closeAllSSE();
     state.isRunning = false;
     saveQueue();
-    setDockStatus(bt('status.batch-finished', '批量下载结束'), 'info');
+    setDockStatus({key: 'status.batch-finished', fallback: '批量下载结束'}, 'info');
     updateButtonsState();
     // 多人模式：队列完成后自动打包已下载文件（配额超限时已在 handleQuotaExceeded 中触发打包，不重复）
     if (dockState.quota.enabled) {
@@ -149,6 +148,7 @@ function getNextPending() {
 // 类型当前不可用（其行为模块未装载 / 插件已禁用）：标记暂停，待类型恢复后可重试。
 function pauseUnavailableQueueType(item) {
     item.status = 'paused';
+    item.statusMessageKey = null;
     item.endTime = null;
     item.lastMessage = bt('queue.message.type-unavailable', '该类型当前不可用（其插件已禁用），已暂停');
     updateStats();
@@ -177,6 +177,7 @@ async function processSingle(item) {
 
 // 插画 / 漫画 / 动图下载流程（逐字移植 processIllustItem，UI 门面换新坞）。
 async function processIllustItem(item, invocation) {
+    item.statusMessageKey = null;
     item.lastMessage = bt('queue.message.checking-history', '正在检查历史记录...');
     renderQueue(item, true);
 
@@ -232,7 +233,7 @@ async function processIllustItem(item, invocation) {
 
     item.lastMessage = bt('queue.message.fetching-info', '正在获取作品信息...');
     renderCurrent(item);
-    setDockStatus(bt('status.fetching-metadata', '获取信息：{id}', {id: item.id}), 'info');
+    setDockStatus({key: 'status.fetching-metadata', fallback: '获取信息：{id}', args: {id: item.id}}, 'info');
     renderQueue(item, true);
 
     try {
@@ -282,7 +283,7 @@ async function processIllustItem(item, invocation) {
         saveQueue();
         renderQueue(item, true);
 
-        setDockStatus(bt('status.downloading-title', '下载中：{title}', {title: item.title}), 'info');
+        setDockStatus({key: 'status.downloading-title', fallback: '下载中：{title}', args: {title: item.title}}, 'info');
         const fallbackAuthorId = isUserMode ? normalizeAuthorId(state.userId) : null;
         const fallbackAuthorName = isUserMode ? (item.username || state.username || state.userId || '') : '';
         const seriesInfo = (item.seriesId && item.seriesId > 0)
@@ -310,7 +311,7 @@ async function processIllustItem(item, invocation) {
             updateStats();
             saveQueue();
             renderQueue(item, true);
-            setDockStatus(bt('status.skipped-downloaded-title', '跳过：{title}（已下载）', {title: item.title}), 'info');
+            setDockStatus({key: 'status.skipped-downloaded-title', fallback: '跳过：{title}（已下载）', args: {title: item.title}}, 'info');
             return;
         }
         openSSE(item.id);
@@ -341,11 +342,12 @@ async function processIllustItem(item, invocation) {
                     '失败 — 仅 {downloaded}/{total} 张已下载',
                     {downloaded: dCount, total: item.totalImages}
                 );
-                setDockStatus(bt('status.failed-files-missing-title', '失败：{title} (文件缺失)', {title: item.title}), 'error');
+                setDockStatus({key: 'status.failed-files-missing-title', fallback: '失败：{title} (文件缺失)', args: {title: item.title}}, 'error');
             } else {
                 item.status = 'completed';
-                item.lastMessage = bt('queue.message.completed-images', '已完成，共 {count} 张', {count: dCount});
-                setDockStatus(bt('status.completed-title', '完成：{title}', {title: item.title}), 'success');
+                item.statusMessageKey = 'batch:queue.message.completed-images';
+                item.lastMessage = '';
+                setDockStatus({key: 'status.completed-title', fallback: '完成：{title}', args: {title: item.title}}, 'success');
                 notifyFirstDownloadCompleted();
                 // 刷新配额显示（每完成一个作品计 1）
                 if (dockState.quota.enabled) {
@@ -362,7 +364,7 @@ async function processIllustItem(item, invocation) {
                 '失败 — {message}',
                 {message: final.message || bt('status.backend-failure', '后端返回失败')}
             );
-            setDockStatus(bt('status.failed-title', '失败：{title}', {title: item.title}), 'error');
+            setDockStatus({key: 'status.failed-title', fallback: '失败：{title}', args: {title: item.title}}, 'error');
         } else {
             try {
                 const check = await getDownloadStatus(item.id);
@@ -392,7 +394,8 @@ async function processIllustItem(item, invocation) {
                         );
                     } else {
                         item.status = 'completed';
-                        item.lastMessage = bt('queue.message.completed-confirmed', '已完成（确认），共 {count} 张', {count: dCount});
+                        item.statusMessageKey = 'batch:queue.message.completed-confirmed';
+                        item.lastMessage = '';
                         notifyFirstDownloadCompleted();
                     }
                 } else {
@@ -405,6 +408,7 @@ async function processIllustItem(item, invocation) {
             }
         }
     } catch (e) {
+        item.statusMessageKey = null;
         if (handlePathActionError(item, e)) return;
         if (e.message === 'quota_exceeded') {
             // 已在 handleQuotaExceeded 中处理，item 已标记为失败，不需要重复处理
@@ -413,7 +417,7 @@ async function processIllustItem(item, invocation) {
         } else {
             item.status = 'failed';
             item.lastMessage = bt('queue.message.failed-backend', '失败 — {message}', {message: e.message});
-            setDockStatus(bt('status.error-item', '错误：{id} — {message}', {id: item.id, message: e.message}), 'error');
+            setDockStatus({key: 'status.error-item', fallback: '错误：{id} — {message}', args: {id: item.id, message: e.message}}, 'error');
         }
     } finally {
         closeSSE(item.id);
@@ -436,8 +440,8 @@ function pause() {
     const active = state.queue.filter(q => q.status === 'downloading').length;
     setDockStatus(
         active > 0
-            ? bt('status.pausing-active', '正在暂停... (等待 {count} 个任务完成)', {count: active})
-            : bt('status.paused', '已暂停'),
+            ? {key: 'status.pausing-active', fallback: '正在暂停... (等待 {count} 个任务完成)', args: {count: active}}
+            : {key: 'status.paused', fallback: '已暂停'},
         'warning'
     );
     updateButtonsState();
@@ -454,7 +458,7 @@ function resume() {
     });
     saveQueue();
     renderQueue();
-    setDockStatus(bt('status.resume-download', '继续下载'), 'info');
+    setDockStatus({key: 'status.resume-download', fallback: '继续下载'}, 'info');
     updateButtonsState();
 }
 
@@ -485,7 +489,7 @@ function stopAndClear() {
     updateButtonsState();
     updateStats();
     syncAllResultsQueueState();
-    setDockStatus(bt('status.queue-cleared', '队列已清除'), 'info');
+    setDockStatus({key: 'status.queue-cleared', fallback: '队列已清除'}, 'info');
 }
 
 /* ============================================================
@@ -534,21 +538,21 @@ async function handleClear() {
 async function requestQueueItemCancel(id) {
     const item = state.queue.find(candidate => String(candidate.id) === String(id));
     if (!item || item.status !== 'downloading' || !item.cancelWorkKey) {
-        setDockStatus(bt('status.cancel-failed', '取消下载请求失败'), 'error');
+        setDockStatus({key: 'status.cancel-failed', fallback: '取消下载请求失败'}, 'error');
         return false;
     }
     const runtime = window.PixivBatch && window.PixivBatch.queueTypes;
     if (!runtime || !runtime.canCancel(item)) {
-        setDockStatus(bt('status.cancel-failed', '取消下载请求失败'), 'error');
+        setDockStatus({key: 'status.cancel-failed', fallback: '取消下载请求失败'}, 'error');
         return false;
     }
     try {
         await runtime.cancel(item);
-        setDockStatus(bt('status.cancel-requested', '已请求取消下载'), 'success');
+        setDockStatus({key: 'status.cancel-requested', fallback: '已请求取消下载'}, 'success');
         return true;
     } catch (e) {
         console.warn('[queue] 队列单项取消请求失败：', item.kind, e);
-        setDockStatus(bt('status.cancel-failed', '取消下载请求失败'), 'error');
+        setDockStatus({key: 'status.cancel-failed', fallback: '取消下载请求失败'}, 'error');
         renderQueue();
         return false;
     }

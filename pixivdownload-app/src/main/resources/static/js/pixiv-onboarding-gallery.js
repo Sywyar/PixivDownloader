@@ -9,8 +9,8 @@
 
     var EXAMPLE_ID = ctx.EXAMPLE_ID;
     var EXAMPLE_URL = ctx.EXAMPLE_URL;
-    var t = ctx.t;
-    var escapeHtml = ctx.escapeHtml;
+    var t = ctx.message;
+    var escapeHtml = ctx.messageHtml;
     var loadState = ctx.loadState;
     var patchState = ctx.patchState;
     var markCompleted = ctx.markCompleted;

@@ -52,16 +52,21 @@ class RouteAccessRegistryTest {
     }
 
     @Test
-    @DisplayName("核心 Vue 运行时 /vendor/vue/** 由既有 /vendor/** 声明覆盖：解析为 VISITOR（已声明、不入 monitor、非未声明 404）")
-    void resolvesVendoredVueRuntimeUnderVendorVisitor() {
+    @DisplayName("共享 Vue 运行时使用精确访客策略，目录内其它资源保留原策略")
+    void resolvesSharedVueWithoutOpeningVendorDirectory() {
         RouteAccessRegistry registry = new RouteAccessRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
-        // Vue 运行时落在 /vendor/ 静态前缀下，由 CorePlugin 既有 visitor("/vendor/**") 声明 serving；
-        // 当前实现不新增任何路由声明。resolve 命中（Optional 非空）即非「未声明」→ AuthFilter 不会 404；
-        // 策略为 VISITOR（不派生进 monitor / 不收紧为 INVITED_GUEST）。
         assertThat(registry.resolve("/vendor/vue/vue.global.prod.js", HttpMethod.GET))
-                .as("Vue 运行时应由既有 /vendor/** 声明解析为 VISITOR，不新增声明")
-                .get().extracting(r -> r.route().accessPolicy())
-                .isEqualTo(AccessPolicy.VISITOR);
+                .get().satisfies(route -> {
+                    assertThat(route.pluginId()).isEqualTo("core");
+                    assertThat(route.route().pathPattern()).isEqualTo("/vendor/vue/vue.global.prod.js");
+                    assertThat(route.route().accessPolicy()).isEqualTo(AccessPolicy.VISITOR_AND_INVITED_GUEST);
+                });
+        for (String path : List.of("/vendor/vue/other.js", "/vendor/chart/chart.js")) {
+            assertThat(registry.resolve(path, HttpMethod.GET)).get().satisfies(route -> {
+                assertThat(route.route().pathPattern()).isEqualTo("/vendor/**");
+                assertThat(route.route().accessPolicy()).isEqualTo(AccessPolicy.VISITOR);
+            });
+        }
     }
 
     @Test

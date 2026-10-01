@@ -79,15 +79,27 @@
         }
     }
 
+    var languageRevision = 0;
+    if (global.PixivI18n && typeof global.PixivI18n.onLanguageChange === 'function') {
+        global.PixivI18n.onLanguageChange(async function (event) {
+            if (!ctx.config || !ctx.config.eligible) return;
+            var revision = ++languageRevision;
+            var client = await global.PixivI18n.create({lang: event.lang, namespaces: ['tour']});
+            if (revision !== languageRevision) return;
+            refreshTranslations(client);
+        });
+    }
+
+    function refreshTranslations(client) {
+        if (client) ctx.i18n = client;
+        ctx.refreshFabLabel();
+        ctx.overlay.refreshTranslations();
+    }
+
     global.PixivOnboarding = {
         boot: boot,
         restart: ctx.restart,
-        refreshFab: function (client) {
-            if (client) {
-                ctx.i18n = client;
-            }
-            ctx.refreshFabLabel();
-        },
+        refreshFab: refreshTranslations,
         EXAMPLE_ID: ctx.EXAMPLE_ID,
         EXAMPLE_URL: ctx.EXAMPLE_URL,
         getName: function () {

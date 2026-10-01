@@ -54,6 +54,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
@@ -634,6 +635,8 @@ internal fun DesktopShell(
                 )
             }
             val currentPage = document.pages().first { it.id() == activePage }
+            val visit = remember(pageSceneId(currentPage)) { Any() }
+            val currentVisit = rememberUpdatedState(visit)
             val transition = updateTransition(currentPage, label = "desktop-page")
             Box(Modifier.weight(1f).fillMaxHeight()) {
                 // 保留退场的向导步骤；其它页面只在可见或退场时组合内容。
@@ -658,7 +661,7 @@ internal fun DesktopShell(
                                         }
                                     }
                                 ComposeDesktopUiNodeRenderer.Render(
-                                    page.content(), resolveText, { if (active) dispatch(it) },
+                                    page.content(), resolveText, { if (active && currentVisit.value === visit) dispatch(it) },
                                     Modifier.fillMaxSize().focusProperties { canFocus = active }.then(interaction), documentRevision,
                                 )
                             }

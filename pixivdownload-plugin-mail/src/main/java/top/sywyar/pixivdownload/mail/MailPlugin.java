@@ -36,6 +36,7 @@ public class MailPlugin implements PixivFeaturePlugin {
     private static final String NOTIFICATION_SERVICE_NOTICE = "notification.service.concurrent";
     private static final String NOTIFICATION_SERVICES_SECTION = "notification.services";
     private static final String CARD_ID = "mail";
+    private static final List<GuiConfigContribution> GUI_CONFIG = createGuiConfigContributions();
 
     @Override
     public String id() {
@@ -81,6 +82,10 @@ public class MailPlugin implements PixivFeaturePlugin {
 
     @Override
     public List<GuiConfigContribution> guiConfigContributions() {
+        return GUI_CONFIG;
+    }
+
+    private static List<GuiConfigContribution> createGuiConfigContributions() {
         GuiConfigCondition enabled = GuiConfigCondition.isTrue("mail.enabled");
         List<GuiConfigFieldContribution> fields = List.of(
                 bool("mail.enabled", "false", 100),
@@ -238,12 +243,13 @@ public class MailPlugin implements PixivFeaturePlugin {
     }
 
     private static List<GuiConfigPresetContribution> mailPresets() {
-        return new MailPresetRegistry().all().stream()
-                .map(MailPlugin::mailPreset)
+        List<MailPreset> presets = new MailPresetRegistry().all();
+        return java.util.stream.IntStream.range(0, presets.size())
+                .mapToObj(index -> mailPreset(presets.get(index), 10 + index * 10))
                 .toList();
     }
 
-    private static GuiConfigPresetContribution mailPreset(MailPreset preset) {
+    private static GuiConfigPresetContribution mailPreset(MailPreset preset, int order) {
         Map<String, String> values = preset.isCustom()
                 ? Map.of()
                 : Map.of(
@@ -256,20 +262,10 @@ public class MailPlugin implements PixivFeaturePlugin {
                 preset.credentialHelpKey(),
                 ID,
                 CARD_ID,
-                preset.isCustom() ? 10_000 : valuesOrder(preset.id()),
+                preset.isCustom() ? 10_000 : order,
                 preset.isCustom() ? null : "mail.host",
                 preset.host(),
                 values);
-    }
-
-    private static int valuesOrder(String id) {
-        List<MailPreset> presets = new MailPresetRegistry().all();
-        for (int i = 0; i < presets.size(); i++) {
-            if (presets.get(i).id().equals(id)) {
-                return 10 + i * 10;
-            }
-        }
-        return 10_000;
     }
 
     private static GuiConfigFieldContribution bool(String key, String defaultValue, int order,

@@ -9,8 +9,8 @@
         const active = state.queue.filter(q => q.status === 'downloading').length;
         setStatus(
             active > 0
-                ? bt('status.pausing-active', '正在暂停... (等待 {count} 个任务完成)', {count: active})
-                : bt('status.paused', '已暂停'),
+                ? {key: 'status.pausing-active', fallback: '正在暂停... (等待 {count} 个任务完成)', args: {count: active}}
+                : {key: 'status.paused', fallback: '已暂停'},
             'warning'
         );
         updateButtonsState();
@@ -28,7 +28,7 @@
             if (q.status === 'paused') q.status = 'pending';
         });
         saveQueue();
-        setStatus(bt('status.resume-download', '继续下载'), 'info');
+        setStatus({key: 'status.resume-download', fallback: '继续下载'}, 'info');
         updateButtonsState();
         // 恢复后经渲染门面重新派生队首（暂停期间当前卡已回退 idle「无」）。
         refreshCurrentCard();
@@ -61,7 +61,7 @@
         updateButtonsState();
         updateStats();
         syncAllResultsQueueState();
-        setStatus(bt('status.queue-cleared', '队列已清除'), 'info');
+        setStatus({key: 'status.queue-cleared', fallback: '队列已清除'}, 'info');
     }
 
     /* ============================================================

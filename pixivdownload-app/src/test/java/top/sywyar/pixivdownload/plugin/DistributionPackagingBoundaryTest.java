@@ -4,6 +4,8 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.aopalliance.intercept.MethodInterceptor;
+import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.beans.BeanUtils;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Condition;
@@ -609,6 +611,43 @@ class DistributionPackagingBoundaryTest {
     void notificationPackagesAsThinExternalPlugin() {
         assertThinExternalPlugin(NOTIFICATION_CLASSES_PROPERTY, "pixivdownload-plugin-notification",
                 "top/sywyar/pixivdownload/notificationbase/NotificationPf4jPlugin.class");
+    }
+
+    @Test
+    @DisplayName("处理后的公告服务经 Spring 子类代理读取真实 Bean 的缓存验证状态")
+    void notificationArtifactReadsValidatorsThroughSpringProxy() throws Exception {
+        Path classes = locateConfiguredDir(NOTIFICATION_CLASSES_PROPERTY);
+        requireAvailable(classes != null && Files.isDirectory(classes), "notification 插件尚未编译");
+        Path jar = locateModuleJar(classes, "pixivdownload-plugin-notification");
+        if (skipMissingPackagedArtifact(jar, "notification 插件的真实 JAR 未生成")) {
+            return;
+        }
+        try (URLClassLoader loader = new URLClassLoader(new URL[]{jar.toUri().toURL()},
+                getClass().getClassLoader())) {
+            String prefix = "top.sywyar.pixivdownload.notificationbase.";
+            Class<?> serviceType = loader.loadClass(prefix + "NotificationInboxService");
+            assertThat(serviceType.getClassLoader()).isSameAs(loader);
+            Class<?> mapperType = loader.loadClass(prefix + "NotificationInboxMapper");
+            Object validators = loader.loadClass(prefix + "RemoteAnnouncementValidators")
+                    .getConstructor(String.class, long.class, String.class, String.class)
+                    .newInstance("a".repeat(64), 200L, "\"cached\"", null);
+            Object mapper = java.lang.reflect.Proxy.newProxyInstance(loader, new Class<?>[]{mapperType},
+                    (instance, method, arguments) -> switch (method.getName()) {
+                        case "findRemoteAnnouncementValidators" -> validators;
+                        case "setActivePersistentSurveys" -> 0;
+                        default -> throw new AssertionError("Unexpected mapper call: " + method.getName());
+                    });
+            Object target = serviceType.getConstructor(mapperType).newInstance(mapper);
+            ProxyFactory factory = new ProxyFactory(target);
+            factory.setProxyTargetClass(true);
+            factory.addAdvice((MethodInterceptor) invocation -> invocation.proceed());
+            Object proxy = factory.getProxy(loader);
+            var readValidators = serviceType.getDeclaredMethod("remoteAnnouncementValidators", long.class);
+            readValidators.setAccessible(true);
+
+            assertThat(readValidators.invoke(proxy, 100L)).isSameAs(validators);
+            assertThat(readValidators.invoke(proxy, 200L)).isNull();
+        }
     }
 
     @Test

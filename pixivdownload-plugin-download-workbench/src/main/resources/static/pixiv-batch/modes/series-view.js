@@ -27,16 +27,16 @@
         updateSeriesQueueButtons();
 
         if (options.setStatus) {
-            const parts = [bt('search.summary.current-page', '当前页 {count} 个', {count: result.stats.rawCount})];
+            const parts = [{key: 'search.summary.current-page', fallback: '当前页 {count} 个', args: {count: result.stats.rawCount}}];
             if (hasExtraSearchFilter(filters)) {
-                parts.push(bt('search.summary.extra-filtered', '附加筛选后 {count} 个', {count: result.stats.filteredCount}));
+                parts.push({key: 'search.summary.extra-filtered', fallback: '附加筛选后 {count} 个', args: {count: result.stats.filteredCount}});
                 if (result.stats.bookmarkMetaMissing > 0) {
-                    parts.push(bt('search.summary.bookmark-missing', '{count} 个收藏数不可用已排除', {count: result.stats.bookmarkMetaMissing}));
+                    parts.push({key: 'search.summary.bookmark-missing', fallback: '{count} 个收藏数不可用已排除', args: {count: result.stats.bookmarkMetaMissing}});
                 }
             } else {
-                parts.push(bt('status.search-no-extra-filters', '未启用附加筛选'));
+                parts.push({key: 'status.search-no-extra-filters', fallback: '未启用附加筛选'});
             }
-            setStatus(bt('status.search-filters-applied', '已应用筛选：') + summaryJoin(parts), 'success');
+            setStatus([{key: 'status.search-filters-applied', fallback: '已应用筛选：'}, {parts, separator: 'enum'}], 'success');
         }
         return result.stats;
     }
@@ -193,14 +193,14 @@
                     saveQueue();
                     renderQueue();
                 }
-                setStatus(bt('status.already-in-queue', '已在队列中：{title}', {title: item.title}), 'info');
+                setStatus({key: 'status.already-in-queue', fallback: '已在队列中：{title}', args: {title: item.title}}, 'info');
                 return;
             }
             const removed = removeFromQueue(queueId);
             if (removed) {
-                setStatus(bt('status.removed-from-queue', '已从队列移除：{title}', {title: item.title}), 'info');
+                setStatus({key: 'status.removed-from-queue', fallback: '已从队列移除：{title}', args: {title: item.title}}, 'info');
             } else {
-                setStatus(bt('status.cannot-remove-downloading', '无法移除（正在下载中）：{title}', {title: item.title}), 'warning');
+                setStatus({key: 'status.cannot-remove-downloading', fallback: '无法移除（正在下载中）：{title}', args: {title: item.title}}, 'warning');
             }
             return;
         }
@@ -211,8 +211,8 @@
             ''
         );
         setStatus(added > 0
-                ? bt('status.added-to-queue', '已加入队列：{title}', {title: item.title})
-                : bt('status.already-in-queue', '已在队列中：{title}', {title: item.title}),
+                ? {key: 'status.added-to-queue', fallback: '已加入队列：{title}', args: {title: item.title}}
+                : {key: 'status.already-in-queue', fallback: '已在队列中：{title}', args: {title: item.title}},
             added > 0 ? 'success' : 'info');
         syncSeriesResultsQueueState();
     }
@@ -230,11 +230,7 @@
         const fallbackOrderBase = (Math.max(1, seriesState.currentPage) - 1) * getSeriesPageSize();
         const result = addSeriesItemsToQueue(seriesState.items, fallbackOrderBase);
         setStatus(
-            bt(
-                'status.added-current-series-page-to-queue',
-                '已将当前页 {added} 个作品加入队列（本页 {total} 个，{existing} 个已在队列中）',
-                result
-            ),
+            {key: 'status.added-current-series-page-to-queue', fallback: '已将当前页 {added} 个作品加入队列（本页 {total} 个，{existing} 个已在队列中）', args: result},
             result.added > 0 ? 'success' : 'info'
         );
     }
@@ -244,10 +240,10 @@
         while (page <= Math.max(1, seriesState.totalPages || 1)) {
             operation.assertCurrent();
             if (!seriesState.itemsByPage.has(page)) {
-                setStatus(bt('status.series-fetch-all-progress', '正在补齐系列分页 {page} / {total}...', {
+                setStatus({key: 'status.series-fetch-all-progress', fallback: '正在补齐系列分页 {page} / {total}...', args: {
                     page,
                     total: seriesState.totalPages
-                }), 'info');
+                }}, 'info');
                 const data = await fetchSeriesPage(page, operation);
                 operation.assertCurrent();
                 cacheSeriesPageData(data, page, false);
@@ -291,17 +287,13 @@
             }
             const result = addSeriesItemsToQueue(toAdd, 0);
             setStatus(
-                bt(
-                    'status.added-many-to-queue',
-                    '已将 {added} 个作品加入队列（共 {total} 个，{existing} 个已在队列中）',
-                    result
-                ),
+                {key: 'status.added-many-to-queue', fallback: '已将 {added} 个作品加入队列（共 {total} 个，{existing} 个已在队列中）', args: result},
                 result.added > 0 ? 'success' : 'info'
             );
             renderSeriesResults();
         } catch (e) {
             if (!operation.isCurrent() || requestSeq !== seriesState.requestSeq || !lease.isCurrent()) return;
-            setStatus(bt('status.series-load-failed', '加载失败：{message}', {message: e.message}), 'error');
+            setStatus({key: 'status.series-load-failed', fallback: '加载失败：{message}', args: {message: e.message}}, 'error');
         } finally {
             if (!operation.isCurrent() || requestSeq !== seriesState.requestSeq || !lease.isCurrent()) return;
             updateSeriesQueueButtons();

@@ -178,7 +178,7 @@ public final class ConfigFieldRegistry {
     private static ConfigGroupSpec coreGroupSpec(GuiConfigGroupContribution group) {
         return new ConfigGroupSpec(
                 group.groupId(),
-                message(group.labelKey()),
+                SwingHost.host().message(group.labelKey()),
                 group.order(),
                 group.visibleInTabs()
         );
@@ -210,13 +210,13 @@ public final class ConfigFieldRegistry {
 
         ConfigFieldSpec.Builder builder = ConfigFieldSpec.builder(
                         field.key(),
-                        message(field.labelKey()),
+                        SwingHost.host().message(field.labelKey()),
                         GuiConfigContributionAggregator.mapFieldType(field.type(), field.sensitive()),
                         group.label()
                 )
                 .groupId(group.id())
                 .defaultValue(field.defaultValue())
-                .help(field.helpKey().isBlank() ? "" : message(field.helpKey()))
+                .help(field.helpKey().isBlank() ? "" : SwingHost.host().message(field.helpKey()))
                 .enabledWhen(GuiConfigContributionAggregator.predicate(field.enabledWhen()))
                 .visibleWhen(visible)
                 .visibleWhenConditions(field.visibleWhen())
@@ -226,7 +226,7 @@ public final class ConfigFieldRegistry {
         if (field.type() == GuiConfigFieldType.ENUM || field.type() == GuiConfigFieldType.MULTI_ENUM) {
             builder.enumValues(field.enumValues().toArray(String[]::new));
             Map<String, String> labels = new LinkedHashMap<>();
-            field.enumValueLabelKeys().forEach((value, key) -> labels.put(value, message(key)));
+            field.enumValueLabelKeys().forEach((value, key) -> labels.put(value, SwingHost.host().message(key)));
             builder.enumValueLabels(labels);
         }
         builder.effect(field.effect());

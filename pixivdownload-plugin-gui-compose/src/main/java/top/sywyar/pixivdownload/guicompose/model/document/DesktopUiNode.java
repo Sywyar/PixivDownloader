@@ -1535,7 +1535,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
         /**
          * @param documentRevision 产生控件时观察到的文档修订号
-         * @param interactionRevision 产生值控件时观察到的交互契约修订号
+         * @param interactionRevision 渲染控件时观察到的交互上下文修订号
          * @param type renderer 事件类型
          * @param nodeId 产生事件的节点 id
          * @param value 类型化事件值

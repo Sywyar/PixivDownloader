@@ -202,7 +202,7 @@ if (!isMainThread) {
             assert.equal(result.calls.sharedSseOpened, 0);
             assert.equal(result.calls.sharedSseClosed, 0);
             assert.deepEqual(result.calls.requests, []);
-            assert.equal(result.calls.statuses.at(-1).message, 'status.batch-finished');
+            assert.equal(result.calls.statuses.at(-1).message.key, 'status.batch-finished');
         });
     }
 
@@ -223,8 +223,8 @@ if (!isMainThread) {
         assert.deepEqual(result.queue.map(item => item.status), ['skipped', 'completed', 'completed']);
         assert.equal(result.calls.sharedSseOpened, 1);
         assert.equal(result.calls.sharedSseClosed, 1);
-        assert.equal(result.calls.statuses.filter(status => status.message === 'status.batch-finished').length, 1);
-        assert.equal(result.calls.statuses.at(-1).message, 'status.batch-finished');
+        assert.equal(result.calls.statuses.filter(status => status.message.key === 'status.batch-finished').length, 1);
+        assert.equal(result.calls.statuses.at(-1).message.key, 'status.batch-finished');
     });
 
     test('重复 start 不会重置已启动 worker 或重复处理队列项', async () => {
@@ -238,6 +238,6 @@ if (!isMainThread) {
         assert.equal(result.activeWorkers, 0);
         assert.deepEqual(result.calls.processed, ['idle']);
         assert.equal(result.calls.sharedSseOpened, 1);
-        assert.equal(result.calls.statuses.filter(status => status.message === 'status.start-download').length, 1);
+        assert.equal(result.calls.statuses.filter(status => status.message.key === 'status.start-download').length, 1);
     });
 }

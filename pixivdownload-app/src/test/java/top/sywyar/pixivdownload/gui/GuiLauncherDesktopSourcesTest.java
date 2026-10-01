@@ -2,6 +2,11 @@ package top.sywyar.pixivdownload.gui;
 
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
+import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
@@ -10,12 +15,60 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
 
 import java.lang.ref.WeakReference;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class GuiLauncherDesktopSourcesTest {
+    @Test
+    @DisplayName("等价 YAML 层级共享 Spring 平铺规则，重复属性按文件顺序覆盖")
+    void yamlToggleShapesFollowSpringFlattening(@TempDir Path temp) throws Exception {
+        Path config = temp.resolve("config.yaml");
+        for (boolean enabled : List.of(false, true)) {
+            for (String yaml : List.of(
+                    "plugins.fixture.enabled: " + enabled + "\n",
+                    "plugins:\n  fixture:\n    enabled: " + enabled + "\n",
+                    "plugins.fixture:\n  enabled: " + enabled + "\n",
+                    "plugins:\n  fixture.enabled: " + enabled + "\n",
+                    "plugins.fixture.enabled: " + !enabled + "\nplugins:\n  fixture:\n    enabled: " + enabled + "\n",
+                    "plugins:\n  fixture:\n    enabled: " + !enabled + "\nplugins.fixture.enabled: " + enabled + "\n")) {
+                Files.writeString(config, yaml, StandardCharsets.UTF_8);
+                var snapshot = GuiLauncher.readPluginEnabledSnapshot(config);
+                assertThat(snapshot.isEnabled("fixture")).as(yaml).isEqualTo(enabled);
+                assertThat(snapshot.isEnabled("unconfigured")).isTrue();
+                assertThat(snapshot.diagnostics()).isEmpty();
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("管理端写入的扁平启停键在桌面重启后撤回贡献，重新启用后恢复")
+    void flatPluginToggleControlsDesktopContributions(@TempDir Path temp) throws Exception {
+        Path config = temp.resolve("config.yaml");
+        Files.writeString(config, "99: true\nplugins.enabled: ignored\nplugins:\n  legacy:\n    enabled: false\n", StandardCharsets.UTF_8);
+        var editor = new ConfigFileEditor(config);
+        for (boolean enabled : List.of(false, true)) {
+            editor.write("plugins.fixture.enabled", Boolean.toString(enabled));
+            var snapshot = GuiLauncher.readPluginEnabledSnapshot(config);
+            assertThat(snapshot.isEnabled("fixture")).isEqualTo(enabled);
+            assertThat(snapshot.isEnabled("legacy")).isFalse();
+            assertThat(snapshot.isEnabled("unconfigured")).isTrue();
+            var toggles = new PluginToggleProperties();
+            snapshot.disabledFeatureIds().forEach(id -> toggles.setEnabled(id, false));
+            var plugin = new TestPlugin();
+            var discovery = new PluginDiscoveryResult(List.of(new DiscoveredFeaturePlugin(
+                    plugin.id(), plugin.id(), plugin, getClass().getClassLoader())), List.of());
+            var registry = new PluginRegistry(List.of(), toggles, discovery);
+            assertThat(GuiLauncher.buildDesktopUiPluginSnapshots(GuiLauncher.buildDesktopUiPluginSources(registry)))
+                    .hasSize(enabled ? 1 : 0);
+            assertThat(registry.allRegisteredPlugins()).hasSize(1);
+        }
+    }
+
     @Test
     @org.junit.jupiter.api.DisplayName("桌面贡献初始化错误只排除故障插件，JVM 致命错误保持传播")
     void contributionErrorsAreIsolatedPerPlugin() {

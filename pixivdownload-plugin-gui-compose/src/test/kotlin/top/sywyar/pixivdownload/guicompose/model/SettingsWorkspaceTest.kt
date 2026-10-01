@@ -34,6 +34,48 @@ import kotlin.test.*
 @OptIn(ExperimentalTestApi::class)
 class SettingsWorkspaceTest {
     @Test
+    @DisplayName("窄矮设置保留正文高度，分类菜单、搜索和带草稿的保存操作均可达")
+    fun compactHeightKeepsContentUsable() = runComposeUiTest(
+        effectContext = object : MotionDurationScale { override val scaleFactor = 0f },
+    ) {
+        val model = createModel(mutableMapOf())
+        var snapshot by mutableStateOf(model.snapshot())
+        val subscription = model.subscribeSnapshots { snapshot = it }
+        try {
+            setContent {
+                CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 1.3f)) {
+                    PixivDownloaderTheme("light") {
+                        Box(Modifier.size(530.dp, 480.dp).background(LocalExperiencePalette.current.surface)) {
+                            SettingsWorkspace(workspace(snapshot), ::resolve, { model.dispatch(snapshot, it) })
+                        }
+                    }
+                }
+            }
+            onNodeWithTag("settings.categories").assertIsDisplayed().performClick()
+            onNodeWithText(resolve(workspace(snapshot).tabs().first { it.id() == "download" }.title())).performClick()
+            onNodeWithContentDescription("download.root-folder").performScrollTo().performTextReplacement("D:/Changed")
+            onNodeWithTag("config.save").assertIsDisplayed()
+            val page = onNodeWithTag("settings.workspace").fetchSemanticsNode().boundsInRoot
+            val content = onNodeWithTag("settings.content").fetchSemanticsNode().boundsInRoot
+            val save = onNodeWithTag("config.save").fetchSemanticsNode().boundsInRoot
+            assertTrue(content.height >= page.height * .4f, "page=$page content=$content")
+            assertTrue(save.top >= page.top && save.bottom <= page.bottom, "page=$page save=$save")
+            onNodeWithContentDescription("download.root-folder").performClick().performKeyInput {
+                keyDown(Key.CtrlLeft)
+                pressKey(Key.K)
+                keyUp(Key.CtrlLeft)
+            }
+            onNodeWithContentDescription(resolve(settingsKey("search"))).assertIsFocused().performTextInput("port")
+            onNodeWithTag("config.app.server.port.row.locate").performClick()
+            onNodeWithContentDescription("server.port").performScrollTo().assertIsDisplayed()
+            assertTrue(workspace(snapshot).changes().any { it.rowId() == "config.app.download.root-folder.row" })
+        } finally {
+            subscription.close()
+            model.close()
+        }
+    }
+
+    @Test
     @DisplayName("浅色设置在目标字段旁查询候选，下拉选择可连续切换并适应窄窗口")
     fun lightFieldSelection() = fieldSelection("light")
 
@@ -81,9 +123,10 @@ class SettingsWorkspaceTest {
             waitUntil(timeoutMillis = 5000) { !model.busy() }
             val editor = onNodeWithContentDescription("demo.value")
             editor.assertTextEquals("initial")
-            val choice = onNode(
-                hasContentDescription("Fetch available models") and hasAnyAncestor(hasTestTag("config.demo.demo.value.row")),
-            )
+            val choiceMatcher = hasContentDescription("Fetch available models") and
+                hasAnyAncestor(hasTestTag("config.demo.demo.value.row"))
+            waitUntilExactlyOneExists(choiceMatcher, timeoutMillis = 5000)
+            val choice = onNode(choiceMatcher)
             choice.assertIsDisplayed().performClick()
             onNodeWithText("test/2+测试").performClick()
             onNodeWithContentDescription("demo.value").assertTextEquals("test/2+测试")
@@ -323,7 +366,12 @@ class SettingsWorkspaceTest {
             onNodeWithContentDescription("download.root-folder").performTextReplacement("D:/Artwork")
             onNodeWithTag("settings.category.interface").performClick()
             onNodeWithTag("settings.theme.dark").assertIsSelected()
-            onNodeWithContentDescription(resolve(settingsKey("search"))).performTextInput("port")
+            onNodeWithTag("settings.theme.dark").performKeyInput {
+                keyDown(Key.CtrlLeft)
+                pressKey(Key.K)
+                keyUp(Key.CtrlLeft)
+            }
+            onNodeWithContentDescription(resolve(settingsKey("search"))).assertIsFocused().performTextInput("port")
             onNodeWithTag("config.app.server.port.row.locate").performClick()
             onNodeWithTag("config.app.server.port.row").assertIsDisplayed()
             onNodeWithContentDescription("server.port").performTextReplacement("70000")

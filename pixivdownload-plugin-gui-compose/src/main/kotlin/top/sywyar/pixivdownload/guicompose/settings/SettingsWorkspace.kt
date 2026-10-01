@@ -51,6 +51,7 @@ internal fun SettingsWorkspace(
     var query by rememberSaveable { mutableStateOf("") }
     var review by rememberSaveable { mutableStateOf(false) }
     var maintenance by remember { mutableStateOf(false) }
+    var categoriesExpanded by remember { mutableStateOf(false) }
     var hintDismiss by remember { mutableIntStateOf(0) }
     val searchFocus = remember { FocusRequester() }
     val reviewFocus = remember { FocusRequester() }
@@ -89,11 +90,22 @@ internal fun SettingsWorkspace(
         } else false
     }) {
         val narrow = maxWidth < 680.dp
+        val compact = maxHeight < 600.dp
         Column(Modifier.fillMaxSize().padding(horizontal = if (narrow) 20.dp else 38.dp)) {
-            Row(Modifier.fillMaxWidth().padding(top = 26.dp, bottom = 28.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.fillMaxWidth().padding(
+                    top = if (compact) 12.dp else 26.dp,
+                    bottom = if (compact) 12.dp else 28.dp,
+                ),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    CupertinoText(text(TextToken(null, "desktop.ui.page.settings", "", emptyList())),
-                        fontSize = 30.sp, fontWeight = FontWeight.Bold, modifier = Modifier.semantics { heading() })
+                    CupertinoText(
+                        text(TextToken(null, "desktop.ui.page.settings", "", emptyList())),
+                        fontSize = if (compact) 22.sp else 30.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.semantics { heading() },
+                    )
                     CupertinoText(text(settingsText("subtitle")), fontSize = 13.sp, color = palette.secondaryText)
                 }
                 Box {
@@ -110,22 +122,65 @@ internal fun SettingsWorkspace(
             }
             @Composable fun navigation(mod: Modifier) {
                 Column(mod, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    CupertinoTextField(
-                        value = query,
-                        onValueChange = { query = it },
-                        singleLine = true,
-                        placeholder = { CupertinoText(text(settingsText("search")), fontSize = 12.sp, color = palette.secondaryText) },
-                        leadingIcon = { DesktopIcon(Icons.Default.Search, null, tint = palette.secondaryText) },
-                        modifier = Modifier.fillMaxWidth().focusRequester(searchFocus).testTag("settings.search")
-                            .semantics { contentDescription = text(settingsText("search")) },
-                    )
-                    if (narrow) {
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                            node.tabs().forEach { tab -> Category(tab, tab.id() == selected.id(), categoryChanges[tab.id()] ?: 0, text, { select(tab.id()) }) }
+                    @Composable fun search(searchModifier: Modifier) {
+                        Box(searchModifier.focusRequester(searchFocus)) {
+                            CupertinoTextField(
+                                value = query,
+                                onValueChange = { query = it },
+                                singleLine = true,
+                                placeholder = { CupertinoText(text(settingsText("search")), fontSize = 12.sp, color = palette.secondaryText) },
+                                leadingIcon = { DesktopIcon(Icons.Default.Search, null, tint = palette.secondaryText) },
+                                modifier = Modifier.fillMaxWidth().testTag("settings.search")
+                                    .semantics { contentDescription = text(settingsText("search")) },
+                            )
+                        }
+                    }
+                    if (narrow && compact) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(Modifier.weight(1f)) {
+                                search(Modifier.fillMaxWidth())
+                            }
+                            Box(Modifier.weight(1f)) {
+                                CupertinoButton(
+                                    { categoriesExpanded = true },
+                                    modifier = Modifier.fillMaxWidth().testTag("settings.categories"),
+                                    colors = CupertinoButtonDefaults.plainButtonColors(contentColor = palette.link),
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
+                                ) {
+                                    CupertinoText(text(selected.title()), fontSize = 13.sp, modifier = Modifier.weight(1f))
+                                    CategoryChanges(selected.id(), categoryChanges[selected.id()] ?: 0, text)
+                                    DesktopIcon(Icons.Default.ExpandMore, null, Modifier.size(16.dp))
+                                }
+                                CupertinoDropdownMenu(categoriesExpanded, { categoriesExpanded = false }) {
+                                    node.tabs().forEach { tab ->
+                                        MenuPickerAction(
+                                            title = {
+                                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                    CupertinoText(text(tab.title()), fontSize = 13.sp)
+                                                    CategoryChanges(tab.id(), categoryChanges[tab.id()] ?: 0, text)
+                                                }
+                                            },
+                                            onClick = { categoriesExpanded = false; select(tab.id()) },
+                                            isSelected = tab.id() == selected.id(),
+                                        )
+                                    }
+                                }
+                            }
                         }
                     } else {
-                        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            node.tabs().forEach { tab -> Category(tab, tab.id() == selected.id(), categoryChanges[tab.id()] ?: 0, text, { select(tab.id()) }, stretch = true) }
+                        search(Modifier.fillMaxWidth())
+                        if (narrow) {
+                            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                node.tabs().forEach { tab -> Category(tab, tab.id() == selected.id(), categoryChanges[tab.id()] ?: 0, text, { select(tab.id()) }) }
+                            }
+                        } else {
+                            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                node.tabs().forEach { tab -> Category(tab, tab.id() == selected.id(), categoryChanges[tab.id()] ?: 0, text, { select(tab.id()) }, stretch = true) }
+                            }
                         }
                     }
                 }
@@ -192,7 +247,7 @@ internal fun SettingsWorkspace(
                 }
             }
             if (narrow) {
-                navigation(Modifier.fillMaxWidth().padding(bottom = 20.dp))
+                navigation(Modifier.fillMaxWidth().padding(bottom = if (compact) 10.dp else 20.dp))
                 content(Modifier.weight(1f).fillMaxWidth())
             } else Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(32.dp)) {
                 navigation(Modifier.width(200.dp).fillMaxHeight().padding(bottom = 24.dp))
@@ -222,10 +277,20 @@ private fun Category(tab: Tab, active: Boolean, changed: Int, text: (TextToken) 
                 modifier = Modifier.size(17.dp))
             CupertinoText(text(tab.title()), fontSize = 13.sp, modifier = if (stretch) Modifier.weight(1f) else Modifier,
                 fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
-            if (changed > 0) CupertinoText(changed.toString(), fontSize = 11.sp, color = palette.link,
-                modifier = Modifier.testTag("settings.category.${tab.id()}.changes").semantics { contentDescription = text(settingsText("unsaved", changed)) })
+            CategoryChanges(tab.id(), changed, text)
         }
     }
+}
+
+@Composable
+private fun CategoryChanges(id: String, changed: Int, text: (TextToken) -> String) {
+    if (changed > 0) CupertinoText(
+        changed.toString(),
+        fontSize = 11.sp,
+        color = LocalExperiencePalette.current.link,
+        modifier = Modifier.testTag("settings.category.$id.changes")
+            .semantics { contentDescription = text(settingsText("unsaved", changed)) },
+    )
 }
 
 internal fun categoryIcon(id: String) = when (id) {

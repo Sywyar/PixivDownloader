@@ -428,17 +428,17 @@
             if (requestSeq !== seriesState.requestSeq) return;
             renderSeriesPagination();
             updateSeriesQueueButtons();
-            setStatus(bt('status.series-page-load-success', '系列页已加载：{title}（第 {page} / {total} 页）', {
+            setStatus({key: 'status.series-page-load-success', fallback: '系列页已加载：{title}（第 {page} / {total} 页）', args: {
                 title: seriesState.seriesTitle,
                 page: seriesState.currentPage,
                 total: seriesState.totalPages
-            }), 'success');
+            }}, 'success');
         } catch (e) {
             if (!activeOperation.isCurrent() || requestSeq !== seriesState.requestSeq || !lease.isCurrent()) return;
             document.getElementById('series-results-area').innerHTML =
                 `<div class="preview-message preview-message--error">${esc(bt('status.series-load-failed', '加载失败：{message}', {message: e.message}))}</div>`;
             updateSeriesQueueButtons();
-            setStatus(bt('status.series-load-failed', '加载失败：{message}', {message: e.message}), 'error');
+            setStatus({key: 'status.series-load-failed', fallback: '加载失败：{message}', args: {message: e.message}}, 'error');
         }
     }
 
@@ -485,7 +485,7 @@
                 `<div class="preview-message preview-message--error">${esc(bt('status.series-load-failed', '加载失败：{message}', {message: e.message}))}</div>`;
             renderSeriesPagination();
             updateSeriesQueueButtons();
-            setStatus(bt('status.series-load-failed', '加载失败：{message}', {message: e.message}), 'error');
+            setStatus({key: 'status.series-load-failed', fallback: '加载失败：{message}', args: {message: e.message}}, 'error');
         }
     }
 
@@ -494,7 +494,7 @@
         const input = document.getElementById('series-input-url');
         const parsed = parseSeriesInput(input.value);
         if (!parsed) {
-            setStatus(bt('status.series-url-invalid', '请输入当前数据来源支持的系列、合集或关联作品 URL'), 'error');
+            setStatus({key: 'status.series-url-invalid', fallback: '请输入当前数据来源支持的系列、合集或关联作品 URL'}, 'error');
             return;
         }
         return loadSeriesSelection(parsed.type, parsed);

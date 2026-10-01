@@ -4,8 +4,10 @@ import ch.qos.logback.classic.LoggerContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.bridge.SLF4JBridgeHandler;
+import org.springframework.beans.factory.config.YamlPropertiesFactoryBean;
 import org.springframework.boot.SpringApplication;
 import org.springframework.core.env.SimpleCommandLinePropertySource;
+import org.springframework.core.io.FileSystemResource;
 import top.sywyar.pixivdownload.PixivDownloadApplication;
 import top.sywyar.pixivdownload.cli.CliSetupCommand;
 import top.sywyar.pixivdownload.common.AppVersion;
@@ -62,6 +64,7 @@ import java.text.MessageFormat;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -838,20 +841,25 @@ public class GuiLauncher {
      * 读取 config.yaml 的 {@code plugins.<featureId>.enabled} 启用快照（UTF-8）。失败安全回退为全部启用并记日志——
      * 不阻止 GUI 使用主题插件或系统 LookAndFeel；解析出的非法值由快照自身记诊断、按缺项默认启用处理。
      */
-    private static PluginEnabledSnapshot readPluginEnabledSnapshot(Path configPath) {
+    static PluginEnabledSnapshot readPluginEnabledSnapshot(Path configPath) {
         if (!Files.isRegularFile(configPath)) {
             return PluginEnabledSnapshot.empty();
         }
         try {
-            Map<String, Object> loaded = new Yaml().load(Files.readString(configPath, StandardCharsets.UTF_8));
-            Object pluginsSection = loaded == null ? null : loaded.get("plugins");
-            if (!(pluginsSection instanceof Map<?, ?> plugins)) {
-                return PluginEnabledSnapshot.empty();
-            }
-            @SuppressWarnings("unchecked")
-            Map<String, Object> typed = (Map<String, Object>) plugins;
-            return PluginEnabledSnapshot.of(typed, "config.yaml");
-        } catch (RuntimeException | IOException e) {
+            YamlPropertiesFactoryBean yaml = new YamlPropertiesFactoryBean();
+            yaml.setResources(new FileSystemResource(configPath));
+            Properties loaded = yaml.getObject();
+            if (loaded == null) return PluginEnabledSnapshot.empty();
+            Map<String, Object> toggles = new java.util.LinkedHashMap<>();
+            loaded.forEach((key, value) -> {
+                if (key instanceof String name && name.startsWith("plugins.") && name.endsWith(".enabled")
+                        && name.length() > "plugins..enabled".length()) {
+                    String id = name.substring("plugins.".length(), name.length() - ".enabled".length());
+                    if (!id.isBlank()) toggles.put(id, value);
+                }
+            });
+            return PluginEnabledSnapshot.of(toggles, "config.yaml");
+        } catch (RuntimeException e) {
             log.warn(logMessage("gui.launcher.log.config.read-failed", e.getMessage()));
             return PluginEnabledSnapshot.empty();
         }

@@ -158,7 +158,7 @@ let scheduleState = {
 let dockState = {
     quota: {enabled: false, adminMode: false, artworksUsed: 0, maxArtworks: 50, resetSeconds: 0},
     archive: {visible: false, token: '', expireSeconds: 0, ready: false, expired: false, title: ''},
-    statusText: '',
+    statusMessage: null,
     statusTone: 'info',
     // 最近一次格式化的下载速度（下载坞 Vue 岛重挂后播种用；命令式路径实时写 DOM 不读这里）
     speed: {value: '0', unit: 'B/s'},

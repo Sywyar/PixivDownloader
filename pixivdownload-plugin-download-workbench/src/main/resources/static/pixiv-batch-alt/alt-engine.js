@@ -209,7 +209,7 @@ function handleQuotaExceeded(data) {
     saveQueue();
     renderQueue();
     updateButtonsState();
-    setDockStatus(bt('status.archive-limit', '已达到下载限额'), 'error');
+    setDockStatus({key: 'status.archive-limit', fallback: '已达到下载限额'}, 'error');
 
     const token = data.archiveToken;
     const expireSeconds = data.archiveExpireSeconds || 3600;
@@ -289,7 +289,7 @@ async function autoPackAfterQueue() {
         if (!res.ok) return;
         const data = await res.json();
         if (data.archiveToken) {
-            setDockStatus(bt('status.batch-finished-packing', '批量下载结束，正在打包文件...'), 'info');
+            setDockStatus({key: 'status.batch-finished-packing', fallback: '批量下载结束，正在打包文件...'}, 'info');
             showArchiveCard(
                 data.archiveToken,
                 data.archiveExpireSeconds || 3600,
@@ -308,7 +308,7 @@ async function triggerAdminPack() {
         .filter(Number.isFinite);
 
     if (ids.length === 0) {
-        setDockStatus(bt('status.no-completed-to-pack', '队列中暂无已完成的作品可供打包'), 'warning');
+        setDockStatus({key: 'status.no-completed-to-pack', fallback: '队列中暂无已完成的作品可供打包'}, 'warning');
         return;
     }
 
@@ -324,12 +324,12 @@ async function triggerAdminPack() {
             isAdmin = false;
             renderAuthButton();
             updateButtonsState();
-            setDockStatus(bt('status.login-expired', '登录状态已失效，请重新登录'), 'error');
+            setDockStatus({key: 'status.login-expired', fallback: '登录状态已失效，请重新登录'}, 'error');
             return;
         }
 
         if (res.status === 204) {
-            setDockStatus(bt('status.pack-folder-missing', '数据库中未找到对应文件夹，可能已被移动或删除'), 'warning');
+            setDockStatus({key: 'status.pack-folder-missing', fallback: '数据库中未找到对应文件夹，可能已被移动或删除'}, 'warning');
             return;
         }
 
@@ -343,13 +343,13 @@ async function triggerAdminPack() {
             setDockStatus(
                 (data && data.error)
                     ? data.error
-                    : bt('status.pack-failed-http', '打包失败：HTTP {code}', {code: res.status}),
+                    : {key: 'status.pack-failed-http', fallback: '打包失败：HTTP {code}', args: {code: res.status}},
                 'error');
             return;
         }
 
         setDockStatus(
-            bt('status.pack-request-submitted', '已提交打包请求（{count} 个作品），正在生成压缩包...', {count: ids.length}),
+            {key: 'status.pack-request-submitted', fallback: '已提交打包请求（{count} 个作品），正在生成压缩包...', args: {count: ids.length}},
             'info');
         showArchiveCard(
             data.archiveToken,
@@ -358,7 +358,7 @@ async function triggerAdminPack() {
             bt('status.admin-packing', '管理员打包中（{count} 个作品）', {count: ids.length})
         );
     } catch (e) {
-        setDockStatus(bt('status.pack-request-failed', '打包请求失败：{message}', {message: e.message}), 'error');
+        setDockStatus({key: 'status.pack-request-failed', fallback: '打包请求失败：{message}', args: {message: e.message}}, 'error');
     } finally {
         updateButtonsState();
     }
