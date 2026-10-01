@@ -17,12 +17,14 @@
     <init>();
 }
 
-# 显式 @Bean 装配的普通类也可能需要代理，包括没有组件注解的非 public 事务方法。
+# 子类代理的非注解方法也必须转发到真实 Bean，不能改为 final 后读取代理自身的空字段。
 -keepclasseswithmembers,includedescriptorclasses class * {
     @org.springframework.scheduling.annotation.Async <methods>;
+    !private !static <methods>;
 }
 -keepclasseswithmembers,includedescriptorclasses class * {
     @org.springframework.transaction.annotation.Transactional <methods>;
+    !private !static <methods>;
 }
 
 -keepclassmembers,includedescriptorclasses class * {
