@@ -1,6 +1,6 @@
 # PixivDownloader
 
-![](./image/pixivdownloader.png)
+![](./readme/image/pixivdownloader.png)
 
 [简体中文](./README.md) | [繁體中文](./README_zh-Hant.md) | [日本語](./README_ja.md) | 한국어 | [English](./README_en.md)
 
@@ -22,9 +22,6 @@
 
 ## 기능
 
-> [!WARNING]
-> `*` 표시가 있는 항목은 안정 버전에서 아직 제공되지 않으며 nightly 빌드에서만 사용할 수 있습니다.
-
 - 원스톱 다운로드 웹 페이지: 빠른 가져오기, 단일 작품 일괄 가져오기, 사용자 모드, 검색 모드, 시리즈 모드
 - 빠른 가져오기: 저장된 Cookie로 내 북마크(일러스트/소설 및 비공개 항목 포함), 내 작품(비공개 항목 포함), 팔로잉 목록 및 컬렉션을 한 번에 불러오고 다운로드 대기열에 추가
 - 페이지 일괄 다운로드 사용자 스크립트 — 검색 결과, 팔로잉 피드, 랭킹 등에서 작품 수집
@@ -33,8 +30,8 @@
 - 소설 갤러리의 전문 "본문" 검색(로컬 전문 색인 기반, 연령 등급/태그/작가 필터와 함께 사용 가능)
 - 통계 대시보드: 개요 카드, 월별 다운로드 선 그래프, 다운로드 수 기준 상위 작가, 인기 태그 클라우드; 작가와 태그를 클릭하여 필터링된 갤러리 보기로 이동
 - 중복 의심 작품 감지: 지각 해시(dHash)로 실질적으로 중복된 다운로드 이미지를 식별하며, 임계값 조정, 작품 간/전체 범위 전환 및 수동 스캔 보충을 지원
-- `*` 플러그인 관리 페이지: 모든 플러그인의 상태, 출처, 버전 및 의존성을 보여 주는 카드 목록; 외부 플러그인의 수명 주기 작업(아직 출시되지 않음)
-- `*` 플러그인 마켓: 신뢰한 저장소의 플러그인을 탐색·검색·페이지 조회하고 설치합니다. 타사 저장소는 GUI의 설정 → 플러그인 마켓 설정에서 저장소 설명자 또는 직접 입력으로 추가합니다. 게시자, 연결 호스트와 공개 키 전체 지문을 확인하여 초안에 추가한 뒤 설정을 저장하고 다시 시작하면 적용됩니다. 설치 전에는 버전을 다시 조회하고 크기, SHA-256, 서명과 패키지 descriptor를 검증합니다
+- 플러그인 관리 페이지: 모든 플러그인의 상태, 출처, 버전 및 의존성을 보여 주는 카드 목록; 외부 플러그인의 수명 주기 작업(아직 출시되지 않음)
+- 플러그인 마켓: 신뢰한 저장소의 플러그인을 탐색·검색·페이지 조회하고 설치합니다. 타사 저장소는 GUI의 설정 → 플러그인 마켓 설정에서 저장소 설명자 또는 직접 입력으로 추가합니다. 게시자, 연결 호스트와 공개 키 전체 지문을 확인하여 초안에 추가한 뒤 설정을 저장하고 다시 시작하면 적용됩니다. 설치 전에는 버전을 다시 조회하고 크기, SHA-256, 서명과 패키지 descriptor를 검증합니다
 - 예약 작업: 고정 주기 또는 cron 일정으로 백그라운드에서 새 작품을 자동으로 검색하고 다운로드하며 세 가지 소스 유형 지원
 - 이메일/푸시 알림: 수동 확인이 필요한 이벤트를 이메일 및 푸시 채널로 전달하고 알림 유형별로 활성화 여부 설정
 - 소설 다운로드 및 시리즈 통합(TXT/HTML/EPUB, 다단계 목차 및 삽입 이미지 지원)
@@ -53,10 +50,16 @@
 
 > [!NOTE]
 > 일부 스크린샷 기기는 HDR이 활성화되어 있어 색상 효과가 다르게 보일 수 있습니다.
+>
+> 앱은 한국어를 지원합니다. 앱 화면은 영어로, 유저스크립트 화면은 중국어 간체로 표시되어 있습니다.
 
-### [라이트 모드 스크린샷](./en-US/md/light-screenshot.md)
+[![PixivDownloader 라이트 모드 미리보기](./readme/image/en-US/en-US-overview.webp)](./readme/ko-KR/md/light-screenshot.md)
 
-### [다크 모드 스크린샷](./en-US/md/dark-screenshot.md)
+움직이는 이미지를 클릭하면 원본 스크린샷을 볼 수 있습니다.
+
+### [라이트 모드 스크린샷](./readme/ko-KR/md/light-screenshot.md)
+
+### [다크 모드 스크린샷](./readme/ko-KR/md/dark-screenshot.md)
 
 ## 빠른 시작
 
@@ -90,12 +93,6 @@ sh run.sh
 ```
 
 처음 시작한 후 마법사를 따라 설정을 완료하고 `http://localhost:6999/pixiv-batch.html`에 접속하여 다운로드를 시작하세요.
-
-이미지와 Ugoira의 저장 형식, 변환 품질, WebP 무손실 및 긴 변 최대 길이는 웹 다운로드 설정에서 선택합니다. 새 다운로드에 적용되며 새 예약 작업에는 생성 시점의 값이 저장됩니다. 이미지 기본값은 원본 형식, Ugoira는 WebP입니다. 원본 형식을 해제하면 선택한 출력 생성과 데이터베이스 기록이 모두 완료된 뒤 원본을 제거합니다. 같은 형식은 원본을 그대로 사용하며 품질과 크기를 변경하지 않습니다. GUI 다운로드 설정은 다운로드 및 FFmpeg 동시 실행 수 같은 백엔드 실행 제한을 관리합니다.
-
-기존 작품은 Compose 데스크톱의 “도구 → FFmpeg 및 도구 → 다운로드한 미디어 처리”에서 대상 형식을 선택하고 누락 항목을 찾습니다. 작품 ID는 입력하지 않아도 됩니다. 결과를 확인한 뒤 직접 시작하면 누락된 형식과 썸네일만 추가하고 기존 파일은 보존합니다. 뒤로 가도 작업은 계속됩니다. Swing도 도구 페이지에서 같은 검색과 처리를 제공합니다. Ugoira 추가 변환에는 보관된 ZIP과 프레임 타이밍이 필요합니다. FFmpeg 관리에서 실제 코덱 지원을 확인할 수 있으며 MP4에는 H.264 인코더가 필요합니다.
-
-작품 메타데이터와 페이지별 저장 형식은 데이터베이스에 저장하며, 새 다운로드에서는 `.meta.json`과 `.media.properties` 파일을 만들지 않습니다. 백업하거나 이동할 때 미디어 파일과 `data/pixiv_download.db`를 함께 보관하세요. 데이터베이스를 잃으면 갤러리는 파일만으로 작품 기록을 복구할 수 없습니다. 기존 보조 파일은 자동으로 일괄 삭제하지 않습니다.
 
 ### 백엔드 설정 프록시를 통해 웹에서 Pixiv 접속(시스템 프록시 불필요)
 
@@ -132,23 +129,13 @@ sh run.sh
 
 - [⚙️ 설정](https://sywyar.github.io/PixivDownloader/#/ko/configuration)
 - [🔌 플러그인 관리](https://sywyar.github.io/PixivDownloader/#/ko/plugin-management)
+- [🧩 타사 플러그인 SDK](https://sywyar.github.io/PixivDownloader/#/ko/plugin-development)
+- [📦 플러그인 SDK 다운로드 및 릴리스 기록](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases)（목록이 비어 있으면 아직 공개되지 않은 상태입니다）
 - [💾 저장 원칙](https://sywyar.github.io/PixivDownloader/#/ko/storage)
 - [❓ FAQ](https://sywyar.github.io/PixivDownloader/#/ko/faq)
 - [🛠️ 개발](https://sywyar.github.io/PixivDownloader/#/ko/development)
 
-현재 소스의 다운로드 작업 API는 플러그인이 제출 처리기, 옵션 훅, 이벤트 관찰자를 등록할 수 있도록 지원합니다. 요청 중복 방지, 특정 실행 취소, 재연결 시 상태 스냅샷을 제공하며 SDK 기본 클래스를 상속할 필요가 없습니다. [다운로드 유형 템플릿](plugin-templates/download-type-plugin/)에서 사용법을 확인할 수 있습니다. 같은 계약이 포함된 SDK와 호스트를 사용하세요.
-
 ---
-
-## 게시자 서명 도구
-
-서명 CLI는 `pixivdownload-plugin-signature`에 있으며 JDK 17만 있으면 실행할 수 있습니다. 저장소 루트에서 `./mvnw -pl pixivdownload-plugin-signature package`를 실행한 뒤 `java -cp <이 모듈이 생성한 JAR> top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool <명령>`으로 호출합니다.
-
-- `keygen --directory <새 디렉터리>`: `private-key.pem`(PKCS#8)과 해당 `public-key.pem`(SPKI)을 생성합니다. 디렉터리와 개인 키는 현재 사용자만 접근할 수 있습니다. 소스 저장소와 임시 디렉터리 밖의 위치를 선택하고 두 파일을 모두 백업하세요. 기존 디렉터리를 덮어쓰지 않습니다.
-- `public-key --public-key <public-key.pem> --key-id <식별자> --out <public.json>`: 정규화된 SPKI Base64와 SHA-256 공개 키 지문을 내보냅니다. 짝을 이루는 공개 키 파일을 읽으며, 개인 키에서 공개 키를 유도하지 않습니다.
-- `community-operation --operation <PUBLISHER_KEY_ROTATION|VERSION_STATUS_REQUEST|OWNERSHIP_TRANSFER> --canonical-body <정규화된 본문> --request-id <SHA-256> --key-id <식별자> --private-key <private-key.pem> --out <sig.json>`: 고정된 SDK가 생성한 JCS 본문 바이트에 서명합니다. 본문 해시는 requestId와 일치해야 합니다. 출력에는 분리 서명만 포함되며 개인 키는 포함되지 않습니다.
-
-공개 키 내보내기와 커뮤니티 작업 서명은 기존 출력 파일을 덮어쓰지 않습니다. 플러그인 패키지에는 기존 `artifact` 명령을 사용하세요. 전체 인수는 `--help`에서 확인할 수 있습니다. 개인 키를 Git에 커밋하거나 제출 첨부 파일에 넣지 마세요.
 
 ## 면책 조항
 
@@ -169,7 +156,7 @@ sh run.sh
 **[PixivBatchDownloader](https://github.com/xuejianxianzun/PixivBatchDownloader)**
 백엔드 없이 브라우저에서 직접 다운로드하고 싶다면 이 확장 프로그램을 사용해 보세요.
 
-공식 **PixivBatchDownloader 가져오기 지원** 플러그인과 사용자 스크립트로 이후 다운로드가 완료된 일러스트, 만화, 애니메이션, 소설을 원본 파일을 유지하면서 로컬 갤러리에 자동으로 추가할 수 있습니다. [사용 안내(영어)](https://sywyar.github.io/PixivDownloader/#/en/pixiv-batch-downloader-import)를 참고하세요.
+이 소프트웨어의 **PixivBatchDownloader 가져오기 지원** 플러그인과 사용자 스크립트로 이후 다운로드가 완료된 일러스트, 만화, 애니메이션, 소설을 원본 파일을 유지하면서 로컬 갤러리에 자동으로 추가할 수 있습니다. [사용 안내(영어)](https://sywyar.github.io/PixivDownloader/#/en/pixiv-batch-downloader-import)를 참고하세요.
 
 기능:
 
@@ -177,5 +164,3 @@ sh run.sh
 - 광고 제거, 빠른 북마크, 이미지 뷰어 모드 등 유용한 보조 기능(픽시브 도우미 플러그인으로도 사용할 수 있습니다.)
 - 타사 도구에 의존하지 않는 다운로드(이 프로젝트와 가장 큰 차이점이며 설치가 쉽습니다.)
 - 다국어 지원
-
-## 개발 계획

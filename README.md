@@ -1,6 +1,6 @@
 # PixivDownloader
 
-![](./image/pixivdownloader.png)
+![](./readme/image/pixivdownloader.png)
 
 中文 | [繁體中文](./README_zh-Hant.md) | [日本語](./README_ja.md) | [한국어](./README_ko.md) | [English](./README_en.md)
 
@@ -22,9 +22,6 @@
 
 ## 功能特点
 
-> [!WARNING]
-> **标记 `*` 的功能尚未在正式版中上线，仅每夜构建版可用**
-
 - 一站式下载网页，支持快捷获取、批量导入单作品、User 模式、Search 模式、系列模式
 - 快捷获取：凭已保存的 Cookie 一键拉取本账户的收藏（插画/小说，含不公开）、自己的作品（含不公开）、关注列表、珍藏集，可钻取查看并加入下载队列
 - 页面批量下载脚本 — 抓取搜索页、关注动态、排行榜等 Pixiv 页面中的插画/漫画/动图/小说
@@ -33,8 +30,8 @@
 - 小说画廊支持「正文」全文检索（基于本地全文索引，可与年龄分级/标签/作者等筛选叠加）
 - 统计仪表盘：总览卡片、按月下载量折线、下载量 Top 作者、热门标签词云，作者/标签可点击直达画廊筛选
 - 疑似重复检测：基于感知哈希（dHash）识别实质重复的已下载图片，支持阈值调节、跨作品/全部范围切换与手动扫描回填
-- `*` 插件管理页：卡片列表展示所有插件的状态/来源/版本/依赖，支持加载、启动、静默、停止、卸下、删除、重启和重载（未上线）
-- `*` 插件市场页：浏览、搜索、分页查看并安装受信仓库插件。第三方仓库在 GUI 的「设置 → 插件市场设置」中添加，可使用仓库描述符或自行填写；核对发布者、联网主机和完整公钥指纹后加入草稿，统一保存并重启生效。安装前会重新解析版本并校验大小、SHA-256、签名及包内描述符
+- 插件管理页：卡片列表展示所有插件的状态/来源/版本/依赖，支持加载、启动、静默、停止、卸下、删除、重启和重载（未上线）
+- 插件市场页：浏览、搜索、分页查看并安装受信仓库插件。第三方仓库在 GUI 的「设置 → 插件市场设置」中添加，可使用仓库描述符或自行填写；核对发布者、联网主机和完整公钥指纹后加入草稿，统一保存并重启生效。安装前会重新解析版本并校验大小、SHA-256、签名及包内描述符
 - 计划任务：后台按周期或 Cron 自动发现并下载新作品，支持画师新作/保存的搜索/系列三类来源
 - 邮件/推送通知：需人工介入的事件（鉴权失效、熔断等）通过邮件与推送通道告知；可在通知配置页按类型开关
 - 小说下载与系列合订（TXT/HTML/EPUB，EPUB 支持多级目录和内嵌图片）
@@ -52,10 +49,16 @@
 
 > [!NOTE]
 > 少许截图设备启用了 HDR，颜色效果可能不同
+>
+> 应用支持简体中文界面；以下截图为简体中文版。
 
-### [浅色模式使用截图](./zh-CN/md/light-screenshot.md)
+[![PixivDownloader 浅色界面预览](./readme/image/zh-CN-overview.webp)](./readme/zh-CN/md/light-screenshot.md)
 
-### [暗色模式使用截图](./zh-CN/md/dark-screenshot.md)
+点击动图查看完整静态截图。
+
+### [浅色模式使用截图](./readme/zh-CN/md/light-screenshot.md)
+
+### [暗色模式使用截图](./readme/zh-CN/md/dark-screenshot.md)
 
 ## 快速开始
 
@@ -71,8 +74,6 @@
 
 Java 标准包和离线全量包必须**完整解压**后使用，不要只提取其中的 JAR：启动脚本与 `plugins/` 目录
 缺一不可，程序启动时会从工作目录的 `plugins/` 加载官方外置插件。
-
-Douyin 从社区插件市场单独安装，源码与测试维护在 [Douyin 插件仓库](https://github.com/Sywyar/PixivDownloader-Plugin-Douyin)，不参与本仓库的 Maven Reactor 构建。
 
 ### 启动
 
@@ -92,14 +93,6 @@ sh run.sh
 ```
 
 首次启动后按引导完成配置，即可访问 `http://localhost:6999/pixiv-batch.html` 开始下载。
-
-图片和 Ugoira 保存格式、转码质量、WebP 无损与最长边统一在网页下载设置中选择。单人模式沿用服务端工作台状态保存，多人模式保存在当前浏览器；设置随新提交的下载生效。新建计划保存当时的选项，不跟随后续网页设置变化。图片默认只保留原始格式，Ugoira 默认 WebP。取消“原始格式”后，只有全部所选产物成功生成才会移除原图；选择与原图相同的格式时直接复用原文件，不应用质量和缩放。GUI 下载设置只管理后端运行与资源限制，例如下载并发和 FFmpeg 并发，按界面提示的方式生效。
-
-选择图片转码格式后，后续图片的下载可与已下载图片的转码同时进行，每个作品最多两张在途图片，FFmpeg 仍共用设置中的并发额度。队列分别显示下载和转码进度，全部图片处理成功后才记录作品完成。取消或转码失败会保留尚未成功转换的原图。
-
-已有作品在 Compose 桌面“工具 → FFmpeg 及其工具 → 历史媒体处理”中选择目标格式并检测缺失项目，无需填写作品 ID。查看结果后点击开始，只补缺失格式和缩略图，保留已有文件；返回不取消任务。Swing 在工具页提供同样的检测与处理。Ugoira 补转需要保留的 ZIP 和帧时序；FFmpeg 管理中可检查实际编解码能力，MP4 需要 H.264 编码器。
-
-作品元数据与逐页媒体格式记录统一存入数据库，不再生成 `.meta.json` 或 `.media.properties`。备份或迁移作品时，请同时保留媒体文件与 `data/pixiv_download.db`；数据库丢失后，画廊不会根据目录中的文件自动恢复作品。已有旁文件不会自动批量删除。
 
 ### 让网页版 Pixiv 走后端配置的代理（无需开启系统代理）
 
@@ -142,18 +135,6 @@ sh run.sh
 - [❓ 常见问题](https://sywyar.github.io/PixivDownloader/#/zh-cn/faq)
 - [🛠️ 开发指南](https://sywyar.github.io/PixivDownloader/#/zh-cn/development)
 
-插件开发包提供单个 `pixivdownload-sdk` 编译依赖、独立 Maven 工程及 Gradle / sbt 示例。带固定运行清单的 SDK 可通过自带 Run / Debug 入口构建当前插件，自动准备配套宿主和完整官方插件；运行数据保存在各工程的 `.dev/`。可下载版本及具体用法以对应 Release 和包内 README 为准。
-
-当前源码的下载任务契约支持插件注册提交处理器、选项扩展和事件观察者，提供请求去重、精确取消及重连快照；无需继承 SDK 抽象基类。[下载类型模板](plugin-templates/download-type-plugin/)演示这些接口的用法，需要使用包含相同契约的 SDK 与宿主。
-
-发布者签名 CLI 位于 `pixivdownload-plugin-signature`，只需 JDK 17。在仓库根执行 `./mvnw -pl pixivdownload-plugin-signature package` 后，以 `java -cp <该模块生成的JAR> top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool <命令>` 调用：
-
-- `keygen --directory <新目录>`：生成 `private-key.pem`（PKCS#8）和配套 `public-key.pem`（SPKI），目录及私钥仅允许当前用户访问。请选择源码仓库和临时目录之外的位置，备份这两个文件；命令不覆盖已有目录。
-- `public-key --public-key <public-key.pem> --key-id <标识> --out <public.json>`：导出规范 SPKI Base64 和 SHA-256 公钥指纹。此命令读取配套公钥文件，不从私钥推导公钥。
-- `community-operation --operation <PUBLISHER_KEY_ROTATION|VERSION_STATUS_REQUEST|OWNERSHIP_TRANSFER> --canonical-body <规范正文> --request-id <SHA-256> --key-id <标识> --private-key <private-key.pem> --out <sig.json>`：签署固定 SDK 生成的 JCS 正文字节。正文摘要必须与 requestId 一致；输出只含 detached 签名，不包含私钥。
-
-公钥导出和社区操作签名均拒绝覆盖已有输出。插件包继续使用 CLI 的 `artifact` 命令；`--help` 列出完整参数。私钥不得提交到 Git 或放入投稿附件。
-
 ---
 
 ## 免责声明
@@ -175,7 +156,7 @@ sh run.sh
 **[PixivBatchDownloader](https://github.com/xuejianxianzun/PixivBatchDownloader)**
 如果希望直接在浏览器中下载、不依赖后端程序，可以使用这个扩展。
 
-配合官方 **PixivBatchDownloader 导入支持** 插件及油猴脚本，可将此后下载完成的插画、漫画、动图和小说自动加入本机画廊，保留原文件。详见[使用说明](https://sywyar.github.io/PixivDownloader/#/zh-cn/pixiv-batch-downloader-import)。
+在本软件中具有 **PixivBatchDownloader 导入支持** 插件及油猴脚本，可将此后下载完成的插画、漫画、动图和小说自动加入本机画廊，保留原文件。详见[使用说明](https://sywyar.github.io/PixivDownloader/#/zh-cn/pixiv-batch-downloader-import)。
 
 功能介绍：
 
@@ -183,5 +164,3 @@ sh run.sh
 - 有一些辅助功能，如去除广告、快速收藏、看图模式等 `(可以当作一个 Pixiv 的辅助插件？)`
 - 下载不依赖第三方工具 `(与本项目最大的区别！安装十分方便！我也在努力将我的项目的使用变得简洁)`
 - 支持多语言
-
-## 开发计划
