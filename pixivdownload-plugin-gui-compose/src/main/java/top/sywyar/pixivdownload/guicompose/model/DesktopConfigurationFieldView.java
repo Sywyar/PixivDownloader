@@ -135,27 +135,6 @@ final class DesktopConfigurationFieldView {
                 ),
                 GuiConfigEffect.HOT_RELOAD
         ));
-        nodes.add(formField(
-                "interface.config-menu-expand-all",
-                key("gui.interface.config-menu-expand-all.label"),
-                key("gui.interface.config-menu-expand-all.help"),
-                new DesktopUiNode.Toggle(
-                        "interface.config-menu-expand-all.input",
-                        "interface.config-menu-expand-all",
-                        key("gui.interface.config-menu-expand-all.label"),
-                        null,
-                        ToggleStyle.CHECKBOX,
-                        boolForm(
-                                "interface.config-menu-expand-all",
-                                Boolean.parseBoolean(selected(
-                                        "app.config-menu-expand-all",
-                                        "false"
-                                ))
-                        ),
-                        !owner.busy()
-                ),
-                GuiConfigEffect.HOT_RELOAD
-        ));
         return scroll(
                 "interface.scroll",
                 new DesktopUiNode.Surface(
@@ -491,10 +470,6 @@ final class DesktopConfigurationFieldView {
 
     String form(String key, String fallback) {
         return formValues.getOrDefault(key, fallback);
-    }
-
-    boolean boolForm(String key, boolean fallback) {
-        return Boolean.parseBoolean(form(key, Boolean.toString(fallback)));
     }
 
     static TextToken optionalToken(String namespace, String key) {

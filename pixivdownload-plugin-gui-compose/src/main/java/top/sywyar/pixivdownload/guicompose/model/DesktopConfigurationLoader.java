@@ -279,6 +279,17 @@ final class DesktopConfigurationLoader {
         } catch (Exception ignored) {
             // 保持下方默认值继续生效。
         }
+        // 此提供者固定使用分类导航，进入时清除其它桌面界面保存的展开偏好。
+        if (Boolean.parseBoolean(special.get("app.config-menu-expand-all"))) {
+            try {
+                host.applicationConfig().writeAll(Map.of("app.config-menu-expand-all", "false"));
+            } catch (Exception failure) {
+                LOG.warn(
+                        host.message("gui.interface.log.config-menu-expand-all.persist-failed", safeMessage(failure)),
+                        failure
+                );
+            }
+        }
         // 比较基线与表单共用默认值和可用选项解析，缺项或空值不代表用户修改。
         model.normalizeInterfaceValues(special).forEach((key, value) -> savedValues.put(
                 new FieldKey(null, key),
