@@ -100,6 +100,8 @@ mvn clean verify
 
 ### 获取 SDK artifact
 
+SDK 开发包提供单个 `pixivdownload-sdk` 编译依赖、独立 Maven 工程及 Gradle / sbt 示例。带固定运行清单的开发包可通过自带 Run / Debug 入口构建当前插件，自动准备配套宿主和完整官方插件；运行数据保存在各工程的 `.dev/`。可下载版本及具体用法以对应 [SDK Release](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) 和包内 README 为准。
+
 ```xml
 <dependency>
     <groupId>io.github.sywyar.pixivdownloader</groupId>
@@ -174,7 +176,7 @@ pixiv.lifecycle-policy=process-restart
 
 新 SDK 预发布版本采用 `alpha.N`、`beta.N`、`rc.N`，序号从 1 开始且不补零；历史紧连后缀继续按原始发行身份使用。SDK 按渠道和数字序号排序，例如 `rc2 < rc.10`；`rc2` 与 `rc.2` 优先级相同，不能仅换拼写重新发布。依赖坐标、Tag、下载路径及运行清单须与所选 Release 完全一致。已发布的旧 SDK 工具按包内说明使用，新格式支持随新的开发包交付。
 
-SDK 的 RC 是首个稳定基线建立前的候选版本；稳定 `1.0.0` 只有在应用 `v1.14.0` 正式发布后才会建立主版本 1 的首个冻结基线。兼容判断使用 `requiredMajor == hostMajor && requiredMinor <= hostMinor`，PATCH 和预发布序号不参与准入判断。稳定基线建立后，破坏性契约变更升 MAJOR，向后兼容新增升 MINOR，兼容修复升 PATCH。
+SDK 的 RC 是首个稳定基线建立前的候选版本。稳定 `1.0.0` 从经过验收的 SDK 制品建立主版本 1 的公共 API 基线并先行发布；应用 `v1.14.0` 随后固定并验证已公开的 SDK `1.0.0`，再发布宿主。稳定版的兼容判断使用 `requiredMajor == hostMajor && requiredMinor <= hostMinor`，PATCH 不参与准入判断；预发布开发包按完整 SDK 版本匹配。稳定基线建立后，破坏性契约变更升 MAJOR，向后兼容新增升 MINOR，兼容修复升 PATCH。
 
 ### 复用 PostHog 浏览器客户端
 
@@ -348,6 +350,8 @@ public List<I18nContribution> i18n() {
 页面、CSS 和 JavaScript 分文件存放；用户可见文案进入插件 namespace。渲染外部数据时使用 DOM API 和 `textContent`，不要把未知文本拼进 `innerHTML`。
 
 ## 新增下载类型的完整流程
+
+当前源码的下载任务契约支持插件注册提交处理器、选项扩展和事件观察者，提供请求去重、精确取消及重连快照，无需继承 SDK 抽象基类。[下载类型模板](https://github.com/Sywyar/PixivDownloader/tree/master/plugin-templates/download-type-plugin)演示这些接口的用法。请选择包含相同契约的 SDK 与宿主；当前源码中的接口不代表旧发行包也已提供。
 
 一个下载类型不是单个 Java 类，而是一组由同一插件拥有、能一起发布和撤回的能力：
 
@@ -741,6 +745,21 @@ mvn -pl pixivdownload-official-plugins -am -Pdev-mode process-classes -Dexec.ski
 宿主也支持 PF4J JAR-with-lib，用于插件私有第三方库：根部仍是 descriptor、插件类和资源，私有依赖放 `lib/*.jar`。不要 shade 或私带共享契约。选择 JAR-with-lib 时应增加包结构和独立 classloader 加载测试；官方默认交付格式仍是 `.jar`，不是 ZIP。
 
 ## 签名和发布
+
+### 发布者密钥与社区操作签名
+
+发布者签名 CLI 位于 `pixivdownload-plugin-signature`，运行只需 JDK 17。在源码仓库根构建工具，再通过模块生成的 JAR 调用：
+
+```text
+./mvnw -pl pixivdownload-plugin-signature package
+java -cp <signature-tool.jar> top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool <command>
+```
+
+- `keygen --directory <new-directory>`：生成 `private-key.pem`（PKCS#8）和配套 `public-key.pem`（SPKI），目录及私钥仅允许当前用户访问。请选择源码仓库和临时目录之外的位置，备份这两个文件；命令不覆盖已有目录。
+- `public-key --public-key <public-key.pem> --key-id <id> --out <public.json>`：导出规范 SPKI Base64 和 SHA-256 公钥指纹。此命令读取配套公钥文件，不从私钥推导公钥。
+- `community-operation --operation <PUBLISHER_KEY_ROTATION|VERSION_STATUS_REQUEST|OWNERSHIP_TRANSFER> --canonical-body <canonical-body> --request-id <SHA-256> --key-id <id> --private-key <private-key.pem> --out <sig.json>`：签署固定版本 SDK 生成的 JCS 正文字节。正文摘要必须与 requestId 一致；输出只含 detached 签名，不包含私钥。
+
+公钥导出和社区操作签名均拒绝覆盖已有输出。插件包使用 `artifact` 命令签名，`--help` 列出完整参数。私钥不得提交到 Git 或放入投稿附件。
 
 ### 生成 artifact 签名
 

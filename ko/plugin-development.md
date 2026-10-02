@@ -24,6 +24,8 @@ Swing과 Compose가 동일한 페이지를 각각 유지하지 않습니다. 애
 
 ### SDK 아티팩트
 
+SDK 개발 패키지는 단일 `pixivdownload-sdk` 컴파일 의존성, 독립 Maven 프로젝트와 Gradle / sbt 예제를 제공합니다. 고정 런타임 목록이 포함된 패키지에서는 Run / Debug로 현재 플러그인을 빌드하고 호환되는 호스트와 공식 플러그인 전체를 자동으로 준비할 수 있습니다. 실행 데이터는 각 프로젝트의 `.dev/`에 저장됩니다. 다운로드할 수 있는 버전과 사용법은 해당 [SDK Release](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases)와 패키지의 README를 확인하세요.
+
 현재 저장소의 API 버전과 템플릿 POM을 기준으로 SDK를 선택합니다. 호스트와 플러그인의 계약 버전이 맞지 않으면 로드가 거부될 수 있습니다.
 
 ## 플러그인 패키지와 진입점
@@ -47,6 +49,8 @@ PostHog 기능은 vendor 전용 foundation과 플러그인 소유 consumer를 �
 플러그인 이름공간 아래에 라우트와 정적 리소스를 두고, source bundle과 `en-US`·`zh-Hant`·`ja-JP`·`ko-KR` 번역의 키와 placeholder를 맞춥니다. 생성된 정적 리소스는 저장소 workflow로 갱신합니다.
 
 ## 다운로드 유형 추가 workflow
+
+현재 소스의 다운로드 작업 API는 플러그인이 제출 처리기, 옵션 훅, 이벤트 관찰자를 등록할 수 있도록 지원합니다. 요청 중복 방지, 특정 실행 취소, 재연결 시 상태 스냅샷을 제공하며 SDK 기본 클래스를 상속할 필요가 없습니다. [다운로드 유형 템플릿](https://github.com/Sywyar/PixivDownloader/tree/master/plugin-templates/download-type-plugin)에서 사용법을 확인할 수 있습니다. 같은 계약이 포함된 SDK와 호스트를 사용하세요. 현재 소스에 있는 API가 이전 릴리스에도 포함되어 있다고 가정하지 마세요.
 
 1. `DownloadTypeDescriptor`로 ID, 표시 이름과 capability를 선언합니다.
 2. 프런트엔드 모듈에서 가져오기·큐·진행률·상태 화면을 구현합니다.
@@ -84,6 +88,21 @@ PostHog 기능은 vendor 전용 foundation과 플러그인 소유 consumer를 �
 필수 테스트는 Java 단위 테스트, 웹 표준, i18n, 패키지 구조와 격리된 classloader 로딩을 포함합니다. 개발 모드에서 설치한 JAR은 중복 로드되지 않도록 캐시와 이전 아티팩트를 정리하세요.
 
 ## 서명과 게시
+
+### 게시자 키와 커뮤니티 작업 서명
+
+서명 CLI는 `pixivdownload-plugin-signature`에 있으며 JDK 17만 있으면 실행할 수 있습니다. 소스 저장소 루트에서 빌드한 뒤 생성된 JAR로 호출합니다.
+
+```text
+./mvnw -pl pixivdownload-plugin-signature package
+java -cp <signature-tool.jar> top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool <command>
+```
+
+- `keygen --directory <new-directory>`: `private-key.pem`(PKCS#8)과 해당 `public-key.pem`(SPKI)을 생성합니다. 디렉터리와 개인 키는 현재 사용자만 접근할 수 있습니다. 소스 저장소와 임시 디렉터리 밖의 위치를 선택하고 두 파일을 모두 백업하세요. 기존 디렉터리를 덮어쓰지 않습니다.
+- `public-key --public-key <public-key.pem> --key-id <id> --out <public.json>`: 정규화된 SPKI Base64와 SHA-256 공개 키 지문을 내보냅니다. 짝을 이루는 공개 키 파일을 읽으며, 개인 키에서 공개 키를 유도하지 않습니다.
+- `community-operation --operation <PUBLISHER_KEY_ROTATION|VERSION_STATUS_REQUEST|OWNERSHIP_TRANSFER> --canonical-body <canonical-body> --request-id <SHA-256> --key-id <id> --private-key <private-key.pem> --out <sig.json>`: 고정된 SDK가 생성한 JCS 본문 바이트에 서명합니다. 본문 해시는 requestId와 일치해야 합니다. 출력에는 분리 서명만 포함되며 개인 키는 포함되지 않습니다.
+
+공개 키 내보내기와 커뮤니티 작업 서명은 기존 출력 파일을 덮어쓰지 않습니다. 플러그인 패키지 서명에는 `artifact`를 사용하세요. 전체 인수는 `--help`에서 확인할 수 있습니다. 개인 키를 Git에 커밋하거나 제출 첨부 파일에 넣지 마세요.
 
 아티팩트의 SHA-256과 detached Ed25519 서명을 생성하고, catalog manifest의 ID·버전·크기·URL·해시·서명을 일치시킵니다. 개인 키를 저장소에 커밋하지 말고 보호된 release 환경에서만 사용하세요.
 

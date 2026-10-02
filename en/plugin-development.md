@@ -101,6 +101,8 @@ mvn clean verify
 
 ### Obtain the SDK artifacts
 
+The SDK development package provides one `pixivdownload-sdk` compile dependency, an independent Maven project, and Gradle / sbt examples. Packages with a fixed runtime manifest include Run / Debug entries that build the current plugin and prepare its matching host and complete official plugin set. Each project keeps runtime data in `.dev/`. Check the selected [SDK Release](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) and its README for availability and instructions.
+
 ```xml
 <dependency>
     <groupId>io.github.sywyar.pixivdownloader</groupId>
@@ -175,7 +177,7 @@ Field rules:
 
 New SDK prereleases use `alpha.N`, `beta.N`, or `rc.N`, with a positive sequence and no leading zeros. Historical compact suffixes retain their original release identities. SDK ordering compares channels and numeric sequences: for example, `rc2 < rc.10`, while `rc2` and `rc.2` have equal priority and cannot be republished by changing spelling. Dependency coordinates, tags, download paths, and runtime manifests must exactly match the selected Release. Use older SDK tools according to their bundled instructions; support for the new spelling is delivered in a new development package.
 
-SDK RC versions are candidates produced before the first stable baseline. Stable `1.0.0` establishes the first frozen major-1 baseline only after application release `v1.14.0`. Compatibility is `requiredMajor == hostMajor && requiredMinor <= hostMinor`; PATCH and prerelease sequence do not affect admission. After that stable baseline, raise MAJOR for breaking contract changes, MINOR for backward-compatible additions, and PATCH for compatible fixes.
+SDK RC versions are candidates produced before the first stable baseline. Stable `1.0.0` establishes the major-1 public API baseline from validated SDK artifacts and is published first. Application `v1.14.0` then pins and validates the published SDK `1.0.0` before the host is released. Stable compatibility is `requiredMajor == hostMajor && requiredMinor <= hostMinor`; PATCH does not affect admission. Prerelease development packages require the complete SDK version to match. After that stable baseline, raise MAJOR for breaking contract changes, MINOR for backward-compatible additions, and PATCH for compatible fixes.
 
 ### Reusing the PostHog browser client
 
@@ -349,6 +351,8 @@ public List<I18nContribution> i18n() {
 Keep page HTML, CSS, and JavaScript in separate files. Put user-visible text in the plugin namespace. Render external data with DOM APIs and `textContent`; do not concatenate unknown text into `innerHTML`.
 
 ## Complete workflow for adding a download type
+
+The task contracts in the current source let plugins register submission handlers, option hooks and event observers, with request deduplication, cancellation of a specific attempt and reconnect snapshots. No SDK base class is required. The [download type template](https://github.com/Sywyar/PixivDownloader/tree/master/plugin-templates/download-type-plugin) demonstrates these interfaces. Use an SDK and host that include the same contracts; an interface in the current source may be absent from an older release.
 
 A download type is not one Java class. It is a set of capabilities owned by one plugin and published or withdrawn together:
 
@@ -742,6 +746,21 @@ Templates build a thin PF4J JAR by default:
 The host also supports a PF4J JAR-with-lib for private third-party dependencies. Its root still contains the descriptor, plugin classes, and resources; private dependencies go in `lib/*.jar`. Do not shade or bundle shared contracts. Add package-structure and isolated-classloader loading tests when choosing JAR-with-lib. The official default delivery format remains `.jar`, not ZIP.
 
 ## Signing and publishing
+
+### Publisher keys and community operation signatures
+
+The publisher signing CLI is in `pixivdownload-plugin-signature` and requires only JDK 17 to run. Build it from the source repository root, then invoke it through the JAR produced by that module:
+
+```text
+./mvnw -pl pixivdownload-plugin-signature package
+java -cp <signature-tool.jar> top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool <command>
+```
+
+- `keygen --directory <new-directory>` creates `private-key.pem` (PKCS#8) and its matching `public-key.pem` (SPKI), with access to the directory and private key restricted to the current user. Choose a location outside source repositories and temporary directories, and back up both files. The command never replaces an existing directory.
+- `public-key --public-key <public-key.pem> --key-id <id> --out <public.json>` exports canonical SPKI Base64 and the SHA-256 public key fingerprint. It reads the matching public key file; it does not derive a public key from a private key.
+- `community-operation --operation <PUBLISHER_KEY_ROTATION|VERSION_STATUS_REQUEST|OWNERSHIP_TRANSFER> --canonical-body <canonical-body> --request-id <SHA-256> --key-id <id> --private-key <private-key.pem> --out <sig.json>` signs the JCS body bytes produced by the pinned SDK. The body digest must match requestId. The output contains only the detached signature, with no private key material.
+
+Public key export and community operation signing refuse to overwrite output files. Use `artifact` to sign plugin packages; `--help` lists all arguments. Never commit private keys to Git or include them in submission attachments.
 
 ### Generate an artifact signature
 

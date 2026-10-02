@@ -45,6 +45,8 @@ Swing と Compose が同じページを別々に保守する構成ではあり�
 
 ## テンプレートから開始
 
+SDK 開発パッケージには、単一のコンパイル依存関係 `pixivdownload-sdk`、独立した Maven プロジェクト、Gradle / sbt の例が含まれます。固定ランタイムのマニフェストを含むパッケージでは、付属の Run / Debug から現在のプラグインをビルドし、対応するホストと公式プラグイン一式を自動で準備できます。実行データは各プロジェクトの `.dev/` に保存されます。提供バージョンと使い方は、選択した [SDK Release](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) と同梱の README を確認してください。
+
 | テンプレート | 用途 | 内容 |
 | --- | --- | --- |
 | `minimal-feature-plugin` | ページ、API、ナビゲーション、i18n、設定 | PF4J 入口、provider、feature、子コンテキスト、Controller、ルート / 静的 / i18n、テスト |
@@ -153,6 +155,8 @@ public List<I18nContribution> i18n() {
 
 ## ダウンロード種別を追加する流れ
 
+現在のソースにあるダウンロードタスク API では、プラグインが送信ハンドラー、オプションフック、イベントオブザーバーを登録できます。リクエストの重複排除、特定の実行のキャンセル、再接続時のスナップショットを提供し、SDK の基底クラスを継承する必要はありません。[ダウンロード種別テンプレート](https://github.com/Sywyar/PixivDownloader/tree/master/plugin-templates/download-type-plugin)で使用例を確認できます。同じ契約を含む SDK とホストを使用してください。現在のソースにある API が古いリリースにも含まれるとは限りません。
+
 `download-type-plugin` を基に、次の順に実装します。
 
 1. `DownloadTypeDescriptor` で ID、表示名、保存形式、許可された取得モードを宣言
@@ -201,6 +205,21 @@ mvn clean verify
 少なくとも descriptor / manifest、ルート認証、設定所有、状態分離、ダウンロード・キュー、スケジュール、静的資源、i18n、停止・再読み込み・アンロードのテストを書きます。外部プラグインは子コンテキストを明示的に作成し、開発モードまたは共有のデバッグ設定から起動します。成果物形式は互換性とライフサイクルを明記し、JAR / ZIP の内容と依存を検査します。
 
 ## 署名と公開
+
+### 発行者の鍵とコミュニティ操作の署名
+
+署名 CLI は `pixivdownload-plugin-signature` にあり、JDK 17 のみで実行できます。ソースリポジトリのルートでビルドし、生成された JAR から呼び出します。
+
+```text
+./mvnw -pl pixivdownload-plugin-signature package
+java -cp <signature-tool.jar> top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool <command>
+```
+
+- `keygen --directory <new-directory>`：`private-key.pem`（PKCS#8）と対応する `public-key.pem`（SPKI）を生成します。ディレクトリと秘密鍵へのアクセスは現在のユーザーに限定されます。ソースリポジトリと一時ディレクトリの外を選び、両方のファイルをバックアップしてください。既存のディレクトリは上書きしません。
+- `public-key --public-key <public-key.pem> --key-id <id> --out <public.json>`：正規化された SPKI Base64 と SHA-256 公開鍵フィンガープリントを出力します。対応する公開鍵ファイルを読み取り、秘密鍵から公開鍵を導出する処理は行いません。
+- `community-operation --operation <PUBLISHER_KEY_ROTATION|VERSION_STATUS_REQUEST|OWNERSHIP_TRANSFER> --canonical-body <canonical-body> --request-id <SHA-256> --key-id <id> --private-key <private-key.pem> --out <sig.json>`：固定された SDK が生成した JCS 本文のバイト列に署名します。本文のダイジェストは requestId と一致する必要があります。出力には分離署名のみが含まれ、秘密鍵は含まれません。
+
+公開鍵の出力とコミュニティ操作の署名では既存の出力ファイルを上書きできません。プラグインパッケージの署名には `artifact` を使います。引数の一覧は `--help` で確認できます。秘密鍵を Git にコミットしたり、提出ファイルに含めたりしないでください。
 
 アーティファクトは署名ツールで Ed25519 署名を作成し、カタログには plugin ID、版、SDK 要件、サイズ、SHA-256、署名、ダウンロード URL、変更履歴を記載します。秘密鍵はリポジトリ、ログ、ビルド出力に置きません。
 

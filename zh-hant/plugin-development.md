@@ -96,50 +96,24 @@ mvn clean verify
 
 ### 獲取 SDK artifact
 
-模板先導入 SDK BOM，再聲明宿主提供的 SDK 構件：
+SDK 開發包提供單一 `pixivdownload-sdk` 編譯依賴、獨立 Maven 工程及 Gradle / sbt 範例。帶有固定執行清單的開發包可透過隨附的 Run / Debug 入口建置目前外掛，自動準備配套主程式和完整官方外掛；執行資料保存在各工程的 `.dev/`。可下載版本及具體用法以對應 [SDK Release](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) 和包內 README 為準。
 
-```xml
-<dependencyManagement>
-    <dependencies>
-        <dependency>
-            <groupId>top.sywyar.lovepopup</groupId>
-            <artifactId>pixivdownload-sdk-bom</artifactId>
-            <version>1.0.0</version>
-            <type>pom</type>
-            <scope>import</scope>
-        </dependency>
-    </dependencies>
-</dependencyManagement>
-
-<dependency>
-    <groupId>top.sywyar.lovepopup</groupId>
-    <artifactId>pixivdownload-sdk-info</artifactId>
-    <scope>provided</scope>
-</dependency>
-<dependency>
-    <groupId>top.sywyar.lovepopup</groupId>
-    <artifactId>pixivdownload-plugin-api</artifactId>
-    <scope>provided</scope>
-</dependency>
-```
-
-主倉庫發佈鏈已經能夠從受信的精確源碼 SHA 構建 BOM、三個構件、source JAR、模塊 Javadoc 和覆蓋全部 SDK 類型的聚合 Javadoc 站點。約定的獨立 `PixivDownloader-Plugin-SDK` 倉庫及接收 workflow 尚未建立，因此倉庫變量 `SDK_PUBLISH_ENABLED` 當前保持關閉，也沒有可下載的獨立 SDK release。目標就緒後，接收端只按 dispatch payload 中的精確源碼 SHA 構建和發佈；除四個公開 SDK 座標外，還需發佈它們當前繼承的 `pixivdownload-parent:1.0.0` 支撐 POM，供 Maven 解析。該父 POM 不屬於插件運行時 SDK，也不應加入插件依賴。現階段從本倉源碼開發時先在根目錄安裝 SDK：
-
-```powershell
-./mvnw.cmd -pl pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api,pixivdownload-sdk-bom -am install -DskipTests
-```
-
-只有確實需要穩定宿主語義端口時才增加 Core API，並保持 `provided`：
+模板使用單一 `pixivdownload-sdk` 編譯依賴：
 
 ```xml
 <dependency>
-    <groupId>top.sywyar.lovepopup</groupId>
-    <artifactId>pixivdownload-core-api</artifactId>
+    <groupId>io.github.sywyar.pixivdownloader</groupId>
+    <artifactId>pixivdownload-sdk</artifactId>
+    <version>SDK_VERSION</version>
     <scope>provided</scope>
 </dependency>
 ```
 
-`plugin.requires` 只聲明 SDK `major.minor`。同 major 且宿主 minor 不低於插件要求時兼容，patch 和 revision 不參與運行時兼容判定。公開契約變更必須提升 SDK 語義版本；僅模板、文檔或發佈包修正可在語義版本不變時提升 revision。質量門禁會拒絕未同步提升發佈標識的 SDK 表面變更；只有 SDK 元數據改變才觸發獨立倉庫發佈，應用發行不會自動製造新 SDK。
+Gradle 使用 `compileOnly("io.github.sywyar.pixivdownloader:pixivdownload-sdk:SDK_VERSION")`，sbt 使用 `"io.github.sywyar.pixivdownloader" % "pixivdownload-sdk" % "SDK_VERSION" % Provided`。標準 Maven 中繼資料會提供公開 API 與宿主提供的編譯依賴；三個 API 模組與 BOM 仍可獨立使用，測試框架則另行宣告。
+
+請將 `SDK_VERSION` 換成 [SDK Releases](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) 中包含統一入口的已發布版本。公開座標共五個：統一入口、三個 API 模組與 BOM。含 `developmentRuntime` 中繼資料的開發包附帶固定宿主，歷史版本以各包 README 為準。公開 Java API 或 Maven 消費契約變更須使用新的 SDK 發行身分，已發布座標與附件不可覆寫。
+
+穩定版的 `plugin.requires` 宣告 SDK `major.minor`：主版本相同且宿主次版本不低於要求時相容，修訂版本不參與准入判斷。預發布開發包須按完整 SDK 版本匹配。僅模板、文件或工具修正不強制發布新 SDK；需要交付新開發包時，提升修訂版本或預發布序號，建立新的不可變發行。
 
 PF4J、Spring、Jackson、Servlet API 等由宿主父 classloader 提供的依賴也必須是 `provided`。不要把共享契約或框架類複製進插件 JAR，否則同名類會因 classloader 不同而無法轉換。
 
@@ -194,7 +168,7 @@ pixiv.lifecycle-policy=hot-reload
 | `pixiv.replaces` | 可選的被替換插件身份 |
 | `pixiv.lifecycle-policy` | `hot-reload`、`backend-restart` 或 `process-restart`；區分大小寫，缺省爲 `hot-reload` |
 
-SDK 當前以 `1.0.0` 爲初始契約基線。兼容判斷使用 `requiredMajor == hostMajor && requiredMinor <= hostMinor`，PATCH 不參與准入判斷。首次公開發布後，破壞性契約變更升 MAJOR，向後兼容新增升 MINOR，兼容修復升 PATCH。
+SDK `1.0.0` 先從驗收過的制品建立主版本 1 的公開 API 基線並發布；應用 `v1.14.0` 再固定並驗證已公開的 SDK 後發布。穩定版相容條件為 `requiredMajor == hostMajor && requiredMinor <= hostMinor`，PATCH 不參與准入判斷。穩定基線建立後，破壞性契約變更升 MAJOR，向後相容新增升 MINOR，相容修正升 PATCH。
 
 ### 複用 PostHog 瀏覽器客戶端
 
@@ -368,6 +342,8 @@ public List<I18nContribution> i18n() {
 頁面、CSS 和 JavaScript 分文件存放；用戶可見文案進入插件 namespace。渲染外部數據時使用 DOM API 和 `textContent`，不要把未知文本拼進 `innerHTML`。
 
 ## 新增下載類型的完整流程
+
+目前原始碼的下載工作契約支援外掛註冊提交處理器、選項擴充及事件觀察者，提供請求去重、精確取消和重新連線快照，無須繼承 SDK 抽象基底類別。[下載類型範本](https://github.com/Sywyar/PixivDownloader/tree/master/plugin-templates/download-type-plugin)示範這些介面的用法。請選用包含相同契約的 SDK 與主程式；目前原始碼中的介面不代表舊發行包也已提供。
 
 一個下載類型不是單個 Java 類，而是一組由同一插件擁有、能一起發佈和撤回的能力：
 
@@ -717,6 +693,21 @@ mvn -pl pixivdownload-official-plugins -am -Pdev-mode process-classes -Dexec.ski
 宿主也支持 PF4J JAR-with-lib，用於插件私有第三方庫：根部仍是 descriptor、插件類和資源，私有依賴放 `lib/*.jar`。不要 shade 或私帶共享契約。選擇 JAR-with-lib 時應增加包結構和獨立 classloader 加載測試；官方默認交付格式仍是 `.jar`，不是 ZIP。
 
 ## 簽名和發佈
+
+### 發布者金鑰與社群操作簽名
+
+發布者簽名 CLI 位於 `pixivdownload-plugin-signature`，執行僅需 JDK 17。在原始碼儲存庫根目錄建置工具，再透過該模組產生的 JAR 呼叫：
+
+```text
+./mvnw -pl pixivdownload-plugin-signature package
+java -cp <signature-tool.jar> top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool <command>
+```
+
+- `keygen --directory <new-directory>`：產生 `private-key.pem`（PKCS#8）與配套 `public-key.pem`（SPKI），目錄及私鑰僅允許目前使用者存取。請選擇原始碼儲存庫與暫存目錄以外的位置，備份這兩個檔案；命令不覆寫既有目錄。
+- `public-key --public-key <public-key.pem> --key-id <id> --out <public.json>`：匯出標準化 SPKI Base64 與 SHA-256 公鑰指紋。此命令讀取配套公鑰檔案，不從私鑰推導公鑰。
+- `community-operation --operation <PUBLISHER_KEY_ROTATION|VERSION_STATUS_REQUEST|OWNERSHIP_TRANSFER> --canonical-body <canonical-body> --request-id <SHA-256> --key-id <id> --private-key <private-key.pem> --out <sig.json>`：簽署固定版本 SDK 產生的 JCS 正文字節。正文摘要必須與 requestId 一致；輸出僅含 detached 簽名，不含私鑰。
+
+公鑰匯出與社群操作簽名均拒絕覆寫既有輸出。外掛套件使用 `artifact` 命令簽名，`--help` 列出完整參數。私鑰不得提交至 Git 或放入投稿附件。
 
 ### 生成 artifact 簽名
 
