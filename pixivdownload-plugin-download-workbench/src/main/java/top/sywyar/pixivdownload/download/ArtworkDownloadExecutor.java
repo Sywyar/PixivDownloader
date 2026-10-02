@@ -165,7 +165,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
     }
 
     /** 使用宿主提交回执中的同一身份进入既有执行队列。 */
-    public void submitImages(DownloadAttempt suppliedAttempt, Long artworkId, String title, List<String> imageUrls,
+    public DownloadAttempt submitImages(DownloadAttempt suppliedAttempt, Long artworkId, String title, List<String> imageUrls,
                              String referer, DownloadRequest.Other other, String cookie, String userUuid) {
         DownloadAttempt attempt = admit(artworkId, suppliedAttempt);
         DownloadRequest.Other effectiveOther = applyOptions(attempt, other);
@@ -177,6 +177,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
             task.bind(() -> downloadImagesTracked(task, artworkId, title, imageUrls,
                     referer, effectiveOther, cookie, userUuid, plan, attempt));
             interactiveDownloadExecutionLane.execute(task);
+            return attempt;
         } catch (RuntimeException | Error failure) {
             try {
                 if (!(failure instanceof VirtualMachineError) && !(failure instanceof ThreadDeath))

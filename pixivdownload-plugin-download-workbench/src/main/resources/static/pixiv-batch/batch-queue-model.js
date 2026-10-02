@@ -105,6 +105,7 @@
     }
 
     function queueSourceText(source) {
+    if (source === 'task') return bt('batch:queue.task.external');
         return {
             user: bt('queue.source.user', 'User'),
             search: bt('queue.source.search', 'Search'),
@@ -413,7 +414,7 @@
         <div class="prog-label"><span>${esc(formatImageProgressText(item.downloadedCount || 0, item.totalImages))}</span><span>${pct(item)}%</span></div>
         <div class="prog-bg"><div class="prog-fill green" style="width:${pct(item)}%"></div></div>
        </div>` : '';
-        return `<strong>${currentLabel}</strong> ${esc(item.title)} (ID: ${esc(item.id == null ? '' : item.id)})${prog}${formatImageDownloadProgressHtml(item.imageProgress, item.status)}${formatUgoiraProgressHtml(item.ugoiraProgress, item.status)}`;
+        return `<strong>${currentLabel}</strong> ${esc(item.title)} (ID: ${esc(item.workId ?? item.id ?? '')})${prog}${formatImageDownloadProgressHtml(item.imageProgress, item.status)}${formatUgoiraProgressHtml(item.ugoiraProgress, item.status)}`;
     }
 
     function buildBookmarkTip(bookmarkCount) {

@@ -151,7 +151,7 @@ public class NovelDownloadService implements NovelDownloader {
     }
 
     /** 将公开提交身份交给小说自有队列，保留真实取消与 drain。 */
-    public void submit(DownloadAttempt suppliedAttempt, NovelDownloadRequest request, String userUuid) {
+    public DownloadAttempt submit(DownloadAttempt suppliedAttempt, NovelDownloadRequest request, String userUuid) {
         DownloadAttempt attempt = prepareAttempt(suppliedAttempt, request);
         FilePlan plan = filePlan(request);
         QueueTaskTracker.Task task = taskTracker.prepareQueued(NovelQueueTaskOwners.download(userUuid));
@@ -159,6 +159,7 @@ public class NovelDownloadService implements NovelDownloader {
             downloadLifecycle.track(attempt, task, userUuid, "novel", request.getTitle(), true);
             task.bind(() -> downloadTracked(task, request, userUuid, plan, attempt));
             downloadExecutionLane.execute(task);
+            return attempt;
         } catch (RuntimeException | Error failure) {
             try {
                 if (!(failure instanceof VirtualMachineError) && !(failure instanceof ThreadDeath))

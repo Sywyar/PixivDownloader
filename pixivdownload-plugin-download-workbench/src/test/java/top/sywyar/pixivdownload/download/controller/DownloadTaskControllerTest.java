@@ -72,6 +72,10 @@ class DownloadTaskControllerTest {
         @DisplayName("合法请求应成功发起下载")
         void shouldStartDownload() throws Exception {
             when(applicationModeProvider.getMode()).thenReturn("solo");
+            var attempt = new top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadAttempt(
+                    java.util.UUID.randomUUID(), "artwork", "12345");
+            when(artworkDownloadExecutor.submitImages(isNull(), anyLong(), anyString(), anyList(), anyString(),
+                    any(), any(), any())).thenReturn(attempt);
 
             DownloadRequest request = new DownloadRequest();
             request.setArtworkId(12345L);
@@ -89,8 +93,9 @@ class DownloadTaskControllerTest {
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.taskId").value(attempt.attemptId().toString()))
                     .andExpect(jsonPath("$.message").value("Download task has started"));
-            verify(artworkDownloadExecutor).downloadImages(anyLong(), anyString(), anyList(), anyString(),
+            verify(artworkDownloadExecutor).submitImages(isNull(), anyLong(), anyString(), anyList(), anyString(),
                     argThat(other -> other.isMediaOutputEnabled()
                             && other.resolveMediaOutputSettings().getQuality() == 73
                             && other.resolveMediaOutputSettings().isWebpLossless()
@@ -107,7 +112,7 @@ class DownloadTaskControllerTest {
             mockMvc.perform(post("/api/download/pixiv").contentType(MediaType.APPLICATION_JSON)
                             .content("{\"artworkId\":42,\"title\":\"test\",\"imageUrls\":[\"https://i.pximg.net/a.jpg\"]}"))
                     .andExpect(status().isOk()).andExpect(jsonPath("$.alreadyDownloaded").doesNotExist());
-            verify(artworkDownloadExecutor).downloadImages(anyLong(), anyString(), anyList(), anyString(), any(), any(), any());
+            verify(artworkDownloadExecutor).submitImages(isNull(), anyLong(), anyString(), anyList(), anyString(), any(), any(), any());
         }
 
         @Test
@@ -124,7 +129,7 @@ class DownloadTaskControllerTest {
                                 .content("{\"artworkId\":42,\"title\":\"test\",\"imageUrls\":[\"https://i.pximg.net/a.jpg\"],\"other\":{" + option + "}}"))
                         .andExpect(status().isBadRequest());
             }
-            verify(artworkDownloadExecutor, never()).downloadImages(anyLong(), anyString(), anyList(), anyString(),
+            verify(artworkDownloadExecutor, never()).submitImages(isNull(), anyLong(), anyString(), anyList(), anyString(),
                     any(), any(), any());
         }
 
@@ -194,7 +199,7 @@ class DownloadTaskControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.success").value(true));
 
-            verify(artworkDownloadExecutor).downloadImages(
+            verify(artworkDownloadExecutor).submitImages(isNull(),
                     eq(12345L),
                     eq("测试"),
                     eq(List.of("https://i.pximg.net/img/12345_p0.jpg")),
@@ -228,7 +233,7 @@ class DownloadTaskControllerTest {
                     .andExpect(jsonPath("$.success").value(true));
 
             verify(visitorDownloadQuotaService, never()).checkAndReserve(anyString(), anyInt());
-            verify(artworkDownloadExecutor).downloadImages(
+            verify(artworkDownloadExecutor).submitImages(isNull(),
                     eq(12345L),
                     eq("测试"),
                     eq(List.of("https://i.pximg.net/img/12345_p0.jpg")),

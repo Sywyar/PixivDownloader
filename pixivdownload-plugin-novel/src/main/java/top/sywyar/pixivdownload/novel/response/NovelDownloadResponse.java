@@ -6,6 +6,7 @@ import lombok.Getter;
 @Getter
 @Builder
 public class NovelDownloadResponse {
+    private java.util.UUID taskId;
     private boolean success;
     private String message;
     private String downloadPath;

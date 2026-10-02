@@ -97,7 +97,7 @@ class NovelDownloadControllerIdentityTest {
         when(browserFetchTicketStore.issueBrowserFetchTicket(123L, metadata, "{}")).thenReturn("fresh-ticket");
         var problem = new top.sywyar.pixivdownload.core.work.service.DownloadPathPlan.Problem("/long", "/short", "/id");
         org.mockito.Mockito.doThrow(new top.sywyar.pixivdownload.core.work.service.DownloadPathPlan.NeedsAction(problem))
-                .when(novelDownloadService).download(any(), isNull());
+                .when(novelDownloadService).submit(isNull(), any(), isNull());
         NovelDownloadCommand command = requestWithAdminOptions();
         command.setFetchToken(token);
         var response = controller().downloadNovel(command, httpRequest);
@@ -105,6 +105,21 @@ class NovelDownloadControllerIdentityTest {
         assertThat(response.getBody()).isEqualTo(new NovelDownloadController.PathActionResponse(
                 "DOWNLOAD_PATH_ACTION_REQUIRED", null, problem, "fresh-ticket"));
         verifyNoInteractions(pixivAjaxClient);
+    }
+
+    @Test
+    @DisplayName("小说下载回执返回实际执行身份供原队列关联")
+    void downloadReceiptUsesSubmittedAttempt() {
+        when(applicationModeProvider.getMode()).thenReturn("solo");
+        when(requestOwnerIdentityResolver.resolve(httpRequest)).thenReturn(RequestOwnerIdentity.adminScope());
+        when(requestOwnerIdentityResolver.isAdminAuthenticated(httpRequest)).thenReturn(true);
+        var attempt = new top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadAttempt(
+                java.util.UUID.randomUUID(), "novel", "123");
+        when(novelDownloadService.submit(isNull(), any(), isNull())).thenReturn(attempt);
+        var response = controller().downloadNovel(requestWithAdminOptions(), httpRequest);
+        assertThat(response.getStatusCode().value()).isEqualTo(200);
+        assertThat(((top.sywyar.pixivdownload.novel.response.NovelDownloadResponse) response.getBody()).getTaskId())
+                .isEqualTo(attempt.attemptId());
     }
 
     @BeforeEach
@@ -158,7 +173,7 @@ class NovelDownloadControllerIdentityTest {
         assertThat(response.getBody()).isEqualTo(new NovelQuotaExceededResponse(
                 true, "quota exceeded", "archive-token", 900, 3, 10, 60));
         verify(visitorDownloadQuotaService).createArchive("visitor-1");
-        verify(novelDownloadService, never()).download(org.mockito.ArgumentMatchers.any(),
+        verify(novelDownloadService, never()).submit(isNull(), org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any());
     }
 
@@ -226,7 +241,7 @@ class NovelDownloadControllerIdentityTest {
         var response = controller().downloadNovel(command, httpRequest);
 
         assertThat(response.getStatusCode().value()).isEqualTo(200);
-        verify(novelDownloadService).download(argThat(request ->
+        verify(novelDownloadService).submit(isNull(), argThat(request ->
                 "server title".equals(request.getTitle())
                         && "server content".equals(request.getContent())
                         && "server author".equals(request.getOther().getAuthorName())
@@ -257,7 +272,7 @@ class NovelDownloadControllerIdentityTest {
         var response = controller().downloadNovel(command, httpRequest);
 
         assertThat(response.getStatusCode().value()).isEqualTo(200);
-        verify(novelDownloadService).download(argThat(request ->
+        verify(novelDownloadService).submit(isNull(), argThat(request ->
                 "restricted title".equals(request.getTitle())
                         && "restricted content".equals(request.getContent())
                         && request.getCookie() == null), isNull());
@@ -288,7 +303,7 @@ class NovelDownloadControllerIdentityTest {
         var response = controller().downloadNovel(command, httpRequest);
 
         assertThat(response.getStatusCode().value()).isEqualTo(200);
-        verify(novelDownloadService).download(argThat(request ->
+        verify(novelDownloadService).submit(isNull(), argThat(request ->
                 "preview title".equals(request.getTitle())
                         && "preview content".equals(request.getContent())
                         && "preview-cookie".equals(request.getCookie())), eq("visitor-1"));
@@ -355,10 +370,10 @@ class NovelDownloadControllerIdentityTest {
 
     private void verifyDownload(String ownerUuid, Long collectionId, boolean autoTranslate) {
         if (ownerUuid == null) {
-            verify(novelDownloadService).download(argThat(request -> matchesDownload(
+            verify(novelDownloadService).submit(isNull(), argThat(request -> matchesDownload(
                     request, collectionId, autoTranslate)), isNull());
         } else {
-            verify(novelDownloadService).download(argThat(request -> matchesDownload(
+            verify(novelDownloadService).submit(isNull(), argThat(request -> matchesDownload(
                     request, collectionId, autoTranslate)), eq(ownerUuid));
         }
     }

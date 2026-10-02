@@ -1215,7 +1215,7 @@ class ArtworkDownloadExecutorTest {
             stubSuccessfulImageDownload(IMAGE_URL, payload);
             when(downloadLifecycle.options(any(), any())).thenReturn(java.util.Map.of("fileNameTemplate", "hooked"));
 
-            artworkDownloadExecutor.downloadImages(12345L, "title", List.of(IMAGE_URL),
+            var receipt = artworkDownloadExecutor.submitImages(null, 12345L, "title", List.of(IMAGE_URL),
                     "https://www.pixiv.net/", new DownloadRequest.Other(), null, null);
 
             var events = org.mockito.ArgumentCaptor.forClass(
@@ -1229,7 +1229,7 @@ class ArtworkDownloadExecutorTest {
             assertThat(events.getAllValues()).extracting(event -> event.phase().name())
                     .containsExactly("STARTED", "COMPLETED");
             assertThat(events.getAllValues()).extracting(event -> event.attempt().attemptId())
-                    .containsOnly(events.getValue().attempt().attemptId());
+                    .containsOnly(receipt.attemptId());
 
             Path artworkDir = tempDir.resolve("12345");
             try (var stream = Files.list(artworkDir)) {

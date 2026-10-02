@@ -190,7 +190,6 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
         renderQuotaBar();
         updateStats();
         renderQueue();
-        if (typeof backendTasksPanel !== 'undefined' && backendTasksPanel) backendTasksPanel.render();
         setCurrent(state.currentItemId ? state.queue.find(q => q.id === state.currentItemId) || null : null);
         updateButtonsState();
         renderSearchResults();

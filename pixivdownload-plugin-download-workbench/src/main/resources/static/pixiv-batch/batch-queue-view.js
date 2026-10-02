@@ -429,8 +429,8 @@
         const canCancel = removable && canCancelQueueItem(q);
         const isNovel = q.kind === 'novel';
         const novelDisplayId = q.novelId != null ? String(q.novelId) : String(q.id).replace(/^n/, '');
-        const displayId = isNovel ? `${novelDisplayId} (Novel)` : String(q.id == null ? '' : q.id);
-        const linkHref = queueItemCanonicalUrl(q) || (isNovel
+        const displayId = q.taskObserved ? String(q.workId) : isNovel ? `${novelDisplayId} (Novel)` : String(q.id == null ? '' : q.id);
+        const linkHref = queueItemCanonicalUrl(q) || (!q.taskObserved && isNovel
             ? `https://www.pixiv.net/novel/show.php?id=${encodeURIComponent(novelDisplayId)}`
             : '');
         return {

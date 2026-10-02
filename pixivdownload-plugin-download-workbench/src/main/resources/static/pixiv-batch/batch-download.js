@@ -3,7 +3,7 @@
         if (!state.isRunning) return;
         state.isPaused = true;
         state.queue.forEach(q => {
-            if (q.status === 'pending') q.status = 'paused';
+            if (!q.taskObserved && q.status === 'pending') q.status = 'paused';
         });
         saveQueue();
         const active = state.queue.filter(q => q.status === 'downloading').length;
@@ -25,7 +25,7 @@
         }
         state.isPaused = false;
         state.queue.forEach(q => {
-            if (q.status === 'paused') q.status = 'pending';
+            if (!q.taskObserved && q.status === 'paused' && !q.recoveryState) q.status = 'pending';
         });
         saveQueue();
         setStatus({key: 'status.resume-download', fallback: '继续下载'}, 'info');
@@ -54,6 +54,7 @@
             (state.sseListeners[id] || []).forEach(fn => fn({cancelled: true}));
         });
         closeAllSSE();
+        window.PixivBatch.queueTasks?.dismiss(state.queue);
         state.queue = [];
         state.stats = {success: 0, failed: 0, active: 0, skipped: 0};
         clearSavedQueue();
@@ -77,7 +78,7 @@
     }
 
     async function handleRetry() {
-        const failed = state.queue.filter(q => q.status === 'failed');
+        const failed = state.queue.filter(q => !q.taskObserved && q.status === 'failed');
         if (!failed.length) {
             await uiAlertKey('alert.no-failed', '当前没有失败的作品');
             return;
