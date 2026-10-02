@@ -8,18 +8,24 @@
 
 1. 在本程序的插件市场安装官方 **PixivBatchDownloader 导入支持**，然后完全退出并重新启动本程序。已安装并启用该插件时可跳过此步。
 2. 在浏览器中安装并启用 PixivBatchDownloader 和 Tampermonkey，允许 Tampermonkey 在 Pixiv 网站运行。Chrome 138+ 还需在「扩展程序 → Tampermonkey → 详情」中开启“允许用户脚本”；其它版本按 [Tampermonkey 的权限说明](https://www.tampermonkey.net/faq.php?ext=dhdg&q=Q209)操作。
-3. 在本程序桌面设置的“PixivBatchDownloader 导入支持”中选择 PixivBatchDownloader 使用的浏览器下载根目录，保存并重启后端。文件可保存在该目录的子目录中。也可在 `config/plugins/pixiv-batch-downloader-import.properties` 设置 `pixiv-batch-downloader-import.source-root`，使用绝对路径；Windows 下手动填写时使用正斜杠，例如 `D:/Downloads`。
+3. 可先在本程序桌面设置的“PixivBatchDownloader 导入支持”中选择浏览器下载根目录，也可等首次下载完成后确认候选目录。文件可保存在该目录的子目录中。手动编辑配置时，在 `config/plugins/pixiv-batch-downloader-import.properties` 设置绝对路径 `pixiv-batch-downloader-import.source-root`；Windows 下使用正斜杠，例如 `D:/Downloads`。保存后立即生效，无需重启后端。
 4. 打开本程序下载页的「更多 → 油猴脚本」，单独安装 **PixivBatchDownloader 导入支持**，在 Tampermonkey 安装页确认安装并保持启用。
 5. 刷新已打开的 Pixiv 页面。脚本默认连接 `http://localhost:6999`；若端口不同，在 Pixiv 页面的油猴菜单“设置本机服务地址”中修改一次。
 6. 保持本机后端运行，正常使用 PixivBatchDownloader 抓取和下载。整部作品的所有文件下载完成后会自动加入对应画廊，无需复制或粘贴 JSON。
 
 浏览器与本程序必须在同一台机器上，本程序使用单人模式。脚本只连接本机服务，并使用油猴存储保存待处理信息；不需要开启“允许访问文件网址”。安装前的历史下载不会自动扫描。
 
-安装或启停脚本后，确认 Tampermonkey 中的启用状态，并刷新下载页和 Pixiv 页面。下载完成却未出现在画廊时，先在 Pixiv 页面的油猴菜单查看“自动导入状态”：`SOURCE_ROOT_REQUIRED` 表示需要配置下载目录并重启后端；`SERVER_UNAVAILABLE` 表示需检查后端是否运行、服务地址是否正确。
+未配置目录时，首次完整成功记录中的绝对路径会触发桌面确认：程序请求窗口焦点并打开设置中的目录弹窗，显示候选目录，允许改选。请选择能包含后续下载文件的根目录，点击“确认并保存”后才写入配置并自动重试导入。取消不会保存，也不会因同一记录重试而反复弹窗；之后可在设置中手动选择。相对路径、无 GUI 运行或不安全的候选目录需要手动配置。候选展示、确认保存和实际文件导入都会校验路径，符号链接和 junction 不会被当作普通目录接受。
+
+安装或启停脚本后，确认 Tampermonkey 中的启用状态，并刷新下载页和 Pixiv 页面。下载完成却未出现在画廊时，先在 Pixiv 页面的油猴菜单查看“自动导入状态”：`SOURCE_ROOT_REQUIRED` 表示需要确认候选目录或在设置中选择下载目录；`SERVER_UNAVAILABLE` 表示需检查后端是否运行、服务地址是否正确。
 
 服务暂时不可用时，待登记信息保存在油猴存储中；Pixiv 页面打开后自动重试，刷新页面不会丢失已保存的待登记记录。“自动导入状态”菜单显示待处理、未完成和需要检查的数量。未知元数据、缺页、跳过下载或冲突路径不会被记为完整作品；需要重新抓取取得完整信息。脚本不扫描旧下载目录，也不修改 PixivBatchDownloader 的状态。
 
 ## 文件与数据
+
+桌面首页的数据概览提供“已导入的作品”，统计此插件成功导入的唯一作品。多页漫画算一部；插画与小说的相同 ID 分别计数。重启后保留计数，删除画廊记录不会减少；已有作品、失败和跳过不计数，历史导入不自动回填。统计保存在插件自己的 `data/pixiv-batch-downloader-import/plugin.db`，备份时需一起保留。
+
+统计写入暂时失败时显示不可用，脚本重试会先补写计数再确认成功。作品登记与统计分别提交；若进程在两次提交之间被强制终止，该次导入可能漏计。
 
 - 浏览器实际保存路径必须位于配置的根目录内；允许任意文件名和子目录。宿主拒绝链接、junction、越界路径、缺失文件和不受支持的文件头。
 - 图片支持 JPEG、PNG、WebP、GIF；动图支持 WebP、GIF、APNG、WebM、MP4、ZIP；小说支持 TXT、EPUB，正文来自同次抓取的元数据。ZIP 缩略图只读首个图片条目，源文件仍是 ZIP。
