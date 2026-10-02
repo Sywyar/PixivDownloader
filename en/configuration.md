@@ -176,7 +176,7 @@ The application walks a proxy chain from right to left, selects the first untrus
 | --- | --- | --- |
 | `app.language` | empty | Follow the system, or use a supported language code |
 | `app.theme` | `system` | GUI theme id |
-| `app.config-menu-expand-all` | `false` | Expand all configuration groups initially |
+| `app.config-menu-expand-all` | `false` | Expand all configuration groups in Swing. Compose has no such option and saves this setting as disabled when opened |
 | `app.gui-provider` | `gui-swing` | Desktop GUI provider id; selectable values come only from active provider plugins |
 
 Available themes are contributed by installed theme plugins. The GUI provider selector is also populated dynamically from active `DesktopUiProvider` plugins rather than a host hard-coded list. The official `gui-swing` provider is default-installed; `gui-compose` is installed on demand. Switching providers requires a full restart. If the configured provider is unavailable, selection may fall back only to the unique default provider, never discovery order.

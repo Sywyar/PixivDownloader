@@ -176,7 +176,7 @@ server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 | --- | --- | --- |
 | `app.language` | 空 | 跟随系统；也可使用受支持语言代码 |
 | `app.theme` | `system` | GUI 主题 id |
-| `app.config-menu-expand-all` | `false` | 是否默认展开全部配置菜单 |
+| `app.config-menu-expand-all` | `false` | Swing 是否展开全部配置菜单；Compose 不提供此选项，进入 Compose 时会关闭并保存 |
 | `app.gui-provider` | `gui-swing` | 桌面 GUI provider id；只能选择当前活动插件提供的值 |
 
 可用主题由已安装的主题插件贡献；GUI provider 下拉项同样由当前活动的 `DesktopUiProvider` 动态提供，不是宿主硬编码清单。官方 `gui-swing` 默认安装，`gui-compose` 按需安装。切换 provider 必须完整重启；配置的 provider 不可用时，只会回退到唯一默认 provider，不按发现顺序任选。
