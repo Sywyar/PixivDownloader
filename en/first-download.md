@@ -34,6 +34,8 @@ In your browser, visit:
 http://localhost:6999/pixiv-batch.html
 ```
 
+The new workbench, `pixiv-batch-alt.html`, opens by default on first use. Your saved choice of classic or new layout is preserved and can be changed on the download page. Both page addresses follow that saved preference.
+
 In **Solo mode** a login dialog will appear. Enter the admin credentials you set during first-time setup.
 
 ?> If you don't remember the address, open GUI → Status page → click the "Batch Download" shortcut button.
