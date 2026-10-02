@@ -5,13 +5,19 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import top.sywyar.pixivdownload.core.download.DownloadLifecycleRegistry;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
+import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadEvent;
+import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadLifecycle;
+import top.sywyar.pixivdownload.plugin.api.download.submission.DownloadSubmission;
+import top.sywyar.pixivdownload.plugin.api.download.submission.DownloadTaskException;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginCapabilityContributionRegistrar;
+import top.sywyar.pixivdownload.plugin.lifecycle.capability.DownloadLifecycleCapabilityAdapter;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.QueueOperationsCapabilityAdapter;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityDrain;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityInvocationRegistry;
@@ -43,7 +49,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Stream;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
@@ -178,13 +186,18 @@ class PluginTemplateRuntimeRegistrationTest {
                     new ExternalCapabilityInvocationRegistry();
             QueueOperationsCapabilityAdapter queueAdapter =
                     new QueueOperationsCapabilityAdapter(operations, invocationRegistry);
+            DownloadLifecycleRegistry lifecycle = new DownloadLifecycleRegistry();
+            DownloadLifecycleCapabilityAdapter lifecycleAdapter =
+                    new DownloadLifecycleCapabilityAdapter(lifecycle, invocationRegistry);
             PluginCapabilityContributionRegistrar capabilityRegistrar =
                     new PluginCapabilityContributionRegistrar(
-                            List.of(queueAdapter), List.of(), List.of(queueAdapter), invocationRegistry);
+                            List.of(queueAdapter), List.of(), List.of(queueAdapter, lifecycleAdapter),
+                            invocationRegistry);
             ExternalCapabilityDrain retiredDrain;
             try (AnnotationConfigApplicationContext parent = new AnnotationConfigApplicationContext();
                  AnnotationConfigApplicationContext child = new AnnotationConfigApplicationContext()) {
                 parent.registerBean(ObjectMapper.class, () -> new ObjectMapper());
+                parent.registerBean(DownloadLifecycle.class, () -> lifecycle);
                 parent.registerBean(RequestOwnerIdentityResolver.class,
                         () -> ignored -> RequestOwnerIdentity.owner("owner-a"));
                 parent.refresh();
@@ -225,6 +238,15 @@ class PluginTemplateRuntimeRegistrationTest {
                         "example-download", resolved.commands(), "100", "owner-a", false);
                 assertThat(find(raw, "100", RequestOwnerIdentity.owner("owner-a"))).isEmpty();
 
+                var receipt = lifecycle.submit(new DownloadSubmission(
+                        UUID.randomUUID(), "example-download", "101", Map.of("title", "SDK import")),
+                        null, RequestOwnerIdentity.adminScope());
+                assertThat(receipt.task().phase()).isEqualTo(DownloadEvent.Phase.COMPLETED);
+                assertThat(receipt.task().title()).isEqualTo("SDK import");
+                assertThat(find(raw, "101", RequestOwnerIdentity.adminScope())).isPresent();
+                assertThat(lifecycle.options(receipt.task().attempt(), Map.of()))
+                        .containsEntry("title", "Example 101");
+
                 retiredDrain = capabilityRegistrar.withdraw(capabilityPublication).orElseThrow();
                 assertThat(retiredDrain.isDrained()).isTrue();
                 capabilityRegistrar.retireDrained(retiredDrain);
@@ -232,6 +254,11 @@ class PluginTemplateRuntimeRegistrationTest {
                 assertThat(operations.resolveOwned(
                         "example-download", "example-download", "example-download", downloadGeneration))
                         .isEmpty();
+                assertThatThrownBy(() -> lifecycle.submit(new DownloadSubmission(
+                        UUID.randomUUID(), "example-download", "102", Map.of()),
+                        null, RequestOwnerIdentity.adminScope()))
+                        .isInstanceOfSatisfying(DownloadTaskException.class,
+                                failure -> assertThat(failure.code()).isEqualTo(DownloadTaskException.Code.UNAVAILABLE));
             }
             assertThat(capabilityRegistrar.releaseRetirementProof(retiredDrain)).isTrue();
         }

@@ -15,6 +15,49 @@ import static org.assertj.core.api.Assertions.*;
 
 @DisplayName("下载事件和前置规则生命周期")
 class DownloadLifecycleRegistryTest {
+    @Test @DisplayName("撤回中的选项链拒绝旧处理器，不回落到新发布或跳过规则")
+    void withdrawnHookChainFailsClosed() throws Exception {
+        var registry = new DownloadLifecycleRegistry();
+        var invocations = new ExternalCapabilityInvocationRegistry();
+        var adapter = new DownloadLifecycleCapabilityAdapter(registry, invocations);
+        var registrar = new PluginCapabilityContributionRegistrar(List.of(), List.of(), List.of(adapter), invocations);
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var laterCalls = new AtomicInteger();
+        var worker = Executors.newSingleThreadExecutor();
+        try (var context = new AnnotationConfigApplicationContext()) {
+            context.registerBean("first", DownloadOptionsHook.class, () -> (attempt, options) -> {
+                entered.countDown();
+                try { if (!release.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("timeout"); }
+                catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw new IllegalStateException(interrupted); }
+                return options;
+            });
+            context.registerBean("second", DownloadOptionsHook.class, () -> (attempt, options) -> {
+                laterCalls.incrementAndGet();
+                return options;
+            });
+            context.refresh();
+            var prepared = registrar.allocateOwner("hook-test", "hook-package", 1L);
+            registrar.prepareInto(prepared, context);
+            var publication = registrar.publish(prepared);
+            var attempt = new DownloadAttempt(UUID.randomUUID(), "example", "42");
+            Future<?> work = worker.submit(() -> registry.options(attempt, java.util.Map.of("format", "txt")));
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            var drain = registrar.withdraw(publication).orElseThrow();
+            assertThat(drain.isDrained()).isFalse();
+            release.countDown();
+            assertThatThrownBy(() -> work.get(5, TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(DownloadAdmissionRejectedException.class);
+            assertThat(laterCalls).hasValue(0);
+            assertThat(drain.isDrained()).isTrue();
+            registrar.retireDrained(drain);
+            registrar.acknowledgeRetired(drain);
+            context.close();
+            assertThat(registrar.releaseRetirementProof(drain)).isTrue();
+            assertThat(registry.options(attempt, java.util.Map.of("format", "txt"))).containsEntry("format", "txt");
+        } finally { release.countDown(); worker.shutdownNow(); }
+    }
+
     @Test @DisplayName("观察失败尽力隔离，规则失败拒绝，撤回后不再调用旧插件")
     void failuresAndWithdrawal() {
         var registry = new DownloadLifecycleRegistry();

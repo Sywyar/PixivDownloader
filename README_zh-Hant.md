@@ -1,6 +1,6 @@
 # PixivDownloader
 
-![](./image/pixivdownloader.png)
+![](./readme/image/pixivdownloader.png)
 
 [简体中文](./README.md) | 繁體中文 | [日本語](./README_ja.md) | [한국어](./README_ko.md) | [English](./README_en.md)
 
@@ -22,9 +22,6 @@
 
 ## 功能特點
 
-> [!WARNING]
-> **標記 `*` 的功能尚未在正式版中上線，僅每夜構建版可用**
-
 - 一站式下載網頁，支持快捷獲取、批量導入單作品、User 模式、Search 模式、系列模式
 - 快捷獲取：憑已保存的 Cookie 一鍵拉取本賬戶的收藏（插畫/小說，含不公開）、自己的作品（含不公開）、關注列表、珍藏集，可鑽取查看並加入下載隊列
 - 頁面批量下載腳本 — 抓取搜索頁、關注動態、排行榜等 Pixiv 頁面中的插畫/漫畫/動圖/小說
@@ -33,8 +30,8 @@
 - 小說畫廊支持「正文」全文檢索（基於本地全文索引，可與年齡分級/標籤/作者等篩選疊加）
 - 統計儀表盤：總覽卡片、按月下載量折線、下載量 Top 作者、熱門標籤詞雲，作者/標籤可點擊直達畫廊篩選
 - 疑似重複檢測：基於感知哈希（dHash）識別實質重複的已下載圖片，支持閾值調節、跨作品/全部範圍切換與手動掃描回填
-- `*` 插件管理頁：卡片列表展示所有插件的狀態/來源/版本/依賴，支持外部插件的生命週期操作（加載/啓動/停止/卸下/重載）（未上線）
-- `*` 插件市場頁：瀏覽、搜尋、分頁查看並安裝受信儲存庫外掛程式。第三方儲存庫在 GUI 的「設定 → 插件市場設定」中新增，可使用儲存庫描述檔或自行填寫；核對發佈者、連線主機和完整公開金鑰指紋後加入草稿，統一儲存並重新啟動後生效。安裝前會重新解析版本並驗證大小、SHA-256、簽章及套件內 descriptor
+- 插件管理頁：卡片列表展示所有插件的狀態/來源/版本/依賴，支持外部插件的生命週期操作（加載/啓動/停止/卸下/重載）（未上線）
+- 插件市場頁：瀏覽、搜尋、分頁查看並安裝受信儲存庫外掛程式。第三方儲存庫在 GUI 的「設定 → 插件市場設定」中新增，可使用儲存庫描述檔或自行填寫；核對發佈者、連線主機和完整公開金鑰指紋後加入草稿，統一儲存並重新啟動後生效。安裝前會重新解析版本並驗證大小、SHA-256、簽章及套件內 descriptor
 - 計劃任務：後臺按週期或 Cron 自動發現並下載新作品，支持畫師新作/保存的搜索/系列三類來源
 - 郵件/推送通知：需人工介入的事件（鑑權失效、熔斷等）通過郵件與推送通道告知；可在通知配置頁按類型開關
 - 小說下載與系列合訂（TXT/HTML/EPUB，EPUB 支持多級目錄和內嵌圖片）
@@ -52,10 +49,16 @@
 
 > [!NOTE]
 > 少許截圖設備啓用了 HDR，顏色效果可能不同
+>
+> 應用程式支援繁體中文介面。以下應用程式截圖使用英文，油猴腳本截圖使用簡體中文。
 
-### [淺色模式使用截圖](./zh-CN/md/light-screenshot.md)
+[![PixivDownloader 淺色介面預覽](./readme/image/en-US/en-US-overview.webp)](./readme/zh-Hant/md/light-screenshot.md)
 
-### [暗色模式使用截圖](./zh-CN/md/dark-screenshot.md)
+點擊動圖查看完整靜態截圖。
+
+### [淺色模式使用截圖](./readme/zh-Hant/md/light-screenshot.md)
+
+### [暗色模式使用截圖](./readme/zh-Hant/md/dark-screenshot.md)
 
 ## 快速開始
 
@@ -90,12 +93,6 @@ sh run.sh
 ```
 
 首次啓動後按引導完成配置，即可訪問 `http://localhost:6999/pixiv-batch.html` 開始下載。
-
-圖片和 Ugoira 儲存格式、轉碼品質、WebP 無損與最長邊統一在網頁下載設定中選擇，隨新提交的下載生效；新建排程保存當時的選項。圖片預設只保留原始格式，Ugoira 預設 WebP。取消「原始格式」後，所有所選產物成功產生並寫入資料庫才會移除原圖；相同格式直接沿用原檔案，不套用品質與縮放。GUI 下載設定只管理後端執行與資源限制，例如下載並行數和 FFmpeg 並行數。
-
-既有作品在 Compose 桌面「工具 → FFmpeg 及其工具 → 歷史媒體處理」中選擇目標格式並偵測缺失項目，無須填寫作品 ID。檢視結果後點擊開始，只補缺失格式和縮圖，保留既有檔案；返回不會取消工作。Swing 在工具頁提供相同的偵測與處理。Ugoira 補轉需要保留的 ZIP 與影格時序；FFmpeg 管理中可檢查實際編解碼能力，MP4 需要 H.264 編碼器。
-
-作品中繼資料與逐頁媒體格式記錄統一存入資料庫，不再產生 `.meta.json` 或 `.media.properties`。備份或遷移作品時，請同時保留媒體檔案與 `data/pixiv_download.db`；資料庫遺失後，畫廊不會依目錄中的檔案自動恢復作品。既有旁檔案不會自動批量刪除。
 
 ### 讓網頁版 Pixiv 走後端配置的代理（無需開啓系統代理）
 
@@ -132,21 +129,13 @@ sh run.sh
 
 - [⚙️ 配置參考](https://sywyar.github.io/PixivDownloader/#/zh-hant/configuration)
 - [🔌 插件管理](https://sywyar.github.io/PixivDownloader/#/zh-hant/plugin-management)
+- [🧩 第三方插件 SDK](https://sywyar.github.io/PixivDownloader/#/zh-hant/plugin-development)
+- [📦 插件 SDK 下載與版本記錄](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases)（清單為空表示尚未公開發佈）
 - [💾 存儲原理](https://sywyar.github.io/PixivDownloader/#/zh-hant/storage)
 - [❓ 常見問題](https://sywyar.github.io/PixivDownloader/#/zh-hant/faq)
 - [🛠️ 開發指南](https://sywyar.github.io/PixivDownloader/#/zh-hant/development)
 
 ---
-
-## 發布者簽名工具
-
-簽名 CLI 位於 `pixivdownload-plugin-signature`，僅需 JDK 17。在儲存庫根目錄執行 `./mvnw -pl pixivdownload-plugin-signature package`，再以 `java -cp <該模組產生的JAR> top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool <命令>` 呼叫：
-
-- `keygen --directory <新目錄>`：產生 `private-key.pem`（PKCS#8）與配套的 `public-key.pem`（SPKI），目錄及私鑰僅允許目前使用者存取。請選擇原始碼儲存庫與暫存目錄以外的位置，備份這兩個檔案；命令不覆寫既有目錄。
-- `public-key --public-key <public-key.pem> --key-id <識別碼> --out <public.json>`：匯出標準化 SPKI Base64 與 SHA-256 公鑰指紋。此命令讀取配套公鑰檔案，不從私鑰推導公鑰。
-- `community-operation --operation <PUBLISHER_KEY_ROTATION|VERSION_STATUS_REQUEST|OWNERSHIP_TRANSFER> --canonical-body <標準化正文> --request-id <SHA-256> --key-id <識別碼> --private-key <private-key.pem> --out <sig.json>`：簽署固定版本 SDK 產生的 JCS 正文字節。正文摘要必須與 requestId 一致；輸出僅含 detached 簽名，不含私鑰。
-
-公鑰匯出與社群操作簽名均拒絕覆寫既有輸出。外掛套件繼續使用 CLI 的 `artifact` 命令；`--help` 列出完整參數。私鑰不得提交至 Git 或放入投稿附件。
 
 ## 免責聲明
 
@@ -167,7 +156,7 @@ sh run.sh
 **[PixivBatchDownloader](https://github.com/xuejianxianzun/PixivBatchDownloader)**
 如果希望直接在瀏覽器中下載、不依賴後端程式，可以使用這個擴充功能。
 
-也可以搭配本專案的畫廊使用：在下載頁的「更多 → 油猴腳本」中安裝 **PixivBatchDownloader 匯入支援**，依照[使用說明（簡體中文）](pixivdownload-plugin-external-download-import/README.md#使用)設定一次下載目錄並啟用腳本後，PixivBatchDownloader 此後成功下載的插畫、漫畫、動圖和小說會自動加入本機畫廊，無需手動匯入。原始檔案不會複製，刪除畫廊記錄也會保留；安裝前的歷史下載不會自動掃描。
+本軟體提供 **PixivBatchDownloader 匯入支援** 外掛及油猴腳本，可將此後下載完成的插畫、漫畫、動圖和小說自動加入本機畫廊，並保留原始檔案。詳見[使用說明（簡體中文）](https://sywyar.github.io/PixivDownloader/#/zh-cn/pixiv-batch-downloader-import)。
 
 功能介紹：
 
@@ -175,5 +164,3 @@ sh run.sh
 - 有一些輔助功能，如去除廣告、快速收藏、看圖模式等 `(可以當作一個 Pixiv 的輔助插件？)`
 - 下載不依賴第三方工具 `(與本項目最大的區別！安裝十分方便！我也在努力將我的項目的使用變得簡潔)`
 - 支持多語言
-
-## 開發計劃

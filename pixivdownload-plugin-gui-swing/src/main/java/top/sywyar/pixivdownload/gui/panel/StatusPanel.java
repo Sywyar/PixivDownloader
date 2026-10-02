@@ -86,6 +86,9 @@ public class StatusPanel extends JPanel {
     private volatile boolean pixivConnectivityChecking;
     private volatile long lastPixivConnectivityCheckAtMillis;
     private Timer pollTimer;
+    private final AtomicBoolean statusPolling = new AtomicBoolean();
+    private final top.sywyar.pixivdownload.gui.DirectorySuggestionDialog directorySuggestions =
+            new top.sywyar.pixivdownload.gui.DirectorySuggestionDialog(this);
     private Timer startupElapsedTimer;
     private Timer liveStatusTimer;
     private long startupStartedAtMillis = -1L;
@@ -477,7 +480,9 @@ public class StatusPanel extends JPanel {
     }
 
     private void fetchStatus() {
+        if (!statusPolling.compareAndSet(false, true)) return;
         Thread worker = new Thread(() -> {
+            try {
             DesktopUiHost.GuiResponse response = SwingHost.host().guiGet("status", 2_000);
             if (response.successful() && response.responseParsed()) {
                 SwingUtilities.invokeLater(() -> updateLabels(response.body()));
@@ -491,6 +496,11 @@ public class StatusPanel extends JPanel {
                     SwingUtilities.invokeLater(() -> applyOfflineState(SwingBackendLifecycle.snapshot()));
                 }
             }
+            var center = SwingHost.host().controlCenterSnapshot();
+            var directorySnapshot = center.successful() && center.body() != null
+                    ? center.body() : DesktopUiHost.GuiValue.of(java.util.Map.of());
+            SwingUtilities.invokeLater(() -> directorySuggestions.refresh(directorySnapshot));
+            } finally { statusPolling.set(false); }
         }, "gui-status-poll");
         worker.setDaemon(true);
         worker.start();
@@ -1561,6 +1571,7 @@ public class StatusPanel extends JPanel {
         if (pollTimer != null) {
             pollTimer.stop();
         }
+        directorySuggestions.dispose();
         stopStartupElapsedTimer();
         stopDownloadProgressTimer();
         stopLiveStatusTimer();

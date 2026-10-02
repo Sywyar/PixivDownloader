@@ -60,7 +60,8 @@ function renderQueueRecovery() {
     }
     host.querySelector('[data-recovery-summary]').textContent = bt('batch:queue.recovery.keep-open');
     host.querySelector('[data-recovery-notice]').textContent = bt('batch:queue.recovery.notice');
-    const pending = state.queue.some(item => item.recoveryState);
+    const pending = state.queue.some(item => item.recoveryState
+        && (!item.taskId || item.recoveryState === 'unknown'));
     const message = host.querySelector('[data-recovery-message]');
     message.hidden = !pending;
     message.textContent = bt('batch:queue.recovery.waiting');
@@ -69,7 +70,7 @@ function renderQueueRecovery() {
         const button = host.querySelector('[data-recovery-action="' + action + '"]');
         button.textContent = bt('batch:queue.recovery.' + action);
         button.disabled = !!queueRecoveryPromise || (action === 'retry'
-            && !state.queue.some(item => item.recoveryState === 'unknown'));
+            && !state.queue.some(item => !item.taskObserved && item.recoveryState === 'unknown'));
     }
 }
 
@@ -122,8 +123,11 @@ function reconcileRestoredQueue() {
     clearTimeout(queueRecoveryTimer);
     queueRecoveryTimer = null;
     queueRecoveryPromise = (async () => {
+        if (state.queue.some(item => item.taskId && item.recoveryState)) {
+            await window.PixivBatch.queueTasks.refresh();
+        }
         // 串行查询避免大队列同时创建请求；只对仍在原队列中的同一个对象回写。
-        for (const item of state.queue.filter(value => value.recoveryState)) {
+        for (const item of state.queue.filter(value => value.recoveryState && !value.taskId)) {
             if (queueRecoverySuspended) break;
             if (!state.queue.includes(item) || !item.recoveryState) continue;
             let result = null;
@@ -138,7 +142,7 @@ function reconcileRestoredQueue() {
         updateStats();
         saveQueue();
         renderQueue();
-        if (state.queue.some(item => item.recoveryState === 'running')) {
+        if (state.queue.some(item => !item.taskId && item.recoveryState === 'running')) {
             queueRecoveryTimer = setTimeout(reconcileRestoredQueue, QUEUE_RECOVERY_POLL_MS);
         }
     });
@@ -149,7 +153,7 @@ function reconcileRestoredQueue() {
 async function retryUnconfirmedQueueItems() {
     if (appMode !== 'solo' || !isAdmin || queueRecoveryPromise || queueRecoverySuspended) return;
     await reconcileRestoredQueue();
-    const items = state.queue.filter(item => item.recoveryState === 'unknown');
+    const items = state.queue.filter(item => !item.taskObserved && item.recoveryState === 'unknown');
     if (!items.length) return;
     if (!window.PixivFeedback || !await window.PixivFeedback.confirm({
         title: bt('batch:dialog.title.confirm'),
@@ -164,6 +168,9 @@ async function retryUnconfirmedQueueItems() {
     for (const item of items) {
         if (!state.queue.includes(item) || item.recoveryState !== 'unknown') continue;
         delete item.recoveryState;
+        delete item.taskId;
+        delete item.taskPhase;
+        delete item.taskMissing;
         item.status = 'paused';
         item.statusMessageKey = 'batch:queue.recovery.ready';
     }
@@ -180,6 +187,7 @@ function queueNeedsLeaveWarning() {
 
 function initQueueRecovery() {
     renderQueueRecovery();
+    window.PixivBatch.queueTasks?.start();
     void reconcileRestoredQueue();
     window.addEventListener('beforeunload', event => {
         if (!queueNeedsLeaveWarning()) return;

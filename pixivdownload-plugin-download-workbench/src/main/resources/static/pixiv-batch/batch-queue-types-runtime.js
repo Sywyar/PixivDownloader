@@ -178,6 +178,10 @@
             assertActive() {
                 if (!active()) throw staleQueueTypeError();
             },
+            bindTask(taskId) {
+                if (!active()) throw staleQueueTypeError();
+                return window.PixivBatch.queueTasks.bind(item, taskId);
+            },
             updateItem(patch) {
                 if (!active()) throw staleQueueTypeError();
                 if (!isPlainObject(patch)) throw new Error('queue item patch must be a plain object');

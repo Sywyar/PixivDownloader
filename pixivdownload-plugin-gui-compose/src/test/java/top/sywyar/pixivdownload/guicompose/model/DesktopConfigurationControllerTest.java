@@ -264,7 +264,7 @@ class DesktopConfigurationControllerTest {
                         "app.language", "en-US",
                         "app.gui-provider", "compose",
                         "app.theme", "dark",
-                        "app.config-menu-expand-all", "true"
+                        "app.config-menu-expand-all", "false"
                 ),
                 Map.of(
                         "app.language", "unknown",
@@ -286,6 +286,27 @@ class DesktopConfigurationControllerTest {
     }
 
     @Test
+    @DisplayName("进入 Compose 后关闭并保存旧展开偏好且不再显示该设置")
+    void clearsExpandedMenusOnEnteringCompose() throws Exception {
+        Map<String, String> stored = new HashMap<>(Map.of(
+                "app.config-menu-expand-all", "true",
+                "app.theme", "dark",
+                "unrelated.value", "keep"
+        ));
+        try (ComposeDesktopUiModel model = model(stored)) {
+            assertEquals("false", stored.get("app.config-menu-expand-all"));
+            assertEquals("dark", stored.get("app.theme"));
+            assertEquals("keep", stored.get("unrelated.value"));
+            assertFalse(nodes(model).anyMatch(node -> node.id().contains("config-menu-expand-all")));
+            assertEquals(0, pendingCount(model));
+            model.loadConfiguration();
+            model.rebuild();
+            assertEquals(0, pendingCount(model));
+            assertEquals("false", stored.get("app.config-menu-expand-all"));
+        }
+    }
+
+    @Test
     @DisplayName("界面偏好的编辑与还原准确计数且保存后归零")
     void tracksEditsRevertsAndSave() throws Exception {
         Locale originalLocale = Locale.getDefault();
@@ -297,16 +318,14 @@ class DesktopConfigurationControllerTest {
             assertEquals(2, pendingCount(model));
             assertEquals("gui.compose.settings.effect.process", text(model, "settings.impact.effect").key());
             select(model, "theme", "dark");
-            toggleExpandAll(model, true);
-            assertEquals(4, pendingCount(model));
+            assertEquals(3, pendingCount(model));
             model.loadConfiguration();
             model.rebuild();
-            assertEquals(4, pendingCount(model));
+            assertEquals(3, pendingCount(model));
 
             select(model, "language", "follow-system");
             select(model, "provider", "compose");
             select(model, "theme", "system");
-            toggleExpandAll(model, false);
             assertEquals(0, pendingCount(model));
             save(model);
             assertEquals(Map.of(), stored);
@@ -503,14 +522,6 @@ class DesktopConfigurationControllerTest {
                 DesktopUiNode.EventType.SELECTION,
                 "interface." + preference + ".input",
                 DesktopUiNode.Value.selection(value)
-        ));
-    }
-
-    private static void toggleExpandAll(ComposeDesktopUiModel model, boolean value) {
-        dispatch(model, new DesktopUiNode.Event(
-                DesktopUiNode.EventType.CHANGE,
-                "interface.config-menu-expand-all.input",
-                DesktopUiNode.Value.bool(value)
         ));
     }
 

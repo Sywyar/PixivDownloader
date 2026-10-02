@@ -43,11 +43,11 @@
         }
         var meta = PMK.installMeta(status);
         var label = status === 'UPDATE_AVAILABLE'
-            ? t('install.action.update-to', '更新到 v{v}', { v: card.latestVersion })
+            ? t('install.action.update-to', '更新到 v{v}', { v: card.targetVersion })
             : t(meta.labelKey, meta.status);
         var attrs = meta.disabled ? ' disabled'
             : ' data-pmk-repo="' + esc(card.repositoryId || '') + '" data-pmk-install="' + esc(card.pluginId) +
-              '" data-pmk-version="' + esc(card.latestVersion || '') + '"';
+              '" data-pmk-version="' + esc(card.targetVersion || '') + '"';
         return '<button class="pmk-btn pmk-install pmk-btn--' + meta.variant + '"' + attrs + '>' +
             '<i class="fa-solid fa-' + esc(meta.icon) + '"></i><span>' + esc(label) + '</span></button>';
     }
@@ -91,7 +91,8 @@
             tags +
             (meta ? '<div class="pmk-card-meta">' + esc(meta) + '</div>' : '') +
             compat +
-            '<details><summary data-pmk-facts="' + esc(card.pluginId) + '" data-pmk-version="' + esc(card.latestVersion) + '">'
+            (card.compatibilityNotice ? '<p class="pmk-card-compat pmk-card-compat--notice">' + esc(card.compatibilityNotice) + '</p>' : '') +
+            '<details><summary data-pmk-facts="' + esc(card.pluginId) + '" data-pmk-version="' + esc(card.targetVersion) + '">'
                 + esc(t('trust.facts', '来源与能力声明')) + '</summary><div data-pmk-facts-content>'
                 + global.PixivPluginPresentationTokens.trustLines(card.verification, PMK.state.i18n.client)
                     .map(function (line) { return '<p>' + esc(line) + '</p>'; }).join('') + '</div></details>' +
@@ -159,8 +160,9 @@
             '<span class="pmk-seg-item active"><i class="fa-solid fa-store"></i><span>' + esc(t('seg.market', '市场')) + '</span></span>' +
             '<a class="pmk-seg-item" href="/plugin-manage.html"><i class="fa-solid fa-puzzle-piece"></i><span>' + esc(t('seg.installed', '已安装')) + '</span>' +
             '<span class="pmk-seg-count">' + (state.catalog ? state.catalog.installedCount : 0) + '</span></a></div>' +
+            '<span class="pmk-operations-trigger" data-pmk-operations-trigger></span>' +
             '<button class="pmk-btn pmk-btn--teal" data-pmk-refresh><i class="fa-solid fa-rotate"></i><span>' + esc(t('refresh', '刷新')) + '</span></button>' +
-            '</div></div>';
+            '</div></div><div data-pmk-operations-panel hidden></div>';
 
         // 降级诊断条（明确告知已回退为基础视图）。
         var degraded = '<div class="pmk-banner pmk-banner--info"><i class="fa-solid fa-circle-info"></i>' +
@@ -221,7 +223,16 @@
     }
 
     function paint() {
-        if (rootEl) rootEl.innerHTML = shellHtml();
+        if (!rootEl) return;
+        var focused = document.activeElement;
+        var restoreFocus = focused && focused.closest && focused.closest('.pmk-operations, .pmk-operations-trigger');
+        rootEl.innerHTML = '<div class="pmk-page">' + shellHtml() + '</div>';
+        if (PMK.operations) {
+            PMK.operations.mountButton(rootEl.querySelector('[data-pmk-operations-trigger]'));
+            PMK.operations.mountPanel(rootEl.querySelector('[data-pmk-operations-panel]'));
+            PMK.operations.render();
+            if (restoreFocus && focused.isConnected) focused.focus({preventScroll: true});
+        }
     }
 
     function updateGrid() {

@@ -1,6 +1,6 @@
 # PixivDownloader
 
-![](./image/pixivdownloader.png)
+![](./readme/image/pixivdownloader.png)
 
 [中文](./README.md) | [繁體中文](./README_zh-Hant.md) | [日本語](./README_ja.md) | [한국어](./README_ko.md) | English
 
@@ -23,9 +23,6 @@
 
 ## Features
 
-> [!WARNING]
-> **Items marked with `*` are not yet available in the stable release (nightly build only)**
-
 - One-stop download web page: Quick Fetch, Bulk Import Single Works, User Mode, Search Mode, Series Mode
 - Quick Fetch: with the saved Cookie, one-click load your own bookmarks (illust/novel, incl. private), your own works (incl. private), following list, and collections; drill in and add to the download queue
 - Page batch download userscript — scrape works from search results, following feed, rankings, and more
@@ -37,9 +34,8 @@
   cloud; authors/tags are clickable and jump to a filtered gallery view
 - Suspected-duplicate detection: identifies substantially duplicate downloaded images via perceptual hashing (
   dHash), with adjustable threshold, cross-artwork/all scope switching, and manual scan backfill
-- `*` Plugin management page: a card list showing every plugin with status, source, version, and dependencies; load, start, quiet, stop, unload, remove, restart, and reload actions for external plugins (Not yet launched)
-- `*` Plugin marketplace page: browse, search, page through and install plugins from trusted repositories. Add third-party repositories in GUI Settings → Plugin market settings, using a repository descriptor or manual entry. Review the publisher, network hosts and full public-key fingerprints, add the repository to the draft, then save settings and restart. Before installation, the host resolves the version again and verifies size, SHA-256, signature and the package descriptor
-- The built-in community repository is enabled by default. Set `plugin-catalog.community-repository-enabled: false` and restart to disable it. Browsing does not install plugins automatically. Community packages are checked against the original publisher signature, community signature, and review record for that exact version. Details and installation confirmation show repository identity, version assurance, revocation status, execution mode, and capabilities declared in the package separately. Missing or empty declarations do not mean safe, and source review is not a safety guarantee.
+- Plugin management page: a card list showing every plugin with status, source, version, and dependencies; load, start, quiet, stop, unload, remove, restart, and reload actions for external plugins (Not yet launched)
+- Plugin marketplace page: browse, search, page through and install plugins from trusted repositories. Add third-party repositories in GUI Settings → Plugin market settings, using a repository descriptor or manual entry. Review the publisher, network hosts and full public-key fingerprints, add the repository to the draft, then save settings and restart. Before installation, the host resolves the version again and verifies size, SHA-256, signature and the package descriptor
 - Scheduled tasks: automatically discover and download new works in the background on a fixed interval or cron schedule, supporting three source types
 - Email / push notifications: events needing manual attention are delivered via email and push channels; each notification type individually toggleable
 - Novel download and series compilation (TXT/HTML/EPUB with multi-level TOC and embedded images)
@@ -58,10 +54,16 @@
 
 > [!NOTE]
 > Some screenshot devices have HDR enabled, so the color effect may differ.
+>
+> The application supports English. The application screenshots below use English; the two userscript screenshots use Simplified Chinese.
 
-### [Light Mode Screenshots](./en-US/md/light-screenshot.md)
+[![PixivDownloader light mode preview](./readme/image/en-US/en-US-overview.webp)](./readme/en-US/md/light-screenshot.md)
 
-### [Dark Mode Screenshots](./en-US/md/dark-screenshot.md)
+Click the animation to view the full static screenshots.
+
+### [Light Mode Screenshots](./readme/en-US/md/light-screenshot.md)
+
+### [Dark Mode Screenshots](./readme/en-US/md/dark-screenshot.md)
 
 ## Quick Start
 
@@ -78,8 +80,6 @@ Download the latest version from [Releases](../../releases):
 The Java standard package and the full-offline package must be **fully extracted** before use — do not take out only
 the JAR: the launcher scripts and the `plugins/` directory are both required, because external official plugins are
 loaded from the working directory's `plugins/` folder at startup.
-
-Install Douyin separately from the community plugin market. Its source and tests are maintained in the [Douyin plugin repository](https://github.com/Sywyar/PixivDownloader-Plugin-Douyin), outside this repository's Maven reactor.
 
 ### Run
 
@@ -100,14 +100,6 @@ sh run.sh
 
 After first startup, follow the wizard to complete setup, then visit `http://localhost:6999/pixiv-batch.html` to start
 downloading.
-
-Choose image and Ugoira formats, conversion quality, lossless WebP and maximum edge in the web download settings. Options are saved in server workbench state in solo mode and in the current browser in multi-user mode, then sent with new downloads. New schedules retain the options chosen when created; later browser changes do not affect them. Images default to the original format and Ugoira to WebP. Deselecting the original removes it only after all selected outputs succeed. Selecting the source format reuses the original without quality or size changes. Desktop download settings manage backend operation and resource limits, such as download and FFmpeg concurrency; each field indicates when changes take effect.
-
-When image conversion is selected, downloads can overlap with conversion, with at most two images in flight per artwork. FFmpeg still uses the configured shared concurrency limit. The queue shows download and conversion progress separately, and the artwork is recorded as complete only after every image succeeds. Cancellation or conversion failure keeps originals whose conversion has not succeeded.
-
-For existing works, open **Tools → FFmpeg and tools → Process downloaded media** in the Compose desktop UI, select target formats, and detect missing files without entering artwork IDs. Review the results and start explicitly. Processing adds missing formats and thumbnails while keeping existing files; going back does not cancel the task. Swing provides the same detection and processing on its Tools page. Ugoira conversion requires a retained ZIP and frame timing. FFmpeg management can test actual codec support; MP4 requires an H.264 encoder.
-
-Work metadata and per-page media format records are stored in the database. New downloads no longer create `.meta.json` or `.media.properties` files. Back up or move the media files together with `data/pixiv_download.db`; the gallery cannot rebuild work records from files alone if the database is lost. Existing sidecar files are not automatically deleted in bulk.
 
 ### Route web Pixiv through the backend-configured proxy (no system proxy needed)
 
@@ -159,16 +151,6 @@ For detailed installation steps, usage guides, configuration reference, and deve
 - [❓ FAQ](https://sywyar.github.io/PixivDownloader/#/en/faq)
 - [🛠️ Development](https://sywyar.github.io/PixivDownloader/#/en/development)
 
-The plugin SDK provides one `pixivdownload-sdk` compile dependency, an independent Maven project, and Gradle / sbt examples. Packages with a fixed runtime manifest include Run / Debug entries that build the current plugin and prepare its matching host and complete official plugin set. Each project keeps runtime data in `.dev/`. Check the selected Release and its README for availability and instructions.
-
-The publisher signing CLI is in `pixivdownload-plugin-signature` and requires only JDK 17. Run `./mvnw -pl pixivdownload-plugin-signature package` from the repository root, then invoke `java -cp <JAR produced by that module> top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool <command>`:
-
-- `keygen --directory <new-directory>` creates `private-key.pem` (PKCS#8) and its matching `public-key.pem` (SPKI), with access to the directory and private key restricted to the current user. Choose a location outside source repositories and temporary directories, and back up both files. The command never replaces an existing directory.
-- `public-key --public-key <public-key.pem> --key-id <id> --out <public.json>` exports canonical SPKI Base64 and the SHA-256 public key fingerprint. It reads the matching public key file; it does not derive a public key from a private key.
-- `community-operation --operation <PUBLISHER_KEY_ROTATION|VERSION_STATUS_REQUEST|OWNERSHIP_TRANSFER> --canonical-body <canonical-body> --request-id <SHA-256> --key-id <id> --private-key <private-key.pem> --out <sig.json>` signs the JCS body bytes produced by the pinned SDK. The body digest must match requestId. The output contains only the detached signature, with no private key material.
-
-Public key export and community operation signing refuse to overwrite output files. Use the existing `artifact` command to sign plugin packages; `--help` lists all arguments. Never commit private keys to Git or include them in submission attachments.
-
 ---
 
 ## Disclaimer
@@ -195,7 +177,7 @@ refining this project.
 **[PixivBatchDownloader](https://github.com/xuejianxianzun/PixivBatchDownloader)**
 If you want to download directly in your browser without a backend, try this extension.
 
-You can also use its downloads with this project's gallery. In the download page, open **More → Userscripts** and install **PixivBatchDownloader import support**. Follow the [setup instructions](pixivdownload-plugin-external-download-import/README_en.md#setup) to configure the download directory once and enable the script. Illustrations, manga, animations and novels that PixivBatchDownloader finishes downloading from then on are added to the local gallery automatically. Original files are not copied and remain when gallery records are deleted. Downloads completed before installation are not scanned.
+PixivDownloader provides the **PixivBatchDownloader import support** plugin and userscript to automatically add newly completed illustrations, manga, animations and novels to the local gallery while preserving the original files. See the [usage guide](https://sywyar.github.io/PixivDownloader/#/en/pixiv-batch-downloader-import).
 
 Features:
 
@@ -204,5 +186,3 @@ Features:
   `(can also serve as a Pixiv helper plugin?)`
 - Download doesn't depend on third-party tools `(the biggest difference from this project! Easy installation!)`
 - Supports multiple languages
-
-## Development Plan

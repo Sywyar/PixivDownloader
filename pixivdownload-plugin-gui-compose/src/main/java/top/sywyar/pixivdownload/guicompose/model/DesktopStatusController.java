@@ -308,8 +308,10 @@ final class DesktopStatusController {
             DesktopUiHost.GuiResponse response = host.controlCenterSnapshot();
             controlCenterSnapshot = response.successful() && response.body() != null && response.body().isObject() ? response.body() : DesktopUiHost.GuiValue.of(
                     Map.of());
+            owner.directorySuggestions.refresh(controlCenterSnapshot);
         } catch (RuntimeException ignored) {
             controlCenterSnapshot = DesktopUiHost.GuiValue.of(Map.of());
+            owner.directorySuggestions.refresh(controlCenterSnapshot);
         }
     }
 

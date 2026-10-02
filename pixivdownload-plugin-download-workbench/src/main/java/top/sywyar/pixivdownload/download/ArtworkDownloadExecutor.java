@@ -161,20 +161,28 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
     public void downloadImages(Long artworkId, String title, List<String> imageUrls,
                                String referer, DownloadRequest.Other other, String cookie,
                                String userUuid) {
-        DownloadAttempt attempt = admit(artworkId);
+        submitImages(null, artworkId, title, imageUrls, referer, other, cookie, userUuid);
+    }
+
+    /** 使用宿主提交回执中的同一身份进入既有执行队列。 */
+    public DownloadAttempt submitImages(DownloadAttempt suppliedAttempt, Long artworkId, String title, List<String> imageUrls,
+                             String referer, DownloadRequest.Other other, String cookie, String userUuid) {
+        DownloadAttempt attempt = admit(artworkId, suppliedAttempt);
+        DownloadRequest.Other effectiveOther = applyOptions(attempt, other);
         FileNamePlan plan = buildFileNamePlan(artworkId, title, imageUrls.size(),
-                other == null ? new DownloadRequest.Other() : other);
+                effectiveOther);
         QueueTaskTracker.Task task = taskTracker.prepareQueued(userUuid);
         try {
-            downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.ACCEPTED));
+            downloadLifecycle.track(attempt, task, userUuid, "illust", title, true);
             task.bind(() -> downloadImagesTracked(task, artworkId, title, imageUrls,
-                    referer, other, cookie, userUuid, plan, attempt));
+                    referer, effectiveOther, cookie, userUuid, plan, attempt));
             interactiveDownloadExecutionLane.execute(task);
+            return attempt;
         } catch (RuntimeException | Error failure) {
-            task.rejectSubmission();
-            if (!(failure instanceof VirtualMachineError) && !(failure instanceof ThreadDeath)) {
-                downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.FAILED));
-            }
+            try {
+                if (!(failure instanceof VirtualMachineError) && !(failure instanceof ThreadDeath))
+                    downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.FAILED));
+            } finally { task.rejectSubmission(); }
             throw failure;
         }
     }
@@ -183,13 +191,14 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
     public boolean downloadImagesBlocking(Long artworkId, String title, List<String> imageUrls,
                                           String referer, DownloadRequest.Other other, String cookie,
                                           String userUuid) {
-        DownloadAttempt attempt = admit(artworkId);
+        DownloadAttempt attempt = admit(artworkId, null);
+        DownloadRequest.Other effectiveOther = applyOptions(attempt, other);
         FileNamePlan plan = buildFileNamePlan(artworkId, title, imageUrls.size(),
-                other == null ? new DownloadRequest.Other() : other);
+                effectiveOther);
         QueueTaskTracker.Task task = taskTracker.beginRunning(userUuid);
         try {
-            downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.ACCEPTED));
-            return downloadImagesTracked(task, artworkId, title, imageUrls, referer, other, cookie, userUuid, plan, attempt);
+            downloadLifecycle.track(attempt, task, userUuid, "illust", title, false);
+            return downloadImagesTracked(task, artworkId, title, imageUrls, referer, effectiveOther, cookie, userUuid, plan, attempt);
         } finally {
             task.completeRunning();
         }
@@ -443,14 +452,36 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
         }
     }
 
-    private DownloadAttempt admit(long artworkId) {
-        DownloadAttempt attempt = new DownloadAttempt(UUID.randomUUID(), "artwork", Long.toString(artworkId));
+    private DownloadAttempt admit(long artworkId, DownloadAttempt supplied) {
+        DownloadAttempt attempt = supplied == null
+                ? new DownloadAttempt(UUID.randomUUID(), "artwork", Long.toString(artworkId)) : supplied;
+        if (!attempt.workType().equals("artwork") || !attempt.workId().equals(Long.toString(artworkId)))
+            throw new IllegalArgumentException("download attempt identity mismatch");
         try {
             downloadLifecycle.checkAdmission(attempt);
         } catch (top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadAdmissionRejectedException rejected) {
             throw LocalizedException.badRequest("download.admission.rejected", "Download admission rejected");
         }
         return attempt;
+    }
+
+    private DownloadRequest.Other applyOptions(DownloadAttempt attempt, DownloadRequest.Other supplied) {
+        DownloadRequest.Other other = supplied == null ? new DownloadRequest.Other() : supplied;
+        var options = new java.util.LinkedHashMap<String, String>();
+        options.put("fileNameTemplate", other.getFileNameTemplate() == null ? "" : other.getFileNameTemplate());
+        if (other.isMediaOutputEnabled()) {
+            var media = other.resolveMediaOutputSettings();
+            options.put("imageFormats", media.getImageFormats());
+            options.put("ugoiraFormats", media.getUgoiraFormats());
+        }
+        var result = downloadLifecycle.options(attempt, options);
+        if (!options.keySet().containsAll(result.keySet()))
+            throw new IllegalArgumentException("unsupported download option");
+        if (result.containsKey("fileNameTemplate")) other.setFileNameTemplate(result.get("fileNameTemplate"));
+        if (result.containsKey("imageFormats")) other.setImageFormats(result.get("imageFormats"));
+        if (result.containsKey("ugoiraFormats")) other.setUgoiraFormats(result.get("ugoiraFormats"));
+        other.resolveMediaOutputSettings();
+        return other;
     }
 
     private Path resolveEffectiveDownloadRoot(DownloadRequest.Other other) {

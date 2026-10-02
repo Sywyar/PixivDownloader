@@ -179,8 +179,9 @@ public class NovelDownloadController {
             }
         }
 
+        top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadAttempt attempt;
         try {
-            novelDownloadService.download(resolved.request(), userUuid);
+            attempt = novelDownloadService.submit(null, resolved.request(), userUuid);
         } catch (DownloadPathPlan.NeedsAction needed) {
             String retryToken = null;
             var imported = resolved.imported();
@@ -200,6 +201,7 @@ public class NovelDownloadController {
         }
 
         return ResponseEntity.ok(NovelDownloadResponse.builder()
+                .taskId(isAdmin && attempt != null ? attempt.attemptId() : null)
                 .success(true)
                 .message(messages.get("download.task.started"))
                 .downloadPath(messages.get("download.download-path.pending",

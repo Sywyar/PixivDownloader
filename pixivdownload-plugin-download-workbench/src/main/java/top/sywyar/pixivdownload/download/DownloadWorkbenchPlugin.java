@@ -55,11 +55,11 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
             + "&pixivBridgeRead=pixiv:layout-feedback:state:v1"
             + "&pixivBridgeRead=pixiv:layout-feedback:seen:v1"
             + "&pixivBridgeRead=pixivdownload.posthog.survey-id.%5B%22download-workbench.layout-feedback"
-            + "%22%2C%22019fce31-c9ce-0000-934a-375b3ddbbd6c%22%5D"
+            + "%22%2C%22019fc406-66b3-0000-d2c8-f7cca8560cb7%22%5D"
             + "&pixivBridgeWrite=pixiv:layout-feedback:state:v1"
             + "&pixivBridgeWrite=pixiv:layout-feedback:seen:v1"
             + "&pixivBridgeWrite=pixivdownload.posthog.survey-id.%5B%22download-workbench.layout-feedback"
-            + "%22%2C%22019fce31-c9ce-0000-934a-375b3ddbbd6c%22%5D";
+            + "%22%2C%22019fc406-66b3-0000-d2c8-f7cca8560cb7%22%5D";
 
     @Override
     public String id() {
@@ -145,7 +145,9 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
         WebRouteContribution.visitor("/api/download/cancel/**"),
         WebRouteContribution.visitor("/api/download/queue/**"),
         WebRouteContribution.visitor("/api/batch/**"),
-        WebRouteContribution.visitor("/api/download/extensions"));
+        WebRouteContribution.visitor("/api/download/extensions"),
+        WebRouteContribution.admin("/api/download/tasks"),
+        WebRouteContribution.admin("/api/download/tasks/**"));
 
     @Override
     public List<WebRouteContribution> routes() {

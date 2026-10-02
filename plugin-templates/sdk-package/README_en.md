@@ -46,7 +46,19 @@ In the standalone project, run `mvnw.cmd clean verify` on Windows or `./mvnw cle
 | Replace a process-restart package | Installation reports a pending restart. Fully exit, restart, and check the version actually loaded. |
 | Deliberately fail startup | Optional failures isolate that plugin; management still permits repair or eligible removal. The host decides required status. |
 
-`DownloadObserver` and `DownloadAdmissionPolicy` are optional full-trust beans published and withdrawn by the host. Observations are synchronous best-effort notifications with no durable replay. Policies allow or reject before side effects and cannot rewrite requests. `WorkFileImporter` registers read-only source-file references; an unavailable type owner must not produce success. Check the selected release's Javadoc: an interface in current source is not evidence that an older public SDK includes it.
+`DownloadObserver`, `DownloadAdmissionPolicy`, `DownloadOptionsHook` and `DownloadSubmissionHandler` are optional full-trust beans. Register them explicitly in the plugin configuration; the host publishes and withdraws each exact publication. Implement the interfaces without inheriting a downloader base class. Check the selected release's Javadoc: interfaces in current source may be absent from an older public SDK.
+
+`DownloadTasks.submit` accepts a work type, opaque work key, output options and a caller-generated `requestId`, and returns a host-generated `attemptId`. Within the current process's retention window, identical requests return the original task. Changed options or credentials produce `CONFLICT`. Use a new request ID to start a new attempt after a failure. Submission requires a trusted administrator identity; HTTP consumers must use `RequestOwnerIdentityResolver`. Pass credentials separately, never in options, events or logs.
+
+The type plugin validates and resolves its command through `DownloadSubmissionHandler`, registers the same attempt with `DownloadLifecycle.track` and `QueueTaskTracker.Task`, and submits it to its execution lane. Report `STARTED`, then `COMPLETED` after files and authoritative records have committed, or `FAILED` on failure. Queued cancellation and actual execution exit supply missing terminal states. A cancellation request does not mean a running thread has exited. Synchronous local imports register their identity through `register`.
+
+Use `find` and `snapshot` to read current state. `cancel` targets only the captured queue task. The snapshot `epoch` changes after a host restart; its `revision` increases with state changes. The store holds at most 4096 records and retains terminal states for at least five minutes. A full store rejects new tasks without dropping active ones. Deduplication ends when a record expires. Snapshots and live events provide neither recovery across process restarts nor durable replay.
+
+Event phases are `ACCEPTED`, `QUEUED`, `STARTED`, `COMPLETED`, `FAILED` and `CANCELLED`. `ACCEPTED` means admission has begun and later validation may still reject it. Synchronous execution may omit `QUEUED`. Observer callbacks run synchronously on the publishing thread and may run concurrently, so keep them short and thread safe. Ordinary observer failures do not roll back committed facts. Notifications from concurrent publishers have no cross-thread ordering guarantee; resynchronize from task snapshots after reconnecting.
+
+Admission policies allow or reject execution. Option hooks run in `order`, plugin ID and bean-name order. Their input and output are immutable string maps containing only options explicitly opened by the type executor, which validates the final result. Each map accepts at most 32 entries and 16 KiB of combined UTF-8 keys and values. A rule or hook failure, invalid result or publication withdrawn before invocation rejects the attempt. Observers are for auxiliary actions such as completion notifications, not file commits or required post-processing.
+
+`WorkFileImporter` registers read-only source-file references and reports failure when the type owner is unavailable. Deleting a gallery record retains the original files.
 
 ## Troubleshoot submissions
 

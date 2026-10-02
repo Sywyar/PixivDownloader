@@ -1213,28 +1213,30 @@ class ArtworkDownloadExecutorTest {
         void shouldRenamePartToFinalAndLeaveNoTempFile() throws Exception {
             byte[] payload = {1, 2, 3, 4, 5};
             stubSuccessfulImageDownload(IMAGE_URL, payload);
+            when(downloadLifecycle.options(any(), any())).thenReturn(java.util.Map.of("fileNameTemplate", "hooked"));
 
-            artworkDownloadExecutor.downloadImages(12345L, "title", List.of(IMAGE_URL),
+            var receipt = artworkDownloadExecutor.submitImages(null, 12345L, "title", List.of(IMAGE_URL),
                     "https://www.pixiv.net/", new DownloadRequest.Other(), null, null);
 
             var events = org.mockito.ArgumentCaptor.forClass(
                     top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadEvent.class);
             var order = org.mockito.Mockito.inOrder(downloadLifecycle, artworkDownloadHistory);
             order.verify(downloadLifecycle).checkAdmission(any());
-            order.verify(downloadLifecycle, times(2)).publish(events.capture());
+            order.verify(downloadLifecycle).track(any(), any(), isNull(), eq("illust"), eq("title"), eq(true));
+            order.verify(downloadLifecycle).publish(events.capture());
             order.verify(artworkDownloadHistory).record(any());
             order.verify(downloadLifecycle).publish(events.capture());
             assertThat(events.getAllValues()).extracting(event -> event.phase().name())
-                    .containsExactly("ACCEPTED", "STARTED", "COMPLETED");
+                    .containsExactly("STARTED", "COMPLETED");
             assertThat(events.getAllValues()).extracting(event -> event.attempt().attemptId())
-                    .containsOnly(events.getValue().attempt().attemptId());
+                    .containsOnly(receipt.attemptId());
 
             Path artworkDir = tempDir.resolve("12345");
             try (var stream = Files.list(artworkDir)) {
                 List<Path> files = stream.toList();
                 assertThat(files).hasSize(1);
                 Path finalFile = files.get(0);
-                assertThat(finalFile.getFileName().toString()).endsWith(".jpg");
+                assertThat(finalFile.getFileName().toString()).isEqualTo("hooked.jpg");
                 assertThat(Files.readAllBytes(finalFile)).containsExactly(payload);
             }
         }

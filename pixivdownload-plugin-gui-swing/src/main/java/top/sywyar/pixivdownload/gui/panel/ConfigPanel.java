@@ -231,6 +231,13 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         updateEnabledStates();
     }
 
+    public void pluginDirectorySaved(String owner, String key, String value) {
+        ConfigFieldSpec spec = fieldsByKey.get(key);
+        FieldRenderer.RenderedField field = renderedFields.get(key);
+        if (spec != null && field != null && Objects.equals(spec.ownerPluginId(), owner)
+                && field.getValue().get().isBlank()) field.setValue().accept(value);
+    }
+
     // ── UI 构建 ──────────────────────────────────────────────────────────────────
 
     private void buildUi() {

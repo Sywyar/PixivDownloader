@@ -46,7 +46,19 @@
 | process-restart 换包 | 安装结果提示等待重启；完整退出后再启动，核对真正加载的新版本。 |
 | 故意启动失败 | 可选插件只隔离自身能力，管理页仍可移除或换包；required 限制由宿主决定。 |
 
-`DownloadObserver` 和 `DownloadAdmissionPolicy` 是可选 full-trust Bean，经宿主管理 publication。观察是同步尽力通知，不提供持久重放；规则在副作用前允许或拒绝，不改写请求。`WorkFileImporter` 登记只读源文件引用；类型 owner 缺席时不得报告成功。使用这些 API 前核对所选发行包的 Javadoc；源码中存在接口不代表旧公开 SDK 已包含它。
+`DownloadObserver`、`DownloadAdmissionPolicy`、`DownloadOptionsHook` 和 `DownloadSubmissionHandler` 是可选 full-trust Bean，在插件配置类中显式注册，由宿主按精确 publication 发布和撤回。插件实现接口即可，不需要继承下载器基类。使用前核对所选发行包的 Javadoc；当前源码中的接口不一定已包含在旧公开 SDK 中。
+
+`DownloadTasks.submit` 接收作品类型、不透明作品键、输出选项和调用方生成的 `requestId`，返回宿主分配的 `attemptId`。同一进程的保留窗口内，相同请求标识及内容返回原任务，选项或凭据不同则报 `CONFLICT`。失败后主动发起新尝试须使用新的请求标识。提交只接受可信管理员身份，HTTP 消费方必须使用 `RequestOwnerIdentityResolver`；凭据通过独立参数传递，不能写入选项、事件或日志。
+
+类型插件通过 `DownloadSubmissionHandler` 校验和解析自己的命令，把同一个 attempt 交给 `DownloadLifecycle.track` 与 `QueueTaskTracker.Task`，再提交所属执行通道。插件报告 `STARTED`，在文件和权威记录成功提交后报告 `COMPLETED`，失败报告 `FAILED`。排队取消和实际退出会补齐终态；收到取消请求不等于运行线程已经退出。同步本地导入使用 `register` 登记身份。
+
+`find` 和 `snapshot` 提供当前状态，`cancel` 只操作捕获的那次队列任务。快照的 `epoch` 在宿主重启后改变，`revision` 在状态变化后递增。记录最多 4096 条，终态至少保留五分钟；满额时明确拒绝新任务，不丢弃活动任务。过期后不再保证请求去重。快照与在线事件均不提供跨进程恢复或持久重放。
+
+事件包含 `ACCEPTED`、`QUEUED`、`STARTED`、`COMPLETED`、`FAILED`、`CANCELLED`。`ACCEPTED` 表示开始接纳，仍可能被后续校验拒绝；同步执行可以没有 `QUEUED`。观察回调在发布线程同步执行，可能并发，应保持短小且线程安全；普通观察异常不回滚已提交的事实。并发发布不承诺跨线程通知顺序，断线或重连后以任务快照为准。
+
+准入规则允许或拒绝执行。选项 hook 按 `order`、插件 ID 和 Bean 名依次运行，输入和输出为不可变字符串 map，只能修改类型执行器明确开放的选项；最终仍由类型执行器验证。每份选项最多 32 项、累计 16 KiB UTF-8。规则或 hook 抛错、返回非法值，或调用前所属 publication 已撤回，都会拒绝本次执行。观察者适合完成通知等辅助动作，不能代替文件提交或必要后处理。
+
+`WorkFileImporter` 登记只读源文件引用，类型 owner 缺席时返回明确失败。删除画廊记录不会删除所引用的原文件。
 
 ## 投稿排障
 

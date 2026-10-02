@@ -151,96 +151,78 @@ final class DesktopConfigurationView {
                 key("gui.config.category.interface"),
                 fields.interfaceSettings()
         ));
-        if (fields.boolForm(
-                "interface.config-menu-expand-all",
-                Boolean.parseBoolean(fields.selected("app.config-menu-expand-all", "false"))
-        )) {
-            for (GuiConfigGroupContribution group : orderedGroups) {
-                List<DesktopUiNode> nodes = configGroupNodes(
-                        group,
-                        claimed,
-                        rendered,
-                        locked,
-                        nextBindings,
-                        nextSelections,
-                        nextActions
-                );
-                if (!nodes.isEmpty()) tabs.add(configGroupTab(group, nodes));
-            }
-        } else {
-            addConfigCategory(
-                    tabs,
-                    "download",
-                    "gui.config.group.download",
-                    orderedGroups,
-                    Set.of(GuiConfigGroups.DOWNLOAD),
-                    claimed,
-                    rendered,
-                    locked,
-                    nextBindings,
-                    nextSelections,
-                    nextActions
-            );
-            addConfigCategory(
-                    tabs,
-                    "runtime-network",
-                    "gui.config.category.runtime-network",
-                    orderedGroups,
-                    Set.of(
-                            GuiConfigGroups.SERVER,
-                            GuiConfigGroups.PROXY,
-                            GuiConfigGroups.HTTPS,
-                            GuiConfigGroups.UPDATE
-                    ),
-                    claimed,
-                    rendered,
-                    locked,
-                    nextBindings,
-                    nextSelections,
-                    nextActions
-            );
-            addConfigCategory(
-                    tabs,
-                    "access-control",
-                    "gui.config.category.access-control",
-                    orderedGroups,
-                    Set.of(GuiConfigGroups.GUEST_INVITE, GuiConfigGroups.SECURITY),
-                    claimed,
-                    rendered,
-                    locked,
-                    nextBindings,
-                    nextSelections,
-                    nextActions
-            );
-            addConfigCategory(
-                    tabs,
-                    "automation-maintenance",
-                    "gui.config.category.automation-maintenance",
-                    orderedGroups,
-                    Set.of(GuiConfigGroups.SCHEDULE, GuiConfigGroups.MAINTENANCE),
-                    claimed,
-                    rendered,
-                    locked,
-                    nextBindings,
-                    nextSelections,
-                    nextActions
-            );
-            Set<String> remaining = orderedGroups.stream().map(GuiConfigGroupContribution::groupId).filter(
-                    id -> !renderedGroup(id)).collect(java.util.stream.Collectors.toCollection(
-                    LinkedHashSet::new));
-            remaining.add(GuiConfigGroups.PLUGINS);
-            addPluginConfigCategory(
-                    tabs,
-                    orderedGroups,
-                    remaining,
-                    claimed,
-                    rendered,
-                    locked,
-                    nextBindings,
-                    nextSelections,
-                    nextActions
-            );
-        }
+        addConfigCategory(
+                tabs,
+                "download",
+                "gui.config.group.download",
+                orderedGroups,
+                Set.of(GuiConfigGroups.DOWNLOAD),
+                claimed,
+                rendered,
+                locked,
+                nextBindings,
+                nextSelections,
+                nextActions
+        );
+        addConfigCategory(
+                tabs,
+                "runtime-network",
+                "gui.config.category.runtime-network",
+                orderedGroups,
+                Set.of(
+                        GuiConfigGroups.SERVER,
+                        GuiConfigGroups.PROXY,
+                        GuiConfigGroups.HTTPS,
+                        GuiConfigGroups.UPDATE
+                ),
+                claimed,
+                rendered,
+                locked,
+                nextBindings,
+                nextSelections,
+                nextActions
+        );
+        addConfigCategory(
+                tabs,
+                "access-control",
+                "gui.config.category.access-control",
+                orderedGroups,
+                Set.of(GuiConfigGroups.GUEST_INVITE, GuiConfigGroups.SECURITY),
+                claimed,
+                rendered,
+                locked,
+                nextBindings,
+                nextSelections,
+                nextActions
+        );
+        addConfigCategory(
+                tabs,
+                "automation-maintenance",
+                "gui.config.category.automation-maintenance",
+                orderedGroups,
+                Set.of(GuiConfigGroups.SCHEDULE, GuiConfigGroups.MAINTENANCE),
+                claimed,
+                rendered,
+                locked,
+                nextBindings,
+                nextSelections,
+                nextActions
+        );
+        Set<String> remaining = orderedGroups.stream().map(GuiConfigGroupContribution::groupId).filter(
+                id -> !renderedGroup(id)).collect(java.util.stream.Collectors.toCollection(
+                LinkedHashSet::new));
+        remaining.add(GuiConfigGroups.PLUGINS);
+        addPluginConfigCategory(
+                tabs,
+                orderedGroups,
+                remaining,
+                claimed,
+                rendered,
+                locked,
+                nextBindings,
+                nextSelections,
+                nextActions
+        );
         return List.copyOf(tabs);
     }
 

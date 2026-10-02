@@ -5,9 +5,9 @@
    ============================================================ */
 async function start() {
     if (state.isRunning) return;
-    if (state.queue.some(item => item.recoveryState)) {
+    if (state.queue.some(item => !item.taskObserved && item.recoveryState)) {
         await reconcileRestoredQueue();
-        if (state.queue.some(item => item.recoveryState)) {
+        if (state.queue.some(item => !item.taskObserved && item.recoveryState)) {
             setDockStatus({key: 'batch:queue.recovery.waiting'}, 'warning');
             return;
         }
@@ -26,7 +26,7 @@ async function start() {
     if (state.isRunning) return;
 
     state.queue.forEach(q => {
-        if (['idle', 'failed', 'paused'].includes(q.status)) {
+        if (!q.taskObserved && ['idle', 'failed', 'paused'].includes(q.status)) {
             q.status = 'pending';
         }
     });
@@ -36,7 +36,7 @@ async function start() {
     quotaExceededHandled = false;
 
     // completed / skipped 是终态；队列没有待处理项时直接收尾，避免打开 SSE 或启动空 worker 池。
-    if (!state.queue.some(q => q.status === 'pending')) {
+    if (!state.queue.some(q => !q.taskObserved && q.status === 'pending')) {
         state.isRunning = false;
         updateStats();
         saveQueue();
@@ -112,7 +112,7 @@ async function workerLoop() {
             const item = getNextPending();
             if (!item) {
                 if (state.queue.every(q =>
-                    ['completed', 'failed', 'idle', 'paused', 'skipped'].includes(q.status))) break;
+                    q.taskObserved || ['completed', 'failed', 'idle', 'paused', 'skipped'].includes(q.status))) break;
                 await sleep(500);
                 continue;
             }
@@ -134,7 +134,7 @@ function getNextPending() {
     const downloadingIds = new Set(
         state.queue.filter(q => q.status === 'downloading').map(q => q.id)
     );
-    const idx = state.queue.findIndex(q => q.status === 'pending' && !downloadingIds.has(q.id));
+    const idx = state.queue.findIndex(q => !q.taskObserved && q.status === 'pending' && !downloadingIds.has(q.id));
     if (idx === -1) return null;
     const item = state.queue[idx];
     item.status = 'downloading';
@@ -304,6 +304,7 @@ async function processIllustItem(item, invocation) {
             meta.rawMetaJson || null,
             invocation
         );
+        if (dlData?.taskId) invocation.bindTask(dlData.taskId);
         if (dlData && dlData.alreadyDownloaded) {
             item.status = 'skipped';
             item.lastMessage = bt('queue.message.skipped-server-downloaded', '跳过 — 已下载（服务器确认）');
@@ -433,7 +434,7 @@ function pause() {
     if (!state.isRunning) return;
     state.isPaused = true;
     state.queue.forEach(q => {
-        if (q.status === 'pending') q.status = 'paused';
+        if (!q.taskObserved && q.status === 'pending') q.status = 'paused';
     });
     saveQueue();
     renderQueue();
@@ -454,7 +455,7 @@ function resume() {
     }
     state.isPaused = false;
     state.queue.forEach(q => {
-        if (q.status === 'paused') q.status = 'pending';
+        if (!q.taskObserved && q.status === 'paused' && !q.recoveryState) q.status = 'pending';
     });
     saveQueue();
     renderQueue();
@@ -482,6 +483,7 @@ function stopAndClear() {
         (state.sseListeners[id] || []).forEach(fn => fn({cancelled: true}));
     });
     closeAllSSE();
+    window.PixivBatch.queueTasks?.dismiss(state.queue);
     state.queue = [];
     state.stats = {success: 0, failed: 0, active: 0, skipped: 0};
     clearSavedQueue();
@@ -513,7 +515,7 @@ function handlePause() {
 }
 
 async function handleRetry() {
-    const failed = state.queue.filter(q => q.status === 'failed');
+    const failed = state.queue.filter(q => !q.taskObserved && q.status === 'failed');
     if (!failed.length) {
         await abAlert('alert.no-failed', '当前没有失败的作品');
         return;
@@ -537,7 +539,7 @@ async function handleClear() {
 // 单项取消：POST /api/download/queue/{queueType}/cancel（workKey + descriptor owner 四元组）
 async function requestQueueItemCancel(id) {
     const item = state.queue.find(candidate => String(candidate.id) === String(id));
-    if (!item || item.status !== 'downloading' || !item.cancelWorkKey) {
+    if (!item || item.status !== 'downloading' || (!item.taskId && !item.cancelWorkKey)) {
         setDockStatus({key: 'status.cancel-failed', fallback: '取消下载请求失败'}, 'error');
         return false;
     }

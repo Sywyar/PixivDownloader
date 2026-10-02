@@ -77,6 +77,7 @@
         if (idx === -1) return false;
         const q = state.queue[idx];
         if (q.status === 'downloading') return false;
+        window.PixivBatch.queueTasks?.dismiss([state.queue[idx]]);
         state.queue.splice(idx, 1);
         updateStats();
         saveQueue();

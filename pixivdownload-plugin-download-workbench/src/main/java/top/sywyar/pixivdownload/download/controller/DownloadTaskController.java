@@ -112,7 +112,7 @@ public class DownloadTaskController {
         }
 
         // 异步处理下载任务
-        artworkDownloadExecutor.downloadImages(
+        var attempt = artworkDownloadExecutor.submitImages(null,
                 request.getArtworkId(),
                 request.getTitle(),
                 request.getImageUrls(),
@@ -123,6 +123,7 @@ public class DownloadTaskController {
         );
 
         return ResponseEntity.ok(DownloadResponse.builder()
+                .taskId(isAdmin && attempt != null ? attempt.attemptId() : null)
                 .success(true)
                 .message(messages.get("download.task.started"))
                 .downloadPath(messages.get("download.download-path.pending", String.valueOf(request.getArtworkId())))

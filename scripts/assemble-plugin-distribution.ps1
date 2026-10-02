@@ -41,7 +41,7 @@
 
 .PARAMETER DefaultDownloader
     Stage the default-installed official plugin set. Without this switch, the script additionally stages
-    canonical optional official packages; there are currently no user-facing packages in that set.
+    canonical optional official packages.
 
 .PARAMETER Version
     Distribution version, used for the core jar file name. Default 0.0.1-local.

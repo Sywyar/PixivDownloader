@@ -148,13 +148,46 @@ class PluginCatalogServiceTest {
         when(client.fetch(contains("cursor=older"), eq(256L * 1024L), isNull()))
                 .thenReturn(new PluginCatalogHttpClient.FetchResult(200,
                         second.getBytes(StandardCharsets.UTF_8), null,
-                        "https://repo.example/v2/plugins/demo?cursor=older"));
+                        "https://repo.example/v2/plugins/demo?cursor=older"))
+                .thenThrow(new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE, "offline"));
         PluginCatalogService service = pagedService(client);
 
         PluginCatalogEntry entry = service.loadEntry("paged", "demo");
 
         assertThat(entry.packages()).extracting(PluginCatalogPackage::version)
                 .containsExactly("2.0.0", "1.0.0");
+        var stale = service.loadEntrySnapshot("paged", "demo");
+        assertThat(stale.generation()).isEqualTo("g1");
+        assertThat(stale.stale()).isTrue();
+        assertThat(stale.item().packages()).extracting(PluginCatalogPackage::version)
+                .containsExactly("2.0.0", "1.0.0");
+    }
+
+    @Test
+    @DisplayName("版本页游标不结束时有界失败，不返回部分历史作为完整结果")
+    void rejectsUnendingVersionPages() {
+        var service = org.mockito.Mockito.spy(pagedService(mock(PluginCatalogHttpClient.class)));
+        var entry = new PluginCatalogEntry("demo", null, null, null, null, List.of());
+        var page = new top.sywyar.pixivdownload.plugin.catalog.page.PluginCatalogDetailPage(
+                entry, "g1", "again", null, false);
+        org.mockito.Mockito.doReturn(page).when(service).loadEntryPage(
+                eq("paged"), eq("demo"), org.mockito.ArgumentMatchers.nullable(String.class),
+                org.mockito.ArgumentMatchers.anyInt());
+        assertThatThrownBy(() -> service.loadEntrySnapshot("paged", "demo"))
+                .isInstanceOf(PluginCatalogException.class).hasMessageContaining("page limit");
+        org.mockito.Mockito.verify(service, org.mockito.Mockito.atMost(10)).loadEntryPage(
+                eq("paged"), eq("demo"), org.mockito.ArgumentMatchers.nullable(String.class),
+                org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    @Test
+    @DisplayName("兼容查询共享时间预算耗尽后不再发起版本页请求")
+    void expiredCompatibilitySearchDoesNotFetch() {
+        var client = mock(PluginCatalogHttpClient.class);
+        var service = pagedService(client);
+        assertThatThrownBy(() -> service.loadEntrySnapshot("paged", "demo", System.nanoTime() - 1L))
+                .isInstanceOf(PluginCatalogException.class).hasMessageContaining("time budget");
+        org.mockito.Mockito.verifyNoInteractions(client);
     }
 
     @Test

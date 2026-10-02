@@ -71,6 +71,8 @@ class ExampleDownloadPluginTest {
     void childContextPublishesOneUniquelyRegisterableQueue() {
         try (AnnotationConfigApplicationContext child = new AnnotationConfigApplicationContext()) {
             child.registerBean(ObjectMapper.class, () -> new ObjectMapper());
+            child.registerBean(top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadLifecycle.class,
+                    ExampleDownloadSubmissionTest.RecordingLifecycle::new);
             child.registerBean(RequestOwnerIdentityResolver.class,
                     () -> ignored -> RequestOwnerIdentity.owner("test-owner"));
             child.register(ExampleDownloadConfiguration.class);

@@ -385,12 +385,14 @@ window.PixivBatch.queueTypes = (function () {
     }
 
     function canCancel(item) {
+        if (item && item.taskId) return window.PixivBatch.queueTasks?.canCancel(item) === true;
         const type = text(item && item.kind);
         const entry = activeEntry(type);
         return !!entry && entry.descriptor.cancelSupported === true && cancelWorkKey(item) !== null;
     }
 
     async function cancel(item) {
+        if (item && item.taskId) return window.PixivBatch.queueTasks.cancel(item);
         const type = text(item && item.kind);
         const entry = activeEntry(type);
         const workKey = cancelWorkKey(item);

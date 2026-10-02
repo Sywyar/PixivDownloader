@@ -15,7 +15,7 @@ import java.util.List;
  * <p><b>安装状态投影</b>（{@code installStatus} / {@code installedVersion} / {@code updateAvailable} / {@code compatible}
  * / {@code compatibilityReason}）由后端把本条目与<b>真实运行时安装状态</b>交叉引用推导，供市场页直接渲染未安装 / 已安装 /
  * 有更新 / 不兼容控件、而<b>不</b>由前端臆测：{@code installStatus} 见 {@link MarketInstallStatus}；{@code compatible} =
- * 最新可安装版本是否被当前SDK 满足，不兼容时 {@code compatibilityReason} 给出其声明的SDK 要求（可诊断）；安装只
+ * 推荐安装版本是否被当前 SDK 满足，{@code compatibilityReason} 保留最新版不兼容时的 SDK 要求；安装只
  * 通过统一事务编排器落盘并即时激活。
  *
  * @param pluginId             插件 id
@@ -28,8 +28,10 @@ import java.util.List;
  * @param installStatus        安装状态机机器码（未安装 / 已安装 / 有更新 / 不兼容）
  * @param installedVersion     本机已安装版本（未安装为 {@code null}）
  * @param updateAvailable      是否存在更高且兼容的可安装版本（仅已安装时可能为真）
- * @param compatible           最新可安装版本是否兼容当前SDK（无可安装版本时视为兼容）
- * @param compatibilityReason  不兼容时声明的SDK 版本要求（兼容时为 {@code null}；可诊断）
+ * @param compatible           推荐版本是否兼容当前 SDK（无版本时视为兼容）
+ * @param compatibilityReason  最新版不兼容时声明的 SDK 要求
+ * @param recommendedVersion   默认安装版本；最新版不兼容时选择最高的可安装兼容旧版
+ * @param compatibilitySearchIncomplete 历史版本查询未完成，不能断言没有兼容版本
  */
 public record PluginMarketEntryView(
         String pluginId,
@@ -48,7 +50,9 @@ public record PluginMarketEntryView(
         String versionsGeneration,
         String nextVersionCursor,
         Long totalVersionsApproximate,
-        boolean versionsStale) {
+        boolean versionsStale,
+        String recommendedVersion,
+        boolean compatibilitySearchIncomplete) {
 
     public PluginMarketEntryView {
         packages = packages != null ? List.copyOf(packages) : List.of();
@@ -61,7 +65,7 @@ public record PluginMarketEntryView(
                                  String compatibilityReason) {
         this(pluginId, displayNamespace, displayNameKey, descriptionKey, latestVersion, market, packages,
                 installStatus, installedVersion, updateAvailable, compatible, compatibilityReason,
-                "PUBLISHER_SIGNED", null, null, null, false);
+                "PUBLISHER_SIGNED", null, null, null, false, compatible ? latestVersion : null, false);
     }
 
     /**
@@ -86,15 +90,25 @@ public record PluginMarketEntryView(
                 .filter(pkg -> !top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationService
                         .isWithdrawn(pkg.verification().revocationStatus())).toList();
         String latestVersion = resolveLatestVersion(market, available);
-        PluginMarketPackageView target = installTarget(available, latestVersion);
+        PluginMarketPackageView latest = installTarget(available, latestVersion);
+        PluginMarketPackageView target = latest;
+        if (latest != null && !latest.compatible()) {
+            target = available.stream()
+                    .filter(PluginMarketPackageView::compatible)
+                    .filter(PluginMarketPackageView::installable)
+                    .filter(PluginMarketEntryView::hasUsableSignature)
+                    .filter(pkg -> SemanticVersion.compare(pkg.version(), latestVersion) < 0)
+                    .max((left, right) -> SemanticVersion.compare(left.version(), right.version()))
+                    .orElse(latest);
+        }
         boolean installable = target != null && target.installable();
         boolean compatible = target == null || target.compatible();
-        String compatibilityReason = (target != null && !target.compatible()) ? target.requiredSdk() : null;
-        // 仅当市场最新版本「严格高于」已安装版本（按 SemanticVersion 语义比较）才算有更新：语义等价版本
-        // （如 1.2 与 1.2.0）不提示更新，本机版本更高时也不提示（保持已安装）。
+        String recommendedVersion = target != null && compatible && installable ? target.version() : null;
+        String compatibilityReason = latest != null && !latest.compatible() ? latest.requiredSdk() : null;
+        // 只对严格高于本机版本的兼容目标提示更新，自动选择不能降级已安装插件。
         boolean updateAvailable = installed && installable && compatible && installedVersion != null
-                && latestVersion != null
-                && SemanticVersion.compare(latestVersion, installedVersion) > 0;
+                && recommendedVersion != null
+                && SemanticVersion.compare(recommendedVersion, installedVersion) > 0;
         MarketInstallStatus status = MarketInstallStatus.resolve(installed, installable, updateAvailable, compatible);
         return new PluginMarketEntryView(
                 entry.pluginId(),
@@ -110,14 +124,31 @@ public record PluginMarketEntryView(
                 compatible,
                 compatibilityReason,
                 target != null ? target.verification().assuranceLevel() : "UNVERIFIED",
-                null, null, null, false);
+                null, null, null, false, recommendedVersion, false);
     }
 
     PluginMarketEntryView withVersionPage(String generation, String nextCursor,
                                           Long totalApproximate, boolean stale) {
         return new PluginMarketEntryView(pluginId, displayNamespace, displayNameKey, descriptionKey,
                 latestVersion, market, packages, installStatus, installedVersion, updateAvailable, compatible,
-                compatibilityReason, assuranceLevel, generation, nextCursor, totalApproximate, stale);
+                compatibilityReason, assuranceLevel, generation, nextCursor, totalApproximate, stale,
+                recommendedVersion, compatibilitySearchIncomplete);
+    }
+
+    PluginMarketEntryView withPackages(List<PluginMarketPackageView> visiblePackages, boolean incomplete) {
+        return new PluginMarketEntryView(pluginId, displayNamespace, displayNameKey, descriptionKey,
+                latestVersion, market, visiblePackages, incomplete ? MarketInstallStatus.UNAVAILABLE : installStatus,
+                installedVersion, !incomplete && updateAvailable, !incomplete && compatible,
+                compatibilityReason, assuranceLevel, versionsGeneration, nextVersionCursor,
+                totalVersionsApproximate, versionsStale, incomplete ? null : recommendedVersion, incomplete);
+    }
+
+    private static boolean hasUsableSignature(PluginMarketPackageView pkg) {
+        return switch (pkg.verification().status()) {
+            case "VERIFIED_OFFICIAL", "VERIFIED_CUSTOM", "VERIFIED_COMMUNITY",
+                    "UNVERIFIED_LOCAL", "UNSIGNED_ALLOWED" -> true;
+            default -> false;
+        };
     }
 
     /** 安装目标版本制品（用于兼容判定）：优先版本号等于 {@code latestVersion} 的包，否则首个包，都无则 {@code null}。 */

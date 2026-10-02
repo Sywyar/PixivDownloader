@@ -136,6 +136,13 @@ final class DesktopConfigurationController {
         savedValues.put(field, value);
     }
 
+    void pluginValueSaved(String pluginId, String key, String value) {
+        FieldKey field = new FieldKey(pluginId, key);
+        if (Objects.equals(values.get(field), savedValues.get(field))) values.put(field, value);
+        savedValues.put(field, value);
+        invalidatePage();
+    }
+
     boolean acceptField(String binding, String value) {
         ConfigField field = fieldBindings.get(binding);
         if (field == null) return false;
@@ -514,7 +521,7 @@ final class DesktopConfigurationController {
         }
         Map<String, String> labels = Map.of(
                 "app.language", "language", "app.gui-provider", "provider",
-                "app.theme", "theme", "app.config-menu-expand-all", "config-menu-expand-all");
+                "app.theme", "theme");
         pendingInterfaceValues().forEach((key, value) -> {
             String before = savedValues.getOrDefault(new FieldKey(null, key), "");
             if (!Objects.equals(before, value)) changes.add(new DesktopUiNode.SettingChange(
@@ -1011,7 +1018,7 @@ final class DesktopConfigurationController {
     }
 
     private void discardAndReloadConfiguration() {
-        List.of("interface.language", "interface.provider", "interface.theme", "interface.config-menu-expand-all")
+        List.of("interface.language", "interface.provider", "interface.theme")
                 .forEach(formValues::remove);
         invalidRow = "";
         credentialRevision++;
@@ -1027,9 +1034,7 @@ final class DesktopConfigurationController {
                 "app.gui-provider",
                 selectedProvider(),
                 "app.theme",
-                selected("app.theme", "system"),
-                "app.config-menu-expand-all",
-                selected("app.config-menu-expand-all", "false")
+                selected("app.theme", "system")
         ));
     }
 
@@ -1045,18 +1050,13 @@ final class DesktopConfigurationController {
                 java.util.stream.Collectors.toSet());
         String theme = preferences.getOrDefault("app.theme", "system");
         if (!availableThemes.contains(theme)) theme = "system";
-        String expandAll = Boolean.toString(Boolean.parseBoolean(
-                preferences.get("app.config-menu-expand-all")
-        ));
         return Map.of(
                 "app.language",
                 language,
                 "app.gui-provider",
                 provider,
                 "app.theme",
-                theme,
-                "app.config-menu-expand-all",
-                expandAll
+                theme
         );
     }
 
@@ -1139,7 +1139,6 @@ final class DesktopConfigurationController {
                     case "app.language" -> "language";
                     case "app.gui-provider" -> "provider";
                     case "app.theme" -> "theme";
-                    case "app.config-menu-expand-all" -> "config-menu-expand-all";
                     default -> key;
                 },
                 savedValues.getOrDefault(new FieldKey(null, key), fallback)

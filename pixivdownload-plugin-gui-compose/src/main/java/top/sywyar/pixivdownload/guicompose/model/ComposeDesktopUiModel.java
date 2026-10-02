@@ -60,6 +60,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
     private final DesktopControlCenterView controlCenterView;
     private final DesktopDirectoryMigrationController directoryMigration;
     private final DesktopConfigurationController configuration;
+    final DesktopDirectorySuggestionController directorySuggestions;
     private final Supplier<List<DesktopUiPluginSnapshot>> pluginSources;
     private final ExecutorService worker = Executors.newCachedThreadPool(runnable -> {
         Thread thread = new Thread(runnable, "desktop-ui-model");
@@ -129,6 +130,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
                 formValues
         );
         this.backend = host.backendSnapshot();
+        this.directorySuggestions = new DesktopDirectorySuggestionController(this, host, formValues);
         this.onboarding = new DesktopOnboardingController(
                 this,
                 host,
@@ -739,6 +741,12 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
 
     boolean isDialogOpen(String id) {
         return !closed && dialogState != null && dialogState.id().equals(id);
+    }
+
+    boolean hasDialog() { return closed || dialogState != null; }
+
+    void pluginDirectorySaved(String pluginId, String key, String value) {
+        configuration.pluginValueSaved(pluginId, key, value);
     }
 
     void closeDialog() {

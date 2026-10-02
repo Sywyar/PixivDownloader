@@ -70,7 +70,7 @@
         <module>pixivdownload-plugin-recovery-sentinel</module>
         <!-- 官方必需下载工作台外置插件。app 不依赖本模块；默认发行包把该 jar 放入 plugins/ 由 PF4J 加载。 -->
         <module>pixivdownload-plugin-download-workbench</module>
-        <module>pixivdownload-plugin-external-download-import</module>
+        <module>pixivdownload-plugin-pixiv-batch-downloader-import</module>
         <!-- 官方 PostHog 调查适配插件：提供 vendored SDK，并按调用方 owner key 与参数创建隔离命名客户端。 -->
         <module>pixivdownload-plugin-posthog</module>
         <!-- 官方多人模式去留调查：仅通过管理员站内信展示，自持 PostHog 参数与调查语义。 -->
@@ -101,7 +101,7 @@
         <app.release.version>${project.version}</app.release.version>
         <app.build.channel>local</app.build.channel>
         <!-- sdk-info 资源是 SDK 身份事实源；revision 只是 Maven CI-friendly 版本投影名。 -->
-        <revision>1.0.0-rc.16</revision>
+        <revision>1.0.0</revision>
         <pixivdownload.sdk.version>${revision}</pixivdownload.sdk.version>
         <pixivdownload.source.sha>HEAD</pixivdownload.source.sha>
         <flatten.maven.version>1.7.3</flatten.maven.version>

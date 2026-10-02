@@ -11,6 +11,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopControlCenterAvailability;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardCardContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardSnapshot;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardSource;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopDirectorySuggestion;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopRunningTaskContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityInvocationRegistry;
@@ -105,8 +106,16 @@ public final class DesktopControlCenterRegistry implements DisposableBean {
     public void registerPrepared(ExternalCapabilityOwner owner,
                                  List<DesktopDashboardSource> dashboards,
                                  List<DesktopAutomationSource> automations) {
+        registerPrepared(owner, dashboards, automations, null, DesktopUiText.raw(owner.pluginId()));
+    }
+
+    public void registerPrepared(ExternalCapabilityOwner owner,
+                                 List<DesktopDashboardSource> dashboards,
+                                 List<DesktopAutomationSource> automations,
+                                 DirectorySuggestionCapability directories,
+                                 DesktopUiText displayName) {
         Objects.requireNonNull(owner, "owner");
-        OwnerEntry entry = new OwnerEntry(owner, single(dashboards), single(automations));
+        OwnerEntry entry = new OwnerEntry(owner, single(dashboards), single(automations), directories, displayName);
         synchronized (lock) {
             owners.values().removeIf(current -> current.owner.pluginId().equals(owner.pluginId()));
             owners.put(owner.publicationId(), entry);
@@ -135,6 +144,7 @@ public final class DesktopControlCenterRegistry implements DisposableBean {
             }
             if (entry.inFlight.get()) {
                 if (!entry.startedAt.plus(sourceTimeout).isAfter(now)) {
+                    entry.directory = null;
                     entry.materialized = entry.materialized.stale();
                     reportOnce(entry.timeoutReported, entry.owner, "CONTROL_CENTER_SOURCE_TIMEOUT", null);
                 }
@@ -149,6 +159,7 @@ public final class DesktopControlCenterRegistry implements DisposableBean {
             } catch (RuntimeException rejected) {
                 entry.inFlight.set(false);
                 entry.materialized = entry.materialized.stale();
+                entry.directory = null;
                 reportOnce(entry.timeoutReported, entry.owner, "CONTROL_CENTER_EXECUTOR_REJECTED", rejected);
             }
         }
@@ -159,12 +170,17 @@ public final class DesktopControlCenterRegistry implements DisposableBean {
         List<OwnedDashboardCard> cards = new ArrayList<>();
         List<OwnedRunningTask> tasks = new ArrayList<>();
         List<OwnedAutomationSnapshot> automations = new ArrayList<>();
+        List<OwnedDirectorySuggestion> directories = new ArrayList<>();
         for (OwnerEntry entry : entries()) {
             if (!admission.test(entry.owner)) {
                 continue;
             }
             Owner owner = Owner.from(entry.owner);
             Materialized materialized = entry.materialized;
+            DesktopDirectorySuggestion directory = entry.directory;
+            if (directory != null && !entry.directoryObservedAt.isBefore(clock.instant().minus(STALE_AFTER))) {
+                directories.add(new OwnedDirectorySuggestion(owner, directory, entry.displayName));
+            }
             materialized.cards.forEach(card -> cards.add(new OwnedDashboardCard(owner, card)));
             materialized.runningTasks.forEach(task -> tasks.add(new OwnedRunningTask(owner, task)));
             if (materialized.automation != null) {
@@ -174,7 +190,19 @@ public final class DesktopControlCenterRegistry implements DisposableBean {
         cards.sort(CARD_ORDER);
         tasks.sort(TASK_ORDER);
         automations.sort(Comparator.comparing(item -> item.owner().pluginId()));
-        return new Snapshot(cards, tasks, automations, clock.instant());
+        return new Snapshot(cards, tasks, automations, directories, clock.instant());
+    }
+
+    /** Commands stay on the captured proxy; withdrawal cannot redirect them to a replacement. */
+    public void resolveDirectory(Owner owner, String suggestionId, String selectedDirectory, boolean dismiss)
+            throws java.io.IOException {
+        OwnerEntry entry;
+        synchronized (lock) { entry = owners.get(owner.publication()); }
+        if (entry == null || !Owner.from(entry.owner).equals(owner) || entry.directories == null
+                || !admission.test(entry.owner)) throw new IllegalStateException("DIRECTORY_SUGGESTION_STALE");
+        if (dismiss) entry.directories.dismiss(suggestionId);
+        else entry.directories.confirm(suggestionId, selectedDirectory);
+        entry.directory = null;
     }
 
     private void materialize(OwnerEntry entry) {
@@ -187,6 +215,16 @@ public final class DesktopControlCenterRegistry implements DisposableBean {
             List<DesktopDashboardCardContribution> cards = current.cards;
             List<DesktopRunningTaskContribution> runningTasks = current.runningTasks;
             DesktopAutomationSnapshot automation = current.automation;
+            DesktopDirectorySuggestion directory = null;
+            if (entry.directories != null) {
+                try {
+                    directory = entry.directories.suggestion().orElse(null);
+                    entry.directoryFailureReported.set(false);
+                } catch (Throwable failure) {
+                    rethrowFatal(failure);
+                    reportOnce(entry.directoryFailureReported, entry.owner, "DIRECTORY_SUGGESTION_FAILED", failure);
+                }
+            }
             if (entry.dashboard != null) {
                 try {
                     DashboardValues values = dashboard(entry.dashboard.snapshot(), now);
@@ -218,6 +256,8 @@ public final class DesktopControlCenterRegistry implements DisposableBean {
             if (isCurrent(entry) && admission.test(entry.owner)) {
                 entry.timeoutReported.set(false);
                 entry.materialized = new Materialized(cards, runningTasks, automation);
+                entry.directory = directory;
+                entry.directoryObservedAt = clock.instant();
             }
         } finally {
             entry.inFlight.set(false);
@@ -445,19 +485,28 @@ public final class DesktopControlCenterRegistry implements DisposableBean {
     public record Snapshot(List<OwnedDashboardCard> cards,
                            List<OwnedRunningTask> runningTasks,
                            List<OwnedAutomationSnapshot> automations,
+                           List<OwnedDirectorySuggestion> directories,
                            Instant observedAt) {
         public Snapshot {
             cards = List.copyOf(cards);
             runningTasks = List.copyOf(runningTasks);
             automations = List.copyOf(automations);
+            directories = List.copyOf(directories);
             observedAt = Objects.requireNonNull(observedAt, "observedAt");
         }
     }
+
+    public record OwnedDirectorySuggestion(Owner owner, DesktopDirectorySuggestion suggestion, DesktopUiText displayName) {}
 
     private static final class OwnerEntry {
         private final ExternalCapabilityOwner owner;
         private final DesktopDashboardSource dashboard;
         private final DesktopAutomationSource automation;
+        private final DirectorySuggestionCapability directories;
+        private final DesktopUiText displayName;
+        private final AtomicBoolean directoryFailureReported = new AtomicBoolean();
+        private volatile DesktopDirectorySuggestion directory;
+        private volatile Instant directoryObservedAt = Instant.EPOCH;
         private final AtomicBoolean inFlight = new AtomicBoolean();
         private final AtomicBoolean dashboardFailureReported = new AtomicBoolean();
         private final AtomicBoolean automationFailureReported = new AtomicBoolean();
@@ -467,10 +516,14 @@ public final class DesktopControlCenterRegistry implements DisposableBean {
 
         private OwnerEntry(ExternalCapabilityOwner owner,
                            DesktopDashboardSource dashboard,
-                           DesktopAutomationSource automation) {
+                           DesktopAutomationSource automation,
+                           DirectorySuggestionCapability directories,
+                           DesktopUiText displayName) {
             this.owner = owner;
             this.dashboard = dashboard;
             this.automation = automation;
+            this.directories = directories;
+            this.displayName = displayName;
         }
     }
 

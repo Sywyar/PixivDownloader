@@ -212,6 +212,8 @@ const {
             }
             if (!dlRes.ok) throw new Error(dlData.message || ('HTTP ' + dlRes.status));
 
+            if (dlData.taskId) invocation.bindTask(dlData.taskId);
+
             // 轮询小说下载状态
             const start = Date.now();
             while (Date.now() - start < STATUS_TIMEOUT_MS) {

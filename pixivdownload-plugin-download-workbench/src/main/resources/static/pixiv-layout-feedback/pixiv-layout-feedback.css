@@ -153,15 +153,6 @@ html[data-theme="dark"] .plf-backdrop {
     color: var(--muted, var(--plf-muted));
 }
 
-.plf-current-badge {
-    align-self: flex-start;
-    padding: 2px 8px;
-    border-radius: 999px;
-    font-size: 0.6875rem;
-    background: var(--brand-soft, var(--plf-brand-soft));
-    color: var(--brand, var(--plf-brand));
-}
-
 .plf-suggestion {
     display: flex;
     flex-direction: column;

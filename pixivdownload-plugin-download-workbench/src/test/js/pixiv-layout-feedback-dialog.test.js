@@ -78,6 +78,7 @@ const {
 
 function testEmbeddedSurveyPublicationStates() {
     const available = initHarness({
+        page: 'embedded',
         currentLayoutId: 'pixiv-batch-portrait',
         adapter: createFakeAdapter({surveys: [defaultSurvey()]})
     });
@@ -85,6 +86,9 @@ function testEmbeddedSurveyPublicationStates() {
         eq('嵌入调查可打开', result.status, 'opened');
         eq('嵌入调查强制读取完整发布列表', available.adapter.calls.getAllSurveys[0].forceReload, true);
         eq('嵌入调查使用显式当前布局', available.api.currentLayoutId(), 'pixiv-batch-portrait');
+        eq('站内信调查不标出当前布局', available.document.querySelectorAll('.plf-current-badge').length, 0);
+        eq('站内信调查保留三种选择', available.radios().length, LAYOUT_IDS.length);
+        ok('站内信调查不预选当前布局', available.radios().every(input => !input.checked));
     }).then(() => {
         const submitted = initHarness({
             storage: {[STATE_KEY]: crossTabState('submitted')},
@@ -189,6 +193,7 @@ function testSingleDialogAtMostOne() {
     const h = initHarness({});
     return h.api.open().then(() => waitForFlush()).then(() => {
         eq('open 后恰好一个弹窗', h.document.querySelectorAll('.plf-backdrop').length, 1);
+        eq('独立调查同样不标出当前布局', h.document.querySelectorAll('.plf-current-badge').length, 0);
         return h.api.open().then(() => waitForFlush());
     }).then(() => {
         eq('重复 open 不创建第二个弹窗', h.document.querySelectorAll('.plf-backdrop').length, 1);

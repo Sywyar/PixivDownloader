@@ -104,6 +104,7 @@
         if (queueTypes && typeof queueTypes.queueKey === 'function') {
             return queueTypes.queueKey(q);
         }
+        if (q.taskObserved) return 'task:' + encodedQueueIdentityPart(q.taskId);
         var type = q.workType != null ? q.workType : q.kind;
         var workId = q.workId != null ? q.workId : q.id;
         return 'q:' + encodedQueueIdentityPart(type == null ? '' : String(type).trim())

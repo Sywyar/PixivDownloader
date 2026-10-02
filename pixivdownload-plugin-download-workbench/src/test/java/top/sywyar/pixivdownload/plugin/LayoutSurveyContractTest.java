@@ -254,7 +254,6 @@ class LayoutSurveyContractTest {
                 .contains("layout-feedback.option-landscape")
                 .contains("layout-feedback.option-portrait")
                 .contains("layout-feedback.option-alt")
-                .contains("layout-feedback.current-layout")
                 .contains("layout-feedback.suggestion-label")
                 .contains("layout-feedback.suggestion-placeholder")
                 .contains("layout-feedback.suggestion-counter")

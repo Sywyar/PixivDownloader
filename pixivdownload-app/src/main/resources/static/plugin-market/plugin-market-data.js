@@ -74,6 +74,18 @@
         return packages.length ? packages[0] : null;
     };
 
+    D.defaultVersion = function (entry) {
+        return entry && (entry.recommendedVersion || entry.latestVersion);
+    };
+
+    D.compatibilityNotice = function (entry) {
+        if (entry.compatibilitySearchIncomplete) return PMK.t('compat.search-incomplete');
+        if (entry.recommendedVersion && entry.recommendedVersion !== entry.latestVersion) {
+            return PMK.t('compat.fallback', '', {latest: entry.latestVersion, selected: entry.recommendedVersion});
+        }
+        return entry.compatible === false ? PMK.t('compat.none') : '';
+    };
+
     var VERIFICATION_BADGE_META = {
         VERIFIED_OFFICIAL: { labelKey: 'verification.verified-official', tone: 'ok', icon: 'fa-circle-check' },
         VERIFIED_CUSTOM: { labelKey: 'verification.verified-custom', tone: 'ok', icon: 'fa-circle-check' },
@@ -136,7 +148,9 @@
             desc: D.entrySummary(entry),
             tags: D.entryTags(entry),
             latestVersion: entry.latestVersion,
-            versionLabel: entry.latestVersion ? ('v' + entry.latestVersion) : null,
+            targetVersion: D.defaultVersion(entry),
+            versionLabel: D.defaultVersion(entry) ? ('v' + D.defaultVersion(entry)) : null,
+            compatibilityNotice: D.compatibilityNotice(entry),
             sizeLabel: PMK.formatSize(latestSize(entry)),
             dateLabel: m.updatedTime ? PMK.formatDate(m.updatedTime) : '',
             installStatus: installStatusWithVerification(entry),
@@ -156,17 +170,18 @@
     };
 
     function latestSize(entry) {
-        var pkg = D.packageOf(entry, entry.latestVersion);
+        var pkg = D.packageOf(entry, D.defaultVersion(entry));
         return pkg ? pkg.expectedSizeBytes : 0;
     }
 
     function packageVerification(entry) {
-        var pkg = D.packageOf(entry, entry.latestVersion);
+        var pkg = D.packageOf(entry, D.defaultVersion(entry));
         return pkg && pkg.verification ? pkg.verification : null;
     }
 
     function installStatusWithVerification(entry) {
-        return D.packageInstallBlock(D.packageOf(entry, entry.latestVersion)) || entry.installStatus;
+        if (entry.compatibilitySearchIncomplete) return 'UNAVAILABLE';
+        return D.packageInstallBlock(D.packageOf(entry, D.defaultVersion(entry))) || entry.installStatus;
     }
 
     // 卡片、所选历史版本和新取回的事实共用后端禁用原因，不从签名有效推断未被撤销。
@@ -187,9 +202,8 @@
         if (opts.hideDefaultInstalled && D.entryDefaultInstalled(entry)) return false;
         if (opts.hideDependencies && D.entryDependency(entry)) return false;
         if (opts.onlyOfficial && !D.entryOfficial(entry)) return false;
-        // 「仅兼容当前版本」按条目自身的兼容标记（= 最新可安装版本是否被当前SDK 满足）判定，而非派生的
-        // installStatus —— 已安装但最新版本不兼容的条目（installStatus=INSTALLED）也应被该筛选排除。
-        if (opts.onlyCompatible && entry.compatible === false) return false;
+        // 后端按推荐版本投影兼容性；查询未完成的条目保留明确提示，不能当作没有兼容版本。
+        if (opts.onlyCompatible && entry.compatible === false && !entry.compatibilitySearchIncomplete) return false;
         var q = (opts.search || '').trim().toLowerCase();
         if (q) {
             var hay = [D.entryName(entry), entry.pluginId, D.entrySummary(entry), D.entryDescription(entry),
