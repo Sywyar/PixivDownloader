@@ -119,7 +119,6 @@
             group.setAttribute('aria-label', t('choices-group', '选择你更愿意长期使用的布局'));
             group.setAttribute('data-i18n-aria-label', ctx.I18N_NS + ':choices-group');
 
-            var currentId = ctx.currentLayoutId();
             ctx.LAYOUT_IDS.forEach(function (layoutId, index) {
                 var card = buildElement('label', 'plf-card');
                 card.setAttribute('data-plf-layout', layoutId);
@@ -131,10 +130,6 @@
                 if (index === 0) input.setAttribute('data-plf-first-radio', 'true');
                 var nameSpan = buildElement('span', 'plf-card-name');
                 var descSpan = buildElement('span', 'plf-card-desc');
-                var currentBadge = buildElement('span', 'plf-current-badge');
-                currentBadge.setAttribute('data-i18n', ctx.I18N_NS + ':current-layout');
-                currentBadge.textContent = t('current-layout', '当前布局');
-                currentBadge.hidden = currentId !== layoutId;
                 nameSpan.setAttribute('data-i18n', ctx.I18N_NS + ':option-' + layoutOptionKey(layoutId));
                 nameSpan.textContent = t('option-' + layoutOptionKey(layoutId), optionFallbackName(layoutId));
                 descSpan.setAttribute('data-i18n', ctx.I18N_NS + ':option-' + layoutOptionKey(layoutId) + '-desc');
@@ -142,7 +137,6 @@
                 card.appendChild(input);
                 card.appendChild(nameSpan);
                 card.appendChild(descSpan);
-                card.appendChild(currentBadge);
                 input.addEventListener('change', onChoiceChange);
                 group.appendChild(card);
             });

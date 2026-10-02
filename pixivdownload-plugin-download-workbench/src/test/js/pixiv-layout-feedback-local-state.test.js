@@ -446,17 +446,13 @@ function testReducedMotionAndA11yBasics() {
     });
 }
 
-function testCurrentLayoutBadge() {
+function testLayoutChoicesDoNotMarkCurrentLayout() {
     const h = initHarness({batchLayout: 'portrait'});
     return h.api.open().then(() => waitForFlush()).then(() => {
         const cards = h.document.querySelectorAll('.plf-card');
         eq('三张布局卡片', cards.length, 3);
-        const current = cards.find(c => c.getAttribute('data-plf-layout') === 'pixiv-batch-portrait');
-        const badge = current.querySelector('.plf-current-badge');
-        ok('当前布局徽标显示', badge && badge.hidden === false);
-        const other = cards.find(c => c.getAttribute('data-plf-layout') === 'pixiv-batch-landscape');
-        const otherBadge = other.querySelector('.plf-current-badge');
-        ok('非当前布局徽标隐藏', otherBadge && otherBadge.hidden === true);
+        ok('全部布局选项均不显示当前布局徽标', cards.every(card => !card.querySelector('.plf-current-badge')));
+        ok('当前布局不影响初始选中状态', h.radios().every(input => !input.checked));
     });
 }
 
@@ -775,7 +771,7 @@ runTests('pixiv-layout-feedback-local-state.test.js', [
     ['testSeenRecording', testSeenRecording],
     ['testLanguageSwitchPreservesInput', testLanguageSwitchPreservesInput],
     ['testReducedMotionAndA11yBasics', testReducedMotionAndA11yBasics],
-    ['testCurrentLayoutBadge', testCurrentLayoutBadge],
+    ['testLayoutChoicesDoNotMarkCurrentLayout', testLayoutChoicesDoNotMarkCurrentLayout],
     ['testCaptureResultAcceptanceMatrix', testCaptureResultAcceptanceMatrix],
     ['testBeforeSendTopLevelFields', testBeforeSendTopLevelFields],
     ['testSdkInitCapturesConfigForBeforeSend', testSdkInitCapturesConfigForBeforeSend],
