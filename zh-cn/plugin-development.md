@@ -416,6 +416,8 @@ public List<DownloadTypeDescriptor> downloadTypes() {
 
 contract version 1 的主要入口：
 
+管理员下载页把 `DownloadTasks` 的执行快照合并到现有队列。类型模块在 `process(item, context)` 中取得后端真实执行 UUID 后调用 `context.bindTask(taskId)`，即可关联原条目并按执行编号取消；不要用作品 ID 代替执行编号。其他入口提交的任务标记为“其他入口”，网页不会重新派发它们。终态快照只保留 5 分钟，已保存的队列记录继续保留；无法确认的在途执行显示为待确认，刷新页面不会自动重提。
+
 | 入口 | 职责 | 缺席语义 |
 | --- | --- | --- |
 | `process(item, context)` | 把一个队列项交给插件 API，并用 `context.updateItem(patch)` 提交白名单状态 | 必选；缺失则类型不应激活 |

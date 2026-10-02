@@ -104,3 +104,5 @@ PostHog 기능은 vendor 전용 foundation과 플러그인 소유 consumer를 �
 ## 갤러리 탐색 슬롯
 
 플러그인은 `NavigationContribution.placements`로 항목을 선언합니다. `gallery.sidebar`는 플러그인, 다운로드, 갤러리 같은 주요 페이지용이며, `gallery.sidebar.tools`는 초대 관리, 통계, 중복 후보 같은 도구용입니다. 소설 갤러리는 `novel.sidebar`와 `novel.sidebar.tools`를 사용합니다. 각 그룹에 정렬 순서와 요청 사용자의 접근 권한을 독립적으로 적용합니다. 기여를 철회하면 항목이 사라지고 빈 그룹은 숨겨집니다. 페이지는 `data-nav-slot`만 선언하며 플러그인 ID로 분류하지 않습니다.
+
+관리자 다운로드 페이지는 `DownloadTasks` 실행 스냅샷을 기존 대기열에 통합합니다. 유형 모듈은 `process(item, context)`에서 백엔드가 반환한 실제 실행 UUID로 `context.bindTask(taskId)`를 호출합니다. 기존 항목이 해당 실행에 연결되고 실행 ID로 취소할 수 있습니다. 작품 ID를 실행 ID 대신 사용하지 마세요. 다른 곳에서 제출한 작업에는 “다른 경로”가 표시되며 페이지에서 다시 제출하지 않습니다. 종료된 실행 스냅샷은 5분 후 만료되지만 저장된 대기열 기록은 유지됩니다. 실행 여부를 확인할 수 없는 항목은 미확인 상태로 남으며 페이지를 새로 고쳐도 자동으로 다시 제출되지 않습니다.

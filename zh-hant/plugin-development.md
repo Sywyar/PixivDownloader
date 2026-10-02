@@ -436,6 +436,8 @@ public List<DownloadTypeDescriptor> downloadTypes() {
 
 contract version 1 的主要入口：
 
+管理員下載頁會把 `DownloadTasks` 的執行快照合併到現有佇列。類型模組在 `process(item, context)` 中取得後端實際執行的 UUID 後，呼叫 `context.bindTask(taskId)`，即可關聯原項目並按執行編號取消；不可用作品 ID 代替執行編號。從其他入口提交的工作會標示為「其他入口」，網頁不會重新派發。終態快照僅保留 5 分鐘，已儲存的佇列記錄仍會保留；無法確認的執行會顯示為待確認，重新整理頁面不會自動重送。
+
 | 入口 | 職責 | 缺席語義 |
 | --- | --- | --- |
 | `process(item, context)` | 把一個隊列項交給插件 API，並用 `context.updateItem(patch)` 提交白名單狀態 | 必選；缺失則類型不應激活 |

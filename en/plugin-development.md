@@ -417,6 +417,8 @@ The module calls `PixivBatch.queueTypes.registerModule(initializer)` inside the 
 
 Primary contract-version-1 entry points:
 
+The administrator download page merges `DownloadTasks` snapshots into its existing queue. In `process(item, context)`, a type module calls `context.bindTask(taskId)` with the actual execution UUID returned by its backend. This associates the existing row with that execution and enables cancellation by execution ID; a work ID is not an execution ID. Tasks submitted elsewhere are labelled “Other sources” and are not dispatched again by the page. Terminal snapshots expire after 5 minutes; saved queue records remain. An active execution that cannot be confirmed stays unconfirmed, and refreshing the page does not resubmit it.
+
 | Entry point | Responsibility | Meaning when absent |
 | --- | --- | --- |
 | `process(item, context)` | Send one queue item to the plugin API and submit allowlisted state through `context.updateItem(patch)` | Required; the type should not activate without it |
