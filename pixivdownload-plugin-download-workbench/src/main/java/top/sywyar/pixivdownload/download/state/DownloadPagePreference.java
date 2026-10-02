@@ -28,9 +28,9 @@ public final class DownloadPagePreference {
         try (var input = Files.newInputStream(file)) {
             // 只接受完整的页面 token；多读一字节以识别超长或尾随内容。
             String value = new String(input.readNBytes(ALTERNATE.length() + 1), StandardCharsets.UTF_8);
-            return supports(value) ? value : CLASSIC;
+            return supports(value) ? value : ALTERNATE;
         } catch (NoSuchFileException missing) {
-            return CLASSIC;
+            return ALTERNATE;
         }
     }
 

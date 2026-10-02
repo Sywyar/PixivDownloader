@@ -40,27 +40,27 @@ class DownloadPageControllerTest {
     }
 
     @Test
-    @DisplayName("默认旧页，显式保存后两入口按同一偏好跳转并保留查询参数")
+    @DisplayName("默认新版，显式保存后两入口按同一偏好跳转并保留查询参数")
     void navigationFollowsPersistedSelection() throws Exception {
-        mvc.perform(get("/pixiv-batch.html")).andExpect(status().isOk())
-                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("id=\"s-file-name-templates\"")))
-                .andExpect(header().string("Cache-Control", "no-store"));
-        mvc.perform(get("/pixiv-batch-alt.html?lang=ja-JP&tab=schedule"))
-                .andExpect(status().isFound())
-                .andExpect(redirectedUrl("/pixiv-batch.html?lang=ja-JP&tab=schedule"));
-        mvc.perform(post("/api/batch/page").contentType(MediaType.APPLICATION_JSON)
-                .content("{\"page\":\"pixiv-batch-alt.html\"}")).andExpect(status().isNoContent());
-        assertThat(new DownloadPagePreference(paths).currentPage()).isEqualTo(DownloadPagePreference.ALTERNATE);
-        mvc.perform(get(java.net.URI.create("/pixiv-batch.html?tab=schedule&query=%E7%94%BB%26")))
-                .andExpect(status().isFound())
-                .andExpect(redirectedUrl("/pixiv-batch-alt.html?tab=schedule&query=%E7%94%BB%26"))
-                .andExpect(header().string("Cache-Control", "no-store"));
         mvc.perform(get("/pixiv-batch-alt.html")).andExpect(status().isOk())
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("id=\"abRail\"")));
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("id=\"abRail\"")))
+                .andExpect(header().string("Cache-Control", "no-store"));
+        mvc.perform(get("/pixiv-batch.html?lang=ja-JP&tab=schedule"))
+                .andExpect(status().isFound())
+                .andExpect(redirectedUrl("/pixiv-batch-alt.html?lang=ja-JP&tab=schedule"));
         mvc.perform(post("/api/batch/page").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"page\":\"pixiv-batch.html\"}")).andExpect(status().isNoContent());
         assertThat(new DownloadPagePreference(paths).currentPage()).isEqualTo(DownloadPagePreference.CLASSIC);
+        mvc.perform(get(java.net.URI.create("/pixiv-batch-alt.html?tab=schedule&query=%E7%94%BB%26")))
+                .andExpect(status().isFound())
+                .andExpect(redirectedUrl("/pixiv-batch.html?tab=schedule&query=%E7%94%BB%26"))
+                .andExpect(header().string("Cache-Control", "no-store"));
+        mvc.perform(get("/pixiv-batch.html")).andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("id=\"s-file-name-templates\"")));
+        mvc.perform(post("/api/batch/page").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"page\":\"pixiv-batch-alt.html\"}")).andExpect(status().isNoContent());
+        assertThat(new DownloadPagePreference(paths).currentPage()).isEqualTo(DownloadPagePreference.ALTERNATE);
     }
 
     @Test
@@ -79,12 +79,12 @@ class DownloadPageControllerTest {
     }
 
     @Test
-    @DisplayName("损坏或超长偏好回退旧页，写盘失败传播且清理临时文件")
+    @DisplayName("损坏或超长偏好回退新版，写盘失败传播且清理临时文件")
     void corruptedStateAndFailedWrites() throws Exception {
         Path file = directory.resolve("download_page.txt");
         for (String value : new String[]{"", "pixiv-batch-alt.html\n", "x".repeat(4096)}) {
             Files.writeString(file, value, StandardCharsets.UTF_8);
-            assertThat(preference.currentPage()).isEqualTo(DownloadPagePreference.CLASSIC);
+            assertThat(preference.currentPage()).isEqualTo(DownloadPagePreference.ALTERNATE);
         }
         assertThatThrownBy(() -> preference.save("invalid")).isInstanceOf(IllegalArgumentException.class);
         Files.delete(file);
