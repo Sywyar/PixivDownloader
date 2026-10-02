@@ -1412,6 +1412,13 @@ plugin-api	MEMBER	public final class top.sywyar.pixivdownload.plugin.api.gui.Des
 plugin-api	MEMBER	public final class top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardSnapshot extends java.lang.Record	public java.util.List<top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardCardContribution> cards();	descriptor: ()Ljava/util/List;
 plugin-api	MEMBER	public final class top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardSnapshot extends java.lang.Record	public java.util.List<top.sywyar.pixivdownload.plugin.api.gui.DesktopRunningTaskContribution> runningTasks();	descriptor: ()Ljava/util/List;
 plugin-api	MEMBER	public final class top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardSnapshot extends java.lang.Record	public top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardSnapshot(java.util.List<top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardCardContribution>, java.util.List<top.sywyar.pixivdownload.plugin.api.gui.DesktopRunningTaskContribution>, java.time.Instant);	descriptor: (Ljava/util/List;Ljava/util/List;Ljava/time/Instant;)V
+plugin-api	MEMBER	public final class top.sywyar.pixivdownload.plugin.api.gui.DesktopDirectorySuggestion extends java.lang.Record	public final boolean equals(java.lang.Object);	descriptor: (Ljava/lang/Object;)Z
+plugin-api	MEMBER	public final class top.sywyar.pixivdownload.plugin.api.gui.DesktopDirectorySuggestion extends java.lang.Record	public final int hashCode();	descriptor: ()I
+plugin-api	MEMBER	public final class top.sywyar.pixivdownload.plugin.api.gui.DesktopDirectorySuggestion extends java.lang.Record	public final java.lang.String toString();	descriptor: ()Ljava/lang/String;
+plugin-api	MEMBER	public final class top.sywyar.pixivdownload.plugin.api.gui.DesktopDirectorySuggestion extends java.lang.Record	public java.lang.String configurationKey();	descriptor: ()Ljava/lang/String;
+plugin-api	MEMBER	public final class top.sywyar.pixivdownload.plugin.api.gui.DesktopDirectorySuggestion extends java.lang.Record	public java.lang.String directory();	descriptor: ()Ljava/lang/String;
+plugin-api	MEMBER	public final class top.sywyar.pixivdownload.plugin.api.gui.DesktopDirectorySuggestion extends java.lang.Record	public java.lang.String suggestionId();	descriptor: ()Ljava/lang/String;
+plugin-api	MEMBER	public final class top.sywyar.pixivdownload.plugin.api.gui.DesktopDirectorySuggestion extends java.lang.Record	public top.sywyar.pixivdownload.plugin.api.gui.DesktopDirectorySuggestion(java.lang.String, java.lang.String, java.lang.String);	descriptor: (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
 plugin-api	MEMBER	public final class top.sywyar.pixivdownload.plugin.api.gui.DesktopRunningTaskContribution extends java.lang.Record	public final boolean equals(java.lang.Object);	descriptor: (Ljava/lang/Object;)Z
 plugin-api	MEMBER	public final class top.sywyar.pixivdownload.plugin.api.gui.DesktopRunningTaskContribution extends java.lang.Record	public final int hashCode();	descriptor: ()I
 plugin-api	MEMBER	public final class top.sywyar.pixivdownload.plugin.api.gui.DesktopRunningTaskContribution extends java.lang.Record	public final java.lang.String toString();	descriptor: ()Ljava/lang/String;
@@ -3071,6 +3078,7 @@ plugin-api	MEMBER	public interface top.sywyar.pixivdownload.plugin.api.download.
 plugin-api	MEMBER	public interface top.sywyar.pixivdownload.plugin.api.download.task.DownloadTasks	public abstract top.sywyar.pixivdownload.plugin.api.download.task.DownloadTasks$Snapshot snapshot(top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity);	descriptor: (Ltop/sywyar/pixivdownload/plugin/api/web/RequestOwnerIdentity;)Ltop/sywyar/pixivdownload/plugin/api/download/task/DownloadTasks$Snapshot;
 plugin-api	MEMBER	public interface top.sywyar.pixivdownload.plugin.api.gui.DesktopAutomationSource	public abstract top.sywyar.pixivdownload.plugin.api.gui.DesktopAutomationSnapshot snapshot();	descriptor: ()Ltop/sywyar/pixivdownload/plugin/api/gui/DesktopAutomationSnapshot;
 plugin-api	MEMBER	public interface top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardSource	public abstract top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardSnapshot snapshot();	descriptor: ()Ltop/sywyar/pixivdownload/plugin/api/gui/DesktopDashboardSnapshot;
+plugin-api	MEMBER	public interface top.sywyar.pixivdownload.plugin.api.gui.DesktopDirectorySuggestionSource	public abstract java.util.Optional<top.sywyar.pixivdownload.plugin.api.gui.DesktopDirectorySuggestion> directorySuggestion();	descriptor: ()Ljava/util/Optional;
 plugin-api	MEMBER	public interface top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost extends top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost	public abstract boolean autoStartEnabled();	descriptor: ()Z
 plugin-api	MEMBER	public interface top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost extends top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost	public abstract boolean autoStartSupported();	descriptor: ()Z
 plugin-api	MEMBER	public interface top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost extends top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost	public abstract boolean currentVersionNightly();	descriptor: ()Z
@@ -3410,6 +3418,7 @@ plugin-api	TYPE	public final class top.sywyar.pixivdownload.plugin.api.gui.Deskt
 plugin-api	TYPE	public final class top.sywyar.pixivdownload.plugin.api.gui.DesktopControlCenterAvailability extends java.lang.Enum<top.sywyar.pixivdownload.plugin.api.gui.DesktopControlCenterAvailability>
 plugin-api	TYPE	public final class top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardCardContribution extends java.lang.Record
 plugin-api	TYPE	public final class top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardSnapshot extends java.lang.Record
+plugin-api	TYPE	public final class top.sywyar.pixivdownload.plugin.api.gui.DesktopDirectorySuggestion extends java.lang.Record
 plugin-api	TYPE	public final class top.sywyar.pixivdownload.plugin.api.gui.DesktopRunningTaskContribution extends java.lang.Record
 plugin-api	TYPE	public final class top.sywyar.pixivdownload.plugin.api.gui.DesktopRunningTaskContribution$Status extends java.lang.Enum<top.sywyar.pixivdownload.plugin.api.gui.DesktopRunningTaskContribution$Status>
 plugin-api	TYPE	public final class top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext
@@ -3595,6 +3604,7 @@ plugin-api	TYPE	public interface top.sywyar.pixivdownload.plugin.api.download.su
 plugin-api	TYPE	public interface top.sywyar.pixivdownload.plugin.api.download.task.DownloadTasks
 plugin-api	TYPE	public interface top.sywyar.pixivdownload.plugin.api.gui.DesktopAutomationSource
 plugin-api	TYPE	public interface top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardSource
+plugin-api	TYPE	public interface top.sywyar.pixivdownload.plugin.api.gui.DesktopDirectorySuggestionSource
 plugin-api	TYPE	public interface top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost extends top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost
 plugin-api	TYPE	public interface top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost$ConfigFile
 plugin-api	TYPE	public interface top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost$IoOperation

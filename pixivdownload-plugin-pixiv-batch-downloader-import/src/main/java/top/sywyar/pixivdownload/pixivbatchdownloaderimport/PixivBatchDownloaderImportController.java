@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.externalimport;
+package top.sywyar.pixivdownload.pixivbatchdownloaderimport;
 
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.StreamReadConstraints;
@@ -17,14 +17,15 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.Semaphore;
 
-/** 仅 solo 本机、配置了源目录的采集桥；短期单次令牌不依赖浏览器会话 cookie。 */
+/** 仅 solo 本机采集；目录确认前只保留候选，短期单次令牌不依赖浏览器会话 cookie。 */
 @RestController
-public final class ExternalImportController {
+public final class PixivBatchDownloaderImportController {
     private static final int MAX_BODY = 12 * 1024 * 1024;
     private final WorkFileImporter importer;
     private final NamespaceMessageResolver messages;
-    private final String sourceRoot;
+    private final PixivBatchDownloaderImportDirectory directory;
     private final ApplicationModeProvider mode;
+    private final PixivBatchDownloaderImportStatistics statistics;
     private final Semaphore admission = new Semaphore(1);
     private final Map<String, Long> tokens = new LinkedHashMap<>();
     private final ObjectMapper json = new ObjectMapper(JsonFactory.builder().streamReadConstraints(
@@ -32,8 +33,10 @@ public final class ExternalImportController {
             .enable(com.fasterxml.jackson.core.StreamReadFeature.STRICT_DUPLICATE_DETECTION).build())
             .enable(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
-    ExternalImportController(WorkFileImporter importer, NamespaceMessageResolver messages, String sourceRoot, ApplicationModeProvider mode) {
-        this.importer = importer; this.messages = messages; this.sourceRoot = sourceRoot; this.mode = mode;
+    PixivBatchDownloaderImportController(WorkFileImporter importer, NamespaceMessageResolver messages, PixivBatchDownloaderImportDirectory directory, ApplicationModeProvider mode,
+                                        PixivBatchDownloaderImportStatistics statistics) {
+        this.importer = importer; this.messages = messages; this.directory = directory; this.mode = mode;
+        this.statistics = statistics;
     }
     private boolean local(HttpServletRequest request) {
         return "solo".equals(mode.getMode()) && "1".equals(request.getHeader("X-Pixiv-Collector"))
@@ -43,7 +46,6 @@ public final class ExternalImportController {
     @GetMapping("/api/pixiv-batch-downloader-import/token")
     public synchronized ResponseEntity<?> token(HttpServletRequest request) {
         if (!local(request)) return error(request, 403, "LOCAL_ONLY");
-        if (sourceRoot.isBlank()) return error(request, 503, "SOURCE_ROOT_REQUIRED");
         long now = System.nanoTime();
         tokens.values().removeIf(expires -> expires < now);
         if (tokens.size() >= 128) return error(request, 429, "IMPORT_BUSY");
@@ -58,30 +60,39 @@ public final class ExternalImportController {
     @PostMapping(value = "/api/pixiv-batch-downloader-import", consumes = "application/json")
     public ResponseEntity<?> importWork(HttpServletRequest request) {
         if (!local(request)) return error(request, 403, "LOCAL_ONLY");
-        if (sourceRoot.isBlank()) return error(request, 503, "SOURCE_ROOT_REQUIRED");
         if (!claim(request.getHeader("X-Import-Token"))) return error(request, 401, "INVALID_IMPORT_TOKEN");
         if (!admission.tryAcquire()) return error(request, 409, "IMPORT_BUSY");
         try {
             if (request.getContentLengthLong() > MAX_BODY) return error(request, 413, "IMPORT_TOO_LARGE");
             byte[] body = request.getInputStream().readNBytes(MAX_BODY + 1);
             if (body.length > MAX_BODY) return error(request, 413, "IMPORT_TOO_LARGE");
-            var value = ObservationImport.parse(json.readTree(body), Path.of(sourceRoot));
+            var observation = json.readTree(body);
+            String sourceRoot = directory.configuredRoot();
+            if (sourceRoot.isBlank()) {
+                directory.observe(observation);
+                return error(request, 503, "SOURCE_ROOT_REQUIRED");
+            }
+            var value = PixivBatchDownloaderImportObservation.parse(observation, Path.of(sourceRoot));
+            statistics.flushPending();
             boolean imported = importer.importFiles(value);
+            if (imported) statistics.recordImported(value);
             return ResponseEntity.ok(Map.of("code", imported ? "IMPORTED" : "ALREADY_RECORDED"));
         } catch (DownloadAdmissionRejectedException rejected) {
             return error(request, 409, "DOWNLOAD_ADMISSION_REJECTED");
-        } catch (ObservationImport.InvalidObservation invalid) {
+        } catch (PixivBatchDownloaderImportObservation.InvalidObservation invalid) {
             return error(request, 400, invalid.getMessage());
         } catch (IllegalArgumentException | com.fasterxml.jackson.core.JacksonException invalid) {
             return error(request, 400, "IMPORT_REJECTED");
         } catch (IOException unavailable) {
             return error(request, 503, "IMPORT_FILE_UNAVAILABLE");
+        } catch (java.sql.SQLException unavailable) {
+            return error(request, 503, "IMPORT_STATISTICS_UNAVAILABLE");
         } catch (RuntimeException failed) {
             return error(request, 500, "IMPORT_FAILED");
         } finally { admission.release(); }
     }
     private ResponseEntity<ApiErrorResponse> error(HttpServletRequest request, int status, String code) {
         return ResponseEntity.status(status).header("Cache-Control", "no-store").body(ApiErrorResponse.of(code,
-                messages.resolve("external-import", request.getLocale(), "error").orElse(code)));
+                messages.resolve("pixiv-batch-downloader-import", request.getLocale(), "error").orElse(code)));
     }
 }

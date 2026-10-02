@@ -296,6 +296,15 @@ public class MainFrame extends JFrame {
         requestFocus();
     }
 
+    public void showDirectorySettings() {
+        tabs.setSelectedComponent(configPanel);
+        showWindow();
+    }
+
+    public void pluginDirectorySaved(String owner, String key, String value) {
+        configPanel.pluginDirectorySaved(owner, key, value);
+    }
+
     public void setTrayAvailable(boolean available) {
         trayAvailable = available;
     }

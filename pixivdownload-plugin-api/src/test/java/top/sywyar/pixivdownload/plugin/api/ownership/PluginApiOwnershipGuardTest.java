@@ -147,6 +147,7 @@ class PluginApiOwnershipGuardTest {
                     "DesktopAutomationSnapshot", "DesktopAutomationSource", "DesktopAutomationTaskContribution",
                     "DesktopControlCenterAvailability", "DesktopDashboardCardContribution", "DesktopDashboardSnapshot",
                     "DesktopDashboardSource", "DesktopRunningTaskContribution",
+                    "DesktopDirectorySuggestion", "DesktopDirectorySuggestionSource",
                     "DesktopUiContext", "DesktopUiHost", "DesktopUiIcon", "DesktopUiPluginSnapshot",
                     "DesktopUiProvider", "DesktopUiSession", "DesktopUiText", "DesktopUiTone", "DesktopUiToolHost",
                     "GuiActionInvocationHeaders",
@@ -254,7 +255,7 @@ class PluginApiOwnershipGuardTest {
 
     private static final Map<String, Integer> APPROVED_TYPE_COUNTS = Map.ofEntries(
             Map.entry("插件入口与生命周期", 4),
-            Map.entry("GUI contribution 与桌面宿主契约", 54),
+            Map.entry("GUI contribution 与桌面宿主契约", 56),
             Map.entry("Web 与请求身份协议", 21),
             Map.entry("油猴脚本宿主目录协议", 2),
             Map.entry("下载类型描述协议", 2),

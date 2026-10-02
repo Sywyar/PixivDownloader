@@ -160,6 +160,10 @@ internal object ComposeDesktopUi {
                     exit.set { exitApplication() }
                     val observed = rememberDesktopDocument(model)
                     val document = observed.document()
+                    val directoryConfirmation = document.dialogs().any { it.id() == "directory-suggestion" }
+                    LaunchedEffect(directoryConfirmation) {
+                        if (directoryConfirmation) activateWindow(visible, windowRef)
+                    }
                     val messages = remember(context, observed.revision()) { ComposeMessages(context) }
                     val tray = document.tray().orElse(null)
                     val traySupported = tray != null && SystemTray.isSupported()
@@ -607,6 +611,10 @@ internal fun DesktopShell(
 ) {
     val pageIds = document.pages().map { it.id() }
     var selected by rememberSaveable { mutableStateOf(pageIds.first()) }
+    val directoryConfirmation = document.dialogs().any { it.id() == "directory-suggestion" }
+    LaunchedEffect(directoryConfirmation) {
+        if (directoryConfirmation && "settings" in pageIds) selected = "settings"
+    }
     val activePage = activePageId(document, selected)
     val pageStates = rememberSaveableStateHolder()
     val sceneIds = document.pages().map(::pageSceneId)

@@ -136,6 +136,13 @@ final class DesktopConfigurationController {
         savedValues.put(field, value);
     }
 
+    void pluginValueSaved(String pluginId, String key, String value) {
+        FieldKey field = new FieldKey(pluginId, key);
+        if (Objects.equals(values.get(field), savedValues.get(field))) values.put(field, value);
+        savedValues.put(field, value);
+        invalidatePage();
+    }
+
     boolean acceptField(String binding, String value) {
         ConfigField field = fieldBindings.get(binding);
         if (field == null) return false;

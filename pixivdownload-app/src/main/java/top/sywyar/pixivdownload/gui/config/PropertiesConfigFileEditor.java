@@ -19,10 +19,15 @@ import java.util.Set;
  */
 public class PropertiesConfigFileEditor {
 
+    // ponytail: 64 stripes bound storage; use managed per-file locks if collisions cause contention.
+    private static final Object[] FILE_LOCKS = java.util.stream.IntStream.range(0, 64)
+            .mapToObj(index -> new Object()).toArray();
     private final Path configPath;
+    private final Object fileLock;
 
     public PropertiesConfigFileEditor(Path configPath) {
-        this.configPath = configPath;
+        this.configPath = configPath.toAbsolutePath().normalize();
+        this.fileLock = FILE_LOCKS[Math.floorMod(this.configPath.hashCode(), FILE_LOCKS.length)];
     }
 
     public Map<String, String> readAll(Collection<String> keys) throws IOException {
@@ -47,7 +52,20 @@ public class PropertiesConfigFileEditor {
         return result;
     }
 
-    public synchronized void writeAll(Map<String, String> values) throws IOException {
+    public void writeAll(Map<String, String> values) throws IOException {
+        synchronized (fileLock) { writeValues(values); }
+    }
+
+    /** Compare and save under the same lock as ordinary GUI writes. */
+    public boolean writeIfBlank(String key, String value) throws IOException {
+        synchronized (fileLock) {
+            if (!readAll(List.of(key)).getOrDefault(key, "").isBlank()) return false;
+            writeValues(Map.of(key, value));
+            return true;
+        }
+    }
+
+    private void writeValues(Map<String, String> values) throws IOException {
         Map<String, String> safeValues = ConfigFileEditor.validatedValues(values);
         if (safeValues.isEmpty()) {
             return;
@@ -74,7 +92,11 @@ public class PropertiesConfigFileEditor {
         writeLinesAtomically(lines);
     }
 
-    public synchronized void removeAll(Collection<String> keys) throws IOException {
+    public void removeAll(Collection<String> keys) throws IOException {
+        synchronized (fileLock) { removeValues(keys); }
+    }
+
+    private void removeValues(Collection<String> keys) throws IOException {
         Set<String> safeKeys = ConfigFileEditor.validatedKeySet(keys);
         if (safeKeys.isEmpty() || !Files.exists(configPath)) {
             return;
@@ -88,11 +110,17 @@ public class PropertiesConfigFileEditor {
         writeLinesAtomically(lines);
     }
 
-    public synchronized FileSnapshot snapshot() throws IOException {
-        return new FileSnapshot(Files.exists(configPath), new ArrayList<>(readLines()));
+    public FileSnapshot snapshot() throws IOException {
+        synchronized (fileLock) {
+            return new FileSnapshot(Files.exists(configPath), new ArrayList<>(readLines()));
+        }
     }
 
-    public synchronized void restore(FileSnapshot snapshot) throws IOException {
+    public void restore(FileSnapshot snapshot) throws IOException {
+        synchronized (fileLock) { restoreSnapshot(snapshot); }
+    }
+
+    private void restoreSnapshot(FileSnapshot snapshot) throws IOException {
         if (snapshot == null) {
             throw new IOException("Cannot restore plugin config file without a snapshot");
         }

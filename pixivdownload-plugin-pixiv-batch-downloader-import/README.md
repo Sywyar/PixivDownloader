@@ -4,7 +4,13 @@
 
 [安装、配置与故障排查](https://sywyar.github.io/PixivDownloader/#/zh-cn/pixiv-batch-downloader-import)。
 
+尚未配置目录时，首次收到完整成功记录中的绝对路径会唤起桌面设置和确认弹窗。可以改选下载根目录，点击“确认并保存”后才允许导入，无需重启。取消不写配置，也不会因同一记录重试而反复弹窗；之后可在设置中手动选择。相对路径无法推断根目录，需要手动配置。
+
+桌面首页的数据概览显示“已导入的作品”：累计统计此插件成功导入的唯一作品，多页漫画算一部，插画与小说的相同 ID 分别计数。计数在重启后保留，删除画廊记录不会减少；已有作品、失败和跳过不计数，历史导入不自动回填。
+
 ## SDK
+
+插件通过 `DesktopDirectorySuggestionSource` 提供一个 `DesktopDirectorySuggestion` 候选，目标为自己的非敏感、无条件 `PATH_DIR` 字段，生效方式为 `HOT_RELOAD`。宿主按当前 publication 校验目录并在用户确认后保存；来源撤回后拒绝旧确认。插件从 owner-bound `RuntimePathProvider` 读取已保存配置，观察本身不授予目录访问权限。
 
 `WorkFileImporter.importFiles(WorkFileImportRequest)` 核验完整本地作品并原子登记文件引用。调用方负责授权允许目录；浏览器不能改变该目录。宿主提供插画处理，小说 owner 通过 `WorkFileImportHandler` 贡献登记能力；缺席时导入失败且不产生记录。处理器按精确 publication 代理调用，撤回拒绝新调用并等待在途调用。
 

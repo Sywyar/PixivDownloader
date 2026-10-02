@@ -252,9 +252,9 @@ class DistributionPackagingBoundaryTest {
                 .as("外置 recovery-sentinel 插件类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.guicompose.GuiComposePf4jPlugin"))
                 .as("外置 gui-compose 插件类不应在 boot jar 内").isFalse();
-        assertThat(canLoad(host, "top.sywyar.pixivdownload.externalimport.ExternalImportPlugin")).isFalse();
+        assertThat(canLoad(host, "top.sywyar.pixivdownload.pixivbatchdownloaderimport.PixivBatchDownloaderImportPlugin")).isFalse();
         assertThat(host.getResource("static/pixiv-batch-downloader-import/index.html")).isNull();
-        assertThat(host.getResource("userscripts/external-download-observer.user.js")).isNull();
+        assertThat(host.getResource("userscripts/pixiv-batch-downloader-import.user.js")).isNull();
         // gui-swing 是本模块的 test-scope 依赖；其独立产物边界由下方 JAR-with-lib 用例验证。
         assertThat(canLoad(host, "top.sywyar.pixivdownload.notificationbase.NotificationPf4jPlugin"))
                 .as("外置 notification 插件类不应在 boot jar 内").isFalse();
@@ -557,11 +557,11 @@ class DistributionPackagingBoundaryTest {
 
     @Test
     @DisplayName("pixiv-batch-downloader-import 随独立官方产物携带自动采集脚本")
-    void externalDownloadImportPackagesAsThinExternalPlugin() {
+    void pixivBatchDownloaderImportPackagesAsThinExternalPlugin() {
         assertThinExternalPlugin("pixiv-batch-downloader-import.plugin.classes",
                 "pixivdownload-plugin-pixiv-batch-downloader-import",
-                "top/sywyar/pixivdownload/externalimport/ExternalImportPlugin.class",
-                "userscripts/external-download-observer.user.js");
+                "top/sywyar/pixivdownload/pixivbatchdownloaderimport/PixivBatchDownloaderImportPlugin.class",
+                "userscripts/pixiv-batch-downloader-import.user.js");
     }
 
     @Test

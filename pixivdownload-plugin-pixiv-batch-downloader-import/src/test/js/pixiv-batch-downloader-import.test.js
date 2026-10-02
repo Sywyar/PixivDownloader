@@ -3,7 +3,7 @@ const test = require('node:test');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
-const source = fs.readFileSync(path.join(__dirname, '../../main/resources/userscripts/external-download-observer.user.js'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '../../main/resources/userscripts/pixiv-batch-downloader-import.user.js'), 'utf8');
 const flush = async () => { for (let i=0;i<20;i++) await Promise.resolve(); };
 function browser(storage = new Map()) {
     const listeners = {}, calls = [], alerts = [], timers = [];

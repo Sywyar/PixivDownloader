@@ -30,7 +30,7 @@
     'use strict';
     // @pixiv-presence-bootstrap
     const MAX_WORKS = 1000, MAX_FILES = 5000, MAX_BYTES = 8 * 1024 * 1024;
-    const PREFIX = 'gallery-sync.work.';
+    const PREFIX = 'pixiv-batch-downloader-import.work.';
     const metadata = new Map();
     const works = new Map();
     const session = crypto.randomUUID();
@@ -48,7 +48,7 @@
     let running = false, stopped = false, lastError = '', warned = false;
     let backoff = 1000, nextAttempt = 0;
     function server() {
-        const url = new URL(GM_getValue('gallery-sync.server', 'http://localhost:6999'));
+        const url = new URL(GM_getValue('pixiv-batch-downloader-import.server', 'http://localhost:6999'));
         if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password
             || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
             || url.pathname !== '/' || url.search || url.hash) throw new Error('INVALID_SERVER');
@@ -165,12 +165,12 @@
     window.addEventListener('crawlStart', () => { metadata.clear(); metadataBytes = 0; warned = false; });
     window.addEventListener('pagehide', () => { stopped = true; });
     GM_registerMenuCommand(messages[0], () => {
-        const value = prompt(messages[2], GM_getValue('gallery-sync.server','http://localhost:6999'));
+        const value = prompt(messages[2], GM_getValue('pixiv-batch-downloader-import.server','http://localhost:6999'));
         if (value === null) return;
-        const previous = GM_getValue('gallery-sync.server','http://localhost:6999');
-        GM_setValue('gallery-sync.server',value.trim());
+        const previous = GM_getValue('pixiv-batch-downloader-import.server','http://localhost:6999');
+        GM_setValue('pixiv-batch-downloader-import.server',value.trim());
         try { server(); backoff = 1000; nextAttempt = 0; drain(); }
-        catch (_) { GM_setValue('gallery-sync.server',previous); alert(messages[3]); }
+        catch (_) { GM_setValue('pixiv-batch-downloader-import.server',previous); alert(messages[3]); }
     });
     GM_registerMenuCommand(messages[1], () => {
         let pending = 0, incomplete = 0, errors = 0;

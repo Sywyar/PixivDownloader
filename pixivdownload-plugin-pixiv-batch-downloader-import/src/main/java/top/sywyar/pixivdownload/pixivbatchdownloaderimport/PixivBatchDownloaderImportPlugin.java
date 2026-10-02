@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.externalimport;
+package top.sywyar.pixivdownload.pixivbatchdownloaderimport;
 
 import org.pf4j.Plugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.*;
@@ -8,7 +8,7 @@ import java.util.Set;
 import top.sywyar.pixivdownload.plugin.api.gui.*;
 
 /** 官方外部下载采集与本地导入插件。 */
-public final class ExternalImportPlugin extends Plugin implements PixivPluginProvider {
+public final class PixivBatchDownloaderImportPlugin extends Plugin implements PixivPluginProvider {
     @Override public PixivFeaturePlugin featurePlugin() {
         return new PixivFeaturePlugin() {
             @Override public String id() { return "pixiv-batch-downloader-import"; }
@@ -23,20 +23,20 @@ public final class ExternalImportPlugin extends Plugin implements PixivPluginPro
                         new WebRouteContribution("/api/pixiv-batch-downloader-import/token", AccessPolicy.LOCAL, Set.of(HttpMethod.GET), false));
             }
             @Override public List<I18nContribution> i18n() {
-                return List.of(new I18nContribution("external-import", "i18n.web.external-import"));
+                return List.of(new I18nContribution("pixiv-batch-downloader-import", "i18n.web.pixiv-batch-downloader-import"));
             }
             @Override public List<GuiConfigContribution> guiConfigContributions() {
                 return List.of(new GuiConfigContribution(
-                        List.of(new GuiConfigGroupContribution("external-import", "plugin.name", 75)),
-                        List.of(new GuiConfigFieldContribution("pixiv-batch-downloader-import.source-root", "external-import",
+                        List.of(new GuiConfigGroupContribution("pixiv-batch-downloader-import", "plugin.name", 75)),
+                        List.of(new GuiConfigFieldContribution("pixiv-batch-downloader-import.source-root", "pixiv-batch-downloader-import",
                                 "config.root.label", "config.root.help", GuiConfigFieldType.PATH_DIR, "", 10, false,
-                                GuiConfigEffect.BACKEND_RESTART))));
+                                GuiConfigEffect.HOT_RELOAD))));
             }
             @Override public List<UserscriptContribution> userscripts() {
-                return List.of(new UserscriptContribution("external-download-observer",
-                        "classpath:/userscripts/external-download-observer.user.js", "external-import"));
+                return List.of(new UserscriptContribution("pixiv-batch-downloader-import",
+                        "classpath:/userscripts/pixiv-batch-downloader-import.user.js", "pixiv-batch-downloader-import"));
             }
         };
     }
-    @Override public List<Class<?>> configurationClasses() { return List.of(ExternalImportConfiguration.class); }
+    @Override public List<Class<?>> configurationClasses() { return List.of(PixivBatchDownloaderImportConfiguration.class); }
 }

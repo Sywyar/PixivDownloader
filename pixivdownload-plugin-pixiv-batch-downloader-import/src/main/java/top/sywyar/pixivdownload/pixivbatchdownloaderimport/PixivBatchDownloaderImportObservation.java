@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.externalimport;
+package top.sywyar.pixivdownload.pixivbatchdownloaderimport;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import top.sywyar.pixivdownload.core.work.importing.WorkFileImportRequest;
@@ -8,8 +8,8 @@ import java.nio.file.Path;
 import java.util.*;
 
 /** 只接受完整成功集合及其同批元数据；浏览器不能选择宿主源目录。 */
-final class ObservationImport {
-    private ObservationImport() {}
+final class PixivBatchDownloaderImportObservation {
+    private PixivBatchDownloaderImportObservation() {}
     static WorkFileImportRequest parse(JsonNode input, Path root) {
         require(input != null && input.isObject() && input.path("schemaVersion").isInt()
                 && input.path("schemaVersion").intValue() == 1

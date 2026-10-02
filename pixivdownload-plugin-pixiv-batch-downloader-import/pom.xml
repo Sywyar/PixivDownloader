@@ -10,12 +10,18 @@
     </parent>
     <artifactId>pixivdownload-plugin-pixiv-batch-downloader-import</artifactId>
     <name>PixivBatchDownloader Import Support Plugin</name>
-    <description>Automatic gallery registration of verified external downloads with read-only original files.</description>
+    <description>Automatic gallery registration of completed PixivBatchDownloader downloads with read-only original files.</description>
     <properties>
         <pixivdownload.proguard.skip>false</pixivdownload.proguard.skip>
         <pixivdownload.jar.classesDirectory>${pixivdownload.proguard.outputDirectory}</pixivdownload.jar.classesDirectory>
     </properties>
     <dependencies>
+        <dependency>
+            <groupId>org.xerial</groupId>
+            <artifactId>sqlite-jdbc</artifactId>
+            <version>3.47.1.0</version>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>io.github.sywyar.pixivdownloader</groupId>
             <artifactId>pixivdownload-sdk</artifactId>
