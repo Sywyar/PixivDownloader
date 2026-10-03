@@ -1,6 +1,8 @@
 {
   "_comment": "插件市场专属策展源（运营者维护）。插件身份展示字段 displayNamespace/displayNameKey/descriptionKey/iconToken/colorToken/displayName/summary 由 source plugin.properties 的 pixiv.* 和 i18n bundle 派生；安装关键字段（version/packageUrl/sha256/size/requiredSdk）由 generate-market-manifest.ps1 从真实产物推导，requiredCoreApi 仅作旧客户端 wire alias 同值发布。键为 pluginId。",
   "download-workbench": {
+    "defaultLocale": "zh-CN",
+    "documentationSources": {"readme":null,"changelog":null,"releaseNotes":null},
     "description": { "zh": "官方必需插件，提供基础插画下载工作流、下载队列、批量状态、Pixiv 代理入口、下载页静态资源、油猴脚本分发与计划下载宿主。缺失时核心壳进入恢复 / 补齐模式。", "en": "Official required plugin providing the basic illustration download workflow, queue, batch state, Pixiv proxy endpoints, workbench static assets, userscript distribution, and scheduled download host. When missing, the core shell enters recovery/repair mode." },
     "author": "Sywyar",
     "sourceType": "official",
@@ -13,6 +15,8 @@
     "changeNotes": ["下载工作台从核心壳外置为官方必需插件"]
   },
   "pixiv-batch-downloader-import": {
+    "defaultLocale": "zh-CN",
+    "documentationSources": {"readme":{"zh-CN":"pixivdownload-plugin-pixiv-batch-downloader-import/README.md","en":"pixivdownload-plugin-pixiv-batch-downloader-import/README_en.md"},"changelog":null,"releaseNotes":null},
     "description": { "zh": "官方可选插件，普通发行包不预装，离线全量包包含。安装插件后须完全退出并重新启动本程序。在单人模式下安装下载页提供的油猴脚本，配置一次同机下载目录并重启后端，即可自动将 PixivBatchDownloader 后续下载完成的插画、漫画、动图和小说导入对应画廊。直接读取原文件，不复制；删除画廊记录也保留原文件。不扫描历史下载。", "en": "Optional official plugin, available from the plugin market and included in the full offline bundle. Standard distributions do not preinstall it. Fully exit and restart the app after installing the plugin. In single-user mode, install the userscript from the download page, configure the download folder on the same machine, and restart the backend. Subsequent illustrations, manga, animations, and novels completed by PixivBatchDownloader are automatically imported into their galleries. Original files are referenced without copying and kept when gallery records are deleted. Existing downloads are not scanned." },
     "author": "Sywyar",
     "sourceType": "official",
@@ -25,6 +29,8 @@
     "changeNotes": ["新增 PixivBatchDownloader 导入支持，自动导入后续下载完成的插画、漫画、动图和小说，保留原文件"]
   },
   "posthog": {
+    "defaultLocale": "zh-CN",
+    "documentationSources": {"readme":null,"changelog":null,"releaseNotes":null},
     "description": { "zh": "提供官方 PostHog 浏览器 SDK 与隔离的命名调查客户端；调查发布插件自持并传入项目参数与调查语义。", "en": "Provides the official PostHog browser SDK and isolated named survey clients; survey-publishing plugins own and pass their project parameters and survey semantics." },
     "author": "Sywyar",
     "sourceType": "official",
@@ -37,6 +43,8 @@
     "changeNotes": ["首个外置版本"]
   },
   "multi-mode-decision-survey": {
+    "defaultLocale": "zh-CN",
+    "documentationSources": {"readme":null,"changelog":null,"releaseNotes":null},
     "description": { "zh": "通过管理员站内信收集多人模式保留意愿；调查参数与问卷语义由本插件自持。", "en": "Collects feedback on retaining multi-user mode through the administrator inbox; this plugin owns the survey parameters and semantics." },
     "author": "Sywyar",
     "sourceType": "official",
@@ -49,6 +57,8 @@
     "changeNotes": ["新增多人模式去留调查站内信"]
   },
   "gui-swing": {
+    "defaultLocale": "zh-CN",
+    "documentationSources": {"readme":null,"changelog":null,"releaseNotes":null},
     "description": { "zh": "为桌面 GUI 提供跟随系统、浅色、深色与 Moonlight 主题，并在完整重启后应用启动期主题。", "en": "Adds system, light, dark, and Moonlight themes to the desktop GUI, applied during startup after a full restart." },
     "author": "Sywyar",
     "sourceType": "official",
@@ -61,6 +71,8 @@
     "changeNotes": ["首个外置版本"]
   },
   "gui-compose": {
+    "defaultLocale": "zh-CN",
+    "documentationSources": {"readme":null,"changelog":null,"releaseNotes":null},
     "description": { "zh": "提供可按 app.gui-provider=gui-compose 显式选择的 Compose Multiplatform 桌面渲染器，覆盖稳定声明式 UI 节点契约。", "en": "Provides an explicitly selectable Compose Multiplatform desktop renderer for the stable declarative UI node contract via app.gui-provider=gui-compose." },
     "author": "Sywyar",
     "sourceType": "official",
@@ -73,6 +85,8 @@
     "changeNotes": ["新增 Compose Multiplatform 桌面 UI 提供者"]
   },
   "gallery-tools": {
+    "defaultLocale": "zh-CN",
+    "documentationSources": {"readme":null,"changelog":null,"releaseNotes":null},
     "description": { "zh": "提供管理员专属的下载统计仪表盘与疑似重复作品检测、扫描及 Hash 回填工具。", "en": "Provides admin-only download statistics plus likely-duplicate detection, scanning, and hash backfill tools." },
     "author": "Sywyar",
     "sourceType": "official",
@@ -85,6 +99,8 @@
     "changeNotes": ["首个外置版本"]
   },
   "gallery": {
+    "defaultLocale": "zh-CN",
+    "documentationSources": {"readme":null,"changelog":null,"releaseNotes":null},
     "description": { "zh": "提供本地画廊、作品详情、精选集与系列页面，基于核心下载事实和 Pixiv 元数据展示历史作品。", "en": "Provides the local gallery, artwork detail, showcase, and series pages backed by core download facts and Pixiv metadata." },
     "author": "Sywyar",
     "sourceType": "official",
@@ -97,6 +113,8 @@
     "changeNotes": ["首个外置版本"]
   },
   "novel": {
+    "defaultLocale": "zh-CN",
+    "documentationSources": {"readme":null,"changelog":null,"releaseNotes":null},
     "description": { "zh": "提供小说下载、Pixiv 小说 API、计划任务小说执行、翻译、合订、AI 听书协作、小说画廊与阅读页。", "en": "Provides novel downloading, Pixiv novel APIs, scheduled novel execution, translation, merge, AI narration collaboration, the novel gallery, and the reader page." },
     "author": "Sywyar",
     "sourceType": "official",
@@ -109,6 +127,8 @@
     "changeNotes": ["合并小说下载核心与小说展示层为官方可选插件"]
   },
   "notification": {
+    "defaultLocale": "zh-CN",
+    "documentationSources": {"readme":null,"changelog":null,"releaseNotes":null},
     "description": { "zh": "提供通知场景开关、中性通知级别与管理员站内信；邮件和推送插件依赖它共享通知语义。", "en": "Provides notification scenario toggles, neutral severity, and the administrator inbox; mail and push plugins depend on it for shared notification semantics." },
     "author": "Sywyar",
     "sourceType": "official",
@@ -121,6 +141,8 @@
     "changeNotes": ["新增管理员站内信入口、分类消息与详情页"]
   },
   "push": {
+    "defaultLocale": "zh-CN",
+    "documentationSources": {"readme":null,"changelog":null,"releaseNotes":null},
     "description": { "zh": "提供 Webhook、Telegram、Server 酱、PushPlus、企业微信、飞书、钉钉、Bark 等推送渠道。", "en": "Adds Webhook, Telegram, ServerChan, PushPlus, WeCom, Feishu, DingTalk, and Bark push channels." },
     "author": "Sywyar",
     "sourceType": "official",
@@ -133,6 +155,8 @@
     "changeNotes": ["首个外置版本"]
   },
   "mail": {
+    "defaultLocale": "zh-CN",
+    "documentationSources": {"readme":null,"changelog":null,"releaseNotes":null},
     "description": { "zh": "提供 SMTP 邮件通知发送、服务商预设、测试邮件与计划任务通知模板。", "en": "Adds SMTP mail delivery, provider presets, test mail, and scheduled-task notification templates." },
     "author": "Sywyar",
     "sourceType": "official",
@@ -145,6 +169,8 @@
     "changeNotes": ["首个外置版本"]
   },
   "tts": {
+    "defaultLocale": "zh-CN",
+    "documentationSources": {"readme":null,"changelog":null,"releaseNotes":null},
     "description": { "zh": "提供 Edge TTS 听书入口，以及 VoxCPM、MiMo、CosyVoice、Fish Audio、MiniMax、ElevenLabs、Qwen、Doubao 等朗读引擎。", "en": "Adds the Edge TTS listening entry and narration engines including VoxCPM, MiMo, CosyVoice, Fish Audio, MiniMax, ElevenLabs, Qwen, and Doubao." },
     "author": "Sywyar",
     "sourceType": "official",
@@ -157,6 +183,8 @@
     "changeNotes": ["首个外置版本"]
   },
   "ai": {
+    "defaultLocale": "zh-CN",
+    "documentationSources": {"readme":null,"changelog":null,"releaseNotes":null},
     "description": { "zh": "提供 OpenAI 兼容模型调用、连接测试、小说自动翻译、系列翻译与听书剧本分析的 AI 能力。", "en": "Adds OpenAI-compatible model calls, connectivity tests, novel auto-translation, series translation, and AI narration analysis." },
     "author": "Sywyar",
     "sourceType": "official",

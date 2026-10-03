@@ -817,6 +817,26 @@ html[data-theme="dark"] .pixiv-lang-switcher--green .pixiv-lang-switcher__select
     font-variant-numeric: tabular-nums; font-size: .75rem; white-space: nowrap;
 }
 .pmk-operation-count--bad { color: var(--accent-red); }
+.pmk-card-icon, .pmk-hero-icon { position: relative; }
+.pmk-market-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; border-radius: inherit; background: var(--surface); }
+.pmk-market-image[hidden] { display: none; }
+.pmk-content { min-width: 0; }
+.pmk-content-links { display: flex; flex-wrap: wrap; gap: .5rem 1rem; margin-block: .75rem; }
+.pmk-content-links a { color: var(--accent-blue); overflow-wrap: anywhere; }
+.pmk-content-document { margin-block: 1rem; border-top: 1px solid var(--border); padding-top: .75rem; }
+.pmk-content-document summary { cursor: pointer; font-weight: 600; padding-block: .4rem; }
+.pmk-content-frame { width: 100%; height: 28rem; max-height: 65dvh; border: 1px solid var(--border); border-radius: .5rem; margin-top: .5rem; }
+.pmk-content-status { color: var(--text-secondary); line-height: 1.6; }
+.pmk-content-screenshots { display: flex; gap: .75rem; overflow-x: auto; padding-block: .75rem; }
+.pmk-content-screenshots figure { margin: 0; flex: 0 0 80%; max-width: 30rem; }
+.pmk-content-screenshots img { width: 100%; height: auto; max-height: 22rem; object-fit: contain; }
+.pmk-content-dialog { color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 1rem; padding: 0; width: min(52rem, 94vw); max-height: 90dvh; }
+.pmk-content-dialog::backdrop { background: var(--modal-backdrop); }
+.pmk-content-dialog-head { display: flex; gap: 1rem; justify-content: space-between; align-items: center; padding: 1rem; border-bottom: 1px solid var(--border); }
+.pmk-content-dialog-head h2 { font-size: 1.25rem; margin: 0; overflow-wrap: anywhere; }
+.pmk-content-dialog-body { padding: 1rem; overflow-y: auto; max-height: 72dvh; }
+.pmk-content-dialog .pmk-version-notes { white-space: pre-wrap; margin-top: 1rem; }
+.pmk-content :focus-visible, .pmk-content-dialog :focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 3px; }
 .pmk-operation-list { list-style: none; margin: .75rem 0 0; padding: 0; }
 .pmk-operation { padding: 1rem 0; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
 .pmk-operation-name { font-size: .875rem; font-weight: 650; min-width: 0; }

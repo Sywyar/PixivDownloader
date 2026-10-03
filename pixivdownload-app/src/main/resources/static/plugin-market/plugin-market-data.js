@@ -12,7 +12,7 @@
 
     D.entryName = function (entry) {
         var m = market(entry);
-        return PMK.localeText(m && m.displayName, entry.pluginId) || entry.pluginId;
+        return PMK.localeText(m && m.displayName, entry.pluginId, m && m.defaultLocale) || entry.pluginId;
     };
     D.entryAuthor = function (entry) {
         var m = market(entry);
@@ -20,12 +20,12 @@
     };
     D.entrySummary = function (entry) {
         var m = market(entry);
-        return m ? PMK.localeText(m.summary, '') : '';
+        return m ? PMK.localeText(m.summary, '', m.defaultLocale) : '';
     };
     D.entryDescription = function (entry) {
         var m = market(entry);
         if (!m) return '';
-        return PMK.localeText(m.description, '') || PMK.localeText(m.summary, '');
+        return PMK.localeText(m.description, '', m.defaultLocale) || PMK.localeText(m.summary, '', m.defaultLocale);
     };
     D.entryCategory = function (entry) {
         var m = market(entry);
@@ -134,6 +134,7 @@
             publisher: verification && verification.publisher ? verification.publisher : author,
             sub: [entry.pluginId, author].filter(Boolean).join(' · '),
             iconClass: PMK.iconClass(m.iconToken),
+            icon: m.icon || null,
             colorClass: PMK.colorClass(m.colorToken),
             category: category,
             categoryLabel: PMK.categoryLabel(category),

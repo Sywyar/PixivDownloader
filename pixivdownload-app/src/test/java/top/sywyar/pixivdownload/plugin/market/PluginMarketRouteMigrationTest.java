@@ -71,6 +71,8 @@ class PluginMarketRouteMigrationTest {
         assertThat(patterns).contains(
                 "/api/plugin-market/repositories",
                 "/api/plugin-market/catalog",
+                "/api/plugin-market/content/{repositoryId}/{pluginId}/{version}/{kind}",
+                "/api/plugin-market/content/{repositoryId}/{pluginId}/image",
                 "/api/plugin-market/plugins/{repositoryId}/{pluginId}",
                 "/api/plugin-market/{repositoryId}/{pluginId}/{version}/install");
     }
@@ -79,13 +81,13 @@ class PluginMarketRouteMigrationTest {
     @DisplayName("新 /api/plugin-market/** 由 plugin-market 以 ADMIN 声明，GET / POST 均被覆盖")
     void marketRoutesDeclaredAdmin() {
         assertThat(routeAccessRegistry.isDeclared("/api/plugin-market/repositories", HttpMethod.GET)).isTrue();
+        assertThat(routeAccessRegistry.isDeclared("/api/plugin-market/content/repository/plugin/3.2.4/readme", HttpMethod.GET)).isTrue();
         assertThat(routeAccessRegistry.isDeclared("/api/plugin-market/official/demo/1.0.0/install", HttpMethod.POST)).isTrue();
         assertThat(routeAccessRegistry.routes())
-                .anySatisfy(registered -> {
-                    if (registered.route().pathPattern().equals("/api/plugin-market/**")) {
+                .filteredOn(registered -> registered.route().pathPattern().equals("/api/plugin-market/**"))
+                .singleElement().satisfies(registered -> {
                         assertThat(registered.pluginId()).isEqualTo("plugin-market");
                         assertThat(registered.route().accessPolicy()).isEqualTo(AccessPolicy.ADMIN);
-                    }
                 });
     }
 }

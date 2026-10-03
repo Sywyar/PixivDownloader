@@ -19,7 +19,7 @@ $head = & git -C $ProjectRoot rev-parse HEAD
 if ($LASTEXITCODE -ne 0 -or $head -cne $SourceSha) { throw 'Candidate source does not match checkout.' }
 [xml]$pom = [IO.File]::ReadAllText((Join-Path $ProjectRoot 'pom.xml'), [Text.Encoding]::UTF8)
 $modules = @($pom.project.modules.module | Where-Object {
-    $_ -eq 'pixivdownload-plugin-signature' -or
+    $_ -in @('pixivdownload-plugin-signature', 'pixivdownload-sdk-tools') -or
     (Test-Path -LiteralPath (Join-Path $ProjectRoot "$_/src/main/resources/plugin.properties") -PathType Leaf)
 })
 $manifestPath = Join-Path $Directory 'manifest.json'

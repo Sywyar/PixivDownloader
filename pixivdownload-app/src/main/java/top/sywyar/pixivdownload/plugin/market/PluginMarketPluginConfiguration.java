@@ -2,6 +2,10 @@ package top.sywyar.pixivdownload.plugin.market;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Qualifier;
+import top.sywyar.pixivdownload.plugin.catalog.content.PluginCatalogContentService;
+import top.sywyar.pixivdownload.plugin.catalog.repository.PluginCatalogClientProvider;
+import top.sywyar.pixivdownload.plugin.market.content.PluginMarketContentController;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
@@ -19,13 +23,29 @@ import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
  * 都依赖全部 descriptor 在场），市场业务 Bean（{@link PluginMarketService} / {@link PluginMarketController}）随
  * {@code plugins.plugin-market.enabled} 装配 / 缺席。
  *
- * <p><b>禁用语义</b>：{@code plugins.plugin-market.enabled=false} 时下面两个 {@code @ConditionalOnPluginEnabled} Bean 缺席——
+ * <p><b>禁用语义</b>：{@code plugins.plugin-market.enabled=false} 时市场与内容服务的 {@code @ConditionalOnPluginEnabled} Bean 缺席——
  * {@code /api/plugin-market/**} 因「未声明即 404」不可达、市场页面 / 静态资源 / 导航入口随插件退出活动快照而撤销；重新启用后恢复。
  * 市场只消费 catalog 引擎（仓库注册中心 / 清单读取 / 受信安装编排，住 {@code plugin.catalog} 领域包、核心基础设施），
  * 不另造仓库扫描 / 下载 / 安装实现。
  */
 @Configuration
 public class PluginMarketPluginConfiguration {
+
+    @Bean
+    @ConditionalOnPluginEnabled(PluginMarketPlugin.ID)
+    public PluginCatalogContentService pluginCatalogContentService(
+            PluginCatalogService catalog,
+            PluginCatalogClientProvider clients) {
+        return new PluginCatalogContentService(catalog, clients);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled(PluginMarketPlugin.ID)
+    public PluginMarketContentController pluginMarketContentController(
+            PluginCatalogContentService content,
+            AppMessages messages, @Qualifier("appLocaleResolver") AppLocaleResolver locales) {
+        return new PluginMarketContentController(content, messages, locales);
+    }
 
     @Bean
     public PluginMarketPlugin pluginMarketPlugin() {

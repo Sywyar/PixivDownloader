@@ -49,6 +49,7 @@
 - Guest invite system (age-rating / tag / author whitelist)
 - Multiple languages / dark mode
 - Desktop GUI (Swing + FlatLaf) with online update
+- Marketplace details display versioned Markdown / HTML README, full changelog, release notes, icons, screenshots and related links. Documents load on demand and failed reads can be retried.
 
 ## Screenshots
 

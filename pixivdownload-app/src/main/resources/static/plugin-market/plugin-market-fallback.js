@@ -9,6 +9,7 @@
     var FB = PMK.fallback = {};
 
     var rootEl = null;
+    var detailView = null;
     var state = {
         loading: true, error: null, masterEnabled: false, recoveryMode: false, recoveryReasons: [], hostElevated: false,
         filtersInitialized: false, sdkVersion: '',
@@ -82,7 +83,9 @@
               esc(t('compat.needs', '需要SDK v{v}+（当前 v{cur}）', { v: card.compatibilityReason, cur: state.sdkVersion })) + '</div>'
             : '';
         return '<article class="pmk-card ' + esc(card.colorClass) + '"><div class="pmk-card-body">' +
-            '<div class="pmk-card-head"><span class="pmk-card-icon"><i class="' + esc(card.iconClass) + '"></i></span>' +
+            '<div class="pmk-card-head"><span class="pmk-card-icon"><i class="' + esc(card.iconClass) + '"></i>' +
+            (PMK.api.contentImageUrl(card.repositoryId, card.pluginId, card.icon, 'icon', 0)
+                ? '<img class="pmk-market-image" alt="" loading="lazy" src="' + esc(PMK.api.contentImageUrl(card.repositoryId, card.pluginId, card.icon, 'icon', 0)) + '">' : '') + '</span>' +
             '<div class="pmk-card-titleblock"><div class="pmk-card-name-row">' +
             '<span class="pmk-card-name">' + esc(card.name) + '</span>' + badges + '</div>' +
             '<div class="pmk-card-sub">' + esc(card.sub) + '</div></div></div>' +
@@ -96,7 +99,8 @@
                 + esc(t('trust.facts', '来源与能力声明')) + '</summary><div data-pmk-facts-content>'
                 + global.PixivPluginPresentationTokens.trustLines(card.verification, PMK.state.i18n.client)
                     .map(function (line) { return '<p>' + esc(line) + '</p>'; }).join('') + '</div></details>' +
-            '<div class="pmk-card-actions">' + installControl(card) + '</div>' +
+            '<div class="pmk-card-actions">' + installControl(card) +
+            '<button class="pmk-btn pmk-btn--gray pmk-btn--sm" data-pmk-detail="' + esc(card.pluginId) + '">' + esc(t('card.detail', '详情')) + '</button></div>' +
             '</div></article>';
     }
 
@@ -250,6 +254,7 @@
     }
 
     function loadCatalog(repoId) {
+        if (detailView) detailView.close();
         var token = ++state.catalogToken;
         state.catalogError = null;
         return PMK.api.fetchCatalog(repoId).then(function (cat) {
@@ -342,8 +347,85 @@
         });
     }
 
+    function openContentDetail(pluginId, opener) {
+        if (detailView) detailView.close();
+        var catalog = state.catalog;
+        if (!catalog) return;
+        var entry = catalog.entries.find(function (item) { return item.pluginId === pluginId; });
+        if (!entry) return;
+        var dialog = document.createElement('dialog');
+        dialog.className = 'pmk-content-dialog';
+        dialog.innerHTML = '<div class="pmk-content-dialog-head"><h2></h2><button type="button" class="pmk-btn pmk-btn--gray">'
+            + esc(t('modal.close', '关闭')) + '</button></div><div class="pmk-content-dialog-body"><p class="pmk-section-text"></p>'
+            + '<label><span>' + esc(t('detail.version', '版本')) + '</span> <select class="pmk-version-select"></select></label>'
+            + '<button type="button" class="pmk-btn pmk-btn--gray pmk-more-versions"></button>'
+            + '<div class="pmk-content"></div><div class="pmk-version-notes"></div></div>';
+        var content = PMK.content.mount(dialog.querySelector('.pmk-content'));
+        var select = dialog.querySelector('select');
+        var version = PMK.data.defaultVersion(entry);
+        var alive = true;
+        var loadingMore = false;
+        var more = dialog.querySelector('.pmk-more-versions');
+        function update() {
+            dialog.querySelector('h2').textContent = PMK.data.entryName(entry);
+            dialog.querySelector('p').textContent = PMK.data.entryDescription(entry);
+            dialog.querySelector('button').textContent = t('modal.close', '关闭');
+            dialog.querySelector('label span').textContent = t('detail.version', '版本');
+            more.textContent = t('pagination.more-versions', '加载更多版本');
+            more.hidden = !entry.nextVersionCursor; more.disabled = loadingMore;
+            select.replaceChildren();
+            (entry.packages || []).forEach(function (pkg) {
+                var option = document.createElement('option'); option.value = pkg.version; option.textContent = pkg.version;
+                select.appendChild(option);
+            });
+            select.value = version;
+            var pkg = PMK.data.packageOf(entry, version);
+            var model = PMK.content.model(catalog.repositoryId, entry, pkg);
+            content.update(model);
+            dialog.querySelector('.pmk-version-notes').textContent = model.documents.some(function (doc) { return doc.kind === 'releaseNotes'; })
+                ? '' : ((pkg && pkg.changeNotes) || []).join('\n');
+        }
+        more.addEventListener('click', function () {
+            if (loadingMore || !entry.nextVersionCursor) return;
+            loadingMore = true; update();
+            PMK.api.fetchPluginDetail(catalog.repositoryId, pluginId, { cursor: entry.nextVersionCursor }).then(function (page) {
+                if (!alive || state.catalog !== catalog) return;
+                if (page.versionsGeneration !== entry.versionsGeneration) {
+                    return PMK.api.fetchPluginDetail(catalog.repositoryId, pluginId).then(function (fresh) {
+                        if (!alive || state.catalog !== catalog) return;
+                        entry = fresh; version = PMK.data.defaultVersion(fresh);
+                    });
+                }
+                else {
+                    entry.packages = (entry.packages || []).concat((page.packages || []).filter(function (pkg) {
+                        return !(entry.packages || []).some(function (old) { return old.version === pkg.version; });
+                    }));
+                    entry.nextVersionCursor = page.nextVersionCursor;
+                }
+            }).catch(function () { if (alive) PMK.toast(t('error.detail'), 'error'); })
+                .finally(function () { loadingMore = false; if (alive) update(); });
+        });
+        select.addEventListener('change', function () { version = select.value; update(); });
+        dialog.querySelector('button').addEventListener('click', function () { dialog.close(); });
+        dialog.addEventListener('close', function () {
+            alive = false; content.dispose(); dialog.remove();
+            if (detailView === owner) { detailView = null; if (opener.isConnected) opener.focus(); }
+        }, { once: true });
+        var owner = detailView = { close: function () { dialog.close(); }, update: update };
+        document.body.appendChild(dialog); update(); dialog.showModal();
+        PMK.api.fetchPluginDetail(catalog.repositoryId, pluginId).then(function (detail) {
+            if (!alive || state.catalog !== catalog) return;
+            entry = detail; update();
+        }).catch(function () { if (alive) PMK.toast(t('error.detail'), 'error'); });
+    }
+
     function wire() {
+        rootEl.addEventListener('error', function (event) {
+            if (event.target.classList && event.target.classList.contains('pmk-market-image')) event.target.hidden = true;
+        }, true);
         rootEl.addEventListener('click', function (e) {
+            var detail = e.target.closest('[data-pmk-detail]');
+            if (detail) { openContentDetail(detail.getAttribute('data-pmk-detail'), detail); return; }
             var facts = e.target.closest('[data-pmk-facts]');
             if (facts) {
                 var target = facts.parentElement.querySelector('[data-pmk-facts-content]');
@@ -419,7 +501,7 @@
     // 启用命令式回退渲染（init 在 Vue 不可用时调用）。
     FB.render = function (el) {
         rootEl = el;
-        PMK.state.activeView = { reload: load, rerender: paint };
+        PMK.state.activeView = { reload: load, rerender: function () { paint(); if (detailView) detailView.update(); } };
         wire();
         load();
     };

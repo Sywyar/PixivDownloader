@@ -238,18 +238,30 @@
             .replace(/'/g, '&#39;');
     };
 
-    // 市场元数据的本地化文本（{locale: text} 映射）解析：当前语言 → 语言主段 → zh → en → 任一 → 兜底。
-    // 用于未安装插件浏览时的名称 / 简介（其 i18n key 的 bundle 未加载，故须用清单字面文本兜底）。
-    PMK.localeText = function (map, fallback) {
-        if (!map || typeof map !== 'object') return fallback || '';
-        var lang = PMK.currentLang();
-        if (map[lang]) return map[lang];
+    // 文本、链接标签与文档共用语言选择；有作者默认语言时不把简繁体当作同一主语言。
+    PMK.localeKey = function (map, defaultLocale) {
+        if (!map || typeof map !== 'object') return null;
+        var keys = Object.keys(map).filter(function (key) { return !!map[key]; });
+        function normalized(value) { return String(value || '').replace(/_/g, '-').toLowerCase(); }
+        function exact(value) { return keys.find(function (key) { return normalized(key) === normalized(value); }); }
+        var lang = normalized(PMK.currentLang());
+        var match = exact(lang);
+        if (match) return match;
         var base = lang.split('-')[0];
-        if (map[base]) return map[base];
-        if (map.zh) return map.zh;
-        if (map.en) return map.en;
-        var keys = Object.keys(map);
-        return keys.length ? map[keys[0]] : (fallback || '');
+        if (!defaultLocale) return exact(base) || exact('zh') || exact('en') || keys[0] || null;
+        if (base === 'zh') {
+            function script(value) {
+                try { return new Intl.Locale(value).maximize().script; } catch (error) { return null; }
+            }
+            match = keys.slice().sort().find(function (key) {
+                return normalized(key).split('-')[0] === 'zh' && script(key) === script(lang);
+            });
+        } else match = exact(base) || keys.slice().sort().find(function (key) { return normalized(key).split('-')[0] === base; });
+        return match || exact(defaultLocale) || exact('en') || keys.sort()[0] || null;
+    };
+    PMK.localeText = function (map, fallback, defaultLocale) {
+        var key = PMK.localeKey(map, defaultLocale);
+        return key ? map[key] : (fallback || '');
     };
 
     PMK.iconClass = function (token) {
