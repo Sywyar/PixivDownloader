@@ -27,7 +27,7 @@
         }
         function progress(phase) {
             return h('div', { class: 'pmk-install-progress', role: 'status' }, [
-                h('div', { class: 'pmk-install-progress-label' }, [icon(phase === 'confirm' || phase === 'trust' ? 'fa-solid fa-clock' : 'fa-solid fa-spinner fa-spin'), t('install.phase.' + (phase || 'installing'))])
+                h('div', { class: 'pmk-install-progress-label' }, [icon(phase === 'confirm' || phase === 'trust' ? 'fa-solid fa-clock' : 'fa-solid fa-spinner fa-spin'), t(PMK.installPhaseKey(phase))])
             ]);
         }
         function factSection(section) {

@@ -3,7 +3,6 @@ package top.sywyar.pixivdownload.plugin.catalog.operation;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogAcquisitionService;
-import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogService;
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode;
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException;
 import top.sywyar.pixivdownload.plugin.install.PluginDependencyInstallResult;
@@ -27,21 +26,19 @@ public class PluginAcquisitionOperations {
     static final int MAX_RECORDS = 64;
     static final Duration RETENTION = Duration.ofHours(24);
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(PluginAcquisitionOperations.class);
-    private final PluginCatalogService catalog;
     private final PluginCatalogAcquisitionService acquisition;
     private final ExternalPluginLifecycleCoordinator coordinator;
     private final Clock clock;
     private final Map<String, Entry> entries = new LinkedHashMap<>();
 
     @Autowired
-    public PluginAcquisitionOperations(PluginCatalogService catalog, PluginCatalogAcquisitionService acquisition,
+    public PluginAcquisitionOperations(PluginCatalogAcquisitionService acquisition,
                                        ExternalPluginLifecycleCoordinator coordinator) {
-        this(catalog, acquisition, coordinator, Clock.systemUTC());
+        this(acquisition, coordinator, Clock.systemUTC());
     }
 
-    PluginAcquisitionOperations(PluginCatalogService catalog, PluginCatalogAcquisitionService acquisition,
+    PluginAcquisitionOperations(PluginCatalogAcquisitionService acquisition,
                                 ExternalPluginLifecycleCoordinator coordinator, Clock clock) {
-        this.catalog = catalog;
         this.acquisition = acquisition;
         this.coordinator = coordinator;
         this.clock = clock;
@@ -53,11 +50,13 @@ public class PluginAcquisitionOperations {
                 || confirmTrust != null && !confirmTrust.matches("[0-9a-fA-F]{64}")) {
             throw new PluginCatalogException(PluginCatalogErrorCode.INSTALL_PREVIEW_CHANGED, "invalid preview confirmation");
         }
-        var selected = catalog.resolvePackage(repositoryId, pluginId, version);
         var preview = acquisition.preview(repositoryId, pluginId, version);
         if (!fingerprint.equals(preview.fingerprint())) {
             throw new PluginCatalogException(PluginCatalogErrorCode.INSTALL_PREVIEW_CHANGED, "preview changed");
         }
+        var selected = preview.packages().stream().filter(item -> Objects.equals(item.pluginId(), pluginId)
+                && !"REUSE".equals(item.action())).findFirst().orElseThrow(() ->
+                new PluginCatalogException(PluginCatalogErrorCode.INSTALL_PREVIEW_CHANGED, "preview target is missing"));
         synchronized (this) {
             expire();
             // ponytail: 只有一条实际写链且不排队；需要多仓库并行时再细分预约域。
@@ -69,8 +68,8 @@ public class PluginAcquisitionOperations {
                 throw new PluginCatalogException(PluginCatalogErrorCode.OPERATION_CAPACITY, "operation history is full");
             }
             String id = UUID.randomUUID().toString();
-            var entry = new Entry(id, selected.repository().repositoryId(), selected.entry().pluginId(),
-                    selected.pkg().version(), fingerprint, confirmTrust, clock.instant());
+            var entry = new Entry(id, selected.repositoryId(), selected.pluginId(),
+                    selected.version(), fingerprint, confirmTrust, clock.instant());
             entries.put(id, entry);
             return snapshot(entry);
         }

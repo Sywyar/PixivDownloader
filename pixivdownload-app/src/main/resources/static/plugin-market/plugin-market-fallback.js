@@ -39,7 +39,7 @@
         if (status === 'INSTALLING') {
             var phase = state.installing[installKey(card.repositoryId, card.pluginId)];
             return '<div class="pmk-install-progress" role="status"><div class="pmk-install-progress-label">' +
-                '<i class="fa-solid ' + (phase === 'confirm' || phase === 'trust' ? 'fa-clock' : 'fa-spinner fa-spin') + '"></i>' + esc(t('install.phase.' + phase)) +
+                '<i class="fa-solid ' + (phase === 'confirm' || phase === 'trust' ? 'fa-clock' : 'fa-spinner fa-spin') + '"></i>' + esc(t(PMK.installPhaseKey(phase))) +
                 '</div></div>';
         }
         var meta = PMK.installMeta(status);

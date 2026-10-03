@@ -4,6 +4,7 @@
     var PMK = global.PixivPluginMarket;
     var records = [], rows = new Map();
     var timer, watchedId, busy = false, disposed = false, mounted = false, generation = 0;
+    var progressListener;
     var loaded = false, queryFailed = false, expanded = false, refreshQueued = false;
     var button, buttonLabel, badge, panel, panelHost, list, notice, refreshButton, closeButton;
     var title, hint, retentionTitle, retention, manageLink;
@@ -141,7 +142,11 @@
         render();
         try {
             var next = await PMK.api.fetchOperations();
-            if (token === generation && !disposed) { records = next; loaded = true; queryFailed = false; }
+            if (token === generation && !disposed) {
+                records = next; loaded = true; queryFailed = false;
+                var active = records.find(function (record) { return record.id === watchedId; });
+                if (active && !active.finished && progressListener) progressListener(active.operation);
+            }
         } catch (error) {
             if (token === generation && !disposed) queryFailed = true;
         } finally {
@@ -159,8 +164,11 @@
 
     PMK.operations = {
         refresh: refresh,
-        watch: function (id) { watchedId = id; refresh(); },
-        settled: function (id) { if (watchedId === id) watchedId = null; refresh(); },
+        watch: function (id, listener) { watchedId = id; progressListener = listener; refresh(); },
+        settled: function (id) {
+            if (watchedId === id) { watchedId = null; progressListener = null; }
+            refresh();
+        },
         render: render,
         mountButton: function (host) { if (host && button && button.parentNode !== host) host.appendChild(button); },
         mountPanel: function (host) {
@@ -210,7 +218,9 @@
                 clearTimeout(timer);
                 if (!document.hidden) refresh();
             });
-            global.addEventListener('pagehide', function () { disposed = true; generation++; clearTimeout(timer); });
+            global.addEventListener('pagehide', function () {
+                disposed = true; generation++; progressListener = null; clearTimeout(timer);
+            });
             global.addEventListener('pageshow', function () { disposed = false; refresh(); });
             refresh();
         }

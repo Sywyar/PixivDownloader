@@ -285,7 +285,8 @@ public class PluginCatalogService {
         if (pkg == null || !version.equals(pkg.version())) throw versionMissing(pluginId, version);
         validatePackageSignature(repository, pkg, pluginId);
         rememberGeneration(repository, document.generation());
-        return new ResolvedPackage(repository, null, pkg);
+        return new ResolvedPackage(repository,
+                new PluginCatalogEntry(pluginId, null, null, null, null, List.of(pkg)), pkg);
     }
 
     ResolvedPackage resolveDefaultPackage(String pluginId, String version) {

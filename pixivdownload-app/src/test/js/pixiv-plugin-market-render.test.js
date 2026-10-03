@@ -122,9 +122,11 @@ async function mountMarket({ community = false, revocation = null, compatibleOld
                 riskDeclaration: { present: true, signals: version === '2.0.0' ? ['network'] : [] } };
         }
     };
+    let progress;
     market.installPluginWithConfirmation = (...args) => {
         installCalls.push(args.slice(0, 3));
         assert.equal(typeof args[3], 'function');
+        progress = args[3];
         args[3]('confirm');
         return new Promise(resolve => { finishInstall = resolve; });
     };
@@ -134,6 +136,7 @@ async function mountMarket({ community = false, revocation = null, compatibleOld
     async function flush() { await new Promise(resolve => setImmediate(resolve)); await Vue.nextTick(); }
     await flush();
     return { root, market, errors, document, flush, installCalls, factCalls,
+        progress: phase => progress(phase),
         completeInstall: body => finishInstall({ kind: 'install', body }),
         async reload(options) {
             if (options.status) status = options.status;
@@ -190,6 +193,12 @@ test('市场在禁止动态代码编译时挂载，筛选、详情、安装结�
     assert.deepEqual(page.installCalls, [['repo', 'visible', '1.0.0']]);
     assert.equal(elements(root, 'pmk-install-progress').length, 2);
     elements(root, 'pmk-install-progress').forEach(node => assert.match(textOf(node), /install.phase.confirm/));
+    for (const phase of ['PREPARING', 'DOWNLOADING', 'INSTALLING', 'ROLLING_BACK']) {
+        page.progress(phase);
+        await flush();
+        elements(root, 'pmk-install-progress').forEach(node =>
+            assert.ok(textOf(node).includes('operations.state.' + phase)));
+    }
     assert.equal(elements(root, 'pmk-progress-bar').length, 0);
     assert.equal(one('pmk-modal').open, true);
     page.completeInstall({ outcome: 'INSTALLED', accepted: true, effectiveAfterRestart: true, message: 'Restart needed' });

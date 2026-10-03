@@ -930,7 +930,9 @@ public class ExternalPluginInstaller implements AutoCloseable {
             requireRecoverySafe("verify committed plugin target");
             RecoveryManifest manifest = requireManagedCommittedManifest(
                     transaction, PluginTransactionState.NEW_PLACED);
-            recoveryVisibleInventoryVerifier.verifyActivatedTarget(manifest, verificationService);
+            PluginRecoveryResourceBudget budget = new PluginRecoveryResourceBudget(previousInventoryBudget);
+            recoveryVisibleInventoryVerifier.verifyActivatedTarget(manifest,
+                    recoveryVisibleInventoryVerifier.inspectVisibleInventory(budget), budget, verificationService);
         } catch (IOException | PluginRecoveryValidationException e) {
             // 调用方必须先按同一 committed handle 回滚；回滚失败才封闭 gate，避免自锁。
             throw new IllegalStateException("committed plugin target failed its frozen verification", e);
@@ -2103,7 +2105,9 @@ public class ExternalPluginInstaller implements AutoCloseable {
                         || completed.manifest().state() != PluginTransactionState.COMMITTED) {
                     throw new IOException("completed removal transaction could not be verified");
                 }
-                recoveryVisibleInventoryVerifier.verifyRemovedIdentityAbsent(completed.manifest());
+                recoveryVisibleInventoryVerifier.verifyRemovedIdentityAbsent(completed.manifest(),
+                        recoveryVisibleInventoryVerifier.inspectVisibleInventory(
+                                new PluginRecoveryResourceBudget(previousInventoryBudget)));
                 retireTransaction(completed);
                 attempt.confirm(PluginRemovalAttempt.Outcome.REMOVED);
                 return true;
@@ -2535,6 +2539,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 prepared.transactionId(),
                 candidate,
                 "PixivDownloader plugin transaction",
+                new PluginRecoveryResourceBudget(previousInventoryBudget),
                 verificationService);
     }
 
@@ -2563,6 +2568,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 transaction.getFileName().toString(),
                 candidate,
                 "PixivDownloader plugin removal transaction",
+                new PluginRecoveryResourceBudget(previousInventoryBudget),
                 verificationService);
     }
 

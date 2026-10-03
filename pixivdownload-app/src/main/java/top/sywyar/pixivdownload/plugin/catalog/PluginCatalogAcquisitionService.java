@@ -338,10 +338,13 @@ public class PluginCatalogAcquisitionService {
             String confirmedTrustSha256, PluginCatalogService.ResolvedPackage expected,
             Consumer<ExternalPluginOperationSnapshot> progress) {
 
-        var resolved = catalogService.resolvePackage(repository.repositoryId(), pluginId, version);
-        if (expected != null) {
-            requireSameSelection(expected);
-            resolved = expected;
+        // 执行计划刚完成选包与指纹复核；复用该已验证选择，下载后仍重新读取目录。
+        var resolved = expected != null ? expected
+                : catalogService.resolvePackage(repository.repositoryId(), pluginId, version);
+        if (expected != null && !expected.repository().equals(
+                catalogService.resolveRepository(expected.repository().repositoryId()))) {
+            throw new PluginCatalogException(PluginCatalogErrorCode.INSTALL_PREVIEW_CHANGED,
+                    pluginId, version, "catalog repository changed after preview");
         }
         repository = resolved.repository();
         PluginCatalogPackage pkg = resolved.pkg();

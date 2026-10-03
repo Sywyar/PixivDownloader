@@ -156,7 +156,7 @@
         }
         function attempt(confirmations) {
             phase('installing');
-            return PMK.api.installPlugin(repositoryId, pluginId, version, confirmations).then(function (response) {
+            return PMK.api.installPlugin(repositoryId, pluginId, version, confirmations, phase).then(function (response) {
                 rememberDependencies(response);
                 var body = response.body || {};
                 var trustRequired = body.outcome === PMK.TRUST_CONFIRMATION_REQUIRED
@@ -187,6 +187,11 @@
         var client = PMK.state.i18n.client;
         // 语言一律来自 meta：优先当前语言，缺省用 meta 的 defaultLang，不写死语言
         return client ? (client.lang || client.defaultLang || '') : '';
+    };
+
+    PMK.installPhaseKey = function (phase) {
+        return ['PREPARING', 'DOWNLOADING', 'INSTALLING', 'UPDATING', 'ROLLING_BACK'].indexOf(phase) >= 0
+            ? 'operations.state.' + phase : 'install.phase.' + (phase || 'installing');
     };
 
     // 恢复横幅原因：直接投影 /api/plugins/status 的结构化恢复原因，不另造页面私有状态协议。

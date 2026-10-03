@@ -90,13 +90,14 @@
             message: PMK.t('operations.running', '', {id: value.id})} };
     }
 
-    async function executeConfirmedPlan(repositoryId, pluginId, version, confirmations) {
+    async function executeConfirmedPlan(repositoryId, pluginId, version, confirmations, onProgress) {
+        if (onProgress) onProgress('PREPARING');
         var prepared = await postJson('/api/plugin-market/operations', {
             repositoryId: repositoryId, pluginId: pluginId, version: version,
             fingerprint: confirmations.fingerprint, confirmTrust: confirmations.trustSha256
         });
         if (!prepared || !prepared.id) throw new Error(PMK.t('operations.unknown'));
-        if (PMK.operations) PMK.operations.watch(prepared.id);
+        if (PMK.operations) PMK.operations.watch(prepared.id, onProgress);
         try {
             return operationResult(await postJson('/api/plugin-market/operations/' + enc(prepared.id) + '/execute', {}));
         } catch (failure) {
@@ -115,11 +116,11 @@
     // POST /api/plugin-market/{repositoryId}/{pluginId}/{version}/install（请求体不含 URL）。
     // 后端对「已决安装结局」返回 PluginInstallResponse（带稳定 outcome，含各类拒绝），对「拿到包之前的 catalog / 下载层
     // 失败」返回错误体（带稳定 code）。据响应体字段归一化：outcome → install；code → error；都没有 → 抛错（如 401 跳登录）。
-    API.installPlugin = function (repositoryId, pluginId, version, confirmations) {
+    API.installPlugin = function (repositoryId, pluginId, version, confirmations, onProgress) {
         var url = '/api/plugin-market/' + enc(repositoryId) + '/' + enc(pluginId) + '/' + enc(version) + '/install';
         confirmations = confirmations || {};
         if (confirmations.fingerprint) {
-            return executeConfirmedPlan(repositoryId, pluginId, version, confirmations);
+            return executeConfirmedPlan(repositoryId, pluginId, version, confirmations, onProgress);
         }
         var query = [];
         if (confirmations.trustSha256) query.push('confirmTrust=' + enc(confirmations.trustSha256));

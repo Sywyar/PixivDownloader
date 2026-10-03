@@ -24,7 +24,6 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class PluginAcquisitionOperationsTest {
-    private final PluginCatalogService catalog = mock(PluginCatalogService.class);
     private final PluginCatalogAcquisitionService acquisition = mock(PluginCatalogAcquisitionService.class);
     private final ExternalPluginLifecycleCoordinator coordinator = mock(ExternalPluginLifecycleCoordinator.class);
     private final AtomicReference<Instant> now = new AtomicReference<>(Instant.parse("2025-01-01T00:00:00Z"));
@@ -35,15 +34,11 @@ class PluginAcquisitionOperationsTest {
     void prepare() {
         Clock clock = mock(Clock.class);
         when(clock.instant()).thenAnswer(call -> now.get());
-        var repository = PluginRepository.official(true, 1000, 1000, 1024, 1024);
-        var pkg = new PluginCatalogPackage("1.0.0", "https://example.invalid/pkg", 1L, "b".repeat(64),
-                null, null, null, List.of(), null, List.of(), null, false);
-        var entry = new PluginCatalogEntry("sample", null, null, null, null, List.of(pkg));
-        when(catalog.resolvePackage("official", "sample", "1.0.0"))
-                .thenReturn(new PluginCatalogService.ResolvedPackage(repository, entry, pkg));
         when(acquisition.preview("official", "sample", "1.0.0"))
-                .thenReturn(new PluginCatalogInstallPreview.View(fingerprint, List.of(), List.of()));
-        service = new PluginAcquisitionOperations(catalog, acquisition, coordinator, clock);
+                .thenReturn(new PluginCatalogInstallPreview.View(fingerprint, List.of(
+                        new PluginCatalogInstallPreview.Item("sample", "1.0.0", "official", null, "b".repeat(64),
+                                null, null, "INSTALL", List.of(), List.of(), "PACKAGE_DECIDES")), List.of()));
+        service = new PluginAcquisitionOperations(acquisition, coordinator, clock);
     }
 
     private PluginAcquisitionOperations.Snapshot prepareOperation() {
@@ -61,6 +56,10 @@ class PluginAcquisitionOperationsTest {
     void queriesWhileDownloadingAndDeduplicatesExecution() throws Exception {
         var prepared = prepareOperation();
         assertThat(prepared.started()).isFalse();
+        assertThat(prepared.repositoryId()).isEqualTo("official");
+        assertThat(prepared.pluginId()).isEqualTo("sample");
+        assertThat(prepared.version()).isEqualTo("1.0.0");
+        verify(acquisition).preview("official", "sample", "1.0.0");
         verify(acquisition, never()).installPreviewed(anyString(), anyString(), anyString(), any(), anyString(), any());
         var download = new CountDownLatch(1);
         var release = new CountDownLatch(1);
@@ -123,7 +122,7 @@ class PluginAcquisitionOperationsTest {
         assertThatThrownBy(() -> service.execute(expired.id())).isInstanceOfSatisfying(PluginCatalogException.class,
                 failure -> assertThat(failure.code()).isEqualTo(PluginCatalogErrorCode.OPERATION_NOT_FOUND));
         assertThat(service.list()).isEmpty();
-        var anotherProcess = new PluginAcquisitionOperations(catalog, acquisition, coordinator);
+        var anotherProcess = new PluginAcquisitionOperations(acquisition, coordinator);
         assertThatThrownBy(() -> anotherProcess.execute(expired.id())).isInstanceOf(PluginCatalogException.class);
         verify(acquisition, never()).installPreviewed(anyString(), anyString(), anyString(), any(), anyString(), any());
     }
