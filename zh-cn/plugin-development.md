@@ -111,6 +111,8 @@ SDK 开发包提供单个 `pixivdownload-sdk` 编译依赖、独立 Maven 工程
 </dependency>
 ```
 
+Java 控制器使用未显式命名的 `@PathVariable` 或 `@RequestParam` 时，编译必须保留参数名。Maven 工程在 `<properties>` 中设置 `<maven.compiler.parameters>true</maven.compiler.parameters>`；其他构建工具向 Java 编译器传入 `-parameters`。已有工程也需检查此设置，并通过宿主实际调用打包后的接口，不能只测试控制器方法。
+
 Gradle 使用 `compileOnly("io.github.sywyar.pixivdownloader:pixivdownload-sdk:SDK_VERSION")`，sbt 使用 `"io.github.sywyar.pixivdownloader" % "pixivdownload-sdk" % "SDK_VERSION" % Provided`。标准 Ivy 可映射编译配置：
 
 ```xml

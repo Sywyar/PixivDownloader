@@ -112,6 +112,8 @@ The SDK development package provides one `pixivdownload-sdk` compile dependency,
 </dependency>
 ```
 
+Java controllers that use `@PathVariable` or `@RequestParam` without an explicit name need parameter names in the compiled classes. In Maven, add `<maven.compiler.parameters>true</maven.compiler.parameters>` to `<properties>`; with other build tools, pass `-parameters` to the Java compiler. Check this setting in existing projects too, and call the packaged endpoints through the host to verify request binding. Calling controller methods directly does not exercise it.
+
 Gradle uses `compileOnly("io.github.sywyar.pixivdownloader:pixivdownload-sdk:SDK_VERSION")`. sbt uses `"io.github.sywyar.pixivdownloader" % "pixivdownload-sdk" % "SDK_VERSION" % Provided`. Standard Ivy can map its compile configuration:
 
 ```xml
