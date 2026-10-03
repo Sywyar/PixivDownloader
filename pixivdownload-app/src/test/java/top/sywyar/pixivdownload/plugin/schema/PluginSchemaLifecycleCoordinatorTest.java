@@ -1,13 +1,17 @@
 package top.sywyar.pixivdownload.plugin.schema;
 
+import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInfo;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.springframework.jdbc.datasource.SingleConnectionDataSource;
+import top.sywyar.pixivdownload.core.db.DatabasePoolProperties;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
+import top.sywyar.pixivdownload.core.db.sqlite.SqliteDatabase;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
@@ -21,6 +25,7 @@ import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginSource;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -30,18 +35,20 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DisplayName("外置插件动态 schema 生命周期")
 class PluginSchemaLifecycleCoordinatorTest {
 
-    private SingleConnectionDataSource dataSource;
+    @TempDir
+    static Path tempDir;
+
+    private HikariDataSource dataSource;
     private JdbcTemplate jdbc;
     private DatabaseSchemaRegistry registry;
     private PluginSchemaLifecycleCoordinator coordinator;
     private List<Object> events;
 
     @BeforeEach
-    void setUp() {
-        dataSource = new SingleConnectionDataSource();
-        dataSource.setDriverClassName("org.sqlite.JDBC");
-        dataSource.setUrl("jdbc:sqlite::memory:");
-        dataSource.setSuppressClose(true);
+    void setUp(TestInfo testInfo) {
+        // 多连接文件库确保提交前的自省只能在 DDL 所在事务连接上看到新结构。
+        Path databasePath = tempDir.resolve(testInfo.getTestMethod().orElseThrow().getName() + ".db");
+        dataSource = SqliteDatabase.openPool(databasePath, DatabasePoolProperties.MINIMUM_POOL_SIZE);
         jdbc = new JdbcTemplate(dataSource);
         registry = new DatabaseSchemaRegistry(new PluginRegistry(List.of()));
         events = new ArrayList<>();
@@ -57,7 +64,7 @@ class PluginSchemaLifecycleCoordinatorTest {
 
     @AfterEach
     void tearDown() {
-        dataSource.destroy();
+        dataSource.close();
     }
 
     @Test

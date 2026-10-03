@@ -1,12 +1,11 @@
 package top.sywyar.pixivdownload.tools;
 
-import org.sqlite.SQLiteConfig;
+import top.sywyar.pixivdownload.core.db.sqlite.SqliteDatabase;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import javax.sql.DataSource;
 import java.nio.file.Path;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -25,13 +24,7 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
     }
 
     static ArtworksBackFillDatabase open(String dbPath) throws SQLException {
-        SQLiteConfig sqliteConfig = new SQLiteConfig();
-        sqliteConfig.setBusyTimeout(5000);
-        sqliteConfig.setJournalMode(SQLiteConfig.JournalMode.WAL);
-        Connection connection = DriverManager.getConnection(
-                "jdbc:sqlite:" + dbPath,
-                sqliteConfig.toProperties()
-        );
+        Connection connection = SqliteDatabase.openConnection(Path.of(dbPath));
         return prepare(connection);
     }
 

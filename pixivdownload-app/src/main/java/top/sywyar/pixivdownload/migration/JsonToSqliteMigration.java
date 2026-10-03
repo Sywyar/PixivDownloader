@@ -7,10 +7,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
-import org.sqlite.SQLiteConfig;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
+import top.sywyar.pixivdownload.core.db.sqlite.SqliteDatabase;
 import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 import top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
@@ -19,7 +19,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -120,15 +119,10 @@ public class JsonToSqliteMigration {
 
         report(reporter, message("migration.log.found-records", total));
 
-        SQLiteConfig sqliteConfig = new SQLiteConfig();
-        sqliteConfig.setBusyTimeout(5000);
-        sqliteConfig.setJournalMode(SQLiteConfig.JournalMode.WAL);
-
         int migrated = 0;
         int skipped = 0;
 
-        try (Connection conn = DriverManager.getConnection(
-                "jdbc:sqlite:" + options.dbPath(), sqliteConfig.toProperties())) {
+        try (Connection conn = SqliteDatabase.openConnection(Paths.get(options.dbPath()))) {
 
             ensureSchema(conn);
 

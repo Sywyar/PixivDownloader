@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.gui;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.sqlite.SQLiteConfig;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -14,6 +13,7 @@ import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefix;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
+import top.sywyar.pixivdownload.core.db.sqlite.SqliteDatabase;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarFiles;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
@@ -24,7 +24,6 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -298,11 +297,7 @@ final class DesktopUiTools {
     }
 
     private static Connection openDatabase(Path databasePath) throws SQLException {
-        SQLiteConfig configuration = new SQLiteConfig();
-        configuration.setBusyTimeout(5000);
-        configuration.setJournalMode(SQLiteConfig.JournalMode.WAL);
-        configuration.setReadOnly(false);
-        return DriverManager.getConnection("jdbc:sqlite:" + databasePath, configuration.toProperties());
+        return SqliteDatabase.openConnection(databasePath);
     }
 
     private static StoredPathCodec loadPathCodec(Connection connection, String rootFolder) throws SQLException {

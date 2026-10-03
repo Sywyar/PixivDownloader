@@ -4,13 +4,13 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.core.db.sqlite.SqliteDatabase;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceContext;
 import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceTask;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
-import java.sql.Statement;
 
 /**
  * 维护任务：刷新 SQLite 查询规划器统计信息（sqlite_stat1），让索引选择保持稳定。
@@ -35,9 +35,8 @@ public class DatabaseOptimizeTask implements MaintenanceTask {
 
     @Override
     public void execute(MaintenanceContext context) throws Exception {
-        try (Connection connection = dataSource.getConnection();
-             Statement statement = connection.createStatement()) {
-            statement.execute("PRAGMA optimize");
+        try (Connection connection = dataSource.getConnection()) {
+            SqliteDatabase.optimize(connection);
             log.info(MessageBundles.getForLog("maintenance.log.database-optimize.done"));
         }
     }
