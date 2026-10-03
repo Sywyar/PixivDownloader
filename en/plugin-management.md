@@ -10,6 +10,15 @@ The **Plugin Management** page (top nav → **Plugins**) lets an admin see all o
 
 Add or edit custom repositories in GUI Settings → Plugin market settings. The dialog offers “Use repository descriptor” and “Enter manually”. The descriptor option previews the publisher, network hosts and full public-key fingerprints, then adds the confirmed repository to the settings draft. Manual entry provides repository, network policy and trusted-key fields. Save settings and restart to apply the changes. The web marketplace browses and installs plugins.
 
+## Marketplace documents
+
+Hosts with document support show icons, screenshots and author-provided links in plugin details. Select a version, then expand README, release notes or the full CHANGELOG. Documents load on demand, with a retry action after failures. Historical catalogs retain their homepage and plain-text release notes.
+
+HTML and Markdown are static reading views. Document scripts, forms, event handlers and custom styles do not run. Images come from digest-verified version attachments; document bodies do not cause the browser to fetch arbitrary author-specified image URLs. Links open when clicked. Content prefers the current language, then the author's default language and available fallback.
+
+These documents help explain a plugin's use. Source verification, compatibility and revocation checks still apply. Availability depends on the submitted content, deployed community tools and installed host.
+
+
 ## Execution security
 
 A signature proves publisher identity and artifact integrity. It does not certify harmless behavior or grant runtime capabilities.

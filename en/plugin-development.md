@@ -747,6 +747,17 @@ Templates build a thin PF4J JAR by default:
 
 The host also supports a PF4J JAR-with-lib for private third-party dependencies. Its root still contains the descriptor, plugin classes, and resources; private dependencies go in `lib/*.jar`. Do not shade or bundle shared contracts. Add package-structure and isolated-classloader loading tests when choosing JAR-with-lib. The official default delivery format remains `.jar`, not ZIP.
 
+## Submit marketplace content
+
+SDK tools with document support read `CHANGELOG.md` from the candidate's fixed source commit. They match the exact plugin version in a level-two heading such as `## [v8.2.6] - 2031.3.2`, preserving categories such as `### Features` and `### Bug Fixes`. A missing or duplicate match requires another file, manual notes or explicit omission. Optional README accepts UTF-8 Markdown or HTML from the repository, a local file or multiline input. Full CHANGELOG and release notes remain separate attachments.
+
+Documents use the selected default language and freeze their bytes after preview confirmation. Relative images stay within the selected root; external images require explicit download confirmation. Links are editable lists with preset purposes, custom localized labels and an explicit empty state. See the [community submission guide](https://github.com/Sywyar/PixivDownloader-community-plugins/blob/master/README_en.md#submissions-and-version-management) for input and recovery controls.
+
+Optional version `content` contains locale maps for `readme`, `changelog` and `releaseNotes`. Each document records `format`, `asset`, optional `sourcePath` and image `resources`. Assets record `name`, `url`, `mediaType`, `size` and `sha256`. Missing market `links` retains the `homepageUrl` fallback; an empty list means no links. Use the community Schema from the same SDK development package for the complete contract.
+
+Community publication places documents, images and the plugin package in the same version release. The signed catalog binds their references. The client fetches them on demand, verifies size and digest, and displays sanitized HTML in an isolated static document. The JAR signature does not cover these documents; review references and the catalog bind them. Community tools must verify the new SDK's public bytes before updating their pin, and the host must include document support. Adding market metadata alone does not require increasing an existing plugin's `plugin.requires`; SDK 1.1 hosts still accept `requires=1.0`.
+
+
 ## Signing and publishing
 
 ### Publisher keys and community operation signatures

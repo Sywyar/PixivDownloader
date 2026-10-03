@@ -746,6 +746,17 @@ mvn -pl pixivdownload-official-plugins -am -Pdev-mode process-classes -Dexec.ski
 
 宿主也支持 PF4J JAR-with-lib，用于插件私有第三方库：根部仍是 descriptor、插件类和资源，私有依赖放 `lib/*.jar`。不要 shade 或私带共享契约。选择 JAR-with-lib 时应增加包结构和独立 classloader 加载测试；官方默认交付格式仍是 `.jar`，不是 ZIP。
 
+## 投稿市场资料
+
+支持文档投稿的 SDK 工具可从候选绑定的源码提交读取 `CHANGELOG.md`，按插件版本精确提取 `## [v8.2.6] - 2031.3.2` 这样的二级标题，保留 `### Features`、`### Bug Fixes` 等分类。找不到唯一版本时，向导要求重选、手工输入或明确跳过。可选 README 支持 UTF-8 Markdown、HTML、仓库内文件、本地文件或多行输入；完整 CHANGELOG 与本次说明分别发布。
+
+文档按默认语言收录，预览确认后冻结字节。相对图片只能取自选定目录；外部图片须明确确认下载。链接是可增减列表，支持预设用途、自定义本地化标题及显式空列表。具体输入与恢复方式见[社区投稿说明](https://github.com/Sywyar/PixivDownloader-community-plugins#投稿与版本管理)。
+
+版本投稿的可选 `content` 包含 `readme`、`changelog`、`releaseNotes` 语言映射；文档记录 `format`、`asset`、可选 `sourcePath` 与图片 `resources`。附件记录 `name`、`url`、`mediaType`、`size`、`sha256`。市场元数据的 `links` 缺失时兼容 `homepageUrl`，空列表表示不提供链接。完整字段与约束以同一 SDK 开发包的社区 Schema 为准。
+
+社区把文档、图片和插件包放在同一个版本 Release，目录保存受签名保护的引用。客户端按需读取并复核大小与摘要，HTML 以净化后的隔离静态文档显示。文档签名边界属于审核引用和目录，不能把 JAR 签名当作文档证明。社区须先验证新 SDK 的公开发行字节再升级固定工具；宿主也须包含对应的展示支持。只增加市场资料不要求旧插件提高 `plugin.requires`，SDK 1.1 宿主仍兼容 `requires=1.0`。
+
+
 ## 签名和发布
 
 ### 发布者密钥与社区操作签名
