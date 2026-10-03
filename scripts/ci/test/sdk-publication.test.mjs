@@ -11,13 +11,17 @@ import { inspectSdkVersion, parseSdkVersion, SDK_ARTIFACTS } from '../sdk-versio
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const IDENTITY = inspectSdkVersion(ROOT);
 const workflow = YAML.parse(fs.readFileSync(path.join(ROOT, '.github/workflows/publish-sdk.yml'), 'utf8'));
-const script = workflow.jobs.publish.steps.find(step => step.name === 'Check immutable publication state').run;
+const publication = YAML.parse(fs.readFileSync(path.join(ROOT,
+    workflow.jobs.publish.steps.find(step => step.uses === './.github/actions/publish-sdk').uses, 'action.yml'), 'utf8'));
+const script = publication.runs.steps.find(step => step.name === 'Check immutable publication state').run;
 
 test('发行调用复用完整的公共 SDK，首次发布与显式恢复继续进入门禁，查询失败不能当作尚未发布', () => {
     const work = fs.mkdtempSync(path.join(os.tmpdir(), 'sdk-publication-plan-'));
     try {
         const entry = path.join(work, 'plan.sh');
-        const plan = workflow.jobs['release-plan'].steps.find(step => step.id === 'plan').run;
+        const planAction = workflow.jobs['release-plan'].steps.find(step => step.id === 'plan');
+        const plan = YAML.parse(fs.readFileSync(path.join(ROOT, planAction.uses, 'action.yml'), 'utf8'))
+            .runs.steps.find(step => step.id === 'plan').run;
         fs.writeFileSync(entry, [
             'git() {',
             '  case "$1" in',

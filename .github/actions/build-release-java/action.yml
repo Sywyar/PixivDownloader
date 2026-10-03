@@ -2,6 +2,9 @@ name: Build release Java artifacts
 description: Build and verify production artifacts before distributing the app shell
 
 inputs:
+  release_candidate_id:
+    description: Immutable release candidate artifact ID from the complete Quality Gate
+    required: true
   release_version:
     description: Application version embedded in the executable JAR
     required: true
@@ -28,6 +31,8 @@ runs:
 
     - name: Restore plugin artifacts verified by this run
       uses: ./.github/actions/restore-release-candidates
+      with:
+        candidate_id: ${{ inputs.release_candidate_id }}
 
     - name: Prepare production plugin credential key filter
       shell: pwsh

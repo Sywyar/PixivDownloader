@@ -1,7 +1,7 @@
 name: Publish plugins
 
 # 构建官方外置插件 → 发布到独立分发仓库的 Release，并生成 / 提交插件市场 manifest.json。
-# 触发：由 release/nightly 复用调用（串行阻塞主产物打包）/ 手动。
+# 独立插件发布入口；Release / Nightly 在各自完整 Gate 后直接复用发布 Action。
 # 跨仓库写入用细粒度 PAT（secrets.CROSS_REPO_RELEASE_TOKEN，目标仓库 Contents: 读写 + Metadata: 读），
 # 本仓库自带 GITHUB_TOKEN 不能跨仓库写。
 on:
@@ -78,6 +78,10 @@ jobs:
       sdk_publication_mode: ${{ inputs.sdk_publication_mode || 'current' }}
 
   publish:
+    concurrency:
+      group: official-plugin-publication
+      cancel-in-progress: false
+      queue: max
     needs: quality-gate
     if: ${{ github.repository == 'Sywyar/PixivDownloader' }}
     # Windows runner：插件分发脚本面向 Windows PowerShell（plugin-distribution-common.ps1 用 System.IO.Compression / Get-FileHash）。
@@ -94,6 +98,7 @@ jobs:
         if: inputs.publish_in_caller != true
         uses: ./.github/actions/publish-official-plugins
         with:
+          release_candidate_id: ${{ needs.quality-gate.outputs.release_candidate_id }}
           plugin_signing_private_key_pem_base64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
           cross_repo_release_token: ${{ secrets.CROSS_REPO_RELEASE_TOKEN }}
           publish_args: ${{ inputs.publish_args || '' }}

@@ -1,12 +1,23 @@
 name: Restore verified release candidates
 description: Reuse unsigned plugin outputs from this run and source SHA after the complete quality gate
+inputs:
+  candidate_id:
+    description: Immutable release candidate artifact ID from the complete Quality Gate
+    required: true
 runs:
   using: composite
   steps:
+    - name: Require verified candidate identity
+      shell: bash
+      env:
+        CANDIDATE_ID: ${{ inputs.candidate_id }}
+      run: |
+        [[ "$CANDIDATE_ID" =~ ^[1-9][0-9]*$ ]] || { echo "Missing verified release candidate; rerun the complete workflow." >&2; exit 1; }
     - name: Download this run's release candidates
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
-        name: release-candidates-${{ github.sha }}
+        artifact-ids: ${{ inputs.candidate_id }}
+        merge-multiple: true
         path: build/release-candidates
     - name: Verify source, run and every candidate digest
       shell: pwsh

@@ -39,6 +39,46 @@ $fixture = Join-Path $tempBase ('pixiv-workflow-test-' + [Guid]::NewGuid().ToStr
 [IO.Directory]::CreateDirectory($fixture) | Out-Null
 try {
     & {
+        $reader = Join-Path $fixture 'read-action.cjs'
+        [IO.File]::WriteAllText($reader, @'
+const fs = require('node:fs');
+const path = require('node:path');
+const yaml = require(path.join(process.argv[2], 'node_modules/yaml'));
+const action = yaml.parse(fs.readFileSync(path.join(process.argv[2], '.github/actions/stage-release-plugins/action.yml'), 'utf8'));
+process.stdout.write(action.runs.steps.find(step => step.run).run);
+'@, [Text.UTF8Encoding]::new($false))
+        $source = (& node $reader $repo) -join "`n"
+        if ($LASTEXITCODE -ne 0) { throw 'Could not read actual catalog staging action.' }
+        $stageRoot = Join-Path $fixture 'catalog-stage'
+        [IO.Directory]::CreateDirectory((Join-Path $stageRoot 'scripts')) | Out-Null
+        [IO.File]::WriteAllText((Join-Path $stageRoot 'scripts/stage-official-plugin-inputs-from-catalog.ps1'), @'
+param($OutputDir, $SignatureToolJar, $IncludeOptional, $RequireProguard, $ManifestUrl)
+[IO.File]::WriteAllText((Join-Path (Get-Location) 'observed-url.txt'), $ManifestUrl)
+if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/packaging validation.' }
+'@, [Text.UTF8Encoding]::new($false))
+        function Get-ChildItem { return [pscustomobject]@{ Name='signature.jar'; FullName='fixture-signature.jar'; LastWriteTime=[DateTime]::UtcNow } }
+        $originalCommit = $env:PLUGIN_MANIFEST_COMMIT
+        $originalName = $env:MANIFEST_NAME
+        Push-Location $stageRoot
+        try {
+            $env:PLUGIN_MANIFEST_COMMIT = 'a' * 40
+            foreach ($name in @('manifest.json', 'nightly-manifest.json')) {
+                $env:MANIFEST_NAME = $name
+                & ([scriptblock]::Create($source))
+                Assert-Equal ([IO.File]::ReadAllText((Join-Path $stageRoot 'observed-url.txt'))) "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/$env:PLUGIN_MANIFEST_COMMIT/$name"
+            }
+            $env:PLUGIN_MANIFEST_COMMIT = 'master'
+            Assert-Rejected { & ([scriptblock]::Create($source)) } 'Invalid plugin manifest commit'
+            $env:PLUGIN_MANIFEST_COMMIT = 'a' * 40
+            $env:MANIFEST_NAME = '../manifest.json'
+            Assert-Rejected { & ([scriptblock]::Create($source)) } 'Invalid plugin manifest filename'
+        } finally {
+            Pop-Location
+            $env:PLUGIN_MANIFEST_COMMIT = $originalCommit
+            $env:MANIFEST_NAME = $originalName
+        }
+    }
+    & {
         $commands = @(Get-Content (Join-Path $repo '.github/workflows/quality-gate.yml') |
             Where-Object { $_ -match '^\s+run: mvn\b.*-Pofficial-surveys' })
         Assert-Equal $commands.Count 1

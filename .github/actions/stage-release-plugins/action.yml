@@ -3,9 +3,11 @@ description: Verify the published catalog and upload signed plugins for both dis
 
 inputs:
   plugin_manifest_commit:
-    description: Optional commit containing the Nightly plugin manifest
-    required: false
-    default: ''
+    description: Exact commit containing the published plugin manifest
+    required: true
+  manifest_name:
+    description: Signed catalog filename
+    default: manifest.json
 
 runs:
   using: composite
@@ -14,6 +16,7 @@ runs:
       shell: pwsh
       env:
         PLUGIN_MANIFEST_COMMIT: ${{ inputs.plugin_manifest_commit }}
+        MANIFEST_NAME: ${{ inputs.manifest_name }}
       run: |
         $signatureTools = @(Get-ChildItem pixivdownload-plugin-signature/target/pixivdownload-plugin-signature-*.jar -File |
           Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
@@ -27,12 +30,13 @@ runs:
           IncludeOptional = $true
           RequireProguard = $true
         }
-        if (-not [string]::IsNullOrWhiteSpace($env:PLUGIN_MANIFEST_COMMIT)) {
-          if ($env:PLUGIN_MANIFEST_COMMIT -notmatch '^[0-9a-f]{40}$') {
-            throw "Invalid plugin manifest commit: $env:PLUGIN_MANIFEST_COMMIT"
-          }
-          $stageArgs["ManifestUrl"] = "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/$env:PLUGIN_MANIFEST_COMMIT/nightly-manifest.json"
+        if ($env:PLUGIN_MANIFEST_COMMIT -notmatch '^[0-9a-f]{40}$') {
+          throw "Invalid plugin manifest commit: $env:PLUGIN_MANIFEST_COMMIT"
         }
+        if ($env:MANIFEST_NAME -notin @('manifest.json', 'nightly-manifest.json')) {
+          throw "Invalid plugin manifest filename: $env:MANIFEST_NAME"
+        }
+        $stageArgs["ManifestUrl"] = "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/$env:PLUGIN_MANIFEST_COMMIT/$env:MANIFEST_NAME"
         ./scripts/stage-official-plugin-inputs-from-catalog.ps1 @stageArgs
 
     - name: Upload plugin inputs artifact

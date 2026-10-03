@@ -70,21 +70,82 @@ jobs:
     with:
       trusted_base_sha: ${{ needs.trusted-base.outputs.sha }}
 
-  publish-sdk:
+  sdk-release-plan:
     needs: validate-release-tag
     if: github.event_name == 'push'
-    uses: ./.github/workflows/publish-sdk.yml
-    with:
-      publish_requested: true
+    runs-on: ubuntu-latest
+    env:
+      SDK_REPOSITORY: Sywyar/PixivDownloader-Plugin-SDK
+      CENTRAL_BASE_URL: https://repo1.maven.org/maven2
+    outputs:
+      publish: ${{ steps.plan.outputs.publish }}
+      mode: ${{ steps.plan.outputs.mode }}
+      trusted_base_sha: ${{ steps.plan.outputs.trusted_base_sha }}
+      sdk_version: ${{ steps.plan.outputs.sdk_version }}
+      release_id: ${{ steps.plan.outputs.release_id }}
+      prerelease: ${{ steps.plan.outputs.prerelease }}
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Resolve SDK release plan
+        id: plan
+        uses: ./.github/actions/plan-sdk-release
 
   publish-plugins:
-    needs: [validate-release-tag, publish-sdk]
+    name: Quality Gate
+    needs: [validate-release-tag, sdk-release-plan]
     if: github.event_name == 'push'
-    uses: ./.github/workflows/publish-plugins.yml
+    uses: ./.github/workflows/quality-gate.yml
     with:
-      publish_in_caller: true
+      trusted_base_sha: ${{ needs.sdk-release-plan.outputs.trusted_base_sha }}
+      export_release_candidates: true
+      export_sdk_candidates: ${{ needs.sdk-release-plan.outputs.publish == 'true' }}
+      sdk_publication_mode: ${{ needs.sdk-release-plan.outputs.publish == 'true' && 'latest' || 'current' }}
+
+  publish-sdk:
+    needs: [sdk-release-plan, publish-plugins]
+    if: github.repository == 'Sywyar/PixivDownloader'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    environment: release
+    concurrency:
+      group: sdk-publication-${{ needs.sdk-release-plan.outputs.release_id }}
+      cancel-in-progress: false
+      queue: max
+    env:
+      SDK_REPOSITORY: Sywyar/PixivDownloader-Plugin-SDK
+      CENTRAL_BASE_URL: https://repo1.maven.org/maven2
+      GH_TOKEN: ${{ secrets.CROSS_REPO_RELEASE_TOKEN }}
+      CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+      CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+      MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+      SDK_VERSION: ${{ needs.sdk-release-plan.outputs.sdk_version }}
+      RELEASE_ID: ${{ needs.sdk-release-plan.outputs.release_id }}
+      PRERELEASE: ${{ needs.sdk-release-plan.outputs.prerelease }}
+      PUBLICATION_MODE: ${{ needs.sdk-release-plan.outputs.mode }}
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Publish verified SDK
+        if: needs.sdk-release-plan.outputs.publish == 'true'
+        uses: ./.github/actions/publish-sdk
+        with:
+          sdk_candidate_id: ${{ needs.publish-plugins.outputs.sdk_candidate_id }}
+          maven_gpg_private_key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          plugin_signing_private_key_pem_base64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
 
   publish-plugin-artifacts:
+    concurrency:
+      group: official-plugin-publication
+      cancel-in-progress: false
+      queue: max
     needs: publish-plugins
     if: github.event_name == 'push'
     runs-on: windows-latest
@@ -96,14 +157,18 @@ jobs:
           ref: ${{ github.sha }}
 
       - name: Publish official plugins
+        id: publish
         uses: ./.github/actions/publish-official-plugins
         with:
+          release_candidate_id: ${{ needs.publish-plugins.outputs.release_candidate_id }}
           plugin_signing_private_key_pem_base64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
           cross_repo_release_token: ${{ secrets.CROSS_REPO_RELEASE_TOKEN }}
           publish_args: '-f'
 
       - name: Stage signed release plugin inputs
         uses: ./.github/actions/stage-release-plugins
+        with:
+          plugin_manifest_commit: ${{ steps.publish.outputs.manifest_commit }}
 
   build-jar:
     needs: [ validate-release-tag, publish-plugins ]
@@ -127,6 +192,7 @@ jobs:
       - name: Build release Java artifacts
         uses: ./.github/actions/build-release-java
         with:
+          release_candidate_id: ${{ needs.publish-plugins.outputs.release_candidate_id }}
           build_channel: release
           release_version: ${{ needs.validate-release-tag.outputs.version }}
           distribution_version: ${{ github.ref_name }}
@@ -170,7 +236,7 @@ jobs:
           release_version: ${{ needs.build-jar.outputs.version }}
 
   release-artifact-e2e:
-    needs: [ build-jar, package-java, build-windows-installer ]
+    needs: [ build-jar, package-java ]
     if: github.event_name == 'push'
     runs-on: windows-latest
     timeout-minutes: 45
@@ -180,6 +246,29 @@ jobs:
         include:
           - { distribution: java-standard, scenario_group: all }
           - { distribution: full-offline, scenario_group: all }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Test final release artifacts
+        uses: ./.github/actions/test-release-artifacts
+        with:
+          distribution: ${{ matrix.distribution }}
+          scenario_group: ${{ matrix.scenario_group }}
+          distribution_version: ${{ matrix.distribution == 'windows-installer' && needs.build-jar.outputs.version || github.ref_name }}
+          release_version: ${{ needs.build-jar.outputs.version }}
+
+  windows-installer-e2e:
+    needs: [ build-jar, build-windows-installer ]
+    if: github.event_name == 'push'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
           - { distribution: windows-installer, scenario_group: startup }
           - { distribution: windows-installer, scenario_group: failures }
           - { distribution: windows-installer, scenario_group: recovery }
@@ -205,7 +294,10 @@ jobs:
         build-jar,
         package-java,
         build-windows-installer,
-        release-artifact-e2e
+        release-artifact-e2e,
+        windows-installer-e2e,
+        publish-sdk,
+        sdk-release-plan
       ]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
@@ -353,7 +445,7 @@ jobs:
       - name: Sign update manifest
         uses: ./.github/actions/sign-update-manifest
         with:
-          trusted_base_sha: ${{ needs.publish-plugins.outputs.trusted_base_sha }}
+          trusted_base_sha: ${{ needs.sdk-release-plan.outputs.trusted_base_sha }}
           update_signing_private_key_pem_base64: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
 
       - name: Create Release
