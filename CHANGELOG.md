@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - 修复 PixivBatchDownloader 下载完成后采集脚本未识别成功事件、无法自动导入作品的问题。
 - 修复 SDK 下载类型模板打包后无法绑定 HTTP 路径和查询参数的问题。
 - 修复小说阅读页刷新翻译后章节导航显示未替换占位符、丢失章节标题的问题。
+- 修复本地插件安装提示将等待重启误报为已激活的问题，并更正签名文件说明。
 
 ## [v1.14.0] - 2026.10.2
 

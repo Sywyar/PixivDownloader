@@ -134,7 +134,7 @@
             <button type="button" class="pm-modal-close" data-pm-install-dismiss
                     data-i18n-aria-label="install.close" aria-label="关闭"><i class="fa-solid fa-xmark"></i></button>
         </div>
-        <p class="pm-modal-desc" data-i18n="install.desc">选择本地 .jar / .zip 插件包。系统会先校验，再卸下旧版本、原子替换并立即激活；失败时自动恢复原版本。</p>
+        <p class="pm-modal-desc" data-i18n="install.desc">选择本地 .jar / .zip 插件包。系统校验后安装，是否需要重启以安装结果为准。</p>
 
         <div class="pm-recovery pm-security-notice">
             <i class="fa-solid fa-shield-halved"></i>
@@ -151,7 +151,7 @@
             <span class="pm-file-btn"><i class="fa-solid fa-key"></i><span data-i18n="install.signature.pick">选择 detached 签名…</span></span>
             <span class="pm-file-name" id="pm-install-signature-filename" data-i18n="install.signature.no-file">未选择签名文件</span>
         </label>
-        <p class="pm-modal-desc" data-i18n="install.signature.help">非插件开发模式必须提供由官方信任根签发的 .sig 文件。</p>
+        <p class="pm-modal-desc" data-i18n="install.signature.help">如有配套的 .sig 签名文件，请一并选择。首次安装第三方插件时需确认执行信任；未签名包的确认仅对当前文件有效。</p>
 
         <details class="pm-advanced">
             <summary><i class="fa-solid fa-sliders"></i><span data-i18n="install.advanced">高级选项</span></summary>

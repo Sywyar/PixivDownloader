@@ -384,7 +384,7 @@
         } else {
             if (model.effectiveAfterRestart) {
                 parts.push('<div class="pm-install-restart"><i class="fa-solid fa-rotate-right"></i>'
-                    + E(PM.t('install.restart-note', '插件包已落盘，但当前运行时无法即时激活；请重启后确认状态。')) + '</div>');
+                    + E(PM.t('install.restart-note', '插件已安装，将在完整重启程序后生效。')) + '</div>');
             }
             if (model.activated) {
                 parts.push('<div class="pm-install-restart"><i class="fa-solid fa-circle-check"></i>'

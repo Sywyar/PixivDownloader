@@ -487,12 +487,15 @@
             };
         }
         if (m.activated) {
-            return { message: t('install.toast.accepted', '插件已安装并激活。'), tone: 'ok' };
+            return { message: t('install.activated-note', '插件已安装并在当前进程中激活。'), tone: 'ok' };
         }
         if (m.rolledBack) {
             return { message: t('install.rollback-note', '新版本激活失败，已恢复原版本。'), tone: 'error' };
         }
         if (m.accepted) {
+            if (m.effectiveAfterRestart) {
+                return { message: t('install.restart-note', '插件已安装，将在完整重启程序后生效。'), tone: 'ok' };
+            }
             return { message: t('install.toast.accepted', '插件已安装。'), tone: 'ok' };
         }
         return {

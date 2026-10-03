@@ -448,6 +448,23 @@ function installResponse(over) {
     eq('recoveryBlocked toast 保留后端 message', feedback.message, blockedMessage);
 })();
 
+// 安装成功不等于已经激活；提示由同一次安装回执决定。
+(function () {
+    const previousClient = PM.i18n.client;
+    PM.i18n.client = {t: key => key};
+    try {
+        eq('即时激活提示', PM.installFeedback(installResponse({activated: true})).message,
+            'plugins:install.activated-note');
+        eq('完整重启后生效提示', PM.installFeedback(installResponse({effectiveAfterRestart: true})).message,
+            'plugins:install.restart-note');
+        eq('仅安装完成提示', PM.installFeedback(installResponse()).message,
+            'plugins:install.toast.accepted');
+        eq('回滚优先于落盘结果', PM.installFeedback(installResponse({rolledBack: true})).tone, 'error');
+    } finally {
+        PM.i18n.client = previousClient;
+    }
+})();
+
 // —— C) renderInstallResultHtml：稳定显示 / 即时激活 / 转义 ——
 const ACTIVATED_NOTE = '插件已安装并在当前进程中激活。';
 
