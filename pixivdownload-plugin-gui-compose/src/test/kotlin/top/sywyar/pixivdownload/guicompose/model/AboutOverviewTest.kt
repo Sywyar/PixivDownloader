@@ -54,9 +54,18 @@ class AboutOverviewTest {
         onNodeWithTag("about.platform.toggle").performScrollTo().performClick()
         onNodeWithTag("about.platform.copy").performScrollTo().performClick()
         node.facts().forEach {
-            onNodeWithTag("about.platform.${it.id()}").assertTextEquals(resolve(it.value()))
-            assertTrue(clipboard.getText()!!.text.contains("- ${resolve(it.label())}: ${resolve(it.value())}"))
+            if (it.expandable()) {
+                onNodeWithTag("about.platform.${it.id()}").assertDoesNotExist()
+                resolve(it.value()).lines().forEach { entry -> assertTrue(clipboard.getText()!!.text.contains(entry)) }
+            } else {
+                onNodeWithTag("about.platform.${it.id()}").assertTextEquals(resolve(it.value()))
+                assertTrue(clipboard.getText()!!.text.contains("- ${resolve(it.label())}: ${resolve(it.value())}"))
+            }
         }
+        onNodeWithTag("about.platform.plugins.toggle").performScrollTo().performClick()
+        onNodeWithTag("about.platform.plugins").assertTextEquals(resolve(node.facts().first { it.id() == "plugins" }.value()))
+        onNodeWithTag("about.platform.plugins.toggle").performKeyInput { pressKey(Key.Spacebar) }
+        onNodeWithTag("about.platform.plugins").assertDoesNotExist()
         assertTrue(clipboard.getText()!!.text.startsWith("### "))
         assertTrue(clipboard.getText()!!.text.contains(node.applicationName()))
         onNodeWithTag("about.platform.copy-status").assertExists()
@@ -93,6 +102,8 @@ class AboutOverviewTest {
         onNodeWithTag("about.reader").assertDoesNotExist()
         onNodeWithTag("about.disclaimer").assertIsFocused()
         onNodeWithTag("about.platform.toggle").performScrollTo().performClick()
+        onNodeWithTag("about.platform.plugins.toggle").performScrollTo().performClick()
+        onNodeWithTag("about.platform.plugins").assertExists()
         onNodeWithTag("about.platform.copy").performScrollTo().assertIsDisplayed()
         screenshot("platform-dark-narrow", "about.overview")
     }
@@ -117,7 +128,7 @@ class AboutOverviewTest {
         onNodeWithTag("about.platform.toggle").performScrollTo().performClick()
         onNodeWithTag("about.platform.copy").performScrollTo().performClick()
         onNodeWithTag("about.platform.copy-status").assertTextEquals(messages.getProperty("gui.compose.about.copy-failed"))
-        onNodeWithTag("about.platform.version").assertTextEquals(node.version())
+        onNodeWithTag("about.platform.version").assertTextEquals(resolve(node.facts().first { it.id() == "version" }.value()))
     }
 
     private fun ComposeUiTest.screenshot(name: String, tag: String) {
@@ -165,7 +176,15 @@ class AboutOverviewTest {
                     )),
                     model.disclaimer(),
                     File("../LICENSE").readText(Charsets.UTF_8),
-                    model.facts(),
+                    model.facts().map { fact ->
+                        if (fact.id() == "plugins") AboutFact(
+                            fact.id(), fact.label(),
+                            TextToken.raw((1..14).joinToString("\n") { index ->
+                                "fixture-plugin-with-a-long-identifier-$index-2.3.4-dev.ab123456.dirty(8.2.0)"
+                            }),
+                            true
+                        ) else fact
+                    },
                 )
             }
     }

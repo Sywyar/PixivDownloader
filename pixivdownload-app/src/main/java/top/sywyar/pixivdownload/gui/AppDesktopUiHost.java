@@ -201,7 +201,7 @@ final class AppDesktopUiHost implements DesktopUiHost {
     private final PluginCredentialStore credentialStore = new PluginCredentialStore();
 
     @Override public String message(String code, Object... arguments) { return MessageBundles.get(code, arguments); }
-    @Override public String applicationVersion() { return AppVersion.getDisplayVersionOrDefault(""); }
+    @Override public String applicationVersion() { return AppVersion.getDevelopmentDisplayVersion(); }
     @Override public boolean launchedFromExecutable() { return AppInfo.isLaunchedFromExe(); }
     @Override public boolean currentVersionNightly() { return UpdateConfig.isCurrentVersionNightly(); }
     @Override public BuildChannel applicationBuildChannel() {

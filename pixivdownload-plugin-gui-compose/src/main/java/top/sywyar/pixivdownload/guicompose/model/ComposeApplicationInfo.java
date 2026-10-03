@@ -13,18 +13,45 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Locale;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
+import top.sywyar.pixivdownload.sdk.SdkVersion;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.AboutFact;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.TextToken;
 
-/** 关于页只收集明确列出的平台信息，不读取用户目录、环境变量或凭据。 */
+/** 关于页的受控平台事实；开发目录仅在开发模式下展示。 */
 final class ComposeApplicationInfo {
     private ComposeApplicationInfo() {}
 
-    static List<AboutFact> platformFacts(DesktopUiHost host) {
-        return List.of(
-                fact("version", value(host.applicationVersion())),
+    static List<AboutFact> platformFacts(
+            DesktopUiHost host,
+            DesktopUiHost.GuiValue buildInfo,
+            String pluginNotice
+    ) {
+        var facts = new ArrayList<AboutFact>();
+        facts.add(fact("version", value(host.applicationVersion() + "("
+                + buildInfo.path("sdkVersion").asText(SdkVersion.current()) + ")")));
+        var plugins = new ArrayList<String>();
+        for (var plugin : buildInfo.path("plugins")) {
+            if ("not-installed".equals(plugin.path("source").asText(""))) continue;
+            String version = plugin.path("displayVersion").asText(plugin.path("version").asText(""));
+            if (version.isBlank()) continue;
+            String required = plugin.path("sdkRequirement").path("specified").asBoolean(false)
+                    ? plugin.path("sdkRequirement").path("required").asText("*") : "*";
+            if (required.matches("[0-9]+\\.[0-9]+")) required += ".0";
+            plugins.add(plugin.path("id").asText("") + "-" + version + "(" + required + ")");
+        }
+        plugins.sort(String::compareTo);
+        facts.add(plugins.isEmpty()
+                ? fact("plugins", TextToken.key(pluginNotice.isBlank() ? "gui.plugins.state.empty" : pluginNotice))
+                : new AboutFact("plugins", label("platform.plugins"), TextToken.raw(String.join("\n", plugins)), true));
+        if (host.developmentMode()) {
+            facts.add(fact("directory", value(buildInfo.path("development").path("directory")
+                    .asText(System.getProperty("user.dir", "")))));
+            facts.add(fact("branch", value(buildInfo.path("development").path("branch").asText(""))));
+        }
+        facts.addAll(List.of(
                 fact("channel", channel(host.applicationBuildChannel())),
                 fact("mode", label(host.developmentMode() ? "development" : "normal")),
                 fact("os", property("os.name")),
@@ -40,7 +67,8 @@ final class ComposeApplicationInfo {
                 fact("interface", TextToken.raw("Compose Multiplatform")),
                 fact("kotlin", TextToken.raw(kotlin.KotlinVersion.CURRENT.toString())),
                 fact("launch", label(host.launchedFromExecutable() ? "executable" : "jvm"))
-        );
+        ));
+        return List.copyOf(facts);
     }
 
     private static AboutFact fact(String id, TextToken value) {

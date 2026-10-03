@@ -55,7 +55,12 @@ internal fun platformReport(node: AboutOverview, text: (TextToken) -> String): S
         appendLine()
         appendLine(line(node.applicationName()))
         appendLine()
-        node.facts().forEach { appendLine("- ${line(text(it.label()))}: ${line(text(it.value()))}") }
+        node.facts().forEach {
+            if (it.expandable()) {
+                appendLine("- ${line(text(it.label()))}:")
+                text(it.value()).lines().forEach { entry -> appendLine("  ${line(entry)}") }
+            } else appendLine("- ${line(text(it.label()))}: ${line(text(it.value()))}")
+        }
     }.trimEnd()
 }
 
@@ -243,17 +248,49 @@ internal fun AboutOverview(
                         exit = shrinkVertically(tween(240)) + fadeOut(tween(130))
                     ) {
                         Column(Modifier.fillMaxWidth().padding(top = 19.dp, bottom = 10.dp).testTag("about.platform")) {
-                            SelectionContainer {
-                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    node.facts().forEach { fact ->
-                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                                            CupertinoText(
-                                                text(fact.label()),
-                                                Modifier.widthIn(max = 160.dp).weight(.38f),
-                                                fontSize = 12.sp,
-                                                color = palette.secondaryText
-                                            )
-                                            CupertinoText(text(fact.value()), Modifier.weight(.62f).testTag("about.platform.${fact.id()}"), fontSize = 12.sp)
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                node.facts().forEach { fact ->
+                                    if (fact.expandable()) {
+                                        var factExpanded by rememberSaveable(fact.id()) { mutableStateOf(false) }
+                                        AboutInfoRow(
+                                            text(fact.label()),
+                                            Icons.Default.Extension,
+                                            "about.platform.${fact.id()}.toggle",
+                                            Modifier.semantics { stateDescription = text(TextToken(
+                                                "gui-compose",
+                                                if (factExpanded) "gui.compose.expanded" else "gui.compose.collapsed",
+                                                "",
+                                                emptyList()
+                                            )) },
+                                            expanded = factExpanded
+                                        ) { factExpanded = !factExpanded }
+                                        AnimatedVisibility(factExpanded) {
+                                            SelectionContainer {
+                                                CupertinoText(
+                                                    text(fact.value()),
+                                                    Modifier.fillMaxWidth().testTag("about.platform.${fact.id()}"),
+                                                    fontSize = 12.sp
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        SelectionContainer {
+                                            Row(
+                                                Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(18.dp)
+                                            ) {
+                                                CupertinoText(
+                                                    text(fact.label()),
+                                                    Modifier.widthIn(max = 160.dp).weight(.38f),
+                                                    fontSize = 12.sp,
+                                                    color = palette.secondaryText
+                                                )
+                                                CupertinoText(
+                                                    text(fact.value()),
+                                                    Modifier.weight(.62f).testTag("about.platform.${fact.id()}"),
+                                                    fontSize = 12.sp
+                                                )
+                                            }
                                         }
                                     }
                                 }

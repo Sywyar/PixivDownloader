@@ -20,6 +20,7 @@ final class DesktopPluginStatusController {
     private volatile List<PluginEntry> statuses = List.of();
     private volatile String observedAt = "";
     private volatile boolean recoveryMode;
+    private volatile DesktopUiHost.GuiValue buildInfo = DesktopUiHost.GuiValue.of(Map.of());
 
     DesktopPluginStatusController(ComposeDesktopUiModel owner, DesktopUiHost host) {
         this.owner = owner;
@@ -59,9 +60,11 @@ final class DesktopPluginStatusController {
             statuses = List.of();
             observedAt = "";
             recoveryMode = false;
+            buildInfo = DesktopUiHost.GuiValue.of(Map.of());
             return;
         }
         recoveryMode = response.body().path("recoveryMode").asBoolean(false);
+        buildInfo = response.body();
         observedAt = response.body().path("observedAt").asText("");
         List<PluginEntry> rows = new ArrayList<>();
         for (DesktopUiHost.GuiValue plugin : response.body().path("plugins")) {
@@ -81,6 +84,10 @@ final class DesktopPluginStatusController {
     private static String value(DesktopUiHost.GuiValue node, String field) {
         return node.path(field).asText("");
     }
+
+    DesktopUiHost.GuiValue buildInfo() { return buildInfo; }
+
+    String noticeKey() { return noticeKey; }
 
     long startedCount() {
         return statuses.stream().filter(plugin -> "STARTED".equals(plugin.statusCode())).count();

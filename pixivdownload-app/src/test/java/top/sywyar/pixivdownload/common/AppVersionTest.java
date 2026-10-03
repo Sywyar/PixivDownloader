@@ -8,6 +8,7 @@ import java.io.InputStream;
 import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mockStatic;
 
 @DisplayName("应用版本与构建元数据")
 class AppVersionTest {
@@ -60,6 +61,27 @@ class AppVersionTest {
 
     private static String mavenFilteredVersion() throws Exception {
         return AppVersion.normalize(mavenFilteredProperty("app.version"));
+    }
+
+    @Test
+    @DisplayName("开发显示使用可达标签和显式版本，正式应用版本不受影响")
+    void developmentVersionOnlyChangesDisplay() throws Exception {
+        String explicit = System.getProperty("app.release.version");
+        try (var metadata = mockStatic(DevelopmentBuildInfo.class)) {
+            System.clearProperty("app.release.version");
+            String original = AppVersion.getDisplayVersionOrNull();
+            var snapshot = new DevelopmentBuildInfo.Snapshot("fixture", "fixture/branch", "ab123456", "7.3.2", true);
+            metadata.when(DevelopmentBuildInfo::current).thenReturn(snapshot);
+            String base = original.equals(mavenFilteredProperty("app.project.version")) ? "7.3.2" : original;
+            assertThat(AppVersion.getDevelopmentDisplayVersion()).isEqualTo(base + "-dev.ab123456.dirty");
+            assertThat(AppVersion.getDisplayVersionOrNull()).isEqualTo(original);
+            System.setProperty("app.release.version", "v8.4.5");
+            assertThat(AppVersion.getDevelopmentDisplayVersion()).isEqualTo("8.4.5-dev.ab123456.dirty");
+            metadata.when(DevelopmentBuildInfo::current).thenReturn(null);
+            assertThat(AppVersion.getDevelopmentDisplayVersion()).isEqualTo(original);
+        } finally {
+            restoreProperty("app.release.version", explicit);
+        }
     }
 
     @Test

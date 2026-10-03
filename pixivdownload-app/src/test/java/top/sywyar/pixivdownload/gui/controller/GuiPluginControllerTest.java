@@ -8,6 +8,8 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
+import top.sywyar.pixivdownload.common.DevelopmentBuildInfo;
+import top.sywyar.pixivdownload.sdk.SdkVersion;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.i18n.WebI18nService;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService;
@@ -35,6 +37,8 @@ import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -102,6 +106,10 @@ class GuiPluginControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.recoveryMode").value(false))
                 .andExpect(jsonPath("$.observedAt").isString())
+                .andExpect(jsonPath("$.sdkVersion").value(SdkVersion.current()))
+                .andExpect(jsonPath("$.development").value(nullValue()))
+                .andExpect(jsonPath("$.plugins[0].displayVersion").value("1.0.0"))
+                .andExpect(jsonPath("$.plugins[0].sdkRequirement.specified").value(false))
                 .andExpect(jsonPath("$.plugins[0].id").value("gallery"))
                 .andExpect(jsonPath("$.plugins[0].name").value("Gallery"))
                 .andExpect(jsonPath("$.plugins[0].description").value("Browse your saved works"))
@@ -126,6 +134,34 @@ class GuiPluginControllerTest {
                 .andExpect(jsonPath("$.plugins[1].verification.status")
                         .value(PluginVerificationProjector.UNVERIFIED_LOCAL));
         verify(webI18nService).loadMessages(eq("gallery"), any(), eq(java.util.Set.of("plugin.name", "plugin.description")));
+    }
+
+    @Test
+    @DisplayName("开发状态提供源码身份，仅为源码插件装饰展示版本，保留真实版本与 SDK 约束")
+    void developmentIdentityDoesNotRewriteInstalledVersions() throws Exception {
+        var development = new DevelopmentBuildInfo.Snapshot("fixture-directory", "fixture/branch",
+                "1234abcd", "7.8.9", true);
+        var source = spy(entry("source-probe", null, null, "external",
+                PluginStatus.STARTED, PluginRuntimePhase.STARTED, true, false, "8.2.3"));
+        when(source.trust()).thenReturn(new PluginManagementService.PluginTrustView(
+                PluginManagementService.PluginTrustState.DEVELOPMENT, null, null, null, null, null, false, false));
+        when(source.sdkRequirement()).thenReturn(new SdkRequirementView(true, true, "7.2"));
+        when(managementService.list()).thenReturn(report(false, List.of(source,
+                entry("installed-probe", null, null, "external",
+                        PluginStatus.INSTALLED, PluginRuntimePhase.UNLOADED, true, false, "9.3.4"))));
+        try (var builds = mockStatic(DevelopmentBuildInfo.class)) {
+            builds.when(DevelopmentBuildInfo::current).thenReturn(development);
+            mockMvc.perform(get("/api/gui/plugins/status"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.sdkVersion").value(SdkVersion.current() + "-dev.1234abcd.dirty"))
+                    .andExpect(jsonPath("$.development.directory").value("fixture-directory"))
+                    .andExpect(jsonPath("$.development.branch").value("fixture/branch"))
+                    .andExpect(jsonPath("$.plugins[0].version").value("8.2.3"))
+                    .andExpect(jsonPath("$.plugins[0].displayVersion").value("8.2.3-dev.1234abcd.dirty"))
+                    .andExpect(jsonPath("$.plugins[0].sdkRequirement.required").value("7.2"))
+                    .andExpect(jsonPath("$.plugins[1].version").value("9.3.4"))
+                    .andExpect(jsonPath("$.plugins[1].displayVersion").value("9.3.4"));
+        }
     }
 
     @Test
