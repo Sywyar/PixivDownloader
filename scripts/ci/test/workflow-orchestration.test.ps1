@@ -39,6 +39,13 @@ $fixture = Join-Path $tempBase ('pixiv-workflow-test-' + [Guid]::NewGuid().ToStr
 [IO.Directory]::CreateDirectory($fixture) | Out-Null
 try {
     & {
+        if (-not (Test-Path -LiteralPath (Join-Path $repo 'node_modules/yaml/package.json') -PathType Leaf)) {
+            Push-Location $repo
+            try {
+                & npm ci --ignore-scripts --no-audit --no-fund
+                if ($LASTEXITCODE -ne 0) { throw 'Could not install locked orchestration test dependencies.' }
+            } finally { Pop-Location }
+        }
         $reader = Join-Path $fixture 'read-action.cjs'
         [IO.File]::WriteAllText($reader, @'
 const fs = require('node:fs');
