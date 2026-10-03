@@ -56,6 +56,29 @@ class MarketContentTest {
     }
 
     @Test
+    @DisplayName("文档来源地址绑定投稿仓库与冻结提交，旧文档仍可省略")
+    void frozenDocumentSource() throws Exception {
+        var value = fixture();
+        var original = document();
+        String prefix = value.path("source").path("repository").asText() + "/blob/"
+                + value.path("source").path("commit").asText() + "/";
+        var content = new MarketContent(Map.of("en", new MarketContent.Document(original.format(), original.asset(),
+                original.sourcePath(), original.resources(), prefix + "README.md")), null, null);
+        value.set("content", CommunityJson.strictTree(CommunityJson.encode(content), 65536));
+        assertThat(read(value).content().readme().get("en").sourceUrl()).isEqualTo(prefix + "README.md");
+        var document = (ObjectNode) value.path("content").path("readme").path("en");
+        for (String invalid : List.of(prefix.replace("/blob/", "/tree/") + "README.md",
+                prefix + "other.md", prefix + "README.md#install",
+                "https://github.com/other/repository/blob/" + "f".repeat(40) + "/README.md",
+                prefix.replace(value.path("source").path("commit").asText(), "e".repeat(40)) + "README.md")) {
+            document.put("sourceUrl", invalid);
+            assertThatThrownBy(() -> read(value)).isInstanceOf(ContractException.class);
+        }
+        document.remove("sourceUrl");
+        assertThat(read(value).content().readme().get("en").sourceUrl()).isNull();
+    }
+
+    @Test
     @DisplayName("链接和资源路径拒绝凭据、非法协议、空用途、重复与根目录逃逸")
     void validatesLinksAndResources() {
         MarketLink.validate(List.of(new MarketLink("repository", "https://example.org/repository", null),

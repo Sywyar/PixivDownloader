@@ -51,13 +51,24 @@ public record MarketContent(Map<String, Document> readme, Map<String, Document> 
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record Document(String format, Asset asset, String sourcePath, Map<String, Asset> resources) {
+    public record Document(String format, Asset asset, String sourcePath, Map<String, Asset> resources, String sourceUrl) {
+        public Document(String format, Asset asset, String sourcePath, Map<String, Asset> resources) {
+            this(format, asset, sourcePath, resources, null);
+        }
         public Document { resources = freeze(resources); }
         public void validate() {
             if (format == null || !Set.of("markdown", "html").contains(format) || asset == null) invalid("/content/format");
             asset.validate(false);
             if (!("text/" + format).equals(asset.mediaType)) invalid("/content/mediaType");
             if (sourcePath != null) CommunityPaths.relative(sourcePath, false);
+            if (sourceUrl != null) {
+                var uri = CommunityValues.https(sourceUrl, true, "/content/sourceUrl");
+                if (!"github.com".equalsIgnoreCase(uri.getHost()) || uri.getPort() != -1 || sourcePath == null
+                        || !uri.getPath().matches("/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/blob/[a-f0-9]{40}/.+")
+                        || !uri.getPath().split("/", 6)[5].equals(sourcePath)) {
+                    invalid("/content/sourceUrl");
+                }
+            }
             if (resources == null) return;
             if (resources.size() > MAX_RESOURCES) throw CommunityJson.limit("/content/resources", MAX_RESOURCES, "items");
             for (var entry : resources.entrySet()) {

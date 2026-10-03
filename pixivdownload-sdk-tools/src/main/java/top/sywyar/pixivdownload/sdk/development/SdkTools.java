@@ -69,9 +69,10 @@ public final class SdkTools {
             MarketPublicationFiles.verify(metadata, directory, base);
             return 0;
         }
-        if (args.length == 7 && args[0].equals("market-content-prepare")) {
+        if ((args.length == 7 || args.length == 8) && args[0].equals("market-content-prepare")) {
             MarketPublicationFiles.prepare(
-                    Path.of(args[1]), Path.of(args[2]), args[3], args[4], args[5], Path.of(args[6]));
+                    Path.of(args[1]), Path.of(args[2]), args[3], args[4], args[5], Path.of(args[6]),
+                    args.length == 8 ? args[7] : null);
             return 0;
         }
         if (args.length == 4 && args[0].equals("market-content-verify")) {

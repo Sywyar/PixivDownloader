@@ -29,6 +29,11 @@ public final class MarketPublicationFiles {
 
     public static void prepare(Path root, Path curation, String pluginId, String version, String base, Path output)
             throws IOException {
+        prepare(root, curation, pluginId, version, base, output, null);
+    }
+
+    public static void prepare(Path root, Path curation, String pluginId, String version, String base, Path output,
+                               String sourceBase) throws IOException {
         CommunityValues.https(base, true, "/release");
         if (!base.endsWith("/")) throw new ContractException("SCHEMA_INVALID", "/release");
         byte[] input;
@@ -38,9 +43,9 @@ public final class MarketPublicationFiles {
         String locale = entry.path("defaultLocale").asText();
         var assets = new LinkedHashMap<String, byte[]>();
         var sources = entry.path("documentationSources");
-        var content = new MarketContent(documents(root, sources.path("readme"), false, version, base, assets),
-                documents(root, sources.path("changelog"), false, version, base, assets),
-                documents(root, sources.path("releaseNotes"), true, version, base, assets));
+        var content = new MarketContent(documents(root, sources.path("readme"), false, version, base, assets, sourceBase),
+                documents(root, sources.path("changelog"), false, version, base, assets, sourceBase),
+                documents(root, sources.path("releaseNotes"), true, version, base, assets, sourceBase));
         if (content.readme() == null && content.changelog() == null && content.releaseNotes() == null) content = null;
         MarketImage icon = image(root, entry.path("icon"), true, base, assets);
         var screenshots = new ArrayList<MarketImage>();
@@ -59,7 +64,7 @@ public final class MarketPublicationFiles {
     }
 
     private static Map<String, MarketContent.Document> documents(Path root, JsonNode sources, boolean extract,
-            String version, String base, Map<String, byte[]> files) throws IOException {
+            String version, String base, Map<String, byte[]> files, String sourceBase) throws IOException {
         if (sources.isNull() || sources.isMissingNode()) return null;
         if (!sources.isObject()) throw new ContractException("SCHEMA_INVALID", "/documentationSources");
         if (sources.size() > top.sywyar.pixivdownload.sdk.community.content.ContentLocales.MAX_LOCALES) {
@@ -84,9 +89,15 @@ public final class MarketPublicationFiles {
                 resources.put(reference, asset(image, type, base, files, "content-"));
             }
             result.put(source.getKey(), new MarketContent.Document(format,
-                    asset(bytes, "text/" + format, base, files, "content-"), path, resources));
+                    asset(bytes, "text/" + format, base, files, "content-"), path, resources,
+                    sourceBase == null ? null : sourceBase + encodedPath(path)));
         }
         return result;
+    }
+
+    private static String encodedPath(String path) {
+        try { return new java.net.URI(null, null, path, null).toASCIIString(); }
+        catch (java.net.URISyntaxException failure) { throw new ContractException("PATH_MISMATCH", "/content/sourcePath"); }
     }
 
     private static MarketImage image(Path root, JsonNode value, boolean icon, String base, Map<String, byte[]> files)

@@ -27,9 +27,12 @@ class MarketPublicationFilesTest {
                 """, StandardCharsets.UTF_8);
         Path output = root.resolve("publication");
         String base = "https://github.com/example/plugins/releases/download/example-v7.4.2/";
-        MarketPublicationFiles.prepare(root, curation, "example", "7.4.2", base, output);
+        String sourceBase = "https://github.com/example/source/blob/" + "c".repeat(40) + "/";
+        MarketPublicationFiles.prepare(root, curation, "example", "7.4.2", base, output, sourceBase);
         var result = MarketPublicationFiles.verify(output.resolve(MarketPublicationFiles.METADATA), output, base);
         assertThat(result.links()).isEmpty();
+        assertThat(result.content().readme().get("en").sourceUrl()).isEqualTo(sourceBase + "README.html");
+        assertThat(result.content().releaseNotes().get("en").sourceUrl()).isEqualTo(sourceBase + "CHANGELOG.md");
         assertThat(result.content().assets()).hasSize(3);
         assertThat(Files.readString(output.resolve(result.content().readme().get("en").asset().name())))
                 .contains("<script>blocked()</script>");

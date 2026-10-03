@@ -72,7 +72,16 @@ public record VersionSubmission(int schemaVersion, String publisherId, String pl
         value.license().validate();
         value.artifact().validate();
         value.market().validate();
-        if (value.content() != null) value.content().validate(value.market().defaultLocale());
+        if (value.content() != null) {
+            value.content().validate(value.market().defaultLocale());
+            for (var group : java.util.Arrays.asList(value.content().readme(), value.content().changelog(), value.content().releaseNotes())) {
+                if (group == null) continue;
+                for (var item : group.values()) if (item.sourceUrl() != null
+                        && !item.sourceUrl().startsWith(value.source().repository() + "/blob/" + value.source().commit() + "/")) {
+                    throw new ContractException("PATH_MISMATCH", "/content/sourceUrl");
+                }
+            }
+        }
         return value;
     }
 

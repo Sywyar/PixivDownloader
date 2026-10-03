@@ -28,8 +28,8 @@
     },
     {
       "path": "community.schema.json",
-      "size": 75480,
-      "sha256": "4ebe4c992120ee6dec14a58b47f36f69f1710d17a69153f0a10ed74dba23d044"
+      "size": 75546,
+      "sha256": "e41a621747d7aa8b8a39e4f2f3c6c78bc43dc544ad1cabd6822379c727cccc4e"
     },
     {
       "path": "licenses/0BSD.txt",

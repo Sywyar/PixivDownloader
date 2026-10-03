@@ -3286,6 +3286,9 @@
         "sourcePath": {
           "$ref": "#/$defs/path"
         },
+        "sourceUrl": {
+          "$ref": "#/$defs/url"
+        },
         "resources": {
           "type": "object",
           "maxProperties": 32,

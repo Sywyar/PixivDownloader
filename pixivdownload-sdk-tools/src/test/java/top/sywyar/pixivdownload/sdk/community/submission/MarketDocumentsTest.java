@@ -58,6 +58,44 @@ class MarketDocumentsTest {
 
     private static byte[] bytes(String text) { return text.getBytes(StandardCharsets.UTF_8); }
 
+    @Test @DisplayName("Markdown 相对链接绑定冻结源码，标题导航留在文档内")
+    void frozenLinksAndHeadings() {
+        String base = "https://github.com/example/plugin/blob/" + "a".repeat(40) + "/docs/README.md";
+        var page = Jsoup.parse(MarketDocuments.render(bytes("""
+                [Usage](usage.md#steps) [Root](../guide.md) [Install](#install)
+                [Same](README.md#install) [External](https://example.org/help)
+
+                ## Install
+                ## Install
+                ## 安装
+                """), "markdown", Map.of(), base));
+        var links = page.select("a");
+        assertThat(links.get(0).attr("href")).isEqualTo(base.replace("README.md", "usage.md#steps"));
+        assertThat(links.get(1).attr("href")).isEqualTo(base.replace("docs/README.md", "guide.md"));
+        assertThat(links.get(2).attr("href")).isEqualTo("#install");
+        assertThat(links.get(3).attr("href")).isEqualTo("#install");
+        assertThat(links.get(2).hasAttr("target")).isFalse();
+        assertThat(links.get(3).hasAttr("target")).isFalse();
+        assertThat(links.get(4).attr("target")).isEqualTo("_blank");
+        assertThat(page.select("h2").eachAttr("id")).containsExactly("install", "install-1", "安装");
+    }
+
+    @Test @DisplayName("HTML 保留安全锚点，外部基址及主动链接仍被过滤")
+    void htmlAnchors() {
+        var input = bytes("<base href='https://evil.test/'><h2 id='install'>Install</h2>"
+                + "<a href='#install' target='_blank'>jump</a><a href='docs/usage.md'>usage</a>"
+                + "<a href='javascript:alert(1)'>bad</a><a href='data:text/html,bad'>bad</a>"
+                + "<h3 id='install'>duplicate</h3><p id='bad id'>invalid</p>");
+        String base = "https://github.com/example/plugin/blob/" + "b".repeat(40) + "/README.html";
+        var page = Jsoup.parse(MarketDocuments.render(input, "html", Map.of(), base));
+        assertThat(page.select("[id]").eachAttr("id")).containsExactly("install");
+        assertThat(page.select("a[href]").eachAttr("href")).containsExactly("#install", base.replace("README.html", "docs/usage.md"));
+        assertThat(page.selectFirst("a").hasAttr("target")).isFalse();
+        assertThat(page.select("base,script,[onclick]")).isEmpty();
+        assertThat(Jsoup.parse(MarketDocuments.render(input, "html", Map.of())).select("a[href]").eachAttr("href"))
+                .containsExactly("#install");
+    }
+
     @Test @DisplayName("重复引用图片不能无界放大净化后的文档")
     void renderedBudget() {
         assertThatThrownBy(() -> MarketDocuments.render(bytes("<img src='image.png'>".repeat(10)), "html",
