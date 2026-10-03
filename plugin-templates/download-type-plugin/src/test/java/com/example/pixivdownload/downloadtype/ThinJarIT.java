@@ -75,8 +75,32 @@ class ThinJarIT {
     }
 
     private static Path pluginJar() {
-        return Path.of("target", "example-download-plugin-0.1.0.jar")
+        return Path.of(System.getProperty("example.buildDirectory"),
+                        System.getProperty("example.finalName") + ".jar")
                 .toAbsolutePath().normalize();
+    }
+
+    @Test
+    @DisplayName("打包控制器保留 Spring 请求参数绑定所需的参数名")
+    void packagedControllerRetainsRequestParameterNames() throws Exception {
+        try (PluginJarClassLoader loader = new PluginJarClassLoader(
+                pluginJar().toUri().toURL(), getClass().getClassLoader())) {
+            Class<?> controller = loader.loadClass(
+                    "com.example.pixivdownload.downloadtype.web.ExampleDownloadController");
+            int implicitNames = 0;
+            for (var method : controller.getDeclaredMethods()) {
+                for (var parameter : method.getParameters()) {
+                    var query = parameter.getAnnotation(org.springframework.web.bind.annotation.RequestParam.class);
+                    var path = parameter.getAnnotation(org.springframework.web.bind.annotation.PathVariable.class);
+                    if (query != null && query.name().isEmpty() && query.value().isEmpty()
+                            || path != null && path.name().isEmpty() && path.value().isEmpty()) {
+                        assertTrue(parameter.isNamePresent(), () -> "HTTP parameter name missing: " + method);
+                        implicitNames++;
+                    }
+                }
+            }
+            assertTrue(implicitNames > 0);
+        }
     }
 
     /** Child-first only for template-owned classes; PF4J, Spring and plugin-api remain parent-shared. */
