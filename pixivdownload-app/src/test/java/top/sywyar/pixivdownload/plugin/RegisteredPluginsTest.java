@@ -97,6 +97,8 @@ class RegisteredPluginsTest {
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryImportService.class))
             .withBean(top.sywyar.pixivdownload.plugin.catalog.PluginCatalogService.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.catalog.PluginCatalogService.class))
+            .withBean(top.sywyar.pixivdownload.plugin.catalog.repository.PluginCatalogClientProvider.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.catalog.repository.PluginCatalogClientProvider.class))
             .withBean(top.sywyar.pixivdownload.plugin.catalog.PluginCatalogAcquisitionService.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.catalog.PluginCatalogAcquisitionService.class))
             .withBean(top.sywyar.pixivdownload.plugin.catalog.community.CommunityPackageService.class,

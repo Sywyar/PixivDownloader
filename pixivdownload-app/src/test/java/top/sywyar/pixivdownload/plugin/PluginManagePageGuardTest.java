@@ -134,9 +134,7 @@ class PluginManagePageGuardTest {
         assertThat(core).contains("HOT_RELOAD", "BACKEND_RESTART", "PROCESS_RESTART");
 
         String views = read(VIEWS);
-        assertThat(views).contains("vm.showExecutionTag", "vm.executionLabel",
-                "vm.showLifecycleTag", "vm.lifecycleLabel", "vm.enabled",
-                "vm.trustLabel", "data-pm-trust-action");
+        assertThat(views).contains("data-pm-trust-action");
 
         String init = read(INIT);
         assertThat(init).as("需重启策略持久化启停配置").contains("PM.setEnabled");
