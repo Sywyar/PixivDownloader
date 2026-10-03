@@ -32,12 +32,13 @@ class PluginCatalogContentServiceTest {
 
     @Test @DisplayName("按当前目录读取附件，复用已验证字节且关闭后释放访问")
     void verifiedReuse() throws Exception {
-        byte[] bytes = "<h1>说明</h1><script>alert(1)</script><img src='missing.png'>".getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = "<h1>说明</h1><script>alert(1)</script><img src='missing.png'><a href='docs/usage.md'>Guide</a>".getBytes(StandardCharsets.UTF_8);
         var asset = fixture(bytes);
         try (var service = new PluginCatalogContentService(catalog, clients)) {
             var result = service.document("repo", "plugin", "3.2.4", "readme", "en", asset.sha256());
             assertThat(result.html()).contains("<h1>说明</h1>").doesNotContain("script", "alert(1)", "src=");
             assertThat(result.missingResources()).isTrue();
+            assertThat(result.html()).contains("https://github.com/example/plugin/blob/" + "a".repeat(40) + "/docs/usage.md");
             assertThat(service.document("repo", "plugin", "3.2.4", "readme", "en", asset.sha256())).isEqualTo(result);
             verify(http).fetchBytes(asset.url(), asset.size());
             verify(catalog, times(2)).resolvePackage("repo", "plugin", "3.2.4");
@@ -101,7 +102,8 @@ class PluginCatalogContentServiceTest {
     private MarketContent.Asset fixture(byte[] bytes) throws Exception {
         String hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
         var asset = new MarketContent.Asset("content-" + hash + ".html", "https://example.test/docs.html", "text/html", bytes.length, hash);
-        var content = new MarketContent(Map.of("en", new MarketContent.Document("html", asset, "README.html", null)), null, null);
+        var content = new MarketContent(Map.of("en", new MarketContent.Document("html", asset, "README.html", null,
+                "https://github.com/example/plugin/blob/" + "a".repeat(40) + "/README.html")), null, null);
         var pkg = mock(PluginCatalogPackage.class);
         when(pkg.content()).thenReturn(content);
         when(catalog.resolvePackage("repo", "plugin", "3.2.4"))

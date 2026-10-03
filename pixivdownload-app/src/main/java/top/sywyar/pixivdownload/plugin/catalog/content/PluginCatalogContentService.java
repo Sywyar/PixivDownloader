@@ -71,7 +71,7 @@ public final class PluginCatalogContentService implements AutoCloseable {
                     missing = true;
                 }
             }
-            String html = MarketDocuments.render(bytes, document.format(), images);
+            String html = MarketDocuments.render(bytes, document.format(), images, document.sourceUrl());
             return new DocumentView(html, sha256, missing);
         } catch (IllegalArgumentException failure) {
             throw unavailable();

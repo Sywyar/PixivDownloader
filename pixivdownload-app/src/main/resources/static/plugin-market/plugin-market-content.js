@@ -39,6 +39,8 @@
     }
 
     function frameSource(html, theme) {
+        // srcdoc 的默认基址来自父页；显式指向自身才能保留文档内锚点导航。
+        html = html.replace(/(<a\b[^>]*\bhref=")#/g, '$1about:srcdoc#');
         return '<!doctype html><html><head><meta charset="UTF-8">'
             + '<meta name="viewport" content="width=device-width,initial-scale=1">'
             + '<meta http-equiv="Content-Security-Policy" content="default-src &#39;none&#39;; img-src data:; '

@@ -78,9 +78,12 @@ test('说明按需读取，收起与换版取消旧响应，离页释放图片�
     requests[0].resolve({ sha256: model.documents[0].asset.sha256, html: '<h1>late</h1>' });
     await settle(); assert.equal(host.querySelector('iframe'), undefined);
     section.open = true; section.fire('toggle');
-    requests[1].resolve({ sha256: model.documents[0].asset.sha256, html: '<h1>current</h1>' });
+    requests[1].resolve({ sha256: model.documents[0].asset.sha256,
+        html: '<h1 id="install">current</h1><a href="#install">Jump</a><a href="https://example.org/help">Help</a>' });
     await settle();
     assert.equal(host.querySelector('iframe').getAttribute('sandbox'), 'allow-popups allow-popups-to-escape-sandbox');
+    assert.match(host.querySelector('iframe').srcdoc, /href="about:srcdoc#install"/);
+    assert.match(host.querySelector('iframe').srcdoc, /href="https:\/\/example\.org\/help"/);
     events.get('pagehide')(); oldImageError();
     assert.equal(image.src, ''); assert.equal(image.listeners.size, 0);
     assert.equal(host.querySelector('iframe'), undefined);

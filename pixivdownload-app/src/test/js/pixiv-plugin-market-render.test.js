@@ -275,6 +275,26 @@ test('历史版本的隐藏、撤销、未知及过期状态禁用真实详情�
     }
 });
 
+test('详情刷新移除旧版本时，展示、事实查询和安装使用同一现存版本', async () => {
+    const page = await mountMarket();
+    const detail = entry('visible');
+    detail.latestVersion = '3.1.0';
+    detail.packages = [{ ...detail.packages[0], version: '3.1.0' }];
+    page.market.api.fetchPluginDetail = async () => detail;
+    page.market.api.fetchPackageFacts = async (...args) => {
+        page.factCalls.push(args);
+        return { status: 'VERIFIED_OFFICIAL', revocationStatus: 'CLEAR' };
+    };
+    elements(page.root, 'pmk-card-name')[0].props.onClick();
+    await page.flush();
+    assert.match(textOf(elements(page.root, 'pmk-modal')[0]), /v3\.1\.0/);
+    assert.deepEqual(page.factCalls, [['repo', 'visible', '3.1.0']]);
+    elements(page.root, 'pmk-modal-actionbar-right')[0].children.find(n => n.tagName === 'BUTTON').props.onClick();
+    await page.flush();
+    assert.deepEqual(page.installCalls, [['repo', 'visible', '3.1.0']]);
+    assert.deepEqual(page.errors, []);
+});
+
 test('无动态编译时仍能显示恢复模式、禁用状态和目录错误', async () => {
     const page = await mountMarket();
     await page.reload({ status: { recoveryMode: true, hostElevated: true,

@@ -550,7 +550,10 @@
                     PMK.api.fetchPluginDetail(repository, pluginId).then(function (detail) {
                         if (token !== self.detailToken || self.activeCatalogRepositoryId !== repository || self.selectedPluginId !== pluginId) return;
                         self.selectedDetail = detail;
-                        if (!PMK.data.packageOf(detail, self.selectedVersion)) self.selectedVersion = PMK.data.defaultVersion(detail);
+                        if (!(detail.packages || []).some(function (pkg) { return pkg.version === self.selectedVersion; })) {
+                            var selected = PMK.data.packageOf(detail, PMK.data.defaultVersion(detail));
+                            self.selectedVersion = selected ? selected.version : null;
+                        }
                         self.loadPackageFacts();
                     }).catch(function () {
                         if (token !== self.detailToken || self.activeCatalogRepositoryId !== repository) return;
