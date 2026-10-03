@@ -1,0 +1,71 @@
+/* Bootstrap Accordion 的主题适配；原生 details 拥有展开状态与键盘语义。 */
+@import url('/vendor/bootstrap/accordion.min.css');
+
+.accordion.pixiv-disclosure {
+    --bs-accordion-color: var(--text);
+    --bs-accordion-bg: var(--surface);
+    --bs-accordion-border-color: var(--border);
+    --bs-accordion-border-width: 1px;
+    --bs-accordion-border-radius: var(--radius-sm);
+    --bs-accordion-inner-border-radius: var(--radius-sm);
+    --bs-accordion-btn-color: var(--text);
+    --bs-accordion-btn-bg: var(--surface-muted);
+    --bs-accordion-btn-padding-x: 1rem;
+    --bs-accordion-btn-padding-y: .875rem;
+    --bs-accordion-body-padding-x: 1rem;
+    --bs-accordion-body-padding-y: 1rem;
+    --bs-accordion-active-color: var(--text);
+    --bs-accordion-active-bg: var(--surface-muted);
+    min-width: 0;
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 0;
+    margin: 0;
+}
+.accordion.pixiv-disclosure > .accordion-button {
+    box-sizing: border-box;
+    min-height: var(--layout-control-height);
+    gap: .75rem;
+    margin: 0;
+    border-radius: var(--radius-sm);
+    font: inherit;
+    font-size: .875rem;
+    font-weight: 600;
+    line-height: 1.5;
+    list-style: none;
+    cursor: pointer;
+    overflow-wrap: anywhere;
+}
+.accordion.pixiv-disclosure > summary::-webkit-details-marker { display: none; }
+.accordion.pixiv-disclosure > summary::marker { content: ''; }
+.accordion.pixiv-disclosure > .accordion-button::after {
+    width: .5rem;
+    height: .5rem;
+    margin-right: .25rem;
+    background-image: none;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: rotate(45deg);
+}
+.accordion.pixiv-disclosure[open] > .accordion-button {
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+    border-bottom: 1px solid var(--border);
+}
+.accordion.pixiv-disclosure[open] > .accordion-button::after { transform: rotate(225deg); }
+.accordion.pixiv-disclosure > .accordion-button:hover { background: var(--control-muted-bg); }
+.accordion.pixiv-disclosure > .accordion-button:focus { outline: none; box-shadow: none; }
+.accordion.pixiv-disclosure > .accordion-button:focus-visible {
+    outline: 2px solid var(--accent-blue);
+    outline-offset: -3px;
+}
+.accordion.pixiv-disclosure > .accordion-body {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+.accordion.pixiv-disclosure > .accordion-body > :first-child { margin-top: 0; }
+.accordion.pixiv-disclosure > .accordion-body > :last-child { margin-bottom: 0; }
+@media (forced-colors: active) {
+    .accordion.pixiv-disclosure { border-color: CanvasText; }
+    .accordion.pixiv-disclosure > .accordion-button:focus-visible { outline-color: Highlight; }
+}

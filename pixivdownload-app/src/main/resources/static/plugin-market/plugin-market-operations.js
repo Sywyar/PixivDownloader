@@ -46,9 +46,10 @@
         var state = element('span', '', head);
         var meta = element('p', 'pmk-operation-meta', row);
         var message = element('p', 'pmk-operation-message', row);
-        var details = element('details', 'pmk-operation-details', row);
-        var summary = element('summary', '', details);
-        var diagnostic = element('p', 'pmk-operation-diagnostic', details);
+        var details = element('details', 'pmk-operation-details accordion accordion-item pixiv-disclosure', row);
+        var summary = element('summary', 'accordion-button collapsed', details);
+        var body = element('div', 'accordion-body', details);
+        var diagnostic = element('p', 'pmk-operation-diagnostic', body);
         return {node: row, name: name, state: state, meta: meta, message: message,
             details: details, summary: summary, diagnostic: diagnostic, fingerprint: null};
     }
@@ -72,7 +73,7 @@
         row.message.hidden = !row.message.textContent;
         text(row.summary, PMK.t('operations.details'));
         var diagnostics = [PMK.t('operations.identity', '', {
-            id: record.id, transaction: record.transactionId || (raw && raw.transactionId) || '—'
+            id: record.id, transaction: record.transactionId || (raw && raw.transactionId) || PMK.t('common:plugin-info.unknown')
         })];
         if (raw) {
             if (raw.code || raw.outcome) diagnostics.push(raw.code || raw.outcome);
@@ -81,7 +82,7 @@
                 diagnostics.push(PMK.t('operations.dependency', '', {
                     plugin: item.pluginId, version: item.version,
                     state: PMK.t('operations.state.' + status({finished: true, result: item})),
-                    transaction: item.transactionId || '—'
+                    transaction: item.transactionId || PMK.t('common:plugin-info.unknown')
                 }));
             });
         }
@@ -202,9 +203,9 @@
             });
             notice = element('p', 'pmk-operation-notice', panel);
             list = element('ol', 'pmk-operation-list', panel);
-            var about = element('details', 'pmk-operation-about', panel);
-            retentionTitle = element('summary', '', about);
-            retention = element('p', 'pmk-operation-meta', about);
+            var about = element('details', 'pmk-operation-about accordion accordion-item pixiv-disclosure', panel);
+            retentionTitle = element('summary', 'accordion-button collapsed', about);
+            retention = element('p', 'pmk-operation-meta accordion-body', about);
             document.addEventListener('visibilitychange', function () {
                 clearTimeout(timer);
                 if (!document.hidden) refresh();

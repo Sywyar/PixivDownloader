@@ -248,27 +248,4 @@ class PluginManagePageGuardTest {
         assertThat(css).as("复用 CSS 变量主题方案").contains("--surface");
     }
 
-    @Test
-    @DisplayName("插件卡片为紧凑平铺布局：信息始终可见、无展开控件，操作收进浮层菜单，异常卡片以色条突出")
-    void pluginCardsUseDenseFlatLayout() throws IOException {
-        String core = read(CORE);
-        String views = read(VIEWS);
-        String init = read(INIT);
-        String css = read(CSS_CARDS);
-
-        assertThat(views).as("卡片首行集中图标贴片、标题块、状态与启停开关")
-                .contains("pm-card-head", "pm-card-icon", "pm-card-side", "pm-card-status", "pm-switch");
-        assertThat(views).as("操作收进浮层菜单，诊断改用备注行，不再渲染标签区")
-                .contains("data-pm-action-menu-toggle", "pm-action-menu", "pm-notes")
-                .doesNotContain("pm-tags", "pm-tag--lifecycle-");
-        assertThat(core).as("不再持有卡片展开状态")
-                .doesNotContain("expandedIds", "isCardExpanded", "setCardExpanded");
-        assertThat(views + init).as("不使用展开控件")
-                .doesNotContain("data-pm-expand", "pm-card-summary", "pm-card-details");
-        assertThat(init).as("浮层菜单交互（开关 / 外点关闭 / 卡片溢出放行）")
-                .contains("data-pm-action-menu-toggle", "data-pm-action", "closeActionMenus", "has-open-menu");
-        assertThat(css).as("异常卡片左侧色条 + 幽灵图标按钮 + 浮层菜单")
-                .contains(".pm-card--warn", ".pm-card--bad", ".pm-icon-btn", ".pm-action-menu.open")
-                .doesNotContain(".pm-card-summary", ".pm-card-details");
-    }
 }

@@ -38,14 +38,12 @@
     PMK.trustConfirmationOptions = function (requirement) {
         var r = requirement || {};
         var executionMode = String(r.executionMode || 'HOST_PROCESS_FULL_TRUST');
-        var executionLabel = PMK.t('install.trust.execution.' + executionMode.toLowerCase(), executionMode);
         var source = r.repositoryId || r.source || PMK.t('install.trust.source.local', '本地上传');
         var publisher = r.publisher || PMK.t('install.trust.publisher.unknown', '无法确认');
         var signature = r.signed === true
             ? PMK.t('install.trust.signature.signed', '已签名')
             : PMK.t('install.trust.signature.unsigned', '未签名');
-        var fingerprint = r.publisherKeyFingerprint
-            || PMK.t('install.trust.fingerprint.unavailable', '不适用');
+        var fingerprint = r.publisherKeyFingerprint;
         var fullTrust = executionMode === 'HOST_PROCESS_FULL_TRUST';
         var message = fullTrust
             ? PMK.t('install.trust.risk',
@@ -60,26 +58,34 @@
             message += '\n\n' + PMK.t('install.trust.unsigned-risk',
                 '此插件没有发布者签名。PixivDownloader 无法证明它来自谁，也无法确认后续更新是否仍由同一作者发布。');
         }
-        message += '\n\n' + PMK.t('install.trust.details',
-            '插件 ID：{pluginId}\n版本：{version}\n来源：{source}\n发布者：{publisher}\n签名状态：{signature}\n发布者指纹：{fingerprint}\n制品 SHA-256：{sha256}\n执行模式：{executionMode}', {
-                pluginId: r.pluginId || '',
-                version: r.version || '',
-                source: source,
-                publisher: publisher,
-                signature: signature,
-                fingerprint: fingerprint,
-                sha256: r.artifactSha256 || '',
-                executionMode: executionLabel
-            });
+        var sections = [{
+            title: PMK.t('common:plugin-info.plugin'),
+            fields: [
+                {label: PMK.t('common:plugin-info.id'), value: r.pluginId || PMK.t('common:plugin-info.unknown')},
+                {label: PMK.t('common:plugin-info.version'), value: r.version || PMK.t('common:plugin-info.unknown')},
+                {label: PMK.t('common:plugin-info.source'), value: source},
+                {label: PMK.t('common:plugin-info.publisher'), value: publisher},
+                {label: PMK.t('common:plugin-info.signature'), value: signature}
+            ]
+        }].concat(global.PixivPluginPresentationTokens.trustSections(r, PMK.state.i18n.client), [{
+            title: PMK.t('common:plugin-info.artifact'),
+            fields: [
+                {label: PMK.t('common:plugin-info.fingerprint'), value: fingerprint || PMK.t('common:plugin-info.' + (r.signed === true ? 'unknown' : 'unsigned')), mono: true},
+                {label: 'SHA-256', value: r.artifactSha256 || r.sha256 || PMK.t('common:plugin-info.unknown'), mono: true}
+            ]
+        }]);
         return {
             title: PMK.t('install.trust.title', '确认插件执行信任'),
-            message: message + '\n\n' + global.PixivPluginPresentationTokens.trustLines(r, PMK.state.i18n.client).join('\n'),
+            message: message,
+            sections: sections,
             confirmLabel: PMK.t('install.trust.confirm', '我信任此插件并允许运行'),
             cancelLabel: PMK.t('install.trust.cancel', '取消安装')
         };
     };
 
-    PMK.installPluginWithConfirmation = function (repositoryId, pluginId, version) {
+    PMK.installPluginWithConfirmation = function (repositoryId, pluginId, version, onPhase, entries) {
+        function pluginLabel(id) { return PMK.data.pluginLabel(id, entries); }
+        function phase(value) { if (onPhase) onPhase(value); }
         function canConfirm() {
             return global.PixivFeedback && typeof global.PixivFeedback.confirm === 'function';
         }
@@ -97,22 +103,32 @@
             return response;
         }
         function previewAndAttempt(confirmations) {
+            phase('preview');
             return PMK.api.previewInstall(repositoryId, pluginId, version).then(function (preview) {
                 if (!canConfirm() || !preview || !/^[0-9a-f]{64}$/.test(preview.fingerprint)) {
                     throw new Error(PMK.t('install.preview.unavailable'));
                 }
-                var lines = (preview.packages || []).map(function (item) {
-                    return PMK.t('install.preview.package', '', {
-                        plugin: item.pluginId, version: item.version,
-                        source: item.repositoryId || PMK.t('install.preview.local'),
-                        previous: item.installedVersion || '—',
-                        previousSource: item.installedRepositoryId || PMK.t('install.preview.local'),
-                        publisher: item.publisher || '—', sha256: item.sha256 || '—',
-                        action: PMK.t('install.preview.action.' + String(item.action).toLowerCase()),
-                        consumers: (item.consumers || []).join(', ') || '—',
-                        active: (item.activeConsumers || []).join(', ') || '—'
-                    });
+                var sections = (preview.packages || []).map(function (item) {
+                    var none = PMK.t('common:plugin-info.no-consumers');
+                    var unknown = PMK.t('common:plugin-info.unknown');
+                    return {
+                        title: PMK.t('install.preview.action.' + String(item.action).toLowerCase()) + ' · ' + pluginLabel(item.pluginId),
+                        fields: [
+                            {label: PMK.t('common:plugin-info.version'), value: item.version || unknown},
+                            {label: PMK.t('common:plugin-info.installed-version'), value: item.installedVersion || PMK.t('common:plugin-info.not-installed')},
+                            {label: PMK.t('common:plugin-info.source'), value: item.repositoryId || PMK.t('install.preview.local')},
+                            {label: PMK.t('common:plugin-info.publisher'), value: item.publisher || unknown}
+                        ].concat(item.action === 'REUSE' ? [] : [
+                            {label: PMK.t('common:plugin-info.consumers'), value: Array.isArray(item.consumers) ? item.consumers.map(pluginLabel).join(', ') || none : unknown},
+                            {label: PMK.t('common:plugin-info.active-consumers'), value: Array.isArray(item.activeConsumers) ? item.activeConsumers.map(pluginLabel).join(', ') || PMK.t('common:plugin-info.no-active-consumers') : unknown}
+                        ]).concat(item.installedVersion ? [{label: PMK.t('common:plugin-info.previous-source'), value: item.installedRepositoryId || PMK.t('install.preview.local')}] : [])
+                    };
                 });
+                var artifactSections = (preview.packages || []).map(function (item) {
+                    return {title: pluginLabel(item.pluginId) + ' · SHA-256', collapsed: true,
+                        fields: [{label: 'SHA-256', value: item.sha256 || PMK.t('common:plugin-info.unknown'), mono: true}]};
+                });
+                var lines = [];
                 (preview.conflicts || []).forEach(function (conflict) {
                     lines.push(PMK.t('install.preview.conflict.' + conflict.code.toLowerCase(), '', {
                         plugin: conflict.pluginId, details: (conflict.arguments || []).join(', ')
@@ -124,8 +140,10 @@
                         code: 'INSTALL_PREVIEW_BLOCKED', message: lines.join('\n\n')
                     }});
                 }
+                phase('confirm');
                 return global.PixivFeedback.confirm({
-                    title: PMK.t('install.preview.title'), message: lines.join('\n\n'),
+                    title: PMK.t('install.preview.title'), message: PMK.t('install.preview.summary'),
+                    sections: sections.concat([{title: PMK.t('common:plugin-info.effect'), paragraphs: lines}], artifactSections),
                     confirmLabel: PMK.t('install.preview.confirm'), cancelLabel: PMK.t('install.trust.cancel')
                 }).then(function (confirmed) {
                     if (!confirmed) return rememberDependencies({ kind: 'error', body: {
@@ -137,6 +155,7 @@
             });
         }
         function attempt(confirmations) {
+            phase('installing');
             return PMK.api.installPlugin(repositoryId, pluginId, version, confirmations).then(function (response) {
                 rememberDependencies(response);
                 var body = response.body || {};
@@ -145,6 +164,7 @@
                 if (trustRequired && body.trustRequirement && canConfirm()) {
                     var sha256 = String(body.trustRequirement.artifactSha256 || '').toLowerCase();
                     if (!/^[0-9a-f]{64}$/.test(sha256) || confirmedArtifacts[sha256]) return response;
+                    phase('trust');
                     return global.PixivFeedback.confirm(PMK.trustConfirmationOptions(body.trustRequirement))
                         .then(function (confirmed) {
                         if (!confirmed) return response;

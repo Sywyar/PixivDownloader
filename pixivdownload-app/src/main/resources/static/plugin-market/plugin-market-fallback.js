@@ -37,9 +37,10 @@
     function installControl(card) {
         var status = cardStatus(card);
         if (status === 'INSTALLING') {
-            return '<div class="pmk-install-progress"><div class="pmk-install-progress-label">' +
-                '<i class="fa-solid fa-spinner fa-spin"></i>' + esc(t('install.state.installing', '安装中…')) +
-                '</div><div class="pmk-progressbar"><span></span></div></div>';
+            var phase = state.installing[installKey(card.repositoryId, card.pluginId)];
+            return '<div class="pmk-install-progress" role="status"><div class="pmk-install-progress-label">' +
+                '<i class="fa-solid ' + (phase === 'confirm' || phase === 'trust' ? 'fa-clock' : 'fa-spinner fa-spin') + '"></i>' + esc(t('install.phase.' + phase)) +
+                '</div></div>';
         }
         var meta = PMK.installMeta(status);
         var label = status === 'UPDATE_AVAILABLE'
@@ -89,15 +90,15 @@
             rating +
             (card.desc ? '<p class="pmk-card-desc">' + esc(card.desc) + '</p>' : '') +
             tags +
+            '<div class="pmk-card-footer">' +
             (meta ? '<div class="pmk-card-meta">' + esc(meta) + '</div>' : '') +
             compat +
             (card.compatibilityNotice ? '<p class="pmk-card-compat pmk-card-compat--notice">' + esc(card.compatibilityNotice) + '</p>' : '') +
-            '<details><summary data-pmk-facts="' + esc(card.pluginId) + '" data-pmk-version="' + esc(card.targetVersion) + '">'
-                + esc(t('trust.facts', '来源与能力声明')) + '</summary><div data-pmk-facts-content>'
-                + global.PixivPluginPresentationTokens.trustLines(card.verification, PMK.state.i18n.client)
-                    .map(function (line) { return '<p>' + esc(line) + '</p>'; }).join('') + '</div></details>' +
-            '<div class="pmk-card-actions">' + installControl(card) + '</div>' +
-            '</div></article>';
+            '<div class="pmk-card-actions"><div class="pmk-install-slot">' + installControl(card) + '</div>' +
+            '<button type="button" class="pmk-btn pmk-btn--gray pmk-btn--sm" data-pmk-facts="' + esc(card.pluginId)
+                + '" data-pmk-version="' + esc(card.targetVersion) + '" aria-haspopup="dialog">'
+                + esc(t('card.detail', '详情')) + '</button></div>' +
+            '</div></div></article>';
     }
 
     function gridHtml() {
@@ -317,10 +318,12 @@
         if (!repositoryId || !pluginId || !version) return;
         var key = installKey(repositoryId, pluginId);
         if (state.installing[key]) return;
-        state.installing[key] = true;
+        var trigger = document.activeElement;
+        var restoreFocus = trigger && trigger.hasAttribute && trigger.hasAttribute('data-pmk-install');
+        state.installing[key] = 'preview';
         delete state.installResults[key];
         updateGrid();
-        PMK.installPluginWithConfirmation(repositoryId, pluginId, version).then(function (res) {
+        PMK.installPluginWithConfirmation(repositoryId, pluginId, version, function (phase) { state.installing[key] = phase; updateGrid(); }, state.catalog && state.catalog.entries).then(function (res) {
             var model = res.kind === 'install'
                 ? PMK.data.installResult(res.body)
                 : PMK.data.catalogError(res.body, res.httpStatus);
@@ -338,7 +341,14 @@
             PMK.toast(t('error.install.generic', '安装请求失败，请重试。'), 'error');
         }).then(function () {
             delete state.installing[key];
-            return refreshCatalogAfterInstall(repositoryId);
+            return refreshCatalogAfterInstall(repositoryId).then(function () {
+                if (!restoreFocus || document.activeElement !== document.body || state.activeRepositoryId !== repositoryId) return;
+                var button = Array.from(rootEl.querySelectorAll('[data-pmk-install]')).find(function (item) {
+                    return item.getAttribute('data-pmk-install') === pluginId;
+                });
+                var target = button && (button.disabled ? button.closest('.pmk-card').querySelector('[data-pmk-facts]') : button);
+                if (target) target.focus({preventScroll: true});
+            });
         });
     }
 
@@ -346,25 +356,37 @@
         rootEl.addEventListener('click', function (e) {
             var facts = e.target.closest('[data-pmk-facts]');
             if (facts) {
-                var target = facts.parentElement.querySelector('[data-pmk-facts-content]');
+                if (facts.disabled) return;
+                facts.disabled = true;
                 var catalog = state.catalog;
                 var pluginId = facts.getAttribute('data-pmk-facts');
                 var version = facts.getAttribute('data-pmk-version');
                 PMK.api.fetchPackageFacts(catalog.repositoryId, pluginId, version).then(function (data) {
-                    if (state.catalog !== catalog) return;
+                    if (state.catalog !== catalog || !facts.isConnected) return;
                     var entry = catalog.entries.find(function (item) { return item.pluginId === pluginId; });
                     var pkg = entry && PMK.data.packageOf(entry, version);
                     if (pkg) {
                         pkg.verification = data;
                         var card = PMK.data.cardModel(entry);
                         card.repositoryId = catalog.repositoryId;
-                        facts.closest('.pmk-card').querySelector('.pmk-card-actions').innerHTML = installControl(card);
+                        facts.closest('.pmk-card').querySelector('.pmk-install-slot').innerHTML = installControl(card);
                     }
-                    target.innerHTML = global.PixivPluginPresentationTokens.trustLines(data, PMK.state.i18n.client)
-                        .map(function (line) { return '<p>' + esc(line) + '</p>'; }).join('');
+                    if (!entry) return;
+                    facts.disabled = false;
+                    facts.focus({preventScroll: true});
+                    return global.PixivFeedback.alert({
+                        title: PMK.data.entryName(entry), message: PMK.data.entryDescription(entry),
+                        confirmLabel: t('common:button.close'),
+                        sections: [{title: t('common:plugin-info.dependencies'), fields: [
+                            {label: t('common:plugin-info.sdk'), value: pkg && pkg.requiredSdk || t('common:plugin-info.unknown')},
+                            {label: t('common:plugin-info.dependency-plugins'), value: (pkg && pkg.dependencies || []).map(function (dep) {
+                                return PMK.data.dependencyLabel(dep, catalog.entries);
+                            }).join('\n') || t('common:plugin-info.no-dependencies')}
+                        ]}].concat(global.PixivPluginPresentationTokens.trustSections(data, PMK.state.i18n.client))
+                    });
                 }).catch(function () {
                     PMK.toast(t('error.detail', '无法加载插件详情，请稍后重试。'), 'error');
-                });
+                }).finally(function () { facts.disabled = false; });
                 return;
             }
             var repo = e.target.closest('[data-pmk-repo]');

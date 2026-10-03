@@ -72,13 +72,21 @@ class FakeElement {
         this.ownerDocument.activeElement = this;
     }
 
+    closest(selector) {
+        for (let node = this; node; node = node.parentNode) {
+            if (selector === 'details:not([open])' && node.tagName === 'DETAILS' && !node.open) return node;
+        }
+        return null;
+    }
+
     querySelectorAll(selector) {
         const result = [];
         const wantsButton = selector.includes('button');
         const wantsInput = selector.includes('input');
+        const wantsSummary = selector.includes('summary');
         walk(this, node => {
             if (node === this || node.disabled) return;
-            if ((wantsButton && node.tagName === 'BUTTON') || (wantsInput && node.tagName === 'INPUT')) {
+            if ((wantsButton && node.tagName === 'BUTTON') || (wantsInput && node.tagName === 'INPUT') || (wantsSummary && node.tagName === 'SUMMARY')) {
                 result.push(node);
             }
         });
@@ -334,6 +342,31 @@ function clickEvent(target, values) {
         ok(opened.length === 1 && opened[0].target === '_blank'
             && opened[0].features === 'noopener,noreferrer',
             'confirmed target-blank links open with opener isolation');
+    }
+
+    {
+        const {document, feedback} = loadFeedback();
+        const payload = '<img src=x onerror=alert(1)>';
+        const pending = feedback.confirm({
+            message: 'Review package', confirmLabel: 'Install', cancelLabel: 'Cancel',
+            sections: [{title: 'Package', fields: [{label: 'Name', value: payload}]},
+                {title: 'Checksum', collapsed: true, fields: [{label: 'SHA-256', value: 'a'.repeat(64), mono: true}]}]
+        });
+        await nextTurn();
+        const value = find(document.body, node => node.tagName === 'DD' && node.textContent === payload);
+        ok(!!value && value.children.length === 0, 'structured fields retain untrusted markup as literal text');
+        ok(!find(document.body, node => node.tagName === 'IMG'), 'structured confirmation never injects HTML');
+        const disclosure = find(document.body, node => node.tagName === 'DETAILS');
+        ok(!!disclosure && !disclosure.open, 'checksum disclosure starts collapsed');
+        const accept = actionButton(document, 'accept');
+        accept.focus();
+        let prevented = false;
+        document.emit('keydown', {key: 'Tab', preventDefault() { prevented = true; }});
+        ok(prevented && document.activeElement.tagName === 'SUMMARY', 'Tab wraps to the disclosure summary');
+        document.emit('keydown', {key: 'Tab', shiftKey: true, preventDefault() {}});
+        ok(document.activeElement === accept, 'Shift Tab wraps from summary to the final action');
+        actionContainer(accept).emit('click', {target: accept});
+        ok(await pending === true, 'structured confirmation retains acceptance semantics');
     }
 
     {

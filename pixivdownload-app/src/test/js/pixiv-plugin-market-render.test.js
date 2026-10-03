@@ -13,6 +13,7 @@ function node(tag, text = '') {
     return {
         tagName: tag.toUpperCase(), text, children: [], props: {}, listeners: {}, parent: null,
         get options() { return this.children; },
+        showModal() { this.open = true; },
         addEventListener(name, handler) { this.listeners[name] = handler; },
         dispatchEvent(event) { this.listeners[event.type]?.(event); }
     };
@@ -45,7 +46,7 @@ function entry(id, { category = 'utility', defaultInstalled = false } = {}) {
     };
 }
 
-async function mountMarket({ community = false, revocation = null, compatibleOlder = false } = {}) {
+async function mountMarket({ community = false, revocation = null, compatibleOlder = false, dependencies = [] } = {}) {
     const errors = [];
     const document = { createElement: tag => node(tag), addEventListener() {}, removeEventListener() {}, body: { style: {} } };
     const sandbox = { document, console: { warn: (...args) => errors.push(args), error: (...args) => errors.push(args) } };
@@ -82,6 +83,8 @@ async function mountMarket({ community = false, revocation = null, compatibleOld
     const market = sandbox.PixivPluginMarket;
     market.state.i18n.client = { lang: 'en-US', t: (key, fallback, vars) => key + (vars ? JSON.stringify(vars) : '') };
     const entries = [entry('visible'), entry('bundled', { defaultInstalled: true }), entry('dependency', { category: 'dependency' })];
+    entries[0].packages.forEach(pkg => { pkg.dependencies = dependencies; });
+    entries[2].market.displayName = {en: 'Notifications', 'zh-CN': '通知'};
     if (compatibleOlder) {
         entries[0].recommendedVersion = '1.0.0';
         entries[0].compatibilityReason = '999.0';
@@ -120,7 +123,9 @@ async function mountMarket({ community = false, revocation = null, compatibleOld
         }
     };
     market.installPluginWithConfirmation = (...args) => {
-        installCalls.push(args);
+        installCalls.push(args.slice(0, 3));
+        assert.equal(typeof args[3], 'function');
+        args[3]('confirm');
         return new Promise(resolve => { finishInstall = resolve; });
     };
     market.toast = () => {};
@@ -174,6 +179,7 @@ test('市场在禁止动态代码编译时挂载，筛选、详情、安装结�
     await flush();
     assert.equal(page.document.body.style.overflow, 'hidden');
     assert.match(textOf(one('pmk-hero-name')), /visible/);
+    assert.equal(textOf(one('pmk-hero-summary')), '<img src=x onerror=alert(1)>', '用途摘要必须以纯文本显示');
     const select = one('pmk-version-select');
     assert.equal(select.selectedIndex, 0);
     select.options.forEach(option => { option.selected = option.value === '1.0.0'; });
@@ -183,11 +189,18 @@ test('市场在禁止动态代码编译时挂载，筛选、详情、安装结�
     await flush();
     assert.deepEqual(page.installCalls, [['repo', 'visible', '1.0.0']]);
     assert.equal(elements(root, 'pmk-install-progress').length, 2);
+    elements(root, 'pmk-install-progress').forEach(node => assert.match(textOf(node), /install.phase.confirm/));
+    assert.equal(elements(root, 'pmk-progress-bar').length, 0);
+    assert.equal(one('pmk-modal').open, true);
     page.completeInstall({ outcome: 'INSTALLED', accepted: true, effectiveAfterRestart: true, message: 'Restart needed' });
     await flush();
     assert.equal(elements(root, 'pmk-install-progress').length, 0);
-    assert.equal(textOf(one('pmk-install-result-msg')), 'Restart needed');
+    assert.equal(textOf(one('pmk-install-result-msg')), 'plugin-market:install.toast.accepted');
+    assert.match(textOf(one('pmk-install-result-box')), /Restart needed/);
     assert.ok(one('pmk-install-restart'));
+    const manageLink = one('pmk-modal-actionbar-right').children.find(n => n.tagName === 'A');
+    assert.equal(manageLink.props.href, '/plugin-manage.html', '安装后提供管理入口');
+    assert.equal(one('pmk-modal-actionbar-right').children.find(n => n.tagName === 'BUTTON').props.disabled, true, '不能重复安装已安装版本');
 
     const modal = one('pmk-modal');
     modal.props.onClick({ target: one('pmk-modal-panel'), currentTarget: modal });
@@ -305,7 +318,7 @@ test('基础视图默认安装兼容旧版，取回新撤销事实后立即禁�
     plugin.compatibilityReason = '999.0';
     const installCalls = [];
     market.installPluginWithConfirmation = (...args) => {
-        installCalls.push(args);
+        installCalls.push(args.slice(0, 3));
         return Promise.resolve({kind: 'install', body: {accepted: true, activated: true, message: 'installed'}});
     };
     market.api = {
@@ -330,9 +343,11 @@ test('基础视图默认安装兼容旧版，取回新撤销事实后立即禁�
     await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual(installCalls, [['repo', 'visible', '1.0.0']]);
     const actions = { innerHTML: '' };
-    const details = { innerHTML: '' };
+    let detailOptions;
+    sandbox.PixivFeedback = {alert: options => { detailOptions = options; return Promise.resolve(); }};
     const facts = {
-        parentElement: { querySelector: () => details },
+        isConnected: true,
+        focus() {},
         getAttribute: name => name === 'data-pmk-facts' ? 'visible' : '1.0.0',
         closest: () => ({ querySelector: () => actions })
     };
@@ -341,6 +356,25 @@ test('基础视图默认安装兼容旧版，取回新撤销事实后立即禁�
     assert.match(actions.innerHTML, / disabled/);
     assert.doesNotMatch(actions.innerHTML, /data-pmk-install/);
     assert.match(actions.innerHTML, /common:plugin-trust.revocation.REVOKED/);
-    assert.match(details.innerHTML, /revocation.REVOKED/);
+    assert.match(JSON.stringify(detailOptions.sections), /revocation.REVOKED/);
+    assert.doesNotMatch(root.innerHTML, /data-pmk-facts-content/);
+    assert.match(root.innerHTML, /aria-haspopup="dialog"/);
     assert.deepEqual(errors, ['plugin-market:install.toast.activated']);
+});
+
+
+test('市场依赖使用完整目录解析本地化名称并保留可选性和版本', async () => {
+    const page = await mountMarket({dependencies: ['dependency?@>=3', 'unknown@4']});
+    const {root, market, flush} = page;
+    elements(root, 'pmk-card-name')[0].props.onClick();
+    await flush();
+    assert.match(textOf(root), /common:plugin-info.dependency-plugins/);
+    assert.match(textOf(root), /Notifications\(dependency\) · >=3 · common:plugin-info.optional-dependency/);
+    assert.match(textOf(root), /unknown · 4/);
+    market.state.i18n.client.lang = 'zh-CN';
+    market.state.activeView.rerender();
+    await flush();
+    assert.match(textOf(root), /通知\(dependency\)/);
+    assert.doesNotMatch(textOf(root), /Notifications\(dependency\)/);
+    assert.deepEqual(page.errors, []);
 });

@@ -29,6 +29,7 @@
     <script src="/plugin-manage/plugin-manage-views.js"></script>
     <script src="/plugin-manage/plugin-manage-init.js"></script>
     <script src="/js/pixiv-layout.js" defer></script>
+    <link rel="stylesheet" href="/css/pixiv-disclosure.css">
 </head>
 <body class="layout-flow">
 
@@ -124,8 +125,7 @@
      POST /api/plugins/install。安装经统一事务编排校验、卸下旧代、原子替换并按生命周期策略激活；只有
      process-restart 插件延后到完整进程重启生效，失败时恢复旧版本。本弹窗不提供 URL 安装、插件市场或更新检查；
      删除由插件卡片的 remove 生命周期动作处理。 -->
-<div class="pm-modal" id="pm-install-modal" hidden role="dialog" aria-modal="true" aria-labelledby="pm-install-title">
-    <div class="pm-modal-backdrop" data-pm-install-dismiss></div>
+<dialog class="pm-modal" id="pm-install-modal" hidden aria-modal="true" aria-labelledby="pm-install-title">
     <div class="pm-modal-card layout-dialog" role="document">
         <div class="pm-modal-head">
             <h2 class="pm-modal-title" id="pm-install-title">
@@ -153,12 +153,14 @@
         </label>
         <p class="pm-modal-desc" data-i18n="install.signature.help">如有配套的 .sig 签名文件，请一并选择。首次安装第三方插件时需确认执行信任；未签名包的确认仅对当前文件有效。</p>
 
-        <details class="pm-advanced">
-            <summary><i class="fa-solid fa-sliders"></i><span data-i18n="install.advanced">高级选项</span></summary>
+        <details class="pm-advanced accordion accordion-item pixiv-disclosure">
+            <summary class="accordion-button collapsed"><i class="fa-solid fa-sliders"></i><span data-i18n="install.advanced">高级选项</span></summary>
+            <div class="accordion-body">
             <label class="pm-check pm-check--danger">
                 <input type="checkbox" id="pm-install-allow-downgrade">
                 <span data-i18n="install.allow-downgrade">允许安装更低版本（覆盖已安装的更高版本）。</span>
             </label>
+            </div>
         </details>
 
         <!-- 安装结果区：由 JS 据 PluginInstallResponse 填充（结果码 + 本地化说明 + 诊断 / 依赖，全部转义渲染）。 -->
@@ -171,7 +173,18 @@
             </button>
         </div>
     </div>
-</div>
+</dialog>
+
+<dialog class="pm-modal" id="pm-detail-modal" hidden aria-labelledby="pm-detail-title">
+    <div class="pm-modal-card pm-plugin-detail">
+        <div class="pm-modal-head">
+            <h2 class="pm-modal-title" id="pm-detail-title"></h2>
+            <button type="button" class="pm-modal-close" data-pm-detail-dismiss
+                    data-i18n-aria-label="install.close" aria-label="关闭"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+        </div>
+        <div id="pm-detail-content"></div>
+    </div>
+</dialog>
 
 <div class="pm-toast" id="pm-toast" role="status" aria-live="polite"></div>
 

@@ -315,3 +315,14 @@
     gap: 10px;
     margin-top: 2px;
 }
+
+.pm-modal { margin: 0; width: 100vw; height: 100dvh; max-width: none; max-height: none; box-sizing: border-box; border: 0; background: var(--overlay-bg); color: var(--text); }
+.pm-modal::backdrop { background: transparent; }
+.pm-modal-card { max-width: 38rem; padding: 1.5rem; max-height: calc(100dvh - 3rem); }
+.pm-modal-foot { position: sticky; bottom: -1.5rem; background: var(--surface); padding-block: 1rem; margin-bottom: -1.5rem; }
+.pm-file:focus-within { outline: 2px solid var(--brand); outline-offset: 3px; }
+.pm-file-name { white-space: normal; overflow-wrap: anywhere; }
+.pm-result-details { font-size: .8125rem; border-top: 1px solid var(--border); padding-top: .75rem; }
+.pm-result-details summary { cursor: pointer; color: var(--muted); margin-bottom: .75rem; }
+.pm-install-meta-row { display: grid; grid-template-columns: minmax(5rem, 1fr) minmax(0, 2fr); }
+.pm-modal :is(button, summary):focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }

@@ -205,19 +205,30 @@
             throw new Error(PM.t('impact.unavailable'));
         }
         var plugin = preview.plugin;
-        var consumers = (preview.consumers || []).map(function (entry) {
-            return entry.id + ' (' + (entry.loadedVersion || entry.version) + ', '
-                + (entry.runtimePhase || entry.status) + ')';
-        });
+        var consumers = preview.consumers;
+        var target = PM.buildViewModel(plugin);
+        var consumerFields = Array.isArray(consumers) ? consumers.map(function (entry) {
+            var vm = PM.buildViewModel(entry);
+            var version = entry.version || PM.t('common:plugin-info.not-installed');
+            if (entry.loadedVersion && entry.loadedVersion !== entry.version) version += ' · '
+                + PM.t('common:plugin-info.loaded-version') + ': ' + entry.loadedVersion;
+            return {label: PM.pluginLabel(entry.id, entry), value: version + ' · ' + (vm.phaseLabel || vm.statusLabel)};
+        }) : [];
         var confirmed = await global.PixivFeedback.confirm({
-            title: PM.t('impact.title'),
-            message: PM.t('impact.message', '', {
-                action: PM.t('action.' + action, action), plugin: plugin.id,
-                version: plugin.version || '—', loaded: plugin.loadedVersion || '—',
-                policy: PM.t(PM.lifecyclePolicyMeta(plugin.lifecyclePolicy).key),
-                consumers: consumers.join(', ') || '—'
-            }),
-            confirmLabel: PM.t('impact.confirm'), cancelLabel: PM.t('trust.confirm.cancel')
+            title: PM.t('action.' + action, action) + ' · ' + target.name,
+            message: PM.t('impact.summary'),
+            danger: ['remove', 'unload', 'stop'].indexOf(action) !== -1,
+            sections: [
+                {title: PM.t('common:plugin-info.plugin'), fields: [
+                    {label: PM.t('install.field.plugin-id'), value: plugin.id, mono: true}
+                ].concat(PM.detailFields(plugin))},
+                {title: PM.t('common:plugin-info.consumers'), fields: consumerFields,
+                    paragraphs: consumerFields.length ? [] : [PM.t(Array.isArray(consumers)
+                        ? 'common:plugin-info.no-consumers' : 'common:plugin-info.unknown')]},
+                {title: PM.t('common:plugin-info.effect'), paragraphs: [PM.t('impact.boundary')]}
+            ],
+            confirmLabel: PM.t('action.' + action, action),
+            cancelLabel: PM.t('trust.confirm.cancel')
         });
         return confirmed ? preview.fingerprint : null;
     };

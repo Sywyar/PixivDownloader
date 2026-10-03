@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
+function dialogText(options) { return options.message + JSON.stringify(options.sections || []); }
 
 const STATIC_ROOT = path.join(__dirname, '..', '..', 'main', 'resources', 'static');
 const TOKENS_SRC = fs.readFileSync(path.join(STATIC_ROOT, 'js', 'pixiv-plugin-presentation-tokens.js'), 'utf8');
@@ -242,6 +243,14 @@ const blockedFeedback = PMK.data.installFeedback(blockedResult);
 eq('市场 recoveryBlocked toast 使用错误色调', blockedFeedback.tone, 'error');
 eq('市场 recoveryBlocked toast 保留后端 message', blockedFeedback.message, blockedMessage);
 
+
+// 取消与冲突保留各自语义，不把可读原因降为机器码。
+(function () {
+    const error = PMK.data.catalogError({code: 'INSTALL_PREVIEW_BLOCKED', message: 'Library is in use'});
+    ok('预览冲突保留后端说明', error.message.includes('Library is in use'));
+    const cancelled = PMK.data.catalogError({code: 'CANCELLED', message: 'Cancelled'});
+    eq('取消使用中性状态', PMK.data.installFeedback(cancelled).tone, 'info');
+})();
 (async function () {
     fetchCalls.length = 0;
     nextFetchResponse = {status: 200, body: {recoveryMode: true, plugins: []}};
@@ -319,17 +328,26 @@ eq('市场 recoveryBlocked toast 保留后端 message', blockedFeedback.message,
             return Promise.resolve(true);
         }
     };
-    const confirmed = await PMK.installPluginWithConfirmation('custom repo', 'demo plugin', '1.0.0');
+    previewResponse.body.packages = [{pluginId: 'demo plugin', action: 'INSTALL', version: '1.0.0',
+        consumers: ['named-consumer'], activeConsumers: ['named-consumer']},
+        {pluginId: 'reused-dependency', action: 'REUSE', version: '3.0', consumers: [], activeConsumers: []}];
+    const catalogEntries = [{pluginId: 'demo plugin', market: {displayName: {en: 'Importer'}}},
+        {pluginId: 'named-consumer', market: {displayName: {en: 'Reader'}}}];
+    const confirmed = await PMK.installPluginWithConfirmation('custom repo', 'demo plugin', '1.0.0', null, catalogEntries);
+    ok('安装计划中的插件与消费者显示名称和标识', dialogText(confirmationOptions[0]).includes('Importer(demo plugin)')
+        && dialogText(confirmationOptions[0]).includes('Reader(named-consumer)'));
+    ok('保留现有依赖时不把未查询的依赖方声称为不存在', !confirmationOptions[0].sections[1].fields.some(field => /consumers/.test(field.label)));
+    previewResponse.body.packages = [];
     eq('签名与依赖信任确认后返回最终安装结果', confirmed.body.outcome, 'INSTALLED');
     eq('重新确认后仍显示此前成功安装的依赖', confirmed.body.dependencyInstallResults[0].pluginId, 'already-installed');
     eq('每次执行都重新确认预览，两个安全挑战独立确认', confirmationOptions.length, 5);
-    ok('执行信任提示只使用后端核验的发布者事实', confirmationOptions[1].message.includes('Demo Publisher'));
-    ok('执行信任提示显示精确制品摘要和完全访问模式', confirmationOptions[1].message.includes(firstSha)
-        && confirmationOptions[1].message.includes('HOST_PROCESS_FULL_TRUST'));
+    ok('执行信任提示只使用后端核验的发布者事实', dialogText(confirmationOptions[1]).includes('Demo Publisher'));
+    ok('执行信任提示显示精确制品摘要和完全访问模式', dialogText(confirmationOptions[1]).includes(firstSha)
+        && dialogText(confirmationOptions[1]).includes('HOST_PROCESS_FULL_TRUST'));
     ok('市场在高权限宿主上提示 full-trust 插件继承同等权限',
         confirmationOptions[1].message.includes('将继承同等权限'));
     ok('未签名依赖使用更强风险提示', confirmationOptions[3].message.includes('没有发布者签名')
-        && confirmationOptions[3].message.includes('demo dependency'));
+        && dialogText(confirmationOptions[3]).includes('demo dependency'));
     const installs = fetchCalls.filter(call => call.url === '/api/plugin-market/operations');
     eq('首次请求只携带当前预览', JSON.parse(installs[0].opts.body).confirmTrust, null);
     eq('首次信任只携带后端返回的精确摘要', JSON.parse(installs[1].opts.body).confirmTrust, firstSha);

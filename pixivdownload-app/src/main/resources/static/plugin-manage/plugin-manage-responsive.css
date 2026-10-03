@@ -84,7 +84,7 @@
     }
 
     .pm-stats {
-        grid-template-columns: minmax(0, 1fr);
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .pm-tabs { flex-wrap: wrap; width: 100%; }
@@ -103,13 +103,6 @@
         flex-wrap: wrap;
     }
 
-    .pm-card-side {
-        width: 100%;
-        flex-direction: row;
-        align-items: center;
-        justify-content: space-between;
-    }
-
     .pm-card-foot,
     .pm-file {
         flex-direction: column;
@@ -126,7 +119,7 @@
 
     .pm-action-menu {
         right: 0;
-        left: 0;
-        min-width: 0;
+        left: auto;
+        min-width: min(15rem, 75vw);
     }
 }
