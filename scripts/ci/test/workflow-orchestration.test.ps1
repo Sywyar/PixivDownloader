@@ -164,6 +164,10 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
     & {
         $program = Read-Program (Join-Path $repo 'scripts/publish-plugin-releases.ps1')
         foreach ($definition in $program.Functions) { . ([scriptblock]::Create($definition.Extent.Text)) }
+        . (Join-Path $repo 'scripts/market-content-publication.ps1')
+        $toolDirectory = Join-Path $fixture 'pixivdownload-sdk-tools/target'
+        [IO.Directory]::CreateDirectory($toolDirectory) | Out-Null
+        $toolJar = Join-Path $toolDirectory 'pixivdownload-sdk-tools-fixture.jar'
         $script:builds = [Collections.Generic.List[object]]::new()
         $script:writes = [Collections.Generic.List[string]]::new()
         $script:buildExit = 0
@@ -178,8 +182,12 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
         function Get-PixivDownloadSdkVersion { return '1.0.0' }
         function Get-OfficialDistributionPlugins { param([switch]$IncludeOptional) return $plugins }
         function Get-MavenCommand { return 'Invoke-FakeMaven' }
+        function Get-MarketSourceCommit { return ('c' * 40) }
         function Invoke-FakeMaven {
             $script:builds.Add(@($args))
+            if ($script:buildExit -eq 0 -and ($args -join ',') -match 'pixivdownload-sdk-tools') {
+                [IO.File]::WriteAllText($toolJar, 'tool fixture')
+            }
             $global:LASTEXITCODE = $script:buildExit
         }
         function Find-ModulePluginArtifact { param($Plugin) return (Join-Path $fixture "$($Plugin.Module)/src/main/resources/plugin.properties") }
@@ -197,11 +205,16 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
             return @{Sha='fixture'; ShaFile="$StagedArtifact.sha256"; SigFile="$StagedArtifact.sig"}
         }
         function New-OfficialMarketContent {
+            $null = Resolve-MarketContentTool $fixture
+            if ($script:existing -and $script:contentMode -and $args[6] -cne ('d' * 40)) {
+                throw 'A release retry must retain the original frozen source commit.'
+            }
             if ($script:contentMode) { return @((Join-Path $fixture 'market-content.json'), (Join-Path $fixture 'content-doc.md')) }
             return @()
         }
         function Get-OfficialMarketContentHash { return ($(if ($script:contentMode -eq 'conflict') { 'b' } else { 'a' }) * 64) }
         function Read-OfficialMarketContent {
+            $null = Resolve-MarketContentTool $fixture
             if ($script:contentMode -eq 'readback-failure') { throw 'Public market content readback failed.' }
             $script:readbacks++
             return $null
@@ -212,12 +225,16 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
             if ($args[1] -eq 'view') {
                 if (-not $script:existing) { $global:LASTEXITCODE = 1; return 'release not found' }
                 $id = $args[2] -replace '-v.*$', ''
-                return (@{body=$(if ($script:contentMode) { 'market-content-sha256=' + ('a' * 64) } else { '' });
-                    assets=@(@{name="$id-1.0.0.jar"}, @{name="$id-1.0.0.jar.sha256"}, @{name="$id-1.0.0.jar.sig"})} | ConvertTo-Json -Compress)
+                $assets = @(@{name="$id-1.0.0.jar"}, @{name="$id-1.0.0.jar.sha256"}, @{name="$id-1.0.0.jar.sig"})
+                if ($script:contentMode -eq 'complete') { $assets += @(@{name='market-content.json'}, @{name='content-doc.md'}) }
+                return (@{body=$(if ($script:contentMode) { 'market-content-sha256=' + ('a' * 64) + ' market-source-commit=' + ('d' * 40) } else { '' });
+                    assets=$assets} | ConvertTo-Json -Compress)
             }
             $script:writes.Add((@($args | ForEach-Object { $_ }) -join ' '))
         }
         foreach ($mode in @('nightly', 'force', 'stable', 'skip', 'failure', 'prebuilt')) {
+            if (Test-Path -LiteralPath $toolJar) { Remove-Item -LiteralPath $toolJar }
+            if ($mode -eq 'prebuilt') { [IO.File]::WriteAllText($toolJar, 'prebuilt fixture') }
             $script:contentMode = ''; $script:readbacks = 0
             $script:builds.Clear(); $script:writes.Clear()
             $script:requiredSdkValues.Clear()
@@ -232,7 +249,7 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
                 Assert-Equal $script:writes.Count 0
             } else {
                 & $program.Main @parameters
-                Assert-Equal $script:builds.Count $(if ($mode -in @('skip', 'prebuilt')) { 0 } elseif ($mode -eq 'stable') { 2 } else { 1 })
+                Assert-Equal $script:builds.Count $(if ($mode -eq 'prebuilt') { 0 } elseif ($mode -eq 'stable') { 3 } else { 1 })
                 Assert-Equal $script:writes.Count $(if ($mode -eq 'skip') { 0 } elseif ($mode -in @('nightly', 'prebuilt')) { 2 } else { 4 })
                 if ($mode -in @('nightly', 'prebuilt')) {
                     Assert-Equal $script:requiredSdkValues @('1.0.0-nightly.20260909.1.1', '1.0.0-nightly.20260909.1.1')
@@ -242,10 +259,12 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
                 }
             }
         }
-        foreach ($mode in @('resume', 'conflict', 'readback-failure')) {
+        foreach ($mode in @('resume', 'complete', 'conflict', 'readback-failure')) {
             $script:contentMode = $mode; $script:existing = $true; $script:readbacks = 0
             $script:builds.Clear(); $script:writes.Clear()
-            $parameters = @{ProjectRoot=$fixture; OfficialKeyId='fixture'; PrivateKeyFile=(Join-Path $fixture 'input'); UsePrebuiltArtifacts=$true}
+            $parameters = @{ProjectRoot=$fixture; OfficialKeyId='fixture'; PrivateKeyFile=(Join-Path $fixture 'input')}
+            if ($mode -in @('resume', 'complete')) { Remove-Item -LiteralPath $toolJar }
+            else { $parameters.UsePrebuiltArtifacts = $true }
             if ($mode -eq 'conflict') {
                 Assert-Rejected { & $program.Main @parameters } 'Market content changed'
                 Assert-Equal $script:writes.Count 0
@@ -254,7 +273,7 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
                 Assert-Equal $script:writes.Count 1
             } else {
                 & $program.Main @parameters
-                Assert-Equal $script:writes.Count 2
+                Assert-Equal $script:writes.Count $(if ($mode -eq 'complete') { 0 } else { 2 })
                 Assert-Equal $script:readbacks 2
                 foreach ($write in $script:writes) {
                     if ($write -notmatch 'release upload.*market-content.json.*content-doc.md' -or $write -match 'delete-asset|--clobber') {
@@ -262,8 +281,19 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
                     }
                 }
             }
-            Assert-Equal $script:builds.Count 0
+            Assert-Equal $script:builds.Count $(if ($mode -in @('resume', 'complete')) { 1 } else { 0 })
+            if ($script:builds.Count) {
+                Assert-Equal $script:builds[0] @('-Pofficial-surveys', '-pl', 'pixivdownload-sdk-tools', '-am', 'verify', '-DskipTests')
+            }
         }
+        Remove-Item -LiteralPath $toolJar
+        $script:builds.Clear(); $script:writes.Clear()
+        $parameters.UsePrebuiltArtifacts = $true
+        Assert-Rejected { & $program.Main @parameters } 'Expected one verified SDK tools JAR'
+        [IO.File]::WriteAllText($toolJar, '')
+        Assert-Rejected { & $program.Main @parameters } 'Expected one verified SDK tools JAR'
+        Assert-Equal $script:builds.Count 0
+        Assert-Equal $script:writes.Count 0
     }
     & {
         . (Join-Path $repo 'scripts/plugin-distribution-common.ps1')

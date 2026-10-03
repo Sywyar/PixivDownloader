@@ -1,9 +1,13 @@
 ﻿# 暂存与公开回读共用 SDK 合同，发布脚本不另行解析文档。
 function Resolve-MarketContentTool {
     param([string]$ProjectRoot)
-    $jars = @(Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'pixivdownload-sdk-tools/target') -File |
+    $directory = Join-Path $ProjectRoot 'pixivdownload-sdk-tools/target'
+    if (-not (Test-Path -LiteralPath $directory -PathType Container)) {
+        throw 'Expected one verified SDK tools JAR for market content.'
+    }
+    $jars = @(Get-ChildItem -LiteralPath $directory -File |
         Where-Object { $_.Name -match '^pixivdownload-sdk-tools-.+\.jar$' -and $_.Name -notmatch '-(sources|javadoc)\.jar$' })
-    if ($jars.Count -ne 1) { throw 'Expected one verified SDK tools JAR for market content.' }
+    if ($jars.Count -ne 1 -or $jars[0].Length -eq 0) { throw 'Expected one verified SDK tools JAR for market content.' }
     return $jars[0].FullName
 }
 
@@ -15,11 +19,17 @@ function Invoke-MarketContentTool {
 }
 
 function New-OfficialMarketContent {
-    param([string]$ProjectRoot, [string]$Repository, [string]$Tag, [string]$PluginId, [string]$SourceVersion, [string]$StageRoot)
+    param([string]$ProjectRoot, [string]$Repository, [string]$Tag, [string]$PluginId, [string]$SourceVersion, [string]$StageRoot,
+        [string]$SourceCommit)
     $curation = Join-Path $ProjectRoot 'scripts/market-curation.json'
     $directory = Join-Path $StageRoot ('content-' + [Guid]::NewGuid().ToString('N'))
     $base = "https://github.com/$Repository/releases/download/$Tag/"
-    Invoke-MarketContentTool $ProjectRoot @('market-content-prepare', $ProjectRoot, $curation, $PluginId, $SourceVersion, $base, $directory)
+    $arguments = @('market-content-prepare', $ProjectRoot, $curation, $PluginId, $SourceVersion, $base, $directory)
+    if ($SourceCommit) {
+        if ($SourceCommit -cnotmatch '^[a-f0-9]{40}$') { throw 'Invalid market source commit.' }
+        $arguments += "https://github.com/Sywyar/PixivDownloader/blob/$SourceCommit/"
+    }
+    Invoke-MarketContentTool $ProjectRoot $arguments
     return @(Get-ChildItem -LiteralPath $directory -File | ForEach-Object { $_.FullName })
 }
 
