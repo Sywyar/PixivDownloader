@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 ### Bug Fixes
 
 - 修复并发下载完成时数据库读写事务冲突导致作品登记失败的问题。
+- 修复多人模式去留调查在问卷题目标识变化后无法打开的问题。
 
 ## [v1.14.0] - 2026.10.2
 
