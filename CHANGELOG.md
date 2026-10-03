@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - 修复已取消的外部下载任务仍计入排队数量并显示为当前下载的问题。
 - 修复 PixivBatchDownloader 下载完成后采集脚本未识别成功事件、无法自动导入作品的问题。
 - 修复 SDK 下载类型模板打包后无法绑定 HTTP 路径和查询参数的问题。
+- 修复小说阅读页刷新翻译后章节导航显示未替换占位符、丢失章节标题的问题。
 
 ## [v1.14.0] - 2026.10.2
 
