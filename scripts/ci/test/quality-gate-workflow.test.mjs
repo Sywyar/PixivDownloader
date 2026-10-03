@@ -517,14 +517,27 @@ test('发布链：所有凭据与写权限只在 release Environment 的门禁�
     }
 });
 
-test('SDK 发布链只在身份变化或显式恢复时通过同 SHA 门禁写入公共仓库', () => {
+test('SDK 发布链仅由发行流程或手动请求进入同 SHA 门禁和不可变发布', () => {
     const sdk = load('.github/workflows/publish-sdk.yml');
     const policy = JSON.parse(fs.readFileSync(path.join(ROOT, 'scripts', 'ci',
         'release-gate-policy.json'), 'utf8'));
     assert.equal(sdk.name, 'Publish plugin SDK');
-    assert.deepEqual(triggers(sdk), ['push', 'workflow_dispatch']);
+    assert.deepEqual(triggers(sdk), ['push', 'workflow_call', 'workflow_dispatch']);
     assert.deepEqual(sdk.permissions, { contents: 'read' });
     assert.deepEqual(sdk.on.push.branches, ['master']);
+    assert.equal(sdk.on.workflow_call.inputs.publish_requested.required, true);
+    assert.equal(sdk.on.workflow_call.inputs.publish_requested.type, 'boolean');
+    assert.equal(sdk.jobs['release-plan'].if,
+        "inputs.publish_requested == true || github.event_name == 'workflow_dispatch'");
+    for (const file of ['release', 'nightly']) {
+        const caller = load(`.github/workflows/${file}.yml`);
+        assert.equal(caller.jobs['publish-sdk'].uses, './.github/workflows/publish-sdk.yml');
+        assert.equal(caller.jobs['publish-sdk'].with.publish_requested, true);
+        assert.ok(caller.jobs['publish-plugins'].needs.includes('publish-sdk'));
+    }
+    const release = load('.github/workflows/release.yml');
+    assert.equal(release.jobs['publish-plugin-artifacts'].steps
+        .find(step => step.uses === './.github/actions/publish-official-plugins').with.publish_args, '-f');
     assert.deepEqual(sdk.on.workflow_dispatch.inputs.mode.options, ['publish', 'recover-release']);
     assert.equal(sdk.jobs['quality-gate'].uses, './.github/workflows/quality-gate.yml');
     assert.equal(sdk.jobs['quality-gate'].with.trusted_base_sha,
@@ -794,7 +807,7 @@ test('发布链：外部 ref 与输入先校验，再通过环境变量进入 sh
     assert.match(releaseVersion.run, /unsupported release tag/);
     assert.equal(releaseVersion.env.RELEASE_TAG, '${{ github.ref_name }}');
     assert.equal(releaseValidation.outputs.version, '${{ steps.vars.outputs.version }}');
-    assert.equal(release.jobs['publish-plugins'].needs, 'validate-release-tag');
+    assert.deepEqual(release.jobs['publish-plugins'].needs, ['validate-release-tag', 'publish-sdk']);
     assert.equal(release.jobs['build-jar'].outputs.version,
         '${{ needs.validate-release-tag.outputs.version }}');
     assert.equal(release.jobs['build-jar'].env.RELEASE_VERSION,

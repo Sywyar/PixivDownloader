@@ -88,8 +88,15 @@ jobs:
           echo "version=$NIGHTLY_VERSION" >> "$GITHUB_OUTPUT"
           echo "date=$(date -u +'%Y-%m-%d %H:%M UTC')" >> "$GITHUB_OUTPUT"
 
-  publish-plugins:
+  publish-sdk:
     needs: [resolve-version]
+    if: needs.resolve-version.outputs.has_changes == 'true'
+    uses: ./.github/workflows/publish-sdk.yml
+    with:
+      publish_requested: true
+
+  publish-plugins:
+    needs: [resolve-version, publish-sdk]
     if: needs.resolve-version.outputs.has_changes == 'true'
     uses: ./.github/workflows/publish-plugins.yml
     with:

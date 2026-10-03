@@ -3,6 +3,12 @@ name: Publish plugin SDK
 on:
   push:
     branches: [master]
+  workflow_call:
+    inputs:
+      publish_requested:
+        description: '由主程序发行流程请求发布当前 SDK'
+        required: true
+        type: boolean
   workflow_dispatch:
     inputs:
       mode:
@@ -23,6 +29,7 @@ env:
 
 jobs:
   release-plan:
+    if: inputs.publish_requested == true || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
       publish: ${{ steps.plan.outputs.publish }}
@@ -42,40 +49,27 @@ jobs:
         id: plan
         shell: bash
         env:
-          EVENT_BEFORE: ${{ github.event.before }}
           REQUESTED_MODE: ${{ inputs.mode || 'publish' }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           current_json="$(node scripts/ci/sdk-version.mjs --repo-root . --json)"
           mode="$REQUESTED_MODE"
           publish=true
 
-          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
-            if ! [[ "$EVENT_BEFORE" =~ ^[0-9a-f]{40}$ ]] || [ "$EVENT_BEFORE" = "0000000000000000000000000000000000000000" ]; then
-              echo "master push does not contain a usable protected predecessor" >&2
-              exit 1
-            fi
-            git merge-base --is-ancestor "$EVENT_BEFORE" "$GITHUB_SHA"
-            previous_json="$(node --input-type=module -e '
-              import { readSdkIdentity } from "./scripts/ci/sdk-version.mjs";
-              process.stdout.write(JSON.stringify(readSdkIdentity(".", process.argv[1], true)));
-            ' "$EVENT_BEFORE")"
-            previous_release="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).releaseId)' "$previous_json")"
-            current_release="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).releaseId)' "$current_json")"
-            if [ "$previous_release" = "$current_release" ]; then
+          git fetch --no-tags origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
+          protected_tip="$(git rev-parse "refs/remotes/origin/$DEFAULT_BRANCH")"
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "$protected_tip"; then
+            echo "SDK publication must select a commit already contained in protected master" >&2
+            exit 1
+          fi
+          trusted_base_sha="$(git rev-parse "$GITHUB_SHA^")"
+          if [ "$mode" = publish ]; then
+            published_source="$(node scripts/ci/sdk-published-base.mjs if-present .)"
+            if [ -n "$published_source" ]; then
               publish=false
             fi
-            mode=publish
-            trusted_base_sha="$EVENT_BEFORE"
-          else
-            git fetch --no-tags origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
-            protected_tip="$(git rev-parse "refs/remotes/origin/$DEFAULT_BRANCH")"
-            if ! git merge-base --is-ancestor "$GITHUB_SHA" "$protected_tip"; then
-              echo "manual SDK publication must select a commit already contained in protected master" >&2
-              exit 1
-            fi
-            trusted_base_sha="$(git rev-parse "$GITHUB_SHA^")"
           fi
 
           sdk_version="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).version)' "$current_json")"
@@ -90,7 +84,7 @@ jobs:
             echo "prerelease=$prerelease"
           } >> "$GITHUB_OUTPUT"
           if [ "$publish" = false ]; then
-            echo "SDK $release_id unchanged: publication was not attempted; previous failures are not recovered by this run." >> "$GITHUB_STEP_SUMMARY"
+            echo "SDK $release_id is already public and verified against Maven Central; reusing its immutable publication." >> "$GITHUB_STEP_SUMMARY"
           fi
 
   quality-gate:

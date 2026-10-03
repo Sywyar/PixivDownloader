@@ -70,8 +70,15 @@ jobs:
     with:
       trusted_base_sha: ${{ needs.trusted-base.outputs.sha }}
 
-  publish-plugins:
+  publish-sdk:
     needs: validate-release-tag
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/publish-sdk.yml
+    with:
+      publish_requested: true
+
+  publish-plugins:
+    needs: [validate-release-tag, publish-sdk]
     if: github.event_name == 'push'
     uses: ./.github/workflows/publish-plugins.yml
     with:
@@ -93,6 +100,7 @@ jobs:
         with:
           plugin_signing_private_key_pem_base64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
           cross_repo_release_token: ${{ secrets.CROSS_REPO_RELEASE_TOKEN }}
+          publish_args: '-f'
 
       - name: Stage signed release plugin inputs
         uses: ./.github/actions/stage-release-plugins
