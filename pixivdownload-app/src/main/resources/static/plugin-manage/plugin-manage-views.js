@@ -96,25 +96,31 @@
                 + ' aria-label="' + E(aria) + '" title="' + E(title) + '"' + (busy ? ' disabled' : '') + '>',
             '<i class="fa-solid fa-ellipsis" aria-hidden="true"></i></button>',
             '<div class="pm-action-menu" id="' + E(menuId) + '" role="menu" aria-label="' + E(aria) + '">'];
-        parts.push(vm.availableActions.map(function (verb) {
+        function actionButton(verb) {
             var meta = PM.verbMeta(verb);
             return '<button type="button" role="menuitem"' + (meta.variant === 'danger' ? ' class="danger"' : '')
                 + ' data-pm-action="' + E(verb) + '" data-pm-id="' + E(vm.id) + '"'
-                + (busy ? ' disabled' : '') + '><i class="fa-solid ' + E(meta.icon) + '" aria-hidden="true"></i>'
-                + E(PM.t('action.' + verb, verb)) + '</button>';
-        }).join(''));
+                + (busy ? ' disabled' : '') + '>' + E(PM.t('action.' + verb, verb)) + '</button>';
+        }
+        var groups = [];
+        var runtimeActions = vm.availableActions.filter(function (verb) { return verb !== 'remove'; });
+        var priority = ['start', 'restart', 'reload', 'load', 'quiesce', 'stop', 'unload'];
+        runtimeActions.sort(function (a, b) { return priority.indexOf(a) - priority.indexOf(b); });
+        if (runtimeActions.length) groups.push(runtimeActions.map(actionButton).join(''));
+        var trustActions = [];
         if (vm.trustApprovable) {
-            parts.push('<button type="button" role="menuitem" data-pm-trust-action="approve" data-pm-id="'
+            trustActions.push('<button type="button" role="menuitem" data-pm-trust-action="approve" data-pm-id="'
                 + E(vm.id) + '"' + (busy ? ' disabled' : '')
-                + '><i class="fa-solid fa-shield-halved" aria-hidden="true"></i>'
-                + E(PM.t('trust.action.approve', '重新批准执行信任')) + '</button>');
+                + '>' + E(PM.t('trust.action.approve', '重新批准执行信任')) + '</button>');
         }
         if (vm.trustRevocable) {
-            parts.push('<button type="button" role="menuitem" class="danger" data-pm-trust-action="revoke" data-pm-id="'
+            trustActions.push('<button type="button" role="menuitem" class="danger" data-pm-trust-action="revoke" data-pm-id="'
                 + E(vm.id) + '"' + (busy ? ' disabled' : '')
-                + '><i class="fa-solid fa-shield-circle-xmark" aria-hidden="true"></i>'
-                + E(PM.t('trust.action.revoke', '撤销执行信任')) + '</button>');
+                + '>' + E(PM.t('trust.action.revoke', '撤销执行信任')) + '</button>');
         }
+        if (trustActions.length) groups.push(trustActions.join(''));
+        if (vm.availableActions.indexOf('remove') !== -1) groups.push(actionButton('remove'));
+        parts.push(groups.join('<div class="pm-menu-separator" role="separator"></div>'));
         parts.push('</div></div>');
         return parts.join('');
     }
@@ -141,14 +147,15 @@
         var busy = PM.state.busyId === vm.id;
         var tone = (vm.managed && vm.phaseLabel) ? vm.phaseTone : vm.statusTone;
         var label = (vm.managed && vm.phaseLabel) ? vm.phaseLabel : vm.statusLabel;
+        var statusId = 'pm-runtime-status-' + vm.id;
+        var switchId = 'pm-enabled-' + vm.id;
         var parts = ['<article class="pm-card pm-card--' + tone + '" data-pm-card="' + E(vm.id) + '">'];
         parts.push('<div class="pm-card-head"><div class="pm-card-icon pm-card-icon--' + E(vm.colorToken)
             + '"><i class="' + E(vm.icon) + '" aria-hidden="true"></i></div><div class="pm-card-titleblock">'
             + '<h2 class="pm-card-name">' + E(vm.name) + '</h2><div class="pm-card-name-row">'
             + '<span class="pm-card-version">' + E(vm.version || PM.t('common:plugin-info.not-installed')) + '</span>'
-            + '<span class="pm-badge pm-badge--' + vm.badgeTone + '">' + E(PM.t(vm.badgeKey, vm.source)) + '</span>'
-            + (vm.requiredByPolicy ? '<span class="pm-badge pm-badge--warn">' + E(PM.t('badge.required')) + '</span>' : '')
-            + '</div></div>' + actionMenuHtml(vm, busy) + '</div>');
+            + '<span class="pm-card-source">' + E(PM.t(vm.badgeKey, vm.source)) + '</span>'
+            + '</div></div>' + actionMenuHtml(vm, busy) + '</div><div class="pm-card-body">');
         if (vm.desc) parts.push('<p class="pm-card-desc">' + E(vm.desc) + '</p>');
         if (vm.messages.length) parts.push('<div class="pm-notes">' + vm.messages.map(function (msg) {
             return '<p class="pm-note">' + E(msg) + '</p>';
@@ -157,20 +164,30 @@
             + E(PM.t('operation.running', '', {operation: vm.operation})) + '</p>');
         if (vm.source === 'external' && vm.status === 'FAILED') parts.push('<button type="button" class="pm-btn pm-btn--gray" data-pm-repair'
             + (busy || PM.state.installBusy ? ' disabled' : '') + '>' + E(PM.t('repair.replace')) + '</button>');
-        parts.push('<div class="pm-summary-facts">');
-        if (vm.showExecutionTag) parts.push('<span>' + E(vm.executionLabel) + '</span>');
-        if (vm.showLifecycleTag) parts.push('<span>' + E(vm.lifecycleLabel) + '</span>');
+        parts.push('</div><div class="pm-card-summary"><div class="pm-summary-facts">');
+        if (vm.toggleable && vm.lifecyclePolicy !== 'HOT_RELOAD') parts.push('<span>' + E(vm.lifecycleLabel) + '</span>');
         if (vm.verificationLabel) parts.push('<span class="pm-meta-item--' + E(vm.verificationTone) + '">' + E(vm.verificationLabel) + '</span>');
         if (vm.trustLabel && vm.source === 'external') parts.push('<span class="pm-meta-item--' + E(vm.trustTone) + '">' + E(vm.trustLabel) + '</span>');
-        parts.push('</div><div class="pm-card-controls"><span class="pm-card-status pm-card-status--' + tone
-            + '"><span class="pm-status-dot"></span>' + E(label) + '</span>');
-        if (vm.toggleable) parts.push('<label class="pm-toggle-label"><span>' + E(PM.t('common:plugin-info.enabled'))
-            + '</span><button type="button" class="pm-switch' + (vm.enabled ? ' on' : '')
-            + '" role="switch" aria-checked="' + vm.enabled + '" data-pm-toggle="' + E(vm.id)
-            + '" aria-label="' + E(switchTitle(vm)) + '"' + (busy ? ' disabled' : '') + '></button></label>');
+        parts.push('</div>');
         parts.push('<button type="button" class="pm-details-link" data-pm-details="' + E(vm.id)
             + '" aria-haspopup="dialog" aria-label="' + E(vm.name + ' · ' + PM.t('common:plugin-info.details')) + '">'
-            + E(PM.t('common:plugin-info.details')) + '<i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button></div></article>');
+            + E(PM.t('common:plugin-info.details')) + '<i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button></div>');
+        parts.push('<div class="pm-card-controls"><span class="pm-card-status pm-card-status--' + tone + '" id="' + E(statusId) + '">'
+            + '<span class="pm-status-dot" aria-hidden="true"></span><span>' + E(label) + '</span></span>');
+        if (vm.toggleable) {
+            parts.push('<div class="pm-toggle"><label for="' + E(switchId) + '">' + E(PM.t('switch.label')) + '</label>'
+                + '<button type="button" class="pm-switch' + (vm.enabled ? ' on' : '') + '" id="' + E(switchId)
+                + '" role="switch" aria-checked="' + vm.enabled + '" data-pm-toggle="' + E(vm.id)
+                + '" aria-label="' + E(vm.name + ' · ' + PM.t('switch.label')) + '" title="' + E(switchTitle(vm))
+                + '" aria-describedby="' + E(statusId + (vm.pendingToggleLabel ? ' ' + statusId + '-pending' : ''))
+                + '"' + (busy ? ' disabled' : '') + '></button></div>');
+        } else if (vm.source === 'built-in' || vm.requiredByPolicy || !vm.allowDisable) {
+            parts.push('<span class="pm-control-note" title="' + E(switchTitle(vm)) + '">'
+                + E(PM.t(vm.source === 'built-in' ? 'source.built-in' : 'switch.required-label')) + '</span>');
+        }
+        if (vm.pendingToggleLabel) parts.push('<span class="pm-card-pending" id="' + E(statusId + '-pending') + '">'
+            + E(vm.pendingToggleLabel) + '</span>');
+        parts.push('</div></article>');
         return parts.join('');
     }
 
@@ -341,6 +358,7 @@
                 replacement.querySelectorAll('details').forEach(function (item) { item.open = open.indexOf(item.getAttribute('data-pm-section')) !== -1; });
                 if (menuOpen && replacement.querySelector('.pm-action-menu')) {
                     replacement.querySelector('.pm-action-menu').classList.add('open');
+                    replacement.querySelector('.pm-action-menu').classList.toggle('pm-action-menu--above', menuOpen.classList.contains('pm-action-menu--above'));
                     replacement.querySelector('[data-pm-action-menu-toggle]').setAttribute('aria-expanded', 'true');
                     replacement.classList.add('has-open-menu');
                 }

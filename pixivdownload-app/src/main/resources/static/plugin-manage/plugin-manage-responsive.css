@@ -99,10 +99,6 @@
         border-radius: var(--radius-md);
     }
 
-    .pm-card-head {
-        flex-wrap: wrap;
-    }
-
     .pm-card-foot,
     .pm-file {
         flex-direction: column;
@@ -111,10 +107,6 @@
 
     .pm-file-btn {
         width: 100%;
-    }
-
-    .pm-action-menu-wrap {
-        align-self: flex-end;
     }
 
     .pm-action-menu {

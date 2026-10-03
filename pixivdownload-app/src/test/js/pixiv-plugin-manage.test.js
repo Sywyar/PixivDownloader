@@ -310,6 +310,36 @@ const DESC_NOT_INSTALLED = '该插件尚未安装。';
     eq('未知生命周期策略安全收敛为完整进程重启', PM.lifecyclePolicyOf('future-policy'), 'PROCESS_RESTART');
 })();
 
+// 重启提示跟随实际运行态与已保存设置；故障保持诊断语义。
+(function () {
+    const previous = PM.i18n.client;
+    PM.i18n.client = { t: key => key };
+    const entry = { id: 'restart-setting', source: 'external', lifecyclePolicy: 'PROCESS_RESTART',
+        status: 'STARTED', configuredEnabled: false, toggleable: true };
+    const disabled = vmOf(entry);
+    eq('运行中停用显示待重启停用', disabled.pendingToggleLabel, 'plugins:state.pending-disable');
+    ok('保留当前运行状态与已保存的关闭设置', disabled.running && !disabled.enabled);
+    const html = PM.renderCardHtml(disabled);
+    ok('开关具有插件专属名称及关联的状态说明', html.includes('aria-label="restart-setting · ')
+        && html.includes('aria-describedby="pm-runtime-status-restart-setting pm-runtime-status-restart-setting-pending"')
+        && html.includes('id="pm-runtime-status-restart-setting"'));
+    ok('状态说明同时保留实际状态和待生效操作', html.includes('plugins:status.started')
+        && html.includes('plugins:state.pending-disable'));
+    eq('停用后重新启用清除待重启提示', vmOf({...entry, configuredEnabled: true}).pendingToggleLabel, null);
+    eq('已停止插件启用显示待重启启用', vmOf({...entry, status: 'DISABLED', configuredEnabled: true})
+        .pendingToggleLabel, 'plugins:state.pending-enable');
+    eq('后端重启策略也区分配置与运行状态', vmOf({...entry, lifecyclePolicy: 'BACKEND_RESTART'})
+        .pendingToggleLabel, 'plugins:state.pending-disable');
+    for (const status of ['FAILED', 'CRASHED', 'INCOMPATIBLE', 'MISSING_REQUIRED', 'UNKNOWN']) {
+        eq('异常状态不推断等待重启：' + status,
+            vmOf({...entry, status, configuredEnabled: true}).pendingToggleLabel, null);
+    }
+    eq('热重载不显示待重启提示', vmOf({...entry, lifecyclePolicy: 'HOT_RELOAD', managed: true})
+        .pendingToggleLabel, null);
+    eq('不可切换的插件不显示设置待生效提示', vmOf({...entry, toggleable: false}).pendingToggleLabel, null);
+    PM.i18n.client = previous;
+})();
+
 // —— 2) descriptionKey 缺失 → 回退按来源的通用简介，不抛 ——
 (function () {
     const builtIn = vmOf({ id: 'core', source: 'built-in', status: 'STARTED', displayNamespace: 'plugins' });
@@ -348,10 +378,9 @@ const DESC_NOT_INSTALLED = '该插件尚未安装。';
     const html = PM.renderCardHtml(vmm);
     ok('卡片显示图标贴片', html.indexOf('pm-card-icon') !== -1);
     ok('卡片名称行显示名称与版本', html.indexOf('compact-demo') !== -1 && html.indexOf('v1.2.3') !== -1);
-    ok('卡片首行显示状态与开关',
+    ok('卡片显示状态与开关',
         html.indexOf('pm-card-status') !== -1 && html.indexOf('data-pm-toggle="compact-demo"') !== -1);
     ok('完整描述始终可见', html.indexOf(DESC_EXTERNAL) !== -1);
-    ok('卡片显示执行信任级别', html.indexOf('独立 JVM（有限隔离）') !== -1);
     ok('卡片提供独立详情入口', html.includes('data-pm-details="compact-demo"') && html.includes('aria-haspopup="dialog"'));
     ok('卡片不展开技术信息', !html.includes('<dl') && !html.includes('<details'));
     const primary = html;
@@ -360,11 +389,18 @@ const DESC_NOT_INSTALLED = '该插件尚未安装。';
         && primary.includes(DESC_EXTERNAL) && primary.includes('data-pm-action-menu-toggle'));
     ok('展开内容包含版本与依赖分组', detail.includes('<dl') && detail.includes('1.2.3')
         && detail.includes('common:plugin-info.versions') && detail.includes('common:plugin-info.dependencies'));
+    ok('详情保留运行与能力声明', detail.includes('common:plugin-info.execution'));
     ok('浮层菜单只渲染后端可用动词',
         html.indexOf('data-pm-action-menu-toggle') !== -1
         && html.indexOf('data-pm-action="restart"') !== -1
         && html.indexOf('data-pm-action="remove"') !== -1);
-    ok('浮层菜单项带动词图标', html.indexOf('fa-arrows-rotate') !== -1);
+    const grouped = PM.renderCardHtml(vmOf({...vmm.entry,
+        availableActions: ['remove', 'quiesce', 'stop', 'restart', 'reload', 'unload'],
+        trust: {state: 'APPROVED', revocable: true}}));
+    const commands = Array.from(grouped.matchAll(/data-pm-(?:action|trust-action)="([^"]+)"/g), m => m[1]);
+    eq('菜单保留所有可用命令，运行操作在前，信任操作随后，移除最后',
+        commands.join(','), 'restart,reload,quiesce,stop,unload,revoke,remove');
+    eq('运行、信任和移除之间分组', (grouped.match(/role="separator"/g) || []).length, 2);
 
     const plain = PM.renderCardHtml(vmOf({ id: 'plain', source: 'built-in', status: 'STARTED', toggleable: false }));
     ok('无可用动作时不渲染操作菜单', plain.indexOf('data-pm-action-menu-toggle') === -1);

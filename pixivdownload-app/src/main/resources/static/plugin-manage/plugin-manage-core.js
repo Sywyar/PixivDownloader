@@ -295,6 +295,10 @@
             running: running,
             enabled: enabled,
             configuredEnabled: configuredEnabled,
+            pendingToggleLabel: toggleable && lifecyclePolicy !== 'HOT_RELOAD'
+                && configuredEnabled !== running && meta.tone !== 'bad'
+                && Object.prototype.hasOwnProperty.call(STATUS_META, status) && phase !== 'QUIESCED'
+                ? t(configuredEnabled ? 'state.pending-enable' : 'state.pending-disable') : null,
             executionMode: executionMode,
             trustFacts: verification,
             trustSections: global.PixivPluginPresentationTokens.trustSections(verification, i18n.client, running || !!entry.loadedVersion || phase === 'QUIESCED'),

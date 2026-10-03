@@ -429,6 +429,10 @@
                 var card = menuToggle.closest('.pm-card');
                 if (card) card.classList.toggle('has-open-menu', opening);
                 menuToggle.setAttribute('aria-expanded', opening ? 'true' : 'false');
+                if (opening) {
+                    var anchor = menuToggle.getBoundingClientRect();
+                    menu.classList.toggle('pm-action-menu--above', anchor.bottom + menu.offsetHeight + 8 > window.innerHeight);
+                }
                 return;
             }
         });
