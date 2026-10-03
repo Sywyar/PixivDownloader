@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.common;
+package top.sywyar.pixivdownload.config;
 
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 

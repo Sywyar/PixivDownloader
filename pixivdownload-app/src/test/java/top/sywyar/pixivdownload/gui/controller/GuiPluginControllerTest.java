@@ -8,7 +8,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
-import top.sywyar.pixivdownload.common.DevelopmentBuildInfo;
+import top.sywyar.pixivdownload.config.DevelopmentBuildInfo;
 import top.sywyar.pixivdownload.sdk.SdkVersion;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.i18n.WebI18nService;

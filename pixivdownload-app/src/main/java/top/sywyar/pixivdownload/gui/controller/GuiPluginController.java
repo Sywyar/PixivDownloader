@@ -7,7 +7,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.common.NetworkUtils;
-import top.sywyar.pixivdownload.common.DevelopmentBuildInfo;
+import top.sywyar.pixivdownload.config.DevelopmentBuildInfo;
 import top.sywyar.pixivdownload.sdk.SdkVersion;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.WebI18nService;

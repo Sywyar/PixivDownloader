@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.common;
 
+import top.sywyar.pixivdownload.config.DevelopmentBuildInfo;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

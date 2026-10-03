@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.common;
 
 import lombok.experimental.UtilityClass;
+import top.sywyar.pixivdownload.config.DevelopmentBuildInfo;
 
 import java.io.InputStream;
 import java.util.Properties;
