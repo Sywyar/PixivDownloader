@@ -58,14 +58,11 @@ Invalid values fail plugin-runtime initialization instead of silently falling ba
 
 ## What you see
 
-One card per plugin:
+Plugins appear in a grid that uses multiple columns in wide windows and one column in narrow windows. Each card shows its name, purpose, runtime status, enabled setting and available actions. Select **View details** to open a separate dialog and check installed and loaded versions, SDK requirements, dependencies and source verification. Checksums and revocation timestamps are available in expandable sections.
 
-- **Name and source badge** (built-in / external / not installed) and **version**
-- **Status**: running / stopped / disabled / failed / incompatible, …
-- **Runtime phase** (managed external only): unloaded / loaded / running / quiesced / stopped
-- **Core-API version requirement** and whether it is satisfied
-- **Dependencies** on other plugins
-- **Diagnostics** (e.g. why a plugin failed to load)
+The installed version describes the package on disk; the loaded version describes the instance held by the current process. They may differ after an update or removal. Follow the restart notice to apply the change.
+
+“Not loaded in this process”, “No plugins depend on this plugin” and “Information unavailable” describe different facts. The confirmation dialog lists the target state and dependent plugins before removal or a change to enablement.
 
 The top of the page also shows overview stats (installed / enabled / external / required), filter tabs and a search box.
 
@@ -73,7 +70,7 @@ The top of the page also shows overview stats (installed / enabled / external / 
 
 ## What you can do
 
-For **managed external plugins**, the card footer offers buttons for the currently **available verbs**:
+For **managed external plugins**, the action menu beside the plugin name lists the currently **available verbs**:
 
 | Action | Meaning |
 | --- | --- |
@@ -175,6 +172,8 @@ The host tightens POSIX permissions or Windows ACLs on managed `plugins/runtime/
 - [Configuration](/en/configuration): `plugins.<plugin id>.enabled` plugin enablement switches
 
 ## Confirm changes and find installation results
+
+The market detail dialog puts the plugin’s purpose, installation status and install action at the top. Installed, activated and pending-restart states also provide a link to Plugin Management. The full description and version requirements follow; expand source declarations, verification details or the changelog when needed. Installation shows separate states for checking the plan, waiting for confirmation and installing. Waiting for confirmation does not mean installation has started; cancelling the plan confirmation leaves that plan unexecuted. Cancelling a later execution-trust confirmation retains dependencies already installed.
 
 Before a marketplace install, review the target package, dependency sources and versions, consumers of shared dependencies, conflicts, and restart impact together. Execution checks these facts again. If they changed, preview and confirm again. When the catalog lacks the new package's lifecycle policy, the preview can only warn that a restart may be needed; follow the actual installation result.
 
