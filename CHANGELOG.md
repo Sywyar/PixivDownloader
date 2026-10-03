@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - 修复多人模式去留调查在问卷题目标识变化后无法打开的问题。
 - 修复下载页预览图响应的媒体类型与图片内容不一致的问题。
 - 修复已取消的外部下载任务仍计入排队数量并显示为当前下载的问题。
+- 修复 PixivBatchDownloader 下载完成后采集脚本未识别成功事件、无法自动导入作品的问题。
 
 ## [v1.14.0] - 2026.10.2
 
