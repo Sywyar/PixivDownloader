@@ -752,7 +752,7 @@ mvn -pl pixivdownload-official-plugins -am -Pdev-mode process-classes -Dexec.ski
 
 文档按默认语言收录，预览确认后冻结字节。相对图片只能取自选定目录；外部图片须明确确认下载。链接是可增减列表，支持预设用途、自定义本地化标题及显式空列表。具体输入与恢复方式见[社区投稿说明](https://github.com/Sywyar/PixivDownloader-community-plugins#投稿与版本管理)。
 
-版本投稿的可选 `content` 包含 `readme`、`changelog`、`releaseNotes` 语言映射；文档记录 `format`、`asset`、可选 `sourcePath` 与图片 `resources`。附件记录 `name`、`url`、`mediaType`、`size`、`sha256`。市场元数据的 `links` 缺失时兼容 `homepageUrl`，空列表表示不提供链接。完整字段与约束以同一 SDK 开发包的社区 Schema 为准。
+版本投稿的可选 `content` 包含 `readme`、`changelog`、`releaseNotes` 语言映射；文档记录 `format`、`asset`、可选 `sourcePath`、`sourceUrl` 与图片 `resources`。仓库文档的 `sourceUrl` 绑定冻结源码提交，相对链接按它解析；本地文件、直接输入和缺少该字段的旧记录不会猜测来源。安全 HTML 锚点和 Markdown 标题支持页内导航，外部链接在新窗口打开。附件记录 `name`、`url`、`mediaType`、`size`、`sha256`。市场元数据的 `links` 缺失时兼容 `homepageUrl`，空列表表示不提供链接。完整字段与约束以同一 SDK 开发包的社区 Schema 为准。
 
 社区把文档、图片和插件包放在同一个版本 Release，目录保存受签名保护的引用。客户端按需读取并复核大小与摘要，HTML 以净化后的隔离静态文档显示。文档签名边界属于审核引用和目录，不能把 JAR 签名当作文档证明。社区须先验证新 SDK 的公开发行字节再升级固定工具；宿主也须包含对应的展示支持。只增加市场资料不要求旧插件提高 `plugin.requires`，SDK 1.1 宿主仍兼容 `requires=1.0`。
 
