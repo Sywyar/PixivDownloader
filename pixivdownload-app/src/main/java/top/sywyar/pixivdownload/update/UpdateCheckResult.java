@@ -34,8 +34,10 @@ public class UpdateCheckResult {
     private Instant checkedAt;
     /** 是否为每夜版更新（而非正式发布）。 */
     private boolean nightly;
-    /** 正式版检查失败的信息；独立验签成功的每夜版仍可作为替代选项。 */
+    /** 正式版检查失败的受控原因码；独立验签成功的每夜版仍可作为替代选项。 */
     private String error;
+    /** 失败资源的 HTTP 状态；网络或本地校验失败时为空。 */
+    private Integer errorHttpStatus;
     /**
      * 可选的每夜版替代选项。启用每夜版检查且发现可信更新时，若正式版检查失败，或每夜版
      * 严格新于已验证的最新正式版，则提供该选项。嵌套对象本身的

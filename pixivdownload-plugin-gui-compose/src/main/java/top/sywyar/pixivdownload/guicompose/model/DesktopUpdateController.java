@@ -34,6 +34,7 @@ final class DesktopUpdateController {
     private volatile long updateTotalBytes;
     private volatile DesktopUiNode.AboutUpdateState aboutState = DesktopUiNode.AboutUpdateState.UNKNOWN;
     private boolean checkedManually;
+    private volatile TextToken checkFailure;
 
     DesktopUiNode.AboutUpdateState aboutState() { return aboutState; }
 
@@ -49,6 +50,16 @@ final class DesktopUpdateController {
 
     List<DesktopUiNode> banners(String prefix, Map<String, Runnable> nextActions) {
         List<DesktopUiNode> banners = new ArrayList<>(2);
+        TextToken failure = checkFailure;
+        if (failure != null) {
+            banners.add(new DesktopUiNode.Surface(
+                    prefix + ".failure",
+                    DesktopUiNode.SurfaceStyle.WARNING,
+                    new DesktopUiNode.Insets(8, 12, 8, 12),
+                    true,
+                    new DesktopUiNode.Text(prefix + ".failure.detail", failure, TextStyle.BODY, true, true)
+            ));
+        }
         if (pendingOfficialUpdate != null) {
             banners.add(updateBanner(
                     prefix,
@@ -175,6 +186,9 @@ final class DesktopUpdateController {
         synchronized (this) {
             checkedManually = true;
             aboutState = DesktopUiNode.AboutUpdateState.CHECKING;
+            checkFailure = null;
+            pendingOfficialUpdate = null;
+            pendingNightlyUpdate = null;
         }
         owner.runBusy(() -> {
             try {
@@ -184,6 +198,8 @@ final class DesktopUpdateController {
                 );
                 if (!response.is2xx() || response.body() == null) {
                     aboutState = DesktopUiNode.AboutUpdateState.ERROR;
+                    setCheckFailure(!response.reachable() ? "LOCAL_UNREACHABLE"
+                            : response.status() == 403 ? "LOCAL_FORBIDDEN" : "LOCAL_ERROR", response.status());
                     LOG.warn(
                             "Desktop update check failed: reachable={}, status={}",
                             response.reachable(),
@@ -192,7 +208,7 @@ final class DesktopUpdateController {
                     if (!inline) owner.showDialog(
                             "update.check-failed",
                             "gui.dialog.error.title",
-                            "gui.update.dialog.check-failed.message",
+                            checkFailure,
                             DesktopUiDocument.DialogStyle.WARNING
                     );
                     return;
@@ -215,7 +231,7 @@ final class DesktopUpdateController {
                     owner.showDialog(
                             "update.check-failed",
                             "gui.dialog.error.title",
-                            "gui.update.dialog.check-failed.message",
+                            checkFailure,
                             DesktopUiDocument.DialogStyle.WARNING
                     );
                 } else if (pendingOfficialUpdate == null && pendingNightlyUpdate == null) {
@@ -231,7 +247,13 @@ final class DesktopUpdateController {
                 }
             } catch (RuntimeException failure) {
                 aboutState = DesktopUiNode.AboutUpdateState.ERROR;
-                if (!inline) throw failure;
+                setCheckFailure("UNKNOWN", 0);
+                if (!inline) owner.showDialog(
+                        "update.check-failed",
+                        "gui.dialog.error.title",
+                        checkFailure,
+                        DesktopUiDocument.DialogStyle.WARNING
+                );
                 LOG.warn("Desktop update check failed", failure);
             }
         });
@@ -260,13 +282,22 @@ final class DesktopUpdateController {
     }
 
     private void applyUpdateResult(DesktopUiHost.GuiValue result) {
+        pendingOfficialUpdate = null;
+        pendingNightlyUpdate = null;
+        checkFailure = null;
         if (!result.path("enabled").asBoolean(false)) {
             aboutState = DesktopUiNode.AboutUpdateState.DISABLED;
             return;
         }
         if (!result.path("checkSucceeded").asBoolean(false)) {
             aboutState = DesktopUiNode.AboutUpdateState.ERROR;
+            setCheckFailure(result.path("error").asText("UNKNOWN"),
+                    (int) result.path("errorHttpStatus").asLong(0));
             return;
+        }
+        if (result.hasNonNull("error")) {
+            setCheckFailure(result.path("error").asText("UNKNOWN"),
+                    (int) result.path("errorHttpStatus").asLong(0));
         }
         pendingOfficialUpdate = result.path("updateAvailable").asBoolean(false) ? pendingInstall(
                 result) : null;
@@ -275,6 +306,14 @@ final class DesktopUpdateController {
                 nightly) : null;
         aboutState = pendingOfficialUpdate != null || pendingNightlyUpdate != null
                 ? DesktopUiNode.AboutUpdateState.AVAILABLE : DesktopUiNode.AboutUpdateState.CURRENT;
+    }
+
+    private void setCheckFailure(String code, int httpStatus) {
+        String key = "update.check.failure." + code;
+        if (!code.matches("[A-Z_]+") || host.message(key, httpStatus).equals(key)) {
+            key = "update.check.failure.UNKNOWN";
+        }
+        checkFailure = appToken(key, Integer.toString(httpStatus));
     }
 
     private static PendingInstall pendingInstall(DesktopUiHost.GuiValue value) {

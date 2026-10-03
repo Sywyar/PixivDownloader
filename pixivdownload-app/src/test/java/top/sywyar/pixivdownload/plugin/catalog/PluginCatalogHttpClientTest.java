@@ -264,16 +264,19 @@ class PluginCatalogHttpClientTest {
         }
 
         @Test
-        @DisplayName("非 200（404）：抛 DOWNLOAD_FAILED")
+        @DisplayName("非 200（404）：保留上游状态且仍抛 DOWNLOAD_FAILED")
         void nonOkStatus() {
             server = CatalogTestSupport.startServer();
             CatalogTestSupport.serveStatus(server, "/missing", 404);
 
             assertThatThrownBy(() ->
                     relaxed.fetchBytes(CatalogTestSupport.loopbackUrl(server, "/missing"), 1024))
-                    .isInstanceOf(PluginCatalogException.class)
-                    .extracting(e -> ((PluginCatalogException) e).code())
-                    .isEqualTo(PluginCatalogErrorCode.DOWNLOAD_FAILED);
+                    .isInstanceOf(PluginCatalogHttpClient.HttpStatusException.class)
+                    .satisfies(e -> {
+                        var failure = (PluginCatalogHttpClient.HttpStatusException) e;
+                        assertThat(failure.statusCode()).isEqualTo(404);
+                        assertThat(failure.code()).isEqualTo(PluginCatalogErrorCode.DOWNLOAD_FAILED);
+                    });
         }
     }
 

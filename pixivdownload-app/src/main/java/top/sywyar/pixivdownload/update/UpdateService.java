@@ -41,6 +41,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Stream;
+import static top.sywyar.pixivdownload.update.UpdateCheckException.Reason.*;
 
 /**
  * 在线更新核心服务。
@@ -174,7 +175,7 @@ public class UpdateService {
                     .updateAvailable(false)
                     .currentVersion(currentVersion)
                     .checkedAt(Instant.now())
-                    .error(forLog("update.log.check.no-url"))
+                    .error(NOT_CONFIGURED.name())
                     .build();
             lastResult = noUrl;
             return noUrl;
@@ -197,9 +198,11 @@ public class UpdateService {
             officialResult = handleManifest(currentVersion, manifest, false);
         } catch (IOException | IllegalStateException e) {
             log.warn(forLog("update.log.check.failed", e.getMessage()));
+            UpdateCheckException failure = UpdateCheckException.classify(e, false);
             officialResult = UpdateCheckResult.builder()
                     .enabled(true).checkSucceeded(false).updateAvailable(false)
-                    .currentVersion(currentVersion).checkedAt(Instant.now()).error(e.getMessage()).build();
+                    .currentVersion(currentVersion).checkedAt(Instant.now())
+                    .error(failure.reason.name()).errorHttpStatus(failure.httpStatus).build();
         }
         UpdateCheckResult nightlyAlternative = null;
 
@@ -259,44 +262,56 @@ public class UpdateService {
      */
     private UpdateManifest fetchManifest(String manifestUrl, String expectedChannel) throws IOException {
         requireHttpsUrl(manifestUrl, "manifest");
-        byte[] body = fetchBounded(manifestUrl, MAX_MANIFEST_BYTES);
-        byte[] signatureBytes = fetchBounded(detachedSignatureUrl(manifestUrl), MAX_SIGNATURE_BYTES);
+        byte[] body = fetchBounded(manifestUrl, MAX_MANIFEST_BYTES, false);
+        byte[] signatureBytes = fetchBounded(detachedSignatureUrl(manifestUrl), MAX_SIGNATURE_BYTES, true);
         SignatureMetadata signature;
         try {
             signature = MAPPER.readValue(signatureBytes, SignatureMetadata.class);
         } catch (Exception e) {
-            throw invalidManifest("malformed signature");
+            throw new UpdateCheckException(SIGNATURE_INVALID, e);
         }
         VerificationResult verified = manifestVerifier.verifyManifest(new ManifestVerificationRequest(
                 body, UPDATE_MANIFEST_REPOSITORY_ID, signature, VerificationPolicy.officialRepository()));
         if (!verified.accepted()) {
-            throw invalidManifest("signature verification failed: " + verified.diagnosticCode());
+            throw new UpdateCheckException(SIGNATURE_INVALID, "signature verification failed: " + verified.diagnosticCode());
         }
 
         UpdateManifest manifest = MAPPER.readValue(body, UpdateManifest.class);
         validateManifest(manifest, expectedChannel);
         String manifestSha256 = sha256(body);
-        UpdateTrustState previous = UpdateTrustState.read(trustStatePath, MAPPER);
+        UpdateTrustState previous;
+        try {
+            previous = UpdateTrustState.read(trustStatePath, MAPPER);
+        } catch (IOException e) {
+            throw new UpdateCheckException(TRUST_STATE_UNAVAILABLE, e);
+        }
         UpdateTrustState accepted = previous.accept(
                 expectedChannel, manifest.getSequence(), manifest.getLatestVersion().trim(), manifestSha256);
-        accepted.writeIfChanged(trustStatePath, previous, MAPPER);
+        try {
+            accepted.writeIfChanged(trustStatePath, previous, MAPPER);
+        } catch (IOException e) {
+            throw new UpdateCheckException(TRUST_STATE_UNAVAILABLE, e);
+        }
         return manifest;
     }
 
-    private byte[] fetchBounded(String url, long maxBytes) throws IOException {
+    private byte[] fetchBounded(String url, long maxBytes, boolean signature) throws IOException {
         byte[] body;
         try {
             body = httpClientProvider.clientFor(UPDATE_REPOSITORY).fetchBytes(url.trim(), maxBytes);
         } catch (PluginCatalogException e) {
-            throw new IOException(e.getMessage(), e);
+            throw UpdateCheckException.classify(e, signature);
         }
         if (body == null || body.length == 0) {
-            throw invalidManifest("empty body");
+            throw new UpdateCheckException(signature ? SIGNATURE_INVALID : INVALID_MANIFEST, "empty body");
         }
         return body;
     }
 
-    private void validateManifest(UpdateManifest manifest, String expectedChannel) {
+    private void validateManifest(UpdateManifest manifest, String expectedChannel) throws IOException {
+        if (manifest != null && !expectedChannel.equals(manifest.getChannel())) {
+            throw new UpdateCheckException(CHANNEL_MISMATCH, "unexpected update channel");
+        }
         if (manifest == null
                 || !expectedChannel.equals(manifest.getChannel())
                 || manifest.getSequence() <= 0
@@ -306,7 +321,7 @@ public class UpdateService {
         }
         try {
             if (!Instant.parse(manifest.getExpiresAt()).isAfter(Instant.now())) {
-                throw invalidManifest("expired");
+                throw new UpdateCheckException(EXPIRED, "expired update manifest");
             }
         } catch (DateTimeParseException | NullPointerException e) {
             throw invalidManifest("invalid expiresAt");
@@ -332,21 +347,21 @@ public class UpdateService {
         }
     }
 
-    private void requireHttpsUrl(String value, String label) {
+    private void requireHttpsUrl(String value, String label) throws IOException {
         try {
             URI uri = URI.create(value == null ? "" : value.trim());
             if (!"https".equalsIgnoreCase(uri.getScheme())
                     || uri.getHost() == null || uri.getHost().isBlank()
                     || uri.getUserInfo() != null || uri.getFragment() != null) {
-                throw invalidManifest(label + " URL must be HTTPS");
+                throw new UpdateCheckException(INVALID_URL, label + " URL must be HTTPS");
             }
         } catch (IllegalArgumentException e) {
-            throw invalidManifest("invalid " + label + " URL");
+            throw new UpdateCheckException(INVALID_URL, "invalid " + label + " URL");
         }
     }
 
-    private IllegalStateException invalidManifest(String detail) {
-        return new IllegalStateException(forLog("update.error.manifest.invalid", detail));
+    private UpdateCheckException invalidManifest(String detail) {
+        return new UpdateCheckException(INVALID_MANIFEST, forLog("update.error.manifest.invalid", detail));
     }
 
     private static String detachedSignatureUrl(String manifestUrl) {

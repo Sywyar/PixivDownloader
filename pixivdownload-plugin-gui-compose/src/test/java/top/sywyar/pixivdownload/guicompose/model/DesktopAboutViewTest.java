@@ -192,6 +192,37 @@ class DesktopAboutViewTest {
                 assertInstanceOf(DesktopUiNode.Surface.class, page.content()).content());
     }
 
+    @Test
+    @DisplayName("更新失败原因保留 HTTP 状态，未知错误不显示原始详情，重试成功清除提示")
+    void updateFailureDetails() throws Exception {
+        var response = new AtomicReference<>(DesktopUiHost.GuiResponse.unreachable());
+        try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), Map.of(
+                "message", args -> args[0].toString().startsWith("update.check.failure.") ? "translated" : args[0],
+                "guiGet", args -> "update/check?force=true".equals(args[0])
+                        ? response.get() : DesktopUiHost.GuiResponse.unreachable()
+        ))) {
+            for (String reason : List.of("SIGNATURE_HTTP_ERROR", "SEQUENCE_REUSED", "unknown private-url?token=secret")) {
+                response.set(new DesktopUiHost.GuiResponse(true, 200, DesktopUiHost.GuiValue.of(Map.of(
+                        "enabled", true, "checkSucceeded", false, "error", reason, "errorHttpStatus", 404
+                )), "", false));
+                activate(model, "about.update.check");
+                awaitIdle(model);
+                var surface = assertInstanceOf(DesktopUiNode.Surface.class, overview(model).updates().get(0));
+                var detail = assertInstanceOf(DesktopUiNode.Text.class, surface.content()).text();
+                assertEquals("update.check.failure." + (reason.startsWith("unknown") ? "UNKNOWN" : reason), detail.key());
+                assertEquals(List.of("404"), detail.arguments());
+                assertFalse(detail.fallback().contains("private-url"));
+            }
+            response.set(new DesktopUiHost.GuiResponse(true, 200, DesktopUiHost.GuiValue.of(Map.of(
+                    "enabled", true, "checkSucceeded", true, "updateAvailable", false
+            )), "", false));
+            activate(model, "about.update.check");
+            awaitIdle(model);
+            assertEquals(DesktopUiNode.AboutUpdateState.CURRENT, overview(model).updateState());
+            assertTrue(overview(model).updates().isEmpty());
+        }
+    }
+
     private static void activate(ComposeDesktopUiModel model, String id) {
         synchronized (model) {
             model.dispatch(model.snapshot(), new DesktopUiNode.Event(DesktopUiNode.EventType.ACTIVATE, id, DesktopUiNode.Value.empty()));
