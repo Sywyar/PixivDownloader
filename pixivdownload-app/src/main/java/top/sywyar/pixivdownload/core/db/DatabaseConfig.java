@@ -6,7 +6,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.jdbc.support.JdbcTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.sqlite.SQLiteConfig;
+import org.sqlite.SQLiteConnection;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.i18n.AppMessages;
@@ -15,6 +18,8 @@ import javax.sql.DataSource;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.SQLException;
 
 @Slf4j
 @Configuration
@@ -33,7 +38,7 @@ public class DatabaseConfig {
         log.info(messages.getForLog("download.db.log.path", url));
 
         // 池中每条物理连接都会带上这些 PRAGMA：
-        // - busy_timeout=5000：SQLite 单写者模型下并发写会排队等待，而不是立刻抛 SQLITE_BUSY
+        // - busy_timeout=5000：等待其它写者释放锁的上限
         // - journal_mode=WAL：与启动时设置一致，读不阻塞写
         // HikariCP 的 dataSourceProperties 会经 DriverDataSource 传给驱动 driver.connect(url, props)
         SQLiteConfig sqliteConfig = new SQLiteConfig();
@@ -55,5 +60,27 @@ public class DatabaseConfig {
         // 兜底：万一某条连接没套到 PRAGMA，连接初始化时再设一次 busy_timeout（仅支持单条语句）
         hikari.setConnectionInitSql("PRAGMA busy_timeout=5000");
         return new HikariDataSource(hikari);
+    }
+
+    @Bean
+    public JdbcTransactionManager transactionManager(DataSource dataSource) {
+        return new JdbcTransactionManager(dataSource) {
+            @Override
+            protected void prepareTransactionalConnection(Connection connection, TransactionDefinition definition)
+                    throws SQLException {
+                super.prepareTransactionalConnection(connection, definition);
+                if (definition.isReadOnly()) return;
+                var config = connection.unwrap(SQLiteConnection.class).getConnectionConfig();
+                var previousMode = config.getTransactionMode();
+                try {
+                    // 此钩子位于业务 SQL 之前；重新开启尚为空的事务，提前取得写入资格。
+                    // 只读事务仍用 DEFERRED，不能随写事务一起抢占 SQLite 的唯一写锁。
+                    config.setTransactionMode(SQLiteConfig.TransactionMode.IMMEDIATE);
+                    connection.rollback();
+                } finally {
+                    config.setTransactionMode(previousMode);
+                }
+            }
+        };
     }
 }
