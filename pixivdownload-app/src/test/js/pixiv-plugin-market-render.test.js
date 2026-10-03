@@ -13,7 +13,10 @@ function node(tag, text = '') {
     return {
         tagName: tag.toUpperCase(), text, children: [], props: {}, listeners: {}, parent: null,
         get options() { return this.children; },
+        showModal() { this.open = true; },
         addEventListener(name, handler) { this.listeners[name] = handler; },
+        replaceChildren(...children) { this.children = children; },
+        getAttribute(name) { return this.props[name] || null; },
         dispatchEvent(event) { this.listeners[event.type]?.(event); }
     };
 }
@@ -45,16 +48,17 @@ function entry(id, { category = 'utility', defaultInstalled = false } = {}) {
     };
 }
 
-async function mountMarket({ community = false, revocation = null, compatibleOlder = false } = {}) {
+async function mountMarket({ community = false, revocation = null, compatibleOlder = false, dependencies = [] } = {}) {
     const errors = [];
-    const document = { createElement: tag => node(tag), addEventListener() {}, removeEventListener() {}, body: { style: {} } };
-    const sandbox = { document, console: { warn: (...args) => errors.push(args), error: (...args) => errors.push(args) } };
+    const document = { documentElement: node('html'), createElement: tag => node(tag), addEventListener() {}, removeEventListener() {}, body: { style: {} } };
+    const sandbox = { document, URL, addEventListener() {}, removeEventListener() {}, console: { warn: (...args) => errors.push(args), error: (...args) => errors.push(args) } };
     sandbox.window = sandbox;
     vm.createContext(sandbox, { codeGeneration: { strings: false, wasm: false } });
     // 确认测试环境确实拒绝 Vue 字符串模板编译需要的 new Function。
     assert.throws(() => vm.runInContext('new Function("return 1")', sandbox), /Code generation/);
     for (const resource of ['vendor/vue/vue.global.prod.js', 'js/pixiv-plugin-presentation-tokens.js',
-        'plugin-market/plugin-market-core.js', 'plugin-market/plugin-market-data.js', 'plugin-market/plugin-market-vue.js']) {
+        'plugin-market/plugin-market-core.js', 'plugin-market/plugin-market-data.js', 'plugin-market/plugin-market-api.js',
+        'plugin-market/plugin-market-content.js', 'plugin-market/plugin-market-vue.js']) {
         vm.runInContext(fs.readFileSync(path.join(staticRoot, resource), 'utf8'), sandbox, { filename: resource });
     }
     const Vue = sandbox.Vue;
@@ -82,6 +86,8 @@ async function mountMarket({ community = false, revocation = null, compatibleOld
     const market = sandbox.PixivPluginMarket;
     market.state.i18n.client = { lang: 'en-US', t: (key, fallback, vars) => key + (vars ? JSON.stringify(vars) : '') };
     const entries = [entry('visible'), entry('bundled', { defaultInstalled: true }), entry('dependency', { category: 'dependency' })];
+    entries[0].packages.forEach(pkg => { pkg.dependencies = dependencies; });
+    entries[2].market.displayName = {en: 'Notifications', 'zh-CN': '通知'};
     if (compatibleOlder) {
         entries[0].recommendedVersion = '1.0.0';
         entries[0].compatibilityReason = '999.0';
@@ -107,6 +113,7 @@ async function mountMarket({ community = false, revocation = null, compatibleOld
     const installCalls = [];
     const factCalls = [];
     market.api = {
+        ...market.api,
         fetchRepositories: async () => ({ enabled, sdkVersion: '1.0.0', defaultRepositoryId: 'repo',
             repositories: [{ repositoryId: 'repo', enabled: true, official: true }] }),
         fetchPluginStatus: async () => status,
@@ -119,8 +126,12 @@ async function mountMarket({ community = false, revocation = null, compatibleOld
                 riskDeclaration: { present: true, signals: version === '2.0.0' ? ['network'] : [] } };
         }
     };
+    let progress;
     market.installPluginWithConfirmation = (...args) => {
-        installCalls.push(args);
+        installCalls.push(args.slice(0, 3));
+        assert.equal(typeof args[3], 'function');
+        progress = args[3];
+        args[3]('confirm');
         return new Promise(resolve => { finishInstall = resolve; });
     };
     market.toast = () => {};
@@ -129,6 +140,7 @@ async function mountMarket({ community = false, revocation = null, compatibleOld
     async function flush() { await new Promise(resolve => setImmediate(resolve)); await Vue.nextTick(); }
     await flush();
     return { root, market, errors, document, flush, installCalls, factCalls,
+        progress: phase => progress(phase),
         completeInstall: body => finishInstall({ kind: 'install', body }),
         async reload(options) {
             if (options.status) status = options.status;
@@ -174,6 +186,7 @@ test('市场在禁止动态代码编译时挂载，筛选、详情、安装结�
     await flush();
     assert.equal(page.document.body.style.overflow, 'hidden');
     assert.match(textOf(one('pmk-hero-name')), /visible/);
+    assert.equal(textOf(one('pmk-hero-summary')), '<img src=x onerror=alert(1)>', '用途摘要必须以纯文本显示');
     const select = one('pmk-version-select');
     assert.equal(select.selectedIndex, 0);
     select.options.forEach(option => { option.selected = option.value === '1.0.0'; });
@@ -183,11 +196,24 @@ test('市场在禁止动态代码编译时挂载，筛选、详情、安装结�
     await flush();
     assert.deepEqual(page.installCalls, [['repo', 'visible', '1.0.0']]);
     assert.equal(elements(root, 'pmk-install-progress').length, 2);
+    elements(root, 'pmk-install-progress').forEach(node => assert.match(textOf(node), /install.phase.confirm/));
+    for (const phase of ['PREPARING', 'DOWNLOADING', 'INSTALLING', 'ROLLING_BACK']) {
+        page.progress(phase);
+        await flush();
+        elements(root, 'pmk-install-progress').forEach(node =>
+            assert.ok(textOf(node).includes('operations.state.' + phase)));
+    }
+    assert.equal(elements(root, 'pmk-progress-bar').length, 0);
+    assert.equal(one('pmk-modal').open, true);
     page.completeInstall({ outcome: 'INSTALLED', accepted: true, effectiveAfterRestart: true, message: 'Restart needed' });
     await flush();
     assert.equal(elements(root, 'pmk-install-progress').length, 0);
-    assert.equal(textOf(one('pmk-install-result-msg')), 'Restart needed');
+    assert.equal(textOf(one('pmk-install-result-msg')), 'plugin-market:install.toast.accepted');
+    assert.match(textOf(one('pmk-install-result-box')), /Restart needed/);
     assert.ok(one('pmk-install-restart'));
+    const manageLink = one('pmk-modal-actionbar-right').children.find(n => n.tagName === 'A');
+    assert.equal(manageLink.props.href, '/plugin-manage.html', '安装后提供管理入口');
+    assert.equal(one('pmk-modal-actionbar-right').children.find(n => n.tagName === 'BUTTON').props.disabled, true, '不能重复安装已安装版本');
 
     const modal = one('pmk-modal');
     modal.props.onClick({ target: one('pmk-modal-panel'), currentTarget: modal });
@@ -249,6 +275,26 @@ test('历史版本的隐藏、撤销、未知及过期状态禁用真实详情�
     }
 });
 
+test('详情刷新移除旧版本时，展示、事实查询和安装使用同一现存版本', async () => {
+    const page = await mountMarket();
+    const detail = entry('visible');
+    detail.latestVersion = '3.1.0';
+    detail.packages = [{ ...detail.packages[0], version: '3.1.0' }];
+    page.market.api.fetchPluginDetail = async () => detail;
+    page.market.api.fetchPackageFacts = async (...args) => {
+        page.factCalls.push(args);
+        return { status: 'VERIFIED_OFFICIAL', revocationStatus: 'CLEAR' };
+    };
+    elements(page.root, 'pmk-card-name')[0].props.onClick();
+    await page.flush();
+    assert.match(textOf(elements(page.root, 'pmk-modal')[0]), /v3\.1\.0/);
+    assert.deepEqual(page.factCalls, [['repo', 'visible', '3.1.0']]);
+    elements(page.root, 'pmk-modal-actionbar-right')[0].children.find(n => n.tagName === 'BUTTON').props.onClick();
+    await page.flush();
+    assert.deepEqual(page.installCalls, [['repo', 'visible', '3.1.0']]);
+    assert.deepEqual(page.errors, []);
+});
+
 test('无动态编译时仍能显示恢复模式、禁用状态和目录错误', async () => {
     const page = await mountMarket();
     await page.reload({ status: { recoveryMode: true, hostElevated: true,
@@ -286,7 +332,7 @@ test('社区版本保障与包内声明在 CSP 渲染中展示并随版本切换
     assert.deepEqual(page.errors, []);
 });
 
-test('基础视图默认安装兼容旧版，取回新撤销事实后立即禁用控件', async () => {
+test('基础视图默认安装兼容旧版，更新撤销事实并丢弃换版后的迟到详情', async () => {
     const handlers = {};
     const root = { innerHTML: '', addEventListener(name, callback) { handlers[name] = callback; },
         querySelector: () => null, querySelectorAll: () => [] };
@@ -294,7 +340,7 @@ test('基础视图默认安装兼容旧版，取回新撤销事实后立即禁�
     sandbox.window = sandbox;
     vm.createContext(sandbox, { codeGeneration: { strings: false, wasm: false } });
     for (const resource of ['js/pixiv-plugin-presentation-tokens.js', 'plugin-market/plugin-market-core.js',
-        'plugin-market/plugin-market-data.js', 'plugin-market/plugin-market-fallback.js']) {
+        'plugin-market/plugin-market-data.js', 'plugin-market/plugin-market-api.js', 'plugin-market/plugin-market-fallback.js']) {
         vm.runInContext(fs.readFileSync(path.join(staticRoot, resource), 'utf8'), sandbox, { filename: resource });
     }
     const market = sandbox.PixivPluginMarket;
@@ -305,10 +351,11 @@ test('基础视图默认安装兼容旧版，取回新撤销事实后立即禁�
     plugin.compatibilityReason = '999.0';
     const installCalls = [];
     market.installPluginWithConfirmation = (...args) => {
-        installCalls.push(args);
+        installCalls.push(args.slice(0, 3));
         return Promise.resolve({kind: 'install', body: {accepted: true, activated: true, message: 'installed'}});
     };
     market.api = {
+        ...market.api,
         fetchRepositories: async () => ({ enabled: true, defaultRepositoryId: 'repo',
             repositories: [{ repositoryId: 'repo', enabled: true }] }),
         fetchPluginStatus: async () => ({ recoveryMode: false }),
@@ -330,17 +377,49 @@ test('基础视图默认安装兼容旧版，取回新撤销事实后立即禁�
     await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual(installCalls, [['repo', 'visible', '1.0.0']]);
     const actions = { innerHTML: '' };
-    const details = { innerHTML: '' };
+    let detailOptions;
+    sandbox.PixivFeedback = {alert: options => { detailOptions = options; return Promise.resolve(); }};
     const facts = {
-        parentElement: { querySelector: () => details },
+        isConnected: true,
+        focus() {},
         getAttribute: name => name === 'data-pmk-facts' ? 'visible' : '1.0.0',
         closest: () => ({ querySelector: () => actions })
     };
-    handlers.click({ target: { closest: () => facts } });
+    handlers.click({ target: { closest: selector => selector === '[data-pmk-facts]' ? facts : null } });
     await new Promise(resolve => setImmediate(resolve));
     assert.match(actions.innerHTML, / disabled/);
     assert.doesNotMatch(actions.innerHTML, /data-pmk-install/);
     assert.match(actions.innerHTML, /common:plugin-trust.revocation.REVOKED/);
-    assert.match(details.innerHTML, /revocation.REVOKED/);
+    assert.match(JSON.stringify(detailOptions.sections), /revocation.REVOKED/);
+    assert.doesNotMatch(root.innerHTML, /data-pmk-facts-content/);
+    assert.match(root.innerHTML, /aria-haspopup="dialog"/);
     assert.deepEqual(errors, ['plugin-market:install.toast.activated']);
+    let resolveFacts;
+    let selectedVersion = '1.0.0';
+    detailOptions = null;
+    facts.getAttribute = name => name === 'data-pmk-facts' ? 'visible' : selectedVersion;
+    market.api.fetchPackageFacts = () => new Promise(resolve => { resolveFacts = resolve; });
+    handlers.click({target: {closest: selector => selector === '[data-pmk-facts]' ? facts : null}});
+    selectedVersion = '2.0.0';
+    resolveFacts({status: 'VERIFIED_OFFICIAL'});
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(detailOptions, null, '换版后不能打开旧版本的来源声明');
+    assert.equal(facts.disabled, false);
+});
+
+
+test('市场依赖使用完整目录解析本地化名称并保留可选性和版本', async () => {
+    const page = await mountMarket({dependencies: ['dependency?@>=3', 'unknown@4']});
+    const {root, market, flush} = page;
+    elements(root, 'pmk-card-name')[0].props.onClick();
+    await flush();
+    assert.match(textOf(root), /common:plugin-info.dependency-plugins/);
+    assert.match(textOf(root), /Notifications\(dependency\) · >=3 · common:plugin-info.optional-dependency/);
+    assert.match(textOf(root), /unknown · 4/);
+    market.state.i18n.client.lang = 'zh-CN';
+    market.state.activeView.rerender();
+    await flush();
+    assert.match(textOf(root), /通知\(dependency\)/);
+    assert.doesNotMatch(textOf(root), /Notifications\(dependency\)/);
+    assert.deepEqual(page.errors, []);
 });

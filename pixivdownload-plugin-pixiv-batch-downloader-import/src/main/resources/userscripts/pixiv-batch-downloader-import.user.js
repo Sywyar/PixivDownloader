@@ -6,7 +6,7 @@
 // @name:ja      PixivBatchDownloader インポートサポート
 // @name:ko      PixivBatchDownloader 가져오기 지원
 // @namespace    https://github.com/Sywyar/PixivDownloader
-// @version      1.1.1
+// @version      1.1.2
 // @description  After one-time download directory setup, automatically add new PixivBatchDownloader illustrations, manga, animations and novels to the local gallery. Keep original files; do not scan past downloads. Allow userscripts and refresh Pixiv before use.
 // @description:zh-CN 配置一次下载目录、启用用户脚本权限并刷新 Pixiv 页面后，自动将 PixivBatchDownloader 此后下载完成的插画、漫画、动图和小说加入本机画廊。保留原文件，不扫描历史下载。
 // @description:zh-TW 設定一次下載目錄、啟用使用者腳本權限並重新整理 Pixiv 頁面後，自動將 PixivBatchDownloader 此後下載完成的插畫、漫畫、動圖和小說加入本機畫廊。保留原始檔案，不掃描歷史下載。
@@ -45,6 +45,7 @@
         ko: ['로컬 서버 주소 설정', '자동 가져오기 상태', '로컬 서버 주소 (기본 http://localhost:6999)', 'localhost, 127.0.0.1 또는 [::1]만 지원합니다.', '대기 / 미완료 / 확인 필요', '수집 공간이 가득 찼습니다. 로컬 서버를 시작하고 상태를 확인하세요.', '작품 정보가 없습니다. 페이지를 새로 고친 후 다시 수집하세요.']
     }[language];
     let metadataBytes = 0;
+    let taskBatch = 0, lastBatch = 0, paused = false;
     let running = false, stopped = false, lastError = '', warned = false;
     let backoff = 1000, nextAttempt = 0;
     function server() {
@@ -97,22 +98,22 @@
     }
     function captureSuccess(event) {
         const data = eventData(event);
-        if (!data || data.noReply || !Number.isSafeInteger(data.taskBatch) || data.taskBatch <= 0
+        if (!data || data.noReply || !taskBatch
             || !Number.isSafeInteger(data.tabId) || typeof data.browserSetFilename !== 'string'
             || !data.browserSetFilename || data.browserSetFilename.length > 4096) return;
         const match = /^([1-9][0-9]*)(?:_p([0-9]+))?$/.exec(String(data.id));
         if (!match) return;
         const candidates = [...metadata.values()].filter(item => item.value.id === match[1]
-            && item.observedAt <= data.taskBatch
+            && item.observedAt <= taskBatch
             && (match[2] === undefined ? item.value.type >= 2 : item.value.type < 2));
         if (candidates.length !== 1) { warn(messages[6]); return; }
         const meta = candidates[0].value;
         const type = meta.type === 3 ? 'novel' : 'artwork';
-        const key = PREFIX + `${session}:${data.tabId}:${data.taskBatch}:${type}:${meta.id}`;
+        const key = PREFIX + `${session}:${data.tabId}:${taskBatch}:${type}:${meta.id}`;
         let work = works.get(key);
         if (!work) {
             if (works.size >= MAX_WORKS) { warn(messages[5]); return; }
-            work = {schemaVersion: 1, source: 'pixiv-batch-downloader', taskBatch: data.taskBatch,
+            work = {schemaVersion: 1, source: 'pixiv-batch-downloader', taskBatch,
                 tabId: data.tabId, metadata: meta, files: []};
         }
         const page = match[2] === undefined ? 0 : Number(match[2]);
@@ -162,7 +163,16 @@
     async function tick() { await drain(); if (!stopped) setTimeout(tick, backoff); }
     window.addEventListener('addResult', captureMetadata);
     window.addEventListener('downloadSuccess', captureSuccess);
-    window.addEventListener('crawlStart', () => { metadata.clear(); metadataBytes = 0; warned = false; });
+    window.addEventListener('crawlStart', () => {
+        metadata.clear(); metadataBytes = 0; warned = false; taskBatch = 0; paused = false;
+    });
+    // 上游成功事件不含请求批号；按观察到的下载开始划分，暂停续传保留已完成页。
+    window.addEventListener('downloadStart', () => {
+        if (!paused || !taskBatch) taskBatch = lastBatch = Math.max(Date.now(), lastBatch + 1);
+        paused = false;
+    });
+    window.addEventListener('downloadPause', () => { paused = true; });
+    window.addEventListener('downloadStop', () => { paused = false; });
     window.addEventListener('pagehide', () => { stopped = true; });
     GM_registerMenuCommand(messages[0], () => {
         const value = prompt(messages[2], GM_getValue('pixiv-batch-downloader-import.server','http://localhost:6999'));

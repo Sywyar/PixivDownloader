@@ -136,6 +136,26 @@ try {
         }
         $page = Invoke-WebRequest -Uri "http://127.0.0.1:$($session.port)$($example.Page)" -WebSession $login -TimeoutSec 10
         if ($page.StatusCode -ne 200) { throw 'The current SDK plugin page is unavailable.' }
+        if ($pluginId -eq 'example-download') {
+            $baseUrl = "http://127.0.0.1:$($session.port)"
+            $command = @{requestId=[guid]::NewGuid().ToString(); workType=$pluginId; workId='1234'; options=@{}}
+            $receipt = Invoke-RestMethod -Method Post -Uri "$baseUrl/api/download/tasks" -WebSession $login `
+                -Headers @{Origin=$baseUrl} -ContentType 'application/json' `
+                -Body ($command | ConvertTo-Json -Compress) -TimeoutSec 10
+            if ($receipt.task.phase -ne 'COMPLETED') { throw 'SDK example task did not complete.' }
+            $item = Invoke-RestMethod -Uri "$baseUrl/api/example-download/status/1234" -WebSession $login -TimeoutSec 10
+            if ($item.id -ne '1234') { throw 'SDK example path parameter was not bound.' }
+            $search = Invoke-RestMethod -Uri "$baseUrl/api/example-download/search?word=contracts&page=2&pageSize=3" `
+                -WebSession $login -TimeoutSec 10
+            if ($search.page -ne 2 -or @($search.items).Count -ne 3) {
+                throw 'SDK example query parameters were not bound.'
+            }
+            foreach ($path in @('/user/42/works?page=1', '/series/42?page=1',
+                    '/search/range?word=contracts&startPage=1&endPage=2', '/quick?pageSize=2')) {
+                $response = Invoke-WebRequest -Uri "$baseUrl/api/example-download$path" -WebSession $login -TimeoutSec 10
+                if ($response.StatusCode -ne 200) { throw "SDK example HTTP request failed: $path" }
+            }
+        }
     }
     if ($sessions[0].Metadata.pid -eq $sessions[1].Metadata.pid -or $sessions[0].Metadata.port -eq $sessions[1].Metadata.port) {
         throw 'Two SDK projects shared a running host.'

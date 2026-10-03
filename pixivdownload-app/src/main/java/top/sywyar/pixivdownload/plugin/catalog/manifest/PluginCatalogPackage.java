@@ -42,13 +42,24 @@ public record PluginCatalogPackage(
         String assuranceLevel,
         String sourceCommit,
         CommunityValues.Reference reviewRef,
-        CommunityValues.Owner historicalOwner) {
+        CommunityValues.Owner historicalOwner,
+        top.sywyar.pixivdownload.sdk.community.content.MarketContent content) {
 
     public PluginCatalogPackage {
         identityMigrationSignatures = identityMigrationSignatures != null
                 ? Map.copyOf(identityMigrationSignatures) : Map.of();
         dependencies = dependencies != null ? List.copyOf(dependencies) : List.of();
         changeNotes = changeNotes != null ? List.copyOf(changeNotes) : List.of();
+    }
+
+    public PluginCatalogPackage(String version, String packageUrl, Long expectedSizeBytes, String sha256,
+            SignatureMetadata signature, Map<String, SignatureMetadata> identityMigrationSignatures,
+            String signatureUrl, String requiredSdk, List<String> dependencies, String releasedTime,
+            List<String> changeNotes, String channel, boolean deprecated, String assuranceLevel,
+            String sourceCommit, CommunityValues.Reference reviewRef, CommunityValues.Owner historicalOwner) {
+        this(version, packageUrl, expectedSizeBytes, sha256, signature, identityMigrationSignatures, signatureUrl,
+                requiredSdk, dependencies, releasedTime, changeNotes, channel, deprecated, assuranceLevel,
+                sourceCommit, reviewRef, historicalOwner, null);
     }
 
     public PluginCatalogPackage(

@@ -17,7 +17,7 @@
     align-items: center;
     justify-content: center;
     padding: var(--space-4, 16px);
-    background: var(--overlay-bg, color-mix(in srgb, CanvasText 55%, transparent));
+    background: var(--overlay-bg, color-mix(in srgb, light-dark(CanvasText, Canvas) 55%, transparent));
 }
 
 .pixiv-feedback-backdrop::backdrop { background: transparent; }
@@ -119,7 +119,7 @@
 
 .pixiv-feedback-button--danger {
     color: var(--on-danger, HighlightText);
-    background: var(--danger, Mark);
+    background: var(--danger, var(--accent-red, Mark));
 }
 
 .pixiv-feedback-toast-host {
@@ -171,4 +171,23 @@
     .pixiv-feedback-toast {
         transition: none;
     }
+}
+
+/* 分组说明与确认共用；长诊断折叠，按钮在低矮窗口仍可达。 */
+.pixiv-feedback-dialog--structured { width: min(42rem, 100%); }
+.pixiv-feedback-section { border-top: 1px solid var(--line, var(--border, ButtonBorder)); margin-top: 1rem; padding-top: 1rem; }
+.pixiv-feedback-section h3, .pixiv-feedback-section summary { font-size: .875rem; margin: 0 0 .75rem; font-weight: 650; }
+.pixiv-feedback-section summary { cursor: pointer; }
+.pixiv-feedback-section p, .pixiv-feedback-section ul { font-size: .875rem; line-height: 1.6; margin: .5rem 0; overflow-wrap: anywhere; }
+.pixiv-feedback-section ul { padding-inline-start: 1.5rem; }
+.pixiv-feedback-fields { margin: 0; font-size: .875rem; }
+.pixiv-feedback-fields > div { display: grid; grid-template-columns: minmax(8rem, 1fr) minmax(0, 2fr); gap: .75rem; padding: .375rem 0; }
+.pixiv-feedback-fields dt { color: var(--muted, GrayText); }
+.pixiv-feedback-fields dd { margin: 0; overflow-wrap: anywhere; }
+.pixiv-feedback-mono { font-family: ui-monospace, monospace; }
+.pixiv-feedback-section summary:focus-visible { outline: 2px solid var(--accent-blue, Highlight); outline-offset: 3px; }
+.pixiv-feedback-dialog--structured .pixiv-feedback-actions { position: sticky; bottom: -1.5rem; background: var(--surface, Canvas); padding-block: 1rem; margin-bottom: -1.5rem; }
+@media (max-width: 37.5em) {
+    .pixiv-feedback-fields > div { grid-template-columns: minmax(0, 1fr); gap: .25rem; }
+    .pixiv-feedback-actions > button { flex: 1 1 8rem; }
 }

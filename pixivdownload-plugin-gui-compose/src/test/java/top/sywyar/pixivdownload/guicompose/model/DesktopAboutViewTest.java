@@ -33,7 +33,8 @@ class DesktopAboutViewTest {
             var about = overview(model);
             var facts = about.facts().stream().collect(Collectors.toMap(DesktopUiNode.AboutFact::id, DesktopUiNode.AboutFact::value));
             assertEquals("2.3.4-fixture", about.version());
-            assertEquals(about.version(), facts.get("version").fallback());
+            assertEquals(about.version() + "(" + top.sywyar.pixivdownload.sdk.SdkVersion.current() + ")",
+                    facts.get("version").fallback());
             assertEquals("gui.compose.about.nightly", facts.get("channel").key());
             assertEquals("gui.compose.about.development", facts.get("mode").key());
             assertEquals(System.getProperty("os.name"), facts.get("os").fallback());
@@ -45,7 +46,8 @@ class DesktopAboutViewTest {
             assertEquals(ComposeApplicationInfo.bytes(Runtime.getRuntime().maxMemory()), facts.get("heap"));
             assertFalse(facts.get("cpu").fallback().isBlank() && facts.get("cpu").key().isBlank());
             assertEquals(java.util.Set.of("version", "channel", "mode", "os", "os-version", "architecture",
-                    "cpu", "processors", "memory", "heap", "java", "java-vendor", "vm", "interface", "kotlin", "launch"), facts.keySet());
+                    "cpu", "processors", "memory", "heap", "java", "java-vendor", "vm", "interface", "kotlin", "launch",
+                    "plugins", "directory", "branch"), facts.keySet());
             var endpoints = DesktopUiEventProtocol.index(model.snapshot().document());
             assertTrue(endpoints.keySet().containsAll(about.links().stream().map(DesktopUiNode.Link::id).toList()));
             about.maintainers().forEach(person -> assertTrue(endpoints.containsKey(person.link().id())));
@@ -70,6 +72,41 @@ class DesktopAboutViewTest {
         }
         assertEquals("32.0 GiB", ComposeApplicationInfo.bytes(32L * 1024 * 1024 * 1024).fallback());
         assertEquals("gui.compose.about.unknown", ComposeApplicationInfo.bytes(-1).key());
+    }
+
+    @Test
+    @DisplayName("插件信息复用完整状态快照，安装列表变化后刷新，开发目录不在普通模式泄露")
+    void pluginVersionFacts() throws Exception {
+        var snapshot = new AtomicReference<>(Map.<String, Object>of(
+                "sdkVersion", "8.2.3-dev.ab123456",
+                "development", Map.of("directory", "D:/fixture", "branch", "fixture/about"),
+                "plugins", List.of(
+                        Map.of("id", "plugin-z", "source", "external", "version", "4.5.6",
+                                "displayVersion", "4.5.6-dev.ab123456",
+                                "sdkRequirement", Map.of("specified", true, "required", "8.2")),
+                        Map.of("id", "plugin-a", "source", "external", "version", "2.3.4"),
+                        Map.of("id", "missing", "source", "not-installed"))
+        ));
+        try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), Map.of(
+                "guiGet", args -> new DesktopUiHost.GuiResponse(true, 200,
+                        DesktopUiHost.GuiValue.of(snapshot.get()), "", false),
+                "developmentMode", args -> false
+        ))) {
+            model.loadPluginStatus();
+            model.rebuildStatus();
+            var facts = overview(model).facts().stream().collect(Collectors.toMap(
+                    DesktopUiNode.AboutFact::id, fact -> fact));
+            assertFalse(facts.containsKey("directory"));
+            assertFalse(facts.containsKey("branch"));
+            assertTrue(facts.get("version").value().fallback().endsWith("(8.2.3-dev.ab123456)"));
+            assertEquals("plugin-a-2.3.4(*)\nplugin-z-4.5.6-dev.ab123456(8.2.0)", facts.get("plugins").value().fallback());
+            assertTrue(facts.get("plugins").expandable());
+            snapshot.set(Map.of("plugins", List.of()));
+            model.loadPluginStatus();
+            model.rebuildStatus();
+            assertEquals("gui.plugins.state.empty", overview(model).facts().stream()
+                    .filter(f -> f.id().equals("plugins")).findFirst().orElseThrow().value().key());
+        }
     }
 
     @Test
@@ -153,6 +190,37 @@ class DesktopAboutViewTest {
         var page = model.snapshot().document().pages().stream().filter(it -> it.id().equals("about")).findFirst().orElseThrow();
         return assertInstanceOf(DesktopUiNode.AboutOverview.class,
                 assertInstanceOf(DesktopUiNode.Surface.class, page.content()).content());
+    }
+
+    @Test
+    @DisplayName("更新失败原因保留 HTTP 状态，未知错误不显示原始详情，重试成功清除提示")
+    void updateFailureDetails() throws Exception {
+        var response = new AtomicReference<>(DesktopUiHost.GuiResponse.unreachable());
+        try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), Map.of(
+                "message", args -> args[0].toString().startsWith("update.check.failure.") ? "translated" : args[0],
+                "guiGet", args -> "update/check?force=true".equals(args[0])
+                        ? response.get() : DesktopUiHost.GuiResponse.unreachable()
+        ))) {
+            for (String reason : List.of("SIGNATURE_HTTP_ERROR", "SEQUENCE_REUSED", "unknown private-url?token=secret")) {
+                response.set(new DesktopUiHost.GuiResponse(true, 200, DesktopUiHost.GuiValue.of(Map.of(
+                        "enabled", true, "checkSucceeded", false, "error", reason, "errorHttpStatus", 404
+                )), "", false));
+                activate(model, "about.update.check");
+                awaitIdle(model);
+                var surface = assertInstanceOf(DesktopUiNode.Surface.class, overview(model).updates().get(0));
+                var detail = assertInstanceOf(DesktopUiNode.Text.class, surface.content()).text();
+                assertEquals("update.check.failure." + (reason.startsWith("unknown") ? "UNKNOWN" : reason), detail.key());
+                assertEquals(List.of("404"), detail.arguments());
+                assertFalse(detail.fallback().contains("private-url"));
+            }
+            response.set(new DesktopUiHost.GuiResponse(true, 200, DesktopUiHost.GuiValue.of(Map.of(
+                    "enabled", true, "checkSucceeded", true, "updateAvailable", false
+            )), "", false));
+            activate(model, "about.update.check");
+            awaitIdle(model);
+            assertEquals(DesktopUiNode.AboutUpdateState.CURRENT, overview(model).updateState());
+            assertTrue(overview(model).updates().isEmpty());
+        }
     }
 
     private static void activate(ComposeDesktopUiModel model, String id) {

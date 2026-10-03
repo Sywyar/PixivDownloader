@@ -145,8 +145,7 @@ public class PluginCatalogHttpClient {
     public byte[] fetchBytes(String url, long maxBytes) {
         FetchResult result = fetch(url, maxBytes, null);
         if (result.statusCode() != 200) {
-            throw new PluginCatalogException(PluginCatalogErrorCode.DOWNLOAD_FAILED,
-                    "unexpected HTTP status " + result.statusCode() + " for " + url);
+            throw new HttpStatusException(result.statusCode(), url);
         }
         return result.bytes();
     }
@@ -165,7 +164,7 @@ public class PluginCatalogHttpClient {
                     response.headers().firstValue("ETag").orElse(null), response.uri().toString());
         } catch (IOException e) {
             throw new PluginCatalogException(PluginCatalogErrorCode.DOWNLOAD_FAILED,
-                    "failed to read " + uri + ": " + e.getMessage());
+                    "failed to read " + uri + ": " + e.getMessage(), e);
         }
     }
 
@@ -192,7 +191,7 @@ public class PluginCatalogHttpClient {
             return copyBounded(in, out, maxBytes, uri, progress);
         } catch (IOException e) {
             throw new PluginCatalogException(PluginCatalogErrorCode.DOWNLOAD_FAILED,
-                    "failed to download " + uri + ": " + e.getMessage());
+                    "failed to download " + uri + ": " + e.getMessage(), e);
         }
     }
 
@@ -223,10 +222,10 @@ public class PluginCatalogHttpClient {
             return httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
         } catch (IOException e) {
             throw new PluginCatalogException(PluginCatalogErrorCode.DOWNLOAD_FAILED,
-                    "failed to connect to " + uri + ": " + e.getMessage());
+                    "failed to connect to " + uri + ": " + e.getMessage(), e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new PluginCatalogException(PluginCatalogErrorCode.DOWNLOAD_FAILED, "download interrupted: " + uri);
+            throw new PluginCatalogException(PluginCatalogErrorCode.DOWNLOAD_FAILED, "download interrupted: " + uri, e);
         }
     }
 
@@ -315,12 +314,10 @@ public class PluginCatalogHttpClient {
     private static void requireOk(HttpResponse<?> response, URI uri) {
         int code = response.statusCode();
         if (code >= 300 && code < 400) {
-            throw new PluginCatalogException(PluginCatalogErrorCode.DOWNLOAD_FAILED,
-                    "refusing to follow redirect (HTTP " + code + ") for " + uri);
+            throw new HttpStatusException(code, uri.toString());
         }
         if (code != 200) {
-            throw new PluginCatalogException(PluginCatalogErrorCode.DOWNLOAD_FAILED,
-                    "unexpected HTTP status " + code + " for " + uri);
+            throw new HttpStatusException(code, uri.toString());
         }
     }
 
@@ -328,6 +325,18 @@ public class PluginCatalogHttpClient {
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         copyBounded(in, buffer, maxBytes, uri);
         return buffer.toByteArray();
+    }
+
+    /** 保留上游状态供受控诊断使用，仍由原有下载失败码决定市场响应。 */
+    public static final class HttpStatusException extends PluginCatalogException {
+        private final int statusCode;
+
+        public HttpStatusException(int statusCode, String url) {
+            super(PluginCatalogErrorCode.DOWNLOAD_FAILED, "unexpected HTTP status " + statusCode + " for " + url);
+            this.statusCode = statusCode;
+        }
+
+        public int statusCode() { return statusCode; }
     }
 
     private static long copyBounded(InputStream in, OutputStream out, long maxBytes, URI uri) throws IOException {
@@ -394,7 +403,7 @@ public class PluginCatalogHttpClient {
             try {
                 addresses = InetAddress.getAllByName(stripBrackets(host));
             } catch (UnknownHostException e) {
-                throw new PluginCatalogException(PluginCatalogErrorCode.BLOCKED_ADDRESS, "cannot resolve host: " + host);
+                throw new PluginCatalogException(PluginCatalogErrorCode.BLOCKED_ADDRESS, "cannot resolve host: " + host, e);
             }
             for (InetAddress address : addresses) {
                 if (isBlockedAddress(address, allowNonPublicAddresses)) {

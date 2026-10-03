@@ -1,6 +1,8 @@
 package top.sywyar.pixivdownload.sdk.community.submission;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import top.sywyar.pixivdownload.sdk.community.content.MarketContent;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.sdk.community.format.CommunityJson;
 import top.sywyar.pixivdownload.sdk.community.format.CommunityValues;
@@ -14,7 +16,13 @@ import java.util.Objects;
 /** 版本投稿只保存作者输入；包内描述符、实际身份与审核结论由独立证据提供。 */
 public record VersionSubmission(int schemaVersion, String publisherId, String pluginId, String version,
                                 Source source, BuildProfile buildProfile, License license,
-                                @JsonProperty("package") Artifact artifact, MarketMetadata market) {
+                                @JsonProperty("package") Artifact artifact, MarketMetadata market,
+                                @JsonInclude(JsonInclude.Include.NON_NULL) MarketContent content) {
+    public VersionSubmission(int schemaVersion, String publisherId, String pluginId, String version,
+                             Source source, BuildProfile buildProfile, License license, Artifact artifact,
+                             MarketMetadata market) {
+        this(schemaVersion, publisherId, pluginId, version, source, buildProfile, license, artifact, market, null);
+    }
     public record Source(String repository, String commit, String previousReviewedCommit,
                          CommunityValues.RemoteReference archive) {
         public void validate() {
@@ -64,6 +72,16 @@ public record VersionSubmission(int schemaVersion, String publisherId, String pl
         value.license().validate();
         value.artifact().validate();
         value.market().validate();
+        if (value.content() != null) {
+            value.content().validate(value.market().defaultLocale());
+            for (var group : java.util.Arrays.asList(value.content().readme(), value.content().changelog(), value.content().releaseNotes())) {
+                if (group == null) continue;
+                for (var item : group.values()) if (item.sourceUrl() != null
+                        && !item.sourceUrl().startsWith(value.source().repository() + "/blob/" + value.source().commit() + "/")) {
+                    throw new ContractException("PATH_MISMATCH", "/content/sourceUrl");
+                }
+            }
+        }
         return value;
     }
 

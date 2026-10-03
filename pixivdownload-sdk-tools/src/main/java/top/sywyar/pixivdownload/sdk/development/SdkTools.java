@@ -3,12 +3,14 @@ package top.sywyar.pixivdownload.sdk.development;
 import com.fasterxml.jackson.databind.JsonNode;
 import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
+import top.sywyar.pixivdownload.sdk.community.submission.MarketPublicationFiles;
 
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.BindException;
 import java.net.ServerSocket;
 import java.net.URLClassLoader;
+import java.net.URI;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -50,6 +52,34 @@ public final class SdkTools {
     }
 
     static int execute(String[] args) throws Exception {
+        if (args.length == 3 && args[0].equals("market-content-download")) {
+            String base = args[1];
+            if (!base.endsWith("/")) throw new IllegalArgumentException("SDK_ARGUMENTS");
+            Path directory = Path.of(args[2]);
+            SdkRuntimeArchive.requireDirectory(directory);
+            Path metadata = directory.resolve(MarketPublicationFiles.METADATA);
+            long deadline = System.nanoTime() + Duration.ofMinutes(5).toNanos();
+            Files.createFile(metadata);
+            SdkRuntimeArchive.download(URI.create(base + metadata.getFileName()), metadata, 64 * 1024, deadline);
+            var publication = MarketPublicationFiles.read(metadata);
+            for (var asset : MarketPublicationFiles.assets(publication, base)) {
+                Path file = Files.createFile(directory.resolve(asset.name()));
+                SdkRuntimeArchive.download(URI.create(asset.url()), file, asset.size(), deadline);
+            }
+            MarketPublicationFiles.verify(metadata, directory, base);
+            return 0;
+        }
+        if ((args.length == 7 || args.length == 8) && args[0].equals("market-content-prepare")) {
+            MarketPublicationFiles.prepare(
+                    Path.of(args[1]), Path.of(args[2]), args[3], args[4], args[5], Path.of(args[6]),
+                    args.length == 8 ? args[7] : null);
+            return 0;
+        }
+        if (args.length == 4 && args[0].equals("market-content-verify")) {
+            MarketPublicationFiles.verify(
+                    Path.of(args[1]), Path.of(args[2]), args[3]);
+            return 0;
+        }
         if (args.length == 2 && args[0].equals("candidate")) {
             top.sywyar.pixivdownload.sdk.community.candidate.CandidateCommand.execute(Path.of(args[1]));
             return 0;

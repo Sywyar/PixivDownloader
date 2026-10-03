@@ -1735,7 +1735,7 @@ public class StatusPanel extends JPanel {
                 if (node == null) {
                     log.warn(logMessage("gui.status.log.update.check-failed-no-connection", force));
                     JOptionPane.showMessageDialog(StatusPanel.this,
-                            message("gui.update.dialog.check-failed.message"),
+                            SwingHost.host().message("update.check.failure.LOCAL_UNREACHABLE"),
                             message("gui.dialog.error.title"), JOptionPane.WARNING_MESSAGE);
                     return;
                 }
@@ -1756,7 +1756,13 @@ public class StatusPanel extends JPanel {
             return;
         }
         if (!node.path("checkSucceeded").asBoolean(false)) {
-            String error = node.path("error").asText("");
+            String code = node.path("error").asText("UNKNOWN");
+            String key = "update.check.failure." + code;
+            int httpStatus = (int) node.path("errorHttpStatus").asLong(0);
+            String error = SwingHost.host().message(key, httpStatus);
+            if (!code.matches("[A-Z_]+") || error.equals(key)) {
+                error = SwingHost.host().message("update.check.failure.UNKNOWN");
+            }
             log.warn(logMessage("gui.status.log.update.check-failed",
                     error.isBlank() ? logMessage("gui.log.no-detail") : error));
             JOptionPane.showMessageDialog(this,

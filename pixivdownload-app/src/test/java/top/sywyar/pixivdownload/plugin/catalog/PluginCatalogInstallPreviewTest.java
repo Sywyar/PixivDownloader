@@ -45,6 +45,7 @@ class PluginCatalogInstallPreviewTest {
 
     @BeforeEach
     void prepare() {
+        when(catalog.resolveRepository("official")).thenReturn(repository);
         when(coordinator.withMutationReservation(any())).thenAnswer(call -> ((Supplier<?>) call.getArgument(0)).get());
         when(runtime.loadedDescriptors()).thenReturn(Map.of());
         when(runtime.packagePhases()).thenReturn(Map.of());
@@ -169,10 +170,13 @@ class PluginCatalogInstallPreviewTest {
                         top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome.REJECTED_INTEGRITY,
                         false, false, "parent", "1.0.0", null, List.of(), List.of(), List.of()));
         var preview = service.preview("official", "parent", "1.0.0");
+        clearInvocations(catalog);
         var report = acquisition.installPreviewed("official", "parent", "1.0.0", null, preview.fingerprint());
         assertThat(report.accepted()).isFalse();
         assertThat(report.dependencyInstallResults()).singleElement()
                 .satisfies(result -> assertThat(result.pluginId()).isEqualTo("shared"));
+        verify(catalog, times(2)).resolvePackage("official", "parent", "1.0.0");
+        verify(catalog, times(2)).resolvePackage("official", "shared", "1.0.0");
 
         clearInvocations(installs);
         doAnswer(call -> {

@@ -118,10 +118,12 @@ test('安装记录按需展开，保留行、焦点与诊断展开状态，并�
 
 test('离页丢弃迟到响应，返回查询原操作；安装结束时合并在途刷新且不并发', async () => {
     const f = fixture();
-    f.market.operations.watch('original');
+    const phases = [];
+    f.market.operations.watch('original', phase => phases.push(phase));
     assert.equal(f.requests, 1);
     f.pending.shift().resolve([running]); await flush();
     assert.equal(f.requests, 2);
+    assert.deepEqual(phases, ['DOWNLOADING']);
     f.pending.shift().resolve([running]); await flush();
     assert.equal(f.timers.size, 1);
     f.document.hidden = true; f.events.visibilitychange();
@@ -129,10 +131,12 @@ test('离页丢弃迟到响应，返回查询原操作；安装结束时合并�
     await f.market.operations.refresh(); assert.equal(f.requests, 2);
     f.document.hidden = false; f.events.visibilitychange();
     assert.equal(f.requests, 3);
+    const phaseCount = phases.length;
     f.pageEvents.pagehide();
     f.pending.shift().resolve([{...running, pluginId: 'stale-response'}]); await flush();
     assert.doesNotMatch(f.host.textContent, /stale-response/);
     assert.equal(f.timers.size, 0);
+    assert.equal(phases.length, phaseCount);
     f.pageEvents.pageshow(); assert.equal(f.requests, 4);
     f.market.operations.settled('original');
     assert.equal(f.pending.length, 1);
@@ -140,6 +144,7 @@ test('离页丢弃迟到响应，返回查询原操作；安装结束时合并�
     assert.equal(f.requests, 5);
     f.pending.shift().resolve([{...running, finished: true, result: {accepted: true}}]); await flush();
     assert.equal(f.timers.size, 0);
+    assert.equal(phases.length, phaseCount);
     f.market.operations.mount();
     assert.equal(f.requests, 5);
 });

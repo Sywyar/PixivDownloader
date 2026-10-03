@@ -18,10 +18,10 @@ function gh(...args) {
 
 export function selectPublishedRelease(releases, identity, mode) {
     const published = releases.filter(release => !release.draft && release.tag_name?.startsWith('sdk-api-v'));
-    if (mode === 'current') {
+    if (mode === 'current' || mode === 'if-present') {
         const current = published.find(release => release.tag_name === identity.releaseId);
-        if (!current) throw new Error(`SDK ${identity.releaseId} has no public Release`);
-        return current;
+        if (!current && mode === 'current') throw new Error(`SDK ${identity.releaseId} has no public Release`);
+        return current ?? null;
     }
     const comparable = published.flatMap(release => {
         try { return [{ release, version: parseSdkVersion(release.tag_name.slice('sdk-api-v'.length)) }]; }
@@ -60,10 +60,13 @@ async function verifyCentral(version, sourceSha) {
 
 async function main() {
     const [mode, repoRoot = '.'] = process.argv.slice(2);
-    if (!['current', 'latest'].includes(mode)) throw new Error('Usage: sdk-published-base.mjs current|latest [repo-root]');
+    if (!['current', 'latest', 'if-present'].includes(mode)) {
+        throw new Error('Usage: sdk-published-base.mjs current|latest|if-present [repo-root]');
+    }
     const identity = inspectSdkVersion(repoRoot);
     const releases = JSON.parse(gh('api', '--paginate', '--slurp', `repos/${REPOSITORY}/releases?per_page=100`)).flat();
     const release = selectPublishedRelease(releases, identity, mode);
+    if (!release) return;
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'pixivdownload-sdk-published-'));
     try {
         gh('release', 'download', release.tag_name, '--repo', REPOSITORY,

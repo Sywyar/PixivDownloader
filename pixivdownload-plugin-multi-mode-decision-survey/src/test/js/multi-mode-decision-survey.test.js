@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const {test} = require('node:test');
+const QUESTION_ID = '11111111-2222-4333-8444-555555555555';
 
 function internals() {
     const configSource = fs.readFileSync(path.join(__dirname, '../../main/resources/static',
@@ -27,20 +28,31 @@ test('explains security risks without presenting the survey as deletion consent'
     assert.doesNotMatch(source, /填写前请阅读风险说明/);
 });
 
-test('validates the fixed PostHog schema and open-choice response', () => {
+test('使用当前问卷的题目标识，同时校验问卷结构与开放选项', () => {
     const api = internals();
     const survey = {
         id: api.POSTHOG.surveyId,
         type: 'api',
         questions: [{
-            id: api.QUESTION_ID,
+            id: QUESTION_ID,
             type: 'single_choice',
             choices: ['Yes', 'No', 'Other'],
             hasOpenChoice: true
         }]
     };
 
-    assert.equal(api.resolveQuestion(survey).id, api.QUESTION_ID);
+    assert.equal(api.resolveQuestion(survey).id, QUESTION_ID);
+    const replacementId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    survey.questions[0].id = replacementId;
+    assert.equal(api.resolveQuestion(survey).id, replacementId);
+    for (const invalid of [null, '', ' ', 123, 'not-a-question-id']) {
+        survey.questions[0].id = invalid;
+        assert.equal(api.resolveQuestion(survey), null);
+    }
+    survey.questions[0].id = QUESTION_ID;
+    assert.equal(api.resolveQuestion({...survey, id: 'another-survey'}), null);
+    assert.equal(api.resolveQuestion({...survey, type: 'popover'}), null);
+    assert.equal(api.resolveQuestion({...survey, questions: [...survey.questions, survey.questions[0]]}), null);
     assert.equal(api.responseValue('Yes', ''), 'Yes');
     assert.equal(api.responseValue('Other', '  current multi-user deployment  '),
         'current multi-user deployment');
@@ -60,7 +72,7 @@ test('beforeSend keeps only survey protocol and response properties', () => {
             token: 'phc_test',
             '$survey_id': api.POSTHOG.surveyId,
             '$survey_completed': true,
-            ['$survey_response_' + api.QUESTION_ID]: 'Yes',
+            ['$survey_response_' + QUESTION_ID]: 'Yes',
             '$device_id': 'device-1',
             '$session_id': 'session-1',
             '$window_id': 'window-1',
@@ -73,7 +85,7 @@ test('beforeSend keeps only survey protocol and response properties', () => {
     });
 
     assert.deepEqual(Object.keys(result.properties).sort(), [
-        '$survey_completed', '$survey_id', '$survey_response_' + api.QUESTION_ID,
+        '$survey_completed', '$survey_id', '$survey_response_' + QUESTION_ID,
         'distinct_id', 'token'
     ].sort());
     assert.equal(result.uuid, undefined);

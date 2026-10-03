@@ -55,6 +55,7 @@ $nowUtc = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
 
 # Shared official-plugin list (id / module / artifact format).
 . (Join-Path $PSScriptRoot "plugin-distribution-common.ps1")
+. (Join-Path $PSScriptRoot "market-content-publication.ps1")
 
 if ([string]::IsNullOrWhiteSpace($OfficialKeyId)) { throw "OfficialKeyId is required." }
 if ([string]::IsNullOrWhiteSpace($PrivateKeyFile) -or -not (Test-Path -LiteralPath $PrivateKeyFile -PathType Leaf)) {
@@ -213,7 +214,7 @@ try {
 
         # Release metadata (must already exist): asset download_count + stable release publishedAt.
         # A rolling Nightly Release keeps its original publishedAt, so use this manifest generation time instead.
-        $relRaw = & gh release view $tag --repo $Repo --json assets,publishedAt
+        $relRaw = & gh release view $tag --repo $Repo --json assets,publishedAt,body
         if ($LASTEXITCODE -ne 0 -or -not $relRaw) {
             throw "Release $tag not found in $Repo. Publish it before generating the manifest."
         }
@@ -264,6 +265,9 @@ try {
 
         $changeNotes = @()
         if (Has-Property $c "changeNotes") { $changeNotes = @($c.changeNotes) }
+        $contentHash = $null
+        if ((Has-Property $rel 'body') -and $rel.body -match 'market-content-sha256=([a-f0-9]{64})') { $contentHash = $Matches[1] }
+        $publication = Read-OfficialMarketContent $ProjectRoot $Repo $tag @($rel.assets | ForEach-Object { $_.name }) $tmp $contentHash
 
         $market = [ordered]@{
             displayName      = $displayName
@@ -286,6 +290,10 @@ try {
             officialRequired = [bool]$c.officialRequired
             defaultInstalled = ($defaultInstalledPluginIds -contains $id)
         }
+        foreach ($field in @('defaultLocale', 'links', 'icon', 'screenshots')) {
+            if (Has-Property $publication $field) { $market[$field] = $publication.$field }
+            elseif (Has-Property $c $field) { $market[$field] = $c.$field }
+        }
 
         $package = [ordered]@{
             version           = $version
@@ -303,6 +311,7 @@ try {
             channel           = $channel
             deprecated        = $false
         }
+        if (Has-Property $publication 'content') { $package['content'] = $publication.content }
 
         $entries += [ordered]@{
             pluginId         = $id

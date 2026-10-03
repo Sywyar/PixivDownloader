@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.download.response.collection.CollectionPageResponse;
@@ -36,8 +37,11 @@ import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLConnection;
+import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
@@ -498,8 +502,26 @@ public class PixivProxyController {
         }
         byte[] bytes = pixivThumbnailFetcher.fetch(uri);
         HttpHeaders responseHeaders = new HttpHeaders();
+        responseHeaders.setContentType(thumbnailMediaType(bytes));
         responseHeaders.setCacheControl(CacheControl.maxAge(1, TimeUnit.HOURS).cachePublic());
         return ResponseEntity.ok().headers(responseHeaders).body(bytes);
+    }
+
+    private static MediaType thumbnailMediaType(byte[] bytes) {
+        // JDK 的文件头探测不包含 WebP；只读头部，不解码或重编码图片。
+        if (bytes.length >= 12 && ByteBuffer.wrap(bytes).getInt(0) == 0x52494646
+                && ByteBuffer.wrap(bytes).getInt(8) == 0x57454250) {
+            return MediaType.parseMediaType("image/webp");
+        }
+        try {
+            String type = URLConnection.guessContentTypeFromStream(new ByteArrayInputStream(bytes));
+            if ("image/jpeg".equals(type) || "image/png".equals(type) || "image/gif".equals(type)) {
+                return MediaType.parseMediaType(type);
+            }
+        } catch (IOException ignored) {
+            // 未识别的字节保持二进制响应，不能把上游 HTML 当作本机页面提供。
+        }
+        return MediaType.APPLICATION_OCTET_STREAM;
     }
 
     // ── /me 端点：基于 cookie 解析当前用户 uid，代理「我的」书签 / 关注 / 珍藏集 ─────────────

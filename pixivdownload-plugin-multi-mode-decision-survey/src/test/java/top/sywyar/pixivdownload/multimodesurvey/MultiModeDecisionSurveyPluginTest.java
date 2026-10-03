@@ -90,10 +90,8 @@ class MultiModeDecisionSurveyPluginTest {
                 .containsPattern("surveyId: '[^']+'");
         assertThat(script).contains(
                 "var POSTHOG = global.PixivMultiModeDecisionSurveyPostHog || Object.freeze({})",
-                "var QUESTION_ID =",
                 "var CHOICES = ['Yes', 'No', 'Other']",
                 "IDENTITY_URL + '?surveyId=' + encodeURIComponent(POSTHOG.surveyId)");
-        assertThat(script).containsPattern("var QUESTION_ID = '[^']+'");
         assertThat(script)
                 .doesNotContain("snooze", "never");
 

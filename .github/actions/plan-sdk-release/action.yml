@@ -1,0 +1,69 @@
+name: Plan SDK release
+description: Resolve protected source and the immutable public SDK state
+inputs:
+  mode:
+    description: SDK publication or recovery mode
+    default: publish
+outputs:
+  publish:
+    description: Resolved publish
+    value: ${{ steps.plan.outputs.publish }}
+  mode:
+    description: Resolved mode
+    value: ${{ steps.plan.outputs.mode }}
+  trusted_base_sha:
+    description: Resolved trusted_base_sha
+    value: ${{ steps.plan.outputs.trusted_base_sha }}
+  sdk_version:
+    description: Resolved sdk_version
+    value: ${{ steps.plan.outputs.sdk_version }}
+  release_id:
+    description: Resolved release_id
+    value: ${{ steps.plan.outputs.release_id }}
+  prerelease:
+    description: Resolved prerelease
+    value: ${{ steps.plan.outputs.prerelease }}
+runs:
+  using: composite
+  steps:
+    - name: Resolve SDK release plan
+      id: plan
+      shell: bash
+      env:
+        REQUESTED_MODE: ${{ inputs.mode }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        current_json="$(node scripts/ci/sdk-version.mjs --repo-root . --json)"
+        mode="$REQUESTED_MODE"
+        publish=true
+
+        git fetch --no-tags origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
+        protected_tip="$(git rev-parse "refs/remotes/origin/$DEFAULT_BRANCH")"
+        if ! git merge-base --is-ancestor "$GITHUB_SHA" "$protected_tip"; then
+          echo "SDK publication must select a commit already contained in protected master" >&2
+          exit 1
+        fi
+        trusted_base_sha="$(git rev-parse "$GITHUB_SHA^")"
+        if [ "$mode" = publish ]; then
+          published_source="$(node scripts/ci/sdk-published-base.mjs if-present .)"
+          if [ -n "$published_source" ]; then
+            publish=false
+          fi
+        fi
+
+        sdk_version="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).version)' "$current_json")"
+        release_id="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).releaseId)' "$current_json")"
+        prerelease="$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).prerelease))' "$current_json")"
+        {
+          echo "publish=$publish"
+          echo "mode=$mode"
+          echo "trusted_base_sha=$trusted_base_sha"
+          echo "sdk_version=$sdk_version"
+          echo "release_id=$release_id"
+          echo "prerelease=$prerelease"
+        } >> "$GITHUB_OUTPUT"
+        if [ "$publish" = false ]; then
+          echo "SDK $release_id is already public and verified against Maven Central; reusing its immutable publication." >> "$GITHUB_STEP_SUMMARY"
+        fi

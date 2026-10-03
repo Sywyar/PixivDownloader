@@ -110,8 +110,8 @@
         return String(prefix || '') + colorToken(token);
     }
 
-    // 各来源共用同一声明语义；只返回文本，渲染器负责转义。
-    function trustLines(facts, client, instancePresent) {
+    // 原始事实在渲染时本地化；警告独立于可折叠诊断，不能被摘要隐藏。
+    function trustSections(facts, client, instancePresent) {
         var f = facts || {};
         function t(key, fallback) {
             return client ? client.t('common:plugin-trust.' + key, fallback) : fallback;
@@ -119,62 +119,79 @@
         function value(group, token) {
             return t(group + '.' + token, token || t('unknown', 'Not read'));
         }
+        function field(key, fallback, text) {
+            return {label: t(key, fallback), value: text};
+        }
         function risk(declaration) {
             if (!declaration) return t('unknown', 'Not read');
             if (!declaration.present) return t('undeclared', 'Not declared');
-            if (!declaration.signals.length) return t('empty', 'Explicitly empty; does not mean safe');
+            if (!(declaration.signals || []).length) return t('empty', 'Explicitly empty; does not mean safe');
             return declaration.signals.map(function (token) { return value('signal', token); }).join(', ');
         }
-        var lines = [
-            t('identity', 'Repository identity') + ': ' + value('identity', f.repositoryTrustSource),
-            t('assurance', 'Version assurance') + ': ' + value('assurance', f.assuranceLevel),
-            t('revocation', 'Revocation status') + ': ' + value('revocation', f.revocationStatus || 'NOT_CHECKED'),
-            t('execution', 'Execution mode') + ': ' + value('execution', String(f.executionMode || '').replace(/-/g, '_').toUpperCase()),
-            t('declaration', 'Declared capabilities') + ': ' + risk(f.riskDeclaration)
-        ];
+        var identity = {title: client ? client.t('common:plugin-info.source') : 'Source', fields: [
+            field('identity', 'Repository identity', value('identity', f.repositoryTrustSource)),
+            field('assurance', 'Version assurance', value('assurance', f.assuranceLevel)),
+            field('revocation', 'Revocation status', value('revocation', f.revocationStatus || 'NOT_CHECKED'))
+        ], paragraphs: []};
+        var execution = {title: client ? client.t('common:plugin-info.execution') : 'Execution and capabilities', fields: [
+            field('execution', 'Execution mode', value('execution', String(f.executionMode || '').replace(/-/g, '_').toUpperCase())),
+            field('declaration', 'Declared capabilities', risk(f.riskDeclaration))
+        ], paragraphs: [t('declaration-note', 'Capability declarations do not grant or restrict permissions and are not a safety guarantee.')]};
+        var details = {title: t('revocation-freshness', 'Snapshot freshness'), fields: [], paragraphs: [], collapsed: true};
         var revocation = f.revocation;
         if (revocation) {
-            lines.push(t('revocation-freshness', 'Snapshot freshness') + ': ' + value('freshness', revocation.freshness));
+            identity.fields.push(field('revocation-freshness', 'Snapshot freshness', value('freshness', revocation.freshness)));
             [
                 ['revocation-fetched', 'Last successful refresh', revocation.fetchedAt],
                 ['revocation-generated', 'Snapshot generated', revocation.generatedTime],
                 ['revocation-next', 'Valid until', revocation.nextUpdate],
                 ['revocation-grace', 'Installation grace ends', revocation.graceUntil]
-            ].forEach(function (field) {
-                if (field[2]) lines.push(t(field[0], field[1]) + ': ' + field[2]);
+            ].forEach(function (item) {
+                if (item[2]) details.fields.push(field(item[0], item[1], item[2]));
             });
             (revocation.restrictions || []).forEach(function (restriction) {
-                lines.push(t('revocation-reason', 'Restriction') + ': '
+                identity.paragraphs.push(t('revocation-reason', 'Restriction') + ': '
                     + value('revocation', restriction.action) + ' / ' + restriction.scope
                     + ' / ' + restriction.reasonCode + ' / ' + restriction.effectiveTime);
             });
-            if (revocation.installBlocked) lines.push(t('revocation-install-blocked', 'New installation or update is blocked.'));
-            if (revocation.executionBlocked) lines.push(t('revocation-execution-blocked', 'Subsequent loading or starting is blocked.'));
+            if (revocation.installBlocked) identity.paragraphs.push(t('revocation-install-blocked', 'New installation or update is blocked.'));
+            if (revocation.executionBlocked) identity.paragraphs.push(t('revocation-execution-blocked', 'Subsequent loading or starting is blocked.'));
             if (instancePresent && (revocation.executionBlocked || ['GRACE', 'EXPIRED', 'UNKNOWN'].indexOf(revocation.freshness) !== -1)) {
-                lines.push(t('revocation-running', 'The process may still hold plugin code, including an older version. This check does not terminate it. To stop that code, exit the application completely and check the package before starting again.'));
+                identity.paragraphs.push(t('revocation-running', 'The process may still hold plugin code, including an older version. This check does not terminate it. To stop that code, exit the application completely and check the package before starting again.'));
             }
-            if (revocation.status === 'YANKED') lines.push(t('revocation-yanked-note', 'Withdrawal blocks installation and updates; it does not revoke execution of an installed instance.'));
+            if (revocation.status === 'YANKED') identity.paragraphs.push(t('revocation-yanked-note', 'Withdrawal blocks installation and updates; it does not revoke execution of an installed instance.'));
         }
         if (f.previousRiskDeclaration) {
             var previous = f.previousRiskDeclaration.signals || [];
-            var next = f.riskDeclaration ? f.riskDeclaration.signals : [];
-            lines.push(t('previous', 'Previously declared') + ': ' + risk(f.previousRiskDeclaration));
+            var next = f.riskDeclaration ? (f.riskDeclaration.signals || []) : [];
+            execution.fields.push(field('previous', 'Previously declared', risk(f.previousRiskDeclaration)));
             if (f.riskDeclaration) {
                 var added = next.filter(function (token) { return previous.indexOf(token) === -1; });
                 var removed = previous.filter(function (token) { return next.indexOf(token) === -1; });
-                if (added.length) lines.push(t('added', 'Added declarations') + ': ' + added.map(function (token) { return value('signal', token); }).join(', '));
-                if (removed.length) lines.push(t('removed', 'Removed declarations') + ': ' + removed.map(function (token) { return value('signal', token); }).join(', '));
+                if (added.length) execution.fields.push(field('added', 'Added declarations', added.map(function (token) { return value('signal', token); }).join(', ')));
+                if (removed.length) execution.fields.push(field('removed', 'Removed declarations', removed.map(function (token) { return value('signal', token); }).join(', ')));
             }
         }
-        if (f.previousExecutionMode) lines.push(t('previous-execution', 'Previous execution mode') + ': '
-            + value('execution', String(f.previousExecutionMode).replace(/-/g, '_').toUpperCase()));
-        lines.push(t('declaration-note', 'Capability declarations do not grant or restrict permissions and are not a safety guarantee.'));
-        if (f.assuranceLevel === 'SOURCE_REVIEWED') lines.push(t('review-note', 'Source review applies only to this version and does not guarantee safety.'));
-        return lines;
+        if (f.previousExecutionMode) execution.fields.push(field('previous-execution', 'Previous execution mode',
+            value('execution', String(f.previousExecutionMode).replace(/-/g, '_').toUpperCase())));
+        if (f.assuranceLevel === 'SOURCE_REVIEWED') identity.paragraphs.push(t('review-note', 'Source review applies only to this version and does not guarantee safety.'));
+        return [identity, execution].concat(details.fields.length ? [details] : []);
+    }
+
+    function trustLines(facts, client, instancePresent) {
+        return trustSections(facts, client, instancePresent).reduce(function (lines, section) {
+            return lines.concat(section.fields.map(function (field) { return field.label + ': ' + field.value; }), section.paragraphs);
+        }, []);
+    }
+
+    function pluginLabel(id, name) {
+        return name && name !== id ? name + '(' + id + ')' : id;
     }
 
     global.PixivPluginPresentationTokens = {
+        pluginLabel: pluginLabel,
         trustLines: trustLines,
+        trustSections: trustSections,
         DEFAULT_ICON_KEY: DEFAULT_ICON_KEY,
         DEFAULT_COLOR_TOKEN: DEFAULT_COLOR_TOKEN,
         iconToken: iconToken,

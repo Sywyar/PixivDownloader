@@ -74,6 +74,8 @@ class PluginMarketPluginDisabledContextTest {
     void marketManagedBeansAbsent() {
         assertThat(context.getBeanNamesForType(PluginMarketController.class)).isEmpty();
         assertThat(context.getBeanNamesForType(PluginMarketService.class)).isEmpty();
+        assertThat(context.getBeanNamesForType(top.sywyar.pixivdownload.plugin.catalog.content.PluginCatalogContentService.class)).isEmpty();
+        assertThat(context.getBeanNamesForType(top.sywyar.pixivdownload.plugin.market.content.PluginMarketContentController.class)).isEmpty();
     }
 
     @Test
@@ -90,6 +92,7 @@ class PluginMarketPluginDisabledContextTest {
         assertThat(routeAccessRegistry.isDeclared("/plugin-market.html")).isFalse();
         assertThat(routeAccessRegistry.isDeclared("/plugin-market/plugin-market.css")).isFalse();
         assertThat(routeAccessRegistry.isDeclared("/api/plugin-market/repositories", HttpMethod.GET)).isFalse();
+        assertThat(routeAccessRegistry.isDeclared("/api/plugin-market/content/repository/plugin/3.2.4/readme", HttpMethod.GET)).isFalse();
         assertThat(routeAccessRegistry.isDeclared("/api/plugin-market/official/demo/1.0.0/install", HttpMethod.POST)).isFalse();
     }
 

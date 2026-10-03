@@ -9,8 +9,8 @@
 
     function enc(v) { return encodeURIComponent(v); }
 
-    async function getJson(url) {
-        var res = await fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+    async function getJson(url, signal) {
+        var res = await fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin', signal: signal });
         if (!res.ok) {
             var body = await res.json().catch(function () { return null; });
             var error = new Error(body && (body.error || body.message) || ('HTTP ' + res.status));
@@ -24,6 +24,18 @@
     // GET /api/plugin-market/repositories → 主开关 + SDK 版本 + 默认仓库 + 仓库只读投影。
     API.fetchRepositories = function () {
         return getJson('/api/plugin-market/repositories');
+    };
+
+    API.contentImageUrl = function (repository, plugin, image, role, index) {
+        var asset = image && image.asset;
+        if (!asset || !/^[a-f0-9]{64}$/.test(asset.sha256)) return null;
+        return '/api/plugin-market/content/' + enc(repository) + '/' + enc(plugin) + '/image?role='
+            + enc(role) + '&index=' + enc(index || 0) + '&sha256=' + enc(asset.sha256);
+    };
+    API.fetchContent = function (model, document, signal) {
+        return getJson('/api/plugin-market/content/' + enc(model.repositoryId) + '/' + enc(model.pluginId)
+            + '/' + enc(model.version) + '/' + enc(document.kind) + '?locale=' + enc(document.locale)
+            + '&sha256=' + enc(document.asset.sha256), signal);
     };
 
     // GET /api/plugins/status → 恢复模式 + 插件失败 / 必选缺失诊断（复用插件管理只读投影）。
@@ -90,13 +102,14 @@
             message: PMK.t('operations.running', '', {id: value.id})} };
     }
 
-    async function executeConfirmedPlan(repositoryId, pluginId, version, confirmations) {
+    async function executeConfirmedPlan(repositoryId, pluginId, version, confirmations, onProgress) {
+        if (onProgress) onProgress('PREPARING');
         var prepared = await postJson('/api/plugin-market/operations', {
             repositoryId: repositoryId, pluginId: pluginId, version: version,
             fingerprint: confirmations.fingerprint, confirmTrust: confirmations.trustSha256
         });
         if (!prepared || !prepared.id) throw new Error(PMK.t('operations.unknown'));
-        if (PMK.operations) PMK.operations.watch(prepared.id);
+        if (PMK.operations) PMK.operations.watch(prepared.id, onProgress);
         try {
             return operationResult(await postJson('/api/plugin-market/operations/' + enc(prepared.id) + '/execute', {}));
         } catch (failure) {
@@ -115,11 +128,11 @@
     // POST /api/plugin-market/{repositoryId}/{pluginId}/{version}/install（请求体不含 URL）。
     // 后端对「已决安装结局」返回 PluginInstallResponse（带稳定 outcome，含各类拒绝），对「拿到包之前的 catalog / 下载层
     // 失败」返回错误体（带稳定 code）。据响应体字段归一化：outcome → install；code → error；都没有 → 抛错（如 401 跳登录）。
-    API.installPlugin = function (repositoryId, pluginId, version, confirmations) {
+    API.installPlugin = function (repositoryId, pluginId, version, confirmations, onProgress) {
         var url = '/api/plugin-market/' + enc(repositoryId) + '/' + enc(pluginId) + '/' + enc(version) + '/install';
         confirmations = confirmations || {};
         if (confirmations.fingerprint) {
-            return executeConfirmedPlan(repositoryId, pluginId, version, confirmations);
+            return executeConfirmedPlan(repositoryId, pluginId, version, confirmations, onProgress);
         }
         var query = [];
         if (confirmations.trustSha256) query.push('confirmTrust=' + enc(confirmations.trustSha256));

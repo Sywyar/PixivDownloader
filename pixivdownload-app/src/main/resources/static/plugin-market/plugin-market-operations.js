@@ -4,6 +4,7 @@
     var PMK = global.PixivPluginMarket;
     var records = [], rows = new Map();
     var timer, watchedId, busy = false, disposed = false, mounted = false, generation = 0;
+    var progressListener;
     var loaded = false, queryFailed = false, expanded = false, refreshQueued = false;
     var button, buttonLabel, badge, panel, panelHost, list, notice, refreshButton, closeButton;
     var title, hint, retentionTitle, retention, manageLink;
@@ -46,9 +47,10 @@
         var state = element('span', '', head);
         var meta = element('p', 'pmk-operation-meta', row);
         var message = element('p', 'pmk-operation-message', row);
-        var details = element('details', 'pmk-operation-details', row);
-        var summary = element('summary', '', details);
-        var diagnostic = element('p', 'pmk-operation-diagnostic', details);
+        var details = element('details', 'pmk-operation-details accordion accordion-item pixiv-disclosure', row);
+        var summary = element('summary', 'accordion-button collapsed', details);
+        var body = element('div', 'accordion-body', details);
+        var diagnostic = element('p', 'pmk-operation-diagnostic', body);
         return {node: row, name: name, state: state, meta: meta, message: message,
             details: details, summary: summary, diagnostic: diagnostic, fingerprint: null};
     }
@@ -72,7 +74,7 @@
         row.message.hidden = !row.message.textContent;
         text(row.summary, PMK.t('operations.details'));
         var diagnostics = [PMK.t('operations.identity', '', {
-            id: record.id, transaction: record.transactionId || (raw && raw.transactionId) || '—'
+            id: record.id, transaction: record.transactionId || (raw && raw.transactionId) || PMK.t('common:plugin-info.unknown')
         })];
         if (raw) {
             if (raw.code || raw.outcome) diagnostics.push(raw.code || raw.outcome);
@@ -81,7 +83,7 @@
                 diagnostics.push(PMK.t('operations.dependency', '', {
                     plugin: item.pluginId, version: item.version,
                     state: PMK.t('operations.state.' + status({finished: true, result: item})),
-                    transaction: item.transactionId || '—'
+                    transaction: item.transactionId || PMK.t('common:plugin-info.unknown')
                 }));
             });
         }
@@ -140,7 +142,11 @@
         render();
         try {
             var next = await PMK.api.fetchOperations();
-            if (token === generation && !disposed) { records = next; loaded = true; queryFailed = false; }
+            if (token === generation && !disposed) {
+                records = next; loaded = true; queryFailed = false;
+                var active = records.find(function (record) { return record.id === watchedId; });
+                if (active && !active.finished && progressListener) progressListener(active.operation);
+            }
         } catch (error) {
             if (token === generation && !disposed) queryFailed = true;
         } finally {
@@ -158,8 +164,11 @@
 
     PMK.operations = {
         refresh: refresh,
-        watch: function (id) { watchedId = id; refresh(); },
-        settled: function (id) { if (watchedId === id) watchedId = null; refresh(); },
+        watch: function (id, listener) { watchedId = id; progressListener = listener; refresh(); },
+        settled: function (id) {
+            if (watchedId === id) { watchedId = null; progressListener = null; }
+            refresh();
+        },
         render: render,
         mountButton: function (host) { if (host && button && button.parentNode !== host) host.appendChild(button); },
         mountPanel: function (host) {
@@ -202,14 +211,16 @@
             });
             notice = element('p', 'pmk-operation-notice', panel);
             list = element('ol', 'pmk-operation-list', panel);
-            var about = element('details', 'pmk-operation-about', panel);
-            retentionTitle = element('summary', '', about);
-            retention = element('p', 'pmk-operation-meta', about);
+            var about = element('details', 'pmk-operation-about accordion accordion-item pixiv-disclosure', panel);
+            retentionTitle = element('summary', 'accordion-button collapsed', about);
+            retention = element('p', 'pmk-operation-meta accordion-body', about);
             document.addEventListener('visibilitychange', function () {
                 clearTimeout(timer);
                 if (!document.hidden) refresh();
             });
-            global.addEventListener('pagehide', function () { disposed = true; generation++; clearTimeout(timer); });
+            global.addEventListener('pagehide', function () {
+                disposed = true; generation++; progressListener = null; clearTimeout(timer);
+            });
             global.addEventListener('pageshow', function () { disposed = false; refresh(); });
             refresh();
         }

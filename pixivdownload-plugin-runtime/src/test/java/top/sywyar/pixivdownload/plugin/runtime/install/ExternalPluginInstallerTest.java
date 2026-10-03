@@ -172,6 +172,45 @@ class ExternalPluginInstallerTest {
     }
 
     @Test
+    @DisplayName("安装与移除复用已验证的邻包结构，仍完整执行事务")
+    void transactionsReuseVerifiedNeighborStructure() throws Exception {
+        Files.createDirectories(pluginsDir);
+        Path neighbor = PluginPackageFixtures.bareJar(pluginsDir.resolve("neighbor.jar"),
+                "neighbor", "7.3.2", null, "example.Plugin");
+        assertThat(installer.listInstalled()).hasSize(1);
+        try (var verifier = org.mockito.Mockito.mockStatic(
+                top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageVerifier.class,
+                org.mockito.Mockito.CALLS_REAL_METHODS)) {
+            assertThat(installFully(exploded("target", "7.3.2")).accepted()).isTrue();
+            assertThat(installer.removeInstalled("target")).isTrue();
+            assertThat(installer.listInstalled()).extracting(InstalledPlugin::id).containsExactly("neighbor");
+            verifier.verify(() -> top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageVerifier
+                    .verifyAndMeasure(org.mockito.ArgumentMatchers.eq(neighbor), org.mockito.ArgumentMatchers.any()),
+                    org.mockito.Mockito.never());
+        }
+    }
+
+    @Test
+    @DisplayName("事务复用不能隐藏同大小同时间的邻包篡改")
+    void transactionRechecksNeighborDigest() throws Exception {
+        Files.createDirectories(pluginsDir);
+        Path neighbor = PluginPackageFixtures.bareJar(pluginsDir.resolve("neighbor.jar"),
+                "neighbor", "7.3.2", null, "example.Plugin");
+        var prepared = installer.prepareTransaction(exploded("target", "7.3.2"), false, PluginPackageOrigin.localUpload());
+        assertThat(prepared.readyToCommit()).isTrue();
+        var committed = installer.commitTransaction(prepared);
+        installer.verifyCommittedTarget(committed);
+        var timestamp = Files.getLastModifiedTime(neighbor);
+        byte[] original = Files.readAllBytes(neighbor);
+        Files.write(neighbor, new byte[original.length]);
+        Files.setLastModifiedTime(neighbor, timestamp);
+        assertThatThrownBy(() -> installer.markActivated(committed)).isInstanceOf(IllegalStateException.class);
+        Files.write(neighbor, original);
+        installer.rollbackTransaction(committed);
+        assertThat(installer.listInstalled()).extracting(InstalledPlugin::id).containsExactly("neighbor");
+    }
+
+    @Test
     @DisplayName("首次安装解压目录形态包：INSTALLED，落盘为 {id}-{version}.zip，安装目录按需创建")
     void installsExplodedPackage() {
         PluginInstallResult result = installFully(exploded("ext-stats", "1.0.0"));

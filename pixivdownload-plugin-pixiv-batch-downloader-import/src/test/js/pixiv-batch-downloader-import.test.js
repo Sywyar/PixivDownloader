@@ -26,12 +26,14 @@ function browser(storage = new Map()) {
 }
 const meta = (id=42,type=0,pages=1)=>({idNum:id,type,title:'Title',pageCount:pages,xRestrict:0,aiType:1,
     userId:'84',user:'Author',tags:['tag'],novelMeta:{content:'Novel content'}});
-const success = (id='42_p0',name='/downloads/custom.png')=>({id,tabId:2,taskBatch:Date.now()+1000,browserSetFilename:name});
+// 上游成功事件只携带作品、标签页和实际路径，不回传下载请求的 taskBatch。
+const success = (id='42_p0',name='/downloads/custom.png')=>({id,tabId:2,blobURLFront:'blob:https://www.pixiv.net/download',browserSetFilename:name});
 test('all four types upload complete events automatically without copy or confirmation', async()=>{
     const b=browser(); await flush();
     for(let type=0;type<4;type++) {
         const id=42+type;
         b.event('addResult',meta(id,type));
+        b.event('downloadStart',{});
         b.event('downloadSuccess',success(type<2?`${id}_p0`:String(id)));
         await flush();
     }
@@ -50,7 +52,7 @@ test('all four types upload complete events automatically without copy or confir
 test('partial, skipped and unconfirmed downloads do not become completed gallery works',async()=>{
     const b=browser(); await flush();
     b.event('addResult',meta(42,1,2));
-    // 同一批次的逐页回执必须保留同一个 taskBatch。
+    b.event('downloadStart',{});
     const first=success();
     b.event('downloadSuccess',first); await flush();
     b.event('skipDownload',{id:'42_p1'});
@@ -64,7 +66,7 @@ test('partial, skipped and unconfirmed downloads do not become completed gallery
 });
 test('offline pending work survives page reload and retries automatically',async()=>{
     const b=browser();await flush();b.offline();
-    b.event('addResult',meta()); b.event('downloadSuccess',success());await flush();
+    b.event('addResult',meta()); b.event('downloadStart',{}); b.event('downloadSuccess',success());await flush();
     assert.equal(b.storage.size,1);
     const restored=browser(b.storage);await flush();
     assert.equal(restored.calls.filter(x=>x.method==='POST').length,1);
@@ -73,6 +75,7 @@ test('offline pending work survives page reload and retries automatically',async
 test('duplicate success is deduplicated and conflicting paths remain blocked',async()=>{
     const b=browser();await flush();b.offline();
     b.event('addResult',meta(42,1,2));
+    b.event('downloadStart',{});
     const first=success();
     b.event('downloadSuccess',first); b.event('downloadSuccess',first);await flush();
     assert.equal(JSON.parse([...b.storage.values()][0]).files.length,1);
@@ -80,4 +83,28 @@ test('duplicate success is deduplicated and conflicting paths remain blocked',as
     b.online(); await b.timers[0]();await flush();
     assert.equal(b.calls.filter(x=>x.method==='POST').length,0);
     assert.equal(JSON.parse([...b.storage.values()][0]).error,'AMBIGUOUS_PAGE');
+});
+
+test('success before download start and after a new crawl cannot reuse prior metadata',async()=>{
+    const b=browser();await flush();
+    b.event('addResult',meta());b.event('downloadSuccess',success());await flush();
+    assert.equal(b.calls.length,0);
+    b.event('downloadStart',{});b.event('crawlStart',{});
+    b.event('downloadSuccess',success());await flush();
+    assert.equal(b.calls.length,0);
+});
+
+test('pause and resume complete the same manga while a new crawl keeps its pages separate',async()=>{
+    const b=browser();await flush();
+    b.event('addResult',meta(42,1,2));b.event('downloadStart',{});
+    b.event('downloadSuccess',success());await flush();
+    b.event('downloadPause',{});b.event('downloadStart',{});
+    b.event('downloadSuccess',success('42_p1','/downloads/page-1.png'));await flush();
+    assert.equal(b.calls.filter(x=>x.method==='POST').length,1);
+    const completed=JSON.parse(b.calls.find(x=>x.method==='POST').data);
+    assert.ok(Number.isSafeInteger(completed.taskBatch) && completed.taskBatch>0);
+    b.event('crawlStart',{});b.event('addResult',meta(42,1,2));b.event('downloadStart',{});
+    b.event('downloadSuccess',success('42_p1','/downloads/new-page-1.png'));await flush();
+    assert.equal(b.calls.filter(x=>x.method==='POST').length,1);
+    assert.equal(JSON.parse([...b.storage.values()][0]).files.length,1);
 });

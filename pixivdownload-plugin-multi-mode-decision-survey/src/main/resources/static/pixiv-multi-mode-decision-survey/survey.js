@@ -4,7 +4,7 @@
     var OWNER_KEY = 'multi-mode-decision-survey.removal-decision';
     var TRUSTED_POSTHOG_API_ORIGINS = Object.freeze(['https://layout-survey.sywyar.top']);
     var POSTHOG = global.PixivMultiModeDecisionSurveyPostHog || Object.freeze({});
-    var QUESTION_ID = '0ac24f7c-abeb-4405-8c9c-916e4ca904ac';
+    var QUESTION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     var STATE_KEY = 'pixiv:multi-mode-decision-survey:state:v1';
     var IDENTITY_URL = '/api/multi-mode-decision-survey/identity';
     var SCOPED_ID = /^pmds_[0-9a-f]{64}$/;
@@ -35,7 +35,8 @@
         if (!survey || survey.id !== POSTHOG.surveyId || survey.type !== 'api'
                 || !Array.isArray(survey.questions) || survey.questions.length !== 1) return null;
         var question = survey.questions[0];
-        if (!question || question.id !== QUESTION_ID || question.type !== 'single_choice'
+        if (!question || typeof question.id !== 'string' || !QUESTION_ID_PATTERN.test(question.id)
+                || question.type !== 'single_choice'
                 || question.hasOpenChoice !== true || !Array.isArray(question.choices)
                 || question.choices.length !== CHOICES.length) return null;
         return CHOICES.every(function (choice, index) {
@@ -53,7 +54,6 @@
     global.PixivMultiModeDecisionSurvey = Object.freeze({
         _internals: Object.freeze({
             POSTHOG: POSTHOG,
-            QUESTION_ID: QUESTION_ID,
             beforeSend: beforeSend,
             resolveQuestion: resolveQuestion,
             responseValue: responseValue

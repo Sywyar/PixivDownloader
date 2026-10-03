@@ -6,6 +6,8 @@ import top.sywyar.pixivdownload.plugin.market.presentation.PluginCatalogCategory
 
 import java.util.List;
 import java.util.Map;
+import top.sywyar.pixivdownload.sdk.community.content.MarketImage;
+import top.sywyar.pixivdownload.sdk.community.content.MarketLink;
 
 /**
  * 一个 catalog 条目的<b>市场展示元数据</b>（纯展示 / 检索 / 排序用，<b>不</b>参与安全决策——安装仍由包的 sha256 /
@@ -35,7 +37,7 @@ import java.util.Map;
  * @param downloadCount      当前版本下载量（可空，仅展示 / 排序；由仓库服务端产出、本机只读）
  * @param previousDownloadCount  历史版本累积下载量（可空；跨版本累加，首次生成为 0；由仓库服务端产出、本机只读）
  * @param totalDownloadCount 累积总下载量（可空；downloadCount + previousDownloadCount；由仓库服务端产出、本机只读）
- * @param latestVersion      最新可用版本号（可空；与版本包列表配合标记「有更新」）
+ * @param latestVersion      最新可用版本号（可空；与可用安装包列表配合标记「有更新」）
  * @param updatedTime    最近更新时间（ISO-8601 字符串，可空；仅展示 / 排序）
  * @param iconToken      展示图标受控 token（非法 / 空 → {@link CatalogPresentationToken#sanitizeIcon} 回退）
  * @param colorToken     展示强调色受控 token（非法 / 空 → {@link CatalogPresentationToken#sanitizeColor} 回退）
@@ -64,12 +66,28 @@ public record PluginCatalogMarketMeta(
         String colorToken,
         boolean recommended,
         boolean officialRequired,
-        boolean defaultInstalled) {
+        boolean defaultInstalled,
+        String defaultLocale,
+        MarketImage icon,
+        List<MarketImage> screenshots,
+        List<MarketLink> links) {
 
     public PluginCatalogMarketMeta {
         displayName = displayName != null ? Map.copyOf(displayName) : Map.of();
         summary = summary != null ? Map.copyOf(summary) : Map.of();
         description = description != null ? Map.copyOf(description) : Map.of();
         tags = tags != null ? List.copyOf(tags) : List.of();
+        screenshots = screenshots != null ? List.copyOf(screenshots) : List.of();
+        links = links != null ? List.copyOf(links) : null;
+    }
+
+    public PluginCatalogMarketMeta(Map<String, String> displayName, Map<String, String> summary,
+            Map<String, String> description, String author, String sourceType, String category, List<String> tags,
+            String homepageUrl, String license, Double rating, Integer ratingCount, Long downloadCount,
+            Long previousDownloadCount, Long totalDownloadCount, String latestVersion, String updatedTime,
+            String iconToken, String colorToken, boolean recommended, boolean officialRequired, boolean defaultInstalled) {
+        this(displayName, summary, description, author, sourceType, category, tags, homepageUrl, license, rating,
+                ratingCount, downloadCount, previousDownloadCount, totalDownloadCount, latestVersion, updatedTime,
+                iconToken, colorToken, recommended, officialRequired, defaultInstalled, null, null, List.of(), null);
     }
 }

@@ -1029,7 +1029,8 @@ class PluginReleaseScriptsTest {
 
             assertThat(workflow).as(name).contains(
                     "publish-plugins:",
-                    "uses: ./.github/workflows/publish-plugins.yml",
+                    "uses: ./.github/workflows/quality-gate.yml",
+                    "uses: ./.github/actions/publish-official-plugins",
                     "uses: ./.github/actions/package-release-java",
                     "uses: ./.github/actions/package-windows-installer",
                     "path: artifacts/java-distributions",
@@ -1460,7 +1461,7 @@ class PluginReleaseScriptsTest {
                     .doesNotContain("Upload update signature tool");
             assertThat(signingJob).as(name + " update signing job")
                     .contains(
-                            "needs.publish-plugins.outputs.trusted_base_sha",
+                            "needs.sdk-release-plan.outputs.trusted_base_sha",
                             "update_signing_private_key_pem_base64: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64 }}",
                             "uses: ./.github/actions/sign-update-manifest")
                     .doesNotContain(

@@ -200,7 +200,7 @@ class UpdateServiceTest {
                 .checkForUpdate(true);
 
         assertThat(result.isCheckSucceeded()).isFalse();
-        assertThat(result.getError()).contains("invalid stable update trust state");
+        assertThat(result.getError()).isEqualTo("TRUST_STATE_UNAVAILABLE");
     }
 
     @Test
@@ -218,21 +218,21 @@ class UpdateServiceTest {
         UpdateCheckResult reusedSequenceResult = service(
                 signing, reusedSequence, signing.signature(reusedSequence), state).checkForUpdate(true);
         assertThat(reusedSequenceResult.isCheckSucceeded()).isFalse();
-        assertThat(reusedSequenceResult.getError()).contains("sequence was reused with different content");
+        assertThat(reusedSequenceResult.getError()).isEqualTo("SEQUENCE_REUSED");
 
         byte[] rollback = manifest(19, "stable", "998.0.0", "2099-01-01T00:00:00Z",
                 "old", ASSET_SHA256);
         UpdateCheckResult rollbackResult = service(signing, rollback, signing.signature(rollback), state)
                 .checkForUpdate(true);
         assertThat(rollbackResult.isCheckSucceeded()).isFalse();
-        assertThat(rollbackResult.getError()).contains("rollback rejected");
+        assertThat(rollbackResult.getError()).isEqualTo("ROLLBACK");
 
         byte[] replacement = manifest(21, "stable", "999.0.0", "2099-01-01T00:00:00Z",
                 "replaced", ASSET_SHA256);
         UpdateCheckResult replacementResult = service(signing, replacement, signing.signature(replacement), state)
                 .checkForUpdate(true);
         assertThat(replacementResult.isCheckSucceeded()).isFalse();
-        assertThat(replacementResult.getError()).contains("replaced with different content");
+        assertThat(replacementResult.getError()).isEqualTo("VERSION_REPLACED");
     }
 
     @Test
@@ -430,6 +430,49 @@ class UpdateServiceTest {
         PluginCatalogClientProvider provider = mock(PluginCatalogClientProvider.class);
         when(provider.clientFor(any())).thenReturn(client);
         return new UpdateService(config(), APP_MESSAGES, signing.verifier(), state, provider);
+    }
+
+    @Test
+    @DisplayName("网络与 HTTP 失败保留具体原因和状态，不向界面返回地址或异常详情")
+    void checkFailuresExposeOnlyControlledDiagnostics() throws Exception {
+        record Failure(RuntimeException exception, String code, Integer status) {}
+        String detail = "https://example.invalid/?token=private-fixture";
+        var failures = java.util.List.of(
+                new Failure(new PluginCatalogHttpClient.HttpStatusException(404, detail), "MANIFEST_HTTP_ERROR", 404),
+                new Failure(new PluginCatalogHttpClient.HttpStatusException(429, detail), "MANIFEST_HTTP_ERROR", 429),
+                new Failure(new top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException(
+                        top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode.DOWNLOAD_FAILED,
+                        detail, new java.net.http.HttpTimeoutException(detail)), "TIMEOUT", null),
+                new Failure(new top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException(
+                        top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode.BLOCKED_ADDRESS,
+                        detail, new java.net.UnknownHostException(detail)), "DNS_FAILED", null),
+                new Failure(new top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException(
+                        top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode.DOWNLOAD_FAILED,
+                        detail, new java.net.ConnectException(detail)), "CONNECTION_FAILED", null),
+                new Failure(new top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException(
+                        top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode.DOWNLOAD_FAILED,
+                        detail, new javax.net.ssl.SSLHandshakeException(detail)), "TLS_FAILED", null)
+        );
+        var client = mock(PluginCatalogHttpClient.class);
+        PluginCatalogClientProvider provider = repository -> client;
+        var signing = new SigningSupport();
+        var service = new UpdateService(config(), APP_MESSAGES, signing.verifier(), tempDir.resolve("trust.json"), provider);
+        for (Failure failure : failures) {
+            org.mockito.Mockito.reset(client);
+            when(client.fetchBytes(anyString(), anyLong())).thenThrow(failure.exception());
+            var result = service.checkForUpdate(true);
+            assertThat(result.isCheckSucceeded()).isFalse();
+            assertThat(result.getError()).isEqualTo(failure.code()).doesNotContain("private-fixture");
+            assertThat(result.getErrorHttpStatus()).isEqualTo(failure.status());
+        }
+        org.mockito.Mockito.reset(client);
+        when(client.fetchBytes(MANIFEST_URL, 1024L * 1024L)).thenReturn("{}".getBytes(StandardCharsets.UTF_8));
+        when(client.fetchBytes(MANIFEST_URL + ".sig", 16L * 1024L))
+                .thenThrow(new PluginCatalogHttpClient.HttpStatusException(404, detail));
+        var signature = service.checkForUpdate(true);
+        assertThat(signature.getError()).isEqualTo("SIGNATURE_HTTP_ERROR");
+        assertThat(signature.getErrorHttpStatus()).isEqualTo(404);
+        assertThat(Files.exists(tempDir.resolve("trust.json"))).isFalse();
     }
 
     private static UpdateConfig config() {

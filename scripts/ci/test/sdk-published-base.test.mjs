@@ -20,6 +20,9 @@ test('发行基线使用已公开的最新 SDK，当前模式要求精确身份�
     const latest = selectPublishedRelease(releases, identity, 'latest');
     assert.equal(latest.tag_name, 'sdk-api-v1.0.0-rc.14');
     assert.throws(() => selectPublishedRelease(releases, identity, 'current'), /no public Release/u);
+    assert.equal(selectPublishedRelease(releases, identity, 'if-present'), null);
+    const exact = release(identity.version);
+    assert.equal(selectPublishedRelease([...releases, exact], identity, 'if-present'), exact);
 
     const sourceCommitSha = 'a'.repeat(40);
     assert.equal(verifyPublishedMetadata(latest, {

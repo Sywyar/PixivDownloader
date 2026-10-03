@@ -40,7 +40,7 @@ test('撤销快照时间、限制原因和驻留实例风险分别展示且文�
         .some(line => line.includes('revocation-running')));
     p.PixivPluginManage.applyReport({plugins: [{id: 'demo', source: 'external', status: 'STARTED',
         executionMode: 'HOST_PROCESS_FULL_TRUST', verification: revoked, messages: []}]}, true);
-    const html = p.PixivPluginManage.renderCardHtml(p.PixivPluginManage.allViewModels()[0]);
+    const html = p.PixivPluginManage.renderDetailHtml(p.PixivPluginManage.allViewModels()[0]);
     assert.ok(html.includes('&lt;img'));
     assert.ok(!html.includes('<img onerror'));
     assert.ok(html.includes('data-pm-revocations="sample"'));
@@ -74,14 +74,28 @@ test('市场与本地安装确认使用相同包内事实，并显示更新新�
         previousRiskDeclaration: { present: true, signals: ['NETWORK'] } };
     for (const options of [p.PixivPluginMarket.trustConfirmationOptions(requirement),
         p.PixivPluginManage.trustConfirmationOptions(requirement)]) {
-        assert.ok(options.message.includes('FILE_WRITE'));
-        assert.ok(options.message.includes('NETWORK'));
-        assert.ok(options.message.includes('Previous execution mode'));
-        assert.ok(options.message.includes(requirement.artifactSha256));
+        const details = JSON.stringify(options.sections);
+        assert.ok(details.includes('FILE_WRITE'));
+        assert.ok(details.includes('NETWORK'));
+        assert.ok(details.includes('DECLARATIVE_PROCESS'));
+        assert.ok(details.includes(requirement.artifactSha256));
+        assert.ok(options.message.length > 0);
     }
     p.PixivPluginManage.applyReport({ plugins: [{ id: 'demo', source: 'external', status: 'STARTED',
         executionMode: 'HOST_PROCESS_FULL_TRUST', verification: requirement, messages: [] }] }, true);
     const model = p.PixivPluginManage.allViewModels()[0];
     assert.ok(model.trustLines.some(line => line.includes('<img')));
     assert.ok(p.PixivPluginManage.escapeHtml(model.trustLines.join('\n')).includes('&lt;img'));
+});
+
+test('有签名但缺少指纹与未签名的指纹不适用分别显示', () => {
+    const p = page();
+    for (const api of [p.PixivPluginMarket, p.PixivPluginManage]) {
+        for (const signed of [true, false]) {
+            const options = api.trustConfirmationOptions({ pluginId: 'demo', signed });
+            const fingerprint = options.sections.flatMap(section => section.fields || [])
+                .find(field => field.label === 'common:plugin-info.fingerprint');
+            assert.equal(fingerprint.value, 'common:plugin-info.' + (signed ? 'unknown' : 'unsigned'));
+        }
+    }
 });

@@ -40,7 +40,7 @@ public final class PluginRecoveryResourceBudget {
         previousInspections = Map.of();
     }
 
-    /** 仅供安装清点复用上一轮的成功结构校验；调用方必须重新计算当前文件的完整 SHA-256。 */
+    /** 清点与在线事务复用上一轮的成功结构校验；调用方必须重新计算当前文件的完整 SHA-256。 */
     public PluginRecoveryResourceBudget(PluginRecoveryResourceBudget previousInventory) {
         previousInspections = previousInventory == null
                 ? Map.of() : Map.copyOf(previousInventory.archiveInspections);

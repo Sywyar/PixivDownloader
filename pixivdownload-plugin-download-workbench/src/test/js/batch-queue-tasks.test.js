@@ -69,6 +69,8 @@ test('相同作品的不同执行分别显示；取消只携带执行编号', as
     assert.equal(h.calls[0].options.body, undefined);
     h.api.apply(snapshot([task(first), task(second, 'CANCELLED')]));
     assert.equal(h.api.canCancel(h.state.queue[1]), false);
+    assert.equal(h.state.queue[1].status, 'cancelled');
+    assert.equal(h.state.queue[1].statusMessageKey, 'batch:queue.task.phase.CANCELLED');
 });
 
 test('终态快照过期和服务重启都保留已保存记录；未完成项失联后待确认', () => {

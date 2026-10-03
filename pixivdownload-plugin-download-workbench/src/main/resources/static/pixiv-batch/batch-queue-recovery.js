@@ -8,6 +8,7 @@ let queueRecoveryPromise = null;
 let queueRecoverySuspended = false;
 
 function restoreInterruptedQueueItem(item) {
+    if (item.taskObserved && item.taskPhase === 'CANCELLED') item.status = 'cancelled';
     if (appMode !== 'solo' || !isAdmin) return false;
     if (item.status !== 'downloading' && !item.recoveryState) return false;
     setQueueRecoveryState(item, 'unknown');

@@ -12,15 +12,19 @@ import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.ClipboardManager
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.v2.runComposeUiTest
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Density
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import top.sywyar.pixivdownload.guicompose.ComposeDesktopUiNodeRenderer
 import top.sywyar.pixivdownload.guicompose.LocalExperiencePalette
 import top.sywyar.pixivdownload.guicompose.PixivDownloaderTheme
+import top.sywyar.pixivdownload.guicompose.experiencePalette
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.*
 import java.io.File
 import java.text.MessageFormat
@@ -54,9 +58,40 @@ class AboutOverviewTest {
         onNodeWithTag("about.platform.toggle").performScrollTo().performClick()
         onNodeWithTag("about.platform.copy").performScrollTo().performClick()
         node.facts().forEach {
-            onNodeWithTag("about.platform.${it.id()}").assertTextEquals(resolve(it.value()))
-            assertTrue(clipboard.getText()!!.text.contains("- ${resolve(it.label())}: ${resolve(it.value())}"))
+            if (it.expandable()) {
+                onNodeWithTag("about.platform.${it.id()}").assertDoesNotExist()
+                val nested = "- ${resolve(it.label())}:\n" +
+                    resolve(it.value()).lines().joinToString("\n") { entry -> "  - $entry" }
+                assertTrue(clipboard.getText()!!.text.contains(nested))
+            } else {
+                onNodeWithTag("about.platform.${it.id()}").assertTextEquals(resolve(it.value()))
+                assertTrue(clipboard.getText()!!.text.contains("- ${resolve(it.label())}: ${resolve(it.value())}"))
+            }
         }
+        onNodeWithTag("about.platform.plugins.toggle").performScrollTo()
+        val label = onNodeWithTag("about.platform.plugins.label").getUnclippedBoundsInRoot()
+        val versionLabel = onNodeWithTag("about.platform.version.label").getUnclippedBoundsInRoot()
+        val group = onNodeWithTag("about.platform.plugins.group").getUnclippedBoundsInRoot()
+        val version = onNodeWithTag("about.platform.version").getUnclippedBoundsInRoot()
+        assertEquals(versionLabel.left, label.left)
+        assertEquals(version.left, group.left)
+        assertTrue(label.right < group.left)
+        val toggle = onNodeWithTag("about.platform.plugins.toggle").getUnclippedBoundsInRoot()
+        assertTrue(toggle.right - toggle.left < group.right - group.left)
+        onNodeWithTag("about.platform.plugins.group").performTouchInput { click(centerRight) }
+        onNodeWithTag("about.platform.plugins").assertDoesNotExist()
+        screenshot("plugins-collapsed", "about.overview")
+        onNodeWithTag("about.platform.plugins.toggle").performClick()
+        resolve(node.facts().first { it.id() == "plugins" }.value()).lines().forEachIndexed { index, entry ->
+            onNodeWithTag("about.platform.plugins.entry.$index").assertTextEquals(entry)
+        }
+        val list = onNodeWithTag("about.platform.plugins").getUnclippedBoundsInRoot()
+        assertTrue(list.left >= group.left && list.right <= group.right)
+        onNodeWithTag("about.platform.plugins.toggle").assertIsFocused()
+        screenshot("plugins-expanded", "about.overview")
+        onNodeWithTag("about.platform.plugins.toggle").performKeyInput { pressKey(Key.Spacebar) }
+        onNodeWithTag("about.platform.plugins").assertDoesNotExist()
+        onNodeWithTag("about.platform.plugins.toggle").assertIsFocused()
         assertTrue(clipboard.getText()!!.text.startsWith("### "))
         assertTrue(clipboard.getText()!!.text.contains(node.applicationName()))
         onNodeWithTag("about.platform.copy-status").assertExists()
@@ -93,8 +128,60 @@ class AboutOverviewTest {
         onNodeWithTag("about.reader").assertDoesNotExist()
         onNodeWithTag("about.disclaimer").assertIsFocused()
         onNodeWithTag("about.platform.toggle").performScrollTo().performClick()
+        onNodeWithTag("about.platform.plugins.toggle").performScrollTo().performClick()
+        onNodeWithTag("about.platform.plugins").assertExists()
+        val label = onNodeWithTag("about.platform.plugins.label").getUnclippedBoundsInRoot()
+        val group = onNodeWithTag("about.platform.plugins.group").getUnclippedBoundsInRoot()
+        assertEquals(label.left, group.left)
+        assertTrue(label.bottom < group.top)
+        onNodeWithTag("about.platform.plugins.entry.2").performScrollTo()
+        screenshot("plugins-dark-narrow", "about.overview")
         onNodeWithTag("about.platform.copy").performScrollTo().assertIsDisplayed()
         screenshot("platform-dark-narrow", "about.overview")
+    }
+
+    @Test
+    @DisplayName("放大文字与高对比度下插件详情留在信息项内，连续切换可逆且仍能复制全部")
+    fun pluginDisclosureAtLargeText() = runComposeUiTest {
+        val node = sample()
+        val clipboard = MemoryClipboard()
+        setContent {
+            PixivDownloaderTheme("light") {
+                val density = LocalDensity.current
+                CompositionLocalProvider(
+                    LocalDensity provides Density(density.density, 1.6f),
+                    LocalExperiencePalette provides experiencePalette(false, true),
+                    LocalClipboardManager provides clipboard,
+                ) {
+                    Box(Modifier.size(600.dp, 650.dp).background(LocalExperiencePalette.current.surface)) {
+                        ComposeDesktopUiNodeRenderer.Render(node, ::resolve, {})
+                    }
+                }
+            }
+        }
+        onNodeWithTag("about.platform.toggle").performScrollTo().performClick()
+        onNodeWithTag("about.platform.plugins.toggle").performScrollTo()
+        mainClock.autoAdvance = false
+        onNodeWithTag("about.platform.plugins.toggle").performClick()
+        mainClock.advanceTimeBy(64)
+        onNodeWithTag("about.platform.plugins.toggle").performKeyInput { pressKey(Key.Spacebar) }
+        mainClock.advanceTimeBy(64)
+        onNodeWithTag("about.platform.plugins.toggle").performKeyInput { pressKey(Key.Enter) }
+        mainClock.autoAdvance = true
+        onNodeWithTag("about.platform.plugins.toggle")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, messages.getProperty("gui.compose.expanded")))
+        onNodeWithTag("about.platform.plugins").assertExists()
+        val group = onNodeWithTag("about.platform.plugins.group").getUnclippedBoundsInRoot()
+        val label = onNodeWithTag("about.platform.plugins.label").getUnclippedBoundsInRoot()
+        assertTrue(label.bottom < group.top)
+        onNodeWithTag("about.platform.plugins.entry.0").performScrollTo()
+        val entry = onNodeWithTag("about.platform.plugins.entry.0").getUnclippedBoundsInRoot()
+        assertTrue(entry.left >= group.left && entry.right <= group.right)
+        onNodeWithTag("about.platform.plugins.entry.2").performScrollTo()
+        screenshot("plugins-large-text", "about.overview")
+        onNodeWithTag("about.platform.copy").performScrollTo().performClick()
+        resolve(node.facts().first { it.id() == "plugins" }.value()).lines()
+            .forEach { assertTrue(clipboard.getText()!!.text.contains(it)) }
     }
 
     @Test
@@ -117,7 +204,7 @@ class AboutOverviewTest {
         onNodeWithTag("about.platform.toggle").performScrollTo().performClick()
         onNodeWithTag("about.platform.copy").performScrollTo().performClick()
         onNodeWithTag("about.platform.copy-status").assertTextEquals(messages.getProperty("gui.compose.about.copy-failed"))
-        onNodeWithTag("about.platform.version").assertTextEquals(node.version())
+        onNodeWithTag("about.platform.version").assertTextEquals(resolve(node.facts().first { it.id() == "version" }.value()))
     }
 
     private fun ComposeUiTest.screenshot(name: String, tag: String) {
@@ -165,7 +252,15 @@ class AboutOverviewTest {
                     )),
                     model.disclaimer(),
                     File("../LICENSE").readText(Charsets.UTF_8),
-                    model.facts(),
+                    model.facts().map { fact ->
+                        if (fact.id() == "plugins") AboutFact(
+                            fact.id(), fact.label(),
+                            TextToken.raw((1..14).joinToString("\n") { index ->
+                                "fixture-plugin-with-a-long-identifier-$index-2.3.4-dev.ab123456.dirty(8.2.0)"
+                            }),
+                            true
+                        ) else fact
+                    },
                 )
             }
     }

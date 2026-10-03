@@ -58,16 +58,19 @@ record UpdateTrustState(
         String currentVersion = nightly ? nightlyVersion : stableVersion;
         String currentSha256 = nightly ? nightlySha256 : stableSha256;
         if (sequence < currentSequence) {
-            throw new IOException("update manifest rollback rejected: " + sequence + " < " + currentSequence);
+            throw new UpdateCheckException(UpdateCheckException.Reason.ROLLBACK,
+                    "update manifest rollback rejected: " + sequence + " < " + currentSequence);
         }
         if (sequence == currentSequence) {
             if (currentSha256 != null && !currentSha256.equals(sha256)) {
-                throw new IOException("update manifest sequence was reused with different content: " + sequence);
+                throw new UpdateCheckException(UpdateCheckException.Reason.SEQUENCE_REUSED,
+                        "update manifest sequence was reused with different content: " + sequence);
             }
             return this;
         }
         if (version.equals(currentVersion) && currentSha256 != null && !currentSha256.equals(sha256)) {
-            throw new IOException("update version was replaced with different content: " + version);
+            throw new UpdateCheckException(UpdateCheckException.Reason.VERSION_REPLACED,
+                    "update version was replaced with different content: " + version);
         }
         return nightly
                 ? new UpdateTrustState(stableSequence, stableVersion, stableSha256,

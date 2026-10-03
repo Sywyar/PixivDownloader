@@ -80,6 +80,10 @@ for (const alt of [false, true]) {
             check({pending: 3, success: 2, failed: 1, active: 2, skipped: 1});
             state.queue = [{status: 'failed'}, {status: 'paused'}];
             check({pending: 1, success: 0, failed: 1, active: 0, skipped: 0});
+            state.queue = [{status: 'cancelled', taskObserved: true, taskPhase: 'CANCELLED'}];
+            check({pending: 0, success: 0, failed: 0, active: 0, skipped: 0});
+            assert.equal(h.context.currentFrontItem(state.queue, false), null);
+            assert.deepEqual({...h.context.currentRemainingCounts(state.queue, null)}, {downloading: 0, queued: 0});
             state.queue = [];
             check({pending: 0, success: 0, failed: 0, active: 0, skipped: 0});
         });

@@ -23,7 +23,60 @@
     }
 
     function focusableElements(root) {
-        return Array.from(root.querySelectorAll('button:not([disabled]), input:not([disabled])'));
+        return Array.from(root.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], summary, [tabindex="0"]')).filter(function (node) {
+            return !node.closest('details:not([open])') || node.tagName === 'SUMMARY';
+        });
+    }
+
+    // 结构化说明只接收文本，不接受 HTML 或页面私有渲染回调。
+    function appendSections(parent, sections) {
+        (sections || []).forEach(function (section) {
+            var node = document.createElement(section.collapsed ? 'details' : 'section');
+            node.className = 'pixiv-feedback-section' + (section.collapsed ? ' accordion accordion-item pixiv-disclosure' : '');
+            if (section.title) {
+                var heading = document.createElement(section.collapsed ? 'summary' : 'h3');
+                if (section.collapsed) heading.className = 'accordion-button collapsed';
+                heading.textContent = section.title;
+                node.appendChild(heading);
+            }
+            var content = node;
+            if (section.collapsed) {
+                content = document.createElement('div');
+                content.className = 'accordion-body';
+                node.appendChild(content);
+            }
+            if (section.fields && section.fields.length) {
+                var fields = document.createElement('dl');
+                fields.className = 'pixiv-feedback-fields';
+                section.fields.forEach(function (field) {
+                    var row = document.createElement('div');
+                    var label = document.createElement('dt');
+                    label.textContent = field.label;
+                    var value = document.createElement('dd');
+                    value.textContent = field.value;
+                    if (field.mono) value.className = 'pixiv-feedback-mono';
+                    row.appendChild(label);
+                    row.appendChild(value);
+                    fields.appendChild(row);
+                });
+                content.appendChild(fields);
+            }
+            (section.paragraphs || []).forEach(function (text) {
+                var paragraph = document.createElement('p');
+                paragraph.textContent = text;
+                content.appendChild(paragraph);
+            });
+            if (section.items && section.items.length) {
+                var list = document.createElement('ul');
+                section.items.forEach(function (text) {
+                    var item = document.createElement('li');
+                    item.textContent = text;
+                    list.appendChild(item);
+                });
+                content.appendChild(list);
+            }
+            parent.appendChild(node);
+        });
     }
 
     function enqueue(factory) {
@@ -66,6 +119,10 @@
                 if (title) panel.setAttribute('aria-describedby', messageId);
                 else panel.setAttribute('aria-labelledby', messageId);
                 panel.appendChild(message);
+                if (options.sections && options.sections.length) {
+                    panel.classList.add('pixiv-feedback-dialog--structured');
+                    appendSections(panel, options.sections);
+                }
 
                 let input = null;
                 const choices = [];
@@ -178,7 +235,7 @@
                     }
                     const first = focusable[0];
                     const last = focusable[focusable.length - 1];
-                    if (event.shiftKey && document.activeElement === first) {
+                    if (event.shiftKey && (document.activeElement === first || document.activeElement === panel)) {
                         event.preventDefault();
                         last.focus();
                     } else if (!event.shiftKey && document.activeElement === last) {
@@ -207,6 +264,7 @@
                 }
 
                 document.body.appendChild(backdrop);
+                backdrop.addEventListener('cancel', function (event) { event.preventDefault(); cancel(); });
                 if (typeof backdrop.showModal === 'function') backdrop.showModal();
                 document.body.classList.add('pixiv-feedback-open');
                 document.addEventListener('keydown', onKeyDown, true);

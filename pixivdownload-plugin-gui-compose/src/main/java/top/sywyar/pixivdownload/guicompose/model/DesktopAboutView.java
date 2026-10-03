@@ -26,7 +26,10 @@ final class DesktopAboutView {
         this.updates = status.updates;
     }
 
-    DesktopUiNode page(Map<String, Runnable> actions) {
+    DesktopUiNode page(
+            Map<String, Runnable> actions,
+            List<AboutFact> facts
+    ) {
         String version = host.applicationVersion().isBlank() ? host.message("app.version.unknown") : host.applicationVersion();
         Image icon = resources.applicationIcon().map(data -> new Image(
                 "about.icon",
@@ -75,7 +78,7 @@ final class DesktopAboutView {
                 people,
                 key("gui.about.disclaimer.text"),
                 resources.licenseText(),
-                ComposeApplicationInfo.platformFacts(host)
+                facts
         );
     }
 

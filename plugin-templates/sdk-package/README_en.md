@@ -161,6 +161,32 @@ Do not make Ivy's runtime configuration extend this compile configuration. Stand
 
 `bundle-manifest.json` records each resource's size and SHA-256, along with tool versions. `tools/community-contract.json` records the SDK, source commit, contract version, resource manifest hash, and the size and hash of this `sdk-tools.jar`. Pin the complete release and its hashes when consuming these resources. Update tools and resources from the same release instead of replacing individual catalog files. These files belong to the development package's initial Git commit and stay out of plugin JARs and public Maven compile dependencies.
 
+## Marketplace documents and links
+
+The submission wizard accepts an optional README, a full CHANGELOG, and release notes for the current plugin version. Repository files come from the candidate's fixed source commit. You can also explicitly select a local file or enter multiline text. README supports UTF-8 Markdown and HTML. Relative images stay inside the selected directory; downloading external images requires confirmation.
+
+Use level-two version headings and level-three categories in the plugin's `CHANGELOG.md`, for example:
+
+```markdown
+## [v8.2.6] - 2031.3.2
+
+### Features
+
+- Add export support.
+
+### Bug Fixes
+
+- Fix duplicate exports.
+```
+
+The wizard extracts the exact plugin version for preview. A missing or duplicate heading requires another file, manual notes, or explicit omission. Unreleased and other versions never substitute for the requested version. In multiline input, Enter adds a line; Tab then Enter submits. Ctrl+B goes back and Ctrl+S saves.
+
+Links support repository, documentation, issue reporting and custom purposes. Edit, delete or omit every link. The wizard stores documents and custom labels in the selected default language, which also controls fallback in the marketplace.
+
+Documents and images are frozen by size and SHA-256. After submission confirmation, they are staged in a market content release in the source repository. Reviewed content joins the plugin package in the same community version release. The source candidate keeps its existing two-asset protocol. HTML is displayed as a static document; scripts, forms, event handlers and custom styles do not run.
+
+This requires matching SDK submission tools, community deployment and host support. A development package alone does not prove that the community has upgraded its pinned tools. Adding market metadata to an existing plugin does not require raising `plugin.requires`: an SDK 1.1 host still accepts `requires=1.0`. New templates declare the selected SDK's major.minor; choose the runtime requirement according to the APIs your plugin uses.
+
 ## CI candidates and submission
 
 Push the project to a public GitHub repository's default branch, wait for all `Plugin candidate` jobs to pass, then follow the [community submission guide](https://github.com/Sywyar/PixivDownloader-community-plugins/blob/master/README_en.md#submissions-and-version-management). CI tests the plugin, compares the offline rebuild, and reuses one Draft Release per plugin, replacing its candidate assets. You do not need to download artifacts or create a Release manually. After submission confirmation, the wizard saves the verified package in a pre-release tied to the source commit, awaiting community review.

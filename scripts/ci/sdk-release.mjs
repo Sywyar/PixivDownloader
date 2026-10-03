@@ -276,6 +276,7 @@ export function stagePluginTemplates(root, workspace, identity, sourceSha) {
         copyTree(path.join(root, 'plugin-templates', 'minimal-feature-plugin', 'src', 'main'),
                 path.join(example, 'src', 'main'));
         fs.copyFileSync(path.join(workspace, markerName), path.join(example, markerName));
+        fs.copyFileSync(path.join(workspace, 'CHANGELOG.md'), path.join(example, 'CHANGELOG.md'));
     }
 }
 

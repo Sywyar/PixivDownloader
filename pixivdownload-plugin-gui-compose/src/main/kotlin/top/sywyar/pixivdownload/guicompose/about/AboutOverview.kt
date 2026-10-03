@@ -55,7 +55,12 @@ internal fun platformReport(node: AboutOverview, text: (TextToken) -> String): S
         appendLine()
         appendLine(line(node.applicationName()))
         appendLine()
-        node.facts().forEach { appendLine("- ${line(text(it.label()))}: ${line(text(it.value()))}") }
+        node.facts().forEach {
+            if (it.expandable()) {
+                appendLine("- ${line(text(it.label()))}:")
+                text(it.value()).lines().forEach { entry -> appendLine("  - ${line(entry)}") }
+            } else appendLine("- ${line(text(it.label()))}: ${line(text(it.value()))}")
+        }
     }.trimEnd()
 }
 
@@ -243,19 +248,9 @@ internal fun AboutOverview(
                         exit = shrinkVertically(tween(240)) + fadeOut(tween(130))
                     ) {
                         Column(Modifier.fillMaxWidth().padding(top = 19.dp, bottom = 10.dp).testTag("about.platform")) {
-                            SelectionContainer {
-                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    node.facts().forEach { fact ->
-                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                                            CupertinoText(
-                                                text(fact.label()),
-                                                Modifier.widthIn(max = 160.dp).weight(.38f),
-                                                fontSize = 12.sp,
-                                                color = palette.secondaryText
-                                            )
-                                            CupertinoText(text(fact.value()), Modifier.weight(.62f).testTag("about.platform.${fact.id()}"), fontSize = 12.sp)
-                                        }
-                                    }
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                node.facts().forEach { fact ->
+                                    AboutPlatformFact(fact, text)
                                 }
                             }
                             Row(
@@ -299,7 +294,7 @@ internal fun AboutOverview(
 private fun AboutDivider() = Box(Modifier.fillMaxWidth().height(1.dp).background(LocalExperiencePalette.current.separator.copy(alpha = .5f)))
 
 @Composable
-private fun AboutAction(
+internal fun AboutAction(
     tag: String,
     enabled: Boolean = true,
     onClick: () -> Unit,
@@ -309,9 +304,14 @@ private fun AboutAction(
     val palette = LocalExperiencePalette.current
     val interactions = remember { MutableInteractionSource() }
     val hovered by interactions.collectIsHoveredAsState()
+    val pressed by interactions.collectIsPressedAsState()
     val focused by interactions.collectIsFocusedAsState()
     val keyboard = LocalInputModeManager.current.inputMode == InputMode.Keyboard
-    val background by animateColorAsState(if (hovered && enabled) palette.secondarySurface else Color.Transparent, tween(120))
+    val background by animateColorAsState(when {
+        pressed && enabled -> palette.separator
+        hovered && enabled -> palette.secondarySurface
+        else -> Color.Transparent
+    }, tween(120))
     val shape = RoundedCornerShape(9.dp)
     Box(
         modifier.testTag(tag).background(background, shape)

@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.i18n.LocaleContextHolder;
@@ -25,6 +26,7 @@ import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 
 import java.net.URI;
+import java.util.HexFormat;
 import java.util.Locale;
 
 import static org.hamcrest.Matchers.containsString;
@@ -92,6 +94,27 @@ class PixivThumbnailProxyControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(header().string("Cache-Control", "max-age=3600, public"))
                 .andExpect(content().bytes(DUMMY_IMAGE));
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "ffd8ffe000104a46494600, image/jpeg",
+            "89504e470d0a1a0a, image/png",
+            "474946383961, image/gif",
+            "524946462400000057454250, image/webp",
+            "3c68746d6c3e, application/octet-stream",
+            "524946462400000057415645, application/octet-stream"
+    })
+    @DisplayName("缩略图按实际字节设置 MIME，不依赖扩展名且不提供可执行 HTML")
+    void returnsContentTypeFromImageBytes(String hex, String contentType) throws Exception {
+        byte[] bytes = HexFormat.of().parseHex(hex);
+        String source = "https://embed.pixiv.net/decorate.php?illust_id=123456";
+        when(pixivThumbnailFetcher.fetch(URI.create(source))).thenReturn(bytes);
+
+        mockMvc.perform(get("/api/pixiv/thumbnail-proxy").param("url", source))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(contentType))
+                .andExpect(content().bytes(bytes));
     }
 
     @Test

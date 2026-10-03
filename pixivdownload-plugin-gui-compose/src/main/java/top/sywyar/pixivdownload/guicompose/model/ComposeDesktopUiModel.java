@@ -80,7 +80,8 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
     private record StablePages(
             DesktopUiDocument.Page security,
             DesktopUiDocument.Page about,
-            Map<String, Runnable> actions
+            Map<String, Runnable> actions,
+            List<DesktopUiNode.AboutFact> facts
     ) {}
 
     private record ActionScope(
@@ -481,12 +482,14 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
                         mediaTools.panels(nextSelections, nextActions)),
                 DesktopUiNode.Insets.NONE
         ));
-        if (stablePages == null) {
+        var platformFacts = platformFacts();
+        if (stablePages == null || !stablePages.facts().equals(platformFacts)) {
             Map<String, Runnable> stableActions = new LinkedHashMap<>();
             stablePages = new StablePages(
                     page("security", DesktopUiIcon.SECURITY, security.page(stableActions)),
-                    page("about", DesktopUiIcon.ABOUT, aboutView.page(stableActions)),
-                    Map.copyOf(stableActions)
+                    page("about", DesktopUiIcon.ABOUT, aboutView.page(stableActions, platformFacts)),
+                    Map.copyOf(stableActions),
+                    platformFacts
             );
         }
         nextActions.putAll(stablePages.actions());
@@ -792,6 +795,10 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
 
     String localizedCode(String prefix, String code) {
         return pluginStatus.localizedCode(prefix, code);
+    }
+
+    List<DesktopUiNode.AboutFact> platformFacts() {
+        return ComposeApplicationInfo.platformFacts(host, pluginStatus.buildInfo(), pluginStatus.noticeKey());
     }
 
     DesktopUiNode.TextToken pluginSummary() {

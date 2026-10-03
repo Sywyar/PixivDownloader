@@ -273,6 +273,26 @@ class PluginCatalogServiceTest {
     }
 
     @Test
+    @DisplayName("paged-v2 精确版本保留选包身份，供安装预览和执行复用")
+    void exactVersionRetainsPluginIdentity() {
+        PluginCatalogHttpClient client = mock(PluginCatalogHttpClient.class);
+        byte[] body = ("""
+                {"generation":"g1","version":{"version":"7.3.2",
+                "packageUrl":"https://downloads.example/demo.jar",
+                "expectedSizeBytes":12,"sha256":"%s"}}
+                """).formatted("a".repeat(64)).getBytes(StandardCharsets.UTF_8);
+        when(client.fetch(contains("/plugins/demo/versions/7.3.2"), eq(256L * 1024L), isNull()))
+                .thenReturn(new PluginCatalogHttpClient.FetchResult(200, body, null,
+                        "https://repo.example/v2/plugins/demo/versions/7.3.2"));
+
+        var selected = pagedService(client).resolvePackage("paged", "demo", "7.3.2");
+
+        assertThat(selected.entry().pluginId()).isEqualTo("demo");
+        assertThat(selected.entry().packages()).containsExactly(selected.pkg());
+        assertThat(selected.pkg().version()).isEqualTo("7.3.2");
+    }
+
+    @Test
     @DisplayName("分页查询限制 limit、cursor 与搜索字符串长度")
     void boundsPagedQuery() {
         assertThat(new PluginCatalogPageQuery(null, 1_000, null, null, null, null).limit()).isEqualTo(100);

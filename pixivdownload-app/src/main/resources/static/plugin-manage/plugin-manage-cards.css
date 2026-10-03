@@ -109,20 +109,22 @@
 .pm-stats {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
+    gap: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface);
 }
 
 .pm-stat {
-    position: relative;
-    overflow: hidden;
-    background: var(--surface);
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-card);
-    padding: 16px 18px;
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: .375rem .75rem;
+    padding: .625rem 1rem;
 }
 
 .pm-stat-num {
-    font-size: 1.875rem;
+    font-size: 1.25rem;
     font-weight: 800;
     line-height: 1;
     font-family: var(--font-mono);
@@ -130,35 +132,26 @@
 }
 
 .pm-stat-label {
-    margin-top: 8px;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: .06em;
     color: var(--muted);
 }
 
-.pm-stat-icon {
-    position: absolute;
-    right: 12px;
-    bottom: 6px;
-    font-size: 2.875rem;
-    color: var(--stat-color, var(--accent-pixiv));
-    opacity: .13;
-    pointer-events: none;
-}
+.pm-stat-icon { display: none; }
 
 .pm-stat--pixiv { --stat-color: var(--accent-pixiv); }
 .pm-stat--green { --stat-color: var(--status-green); }
 .pm-stat--amber { --stat-color: var(--accent-amber); }
 .pm-stat--blue { --stat-color: var(--accent-blue); }
 
-/* ── 工具栏卡片 ── */
+/* ── 筛选与搜索 ── */
 .pm-toolbar {
-    background: var(--surface);
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-card);
-    padding: 14px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: .75rem 1rem;
 }
 
 .pm-tabs {
@@ -171,7 +164,7 @@
 }
 
 .pm-tab {
-    flex: 1;
+    flex: 0 0 auto;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -210,7 +203,8 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    margin-top: 12px;
+    flex: 1 1 20rem;
+    min-width: 0;
 }
 
 .pm-search {
@@ -259,27 +253,24 @@
 .pm-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
     gap: 16px;
 }
 
-/* 紧凑平铺卡片：内容始终完整可见；flex 列 + row-gap 统一内部节奏，底栏 margin-top:auto 让同行卡片底栏对齐。 */
+/* 同排卡片共享内容轨道；描述和待重启提示自然增高，控制行保持对齐。 */
 .pm-card {
     position: relative;
     overflow: hidden;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    box-shadow: var(--shadow-card);
-    padding: 14px 16px;
-    display: flex;
-    flex-direction: column;
-    row-gap: 12px;
-    transition: transform var(--transition), box-shadow var(--transition);
-}
-
-.pm-card:hover {
-    transform: translateY(-3px);
-    box-shadow: var(--shadow-raised);
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--control-shadow-color) 20%, transparent);
+    padding: 1rem 1.125rem;
+    min-width: 0;
+    display: grid;
+    grid-template-rows: subgrid;
+    grid-row: span 4;
+    gap: .75rem;
 }
 
 /* 异常状态卡片：左侧色条抬升视觉优先级，多插件网格中需要处理的卡片一眼可见。 */
@@ -296,15 +287,6 @@
     z-index: 2;
 }
 
-/* 首行右侧：状态指示位于启停开关左侧。 */
-.pm-card-side {
-    flex-shrink: 0;
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 10px;
-}
-
 .pm-card-status {
     display: inline-flex;
     align-items: center;
@@ -312,7 +294,8 @@
     font-size: 0.75rem;
     font-weight: 600;
     color: var(--muted);
-    white-space: nowrap;
+    min-height: max(1.75rem, var(--layout-control-height));
+    overflow-wrap: anywhere;
 }
 
 .pm-card-status--ok { color: var(--status-green); }
@@ -339,8 +322,37 @@
 
 .pm-card-head {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 12px;
+}
+
+.pm-card-body {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: .75rem;
+    min-width: 0;
+}
+
+.pm-card-summary {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: .25rem .75rem;
+    min-width: 0;
+}
+
+.pm-card-source {
+    color: var(--muted);
+    font-size: .6875rem;
+}
+
+.pm-card-pending {
+    grid-column: 1 / -1;
+    color: var(--warning-text);
+    font-size: .75rem;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
 }
 
 .pm-card-icon {
@@ -388,20 +400,11 @@
 }
 
 .pm-card-version {
-    flex-shrink: 0;
+    overflow-wrap: anywhere;
+    min-width: 0;
     color: var(--muted);
     font-family: var(--font-mono);
     font-size: 0.6875rem;
-}
-
-.pm-card-sub {
-    margin-top: 3px;
-    font-size: 0.75rem;
-    color: var(--muted);
-    font-family: var(--font-mono);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
 }
 
 .pm-card-desc {
@@ -410,10 +413,8 @@
     line-height: 1.55;
     color: var(--text-secondary);
     text-wrap: pretty;
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    overflow: hidden;
+    max-width: var(--layout-reading-width, 70ch);
+    overflow-wrap: anywhere;
 }
 
 /* 诊断备注行（替代原标签区：同样的信息以更轻的文字行表达，不再用胶囊标签片） */
@@ -512,12 +513,12 @@
 
 /* 幽灵图标按钮：浮层菜单等次级操作的入口，弱化存在感，hover / 打开时才点亮。 */
 .pm-icon-btn {
-    width: 28px;
-    min-height: max(1.75rem, var(--layout-control-height));
+    width: max(2rem, var(--layout-control-height));
+    min-height: max(2rem, var(--layout-control-height));
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid var(--border);
+    border: 1px solid transparent;
     border-radius: var(--radius-sm);
     background: transparent;
     color: var(--muted);
@@ -527,6 +528,7 @@
 }
 
 .pm-icon-btn:hover:not(:disabled),
+.pm-icon-btn:active:not(:disabled),
 .pm-action-menu-toggle[aria-expanded="true"] {
     background: var(--control-muted-bg);
     color: var(--text);
@@ -545,9 +547,11 @@
 .pm-action-menu {
     position: absolute;
     right: 0;
-    bottom: calc(100% + 8px);
+    top: calc(100% + .375rem);
     z-index: 10;
-    min-width: 160px;
+    min-width: min(15rem, 75vw);
+    max-height: calc(50dvh - var(--layout-header-height, 3.25rem) - 1rem);
+    overflow-y: auto;
     padding: 6px;
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
@@ -560,6 +564,12 @@
     transition: opacity var(--motion-fast, .18s) var(--motion-ease-standard, ease),
                 transform var(--motion-fast, .18s) var(--motion-ease-standard, ease),
                 visibility var(--motion-fast, .18s) var(--motion-ease-standard, ease);
+}
+
+.pm-action-menu--above {
+    top: auto;
+    bottom: calc(100% + .375rem);
+    transform: translateY(-4px);
 }
 
 .pm-action-menu.open {
@@ -582,15 +592,9 @@
     cursor: pointer;
 }
 
-.pm-action-menu button > i {
-    width: 14px;
-    margin-right: 7px;
-    text-align: center;
-    color: var(--muted);
-}
-
-.pm-action-menu button.danger > i {
-    color: inherit;
+.pm-menu-separator {
+    margin: .25rem;
+    border-top: 1px solid var(--border);
 }
 
 .pm-action-menu button:hover:not(:disabled),
@@ -612,12 +616,12 @@
 .pm-badge {
     display: inline-flex;
     align-items: center;
-    height: 18px;
-    padding: 0 8px;
+    min-height: 1.125rem;
+    padding: 0 .5rem;
     border-radius: var(--radius-pill);
     font-size: 0.6875rem;
     font-weight: 700;
-    line-height: 1;
+    line-height: 1.4;
     border: 1px solid transparent;
 }
 
@@ -641,37 +645,53 @@
 /* ── 开关（启用 / 停用） ── */
 .pm-switch {
     flex-shrink: 0;
-    width: 40px;
-    height: 22px;
-    border-radius: 999px;
+    width: max(2.5rem, var(--layout-control-height));
+    height: max(1.75rem, var(--layout-control-height));
+    border-radius: var(--radius-xs);
     border: none;
-    background: var(--border);
+    background: transparent;
     position: relative;
     cursor: pointer;
     padding: 0;
+    transition: filter var(--transition);
+}
+
+.pm-switch::before {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 2.5rem;
+    height: 1.375rem;
+    border-radius: 999px;
+    background: var(--border);
     transition: background var(--transition);
 }
 
 .pm-switch::after {
     content: '';
     position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 18px;
-    height: 18px;
+    top: calc(50% - .5625rem);
+    right: 1.25rem;
+    width: 1.125rem;
+    height: 1.125rem;
     border-radius: 50%;
     background: var(--on-accent);
     box-shadow: 0 1px 2px var(--control-shadow-color);
     transition: transform var(--transition);
 }
 
-.pm-switch.on {
+.pm-switch.on::before {
     background: var(--brand);
 }
 
 .pm-switch.on::after {
-    transform: translateX(18px);
+    transform: translateX(1.125rem);
 }
+
+.pm-switch:hover:not(:disabled) { filter: brightness(.95); }
+.pm-switch:active:not(:disabled) { filter: brightness(.85); }
 
 .pm-switch:disabled,
 .pm-switch.pm-switch--locked {
@@ -761,3 +781,53 @@
 .pm-toast--ok { border-left-color: var(--status-green); }
 .pm-toast--error { border-left-color: var(--status-red); }
 .pm-toast--info { border-left-color: var(--accent-pixiv); }
+
+.pm-card-name { margin: 0; overflow-wrap: anywhere; }
+.pm-summary-facts { flex: 1 1 10rem; display: flex; flex-wrap: wrap; gap: .25rem .75rem; color: var(--muted); font-size: .75rem; overflow-wrap: anywhere; }
+.pm-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem 2.5rem; padding-block: 1rem; border-top: 1px solid var(--border); margin-top: .375rem; }
+.pm-detail-section { min-width: 0; font-size: .8125rem; }
+.pm-detail-section h3, .pm-detail-section summary { margin: 0 0 .5rem; font-size: .875rem; font-weight: 650; }
+.pm-detail-section p { margin: .5rem 0; color: var(--text-secondary); line-height: 1.6; overflow-wrap: anywhere; }
+.pm-facts { margin: 0; }
+.pm-facts > div { display: grid; grid-template-columns: minmax(6rem, 1fr) minmax(0, 2fr); gap: .75rem; padding-block: .375rem; }
+.pm-facts dt { color: var(--muted); }
+.pm-facts dd { margin: 0; color: var(--text); overflow-wrap: anywhere; white-space: pre-line; }
+.pm-note { margin: 0; }
+@media (max-width: 56.25em) {
+    .pm-detail-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 37.5em) {
+    .pm-facts > div { grid-template-columns: minmax(0, 1fr); gap: .25rem; }
+    .pm-btn { white-space: normal; padding-block: .5rem; }
+}
+
+@media (forced-colors: active) {
+    .pm-switch { forced-color-adjust: none; }
+    .pm-switch::before { background: Canvas; border: 1px solid ButtonText; }
+    .pm-switch::after { background: ButtonText; }
+    .pm-switch.on::before { background: Highlight; }
+    .pm-switch.on::after { background: HighlightText; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .pm-switch, .pm-switch::before, .pm-switch::after { transition: none; }
+}
+
+.pm-card-name-row { margin-top: .25rem; }
+.pm-card-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-content: start; align-items: start; gap: .25rem .75rem; padding-top: .5rem; border-top: 1px solid var(--border); }
+.pm-toggle { display: flex; align-items: center; gap: .5rem; color: var(--muted); font-size: .8125rem; }
+.pm-toggle label { cursor: pointer; overflow-wrap: anywhere; }
+.pm-toggle:has(:disabled) label { cursor: not-allowed; }
+.pm-control-note { display: flex; align-items: center; justify-content: flex-end; min-height: max(1.75rem, var(--layout-control-height)); color: var(--muted); font-size: .75rem; text-align: right; }
+.pm-details-link { flex-shrink: 0; margin-left: auto; border: 0; border-radius: var(--radius-xs); padding: .375rem .25rem; background: transparent; color: var(--accent-blue); font: inherit; font-size: .8125rem; cursor: pointer; display: inline-flex; align-items: center; gap: .5rem; }
+.pm-details-link:hover { background: var(--control-muted-bg); }
+.pm-details-link:focus-visible, .pm-plugin-detail summary:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 3px; }
+.pm-modal-card.pm-plugin-detail { width: min(44rem, 100%); max-width: 44rem; }
+.pm-detail-status { margin: 0; color: var(--text-secondary); font-size: .8125rem; }
+.pm-detail-description { margin: .5rem 0 1rem; color: var(--text-secondary); font-size: .875rem; line-height: 1.6; overflow-wrap: anywhere; }
+.pm-plugin-detail .pm-detail-grid { grid-template-columns: minmax(0, 1fr); gap: 1.25rem; }
+@media (min-width: 100em) { .pm-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 56.25em) { .pm-grid { grid-template-columns: minmax(0, 1fr); } }
+
+.pm-modal-card.pm-plugin-detail { overflow: hidden; }
+.pm-plugin-detail .pm-modal-head { flex-shrink: 0; }
+#pm-detail-content { overflow-y: auto; min-height: 0; }

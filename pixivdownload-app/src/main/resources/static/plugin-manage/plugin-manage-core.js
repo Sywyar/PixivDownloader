@@ -44,7 +44,7 @@
     // 页面自有文案：在 plugins namespace 内解析。
     function t(key, fallback, vars) {
         if (i18n.client) {
-            return i18n.client.t('plugins:' + key, fallback, vars);
+            return i18n.client.t(key.indexOf(':') === -1 ? 'plugins:' + key : key, fallback, vars);
         }
         return interpolate(fallback != null ? fallback : key, vars);
     }
@@ -58,6 +58,12 @@
             return i18n.client.tns(ns, key, fallback != null ? fallback : key);
         }
         return fallback != null ? fallback : (key || '');
+    }
+
+    function pluginLabel(id, entry) {
+        entry = entry || ((state.report && state.report.plugins) || []).find(function (item) { return item.id === id; });
+        return global.PixivPluginPresentationTokens.pluginLabel(id,
+            entry && tns(entry.displayNamespace, entry.displayNameKey, id));
     }
 
     function escapeHtml(str) {
@@ -277,6 +283,8 @@
 
         return {
             id: entry.id,
+            entry: entry,
+            fields: detailFields(entry),
             name: name,
             version: version,
             sub: sub,
@@ -287,8 +295,13 @@
             running: running,
             enabled: enabled,
             configuredEnabled: configuredEnabled,
+            pendingToggleLabel: toggleable && lifecyclePolicy !== 'HOT_RELOAD'
+                && configuredEnabled !== running && meta.tone !== 'bad'
+                && Object.prototype.hasOwnProperty.call(STATUS_META, status) && phase !== 'QUIESCED'
+                ? t(configuredEnabled ? 'state.pending-enable' : 'state.pending-disable') : null,
             executionMode: executionMode,
             trustFacts: verification,
+            trustSections: global.PixivPluginPresentationTokens.trustSections(verification, i18n.client, running || !!entry.loadedVersion || phase === 'QUIESCED'),
             trustLines: global.PixivPluginPresentationTokens.trustLines(verification, i18n.client,
                 running || !!entry.loadedVersion || phase === 'QUIESCED'),
             executionLabel: t(executionInfo.key, executionInfo.fallback),
@@ -328,7 +341,7 @@
             messages: (entry.messages || []).concat(entry.operationDiagnostic ? [entry.operationDiagnostic] : [])
                 .concat(entry.effectiveAfterRestart ? [t('state.pending-restart',
                     '安装状态已更改；当前进程仍载入版本 {version}。完整退出并重新启动软件后生效。',
-                    { version: entry.loadedVersion || '' })] : []),
+                    { version: loadedVersionLabel(entry) })] : []),
             // 非热重载策略只展示后端明确允许的安装包移除。
             availableActions: (entry.availableActions || []).filter(function (action) {
                 return lifecyclePolicy === 'HOT_RELOAD' || action === 'remove';
@@ -344,6 +357,27 @@
             updating: !!entry.operation && entry.operation !== 'IDLE' && entry.operation !== 'FAILED',
             progress: 0
         };
+    }
+
+    function info(key) { return t('common:plugin-info.' + key); }
+
+    function loadedVersionLabel(entry) {
+        if (entry.loadedVersion) return entry.loadedVersion;
+        if (entry.source === 'built-in' || ['STARTED', 'QUIESCED', 'STOPPED', 'LOADED'].indexOf(entry.runtimePhase) !== -1) {
+            return entry.version || info('unknown');
+        }
+        if (entry.runtimePhase === 'UNLOADED' || ['INSTALLED', 'NOT_INSTALLED', 'DISABLED'].indexOf(entry.status) !== -1) return info('not-loaded');
+        return info('unknown');
+    }
+
+    function detailFields(entry) {
+        var fields = [
+            {label: info('installed-version'), value: entry.version || info('not-installed')},
+            {label: info('loaded-version'), value: loadedVersionLabel(entry)}
+        ];
+        if (entry.source !== 'built-in') fields.push({label: info('effect'), value: entry.lifecyclePolicy
+            ? t(lifecyclePolicyMeta(lifecyclePolicyOf(entry.lifecyclePolicy)).key) : info('unknown')});
+        return fields;
     }
 
     function applyReport(report, resetOrder) {
@@ -487,12 +521,15 @@
             };
         }
         if (m.activated) {
-            return { message: t('install.toast.accepted', '插件已安装并激活。'), tone: 'ok' };
+            return { message: t('install.activated-note', '插件已安装并在当前进程中激活。'), tone: 'ok' };
         }
         if (m.rolledBack) {
             return { message: t('install.rollback-note', '新版本激活失败，已恢复原版本。'), tone: 'error' };
         }
         if (m.accepted) {
+            if (m.effectiveAfterRestart) {
+                return { message: t('install.restart-note', '插件已安装，将在完整重启程序后生效。'), tone: 'ok' };
+            }
             return { message: t('install.toast.accepted', '插件已安装。'), tone: 'ok' };
         }
         return {
@@ -518,8 +555,6 @@
         var fingerprint = r.publisherKeyFingerprint || r.fingerprint || null;
         var signed = r.signed === true || (r.signed == null && !!fingerprint);
         var executionMode = executionModeOf(r.executionMode);
-        var execution = r.executionLabel
-            || t(executionModeMeta(executionMode).key, executionModeMeta(executionMode).fallback);
         var source = r.repositoryId || r.source || t('trust.confirm.source.local', '本地上传');
         var publisher = r.publisher || t('trust.confirm.publisher.unknown', '无法确认');
         var signature = signed
@@ -539,20 +574,26 @@
             message += '\n\n' + t('trust.confirm.unsigned-risk',
                 '此插件没有发布者签名。PixivDownloader 无法证明它来自谁，也无法确认后续更新是否仍由同一作者发布。');
         }
-        message += '\n\n' + t('trust.confirm.details',
-            '插件 ID：{pluginId}\n版本：{version}\n来源：{source}\n发布者：{publisher}\n签名状态：{signature}\n发布者指纹：{fingerprint}\n制品 SHA-256：{sha256}\n执行模式：{executionMode}', {
-                pluginId: r.pluginId || r.id || '',
-                version: r.version || '',
-                source: source,
-                publisher: publisher,
-                signature: signature,
-                fingerprint: fingerprint || t('trust.confirm.fingerprint.unavailable', '不适用'),
-                sha256: r.artifactSha256 || r.sha256 || '',
-                executionMode: execution
-            });
+        var sections = [{
+            title: t('common:plugin-info.plugin'),
+            fields: [
+                {label: t('common:plugin-info.id'), value: r.pluginId || r.id || t('common:plugin-info.unknown')},
+                {label: t('common:plugin-info.version'), value: r.version || t('common:plugin-info.unknown')},
+                {label: t('common:plugin-info.source'), value: source},
+                {label: t('common:plugin-info.publisher'), value: publisher},
+                {label: t('common:plugin-info.signature'), value: signature}
+            ]
+        }].concat(global.PixivPluginPresentationTokens.trustSections(r, i18n.client), [{
+            title: t('common:plugin-info.artifact'),
+            fields: [
+                {label: t('common:plugin-info.fingerprint'), value: fingerprint || t('common:plugin-info.' + (signed ? 'unknown' : 'unsigned')), mono: true},
+                {label: 'SHA-256', value: r.artifactSha256 || r.sha256 || t('common:plugin-info.unknown'), mono: true}
+            ]
+        }]);
         return {
             title: t('trust.confirm.title', '确认插件执行信任'),
-            message: message + '\n\n' + global.PixivPluginPresentationTokens.trustLines(r, i18n.client).join('\n'),
+            message: message,
+            sections: sections,
             confirmLabel: t('trust.confirm.allow', '我信任此插件并允许运行'),
             cancelLabel: t('trust.confirm.cancel', '取消')
         };
@@ -590,6 +631,7 @@
         i18n: i18n,
         t: t,
         tns: tns,
+        pluginLabel: pluginLabel,
         escapeHtml: escapeHtml,
         interpolate: interpolate,
         collectNamespaces: collectNamespaces,
@@ -602,6 +644,9 @@
         executionModeMeta: executionModeMeta,
         lifecyclePolicyOf: lifecyclePolicyOf,
         lifecyclePolicyMeta: lifecyclePolicyMeta,
+        buildViewModel: buildViewModel,
+        loadedVersionLabel: loadedVersionLabel,
+        detailFields: detailFields,
         applyReport: applyReport,
         allViewModels: allViewModels,
         tabsModel: tabsModel,

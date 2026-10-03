@@ -13,10 +13,17 @@
     var VUE = PMK.vue = {};
 
     // 直接构造 VNode，避免模板运行时编译触发 CSP 禁止的动态代码执行。
-    function renderMarket(Vue, vm) {
+    function renderMarket(Vue, vm, Content) {
         var h = Vue.h;
         var t = vm.t;
-        function icon(cls) { return h('i', { class: cls }); }
+        function icon(cls) { return h('i', { class: cls, 'aria-hidden': 'true' }); }
+        function marketIcon(card, className) {
+            var url = PMK.api.contentImageUrl(card.repositoryId, card.pluginId, card.icon, 'icon', 0);
+            return h('span', { class: className }, [icon(card.iconClass), url ? h('img', {
+                key: url, class: 'pmk-market-image', src: url, alt: '', loading: 'lazy',
+                onError: function (event) { event.target.hidden = true; }
+            }) : null]);
+        }
         function stars(rating) {
             if (!rating) return null;
             return h('span', { class: 'pmk-stars' }, [
@@ -25,10 +32,25 @@
                 Array.from({ length: rating.empty }, function () { return icon('fa-regular fa-star'); })
             ]);
         }
-        function progress(modal) {
-            return h('div', { class: 'pmk-install-progress', style: modal ? { minWidth: '200px' } : null }, [
-                h('div', { class: 'pmk-install-progress-label' }, [icon('fa-solid fa-spinner fa-spin'), t('install.state.installing', '安装中…')]),
-                h('div', { class: 'pmk-progressbar' }, [h('span')])
+        function progress(phase) {
+            return h('div', { class: 'pmk-install-progress', role: 'status' }, [
+                h('div', { class: 'pmk-install-progress-label' }, [icon(phase === 'confirm' || phase === 'trust' ? 'fa-solid fa-clock' : 'fa-solid fa-spinner fa-spin'), t(PMK.installPhaseKey(phase))])
+            ]);
+        }
+        function factSection(section) {
+            var content = [
+                h('dl', {class: 'pmk-facts'}, (section.fields || []).map(function (field) {
+                    return h('div', {key: field.label}, [h('dt', field.label), h('dd', field.value)]);
+                })),
+                (section.paragraphs || []).map(function (text) { return h('p', {key: text}, text); })
+            ];
+            return section.collapsed ? disclosure(section.title, content, 'pmk-fact-section')
+                : h('section', {class: 'pmk-fact-section', key: section.title}, [h('h3', section.title), content]);
+        }
+        function disclosure(title, content, className) {
+            return h('details', {class: [className, 'accordion accordion-item pixiv-disclosure'], key: title}, [
+                h('summary', {class: 'accordion-button collapsed'}, title),
+                h('div', {class: 'accordion-body'}, content)
             ]);
         }
         function loading() {
@@ -36,7 +58,7 @@
         }
         function filter(field, cls, key, fallback) {
             var label = t(key, fallback);
-            return h('div', { class: 'pmk-filter' }, [
+            return h('label', { class: 'pmk-filter' }, [
                 h('span', { class: 'pmk-filter-label' }, [icon(cls), label]),
                 h('button', { type: 'button', class: ['pmk-switch', { on: vm[field] }],
                     'aria-pressed': vm[field], 'aria-label': label,
@@ -54,10 +76,10 @@
                 ]),
                 h('div', { class: 'pmk-card-body' }, [
                     h('div', { class: 'pmk-card-head' }, [
-                        h('span', { class: 'pmk-card-icon' }, [icon(card.iconClass)]),
+                        marketIcon(card, 'pmk-card-icon'),
                         h('div', { class: 'pmk-card-titleblock' }, [
                             h('div', { class: 'pmk-card-name-row' }, [
-                                h('span', { class: 'pmk-card-name', onClick: open }, card.name),
+                                h('button', { type: 'button', class: 'pmk-card-name', onClick: open }, card.name),
                                 h('span', { class: 'pmk-badge pmk-badge--' + (card.official ? 'official' : 'community') },
                                     card.official ? t('badge.official', '官方') : card.assuranceLabel),
                                 card.recommended ? h('span', { class: 'pmk-badge pmk-badge--recommended' }, t('badge.recommended', '推荐')) : null,
@@ -76,17 +98,19 @@
                     card.tags.length ? h('div', { class: 'pmk-tags' }, card.tags.slice(0, 4).map(function (tag) {
                         return h('span', { key: tag, class: 'pmk-tag' }, '#' + tag);
                     })) : null,
-                    vm.showCardMeta(card) ? h('div', { class: 'pmk-card-meta' }, [card.versionLabel, card.sizeLabel, card.dateLabel].filter(Boolean).join(' · ')) : null,
-                    vm.showCardCompat(card) ? h('div', { class: 'pmk-card-compat' }, [icon('fa-solid fa-triangle-exclamation'),
-                        t('compat.needs', '需要SDK v{v}+（当前 v{cur}）', { v: card.compatibilityReason, cur: vm.sdkVersion })]) : null,
-                    card.compatibilityNotice ? h('p', { class: 'pmk-card-compat pmk-card-compat--notice' }, card.compatibilityNotice) : null,
-                    h('div', { class: 'pmk-card-actions' }, [
-                        vm.cardStatus(card) === 'INSTALLING' ? progress(false) : h('button', {
-                            class: ['pmk-btn pmk-install', 'pmk-btn--' + meta.variant], disabled: meta.disabled,
-                            onClick: function () { vm.install(card); }
-                        }, [icon('fa-solid fa-' + meta.icon), h('span', vm.cardLabel(card))]),
-                        h('button', { class: 'pmk-btn pmk-btn--gray pmk-btn--sm', onClick: open },
-                            [icon('fa-solid fa-circle-info'), h('span', t('card.detail', '详情'))])
+                    h('div', { class: 'pmk-card-footer' }, [
+                        vm.showCardMeta(card) ? h('div', { class: 'pmk-card-meta' }, [card.versionLabel, card.sizeLabel, card.dateLabel].filter(Boolean).join(' · ')) : null,
+                        vm.showCardCompat(card) ? h('div', { class: 'pmk-card-compat' }, [icon('fa-solid fa-triangle-exclamation'),
+                            t('compat.needs', '需要SDK v{v}+（当前 v{cur}）', { v: card.compatibilityReason, cur: vm.sdkVersion })]) : null,
+                        card.compatibilityNotice ? h('p', { class: 'pmk-card-compat pmk-card-compat--notice' }, card.compatibilityNotice) : null,
+                        h('div', { class: 'pmk-card-actions' }, [
+                            vm.cardStatus(card) === 'INSTALLING' ? progress(vm.installing[vm.installKey(card.repositoryId, card.pluginId)]) : h('button', {
+                                class: ['pmk-btn pmk-install', 'pmk-btn--' + meta.variant], disabled: meta.disabled,
+                                onClick: function () { vm.install(card); }
+                            }, [icon('fa-solid fa-' + meta.icon), h('span', vm.cardLabel(card))]),
+                            h('button', { class: 'pmk-btn pmk-btn--gray pmk-btn--sm', onClick: open },
+                                [icon('fa-solid fa-circle-info'), h('span', t('card.detail', '详情'))])
+                        ])
                     ])
                 ])
             ]);
@@ -148,81 +172,119 @@
             if (!detail) return null;
             var result = vm.installResultFor;
             var badge = detail.verificationBadge;
-            return h('div', { class: 'pmk-modal', onClick: Vue.withModifiers(vm.closeDetail, ['self']) }, [
+            return h('dialog', {
+                class: 'pmk-modal', 'aria-labelledby': 'pmk-detail-title',
+                onClick: Vue.withModifiers(vm.closeDetail, ['self']),
+                onCancel: function (event) { event.preventDefault(); event.stopPropagation(); vm.closeDetail(); },
+                onVnodeMounted: function (vnode) { vnode.el.showModal(); }
+            }, [
                 h('div', { class: ['pmk-modal-panel', detail.colorClass] }, [
                     h('div', { class: 'pmk-hero' }, [
-                        icon(['pmk-hero-bg', detail.iconClass]),
-                        h('span', { class: 'pmk-hero-cat' }, [icon(detail.categoryIcon), detail.categoryLabel]),
                         h('button', { class: 'pmk-hero-close', 'aria-label': t('modal.close', '关闭'), onClick: vm.closeDetail }, [icon('fa-solid fa-xmark')]),
-                        h('span', { class: 'pmk-hero-icon' }, [icon(detail.iconClass)]),
+                        marketIcon(detail, 'pmk-hero-icon'),
                         h('div', { class: 'pmk-hero-titleblock' }, [
-                            h('div', { class: 'pmk-hero-name' }, [h('span', detail.name), h('span', { class: 'pmk-hero-pill' },
+                            h('h2', { id: 'pmk-detail-title', class: 'pmk-hero-name' }, [h('span', detail.name), h('span', { class: 'pmk-hero-pill' },
                                 detail.assuranceLabel)]),
-                            h('div', { class: 'pmk-hero-sub' }, detail.sub)
+                            h('div', { class: 'pmk-hero-sub' }, [detail.author, detail.categoryLabel].filter(Boolean).join(' · ')),
+                            h('p', {class: 'pmk-hero-summary'}, detail.summary)
                         ])
                     ]),
                     h('div', { class: 'pmk-modal-actionbar' }, [
-                        h('div', { class: 'pmk-modal-actionbar-stats' }, [
-                            stars(detail.ratingStars), detail.ratingNum ? h('span', { class: 'pmk-rating-num' }, detail.ratingNum) : null,
-                            detail.downloadsLabel ? h('span', [icon('fa-solid fa-download'), ' ' + detail.downloadsLabel]) : null
-                        ]),
+                        h('div', {class: 'pmk-action-context'}, detail.infoRows.filter(function (row) {
+                            return row.key === 'detail.installed-version' && detail.installedVersion
+                                || row.key === 'detail.effect' && detail.restartRequired;
+                        }).map(function (row) { return h('p', {key: row.key}, [h('span', t(row.key) + ' '), h('strong', row.val)]); })),
                         h('div', { class: 'pmk-modal-actionbar-right' }, [
-                            vm.showVersionSelect ? Vue.withDirectives(h('select', { class: 'pmk-version-select',
+                            vm.showVersionSelect ? Vue.withDirectives(h('select', { class: 'pmk-version-select', 'aria-label': t('detail.version'), disabled: vm.modalStatus === 'INSTALLING',
                                 'onUpdate:modelValue': function (value) { vm.selectedVersion = value; vm.loadPackageFacts(); } }, detail.versions.map(function (v) {
                                 return h('option', { key: v.version, value: v.version }, 'v' + v.version + (v.channel && v.channel !== 'stable' ? ' · ' + v.channel : ''));
                             })), [[Vue.vModelSelect, vm.selectedVersion]]) : null,
-                            vm.modalStatus === 'INSTALLING' ? progress(true) : h('button', {
-                                class: ['pmk-btn', 'pmk-btn--' + vm.modalMeta.variant], disabled: vm.modalMeta.disabled, onClick: vm.installModal
-                            }, [icon('fa-solid fa-' + vm.modalMeta.icon), h('span', vm.modalLabel)])
+                            vm.modalStatus === 'INSTALLING' ? progress(vm.installing[vm.installKey(vm.activeCatalogRepositoryId, vm.selectedPluginId)]) : h('button', {
+                                class: ['pmk-btn pmk-install', 'pmk-btn--' + vm.modalMeta.variant], disabled: vm.modalMeta.disabled, onClick: vm.installModal
+                            }, [icon('fa-solid fa-' + vm.modalMeta.icon), h('span', vm.modalLabel)]),
+                            ['INSTALLED', 'ACTIVATED', 'PENDING_RESTART'].includes(vm.modalState()) ? h('a', {class: 'pmk-btn pmk-btn--primary', href: '/plugin-manage.html'}, t('install.goto-manage')) : null
                         ])
                     ]),
                     h('div', { class: 'pmk-modal-body' }, [
-                        h('div', { class: 'pmk-modal-col' }, [
-                            detail.compatibilityNotice ? h('p', { class: 'pmk-card-compat pmk-card-compat--notice', role: 'status' }, detail.compatibilityNotice) : null,
-                            h('div', [h('div', { class: 'pmk-section-label' }, t('detail.about', '简介')),
-                                h('div', { class: 'pmk-section-text' }, detail.description || t('detail.no-description', '该插件暂无简介。'))]),
-                            result ? h('div', [h('div', { class: 'pmk-section-label' }, t('detail.install-result', '安装结果')),
-                                h('div', { class: 'pmk-install-result' }, [h('div', { class: ['pmk-install-result-box', 'pmk-install-result-box--' + result.tone] }, [
-                                    h('div', { class: 'pmk-install-result-head' }, [icon(['fa-solid', vm.installResultIcon(result)]),
-                                        h('span', { class: 'pmk-install-result-msg' }, result.message),
-                                        result.outcome ? h('span', { class: 'pmk-install-code' }, result.outcome) : null]),
-                                    vm.showRestartHint ? h('div', { class: 'pmk-install-restart' }, [icon('fa-solid fa-power-off'),
-                                        h('span', t('install.restart-hint', '需重启应用后生效。')),
-                                        h('a', { href: '/plugin-manage.html' }, t('install.goto-manage', '前往插件管理'))]) : null,
-                                    result.warnings.length ? h('div', { class: 'pmk-install-list' }, [h('span', t('install.unmet-deps', '尚未满足的依赖：')),
-                                        h('ul', result.warnings.map(function (w) { return h('li', { key: w }, w); }))]) : null
-                                ])])]) : null,
-                            h('div', [
-                                h('div', { class: 'pmk-section-label' }, t('detail.changelog', '更新日志')),
-                                detail.versions.length ? h('div', { class: 'pmk-versions' }, detail.versions.map(function (v) {
-                                    return h('div', { key: v.version, class: 'pmk-version-row' }, [
-                                        h('div', { class: 'pmk-version-col' }, [h('span', { class: 'pmk-version-tag' }, 'v' + v.version),
-                                            v.dateLabel ? h('div', { class: 'pmk-version-date' }, v.dateLabel) : null]),
-                                        v.notes.length ? h('ul', { class: 'pmk-version-notes' }, v.notes.map(function (note, i) { return h('li', { key: i }, note); }))
-                                            : h('div', { class: 'pmk-version-notes pmk-version-empty' }, t('detail.no-notes', '无更新说明。'))
-                                    ]);
-                                })) : h('div', { class: 'pmk-version-empty' }, t('detail.no-versions', '暂无版本信息。')),
-                                detail.nextVersionCursor ? h('button', { class: 'pmk-btn pmk-btn--gray pmk-btn--sm', onClick: vm.loadMoreVersions, disabled: vm.detailLoadingMore }, t('pagination.more-versions', '加载更多版本')) : null
-                            ]),
-                            detail.dependencies.length ? h('div', [h('div', { class: 'pmk-section-label' }, t('detail.dependencies', '依赖')),
-                                h('div', { class: 'pmk-deps' }, detail.dependencies.map(function (dep) { return h('span', { key: dep, class: 'pmk-dep' }, dep); }))]) : null
-                        ]),
-                        h('div', { class: 'pmk-modal-col' }, [
-                            vm.showDetailVerification ? h('div', { class: ['pmk-detail-verification', 'pmk-detail-verification--' + badge.tone], title: badge.title || null }, [
-                                icon(['fa-solid', badge.icon]), h('div', [h('div', { class: 'pmk-detail-verification-title' }, t('detail.verification', '来源验证')),
-                                    h('div', { class: 'pmk-detail-verification-text' }, t(badge.labelKey, badge.status))])
+                        detail.compatibilityNotice ? h('p', {class: 'pmk-card-compat pmk-card-compat--notice', role: 'status'}, detail.compatibilityNotice) : null,
+                        h('section', {class: 'pmk-about'}, [h('h3', {class: 'pmk-section-label'}, t('detail.about')),
+                            h('div', {class: 'pmk-section-text'}, detail.description || t('detail.no-description'))]),
+                        h('dl', {class: 'pmk-detail-overview'}, detail.infoRows.filter(function (row) {
+                            return ['detail.version', 'detail.requires', 'detail.size'].includes(row.key);
+                        }).map(function (row) {
+                            return h('div', {key: row.key}, [h('dt', t(row.key)), h('dd', {class: {'pmk-info-val--danger': row.danger}}, row.val)]);
+                        })),
+                        detail.infoRows.filter(function (row) { return row.key === 'detail.compatible' && row.danger; })
+                            .map(function (row) { return h('p', {class: 'pmk-card-compat pmk-card-compat--notice', role: 'status'}, row.val); }),
+                        result ? h('section', {class: 'pmk-install-result'}, [
+                            h('h3', {class: 'pmk-section-label'}, t('detail.install-result')),
+                            h('div', {class: ['pmk-install-result-box', 'pmk-install-result-box--' + result.tone]}, [
+                                h('div', {class: 'pmk-install-result-head'}, [
+                                    icon(['fa-solid', vm.installResultIcon(result)]),
+                                    h('span', {class: 'pmk-install-result-msg'}, PMK.data.installFeedback(result).message)
+                                ]),
+                                vm.showRestartHint ? h('p', {class: 'pmk-install-restart'}, [
+                                    t('install.restart-hint'), ' ', h('a', {href: '/plugin-manage.html'}, t('install.goto-manage'))
+                                ]) : null,
+                                result.warnings.length ? h('div', {class: 'pmk-install-list'}, [
+                                    t('install.unmet-deps'), h('ul', result.warnings.map(function (text) { return h('li', {key: text}, text); }))
+                                ]) : null,
+                                disclosure(t('common:plugin-info.diagnostics'), [
+                                    h('p', result.message),
+                                    result.outcome ? h('code', result.outcome) : null,
+                                    (result.errors || []).map(function (text) { return h('p', {key: text}, text); })
+                                ], 'pmk-detail-disclosure')
+                            ])
+                        ]) : null,
+                        h(Content, { model: detail.content }),
+                        h('section', {class: 'pmk-detail-security'}, [
+                            vm.showDetailVerification ? h('div', {class: ['pmk-verification-summary', 'pmk-detail-verification--' + badge.tone]}, [
+                                icon(['fa-solid', badge.icon]), h('span', t(badge.labelKey, badge.status))
                             ]) : null,
-                            h('div', { class: 'pmk-section-text' }, detail.trustLines.map(function (line) {
-                                return h('p', { key: line }, line);
+                            detail.trustSections.reduce(function (notes, section) { return notes.concat(section.paragraphs || []); }, [])
+                                .map(function (text) { return h('p', {class: 'pmk-section-text', key: text}, text); }),
+                            disclosure(t('trust.facts'), [
+                                h('div', {class: 'pmk-trust-grid'}, detail.trustSections.map(function (section) {
+                                    return factSection(Object.assign({}, section, {paragraphs: []}));
+                                })),
+                                factSection({title: t('common:plugin-info.artifact'), fields: detail.artifactFields})
+                            ], 'pmk-detail-disclosure')
+                        ]),
+                        disclosure(t('detail.changelog'), [
+                            detail.versions.length ? h('div', {class: 'pmk-versions'}, detail.versions.map(function (version) {
+                                return h('div', {key: version.version, class: 'pmk-version-row'}, [
+                                    h('div', {class: 'pmk-version-col'}, [
+                                        h('span', {class: 'pmk-version-tag'}, 'v' + version.version),
+                                        version.dateLabel ? h('div', {class: 'pmk-version-date'}, version.dateLabel) : null
+                                    ]),
+                                    version.hasReleaseNotes ? h('button', {class: 'pmk-btn pmk-btn--gray pmk-btn--sm',
+                                        onClick: function () { vm.showReleaseNotes(version.version); }}, t('content.releaseNotes'))
+                                        : version.notes.length ? h('ul', {class: 'pmk-version-notes'}, version.notes.map(function (text, i) { return h('li', {key: i}, text); }))
+                                        : h('p', {class: 'pmk-version-empty'}, t('detail.no-notes'))
+                                ]);
+                            })) : h('p', t('detail.no-versions')),
+                            detail.nextVersionCursor ? h('button', {class: 'pmk-btn pmk-btn--gray', onClick: vm.loadMoreVersions, disabled: vm.detailLoadingMore}, t('pagination.more-versions')) : null
+                        ], 'pmk-detail-disclosure'),
+                        detail.dependencies.length ? h('section', [
+                            h('h3', {class: 'pmk-section-label'}, t('common:plugin-info.dependency-plugins')),
+                            h('ul', detail.dependencies.map(function (dep) { return h('li', {key: dep}, dep); }))
+                        ]) : null,
+                        disclosure(t('detail.information'), [
+                            h('dl', {class: 'pmk-info-panel'}, detail.infoRows.filter(function (row) {
+                                return !['detail.version', 'detail.requires', 'detail.size'].includes(row.key);
+                            }).map(function (row) {
+                                return h('div', {key: row.key, class: 'pmk-info-row'}, [h('dt', t(row.key)),
+                                    h('dd', {class: 'pmk-info-val'}, row.href
+                                        ? h('a', {href: row.href, target: '_blank', rel: 'noopener noreferrer'}, t(row.key)) : row.val)]);
                             })),
-                            h('div', { class: 'pmk-info-panel' }, detail.infoRows.map(function (row) {
-                                return h('div', { key: row.key, class: 'pmk-info-row' }, [h('span', { class: 'pmk-info-key' }, t(row.key, row.key)),
-                                    h('span', { class: ['pmk-info-val', { 'pmk-info-val--mono': row.mono, 'pmk-info-val--danger': row.danger }], title: row.title || null },
-                                        row.href ? [h('a', { href: row.href, target: '_blank', rel: 'noopener noreferrer' }, row.val)] : row.val)]);
-                            })),
-                            detail.tags.length ? h('div', [h('div', { class: 'pmk-section-label' }, t('detail.tags', '标签')),
-                                h('div', { class: 'pmk-tags' }, detail.tags.map(function (tag) { return h('span', { key: tag, class: 'pmk-tag' }, '#' + tag); }))]) : null
-                        ])
+                            h('div', {class: 'pmk-modal-actionbar-stats'}, [
+                                stars(detail.ratingStars), detail.ratingNum ? h('span', detail.ratingNum) : null,
+                                detail.downloadsLabel ? h('span', [icon('fa-solid fa-download'), ' ' + detail.downloadsLabel]) : null
+                            ])
+                        ], 'pmk-detail-disclosure'),
+                        detail.tags.length ? h('div', {class: 'pmk-tags'}, detail.tags.map(function (tag) {
+                            return h('span', {key: tag, class: 'pmk-tag'}, '#' + tag);
+                        })) : null
                     ])
                 ])
             ]);
@@ -278,8 +340,9 @@
 
 
     function component(Vue) {
+        var Content = PMK.content.component(Vue);
         return {
-            render: function () { return renderMarket(Vue, this); },
+            render: function () { return renderMarket(Vue, this, Content); },
             data: function () {
                 return {
                     i18nRev: 0,
@@ -313,6 +376,7 @@
                     selectedDetail: null,
                     selectedVersion: null,
                     selectedFacts: null,
+                    detailToken: 0,
                     detailLoadingMore: false,
                     installing: {},
                     installResults: {},
@@ -474,43 +538,63 @@
                 setCategory: function (id) { this.category = id; },
                 openDetail: function (pluginId) {
                     var self = this;
+                    this.detailReturnFocus = document.activeElement;
+                    var token = ++this.detailToken;
+                    var repository = this.activeCatalogRepositoryId;
                     this.selectedPluginId = pluginId;
                     var entry = this.selectedEntry;
                     this.selectedDetail = entry;
                     this.selectedVersion = PMK.data.defaultVersion(entry);
                     this.selectedFacts = null;
                     document.body.style.overflow = 'hidden';
-                    PMK.api.fetchPluginDetail(this.activeCatalogRepositoryId, pluginId).then(function (detail) {
-                        if (self.selectedPluginId !== pluginId) return;
+                    PMK.api.fetchPluginDetail(repository, pluginId).then(function (detail) {
+                        if (token !== self.detailToken || self.activeCatalogRepositoryId !== repository || self.selectedPluginId !== pluginId) return;
                         self.selectedDetail = detail;
-                        self.selectedVersion = PMK.data.defaultVersion(detail) || self.selectedVersion;
+                        if (!(detail.packages || []).some(function (pkg) { return pkg.version === self.selectedVersion; })) {
+                            var selected = PMK.data.packageOf(detail, PMK.data.defaultVersion(detail));
+                            self.selectedVersion = selected ? selected.version : null;
+                        }
                         self.loadPackageFacts();
                     }).catch(function () {
+                        if (token !== self.detailToken || self.activeCatalogRepositoryId !== repository) return;
                         PMK.toast(self.t('error.detail', '无法加载插件详情，请稍后重试。'), 'error');
                     });
                 },
                 loadPackageFacts: function () {
                     var self = this;
+                    var token = this.detailToken;
                     var repository = this.activeCatalogRepositoryId;
                     var plugin = this.selectedPluginId;
                     var version = this.selectedVersion;
                     this.selectedFacts = null;
                     if (!plugin || !version) return;
                     PMK.api.fetchPackageFacts(repository, plugin, version).then(function (facts) {
-                        if (self.activeCatalogRepositoryId === repository && self.selectedPluginId === plugin
+                        if (token === self.detailToken && self.activeCatalogRepositoryId === repository && self.selectedPluginId === plugin
                             && self.selectedVersion === version) self.selectedFacts = facts;
                     }).catch(function () {
-                        if (self.selectedPluginId === plugin && self.selectedVersion === version)
+                        if (token === self.detailToken && self.activeCatalogRepositoryId === repository && self.selectedPluginId === plugin && self.selectedVersion === version)
                             PMK.toast(self.t('error.detail', '无法加载插件详情，请稍后重试。'), 'error');
+                    });
+                },
+                showReleaseNotes: function (version) {
+                    this.selectedVersion = version;
+                    this.loadPackageFacts();
+                    var self = this;
+                    this.$nextTick(function () {
+                        var section = self.$el.querySelector('[data-content-kind="releaseNotes"]');
+                        if (section) { section.open = true; section.querySelector('summary').focus(); section.scrollIntoView({ block: 'nearest' }); }
                     });
                 },
                 loadMoreVersions: function () {
                     var self = this;
                     var detail = this.selectedDetail;
                     if (!detail || !detail.nextVersionCursor || this.detailLoadingMore) return;
+                    var token = this.detailToken;
+                    var repository = this.activeCatalogRepositoryId;
                     this.detailLoadingMore = true;
-                    PMK.api.fetchPluginDetail(this.activeCatalogRepositoryId, detail.pluginId,
+                    PMK.api.fetchPluginDetail(repository, detail.pluginId,
                         { cursor: detail.nextVersionCursor }).then(function (page) {
+                        if (token !== self.detailToken || self.activeCatalogRepositoryId !== repository) return;
                         if (!self.selectedDetail || page.versionsGeneration !== detail.versionsGeneration) {
                             self.openDetail(detail.pluginId); return;
                         }
@@ -522,17 +606,24 @@
                         }));
                         detail.nextVersionCursor = page.nextVersionCursor;
                     }).catch(function () {
+                        if (token !== self.detailToken || self.activeCatalogRepositoryId !== repository) return;
                         PMK.toast(self.t('error.detail', '无法加载插件详情，请稍后重试。'), 'error');
-                    }).finally(function () { self.detailLoadingMore = false; });
+                    }).finally(function () { if (token === self.detailToken) self.detailLoadingMore = false; });
                 },
                 closeDetail: function () {
+                    this.detailToken++;
+                    this.detailLoadingMore = false;
                     this.selectedPluginId = null;
                     this.selectedDetail = null;
                     this.selectedVersion = null;
                     document.body.style.overflow = '';
+                    var target = this.detailReturnFocus;
+                    this.$nextTick(function () { if (target && target.isConnected) target.focus(); });
                 },
                 onKeydown: function (e) {
-                    if (e.key === 'Escape' && this.selectedPluginId) this.closeDetail();
+                    if (e.key === 'Escape' && this.selectedPluginId && !document.querySelector('.pixiv-feedback-backdrop')) {
+                        e.preventDefault(); this.closeDetail();
+                    }
                 },
                 // 安装态键控：(repositoryId, pluginId) 复合键，使同名插件在不同仓库间互不污染。
                 installKey: function (repositoryId, pluginId) {
@@ -570,9 +661,11 @@
                     if (!repositoryId || !pluginId || !version) return;
                     var key = this.installKey(repositoryId, pluginId);
                     if (this.installing[key]) return;
-                    this.installing[key] = true;
+                    var trigger = document.activeElement;
+                    var focusScope = trigger && trigger.closest && trigger.closest('.pmk-modal, .pmk-card');
+                    this.installing[key] = 'preview';
                     delete this.installResults[key];
-                    PMK.installPluginWithConfirmation(repositoryId, pluginId, version).then(function (res) {
+                    PMK.installPluginWithConfirmation(repositoryId, pluginId, version, function (phase) { self.installing[key] = phase; }, self.catalog && self.catalog.entries).then(function (res) {
                         var model = res.kind === 'install'
                             ? PMK.data.installResult(res.body)
                             : PMK.data.catalogError(res.body, res.httpStatus);
@@ -590,6 +683,12 @@
                     }).then(function () {
                         delete self.installing[key];
                         self.refreshCatalogAfterInstall(repositoryId);
+                        self.$nextTick(function () {
+                            if (!focusScope || !focusScope.isConnected || document.activeElement !== document.body) return;
+                            var target = focusScope.querySelector('.pmk-install:not(:disabled)')
+                                || focusScope.querySelector('.pmk-hero-close, .pmk-card-name');
+                            if (target) target.focus({preventScroll: true});
+                        });
                     });
                 },
                 recordDependencyInstallResults: function (repositoryId, model) {
@@ -643,7 +742,7 @@
                     if (m.author) rows.push({ key: 'detail.author', val: m.author });
                     rows.push({ key: 'detail.category', val: card.categoryLabel });
                     if (pkg) rows.push({ key: 'detail.version', val: 'v' + pkg.version, mono: true });
-                    if (entry.installedVersion) rows.push({ key: 'detail.installed-version', val: 'v' + entry.installedVersion, mono: true });
+                    rows.push({key: 'detail.installed-version', val: entry.installedVersion || this.t('common:plugin-info.not-installed')});
                     if (m.updatedTime) rows.push({ key: 'detail.updated', val: PMK.formatDate(m.updatedTime) });
                     var size = pkg ? PMK.formatSize(pkg.expectedSizeBytes) : null;
                     if (size) rows.push({ key: 'detail.size', val: size, mono: true });
@@ -652,46 +751,50 @@
                     }
                     rows.push({
                         key: 'detail.compatible',
-                        val: (pkg && !pkg.compatible) ? this.t('detail.incompatible', '不兼容') : this.t('detail.compatible-yes', '兼容'),
+                        val: !pkg || typeof pkg.compatible !== 'boolean' ? this.t('common:plugin-info.unknown')
+                            : !pkg.compatible ? this.t('detail.incompatible', '不兼容') : this.t('detail.compatible-yes', '兼容'),
                         danger: !!(pkg && !pkg.compatible)
                     });
                     if (m.license) rows.push({ key: 'detail.license', val: m.license, mono: true });
-                    if (pkg && pkg.sha256) rows.push({ key: 'detail.sha256', val: shorten(pkg.sha256), mono: true, title: pkg.sha256 });
-                    if (pkg && pkg.verification) rows.push({
-                        key: 'detail.verification',
-                        val: this.verificationLabel(pkg.verification),
-                        danger: this.verificationDanger(pkg.verification),
-                        title: pkg.verification.trustLabel || pkg.verification.publisher || pkg.verification.diagnosticCode || null
-                    });
-                    if (m.homepageUrl) rows.push({ key: 'detail.homepage', val: m.homepageUrl, href: m.homepageUrl });
                     rows.push({
                         key: 'detail.effect',
-                        val: (pkg && pkg.effectiveAfterRestart)
+                        val: pkg && pkg.effectiveAfterRestart === true
                             ? this.t('detail.restart-required', '重启后生效')
-                            : this.t('detail.hot-activation', '安装后即时激活')
+                            : this.t('detail.effect-at-install')
                     });
 
-                    var deps = pkg && pkg.dependencies ? pkg.dependencies.slice() : [];
+                    var entries = this.catalog && this.catalog.entries || [];
+                    var deps = (pkg && pkg.dependencies || []).map(function (dependency) {
+                        return PMK.data.dependencyLabel(dependency, entries);
+                    });
                     var versions = (entry.packages || []).map(function (p) {
                         return {
                             version: p.version,
                             dateLabel: p.releasedTime ? PMK.formatDate(p.releasedTime) : '',
                             notes: p.changeNotes || [],
+                            hasReleaseNotes: !!PMK.localeKey(p.content && p.content.releaseNotes, m.defaultLocale),
                             channel: p.channel,
                             deprecated: p.deprecated
                         };
                     });
                     return {
                         pluginId: entry.pluginId,
+                        repositoryId: this.activeCatalogRepositoryId, icon: card.icon,
+                        content: PMK.content.model(this.activeCatalogRepositoryId, entry, pkg),
                         name: card.name, sub: card.sub, iconClass: card.iconClass, colorClass: card.colorClass,
                         categoryLabel: card.categoryLabel, categoryIcon: card.categoryIcon, official: card.official,
                         assuranceLabel: PMK.data.assuranceLabel(pkg && pkg.verification && pkg.verification.assuranceLevel),
                         ratingStars: card.ratingStars, ratingNum: card.ratingNum, downloadsLabel: card.downloadsLabel,
-                        description: PMK.data.entryDescription(entry), tags: card.tags,
+                        description: PMK.data.entryDescription(entry), summary: card.desc, author: m.author, tags: card.tags,
+                        installedVersion: entry.installedVersion, restartRequired: !!(pkg && pkg.effectiveAfterRestart === true),
                         compatibilityNotice: card.compatibilityNotice,
-                        trustLines: global.PixivPluginPresentationTokens.trustLines(
+                        trustSections: global.PixivPluginPresentationTokens.trustSections(
                             this.selectedFacts || (pkg && pkg.verification), PMK.state.i18n.client),
-                        versions: versions, dependencies: deps, infoRows: rows, verificationBadge: verificationBadge
+                        artifactFields: [
+                            {label: 'SHA-256', value: pkg && pkg.sha256 || this.t('common:plugin-info.unknown')},
+                            {label: this.t('common:plugin-info.id'), value: entry.pluginId}
+                        ],
+                        nextVersionCursor: entry.nextVersionCursor, versions: versions, dependencies: deps, infoRows: rows, verificationBadge: verificationBadge
                     };
                 },
                 verificationLabel: function (verification) {
@@ -707,10 +810,6 @@
         };
     }
 
-    function shorten(hash) {
-        if (!hash) return '';
-        return hash.length > 16 ? (hash.slice(0, 12) + '…') : hash;
-    }
 
     // 尝试用 Vue reactive 渲染市场页。Vue 缺失 / 运行时加载失败 / 挂载抛错 → 收敛为 false（init 回退命令式渲染）。
     VUE.tryMount = function (rootEl) {

@@ -50,6 +50,16 @@ function harness(queue = []) {
     return {context, behavior, timers, listeners, calls};
 }
 
+test('恢复已取消的外部执行保留记录且不标为可继续的暂停项', () => {
+    const h = harness();
+    const item = {taskObserved: true, taskPhase: 'CANCELLED', status: 'paused'};
+    assert.equal(h.context.restoreInterruptedQueueItem(item), false);
+    assert.equal(item.status, 'cancelled');
+    const local = {taskPhase: 'CANCELLED', status: 'paused'};
+    h.context.restoreInterruptedQueueItem(local);
+    assert.equal(local.status, 'paused');
+});
+
 test('recovery help keeps disclosure and focus while pending actions remain visible', () => {
     const h = harness([]);
     const document = {activeElement: null};

@@ -7,6 +7,8 @@ import top.sywyar.pixivdownload.plugin.market.presentation.PluginCatalogCategory
 
 import java.util.List;
 import java.util.Map;
+import top.sywyar.pixivdownload.sdk.community.content.MarketImage;
+import top.sywyar.pixivdownload.sdk.community.content.MarketLink;
 
 /**
  * 市场视图中一个条目的<b>市场展示元数据</b>投影（纯展示 / 检索 / 排序，<b>不</b>参与安全决策）。在 DTO 边界对受控字段做
@@ -58,13 +60,32 @@ public record PluginMarketMetaView(
         String colorToken,
         boolean recommended,
         boolean officialRequired,
-        boolean defaultInstalled) {
+        boolean defaultInstalled,
+        String defaultLocale,
+        MarketImage icon,
+        List<MarketImage> screenshots,
+        List<MarketLink> links) {
 
     public PluginMarketMetaView {
         displayName = displayName != null ? Map.copyOf(displayName) : Map.of();
         summary = summary != null ? Map.copyOf(summary) : Map.of();
         description = description != null ? Map.copyOf(description) : Map.of();
         tags = tags != null ? List.copyOf(tags) : List.of();
+        screenshots = screenshots != null ? List.copyOf(screenshots) : List.of();
+        if (links != null) {
+            try { MarketLink.validate(links); links = List.copyOf(links); }
+            catch (RuntimeException invalid) { links = List.of(); }
+        }
+    }
+
+    public PluginMarketMetaView(Map<String, String> displayName, Map<String, String> summary,
+            Map<String, String> description, String author, String sourceType, String category, List<String> tags,
+            String homepageUrl, String license, Double rating, Integer ratingCount, Long downloadCount,
+            Long previousDownloadCount, Long totalDownloadCount, String latestVersion, String updatedTime,
+            String iconToken, String colorToken, boolean recommended, boolean officialRequired, boolean defaultInstalled) {
+        this(displayName, summary, description, author, sourceType, category, tags, homepageUrl, license, rating,
+                ratingCount, downloadCount, previousDownloadCount, totalDownloadCount, latestVersion, updatedTime,
+                iconToken, colorToken, recommended, officialRequired, defaultInstalled, null, null, List.of(), null);
     }
 
     /** 把原始市场元数据投影为净化后的视图（分类 / token / 外链均经消费方净化）。 */
@@ -93,6 +114,10 @@ public record PluginMarketMetaView(
                 CatalogPresentationToken.sanitizeColor(meta.colorToken()),
                 meta.recommended(),
                 meta.officialRequired(),
-                meta.defaultInstalled());
+                meta.defaultInstalled(),
+                meta.defaultLocale(),
+                meta.icon(),
+                meta.screenshots(),
+                meta.links());
     }
 }

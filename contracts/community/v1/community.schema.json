@@ -3,72 +3,181 @@
   "$id": "urn:pixivdownloader:community:v1",
   "$defs": {
     "emergencyState": {
-      "type": "object", "additionalProperties": false,
-      "required": ["schemaVersion", "repositoryId", "kind"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "repositoryId",
+        "kind"
+      ],
       "properties": {
-        "schemaVersion": { "const": 1 },
-        "repositoryId": { "$ref": "#/$defs/id" },
-        "kind": { "const": "community-emergency-state" }
+        "schemaVersion": {
+          "const": 1
+        },
+        "repositoryId": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "const": "community-emergency-state"
+        }
       }
     },
     "emergencyKey": {
-      "type": "object", "additionalProperties": false,
-      "required": ["keyId", "fingerprint"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "keyId",
+        "fingerprint"
+      ],
       "properties": {
-        "keyId": { "$ref": "#/$defs/keyId" },
-        "fingerprint": { "$ref": "#/$defs/sha256" }
+        "keyId": {
+          "$ref": "#/$defs/keyId"
+        },
+        "fingerprint": {
+          "$ref": "#/$defs/sha256"
+        }
       }
     },
     "emergencyRequest": {
-      "type": "object", "additionalProperties": false,
-      "required": ["schemaVersion", "payload", "requestId"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "payload",
+        "requestId"
+      ],
       "properties": {
-        "schemaVersion": { "const": 1 },
-        "requestId": { "$ref": "#/$defs/sha256" },
+        "schemaVersion": {
+          "const": 1
+        },
+        "requestId": {
+          "$ref": "#/$defs/sha256"
+        },
         "payload": {
-          "type": "object", "additionalProperties": false,
-          "required": ["operation", "owner", "publisherRecordSha256", "keys"],
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "operation",
+            "owner",
+            "publisherRecordSha256",
+            "keys"
+          ],
           "properties": {
-            "operation": { "const": "DECLARE_KEY_COMPROMISE" },
-            "owner": { "$ref": "#/$defs/owner" },
-            "publisherRecordSha256": { "$ref": "#/$defs/sha256" },
-            "keys": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/emergencyKey" } }
+            "operation": {
+              "const": "DECLARE_KEY_COMPROMISE"
+            },
+            "owner": {
+              "$ref": "#/$defs/owner"
+            },
+            "publisherRecordSha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "keys": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/emergencyKey"
+              }
+            }
           }
         }
       }
     },
     "emergencyKeyBlock": {
-      "type": "object", "additionalProperties": false,
-      "required": ["schemaVersion", "owner", "key", "requestRef", "pr"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "owner",
+        "key",
+        "requestRef",
+        "pr"
+      ],
       "properties": {
-        "schemaVersion": { "const": 1 },
-        "owner": { "$ref": "#/$defs/owner" },
-        "key": { "$ref": "#/$defs/emergencyKey" },
-        "requestRef": { "$ref": "#/$defs/reference" },
-        "pr": { "$ref": "#/$defs/pr" }
+        "schemaVersion": {
+          "const": 1
+        },
+        "owner": {
+          "$ref": "#/$defs/owner"
+        },
+        "key": {
+          "$ref": "#/$defs/emergencyKey"
+        },
+        "requestRef": {
+          "$ref": "#/$defs/reference"
+        },
+        "pr": {
+          "$ref": "#/$defs/pr"
+        }
       }
     },
     "sourceCandidate": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schemaVersion", "repositoryId", "repository", "sourceCommit", "runId", "runAttempt", "buildProfile", "pluginId", "version", "artifact"],
+      "required": [
+        "schemaVersion",
+        "repositoryId",
+        "repository",
+        "sourceCommit",
+        "runId",
+        "runAttempt",
+        "buildProfile",
+        "pluginId",
+        "version",
+        "artifact"
+      ],
       "properties": {
-        "schemaVersion": { "const": 1 },
-        "repositoryId": { "$ref": "#/$defs/id" },
-        "repository": { "type": "string", "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$" },
-        "sourceCommit": { "$ref": "#/$defs/commit" },
-        "runId": { "$ref": "#/$defs/id" },
-        "runAttempt": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
-        "buildProfile": { "$ref": "#/$defs/buildProfile" },
-        "pluginId": { "$ref": "#/$defs/pluginId" },
-        "version": { "$ref": "#/$defs/version" },
+        "schemaVersion": {
+          "const": 1
+        },
+        "repositoryId": {
+          "$ref": "#/$defs/id"
+        },
+        "repository": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$"
+        },
+        "sourceCommit": {
+          "$ref": "#/$defs/commit"
+        },
+        "runId": {
+          "$ref": "#/$defs/id"
+        },
+        "runAttempt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "buildProfile": {
+          "$ref": "#/$defs/buildProfile"
+        },
+        "pluginId": {
+          "$ref": "#/$defs/pluginId"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
         "artifact": {
-          "type": "object", "additionalProperties": false,
-          "required": ["file", "size", "sha256"],
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "file",
+            "size",
+            "sha256"
+          ],
           "properties": {
-            "file": { "type": "string", "pattern": "^pixivdownload-plugin-[A-Za-z0-9._+-]+\\.(jar|zip)$" },
-            "size": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
-            "sha256": { "$ref": "#/$defs/sha256" }
+            "file": {
+              "type": "string",
+              "pattern": "^pixivdownload-plugin-[A-Za-z0-9._+-]+\\.(jar|zip)$"
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "sha256": {
+              "$ref": "#/$defs/sha256"
+            }
           }
         }
       }
@@ -514,6 +623,18 @@
       ],
       "additionalProperties": false
     },
+    "marketPublication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["defaultLocale", "screenshots"],
+      "properties": {
+        "defaultLocale": { "$ref": "#/$defs/market/properties/defaultLocale" },
+        "links": { "$ref": "#/$defs/market/properties/links" },
+        "icon": { "$ref": "#/$defs/imageInput" },
+        "screenshots": { "$ref": "#/$defs/market/properties/screenshots" },
+        "content": { "$ref": "#/$defs/marketContent" }
+      }
+    },
     "imageInput": {
       "type": "object",
       "properties": {
@@ -531,6 +652,9 @@
             "minLength": 1,
             "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]*(?![\\s\\S])"
           }
+        },
+        "asset": {
+          "$ref": "#/$defs/contentAsset"
         }
       },
       "required": [
@@ -607,6 +731,13 @@
             "$ref": "#/$defs/imageInput"
           },
           "maxItems": 6
+        },
+        "links": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/marketLink"
+          }
         }
       },
       "required": [
@@ -648,6 +779,9 @@
         },
         "market": {
           "$ref": "#/$defs/market"
+        },
+        "content": {
+          "$ref": "#/$defs/marketContent"
         }
       },
       "required": [
@@ -1781,7 +1915,10 @@
           }
         },
         "result": {
-          "enum": ["APPLIED", "PREPARED"]
+          "enum": [
+            "APPLIED",
+            "PREPARED"
+          ]
         },
         "appliedAt": {
           "$ref": "#/$defs/utc"
@@ -1813,17 +1950,43 @@
         "appliedAt",
         "relatedRecords"
       ],
-      "allOf": [{
-        "if": { "required": ["authorization"] },
-        "then": {
-          "properties": {
-            "action": { "enum": ["YANK", "UNYANK", "REVOKE", "PUBLISHER_KEY_ROTATION", "OWNERSHIP_TRANSFER"] },
-            "reviewerAccountIds": { "maxItems": 0 }
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "authorization"
+            ]
           },
-          "not": { "required": ["recoveryEvidence"] }
-        },
-        "else": { "properties": { "reviewerAccountIds": { "minItems": 1 } } }
-      }],
+          "then": {
+            "properties": {
+              "action": {
+                "enum": [
+                  "YANK",
+                  "UNYANK",
+                  "REVOKE",
+                  "PUBLISHER_KEY_ROTATION",
+                  "OWNERSHIP_TRANSFER"
+                ]
+              },
+              "reviewerAccountIds": {
+                "maxItems": 0
+              }
+            },
+            "not": {
+              "required": [
+                "recoveryEvidence"
+              ]
+            }
+          },
+          "else": {
+            "properties": {
+              "reviewerAccountIds": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ],
       "additionalProperties": false
     },
     "decision": {
@@ -3011,6 +3174,160 @@
         "nextUpdate",
         "entries"
       ],
+      "additionalProperties": false
+    },
+    "marketLink": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "repository",
+            "documentation",
+            "issues",
+            "custom"
+          ]
+        },
+        "url": {
+          "$ref": "#/$defs/url"
+        },
+        "label": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 16,
+          "propertyNames": {
+            "$ref": "#/$defs/machine"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]*(?![\\s\\S])"
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "url"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "custom"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "label"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "label"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "contentAsset": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "url": {
+          "$ref": "#/$defs/url"
+        },
+        "mediaType": {
+          "enum": [
+            "text/markdown",
+            "text/html",
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ]
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2097152
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": [
+        "name",
+        "url",
+        "mediaType",
+        "size",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "contentDocument": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "enum": [
+            "markdown",
+            "html"
+          ]
+        },
+        "asset": {
+          "$ref": "#/$defs/contentAsset"
+        },
+        "sourcePath": {
+          "$ref": "#/$defs/path"
+        },
+        "sourceUrl": {
+          "$ref": "#/$defs/url"
+        },
+        "resources": {
+          "type": "object",
+          "maxProperties": 32,
+          "additionalProperties": {
+            "$ref": "#/$defs/contentAsset"
+          }
+        }
+      },
+      "required": [
+        "format",
+        "asset"
+      ],
+      "additionalProperties": false
+    },
+    "localizedDocuments": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 16,
+      "propertyNames": {
+        "$ref": "#/$defs/machine"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/contentDocument"
+      }
+    },
+    "marketContent": {
+      "type": "object",
+      "properties": {
+        "readme": {
+          "$ref": "#/$defs/localizedDocuments"
+        },
+        "changelog": {
+          "$ref": "#/$defs/localizedDocuments"
+        },
+        "releaseNotes": {
+          "$ref": "#/$defs/localizedDocuments"
+        }
+      },
+      "required": [],
       "additionalProperties": false
     }
   }

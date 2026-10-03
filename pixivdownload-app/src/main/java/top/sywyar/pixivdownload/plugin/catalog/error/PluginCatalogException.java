@@ -36,6 +36,11 @@ public class PluginCatalogException extends RuntimeException {
         this(code, null, null, detail);
     }
 
+    public PluginCatalogException(PluginCatalogErrorCode code, String detail, Throwable cause) {
+        this(code, detail);
+        initCause(cause);
+    }
+
     /** 稳定机器码。 */
     public PluginCatalogErrorCode code() {
         return code;

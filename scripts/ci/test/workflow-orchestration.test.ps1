@@ -39,6 +39,53 @@ $fixture = Join-Path $tempBase ('pixiv-workflow-test-' + [Guid]::NewGuid().ToStr
 [IO.Directory]::CreateDirectory($fixture) | Out-Null
 try {
     & {
+        if (-not (Test-Path -LiteralPath (Join-Path $repo 'node_modules/yaml/package.json') -PathType Leaf)) {
+            Push-Location $repo
+            try {
+                & npm ci --ignore-scripts --no-audit --no-fund
+                if ($LASTEXITCODE -ne 0) { throw 'Could not install locked orchestration test dependencies.' }
+            } finally { Pop-Location }
+        }
+        $reader = Join-Path $fixture 'read-action.cjs'
+        [IO.File]::WriteAllText($reader, @'
+const fs = require('node:fs');
+const path = require('node:path');
+const yaml = require(path.join(process.argv[2], 'node_modules/yaml'));
+const action = yaml.parse(fs.readFileSync(path.join(process.argv[2], '.github/actions/stage-release-plugins/action.yml'), 'utf8'));
+process.stdout.write(action.runs.steps.find(step => step.run).run);
+'@, [Text.UTF8Encoding]::new($false))
+        $source = (& node $reader $repo) -join "`n"
+        if ($LASTEXITCODE -ne 0) { throw 'Could not read actual catalog staging action.' }
+        $stageRoot = Join-Path $fixture 'catalog-stage'
+        [IO.Directory]::CreateDirectory((Join-Path $stageRoot 'scripts')) | Out-Null
+        [IO.File]::WriteAllText((Join-Path $stageRoot 'scripts/stage-official-plugin-inputs-from-catalog.ps1'), @'
+param($OutputDir, $SignatureToolJar, $IncludeOptional, $RequireProguard, $ManifestUrl)
+[IO.File]::WriteAllText((Join-Path (Get-Location) 'observed-url.txt'), $ManifestUrl)
+if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/packaging validation.' }
+'@, [Text.UTF8Encoding]::new($false))
+        function Get-ChildItem { return [pscustomobject]@{ Name='signature.jar'; FullName='fixture-signature.jar'; LastWriteTime=[DateTime]::UtcNow } }
+        $originalCommit = $env:PLUGIN_MANIFEST_COMMIT
+        $originalName = $env:MANIFEST_NAME
+        Push-Location $stageRoot
+        try {
+            $env:PLUGIN_MANIFEST_COMMIT = 'a' * 40
+            foreach ($name in @('manifest.json', 'nightly-manifest.json')) {
+                $env:MANIFEST_NAME = $name
+                & ([scriptblock]::Create($source))
+                Assert-Equal ([IO.File]::ReadAllText((Join-Path $stageRoot 'observed-url.txt'))) "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/$env:PLUGIN_MANIFEST_COMMIT/$name"
+            }
+            $env:PLUGIN_MANIFEST_COMMIT = 'master'
+            Assert-Rejected { & ([scriptblock]::Create($source)) } 'Invalid plugin manifest commit'
+            $env:PLUGIN_MANIFEST_COMMIT = 'a' * 40
+            $env:MANIFEST_NAME = '../manifest.json'
+            Assert-Rejected { & ([scriptblock]::Create($source)) } 'Invalid plugin manifest filename'
+        } finally {
+            Pop-Location
+            $env:PLUGIN_MANIFEST_COMMIT = $originalCommit
+            $env:MANIFEST_NAME = $originalName
+        }
+    }
+    & {
         $commands = @(Get-Content (Join-Path $repo '.github/workflows/quality-gate.yml') |
             Where-Object { $_ -match '^\s+run: mvn\b.*-Pofficial-surveys' })
         Assert-Equal $commands.Count 1
@@ -124,6 +171,10 @@ try {
     & {
         $program = Read-Program (Join-Path $repo 'scripts/publish-plugin-releases.ps1')
         foreach ($definition in $program.Functions) { . ([scriptblock]::Create($definition.Extent.Text)) }
+        . (Join-Path $repo 'scripts/market-content-publication.ps1')
+        $toolDirectory = Join-Path $fixture 'pixivdownload-sdk-tools/target'
+        [IO.Directory]::CreateDirectory($toolDirectory) | Out-Null
+        $toolJar = Join-Path $toolDirectory 'pixivdownload-sdk-tools-fixture.jar'
         $script:builds = [Collections.Generic.List[object]]::new()
         $script:writes = [Collections.Generic.List[string]]::new()
         $script:buildExit = 0
@@ -138,8 +189,12 @@ try {
         function Get-PixivDownloadSdkVersion { return '1.0.0' }
         function Get-OfficialDistributionPlugins { param([switch]$IncludeOptional) return $plugins }
         function Get-MavenCommand { return 'Invoke-FakeMaven' }
+        function Get-MarketSourceCommit { return ('c' * 40) }
         function Invoke-FakeMaven {
             $script:builds.Add(@($args))
+            if ($script:buildExit -eq 0 -and ($args -join ',') -match 'pixivdownload-sdk-tools') {
+                [IO.File]::WriteAllText($toolJar, 'tool fixture')
+            }
             $global:LASTEXITCODE = $script:buildExit
         }
         function Find-ModulePluginArtifact { param($Plugin) return (Join-Path $fixture "$($Plugin.Module)/src/main/resources/plugin.properties") }
@@ -156,16 +211,38 @@ try {
             param($StagedArtifact)
             return @{Sha='fixture'; ShaFile="$StagedArtifact.sha256"; SigFile="$StagedArtifact.sig"}
         }
+        function New-OfficialMarketContent {
+            $null = Resolve-MarketContentTool $fixture
+            if ($script:existing -and $script:contentMode -and $args[6] -cne ('d' * 40)) {
+                throw 'A release retry must retain the original frozen source commit.'
+            }
+            if ($script:contentMode) { return @((Join-Path $fixture 'market-content.json'), (Join-Path $fixture 'content-doc.md')) }
+            return @()
+        }
+        function Get-OfficialMarketContentHash { return ($(if ($script:contentMode -eq 'conflict') { 'b' } else { 'a' }) * 64) }
+        function Read-OfficialMarketContent {
+            $null = Resolve-MarketContentTool $fixture
+            if ($script:contentMode -eq 'readback-failure') { throw 'Public market content readback failed.' }
+            $script:readbacks++
+            return $null
+        }
+        function Download-ReleaseAsset { return (Join-Path $fixture 'input') }
         function gh {
             $global:LASTEXITCODE = 0
             if ($args[1] -eq 'view') {
                 if (-not $script:existing) { $global:LASTEXITCODE = 1; return 'release not found' }
                 $id = $args[2] -replace '-v.*$', ''
-                return (@{assets=@(@{name="$id-1.0.0.jar"}, @{name="$id-1.0.0.jar.sha256"}, @{name="$id-1.0.0.jar.sig"})} | ConvertTo-Json -Compress)
+                $assets = @(@{name="$id-1.0.0.jar"}, @{name="$id-1.0.0.jar.sha256"}, @{name="$id-1.0.0.jar.sig"})
+                if ($script:contentMode -eq 'complete') { $assets += @(@{name='market-content.json'}, @{name='content-doc.md'}) }
+                return (@{body=$(if ($script:contentMode) { 'market-content-sha256=' + ('a' * 64) + ' market-source-commit=' + ('d' * 40) } else { '' });
+                    assets=$assets} | ConvertTo-Json -Compress)
             }
-            $script:writes.Add(($args -join ' '))
+            $script:writes.Add((@($args | ForEach-Object { $_ }) -join ' '))
         }
         foreach ($mode in @('nightly', 'force', 'stable', 'skip', 'failure', 'prebuilt')) {
+            if (Test-Path -LiteralPath $toolJar) { Remove-Item -LiteralPath $toolJar }
+            if ($mode -eq 'prebuilt') { [IO.File]::WriteAllText($toolJar, 'prebuilt fixture') }
+            $script:contentMode = ''; $script:readbacks = 0
             $script:builds.Clear(); $script:writes.Clear()
             $script:requiredSdkValues.Clear()
             $script:existing = $mode -eq 'skip'
@@ -179,19 +256,55 @@ try {
                 Assert-Equal $script:writes.Count 0
             } else {
                 & $program.Main @parameters
-                Assert-Equal $script:builds.Count $(if ($mode -in @('skip', 'prebuilt')) { 0 } elseif ($mode -eq 'stable') { 2 } else { 1 })
+                Assert-Equal $script:builds.Count $(if ($mode -eq 'prebuilt') { 0 } elseif ($mode -eq 'stable') { 3 } else { 1 })
                 Assert-Equal $script:writes.Count $(if ($mode -eq 'skip') { 0 } elseif ($mode -in @('nightly', 'prebuilt')) { 2 } else { 4 })
                 if ($mode -in @('nightly', 'prebuilt')) {
                     Assert-Equal $script:requiredSdkValues @('1.0.0-nightly.20260909.1.1', '1.0.0-nightly.20260909.1.1')
                 }
                 if ($mode -in @('nightly', 'force')) {
-                    Assert-Equal $script:builds[0] @('-Pofficial-surveys', '-pl', 'first,second', '-am', 'verify', '-DskipTests')
+                    Assert-Equal $script:builds[0] @('-Pofficial-surveys', '-pl', 'first,second,pixivdownload-sdk-tools', '-am', 'verify', '-DskipTests')
                 }
             }
         }
+        foreach ($mode in @('resume', 'complete', 'conflict', 'readback-failure')) {
+            $script:contentMode = $mode; $script:existing = $true; $script:readbacks = 0
+            $script:builds.Clear(); $script:writes.Clear()
+            $parameters = @{ProjectRoot=$fixture; OfficialKeyId='fixture'; PrivateKeyFile=(Join-Path $fixture 'input')}
+            if ($mode -in @('resume', 'complete')) { Remove-Item -LiteralPath $toolJar }
+            else { $parameters.UsePrebuiltArtifacts = $true }
+            if ($mode -eq 'conflict') {
+                Assert-Rejected { & $program.Main @parameters } 'Market content changed'
+                Assert-Equal $script:writes.Count 0
+            } elseif ($mode -eq 'readback-failure') {
+                Assert-Rejected { & $program.Main @parameters } 'readback failed'
+                Assert-Equal $script:writes.Count 1
+            } else {
+                & $program.Main @parameters
+                Assert-Equal $script:writes.Count $(if ($mode -eq 'complete') { 0 } else { 2 })
+                Assert-Equal $script:readbacks 2
+                foreach ($write in $script:writes) {
+                    if ($write -notmatch 'release upload.*market-content.json.*content-doc.md' -or $write -match 'delete-asset|--clobber') {
+                        throw 'Content recovery must upload only missing immutable assets.'
+                    }
+                }
+            }
+            Assert-Equal $script:builds.Count $(if ($mode -in @('resume', 'complete')) { 1 } else { 0 })
+            if ($script:builds.Count) {
+                Assert-Equal $script:builds[0] @('-Pofficial-surveys', '-pl', 'pixivdownload-sdk-tools', '-am', 'verify', '-DskipTests')
+            }
+        }
+        Remove-Item -LiteralPath $toolJar
+        $script:builds.Clear(); $script:writes.Clear()
+        $parameters.UsePrebuiltArtifacts = $true
+        Assert-Rejected { & $program.Main @parameters } 'Expected one verified SDK tools JAR'
+        [IO.File]::WriteAllText($toolJar, '')
+        Assert-Rejected { & $program.Main @parameters } 'Expected one verified SDK tools JAR'
+        Assert-Equal $script:builds.Count 0
+        Assert-Equal $script:writes.Count 0
     }
     & {
         . (Join-Path $repo 'scripts/plugin-distribution-common.ps1')
+        . (Join-Path $repo 'scripts/market-content-publication.ps1')
         $program = Read-Program (Join-Path $repo 'scripts/generate-market-manifest.ps1')
         foreach ($definition in $program.Functions) { . ([scriptblock]::Create($definition.Extent.Text)) }
         $fixtureUtf8 = New-Object System.Text.UTF8Encoding($false)

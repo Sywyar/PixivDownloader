@@ -7,6 +7,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.common.NetworkUtils;
+import top.sywyar.pixivdownload.config.DevelopmentBuildInfo;
+import top.sywyar.pixivdownload.sdk.SdkVersion;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.WebI18nService;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService;
@@ -74,14 +76,21 @@ public class GuiPluginController {
                 locale,
                 report.plugins()
         );
+        var development = DevelopmentBuildInfo.current();
         List<GuiPluginEntry> plugins = report.plugins().stream()
-                .map(entry -> toEntry(entry, resolver))
+                .map(entry -> toEntry(entry, resolver, development))
                 .toList();
         return ResponseEntity.ok(new GuiPluginStatusResponse(
-                report.recoveryMode(), Instant.now().toString(), plugins));
+                report.recoveryMode(), Instant.now().toString(), plugins,
+                development == null ? SdkVersion.current() : development.displayVersion(SdkVersion.current()),
+                development));
     }
 
-    private static GuiPluginEntry toEntry(PluginManagementEntry entry, DisplayNameResolver resolver) {
+    private static GuiPluginEntry toEntry(
+            PluginManagementEntry entry,
+            DisplayNameResolver resolver,
+            DevelopmentBuildInfo.Snapshot development
+    ) {
         return new GuiPluginEntry(
                 entry.id(),
                 resolver.resolve(entry.displayNamespace(), entry.displayNameKey(), entry.id()),
@@ -94,6 +103,10 @@ public class GuiPluginController {
                 entry.managed(),
                 entry.requiredByPolicy(),
                 entry.version(),
+                entry.sdkRequirement(),
+                development != null && (entry.trust().state() == PluginManagementService.PluginTrustState.DEVELOPMENT
+                        || entry.trust().state() == PluginManagementService.PluginTrustState.BUILT_IN)
+                        ? development.displayVersion(entry.version()) : entry.version(),
                 entry.verification());
     }
 
@@ -145,9 +158,13 @@ public class GuiPluginController {
      * @param recoveryMode 核心壳当前是否处于恢复模式（存在未满足的必选插件）
      * @param observedAt   本次状态快照的观测时间
      * @param plugins      各插件状态条目
+     * @param sdkVersion   当前宿主 SDK 的显示版本
+     * @param development  仅开发模式返回的启动目录与源码身份
      */
     public record GuiPluginStatusResponse(boolean recoveryMode, String observedAt,
-                                          List<GuiPluginEntry> plugins) {
+                                          List<GuiPluginEntry> plugins,
+                                          String sdkVersion,
+                                          DevelopmentBuildInfo.Snapshot development) {
     }
 
     /**
@@ -164,6 +181,8 @@ public class GuiPluginController {
      * @param managed      是否受运行期生命周期管理
      * @param required     是否被必选策略声明为必选
      * @param version      插件版本（未安装的必选项为 {@code null}）
+     * @param sdkRequirement 插件声明的最低 SDK 要求
+     * @param displayVersion 插件显示版本，开发源码附带启动身份
      * @param verification 验签状态投影
      */
     public record GuiPluginEntry(
@@ -178,6 +197,8 @@ public class GuiPluginController {
             boolean managed,
             boolean required,
             String version,
+            PluginManagementService.SdkRequirementView sdkRequirement,
+            String displayVersion,
             PluginVerificationView verification) {
     }
 }

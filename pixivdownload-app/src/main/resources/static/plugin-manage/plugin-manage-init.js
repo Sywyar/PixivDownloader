@@ -318,14 +318,13 @@
 
         var modal = document.getElementById('pm-install-modal');
         modal.addEventListener('click', function (e) {
-            if (e.target.closest('[data-pm-install-dismiss]')) {
+            if (e.target === modal || e.target.closest('[data-pm-install-dismiss]')) {
                 PM.closeInstallModal();
             }
         });
-        document.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape' && !modal.hidden) {
-                PM.closeInstallModal();
-            }
+        modal.addEventListener('cancel', function (event) {
+            event.preventDefault();
+            PM.closeInstallModal();
         });
     }
 
@@ -357,6 +356,13 @@
             PM.renderAll();
         });
 
+        var detailModal = document.getElementById('pm-detail-modal');
+        detailModal.addEventListener('cancel', function (event) { event.preventDefault(); event.stopPropagation(); PM.closeDetail(); });
+        detailModal.addEventListener('click', function (event) {
+            if (event.target === detailModal || event.target.closest('[data-pm-detail-dismiss]')) PM.closeDetail();
+            var refresh = event.target.closest('[data-pm-revocations]');
+            if (refresh) onRevocationRefresh(refresh.getAttribute('data-pm-revocations'), refresh);
+        });
         var grid = document.getElementById('pm-grid');
 
         function closeActionMenus() {
@@ -369,7 +375,23 @@
             });
         }
 
+        grid.addEventListener('keydown', function (event) {
+            var menu = grid.querySelector('.pm-action-menu.open');
+            if (!menu) return;
+            var toggle = menu.closest('.pm-action-menu-wrap').querySelector('[data-pm-action-menu-toggle]');
+            if (event.key === 'Escape') {
+                event.preventDefault(); event.stopPropagation(); closeActionMenus(); toggle.focus();
+            } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                var items = Array.from(menu.querySelectorAll('button:not(:disabled)'));
+                var current = items.indexOf(document.activeElement);
+                var next = (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+                if (items[next]) items[next].focus();
+            }
+        });
         grid.addEventListener('click', function (e) {
+            var details = e.target.closest('[data-pm-details]');
+            if (details) { closeActionMenus(); PM.openDetail(details.getAttribute('data-pm-details')); return; }
             var repair = e.target.closest('[data-pm-repair]');
             if (repair && !repair.disabled && !PM.state.installBusy) {
                 PM.openInstallModal();
@@ -407,6 +429,10 @@
                 var card = menuToggle.closest('.pm-card');
                 if (card) card.classList.toggle('has-open-menu', opening);
                 menuToggle.setAttribute('aria-expanded', opening ? 'true' : 'false');
+                if (opening) {
+                    var anchor = menuToggle.getBoundingClientRect();
+                    menu.classList.toggle('pm-action-menu--above', anchor.bottom + menu.offsetHeight + 8 > window.innerHeight);
+                }
                 return;
             }
         });

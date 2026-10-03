@@ -12,7 +12,17 @@
 
     D.entryName = function (entry) {
         var m = market(entry);
-        return PMK.localeText(m && m.displayName, entry.pluginId) || entry.pluginId;
+        return PMK.localeText(m && m.displayName, entry.pluginId, m && m.defaultLocale) || entry.pluginId;
+    };
+    D.pluginLabel = function (id, entries) {
+        var entry = (entries || []).find(function (item) { return item.pluginId === id; });
+        return global.PixivPluginPresentationTokens.pluginLabel(id, entry && D.entryName(entry));
+    };
+    D.dependencyLabel = function (dependency, entries) {
+        var parts = /^([^?@]+)(\?)?(?:@(.*))?$/.exec(dependency);
+        if (!parts) return dependency;
+        return D.pluginLabel(parts[1], entries) + (parts[3] ? ' · ' + parts[3] : '')
+            + (parts[2] ? ' · ' + PMK.t('common:plugin-info.optional-dependency') : '');
     };
     D.entryAuthor = function (entry) {
         var m = market(entry);
@@ -20,12 +30,12 @@
     };
     D.entrySummary = function (entry) {
         var m = market(entry);
-        return m ? PMK.localeText(m.summary, '') : '';
+        return m ? PMK.localeText(m.summary, '', m.defaultLocale) : '';
     };
     D.entryDescription = function (entry) {
         var m = market(entry);
         if (!m) return '';
-        return PMK.localeText(m.description, '') || PMK.localeText(m.summary, '');
+        return PMK.localeText(m.description, '', m.defaultLocale) || PMK.localeText(m.summary, '', m.defaultLocale);
     };
     D.entryCategory = function (entry) {
         var m = market(entry);
@@ -134,6 +144,7 @@
             publisher: verification && verification.publisher ? verification.publisher : author,
             sub: [entry.pluginId, author].filter(Boolean).join(' · '),
             iconClass: PMK.iconClass(m.iconToken),
+            icon: m.icon || null,
             colorClass: PMK.colorClass(m.colorToken),
             category: category,
             categoryLabel: PMK.categoryLabel(category),
@@ -331,6 +342,7 @@
     // toast 同样由两条渲染路径共用；恢复阻断直接保留后端本地化 message，并优先于 activated / accepted。
     D.installFeedback = function (result) {
         var r = result || {};
+        if (r.outcome === 'CANCELLED') return {message: PMK.t('install.preview.cancelled'), tone: 'info'};
         if (r.recoveryBlocked) {
             return {
                 message: r.message || PMK.t('install.toast.recovery-blocked', '安装事务需要在重启后恢复。'),
@@ -355,11 +367,11 @@
     // 后端 catalog 错误响应（{code, message, ...}）→ 结果区可渲染的本地化提示（按稳定 code 选 i18n 文案，回退后端 message）。
     D.catalogError = function (body, httpStatus) {
         var code = body && body.code ? body.code : null;
-        var message = code ? PMK.t('error.code.' + code, (body && body.error) || code)
-            : ((body && body.error) || PMK.t('error.install.generic', '安装请求失败，请重试。'));
+        var message = code ? PMK.t('error.code.' + code, (body && (body.message || body.error)) || code)
+            : ((body && (body.message || body.error)) || PMK.t('error.install.generic', '安装请求失败，请重试。'));
         return {
             outcome: code, accepted: false, recoveryBlocked: false, effectiveAfterRestart: false,
-            activated: false, rolledBack: false, tone: 'bad',
+            activated: false, rolledBack: false, tone: code === 'CANCELLED' ? 'info' : 'bad',
             message: message, pluginId: body && body.pluginId, version: body && body.version,
             previousVersion: null, packageId: null, targetVersion: null, operation: null,
             runtimePhase: null, updated: false, errors: [], warnings: [],

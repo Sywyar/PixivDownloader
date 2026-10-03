@@ -23,6 +23,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
+function dialogText(options) { return options.message + JSON.stringify(options.sections || []); }
 
 const STATIC_ROOT = path.join(__dirname, '..', '..', 'main', 'resources', 'static');
 const STATIC = path.join(STATIC_ROOT, 'plugin-manage');
@@ -184,8 +185,8 @@ function vmOf(entry) {
         publisher: 'Demo Publisher', publisherKeyFingerprint: fingerprint,
         artifactSha256: artifactSha256, executionMode: 'HOST_PROCESS_FULL_TRUST', hostElevated: true
     });
-    ok('重新批准提示显示后端发布者、摘要和完全访问模式', options.message.includes('Demo Publisher')
-        && options.message.includes(artifactSha256) && options.message.includes('宿主进程完全信任'));
+    ok('重新批准提示显示后端发布者、摘要和完全访问模式', dialogText(options).includes('Demo Publisher')
+        && dialogText(options).includes(artifactSha256) && dialogText(options).includes('HOST_PROCESS_FULL_TRUST'));
     ok('签名包提示不追加未签名警告', !options.message.includes('没有发布者签名'));
     ok('高权限宿主提示 full-trust 插件继承同等权限', options.message.includes('将继承同等权限'));
 
@@ -201,7 +202,7 @@ function vmOf(entry) {
         artifactSha256: artifactSha256, executionMode: 'HOST_PROCESS_FULL_TRUST'
     });
     ok('未签名本地包显示无法证明发布者连续性的额外警告', unsigned.message.includes('没有发布者签名')
-        && unsigned.message.includes('LOCAL_UPLOAD'));
+        && dialogText(unsigned).includes('LOCAL_UPLOAD'));
     PM.i18n.client = i18nClient;
 })();
 
@@ -227,6 +228,26 @@ const DESC_NOT_INSTALLED = '该插件尚未安装。';
 
     const builtIn = vmOf({ id: 'core', source: 'built-in', status: 'STARTED', executionMode: 'HOST_PROCESS_FULL_TRUST' });
     ok('内置插件不重复显示执行信任标签', builtIn.showExecutionTag === false);
+})();
+
+
+(function () {
+    const consumer = {id: 'consumer', source: 'external', status: 'STARTED', dependencies: [
+        {pluginId: 'named-dependency', versionSupport: '>=3', optional: true},
+        {pluginId: 'missing-dependency'}
+    ]};
+    const dependency = {id: 'named-dependency', displayNamespace: 'fixture', displayNameKey: 'name'};
+    PM.state.report = {plugins: [consumer, dependency]};
+    KNOWN['fixture/name'] = '通知';
+    const render = () => PM.renderDetailHtml(PM.buildViewModel(consumer));
+    const html = render();
+    ok('依赖有明确字段标签', html.includes('common:plugin-info.dependency-plugins'));
+    ok('依赖显示本地化名称与标识并保留约束', html.includes('通知(named-dependency) · &gt;=3 · ' + PM.t('deps.optional')));
+    ok('未知依赖保留真实标识，不伪造名称', html.includes('missing-dependency') && !html.includes('missing-dependency(missing-dependency)'));
+    KNOWN['fixture/name'] = '<Notification>';
+    const translated = render();
+    ok('切换语言重新解析名称并转义', translated.includes('&lt;Notification&gt;(named-dependency)') && !translated.includes('通知('));
+    delete KNOWN['fixture/name'];
 })();
 
 // —— 1) descriptionKey 命中：经 tns(displayNamespace, descriptionKey, fallback) 解析 ——
@@ -289,6 +310,36 @@ const DESC_NOT_INSTALLED = '该插件尚未安装。';
     eq('未知生命周期策略安全收敛为完整进程重启', PM.lifecyclePolicyOf('future-policy'), 'PROCESS_RESTART');
 })();
 
+// 重启提示跟随实际运行态与已保存设置；故障保持诊断语义。
+(function () {
+    const previous = PM.i18n.client;
+    PM.i18n.client = { t: key => key };
+    const entry = { id: 'restart-setting', source: 'external', lifecyclePolicy: 'PROCESS_RESTART',
+        status: 'STARTED', configuredEnabled: false, toggleable: true };
+    const disabled = vmOf(entry);
+    eq('运行中停用显示待重启停用', disabled.pendingToggleLabel, 'plugins:state.pending-disable');
+    ok('保留当前运行状态与已保存的关闭设置', disabled.running && !disabled.enabled);
+    const html = PM.renderCardHtml(disabled);
+    ok('开关具有插件专属名称及关联的状态说明', html.includes('aria-label="restart-setting · ')
+        && html.includes('aria-describedby="pm-runtime-status-restart-setting pm-runtime-status-restart-setting-pending"')
+        && html.includes('id="pm-runtime-status-restart-setting"'));
+    ok('状态说明同时保留实际状态和待生效操作', html.includes('plugins:status.started')
+        && html.includes('plugins:state.pending-disable'));
+    eq('停用后重新启用清除待重启提示', vmOf({...entry, configuredEnabled: true}).pendingToggleLabel, null);
+    eq('已停止插件启用显示待重启启用', vmOf({...entry, status: 'DISABLED', configuredEnabled: true})
+        .pendingToggleLabel, 'plugins:state.pending-enable');
+    eq('后端重启策略也区分配置与运行状态', vmOf({...entry, lifecyclePolicy: 'BACKEND_RESTART'})
+        .pendingToggleLabel, 'plugins:state.pending-disable');
+    for (const status of ['FAILED', 'CRASHED', 'INCOMPATIBLE', 'MISSING_REQUIRED', 'UNKNOWN']) {
+        eq('异常状态不推断等待重启：' + status,
+            vmOf({...entry, status, configuredEnabled: true}).pendingToggleLabel, null);
+    }
+    eq('热重载不显示待重启提示', vmOf({...entry, lifecyclePolicy: 'HOT_RELOAD', managed: true})
+        .pendingToggleLabel, null);
+    eq('不可切换的插件不显示设置待生效提示', vmOf({...entry, toggleable: false}).pendingToggleLabel, null);
+    PM.i18n.client = previous;
+})();
+
 // —— 2) descriptionKey 缺失 → 回退按来源的通用简介，不抛 ——
 (function () {
     const builtIn = vmOf({ id: 'core', source: 'built-in', status: 'STARTED', displayNamespace: 'plugins' });
@@ -316,7 +367,7 @@ const DESC_NOT_INSTALLED = '该插件尚未安装。';
     eq('descriptionKey 存在但 namespace 空白 → 回退通用简介', vmm.desc, DESC_EXTERNAL);
 })();
 
-// —— 紧凑平铺卡片：无展开态，完整信息始终可见，运行期操作收进图标浮层菜单 ——
+// —— 卡片主信息始终可见，版本与来源按需展开，操作仍由后端事实决定 ——
 (function () {
     const vmm = vmOf({
         id: 'compact-demo', source: 'external', status: 'STARTED', managed: true, runtimePhase: 'STARTED',
@@ -327,16 +378,29 @@ const DESC_NOT_INSTALLED = '该插件尚未安装。';
     const html = PM.renderCardHtml(vmm);
     ok('卡片显示图标贴片', html.indexOf('pm-card-icon') !== -1);
     ok('卡片名称行显示名称与版本', html.indexOf('compact-demo') !== -1 && html.indexOf('v1.2.3') !== -1);
-    ok('卡片首行显示状态与开关',
+    ok('卡片显示状态与开关',
         html.indexOf('pm-card-status') !== -1 && html.indexOf('data-pm-toggle="compact-demo"') !== -1);
     ok('完整描述始终可见', html.indexOf(DESC_EXTERNAL) !== -1);
-    ok('卡片显示执行信任级别', html.indexOf('独立 JVM（有限隔离）') !== -1);
-    ok('不使用展开控件', html.indexOf('data-pm-expand') === -1 && html.indexOf('is-expanded') === -1);
+    ok('卡片提供独立详情入口', html.includes('data-pm-details="compact-demo"') && html.includes('aria-haspopup="dialog"'));
+    ok('卡片不展开技术信息', !html.includes('<dl') && !html.includes('<details'));
+    const primary = html;
+    const detail = PM.renderDetailHtml(vmm);
+    ok('折叠详情不隐藏状态、描述和操作', primary.includes('pm-card-status')
+        && primary.includes(DESC_EXTERNAL) && primary.includes('data-pm-action-menu-toggle'));
+    ok('展开内容包含版本与依赖分组', detail.includes('<dl') && detail.includes('1.2.3')
+        && detail.includes('common:plugin-info.versions') && detail.includes('common:plugin-info.dependencies'));
+    ok('详情保留运行与能力声明', detail.includes('common:plugin-info.execution'));
     ok('浮层菜单只渲染后端可用动词',
         html.indexOf('data-pm-action-menu-toggle') !== -1
         && html.indexOf('data-pm-action="restart"') !== -1
         && html.indexOf('data-pm-action="remove"') !== -1);
-    ok('浮层菜单项带动词图标', html.indexOf('fa-arrows-rotate') !== -1);
+    const grouped = PM.renderCardHtml(vmOf({...vmm.entry,
+        availableActions: ['remove', 'quiesce', 'stop', 'restart', 'reload', 'unload'],
+        trust: {state: 'APPROVED', revocable: true}}));
+    const commands = Array.from(grouped.matchAll(/data-pm-(?:action|trust-action)="([^"]+)"/g), m => m[1]);
+    eq('菜单保留所有可用命令，运行操作在前，信任操作随后，移除最后',
+        commands.join(','), 'restart,reload,quiesce,stop,unload,revoke,remove');
+    eq('运行、信任和移除之间分组', (grouped.match(/role="separator"/g) || []).length, 2);
 
     const plain = PM.renderCardHtml(vmOf({ id: 'plain', source: 'built-in', status: 'STARTED', toggleable: false }));
     ok('无可用动作时不渲染操作菜单', plain.indexOf('data-pm-action-menu-toggle') === -1);
@@ -448,6 +512,23 @@ function installResponse(over) {
     eq('recoveryBlocked toast 保留后端 message', feedback.message, blockedMessage);
 })();
 
+// 安装成功不等于已经激活；提示由同一次安装回执决定。
+(function () {
+    const previousClient = PM.i18n.client;
+    PM.i18n.client = {t: key => key};
+    try {
+        eq('即时激活提示', PM.installFeedback(installResponse({activated: true})).message,
+            'plugins:install.activated-note');
+        eq('完整重启后生效提示', PM.installFeedback(installResponse({effectiveAfterRestart: true})).message,
+            'plugins:install.restart-note');
+        eq('仅安装完成提示', PM.installFeedback(installResponse()).message,
+            'plugins:install.toast.accepted');
+        eq('回滚优先于落盘结果', PM.installFeedback(installResponse({rolledBack: true})).tone, 'error');
+    } finally {
+        PM.i18n.client = previousClient;
+    }
+})();
+
 // —— C) renderInstallResultHtml：稳定显示 / 即时激活 / 转义 ——
 const ACTIVATED_NOTE = '插件已安装并在当前进程中激活。';
 
@@ -538,10 +619,43 @@ const ACTIVATED_NOTE = '插件已安装并在当前进程中激活。';
     ok('双后缀 .sig.exe 拒绝', PM.hasAcceptedSignatureExtension('plugin.sig.exe') === false);
 })();
 
+// 运行版本独立于磁盘版本，缺席事实不能统一显示为占位符。
+(function () {
+    const client = PM.i18n.client;
+    PM.i18n.client = {t: key => key};
+    eq('已安装但尚未加载', PM.loadedVersionLabel({status: 'INSTALLED', version: '7.4'}), 'common:plugin-info.not-loaded');
+    eq('热加载版本来自已载入描述符', PM.loadedVersionLabel({runtimePhase: 'STARTED', version: '7.4'}), '7.4');
+    eq('等待重启保留进程版本', PM.loadedVersionLabel({loadedVersion: '7.3', version: '7.4'}), '7.3');
+    eq('移除磁盘包后仍有进程版本', PM.loadedVersionLabel({loadedVersion: '7.3', version: null}), '7.3');
+    eq('加载状态未知不误报未加载', PM.loadedVersionLabel({status: 'FAILED', version: '7.4'}), 'common:plugin-info.unknown');
+    const fields = PM.detailFields({source: 'external', loadedVersion: '7.3', version: null});
+    eq('磁盘版本缺席明确说明', fields[0].value, 'common:plugin-info.not-installed');
+    eq('生命周期缺席明确说明', fields[2].value, 'common:plugin-info.unknown');
+    PM.i18n.client = client;
+})();
+
 // —— A) installPackage：multipart 请求 / 默认 false / 结构化 4xx / 无文件不发请求 / 非结构化抛错 ——
 async function apiTests() {
     const fileStub = { name: 'ext-demo.zip' };
     const signatureStub = { name: 'ext-demo.sig' };
+
+    const originalConfirm = sandbox.PixivFeedback;
+    const previousClient = PM.i18n.client;
+    PM.i18n.client = {t: key => key};
+    const impactDialogs = [];
+    sandbox.PixivFeedback = {confirm: async options => { impactDialogs.push(options); return true; }};
+    nextFetchResponse = {body: {fingerprint: 'c'.repeat(64),
+        plugin: {id: 'library', source: 'external', version: '7.4', status: 'INSTALLED'}, consumers: []}};
+    eq('影响确认返回原始指纹', await PM.confirmImpact('library', 'remove'), 'c'.repeat(64));
+    ok('明确无依赖方', dialogText(impactDialogs.at(-1)).includes('common:plugin-info.no-consumers'));
+    nextFetchResponse.body.consumers = [{id: 'reader', version: '4.8', status: 'INSTALLED'}];
+    await PM.confirmImpact('library', 'remove');
+    ok('未加载的依赖方仍显示安装版本', dialogText(impactDialogs.at(-1)).includes('4.8'));
+    delete nextFetchResponse.body.consumers;
+    await PM.confirmImpact('library', 'remove');
+    ok('缺失依赖信息与空列表区分', dialogText(impactDialogs.at(-1)).includes('common:plugin-info.unknown'));
+    sandbox.PixivFeedback = originalConfirm;
+    PM.i18n.client = previousClient;
 
     // A-1) 正常安装：multipart POST 到 INSTALL_URL，file 字段 + allowDowngrade 默认 false。
     fetchCalls.length = 0;

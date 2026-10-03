@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.plugin.catalog;
 
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode;
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException;
+import top.sywyar.pixivdownload.plugin.catalog.operation.PluginAcquisitionOperations;
 
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
@@ -86,6 +87,67 @@ class PluginCatalogAcquisitionServiceTest {
         }
         installers.forEach(ExternalPluginInstaller::close);
         installers.clear();
+    }
+
+    @Test
+    @DisplayName("确认安装后仅在准备、执行和下载后读取目录，重复执行不再下载")
+    void confirmedOperationReusesSelectionWithoutRepeatingRequests() {
+        server = CatalogTestSupport.startServer();
+        var signing = CatalogTestSupport.signingFixture();
+        byte[] body = CatalogTestSupport.explodedPluginZip("sample", "7.3.2", null);
+        var downloads = new AtomicInteger();
+        var manifests = new AtomicInteger();
+        var signatures = new AtomicInteger();
+        String packageUrl = serveCountingPackage("/sample.zip", body, downloads);
+        byte[] manifestBytes = manifest("sample", "7.3.2", packageUrl, body.length,
+                CatalogTestSupport.sha256Hex(body), signing.artifactSignature("sample", "7.3.2", body), signing)
+                .getBytes(StandardCharsets.UTF_8);
+        String manifestUrl = serveCountingPackage("/catalog.json", manifestBytes, manifests);
+        serveCountingPackage("/catalog.json.sig", signing.manifestSignatureBytes("configured", manifestBytes), signatures);
+        var props = new PluginCatalogProperties();
+        props.setEnabled(true);
+        props.setManifestUrl(manifestUrl);
+        props.setTrustedKeys(List.of(signing.trustedKeyConfig()));
+        var provider = policyFaithful();
+        var registry = new PluginRepositoryRegistry(props);
+        var catalog = new PluginCatalogService(registry, provider);
+        var installer = new ExternalPluginInstaller(pluginsDir, PluginPackageLimits.defaults(),
+                PluginCatalogTrustStores.verifierResolver(registry));
+        installers.add(installer);
+        installer.recoverPendingTransactions();
+        var dependencies = new PluginDependencyResolver(installer);
+        var runtime = mock(PluginRuntimeManager.class);
+        var lifecycle = mock(PluginLifecycleService.class);
+        when(runtime.packagePhases()).thenReturn(Map.of());
+        when(runtime.loadedDescriptors()).thenReturn(Map.of());
+        when(runtime.loadPlugin(any(Path.class))).thenAnswer(call -> loadedPackage(installer, call.getArgument(0)));
+        when(lifecycle.phase(anyString())).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
+        var coordinator = new ExternalPluginLifecycleCoordinator(runtime, lifecycle, installer,
+                mock(RecoveryModeService.class), dependencies);
+        var preview = new PluginCatalogInstallPreview(catalog, null, dependencies, installer, runtime, coordinator);
+        var acquisition = new PluginCatalogAcquisitionService(catalog,
+                new PluginPackageDownloader(provider, downloadTempDir),
+                new PluginInstallService(coordinator, dependencies), dependencies, null, null, preview);
+        var operations = new PluginAcquisitionOperations(acquisition, coordinator);
+        var plan = acquisition.preview("configured", "sample", "7.3.2");
+        manifests.set(0);
+        signatures.set(0);
+
+        var prepared = operations.prepare("configured", "sample", "7.3.2", plan.fingerprint(),
+                CatalogTestSupport.sha256Hex(body));
+        var result = operations.execute(prepared.id());
+
+        assertThat(result.finished()).isTrue();
+        assertThat(result.failure()).isNull();
+        assertThat(result.report().accepted()).isTrue();
+        assertThat(manifests.get()).isEqualTo(3);
+        assertThat(signatures.get()).isEqualTo(3);
+        assertThat(downloads.get()).isEqualTo(1);
+        operations.execute(prepared.id());
+        assertThat(manifests.get()).isEqualTo(3);
+        assertThat(downloads.get()).isEqualTo(1);
+        assertThat(downloadLeftovers()).isEmpty();
+        assertThat(installer.listInstalled()).extracting(InstalledPlugin::id).containsExactly("sample");
     }
 
     @Test

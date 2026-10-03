@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.common;
 
 import lombok.experimental.UtilityClass;
+import top.sywyar.pixivdownload.config.DevelopmentBuildInfo;
 
 import java.io.InputStream;
 import java.util.Properties;
@@ -35,6 +36,20 @@ public class AppVersion {
     public static String getDisplayVersionOrDefault(String defaultVersion) {
         String version = getDisplayVersionOrNull();
         return version != null ? version : defaultVersion;
+    }
+
+    /** 开发显示优先使用显式版本，其次为当前源码可达的最近发行标签。 */
+    public static String getDevelopmentDisplayVersion() {
+        String version = getDisplayVersionOrDefault("");
+        var development = DevelopmentBuildInfo.current();
+        if (development == null) return version;
+        String explicit = normalize(System.getProperty("app.release.version"));
+        String projectVersion = readVersionFromProperties(APP_VERSION_PROPERTIES, "app.project.version");
+        if (explicit != null) version = explicit;
+        else if ((version.isBlank() || version.equals(projectVersion)) && !development.baseVersion().isBlank()) {
+            version = development.baseVersion();
+        }
+        return development.displayVersion(version);
     }
 
     public static String getKotlinVersionOrDefault(String defaultVersion) {

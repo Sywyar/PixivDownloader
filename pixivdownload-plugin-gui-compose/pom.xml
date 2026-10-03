@@ -22,6 +22,12 @@
     <dependencies>
         <dependency>
             <groupId>io.github.sywyar.pixivdownloader</groupId>
+            <artifactId>pixivdownload-sdk-info</artifactId>
+            <version>${pixivdownload.sdk.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.github.sywyar.pixivdownloader</groupId>
             <artifactId>pixivdownload-plugin-api</artifactId>
             <version>${pixivdownload.sdk.version}</version>
             <scope>provided</scope>
@@ -102,7 +108,7 @@
                         <goals><goal>build-classpath</goal></goals>
                         <configuration>
                             <includeScope>test</includeScope>
-                            <includeArtifactIds>pixivdownload-plugin-api,pixivdownload-core-api,pf4j,slf4j-api</includeArtifactIds>
+                            <includeArtifactIds>pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api,pf4j,slf4j-api</includeArtifactIds>
                             <outputFile>${project.build.directory}/gradle-sdk-classpath.txt</outputFile>
                             <fileSeparator>${file.separator}</fileSeparator>
                             <pathSeparator>${path.separator}</pathSeparator>

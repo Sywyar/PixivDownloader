@@ -313,7 +313,7 @@ class PluginMarketPageGuardTest {
     }
 
     @Test
-    @DisplayName("精确制品信任确认复用共享反馈框，并由 Vue / 基础回退共同走同一请求状态机")
+    @DisplayName("安装信任入口复用共享反馈框，不包含旧身份迁移参数或原生确认框")
     void artifactTrustConfirmationUsesSharedGuard() throws IOException {
         String core = read(CORE);
         String api = read(API);
@@ -323,8 +323,6 @@ class PluginMarketPageGuardTest {
         assertThat(core).contains("TRUST_CONFIRMATION_REQUIRED",
                 "trustRequirement", "artifactSha256", "PixivFeedback.confirm", "installPluginWithConfirmation");
         assertThat(api).contains("confirmTrust=").doesNotContain("confirmIdentityMigration");
-        assertThat(vue).contains("PMK.installPluginWithConfirmation(repositoryId, pluginId, version)");
-        assertThat(fallback).contains("PMK.installPluginWithConfirmation(repositoryId, pluginId, version)");
         assertThat(core + vue + fallback).doesNotContain("window.confirm(", "global.confirm(");
     }
 
@@ -378,8 +376,7 @@ class PluginMarketPageGuardTest {
         assertThat(data).as("安装态按后端验签状态禁用坏签名 / 未知 key")
                 .contains("VERIFIED_OFFICIAL", "VERIFIED_CUSTOM", "INVALID_SIGNATURE", "UNKNOWN_KEY");
         assertThat(vue).as("卡片与详情页突出展示后端 verification label，而非 sha256 认证发布者")
-                .contains("verificationLabel(pkg.verification)", "detail.verification",
-                        "pmk-verification-badge", "pmk-detail-verification", "showCardVerification");
+                .contains("pmk-verification-badge", "pmk-detail-verification");
         assertThat(fallback).as("基础回退视图也展示验签徽标")
                 .contains("verificationBadgeHtml", "pmk-verification-badge");
         assertThat(css).as("验签徽标包含已验证 / 未验证 / 危险状态样式")

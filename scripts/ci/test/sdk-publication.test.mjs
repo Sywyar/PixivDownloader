@@ -11,7 +11,64 @@ import { inspectSdkVersion, parseSdkVersion, SDK_ARTIFACTS } from '../sdk-versio
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const IDENTITY = inspectSdkVersion(ROOT);
 const workflow = YAML.parse(fs.readFileSync(path.join(ROOT, '.github/workflows/publish-sdk.yml'), 'utf8'));
-const script = workflow.jobs.publish.steps.find(step => step.name === 'Check immutable publication state').run;
+const publication = YAML.parse(fs.readFileSync(path.join(ROOT,
+    workflow.jobs.publish.steps.find(step => step.uses === './.github/actions/publish-sdk').uses, 'action.yml'), 'utf8'));
+const script = publication.runs.steps.find(step => step.name === 'Check immutable publication state').run;
+
+test('发行调用复用完整的公共 SDK，首次发布与显式恢复继续进入门禁，查询失败不能当作尚未发布', () => {
+    const work = fs.mkdtempSync(path.join(os.tmpdir(), 'sdk-publication-plan-'));
+    try {
+        const entry = path.join(work, 'plan.sh');
+        const planAction = workflow.jobs['release-plan'].steps.find(step => step.id === 'plan');
+        const plan = YAML.parse(fs.readFileSync(path.join(ROOT, planAction.uses, 'action.yml'), 'utf8'))
+            .runs.steps.find(step => step.id === 'plan').run;
+        fs.writeFileSync(entry, [
+            'git() {',
+            '  case "$1" in',
+            '    fetch) return ;;',
+            '    rev-parse) printf "%040d\\n" 1 ;;',
+            '    merge-base) test "$SDK_TEST_PROTECTED" = true ;;',
+            '    *) return 99 ;;',
+            '  esac',
+            '}',
+            'node() {',
+            '  if [ "$1" = scripts/ci/sdk-published-base.mjs ]; then',
+            '    test "$2" = if-present || return 99',
+            '    test "$SDK_TEST_PUBLISHED" != error || return 1',
+            '    printf "%s" "$SDK_TEST_PUBLISHED"',
+            '  else command node "$@"; fi',
+            '}',
+            plan,
+        ].join('\n'), 'utf8');
+        for (const [mode, published, protectedCommit, expected] of [
+            ['publish', '', true, true],
+            ['publish', 'a'.repeat(40), true, false],
+            ['recover-release', 'error', true, true],
+            ['publish', 'error', true, null],
+            ['publish', '', false, null],
+        ]) {
+            const output = path.join(work, 'output.txt');
+            fs.writeFileSync(output, '', 'utf8');
+            const result = spawnSync('bash', [entry.replaceAll('\\', '/')], {
+                cwd: ROOT, encoding: 'utf8',
+                env: { ...process.env, REQUESTED_MODE: mode, DEFAULT_BRANCH: 'master',
+                    GITHUB_SHA: 'b'.repeat(40), GITHUB_OUTPUT: output.replaceAll('\\', '/'),
+                    GITHUB_STEP_SUMMARY: path.join(work, 'summary.txt').replaceAll('\\', '/'),
+                    SDK_TEST_PUBLISHED: published, SDK_TEST_PROTECTED: String(protectedCommit) },
+            });
+            assert.equal(result.status === 0, expected !== null, result.error ?? result.stderr);
+            const outputs = fs.readFileSync(output, 'utf8');
+            if (expected === null) assert.equal(outputs, '');
+            else assert.deepEqual(Object.fromEntries(outputs.trim().split('\n').map(line => line.split('='))), {
+                publish: String(expected), mode, trusted_base_sha: '0'.repeat(39) + '1',
+                sdk_version: IDENTITY.version, release_id: IDENTITY.releaseId,
+                prerelease: String(IDENTITY.prerelease),
+            });
+        }
+    } finally {
+        fs.rmSync(work, { recursive: true, force: true });
+    }
+});
 
 for (const version of [IDENTITY.version, ...['alpha', 'beta', 'rc']
     .map(channel => `${IDENTITY.major}.${IDENTITY.minor}.${IDENTITY.patch + 1}-${channel}.12`)]) {
