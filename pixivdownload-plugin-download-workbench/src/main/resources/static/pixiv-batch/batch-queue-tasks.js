@@ -88,7 +88,8 @@
             if (item.taskObserved || recovering) {
                 if (terminal(task.phase)) {
                     delete item.recoveryState;
-                    item.status = {COMPLETED: 'completed', FAILED: 'failed', CANCELLED: 'paused'}[task.phase];
+                    item.status = {COMPLETED: 'completed', FAILED: 'failed',
+                        CANCELLED: item.taskObserved ? 'cancelled' : 'paused'}[task.phase];
                     item.endTime = task.updatedAt;
                 } else {
                     item.status = 'downloading';
