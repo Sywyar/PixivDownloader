@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.sdk.community.submission;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import top.sywyar.pixivdownload.sdk.community.content.MarketLink;
+import top.sywyar.pixivdownload.sdk.community.content.MarketContent;
 import top.sywyar.pixivdownload.sdk.community.format.CommunityValues;
 import top.sywyar.pixivdownload.sdk.community.format.ContractException;
 import top.sywyar.pixivdownload.sdk.community.project.CommunityPaths;
@@ -15,18 +18,31 @@ import java.util.Map;
 /** 市场介绍保留语言映射与截图顺序；缺图不构成投稿错误。 */
 public record MarketMetadata(String defaultLocale, Map<String, String> displayName, Map<String, String> summary,
                              Map<String, String> description, String category, List<String> tags,
-                             String homepageUrl, Image icon, List<Image> screenshots) {
+                             String homepageUrl, Image icon, List<Image> screenshots,
+                             @JsonInclude(JsonInclude.Include.NON_NULL) List<MarketLink> links) {
     public MarketMetadata {
         displayName = freeze(displayName);
         summary = freeze(summary);
         description = description == null ? null : freeze(description);
         tags = List.copyOf(tags);
         screenshots = screenshots == null ? null : List.copyOf(screenshots);
+        links = links == null ? null : List.copyOf(links);
     }
 
-    public record Image(String path, Map<String, String> alt) {
+    public MarketMetadata(String defaultLocale, Map<String, String> displayName, Map<String, String> summary,
+                          Map<String, String> description, String category, List<String> tags,
+                          String homepageUrl, Image icon, List<Image> screenshots) {
+        this(defaultLocale, displayName, summary, description, category, tags, homepageUrl, icon, screenshots, null);
+    }
+
+    public record Image(String path, Map<String, String> alt,
+                        @JsonInclude(JsonInclude.Include.NON_NULL) MarketContent.Asset asset) {
         public Image { alt = freeze(alt); }
-        public void validate() { CommunityPaths.relative(path, false); locales(alt); }
+        public Image(String path, Map<String, String> alt) { this(path, alt, null); }
+        public void validate() {
+            CommunityPaths.relative(path, false); locales(alt);
+            if (asset != null) asset.validate(true);
+        }
     }
 
     public void validate() {
@@ -42,6 +58,7 @@ public record MarketMetadata(String defaultLocale, Map<String, String> displayNa
         if (homepageUrl != null) CommunityValues.https(homepageUrl, false, "/market/homepageUrl");
         if (icon != null) icon.validate();
         if (screenshots != null) screenshots.forEach(Image::validate);
+        MarketLink.validate(links);
     }
 
     /** 保持市场现有的目标语言、主语言、中文、英文、首项回退顺序。 */

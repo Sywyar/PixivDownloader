@@ -217,10 +217,15 @@ final class SdkRuntimeArchive {
         }
     }
 
-    private static void download(URI initial, Path output, long maximum) throws IOException {
+    static void download(URI initial, Path output, long maximum) throws IOException {
+        download(initial, output, maximum, System.nanoTime() + DOWNLOAD_TIMEOUT.toNanos());
+    }
+
+    static void download(URI initial, Path output, long maximum, long deadline) throws IOException {
         URI current = initial;
-        long deadline = System.nanoTime() + DOWNLOAD_TIMEOUT.toNanos();
         for (int redirects = 0; redirects <= 5; redirects++) {
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0) throw new IOException("SDK_COPY_LIMIT");
             if (!"https".equals(current.getScheme()) || !DOWNLOAD_HOSTS.contains(current.getHost())
                     || current.getUserInfo() != null || current.getFragment() != null
                     || current.getPort() != -1 || current.toASCIIString().length() > 8192) {
@@ -228,8 +233,9 @@ final class SdkRuntimeArchive {
             }
             var connection = (HttpURLConnection) current.toURL().openConnection();
             connection.setInstanceFollowRedirects(false);
-            connection.setConnectTimeout(15_000);
-            connection.setReadTimeout(15_000);
+            int timeout = (int) Math.max(1, Math.min(15_000, remaining / 1_000_000));
+            connection.setConnectTimeout(timeout);
+            connection.setReadTimeout(timeout);
             connection.setRequestProperty("Accept-Encoding", "identity");
             try {
                 int status = connection.getResponseCode();

@@ -156,16 +156,29 @@ try {
             param($StagedArtifact)
             return @{Sha='fixture'; ShaFile="$StagedArtifact.sha256"; SigFile="$StagedArtifact.sig"}
         }
+        function New-OfficialMarketContent {
+            if ($script:contentMode) { return @((Join-Path $fixture 'market-content.json'), (Join-Path $fixture 'content-doc.md')) }
+            return @()
+        }
+        function Get-OfficialMarketContentHash { return ($(if ($script:contentMode -eq 'conflict') { 'b' } else { 'a' }) * 64) }
+        function Read-OfficialMarketContent {
+            if ($script:contentMode -eq 'readback-failure') { throw 'Public market content readback failed.' }
+            $script:readbacks++
+            return $null
+        }
+        function Download-ReleaseAsset { return (Join-Path $fixture 'input') }
         function gh {
             $global:LASTEXITCODE = 0
             if ($args[1] -eq 'view') {
                 if (-not $script:existing) { $global:LASTEXITCODE = 1; return 'release not found' }
                 $id = $args[2] -replace '-v.*$', ''
-                return (@{assets=@(@{name="$id-1.0.0.jar"}, @{name="$id-1.0.0.jar.sha256"}, @{name="$id-1.0.0.jar.sig"})} | ConvertTo-Json -Compress)
+                return (@{body=$(if ($script:contentMode) { 'market-content-sha256=' + ('a' * 64) } else { '' });
+                    assets=@(@{name="$id-1.0.0.jar"}, @{name="$id-1.0.0.jar.sha256"}, @{name="$id-1.0.0.jar.sig"})} | ConvertTo-Json -Compress)
             }
-            $script:writes.Add(($args -join ' '))
+            $script:writes.Add((@($args | ForEach-Object { $_ }) -join ' '))
         }
         foreach ($mode in @('nightly', 'force', 'stable', 'skip', 'failure', 'prebuilt')) {
+            $script:contentMode = ''; $script:readbacks = 0
             $script:builds.Clear(); $script:writes.Clear()
             $script:requiredSdkValues.Clear()
             $script:existing = $mode -eq 'skip'
@@ -185,13 +198,36 @@ try {
                     Assert-Equal $script:requiredSdkValues @('1.0.0-nightly.20260909.1.1', '1.0.0-nightly.20260909.1.1')
                 }
                 if ($mode -in @('nightly', 'force')) {
-                    Assert-Equal $script:builds[0] @('-Pofficial-surveys', '-pl', 'first,second', '-am', 'verify', '-DskipTests')
+                    Assert-Equal $script:builds[0] @('-Pofficial-surveys', '-pl', 'first,second,pixivdownload-sdk-tools', '-am', 'verify', '-DskipTests')
                 }
             }
+        }
+        foreach ($mode in @('resume', 'conflict', 'readback-failure')) {
+            $script:contentMode = $mode; $script:existing = $true; $script:readbacks = 0
+            $script:builds.Clear(); $script:writes.Clear()
+            $parameters = @{ProjectRoot=$fixture; OfficialKeyId='fixture'; PrivateKeyFile=(Join-Path $fixture 'input'); UsePrebuiltArtifacts=$true}
+            if ($mode -eq 'conflict') {
+                Assert-Rejected { & $program.Main @parameters } 'Market content changed'
+                Assert-Equal $script:writes.Count 0
+            } elseif ($mode -eq 'readback-failure') {
+                Assert-Rejected { & $program.Main @parameters } 'readback failed'
+                Assert-Equal $script:writes.Count 1
+            } else {
+                & $program.Main @parameters
+                Assert-Equal $script:writes.Count 2
+                Assert-Equal $script:readbacks 2
+                foreach ($write in $script:writes) {
+                    if ($write -notmatch 'release upload.*market-content.json.*content-doc.md' -or $write -match 'delete-asset|--clobber') {
+                        throw 'Content recovery must upload only missing immutable assets.'
+                    }
+                }
+            }
+            Assert-Equal $script:builds.Count 0
         }
     }
     & {
         . (Join-Path $repo 'scripts/plugin-distribution-common.ps1')
+        . (Join-Path $repo 'scripts/market-content-publication.ps1')
         $program = Read-Program (Join-Path $repo 'scripts/generate-market-manifest.ps1')
         foreach ($definition in $program.Functions) { . ([scriptblock]::Create($definition.Extent.Text)) }
         $fixtureUtf8 = New-Object System.Text.UTF8Encoding($false)

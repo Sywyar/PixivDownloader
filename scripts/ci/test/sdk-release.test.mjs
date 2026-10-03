@@ -45,6 +45,10 @@ test('SDK 的四个可选工程在归档及初始 Git 树中保留相同的标�
             const descriptor = fs.readFileSync(path.join(extracted, prefix, 'src/main/resources/plugin.properties'), 'utf8');
             const required = descriptor.match(/^plugin\.requires=(.+)$/mu)?.[1].trim();
             assert.equal(required, IDENTITY.prerelease ? '=' + IDENTITY.version : IDENTITY.compatibilityVersion);
+            const version = descriptor.match(/^plugin\.version=(.+)$/mu)?.[1].trim();
+            const changelog = fs.readFileSync(path.join(extracted, prefix, 'CHANGELOG.md'), 'utf8');
+            assert.ok(changelog.includes(`## [v${version}]`));
+            assert.match(changelog, /^### Features$/mu);
         }
         assert.deepEqual(tracked.filter(file => file.endsWith('.pixivdownloader-plugin-project')).sort(), markers);
         for (const marker of markers) {

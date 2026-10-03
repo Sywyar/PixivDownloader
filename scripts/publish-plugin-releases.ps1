@@ -66,6 +66,7 @@ $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 # Shared official-plugin list + artifact-shape / checksum helpers.
 . (Join-Path $PSScriptRoot "plugin-distribution-common.ps1")
+. (Join-Path $PSScriptRoot "market-content-publication.ps1")
 
 if ([string]::IsNullOrWhiteSpace($OfficialKeyId)) { throw "OfficialKeyId is required." }
 if ([string]::IsNullOrWhiteSpace($PrivateKeyFile) -or -not (Test-Path -LiteralPath $PrivateKeyFile -PathType Leaf)) {
@@ -114,7 +115,7 @@ function Get-ReleaseAssetState([string]$Tag) {
     $oldErrorActionPreference = $ErrorActionPreference
     try {
         $ErrorActionPreference = "Continue"
-        $viewOutput = & gh release view $Tag --repo $Repo --json assets 2>&1
+        $viewOutput = & gh release view $Tag --repo $Repo --json assets,body 2>&1
         $viewExitCode = $LASTEXITCODE
     } finally {
         $ErrorActionPreference = $oldErrorActionPreference
@@ -127,17 +128,22 @@ function Get-ReleaseAssetState([string]$Tag) {
         if ($view.assets) {
             $assetNames = @($view.assets | ForEach-Object { $_.name })
         }
-        return [pscustomobject]@{ Exists = $true; AssetNames = $assetNames }
+        $contentHash = $null
+        if ($view.PSObject.Properties.Name -contains 'body' -and $view.body -match 'market-content-sha256=([a-f0-9]{64})') {
+            $contentHash = $Matches[1]
+        }
+        return [pscustomobject]@{ Exists = $true; AssetNames = $assetNames; ContentHash = $contentHash }
     }
 
     if ($viewText -notmatch 'release not found|HTTP 404') {
         throw "gh release view failed for ${Tag}: $viewText"
     }
-    return [pscustomobject]@{ Exists = $false; AssetNames = @() }
+    return [pscustomobject]@{ Exists = $false; AssetNames = @(); ContentHash = $null }
 }
 
 function Invoke-PluginBuild {
     param([Parameter(Mandatory = $true)][string[]]$Modules)
+    $Modules = @($Modules) + @('pixivdownload-sdk-tools')
     Write-Host "==> Building plugin modules: $($Modules -join ', ')"
     Push-Location $ProjectRoot
     try {
@@ -335,21 +341,24 @@ if (-not [string]::IsNullOrWhiteSpace($NightlyBuildVersion)) {
         $companions = Write-StagedCompanionFiles -StagedArtifact $stagedArtifact -AssetName $assetName `
             -Plugin $plugin -Version $version
 
-        $uploadPaths = @($stagedArtifact, $companions.ShaFile, $companions.SigFile)
+        $contentPaths = @(New-OfficialMarketContent $ProjectRoot $Repo $tag $plugin.Id $sourceVersion $stageDir)
+        $contentHash = Get-OfficialMarketContentHash $contentPaths
+        $uploadPaths = @($stagedArtifact, $companions.ShaFile, $companions.SigFile) + $contentPaths
         if ($release.Exists) {
             $assetNames = @($release.AssetNames)
             if ($assetNames.Count -gt 0) {
                 Remove-ExistingReleaseAssets -Tag $tag -AssetNames $assetNames -ExistingAssetNames $assetNames
             }
             gh release edit $tag --repo $Repo --title $title `
-                --notes "Plugin $($plugin.Id) Nightly $version." --prerelease
+                --notes "Plugin $($plugin.Id) Nightly $version. market-content-sha256=$contentHash" --prerelease
             if ($LASTEXITCODE -ne 0) { throw "gh release edit failed for $tag." }
             Upload-ReleaseAssetFiles -Tag $tag -Paths $uploadPaths
         } else {
             gh release create $tag $uploadPaths --repo $Repo --title $title `
-                --notes "Plugin $($plugin.Id) Nightly $version." --prerelease
+                --notes "Plugin $($plugin.Id) Nightly $version. market-content-sha256=$contentHash" --prerelease
             if ($LASTEXITCODE -ne 0) { throw "gh release create failed for $tag." }
         }
+        $null = Read-OfficialMarketContent $ProjectRoot $Repo $tag @('market-content.json') $stageDir $contentHash
         $published += $tag
     }
 
@@ -377,21 +386,43 @@ foreach ($plugin in $plugins) {
         $stagedArtifact = Build-StagedPluginArtifact -Plugin $plugin -Version $version -AssetName $assetName
         $companions = Write-StagedCompanionFiles -StagedArtifact $stagedArtifact -AssetName $assetName -Plugin $plugin -Version $version
 
+        $contentPaths = @()
+        $contentHash = $release.ContentHash
+        if (-not $release.Exists -or $contentHash) {
+            $contentPaths = @(New-OfficialMarketContent $ProjectRoot $Repo $tag $plugin.Id $version $stageDir)
+            $preparedHash = Get-OfficialMarketContentHash $contentPaths
+            if ($contentHash -and $preparedHash -cne $contentHash) {
+                throw "Market content changed for $tag. Bump plugin.version instead of replacing versioned documents."
+            }
+            $contentHash = $preparedHash
+        }
+
         if ($release.Exists) {
             Remove-ExistingReleaseAssets -Tag $tag -AssetNames $expectedAssets -ExistingAssetNames $assetNames
         } else {
-            gh release create $tag --repo $Repo --title $tag --notes "Plugin $($plugin.Id) $version"
+            gh release create $tag --repo $Repo --title $tag --notes "Plugin $($plugin.Id) $version. market-content-sha256=$contentHash"
             if ($LASTEXITCODE -ne 0) { throw "gh release create failed for $tag." }
         }
 
-        Upload-ReleaseAssetFiles -Tag $tag -Paths @($stagedArtifact, $companions.ShaFile, $companions.SigFile)
+        $missingContent = @($contentPaths | Where-Object { $assetNames -notcontains [IO.Path]::GetFileName($_) })
+        Upload-ReleaseAssetFiles -Tag $tag -Paths (@($stagedArtifact, $companions.ShaFile, $companions.SigFile) + $missingContent)
+        $null = Read-OfficialMarketContent $ProjectRoot $Repo $tag ($assetNames + @($contentPaths | ForEach-Object { [IO.Path]::GetFileName($_) })) $stageDir $contentHash
         $published += "$tag (forced)"
         continue
     }
 
     if ($release.Exists) {
+        $contentPaths = @()
+        if ($release.ContentHash) {
+            $contentPaths = @(New-OfficialMarketContent $ProjectRoot $Repo $tag $plugin.Id $version $stageDir)
+            if ((Get-OfficialMarketContentHash $contentPaths) -cne $release.ContentHash) {
+                throw "Market content changed for $tag. Bump plugin.version instead of replacing versioned documents."
+            }
+            $expectedAssets += @($contentPaths | ForEach-Object { [IO.Path]::GetFileName($_) })
+        }
         $missingAssets = @($expectedAssets | Where-Object { $assetNames -notcontains $_ })
         if ($missingAssets.Count -eq 0) {
+            $null = Read-OfficialMarketContent $ProjectRoot $Repo $tag $assetNames $stageDir $release.ContentHash
             Write-Host "= $tag already published with expected assets; skip."
             continue
         }
@@ -409,7 +440,9 @@ foreach ($plugin in $plugins) {
         if (-not $artifactAssetExists) { $uploadPaths += $stagedArtifact }
         if ($missingAssets -contains $shaAssetName) { $uploadPaths += $companions.ShaFile }
         if ($missingAssets -contains $sigAssetName) { $uploadPaths += $companions.SigFile }
+        $uploadPaths += @($contentPaths | Where-Object { $missingAssets -contains [IO.Path]::GetFileName($_) })
         Upload-ReleaseAssetFiles -Tag $tag -Paths $uploadPaths
+        $null = Read-OfficialMarketContent $ProjectRoot $Repo $tag $expectedAssets $stageDir $release.ContentHash
         $published += "$tag (supplemented)"
         continue
     }
@@ -418,9 +451,12 @@ foreach ($plugin in $plugins) {
     $companions = Write-StagedCompanionFiles -StagedArtifact $stagedArtifact -AssetName $assetName -Plugin $plugin -Version $version
 
     Write-Host "==> Publishing $tag ($assetName, sha256 $($companions.Sha))"
-    gh release create $tag --repo $Repo --title $tag --notes "Plugin $($plugin.Id) $version"
+    $contentPaths = @(New-OfficialMarketContent $ProjectRoot $Repo $tag $plugin.Id $version $stageDir)
+    $contentHash = Get-OfficialMarketContentHash $contentPaths
+    gh release create $tag --repo $Repo --title $tag --notes "Plugin $($plugin.Id) $version. market-content-sha256=$contentHash"
     if ($LASTEXITCODE -ne 0) { throw "gh release create failed for $tag." }
-    Upload-ReleaseAssetFiles -Tag $tag -Paths @($stagedArtifact, $companions.ShaFile, $companions.SigFile)
+    Upload-ReleaseAssetFiles -Tag $tag -Paths (@($stagedArtifact, $companions.ShaFile, $companions.SigFile) + $contentPaths)
+    $null = Read-OfficialMarketContent $ProjectRoot $Repo $tag @('market-content.json') $stageDir $contentHash
     $published += "$tag (created)"
 }
 

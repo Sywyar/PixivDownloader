@@ -9,8 +9,8 @@
 
     function enc(v) { return encodeURIComponent(v); }
 
-    async function getJson(url) {
-        var res = await fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+    async function getJson(url, signal) {
+        var res = await fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin', signal: signal });
         if (!res.ok) {
             var body = await res.json().catch(function () { return null; });
             var error = new Error(body && (body.error || body.message) || ('HTTP ' + res.status));
@@ -24,6 +24,18 @@
     // GET /api/plugin-market/repositories → 主开关 + SDK 版本 + 默认仓库 + 仓库只读投影。
     API.fetchRepositories = function () {
         return getJson('/api/plugin-market/repositories');
+    };
+
+    API.contentImageUrl = function (repository, plugin, image, role, index) {
+        var asset = image && image.asset;
+        if (!asset || !/^[a-f0-9]{64}$/.test(asset.sha256)) return null;
+        return '/api/plugin-market/content/' + enc(repository) + '/' + enc(plugin) + '/image?role='
+            + enc(role) + '&index=' + enc(index || 0) + '&sha256=' + enc(asset.sha256);
+    };
+    API.fetchContent = function (model, document, signal) {
+        return getJson('/api/plugin-market/content/' + enc(model.repositoryId) + '/' + enc(model.pluginId)
+            + '/' + enc(model.version) + '/' + enc(document.kind) + '?locale=' + enc(document.locale)
+            + '&sha256=' + enc(document.asset.sha256), signal);
     };
 
     // GET /api/plugins/status → 恢复模式 + 插件失败 / 必选缺失诊断（复用插件管理只读投影）。

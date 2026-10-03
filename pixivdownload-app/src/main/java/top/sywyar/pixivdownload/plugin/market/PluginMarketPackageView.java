@@ -42,7 +42,16 @@ public record PluginMarketPackageView(
         String channel,
         boolean deprecated,
         PluginVerificationView verification,
-        boolean installable) {
+        boolean installable,
+        top.sywyar.pixivdownload.sdk.community.content.MarketContent content) {
+
+    public PluginMarketPackageView(String version, long expectedSizeBytes, String sha256, boolean signaturePresent,
+            String requiredSdk, boolean compatible, boolean effectiveAfterRestart, List<String> dependencies,
+            String releasedTime, List<String> changeNotes, String channel, boolean deprecated,
+            PluginVerificationView verification, boolean installable) {
+        this(version, expectedSizeBytes, sha256, signaturePresent, requiredSdk, compatible, effectiveAfterRestart,
+                dependencies, releasedTime, changeNotes, channel, deprecated, verification, installable, null);
+    }
 
     static PluginMarketPackageView from(PluginRepository repository, PluginCatalogPackage pkg) {
         return from(repository, pkg, repository.revocationsRequired() ? "NOT_CHECKED" : "NOT_PROVIDED",
@@ -78,6 +87,7 @@ public record PluginMarketPackageView(
                 pkg.channel(),
                 pkg.deprecated(),
                 verification,
-                installable);
+                installable,
+                pkg.content());
     }
 }

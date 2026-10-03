@@ -15,6 +15,8 @@ function node(tag, text = '') {
         get options() { return this.children; },
         showModal() { this.open = true; },
         addEventListener(name, handler) { this.listeners[name] = handler; },
+        replaceChildren(...children) { this.children = children; },
+        getAttribute(name) { return this.props[name] || null; },
         dispatchEvent(event) { this.listeners[event.type]?.(event); }
     };
 }
@@ -48,14 +50,15 @@ function entry(id, { category = 'utility', defaultInstalled = false } = {}) {
 
 async function mountMarket({ community = false, revocation = null, compatibleOlder = false, dependencies = [] } = {}) {
     const errors = [];
-    const document = { createElement: tag => node(tag), addEventListener() {}, removeEventListener() {}, body: { style: {} } };
-    const sandbox = { document, console: { warn: (...args) => errors.push(args), error: (...args) => errors.push(args) } };
+    const document = { documentElement: node('html'), createElement: tag => node(tag), addEventListener() {}, removeEventListener() {}, body: { style: {} } };
+    const sandbox = { document, URL, addEventListener() {}, removeEventListener() {}, console: { warn: (...args) => errors.push(args), error: (...args) => errors.push(args) } };
     sandbox.window = sandbox;
     vm.createContext(sandbox, { codeGeneration: { strings: false, wasm: false } });
     // 确认测试环境确实拒绝 Vue 字符串模板编译需要的 new Function。
     assert.throws(() => vm.runInContext('new Function("return 1")', sandbox), /Code generation/);
     for (const resource of ['vendor/vue/vue.global.prod.js', 'js/pixiv-plugin-presentation-tokens.js',
-        'plugin-market/plugin-market-core.js', 'plugin-market/plugin-market-data.js', 'plugin-market/plugin-market-vue.js']) {
+        'plugin-market/plugin-market-core.js', 'plugin-market/plugin-market-data.js', 'plugin-market/plugin-market-api.js',
+        'plugin-market/plugin-market-content.js', 'plugin-market/plugin-market-vue.js']) {
         vm.runInContext(fs.readFileSync(path.join(staticRoot, resource), 'utf8'), sandbox, { filename: resource });
     }
     const Vue = sandbox.Vue;
@@ -110,6 +113,7 @@ async function mountMarket({ community = false, revocation = null, compatibleOld
     const installCalls = [];
     const factCalls = [];
     market.api = {
+        ...market.api,
         fetchRepositories: async () => ({ enabled, sdkVersion: '1.0.0', defaultRepositoryId: 'repo',
             repositories: [{ repositoryId: 'repo', enabled: true, official: true }] }),
         fetchPluginStatus: async () => status,
@@ -308,7 +312,7 @@ test('社区版本保障与包内声明在 CSP 渲染中展示并随版本切换
     assert.deepEqual(page.errors, []);
 });
 
-test('基础视图默认安装兼容旧版，取回新撤销事实后立即禁用控件', async () => {
+test('基础视图默认安装兼容旧版，更新撤销事实并丢弃换版后的迟到详情', async () => {
     const handlers = {};
     const root = { innerHTML: '', addEventListener(name, callback) { handlers[name] = callback; },
         querySelector: () => null, querySelectorAll: () => [] };
@@ -316,7 +320,7 @@ test('基础视图默认安装兼容旧版，取回新撤销事实后立即禁�
     sandbox.window = sandbox;
     vm.createContext(sandbox, { codeGeneration: { strings: false, wasm: false } });
     for (const resource of ['js/pixiv-plugin-presentation-tokens.js', 'plugin-market/plugin-market-core.js',
-        'plugin-market/plugin-market-data.js', 'plugin-market/plugin-market-fallback.js']) {
+        'plugin-market/plugin-market-data.js', 'plugin-market/plugin-market-api.js', 'plugin-market/plugin-market-fallback.js']) {
         vm.runInContext(fs.readFileSync(path.join(staticRoot, resource), 'utf8'), sandbox, { filename: resource });
     }
     const market = sandbox.PixivPluginMarket;
@@ -331,6 +335,7 @@ test('基础视图默认安装兼容旧版，取回新撤销事实后立即禁�
         return Promise.resolve({kind: 'install', body: {accepted: true, activated: true, message: 'installed'}});
     };
     market.api = {
+        ...market.api,
         fetchRepositories: async () => ({ enabled: true, defaultRepositoryId: 'repo',
             repositories: [{ repositoryId: 'repo', enabled: true }] }),
         fetchPluginStatus: async () => ({ recoveryMode: false }),
@@ -360,7 +365,7 @@ test('基础视图默认安装兼容旧版，取回新撤销事实后立即禁�
         getAttribute: name => name === 'data-pmk-facts' ? 'visible' : '1.0.0',
         closest: () => ({ querySelector: () => actions })
     };
-    handlers.click({ target: { closest: () => facts } });
+    handlers.click({ target: { closest: selector => selector === '[data-pmk-facts]' ? facts : null } });
     await new Promise(resolve => setImmediate(resolve));
     assert.match(actions.innerHTML, / disabled/);
     assert.doesNotMatch(actions.innerHTML, /data-pmk-install/);
@@ -369,6 +374,17 @@ test('基础视图默认安装兼容旧版，取回新撤销事实后立即禁�
     assert.doesNotMatch(root.innerHTML, /data-pmk-facts-content/);
     assert.match(root.innerHTML, /aria-haspopup="dialog"/);
     assert.deepEqual(errors, ['plugin-market:install.toast.activated']);
+    let resolveFacts;
+    let selectedVersion = '1.0.0';
+    detailOptions = null;
+    facts.getAttribute = name => name === 'data-pmk-facts' ? 'visible' : selectedVersion;
+    market.api.fetchPackageFacts = () => new Promise(resolve => { resolveFacts = resolve; });
+    handlers.click({target: {closest: selector => selector === '[data-pmk-facts]' ? facts : null}});
+    selectedVersion = '2.0.0';
+    resolveFacts({status: 'VERIFIED_OFFICIAL'});
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(detailOptions, null, '换版后不能打开旧版本的来源声明');
+    assert.equal(facts.disabled, false);
 });
 
 
