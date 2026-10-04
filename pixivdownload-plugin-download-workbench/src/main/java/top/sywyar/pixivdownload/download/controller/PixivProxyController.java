@@ -115,18 +115,23 @@ public class PixivProxyController {
         };
     }
 
-    /**
-     * 若请求来自访客邀请会话，校验作品是否在可见范围；越界 403。
-     * 非访客请求直接放行（管理员/普通访问由 AuthFilter 决定）。
-     */
-    private void guardArtworkForGuest(WorkVisibilityScope visibilityScope, String artworkId) {
-        if (artworkId == null || artworkId.isBlank()) return;
-        try {
-            long id = Long.parseLong(artworkId.trim());
-            workVisibilityService.requireVisible(visibilityScope, WorkType.ARTWORK, id);
-        } catch (NumberFormatException ignored) {
-            // 非数字 ID 不命中数据库，让现有逻辑处理；越界由其他校验拦下
+    /** 校验正整数标识并执行作品可见性检查，返回唯一可用于上游路径的十进制值。 */
+    private long requireVisibleArtwork(WorkVisibilityScope visibilityScope, String artworkId) {
+        if (artworkId == null || artworkId.isEmpty() || artworkId.length() > 19
+                || !artworkId.chars().allMatch(c -> c >= '0' && c <= '9')) {
+            throw new IllegalArgumentException(messages.get("error.request.param.invalid"));
         }
+        final long id;
+        try {
+            id = Long.parseLong(artworkId);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(messages.get("error.request.param.invalid"));
+        }
+        if (id <= 0) {
+            throw new IllegalArgumentException(messages.get("error.request.param.invalid"));
+        }
+        workVisibilityService.requireVisible(visibilityScope, WorkType.ARTWORK, id);
+        return id;
     }
 
     private String proxyGet(String url, String cookie) {
@@ -212,11 +217,11 @@ public class PixivProxyController {
             HttpServletRequest request,
             WorkVisibilityScope visibilityScope) throws IOException {
         cookie = acquisitionCredential(request, cookie);
-        guardArtworkForGuest(visibilityScope, artworkId);
+        long id = requireVisibleArtwork(visibilityScope, artworkId);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         String body = proxyGet(
-                "https://www.pixiv.net/ajax/illust/" + artworkId, cookie);
+                "https://www.pixiv.net/ajax/illust/" + id, cookie);
         JsonNode root = objectMapper.readTree(body);
         if (root.path("error").asBoolean(false)) {
             return ResponseEntity.badRequest()
@@ -232,11 +237,11 @@ public class PixivProxyController {
             HttpServletRequest request,
             WorkVisibilityScope visibilityScope) throws IOException {
         cookie = acquisitionCredential(request, cookie);
-        guardArtworkForGuest(visibilityScope, artworkId);
+        long id = requireVisibleArtwork(visibilityScope, artworkId);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         String body = proxyGet(
-                "https://www.pixiv.net/ajax/illust/" + artworkId + "/pages", cookie);
+                "https://www.pixiv.net/ajax/illust/" + id + "/pages", cookie);
         JsonNode root = objectMapper.readTree(body);
         if (root.path("error").asBoolean(false)) {
             return ResponseEntity.badRequest()
@@ -252,11 +257,11 @@ public class PixivProxyController {
             HttpServletRequest request,
             WorkVisibilityScope visibilityScope) throws IOException {
         cookie = acquisitionCredential(request, cookie);
-        guardArtworkForGuest(visibilityScope, artworkId);
+        long id = requireVisibleArtwork(visibilityScope, artworkId);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         String body = proxyGet(
-                "https://www.pixiv.net/ajax/illust/" + artworkId + "/ugoira_meta", cookie);
+                "https://www.pixiv.net/ajax/illust/" + id + "/ugoira_meta", cookie);
         JsonNode root = objectMapper.readTree(body);
         if (root.path("error").asBoolean(false)) {
             return ResponseEntity.badRequest()
