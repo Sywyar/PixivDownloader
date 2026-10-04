@@ -66,7 +66,7 @@ public final class TestNovelGalleryPlugin implements PixivFeaturePlugin {
                 WebRouteContribution.local("/api/novel/browser-import/**"),
                 WebRouteContribution.visitor("/api/novel/status/**"),
                 WebRouteContribution.visitor("/api/novel/translate-status/**"),
-                WebRouteContribution.visitor("/api/novel/*/downloaded"),
+                WebRouteContribution.local("/api/novel/*/downloaded"),
                 WebRouteContribution.visitor("/api/novel/series/*/merge"),
                 WebRouteContribution.visitorAndInvitedGuest("/api/novel/series/*/merged"),
                 WebRouteContribution.admin("/api/novel/*/translate"),

@@ -12,6 +12,8 @@ import org.springframework.boot.web.embedded.tomcat.TomcatServletWebServerFactor
 import org.springframework.boot.web.server.WebServer;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.support.AnnotationConfigWebApplicationContext;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.DispatcherServlet;
@@ -29,6 +31,9 @@ import top.sywyar.pixivdownload.maintenance.MaintenanceCoordinator;
 import top.sywyar.pixivdownload.plugin.CorePlugin;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
+import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
+import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.quota.RateLimitService;
 import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteService;
@@ -50,6 +55,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -71,6 +77,7 @@ class AuthFilterServletTest {
     private AnnotationConfigWebApplicationContext context;
     private WebServer server;
     private byte[] image;
+    private final PolicyController policyController = new PolicyController();
 
     @BeforeAll
     void startServer() throws Exception {
@@ -115,8 +122,9 @@ class AuthFilterServletTest {
         context = new AnnotationConfigWebApplicationContext();
         context.register(WebConfig.class);
         context.addBeanFactoryPostProcessor(factory -> factory.registerSingleton("assets", controller));
+        context.addBeanFactoryPostProcessor(factory -> factory.registerSingleton("policy", policyController));
         var factory = new TomcatServletWebServerFactory(0);
-        factory.setAddress(InetAddress.getLoopbackAddress());
+        factory.setAddress(InetAddress.getByName("127.0.0.1"));
         factory.setContextPath("/test");
         factory.setBaseDirectory(tempDir.resolve("tomcat").toFile());
         server = factory.getWebServer(servletContext -> {
@@ -126,7 +134,7 @@ class AuthFilterServletTest {
             servlet.setLoadOnStartup(1);
             servlet.addMapping("/");
             // 用生产反向代理过滤器建立远端身份，真实请求不能命中回环 LOCAL 特例。
-            servletContext.addFilter("forwarded", new TrustedForwardedRequestFilter("127.0.0.0/8,::1/128"))
+            servletContext.addFilter("forwarded", new TrustedForwardedRequestFilter("127.0.0.1/32"))
                     .addMappingForUrlPatterns(EnumSet.of(DispatcherType.REQUEST), false, "/*");
             servletContext.addFilter("auth", auth)
                     .addMappingForUrlPatterns(EnumSet.of(DispatcherType.REQUEST), true, "/*");
@@ -161,12 +169,80 @@ class AuthFilterServletTest {
     }
 
     private HttpResponse<byte[]> request(String path, String cookie) throws Exception {
-        var request = HttpRequest.newBuilder(URI.create("http://localhost:" + server.getPort() + "/test" + path))
+        return request("GET", path, cookie, false);
+    }
+
+    @Test
+    @DisplayName("真实请求按方法与最具体声明鉴权，路由撤回后不保留放行")
+    void effectivePolicyFollowsMethodSpecificityAndLifecycle() throws Exception {
+        List<WebRouteContribution> declarations = List.of(
+                new WebRouteContribution("/api/policy/method", AccessPolicy.PUBLIC, Set.of(HttpMethod.GET), false),
+                new WebRouteContribution("/api/policy/method", AccessPolicy.ADMIN, Set.of(HttpMethod.POST), false),
+                new WebRouteContribution("/api/policy/local-method", AccessPolicy.LOCAL, Set.of(HttpMethod.GET), false),
+                WebRouteContribution.publicRoute("/api/policy/open/**"),
+                WebRouteContribution.admin("/api/policy/open/admin"),
+                WebRouteContribution.visitor("/api/policy/open/visitor"),
+                WebRouteContribution.local("/api/policy/local/**"),
+                WebRouteContribution.admin("/api/policy/local/admin"),
+                WebRouteContribution.invitedGuest("/api/policy/guest/**"),
+                WebRouteContribution.admin("/api/policy/guest/admin"),
+                WebRouteContribution.admin("/api/policy/admin/**"),
+                WebRouteContribution.publicRoute("/api/policy/admin/open"));
+        for (String mode : List.of("solo", "multi")) {
+            when(setup.getMode()).thenReturn(mode);
+            try {
+                routes.register("policy", declarations);
+                expectPolicy("GET", "/method", "", false, 200);
+                expectPolicy("POST", "/method", "", false, 401);
+                expectPolicy("POST", "/method", "pixiv_session=admin", false, 200);
+                expectPolicy("PUT", "/method", "", false, 404);
+                expectPolicy("GET", "/local-method", "", true, 200);
+                expectPolicy("POST", "/local-method", "", true, 404);
+                expectPolicy("GET", "/open/admin", "", false, 401);
+                expectPolicy("GET", "/open/admin", "pixiv_invite_token=invited", false, 403);
+                expectPolicy("GET", "/open/admin", "pixiv_session=admin", false, 200);
+                expectPolicy("GET", "/open/visitor", "", false, mode.equals("multi") ? 200 : 401);
+                expectPolicy("GET", "/local/admin", "", true, 401);
+                expectPolicy("GET", "/guest/admin", "pixiv_invite_token=invited", false, 403);
+                expectPolicy("GET", "/admin/open", "", false, 200);
+                routes.unregister("policy");
+                expectPolicy("GET", "/method", "", false, 404);
+                expectPolicy("GET", "/local-method", "", true, 404);
+                routes.register("policy", declarations);
+                expectPolicy("GET", "/method", "", false, 200);
+            } finally {
+                routes.unregister("policy");
+            }
+        }
+    }
+
+    private void expectPolicy(String method, String path, String cookie, boolean local, int status) throws Exception {
+        int before = policyController.calls.get();
+        assertThat(request(method, "/api/policy" + path, cookie, local).statusCode())
+                .as(setup.getMode() + " " + method + " " + path).isEqualTo(status);
+        assertThat(policyController.calls.get()).isEqualTo(before + (status == 200 ? 1 : 0));
+    }
+
+    private HttpResponse<byte[]> request(String method, String path, String cookie, boolean local) throws Exception {
+        var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + server.getPort() + "/test" + path))
                 .timeout(Duration.ofSeconds(10))
-                .header("Forwarded", "for=192.0.2.10;proto=http;host=fixture.example")
+                .method(method, HttpRequest.BodyPublishers.noBody())
+                .header("Forwarded", "for=" + (local ? "\"[::1]\";proto=http;host=localhost"
+                        : "192.0.2.10;proto=http;host=fixture.example"))
                 .header("Accept-Language", "en");
         if (!cookie.isEmpty()) request.header("Cookie", cookie);
         return client.send(request.build(), HttpResponse.BodyHandlers.ofByteArray());
+    }
+
+    @RestController
+    static class PolicyController {
+        private final AtomicInteger calls = new AtomicInteger();
+
+        @RequestMapping("/api/policy/**")
+        String invoke() {
+            calls.incrementAndGet();
+            return "ok";
+        }
     }
 
     @Configuration(proxyBeanMethods = false)
