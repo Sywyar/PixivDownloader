@@ -21,6 +21,7 @@ jobs:
       version: ${{ steps.vars.outputs.version }}
       date: ${{ steps.vars.outputs.date }}
       has_changes: ${{ steps.changelog.outputs.has_changes }}
+      trusted_base_sha: ${{ steps.source.outputs.trusted_base_sha }}
 
     steps:
       - name: Fix Git UTF-8 filenames
@@ -59,6 +60,22 @@ jobs:
           fi
           echo "has_changes=$HAS_CHANGES" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve protected Nightly source
+        id: source
+        if: steps.changelog.outputs.has_changes == 'true'
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
+          protected_tip="$(git rev-parse "refs/remotes/origin/$DEFAULT_BRANCH")"
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "$protected_tip"; then
+            echo "Nightly publication must select a commit already contained in protected master" >&2
+            exit 1
+          fi
+          echo "trusted_base_sha=$(git rev-parse "$GITHUB_SHA^")" >> "$GITHUB_OUTPUT"
+
       - name: Resolve next version
         id: vars
         shell: bash
@@ -88,76 +105,14 @@ jobs:
           echo "version=$NIGHTLY_VERSION" >> "$GITHUB_OUTPUT"
           echo "date=$(date -u +'%Y-%m-%d %H:%M UTC')" >> "$GITHUB_OUTPUT"
 
-  sdk-release-plan:
-    needs: resolve-version
-    if: needs.resolve-version.outputs.has_changes == 'true'
-    runs-on: ubuntu-latest
-    env:
-      SDK_REPOSITORY: Sywyar/PixivDownloader-Plugin-SDK
-      CENTRAL_BASE_URL: https://repo1.maven.org/maven2
-    outputs:
-      publish: ${{ steps.plan.outputs.publish }}
-      mode: ${{ steps.plan.outputs.mode }}
-      trusted_base_sha: ${{ steps.plan.outputs.trusted_base_sha }}
-      sdk_version: ${{ steps.plan.outputs.sdk_version }}
-      release_id: ${{ steps.plan.outputs.release_id }}
-      prerelease: ${{ steps.plan.outputs.prerelease }}
-    steps:
-      - name: Checkout candidate
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-      - name: Resolve SDK release plan
-        id: plan
-        uses: ./.github/actions/plan-sdk-release
-
   publish-plugins:
     name: Quality Gate
-    needs: [resolve-version, sdk-release-plan]
+    needs: resolve-version
     if: needs.resolve-version.outputs.has_changes == 'true'
     uses: ./.github/workflows/quality-gate.yml
     with:
-      trusted_base_sha: ${{ needs.sdk-release-plan.outputs.trusted_base_sha }}
+      trusted_base_sha: ${{ needs.resolve-version.outputs.trusted_base_sha }}
       export_release_candidates: true
-      export_sdk_candidates: ${{ needs.sdk-release-plan.outputs.publish == 'true' }}
-      sdk_publication_mode: ${{ needs.sdk-release-plan.outputs.publish == 'true' && 'latest' || 'none' }}
-
-  publish-sdk:
-    needs: [sdk-release-plan, publish-plugins]
-    if: github.repository == 'Sywyar/PixivDownloader'
-    runs-on: ubuntu-latest
-    timeout-minutes: 180
-    environment: release
-    concurrency:
-      group: sdk-publication-${{ needs.sdk-release-plan.outputs.release_id }}
-      cancel-in-progress: false
-      queue: max
-    env:
-      SDK_REPOSITORY: Sywyar/PixivDownloader-Plugin-SDK
-      CENTRAL_BASE_URL: https://repo1.maven.org/maven2
-      GH_TOKEN: ${{ secrets.CROSS_REPO_RELEASE_TOKEN }}
-      CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
-      CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
-      MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
-      SDK_VERSION: ${{ needs.sdk-release-plan.outputs.sdk_version }}
-      RELEASE_ID: ${{ needs.sdk-release-plan.outputs.release_id }}
-      PRERELEASE: ${{ needs.sdk-release-plan.outputs.prerelease }}
-      PUBLICATION_MODE: ${{ needs.sdk-release-plan.outputs.mode }}
-    steps:
-      - name: Checkout release source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-
-      - name: Publish verified SDK
-        if: needs.sdk-release-plan.outputs.publish == 'true'
-        uses: ./.github/actions/publish-sdk
-        with:
-          sdk_candidate_id: ${{ needs.publish-plugins.outputs.sdk_candidate_id }}
-          maven_gpg_private_key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
-          plugin_signing_private_key_pem_base64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
 
   publish-plugin-artifacts:
     concurrency:
@@ -310,7 +265,7 @@ jobs:
       group: nightly-release-publication
       cancel-in-progress: false
       queue: max
-    needs: [resolve-version, publish-plugins, publish-plugin-artifacts, build-jar, package-java, build-windows-installer, release-artifact-e2e, windows-installer-e2e, publish-sdk, sdk-release-plan]
+    needs: [resolve-version, publish-plugins, publish-plugin-artifacts, build-jar, package-java, build-windows-installer, release-artifact-e2e, windows-installer-e2e]
     if: needs.resolve-version.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     environment: release
@@ -454,7 +409,7 @@ jobs:
       - name: Sign update manifest
         uses: ./.github/actions/sign-update-manifest
         with:
-          trusted_base_sha: ${{ needs.sdk-release-plan.outputs.trusted_base_sha }}
+          trusted_base_sha: ${{ needs.resolve-version.outputs.trusted_base_sha }}
           update_signing_private_key_pem_base64: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
 
       - name: Build release body

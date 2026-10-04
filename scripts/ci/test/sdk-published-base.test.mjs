@@ -16,7 +16,7 @@ test('发行基线使用已公开的最新 SDK，当前模式要求精确身份�
         ]
     });
     const releases = [release('1.0.0-rc.9'), release('1.0.0-rc.15', true),
-        release('1.0.0-rc5'), release('1.0.0-rc.14')];
+        release('1.0.0-rc5'), release('1.0.0-rc.14'), release('9.0.0-nightly.20990101.1.1')];
     const latest = selectPublishedRelease(releases, identity, 'latest');
     assert.equal(latest.tag_name, 'sdk-api-v1.0.0-rc.14');
     assert.throws(() => selectPublishedRelease(releases, identity, 'current'), /no public Release/u);
