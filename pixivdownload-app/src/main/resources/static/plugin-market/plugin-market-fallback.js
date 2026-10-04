@@ -377,6 +377,7 @@
         var loadingMore = false;
         var more = dialog.querySelector('.pmk-more-versions');
         function update() {
+            version = PMK.data.resolveVersion(entry, version);
             dialog.querySelector('h2').textContent = PMK.data.entryName(entry);
             dialog.querySelector('p').textContent = PMK.data.entryDescription(entry);
             dialog.querySelector('button').textContent = t('modal.close', '关闭');
@@ -406,7 +407,7 @@
                 if (page.versionsGeneration !== entry.versionsGeneration) {
                     return PMK.api.fetchPluginDetail(catalog.repositoryId, pluginId).then(function (fresh) {
                         if (!alive || state.catalog !== catalog) return;
-                        Object.assign(entry, fresh); version = PMK.data.defaultVersion(fresh);
+                        Object.assign(entry, fresh);
                     });
                 }
                 else {

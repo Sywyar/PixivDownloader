@@ -34,13 +34,20 @@ test('实际插件发布入口检查全部目录项，坏目录失败并保留�
     try {
         assert.equal(run().status, 0);
         for (const [entries, status] of [
-            [[{ version: candidate }], 0],
-            [[{ version: candidate }, { version: '1.0.0-nightly.20260101.13.1' }], 1],
-            [[], 1], [[{}], 1],
+            [[{ pluginId: 'sample', packages: [{ version: '1.0.0-nightly.20260101.11.1' }, { version: candidate }] }], 0],
+            [[{ pluginId: 'sample', packages: [{ version: candidate }, { version: '1.0.0-nightly.20260101.13.1' }] }], 1],
+            [[{ pluginId: 'first', packages: [{ version: candidate }] },
+                { pluginId: 'second', packages: [{ version: '1.0.0-nightly.20260101.12.3' }] }], 1],
+            [[], 1], [[{}], 1], [[null], 1], [[{ version: candidate }], 1],
+            [[{ packages: [] }], 1], [[{ packages: {} }], 1],
+            [[{ packages: [{ version: candidate }, {}] }], 1],
+            [[{ packages: [null] }], 1], [[{ packages: [{ version: '' }] }], 1],
+            [[{ packages: [{ version: 123 }] }], 1], [[{ packages: [{ version: '1.0.0' }] }], 1],
         ]) {
             const bytes = JSON.stringify({ entries });
             fs.writeFileSync(manifest, bytes);
-            assert.equal(run().status, status);
+            const result = run();
+            assert.equal(result.status, status, bytes + '\n' + result.stderr);
             assert.equal(fs.readFileSync(manifest, 'utf8'), bytes);
         }
         fs.writeFileSync(manifest, '{');

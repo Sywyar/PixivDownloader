@@ -272,7 +272,7 @@ class RouteAccessMirrorTest {
         assertOwnerPolicy("/api/novel/browser-import/**", "novel", AccessPolicy.LOCAL);
         assertOwnerPolicy("/api/novel/status/**", "novel", AccessPolicy.VISITOR);
         assertOwnerPolicy("/api/novel/translate-status/**", "novel", AccessPolicy.VISITOR);
-        assertOwnerPolicy("/api/novel/*/downloaded", "novel", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/novel/*/downloaded", "novel", AccessPolicy.LOCAL);
         assertOwnerPolicy("/api/novel/series/*/merge", "novel", AccessPolicy.VISITOR);
         assertOwnerPolicy("/api/novel/series/*/merged", "novel", AccessPolicy.VISITOR_AND_INVITED_GUEST);
         assertOwnerPolicy("/api/novel/*/translate", "novel", AccessPolicy.ADMIN);

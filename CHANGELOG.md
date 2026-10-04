@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 该格式基于 [Keep a Changelog ZH-cn](https://keepachangelog.com/zh-CN/1.1.0/).
 
-## [v1.14.0] - 2026.10.3
+## [v1.14.0] - 2026.10.4
 
 ### Features
 
@@ -101,6 +101,8 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 修复编码请求路径可能绕过已下载作品访问权限的问题，原图与缩略图统一执行登录和邀请可见性检查。
+- 修复作品代理接口遇到非法作品 ID 时可能跳过邀请可见性检查的问题。
 - 修复下载页预览图响应的媒体类型与图片内容不一致的问题。
 - 修复小说阅读页刷新翻译后章节导航显示未替换占位符、丢失章节标题的问题。
 - API 请求缺少必填查询参数时返回明确的 400 错误。

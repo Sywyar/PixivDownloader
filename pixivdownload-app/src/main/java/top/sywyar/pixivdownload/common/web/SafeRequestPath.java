@@ -1,15 +1,14 @@
 package top.sywyar.pixivdownload.common.web;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.server.PathContainer;
 
 import java.util.Locale;
 import java.util.Optional;
 
 /**
- * Produces the application-relative request path used by security filters and route matching.
- * Literal matrix parameters are removed per path segment, matching Spring MVC's routing view.
- * Encoded semicolons and malformed application paths are rejected because their container decoding
- * semantics are not sufficiently stable for an authorization decision.
+ * 为安全过滤器与路由声明提供和 MVC 一致的逐段解码路径。
+ * 字面矩阵参数按段移除；会改变路径结构的编码与点段拒绝进入字符串路由匹配。
  */
 public final class SafeRequestPath {
 
@@ -35,31 +34,33 @@ public final class SafeRequestPath {
         if (uri.isEmpty()) {
             uri = "/";
         }
-        if (uri.charAt(0) != '/' || uri.indexOf('\\') >= 0 || uri.indexOf('\0') >= 0
+        if (uri.charAt(0) != '/' || uri.contains("//") || uri.indexOf('\\') >= 0 || uri.indexOf('\0') >= 0
                 || uri.indexOf('?') >= 0 || uri.indexOf('#') >= 0) {
             return Optional.empty();
         }
-        return Optional.of(removeMatrixParameters(uri));
+        try {
+            StringBuilder normalized = new StringBuilder(uri.length());
+            for (PathContainer.Element element : PathContainer.parsePath(uri).elements()) {
+                if (element instanceof PathContainer.PathSegment segment) {
+                    String value = segment.valueToMatch();
+                    if (value.isEmpty() || value.equals(".") || value.equals("..")
+                            || value.indexOf('/') >= 0 || value.indexOf('\\') >= 0
+                            || value.chars().anyMatch(Character::isISOControl)) {
+                        return Optional.empty();
+                    }
+                    normalized.append(value);
+                } else {
+                    normalized.append(element.value());
+                }
+            }
+            return Optional.of(normalized.toString());
+        } catch (IllegalArgumentException malformedEncoding) {
+            return Optional.empty();
+        }
     }
 
     private static boolean containsUnsafeEncoding(String uri) {
         return uri.toLowerCase(Locale.ROOT).contains("%3b");
     }
 
-    private static String removeMatrixParameters(String uri) {
-        StringBuilder normalized = new StringBuilder(uri.length());
-        boolean inParameters = false;
-        for (int i = 0; i < uri.length(); i++) {
-            char current = uri.charAt(i);
-            if (current == ';') {
-                inParameters = true;
-            } else if (current == '/') {
-                inParameters = false;
-                normalized.append(current);
-            } else if (!inParameters) {
-                normalized.append(current);
-            }
-        }
-        return normalized.length() == 0 ? "/" : normalized.toString();
-    }
 }

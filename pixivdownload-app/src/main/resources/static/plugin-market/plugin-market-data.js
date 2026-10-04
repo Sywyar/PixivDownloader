@@ -88,6 +88,13 @@
         return entry && (entry.recommendedVersion || entry.latestVersion);
     };
 
+    D.resolveVersion = function (entry, selectedVersion) {
+        var packages = (entry && entry.packages) || [];
+        var selected = packages.find(function (pkg) { return pkg.version === selectedVersion; })
+            || D.packageOf(entry, D.defaultVersion(entry));
+        return selected ? selected.version : null;
+    };
+
     D.compatibilityNotice = function (entry) {
         if (entry.compatibilitySearchIncomplete) return PMK.t('compat.search-incomplete');
         if (entry.recommendedVersion && entry.recommendedVersion !== entry.latestVersion) {

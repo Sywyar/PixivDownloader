@@ -373,6 +373,10 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
             $package = $manifest.entries[0].packages[0]
             Assert-Equal $package.requiredSdk $case.Expected
             Assert-Equal $package.requiredCoreApi $case.Expected
+            if ($case.ContainsKey('Nightly')) {
+                & node (Join-Path $repo 'scripts/ci/assert-nightly-publication.mjs') plugins '8.2.3-nightly.20260910.2.1' $output
+                if ($LASTEXITCODE -ne 0) { throw 'Generated Nightly manifest was rejected by publication guard.' }
+            }
         }
     }
     & {

@@ -70,18 +70,8 @@ public class AuthFilter extends OncePerRequestFilter {
     private final GuestInviteService guestInviteService;
     private final GuiTokenProvider guiTokenProvider;
 
-    // ── 访问控制：请求侧消费 RouteAccessRegistry 的不可变快照（register/unregister 会整体替换快照引用，
-    // 故插件注册 / 注销后过滤判定随新快照更新；安全边界不依赖构造期静态副本）。两条路径：
-    //   ① monitor 受保护 + 「未声明即 404」 ← 经 routeAccessRegistry.resolve(path, method) /
-    //      isDeclared(path, method) 解析「最具体声明 + 方法」的有效访问策略：窄声明（精确 / 长前缀 / 显式方法）
-    //      覆盖宽前缀，宽 ADMIN 前缀不再吞掉其下更窄的非 monitor 端点；monitor ← AccessPolicy ∈ {ADMIN,
-    //      INVITED_GUEST}；命中不了任何「path + method」声明的请求统一 404（不再回落访客默认放行）。
-    //   ② 邀请访客放行同样经 routeAccessRegistry.resolve(path, method) 解析有效路由；POST 还必须
-    //      由该有效路由显式声明。公开 / 本地放行清单与邀请访客静态资源限流分类仍由
-    //      currentAccess() 按策略从快照派生（见 derive()）：公开 ← PUBLIC；本地放行特例 ← LOCAL；
-    //      VISITOR / GUI / ACTUATOR_PUBLIC 不派生进任何清单（VISITOR 落默认会话 / 访客分支、GUI 与
-    //      actuator 由内联分支判定，声明只为纳入归属 / 镜像 / 守卫）。
-    // 前缀模式以 ** 结尾，去掉末尾 ** 即还原为 startsWith 前缀字符串（含 /api/authors 这类无尾斜杠前缀）。
+    // 一次请求只解析一次有效路由，公开、邀请、管理员与本地放行共享同一方法和特异性结论。
+    // 派生清单仅用于静态资源限流分类，不参与授权。
     private final RouteAccessRegistry routeAccessRegistry;
 
     /** 默认启动落点注册中心：{@code /redirect} 据此按模式选定首选插件落点（缺失则回退 / 兜底）。 */
@@ -174,7 +164,7 @@ public class AuthFilter extends OncePerRequestFilter {
     }
 
     /**
-     * 由 {@link RouteAccessRegistry} 某一不可变快照派生出的各访问清单（与历史八类硬编码清单同形态）。
+     * 由路由快照派生的静态资源限流分类，不作为授权依据。
      * {@code sourceSnapshot} 是派生它的快照引用，请求侧据此判断快照是否被 register/unregister 整体替换、
      * 决定是否需要重新派生（见 {@link #currentAccess()}）。
      */
@@ -184,9 +174,7 @@ public class AuthFilter extends OncePerRequestFilter {
             Set<String> publicStaticExactPaths,
             Set<String> guestAllowedStaticExact,
             Set<String> guestAllowedExact,
-            List<String> guestAllowedPrefix,
-            List<String> localAccessApiPrefixes,
-            Set<String> localAccessApiExact) {
+            List<String> guestAllowedPrefix) {
     }
 
     /**
@@ -204,12 +192,7 @@ public class AuthFilter extends OncePerRequestFilter {
         return cached;
     }
 
-    /**
-     * 把一份路由快照按访问策略折叠成公开 / 本地放行清单与邀请访客静态资源限流分类（字段
-     * 顺序与 {@link DerivedRouteAccess} 一致）。monitor 受保护、邀请访客授权与「未声明即 404」不在此派生——
-     * 由 {@link RouteAccessRegistry#resolve} / {@link RouteAccessRegistry#isDeclared(String, HttpMethod)} 按
-     * 「path + method 命中的最具体声明」解析。
-     */
+    /** 仅派生公开与邀请访客静态资源的限流分类；授权使用本次请求已解析的有效路由。 */
     private static DerivedRouteAccess derive(List<RouteAccessRegistry.RegisteredRoute> routes) {
         return new DerivedRouteAccess(
                 routes,
@@ -219,9 +202,7 @@ public class AuthFilter extends OncePerRequestFilter {
                         methods -> !methods.contains(HttpMethod.POST), AuthFilter::isStaticResource),
                 exactPaths(routes, AuthFilter::isGuestPolicy,
                         methods -> !methods.contains(HttpMethod.POST), path -> !isStaticResource(path)),
-                prefixPaths(routes, AuthFilter::isGuestPolicy),
-                prefixPaths(routes, policy -> policy == AccessPolicy.LOCAL),
-                exactPaths(routes, policy -> policy == AccessPolicy.LOCAL, method -> true));
+                prefixPaths(routes, AuthFilter::isGuestPolicy));
     }
 
     private static boolean isPrefixPattern(String pattern) {
@@ -290,6 +271,9 @@ public class AuthFilter extends OncePerRequestFilter {
             return;
         }
         String path = safePath.get();
+        Optional<RouteAccessRegistry.RegisteredRoute> resolvedRoute =
+                routeAccessRegistry.resolve(path, toHttpMethod(method));
+        AccessPolicy policy = resolvedRoute.map(route -> route.route().accessPolicy()).orElse(null);
 
         // 容器探针端点：health / info 永远放行，且置于维护窗口与限流检查之前，
         // 确保维护期间探针不会因 503 而被编排器误判为不健康。仅这两个端点对外暴露
@@ -328,7 +312,7 @@ public class AuthFilter extends OncePerRequestFilter {
                 sendJsonError(req, res, 403, "auth.local-only", "Forbidden: local access only");
                 return;
             }
-            if (!isValidDeclaredGuiActionOwner(req, path)) {
+            if (!isValidDeclaredGuiActionOwner(req, path, resolvedRoute)) {
                 sendJsonError(req, res, 403, "auth.local-only", "Forbidden: GUI action owner mismatch");
                 return;
             }
@@ -384,7 +368,7 @@ public class AuthFilter extends OncePerRequestFilter {
             return;
         }
 
-        if (isPublic(path)) {
+        if (isPublic(path, policy)) {
             chain.doFilter(req, res);
             return;
         }
@@ -410,7 +394,7 @@ public class AuthFilter extends OncePerRequestFilter {
         // 解析访客邀请会话（若 cookie 有效）：挂到 request attribute，用于后续过滤与单作品守卫
         GuestInviteSession guestSession = resolveGuestInviteSessionCached(req, res);
 
-        if (guestSession != null && isAllowedForGuestInvite(path, method)) {
+        if (guestSession != null && isAllowedForGuestInvite(resolvedRoute, method)) {
             if (isApi(path)) {
                 if (!rateLimitService.isAllowedForInvite("invite:" + guestSession.code())) {
                     sendJsonError(req, res, 429, "auth.too-many-requests", "Too Many Requests");
@@ -422,7 +406,7 @@ public class AuthFilter extends OncePerRequestFilter {
             return;
         }
 
-        if (isMonitorProtected(path, method)) {
+        if (isMonitorPolicy(policy)) {
             String token = SessionUtils.extractToken(req);
             boolean adminValid = setupService.isValidSession(token);
             if (!adminValid) {
@@ -454,9 +438,7 @@ public class AuthFilter extends OncePerRequestFilter {
             return;
         }
 
-        DerivedRouteAccess access = currentAccess();
-        if (startsWithAny(path, access.localAccessApiPrefixes()) || access.localAccessApiExact().contains(path)
-                || isNovelDownloadedCheck(path)) {
+        if (policy == AccessPolicy.LOCAL) {
             if ("POST".equalsIgnoreCase(method) && path.contains("/downloaded/move/")) {
                 if (!NetworkUtils.isLocalRequest(req)) {
                     sendJsonError(req, res, 403, "auth.local-only", "Forbidden: local access only");
@@ -476,7 +458,7 @@ public class AuthFilter extends OncePerRequestFilter {
         // 各自返回；走到这里要么命中某条 VISITOR / LOCAL 等已声明路由（落默认会话 / 访客分支、保持旧可观察行为），
         // 要么是未声明伪路径（404）。method-aware：仅声明某方法的 URL 用别的方法访问视为未声明（除非另有更宽的
         // 全方法声明覆盖）。真实 controller 方法 / 静态资源由 RouteDeclarationCoverageTest 守卫均已声明、不会误伤。
-        if (!routeAccessRegistry.isDeclared(path, toHttpMethod(method))) {
+        if (resolvedRoute.isEmpty()) {
             sendJsonError(req, res, HttpServletResponse.SC_NOT_FOUND,
                     "error.request.not-found", "Requested resource not found");
             return;
@@ -507,21 +489,6 @@ public class AuthFilter extends OncePerRequestFilter {
         }
     }
 
-    /**
-     * 该请求（路径 + 方法）命中的<b>最具体</b>已声明路由的访问策略是否属 monitor 受保护（ADMIN / INVITED_GUEST）。
-     * 经 {@link RouteAccessRegistry#resolve} 解析有效路由——更具体的窄声明（精确 / 长前缀 / 显式方法）覆盖更宽的
-     * 前缀声明，故宽 ADMIN 前缀不会吞掉其下更窄的非 monitor 端点。小说下载判重端点与作品侧 /api/downloaded/{id}
-     * 同属批量下载器的「跳过已下载」判重面，不纳入 monitor 保护（见 {@link #isNovelDownloadedCheck}）。
-     */
-    private boolean isMonitorProtected(String path, String method) {
-        if (isNovelDownloadedCheck(path)) {
-            return false;
-        }
-        return routeAccessRegistry.resolve(path, toHttpMethod(method))
-                .map(registered -> isMonitorPolicy(registered.route().accessPolicy()))
-                .orElse(false);
-    }
-
     /** 请求方法字符串 → contribution 的 {@link HttpMethod}；未知方法返回 {@code null}（仅命中空方法集声明）。 */
     private static HttpMethod toHttpMethod(String method) {
         if (method == null) {
@@ -534,32 +501,14 @@ public class AuthFilter extends OncePerRequestFilter {
         }
     }
 
-    /**
-     * 小说下载判重端点 {@code GET /api/novel/{novelId}/downloaded}：只读，仅返回
-     * {@code downloaded}/{@code deleted} 两个布尔，供批量下载器「跳过已下载」判重。它与作品侧
-     * {@code /api/downloaded/{id}} 语义对等。若按 monitor 保护处理，multi 模式非管理员会在进入控制器前收到 401，
-     * 导致 skipHistory 失效、已软删除小说被重下。
-     * 故从 monitor 保护中排除并按 {@code /api/downloaded/} 同等规则放行（本地直通 + multi 非管理员限流放行）；
-     * 控制器内仍按小说下载核心状态判定。
-     */
-    private boolean isNovelDownloadedCheck(String path) {
-        return path.startsWith("/api/novel/") && path.endsWith("/downloaded");
-    }
-
-    private boolean isPublic(String path) {
-        if (isAlwaysPublicApi(path) || path.equals("/invite")) {
+    private boolean isPublic(String path, AccessPolicy policy) {
+        boolean completedSolo = setupService.isSetupComplete() && "solo".equals(setupService.getMode());
+        if (policy == AccessPolicy.PUBLIC) {
             return true;
         }
-        if (setupService.isSetupComplete() && "solo".equals(setupService.getMode())) {
-            return isSoloPublicPath(path);
-        }
-        return isDefaultPublicPath(path);
-    }
-
-    private boolean isAlwaysPublicApi(String path) {
-        return path.startsWith("/api/auth/")
-                || path.startsWith("/api/i18n/")
-                || path.startsWith("/api/onboarding/");
+        // setup API 保留初始化及 multi 模式的引导语义，不能覆盖更具体的权限声明。
+        return policy == AccessPolicy.VISITOR && path.startsWith("/api/setup/")
+                && !completedSolo;
     }
 
     /**
@@ -600,7 +549,8 @@ public class AuthFilter extends OncePerRequestFilter {
      * contribution getter 有状态、在 GUI 聚合与后端实际发布之间返回了不同路由，也不能借宽前缀或其它
      * 插件已发布的端点发送聚合出的敏感配置 payload。
      */
-    private boolean isValidDeclaredGuiActionOwner(HttpServletRequest req, String path) {
+    private boolean isValidDeclaredGuiActionOwner(HttpServletRequest req, String path,
+                                                Optional<RouteAccessRegistry.RegisteredRoute> resolvedRoute) {
         String claimedOwner = req.getHeader(GuiActionInvocationHeaders.PLUGIN_OWNER);
         if (claimedOwner == null) {
             return true;
@@ -610,33 +560,13 @@ public class AuthFilter extends OncePerRequestFilter {
                 || !"POST".equalsIgnoreCase(req.getMethod())) {
             return false;
         }
-        return routeAccessRegistry.resolve(path, HttpMethod.POST)
+        return resolvedRoute
                 .filter(registered -> claimedOwner.equals(registered.pluginId()))
                 .map(registered -> registered.route())
                 .filter(route -> route.accessPolicy() == AccessPolicy.GUI)
                 .filter(route -> path.equals(route.pathPattern()))
                 .filter(route -> route.acceptsMethod(HttpMethod.POST))
                 .isPresent();
-    }
-
-    private boolean isDefaultPublicPath(String path) {
-        return path.equals("/")
-                || path.equals("/index")
-                || path.equals("/login.html")
-                || path.equals("/index.html")
-                || path.equals("/intro.html")
-                || path.equals("/intro-canary.html")
-                || currentAccess().publicStaticExactPaths().contains(path)
-                || isPublicPageStaticResource(path)
-                || path.startsWith("/api/setup/")
-                || path.startsWith("/api/auth/")
-                || path.startsWith("/api/i18n/")
-                || path.equals("/invite");
-    }
-
-    private boolean isSoloPublicPath(String path) {
-        return isIntroLoginPublicPageOrResource(path)
-                || path.equals("/invite");
     }
 
     private boolean isIntroLoginPublicPageOrResource(String path) {
@@ -754,8 +684,8 @@ public class AuthFilter extends OncePerRequestFilter {
         if (!"GET".equalsIgnoreCase(req.getMethod())) {
             return false;
         }
-        String uri = req.getRequestURI();
-        if (uri != null && uri.startsWith("/api/")) {
+        String path = SafeRequestPath.resolve(req).orElse("");
+        if (path.startsWith("/api/")) {
             return false;
         }
         String accept = req.getHeader(HttpHeaders.ACCEPT);
@@ -805,12 +735,12 @@ public class AuthFilter extends OncePerRequestFilter {
         return null;
     }
 
-    private boolean isAllowedForGuestInvite(String path, String method) {
+    private boolean isAllowedForGuestInvite(Optional<RouteAccessRegistry.RegisteredRoute> resolvedRoute, String method) {
         HttpMethod httpMethod = toHttpMethod(method);
         if (httpMethod != HttpMethod.GET && httpMethod != HttpMethod.HEAD && httpMethod != HttpMethod.POST) {
             return false;
         }
-        return routeAccessRegistry.resolve(path, httpMethod)
+        return resolvedRoute
                 .filter(registered -> isGuestPolicy(registered.route().accessPolicy()))
                 .filter(registered -> httpMethod != HttpMethod.POST
                         || registered.route().methods().contains(HttpMethod.POST))

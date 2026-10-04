@@ -21,10 +21,20 @@ export function assertPublicationOrder(candidate, publishedVersions) {
 }
 
 export function manifestVersions(manifest) {
-    if (!Array.isArray(manifest.entries) || manifest.entries.length === 0) {
+    if (!Array.isArray(manifest?.entries) || manifest.entries.length === 0) {
         throw new Error('Nightly plugin manifest has no entries');
     }
-    return manifest.entries.map(entry => entry.version);
+    return manifest.entries.flatMap((entry, entryIndex) => {
+        if (!Array.isArray(entry?.packages) || entry.packages.length === 0) {
+            throw new Error(`Nightly plugin manifest entry ${entryIndex} has no packages`);
+        }
+        return entry.packages.map((pkg, packageIndex) => {
+            if (typeof pkg?.version !== 'string' || !pkg.version) {
+                throw new Error(`Nightly plugin manifest entry ${entryIndex} package ${packageIndex} has no version`);
+            }
+            return pkg.version;
+        });
+    });
 }
 
 export function releaseVersions(release) {
