@@ -310,6 +310,96 @@ test('无动态编译时仍能显示恢复模式、禁用状态和目录错误',
     assert.deepEqual(page.errors, []);
 });
 
+test('详情分页切换目录代次后可继续加载，迟到请求不清除新上下文的忙状态', async () => {
+    const page = await mountMarket();
+    const requests = [];
+    page.market.api.fetchPluginDetail = (repository, plugin, options) => new Promise(resolve => {
+        requests.push({ cursor: options?.cursor, resolve });
+    });
+    const detail = generation => ({ ...entry('visible'), versionsGeneration: generation, nextVersionCursor: generation + '-next' });
+    const more = () => elements(page.root, 'pmk-btn').find(button => textOf(button) === 'plugin-market:pagination.more-versions');
+    const open = () => elements(page.root, 'pmk-card-name')[0].props.onClick();
+    open(); requests[0].resolve(detail('A')); await page.flush();
+    more().props.onClick(); await page.flush();
+    assert.equal(more().props.disabled, true);
+    requests[1].resolve(detail('B')); await page.flush();
+    requests[2].resolve(detail('B')); await page.flush();
+    assert.equal(more().props.disabled, false);
+    more().props.onClick(); await page.flush();
+    assert.deepEqual(requests.map(request => request.cursor), [undefined, 'A-next', undefined, 'B-next']);
+
+    open(); requests[4].resolve(detail('C')); await page.flush();
+    more().props.onClick(); await page.flush();
+    requests[3].resolve(detail('B')); await page.flush();
+    assert.equal(more().props.disabled, true, '旧请求不能解除当前分页请求的忙状态');
+    requests[5].resolve({ ...detail('C'), nextVersionCursor: null }); await page.flush();
+    assert.equal(more(), undefined);
+    assert.deepEqual(page.errors, []);
+});
+
+test('基础详情刷新后统一版本选择、文档与来源查询，并保留仍存在的选择', async () => {
+    for (const [versions, recommended, expected] of [
+        [['3.1.0', '3.0.0'], '3.0.0', '3.0.0'],
+        [['3.1.0', '3.0.0'], 'missing', '3.1.0'],
+        [['3.1.0', '2.0.0'], '3.1.0', '2.0.0']
+    ]) {
+        const handlers = {}, requests = [], models = [];
+        const element = () => ({ children: [], attrs: {}, listeners: {}, isConnected: true,
+            addEventListener(name, listener) { this.listeners[name] = listener; },
+            setAttribute(name, value) { this.attrs[name] = value; },
+            getAttribute(name) { return this.attrs[name]; },
+            replaceChildren() { this.children = []; }, appendChild(child) { this.children.push(child); },
+            closest() { return null; }, focus() {}, showModal() {} });
+        const nodes = Object.fromEntries(['h2', 'p', 'button', 'label span', 'select', '.pmk-more-versions',
+            '.pmk-content', '.pmk-version-notes', '[data-pmk-facts]'].map(selector => [selector, element()]));
+        nodes['[data-pmk-facts]'].attrs['data-pmk-facts'] = 'visible';
+        const dialog = { ...element(), querySelector: selector => nodes[selector] };
+        const root = { addEventListener: (name, callback) => { handlers[name] = callback; },
+            querySelector: () => null, querySelectorAll: () => [] };
+        const sandbox = { URL, console, document: { getElementById: () => null,
+            createElement: tag => tag === 'dialog' ? dialog : element(), body: { appendChild() {} } } };
+        sandbox.window = sandbox;
+        vm.createContext(sandbox, { codeGeneration: { strings: false, wasm: false } });
+        for (const resource of ['js/pixiv-plugin-presentation-tokens.js', 'plugin-market/plugin-market-core.js',
+            'plugin-market/plugin-market-data.js', 'plugin-market/plugin-market-content.js', 'plugin-market/plugin-market-fallback.js']) {
+            vm.runInContext(fs.readFileSync(path.join(staticRoot, resource), 'utf8'), sandbox, { filename: resource });
+        }
+        const market = sandbox.PixivPluginMarket;
+        market.state.i18n.client = { lang: 'en-US', t: key => key };
+        const plugin = entry('visible');
+        let resolveDetail;
+        market.content.mount = () => ({ update: model => models.push(model), dispose() {} });
+        market.api = {
+            fetchRepositories: async () => ({ enabled: true, defaultRepositoryId: 'repo',
+                repositories: [{ repositoryId: 'repo', enabled: true }] }),
+            fetchPluginStatus: async () => ({ recoveryMode: false }),
+            fetchCatalog: async () => ({ repositoryId: 'repo', entries: [plugin], categories: [] }),
+            fetchPluginDetail: () => new Promise(resolve => { resolveDetail = resolve; }),
+            fetchPackageFacts: async (...args) => { requests.push(args); return { status: 'VERIFIED_OFFICIAL' }; }
+        };
+        const errors = [];
+        market.toast = message => errors.push(message);
+        sandbox.PixivFeedback = { alert: async () => {} };
+        market.fallback.render(root);
+        await new Promise(resolve => setImmediate(resolve));
+        handlers.click({ target: { closest: selector => selector === '[data-pmk-detail]' ? {
+            getAttribute: () => 'visible', isConnected: true, focus() {}
+        } : null } });
+        resolveDetail({ ...plugin, recommendedVersion: recommended, latestVersion: versions[0],
+            packages: versions.map(version => ({ ...plugin.packages[0], version })) });
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(nodes.select.value, expected);
+        assert.ok(nodes.select.children.some(option => option.value === expected));
+        assert.equal(models.at(-1).version, expected);
+        const facts = nodes['[data-pmk-facts]'];
+        assert.equal(facts.getAttribute('data-pmk-version'), expected);
+        dialog.listeners.click({ target: { closest: selector => selector === '[data-pmk-facts]' ? facts : null } });
+        await new Promise(resolve => setImmediate(resolve));
+        assert.deepEqual(requests, [['repo', 'visible', expected]]);
+        assert.deepEqual(errors, []);
+    }
+});
+
 test('社区版本保障与包内声明在 CSP 渲染中展示并随版本切换更新', async () => {
     const page = await mountMarket({ community: true });
     const { root, flush } = page;

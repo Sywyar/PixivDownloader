@@ -540,6 +540,7 @@
                     var self = this;
                     this.detailReturnFocus = document.activeElement;
                     var token = ++this.detailToken;
+                    this.detailLoadingMore = false;
                     var repository = this.activeCatalogRepositoryId;
                     this.selectedPluginId = pluginId;
                     var entry = this.selectedEntry;
@@ -550,10 +551,7 @@
                     PMK.api.fetchPluginDetail(repository, pluginId).then(function (detail) {
                         if (token !== self.detailToken || self.activeCatalogRepositoryId !== repository || self.selectedPluginId !== pluginId) return;
                         self.selectedDetail = detail;
-                        if (!(detail.packages || []).some(function (pkg) { return pkg.version === self.selectedVersion; })) {
-                            var selected = PMK.data.packageOf(detail, PMK.data.defaultVersion(detail));
-                            self.selectedVersion = selected ? selected.version : null;
-                        }
+                        self.selectedVersion = PMK.data.resolveVersion(detail, self.selectedVersion);
                         self.loadPackageFacts();
                     }).catch(function () {
                         if (token !== self.detailToken || self.activeCatalogRepositoryId !== repository) return;
