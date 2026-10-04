@@ -1446,9 +1446,14 @@ class PluginReleaseScriptsTest {
                 .isGreaterThan(signingAction.indexOf("name: Checkout trusted update signature tool source"))
                 .isLessThan(signingAction.indexOf("- name: Sign update manifest"));
         for (String name : List.of("release.yml", "nightly.yml")) {
+            boolean stable = name.equals("release.yml");
             String workflow = workflow(name);
-            String signingJob = workflowJob(workflow,
-                    name.equals("release.yml") ? "release" : "release-nightly");
+            String signingJob = workflowJob(workflow, stable ? "release" : "release-nightly");
+            // 稳定发布取自已发布 SDK 基线计划；Nightly 停发常规 SDK 后由 resolve-version
+            // 校验受保护 master 祖先并就地解析。两者都必须来自 job 输出而非固定 SHA。
+            String trustedBaseSource = stable
+                    ? "needs.sdk-release-plan.outputs.trusted_base_sha"
+                    : "needs.resolve-version.outputs.trusted_base_sha";
             assertThat(workflow).as(name).contains(
                     "channel: $channel",
                     "sequence: $sequence",
@@ -1461,7 +1466,7 @@ class PluginReleaseScriptsTest {
                     .doesNotContain("Upload update signature tool");
             assertThat(signingJob).as(name + " update signing job")
                     .contains(
-                            "needs.sdk-release-plan.outputs.trusted_base_sha",
+                            trustedBaseSource,
                             "update_signing_private_key_pem_base64: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64 }}",
                             "uses: ./.github/actions/sign-update-manifest")
                     .doesNotContain(
