@@ -626,7 +626,7 @@ public class UpdateService {
      * Inno Setup 安装包带有 UAC manifest，会请求管理员权限，
      * 当前进程退出后 installer 可以覆盖已安装文件。
      */
-    public void launchInstallerAndExit() throws IOException {
+    public synchronized void launchInstallerAndExit() throws IOException {
         String platformKey = currentPlatformAssetKey();
         if (!ASSET_WIN_X64_INSTALLER.equals(platformKey)) {
             throw new IOException(forLog("update.error.installer.platform-unsupported"));
@@ -635,16 +635,31 @@ public class UpdateService {
         Path installer = verifiedInstallerForLaunch();
         log.info(forLog("update.log.install.launching", installer));
         try {
-            new ProcessBuilder(installer.toString())
-                    .directory(installer.getParent().toFile())
-                    .inheritIO()
-                    .start();
+            startInstaller(installer);
             verifiedInstaller = null;
         } catch (IOException e) {
             log.warn(forLog("update.log.install.launch-failed", e.getMessage()));
             throw e;
         }
 
+        scheduleExit();
+    }
+
+    void startInstaller(Path installer) throws IOException {
+        final int result;
+        try {
+            result = WindowsInstallerLauncher.launch(installer);
+        } catch (IOException e) {
+            throw new IOException(forLog("update.error.installer.launch-failed"), e);
+        }
+        if (result != 0) {
+            String key = result == WindowsInstallerLauncher.CANCELLED
+                    ? "update.error.installer.cancelled" : "update.error.installer.launch-failed";
+            throw new IOException(forLog(key));
+        }
+    }
+
+    void scheduleExit() {
         Thread exitThread = new Thread(() -> {
             try {
                 Thread.sleep(1500);

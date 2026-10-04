@@ -41,6 +41,11 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.mockStatic;
 
 @DisplayName("UpdateService 单元测试")
 class UpdateServiceTest {
@@ -384,7 +389,8 @@ class UpdateServiceTest {
             }).when(client).streamToFile(anyString(), anyLong(), any(Path.class), any(LongConsumer.class));
             PluginCatalogClientProvider provider = mock(PluginCatalogClientProvider.class);
             when(provider.clientFor(any())).thenReturn(client);
-            UpdateService service = new UpdateService(config(), APP_MESSAGES, provider);
+            UpdateService service = spy(new UpdateService(config(), APP_MESSAGES, provider));
+            doNothing().when(service).scheduleExit();
             UpdateCheckResult selected = UpdateCheckResult.builder()
                     .updateAvailable(true)
                     .latestVersion(version)
@@ -397,9 +403,34 @@ class UpdateServiceTest {
             service.downloadInstaller(selected);
             assertThat(service.verifiedInstallerForLaunch()).isEqualTo(target.toAbsolutePath().normalize());
 
-            Files.write(target, new byte[]{9, 9, 9});
-            assertThatThrownBy(service::verifiedInstallerForLaunch)
-                    .isInstanceOf(IOException.class);
+            try (var launcher = mockStatic(WindowsInstallerLauncher.class)) {
+                for (int code : new int[]{1, WindowsInstallerLauncher.CANCELLED, WindowsInstallerLauncher.TIMED_OUT}) {
+                    launcher.when(() -> WindowsInstallerLauncher.launch(target.toAbsolutePath().normalize()))
+                            .thenReturn(code);
+                    assertThatThrownBy(service::launchInstallerAndExit).isInstanceOf(IOException.class);
+                    assertThat(service.verifiedInstallerForLaunch()).isEqualTo(target.toAbsolutePath().normalize());
+                    verify(service, never()).scheduleExit();
+                }
+                launcher.when(() -> WindowsInstallerLauncher.launch(target.toAbsolutePath().normalize()))
+                        .thenThrow(new IOException("fixture launch failure"));
+                assertThatThrownBy(service::launchInstallerAndExit).isInstanceOf(IOException.class);
+                assertThat(service.verifiedInstallerForLaunch()).isEqualTo(target.toAbsolutePath().normalize());
+                verify(service, never()).scheduleExit();
+                Files.write(target, new byte[]{9, 9, 9});
+                launcher.clearInvocations();
+                assertThatThrownBy(service::launchInstallerAndExit).isInstanceOf(IOException.class);
+                launcher.verifyNoInteractions();
+                verify(service, never()).scheduleExit();
+
+                Files.write(target, payload);
+                launcher.when(() -> WindowsInstallerLauncher.launch(target.toAbsolutePath().normalize())).thenReturn(0);
+                service.launchInstallerAndExit();
+                verify(service).scheduleExit();
+                assertThatThrownBy(service::verifiedInstallerForLaunch).isInstanceOf(IOException.class);
+                launcher.clearInvocations();
+                assertThatThrownBy(service::launchInstallerAndExit).isInstanceOf(IOException.class);
+                launcher.verifyNoInteractions();
+            }
         } finally {
             restoreProperty("os.name", oldOsName);
             restoreProperty("os.arch", oldOsArch);
