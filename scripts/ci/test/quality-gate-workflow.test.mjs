@@ -511,7 +511,9 @@ test('发布链：所有凭据与写权限只在 release Environment 的门禁�
             .some((step) => step.uses === './.github/actions/package-windows-installer'));
         const sign = doc.jobs[doc === release ? 'release' : 'release-nightly'].steps
             .find((step) => step.uses === './.github/actions/sign-update-manifest');
-        assert.equal(sign.with.trusted_base_sha, '${{ needs.sdk-release-plan.outputs.trusted_base_sha }}');
+        assert.equal(sign.with.trusted_base_sha, doc === release
+            ? '${{ needs.sdk-release-plan.outputs.trusted_base_sha }}'
+            : '${{ needs.resolve-version.outputs.trusted_base_sha }}');
         assert.equal(sign.with.update_signing_private_key_pem_base64,
             '${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PEM_BASE64 }}');
     }
@@ -529,7 +531,7 @@ test('SDK 发布链仅由发行流程或手动请求进入同 SHA 门禁和不�
     assert.equal(sdk.on.workflow_call.inputs.publish_requested.type, 'boolean');
     assert.equal(sdk.jobs['release-plan'].if,
         "inputs.publish_requested == true || github.event_name == 'workflow_dispatch'");
-    for (const file of ['release', 'nightly']) {
+    for (const file of ['release']) {
         const caller = load(`.github/workflows/${file}.yml`);
         assert.equal(caller.jobs['publish-plugins'].uses, './.github/workflows/quality-gate.yml');
         assert.ok(caller.jobs['publish-sdk'].needs.includes('publish-plugins'));
@@ -588,7 +590,10 @@ test('发行构建与插件发布并行，分发产物依赖完整且全部 E2E 
             for (const parent of [jobs[id].needs || []].flat()) ancestors(parent, visited);
             return visited;
         };
-        for (const [a, b] of [['build-jar', 'publish-plugin-artifacts'], ['publish-sdk', 'build-jar'], ['publish-sdk', 'publish-plugin-artifacts'], ['package-java', 'build-windows-installer'], ['release-artifact-e2e', 'windows-installer-e2e']]) {
+        const parallelJobs = [['build-jar', 'publish-plugin-artifacts'],
+            ['package-java', 'build-windows-installer'], ['release-artifact-e2e', 'windows-installer-e2e']];
+        if (file === 'release') parallelJobs.push(['publish-sdk', 'build-jar'], ['publish-sdk', 'publish-plugin-artifacts']);
+        for (const [a, b] of parallelJobs) {
             assert.equal(ancestors(a).has(b), false);
             assert.equal(ancestors(b).has(a), false);
         }
@@ -620,13 +625,14 @@ test('发行构建与插件发布并行，分发产物依赖完整且全部 E2E 
         const publication = file === 'nightly' ? 'release-nightly' : 'release';
         const required = ancestors(publication);
         for (const id of ['publish-plugins', 'publish-plugin-artifacts', 'build-jar', 'package-java',
-            'build-windows-installer', 'release-artifact-e2e', 'windows-installer-e2e', 'publish-sdk']) {
+            'build-windows-installer', 'release-artifact-e2e', 'windows-installer-e2e',
+            ...(file === 'release' ? ['publish-sdk'] : [])]) {
             assert.ok(required.has(id));
             assert.ok(jobs[id]['continue-on-error'] === undefined || jobs[id]['continue-on-error'] === false);
             assert.doesNotMatch(jobs[id].if || '', /always\(|failure\(|cancelled\(/u);
         }
         assert.ok(ancestors('build-jar').has('publish-plugins'));
-        assert.ok(ancestors('publish-sdk').has('publish-plugins'));
+        if (file === 'release') assert.ok(ancestors('publish-sdk').has('publish-plugins'));
         assert.equal(ancestors('release-artifact-e2e').has('build-windows-installer'), false);
         assert.equal(ancestors('windows-installer-e2e').has('package-java'), false);
         assert.equal(jobs['windows-installer-e2e'].strategy['fail-fast'], false);
@@ -653,7 +659,7 @@ test('共享发布写入串行排队，固定目录来源并在写入前拒绝�
     for (const job of publishers) {
         assert.deepEqual(job.concurrency, { group: 'official-plugin-publication', 'cancel-in-progress': false, queue: 'max' });
     }
-    for (const job of [release.jobs['publish-sdk'], nightly.jobs['publish-sdk'], sdk.jobs.publish]) {
+    for (const job of [release.jobs['publish-sdk'], sdk.jobs.publish]) {
         assert.match(job.concurrency.group, /^sdk-publication-/u);
         assert.equal(job.concurrency['cancel-in-progress'], false);
         assert.equal(job.concurrency.queue, 'max');
@@ -673,7 +679,7 @@ test('共享发布写入串行排队，固定目录来源并在写入前拒绝�
         publication.steps.findIndex(step => step.name === 'Delete old nightly assets'));
 });
 
-test('日常与 Nightly 延后 SDK 发行身份校验，正式产物使用已发布基线', () => {
+test('PR 使用真实已发布 SDK 严格校验，Nightly 保留独立构建合同', () => {
     const qualityGate = load('.github/workflows/quality-gate.yml');
     const sdk = load('.github/workflows/publish-sdk.yml');
     const plugins = load('.github/workflows/publish-plugins.yml');
@@ -685,13 +691,36 @@ test('日常与 Nightly 延后 SDK 发行身份校验，正式产物使用已发
     const contract = sdkSteps.find(step => step.name === 'Compare SDK public contract');
 
     assert.equal(qualityGate.on.workflow_call.inputs.sdk_publication_mode.default, 'none');
-    assert.equal(predecessor.env.SDK_PUBLICATION_MODE, "${{ inputs.sdk_publication_mode || 'none' }}");
+    const evaluate = (expression, context) => vm.runInNewContext(
+        expression.replace(/^\$\{\{\s*|\s*\}\}$/gu, ''), context);
+    for (const [event, requested, expected] of [
+        ['pull_request', undefined, 'latest'], ['pull_request', 'none', 'latest'],
+        ['schedule', undefined, 'none'], ['workflow_dispatch', undefined, 'none'],
+        ['push', 'current', 'current'], ['push', 'latest', 'latest']
+    ]) {
+        const env = { SDK_PUBLICATION_MODE: evaluate(qualityGate.jobs['sdk-tests'].env.SDK_PUBLICATION_MODE,
+            { github: { event_name: event }, inputs: { sdk_publication_mode: requested } }) };
+        assert.equal(env.SDK_PUBLICATION_MODE, expected);
+        assert.equal(evaluate(published.if, { env }), expected !== 'none');
+        assert.equal(evaluate(contract.env.SDK_RELEASE_IDENTITY_REQUIRED, { env }), expected !== 'none');
+    }
+    assert.equal(predecessor.env.SDK_PUBLICATION_MODE, undefined);
+    assert.equal(published.env.SDK_PUBLICATION_MODE, undefined);
+    assert.equal(published.env.GH_TOKEN, '${{ github.token }}');
+    assert.deepEqual(Object.keys(load('.github/workflows/pr-quality-gate.yml').jobs['quality-gate']).sort(),
+        ['if', 'uses']);
     assert.match(predecessor.run, /none\|current\|latest/u);
     assert.match(published.run, /sdk-published-base\.mjs/u);
     assert.match(contract.run, /--require-release-identity/u);
     assert.equal(sdk.jobs['quality-gate'].with.sdk_publication_mode, 'latest');
     assert.equal(plugins.on.workflow_call.inputs.sdk_publication_mode.default, 'current');
-    assert.equal(nightly.jobs['publish-plugins'].with.sdk_publication_mode, "${{ needs.sdk-release-plan.outputs.publish == 'true' && 'latest' || 'none' }}");
+    assert.equal(nightly.jobs['publish-plugins'].with.sdk_publication_mode, undefined);
+    assert.equal(nightly.jobs['publish-plugins'].with.export_sdk_candidates, undefined);
+    assert.equal(nightly.jobs['publish-plugins'].with.trusted_base_sha,
+        '${{ needs.resolve-version.outputs.trusted_base_sha }}');
+    assert.doesNotMatch(JSON.stringify(nightly), /sdk-release-plan|publish-sdk|CENTRAL_USERNAME|CENTRAL_PASSWORD|MAVEN_GPG/u);
+    assert.ok(qualityGate.jobs['java-tests'].needs.includes('sdk-tests'));
+    assert.ok(sdkSteps.some(step => step.uses === './.github/actions/verify-sdk'));
     assert.equal(release.jobs['publish-plugins'].with.sdk_publication_mode, "${{ needs.sdk-release-plan.outputs.publish == 'true' && 'latest' || 'current' }}");
 });
 
@@ -916,4 +945,38 @@ test('Nightly：共享变更门禁以语义输出控制全部昂贵任务', () =
     }
     const resolveScripts = nightly.jobs['resolve-version'].steps.map((step) => step.run || '').join('\n');
     assert.match(resolveScripts, /nightly-changelog-gate\.sh\s+CHANGELOG\.md\s+nightly/);
+});
+
+
+test('Nightly 来源校验保留受保护主线约束并为签名提供真实前驱', t => {
+    const nightly = load('.github/workflows/nightly.yml');
+    const resolver = nightly.jobs['resolve-version'];
+    const source = resolver.steps.find(step => step.id === 'source');
+    assert.equal(resolver.outputs.trusted_base_sha, '${{ steps.source.outputs.trusted_base_sha }}');
+    assert.equal(source.if, "steps.changelog.outputs.has_changes == 'true'");
+    assert.equal(source.env.DEFAULT_BRANCH, '${{ github.event.repository.default_branch }}');
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nightly-source-'));
+    t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+    const git = (...args) => execFileSync('git', args,
+        { cwd: directory, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    git('init', '-q', '--initial-branch=master');
+    git('config', 'user.name', 'fixture');
+    git('config', 'user.email', 'fixture@example.com');
+    git('commit', '-q', '--allow-empty', '-m', 'base');
+    const base = git('rev-parse', 'HEAD');
+    git('commit', '-q', '--allow-empty', '-m', 'protected');
+    const head = git('rev-parse', 'HEAD');
+    git('remote', 'add', 'origin', directory);
+    const output = path.join(directory, 'output');
+    const run = sha => execFileSync('bash', ['-e', '-o', 'pipefail', '-c', source.run], {
+        cwd: directory, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, DEFAULT_BRANCH: 'master', GITHUB_SHA: sha, GITHUB_OUTPUT: output }
+    });
+    run(head);
+    assert.equal(fs.readFileSync(output, 'utf8').trim(), 'trusted_base_sha=' + base);
+    fs.writeFileSync(output, '');
+    git('checkout', '-q', '--detach');
+    git('commit', '-q', '--allow-empty', '-m', 'unmerged');
+    assert.throws(() => run(git('rev-parse', 'HEAD')), /contained in protected master/u);
+    assert.equal(fs.readFileSync(output, 'utf8'), '');
 });

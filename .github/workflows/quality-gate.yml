@@ -76,6 +76,8 @@ jobs:
   sdk-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      SDK_PUBLICATION_MODE: ${{ github.event_name == 'pull_request' && 'latest' || inputs.sdk_publication_mode || 'none' }}
     outputs:
       candidate_id: ${{ steps.sdk-candidate.outputs.artifact-id }}
     steps:
@@ -104,7 +106,6 @@ jobs:
           EVENT_MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           INPUT_TRUSTED_BASE_SHA: ${{ inputs.trusted_base_sha }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          SDK_PUBLICATION_MODE: ${{ inputs.sdk_publication_mode || 'none' }}
         run: |
           case "$SDK_PUBLICATION_MODE" in
             none|current|latest) ;;
@@ -113,10 +114,9 @@ jobs:
           node scripts/ci/resolve-trusted-base.mjs --repo-root . --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --before "$EVENT_BEFORE" --ref "$GITHUB_REF" --pr-head "$EVENT_PR_HEAD_SHA" --pr-base "$EVENT_PR_BASE_SHA" --merge-group-base "$EVENT_MERGE_GROUP_BASE_SHA" --input-base "$INPUT_TRUSTED_BASE_SHA" --default-branch "$DEFAULT_BRANCH" --mode > "$RUNNER_TEMP/sdk-gate-base.json"
           node -e 'const j=require(process.argv[1]); console.log(`SDK_BASE_SHA=${j.base}`)' "$RUNNER_TEMP/sdk-gate-base.json" >> "$GITHUB_ENV"
       - name: Resolve published SDK baseline
-        if: inputs.sdk_publication_mode == 'current' || inputs.sdk_publication_mode == 'latest'
+        if: env.SDK_PUBLICATION_MODE == 'current' || env.SDK_PUBLICATION_MODE == 'latest'
         env:
           GH_TOKEN: ${{ github.token }}
-          SDK_PUBLICATION_MODE: ${{ inputs.sdk_publication_mode }}
         run: |
           published_source="$(node scripts/ci/sdk-published-base.mjs "$SDK_PUBLICATION_MODE" .)"
           echo "SDK_BASE_SHA=$published_source" >> "$GITHUB_ENV"
@@ -136,7 +136,7 @@ jobs:
           node scripts/ci/sdk-contract.mjs --repo-root . --base-ref "$SDK_BASE_SHA" --candidate-ref "$GITHUB_SHA" --base-surface "$RUNNER_TEMP/sdk-base-surface.txt" --candidate-surface "$RUNNER_TEMP/sdk-candidate-surface.txt" --base-sdk-root "$BASE_DIR" --candidate-sdk-root . --report "$RUNNER_TEMP/sdk-contract-report.json" --require-release-identity "$SDK_RELEASE_IDENTITY_REQUIRED"
           cat "$RUNNER_TEMP/sdk-contract-report.json"
         env:
-          SDK_RELEASE_IDENTITY_REQUIRED: ${{ inputs.sdk_publication_mode == 'current' || inputs.sdk_publication_mode == 'latest' }}
+          SDK_RELEASE_IDENTITY_REQUIRED: ${{ env.SDK_PUBLICATION_MODE == 'current' || env.SDK_PUBLICATION_MODE == 'latest' }}
 
       - name: Upload verified SDK candidate
         id: sdk-candidate

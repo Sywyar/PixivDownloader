@@ -188,7 +188,7 @@ function readAtRef(repoRoot, relativePath, ref) {
     }
 }
 
-function readBaseline(repoRoot, directory, ref) {
+export function readBaseline(repoRoot, directory, ref) {
     const metadataText = readAtRef(repoRoot, `${directory}/metadata.json`, ref);
     const surface = readAtRef(repoRoot, `${directory}/api-surface.txt`, ref);
     if (!metadataText && !surface) return null;
