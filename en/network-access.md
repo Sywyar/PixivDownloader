@@ -46,6 +46,8 @@ The four backend downloader userscripts call `GET /api/collections` on the confi
 
 New scripts installed through a backend page can run on that backend address’s two download pages to answer script ID and version queries. They do not run Pixiv download logic there. Detection uses messages within the current page; it does not send an installation inventory, cookies, or script settings to a server or third party. A missing response is shown as “Not detected.” Reload the page after installing, updating, enabling, or disabling a script.
 
+The artwork metadata, page-image, and Ugoira proxies accept only positive integer work IDs within the supported range. They use the normalized ID in `www.pixiv.net/ajax/illust/{id}` and its fixed subpaths. Invited guests can request only visible works; invalid or invisible IDs do not trigger an upstream request.
+
 ## `douyin` plugin
 
 `douyin` is an on-demand plugin and is not preinstalled by the default Windows installer or Java standard archive. These requests occur only after it is installed, enabled, and used.
