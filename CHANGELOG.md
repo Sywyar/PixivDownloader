@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 修复部分 WebP 动图及图片的画廊封面偏黄、偏绿的问题。
 - 修复画廊访客显示默认用户或管理员缓存称呼的问题，访客统一显示为 Guest。
 - 修复访客收藏夹数量包含不可见作品的问题，插画和小说分别按可见范围计数。
 - 修复服务端口变化后邀请链接、桌面网页入口和图片分类器默认连接可能指向错误实例的问题，统一使用当前实例的地址。
