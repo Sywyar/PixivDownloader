@@ -14,6 +14,15 @@
 
     // ---------- 默认翻译（无 i18n 客户端时使用） ----------
     const FALLBACK = {
+        'modal.field.collections': '收藏夹',
+        'modal.btn.config-collections': '配置收藏夹',
+        'picker.collection.title': '收藏夹可见性',
+        'modal.collections.restrict-works': '同时隐藏不可见收藏夹中的作品',
+        'modal.collections.hint': '关闭时仅隐藏不可见收藏夹的入口、筛选和作品标记，作品仍按原有规则可见。开启时，属于任一不可见收藏夹的作品也会隐藏；未加入收藏夹的作品不受此项影响。',
+        'modal.error.options-load': '无法加载可选项，请重试。',
+        'detail.collections.works': '同时隐藏不可见收藏夹中的作品',
+        'detail.collections.filters': '仅隐藏收藏夹入口、筛选和作品标记',
+
         'modal.cancel': '取消',
         'picker.cancel': '取消',
         'picker.save': '保存',
@@ -159,6 +168,7 @@
             max-height: 50vh; min-height: 240px; overflow-y: auto; background: var(--surface, #fff);
         }
         .invite-picker-row {
+            width: 100%; color: inherit; background: transparent; border: 0; font: inherit; text-align: start;
             display: flex; align-items: center; justify-content: space-between;
             padding: 8px 12px; border-bottom: 1px solid var(--border, #f0f0f0);
             cursor: pointer; gap: 12px;
@@ -224,7 +234,37 @@
         }
         return node;
     }
-    function closeBackdrop(backdrop) { if (backdrop && backdrop.parentNode) backdrop.parentNode.removeChild(backdrop); }
+    function closeBackdrop(backdrop) {
+        if (!backdrop || !backdrop.parentNode) return;
+        const restoreFocus = backdrop.contains(document.activeElement);
+        backdrop.parentNode.removeChild(backdrop);
+        if (restoreFocus && backdrop.returnFocus?.isConnected) backdrop.returnFocus.focus();
+    }
+    function showBackdrop(backdrop, returnFocus = document.activeElement) {
+        backdrop.returnFocus = returnFocus;
+        const modal = backdrop.firstElementChild;
+        modal.setAttribute('role', 'dialog');
+        modal.setAttribute('aria-modal', 'true');
+        modal.setAttribute('aria-label', modal.querySelector('.invite-modal-head span').textContent);
+        backdrop.addEventListener('keydown', event => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                closeBackdrop(backdrop);
+            } else if (event.key === 'Tab') {
+                const controls = Array.from(modal.querySelectorAll('button, input, select'))
+                    .filter(node => !node.disabled);
+                const first = controls[0], last = controls[controls.length - 1];
+                if (event.shiftKey && document.activeElement === first) {
+                    event.preventDefault(); last.focus();
+                } else if (!event.shiftKey && document.activeElement === last) {
+                    event.preventDefault(); first.focus();
+                }
+            }
+        });
+        document.body.appendChild(backdrop);
+        modal.querySelector('input:not([disabled]), button')?.focus();
+    }
 
     async function copyText(text) {
         try {
@@ -320,16 +360,16 @@
             } else {
                 // 切换为可见（仅 unrestricted=false 时可达）
                 selected.add(item.id);
-                if (selected.size === items.length) {
+                if (items.every(it => selected.has(it.id))) {
                     // 全部可见 → 自动勾选并清空
                     unrestricted = true;
                     selected.clear();
                     syncCheckbox();
                 }
             }
-            renderList();
+            renderList(item.id);
         }
-        function renderList() {
+        function renderList(focusId) {
             list.innerHTML = '';
             const filtered = items.filter(rowMatchesFilter);
             if (filtered.length === 0) {
@@ -342,13 +382,15 @@
                     class: 'invite-picker-toggle ' + (visible ? 'visible' : 'hidden'),
                     text: t(visible ? 'picker.toggle.visible' : 'picker.toggle.hidden')
                 });
-                const nameNode = el('div', { class: 'invite-picker-name' }, [
+                const nameNode = el('span', { class: 'invite-picker-name' }, [
                     item.name || '',
                     item.secondary ? el('span', { class: 'secondary', text: item.secondary }) : null
                 ]);
-                const row = el('div', { class: 'invite-picker-row' }, [nameNode, toggle]);
+                const row = el('button', { type: 'button', class: 'invite-picker-row',
+                    'aria-pressed': String(visible) }, [nameNode, toggle]);
                 row.addEventListener('click', () => toggleItem(item));
                 list.appendChild(row);
+                if (item.id === focusId) row.focus();
             }
         }
 
@@ -389,14 +431,33 @@
         ]);
         const meta = el('div', { class: 'invite-picker-meta',
             text: t('picker.meta', { total: items.length }) + ' · ' + t('picker.hint') });
+        const scopeCheckbox = kind === 'collection' && typeof opts.collectionRestrictsWorks === 'boolean'
+            ? el('input', { type: 'checkbox', checked: opts.collectionRestrictsWorks }) : null;
+        const collectionScope = scopeCheckbox ? el('div', { class: 'invite-field' }, [
+            el('label', { class: 'invite-checkbox' }, [
+                scopeCheckbox, el('span', { text: t('modal.collections.restrict-works') })
+            ]),
+            el('div', { class: 'invite-help', text: t('modal.collections.hint') })
+        ]) : null;
+        const errorBox = el('div', { class: 'invite-error', role: 'alert' });
 
         const cancelBtn = el('button', { type: 'button', class: 'invite-btn',
             text: t('picker.cancel'), onclick: () => closeBackdrop(backdrop) });
         const okBtn = el('button', { type: 'button', class: 'invite-btn primary',
             text: t('picker.save'),
-            onclick: () => {
-                onSubmit({ unrestricted, ids: Array.from(selected) });
-                closeBackdrop(backdrop);
+            onclick: async () => {
+                errorBox.textContent = '';
+                okBtn.disabled = true;
+                try {
+                    const value = { unrestricted, ids: Array.from(selected) };
+                    if (scopeCheckbox) value.collectionRestrictsWorks = scopeCheckbox.checked;
+                    await onSubmit(value);
+                    closeBackdrop(backdrop);
+                } catch (e) {
+                    errorBox.textContent = e.message || String(e);
+                } finally {
+                    okBtn.disabled = false;
+                }
             } });
 
         const modal = el('div', { class: 'invite-modal large' }, [
@@ -404,16 +465,17 @@
                 el('span', { text: t(titleKey) }),
                 el('button', { class: 'invite-modal-close', text: '×', onclick: () => closeBackdrop(backdrop) })
             ]),
-            el('div', { class: 'invite-modal-body' }, [meta, toolbar, list]),
+            el('div', { class: 'invite-modal-body' }, [meta, toolbar, collectionScope, list, errorBox]),
             el('div', { class: 'invite-modal-foot' }, [cancelBtn, okBtn])
         ]);
         backdrop.appendChild(modal);
-        document.body.appendChild(backdrop);
+        showBackdrop(backdrop, opts.returnFocus);
         renderList();
     }
 
     function resolvePickerTitleKey(kind) {
         switch (kind) {
+            case 'collection': return 'picker.collection.title';
             case 'novel-tag': return 'picker.novel-tag.title';
             case 'novel-author': return 'picker.novel-author.title';
             case 'author': return 'picker.author.title';
@@ -444,6 +506,10 @@
         let novelAuthorIds = new Set(prefill.novelAuthorIds || []);
         const novelTagsSnapshot = prefill.novelTagsSnapshot || null;
         const novelAuthorsSnapshot = prefill.novelAuthorsSnapshot || null;
+
+        let collectionUnrestricted = prefill.collectionUnrestricted !== false;
+        let collectionIds = new Set(prefill.collectionIds || []);
+        let collectionRestrictsWorks = !!prefill.collectionRestrictsWorks;
 
         const nameInput = el('input', {
             class: 'invite-input', value: prefill.name || '',
@@ -495,6 +561,7 @@
 
         const illustSummary = el('div', { class: 'invite-help' });
         const novelSummary = el('div', { class: 'invite-help' });
+        const collectionSummary = el('div', { class: 'invite-help' });
         function summaryLine(kind, unrestrictedFlag, selectedSet) {
             const valueKey = unrestrictedFlag ? 'modal.summary.all'
                 : null;
@@ -502,6 +569,8 @@
             return t(kind === 'tag' ? 'modal.summary.tags' : 'modal.summary.authors', { value });
         }
         function renderSummary() {
+            collectionSummary.textContent = collectionUnrestricted ? t('modal.summary.all')
+                : t('modal.summary.count', { count: collectionIds.size });
             illustSummary.textContent = summaryLine('tag', tagUnrestricted, tagIds)
                 + ' · ' + summaryLine('author', authorUnrestricted, authorIds)
                 + ' ' + t('modal.summary.hint');
@@ -512,14 +581,17 @@
 
         function makePickerBtn(kind, getItemsFn, getState, setState) {
             const btn = el('button', { type: 'button', class: 'invite-btn',
-                text: t(kind === 'tag' || kind === 'novel-tag' ? 'modal.btn.config-tags' : 'modal.btn.config-authors'),
+                text: t(kind === 'collection' ? 'modal.btn.config-collections'
+                    : kind === 'tag' || kind === 'novel-tag' ? 'modal.btn.config-tags' : 'modal.btn.config-authors'),
                 onclick: async () => {
+                    errorBox.textContent = '';
                     btn.disabled = true;
                     try {
                         const items = await getItemsFn();
                         const state = getState();
                         openVisibilityPicker({
                             kind, items,
+                            returnFocus: btn,
                             unrestricted: state.unrestricted,
                             selectedIds: state.ids,
                             onSubmit: ({ unrestricted, ids }) => {
@@ -527,7 +599,12 @@
                                 renderSummary();
                             }
                         });
-                    } finally { btn.disabled = false; }
+                    } catch (e) {
+                        errorBox.textContent = t('modal.error.options-load');
+                    } finally {
+                        btn.disabled = false;
+                        if (document.activeElement === document.body && btn.isConnected) btn.focus();
+                    }
                 } });
             return btn;
         }
@@ -557,9 +634,25 @@
             ({ unrestricted, ids }) => { novelAuthorUnrestricted = unrestricted; novelAuthorIds = ids; }
         );
 
+        const collectionBtn = makePickerBtn(
+            'collection',
+            async () => {
+                const response = await fetch('/api/collections');
+                if (!response.ok) throw new Error(String(response.status));
+                const data = await response.json();
+                return (data.collections || []).map(c => ({ id: c.id, name: c.name }));
+            },
+            () => ({ unrestricted: collectionUnrestricted, ids: collectionIds }),
+            ({ unrestricted, ids }) => { collectionUnrestricted = unrestricted; collectionIds = ids; }
+        );
+        const collectionScope = makeCheckbox(
+            t('modal.collections.restrict-works'),
+            collectionRestrictsWorks,
+            value => { collectionRestrictsWorks = value; }
+        );
         renderSummary();
 
-        const errorBox = el('div', { class: 'invite-error' });
+        const errorBox = el('div', { class: 'invite-error', role: 'alert' });
         const submitBtn = el('button', { type: 'button', class: 'invite-btn primary',
             text: opts.submitText || t('modal.create.submit') });
 
@@ -589,6 +682,8 @@
             }
             const payload = {
                 name, expireDays,
+                collectionUnrestricted, collectionIds: collectionUnrestricted ? [] : Array.from(collectionIds),
+                collectionRestrictsWorks,
                 allowSfw, allowR18, allowR18g,
                 tagUnrestricted, tagIds: tagUnrestricted ? [] : Array.from(tagIds),
                 authorUnrestricted, authorIds: authorUnrestricted ? [] : Array.from(authorIds),
@@ -632,6 +727,13 @@
                 el('div', { class: 'invite-row' }, [novelTagBtn, novelAuthorBtn]),
                 novelSummary
             ]),
+            el('div', { class: 'invite-field' }, [
+                el('div', { class: 'invite-field-label', text: t('modal.field.collections') }),
+                collectionBtn,
+                collectionSummary,
+                collectionScope,
+                el('div', { class: 'invite-help', text: t('modal.collections.hint') })
+            ]),
             errorBox
         ]);
 
@@ -645,7 +747,7 @@
             el('div', { class: 'invite-modal-foot' }, [cancelBtn, submitBtn])
         ]);
         backdrop.appendChild(modal);
-        document.body.appendChild(backdrop);
+        showBackdrop(backdrop);
     }
 
     // ---------- result modal ----------
@@ -684,7 +786,7 @@
             ])
         ]);
         backdrop.appendChild(modal);
-        document.body.appendChild(backdrop);
+        showBackdrop(backdrop);
     }
 
     window.InviteModals = {

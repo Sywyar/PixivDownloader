@@ -21,7 +21,20 @@ public record GuestRestriction(
         boolean tagUnrestricted,
         List<Long> tagIds,
         boolean authorUnrestricted,
-        List<Long> authorIds) {
+        List<Long> authorIds,
+        boolean collectionUnrestricted,
+        List<Long> collectionIds,
+        boolean collectionRestrictsWorks) {
+
+    public GuestRestriction(Set<Integer> allowedXRestricts, boolean tagUnrestricted,
+                            List<Long> tagIds, boolean authorUnrestricted, List<Long> authorIds) {
+        this(allowedXRestricts, tagUnrestricted, tagIds, authorUnrestricted, authorIds,
+                true, List.of(), false);
+    }
+
+    public boolean isCollectionVisible(long collectionId) {
+        return collectionUnrestricted || collectionIds.contains(collectionId);
+    }
 
     /** 漫画/插画侧限制（基于 {@code tagIds} / {@code authorIds}）。 */
     public static GuestRestriction from(GuestInviteSession s) {
@@ -31,7 +44,8 @@ public record GuestRestriction(
                 s.tagUnrestricted(),
                 List.copyOf(s.tagIds()),
                 s.authorUnrestricted(),
-                List.copyOf(s.authorIds()));
+                List.copyOf(s.authorIds()),
+                s.collectionUnrestricted(), List.copyOf(s.collectionIds()), s.collectionRestrictsWorks());
     }
 
     /** 小说侧限制（基于 {@code novelTagIds} / {@code novelAuthorIds}）。 */
@@ -42,7 +56,8 @@ public record GuestRestriction(
                 s.novelTagUnrestricted(),
                 List.copyOf(s.novelTagIds()),
                 s.novelAuthorUnrestricted(),
-                List.copyOf(s.novelAuthorIds()));
+                List.copyOf(s.novelAuthorIds()),
+                s.collectionUnrestricted(), List.copyOf(s.collectionIds()), s.collectionRestrictsWorks());
     }
 
     private static Set<Integer> allowedRatings(GuestInviteSession s) {

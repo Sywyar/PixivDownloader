@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
+import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
@@ -30,12 +31,37 @@ class GuestWorkVisibilityServiceTest {
     private PixivDatabase pixivDatabase;
     private NovelMetadataRepository novelMetadataRepository;
     private GuestWorkVisibilityService service;
+    private CollectionService collections;
 
     @BeforeEach
     void setUp() {
         pixivDatabase = mock(PixivDatabase.class);
         novelMetadataRepository = mock(NovelMetadataRepository.class);
-        service = new GuestWorkVisibilityService(pixivDatabase, novelMetadataRepository);
+        collections = mock(CollectionService.class);
+        service = new GuestWorkVisibilityService(pixivDatabase, novelMetadataRepository, collections);
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(WorkType.class)
+    @DisplayName("收藏夹可只隐藏入口或同时拦截作品，交叉收藏不可绕过")
+    void collectionScopeAppliesToSingleWork(WorkType type) {
+        if (type == WorkType.ARTWORK) {
+            when(pixivDatabase.getArtwork(42L)).thenReturn(artworkRecord(0, 7L));
+            when(collections.collectionsOf(42L)).thenReturn(List.of(1L, 2L));
+        } else {
+            when(novelMetadataRepository.getNovel(42L)).thenReturn(novelRecord(0, 7L));
+            when(collections.novelCollectionsOf(42L)).thenReturn(List.of(1L, 2L));
+        }
+        WorkRestriction filters = new WorkRestriction(Set.of(0), true, List.of(), true, List.of(),
+                false, List.of(1L), false);
+        WorkRestriction works = new WorkRestriction(Set.of(0), true, List.of(), true, List.of(),
+                false, List.of(1L), true);
+        assertThat(service.isVisible(WorkVisibilityScope.restricted(filters, filters), type, 42L)).isTrue();
+        assertThatThrownBy(() -> service.requireVisible(WorkVisibilityScope.restricted(works, works), type, 42L))
+                .isInstanceOf(WorkVisibilityDeniedException.class);
+        if (type == WorkType.ARTWORK) when(collections.collectionsOf(42L)).thenReturn(List.of());
+        else when(collections.novelCollectionsOf(42L)).thenReturn(List.of());
+        assertThat(service.isVisible(WorkVisibilityScope.restricted(works, works), type, 42L)).isTrue();
     }
 
     @Test

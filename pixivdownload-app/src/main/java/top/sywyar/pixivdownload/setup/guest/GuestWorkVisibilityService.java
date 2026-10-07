@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.setup.guest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
+import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
@@ -26,6 +27,7 @@ public class GuestWorkVisibilityService implements WorkVisibilityService {
 
     private final PixivDatabase pixivDatabase;
     private final NovelMetadataRepository novelMetadataRepository;
+    private final CollectionService collectionService;
 
     @Override
     public void requireVisible(WorkVisibilityScope scope, WorkType workType, long workId) {
@@ -42,6 +44,13 @@ public class GuestWorkVisibilityService implements WorkVisibilityService {
             return true;
         }
         WorkRestriction restriction = scope.restrictionFor(workType);
+        if (restriction.collectionRestrictsWorks() && !restriction.collectionUnrestricted()) {
+            List<Long> memberships = switch (workType) {
+                case ARTWORK -> collectionService.collectionsOf(workId);
+                case NOVEL -> collectionService.novelCollectionsOf(workId);
+            };
+            if (memberships.stream().anyMatch(id -> !restriction.isCollectionVisible(id))) return false;
+        }
         return switch (workType) {
             case ARTWORK -> isArtworkVisible(workId, restriction);
             case NOVEL -> isNovelVisible(workId, restriction);

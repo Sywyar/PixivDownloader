@@ -378,6 +378,8 @@ public class CoreWorkQueryService implements WorkQueryService {
                 restriction.tagUnrestricted(),
                 restriction.tagIds(),
                 restriction.authorUnrestricted(),
-                restriction.authorIds());
+                restriction.authorIds(),
+                restriction.collectionUnrestricted(), restriction.collectionIds(),
+                restriction.collectionRestrictsWorks());
     }
 }

@@ -1,14 +1,18 @@
 'use strict';
 /**
- * 渲染"可见标签"或"可见作者"维度的摘要单元格。
+ * 渲染可见范围维度的摘要单元格。
  * 三种状态：全部可见 / 全部不可见 / 部分可见；查看详细按钮始终可点击。
  *
- * {@code kind} 决定数据源与文案：tag / author / novel-tag / novel-author。
+ * {@code kind} 决定数据源与文案：tag / author / novel-tag / novel-author / collection。
  */
 function renderVisibilityCell(unrestricted, entries, kind) {
     const isTagSide = kind === 'tag' || kind === 'novel-tag';
     let summaryText;
-    if (unrestricted) {
+    if (kind === 'collection') {
+        summaryText = unrestricted
+            ? tr('invite:modal.summary.all', '全部可见')
+            : tr('invite:modal.summary.count', '可见 {count} 项', { count: (entries || []).length });
+    } else if (unrestricted) {
         summaryText = isTagSide
             ? tr('invite:detail.value.tags-all', '全部标签')
             : tr('invite:detail.value.authors-all', '全部作者');
@@ -52,6 +56,10 @@ function render() {
         <div class="info-row"><div class="lbl">${escapeHtml(tr('invite:detail.field.authors.illust', '漫画可见作者'))}</div><div class="val">${renderVisibilityCell(d.authorUnrestricted, d.authors, 'author')}</div></div>
         <div class="info-row"><div class="lbl">${escapeHtml(tr('invite:detail.field.tags.novel', '小说可见标签'))}</div><div class="val">${renderVisibilityCell(d.novelTagUnrestricted, d.novelTags, 'novel-tag')}</div></div>
         <div class="info-row"><div class="lbl">${escapeHtml(tr('invite:detail.field.authors.novel', '小说可见作者'))}</div><div class="val">${renderVisibilityCell(d.novelAuthorUnrestricted, d.novelAuthors, 'novel-author')}</div></div>
+        <div class="info-row"><div class="lbl">${escapeHtml(tr('invite:modal.field.collections', '收藏夹'))}</div><div class="val">
+            ${renderVisibilityCell(d.collectionUnrestricted !== false, d.collectionIds, 'collection')}
+            <div class="hint">${escapeHtml(tr(d.collectionRestrictsWorks ? 'invite:detail.collections.works' : 'invite:detail.collections.filters', ''))}</div>
+        </div></div>
         <div class="info-row"><div class="lbl">${escapeHtml(tr('invite:detail.field.url', '邀请链接'))}</div>
             <div class="val"><div class="code-block"><span class="v">${escapeHtml(d.url)}</span>
                 <button class="copy-btn" data-copy="${escapeHtml(d.url)}">${escapeHtml(tr('invite:copy', '复制'))}</button></div></div></div>

@@ -32,4 +32,9 @@ public class InviteCreateRequest {
     /** 小说侧可见作者：{@code true} 表示所有作者可见；{@code false} 时仅 {@link #novelAuthorIds} 内可见。 */
     private boolean novelAuthorUnrestricted = true;
     private List<Long> novelAuthorIds;
+
+    /** 收藏夹入口与归属标记的可见范围，默认不限制。 */
+    private boolean collectionUnrestricted = true;
+    private boolean collectionRestrictsWorks;
+    private List<Long> collectionIds;
 }

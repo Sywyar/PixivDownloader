@@ -86,7 +86,7 @@ async function fetchNovelAuthorsForPicker() {
 }
 
 /**
- * 把单维度的"查看详细"打开为可编辑 picker，提交时只更新对应维度，其它三维度保持原值。
+ * 把单维度的"查看详细"打开为可编辑 picker，提交时保留其它维度。
  */
 function openViewDetailPicker(kind) {
     const fetched = (() => {
@@ -95,15 +95,18 @@ function openViewDetailPicker(kind) {
             case 'author': return fetchAuthorsForPicker();
             case 'novel-tag': return fetchNovelTagsForPicker();
             case 'novel-author': return fetchNovelAuthorsForPicker();
+            case 'collection': return api('/api/collections').then(data =>
+                (data.collections || []).map(c => ({ id: c.id, name: c.name })));
             default: return Promise.resolve([]);
         }
     })();
-    Promise.resolve(fetched).then(list => {
+    return Promise.resolve(fetched).then(list => {
         const initialUnrestricted = ({
             'tag': detail.tagUnrestricted,
             'author': detail.authorUnrestricted,
             'novel-tag': detail.novelTagUnrestricted,
             'novel-author': detail.novelAuthorUnrestricted,
+            'collection': detail.collectionUnrestricted !== false,
         })[kind];
         const initialIds = (() => {
             switch (kind) {
@@ -111,6 +114,7 @@ function openViewDetailPicker(kind) {
                 case 'author': return (detail.authors || []).map(a => a.authorId);
                 case 'novel-tag': return (detail.novelTags || []).map(t => t.tagId);
                 case 'novel-author': return (detail.novelAuthors || []).map(a => a.authorId);
+                case 'collection': return detail.collectionIds || [];
                 default: return [];
             }
         })();
@@ -119,11 +123,15 @@ function openViewDetailPicker(kind) {
             items: list,
             unrestricted: initialUnrestricted,
             selectedIds: initialIds,
-            onSubmit: async ({ unrestricted, ids }) => {
+            collectionRestrictsWorks: kind === 'collection' ? !!detail.collectionRestrictsWorks : undefined,
+            onSubmit: async ({ unrestricted, ids, collectionRestrictsWorks }) => {
                 const expireDays = detail.expireTime == null
                     ? null
                     : Math.max(1, Math.ceil((detail.expireTime - Date.now()) / 86400000));
                 const payload = {
+                    collectionUnrestricted: detail.collectionUnrestricted !== false,
+                    collectionIds: detail.collectionIds || [],
+                    collectionRestrictsWorks: !!detail.collectionRestrictsWorks,
                     name: detail.name,
                     expireDays,
                     allowSfw: detail.allowSfw,
@@ -140,6 +148,11 @@ function openViewDetailPicker(kind) {
                 };
                 // 仅覆盖被编辑的那一维
                 switch (kind) {
+                    case 'collection':
+                        payload.collectionUnrestricted = unrestricted;
+                        payload.collectionIds = unrestricted ? [] : ids;
+                        payload.collectionRestrictsWorks = collectionRestrictsWorks;
+                        break;
                     case 'tag':
                         payload.tagUnrestricted = unrestricted;
                         payload.tagIds = unrestricted ? [] : ids;
@@ -157,19 +170,17 @@ function openViewDetailPicker(kind) {
                         payload.novelAuthorIds = unrestricted ? [] : ids;
                         break;
                 }
-                try {
-                    await api('/api/admin/invites/' + detail.id, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload),
-                    });
-                    window.InviteModals.showToast(tr('invite:toast.saved', '已保存'), 'success');
-                    load();
-                } catch (e) {
-                    window.InviteModals.showToast(tr('invite:toast.failed', '{0}', { 0: e.message }), 'error');
-                }
+                await api('/api/admin/invites/' + detail.id, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                window.InviteModals.showToast(tr('invite:toast.saved', '已保存'), 'success');
+                load();
             }
         });
+    }).catch(e => {
+        window.InviteModals.showToast(tr('invite:toast.failed', '{0}', { 0: e.message }), 'error');
     });
 }
 
@@ -180,6 +191,9 @@ function openEditModal() {
         : Math.max(1, Math.ceil((detail.expireTime - Date.now()) / 86400000));
     const prefill = {
         id: detail.id,
+        collectionUnrestricted: detail.collectionUnrestricted !== false,
+        collectionIds: detail.collectionIds || [],
+        collectionRestrictsWorks: !!detail.collectionRestrictsWorks,
         name: detail.name,
         expireDays,
         permanent: detail.expireTime == null,

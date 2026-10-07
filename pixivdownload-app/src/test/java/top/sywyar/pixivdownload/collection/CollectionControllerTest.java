@@ -14,6 +14,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
@@ -48,6 +49,8 @@ class CollectionControllerTest {
     private GalleryRepository galleryRepository;
     @Mock
     private GuestAccessGuard guestAccessGuard;
+    @Mock
+    private NovelGalleryRepository novelGalleryRepository;
     @TempDir
     private Path tempDir;
 
@@ -55,7 +58,7 @@ class CollectionControllerTest {
 
     @BeforeEach
     void setUp() {
-        controller = new CollectionController(collectionService, iconService, galleryRepository, guestAccessGuard);
+        controller = new CollectionController(collectionService, iconService, galleryRepository, novelGalleryRepository, guestAccessGuard);
     }
 
     @Test
@@ -105,7 +108,6 @@ class CollectionControllerTest {
     @DisplayName("收藏夹图标下载在文件查找前拒绝不可见的访客收藏夹")
     void downloadIconRejectsInvisibleGuestCollection() {
         MockHttpServletRequest request = guestRequest();
-        when(galleryRepository.findVisibleCollectionIds(any())).thenReturn(Set.of(8L));
 
         assertThatThrownBy(() -> controller.downloadIcon(7L, request))
                 .isInstanceOf(LocalizedException.class)
@@ -159,7 +161,6 @@ class CollectionControllerTest {
             when(guestAccessGuard.isVisibleToGuest(123L, session)).thenReturn(true);
             when(collectionService.membershipsOf(List.of(123L))).thenReturn(Map.of(123L, List.of(7L, 8L)));
         }
-        when(galleryRepository.findVisibleCollectionIds(any())).thenReturn(Set.of(8L));
 
         assertThat(memberships(novel, List.of(123L, 456L, 123L), request).memberships())
                 .containsExactlyEntriesOf(Map.of(123L, List.of(8L)));
@@ -214,6 +215,35 @@ class CollectionControllerTest {
         verifyNoInteractions(guestAccessGuard, galleryRepository);
     }
 
+    @Test
+    @DisplayName("访客收藏列表分别裁剪插画与小说计数且保留纯小说收藏夹")
+    void listCountsOnlyVisibleWorks() {
+        List<Collection> stored = List.of(
+                new Collection(1, "haha", null, "private/path", 0, 1, 2, 3),
+                new Collection(2, "novels", null, null, 1, 2, 0, 4),
+                new Collection(3, "empty", null, null, 2, 3, 2, 0),
+                new Collection(7, "hidden", null, null, 3, 4, 5, 0));
+        when(collectionService.listAll()).thenReturn(stored);
+        when(galleryRepository.countVisibleWorksByCollection(any())).thenReturn(Map.of(1L, 1L, 7L, 5L));
+        when(novelGalleryRepository.countVisibleWorksByCollection(any())).thenReturn(Map.of(2L, 1L));
+        var collections = controller.list(guestRequest()).collections();
+        assertThat(collections).extracting(Collection::id).containsExactly(1L, 2L);
+        assertThat(collections.get(0).artworkCount()).isEqualTo(1);
+        assertThat(collections.get(0).novelCount()).isZero();
+        assertThat(collections.get(0).downloadRoot()).isNull();
+        assertThat(collections.get(1).novelCount()).isEqualTo(1);
+        assertThat(controller.list(new MockHttpServletRequest()).collections()).isEqualTo(stored);
+    }
+
+    @Test
+    @DisplayName("单作品归属也隐藏未授权收藏夹")
+    void singleMembershipsHideUnselectedCollections() {
+        when(collectionService.collectionsOf(123L)).thenReturn(List.of(1L, 7L));
+        when(collectionService.novelCollectionsOf(456L)).thenReturn(List.of(7L, 3L));
+        assertThat(controller.collectionsOf(123L, guestRequest()).getBody().collectionIds()).containsExactly(1L);
+        assertThat(controller.novelCollectionsOf(456L, guestRequest()).getBody().collectionIds()).containsExactly(3L);
+    }
+
     private CollectionController.MembershipsResponse memberships(
             boolean novel, List<Long> ids, MockHttpServletRequest request) {
         return novel
@@ -226,7 +256,7 @@ class CollectionControllerTest {
         request.setAttribute(GuestInviteSession.REQUEST_ATTR, new GuestInviteSession(
                 1L, "invite-code", true, false, false,
                 true, Set.of(), true, Set.of(),
-                true, Set.of(), true, Set.of()
+                true, Set.of(), true, Set.of(), false, Set.of(1L, 2L, 3L, 8L), false
         ));
         return request;
     }
