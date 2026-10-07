@@ -11,6 +11,10 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
 import top.sywyar.pixivdownload.plugin.install.PluginInstallResponseMapper;
 import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
+import top.sywyar.pixivdownload.plugin.management.PluginUpdateController;
+import top.sywyar.pixivdownload.plugin.management.PluginUpdateService;
+import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginLifecycleCoordinator;
+import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogAcquisitionService;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogService;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
@@ -62,6 +66,21 @@ public class PluginMarketPluginConfiguration {
                                                    top.sywyar.pixivdownload.plugin.catalog.community.CommunityPackageService communityPackages) {
         return new PluginMarketService(repositoryRegistry, catalogService, acquisitionService,
                 pluginStatusService, revocations, communityPackages);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled(PluginMarketPlugin.ID)
+    public PluginUpdateService pluginUpdateService(PluginRepositoryRegistry repositories,
+                                                   PluginMarketService market,
+                                                   ExternalPluginInstaller installer,
+                                                   ExternalPluginLifecycleCoordinator lifecycle) {
+        return new PluginUpdateService(repositories, market, installer, lifecycle);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled(PluginMarketPlugin.ID)
+    public PluginUpdateController pluginUpdateController(PluginUpdateService updates) {
+        return new PluginUpdateController(updates);
     }
 
     @Bean

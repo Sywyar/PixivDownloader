@@ -74,6 +74,8 @@ class PluginMarketPluginDisabledContextTest {
     void marketManagedBeansAbsent() {
         assertThat(context.getBeanNamesForType(PluginMarketController.class)).isEmpty();
         assertThat(context.getBeanNamesForType(PluginMarketService.class)).isEmpty();
+        assertThat(context.getBeanNamesForType(top.sywyar.pixivdownload.plugin.management.PluginUpdateService.class)).isEmpty();
+        assertThat(context.getBeanNamesForType(top.sywyar.pixivdownload.plugin.management.PluginUpdateController.class)).isEmpty();
         assertThat(context.getBeanNamesForType(top.sywyar.pixivdownload.plugin.catalog.content.PluginCatalogContentService.class)).isEmpty();
         assertThat(context.getBeanNamesForType(top.sywyar.pixivdownload.plugin.market.content.PluginMarketContentController.class)).isEmpty();
     }

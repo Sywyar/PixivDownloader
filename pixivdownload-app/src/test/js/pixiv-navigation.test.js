@@ -356,11 +356,12 @@ async function main() {
         const item = { id: 'management', placements: ['app.top'], href: '/manage', labelNamespace: 'plugins',
             labelI18nKey: 'nav.label', markers: ['plugin-update-summary'] };
         let calls = 0;
+        let status = 200;
         let summary = { enabled: true, compatibleUpdates: 2, sdkBlockedUpdates: 1 };
         const runtime = load({ slots: [slot], pixivVue, fetch: async url => {
             if (url === '/api/navigation') return { ok: true, json: async () => [item] };
             calls++;
-            return { ok: true, json: async () => summary };
+            return { ok: status === 200, status, json: async () => summary };
         } });
         await runtime.PixivNav.ready();
         await runtime.PixivNav.pluginUpdates();
@@ -372,6 +373,10 @@ async function main() {
         summary = { enabled: true, checkFailed: true, compatibleUpdates: 0, sdkBlockedUpdates: 0 };
         await runtime.PixivNav.pluginUpdates();
         ok('后续查询失败会撤下旧角标', !html().includes('pnav-update-badge'));
+        status = 404;
+        const absent = await runtime.PixivNav.pluginUpdates();
+        ok('市场禁用时更新能力缺席，不显示失败或旧角标', absent.enabled === false
+            && absent.checkFailed === false && !html().includes('pnav-update-badge'));
     }
     console.log(`\npixiv-navigation.test.js: ${passed} assertions passed ✓`);
 }

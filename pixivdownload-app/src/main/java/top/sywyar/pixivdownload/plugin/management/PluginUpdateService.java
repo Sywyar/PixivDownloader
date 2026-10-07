@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.plugin.management;
 
-import org.springframework.stereotype.Service;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.common.SemanticVersion;
 import top.sywyar.pixivdownload.plugin.catalog.page.PluginCatalogPageQuery;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
@@ -22,8 +22,8 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 
-/** 导航与插件管理共用更新事实，只匹配安装记录中已验证的来源仓库。 */
-@Service
+/** 市场提供导航与插件管理共用的更新事实，只匹配安装记录中已验证的来源仓库。 */
+@PluginManagedBean
 public class PluginUpdateService {
     private static final long CACHE_NANOS = TimeUnit.MINUTES.toNanos(5);
     private static final long FAILURE_CACHE_NANOS = TimeUnit.SECONDS.toNanos(30);

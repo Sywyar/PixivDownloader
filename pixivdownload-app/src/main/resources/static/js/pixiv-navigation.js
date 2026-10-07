@@ -65,6 +65,7 @@
         updatePromise = global.fetch('/api/plugins/updates', {
             credentials: 'same-origin', signal: updateController.signal, cache: 'no-store'
         }).then(function (res) {
+            if (res.status === 404) return { enabled: false, checkFailed: false, compatibleUpdates: 0, sdkBlockedUpdates: 0 };
             if (!res.ok) throw new Error('plugin updates http ' + res.status);
             return res.json();
         }).catch(function () {

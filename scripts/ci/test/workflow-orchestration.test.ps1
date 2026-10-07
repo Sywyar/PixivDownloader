@@ -387,6 +387,7 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
             $package = $manifest.entries[0].packages[0]
             Assert-Equal $package.requiredSdk $case.Expected
             Assert-Equal $package.requiredCoreApi $case.Expected
+            Assert-Equal $package.channel $(if ($case.ContainsKey('Nightly')) { 'nightly' } else { 'stable' })
             Assert-Equal @($package.dependencies) @('fixture-dependency@2.0')
             if ($case.ContainsKey('Nightly')) {
                 & node (Join-Path $repo 'scripts/ci/assert-nightly-publication.mjs') plugins '8.2.3-nightly.20260910.2.1' $output
@@ -444,7 +445,10 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
                 $bytes = [IO.File]::ReadAllBytes((Join-Path $marketRoot $reference.path))
                 $publishedFiles[$reference.path] = $bytes
                 if ($fixtureVersion -eq '8.0.0') { $olderHistory = $reference }
-                if ($fixtureVersion -eq '9.0.0-beta.1') { Assert-Equal $reference.path $olderHistory.path }
+                if ($fixtureVersion -eq '9.0.0-beta.1') {
+                    Assert-Equal $reference.path $olderHistory.path
+                    Assert-Equal $manifest.entries[0].packages[0].channel 'beta'
+                }
             }
             if ($olderHistory) {
                 Assert-Equal (Get-FileHash (Join-Path $marketRoot $olderHistory.path)).Hash.ToLowerInvariant() $olderHistory.sha256
