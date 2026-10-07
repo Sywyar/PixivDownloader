@@ -7,6 +7,11 @@ import javax.imageio.ImageReadParam;
 import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
 import java.awt.image.BufferedImage;
+import java.awt.Rectangle;
+import java.awt.image.AreaAveragingScaleFilter;
+import java.awt.image.ColorModel;
+import java.awt.image.ImageConsumer;
+import java.awt.image.ImageFilter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -18,6 +23,7 @@ public final class BoundedImageDecoder {
     static final int MAX_WIDTH = 25_000;
     static final int MAX_HEIGHT = 25_000;
     static final long MAX_PIXELS = 25_000_000L;
+    private static final int PREVIEW_REGION_PIXELS = 4 * 1024 * 1024;
     static final long MAX_SOURCE_BYTES = PixivImageTransferObserver.MAX_IMAGE_BYTES;
 
     private BoundedImageDecoder() {
@@ -31,11 +37,21 @@ public final class BoundedImageDecoder {
      * @throws IOException 源文件超限或无法安全解码时抛出
      */
     public static BufferedImage read(Path path) throws IOException {
-        Decoded decoded = read(path, MAX_WIDTH, MAX_HEIGHT);
+        Decoded decoded = read(path, MAX_WIDTH, MAX_HEIGHT, false, false);
         return decoded == null ? null : decoded.image();
     }
 
     static Decoded read(Path path, int maximumWidth, int maximumHeight) throws IOException {
+        return read(path, maximumWidth, maximumHeight, true, false);
+    }
+
+    static Decoded readCover(Path path, int edge) throws IOException {
+        return read(path, edge, edge, true, true);
+    }
+
+    private static Decoded read(Path path, int maximumWidth, int maximumHeight,
+                                boolean preview, boolean cover) throws IOException {
+        if (Thread.currentThread().isInterrupted()) throw new java.io.InterruptedIOException("Image decoding interrupted");
         if (path == null || !Files.isRegularFile(path)) {
             return null;
         }
@@ -57,14 +73,21 @@ public final class BoundedImageDecoder {
             }
             ImageReader reader = readers.next();
             try {
-                reader.setInput(input, true, true);
+                reader.setInput(input, false, true);
                 int width = reader.getWidth(0);
                 int height = reader.getHeight(0);
                 validateDimensions(width, height);
                 String format = reader.getFormatName();
+                boolean regionReadable = "png".equalsIgnoreCase(format) || "jpeg".equalsIgnoreCase(format);
                 // GIF 等读取器即使设置降采样，也可能先分配完整源帧。
-                if (!"png".equalsIgnoreCase(format) && !"jpeg".equalsIgnoreCase(format)) {
+                if (!regionReadable) {
                     validatePixels(width, height);
+                }
+                Rectangle region = new Rectangle(0, 0, width, height);
+                if (cover) {
+                    int side = Math.min(width, height);
+                    region = new Rectangle((width - side) / 2, (height - side) / 2, side, side);
+                    width = height = side;
                 }
                 int boundWidth = maximumWidth < 0 ? Math.max(1, width / 3) : Math.max(1, maximumWidth);
                 int boundHeight = maximumHeight < 0 ? Math.max(1, height / 3) : Math.max(1, maximumHeight);
@@ -77,7 +100,15 @@ public final class BoundedImageDecoder {
                         * ((height + sampling - 1) / sampling) > MAX_PIXELS) {
                     sampling++;
                 }
+                targetWidth = Math.min(targetWidth, (width + sampling - 1) / sampling);
+                targetHeight = Math.min(targetHeight, (height + sampling - 1) / sampling);
+                if (preview && (targetWidth < width || targetHeight < height)) {
+                    BufferedImage image = average(reader, region, targetWidth, targetHeight,
+                            regionReadable ? PREVIEW_REGION_PIXELS : MAX_PIXELS);
+                    return new Decoded(image, targetWidth, targetHeight);
+                }
                 ImageReadParam param = reader.getDefaultReadParam();
+                param.setSourceRegion(region);
                 param.setSourceSubsampling(sampling, sampling, 0, 0);
                 BufferedImage decoded = reader.read(0, param);
                 if (decoded != null) {
@@ -93,6 +124,48 @@ public final class BoundedImageDecoder {
                 reader.dispose();
             }
         }
+    }
+
+    private static BufferedImage average(ImageReader reader, Rectangle region, int width, int height, long bandPixels) throws IOException {
+        BufferedImage result = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        // 按原始像素面积求平均，避免整数抽点丢失细线。连续输入各条带，保留跨条带的像素权重。
+        ImageFilter filter = new AreaAveragingScaleFilter(width, height).getFilterInstance(new ImageConsumer() {
+            public void setDimensions(int w, int h) {}
+            public void setProperties(java.util.Hashtable<?, ?> properties) {}
+            public void setColorModel(ColorModel model) {}
+            public void setHints(int hints) {}
+            public void imageComplete(int status) {}
+            public void setPixels(int x, int y, int w, int h, ColorModel model, byte[] pixels, int offset, int stride) {
+                throw new IllegalStateException("Expected averaged RGB pixels");
+            }
+            public void setPixels(int x, int y, int w, int h, ColorModel model, int[] pixels, int offset, int stride) {
+                result.setRGB(x, y, w, h, pixels, offset, stride);
+            }
+        });
+        filter.setDimensions(region.width, region.height);
+        filter.setHints(ImageConsumer.TOPDOWNLEFTRIGHT | ImageConsumer.COMPLETESCANLINES);
+        int rows = Math.max(1, (int) (bandPixels / region.width));
+        int[] pixels = new int[region.width];
+        for (int y = 0; y < region.height; y += rows) {
+            if (Thread.currentThread().isInterrupted()) throw new java.io.InterruptedIOException("Image scaling interrupted");
+            ImageReadParam param = reader.getDefaultReadParam();
+            int count = Math.min(rows, region.height - y);
+            param.setSourceRegion(new Rectangle(region.x, region.y + y, region.width, count));
+            BufferedImage band = reader.read(0, param);
+            if (band == null || band.getWidth() != region.width || band.getHeight() != count) {
+                throw new IOException("Image reader returned an invalid source region");
+            }
+            try {
+                for (int row = 0; row < count; row++) {
+                    band.getRGB(0, row, region.width, 1, pixels, 0, region.width);
+                    filter.setPixels(0, y + row, region.width, 1, ColorModel.getRGBdefault(), pixels, 0, region.width);
+                }
+            } finally {
+                band.flush();
+            }
+        }
+        filter.imageComplete(ImageConsumer.STATICIMAGEDONE);
+        return result;
     }
 
     private static void validateDimensions(int width, int height) throws IOException {

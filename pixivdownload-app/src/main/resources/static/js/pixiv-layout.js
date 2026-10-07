@@ -10,6 +10,7 @@ window.PixivLayout.previewUrl = function (url, element) {
     while (size < needed && size < 1600) size = Math.min(1600, size * 2);
     const target = new URL(url, window.location.href);
     target.searchParams.set('size', String(needed > 0 ? size : 512));
+    target.searchParams.set('preview', '2');
     element.dataset.previewSrc = url;
     return target.pathname + target.search;
 };

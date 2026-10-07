@@ -77,7 +77,123 @@ class ArtworkFileServiceTest {
         assertThat(Files.readAllBytes(source)).containsExactly(original);
     }
 
+    @Test
+    @DisplayName("四张透明大图并发生成预览时仍能在有界堆中完成")
+    void boundsConcurrentLargePreviewMemory() throws Exception {
+        Path source = tempDir.resolve("large-alpha.png");
+        BufferedImage original = new BufferedImage(6192, 5929, BufferedImage.TYPE_4BYTE_ABGR);
+        ImageIO.write(original, "png", source.toFile());
+        original.flush();
+        Path log = tempDir.resolve("preview-memory.log");
+        Path javaExecutable = Path.of(System.getProperty("java.home"), "bin",
+                System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java");
+        Process process = new ProcessBuilder(javaExecutable.toString(), "-Xmx256m", "-cp",
+                System.getProperty("java.class.path"), PreviewMemoryProbe.class.getName(), source.toString())
+                .redirectErrorStream(true).redirectOutput(log.toFile()).start();
+        try {
+            assertThat(process.waitFor(90, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(process.exitValue()).withFailMessage(Files.readString(log, java.nio.charset.StandardCharsets.UTF_8)).isZero();
+        } finally {
+            if (process.isAlive()) process.destroyForcibly().waitFor();
+        }
+    }
+
+    public static class PreviewMemoryProbe {
+        public static void main(String[] args) throws Exception {
+            top.sywyar.pixivdownload.common.Utf8ConsoleStreams.install();
+            var pool = java.util.concurrent.Executors.newFixedThreadPool(4);
+            var start = new java.util.concurrent.CountDownLatch(1);
+            try {
+                var jobs = new java.util.ArrayList<java.util.concurrent.Future<?>>();
+                for (int index = 0; index < 4; index++) jobs.add(pool.submit(() -> {
+                    try {
+                        start.await();
+                        BufferedImage image = ImageThumbnailScaler.scale(Path.of(args[0]), 1600, 1600);
+                        if (image.getWidth() != 1600 || image.getHeight() != 1532
+                                || image.getRGB(0, 0) != 0xffffffff) throw new AssertionError("Invalid preview");
+                        image.flush();
+                    } catch (Exception e) { throw new RuntimeException(e); }
+                }));
+                start.countDown();
+                for (var job : jobs) job.get();
+            } finally {
+                pool.shutdownNow();
+            }
+        }
+    }
+
     // ========== findFileByName ==========
+
+    @Test
+    @DisplayName("旧缓存不复用，JPEG 源不重复有损压缩，方形封面与完整预览各自缓存")
+    void refreshesLegacyCacheWithoutRecompressingJpeg() throws Exception {
+        Path source = tempDir.resolve("source.jpg");
+        BufferedImage original = new BufferedImage(80, 240, BufferedImage.TYPE_INT_RGB);
+        for (int y = 0; y < 240; y++) {
+            for (int x = 0; x < 80; x++) original.setRGB(x, y, (x * 3 << 16) | y << 8 | (x + y) % 256);
+        }
+        ImageIO.write(original, "jpg", source.toFile());
+        var database = mock(PixivDatabase.class);
+        var locator = mock(ArtworkFileLocator.class);
+        var artwork = mock(ArtworkRecord.class);
+        when(database.getArtwork(42L)).thenReturn(artwork);
+        when(artwork.count()).thenReturn(1);
+        when(locator.resolveImageFile(artwork, 0)).thenReturn(source.toFile());
+        Path directory = tempDir.resolve("thumbnails");
+        Path legacy = directory.resolve("42/p0-512.jpg");
+        Files.createDirectories(legacy.getParent());
+        Files.writeString(legacy, "old thumbnail", java.nio.charset.StandardCharsets.UTF_8);
+        try (var runtime = mockStatic(RuntimeFiles.class)) {
+            runtime.when(RuntimeFiles::galleryThumbnailDirectory).thenReturn(directory);
+            var service = new ArtworkFileService(database, locator,
+                    new top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaDecoder(
+                            mock(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.class), new com.fasterxml.jackson.databind.ObjectMapper()));
+            assertThat(service.existingThumbnail(42L, 0)).isNull();
+            var fit = service.getThumbnailFile(42L, 0);
+            assertThat(fit.path()).isNotEqualTo(legacy);
+            assertThat(fit.extension()).isEqualTo("png");
+            BufferedImage decoded = ImageIO.read(source.toFile());
+            BufferedImage preview = ImageIO.read(fit.path().toFile());
+            assertThat(preview.getRGB(0, 0, 80, 240, null, 0, 80))
+                    .containsExactly(decoded.getRGB(0, 0, 80, 240, null, 0, 80));
+            var cover = service.getThumbnailFile(42L, 0, 512, true);
+            assertThat(cover.path()).isNotEqualTo(fit.path());
+            assertThat(ImageIO.read(cover.path().toFile()).getHeight()).isEqualTo(80);
+            assertThat(service.getThumbnailFile(42L, 0, 512, true)).isEqualTo(cover);
+            assertThat(service.existingThumbnail(42L, 0)).isEqualTo(fit);
+        }
+        assertThat(Files.readString(legacy, java.nio.charset.StandardCharsets.UTF_8)).isEqualTo("old thumbnail");
+    }
+
+    @Test
+    @DisplayName("WebP 封面读取原媒体首帧，不复用旧 JPEG 伴随图")
+    void decodesOriginalWebpInsteadOfLegacyCompanion() throws Exception {
+        Path source = tempDir.resolve("animation.webp");
+        try (var input = getClass().getResourceAsStream("/images/gradient-animated.webp")) {
+            Files.copy(input, source);
+        }
+        Path companion = tempDir.resolve("animation_thumb.jpg");
+        ImageIO.write(new BufferedImage(4, 4, BufferedImage.TYPE_INT_RGB), "jpg", companion.toFile());
+        var database = mock(PixivDatabase.class);
+        var locator = mock(ArtworkFileLocator.class);
+        var artwork = mock(ArtworkRecord.class);
+        when(database.getArtwork(42L)).thenReturn(artwork);
+        when(artwork.count()).thenReturn(1);
+        when(locator.resolveImageFile(artwork, 0)).thenReturn(source.toFile());
+        when(locator.resolveArtworkDirectory(artwork)).thenReturn(tempDir.toString());
+        when(locator.resolveStoredFileBaseName(artwork, 0)).thenReturn("animation");
+        try (var runtime = mockStatic(RuntimeFiles.class)) {
+            runtime.when(RuntimeFiles::galleryThumbnailDirectory).thenReturn(tempDir.resolve("thumbs"));
+            var service = new ArtworkFileService(database, locator,
+                    new top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaDecoder(
+                            mock(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.class), new com.fasterxml.jackson.databind.ObjectMapper()));
+            var file = service.getThumbnailFile(42L, 0, 256, true);
+            BufferedImage cover = ImageIO.read(file.path().toFile());
+            assertThat(cover.getWidth()).isEqualTo(256);
+            assertThat(cover.getHeight()).isEqualTo(256);
+            assertThat(cover.getRGB(128, 128) & 255).isBetween(115, 140);
+        }
+    }
 
     @Test
     @DisplayName("冷缓存生成共用并发预算，命中不排队，中断与失败释放等待资源")

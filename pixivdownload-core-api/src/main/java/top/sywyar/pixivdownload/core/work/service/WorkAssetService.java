@@ -102,6 +102,19 @@ public interface WorkAssetService {
     }
 
     /**
+     * 生成中心裁剪的正方形封面；核心资产实现负责缓存，不修改原文件。
+     * @param workType 作品类型
+     * @param workId 作品标识
+     * @param page 页码
+     * @param maximumEdge 最大封面边长，实现可合并尺寸并限制预算
+     * @return 封面文件；作品、源文件或该类型的封面能力不可用时为空
+     * @throws IOException 生成或缓存写入失败
+     */
+    default Optional<WorkAssetFile> coverThumbnail(WorkType workType, long workId, int page, int maximumEdge) throws IOException {
+        return Optional.empty();
+    }
+
+    /**
      * 取指定页的原始文件。作品不存在、页号越界或文件缺失时返回 {@link Optional#empty()}。
      *
      * @param workType 工作类型

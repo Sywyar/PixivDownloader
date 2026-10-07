@@ -27,11 +27,13 @@ class ArtworkMediaDecoderTest {
             Path archive = directory.resolve("animation.zip");
             try (var out = new ZipOutputStream(Files.newOutputStream(archive))) {
                 out.putNextEntry(new ZipEntry("../../escape.png"));
-                ImageIO.write(new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB), "png", out);
+                ImageIO.write(new BufferedImage(2, 4, BufferedImage.TYPE_INT_RGB), "png", out);
                 out.closeEntry();
             }
             byte[] bytes = Files.readAllBytes(archive);
             assertEquals(2, decoder.read(archive, 512).getWidth());
+            assertEquals(4, decoder.read(archive, 512).getHeight());
+            assertEquals(2, decoder.readCover(archive, 512).getHeight());
             assertArrayEquals(bytes, Files.readAllBytes(archive));
             try (var out = new ZipOutputStream(Files.newOutputStream(archive))) {
                 out.putNextEntry(new ZipEntry("frame.png"));
@@ -44,6 +46,21 @@ class ArtworkMediaDecoderTest {
         } finally {
             if (before == null) System.clearProperty(RuntimeFiles.STATE_DIR_PROPERTY);
             else System.setProperty(RuntimeFiles.STATE_DIR_PROPERTY, before);
+        }
+    }
+
+    @Test @DisplayName("缩略图取消后不启动 FFmpeg 兜底")
+    void doesNotFallbackAfterCancellation() throws Exception {
+        Path source = directory.resolve("source.png");
+        ImageIO.write(new BufferedImage(32, 32, BufferedImage.TYPE_INT_RGB), "png", source.toFile());
+        var runner = mock(FfmpegRunner.class);
+        var decoder = new ArtworkMediaDecoder(runner, new ObjectMapper());
+        Thread.currentThread().interrupt();
+        try {
+            assertThrows(java.io.InterruptedIOException.class, () -> decoder.read(source, 16));
+            verifyNoInteractions(runner);
+        } finally {
+            Thread.interrupted();
         }
     }
 }

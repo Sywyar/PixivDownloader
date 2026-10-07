@@ -45,9 +45,12 @@ public class WorkAssetFileController {
             @PathVariable Long artworkId,
             @PathVariable int page,
             @RequestParam(defaultValue = "512") int size,
+            @RequestParam(defaultValue = "false") boolean cover,
             HttpServletRequest httpRequest) throws IOException {
         guestAccessGuard.requireVisible(httpRequest, artworkId);
-        WorkAssetFile thumbnail = workAssetService.thumbnail(WorkType.ARTWORK, artworkId, page, size).orElse(null);
+        WorkAssetFile thumbnail = (cover
+                ? workAssetService.coverThumbnail(WorkType.ARTWORK, artworkId, page, size)
+                : workAssetService.thumbnail(WorkType.ARTWORK, artworkId, page, size)).orElse(null);
         return fileResponse(thumbnail, true);
     }
 

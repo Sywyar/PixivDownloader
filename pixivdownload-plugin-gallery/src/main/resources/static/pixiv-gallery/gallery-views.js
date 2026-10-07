@@ -128,7 +128,7 @@
             return `
                 <div class="work-card" data-id="${item.artworkId}">
                     <div class="work-thumb thumb-loading">
-                        <img data-src="/api/downloaded/thumbnail-file/${item.artworkId}/0" alt="${escapeHtml(item.title || '')}" loading="lazy">
+                        <img data-src="/api/downloaded/thumbnail-file/${item.artworkId}/0?cover=true" alt="${escapeHtml(item.title || '')}" loading="lazy">
                         <span class="card-select" aria-hidden="true">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                         </span>
@@ -521,7 +521,7 @@
                 return `
                     <div class="author-work-card" data-id="${item.artworkId}">
                         <div class="author-work-thumb thumb-loading">
-                            <img data-src="/api/downloaded/thumbnail-file/${item.artworkId}/0" alt="${escapeHtml(item.title || '')}" loading="lazy">
+                            <img data-src="/api/downloaded/thumbnail-file/${item.artworkId}/0?cover=true" alt="${escapeHtml(item.title || '')}" loading="lazy">
                             ${pages > 1 ? `<div class="author-work-pages">${pages}P</div>` : ''}
                         </div>
                         <div class="author-work-title">${escapeHtml(item.title || t('status.untitled', 'Untitled'))}</div>
@@ -682,7 +682,7 @@
                 return `
                     <div class="author-work-card" data-id="${item.artworkId}">
                         <div class="author-work-thumb thumb-loading">
-                            <img data-src="/api/downloaded/thumbnail-file/${item.artworkId}/0" alt="${escapeHtml(item.title || '')}" loading="lazy">
+                            <img data-src="/api/downloaded/thumbnail-file/${item.artworkId}/0?cover=true" alt="${escapeHtml(item.title || '')}" loading="lazy">
                             ${order || (pages > 1 ? `<div class="author-work-pages">${pages}P</div>` : '')}
                         </div>
                         <div class="author-work-title">${escapeHtml(item.title || t('status.untitled', 'Untitled'))}</div>

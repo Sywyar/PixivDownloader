@@ -154,6 +154,13 @@ public class LocalWorkAssetService implements WorkAssetService {
     }
 
     @Override
+    public Optional<WorkAssetFile> coverThumbnail(WorkType workType, long workId, int page, int maximumEdge) throws IOException {
+        if (workType != WorkType.ARTWORK) return Optional.empty();
+        var file = artworkFileService.getThumbnailFile(workId, page, maximumEdge, true);
+        return file == null ? Optional.empty() : Optional.of(new WorkAssetFile(page, file.path(), file.extension()));
+    }
+
+    @Override
     public boolean deleteLocalFiles(WorkType workType, long workId) {
         return deleteLocalFiles(workType, workId, () -> {});
     }
