@@ -140,7 +140,7 @@ public class PluginMarketService {
         long compatibilityDeadline = System.nanoTime() + COMPATIBILITY_SEARCH_BUDGET_NANOS;
         List<PluginMarketEntryView> entries = page.items().stream()
                 .map(entry -> selectVersion(repository, entry, installed, snapshot, page.generation(),
-                        repository.pagedCatalog(), compatibilityDeadline))
+                        repository.pagedCatalog() || entry.history() != null, compatibilityDeadline))
                 .filter(entry -> entry.packages().isEmpty() || entry.latestVersion() != null)
                 .toList();
         var visibleIds = entries.stream().map(PluginMarketEntryView::pluginId).collect(java.util.stream.Collectors.toSet());
@@ -171,7 +171,7 @@ public class PluginMarketService {
         PluginCatalogDetailPage page = catalogService.loadEntryPage(
                 repository.repositoryId(), pluginId, cursor, limit);
         var installed = installedVersionsById();
-        var first = cursor == null || !repository.pagedCatalog() ? page
+        var first = cursor == null ? page
                 : catalogService.loadEntryPage(repository.repositoryId(), pluginId, null, limit);
         var selected = selectVersion(repository, first.item(), installed, snapshot, first.generation(),
                 first.nextCursor() != null, System.nanoTime() + COMPATIBILITY_SEARCH_BUDGET_NANOS);
@@ -192,7 +192,7 @@ public class PluginMarketService {
             Map<String, String> installed, RevocationSnapshot snapshot, String generation, boolean incomplete,
             long deadlineNanos) {
         var view = projectEntry(repository, entry, installed, snapshot);
-        if (!incomplete || view.compatibilityReason() == null) return view;
+        if (!incomplete || view.compatibilityReason() == null && view.recommendedVersion() != null) return view;
         try {
             var complete = catalogService.loadEntrySnapshot(repository.repositoryId(), entry.pluginId(), deadlineNanos);
             if (complete.stale() || !generation.equals(complete.generation())) {

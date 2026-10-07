@@ -110,6 +110,30 @@ class PluginMarketInstallStatusTest {
     }
 
     @Test
+    @DisplayName("稳定用户不跟随预发布，显式安装的预发布只跟随同渠道及正式版，详情保留其它版本")
+    void recommendationsRespectInstalledChannel() {
+        var versions = List.of(projected("9.0.0-beta.2", true, "CLEAR"),
+                projected("10.0.0-nightly.20260101.1.1", true, "CLEAR"), projected("8.0.0", true, "CLEAR"));
+        for (String installed : new String[] {null, "7.0.0"}) {
+            var stable = PluginMarketEntryView.from(entry("example"), installed != null, installed, versions);
+            assertThat(stable.recommendedVersion()).isEqualTo("8.0.0");
+            assertThat(stable.latestVersion()).isEqualTo("8.0.0");
+            assertThat(stable.packages()).hasSize(3);
+        }
+        var beta = PluginMarketEntryView.from(entry("example"), true, "9.0.0-beta.1", versions);
+        assertThat(beta.recommendedVersion()).isEqualTo("9.0.0-beta.2");
+        var nightly = PluginMarketEntryView.from(entry("example"), true, "10.0.0-nightly.20251231.1.1", versions);
+        assertThat(nightly.recommendedVersion()).isEqualTo("10.0.0-nightly.20260101.1.1");
+        var released = PluginMarketEntryView.from(entry("example"), true, "9.0.0-beta.1",
+                List.of(projected("9.0.0", true, "CLEAR"), versions.get(0)));
+        assertThat(released.recommendedVersion()).isEqualTo("9.0.0");
+        var previewOnly = PluginMarketEntryView.from(entry("example"), true, "7.0.0", List.of(versions.get(0)));
+        assertThat(previewOnly.recommendedVersion()).isNull();
+        assertThat(previewOnly.updateAvailable()).isFalse();
+        assertThat(previewOnly.latestVersion()).isEqualTo("9.0.0-beta.2");
+    }
+
+    @Test
     @DisplayName("最新版不兼容时选择版本号最高的安全兼容旧版，并据推荐版本判断更新")
     void selectsHighestCompatibleOlderVersion() {
         var versions = List.of(projected("8.0", false, "CLEAR"), projected("6.0", true, "CLEAR"),
@@ -141,9 +165,10 @@ class PluginMarketInstallStatusTest {
         assertThat(unavailable.installStatus()).isEqualTo(MarketInstallStatus.INCOMPATIBLE);
     }
 
-    @Test
-    @DisplayName("分页市场从完整同代版本选择旧版，卡片摘要不回传全部历史")
-    void selectsCompatibleVersionBeyondSummaryPage() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("分页市场从完整同代版本选择 SDK 及渠道兼容的旧版，卡片摘要不回传全部历史")
+    void selectsCompatibleVersionBeyondSummaryPage(boolean prerelease) {
         var props = new PluginCatalogProperties();
         var registry = mock(PluginRepositoryRegistry.class);
         var repository = org.mockito.Mockito.spy(new PluginRepositoryRegistry(props).defaultRepository().orElseThrow());
@@ -152,8 +177,8 @@ class PluginMarketInstallStatusTest {
         when(registry.find("official")).thenReturn(java.util.Optional.of(repository));
         var signature = new top.sywyar.pixivdownload.plugin.signature.SignatureMetadata(
                 1, "Ed25519", repository.trustedKeys().get(0).keyId(), "AA==");
-        var current = new PluginCatalogPackage("8.0", "https://example.test/new.jar", 100L, "ab",
-                signature, null, "999.0", List.of(), null, List.of(), "stable", false);
+        var current = new PluginCatalogPackage(prerelease ? "8.0.0-beta.1" : "8.0", "https://example.test/new.jar", 100L, "ab",
+                signature, null, prerelease ? null : "999.0", List.of(), null, List.of(), prerelease ? "beta" : "stable", false);
         var older = new PluginCatalogPackage("6.0", "https://example.test/old.jar", 100L, "cd",
                 signature, null, null, List.of(), null, List.of(), "stable", false);
         var oldest = new PluginCatalogPackage("5.0", "https://example.test/oldest.jar", 100L, "ef",
@@ -170,11 +195,12 @@ class PluginMarketInstallStatusTest {
         var market = new PluginMarketService(registry, catalogService, acquisitionService, statusService);
         var card = entryOf(market.catalog("official"), "example");
         assertThat(card.recommendedVersion()).isEqualTo("6.0");
-        assertThat(card.packages()).extracting(PluginMarketPackageView::version).containsExactly("8.0", "6.0");
+        assertThat(card.packages()).extracting(PluginMarketPackageView::version)
+                .containsExactlyElementsOf(prerelease ? List.of("6.0") : List.of("8.0", "6.0"));
         var detail = market.pluginDetail("official", "example");
         assertThat(detail.recommendedVersion()).isEqualTo("6.0");
         assertThat(detail.nextVersionCursor()).isEqualTo("older");
-        assertThat(detail.packages()).extracting(PluginMarketPackageView::version).containsExactly("8.0", "6.0");
+        assertThat(detail.packages()).extracting(PluginMarketPackageView::version).containsExactly(current.version(), "6.0");
 
         when(catalogService.loadEntrySnapshot(eq("official"), eq("example"), org.mockito.ArgumentMatchers.anyLong()))
                 .thenReturn(new PluginCatalogDetailPage(complete, "g2", null, 3L, false),

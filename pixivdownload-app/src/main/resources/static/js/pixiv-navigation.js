@@ -43,6 +43,56 @@
     // ============================================================
 
     var NAV_ENDPOINT = '/api/navigation';
+    var updateSummary = null;
+    var updatePromise = null;
+    var updateController = null;
+    var updateStylesLoaded = false;
+
+    function pluginUpdates() {
+        if (!(state.items || []).some(function (item) {
+            return itemMarkers(item).indexOf('plugin-update-summary') !== -1;
+        })) return global.Promise.resolve(null);
+        if (updatePromise) return updatePromise;
+        if (!updateStylesLoaded) {
+            var style = global.document.createElement('link');
+            style.rel = 'stylesheet';
+            style.href = '/css/pixiv-navigation.css';
+            global.document.head.appendChild(style);
+            updateStylesLoaded = true;
+        }
+        updateController = new global.AbortController();
+        var timer = global.setTimeout(function () { updateController.abort(); }, 20000);
+        updatePromise = global.fetch('/api/plugins/updates', {
+            credentials: 'same-origin', signal: updateController.signal, cache: 'no-store'
+        }).then(function (res) {
+            if (res.status === 404) return { enabled: false, checkFailed: false, compatibleUpdates: 0, sdkBlockedUpdates: 0 };
+            if (!res.ok) throw new Error('plugin updates http ' + res.status);
+            return res.json();
+        }).catch(function () {
+            return { enabled: true, checkFailed: true, compatibleUpdates: 0, sdkBlockedUpdates: 0 };
+        }).then(async function (summary) {
+            updateSummary = summary;
+            await renderFromState();
+            return summary;
+        }).finally(function () {
+            global.clearTimeout(timer);
+            updateController = null;
+            updatePromise = null;
+        });
+        return updatePromise;
+    }
+
+    function updateBadges(item, summary) {
+        if (!summary || !summary.enabled || itemMarkers(item).indexOf('plugin-update-summary') === -1) return '';
+        return [['compatibleUpdates', 'compatible', false], ['sdkBlockedUpdates', 'sdkBlocked', true]].map(function (kind) {
+            var count = summary[kind[0]];
+            if (!(count > 0) || !currentI18n) return '';
+            var text = currentI18n.tns('plugins', 'updates.' + kind[1], '', { count: count });
+            return '<span class="pnav-update-badge' + (kind[2] ? ' pnav-update-blocked' : '')
+                + '" title="' + escapeAttr(text) + '" aria-label="' + escapeAttr(text) + '">'
+                + (kind[2] ? '!' : escapeText(String(count))) + '</span>';
+        }).join('');
+    }
 
     // 图标 token → 内联 SVG 内容。与各页面既有 nav 图标一致，自带 fill/stroke 故任何页面都能正确渲染。
     var ICON_PATHS = {
@@ -177,7 +227,7 @@
 
     // 某导航项的内层 HTML（图标 + 文字 span），命令式与 Vue 共用（Vue 经 innerHTML 注入这段，外层 <a>/<span>
     // 仍是真实 Vue 元素，故 label 经 escapeText、图标为受信任内联 SVG）。
-    function itemInnerHtml(item, label, opt) {
+    function itemInnerHtml(item, label, opt, summary) {
         var iconHtml = '';
         if (!opt.noIcon) {
             var icon = iconSvg(item.icon, opt.wrapClass ? '' : 'pnav-ico');
@@ -186,12 +236,12 @@
         var labelHtml = opt.iconOnly ? ''
             : '<span' + (opt.labelClass ? ' class="' + escapeAttr(opt.labelClass) + '"' : '') + '>'
                 + escapeText(label) + '</span>';
-        return iconHtml + labelHtml;
+        return iconHtml + labelHtml + updateBadges(item, summary);
     }
 
     function buildItemHtml(item, label, isCurrent, opt) {
         var cls = clsFor(opt, isCurrent);
-        var inner = itemInnerHtml(item, label, opt);
+        var inner = itemInnerHtml(item, label, opt, updateSummary);
         var roleAttr = opt.itemRole ? ' role="' + escapeAttr(opt.itemRole) + '"' : '';
         var selectedAttr = opt.itemRole ? ' aria-selected="' + (isCurrent ? 'true' : 'false') + '"' : '';
         var markers = markersFor(item);
@@ -252,7 +302,7 @@
                     clsOf: function (it) { return clsFor(opt, isCurrent(it)); },
                     hrefOf: function (it) { return hrefFor(it); },
                     markersOf: function (it) { return markersFor(it); },
-                    innerOf: function (it) { return itemInnerHtml(it, label(it), opt); },
+                    innerOf: function (it) { return itemInnerHtml(it, label(it), opt, vueState.updateSummary); },
                     selOf: function (it) { return opt.itemRole ? (isCurrent(it) ? 'true' : 'false') : null; },
                     iconLabelOf: function (it) { return opt.iconOnly ? label(it) : null; },
                     roleAttr: opt.itemRole || null,
@@ -301,9 +351,10 @@
         return global.PixivVue.ensure().then(function (Vue) {
             if (!Vue) return false;
             vueRuntime = Vue;
-            if (!vueState) vueState = Vue.reactive({ items: [], i18n: null });
+            if (!vueState) vueState = Vue.reactive({ items: [], i18n: null, updateSummary: null });
             vueState.items = state.items || [];
             vueState.i18n = currentI18n;
+            vueState.updateSummary = updateSummary;
             var pending = [];
             slots.forEach(function (slot) {
                 if (!slot.getAttribute('data-nav-slot') || hasSlotApp(slot)) return;
@@ -416,6 +467,7 @@
         await renderFromState();
         subscribeLanguageOnce();
         markReady();
+        pluginUpdates();
     }
 
     // 重渲染（语言切换后由宿主调用，或跨标签页语言广播触发）：复用已缓存导航数据、按当前语言重解析标签。
@@ -436,9 +488,13 @@
     global.PixivNav = {
         mount: mount,
         refresh: refresh,
+        pluginUpdates: pluginUpdates,
         // 首次渲染完成（成功或失败）后 resolve；供宿主在导航数据到位、slot 链接渲染后再处理。
         ready: function () { return readyPromise; }
     };
 
+    if (global.addEventListener) global.addEventListener('pagehide', function () {
+        if (updateController) updateController.abort();
+    });
     autoMount();
 })(window);

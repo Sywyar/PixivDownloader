@@ -13,6 +13,32 @@
             PM.i18n.client.apply(document.body);
         }
         document.title = PM.t('page.title', '插件管理 · Pixiv 下载助手');
+        renderUpdates();
+    }
+
+    function renderUpdates() {
+        var box = document.getElementById('pm-updates');
+        var summary = PM.state.pluginUpdates;
+        box.replaceChildren();
+        box.hidden = !summary || !summary.enabled;
+        if (box.hidden) return;
+        [
+            ['compatible', summary.compatibleUpdates, 'pm-update-compatible'],
+            ['sdkBlocked', summary.sdkBlockedUpdates, 'pm-update-blocked'],
+            ['failed', summary.checkFailed ? 1 : 0, ''],
+            ['none', !summary.checkFailed && !summary.compatibleUpdates && !summary.sdkBlockedUpdates ? 1 : 0, '']
+        ].forEach(function (item) {
+            if (!item[1]) return;
+            var line = document.createElement('p');
+            line.className = item[2];
+            line.textContent = PM.t('updates.' + item[0], '', { count: item[1] });
+            box.appendChild(line);
+        });
+        if (summary.compatibleUpdates || summary.sdkBlockedUpdates) {
+            var hint = document.createElement('p');
+            hint.textContent = PM.t('updates.market', '');
+            box.appendChild(hint);
+        }
     }
 
     // 在固定锚点（重）挂载绿色变体的语言切换 + 主题切换；幂等（先清空锚点，避免命名空间扩展时重复挂载）。
@@ -70,6 +96,12 @@
             await ensureI18n(PM.collectNamespaces(report));
         }
         PM.renderAll();
+        if (global.PixivNav) PixivNav.ready().then(function () {
+            return PixivNav.pluginUpdates();
+        }).then(function (summary) {
+            PM.state.pluginUpdates = summary;
+            renderUpdates();
+        });
     }
 
     // 开关：热重载插件沿用 start / stop；其它策略持久化 enabled 后按策略提示重启。

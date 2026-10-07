@@ -18,7 +18,7 @@ on:
       sdk_publication_mode:
         required: false
         type: string
-        default: current
+        default: latest
       publish_args:
         description: '可选发布参数；填写 -f 时强制重编译并覆盖上传所有插件资产'
         required: false
@@ -75,7 +75,7 @@ jobs:
     with:
       trusted_base_sha: ${{ needs.trusted-base.outputs.sha }}
       export_release_candidates: true
-      sdk_publication_mode: ${{ inputs.sdk_publication_mode || 'current' }}
+      sdk_publication_mode: ${{ inputs.sdk_publication_mode || 'latest' }}
 
   publish:
     concurrency:

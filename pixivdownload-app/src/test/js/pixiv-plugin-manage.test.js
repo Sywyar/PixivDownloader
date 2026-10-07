@@ -845,9 +845,13 @@ async function removalInteractionTest() {
     const requests = [];
     const document = {
         readyState: 'loading', body: {},
+        createElement() { return {}; },
         addEventListener(name, listener) { this[name] = listener; },
         getElementById(id) {
             if (!elements.has(id)) elements.set(id, {
+                children: [],
+                replaceChildren() { this.children = []; },
+                appendChild(child) { this.children.push(child); },
                 addEventListener(name, listener) { this[name] = listener; },
                 querySelectorAll() { return []; }
             });
@@ -855,6 +859,8 @@ async function removalInteractionTest() {
         }
     };
     const context = { document, console, FormData: FormDataStub,
+        PixivNav: { ready: async () => {}, refresh() {}, pluginUpdates: async () =>
+            ({ enabled: true, compatibleUpdates: 2, sdkBlockedUpdates: 1, checkFailed: true }) },
         addEventListener() {}, PixivActions: { bind() {} },
         PixivFeedback: { async alert(options) { alerts.push(options); }, async confirm() { return true; } },
         fetch: async (url, options) => {
@@ -876,6 +882,12 @@ async function removalInteractionTest() {
     manage.fetchStatus = async () => ({ plugins: [] });
     vm.runInContext(fs.readFileSync(path.join(STATIC, 'plugin-manage-init.js'), 'utf8'), context);
     await document.DOMContentLoaded();
+    await new Promise(resolve => setImmediate(resolve));
+    const updateBox = elements.get('pm-updates');
+    ok('横幅分别显示兼容更新、SDK 阻断及未完成检查', !updateBox.hidden
+        && updateBox.children.some(line => line.textContent === 'plugins:updates.compatible')
+        && updateBox.children.some(line => line.textContent === 'plugins:updates.sdkBlocked')
+        && updateBox.children.some(line => line.textContent === 'plugins:updates.failed'));
     const action = { disabled: false, getAttribute(name) { return name === 'data-pm-id' ? 'sample' : 'remove'; } };
     elements.get('pm-grid').click({ target: { closest(selector) { return selector === '[data-pm-action]' ? action : null; } } });
     await new Promise(resolve => setImmediate(resolve));

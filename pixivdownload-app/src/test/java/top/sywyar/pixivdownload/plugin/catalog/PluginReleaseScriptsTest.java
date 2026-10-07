@@ -142,9 +142,7 @@ class PluginReleaseScriptsTest {
                 "$version = if ($isNightly) {",
                 "Get-NightlyPluginVersion $sourceVersion $nightlySuffix",
                 "$tag = if ($isNightly) { \"$id-nightly\" } else { \"$id-v$version\" }",
-                "$releasedTime = if ($isNightly) { $nowUtc } else { $rel.publishedAt }",
-                "$channel = if ($isNightly) { \"nightly\" } else { \"stable\" }",
-                "channel           = $channel");
+                "$releasedTime = if ($isNightly) { $nowUtc } else { $rel.publishedAt }");
     }
 
     @Test

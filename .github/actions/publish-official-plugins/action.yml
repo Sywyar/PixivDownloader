@@ -159,10 +159,26 @@ runs:
         }
         Copy-Item build/manifest.json "plugins-repo/$manifestName" -Force
         Copy-Item build/manifest.json.sig "plugins-repo/$manifestName.sig" -Force
+        $historyFiles = @()
+        if ($manifestName -eq 'manifest.json' -and (Test-Path -LiteralPath build/history)) {
+          New-Item -ItemType Directory -Force -Path plugins-repo/history | Out-Null
+          foreach ($file in Get-ChildItem -LiteralPath build/history -File -Filter '*.json') {
+            $destination = "plugins-repo/history/$($file.Name)"
+            if (Test-Path -LiteralPath $destination) {
+              if ((Get-FileHash -LiteralPath $destination).Hash -ne (Get-FileHash -LiteralPath $file.FullName).Hash) {
+                throw "Immutable plugin history already exists with different bytes: $($file.Name)"
+              }
+            } else {
+              Copy-Item -LiteralPath $file.FullName -Destination $destination
+            }
+            $historyFiles += "history/$($file.Name)"
+          }
+        }
         Set-Location plugins-repo
         git config user.name "github-actions[bot]"
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
         git add $manifestName "$manifestName.sig"
+        if ($historyFiles.Count -gt 0) { git add -- @historyFiles }
         $changed = git status --porcelain
         if ($changed) {
           $commitMessage = if ($manifestName -eq "manifest.json") {

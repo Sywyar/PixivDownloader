@@ -4,6 +4,9 @@ inputs:
   mode:
     description: SDK publication or recovery mode
     default: publish
+  publish_args:
+    description: Explicit -f authorizes manual stable SDK publication without allowing overwrite
+    default: ''
 outputs:
   publish:
     description: Resolved publish
@@ -31,6 +34,7 @@ runs:
       shell: bash
       env:
         REQUESTED_MODE: ${{ inputs.mode }}
+        REQUESTED_ARGS: ${{ inputs.publish_args }}
         DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         GH_TOKEN: ${{ github.token }}
       run: |
@@ -38,6 +42,8 @@ runs:
         current_json="$(node scripts/ci/sdk-version.mjs --repo-root . --json)"
         mode="$REQUESTED_MODE"
         publish=true
+        case "$mode" in publish|recover-release) ;; *) echo "Invalid SDK publication mode" >&2; exit 1 ;; esac
+        case "$REQUESTED_ARGS" in ''|-f) ;; *) echo "Only -f is supported for SDK publication" >&2; exit 1 ;; esac
 
         git fetch --no-tags origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
         protected_tip="$(git rev-parse "refs/remotes/origin/$DEFAULT_BRANCH")"
@@ -56,6 +62,18 @@ runs:
         sdk_version="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).version)' "$current_json")"
         release_id="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).releaseId)' "$current_json")"
         prerelease="$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).prerelease))' "$current_json")"
+        if [ "$publish" = true ] && [ "$prerelease" = false ]; then
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "$REQUESTED_ARGS" = -f ]; then
+            :
+          elif [ "$GITHUB_EVENT_NAME" = push ] \
+            && [[ "$GITHUB_REF" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+            && [ "$GITHUB_WORKFLOW_REF" = "$GITHUB_REPOSITORY/.github/workflows/release.yml@$GITHUB_REF" ]; then
+            :
+          else
+            echo "A new stable SDK requires a stable application Release or manual publication with -f. Beta releases may only reuse an already public stable SDK." >&2
+            exit 1
+          fi
+        fi
         {
           echo "publish=$publish"
           echo "mode=$mode"

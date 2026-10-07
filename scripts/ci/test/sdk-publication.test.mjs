@@ -32,6 +32,7 @@ test('发行调用复用完整的公共 SDK，首次发布与显式恢复继续�
             '  esac',
             '}',
             'node() {',
+            '  if [ "$1" = scripts/ci/sdk-version.mjs ]; then printf "%s" "$SDK_TEST_IDENTITY"; return; fi',
             '  if [ "$1" = scripts/ci/sdk-published-base.mjs ]; then',
             '    test "$2" = if-present || return 99',
             '    test "$SDK_TEST_PUBLISHED" != error || return 1',
@@ -40,29 +41,46 @@ test('发行调用复用完整的公共 SDK，首次发布与显式恢复继续�
             '}',
             plan,
         ].join('\n'), 'utf8');
-        for (const [mode, published, protectedCommit, expected] of [
-            ['publish', '', true, true],
-            ['publish', 'a'.repeat(40), true, false],
-            ['recover-release', 'error', true, true],
-            ['publish', 'error', true, null],
-            ['publish', '', false, null],
+        const stable = parseSdkVersion(`${IDENTITY.major}.${IDENTITY.minor}.${IDENTITY.patch}`);
+        for (const scenario of [
+            { expected: true },
+            { published: 'a'.repeat(40), expected: false },
+            { mode: 'recover-release', published: 'error', expected: true },
+            { published: 'error', expected: null },
+            { protectedCommit: false, expected: null },
+            { ref: 'refs/tags/v2.3.4-beta.1', expected: null },
+            { ref: 'refs/tags/v2.3.4-beta.1', published: 'a'.repeat(40), expected: false },
+            { event: 'workflow_dispatch', ref: 'refs/heads/master', expected: null },
+            { event: 'workflow_dispatch', ref: 'refs/heads/master', args: '-f', expected: true },
+            { event: 'workflow_dispatch', ref: 'refs/heads/master', args: '--force', expected: null },
+            { event: 'push', ref: 'refs/heads/master', args: '-f', expected: null },
+            { workflow: 'publish-sdk.yml', expected: null },
+            { ref: 'refs/tags/v2.3.4-beta.1', identity: parseSdkVersion(stable.version + '-beta.1'), expected: true },
+            { event: 'workflow_dispatch', identity: parseSdkVersion(stable.version + '-rc.1'), expected: true },
         ]) {
+            const { mode = 'publish', published = '', protectedCommit = true, expected,
+                event = 'push', ref = 'refs/tags/v2.3.4', args = '',
+                workflow: caller = 'release.yml', identity = stable } = scenario;
             const output = path.join(work, 'output.txt');
             fs.writeFileSync(output, '', 'utf8');
             const result = spawnSync('bash', [entry.replaceAll('\\', '/')], {
                 cwd: ROOT, encoding: 'utf8',
                 env: { ...process.env, REQUESTED_MODE: mode, DEFAULT_BRANCH: 'master',
+                    REQUESTED_ARGS: args, GITHUB_EVENT_NAME: event, GITHUB_REF: ref,
+                    GITHUB_REPOSITORY: 'fixture/app',
+                    GITHUB_WORKFLOW_REF: `fixture/app/.github/workflows/${caller}@${ref}`,
+                    SDK_TEST_IDENTITY: JSON.stringify(identity),
                     GITHUB_SHA: 'b'.repeat(40), GITHUB_OUTPUT: output.replaceAll('\\', '/'),
                     GITHUB_STEP_SUMMARY: path.join(work, 'summary.txt').replaceAll('\\', '/'),
                     SDK_TEST_PUBLISHED: published, SDK_TEST_PROTECTED: String(protectedCommit) },
             });
-            assert.equal(result.status === 0, expected !== null, result.error ?? result.stderr);
+            assert.equal(result.status === 0, expected !== null, JSON.stringify(scenario) + ': ' + (result.error ?? result.stderr));
             const outputs = fs.readFileSync(output, 'utf8');
             if (expected === null) assert.equal(outputs, '');
             else assert.deepEqual(Object.fromEntries(outputs.trim().split('\n').map(line => line.split('='))), {
                 publish: String(expected), mode, trusted_base_sha: '0'.repeat(39) + '1',
-                sdk_version: IDENTITY.version, release_id: IDENTITY.releaseId,
-                prerelease: String(IDENTITY.prerelease),
+                sdk_version: identity.version, release_id: identity.releaseId,
+                prerelease: String(identity.prerelease),
             });
         }
     } finally {

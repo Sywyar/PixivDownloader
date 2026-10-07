@@ -52,6 +52,12 @@ public final class SdkTools {
     }
 
     static int execute(String[] args) throws Exception {
+        if (args.length == 4 && args[0].equals("verify-sdk-usage")) {
+            PluginSdkUsage.verify(Path.of(args[1]),
+                    Arrays.stream(args[2].split(java.io.File.pathSeparator)).map(Path::of).toList(),
+                    Arrays.stream(args[3].split(java.io.File.pathSeparator)).map(Path::of).toList());
+            return 0;
+        }
         if (args.length == 3 && args[0].equals("market-content-download")) {
             String base = args[1];
             if (!base.endsWith("/")) throw new IllegalArgumentException("SDK_ARGUMENTS");

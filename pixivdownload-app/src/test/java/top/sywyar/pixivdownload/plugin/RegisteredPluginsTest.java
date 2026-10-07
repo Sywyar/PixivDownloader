@@ -108,6 +108,10 @@ class RegisteredPluginsTest {
             // 插件市场服务现额外只读 PluginStatusService（投影安装状态），本切片 mock 兜底。
             .withBean(top.sywyar.pixivdownload.plugin.management.PluginStatusService.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.management.PluginStatusService.class))
+            .withBean(top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller.class))
+            .withBean(top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginLifecycleCoordinator.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginLifecycleCoordinator.class))
             .withBean(top.sywyar.pixivdownload.i18n.AppLocaleResolver.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.i18n.AppLocaleResolver.class))
             // 插件启用开关：空实例代表全部启用（本切片不验证禁用语义，只需 PluginRegistry 的 @Autowired 构造可解析）。
@@ -127,6 +131,9 @@ class RegisteredPluginsTest {
     @DisplayName("内置插件经各自 Configuration 注册进 PluginRegistry（功能插件已外置、不在内置清单）")
     void allPluginsRegistered() {
         runner.run(context -> {
+            assertThat(context)
+                    .hasSingleBean(top.sywyar.pixivdownload.plugin.management.PluginUpdateService.class)
+                    .hasSingleBean(top.sywyar.pixivdownload.plugin.management.PluginUpdateController.class);
             PluginRegistry registry = context.getBean(PluginRegistry.class);
             assertThat(registry.plugins())
                     .extracting(PixivFeaturePlugin::id)

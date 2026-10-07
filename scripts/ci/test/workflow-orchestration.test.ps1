@@ -1,5 +1,7 @@
 # Execute orchestration with local fixtures; publishing and application processes are replaced at their boundaries.
 $ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+Add-Type -AssemblyName System.IO.Compression
 Set-StrictMode -Version Latest
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '../../..')).Path
 
@@ -325,24 +327,36 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
         [IO.Directory]::CreateDirectory((Split-Path -Parent (Join-Path $marketRoot $metadata))) | Out-Null
         Copy-Item -LiteralPath (Join-Path $repo $metadata) -Destination (Join-Path $marketRoot $metadata)
         $output = Join-Path $marketRoot 'manifest.json'
+        $publishedFiles = @{}
         function Get-OfficialDistributionPlugins { param([switch]$IncludeOptional) return @($marketPlugin) }
         function Get-OfficialDefaultInstalledPlugins { return @($marketPlugin) }
         function Resolve-SignatureToolJar { return 'fixture' }
         function Invoke-PluginSignatureTool {
             param($Tool, $Arguments)
+            if ($Arguments[0] -eq 'verify-manifest') { return }
             $destination = $Arguments[[Array]::IndexOf($Arguments, '--out') + 1]
             [IO.File]::WriteAllText($destination, '{"formatVersion":1,"algorithm":"Ed25519","keyId":"fixture","value":"fixture"}', $fixtureUtf8)
         }
         function gh {
             $global:LASTEXITCODE = 0
-            if ($args[0] -eq 'api') { $global:LASTEXITCODE = 1; return }
+            if ($args[0] -eq 'api') {
+                $file = $args[1] -replace '^.*/contents/', ''
+                if ($publishedFiles.ContainsKey($file)) { return [Convert]::ToBase64String($publishedFiles[$file]) }
+                $global:LASTEXITCODE = 1
+                return 'HTTP 404'
+            }
             if ($args[0] -eq 'release' -and $args[1] -eq 'view') {
                 return (@{assets=@(@{name=$fixtureAssetName; downloadCount=0}); publishedAt='2026-01-01T00:00:00Z'} | ConvertTo-Json -Depth 5 -Compress)
             }
             if ($args[0] -eq 'release' -and $args[1] -eq 'download') {
                 $directory = $args[[Array]::IndexOf($args, '--dir') + 1]
                 $name = $args[[Array]::IndexOf($args, '--pattern') + 1]
-                [IO.File]::WriteAllText((Join-Path $directory $name), 'fixture-artifact', $fixtureUtf8)
+                $archive = [IO.Compression.ZipFile]::Open((Join-Path $directory $name), [IO.Compression.ZipArchiveMode]::Create)
+                try {
+                    $stream = New-Object IO.StreamWriter($archive.CreateEntry('plugin.properties').Open(), $fixtureUtf8)
+                    try { $stream.Write("plugin.id=$($marketPlugin.Id)`nplugin.version=$fixtureVersion`nplugin.requires=$($case.Expected)`nplugin.dependencies=fixture-dependency@2.0`n") }
+                    finally { $stream.Dispose() }
+                } finally { $archive.Dispose() }
                 return
             }
             throw 'Unexpected GitHub operation in market fixture.'
@@ -373,11 +387,99 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
             $package = $manifest.entries[0].packages[0]
             Assert-Equal $package.requiredSdk $case.Expected
             Assert-Equal $package.requiredCoreApi $case.Expected
+            Assert-Equal $package.channel $(if ($case.ContainsKey('Nightly')) { 'nightly' } else { 'stable' })
+            Assert-Equal @($package.dependencies) @('fixture-dependency@2.0')
             if ($case.ContainsKey('Nightly')) {
                 & node (Join-Path $repo 'scripts/ci/assert-nightly-publication.mjs') plugins '8.2.3-nightly.20260910.2.1' $output
                 if ($LASTEXITCODE -ne 0) { throw 'Generated Nightly manifest was rejected by publication guard.' }
             }
         }
+        $case = @{ Expected=$currentSdk }
+        $parameters.Remove('NightlyBuildVersion')
+        foreach ($fixtureVersion in @('5.0.0', '6.0.0', '7.0.0', '7.0.0')) {
+            [IO.File]::WriteAllText($descriptorPath, ($descriptorText -replace '(?m)^plugin\.version=.*$', "plugin.version=$fixtureVersion"), $fixtureUtf8)
+            $fixtureAssetName = Get-OfficialPluginArtifactName $marketPlugin $fixtureVersion
+            & $program.Main @parameters
+            $manifest = [IO.File]::ReadAllText($output, $fixtureUtf8) | ConvertFrom-Json
+            Assert-Equal @($manifest.entries[0].packages).Count 1
+            $publishedFiles['manifest.json'] = [IO.File]::ReadAllBytes($output)
+            $publishedFiles['manifest.json.sig'] = [IO.File]::ReadAllBytes("$output.sig")
+            if ($fixtureVersion -ne '5.0.0') {
+                $reference = $manifest.entries[0].history
+                $bytes = [IO.File]::ReadAllBytes((Join-Path $marketRoot $reference.path))
+                Assert-Equal $bytes.Length $reference.sizeBytes
+                $history = $fixtureUtf8.GetString($bytes) | ConvertFrom-Json
+                Assert-Equal @($history.packages.version) $(if ($fixtureVersion -eq '6.0.0') { @('5.0.0') } else { @('6.0.0','5.0.0') })
+                $publishedFiles[$reference.path] = $bytes
+            }
+        }
+        $publishedFiles[$reference.path] = $fixtureUtf8.GetBytes('tampered')
+        Assert-Rejected { & $program.Main @parameters } 'History digest mismatch'
+        $publishedFiles = @{}
+        $legacyCuration = Get-Content -LiteralPath $parameters.CurationFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        $legacyCuration._legacySdkVersions = @('7.0.0', '7.1.0')
+        $parameters.CurationFile = Join-Path $marketRoot 'curation.json'
+        [IO.File]::WriteAllText($parameters.CurationFile, ($legacyCuration | ConvertTo-Json -Depth 20), $fixtureUtf8)
+        $olderHistory = $null
+        foreach ($item in @(
+            @{Version='5.0.0'; Sdk='7.0'; Main=@('5.0.0')},
+            @{Version='6.0.0'; Sdk='7.1'; Main=@('6.0.0','5.0.0')},
+            @{Version='7.0.0'; Sdk='8.0'; Main=@('7.0.0','6.0.0','5.0.0')},
+            @{Version='8.0.0'; Sdk='8.0'; Main=@('8.0.0','6.0.0','5.0.0')},
+            @{Version='9.0.0-beta.1'; Sdk='8.0'; Main=@('9.0.0-beta.1','8.0.0','6.0.0','5.0.0')},
+            @{Version='10.0.0'; Sdk='8.0'; Main=@('10.0.0','6.0.0','5.0.0')},
+            @{Version='10.0.0'; Sdk='8.0'; Main=@('10.0.0','6.0.0','5.0.0')}
+        )) {
+            $fixtureVersion = $item.Version
+            $case = @{Expected=$item.Sdk}
+            [IO.File]::WriteAllText($descriptorPath, ($descriptorText -replace '(?m)^plugin\.version=.*$', "plugin.version=$fixtureVersion"), $fixtureUtf8)
+            $fixtureAssetName = Get-OfficialPluginArtifactName $marketPlugin $fixtureVersion
+            & $program.Main @parameters
+            $manifest = [IO.File]::ReadAllText($output, $fixtureUtf8) | ConvertFrom-Json
+            Assert-Equal @($manifest.entries[0].packages.version) $item.Main
+            $publishedFiles['manifest.json'] = [IO.File]::ReadAllBytes($output)
+            $publishedFiles['manifest.json.sig'] = [IO.File]::ReadAllBytes("$output.sig")
+            if ($manifest.entries[0].PSObject.Properties['history']) {
+                $reference = $manifest.entries[0].history
+                Assert-Equal $reference.path "history/$($marketPlugin.Id)-$($reference.sha256).json"
+                $bytes = [IO.File]::ReadAllBytes((Join-Path $marketRoot $reference.path))
+                $publishedFiles[$reference.path] = $bytes
+                if ($fixtureVersion -eq '8.0.0') { $olderHistory = $reference }
+                if ($fixtureVersion -eq '9.0.0-beta.1') {
+                    Assert-Equal $reference.path $olderHistory.path
+                    Assert-Equal $manifest.entries[0].packages[0].channel 'beta'
+                }
+            }
+            if ($olderHistory) {
+                Assert-Equal (Get-FileHash (Join-Path $marketRoot $olderHistory.path)).Hash.ToLowerInvariant() $olderHistory.sha256
+            }
+        }
+    }
+    & {
+        . (Join-Path $repo 'scripts/plugin-distribution-common.ps1')
+        $program = Read-Program (Join-Path $repo 'scripts/stage-official-plugin-inputs-from-catalog.ps1')
+        foreach ($definition in $program.Functions) { . ([scriptblock]::Create($definition.Extent.Text)) }
+        $SdkVersion = '7.2.3'
+        foreach ($required in @('7.1', '>=7.2', '=7.2.3')) { Assert-Equal (Test-Compatible $required) $true }
+        foreach ($required in @('8.0', '=7.2.4', '7.2.3-rc.1', 'bad')) { Assert-Equal (Test-Compatible $required) $false }
+        $historyPath = Join-Path $fixture 'history-source.json'
+        [IO.File]::WriteAllText($historyPath, '{"pluginId":"fixture","packages":[{"version":"2.0.0","requiredSdk":"7.1"}]}')
+        $entry = [pscustomobject]@{ pluginId='fixture'; packages=@([pscustomobject]@{version='3.0.0';requiredSdk='9.0'});
+            history=[pscustomobject]@{path="history/fixture-$((Get-FileHash $historyPath).Hash.ToLowerInvariant()).json";sizeBytes=(Get-Item $historyPath).Length;
+                sha256=(Get-FileHash $historyPath).Hash.ToLowerInvariant();versions=1} }
+        function Invoke-DownloadFile {
+            param($Url, $OutFile)
+            Assert-Equal $Url "https://example.test/frozen/$($entry.history.path)"
+            Copy-Item -LiteralPath $historyPath -Destination $OutFile
+        }
+        Assert-Equal ($null -eq (Select-CatalogPackage $entry)) $true
+        $history = Read-CatalogHistory $entry 'https://example.test/frozen/manifest.json' $fixture
+        Assert-Equal (Select-CatalogPackage $history).version '2.0.0'
+        $entry.history.sha256 = 'a' * 64
+        $entry.history.path = "history/fixture-$($entry.history.sha256).json"
+        Assert-Rejected { Read-CatalogHistory $entry 'https://example.test/frozen/manifest.json' $fixture } 'digest mismatch'
+        $entry.history.path = '../manifest.json'
+        Assert-Rejected { Read-CatalogHistory $entry 'https://example.test/frozen/manifest.json' $fixture } 'Invalid signed history'
     }
     & {
         $program = Read-Program (Join-Path $repo 'scripts/publish-plugin-releases.ps1')

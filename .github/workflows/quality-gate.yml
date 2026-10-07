@@ -113,6 +113,11 @@ jobs:
           esac
           node scripts/ci/resolve-trusted-base.mjs --repo-root . --event-name "$GITHUB_EVENT_NAME" --candidate "$GITHUB_SHA" --before "$EVENT_BEFORE" --ref "$GITHUB_REF" --pr-head "$EVENT_PR_HEAD_SHA" --pr-base "$EVENT_PR_BASE_SHA" --merge-group-base "$EVENT_MERGE_GROUP_BASE_SHA" --input-base "$INPUT_TRUSTED_BASE_SHA" --default-branch "$DEFAULT_BRANCH" --mode > "$RUNNER_TEMP/sdk-gate-base.json"
           node -e 'const j=require(process.argv[1]); console.log(`SDK_BASE_SHA=${j.base}`)' "$RUNNER_TEMP/sdk-gate-base.json" >> "$GITHUB_ENV"
+      - name: Verify official plugin version changes
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: pwsh -NoProfile -File scripts/ci/verify-plugin-versions.ps1 -BaseRef "$SDK_BASE_SHA"
       - name: Resolve published SDK baseline
         if: env.SDK_PUBLICATION_MODE == 'current' || env.SDK_PUBLICATION_MODE == 'latest'
         env:
@@ -193,6 +198,9 @@ jobs:
             $count += [int]$suite.tests
           }
           if ($count -eq 0) { throw "No Compose tests ran." }
+      - name: Verify compiled plugin SDK requirements
+        shell: pwsh
+        run: ./scripts/ci/verify-plugin-sdk.ps1
       - name: Parse PowerShell scripts with Windows PowerShell
         shell: powershell
         run: ./scripts/ci/check-powershell.ps1

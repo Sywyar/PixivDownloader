@@ -86,9 +86,11 @@ public record PluginMarketEntryView(
     static PluginMarketEntryView from(PluginCatalogEntry entry, boolean installed, String installedVersion,
                                       List<PluginMarketPackageView> packages) {
         PluginMarketMetaView market = PluginMarketMetaView.from(entry.market());
-        List<PluginMarketPackageView> available = packages.stream()
+        List<PluginMarketPackageView> offered = packages.stream()
                 .filter(pkg -> !top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationService
                         .isWithdrawn(pkg.verification().revocationStatus())).toList();
+        List<PluginMarketPackageView> available = offered.stream()
+                .filter(pkg -> acceptsUpdateChannel(pkg, installedVersion)).toList();
         String latestVersion = resolveLatestVersion(market, available);
         PluginMarketPackageView latest = installTarget(available, latestVersion);
         PluginMarketPackageView target = latest;
@@ -110,12 +112,14 @@ public record PluginMarketEntryView(
                 && recommendedVersion != null
                 && SemanticVersion.compare(recommendedVersion, installedVersion) > 0;
         MarketInstallStatus status = MarketInstallStatus.resolve(installed, installable, updateAvailable, compatible);
+        // 其它渠道仍可在详情中手动选择，但不成为默认安装或更新目标。
+        String displayedLatest = latestVersion == null ? resolveLatestVersion(market, offered) : latestVersion;
         return new PluginMarketEntryView(
                 entry.pluginId(),
                 entry.displayNamespace(),
                 entry.displayNameKey(),
                 entry.descriptionKey(),
-                latestVersion,
+                displayedLatest,
                 market,
                 packages,
                 status,
@@ -141,6 +145,20 @@ public record PluginMarketEntryView(
                 installedVersion, !incomplete && updateAvailable, !incomplete && compatible,
                 compatibilityReason, assuranceLevel, versionsGeneration, nextVersionCursor,
                 totalVersionsApproximate, versionsStale, incomplete ? null : recommendedVersion, incomplete);
+    }
+
+    private static boolean acceptsUpdateChannel(PluginMarketPackageView pkg, String installedVersion) {
+        var candidate = SemanticVersion.parseOrNull(pkg.version());
+        if (candidate == null) return false;
+        String channel = pkg.channel();
+        int declared = channel == null || channel.isBlank() || "stable".equalsIgnoreCase(channel)
+                ? SemanticVersion.RANK_RELEASE : SemanticVersion.parseOrNull("0.0.0-" + channel).preReleaseRank();
+        if (candidate.preReleaseRank() == SemanticVersion.RANK_RELEASE) return declared == SemanticVersion.RANK_RELEASE;
+        var installed = SemanticVersion.parseOrNull(installedVersion);
+        return installed != null && installed.preReleaseRank() > SemanticVersion.RANK_UNKNOWN
+                && installed.preReleaseRank() != SemanticVersion.RANK_RELEASE
+                && candidate.preReleaseRank() == installed.preReleaseRank()
+                && (declared == SemanticVersion.RANK_RELEASE || declared == candidate.preReleaseRank());
     }
 
     private static boolean hasUsableSignature(PluginMarketPackageView pkg) {

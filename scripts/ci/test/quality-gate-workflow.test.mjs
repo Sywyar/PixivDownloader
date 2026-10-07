@@ -542,7 +542,7 @@ test('SDK 发布链仅由发行流程或手动请求进入同 SHA 门禁和不�
     }
     const release = load('.github/workflows/release.yml');
     assert.equal(release.jobs['publish-plugin-artifacts'].steps
-        .find(step => step.uses === './.github/actions/publish-official-plugins').with.publish_args, '-f');
+        .find(step => step.uses === './.github/actions/publish-official-plugins').with.publish_args, undefined);
     assert.deepEqual(sdk.on.workflow_dispatch.inputs.mode.options, ['publish', 'recover-release']);
     assert.equal(sdk.jobs['quality-gate'].uses, './.github/workflows/quality-gate.yml');
     assert.equal(sdk.jobs['quality-gate'].with.trusted_base_sha,
@@ -689,6 +689,7 @@ test('PR 使用真实已发布 SDK 严格校验，Nightly 保留独立构建合�
     const predecessor = sdkSteps.find(step => step.name === 'Resolve SDK contract predecessor');
     const published = sdkSteps.find(step => step.name === 'Resolve published SDK baseline');
     const contract = sdkSteps.find(step => step.name === 'Compare SDK public contract');
+    const pluginVersions = sdkSteps.find(step => step.name === 'Verify official plugin version changes');
 
     assert.equal(qualityGate.on.workflow_call.inputs.sdk_publication_mode.default, 'none');
     const evaluate = (expression, context) => vm.runInNewContext(
@@ -703,7 +704,13 @@ test('PR 使用真实已发布 SDK 严格校验，Nightly 保留独立构建合�
         assert.equal(env.SDK_PUBLICATION_MODE, expected);
         assert.equal(evaluate(published.if, { env }), expected !== 'none');
         assert.equal(evaluate(contract.env.SDK_RELEASE_IDENTITY_REQUIRED, { env }), expected !== 'none');
+        assert.equal(evaluate(pluginVersions.if, { github: { event_name: event } }), event === 'pull_request');
     }
+    assert.match(pluginVersions.run, /verify-plugin-versions\.ps1 -BaseRef "\$SDK_BASE_SHA"/u);
+    assert.ok(sdkSteps.indexOf(pluginVersions) < sdkSteps.indexOf(published));
+    const pluginSdk = qualityGate.jobs['release-artifacts'].steps.find(step => /verify-plugin-sdk\.ps1/u.test(step.run ?? ''));
+    assert.ok(pluginSdk);
+    assert.equal(pluginSdk.if, undefined);
     assert.equal(predecessor.env.SDK_PUBLICATION_MODE, undefined);
     assert.equal(published.env.SDK_PUBLICATION_MODE, undefined);
     assert.equal(published.env.GH_TOKEN, '${{ github.token }}');
@@ -713,7 +720,7 @@ test('PR 使用真实已发布 SDK 严格校验，Nightly 保留独立构建合�
     assert.match(published.run, /sdk-published-base\.mjs/u);
     assert.match(contract.run, /--require-release-identity/u);
     assert.equal(sdk.jobs['quality-gate'].with.sdk_publication_mode, 'latest');
-    assert.equal(plugins.on.workflow_call.inputs.sdk_publication_mode.default, 'current');
+    assert.equal(plugins.on.workflow_call.inputs.sdk_publication_mode.default, 'latest');
     assert.equal(nightly.jobs['publish-plugins'].with.sdk_publication_mode, undefined);
     assert.equal(nightly.jobs['publish-plugins'].with.export_sdk_candidates, undefined);
     assert.equal(nightly.jobs['publish-plugins'].with.trusted_base_sha,
