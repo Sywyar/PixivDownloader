@@ -45,10 +45,11 @@
 
     // 个性化称呼：拉取后端保存的称呼，写入侧边栏底部用户卡片（替换占位 “Pixiv User”）。
     // 同时作为新手向导的资格闸：/api/onboarding/profile 仅对「全局可见」范围（solo / 已登录管理员）放行，
-    // 403 即视为不参与跨页向导（如多人模式访客）。返回 { eligible, displayName }。
+    // 403 表示受限身份，不参与向导，称呼固定为 Guest。返回 { eligible, displayName }。
     async function loadOnboardingProfile() {
         try {
             const res = await fetch('/api/onboarding/profile', {credentials: 'same-origin'});
+            if (res.status === 403) return {eligible: false, displayName: 'Guest'};
             if (!res.ok) return {eligible: false, displayName: null};
             const data = await res.json();
             return {eligible: true, displayName: data && data.displayName ? data.displayName : null};
