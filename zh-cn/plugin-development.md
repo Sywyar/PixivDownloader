@@ -15,6 +15,16 @@
 
 > Douyin 是完整的第三方 SDK 示例，展示下载、配置、代理、队列、计划任务、私有持久化和插件自有画廊如何组合。它只依赖公开 SDK 契约，不属于官方分发集合。新项目从 `plugin-templates` 开始，可避免带入与目标站点绑定的业务代码。
 
+## 插件许可证与发布渠道
+
+PixivDownloader 及其官方插件采用 AGPL-3.0，并为随附[插件链接例外](https://github.com/Sywyar/PixivDownloader/blob/master/PLUGIN-LINKING-EXCEPTION.txt)的版本提供额外授权。通过公开 SDK/API 或文档化扩展接口开发、符合例外条件的独立第三方插件，可选择 MIT 许可证。
+
+例外允许复制和修改项目自有插件模板用于独立第三方插件，分发时须保留相关版权声明及例外文本。宿主、SDK/API、运行时和官方插件实现及其修改仍须遵守适用的 AGPL 义务；第三方依赖仍须遵守各自许可证。
+
+带此例外的 SDK 开发包将上游许可放在 `licenses/pixivdownloader/`，Maven SDK/API JAR 的 `META-INF/` 也包含许可文本。请为自己的插件选择许可证并在工程中声明；复制示例另建工程时保留上游声明。核对实际选用的宿主和 SDK 版本，未随附例外的旧发行不会因文档更新而自动获得额外授权。
+
+[官方社区仓库](https://github.com/Sywyar/PixivDownloader-community-plugins)只收录开源插件：要求公开 GitHub 完整源码、开源许可证、可复现构建和人工审核。只有公网产物或有效 SPDX 表达式不够。插件许可与社区收录分别适用；安装时仍须通过既有包校验和信任确认。
+
 ## 先理解信任边界
 
 `declarative-process` 插件在独立 worker JVM 中执行，具有资源与协议隔离；`host-process-full-trust` 插件在宿主 JVM 中执行。两者都不是 OS 级安全沙箱，插件仍可能访问当前账户可读的文件、发起网络请求或消耗资源。
@@ -755,7 +765,6 @@ mvn -pl pixivdownload-official-plugins -am -Pdev-mode process-classes -Dexec.ski
 版本投稿的可选 `content` 包含 `readme`、`changelog`、`releaseNotes` 语言映射；文档记录 `format`、`asset`、可选 `sourcePath`、`sourceUrl` 与图片 `resources`。仓库文档的 `sourceUrl` 绑定冻结源码提交，相对链接按它解析；本地文件、直接输入和缺少该字段的旧记录不会猜测来源。安全 HTML 锚点和 Markdown 标题支持页内导航，外部链接在新窗口打开。附件记录 `name`、`url`、`mediaType`、`size`、`sha256`。市场元数据的 `links` 缺失时兼容 `homepageUrl`，空列表表示不提供链接。完整字段与约束以同一 SDK 开发包的社区 Schema 为准。
 
 社区把文档、图片和插件包放在同一个版本 Release，目录保存受签名保护的引用。客户端按需读取并复核大小与摘要，HTML 以净化后的隔离静态文档显示。文档签名边界属于审核引用和目录，不能把 JAR 签名当作文档证明。社区须先验证新 SDK 的公开发行字节再升级固定工具；宿主也须包含对应的展示支持。只增加市场资料不要求旧插件提高 `plugin.requires`，SDK 1.1 宿主仍兼容 `requires=1.0`。
-
 
 ## 签名和发布
 

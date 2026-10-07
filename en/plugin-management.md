@@ -18,6 +18,7 @@ HTML and Markdown are static reading views. Document scripts, forms, event handl
 
 These documents help explain a plugin's use. Source verification, compatibility and revocation checks still apply. Availability depends on the submitted content, deployed community tools and installed host.
 
+For plugin licensing and community admission requirements, see the [plugin development guide](/en/plugin-development#plugin-licensing-and-distribution).
 
 ## Execution security
 

@@ -195,9 +195,9 @@ Their pages may still call same-origin APIs on the current PixivDownloader insta
 
 ## Local, same-origin, and administrator-defined destinations
 
-- The GUI, web pages, and plugin frontends call `/api/**`, static resources, and SSE on the current PixivDownloader instance. The desktop GUI normally connects to `http://localhost:{port}` or `https://localhost:{port}`.
+- The GUI, web pages, and plugin frontends call `/api/**`, static resources, and SSE on the current PixivDownloader instance. Internal desktop GUI requests use loopback and the instance's actual listening port; web pages use the browser's same-origin address. The host builds invitation, setup, and desktop web links from the actual listening protocol and port plus the administrator's `ssl.domain` setting (default: `localhost`). When development mode selects another port, links follow the current instance without changing the configured port.
 - Ollama, LM Studio, VoxCPM, CosyVoice, and userscript backends may be local services. If their base URL is changed to a remote address, that remote service becomes a new data recipient.
-- The Image Classifier's `server.url` defaults to `http://localhost:6999` but may point to another administrator-configured PixivDownloader instance.
+- With an empty `server.url`, the Image Classifier uses the current instance address described above. An explicit URL selects another PixivDownloader instance, and existing settings remain in effect. The classifier queries artwork information and submits new paths after moving works; a remote target receives that data. Closing the classifier stops these requests.
 - Custom webhook, AI/TTS base URL, plugin repository, Bark, SMTP, SOCKS, and proxy endpoints are administrator-defined and cannot form a closed fixed-domain allowlist. The update manifest URL is also configurable, but only public HTTPS destinations carrying a valid official signature are accepted.
 - The root `cors-js-runner.html` developer tool requests any URL entered by its operator. It is not part of the standard user runtime.
 

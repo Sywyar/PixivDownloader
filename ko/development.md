@@ -2,7 +2,7 @@
 
 ## 사전 요구 사항
 
-Java 17+, Maven, Node.js와 npm이 필요합니다. 저장소 지침과 작업별 `CLAUDE.md` 라우팅을 먼저 확인하세요.
+Java 17+, Maven, Node.js와 npm이 필요합니다.
 
 ## 멀티 모듈 구조
 

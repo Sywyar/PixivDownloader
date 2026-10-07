@@ -196,9 +196,9 @@ GUI 预览和确认描述符时会联网；保存包含新描述符快照的设�
 
 ## 本机、同源及管理员配置的目标地址
 
-- GUI、Web 页面和插件前端会访问当前 PixivDownloader 实例的 `/api/**`、静态资源和 SSE。桌面 GUI 默认连接 `http://localhost:{port}` 或 `https://localhost:{port}`。
+- GUI、Web 页面和插件前端会访问当前 PixivDownloader 实例的 `/api/**`、静态资源和 SSE。桌面 GUI 内部请求使用 loopback 地址和当前实例的实际监听端口；网页使用浏览器的同源地址。邀请链接、首次配置和桌面网页入口由宿主统一构造，使用实际监听协议、端口与管理员配置的 `ssl.domain`（默认 `localhost`）。开发模式自动顺延端口后，链接随当前实例更新，不改写配置端口。
 - Ollama、LM Studio、VoxCPM、CosyVoice 和油猴脚本后端可配置为本机服务；基础地址指向远端后，该远端即成为新的数据接收方。
-- 图片分类器的 `server.url` 默认为 `http://localhost:6999`，也可指向管理员配置的其他 PixivDownloader 实例。
+- 图片分类器的 `server.url` 留空时使用上述当前实例地址；填写地址后连接指定的 PixivDownloader 实例，已有设置继续生效。分类器向该目标查询作品信息，并在移动作品后提交新路径；目标为远端时，这些数据也会发送到远端。关闭分类器可停止这些请求。
 - 自定义 Webhook、AI/TTS 基础地址、插件仓库、Bark、SMTP、SOCKS 和代理端点都由管理员配置，无法形成封闭的固定域名白名单。更新清单 URL 也可由管理员配置，但只接受带有效官方签名的公网 HTTPS 目标。
 - 根目录 `cors-js-runner.html` 是开发调试工具，会请求操作者输入的任意 URL；它不属于常规用户运行链路。
 

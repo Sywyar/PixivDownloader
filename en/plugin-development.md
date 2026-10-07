@@ -15,6 +15,16 @@ Relevant source code:
 
 > Douyin is a complete third-party SDK example. It shows how downloads, configuration, proxies, queues, scheduled tasks, private persistence, and a plugin-owned gallery fit together. It depends only on public SDK contracts and is outside the official distribution set. Start new projects from `plugin-templates` to avoid carrying over site-specific business code.
 
+## Plugin licensing and distribution
+
+PixivDownloader and its official plugins use AGPL-3.0 with an additional [Plugin Linking Exception](https://github.com/Sywyar/PixivDownloader/blob/master/PLUGIN-LINKING-EXCEPTION.txt) for versions distributed with it. Independent third-party plugins using the public SDK/API or documented extension interfaces may choose the MIT License when they meet the exception's conditions.
+
+The exception permits copying and adapting project-authored plugin templates for independent third-party plugins, with the applicable copyright notices and exception text retained on distribution. Host, SDK/API, runtime and official plugin implementations and their modifications remain subject to the applicable AGPL obligations. Third-party dependencies retain their own licenses.
+
+SDK development packages with this exception keep upstream license texts in `licenses/pixivdownloader/`; Maven SDK/API JARs include them in `META-INF/`. Choose and declare your own plugin license, and retain upstream notices when copying an example into a separate project. Check the actual host and SDK versions you use: documentation updates do not add permissions to older releases that lack the exception.
+
+The [official community repository](https://github.com/Sywyar/PixivDownloader-community-plugins) accepts only open-source plugins, requiring complete public GitHub source, an open-source license, a reproducible build and human review. A public artifact or a valid SPDX expression alone is insufficient. Plugin licensing and community admission are separate requirements. Package validation and trust confirmation still apply.
+
 ## Understand the trust boundary first
 
 A `declarative-process` plugin executes in a separate worker JVM with resource and protocol isolation. A `host-process-full-trust` plugin executes in the host JVM. Neither provides an OS security sandbox; plugin code may access files readable by the current account, make network requests or consume resources.
@@ -756,7 +766,6 @@ Documents use the selected default language and freeze their bytes after preview
 Optional version `content` contains locale maps for `readme`, `changelog` and `releaseNotes`. Each document records `format`, `asset`, optional `sourcePath` and `sourceUrl`, and image `resources`. Repository documents bind `sourceUrl` to the frozen source commit to resolve relative links. Local files, direct input and older records without this field do not infer a source. Safe HTML anchors and Markdown headings support navigation within the document; external links open in a new window. Assets record `name`, `url`, `mediaType`, `size` and `sha256`. Missing market `links` retains the `homepageUrl` fallback; an empty list means no links. Use the community Schema from the same SDK development package for the complete contract.
 
 Community publication places documents, images and the plugin package in the same version release. The signed catalog binds their references. The client fetches them on demand, verifies size and digest, and displays sanitized HTML in an isolated static document. The JAR signature does not cover these documents; review references and the catalog bind them. Community tools must verify the new SDK's public bytes before updating their pin, and the host must include document support. Adding market metadata alone does not require increasing an existing plugin's `plugin.requires`; SDK 1.1 hosts still accept `requires=1.0`.
-
 
 ## Signing and publishing
 
