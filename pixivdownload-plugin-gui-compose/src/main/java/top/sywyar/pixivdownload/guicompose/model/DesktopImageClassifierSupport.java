@@ -85,7 +85,7 @@ public final class DesktopImageClassifierSupport {
             return new DesktopUiHost.ImageClassifierSettings(
                     "",
                     false,
-                    "http://localhost:6999",
+                    "",
                     List.of()
             );
         }

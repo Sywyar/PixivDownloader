@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.gui;
 import top.sywyar.pixivdownload.common.AppInfo;
 import top.sywyar.pixivdownload.common.AppVersion;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.config.http.ServerAddressProvider;
 import top.sywyar.pixivdownload.config.credential.PluginCredentialStore;
 import top.sywyar.pixivdownload.ffmpeg.FfmpegInstaller;
 import top.sywyar.pixivdownload.ffmpeg.FfmpegLocator;
@@ -46,6 +47,7 @@ final class AppDesktopUiHost implements DesktopUiHost {
 
     private final DesktopUiLocalApiClient localApiClient;
     private final ConfigFile applicationConfig;
+    private final int startupPort;
     private final Supplier<DataSource> backfillDataSource;
     private final DesktopUiOnboardingState onboardingState = new DesktopUiOnboardingState();
     private final DesktopToolHistory toolHistory = new DesktopToolHistory(RuntimeFiles.guiStateDirectory());
@@ -62,6 +64,7 @@ final class AppDesktopUiHost implements DesktopUiHost {
     AppDesktopUiHost(int serverPort, ConfigFile applicationConfig, Supplier<DataSource> backfillDataSource) {
         this.localApiClient = new DesktopUiLocalApiClient(() -> backendPort(serverPort));
         this.applicationConfig = applicationConfig;
+        this.startupPort = serverPort;
         this.backfillDataSource = java.util.Objects.requireNonNull(backfillDataSource, "backfillDataSource");
     }
 
@@ -355,12 +358,24 @@ final class AppDesktopUiHost implements DesktopUiHost {
     }
 
     @Override public int backendPort(int startupPort) {
-        if (!developmentMode()) return startupPort;
         try {
-            return BackendLifecycleManager.requiredBean(org.springframework.core.env.Environment.class)
-                    .getProperty("local.server.port", Integer.class, startupPort);
+            return BackendLifecycleManager.requiredBean(ServerAddressProvider.class).port();
         } catch (IllegalStateException unavailable) {
             return startupPort;
+        }
+    }
+
+    @Override public java.net.URI backendUri(String path) {
+        try {
+            return BackendLifecycleManager.requiredBean(ServerAddressProvider.class).uri(path);
+        } catch (IllegalStateException unavailable) {
+            try {
+                var config = applicationConfig.readAll(List.of("server.ssl.enabled", "ssl.domain"));
+                return ServerAddressProvider.resolve(
+                        ServerAddressProvider.configuredBaseUri(config::get, startupPort), path);
+            } catch (IOException failure) {
+                throw new IllegalStateException("Cannot read the backend address", failure);
+            }
         }
     }
 
@@ -375,7 +390,7 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override public boolean markOnboardingFinished() { return onboardingState.markFinished(); }
     @Override public boolean clearOnboardingState() { return onboardingState.clear(); }
 
-    private final DesktopUiTools desktopUiTools = new DesktopUiTools();
+    private final DesktopUiTools desktopUiTools = new DesktopUiTools(() -> backendUri("").toASCIIString());
 
     @Override public FolderCheckResult checkArtworkFolders(Path databasePath) throws Exception {
         return desktopUiTools.checkArtworkFolders(databasePath, folderCheckRoot());

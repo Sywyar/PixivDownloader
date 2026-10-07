@@ -3,12 +3,11 @@ package top.sywyar.pixivdownload.setup.guest;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import top.sywyar.pixivdownload.config.SslConfig;
+import top.sywyar.pixivdownload.config.http.ServerAddressProvider;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.setup.guest.dto.HourlyBucket;
@@ -49,16 +48,10 @@ public class GuestInviteService {
     private static final long HOUR_MILLIS = 3_600_000L;
 
     private final GuestInviteMapper mapper;
-    private final SslConfig sslConfig;
+    private final ServerAddressProvider serverAddress;
     /** 不直接使用：仅表达对 {@link DatabaseInitializer} 的初始化顺序依赖（{@link #init()} 要求表已建好）。 */
     @SuppressWarnings("unused")
     private final DatabaseInitializer databaseInitializer;
-
-    @Value("${server.ssl.enabled:false}")
-    private boolean sslEnabled;
-
-    @Value("${server.port:6999}")
-    private int serverPort;
 
     private final SecureRandom random = new SecureRandom();
 
@@ -239,7 +232,7 @@ public class GuestInviteService {
         return InviteDetail.builder()
                 .id(row.getId())
                 .code(row.getCode())
-                .url(buildInviteUrl(row.getCode()))
+                .url(serverAddress.uri("/invite?code=" + row.getCode()).toASCIIString())
                 .name(row.getName())
                 .expireTime(row.getExpireTime())
                 .allowSfw(row.isAllowSfw())
@@ -504,17 +497,4 @@ public class GuestInviteService {
         return new String(buf);
     }
 
-    /**
-     * 严格按 CLAUDE.md 约束动态构造对外 URL，不硬编码 scheme 或 host。
-     */
-    private String buildInviteUrl(String code) {
-        String scheme = sslEnabled ? "https" : "http";
-        String domain = sslConfig.getDomain();
-        if (domain == null || domain.isBlank()) domain = "localhost";
-        StringBuilder sb = new StringBuilder().append(scheme).append("://").append(domain);
-        boolean defaultPort = (sslEnabled && serverPort == 443) || (!sslEnabled && serverPort == 80);
-        if (!defaultPort) sb.append(':').append(serverPort);
-        sb.append("/invite?code=").append(code);
-        return sb.toString();
-    }
 }

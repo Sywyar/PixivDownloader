@@ -84,13 +84,10 @@ class HostRequestOwnerIdentityResolverTest {
     }
 
     @Test
-    @DisplayName("已登录管理员即使携带邀请属性也不产生限流 subject")
+    @DisplayName("纯管理员请求不产生邀请限流 subject")
     void exemptsAuthenticatedAdminFromInvitedGuestRateLimitSubject() {
         SetupService setupService = mock(SetupService.class);
         MockHttpServletRequest request = new MockHttpServletRequest();
-        request.setAttribute(GuestInviteSession.REQUEST_ATTR, new GuestInviteSession(
-                42L, "secret-code", true, false, false,
-                true, Set.of(), true, Set.of(), true, Set.of(), true, Set.of()));
         when(setupService.isAdminLoggedIn(request)).thenReturn(true);
 
         assertThat(new HostRequestOwnerIdentityResolver(setupService)

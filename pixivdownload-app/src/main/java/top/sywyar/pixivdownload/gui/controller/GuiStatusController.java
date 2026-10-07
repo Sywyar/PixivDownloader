@@ -4,7 +4,6 @@ import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.env.Environment;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -12,7 +11,7 @@ import top.sywyar.pixivdownload.common.NetworkUtils;
 import top.sywyar.pixivdownload.common.PixivConnectivityProbe;
 import top.sywyar.pixivdownload.common.ServerStateProvider;
 import top.sywyar.pixivdownload.config.RuntimeConfigReloadService;
-import top.sywyar.pixivdownload.config.SslConfig;
+import top.sywyar.pixivdownload.config.http.ServerAddressProvider;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.onboarding.OnboardingProgressService;
 import top.sywyar.pixivdownload.setup.SetupService;
@@ -40,8 +39,7 @@ import java.util.List;
 public class GuiStatusController {
 
     private final ServerStateProvider serverState;
-    private final Environment environment;
-    private final SslConfig sslConfig;
+    private final ServerAddressProvider serverAddress;
     private final RuntimeConfigReloadService runtimeConfigReloadService;
     private final AppMessages messages;
     private final OnboardingProgressService onboardingProgressService;
@@ -71,14 +69,14 @@ public class GuiStatusController {
         String startTimeStr = LocalDateTime.ofInstant(startTime, ZoneId.systemDefault())
                 .format(FORMATTER);
 
-        boolean https = isSslEnabled();
+        var address = serverAddress.baseUri();
         GuiStatusResponse resp = GuiStatusResponse.builder()
-                .port(resolvePort())
+                .port(serverAddress.port())
                 .mode(serverState.getMode())
                 .startTime(startTimeStr)
-                .httpsEnabled(https)
-                .domain(sslConfig.getDomain())
-                .scheme(https ? "https" : "http")
+                .httpsEnabled("https".equals(address.getScheme()))
+                .domain(address.getHost())
+                .scheme(address.getScheme())
                 .build();
 
         return ResponseEntity.ok(resp);
@@ -298,33 +296,6 @@ public class GuiStatusController {
     }
 
     // ── 私有工具 ──────────────────────────────────────────────────────────────────
-
-    private int resolvePort() {
-        try {
-            String local = environment.getProperty("local.server.port");
-            if (local != null) return Integer.parseInt(local);
-            String configured = environment.getProperty("server.port");
-            if (configured != null) return Integer.parseInt(configured);
-        } catch (NumberFormatException ignored) {}
-        return 6999;
-    }
-
-    /**
-     * 检测 SSL 是否已配置并启用。
-     * 优先 PEM（certificate + certificate-private-key），其次 JKS（key-store）。
-     * 若 server.ssl.enabled 显式设为 false，则视为未启用。
-     */
-    private boolean isSslEnabled() {
-        String enabled = environment.getProperty("server.ssl.enabled");
-        if ("false".equalsIgnoreCase(enabled)) return false;
-
-        String cert    = environment.getProperty("server.ssl.certificate");
-        String certKey = environment.getProperty("server.ssl.certificate-private-key");
-        if (cert != null && !cert.isBlank() && certKey != null && !certKey.isBlank()) return true;
-
-        String keyStore = environment.getProperty("server.ssl.key-store");
-        return keyStore != null && !keyStore.isBlank();
-    }
 
     private String logMessage(String code, Object... args) {
         return messages.getForLog(code, args);

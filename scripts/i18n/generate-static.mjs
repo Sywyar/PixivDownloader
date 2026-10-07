@@ -7,7 +7,7 @@
  *     <namespace>.<tag>.json          —— effective bundle（目标 → fallback → source）
  *
  * 只生成 source 与 supported；candidate/disabled 不发布给普通用户。
- * 只生成核心 app 模块的 web namespaces：app boot jar 不得携带外置插件 i18n（CLAUDE.md 架构约束），
+ * 只生成核心 app 模块的 web namespaces：app boot jar 不得携带外置插件 i18n，
  * 外置插件页面与后端 i18n API 同生命周期，静态回退没有消费场景，因此插件 bundle 不静态化；
  * 插件缺席时前端 fetch 静态 bundle 自然 404，回退到 key 本身。
  * meta.json 的每个可见语言输出 tag / aliases / nativeName / direction / status，

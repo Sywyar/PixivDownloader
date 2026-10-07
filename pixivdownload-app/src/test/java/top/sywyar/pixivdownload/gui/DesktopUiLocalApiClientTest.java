@@ -38,6 +38,8 @@ class DesktopUiLocalApiClientTest {
                 var context = new org.springframework.context.annotation.AnnotationConfigApplicationContext();
                 context.getEnvironment().getPropertySources().addFirst(new org.springframework.core.env.MapPropertySource(
                         "bound-port", Map.of("local.server.port", port())));
+                context.registerBean(top.sywyar.pixivdownload.config.SslConfig.class);
+                context.registerBean(top.sywyar.pixivdownload.config.http.ServerAddressProvider.class);
                 context.refresh();
                 var ready = new java.util.concurrent.CompletableFuture<Void>();
                 try (var registration = BackendLifecycleManager.configure(new String[0],
@@ -45,6 +47,8 @@ class DesktopUiLocalApiClientTest {
                     assertThat(BackendLifecycleManager.startAsync(() -> ready.complete(null))).isTrue();
                     ready.get(10, java.util.concurrent.TimeUnit.SECONDS);
                     assertThat(host.backendPort(1)).isEqualTo(port());
+                    assertThat(host.backendUri("/invite?code=test").toString())
+                            .isEqualTo("http://localhost:" + port() + "/invite?code=test");
                     assertThat(host.guiGet("status", 2_000).successful()).isTrue();
                 } finally {
                     BackendLifecycleManager.resetForTests();

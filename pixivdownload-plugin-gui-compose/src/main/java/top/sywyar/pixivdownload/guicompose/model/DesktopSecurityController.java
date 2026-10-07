@@ -190,12 +190,7 @@ final class DesktopSecurityController {
                 runningAddress = "";
                 var response = host.guiGet("status", 5_000);
                 if (response.reachable() && response.is2xx() && response.body() != null) {
-                    var status = response.body();
-                    String scheme = status.path("httpsEnabled").asBoolean(false) ? "https" : "http";
-                    String domain = status.path("domain").asText("");
-                    int port = status.path("port").asInt(0);
-                    if (OnboardingProxySettings.validHost(domain) && port > 0 && port <= 65535)
-                        runningAddress = new URI(scheme, null, domain, port, null, null, null).toASCIIString();
+                    runningAddress = host.backendUri("").toASCIIString();
                 }
                 connectionLoaded = true;
                 formRevision++;

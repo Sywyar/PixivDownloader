@@ -74,7 +74,7 @@ const ALLOWED_DIRS = [
 ];
 
 const ALLOWED_FILE_NAMES = [
-    'CLAUDE.md', 'AGENTS.md', 'README.md', 'README_en.md', 'CHANGELOG.md',
+    'README.md', 'README_en.md', 'CHANGELOG.md',
     'plugin-templates', // 模板含 example 文案（与仓库规范一致，示例页 i18n 走 data-i18n）
 ];
 
@@ -134,7 +134,7 @@ function quote(value) {
 
 /**
  * 扫描生产代码：各模块 src/main 与 scripts（排除 scripts/i18n、scripts/hooks）。
- * 只在这些根下递归，避免扫到仓库根目录的本地杂物（log/、bugs-data/、.codex-tmp/ 等）。
+ * 只在这些根下递归，避免扫描仓库根目录的本地运行和临时数据。
  * @returns {Array<{relPath, line, label}>} 命中列表
  */
 function scan(repoRoot, catalog) {

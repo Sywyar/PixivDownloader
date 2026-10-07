@@ -877,31 +877,11 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
     }
 
     int serverPort() {
-        return host.developmentMode() ? host.backendPort(serverPort) : serverPort;
+        return host.backendPort(serverPort);
     }
 
     URI webUri(String path) {
-        try {
-            Map<String, String> config = host.applicationConfig().readAll(List.of(
-                    "server.port",
-                    "server.ssl.enabled",
-                    "ssl.domain"
-            ));
-            int port = host.developmentMode() ? serverPort() : parseInt(config.get("server.port"), serverPort);
-            boolean https = Boolean.parseBoolean(config.getOrDefault(
-                    "server.ssl.enabled",
-                    "false"
-            ));
-            String domain = config.getOrDefault("ssl.domain", "localhost").trim();
-            if (domain.isBlank() || domain.contains("://") || domain.contains("/") || domain.contains(
-                    "@")) {
-                domain = "localhost";
-            }
-            return URI.create((https ? "https" : "http") + "://" + domain + ":" + port + (path.startsWith(
-                    "/") ? path : "/" + path));
-        } catch (Exception failure) {
-            return URI.create("http://localhost:" + serverPort() + (path.startsWith("/") ? path : "/" + path));
-        }
+        return host.backendUri(path);
     }
 
     List<DesktopUiPluginSnapshot> currentSources() {

@@ -57,8 +57,18 @@
 
         setGalleryStatus('loading');
         try {
-            const result = await api('/api/gallery/artworks?' + params.toString());
+            let result = await api('/api/gallery/artworks?' + params.toString());
             if (requestRevision !== galleryLoadRevision) return;
+            if (state.page > 0 && state.page >= (result.totalPages || 0)) {
+                // 可见范围缩小时回到首页；首页不会再次越界，最多补查一次。
+                state.page = 0;
+                persistGalleryState();
+                if (result.totalElements > 0) {
+                    params.set('page', 0);
+                    result = await api('/api/gallery/artworks?' + params.toString());
+                    if (requestRevision !== galleryLoadRevision) return;
+                }
+            }
             state.totalPages = result.totalPages || 0;
             state.totalElements = result.totalElements || 0;
             // 先更新计数文案，确保即使列表为空也不会停留在「加载中…」

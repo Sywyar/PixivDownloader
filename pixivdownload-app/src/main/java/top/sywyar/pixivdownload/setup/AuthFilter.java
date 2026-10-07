@@ -56,7 +56,7 @@ import java.util.stream.Collectors;
 public class AuthFilter extends OncePerRequestFilter {
 
     /** 访客邀请 cookie 名（浏览器会话 cookie，不带 Max-Age）。 */
-    public static final String INVITE_COOKIE = "pixiv_invite_token";
+    public static final String INVITE_COOKIE = GuestInviteSession.COOKIE_NAME;
 
     /** request attribute 标记：邀请会话是否已在本次请求内解析过（用于缓存，避免重复查库）。 */
     private static final String GUEST_SESSION_RESOLVED_ATTR = "pixiv.guestInviteSessionResolved";
@@ -306,6 +306,15 @@ public class AuthFilter extends OncePerRequestFilter {
             return;
         }
 
+        // 公开身份检查与所有业务路由共享访客身份；失效邀请也不能回退到管理员或本机权限。
+        GuestInviteSession guestSession = resolveGuestInviteSessionCached(req, res);
+        if (GuestInviteSession.isGuestRequest(req) && !isPublic(path, policy)
+                && !path.equals("/invite") && !path.equals("/redirect")
+                && (guestSession == null || !isAllowedForGuestInvite(resolvedRoute, method))) {
+            sendJsonError(req, res, 403, "guest.invite.forbidden", "该资源不在你的可见范围内");
+            return;
+        }
+
         // GUI 路径：必须同时满足本地请求 + 有效的 GUI 令牌，通过后跳过所有后续过滤逻辑。
         if (path.startsWith("/api/gui/")) {
             if (!isValidGuiRequest(req)) {
@@ -391,9 +400,6 @@ public class AuthFilter extends OncePerRequestFilter {
             return;
         }
 
-        // 解析访客邀请会话（若 cookie 有效）：挂到 request attribute，用于后续过滤与单作品守卫
-        GuestInviteSession guestSession = resolveGuestInviteSessionCached(req, res);
-
         if (guestSession != null && isAllowedForGuestInvite(resolvedRoute, method)) {
             if (isApi(path)) {
                 if (!rateLimitService.isAllowedForInvite("invite:" + guestSession.code())) {
@@ -410,12 +416,6 @@ public class AuthFilter extends OncePerRequestFilter {
             String token = SessionUtils.extractToken(req);
             boolean adminValid = setupService.isValidSession(token);
             if (!adminValid) {
-                if (guestSession != null) {
-                    // guest 携带 cookie 但越界：禁止访问
-                    sendJsonError(req, res, 403, "guest.invite.forbidden",
-                            "该资源不在你的可见范围内");
-                    return;
-                }
                 if (isApi(path)) {
                     sendJsonError(req, res, 401, "auth.unauthorized", "Unauthorized");
                 } else {
@@ -428,13 +428,6 @@ public class AuthFilter extends OncePerRequestFilter {
                 ensureUserUuidCookie(req, res);
             }
             chain.doFilter(req, res);
-            return;
-        }
-
-        // 已识别为访客但未命中受保护路径（即非 monitor 范围内）：禁止越界（除非是 isPublic 路径，已在前面放行）
-        if (guestSession != null) {
-            sendJsonError(req, res, 403, "guest.invite.forbidden",
-                    "该资源不在你的可见范围内");
             return;
         }
 
@@ -728,10 +721,7 @@ public class AuthFilter extends OncePerRequestFilter {
             return null;
         }
         if (resolved.isPresent()) return resolved.get();
-        // 失效：让浏览器丢掉无效的 cookie
-        ResponseCookie cleared = ResponseCookie.from(INVITE_COOKIE, "")
-                .path("/").httpOnly(true).secure(sslEnabled).sameSite("Strict").maxAge(0).build();
-        res.addHeader(HttpHeaders.SET_COOKIE, cleared.toString());
+        // 保留访客身份，直到用户显式退出或重新登录，避免后续请求自动获得管理员权限。
         return null;
     }
 

@@ -64,6 +64,7 @@ class DevelopmentWebServerCustomizerTest {
             server.start();
             assertThat(server.getPort()).isGreaterThan(requested);
             assertResponds(server);
+            assertPublicAddresses(server, requested, "http");
             // 成功的 socket 始终归本实例持有，不能再次被其它进程绑定。
             try (ServerSocket contender = new ServerSocket()) {
                 contender.setReuseAddress(false);
@@ -165,6 +166,7 @@ class DevelopmentWebServerCustomizerTest {
             new DevelopmentWebServerCustomizer().customize(factory);
             WebServer server = server(factory);
             server.start();
+            assertPublicAddresses(server, occupied.getLocalPort(), "https");
             int redirectPort = factory.getAdditionalTomcatConnectors().get(0).getLocalPort();
             assertThat(redirectPort).isGreaterThan(redirectOccupied.getLocalPort()).isNotEqualTo(server.getPort());
             var response = HttpClient.newHttpClient().send(
@@ -211,5 +213,54 @@ class DevelopmentWebServerCustomizerTest {
         var response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(response.body()).isEqualTo("ready");
+    }
+
+    private static void assertPublicAddresses(WebServer server, int configuredPort, String scheme) throws Exception {
+        var environment = new org.springframework.mock.env.MockEnvironment()
+                .withProperty("server.port", Integer.toString(configuredPort));
+        try (var context = new org.springframework.context.annotation.AnnotationConfigApplicationContext()) {
+            context.setEnvironment(environment);
+            context.registerBean(SslConfig.class);
+            context.registerBean(top.sywyar.pixivdownload.config.http.ServerAddressProvider.class);
+            context.refresh();
+            context.publishEvent(new org.springframework.boot.web.servlet.context.ServletWebServerInitializedEvent(
+                    server, new org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext()));
+            var address = context.getBean(top.sywyar.pixivdownload.config.http.ServerAddressProvider.class);
+            String base = scheme + "://localhost:" + server.getPort();
+            assertThat(address.uri("/setup.html").toString()).isEqualTo(base + "/setup.html");
+            var mapper = org.mockito.Mockito.mock(top.sywyar.pixivdownload.setup.guest.persistence.GuestInviteMapper.class);
+            org.mockito.Mockito.doAnswer(call -> {
+                top.sywyar.pixivdownload.setup.guest.persistence.GuestInviteRow row = call.getArgument(0);
+                row.setId(1L);
+                org.mockito.Mockito.when(mapper.findById(1L)).thenReturn(row);
+                return null;
+            }).when(mapper).insertInvite(org.mockito.ArgumentMatchers.any());
+            var invites = new top.sywyar.pixivdownload.setup.guest.controller.AdminInviteController(
+                    new top.sywyar.pixivdownload.setup.guest.GuestInviteService(mapper, address, null));
+            var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(invites).build();
+            var created = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                    .post("/api/admin/invites").contentType("application/json").content("{\"name\":\"address test\"}"))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                    .andReturn().getResponse();
+            var json = new com.fasterxml.jackson.databind.ObjectMapper().readTree(created.getContentAsByteArray());
+            assertThat(json.path("url").asText()).isEqualTo(base + "/invite?code=" + json.path("code").asText());
+            assertThat(invites.detail(1L).url()).isEqualTo(json.path("url").asText());
+            var status = new top.sywyar.pixivdownload.gui.controller.GuiStatusController(
+                    org.mockito.Mockito.mock(top.sywyar.pixivdownload.common.ServerStateProvider.class),
+                    address, null, null, null, null);
+            status.init();
+            var request = new org.springframework.mock.web.MockHttpServletRequest();
+            request.setRemoteAddr("127.0.0.1");
+            var body = status.status(request).getBody();
+            assertThat(body.getPort()).isEqualTo(server.getPort());
+            assertThat(body.getScheme()).isEqualTo(scheme);
+            assertThat(body.getDomain()).isEqualTo("localhost");
+            assertThat(environment.getProperty("server.port")).isEqualTo(Integer.toString(configuredPort));
+            var management = new org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext();
+            management.setServerNamespace("management");
+            context.publishEvent(new org.springframework.boot.web.servlet.context.ServletWebServerInitializedEvent(
+                    org.mockito.Mockito.mock(WebServer.class), management));
+            assertThat(address.baseUri().toString()).isEqualTo(base);
+        }
     }
 }

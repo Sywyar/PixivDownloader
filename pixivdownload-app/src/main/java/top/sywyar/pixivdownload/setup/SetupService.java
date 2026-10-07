@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.setup;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import jakarta.servlet.http.HttpServletRequest;
@@ -313,16 +314,18 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
     }
 
     public boolean isAdminLoggedIn(HttpServletRequest request) {
+        if (GuestInviteSession.isGuestRequest(request)) return false;
         String token = SessionUtils.extractToken(request);
         return token != null && isValidSession(token);
     }
 
     /**
-     * 是否拥有"全局可见"权限：solo 模式下任何请求都拥有；multi 模式仅登录管理员拥有。
+     * 是否拥有全局可见权限：邀请访客没有；其余 solo 请求拥有，multi 仅登录管理员拥有。
      * 用于下载状态、聚合 SSE 等需要在多用户场景下区分访问范围的端点。
      */
     public boolean hasAdminScope(HttpServletRequest request) {
-        return !"multi".equals(getMode()) || isAdminLoggedIn(request);
+        return !GuestInviteSession.isGuestRequest(request)
+                && (!"multi".equals(getMode()) || isAdminLoggedIn(request));
     }
 
     public synchronized void removeSession(String token) throws IOException {

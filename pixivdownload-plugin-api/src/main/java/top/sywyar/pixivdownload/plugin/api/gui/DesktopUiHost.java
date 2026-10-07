@@ -578,6 +578,18 @@ public interface DesktopUiHost extends DesktopUiToolHost {
     default int backendPort(int startupPort) { return startupPort; }
 
     /**
+     * 构造当前实例的用户访问地址，协议、域名和实际端口由宿主统一提供。
+     * 后端重启后重新查询；未启动时返回宿主配置的预览地址，不表示服务可达。
+     * 这是宿主只读能力，无插件 publication 或持久化副作用；不支持时明确拒绝。
+     *
+     * @param path 应用内路径，可带查询参数；空值返回服务根地址
+     * @return 当前实例的绝对 URI
+     */
+    default java.net.URI backendUri(String path) {
+        throw new UnsupportedOperationException("Backend addresses are not supported by this host");
+    }
+
+    /**
      * 订阅后端生命周期变化。
      *
      * @param listener 生命周期监听器
