@@ -10,6 +10,16 @@ The **Plugin Management** page (top nav → **Plugins**) lets an admin see all o
 
 Add or edit custom repositories in GUI Settings → Plugin market settings. The dialog offers “Use repository descriptor” and “Enter manually”. The descriptor option previews the publisher, network hosts and full public-key fingerprints, then adds the confirmed repository to the settings draft. Manual entry provides repository, network policy and trusted-key fields. Save settings and restart to apply the changes. The web marketplace browses and installs plugins.
 
+## Update notices and version history
+
+The number badge in download-page navigation indicates compatible updates for installed plugins. This means the candidate meets SDK requirements and current market policy; plugin dependencies and other installation conditions are still checked during installation. An exclamation mark indicates newer versions that require a newer SDK. The plugin-management banner shows these separately; a plugin can have both a compatible update and a latest version that requires upgrading the application. Check failures appear separately. Updates are never downloaded or installed automatically.
+
+Stable plugins receive stable recommendations by default. Manually installing a prerelease opts that plugin into its channel, including upgrades to newer stable versions. Running a Beta application does not switch plugin channels. Other versions remain available for manual selection in the details view. A maintainer's same-version `-f` repair does not trigger an ordinary update badge; follow the repair instructions to reinstall.
+
+The official main manifest retains the latest version, the latest stable version, and the latest compatible stable version for each of SDK `1.0.0` and `1.1.0`. This legacy-client support set is fixed as of 2026-10-07 and does not grow automatically with new SDK releases.
+
+Other versions load on demand when viewing history or finding compatible candidates in the selected channel. The market distinguishes a failed history lookup from having no candidate. Selecting an older version retains the same source, signature and installation checks. History filenames contain their content digest; old files remain available and are not automatically deleted. Publication stops for maintainer action if a history manifest exceeds 900 versions or 1 MiB.
+
 ## Marketplace documents
 
 Hosts with document support show icons, screenshots and author-provided links in plugin details. Select a version, then expand README, release notes or the full CHANGELOG. Documents load on demand, with a retry action after failures. Historical catalogs retain their homepage and plain-text release notes.

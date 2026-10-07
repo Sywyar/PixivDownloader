@@ -35,6 +35,12 @@ Ed25519 签名只证明 artifact 来自某个受信密钥且字节未被篡改�
 
 ## SDK 边界
 
+插件交付内容变化时，应将 `plugin.version` 提升到高于已发布版本；升版后可以先合入源码、稍后发布，同一未发布版本可继续修改。只有实际使用 SDK 新增内容时才提高 `plugin.requires`，并同步提升插件版本；SDK 更新本身不要求所有插件联动升版。官方 PR 门禁检查交付内容与已发布版本，所有质量门禁构建检查产物对所声明最低 SDK 的类型、成员引用和回调覆盖。发布重跑不重复判定源码是否需要升版。反射、内联常量及行为契约变化仍需代码评审。
+
+插件发布不要求当前源码 SDK 已公开。新的 SDK 正式版由主程序正式 Release 触发；手动发布需要 `-f`，但仍不能覆盖不可变 SDK 发行物。Beta 主程序可以复用已经公开的 SDK 正式版，不能发布新的 SDK 正式版。插件手动 `-f` 则保留同版本产物覆盖修复功能，主程序 Release 不自动传入该参数。
+
+版本检查覆盖插件源码、资源、描述符、私有依赖、发行文档，以及共享 Maven 构建配置和引用的构建文件；测试专用配置不要求升版。门禁检查版本是否递增，major、minor、patch 的选择仍按公共契约变化评审。官方市场的旧客户端支持集合固定为截至 2026-10-07 已公开的正式 SDK `1.0.0`、`1.1.0`，在 `scripts/market-curation.json` 的 `_legacySdkVersions` 中维护，不随新 SDK 自动扩大。渠道与历史保留规则见[插件管理](/zh-cn/plugin-management#更新提示与历史版本)。
+
 统一薄 JAR 入口 `pixivdownload-sdk` 通过标准 POM 传递三个 API 模块及宿主提供的编译依赖；`pixivdownload-sdk-info`、`pixivdownload-plugin-api`、`pixivdownload-core-api` 和 BOM 仍可独立使用。`sdk-info` 是完整 SDK 版本、预发布身份和兼容规则的唯一事实源；SDK 版本与应用发行版本独立。`plugin-api` 提供插件入口、contribution、宿主控制面和 owner-scoped 存储能力；`core-api` 提供稳定的业务语义端口、值模型和中性算法。依赖方向必须保持为：
 
 ```text
