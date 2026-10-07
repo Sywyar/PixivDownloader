@@ -314,6 +314,6 @@ public class CorePlugin implements PixivFeaturePlugin {
                         Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.GALLERY_SIDEBAR,
                                 NavigationPlacements.NOVEL_SIDEBAR),
                         "plugins", "nav.label", "/plugin-manage.html",
-                        "puzzle", AccessPolicy.ADMIN, 85));
+                        "puzzle", AccessPolicy.ADMIN, 85, Set.of("plugin-update-summary"), null));
     }
 }

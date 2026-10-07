@@ -791,6 +791,52 @@ class PluginCatalogServiceTest {
         return service(enabled, manifestUrl, null);
     }
 
+    @Test
+    @DisplayName("签名主清单按需加载独立历史，支持分页与精确安装，摘要或代次变化失败关闭")
+    void loadsBoundHistoryOnlyOnDemand() throws Exception {
+        server = CatalogTestSupport.startServer();
+        var signing = CatalogTestSupport.signingFixture("history-key");
+        byte[] history = """
+                {"pluginId":"demo","packages":[
+                  {"version":"7.0.0","packageUrl":"https://example.com/old.jar","requiredSdk":"7.0"},
+                  {"version":"6.0.0","packageUrl":"https://example.com/older.jar","requiredSdk":"6.0"}]}
+                """.getBytes(StandardCharsets.UTF_8);
+        String digest = CatalogTestSupport.sha256Hex(history);
+        String manifest = """
+                {"generatedTime":"fixture","entries":[{"pluginId":"demo",
+                "packages":[{"version":"8.0.0","packageUrl":"https://example.com/new.jar","requiredSdk":"8.0"}],
+                "history":{"path":"history/demo-%s.json","sha256":"%s","sizeBytes":%d,"versions":2}}]}
+                """.formatted(digest, digest, history.length);
+        serveSignedManifest("/catalog.json", "history", manifest, signing);
+        var count = new java.util.concurrent.atomic.AtomicInteger();
+        var response = new java.util.concurrent.atomic.AtomicReference<>(history);
+        server.createContext("/history/demo-" + digest + ".json", exchange -> {
+            count.incrementAndGet();
+            byte[] bytes = response.get();
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (var output = exchange.getResponseBody()) { output.write(bytes); }
+        });
+        PluginCatalogProperties props = new PluginCatalogProperties();
+        props.setRepositories(List.of(repo("history", "/catalog.json", signing)));
+        PluginCatalogService service = new PluginCatalogService(props, relaxed);
+        var list = service.loadPage("history", PluginCatalogPageQuery.first());
+        var first = service.loadEntryPage("history", "demo", null, 1);
+        assertThat(count.get()).isZero();
+        assertThat(first.generation()).isEqualTo(list.generation());
+        assertThat(first.totalApproximate()).isEqualTo(3);
+        assertThat(first.nextCursor()).isNotNull();
+        var second = service.loadEntryPage("history", "demo", first.nextCursor(), 1);
+        assertThat(second.item().packages()).extracting(PluginCatalogPackage::version).containsExactly("7.0.0");
+        assertThat(second.nextCursor()).isNotNull();
+        assertThat(service.resolvePackage("history", "demo", "6.0.0").pkg().version()).isEqualTo("6.0.0");
+        assertThat(service.loadEntrySnapshot("history", "demo").item().packages()).hasSize(3);
+        assertThatThrownBy(() -> service.loadEntryPage("history", "demo", "f".repeat(64) + ":0", 1))
+                .isInstanceOf(PluginCatalogException.class);
+        response.set(new byte[history.length]);
+        assertThatThrownBy(() -> service.resolvePackage("history", "demo", "7.0.0"))
+                .isInstanceOf(PluginCatalogException.class).hasMessageContaining("digest mismatch");
+    }
+
     private PluginCatalogService service(boolean enabled, String manifestUrl,
                                          CatalogTestSupport.SigningFixture signing) {
         PluginCatalogProperties props = new PluginCatalogProperties();

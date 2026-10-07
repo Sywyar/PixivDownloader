@@ -90,21 +90,38 @@ function Get-Prop($Object, [string]$Name) {
     return $prop.Value
 }
 
-function Parse-VersionPair([string]$Version) {
-    if ([string]::IsNullOrWhiteSpace($Version) -or $Version.Trim() -eq "*") { return @(0, 0) }
-    $parts = $Version.Split(".")
-    $major = 0
-    $minor = 0
-    if ($parts.Length -ge 1) { [void][int]::TryParse($parts[0], [ref]$major) }
-    if ($parts.Length -ge 2) { [void][int]::TryParse($parts[1], [ref]$minor) }
-    return @($major, $minor)
+function Test-Compatible([string]$Required) {
+    return Test-PluginSdkCompatible $Required $SdkVersion
 }
 
-function Test-Compatible([string]$Required) {
-    if ([string]::IsNullOrWhiteSpace($Required) -or $Required.Trim() -eq "*") { return $true }
-    $core = Parse-VersionPair $SdkVersion
-    $requiredPair = Parse-VersionPair $Required
-    return ($core[0] -eq $requiredPair[0]) -and ($core[1] -ge $requiredPair[1])
+function Read-CatalogHistory($Entry, [string]$CatalogUrl, [string]$Directory) {
+    $history = Get-Prop $Entry 'history'
+    if ($null -eq $history) { return $null }
+    $id = [string](Get-Prop $Entry 'pluginId')
+    $relative = [string](Get-Prop $history 'path')
+    $size = [int64](Get-Prop $history 'sizeBytes')
+    $count = [int](Get-Prop $history 'versions')
+    $sha = [string](Get-Prop $history 'sha256')
+    if ($id -notmatch '^[a-z0-9][a-z0-9._-]{0,127}$' -or $relative -cne "history/$id-$sha.json" -or
+        $sha -cnotmatch '^[a-f0-9]{64}$' -or $size -lt 1 -or $size -gt 1048576 -or $count -lt 1 -or $count -gt 900) {
+        throw "Invalid signed history reference for $id."
+    }
+    $url = [Uri]::new([Uri]$CatalogUrl, $relative)
+    $file = Join-Path $Directory "$id-history.json"
+    Invoke-DownloadFile $url.AbsoluteUri $file
+    if ((Get-Item -LiteralPath $file).Length -ne $size -or (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() -cne $sha) {
+        throw "Plugin history digest mismatch for $id."
+    }
+    $document = Get-Content -LiteralPath $file -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ((Get-Prop $document 'pluginId') -cne $id -or (Get-Prop $document 'history') -or
+        @(Get-Prop $document 'packages').Count -ne $count) { throw "Invalid plugin history for $id." }
+    $versions = @{}
+    foreach ($package in @((Get-Prop $Entry 'packages')) + @((Get-Prop $document 'packages'))) {
+        $version = [string](Get-Prop $package 'version')
+        if (-not $version -or $versions.ContainsKey($version)) { throw "Duplicate or missing history version for $id." }
+        $versions[$version] = $true
+    }
+    return $document
 }
 
 function Get-PackageRequiredSdk($Package) {
@@ -199,6 +216,10 @@ try {
         }
         $package = Select-CatalogPackage $entry
         if ($null -eq $package) {
+            $history = Read-CatalogHistory $entry $rawManifestUrl $workDir
+            if ($null -ne $history) { $package = Select-CatalogPackage $history }
+        }
+        if ($null -eq $package) {
             $incompatiblePluginIds += $plugin.Id
             continue
         }
@@ -257,6 +278,9 @@ try {
         }
         if ($descriptor["plugin.version"] -ne $version) {
             throw "Catalog version '$version' does not match plugin.properties version '$($descriptor["plugin.version"])' for $($plugin.Id)."
+        }
+        if ($descriptor["plugin.requires"] -cne (Get-PackageRequiredSdk $package)) {
+            throw "Catalog SDK requirement does not match the artifact for $($plugin.Id)."
         }
         [System.IO.File]::WriteAllText("$artifactPath.sha256", "$sha256  $assetName`n", $Utf8NoBom)
         Write-Host ("    OK: {0} {1} ({2} bytes, sha256 {3})." -f $plugin.Id, $version, $expectedSize, $sha256) -ForegroundColor Green

@@ -163,7 +163,6 @@ jobs:
           release_candidate_id: ${{ needs.publish-plugins.outputs.release_candidate_id }}
           plugin_signing_private_key_pem_base64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
           cross_repo_release_token: ${{ secrets.CROSS_REPO_RELEASE_TOKEN }}
-          publish_args: '-f'
 
       - name: Stage signed release plugin inputs
         uses: ./.github/actions/stage-release-plugins

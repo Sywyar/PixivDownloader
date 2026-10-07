@@ -1,6 +1,18 @@
 /* 插件管理页样式：复刻设计稿的卡片式布局，全部颜色走 CSS 变量令深色模式自动跟随。
    设计稿的 --pd-* 设计令牌在此映射为本项目的本地令牌（与下载页 pixiv-batch.css 同源的命名 + 设计稿专属强调色板）。 */
 
+.pm-update-notice {
+    margin: 0 0 16px;
+    padding: 12px 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    color: var(--text-secondary);
+}
+.pm-update-notice p { margin: 4px 0; overflow-wrap: anywhere; }
+.pm-update-compatible { color: var(--status-blue); font-weight: 600; }
+.pm-update-blocked { color: var(--warning-text); font-weight: 600; }
+
 :root {
     --page-bg: #f5f5f5;
     --surface: #ffffff;

@@ -8,7 +8,7 @@
     reuse complete versioned releases; Nightly publication refreshes every plugin's fixed rolling release from
     current source. For each official required or optional plugin:
 
-      - id / requires                : read from the module's source plugin.properties (literal, no build).
+      - id / requires / dependencies : read from the published artifact's plugin.properties.
       - version                      : source plugin.version for stable, or that version plus the Nightly build suffix.
       - sha256 / expectedSizeBytes   : computed from the DOWNLOADED published plugin artifact (the real bytes).
       - downloadCount / releasedTime : read from the GitHub Releases API (asset download_count / publishedAt).
@@ -69,7 +69,6 @@ $isNightly = -not [string]::IsNullOrWhiteSpace($NightlyBuildVersion)
 $nightlySuffix = if ($isNightly) { ($NightlyBuildVersion -split '-', 2)[1] } else { $null }
 $nightlySdkVersion = if ($isNightly) { (Get-PixivDownloadSdkVersion -ProjectRoot $ProjectRoot) + "-$nightlySuffix" } else { $null }
 $manifestName = if ($isNightly) { "nightly-manifest.json" } else { "manifest.json" }
-$channel = if ($isNightly) { "nightly" } else { "stable" }
 $SignatureToolJar = Resolve-SignatureToolJar $ProjectRoot $SignatureToolJar
 
 function Read-Json([string]$path) {
@@ -78,6 +77,7 @@ function Read-Json([string]$path) {
 }
 
 function Has-Property($obj, [string]$name) {
+    if ($obj -is [System.Collections.IDictionary]) { return $obj.Contains($name) }
     return ($null -ne $obj) -and ($obj.PSObject.Properties.Name -contains $name)
 }
 
@@ -149,20 +149,42 @@ function Resolve-LocalizedTextMap([string]$module, [string]$namespace, [string]$
 }
 
 $curation = Read-Json $CurationFile
+$legacySdkVersions = @($curation._legacySdkVersions)
+if ($legacySdkVersions.Count -eq 0 -or @($legacySdkVersions | Where-Object { $_ -notmatch '^\d+\.\d+\.\d+$' }).Count -gt 0) {
+    throw 'Curation must declare the fixed legacy SDK versions.'
+}
 $plugins = @(Get-OfficialDistributionPlugins -IncludeOptional)
 $defaultInstalledPluginIds = @(Get-OfficialDefaultInstalledPlugins | ForEach-Object { $_.Id })
 
-# Fetch the previously published manifest to preserve cumulative download counts.
-$existingManifestUrl = "https://raw.githubusercontent.com/$Repo/master/$manifestName"
+# Preserve signed history and cumulative download counts.
 $prevByPlugin = @{}
+$prevEntries = @{}
+
+function Read-PublishedCatalogFile([string]$path, [switch]$AllowMissing) {
+    $response = & gh api "repos/$Repo/contents/$path" --jq '.content' 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        if ($AllowMissing -and "$response" -match 'HTTP 404') { return $null }
+        throw "Failed to read existing catalog file $path."
+    }
+    $bytes = [Convert]::FromBase64String((($response -join '') -replace '\s', ''))
+    if ($bytes.Length -eq 0 -or $bytes.Length -gt 1MB) { throw "Invalid existing catalog size: $path" }
+    return ,$bytes
+}
+
+$tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("market-manifest-" + [Guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+$entries = @()
 try {
-    Write-Host "Fetching existing manifest from $existingManifestUrl ..."
-    $existingJson = & gh api "repos/$Repo/contents/$manifestName" --jq ".content" 2>$null
-    if ($LASTEXITCODE -eq 0 -and $existingJson) {
-        $existingBytes = [System.Convert]::FromBase64String(($existingJson -replace '\s',''))
-        $existingStr = [System.Text.Encoding]::UTF8.GetString($existingBytes)
-        $existingManifest = $existingStr | ConvertFrom-Json
+    $existingBytes = Read-PublishedCatalogFile $manifestName -AllowMissing
+    if ($null -ne $existingBytes) {
+        $existingPath = Join-Path $tmp 'previous-manifest.json'
+        [IO.File]::WriteAllBytes($existingPath, $existingBytes)
+        [IO.File]::WriteAllBytes("$existingPath.sig", (Read-PublishedCatalogFile "$manifestName.sig"))
+        Invoke-PluginSignatureTool $SignatureToolJar @('verify-manifest', '--manifest', $existingPath,
+            '--signature', "$existingPath.sig", '--repository-id', 'official', '--policy', 'official')
+        $existingManifest = [Text.Encoding]::UTF8.GetString($existingBytes) | ConvertFrom-Json
         foreach ($entry in $existingManifest.entries) {
+            $prevEntries[$entry.pluginId] = $entry
             $m = $entry.market
             $prevByPlugin[$entry.pluginId] = @{
                 version = if ($m.latestVersion) { "$($entry.pluginId)-v$($m.latestVersion)" } else { "" }
@@ -174,15 +196,6 @@ try {
     } else {
         Write-Host "  No existing manifest found (first run), all previousDownloadCount start at 0."
     }
-} catch {
-    Write-Host "  Could not fetch existing manifest: $_ - all previousDownloadCount start at 0."
-}
-
-$tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("market-manifest-" + [Guid]::NewGuid().ToString("N"))
-New-Item -ItemType Directory -Force -Path $tmp | Out-Null
-
-$entries = @()
-try {
     foreach ($plugin in $plugins) {
         $d = Read-SourceDescriptor $plugin.Module
         $id = $d["plugin.id"]
@@ -247,6 +260,13 @@ try {
             ForEach-Object { Write-Host $_ }
         if ($LASTEXITCODE -ne 0) { throw "Failed to download $assetName from release $tag." }
         $artifactPath = Join-Path $tmp $assetName
+        $artifactDescriptor = Read-PluginDescriptor $artifactPath
+        if ($null -eq $artifactDescriptor -or $artifactDescriptor['plugin.id'] -ne $id -or $artifactDescriptor['plugin.version'] -ne $version) {
+            throw "Published artifact descriptor does not match $id $version."
+        }
+        $manifestRequiredSdk = [string]$artifactDescriptor['plugin.requires']
+        if ([string]::IsNullOrWhiteSpace($manifestRequiredSdk)) { throw "Published artifact lacks plugin.requires: $id" }
+        $dependencies = @(Get-PluginDependencies $artifactDescriptor['plugin.dependencies'])
         $sizeBytes = (Get-Item -LiteralPath $artifactPath).Length
         $sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $artifactPath).Hash.ToLowerInvariant()
 
@@ -308,12 +328,12 @@ try {
             dependencies      = @($dependencies)
             releasedTime      = $releasedTime
             changeNotes       = $changeNotes
-            channel           = $channel
+            channel           = if ($isNightly) { 'nightly' } elseif ($version -match '-([a-z]+)') { $Matches[1] } else { 'stable' }
             deprecated        = $false
         }
         if (Has-Property $publication 'content') { $package['content'] = $publication.content }
 
-        $entries += [ordered]@{
+        $entry = [ordered]@{
             pluginId         = $id
             displayNamespace = $displayNamespace
             displayNameKey   = $displayNameKey
@@ -321,6 +341,67 @@ try {
             market           = $market
             packages         = @($package)
         }
+        if (-not $isNightly -and $prevEntries.ContainsKey($id)) {
+            $previous = $prevEntries[$id]
+            $historyPackages = @($previous.packages)
+            if ((Has-Property $previous 'history') -and $null -ne $previous.history) {
+                $reference = $previous.history
+                if ($reference.path -cne "history/$id-$($reference.sha256).json" -or $reference.sha256 -notmatch '^[a-f0-9]{64}$' -or
+                    $reference.sizeBytes -le 0 -or $reference.sizeBytes -gt 1MB -or $reference.versions -lt 1 -or $reference.versions -gt 900) {
+                    throw "Invalid published history reference for $id."
+                }
+                $historyBytes = Read-PublishedCatalogFile $reference.path
+                $digest = [Security.Cryptography.SHA256]::Create()
+                try { $hash = ([BitConverter]::ToString($digest.ComputeHash($historyBytes))).Replace('-', '').ToLowerInvariant() }
+                finally { $digest.Dispose() }
+                if ($historyBytes.Length -ne $reference.sizeBytes -or $hash -ne $reference.sha256) { throw "History digest mismatch for $id." }
+                $history = [Text.Encoding]::UTF8.GetString($historyBytes) | ConvertFrom-Json
+                if ($history.pluginId -ne $id -or @($history.packages).Count -ne $reference.versions -or
+                    ((Has-Property $history 'history') -and $null -ne $history.history)) { throw "History identity mismatch for $id." }
+                $historyPackages += @($history.packages)
+            }
+            $historyPackages = @($historyPackages | Where-Object { $_.version -ne $version })
+            if (@($historyPackages.version | Select-Object -Unique).Count -ne $historyPackages.Count) {
+                throw "Duplicate published version for $id."
+            }
+            $stablePackages = @(@($package) + $historyPackages | Where-Object {
+                $_.version -match '^\d+\.\d+\.\d+$' -and
+                (-not (Has-Property $_ 'deprecated') -or -not $_.deprecated) -and
+                (-not (Has-Property $_ 'channel') -or -not $_.channel -or $_.channel -eq 'stable')
+            } | Sort-Object { [version]$_.version } -Descending)
+            $retained = @($package)
+            if ($stablePackages.Count -gt 0 -and $stablePackages[0].version -ne $version) { $retained += $stablePackages[0] }
+            foreach ($sdk in $legacySdkVersions) {
+                $compatible = @($stablePackages | Where-Object {
+                    $required = if ((Has-Property $_ 'requiredSdk') -and $_.requiredSdk) { $_.requiredSdk }
+                        elseif (Has-Property $_ 'requiredCoreApi') { $_.requiredCoreApi } else { $null }
+                    Test-PluginSdkCompatible $required $sdk
+                } | Select-Object -First 1)
+                if ($compatible.Count -gt 0 -and $retained.version -notcontains $compatible[0].version) { $retained += $compatible[0] }
+            }
+            $entry.packages = @($package) + @($retained | Where-Object { $_.version -ne $version } | Sort-Object { [version]$_.version } -Descending)
+            $historyPackages = @($historyPackages | Where-Object { $retained.version -notcontains $_.version })
+            if ($historyPackages.Count -gt 0) {
+                if ($historyPackages.Count -gt 900 -or @($historyPackages.version | Select-Object -Unique).Count -ne $historyPackages.Count) {
+                    throw "History version count is invalid for $id."
+                }
+                $historyJson = ([ordered]@{ pluginId = $id; packages = $historyPackages } | ConvertTo-Json -Depth 12) -replace "`r`n", "`n" -replace "`r", "`n"
+                $historyBytes = $Utf8NoBom.GetBytes($historyJson)
+                if ($historyBytes.Length -gt 1MB) { throw "Plugin history exceeds 1 MiB: $id" }
+                $digest = [Security.Cryptography.SHA256]::Create()
+                try { $hash = ([BitConverter]::ToString($digest.ComputeHash($historyBytes))).Replace('-', '').ToLowerInvariant() }
+                finally { $digest.Dispose() }
+                $relative = "history/$id-$hash.json"
+                $historyPath = Join-Path (Split-Path -Parent $OutputFile) $relative
+                New-Item -ItemType Directory -Force -Path (Split-Path -Parent $historyPath) | Out-Null
+                [IO.File]::WriteAllBytes($historyPath, $historyBytes)
+                $entry['history'] = [ordered]@{
+                    path = $relative; sha256 = $hash
+                    sizeBytes = $historyBytes.Length; versions = $historyPackages.Count
+                }
+            }
+        }
+        $entries += $entry
         Write-Host "  + $id $version  ($sizeBytes bytes, sha256 $($sha256.Substring(0,12))..., downloads $downloadCount + $previousDownloadCount = $totalDownloadCount)"
     }
 } finally {

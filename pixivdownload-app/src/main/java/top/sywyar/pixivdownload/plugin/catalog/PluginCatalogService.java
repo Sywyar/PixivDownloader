@@ -30,6 +30,10 @@ import top.sywyar.pixivdownload.plugin.signature.VerificationPolicy;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 
 import java.net.URLEncoder;
+import java.net.URI;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -170,7 +174,15 @@ public class PluginCatalogService {
     public PluginCatalogDetailPage loadEntrySnapshot(String repositoryId, String pluginId, long deadlineNanos) {
         PluginRepository repository = resolveRepository(repositoryId);
         if (!repository.pagedCatalog()) {
-            return loadEntryPage(repositoryId, pluginId, null, ENTRY_PAGE_SIZE);
+            PluginCatalogManifest manifest = loadRepository(repository);
+            PluginCatalogEntry entry = manifest.findEntry(pluginId).orElseThrow(() -> unknownPlugin(pluginId));
+            if (deadlineNanos != 0L && System.nanoTime() - deadlineNanos >= 0L) {
+                throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE, "catalog compatibility search exceeded its time budget");
+            }
+            List<PluginCatalogPackage> packages = new ArrayList<>(entry.packages());
+            packages.addAll(loadHistory(repository, entry));
+            return new PluginCatalogDetailPage(withPackages(entry, packages), manifestGeneration(manifest),
+                    null, (long) packages.size(), false);
         }
         String cursor = null;
         String generation = null;
@@ -207,10 +219,29 @@ public class PluginCatalogService {
     public PluginCatalogDetailPage loadEntryPage(String repositoryId, String pluginId, String cursor, int limit) {
         PluginRepository repository = resolveRepository(repositoryId);
         if (!repository.pagedCatalog()) {
-            PluginCatalogEntry entry = loadRepository(repository).findEntry(pluginId)
+            PluginCatalogManifest manifest = loadRepository(repository);
+            PluginCatalogEntry entry = manifest.findEntry(pluginId)
                     .orElseThrow(() -> unknownPlugin(pluginId));
-            return new PluginCatalogDetailPage(entry, "manifest-v1", null,
-                    (long) entry.packages().size(), false);
+            var history = entry.history();
+            if (cursor == null || history == null) {
+                return new PluginCatalogDetailPage(entry, manifestGeneration(manifest),
+                        history == null ? null : history.sha256() + ":0",
+                        (long) entry.packages().size() + (history == null ? 0 : history.versions()), false);
+            }
+            if (!cursor.startsWith(history.sha256() + ":")) {
+                throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE, "plugin history generation changed");
+            }
+            int offset;
+            try { offset = Integer.parseInt(cursor.substring(65)); }
+            catch (RuntimeException failure) { throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE, "invalid plugin history cursor"); }
+            if (offset < 0 || offset >= history.versions()) {
+                throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE, "invalid plugin history offset");
+            }
+            List<PluginCatalogPackage> packages = loadHistory(repository, entry);
+            int end = Math.min(packages.size(), offset + new PluginCatalogPageQuery(null, limit, null, null, null, null).limit());
+            return new PluginCatalogDetailPage(withPackages(entry, packages.subList(offset, end)), manifestGeneration(manifest),
+                    end < packages.size() ? history.sha256() + ":" + end : null,
+                    (long) entry.packages().size() + packages.size(), false);
         }
         requirePathToken(pluginId, "pluginId");
         PluginCatalogPageQuery query = new PluginCatalogPageQuery(cursor, limit, null, null, null, null);
@@ -269,6 +300,11 @@ public class PluginCatalogService {
         if (!repository.pagedCatalog()) {
             PluginCatalogEntry entry = loadRepository(repository).findEntry(pluginId)
                     .orElseThrow(() -> unknownPlugin(pluginId));
+            if (entry.findPackage(version).isEmpty() && entry.history() != null) {
+                List<PluginCatalogPackage> packages = new ArrayList<>(entry.packages());
+                packages.addAll(loadHistory(repository, entry));
+                entry = withPackages(entry, packages);
+            }
             PluginCatalogPackage pkg = entry.findPackage(version).orElseThrow(() -> versionMissing(pluginId, version));
             return new ResolvedPackage(repository, entry, pkg);
         }
@@ -373,11 +409,52 @@ public class PluginCatalogService {
         }
         PluginCatalogManifest manifest = parseManifest(bytes);
         validatePackageSignatures(repository, manifest);
-        return manifest;
+        return new PluginCatalogManifest(manifest.schemaVersion(), manifest.generatedTime(), manifest.entries(), sha256(bytes));
     }
 
     private PluginSupplyChainVerifier verifierFor(PluginRepository repository) {
         return Objects.requireNonNull(verifierResolver.apply(repository), "verifierResolver returned null");
+    }
+
+    private List<PluginCatalogPackage> loadHistory(PluginRepository repository, PluginCatalogEntry entry) {
+        var history = entry.history();
+        if (history == null) return List.of();
+        if (!history.path().equals("history/" + entry.pluginId() + "-" + history.sha256() + ".json")) {
+            throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE, "plugin history identity mismatch");
+        }
+        String url = URI.create(normalizedManifestUrl(repository.manifestUrl())).resolve(history.path()).toString();
+        byte[] bytes = fetchPaged(repository, url, Math.min(history.sizeBytes(), repository.maxManifestBytes()), null).bytes();
+        if (bytes == null || bytes.length != history.sizeBytes() || !sha256(bytes).equals(history.sha256())) {
+            throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE, "plugin history digest mismatch");
+        }
+        PluginCatalogEntry document = parseJson(bytes, PluginCatalogEntry.class);
+        if (document == null || !entry.pluginId().equals(document.pluginId()) || document.history() != null
+                || document.packages().size() != history.versions()) {
+            throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE, "invalid plugin history document");
+        }
+        Set<String> versions = new HashSet<>();
+        entry.packages().forEach(pkg -> versions.add(pkg.version()));
+        for (PluginCatalogPackage pkg : document.packages()) {
+            if (!versions.add(pkg.version())) throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE,
+                    "duplicate plugin history version");
+        }
+        validateEntrySignatures(repository, document);
+        return document.packages();
+    }
+
+    private static PluginCatalogEntry withPackages(PluginCatalogEntry entry, List<PluginCatalogPackage> packages) {
+        return new PluginCatalogEntry(entry.pluginId(), entry.displayNamespace(), entry.displayNameKey(),
+                entry.descriptionKey(), entry.market(), packages);
+    }
+
+    private static String manifestGeneration(PluginCatalogManifest manifest) {
+        if (manifest.contentDigest() != null) return manifest.contentDigest();
+        return manifest.generatedTime() != null ? manifest.generatedTime() : "manifest-v1";
+    }
+
+    private static String sha256(byte[] bytes) {
+        try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes)); }
+        catch (NoSuchAlgorithmException failure) { throw new IllegalStateException(failure); }
     }
 
     /** 包内受控编排结果；当前安装路径只消费本服务完成主开关 / id / 启用状态校验后产生的实例。 */
@@ -446,7 +523,7 @@ public class PluginCatalogService {
         if (offset > filtered.size()) offset = 0;
         int end = Math.min(filtered.size(), offset + query.limit());
         String next = end < filtered.size() ? encodeCursor(end) : null;
-        return new PluginCatalogPage(manifest.generatedTime() != null ? manifest.generatedTime() : "manifest-v1",
+        return new PluginCatalogPage(manifestGeneration(manifest),
                 filtered.subList(offset, end), next, (long) filtered.size(), Map.of(), false);
     }
 

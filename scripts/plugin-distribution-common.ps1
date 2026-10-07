@@ -17,6 +17,20 @@
     other scripts/*.ps1).
 #>
 
+function Test-PluginSdkCompatible([string]$Required, [string]$SdkVersion) {
+    if ([string]::IsNullOrWhiteSpace($Required) -or $Required.Trim() -eq '*') { return $true }
+    $Required = $Required.Trim()
+    if ($Required.StartsWith('=') -or ($Required.Contains('-') -and -not $Required.Contains('-nightly.'))) {
+        return (($Required.TrimStart('=') -replace '(alpha|beta|rc)\.?', '$1.') -ceq
+            ($SdkVersion -replace '(alpha|beta|rc)\.?', '$1.'))
+    }
+    if ($SdkVersion -notmatch '^[vV]?(\d+)\.(\d+)') { return $false }
+    $major = [int]$Matches[1]
+    $minor = [int]$Matches[2]
+    if ($Required -notmatch '^(?:>=\s*)?[vV]?(\d+)(?:\.(\d+))?(?:\.\d+)?(?:-nightly\.\d{8}\.[1-9]\d*\.[1-9]\d*)?$') { return $false }
+    return $major -eq [int]$Matches[1] -and $minor -ge [int]$Matches[2]
+}
+
 function Get-PixivDownloadSdkVersion {
     [CmdletBinding()]
     param([Parameter(Mandatory = $true)][string]$ProjectRoot)
@@ -39,7 +53,10 @@ function Get-OfficialRequiredPlugins {
     [CmdletBinding()]
     param()
     return @(
-        [pscustomobject]@{ Id = "download-workbench"; Module = "pixivdownload-plugin-download-workbench"; Format = "jar"; PrivateLibs = $false }
+        [pscustomobject]@{
+            Id = "download-workbench"; Module = "pixivdownload-plugin-download-workbench"; Format = "jar"; PrivateLibs = $false
+            DeliveryPaths = @('Pixiv ', 'scripts/userscript-', 'scripts/build-userscript-bundle.ps1')
+        }
     )
 }
 

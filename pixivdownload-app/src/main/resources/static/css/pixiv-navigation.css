@@ -1,0 +1,17 @@
+.pnav-update-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.35em;
+    padding: .1em .3em;
+    border-radius: 999px;
+    background: var(--surface, var(--exp-surface, Canvas));
+    color: var(--status-blue, var(--exp-accent, var(--info, LinkText)));
+    font-size: .75em;
+    font-weight: 700;
+    line-height: 1.3;
+}
+.pnav-update-blocked { background: var(--warning-bg, var(--exp-warning-surface, Canvas)); color: var(--warning-text, var(--exp-warning, CanvasText)); }
+@media (forced-colors: active) {
+    .pnav-update-badge { border: 1px solid CanvasText; }
+}

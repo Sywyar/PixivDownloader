@@ -158,7 +158,8 @@ function load(opts) {
         URL,
         console: { warn() {}, log() {}, error() {} },
         setTimeout, clearTimeout, Promise,
-        fetch: makeFetch(opts.items, opts.fetchOk),
+        AbortController,
+        fetch: opts.fetch || makeFetch(opts.items, opts.fetchOk),
         CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init && init.detail; } },
         dispatchEvent(e) { record.events.push(e); }
     };
@@ -350,6 +351,28 @@ async function main() {
             topComp.innerOf(galleryItem).indexOf('T:gallery:nav.label') >= 0);
     }
 
+    for (const pixivVue of [true, false]) {
+        const slot = navSlot('app.top');
+        const item = { id: 'management', placements: ['app.top'], href: '/manage', labelNamespace: 'plugins',
+            labelI18nKey: 'nav.label', markers: ['plugin-update-summary'] };
+        let calls = 0;
+        let summary = { enabled: true, compatibleUpdates: 2, sdkBlockedUpdates: 1 };
+        const runtime = load({ slots: [slot], pixivVue, fetch: async url => {
+            if (url === '/api/navigation') return { ok: true, json: async () => [item] };
+            calls++;
+            return { ok: true, json: async () => summary };
+        } });
+        await runtime.PixivNav.ready();
+        await runtime.PixivNav.pluginUpdates();
+        const html = () => pixivVue
+            ? slot.children.filter(e => e.tag === 'a').map(e => e.attrs.innerHTML).join('') : slot.innerHTML;
+        ok('更新数量与 SDK 阻断角标同时显示，带可访问文案', /pnav-update-blocked/.test(html())
+            && /updates.compatible/.test(html()) && /updates.sdkBlocked/.test(html()) && html().includes('>2<'));
+        ok('导航与管理页复用进行中的一次请求', calls === 1);
+        summary = { enabled: true, checkFailed: true, compatibleUpdates: 0, sdkBlockedUpdates: 0 };
+        await runtime.PixivNav.pluginUpdates();
+        ok('后续查询失败会撤下旧角标', !html().includes('pnav-update-badge'));
+    }
     console.log(`\npixiv-navigation.test.js: ${passed} assertions passed ✓`);
 }
 

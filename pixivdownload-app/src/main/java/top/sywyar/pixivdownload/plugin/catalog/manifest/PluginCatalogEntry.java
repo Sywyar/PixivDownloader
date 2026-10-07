@@ -23,7 +23,13 @@ public record PluginCatalogEntry(
         String displayNameKey,
         String descriptionKey,
         PluginCatalogMarketMeta market,
-        List<PluginCatalogPackage> packages) {
+        List<PluginCatalogPackage> packages,
+        PluginCatalogHistory history) {
+
+    public PluginCatalogEntry(String pluginId, String displayNamespace, String displayNameKey,
+            String descriptionKey, PluginCatalogMarketMeta market, List<PluginCatalogPackage> packages) {
+        this(pluginId, displayNamespace, displayNameKey, descriptionKey, market, packages, null);
+    }
 
     public PluginCatalogEntry {
         packages = packages != null ? List.copyOf(packages) : List.of();

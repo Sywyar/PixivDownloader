@@ -12,7 +12,12 @@ import java.util.Optional;
  * @param generatedTime 清单生成时间（ISO-8601 字符串，可空；仅作新鲜度 / 诊断展示）
  * @param entries       插件条目列表
  */
-public record PluginCatalogManifest(String schemaVersion, String generatedTime, List<PluginCatalogEntry> entries) {
+public record PluginCatalogManifest(String schemaVersion, String generatedTime, List<PluginCatalogEntry> entries,
+                                    @com.fasterxml.jackson.annotation.JsonIgnore String contentDigest) {
+
+    public PluginCatalogManifest(String schemaVersion, String generatedTime, List<PluginCatalogEntry> entries) {
+        this(schemaVersion, generatedTime, entries, null);
+    }
 
     public PluginCatalogManifest {
         entries = entries != null ? List.copyOf(entries) : List.of();

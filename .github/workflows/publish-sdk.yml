@@ -11,6 +11,11 @@ on:
         type: boolean
   workflow_dispatch:
     inputs:
+      publish_args:
+        description: '手动发布 SDK 正式版须填写 -f；不允许覆盖已有 SDK 产物'
+        required: false
+        type: string
+        default: ''
       mode:
         description: '发布新版本，或在 Central 已完成后恢复 SDK Release'
         required: true
@@ -50,6 +55,7 @@ jobs:
         uses: ./.github/actions/plan-sdk-release
         with:
           mode: ${{ inputs.mode || 'publish' }}
+          publish_args: ${{ inputs.publish_args || '' }}
 
   quality-gate:
     needs: release-plan

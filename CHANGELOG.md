@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 该格式基于 [Keep a Changelog ZH-cn](https://keepachangelog.com/zh-CN/1.1.0/).
 
+## [Unreleased]
+
+### Features
+
+- 下载页导航与插件管理页显示已安装插件的更新提示，区分兼容更新和新版需要升级主程序 SDK，按已安装插件的渠道推荐版本。
+- 插件市场按需加载独立历史清单，并为受支持的旧 SDK 保留兼容版本；历史文件按摘要保存，连续发布不覆盖旧记录。
+
 ## [v1.14.0] - 2026.10.4
 
 ### Features
