@@ -14,6 +14,8 @@ import top.sywyar.pixivdownload.common.AppVersion;
 import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
+import top.sywyar.pixivdownload.gui.bootstrap.StartupSplash;
+import top.sywyar.pixivdownload.gui.bootstrap.ApplicationRestartService;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseSchemaInspector;
 import top.sywyar.pixivdownload.core.db.schema.ManagedDatabaseSchema;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
@@ -142,12 +144,33 @@ public class GuiLauncher {
         //    标准流转接在 Logback 配置完成后固定 ConsoleAppender 的原始输出流。
         Utf8ConsoleStreams.install();
 
+        StartupSplash splash = new StartupSplash();
+        try {
+            ApplicationRestartService.captureArguments(args);
+            ApplicationRestartService.awaitPreviousProcess();
+            launch(args, splash);
+        } catch (Exception | Error failure) {
+            splash.close();
+            throw failure;
+        }
+    }
+
+    private static void launch(String[] args, StartupSplash splash) throws Exception {
         // Logback 自己在文件 appender 创建前建立会话，Spring 不重新配置它。
         System.setProperty("org.springframework.boot.logging.LoggingSystem", "none");
+        boolean startupLaunch = AutoStartManager.isStartupLaunch(args);
+        if (startupLaunch || CliSetupCommand.containsCliCommand(args)
+                || Arrays.asList(args).contains("--no-gui")
+                || Arrays.asList(args).contains("--help") || Arrays.asList(args).contains("-h")) {
+            splash.close();
+        }
+        StringBuilder localeDiagnostics = new StringBuilder();
+        SystemLocaleDetector.detectAndApply(localeDiagnostics::append);
+        splash.showStatus(message("gui.launcher.splash.starting"));
         log = LoggerFactory.getLogger(GuiLauncher.class);
         ConsoleLogStreams.install();
         installJulBridge();
-        SystemLocaleDetector.detectAndApply();
+        System.out.println(localeDiagnostics);
         var loggerContext = (LoggerContext) LoggerFactory.getILoggerFactory();
         Thread processShutdownHook = new Thread(() -> {
             try {
@@ -178,7 +201,6 @@ public class GuiLauncher {
         //    命中未识别参数 / 漏值时打印帮助并以 64 退出；--help / -h 则打印帮助并以 0 退出。
         CliSetupCommand.validateArgsOrExit(args);
 
-        boolean startupLaunch = AutoStartManager.isStartupLaunch(args);
         // 开发进程允许并存；CLI 管理命令仍需单实例检查，避免并发修改初始化配置。
         boolean singleInstanceRequired = !PluginDevelopmentArtifacts.enabled()
                 || CliSetupCommand.containsCliCommand(args);
@@ -193,6 +215,7 @@ public class GuiLauncher {
         }
 
         if (singleInstanceRequired && singleInstanceManager == null) {
+            splash.close();
             // CLI 管理命令需要排他写入 setup_config.json，无法与运行中的实例共存：
             // 直接退出并提示用户先停止服务，而不是去激活另一个 GUI 窗口或静默退出。
             if (CliSetupCommand.containsCliCommand(args)) {
@@ -228,6 +251,7 @@ public class GuiLauncher {
         System.setProperty(HEADLESS_PROPERTY, Boolean.toString(noGui));
 
         if (noGui) {
+            splash.close();
             // 无头模式下若未完成首次初始化，没有任何 UI 入口可用（setup.html 仅本地可访问）。
             // 直接打印 CLI 提示并退出，避免起一个无法被任何人配置的服务。
             CliSetupCommand.enforceSetupCompleteForHeadlessOrExit();
@@ -245,6 +269,7 @@ public class GuiLauncher {
         }
 
         // ── 2. 启动前读取配置（Spring 尚未就绪，直接读文件）────────────────────────
+        splash.showStatus(message("gui.launcher.splash.config"));
         int serverPort = DEFAULT_PORT;
         String rootFolder = DEFAULT_ROOT;
         Path configPath = RuntimeFiles.resolveConfigYamlPath();
@@ -270,6 +295,7 @@ public class GuiLauncher {
         // ── 2a. 进程级插件 bootstrap 会话（PROCESS 拥有，复用于后端 restart，进程退出时关闭）────────
         //    必须早于首个 Swing 窗口 / 主题安装：外置主题插件的发现要先于主题管理完成。会话 start 收敛插件目录
         //    缺失 / 空 / 坏包 / 安装事务恢复失败为诊断，不抛、不阻断 GUI 进入系统 LookAndFeel。
+        splash.showStatus(message("gui.launcher.splash.plugins"));
         final PluginRepositoryRegistry startupRepositoryRegistry = readPluginRepositoryRegistry(configPath);
         final PluginBootstrapSession pluginSession = PluginBootstrapSession.createProcess(
                 RuntimeFiles.pluginsDirectory(), readPluginEnabledSnapshot(configPath),
@@ -301,6 +327,7 @@ public class GuiLauncher {
                 backendArgsForSession -> PixivDownloadApplication.start(backendArgsForSession, pluginSession));
         registerProcessShutdown(pluginSession, backendRegistration);
         // ── 3. 选择并启动外置桌面 UI ─────────────────────────────────────────
+        splash.showStatus(message("gui.launcher.splash.interface"));
         try {
             AppDesktopUiHost desktopUiHost = new AppDesktopUiHost(port);
             desktopUiHost.resetIncompleteOnboardingState(root);
@@ -316,7 +343,10 @@ public class GuiLauncher {
                     pluginSession.startupDiscovery(), startupDesktopBundles);
             DesktopUiFailover ui = new DesktopUiFailover(
                     startupPluginSources,
-                    (providerId, failureHandler) -> new DesktopUiContext(
+                    (providerId, failureHandler) -> {
+                        top.sywyar.pixivdownload.gui.bootstrap.StartupThemePreferences.remember(
+                                configPath, providerId, startupDesktopSnapshots);
+                        return new DesktopUiContext(
                             startupLaunch,
                             port,
                             root,
@@ -328,14 +358,18 @@ public class GuiLauncher {
                             token -> resolveDesktopText(token, currentDesktopBundles),
                             () -> readThemePreference(desktopUiHost),
                             failureHandler
-                    ),
+                        );
+                    },
                     session -> {
                         ACTIVE_UI.set(session);
                         if (singleInstanceManager != null) {
                             singleInstanceManager.setActivationHandler(session == null ? () -> {} : session::activate);
                         }
                     },
-                    () -> openPluginMarketWithoutDesktopProvider(desktopUiHost),
+                    () -> {
+                        splash.close();
+                        openPluginMarketWithoutDesktopProvider(desktopUiHost);
+                    },
                     (source, failure) -> pluginSession.manager().reportPluginFailure(
                             source.packageId(), source.generation(), failure)
             );
@@ -350,6 +384,7 @@ public class GuiLauncher {
                 maybeScheduleStartupBackfillFlow(ui, configPath, root, startupManagedSchema);
             }
         } catch (Throwable failure) {
+            splash.close();
             handleFatalGuiBootstrapFailure(failure);
         }
     }

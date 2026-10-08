@@ -1,10 +1,12 @@
 package top.sywyar.pixivdownload.i18n;
 
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
+import top.sywyar.pixivdownload.config.RuntimeFiles;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
+import java.util.function.Consumer;
 
 /**
  * 在 {@code main()} 第一行调用，确定本次运行的全局 locale，并通过
@@ -37,15 +39,6 @@ import java.util.Locale;
 public final class SystemLocaleDetector {
 
     /**
-     * config.yaml 的两个候选位置（与 {@code RuntimeFiles.resolveConfigYamlPath} 对齐）。
-     * 这里不能引用 {@code RuntimeFiles}，因为它是 {@code @Slf4j} 类，会触发 logback 初始化。
-     */
-    private static final Path[] CONFIG_CANDIDATES = {
-            Path.of("config", "config.yaml"),
-            Path.of("config.yaml")
-    };
-
-    /**
      * JVM 启动时 OS 原生 API 写入的 {@link Locale#getDefault()} 快照。
      * <p>本类是 {@code GuiLauncher.main()} 的第一个调用入口，类加载发生在所有
      * {@code Locale.setDefault()} 之前——此处的静态初始化即捕获 OS 原始值，
@@ -62,9 +55,14 @@ public final class SystemLocaleDetector {
      * 调用此方法后，{@link Locale#getDefault()} 即为返回值。
      */
     public static Locale detectAndApply() {
+        return detectAndApply(System.out::println);
+    }
+
+    /** 允许启动入口在日志接管标准输出后再输出检测诊断。 */
+    public static Locale detectAndApply(Consumer<String> diagnostics) {
         DetectionResult result = detect();
         Locale.setDefault(result.locale());
-        System.out.println("[i18n] System locale resolved: " + result.summary());
+        diagnostics.accept("[i18n] System locale resolved: " + result.summary());
         return result.locale();
     }
 
@@ -102,19 +100,18 @@ public final class SystemLocaleDetector {
     }
 
     private static Locale readConfigPreference() {
-        for (Path candidate : CONFIG_CANDIDATES) {
-            if (!Files.isRegularFile(candidate)) {
-                continue;
+        Path candidate = RuntimeFiles.peekConfigYamlPath();
+        if (!Files.isRegularFile(candidate)) {
+            return null;
+        }
+        try {
+            String value = new ConfigFileEditor(candidate).read("app.language");
+            Locale parsed = Locale.forLanguageTag(value.trim().replace('_', '-'));
+            if (LocaleCatalog.defaultCatalog().match(parsed).isPresent()) {
+                return parsed;
             }
-            try {
-                String value = new ConfigFileEditor(candidate).read("app.language");
-                Locale parsed = Locale.forLanguageTag(value.trim().replace('_', '-'));
-                if (LocaleCatalog.defaultCatalog().match(parsed).isPresent()) {
-                    return parsed;
-                }
-            } catch (Exception e) {
-                System.err.println("[i18n] Failed reading " + candidate + ": " + e.getMessage());
-            }
+        } catch (Exception e) {
+            System.err.println("[i18n] Failed reading " + candidate + ": " + e.getMessage());
         }
         return null;
     }

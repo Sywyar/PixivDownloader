@@ -247,7 +247,7 @@ class DevelopmentWebServerCustomizerTest {
             assertThat(invites.detail(1L).url()).isEqualTo(json.path("url").asText());
             var status = new top.sywyar.pixivdownload.gui.controller.GuiStatusController(
                     org.mockito.Mockito.mock(top.sywyar.pixivdownload.common.ServerStateProvider.class),
-                    address, null, null, null, null);
+                    address, null, null, null, null, null);
             status.init();
             var request = new org.springframework.mock.web.MockHttpServletRequest();
             request.setRemoteAddr("127.0.0.1");

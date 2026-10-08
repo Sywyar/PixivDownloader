@@ -11,6 +11,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import top.sywyar.pixivdownload.config.http.LocalGuiWebServerCustomizer;
 
 import java.io.IOException;
 import java.net.IDN;
@@ -51,6 +52,14 @@ public final class TrustedForwardedRequestFilter extends OncePerRequestFilter {
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
         boolean hasForwardingHeaders = hasForwardingHeaders(request);
+        if (LocalGuiWebServerCustomizer.isLocalGuiRequest(request)) {
+            if (hasForwardingHeaders) {
+                reject(response);
+                return;
+            }
+            filterChain.doFilter(request, response);
+            return;
+        }
         boolean trustedPeer = isTrustedProxy(request.getRemoteAddr());
 
         if (!trustedPeer) {

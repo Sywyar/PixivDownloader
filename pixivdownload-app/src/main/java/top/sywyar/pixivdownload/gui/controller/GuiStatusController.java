@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.common.ServerStateProvider;
 import top.sywyar.pixivdownload.config.RuntimeConfigReloadService;
 import top.sywyar.pixivdownload.config.http.ServerAddressProvider;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.gui.bootstrap.ApplicationRestartService;
 import top.sywyar.pixivdownload.onboarding.OnboardingProgressService;
 import top.sywyar.pixivdownload.setup.SetupService;
 import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
@@ -22,7 +23,6 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -44,6 +44,7 @@ public class GuiStatusController {
     private final AppMessages messages;
     private final OnboardingProgressService onboardingProgressService;
     private final PixivConnectivityProbe pixivConnectivityProbe;
+    private final ApplicationRestartService applicationRestartService;
 
     private static final DateTimeFormatter FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -99,7 +100,7 @@ public class GuiStatusController {
 
     /**
      * POST /api/gui/restart
-     * 触发自重启：启动新进程，然后退出当前 JVM。
+     * 请求完整进程重启；新进程等待当前 JVM 完成退出后再初始化。
      */
     @PostMapping("/restart")
     public ResponseEntity<Void> restart(HttpServletRequest req) {
@@ -109,32 +110,9 @@ public class GuiStatusController {
 
         log.info(logMessage("gui.controller.log.restart-request.received"));
 
-        Thread restartThread = new Thread(() -> {
-            try {
-                Thread.sleep(500);
-                ProcessHandle current = ProcessHandle.current();
-                current.info().command().ifPresent(cmd -> {
-                    try {
-                        java.util.List<String> command = new java.util.ArrayList<>();
-                        command.add(cmd);
-                        current.info().arguments()
-                                .ifPresent(a -> command.addAll(Arrays.asList(a)));
-                        log.info(logMessage("gui.controller.log.restart.command", command));
-                        new ProcessBuilder(command).start();
-                    } catch (Exception e) {
-                        log.warn(logMessage("gui.controller.log.restart.command-failed", e.getMessage()));
-                    }
-                });
-                Thread.sleep(1000);
-                System.exit(0);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }, "gui-restart");
-        restartThread.setDaemon(true);
-        restartThread.start();
-
-        return ResponseEntity.ok().build();
+        return applicationRestartService.requestRestart()
+                ? ResponseEntity.ok().build()
+                : ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
     }
 
     @PostMapping("/config/reload")

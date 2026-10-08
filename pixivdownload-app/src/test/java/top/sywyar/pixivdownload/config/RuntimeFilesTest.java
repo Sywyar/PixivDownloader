@@ -67,6 +67,25 @@ class RuntimeFilesTest {
     }
 
     @Test
+    @DisplayName("启动页读取配置与缓存路径不创建目录、不提前迁移旧配置")
+    void bootstrapPathsAreReadOnlyAndRespectOverrides() throws IOException {
+        Path configured = configDir.resolve(RuntimeFiles.CONFIG_YAML);
+        assertThat(RuntimeFiles.peekConfigYamlPath()).isEqualTo(configured);
+        assertThat(RuntimeFiles.startupThemeCachePath()).isEqualTo(stateDir.resolve("gui/startup-themes.properties"));
+        assertThat(configDir).doesNotExist();
+        assertThat(stateDir).doesNotExist();
+        Path legacy = tempDir.resolve(RuntimeFiles.CONFIG_YAML);
+        Files.writeString(legacy, "app.theme: dark\n", StandardCharsets.UTF_8);
+        assertThat(RuntimeFiles.peekConfigYamlPath()).isEqualTo(legacy);
+        assertThat(legacy).exists();
+        assertThat(configDir).doesNotExist();
+        Files.createDirectories(configDir);
+        Files.writeString(configured, "app.theme: light\n", StandardCharsets.UTF_8);
+        assertThat(RuntimeFiles.peekConfigYamlPath()).isEqualTo(configured);
+        assertThat(legacy).hasContent("app.theme: dark\n");
+    }
+
+    @Test
     @DisplayName("应迁移宿主旧状态与数据库文件")
     void shouldMigrateLegacyHostFiles() throws IOException {
         Path legacySetup = downloadRoot.resolve(RuntimeFiles.SETUP_CONFIG_JSON);

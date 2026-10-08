@@ -241,6 +241,18 @@ public final class RuntimeFiles {
         return resolveManagedFile(target, List.of(legacyRootFile(target.getParent(), CONFIG_YAML)));
     }
 
+    /** 首帧只读配置定位，不在单实例检查之前创建目录或迁移用户文件。 */
+    public static Path peekConfigYamlPath() {
+        Path target = configDirectory().resolve(CONFIG_YAML);
+        Path legacy = legacyRootFile(target.getParent(), CONFIG_YAML);
+        return Files.exists(target) || !Files.exists(legacy) ? target : legacy;
+    }
+
+    /** 引导窗口的可重建主题语义缓存，读取时不创建目录。 */
+    public static Path startupThemeCachePath() {
+        return stateDirectory().resolve(GUI_STATE_DIR).resolve("startup-themes.properties");
+    }
+
     public static Path resolveImageClassifierPath(String rootFolder) {
         Path target = configDirectory().resolve(IMAGE_CLASSIFIER_PROPERTIES);
         return resolveManagedFile(target, rootAndDownloadLegacyCandidates(target.getParent(), rootFolder, IMAGE_CLASSIFIER_PROPERTIES));
