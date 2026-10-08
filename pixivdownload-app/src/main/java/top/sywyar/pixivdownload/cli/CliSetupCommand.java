@@ -66,10 +66,13 @@ public final class CliSetupCommand {
     private static final int MIN_PASSWORD_LENGTH = SetupService.MIN_PASSWORD_LENGTH;
     private static final int RECOMMENDED_PASSWORD_LENGTH = SetupService.RECOMMENDED_PASSWORD_LENGTH;
 
-    private static final BCryptPasswordEncoder BCRYPT = new BCryptPasswordEncoder(12);
-    private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final BufferedReader STDIN_READER =
-            new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
+    // 参数分类发生在首帧之前，不应初始化 CLI 执行才需要的对象。
+    private static final class CommandResources {
+        private static final BCryptPasswordEncoder BCRYPT = new BCryptPasswordEncoder(12);
+        private static final ObjectMapper MAPPER = new ObjectMapper();
+        private static final BufferedReader STDIN_READER =
+                new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
+    }
 
     private CliSetupCommand() {
     }
@@ -247,7 +250,7 @@ public final class CliSetupCommand {
             return false;
         }
         try {
-            SetupConfig config = MAPPER.readValue(path.toFile(), SetupConfig.class);
+            SetupConfig config = CommandResources.MAPPER.readValue(path.toFile(), SetupConfig.class);
             return config != null && config.isSetupComplete();
         } catch (IOException e) {
             return false;
@@ -349,7 +352,7 @@ public final class CliSetupCommand {
         SetupConfig updated = new SetupConfig();
         updated.setSetupComplete(true);
         updated.setUsername(username);
-        updated.setPasswordHash(BCRYPT.encode(password));
+        updated.setPasswordHash(CommandResources.BCRYPT.encode(password));
         updated.setSalt(null);
         updated.setMode(mode);
         updated.setSessions(new LinkedHashMap<>());
@@ -526,7 +529,7 @@ public final class CliSetupCommand {
             return 2;
         }
 
-        config.setPasswordHash(BCRYPT.encode(newPassword));
+        config.setPasswordHash(CommandResources.BCRYPT.encode(newPassword));
         config.setSalt(null);
         // 修改密码后让所有现存 session 失效，与 SetupService.changePassword 一致
         config.setSessions(new LinkedHashMap<>());
@@ -570,7 +573,7 @@ public final class CliSetupCommand {
             return 2;
         }
 
-        config.setPasswordHash(BCRYPT.encode(newPassword));
+        config.setPasswordHash(CommandResources.BCRYPT.encode(newPassword));
         config.setSalt(null);
         config.setSessions(new LinkedHashMap<>());
 
@@ -586,11 +589,11 @@ public final class CliSetupCommand {
         if (!Files.isRegularFile(path)) {
             return new SetupConfig();
         }
-        return SetupConfigFile.read(path, MAPPER);
+        return SetupConfigFile.read(path, CommandResources.MAPPER);
     }
 
     private static void writeSetupConfig(Path path, SetupConfig config) throws IOException {
-        SetupConfigFile.write(path, config, MAPPER);
+        SetupConfigFile.write(path, config, CommandResources.MAPPER);
     }
 
     private static Path resolveSetupConfigPath() {
@@ -606,7 +609,7 @@ public final class CliSetupCommand {
             return false;
         }
         if (storedHash.startsWith("$2")) {
-            return BCRYPT.matches(rawPassword, storedHash);
+            return CommandResources.BCRYPT.matches(rawPassword, storedHash);
         }
         // 旧 SHA-256 兜底（与 SetupService.legacySha256Hash 等价）
         return storedHash.equals(legacySha256(rawPassword, legacySalt));
@@ -663,7 +666,7 @@ public final class CliSetupCommand {
         }
         // 无 tty（IDE / pipe）：退回到 System.in
         try {
-            return STDIN_READER.readLine();
+            return CommandResources.STDIN_READER.readLine();
         } catch (IOException e) {
             return null;
         }
@@ -684,7 +687,7 @@ public final class CliSetupCommand {
         System.out.print(prompt);
         System.out.flush();
         try {
-            return STDIN_READER.readLine();
+            return CommandResources.STDIN_READER.readLine();
         } catch (IOException e) {
             return null;
         }

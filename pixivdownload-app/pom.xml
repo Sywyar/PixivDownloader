@@ -180,6 +180,14 @@
         </filters>
         <resources>
             <resource>
+                <directory>${maven.multiModuleProjectDirectory}/image</directory>
+                <targetPath>bootstrap</targetPath>
+                <filtering>false</filtering>
+                <includes>
+                    <include>icon.png</include>
+                </includes>
+            </resource>
+            <resource>
                 <directory>src/main/resources</directory>
                 <filtering>true</filtering>
                 <includes>

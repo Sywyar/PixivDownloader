@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.gui;
 
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.common.AppInfo;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
@@ -12,7 +12,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
-@Slf4j
 public final class AutoStartManager {
 
     public static final String STARTUP_ARG = "--pixivdownload-startup";
@@ -66,6 +65,7 @@ public final class AutoStartManager {
     }
 
     public static void setEnabled(boolean enabled) throws IOException, InterruptedException {
+        var log = LoggerFactory.getLogger(AutoStartManager.class);
         Optional<Path> shortcut = startupShortcutPath();
         if (shortcut.isEmpty()) {
             throw new IOException("Windows Startup folder is not available");

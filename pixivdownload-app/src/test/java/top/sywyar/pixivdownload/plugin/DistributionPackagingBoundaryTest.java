@@ -394,6 +394,7 @@ class DistributionPackagingBoundaryTest {
         assertThat(assertSpringRuntimeStructure(bootJar))
                 .as("实际 boot jar 必须包含需要 CGLIB 增强的配置类").isPositive();
         List<String> entries = jarEntryNames(bootJar);
+        assertThat(entries).contains("BOOT-INF/classes/bootstrap/icon.png");
         assertThat(entries).as("宿主一方模块应合并进优化后的 BOOT-INF/classes")
                 .contains(
                         "BOOT-INF/classes/top/sywyar/pixivdownload/sdk/SdkVersion.class",
