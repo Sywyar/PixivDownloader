@@ -62,7 +62,8 @@ final class AppDesktopUiHost implements DesktopUiHost {
     }
 
     AppDesktopUiHost(int serverPort, ConfigFile applicationConfig, Supplier<DataSource> backfillDataSource) {
-        this.localApiClient = new DesktopUiLocalApiClient(() -> backendPort(serverPort));
+        this.localApiClient = new DesktopUiLocalApiClient(() -> BackendLifecycleManager.requiredBean(
+                top.sywyar.pixivdownload.config.http.LocalGuiWebServerCustomizer.class).connection());
         this.applicationConfig = applicationConfig;
         this.startupPort = serverPort;
         this.backfillDataSource = java.util.Objects.requireNonNull(backfillDataSource, "backfillDataSource");
@@ -380,7 +381,6 @@ final class AppDesktopUiHost implements DesktopUiHost {
     }
 
     @Override public GuiResponse exchangeGui(GuiRequest request) {
-        if (developmentMode() && !BackendLifecycleManager.isRunning()) return GuiResponse.unreachable();
         return localApiClient.exchange(request);
     }
     @Override public OnboardingSnapshot onboardingState(String rootFolder) { return onboardingState.snapshot(rootFolder); }
