@@ -4,7 +4,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.catalina.connector.Connector;
 import org.apache.catalina.Lifecycle;
-import org.apache.tomcat.util.descriptor.web.SecurityCollection;
+import jakarta.servlet.ServletException;
+import org.apache.catalina.connector.Request;
+import org.apache.catalina.connector.Response;
+import org.apache.catalina.valves.ValveBase;
 import org.apache.tomcat.util.descriptor.web.SecurityConstraint;
 import org.springframework.boot.web.embedded.tomcat.TomcatServletWebServerFactory;
 import org.springframework.boot.web.server.Ssl;
@@ -15,6 +18,8 @@ import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 
+import java.io.IOException;
+
 /**
  * 根据 {@code ssl.type} 选择性地加载 PEM 或 JKS 证书，并配置 HTTPS 连接器。
  *
@@ -24,7 +29,7 @@ import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifac
  * 另一类型的属性完全不读取，从根本上避免跨类型属性干扰。
  *
  * <p>当 {@code ssl.http-redirect=true} 时，额外在 {@code ssl.http-redirect-port}（默认 80）
- * 开启 HTTP 连接器，将所有 HTTP 请求 301 重定向到 HTTPS 端口。
+ * 开启 HTTP 连接器，将该入口的请求重定向到 HTTPS 端口。
  */
 @Slf4j
 @Component
@@ -54,20 +59,26 @@ public class HttpsWebServerCustomizer implements WebServerFactoryCustomizer<Tomc
             log.info(message("https.log.redirect.enabled", httpPort, httpsPort));
             Connector redirect = createHttpConnector(httpPort, httpsPort);
             factory.addAdditionalTomcatConnectors(redirect);
-            if (PluginDevelopmentArtifacts.enabled()) {
-                factory.addConnectorCustomizers(primary -> primary.addLifecycleListener(event -> {
-                    if (Lifecycle.AFTER_START_EVENT.equals(event.getType()) && primary.getLocalPort() > 0) {
-                        redirect.setRedirectPort(primary.getLocalPort());
-                    }
-                }));
-            }
+            factory.addConnectorCustomizers(primary -> primary.addLifecycleListener(event -> {
+                if (Lifecycle.AFTER_START_EVENT.equals(event.getType()) && primary.getLocalPort() > 0) {
+                    redirect.setRedirectPort(primary.getLocalPort());
+                }
+            }));
             factory.addContextCustomizers(context -> {
                 SecurityConstraint constraint = new SecurityConstraint();
                 constraint.setUserConstraint("CONFIDENTIAL");
-                SecurityCollection collection = new SecurityCollection();
-                collection.addPattern("/*");
-                constraint.addCollection(collection);
-                context.addConstraint(constraint);
+                SecurityConstraint[] constraints = {constraint};
+                // 复用 Tomcat 的重定向语义，但只约束公开 HTTP 重定向入口。
+                context.getPipeline().addValve(new ValveBase(true) {
+                    @Override
+                    public void invoke(Request request, Response response) throws IOException, ServletException {
+                        if (request.getConnector() == redirect
+                                && !context.getRealm().hasUserDataPermission(request, response, constraints)) {
+                            return;
+                        }
+                        getNext().invoke(request, response);
+                    }
+                });
             });
         }
     }
