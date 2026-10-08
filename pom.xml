@@ -18,8 +18,8 @@
     <url>https://github.com/Sywyar/PixivDownloader</url>
     <licenses>
         <license>
-            <name>GNU Affero General Public License v3.0</name>
-            <url>https://www.gnu.org/licenses/agpl-3.0.html</url>
+            <name>GNU Affero General Public License v3.0 with PixivDownloader Plugin Linking Exception</name>
+            <url>https://github.com/Sywyar/PixivDownloader/blob/${pixivdownload.source.sha}/PLUGIN-LINKING-EXCEPTION.txt</url>
             <distribution>repo</distribution>
         </license>
     </licenses>

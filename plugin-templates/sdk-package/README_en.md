@@ -10,6 +10,12 @@ An exact requirement is written as `plugin.requires==7.2.3-rc.4` in a properties
 
 The package includes `.git/` with an initial commit on `main` containing all delivered files. Use `git status` and `git diff` to review your changes. Configure your Git name and email before committing your work, and add a remote when you need one. The `.gitignore` excludes build output, local IDE settings, and `.dev/` runtime data.
 
+## Licensing and distribution
+
+The SDK uses [AGPL-3.0](https://github.com/Sywyar/PixivDownloader/blob/master/LICENSE). Independent third-party plugins may choose the MIT License when they meet the included [Plugin Linking Exception](https://github.com/Sywyar/PixivDownloader/blob/master/PLUGIN-LINKING-EXCEPTION.txt).
+
+Place your plugin's license in `LICENSE` at the project root. Retain the upstream license texts in `licenses/pixivdownloader/` and applicable copyright notices, including when copying an example into a separate project.
+
 ## Upgrade the SDK
 
 1. Keep your existing project, sources and `.dev/` data. Extract the target SDK development package into a separate directory. Review its release notes and Javadoc for removed or changed APIs before updating your code.

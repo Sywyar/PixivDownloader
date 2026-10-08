@@ -154,6 +154,10 @@ For detailed installation steps, usage guides, configuration reference, and deve
 
 ---
 
+## License and plugins
+
+This project and its official plugins use [AGPL-3.0](LICENSE). Independent third-party plugins may choose the MIT License when they meet the [Plugin Linking Exception](PLUGIN-LINKING-EXCEPTION.txt).
+
 ## Disclaimer
 
 - This project is for personal learning and research only; do not use it for any commercial purposes.
