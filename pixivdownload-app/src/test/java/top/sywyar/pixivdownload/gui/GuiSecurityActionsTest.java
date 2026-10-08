@@ -16,7 +16,7 @@ class GuiSecurityActionsTest {
     @DisplayName("拒绝非本地来源且只有事务成功才返回成功")
     void rejectsRemoteAndReportsPersistenceFailure() throws Exception {
         var state = mock(ServerStateProvider.class);
-        var controller = new GuiStatusController(state, null, null, TestI18nBeans.appMessages(), null, null);
+        var controller = new GuiStatusController(state, null, null, TestI18nBeans.appMessages(), null, null, null);
         var request = new MockHttpServletRequest();
         request.setRemoteAddr("203.0.113.7");
         assertThat(controller.logoutAll(request).getStatusCode().value()).isEqualTo(403);

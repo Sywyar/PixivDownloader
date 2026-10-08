@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 修复设置中切换 GUI 引擎后自动重启失败、误报无法显示 GUI 的问题。
 - 修复部分 WebP 动图及图片的画廊封面偏黄、偏绿的问题。
 - 改善画廊缩略图的细线和颗粒感，方形封面先裁剪再缩放，避免长图在卡片中被过度放大；旧缩略图缓存会按需重新生成。
 - 修复画廊访客显示默认用户或管理员缓存称呼的问题，访客统一显示为 Guest。

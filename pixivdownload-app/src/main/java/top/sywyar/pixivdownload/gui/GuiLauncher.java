@@ -14,6 +14,7 @@ import top.sywyar.pixivdownload.common.AppVersion;
 import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
+import top.sywyar.pixivdownload.gui.bootstrap.ApplicationRestartService;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseSchemaInspector;
 import top.sywyar.pixivdownload.core.db.schema.ManagedDatabaseSchema;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
@@ -141,6 +142,9 @@ public class GuiLauncher {
         // ── 0. 统一标准输出/错误流为 UTF-8（必须先于 logback 初始化与任何打印）──────
         //    标准流转接在 Logback 配置完成后固定 ConsoleAppender 的原始输出流。
         Utf8ConsoleStreams.install();
+
+        ApplicationRestartService.captureArguments(args);
+        ApplicationRestartService.awaitPreviousProcess();
 
         // Logback 自己在文件 appender 创建前建立会话，Spring 不重新配置它。
         System.setProperty("org.springframework.boot.logging.LoggingSystem", "none");
