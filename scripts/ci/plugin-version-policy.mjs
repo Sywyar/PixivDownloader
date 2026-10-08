@@ -133,6 +133,7 @@ export function checkPluginVersions(root, baseRef, plugins, releases) {
         const usedProperties = new Set([...([...pomInputs, rootBuild, oldRootBuild, managed(rootPom), managed(oldRootPom)].join('\n'))
             .matchAll(/\$\{([^}]+)\}/gu)].map(match => match[1]));
         for (const key of usedProperties) {
+            if (key === 'pixivdownload.sdk.version') continue;
             for (const value of [currentProperties[key], previousProperties[key]]) {
                 for (const match of (value ?? '').matchAll(/\$\{([^}]+)\}/gu)) usedProperties.add(match[1]);
             }
