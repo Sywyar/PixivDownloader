@@ -17,6 +17,29 @@ class DesktopUiToolsTest {
     Path tempDir;
 
     @Test
+    @org.junit.jupiter.api.DisplayName("分类器自动地址跟随后端，显式指定的其它实例地址仍优先")
+    void classifierUsesCurrentInstanceUnlessConfigured() throws Exception {
+        var server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("localhost", 0), 0);
+        server.createContext("/api/download/status", exchange -> {
+            exchange.sendResponseHeaders(200, 0);
+            exchange.close();
+        });
+        server.start();
+        try {
+            String base = "http://localhost:" + server.getAddress().getPort();
+            var address = new java.util.concurrent.atomic.AtomicReference<>(base);
+            var tools = new DesktopUiTools(address::get);
+            assertThat(tools.checkImageClassifierServer("").available()).isTrue();
+            assertThat(tools.checkImageClassifierServer("").url()).isEqualTo(base);
+            address.set("http://127.0.0.1:" + server.getAddress().getPort());
+            assertThat(tools.checkImageClassifierServer("").url()).isEqualTo(address.get());
+            assertThat(tools.checkImageClassifierServer(base).url()).isEqualTo(base);
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     @org.junit.jupiter.api.DisplayName("检查真实目录并修复缺失路径，兼容未建立前缀表的数据库")
     void checksAndUpdatesArtworkFoldersThroughTheHostEngine() throws Exception {
         Path database = tempDir.resolve("artworks.db");
@@ -32,7 +55,7 @@ class DesktopUiToolsTest {
                     + "', 1, NULL, 0, 0)");
         }
 
-        DesktopUiTools tools = new DesktopUiTools();
+        DesktopUiTools tools = new DesktopUiTools(() -> "http://localhost:8123");
         DesktopUiToolHost.FolderCheckResult before = tools.checkArtworkFolders(database, tempDir.toString());
         assertThat(before.total()).isEqualTo(3);
         assertThat(before.inaccessible()).extracting(DesktopUiToolHost.FolderArtwork::artworkId).containsExactly(2L);
@@ -58,7 +81,7 @@ class DesktopUiToolsTest {
                     + "(4, 'unknown', '{999}/gone', 1, '{999}/gone', 0, 2),"
                     + "(5, 'deleted', '{0}/gone', 0, NULL, 1, 1)");
         }
-        DesktopUiTools tools = new DesktopUiTools();
+        DesktopUiTools tools = new DesktopUiTools(() -> "http://localhost:8123");
         var result = tools.checkArtworkFolders(database, tempDir.toString());
         assertThat(result.total()).isEqualTo(4);
         assertThat(result.inaccessible()).extracting(DesktopUiToolHost.FolderArtwork::artworkId).containsExactly(3L, 4L);
@@ -82,7 +105,7 @@ class DesktopUiToolsTest {
         Path image = Files.writeString(source.resolve("image.jpg"), "image");
         Path sidecar = Files.writeString(source.resolve("123.meta.json"), "{}");
         Path target = tempDir.resolve("target");
-        DesktopUiTools tools = new DesktopUiTools();
+        DesktopUiTools tools = new DesktopUiTools(() -> "http://localhost:8123");
 
         Path destination = tools.classifyImageFolder(
                 source, List.of(image), 123L, target,
@@ -108,7 +131,7 @@ class DesktopUiToolsTest {
         var suffixes = List.of(".jpg", ".png", ".webp", ".gif", ".apng", ".mp4", ".zip", ".frames.properties", "_thumb.jpg");
         for (String suffix : suffixes) Files.writeString(source.resolve("42_p0" + suffix), suffix);
         Path target = tempDir.resolve("target");
-        new DesktopUiTools().classifyImageFolder(source, List.of(source.resolve("42_p0.jpg")), 42L, target,
+        new DesktopUiTools(() -> "http://localhost:8123").classifyImageFolder(source, List.of(source.resolve("42_p0.jpg")), 42L, target,
                 new DesktopUiToolHost.ImageClassifierServer(false, "http://localhost:6999"),
                 (detail, folder) -> { throw new AssertionError(detail); });
         for (String suffix : suffixes) assertThat(Files.readString(target.resolve("42_p0" + suffix))).isEqualTo(suffix);

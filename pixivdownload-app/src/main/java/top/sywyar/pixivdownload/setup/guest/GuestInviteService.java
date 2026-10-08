@@ -3,12 +3,11 @@ package top.sywyar.pixivdownload.setup.guest;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import top.sywyar.pixivdownload.config.SslConfig;
+import top.sywyar.pixivdownload.config.http.ServerAddressProvider;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.setup.guest.dto.HourlyBucket;
@@ -46,19 +45,14 @@ public class GuestInviteService {
     private static final char[] CODE_ALPHABET =
             "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".toCharArray();
     private static final int CODE_LENGTH = 24;
+    private static final int MAX_COLLECTION_IDS = 500;
     private static final long HOUR_MILLIS = 3_600_000L;
 
     private final GuestInviteMapper mapper;
-    private final SslConfig sslConfig;
+    private final ServerAddressProvider serverAddress;
     /** 不直接使用：仅表达对 {@link DatabaseInitializer} 的初始化顺序依赖（{@link #init()} 要求表已建好）。 */
     @SuppressWarnings("unused")
     private final DatabaseInitializer databaseInitializer;
-
-    @Value("${server.ssl.enabled:false}")
-    private boolean sslEnabled;
-
-    @Value("${server.port:6999}")
-    private int serverPort;
 
     private final SecureRandom random = new SecureRandom();
 
@@ -108,6 +102,7 @@ public class GuestInviteService {
                 tagUnrestricted, tagIds, authorUnrestricted, authorIds,
                 novelTagUnrestricted, novelTagIds, novelAuthorUnrestricted, novelAuthorIds);
 
+        Set<Long> collectionIds = validateCollectionIds(req);
         GuestInviteRow row = new GuestInviteRow();
         row.setCode(generateUniqueCode());
         row.setName(name);
@@ -119,9 +114,12 @@ public class GuestInviteService {
         row.setAuthorUnrestricted(authorUnrestricted);
         row.setNovelTagUnrestricted(novelTagUnrestricted);
         row.setNovelAuthorUnrestricted(novelAuthorUnrestricted);
+        row.setCollectionUnrestricted(req.isCollectionUnrestricted());
+        row.setCollectionRestrictsWorks(req.isCollectionRestrictsWorks());
         row.setCreatedTime(System.currentTimeMillis());
         mapper.insertInvite(row);
 
+        for (Long collectionId : collectionIds) mapper.insertInviteCollection(row.getId(), collectionId);
         for (Long tagId : tagIds) mapper.insertInviteTag(row.getId(), tagId);
         for (Long authorId : authorIds) mapper.insertInviteAuthor(row.getId(), authorId);
         for (Long tagId : novelTagIds) mapper.insertInviteNovelTag(row.getId(), tagId);
@@ -153,6 +151,7 @@ public class GuestInviteService {
                 tagUnrestricted, tagIds, authorUnrestricted, authorIds,
                 novelTagUnrestricted, novelTagIds, novelAuthorUnrestricted, novelAuthorIds);
 
+        Set<Long> collectionIds = validateCollectionIds(req);
         row.setName(sanitizeName(req.getName()));
         row.setExpireTime(computeExpireTime(req.getExpireDays()));
         row.setAllowSfw(req.isAllowSfw());
@@ -162,8 +161,12 @@ public class GuestInviteService {
         row.setAuthorUnrestricted(authorUnrestricted);
         row.setNovelTagUnrestricted(novelTagUnrestricted);
         row.setNovelAuthorUnrestricted(novelAuthorUnrestricted);
+        row.setCollectionUnrestricted(req.isCollectionUnrestricted());
+        row.setCollectionRestrictsWorks(req.isCollectionRestrictsWorks());
         mapper.updateInviteCore(row);
 
+        mapper.deleteInviteCollections(id);
+        for (Long collectionId : collectionIds) mapper.insertInviteCollection(id, collectionId);
         mapper.deleteInviteTags(id);
         mapper.deleteInviteAuthors(id);
         mapper.deleteInviteNovelTags(id);
@@ -189,6 +192,7 @@ public class GuestInviteService {
     @Transactional
     public void delete(long id) {
         requireExisting(id);
+        mapper.deleteInviteCollections(id);
         mapper.purgeInviteTags(id);
         mapper.purgeInviteAuthors(id);
         mapper.purgeInviteNovelTags(id);
@@ -201,6 +205,7 @@ public class GuestInviteService {
     public int deleteExpired(long now) {
         List<Long> ids = mapper.findExpiredIds(now);
         for (Long id : ids) {
+            mapper.deleteInviteCollections(id);
             mapper.purgeInviteTags(id);
             mapper.purgeInviteAuthors(id);
             mapper.purgeInviteNovelTags(id);
@@ -239,7 +244,7 @@ public class GuestInviteService {
         return InviteDetail.builder()
                 .id(row.getId())
                 .code(row.getCode())
-                .url(buildInviteUrl(row.getCode()))
+                .url(serverAddress.uri("/invite?code=" + row.getCode()).toASCIIString())
                 .name(row.getName())
                 .expireTime(row.getExpireTime())
                 .allowSfw(row.isAllowSfw())
@@ -259,6 +264,9 @@ public class GuestInviteService {
                 .authors(authors)
                 .novelTags(novelTags)
                 .novelAuthors(novelAuthors)
+                .collectionUnrestricted(row.isCollectionUnrestricted())
+                .collectionIds(mapper.findInviteCollectionIds(id))
+                .collectionRestrictsWorks(row.isCollectionRestrictsWorks())
                 .build();
     }
 
@@ -276,6 +284,7 @@ public class GuestInviteService {
 
         long now = System.currentTimeMillis();
         if (row.isRevoked() || (row.getExpireTime() != null && now > row.getExpireTime())) {
+            mapper.deleteInviteCollections(row.getId());
             mapper.purgeInviteTags(row.getId());
             mapper.purgeInviteAuthors(row.getId());
             mapper.purgeInviteNovelTags(row.getId());
@@ -315,7 +324,10 @@ public class GuestInviteService {
                 novelTagUnrestricted,
                 novelTagIds,
                 novelAuthorUnrestricted,
-                novelAuthorIds));
+                novelAuthorIds,
+                row.isCollectionUnrestricted(),
+                Set.copyOf(mapper.findInviteCollectionIds(row.getId())),
+                row.isCollectionRestrictsWorks()));
     }
 
     /**
@@ -364,6 +376,7 @@ public class GuestInviteService {
     public int purgeExpiredAndRevoked(long now) {
         List<Long> ids = mapper.findExpiredOrRevokedIds(now);
         for (Long id : ids) {
+            mapper.deleteInviteCollections(id);
             mapper.purgeInviteTags(id);
             mapper.purgeInviteAuthors(id);
             mapper.purgeInviteNovelTags(id);
@@ -488,6 +501,14 @@ public class GuestInviteService {
         return out;
     }
 
+    private Set<Long> validateCollectionIds(InviteCreateRequest req) {
+        List<Long> ids = req.getCollectionIds();
+        if (ids != null && (ids.size() > MAX_COLLECTION_IDS || ids.stream().anyMatch(id -> id == null || id <= 0))) {
+            throw LocalizedException.badRequest("error.request.param.invalid", "请求参数不合法");
+        }
+        return req.isCollectionUnrestricted() ? Set.of() : sanitizeIds(ids);
+    }
+
     private String generateUniqueCode() {
         for (int attempt = 0; attempt < 8; attempt++) {
             String code = randomCode();
@@ -504,17 +525,4 @@ public class GuestInviteService {
         return new String(buf);
     }
 
-    /**
-     * 严格按 CLAUDE.md 约束动态构造对外 URL，不硬编码 scheme 或 host。
-     */
-    private String buildInviteUrl(String code) {
-        String scheme = sslEnabled ? "https" : "http";
-        String domain = sslConfig.getDomain();
-        if (domain == null || domain.isBlank()) domain = "localhost";
-        StringBuilder sb = new StringBuilder().append(scheme).append("://").append(domain);
-        boolean defaultPort = (sslEnabled && serverPort == 443) || (!sslEnabled && serverPort == 80);
-        if (!defaultPort) sb.append(':').append(serverPort);
-        sb.append("/invite?code=").append(code);
-        return sb.toString();
-    }
 }

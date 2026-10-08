@@ -16,9 +16,9 @@ test('真实 Git 差异区分测试、SDK 声明、插件资源和私有依赖�
         git('init');
         git('config', 'user.email', 'fixture@example.invalid');
         git('config', 'user.name', 'fixture');
-        const parent = pom('parent').replace('</project>', '<build><plugins><plugin><artifactId>maven-compiler-plugin</artifactId><configuration><release>17</release></configuration></plugin></plugins></build></project>');
+        const parent = pom('parent').replace('</project>', '<properties><revision>8.1.0</revision><pixivdownload.sdk.version>${revision}</pixivdownload.sdk.version><compiler.release>${java.release}</compiler.release><java.release>17</java.release></properties><build><plugins><plugin><artifactId>maven-compiler-plugin</artifactId><configuration><release>${compiler.release}</release></configuration></plugin></plugins></build></project>');
         write('pom.xml', parent);
-        write('feature/pom.xml', pom('feature', '<dependency><groupId>top.sywyar.lovepopup</groupId><artifactId>private-lib</artifactId><version>1.0.0</version></dependency>'));
+        write('feature/pom.xml', pom('feature', '<dependency><groupId>top.sywyar.lovepopup</groupId><artifactId>private-lib</artifactId><version>1.0.0</version></dependency><dependency><groupId>io.github.sywyar.pixivdownloader</groupId><artifactId>pixivdownload-sdk</artifactId><version>${pixivdownload.sdk.version}</version><scope>provided</scope></dependency>'));
         write('private-lib/pom.xml', pom('private-lib'));
         write('private-lib/src/main/Library.java', 'class Library {}');
         write('feature/src/main/resources/plugin.properties', descriptor('2.0.0'));
@@ -32,9 +32,11 @@ test('真实 Git 差异区分测试、SDK 声明、插件资源和私有依赖�
         write('feature/src/test/Test.java', 'class Test { int more; }');
         write('sdk/src/main/Api.java', 'class Api { int addition; }');
         assert.deepEqual(inspect()[0].changed, []);
+        write('pom.xml', parent.replace('<revision>8.1.0</revision>', '<revision>8.2.0</revision>'));
+        assert.deepEqual(inspect()[0].changed, []);
         write('pom.xml', parent.replace('</plugins>', '<plugin><artifactId>maven-surefire-plugin</artifactId><configuration><argLine>test-only</argLine></configuration></plugin></plugins>'));
         assert.deepEqual(inspect()[0].changed, []);
-        write('pom.xml', parent.replace('<release>17</release>', '<release>21</release>'));
+        write('pom.xml', parent.replace('<java.release>17</java.release>', '<java.release>21</java.release>'));
         assert.throws(inspect, /pom.xml/);
         write('pom.xml', parent);
         write('build-support/plugin.pro', '-keep class Changed');

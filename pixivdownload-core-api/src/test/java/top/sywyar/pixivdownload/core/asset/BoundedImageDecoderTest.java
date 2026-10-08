@@ -168,6 +168,47 @@ class BoundedImageDecoderTest {
         return Files.write(tempDir.resolve(fileName), bytes.toByteArray());
     }
 
+    @ParameterizedTest
+    @CsvSource({"2048,2048,512", "6192,5929,257", "120,80,17"})
+    @DisplayName("密集黑白细线缩小后保留平均亮度，大图条带交界不出现接缝")
+    void averagesEverySourcePixel(int width, int height, int edge) throws Exception {
+        BufferedImage original = new BufferedImage(width, height, BufferedImage.TYPE_BYTE_BINARY);
+        int[] row = new int[width];
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) row[x] = ((x + y) & 1) == 0 ? 0xff000000 : 0xffffffff;
+            original.setRGB(0, y, width, 1, row, 0, width);
+        }
+        Path file = tempDir.resolve("checker.png");
+        ImageIO.write(original, "png", file.toFile());
+        BufferedImage thumbnail = ImageThumbnailScaler.scale(file, edge, edge);
+        for (int y = 0; y < thumbnail.getHeight(); y++) {
+            for (int x = 0; x < thumbnail.getWidth(); x++) {
+                assertThat(thumbnail.getRGB(x, y) & 255).isBetween(126, 129);
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("长图封面从中心裁剪，保留展示尺寸且不放大小图")
+    void cropsCoverBeforeScaling() throws Exception {
+        BufferedImage original = new BufferedImage(120, 360, BufferedImage.TYPE_INT_RGB);
+        var graphics = original.createGraphics();
+        graphics.setColor(java.awt.Color.RED);
+        graphics.fillRect(0, 0, 120, 360);
+        graphics.setColor(java.awt.Color.BLUE);
+        graphics.fillRect(0, 120, 120, 120);
+        graphics.dispose();
+        Path file = tempDir.resolve("tall.png");
+        ImageIO.write(original, "png", file.toFile());
+        BufferedImage cover = ImageThumbnailScaler.cover(file, 64);
+        assertThat(cover.getWidth()).isEqualTo(64);
+        assertThat(cover.getHeight()).isEqualTo(64);
+        assertThat(cover.getRGB(0, 0)).isEqualTo(java.awt.Color.BLUE.getRGB());
+        assertThat(cover.getRGB(63, 63)).isEqualTo(java.awt.Color.BLUE.getRGB());
+        assertThat(ImageThumbnailScaler.cover(file, 512).getWidth()).isEqualTo(120);
+        assertThat(ImageThumbnailScaler.scale(file, 64, 64).getWidth()).isEqualTo(21);
+    }
+
     private static void writeChunk(DataOutputStream output, String type, byte[] data) throws IOException {
         output.writeInt(data.length);
         byte[] typeBytes = type.getBytes(java.nio.charset.StandardCharsets.US_ASCII);

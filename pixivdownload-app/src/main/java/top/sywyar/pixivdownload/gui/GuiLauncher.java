@@ -54,7 +54,6 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.BindException;
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
@@ -336,7 +335,7 @@ public class GuiLauncher {
                             singleInstanceManager.setActivationHandler(session == null ? () -> {} : session::activate);
                         }
                     },
-                    () -> openPluginMarketWithoutDesktopProvider(configPath, port, desktopUiHost),
+                    () -> openPluginMarketWithoutDesktopProvider(desktopUiHost),
                     (source, failure) -> pluginSession.manager().reportPluginFailure(
                             source.packageId(), source.generation(), failure)
             );
@@ -423,7 +422,7 @@ public class GuiLauncher {
     }
 
     private static void openPluginMarketWithoutDesktopProvider(
-            Path configPath, int port, AppDesktopUiHost desktopUiHost) {
+            AppDesktopUiHost desktopUiHost) {
         boolean confirmed = DesktopUiDialogs.showBootstrapConfirmDialog(
                 message("gui.launcher.dialog.no-provider.title"),
                 message("gui.launcher.dialog.no-provider.message"),
@@ -431,7 +430,7 @@ public class GuiLauncher {
         if (!confirmed) return;
 
         Runnable openMarket = () -> {
-            URI marketUri = pluginMarketUri(configPath, desktopUiHost.backendPort(port));
+            URI marketUri = desktopUiHost.backendUri("/plugin-market.html");
             try {
                 desktopUiHost.openExternalUri(marketUri);
             } catch (Exception failure) {
@@ -441,24 +440,6 @@ public class GuiLauncher {
         };
         if (BackendLifecycleManager.isRunning()) openMarket.run();
         else BackendLifecycleManager.startAsync(openMarket);
-    }
-
-    static URI pluginMarketUri(Path configPath, int port) {
-        String scheme = Boolean.parseBoolean(readConfigScalar(configPath, "server.ssl.enabled"))
-                ? "https" : "http";
-        String domain = defaultIfBlank(readConfigScalar(configPath, "ssl.domain"), "localhost").trim();
-        if (domain.contains("://") || domain.contains("/") || domain.contains("\\")
-                || domain.contains("@") || domain.contains(" ")) {
-            domain = "localhost";
-        }
-        try {
-            URI uri = new URI(scheme, null, domain, port, "/plugin-market.html", null, null);
-            return uri.getHost() == null
-                    ? new URI(scheme, null, "localhost", port, "/plugin-market.html", null, null)
-                    : uri;
-        } catch (URISyntaxException | IllegalArgumentException failure) {
-            return URI.create("http://localhost:" + DEFAULT_PORT + "/plugin-market.html");
-        }
     }
 
     static void installJulBridge() {

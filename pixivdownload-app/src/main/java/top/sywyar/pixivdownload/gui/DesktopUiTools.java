@@ -41,11 +41,15 @@ import java.util.Properties;
 final class DesktopUiTools {
 
     private static final Logger log = LoggerFactory.getLogger(DesktopUiTools.class);
-    private static final String DEFAULT_SERVER_URL = "http://localhost:6999";
+    private final java.util.function.Supplier<String> serverUrl;
     private static final List<String> IMAGE_EXTENSIONS =
             List.of(".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp");
 
     private final RestTemplate restTemplate = new RestTemplate();
+
+    DesktopUiTools(java.util.function.Supplier<String> serverUrl) {
+        this.serverUrl = serverUrl;
+    }
 
     DesktopUiHost.FolderCheckResult checkArtworkFolders(Path databasePath, String rootFolder) throws SQLException {
         List<DesktopUiHost.FolderArtwork> all;
@@ -101,7 +105,7 @@ final class DesktopUiTools {
         return new DesktopUiHost.ImageClassifierSettings(
                 properties.getProperty("default.folder", ""),
                 Boolean.parseBoolean(properties.getProperty("show.skip.button", "true")),
-                properties.getProperty("server.url", DEFAULT_SERVER_URL),
+                properties.getProperty("server.url", ""),
                 targets);
     }
 
@@ -157,7 +161,7 @@ final class DesktopUiTools {
     }
 
     DesktopUiHost.ImageClassifierServer checkImageClassifierServer(String configuredUrl) {
-        String primary = configuredUrl == null || configuredUrl.isBlank() ? DEFAULT_SERVER_URL : configuredUrl.trim();
+        String primary = configuredUrl == null || configuredUrl.isBlank() ? serverUrl.get() : configuredUrl.trim();
         if (serverResponds(primary)) {
             return new DesktopUiHost.ImageClassifierServer(true, primary);
         }

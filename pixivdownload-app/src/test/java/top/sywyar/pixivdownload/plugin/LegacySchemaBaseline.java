@@ -241,12 +241,23 @@ final class LegacySchemaBaseline {
                         column("revoked", "INTEGER", true, "0", 0),
                         column("first_used_time", "INTEGER", false, null, 0),
                         column("last_used_time", "INTEGER", false, null, 0),
-                        column("total_request_count", "INTEGER", true, "0", 0)
+                        column("total_request_count", "INTEGER", true, "0", 0),
+                        column("collection_unrestricted", "INTEGER", true, "1", 0),
+                        column("collection_restricts_works", "INTEGER", true, "0", 0)
                 ),
                 List.of(
                         uniqueConstraint("code"),
                         explicitIndex("idx_guest_invites_code", false, "code")
                 )
+        ));
+
+        tables.put("guest_invite_collections", new TableSpec(
+                "guest_invite_collections",
+                List.of(
+                        column("invite_id", "INTEGER", true, null, 1),
+                        column("collection_id", "INTEGER", true, null, 2)
+                ),
+                List.of(explicitIndex("idx_guest_invite_collections_collection", false, "collection_id"))
         ));
 
         tables.put("guest_invite_tags", new TableSpec(

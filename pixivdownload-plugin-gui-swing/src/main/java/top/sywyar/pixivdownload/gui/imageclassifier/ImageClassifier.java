@@ -49,7 +49,7 @@ public class ImageClassifier extends JFrame {
     private List<File> currentImages;
     private int        currentGroupIndex  = 0;
     private volatile DesktopUiHost.ImageClassifierServer serverStatus =
-            new DesktopUiHost.ImageClassifierServer(false, "http://localhost:6999");
+            new DesktopUiHost.ImageClassifierServer(false, "");
     private Long       currentArtworkId   = null;
 
     // =========================================================================
@@ -123,7 +123,7 @@ public class ImageClassifier extends JFrame {
     private void loadConfig() {
         config = new Properties();
         config.setProperty("show.skip.button", "true");
-        config.setProperty("server.url", "http://localhost:6999");
+        config.setProperty("server.url", "");
         targetFolders = new ArrayList<>();
         folderRemarks = new ArrayList<>();
 
@@ -151,7 +151,7 @@ public class ImageClassifier extends JFrame {
             SwingHost.host().saveImageClassifierSettings(rootFolder, new DesktopUiHost.ImageClassifierSettings(
                     config.getProperty("default.folder", ""),
                     Boolean.parseBoolean(config.getProperty("show.skip.button", "true")),
-                    config.getProperty("server.url", "http://localhost:6999"),
+                    config.getProperty("server.url", ""),
                     targets));
             log.info(logMessage("gui.image-classifier.log.config-saved"));
         } catch (IOException e) {
@@ -593,7 +593,7 @@ public class ImageClassifier extends JFrame {
         panel.add(new JLabel(message("gui.image-classifier.label.server-url") + message("gui.punctuation.colon")), gbc);
 
         gbc.gridx = 1; gbc.gridwidth = 2; gbc.weightx = 1.0;
-        JTextField serverUrlField = new JTextField(config.getProperty("server.url", "http://localhost:6999"));
+        JTextField serverUrlField = new JTextField(config.getProperty("server.url", ""));
         panel.add(serverUrlField, gbc);
 
         // 存入 tabbedPane，供 showSettingsDialog 的保存 lambda 读取
@@ -1241,7 +1241,7 @@ public class ImageClassifier extends JFrame {
     private void checkServerStatus() {
         new Thread(() -> {
             DesktopUiHost.ImageClassifierServer status = SwingHost.host().checkImageClassifierServer(
-                    config.getProperty("server.url", "http://localhost:6999"));
+                    config.getProperty("server.url", ""));
             serverStatus = status;
             SwingUtilities.invokeLater(() -> {
                 if (status.available()) {

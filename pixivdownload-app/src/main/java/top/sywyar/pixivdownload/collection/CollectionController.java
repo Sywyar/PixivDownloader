@@ -14,6 +14,7 @@ import top.sywyar.pixivdownload.collection.request.CollectionDownloadRootRequest
 import top.sywyar.pixivdownload.collection.request.CollectionRenameRequest;
 import top.sywyar.pixivdownload.collection.response.CollectionListResponse;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
 import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
@@ -26,7 +27,6 @@ import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.function.LongPredicate;
 import java.util.Map;
-import java.util.Set;
 
 @RestController
 @RequestMapping("/api/collections")
@@ -40,6 +40,7 @@ public class CollectionController {
     private final CollectionService collectionService;
     private final CollectionIconService iconService;
     private final GalleryRepository galleryRepository;
+    private final NovelGalleryRepository novelGalleryRepository;
     private final GuestAccessGuard guestAccessGuard;
 
     @GetMapping
@@ -47,9 +48,13 @@ public class CollectionController {
         List<Collection> all = collectionService.listAll();
         GuestInviteSession session = GuestAccessGuard.extractSession(httpRequest);
         if (session == null) return new CollectionListResponse(all);
-        Set<Long> visible = galleryRepository.findVisibleCollectionIds(GuestRestriction.from(session));
+        Map<Long, Long> artworks = galleryRepository.countVisibleWorksByCollection(GuestRestriction.from(session));
+        Map<Long, Long> novels = novelGalleryRepository.countVisibleWorksByCollection(GuestRestriction.forNovel(session));
         return new CollectionListResponse(all.stream()
-                .filter(c -> visible.contains(c.id()))
+                .filter(c -> session.isCollectionVisible(c.id()))
+                .map(c -> new Collection(c.id(), c.name(), c.iconExt(), null, c.sortOrder(), c.createdTime(),
+                        Math.toIntExact(artworks.getOrDefault(c.id(), 0L)), Math.toIntExact(novels.getOrDefault(c.id(), 0L))))
+                .filter(c -> c.artworkCount() > 0 || c.novelCount() > 0)
                 .toList());
     }
 
@@ -118,7 +123,8 @@ public class CollectionController {
         byte[] bytes = Files.readAllBytes(path);
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(iconService.contentType(c.iconExt())))
-                .header(HttpHeaders.CACHE_CONTROL, "public, max-age=3600")
+                .header(HttpHeaders.CACHE_CONTROL, GuestAccessGuard.extractSession(httpRequest) == null
+                        ? "public, max-age=3600" : "private, no-store")
                 .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
                 .body(bytes);
     }
@@ -141,7 +147,7 @@ public class CollectionController {
             HttpServletRequest httpRequest) {
         guestAccessGuard.requireVisible(httpRequest, artworkId);
         List<Long> ids = collectionService.collectionsOf(artworkId);
-        return ResponseEntity.ok(new CollectionIdsResponse(ids));
+        return ResponseEntity.ok(new CollectionIdsResponse(visibleCollectionIds(ids, GuestAccessGuard.extractSession(httpRequest))));
     }
 
     @PostMapping("/memberships")
@@ -173,7 +179,7 @@ public class CollectionController {
             HttpServletRequest httpRequest) {
         guestAccessGuard.requireNovelVisible(httpRequest, novelId);
         List<Long> ids = collectionService.novelCollectionsOf(novelId);
-        return ResponseEntity.ok(new CollectionIdsResponse(ids));
+        return ResponseEntity.ok(new CollectionIdsResponse(visibleCollectionIds(ids, GuestAccessGuard.extractSession(httpRequest))));
     }
 
     @PostMapping("/novels/memberships")
@@ -203,13 +209,16 @@ public class CollectionController {
             Map<Long, List<Long>> memberships,
             GuestInviteSession session) {
         if (session == null || memberships.isEmpty()) return memberships;
-        Set<Long> visible = galleryRepository.findVisibleCollectionIds(GuestRestriction.from(session));
         Map<Long, List<Long>> result = new LinkedHashMap<>();
         memberships.forEach((id, collectionIds) -> {
-            List<Long> allowed = collectionIds.stream().filter(visible::contains).toList();
+            List<Long> allowed = visibleCollectionIds(collectionIds, session);
             if (!allowed.isEmpty()) result.put(id, allowed);
         });
         return result;
+    }
+
+    private List<Long> visibleCollectionIds(List<Long> ids, GuestInviteSession session) {
+        return session == null ? ids : ids.stream().filter(session::isCollectionVisible).toList();
     }
 
     public record SortOrderRequest(Integer sortOrder) {}
@@ -229,8 +238,11 @@ public class CollectionController {
     private void requireGuestCollectionVisible(HttpServletRequest request, long collectionId) {
         GuestInviteSession session = GuestAccessGuard.extractSession(request);
         if (session == null) return;
-        Set<Long> visible = galleryRepository.findVisibleCollectionIds(GuestRestriction.from(session));
-        if (!visible.contains(collectionId)) {
+        if (!session.isCollectionVisible(collectionId)
+                || (galleryRepository.countVisibleWorksByCollection(GuestRestriction.from(session))
+                        .getOrDefault(collectionId, 0L) == 0
+                    && novelGalleryRepository.countVisibleWorksByCollection(GuestRestriction.forNovel(session))
+                        .getOrDefault(collectionId, 0L) == 0)) {
             throw new LocalizedException(HttpStatus.FORBIDDEN,
                     "guest.invite.forbidden",
                     "该作品不在你的可见范围内");

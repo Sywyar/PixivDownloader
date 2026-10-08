@@ -78,8 +78,6 @@ public class StatusPanel extends JPanel {
     private final Runnable onConfigChanged;
     private final GuiWebEntrySnapshot guiWebEntries;
 
-    private volatile String serverDomain = "localhost";
-    private volatile String serverScheme = "http";
     private volatile boolean ffmpegInstalling;
     private volatile boolean updateChecking;
     private volatile boolean updateInstalling;
@@ -520,14 +518,6 @@ public class StatusPanel extends JPanel {
         httpsLabel.setText(https ? message("gui.status.https.enabled") : message("gui.status.https.disabled"));
         httpsLabel.setForeground(https ? new Color(0, 140, 0) : Color.GRAY);
 
-        String domain = textOf(node, "domain");
-        String scheme = textOf(node, "scheme");
-        if (!"--".equals(domain)) {
-            serverDomain = domain;
-        }
-        if (!"--".equals(scheme)) {
-            serverScheme = scheme;
-        }
         if (!pixivConnectivityChecking) {
             pixivConnectivityCheckButton.setEnabled(true);
         }
@@ -1550,12 +1540,7 @@ public class StatusPanel extends JPanel {
     }
 
     public String getWebUrl(String path) {
-        String normalizedPath = path == null || path.isBlank() ? "/" : path;
-        if (!normalizedPath.startsWith("/")) {
-            normalizedPath = "/" + normalizedPath;
-        }
-        int port = SwingHost.host().developmentMode() ? SwingHost.host().backendPort(serverPort) : serverPort;
-        return serverScheme + "://" + serverDomain + ":" + port + normalizedPath;
+        return SwingHost.host().backendUri(path).toASCIIString();
     }
 
     public String getBatchUrl() {

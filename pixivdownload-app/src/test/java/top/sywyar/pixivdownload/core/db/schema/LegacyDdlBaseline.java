@@ -130,8 +130,15 @@ final class LegacyDdlBaseline {
                     + "revoked INTEGER NOT NULL DEFAULT 0,"
                     + "first_used_time INTEGER,"
                     + "last_used_time INTEGER,"
-                    + "total_request_count INTEGER NOT NULL DEFAULT 0)",
+                    + "total_request_count INTEGER NOT NULL DEFAULT 0,"
+                    + "collection_unrestricted INTEGER NOT NULL DEFAULT 1,"
+                    + "collection_restricts_works INTEGER NOT NULL DEFAULT 0)",
             "CREATE INDEX IF NOT EXISTS idx_guest_invites_code ON guest_invites(code)",
+            "CREATE TABLE IF NOT EXISTS guest_invite_collections ("
+                    + "invite_id INTEGER NOT NULL,"
+                    + "collection_id INTEGER NOT NULL,"
+                    + "PRIMARY KEY (invite_id, collection_id))",
+            "CREATE INDEX IF NOT EXISTS idx_guest_invite_collections_collection ON guest_invite_collections(collection_id)",
             "CREATE TABLE IF NOT EXISTS guest_invite_tags ("
                     + "invite_id INTEGER NOT NULL,"
                     + "tag_id INTEGER NOT NULL,"

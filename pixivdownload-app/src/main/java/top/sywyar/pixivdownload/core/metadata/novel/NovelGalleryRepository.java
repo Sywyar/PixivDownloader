@@ -37,6 +37,21 @@ public class NovelGalleryRepository {
         this.jdbc = new NamedParameterJdbcTemplate(dataSource);
     }
 
+    /** 按当前作品可见范围聚合收藏夹计数，排除软删除作品。 */
+    public Map<Long, Long> countVisibleWorksByCollection(GuestRestriction restriction) {
+        StringBuilder sql = new StringBuilder(
+                "SELECT c.collection_id, COUNT(*) AS cnt FROM novel_collections c"
+                        + " JOIN novels n ON n.novel_id = c.novel_id WHERE n.deleted = 0");
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        appendVisibilityClauses(sql, params, restriction, "CollectionCount");
+        sql.append(" GROUP BY c.collection_id");
+        Map<Long, Long> counts = new java.util.LinkedHashMap<>();
+        jdbc.query(sql.toString(), params, rs -> {
+            counts.put(rs.getLong("collection_id"), rs.getLong("cnt"));
+        });
+        return counts;
+    }
+
     /** 对该访客可见的所有 novelId，按 time 倒序。 */
     public List<Long> findVisibleNovelIds(GuestRestriction r) {
         if (r == null) return Collections.emptyList();
@@ -135,6 +150,17 @@ public class NovelGalleryRepository {
         if (allowed.contains(1)) ratingClauses.add("n.\"R18\" = 1");
         if (allowed.contains(2)) ratingClauses.add("n.\"R18\" = 2");
         sql.append(" AND (").append(String.join(" OR ", ratingClauses)).append(")");
+
+        if (r.collectionRestrictsWorks() && !r.collectionUnrestricted()) {
+            sql.append(" AND NOT EXISTS (SELECT 1 FROM novel_collections vc"
+                    + " WHERE vc.novel_id = n.novel_id");
+            if (!r.collectionIds().isEmpty()) {
+                String key = "vCollectionIds" + paramSuffix;
+                sql.append(" AND vc.collection_id NOT IN (:").append(key).append(")");
+                params.addValue(key, r.collectionIds());
+            }
+            sql.append(")");
+        }
 
         // (1) 不可见维度排除（跨维度优先于 OR 匹配）
         if (!r.tagUnrestricted()) {

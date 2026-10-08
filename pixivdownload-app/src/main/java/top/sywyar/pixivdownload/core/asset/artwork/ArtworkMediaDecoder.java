@@ -27,7 +27,7 @@ public final class ArtworkMediaDecoder {
         this.mapper = mapper;
     }
 
-    private BufferedImage readZipFrame(Path source, int edge) throws IOException {
+    private BufferedImage readZipFrame(Path source, int edge, boolean cover) throws IOException {
         Path cache = RuntimeFiles.galleryThumbnailDirectory();
         Files.createDirectories(cache);
         Path temporary = Files.createTempFile(cache, "zip-frame-", ".image");
@@ -46,19 +46,39 @@ public final class ArtworkMediaDecoder {
                     out.write(buffer, 0, n);
                 }
             }
-            BufferedImage image = edge > 0 ? ImageThumbnailScaler.scale(temporary, edge, edge) : BoundedImageDecoder.read(temporary);
+            BufferedImage image = decodeImage(temporary, edge, cover);
             if (image == null) throw new IOException("Invalid animation frame");
             return image;
         } finally { Files.deleteIfExists(temporary); }
     }
 
     public BufferedImage read(Path source, int edge) throws IOException {
-        if (source.getFileName().toString().toLowerCase(java.util.Locale.ROOT).endsWith(".zip")) return readZipFrame(source, edge);
+        return read(source, edge, false);
+    }
+
+    public BufferedImage readCover(Path source, int edge) throws IOException {
+        return read(source, edge, true);
+    }
+
+    private BufferedImage decodeImage(Path source, int edge, boolean cover) throws IOException {
+        if (cover) return ImageThumbnailScaler.cover(source, edge);
+        return edge > 0 ? ImageThumbnailScaler.scale(source, edge, edge) : BoundedImageDecoder.read(source);
+    }
+
+    private BufferedImage read(Path source, int edge, boolean cover) throws IOException {
+        if (source.getFileName().toString().toLowerCase(java.util.Locale.ROOT).endsWith(".zip")) return readZipFrame(source, edge, cover);
         try {
-            BufferedImage image = edge > 0 ? ImageThumbnailScaler.scale(source, edge, edge) : BoundedImageDecoder.read(source);
+            BufferedImage image = decodeImage(source, edge, cover);
             if (image == null) throw new IOException("Native image decoder unavailable");
             return image;
+        } catch (java.io.InterruptedIOException cancelled) {
+            throw cancelled;
         } catch (IOException unsupported) {
+            if (Thread.currentThread().isInterrupted()) {
+                var cancelled = new java.io.InterruptedIOException("Image decoding interrupted");
+                cancelled.initCause(unsupported);
+                throw cancelled;
+            }
             if (Files.size(source) <= 0 || Files.size(source) > MAX_BYTES) throw unsupported;
             String json = runner.run(FfmpegRunner.Tool.FFPROBE,
                     List.of("-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
@@ -75,11 +95,12 @@ public final class ArtworkMediaDecoder {
             try {
                 List<String> args = new ArrayList<>(List.of("-y", "-nostdin", "-v", "error", "-i",
                         source.toAbsolutePath().toString(), "-frames:v", "1", "-an"));
-                if (edge > 0) args.addAll(List.of("-vf", "scale=w='min(iw," + edge
-                        + ")':h='min(ih," + edge + ")':force_original_aspect_ratio=decrease"));
+                if (edge > 0) args.addAll(List.of("-vf", (cover ? "crop='min(iw,ih)':'min(iw,ih)'," : "")
+                        + "scale=w='min(iw," + edge
+                        + ")':h='min(ih," + edge + ")':force_original_aspect_ratio=decrease:flags=area"));
                 args.add(temporary.toAbsolutePath().toString());
                 runner.run(FfmpegRunner.Tool.FFMPEG, args, null, temporary, MAX_BYTES, Duration.ofMinutes(1), () -> false);
-                BufferedImage image = edge > 0 ? ImageThumbnailScaler.scale(temporary, edge, edge) : BoundedImageDecoder.read(temporary);
+                BufferedImage image = decodeImage(temporary, edge, cover);
                 if (image == null) throw new IOException("FFmpeg returned an unreadable image");
                 return image;
             } finally {

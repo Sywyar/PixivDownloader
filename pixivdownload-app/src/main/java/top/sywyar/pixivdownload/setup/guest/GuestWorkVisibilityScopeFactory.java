@@ -27,13 +27,17 @@ public class GuestWorkVisibilityScopeFactory {
                         session.tagUnrestricted(),
                         List.copyOf(session.tagIds()),
                         session.authorUnrestricted(),
-                        List.copyOf(session.authorIds())),
+                        List.copyOf(session.authorIds()),
+                        session.collectionUnrestricted(), List.copyOf(session.collectionIds()),
+                        session.collectionRestrictsWorks()),
                 new WorkRestriction(
                         allowedRatings(session),
                         session.novelTagUnrestricted(),
                         List.copyOf(session.novelTagIds()),
                         session.novelAuthorUnrestricted(),
-                        List.copyOf(session.novelAuthorIds())));
+                        List.copyOf(session.novelAuthorIds()),
+                        session.collectionUnrestricted(), List.copyOf(session.collectionIds()),
+                        session.collectionRestrictsWorks()));
     }
 
     static GuestInviteSession extractSession(HttpServletRequest request) {

@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 import java.util.Set;
 
@@ -135,6 +136,10 @@ public class GalleryRepository {
 
         List<Long> collectionIds = q.getCollectionIds();
         if (collectionIds != null && !collectionIds.isEmpty()) {
+            GuestRestriction restriction = q.getGuestRestriction();
+            if (restriction != null && collectionIds.stream().anyMatch(id -> id == null || !restriction.isCollectionVisible(id))) {
+                where.append(" AND 1 = 0");
+            }
             where.append(" AND a.artwork_id IN (SELECT DISTINCT artwork_id FROM artwork_collections"
                     + " WHERE collection_id IN (:collectionIds))");
             params.addValue("collectionIds", collectionIds);
@@ -433,6 +438,17 @@ public class GalleryRepository {
         if (allowed.contains(2)) ratingClauses.add("a.\"R18\" = 2");
         sql.append(" AND (").append(String.join(" OR ", ratingClauses)).append(")");
 
+        if (r.collectionRestrictsWorks() && !r.collectionUnrestricted()) {
+            sql.append(" AND NOT EXISTS (SELECT 1 FROM artwork_collections vc"
+                    + " WHERE vc.artwork_id = a.artwork_id");
+            if (!r.collectionIds().isEmpty()) {
+                String key = "vCollectionIds" + paramSuffix;
+                sql.append(" AND vc.collection_id NOT IN (:").append(key).append(")");
+                params.addValue(key, r.collectionIds());
+            }
+            sql.append(")");
+        }
+
         // (1) 不可见维度排除（跨维度优先于 OR 匹配）
         if (!r.tagUnrestricted()) {
             if (r.tagIds() != null && !r.tagIds().isEmpty()) {
@@ -588,16 +604,19 @@ public class GalleryRepository {
 
     public record GuestStatistics(int artworks, int images, int moved) {}
 
-    /** 该访客可见的"含有可见作品"的收藏夹 ID 集合。 */
-    public Set<Long> findVisibleCollectionIds(GuestRestriction r) {
-        if (r == null) return Collections.emptySet();
+    /** 按当前作品可见范围聚合收藏夹计数，排除软删除作品。 */
+    public Map<Long, Long> countVisibleWorksByCollection(GuestRestriction restriction) {
         StringBuilder sql = new StringBuilder(
-                "SELECT DISTINCT ac.collection_id FROM artwork_collections ac"
-                        + " JOIN artworks a ON a.artwork_id = ac.artwork_id WHERE a.deleted = 0");
+                "SELECT c.collection_id, COUNT(*) AS cnt FROM artwork_collections c"
+                        + " JOIN artworks a ON a.artwork_id = c.artwork_id WHERE a.deleted = 0");
         MapSqlParameterSource params = new MapSqlParameterSource();
-        appendVisibilityClauses(sql, params, r, "Collection");
-        List<Long> ids = jdbc.query(sql.toString(), params, (rs, rowNum) -> rs.getLong(1));
-        return new LinkedHashSet<>(ids);
+        appendVisibilityClauses(sql, params, restriction, "CollectionCount");
+        sql.append(" GROUP BY c.collection_id");
+        Map<Long, Long> counts = new java.util.LinkedHashMap<>();
+        jdbc.query(sql.toString(), params, rs -> {
+            counts.put(rs.getLong("collection_id"), rs.getLong("cnt"));
+        });
+        return counts;
     }
 
     /**

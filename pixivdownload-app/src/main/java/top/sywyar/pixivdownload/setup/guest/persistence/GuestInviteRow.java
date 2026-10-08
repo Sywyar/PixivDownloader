@@ -34,4 +34,8 @@ public class GuestInviteRow {
     private Long firstUsedTime;
     private Long lastUsedTime;
     private long totalRequestCount;
+
+    /** 收藏夹入口与归属标记的可见范围，默认不限制。 */
+    private boolean collectionUnrestricted = true;
+    private boolean collectionRestrictsWorks;
 }

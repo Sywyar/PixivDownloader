@@ -20,6 +20,7 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.setup.request.LoginRequest;
+import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 import top.sywyar.pixivdownload.setup.request.SetupInitRequest;
 import top.sywyar.pixivdownload.setup.response.AuthCheckResponse;
 import top.sywyar.pixivdownload.setup.response.AuthResponse;
@@ -161,11 +162,17 @@ public class SetupController {
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                .header(HttpHeaders.SET_COOKIE, clearedInviteCookie())
                 .body(new AuthResponse(true));
     }
 
     @PostMapping("/api/auth/logout")
     public ResponseEntity<AuthResponse> logout(HttpServletRequest request) throws IOException {
+        if (GuestInviteSession.isGuestRequest(request)) {
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.SET_COOKIE, clearedInviteCookie())
+                    .body(new AuthResponse(true));
+        }
         String token = SessionUtils.extractToken(request);
         setupService.removeSession(token);
 
@@ -185,6 +192,11 @@ public class SetupController {
     @GetMapping("/api/auth/check")
     public AuthCheckResponse check(HttpServletRequest request) {
         return new AuthCheckResponse(setupService.isAdminLoggedIn(request));
+    }
+
+    private String clearedInviteCookie() {
+        return ResponseCookie.from(AuthFilter.INVITE_COOKIE, "")
+                .path("/").httpOnly(true).secure(sslEnabled).sameSite("Strict").maxAge(0).build().toString();
     }
 
     private String getClientIp(HttpServletRequest request) {

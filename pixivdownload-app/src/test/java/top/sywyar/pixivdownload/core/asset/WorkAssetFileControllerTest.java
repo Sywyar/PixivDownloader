@@ -96,6 +96,24 @@ class WorkAssetFileControllerTest {
     // ========== GET /api/downloaded/thumbnail-file（FileSystemResource 流） ==========
 
     @Test
+    @DisplayName("方形封面沿用可见性检查并传递尺寸，拒绝访问时不生成缓存")
+    void servesCoverOnlyAfterVisibilityCheck() throws Exception {
+        when(workAssetService.coverThumbnail(WorkType.ARTWORK, 12345L, 0, 256))
+                .thenReturn(Optional.of(new WorkAssetFile(0, pngFile, "png")));
+        mockMvc.perform(get("/api/downloaded/thumbnail-file/12345/0").param("cover", "true").param("size", "256"))
+                .andExpect(status().isOk()).andExpect(content().contentType(MediaType.IMAGE_PNG));
+        var order = inOrder(guestAccessGuard, workAssetService);
+        order.verify(guestAccessGuard).requireVisible(any(), eq(12345L));
+        order.verify(workAssetService).coverThumbnail(WorkType.ARTWORK, 12345L, 0, 256);
+        reset(workAssetService);
+        doThrow(new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN))
+                .when(guestAccessGuard).requireVisible(any(), eq(12345L));
+        mockMvc.perform(get("/api/downloaded/thumbnail-file/12345/0").param("cover", "true"))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(workAssetService);
+    }
+
+    @Test
     @DisplayName("缩略图请求把展示尺寸传给资产服务且保留可见性检查")
     void forwardsPreviewSize() throws Exception {
         when(workAssetService.thumbnail(WorkType.ARTWORK, 12345L, 0, 300))

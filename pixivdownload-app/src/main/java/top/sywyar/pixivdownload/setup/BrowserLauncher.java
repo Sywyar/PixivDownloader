@@ -2,12 +2,12 @@ package top.sywyar.pixivdownload.setup;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.config.http.ServerAddressProvider;
 
 import java.awt.Desktop;
 import java.awt.GraphicsEnvironment;
@@ -21,8 +21,7 @@ public class BrowserLauncher implements ApplicationRunner {
 
     private final SetupService setupService;
     private final AppMessages messages;
-    @Value("${server.port:6999}")
-    private int port;
+    private final ServerAddressProvider serverAddress;
 
     @Override
     public void run(ApplicationArguments args) {
@@ -38,7 +37,7 @@ public class BrowserLauncher implements ApplicationRunner {
                 : GraphicsEnvironment.isHeadless();
         if (!noGui) return;
 
-        String url = "http://localhost:" + port + "/setup.html";
+        String url = serverAddress.uri("/setup.html").toASCIIString();
         log.info(message("setup.browser.log.first-launch.opening", url));
 
         // 尝试用 Desktop API 打开（适用于有 GUI 的系统）

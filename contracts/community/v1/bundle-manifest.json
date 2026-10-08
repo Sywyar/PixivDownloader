@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "contractVersion": 1,
   "toolchain": {
-    "sdk": "1.1.0",
+    "sdk": "1.2.0",
     "java": "17",
     "maven": {
       "version": "3.9.11",
@@ -18,7 +18,7 @@
     },
     "jsonSchemaValidator": "2.0.1",
     "jsonCanonicalization": "1.1",
-    "webpDecoder": "3.14.0"
+    "webpDecoder": "3.15.0"
   },
   "files": [
     {

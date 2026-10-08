@@ -609,7 +609,7 @@ final class DesktopToolsController {
                                 "gui.image-classifier.label.server-url",
                                 null,
                                 InputKind.TEXT,
-                                form("classifier.server-url", "http://localhost:6999"),
+                                form("classifier.server-url", ""),
                                 !owner.busy()
                         ),
                         toggle(
@@ -807,7 +807,7 @@ final class DesktopToolsController {
         classifierGroupIndex = 0;
         classifierServer = host.checkImageClassifierServer(form(
                 "classifier.server-url",
-                "http://localhost:6999"
+                ""
         ));
         classifierArtwork = host.resolveImageClassifierArtwork(
                 selected,
@@ -825,14 +825,14 @@ final class DesktopToolsController {
                         new DesktopUiHost.ImageClassifierSettings(
                                 form("classifier.default-folder", ""),
                                 boolForm("classifier.show-skip", false),
-                                form("classifier.server-url", "http://localhost:6999"),
+                                form("classifier.server-url", ""),
                                 classifierSupport.parseTargets(form("classifier.targets", ""))
                         )
                 );
                 classifierNotice = host.message("gui.image-classifier.dialog.settings-saved.message");
                 classifierServer = host.checkImageClassifierServer(form(
                         "classifier.server-url",
-                        "http://localhost:6999"
+                        ""
                 ));
             } catch (Exception failure) {
                 LOG.warn("Unable to save image classifier settings", failure);
@@ -890,7 +890,7 @@ final class DesktopToolsController {
             try {
                 DesktopUiHost.ImageClassifierServer server = host.checkImageClassifierServer(form(
                         "classifier.server-url",
-                        "http://localhost:6999"
+                        ""
                 ));
                 if (!server.available()) {
                     classifierNotice = host.message("gui.image-classifier.server.connect-failed");

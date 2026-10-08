@@ -161,8 +161,11 @@ class AuthFilterServletTest {
                         base.replace("/downloaded/", "/%64ownloaded/"))) {
                     assertThat(request(path + "12345/0", "").statusCode()).as(mode + " " + path).isEqualTo(401);
                     assertThat(request(path + "12345/0", "pixiv_session=admin").body()).isEqualTo(image);
-                    assertThat(request(path + "12345/0", "pixiv_invite_token=invited").body()).isEqualTo(image);
-                    assertThat(request(path + "54321/0", "pixiv_invite_token=invited").statusCode()).isEqualTo(403);
+                    for (String credentials : List.of("pixiv_invite_token=invited",
+                            "pixiv_invite_token=invited; pixiv_session=admin")) {
+                        assertThat(request(path + "12345/0", credentials).body()).isEqualTo(image);
+                        assertThat(request(path + "54321/0", credentials).statusCode()).isEqualTo(403);
+                    }
                 }
             }
         }
@@ -200,6 +203,8 @@ class AuthFilterServletTest {
                 expectPolicy("POST", "/local-method", "", true, 404);
                 expectPolicy("GET", "/open/admin", "", false, 401);
                 expectPolicy("GET", "/open/admin", "pixiv_invite_token=invited", false, 403);
+                expectPolicy("GET", "/open/admin", "pixiv_invite_token=invited; pixiv_session=admin", false, 403);
+                expectPolicy("POST", "/method", "pixiv_invite_token=invited; pixiv_session=admin", false, 403);
                 expectPolicy("GET", "/open/admin", "pixiv_session=admin", false, 200);
                 expectPolicy("GET", "/open/visitor", "", false, mode.equals("multi") ? 200 : 401);
                 expectPolicy("GET", "/local/admin", "", true, 401);

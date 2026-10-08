@@ -26,6 +26,20 @@ public final class ImageThumbnailScaler {
         return scale(decoded.image(), decoded.targetWidth(), decoded.targetHeight());
     }
 
+    /**
+     * 从图片中心裁出正方形并缩放为封面，小图不放大，透明区域合成为白底。
+     * @param source 源图片路径
+     * @param edge 最大输出边长，必须为正数
+     * @return 不透明的正方形封面
+     * @throws IOException 源图片无法安全解码时抛出
+     */
+    public static BufferedImage cover(Path source, int edge) throws IOException {
+        if (edge <= 0) throw new IllegalArgumentException("Cover edge must be positive");
+        BoundedImageDecoder.Decoded decoded = BoundedImageDecoder.readCover(source, edge);
+        if (decoded == null) throw new IOException("Cannot decode image: " + source);
+        return scale(decoded.image(), decoded.targetWidth(), decoded.targetHeight());
+    }
+
     private static BufferedImage scale(BufferedImage source, int targetWidth, int targetHeight) {
         int width = source.getWidth();
         int height = source.getHeight();

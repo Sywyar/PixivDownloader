@@ -18,7 +18,24 @@ public record WorkRestriction(
         boolean tagUnrestricted,
         List<Long> tagIds,
         boolean authorUnrestricted,
-        List<Long> authorIds) {
+        List<Long> authorIds,
+        boolean collectionUnrestricted,
+        List<Long> collectionIds,
+        boolean collectionRestrictsWorks) {
+
+    /**
+     * 未配置收藏夹限制的调用保留原有可见范围。
+     * @param allowedXRestricts 允许的年龄分级
+     * @param tagUnrestricted 标签是否不限
+     * @param tagIds 可见标签
+     * @param authorUnrestricted 作者是否不限
+     * @param authorIds 可见作者
+     */
+    public WorkRestriction(Set<Integer> allowedXRestricts, boolean tagUnrestricted,
+                           List<Long> tagIds, boolean authorUnrestricted, List<Long> authorIds) {
+        this(allowedXRestricts, tagUnrestricted, tagIds, authorUnrestricted, authorIds,
+                true, List.of(), false);
+    }
 
     /**
      * 创建 {@code WorkRestriction} 实例。
@@ -28,12 +45,25 @@ public record WorkRestriction(
      * @param tagIds 标签标识集合
      * @param authorUnrestricted 作者不受限状态
      * @param authorIds 作者标识集合
+     * @param collectionUnrestricted 收藏夹入口是否不受限
+     * @param collectionIds 可见收藏夹标识集合
+     * @param collectionRestrictsWorks 是否同时排除属于任一不可见收藏夹的作品（未收藏作品不受影响）
      */
     public WorkRestriction {
         allowedXRestricts = Set.copyOf(Objects.requireNonNull(
                 allowedXRestricts, "allowedXRestricts"));
         tagIds = List.copyOf(Objects.requireNonNull(tagIds, "tagIds"));
         authorIds = List.copyOf(Objects.requireNonNull(authorIds, "authorIds"));
+        collectionIds = List.copyOf(Objects.requireNonNull(collectionIds, "collectionIds"));
+    }
+
+    /**
+     * 收藏夹入口、筛选与归属标记使用同一可见集合。
+     * @param collectionId 收藏夹标识
+     * @return 收藏夹是否可见；作品可见性还须检查其它限制维度
+     */
+    public boolean isCollectionVisible(long collectionId) {
+        return collectionUnrestricted || collectionIds.contains(collectionId);
     }
 
     /**

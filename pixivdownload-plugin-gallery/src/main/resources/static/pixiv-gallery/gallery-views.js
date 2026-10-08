@@ -57,8 +57,18 @@
 
         setGalleryStatus('loading');
         try {
-            const result = await api('/api/gallery/artworks?' + params.toString());
+            let result = await api('/api/gallery/artworks?' + params.toString());
             if (requestRevision !== galleryLoadRevision) return;
+            if (state.page > 0 && state.page >= (result.totalPages || 0)) {
+                // 可见范围缩小时回到首页；首页不会再次越界，最多补查一次。
+                state.page = 0;
+                persistGalleryState();
+                if (result.totalElements > 0) {
+                    params.set('page', 0);
+                    result = await api('/api/gallery/artworks?' + params.toString());
+                    if (requestRevision !== galleryLoadRevision) return;
+                }
+            }
             state.totalPages = result.totalPages || 0;
             state.totalElements = result.totalElements || 0;
             // 先更新计数文案，确保即使列表为空也不会停留在「加载中…」
@@ -118,7 +128,7 @@
             return `
                 <div class="work-card" data-id="${item.artworkId}">
                     <div class="work-thumb thumb-loading">
-                        <img data-src="/api/downloaded/thumbnail-file/${item.artworkId}/0" alt="${escapeHtml(item.title || '')}" loading="lazy">
+                        <img data-src="/api/downloaded/thumbnail-file/${item.artworkId}/0?cover=true" alt="${escapeHtml(item.title || '')}" loading="lazy">
                         <span class="card-select" aria-hidden="true">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                         </span>
@@ -511,7 +521,7 @@
                 return `
                     <div class="author-work-card" data-id="${item.artworkId}">
                         <div class="author-work-thumb thumb-loading">
-                            <img data-src="/api/downloaded/thumbnail-file/${item.artworkId}/0" alt="${escapeHtml(item.title || '')}" loading="lazy">
+                            <img data-src="/api/downloaded/thumbnail-file/${item.artworkId}/0?cover=true" alt="${escapeHtml(item.title || '')}" loading="lazy">
                             ${pages > 1 ? `<div class="author-work-pages">${pages}P</div>` : ''}
                         </div>
                         <div class="author-work-title">${escapeHtml(item.title || t('status.untitled', 'Untitled'))}</div>
@@ -672,7 +682,7 @@
                 return `
                     <div class="author-work-card" data-id="${item.artworkId}">
                         <div class="author-work-thumb thumb-loading">
-                            <img data-src="/api/downloaded/thumbnail-file/${item.artworkId}/0" alt="${escapeHtml(item.title || '')}" loading="lazy">
+                            <img data-src="/api/downloaded/thumbnail-file/${item.artworkId}/0?cover=true" alt="${escapeHtml(item.title || '')}" loading="lazy">
                             ${order || (pages > 1 ? `<div class="author-work-pages">${pages}P</div>` : '')}
                         </div>
                         <div class="author-work-title">${escapeHtml(item.title || t('status.untitled', 'Untitled'))}</div>

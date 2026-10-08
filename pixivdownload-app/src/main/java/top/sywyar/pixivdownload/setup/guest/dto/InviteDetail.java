@@ -27,7 +27,10 @@ public record InviteDetail(
         List<TagBrief> tags,
         List<AuthorBrief> authors,
         List<TagBrief> novelTags,
-        List<AuthorBrief> novelAuthors) {
+        List<AuthorBrief> novelAuthors,
+        boolean collectionUnrestricted,
+        List<Long> collectionIds,
+        boolean collectionRestrictsWorks) {
 
     public record TagBrief(long tagId, String name, String translatedName) {}
 

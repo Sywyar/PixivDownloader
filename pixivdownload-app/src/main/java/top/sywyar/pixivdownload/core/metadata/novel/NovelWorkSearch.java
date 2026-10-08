@@ -39,6 +39,10 @@ public class NovelWorkSearch {
      * 软删除行已过滤）；分页数学由调用方完成。
      */
     public List<Long> filteredIds(WorkQuery q, GuestRestriction restriction) {
+        if (restriction != null && q.collectionIds() != null
+                && q.collectionIds().stream().anyMatch(id -> id == null || !restriction.isCollectionVisible(id))) {
+            return List.of();
+        }
         Set<Long> idCandidates;
         if (q.collectionIds() != null && !q.collectionIds().isEmpty()) {
             // 多收藏夹取并集（与 pixiv-gallery 收藏夹筛选语义一致：勾选任一即可见）

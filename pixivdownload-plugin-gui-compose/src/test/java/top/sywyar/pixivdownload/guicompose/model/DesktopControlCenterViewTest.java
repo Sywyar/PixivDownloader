@@ -23,14 +23,15 @@ class DesktopControlCenterViewTest {
             var actualPort = new java.util.concurrent.atomic.AtomicInteger(8124);
             try (var model = DesktopConfigurationControllerTest.model(
                     config,
-                    Map.of("developmentMode", args -> development, "backendPort", args -> actualPort.get())
+                    Map.of("developmentMode", args -> development, "backendPort", args -> actualPort.get(),
+                            "backendUri", args -> java.net.URI.create("https://app.example.test:" + actualPort.get() + args[0]))
             )) {
                 assertEquals(development ? Integer.valueOf(8124) : null, home(model).system().port());
-                assertEquals(development ? 8124 : 8123, model.webUri("/plugins.html").getPort());
+                assertEquals("https://app.example.test:8124/plugins.html", model.webUri("/plugins.html").toString());
                 actualPort.incrementAndGet();
                 model.rebuild();
                 assertEquals(development ? Integer.valueOf(8125) : null, home(model).system().port());
-                assertEquals(development ? 8125 : 8123, model.webUri("/plugins.html").getPort());
+                assertEquals("https://app.example.test:8125/plugins.html", model.webUri("/plugins.html").toString());
                 assertEquals("8123", config.get("server.port"));
             }
         }

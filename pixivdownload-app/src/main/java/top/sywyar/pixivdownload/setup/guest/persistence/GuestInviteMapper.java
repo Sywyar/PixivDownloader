@@ -12,6 +12,8 @@ public interface GuestInviteMapper {
             + " tag_unrestricted AS tagUnrestricted, author_unrestricted AS authorUnrestricted,"
             + " novel_tag_unrestricted AS novelTagUnrestricted,"
             + " novel_author_unrestricted AS novelAuthorUnrestricted,"
+            + " collection_unrestricted AS collectionUnrestricted,"
+            + " collection_restricts_works AS collectionRestrictsWorks,"
             + " created_time AS createdTime, paused, revoked,"
             + " first_used_time AS firstUsedTime, last_used_time AS lastUsedTime,"
             + " total_request_count AS totalRequestCount"
@@ -49,10 +51,12 @@ public interface GuestInviteMapper {
             + " (code, name, expire_time, allow_sfw, allow_r18, allow_r18g,"
             + "  tag_unrestricted, author_unrestricted,"
             + "  novel_tag_unrestricted, novel_author_unrestricted,"
+            + "  collection_unrestricted, collection_restricts_works,"
             + "  created_time, paused, revoked, total_request_count)"
             + " VALUES (#{code}, #{name}, #{expireTime}, #{allowSfw}, #{allowR18}, #{allowR18g},"
             + "  #{tagUnrestricted}, #{authorUnrestricted},"
             + "  #{novelTagUnrestricted}, #{novelAuthorUnrestricted},"
+            + "  #{collectionUnrestricted}, #{collectionRestrictsWorks},"
             + "  #{createdTime}, 0, 0, 0)")
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
     void insertInvite(GuestInviteRow row);
@@ -70,7 +74,9 @@ public interface GuestInviteMapper {
             + " allow_sfw = #{allowSfw}, allow_r18 = #{allowR18}, allow_r18g = #{allowR18g},"
             + " tag_unrestricted = #{tagUnrestricted}, author_unrestricted = #{authorUnrestricted},"
             + " novel_tag_unrestricted = #{novelTagUnrestricted},"
-            + " novel_author_unrestricted = #{novelAuthorUnrestricted}"
+            + " novel_author_unrestricted = #{novelAuthorUnrestricted},"
+            + " collection_unrestricted = #{collectionUnrestricted},"
+            + " collection_restricts_works = #{collectionRestrictsWorks}"
             + " WHERE id = #{id}")
     void updateInviteCore(GuestInviteRow row);
 
@@ -194,6 +200,15 @@ public interface GuestInviteMapper {
 
     @Delete("DELETE FROM guest_invite_access_stats WHERE bucket_hour < #{minBucket}")
     int deleteAccessStatsOlderThan(@Param("minBucket") long minBucket);
+
+    @Insert("INSERT INTO guest_invite_collections(invite_id, collection_id) VALUES(#{inviteId}, #{collectionId})")
+    void insertInviteCollection(@Param("inviteId") long inviteId, @Param("collectionId") long collectionId);
+
+    @Delete("DELETE FROM guest_invite_collections WHERE invite_id = #{inviteId}")
+    void deleteInviteCollections(@Param("inviteId") long inviteId);
+
+    @Select("SELECT collection_id FROM guest_invite_collections WHERE invite_id = #{inviteId} ORDER BY collection_id")
+    List<Long> findInviteCollectionIds(@Param("inviteId") long inviteId);
 
     // ── Row 类型 ────────────────────────────────────────────────────────────
 

@@ -681,12 +681,12 @@ public interface DesktopUiToolHost {
          *
          * @param defaultFolder  默认源父目录
          * @param showSkipButton 是否显示跳过按钮
-         * @param serverUrl      已配置的后端 URL
+         * @param serverUrl      已配置的后端 URL；为空时由宿主解析当前实例地址
          * @param targets        分类器目标
          */
         public ImageClassifierSettings {
             defaultFolder = defaultFolder == null ? "" : defaultFolder;
-            serverUrl = serverUrl == null || serverUrl.isBlank() ? "http://localhost:6999" : serverUrl.trim();
+            serverUrl = serverUrl == null ? "" : serverUrl.trim();
             targets = targets == null ? List.of() : List.copyOf(targets);
         }
     }
