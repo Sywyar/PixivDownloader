@@ -12,7 +12,7 @@ The package includes `.git/` with an initial commit on `main` containing all del
 
 ## Licensing and distribution
 
-The SDK uses [AGPL-3.0](licenses/pixivdownloader/LICENSE). Independent third-party plugins may choose the MIT License when they meet the included [Plugin Linking Exception](licenses/pixivdownloader/PLUGIN-LINKING-EXCEPTION.txt).
+The SDK uses [AGPL-3.0](https://github.com/Sywyar/PixivDownloader/blob/master/LICENSE). Independent third-party plugins may choose the MIT License when they meet the included [Plugin Linking Exception](https://github.com/Sywyar/PixivDownloader/blob/master/PLUGIN-LINKING-EXCEPTION.txt).
 
 Place your plugin's license in `LICENSE` at the project root. Retain the upstream license texts in `licenses/pixivdownloader/` and applicable copyright notices, including when copying an example into a separate project.
 

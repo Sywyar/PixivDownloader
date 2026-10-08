@@ -12,7 +12,7 @@
 
 ## 许可证与分发
 
-SDK 采用 [AGPL-3.0](licenses/pixivdownloader/LICENSE)，符合随包提供的[插件链接例外](licenses/pixivdownloader/PLUGIN-LINKING-EXCEPTION.txt)条件的独立第三方插件可选择 MIT 许可证。
+SDK 采用 [AGPL-3.0](https://github.com/Sywyar/PixivDownloader/blob/master/LICENSE)，符合随包提供的[插件链接例外](https://github.com/Sywyar/PixivDownloader/blob/master/PLUGIN-LINKING-EXCEPTION.txt)条件的独立第三方插件可选择 MIT 许可证。
 
 插件自身的许可证放在工程根目录 `LICENSE` 中。请保留 `licenses/pixivdownloader/` 中的上游许可及适用版权声明；复制示例另建工程时也应一并保留。
 
