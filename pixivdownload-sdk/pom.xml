@@ -56,6 +56,18 @@
     </dependencies>
 
     <build>
+        <resources>
+            <resource><directory>src/main/resources</directory></resource>
+            <resource>
+                <directory>${project.basedir}/..</directory>
+                <targetPath>META-INF</targetPath>
+                <filtering>false</filtering>
+                <includes>
+                    <include>LICENSE</include>
+                    <include>PLUGIN-LINKING-EXCEPTION.txt</include>
+                </includes>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
@@ -66,20 +78,19 @@
                     <execution><id>clean-flattened-pom</id><goals><goal>clean</goal></goals></execution>
                 </executions>
             </plugin>
-            <!-- 本模块无 Java 类；源码附件保存 POM，文档附件说明入口用法与 API 文档归属。 -->
+            <!-- 本模块无 Java 类；源码附件保存 POM 和许可，文档附件说明入口用法与 API 文档归属。 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <configuration><includePom>true</includePom></configuration>
+                <executions>
+                    <execution><id>attach-sources</id><goals><goal>jar-no-fork</goal></goals></execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
                 <executions>
-                    <execution>
-                        <id>attach-sources</id>
-                        <goals><goal>jar</goal></goals>
-                        <configuration>
-                            <classifier>sources</classifier>
-                            <classesDirectory>${project.basedir}</classesDirectory>
-                            <includes><include>pom.xml</include></includes>
-                        </configuration>
-                    </execution>
                     <execution>
                         <id>attach-javadocs</id>
                         <goals><goal>jar</goal></goals>

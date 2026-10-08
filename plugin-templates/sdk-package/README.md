@@ -10,6 +10,12 @@
 
 开发包自带 `.git/`，`main` 分支的初始提交包含全部交付文件，可直接用 `git status` 和 `git diff` 查看自己的修改。仓库未配置远端；提交自己的代码前，按需设置 Git 用户名、邮箱和远端地址。构建产物、IDE 本地配置与 `.dev/` 运行数据由 `.gitignore` 排除。
 
+## 许可证与分发
+
+SDK 采用 [AGPL-3.0](licenses/pixivdownloader/LICENSE)，符合随包提供的[插件链接例外](licenses/pixivdownloader/PLUGIN-LINKING-EXCEPTION.txt)条件的独立第三方插件可选择 MIT 许可证。
+
+插件自身的许可证放在工程根目录 `LICENSE` 中。请保留 `licenses/pixivdownloader/` 中的上游许可及适用版权声明；复制示例另建工程时也应一并保留。
+
 ## 升级 SDK
 
 1. 保留现有工程、源码和 `.dev/` 数据，将目标 SDK 开发包解压到另一个目录。先查看该版本说明和 Javadoc 中删除或改变的 API，再修改调用代码。

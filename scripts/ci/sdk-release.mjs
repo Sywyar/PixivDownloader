@@ -278,6 +278,11 @@ export function stagePluginTemplates(root, workspace, identity, sourceSha) {
         fs.copyFileSync(path.join(workspace, markerName), path.join(example, markerName));
         fs.copyFileSync(path.join(workspace, 'CHANGELOG.md'), path.join(example, 'CHANGELOG.md'));
     }
+    const licenses = path.join(workspace, 'licenses', 'pixivdownloader');
+    fs.mkdirSync(licenses, { recursive: true });
+    for (const file of ['LICENSE', 'PLUGIN-LINKING-EXCEPTION.txt']) {
+        fs.copyFileSync(path.join(root, file), path.join(licenses, file));
+    }
 }
 
 function renderOverlay(overlay, destination, values) {
@@ -450,7 +455,7 @@ export function assembleRelease(options) {
     fs.mkdirSync(path.dirname(workspace), { recursive: true });
     stagePluginTemplates(root, workspace, identity, options.sourceSha);
     fs.cpSync(path.join(root, '.mvn'), path.join(workspace, '.mvn'), { recursive: true });
-    for (const file of ['mvnw', 'mvnw.cmd', 'LICENSE']) {
+    for (const file of ['mvnw', 'mvnw.cmd']) {
         fs.copyFileSync(path.join(root, file), path.join(workspace, file));
     }
     if (process.platform !== 'win32') fs.chmodSync(path.join(workspace, 'mvnw'), 0o755);

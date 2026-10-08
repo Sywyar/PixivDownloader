@@ -1,5 +1,7 @@
 # Download type plugin template
 
+For template reuse and licensing, see the [Plugin Linking Exception](https://github.com/Sywyar/PixivDownloader/blob/master/PLUGIN-LINKING-EXCEPTION.txt).
+
 This standalone Maven project demonstrates a stable, resilient, and approachable PixivDownloader Plugin API surface for a new download type. It is intentionally deterministic: the endpoints produce mock items, the queue is in memory, and no external website, credential, proxy, database, or download directory is used.
 
 > **Execution trust warning:** this template requires a Spring child context and behavioral capabilities, so its descriptor is `host-process-full-trust` with `process-restart`. A third-party package can use this full-capability path in production after package verification and explicit administrator trust confirmation; a signature proves publisher identity and content integrity, not safety. Do not change the descriptor to `declarative-process` while retaining configuration classes, controllers, queues, schedules, or other in-process behavior.

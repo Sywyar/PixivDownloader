@@ -122,7 +122,7 @@ test('运行附件必须与固定源码、发行地址和实际字节一致', ()
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('SDK IDEA 配置只在开发包中生效，源码模板不会注册运行项', () => {
+test('SDK ZIP 携带原生运行配置和上游许可，源码模板不注册运行项', () => {
     const overlay = path.join(REPO_ROOT, 'plugin-templates', 'sdk-package');
     const templates = fs.readdirSync(path.join(overlay, '.run'));
     assert.ok(templates.length > 0);
@@ -140,6 +140,9 @@ with zipfile.ZipFile(sys.argv[1]) as archive:
     names = sorted(name for name in archive.namelist() if name.startswith('.run/'))
     expected = sorted('.run/' + file.name.removesuffix('.template') for file in (overlay / '.run').iterdir())
     assert names == expected, (names, expected)
+    for name in ['LICENSE', 'PLUGIN-LINKING-EXCEPTION.txt']:
+        assert archive.read('licenses/pixivdownloader/' + name) == (overlay.parent.parent / name).read_bytes()
+    assert 'LICENSE' not in archive.namelist()
     for name in names:
         actual = ET.fromstring(archive.read(name))
         template = ET.parse(overlay / (name + '.template')).getroot()

@@ -1,0 +1,75 @@
+PixivDownloader Plugin Linking Exception 1.0
+
+Additional permission under section 7 of the GNU Affero General Public
+License, version 3 (AGPLv3).
+
+1. Covered code
+
+The copyright holders of the PixivDownloader code distributed with this
+exception grant the permissions below for that code, including the host,
+SDK/API modules, runtime and official plugins. The AGPLv3 text remains in
+LICENSE. Separately licensed third-party code and dependencies are not
+covered by this exception; their own licenses continue to apply.
+
+This permission applies to versions distributed with this exception. It
+does not add an exception to earlier releases that lack it.
+
+2. Independent plugins
+
+An Independent Plugin is a separately developed extension that interacts
+with PixivDownloader through its public SDK/API or documented extension
+interfaces. Implementing those interfaces, linking to their definitions,
+subclassing public extension classes, or exchanging data through those
+interfaces does not, by itself, disqualify an extension.
+
+Except for the template materials permitted in section 4, an Independent
+Plugin must not copy, incorporate, translate or adapt the implementation
+code of the host, SDK/API, runtime or official plugins. Moving such code
+into a separate JAR, repository or process does not make it independent.
+
+3. Linking, distribution and network use
+
+You may develop, compile, link, load and run Independent Plugins with the
+covered code. You may reproduce and convey the resulting combination and
+operate it for users over a network. These permissions apply to static
+and dynamic linking, same-process loading and interprocess communication.
+
+An Independent Plugin may use a license chosen by its copyright holders,
+such as the MIT License. Solely because of the combination described
+above, the AGPLv3 does not require that Independent Plugin to be licensed
+under AGPLv3 or that its source code be supplied, including under AGPLv3
+section 13.
+
+You must still comply with AGPLv3 for the covered code and modifications
+to it, including applicable notice, Corresponding Source and remote
+network interaction obligations. A plugin's license must not restrict
+recipients' AGPLv3 rights in the covered code. This exception does not
+limit permissions or exclusions already provided by AGPLv3.
+
+4. Plugin templates
+
+As a further permission, you may copy, modify and incorporate the
+project-authored materials under plugin-templates/ into your own plugins
+and their build projects, and license those materials and adaptations
+under terms of your choice, such as the MIT License. Retain applicable
+copyright notices and a copy of this exception with redistributed
+template materials or adaptations.
+
+This permission does not cover SDK/API implementations, development tool
+binaries, host or official plugin implementations, third-party libraries,
+wrappers or other separately licensed materials merely bundled with an
+SDK package. Their own licenses and notices remain applicable.
+
+5. Distribution channels and modified versions
+
+This exception does not require publication in any particular repository.
+Independent Plugins may be distributed through custom repositories or
+as local packages. Admission to the official community repository is a
+separate policy and does not determine eligibility for this permission.
+No official signature, endorsement or repository admission is granted.
+
+AGPLv3 section 7 permits removal of additional permissions from copies
+you convey. If you modify covered code, you may extend this exception to
+your modifications where you have authority to do so, but are not
+required to. Do not represent a version from which this exception has
+been removed as still providing it.

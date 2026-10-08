@@ -9,6 +9,8 @@
 
 模板目标是提供一套稳定、高可用、易上手的 SDK 起点：稳定来自版本化公共契约和 owner/publication 边界，高可用来自失败隔离、fail-closed 与真实生命周期清退，易上手来自可复制工程、命名工厂和确定性守卫。目录名中的 `minimal` 只表示示例不携带站点业务逻辑，不表示删减安全、生命周期或降级路径来追求文件更少。
 
+项目自有模板的复制、改编及许可选择见[插件链接例外](../PLUGIN-LINKING-EXCEPTION.txt)。
+
 ## 基础功能插件
 
 <code>minimal-feature-plugin</code> 演示一个没有站点业务逻辑的 thin PF4J 插件，包含：

@@ -1,5 +1,7 @@
 # Minimal feature plugin template
 
+For template reuse and licensing, see the [Plugin Linking Exception](https://github.com/Sywyar/PixivDownloader/blob/master/PLUGIN-LINKING-EXCEPTION.txt).
+
 This directory is a standalone Maven project for a thin external PF4J plugin. It demonstrates a root `plugin.properties`, a PF4J entry point, `PixivPluginProvider`, `PixivFeaturePlugin`, and route/static/i18n contributions that can be admitted through an isolated plugin worker.
 
 Build with JDK 17, Maven and Node.js using `mvn clean verify`. The POM declares only `pixivdownload-sdk` with `provided` scope for compilation, plus JUnit for tests. The SDK brings the public contracts and host-provided framework libraries transitively; do not copy them into the output JAR. The configured candidate SDK version must be available in your Maven repository.
