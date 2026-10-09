@@ -27,6 +27,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageVersi
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginOperation;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginOperationSnapshot;
 import java.util.function.Consumer;
+import top.sywyar.pixivdownload.plugin.catalog.download.PluginCatalogDownloadSession;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -140,13 +141,19 @@ public class PluginCatalogAcquisitionService {
 
     public PluginInstallReport installPreviewed(String repositoryId, String pluginId, String version,
             String confirmedTrustSha256, String fingerprint, Consumer<ExternalPluginOperationSnapshot> progress) {
+        return installPreviewed(repositoryId, pluginId, version, confirmedTrustSha256, fingerprint, progress, null);
+    }
+
+    public PluginInstallReport installPreviewed(String repositoryId, String pluginId, String version,
+            String confirmedTrustSha256, String fingerprint, Consumer<ExternalPluginOperationSnapshot> progress,
+            PluginCatalogDownloadSession downloads) {
         return installPreview.execute(repositoryId, pluginId, version, fingerprint, plan -> {
             List<PluginDependencyInstallResult> completed = new ArrayList<>();
             try {
                 for (var selected : plan.packages()) {
                     String id = selected.entry().pluginId();
                     var report = downloadAndInstall(selected.repository(), id, selected.pkg().version(),
-                            confirmedTrustSha256, selected, progress);
+                            confirmedTrustSha256, selected, progress, downloads);
                     progress.accept(new ExternalPluginOperationSnapshot(id, report.operation(), report.transactionId(), null));
                     if (id.equals(pluginId) || !report.accepted() || report.recoveryBlocked()) {
                         return report.withDependencyInstallResults(completed);
@@ -331,12 +338,12 @@ public class PluginCatalogAcquisitionService {
 
     private PluginInstallReport downloadAndInstall(PluginRepository repository, String pluginId, String version,
             String confirmedTrustSha256, PluginCatalogService.ResolvedPackage expected) {
-        return downloadAndInstall(repository, pluginId, version, confirmedTrustSha256, expected, ignored -> { });
+        return downloadAndInstall(repository, pluginId, version, confirmedTrustSha256, expected, ignored -> { }, null);
     }
 
     private PluginInstallReport downloadAndInstall(PluginRepository repository, String pluginId, String version,
             String confirmedTrustSha256, PluginCatalogService.ResolvedPackage expected,
-            Consumer<ExternalPluginOperationSnapshot> progress) {
+            Consumer<ExternalPluginOperationSnapshot> progress, PluginCatalogDownloadSession downloads) {
 
         // 执行计划刚完成选包与指纹复核；复用该已验证选择，下载后仍重新读取目录。
         var resolved = expected != null ? expected
@@ -351,9 +358,14 @@ public class PluginCatalogAcquisitionService {
         if (revocations != null) revocations.requireInstallAllowed(repository, pluginId, pkg);
 
         // throws PROXY_POLICY_UNSUPPORTED / INSECURE_URL / BLOCKED_ADDRESS / TOO_LARGE / FAILED / INVALID
-        progress.accept(new ExternalPluginOperationSnapshot(pluginId, ExternalPluginOperation.DOWNLOADING, null, null));
-        Path temp = downloader.downloadToTemp(repository, pkg);
+        Path temp = downloads == null ? null : downloads.take(repository, pkg, confirmedTrustSha256);
+        if (temp == null) {
+            progress.accept(new ExternalPluginOperationSnapshot(pluginId, ExternalPluginOperation.DOWNLOADING, null, null));
+            temp = downloader.downloadToTemp(repository, pkg);
+        }
+        boolean retained = false;
         try {
+            progress.accept(new ExternalPluginOperationSnapshot(pluginId, ExternalPluginOperation.PREPARING, null, null));
             if (expected != null) requireSameSelection(expected);
             PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog(
                     repository.repositoryId(), repository.official(), pkg.expectedSizeBytes(), pkg.sha256(),
@@ -368,9 +380,16 @@ public class PluginCatalogAcquisitionService {
             }
             if (revocations != null) revocations.requireInstallAllowed(repository, pluginId, pkg);
             progress.accept(new ExternalPluginOperationSnapshot(pluginId, ExternalPluginOperation.INSTALLING, null, null));
-            return installService.installTrustedFile(temp, false, origin);
+            var report = installService.installTrustedFile(temp, false, origin);
+            if (downloads != null && report.outcome() == PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED
+                    && report.trustRequirement() != null
+                    && pkg.sha256().equalsIgnoreCase(report.trustRequirement().artifactSha256())) {
+                downloads.retain(temp, repository, pkg);
+                retained = true;
+            }
+            return report;
         } finally {
-            deleteQuietly(temp);
+            if (!retained) deleteQuietly(temp);
         }
     }
 

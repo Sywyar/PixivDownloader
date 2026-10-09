@@ -92,6 +92,7 @@
         var confirmedArtifacts = Object.create(null);
         var confirmedPlan = null;
         var completedDependencies = Object.create(null);
+        var pendingOperationId = null;
         function rememberDependencies(response) {
             var body = response.body || {};
             (body.dependencyInstallResults || []).forEach(function (item) {
@@ -166,6 +167,7 @@
                 var body = response.body || {};
                 var trustRequired = body.outcome === PMK.TRUST_CONFIRMATION_REQUIRED
                     || body.code === PMK.TRUST_CONFIRMATION_REQUIRED;
+                pendingOperationId = trustRequired ? response.operationId || null : null;
                 if (trustRequired && body.trustRequirement && canConfirm()) {
                     var sha256 = String(body.trustRequirement.artifactSha256 || '').toLowerCase();
                     if (!/^[0-9a-f]{64}$/.test(sha256) || confirmedArtifacts[sha256]) return response;
@@ -174,7 +176,7 @@
                         .then(function (confirmed) {
                         if (!confirmed) return response;
                         confirmedArtifacts[sha256] = true;
-                        return previewAndAttempt({ trustSha256: sha256 });
+                        return previewAndAttempt({ trustSha256: sha256, previousOperationId: pendingOperationId });
                     });
                 }
                 return response;
@@ -185,6 +187,12 @@
                 code: failure.body && failure.body.code || 'REQUEST_FAILED',
                 message: failure.message || PMK.t('install.preview.unavailable')
             }});
+        }).finally(function () {
+            if (pendingOperationId && PMK.api.discardOperation) {
+                return PMK.api.discardOperation(pendingOperationId).catch(function () {
+                    PMK.toast(PMK.t('operations.unknown'), 'error');
+                });
+            }
         });
     };
 

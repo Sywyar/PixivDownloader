@@ -448,6 +448,8 @@
                 this.reload();
             },
             beforeUnmount: function () {
+                this.catalogToken++;
+                if (PMK.api.cancelCatalog) PMK.api.cancelCatalog();
                 document.removeEventListener('keydown', this.onKeydown);
                 document.body.style.overflow = '';
             },
@@ -466,6 +468,7 @@
                     var self = this;
                     // 让在途的旧仓库列表 / catalog 拉取全部失效（其回调将被 token 守卫丢弃）。
                     var token = ++this.reloadToken;
+                    if (PMK.api.cancelCatalog) PMK.api.cancelCatalog();
                     this.catalogToken++;
                     this.loading = true; this.error = null; this.catalogError = null;
                     Promise.all([PMK.api.fetchRepositories(), PMK.api.fetchPluginStatus()]).then(function (responses) {
@@ -503,13 +506,15 @@
                 loadCatalog: function (repoId) {
                     var self = this;
                     var token = ++this.catalogToken;
+                    this.loadingMore = false;
                     this.catalogLoading = true; this.catalogError = null;
                     PMK.api.fetchCatalog(repoId).then(function (cat) {
                         if (token !== self.catalogToken) return;   // 仓库已切换，丢弃旧仓库的 catalog 响应
                         self.catalog = cat;
                         self.catalogLoading = false;
-                    }).catch(function () {
+                    }).catch(function (failure) {
                         if (token !== self.catalogToken) return;
+                        if (failure.name === 'AbortError') return;
                         self.catalog = null;
                         self.catalogError = self.t('error.catalog', '无法加载该仓库的插件清单，请检查仓库状态或稍后重试。');
                         self.catalogLoading = false;
@@ -518,16 +523,20 @@
                 loadMore: function () {
                     var self = this;
                     if (!this.catalog || !this.catalog.nextCursor || this.loadingMore) return;
+                    var token = this.catalogToken;
+                    var repository = this.activeRepositoryId;
                     this.loadingMore = true;
                     PMK.api.fetchCatalog(this.activeRepositoryId, { cursor: this.catalog.nextCursor }).then(function (page) {
+                        if (token !== self.catalogToken || repository !== self.activeRepositoryId) return;
                         if (!self.catalog || page.generation !== self.catalog.generation) {
                             self.loadCatalog(self.activeRepositoryId); return;
                         }
                         self.catalog.entries = self.catalog.entries.concat(page.entries || []);
                         self.catalog.nextCursor = page.nextCursor;
-                    }).catch(function () {
+                    }).catch(function (failure) {
+                        if (token !== self.catalogToken || failure.name === 'AbortError') return;
                         PMK.toast(self.t('error.catalog', '无法加载该仓库的插件清单，请检查仓库状态或稍后重试。'), 'error');
-                    }).finally(function () { self.loadingMore = false; });
+                    }).finally(function () { if (token === self.catalogToken) self.loadingMore = false; });
                 },
                 switchRepository: function (repo) {
                     if (!repo.enabled || repo.repositoryId === this.activeRepositoryId) return;

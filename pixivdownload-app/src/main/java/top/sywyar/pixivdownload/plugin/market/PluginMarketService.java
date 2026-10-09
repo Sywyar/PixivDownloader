@@ -135,7 +135,7 @@ public class PluginMarketService {
         PluginRepository repository = resolveRepository(repositoryId);
         query = query == null ? PluginCatalogPageQuery.first() : query;
         RevocationSnapshot snapshot = refreshRevocations(repository);
-        PluginCatalogPage page = catalogService.loadPage(repository.repositoryId(), query);
+        PluginCatalogPage page = catalogService.loadPage(repository, query);
         Map<String, String> installed = installedVersionsById();
         long compatibilityDeadline = System.nanoTime() + COMPATIBILITY_SEARCH_BUDGET_NANOS;
         List<PluginMarketEntryView> entries = page.items().stream()
@@ -169,10 +169,10 @@ public class PluginMarketService {
         PluginRepository repository = resolveRepository(repositoryId);
         RevocationSnapshot snapshot = refreshRevocations(repository);
         PluginCatalogDetailPage page = catalogService.loadEntryPage(
-                repository.repositoryId(), pluginId, cursor, limit);
+                repository, pluginId, cursor, limit);
         var installed = installedVersionsById();
         var first = cursor == null ? page
-                : catalogService.loadEntryPage(repository.repositoryId(), pluginId, null, limit);
+                : catalogService.loadEntryPage(repository, pluginId, null, limit);
         var selected = selectVersion(repository, first.item(), installed, snapshot, first.generation(),
                 first.nextCursor() != null, System.nanoTime() + COMPATIBILITY_SEARCH_BUDGET_NANOS);
         // 后续历史页只贡献该页版本，不覆盖默认选择；不同代次不混合。
@@ -194,7 +194,7 @@ public class PluginMarketService {
         var view = projectEntry(repository, entry, installed, snapshot);
         if (!incomplete || view.compatibilityReason() == null && view.recommendedVersion() != null) return view;
         try {
-            var complete = catalogService.loadEntrySnapshot(repository.repositoryId(), entry.pluginId(), deadlineNanos);
+            var complete = catalogService.loadEntrySnapshot(repository, entry.pluginId(), deadlineNanos);
             if (complete.stale() || !generation.equals(complete.generation())) {
                 return view.withPackages(view.packages(), true);
             }

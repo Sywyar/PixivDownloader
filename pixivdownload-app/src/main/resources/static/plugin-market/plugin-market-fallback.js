@@ -256,12 +256,14 @@
     function loadCatalog(repoId) {
         if (detailView) detailView.close();
         var token = ++state.catalogToken;
+        state.loadingMore = false;
         state.catalogError = null;
         return PMK.api.fetchCatalog(repoId).then(function (cat) {
             if (token !== state.catalogToken) return;   // 仓库已切换，丢弃旧仓库的 catalog 响应
             state.catalog = cat;
-        }).catch(function () {
+        }).catch(function (failure) {
             if (token !== state.catalogToken) return;
+            if (failure.name === 'AbortError') return;
             state.catalog = null;
             state.catalogError = t('error.catalog', '无法加载该仓库的插件清单，请检查仓库状态或稍后重试。');
         });
@@ -270,6 +272,7 @@
     function load() {
         state.loading = true; state.error = null; state.catalogError = null;
         state.catalogToken++;   // 让在途的旧 catalog 拉取失效（其回调将被 token 守卫丢弃）
+        if (PMK.api.cancelCatalog) PMK.api.cancelCatalog();
         paint();
         Promise.all([PMK.api.fetchRepositories(), PMK.api.fetchPluginStatus()]).then(function (responses) {
             var repos = responses[0];
@@ -504,14 +507,18 @@
             if (e.target.closest('[data-pmk-refresh]')) { load(); }
             if (e.target.closest('[data-pmk-more]') && state.catalog && state.catalog.nextCursor && !state.loadingMore) {
                 var generation = state.catalog.generation;
+                var token = state.catalogToken;
                 state.loadingMore = true; paint();
                 PMK.api.fetchCatalog(state.activeRepositoryId, { cursor: state.catalog.nextCursor }).then(function (page) {
+                    if (token !== state.catalogToken) return;
                     if (!state.catalog || page.generation !== generation) return loadCatalog(state.activeRepositoryId).then(paint);
                     state.catalog.entries = state.catalog.entries.concat(page.entries || []);
                     state.catalog.nextCursor = page.nextCursor; paint();
-                }).catch(function () {
+                }).catch(function (failure) {
+                    if (token !== state.catalogToken || failure.name === 'AbortError') return;
                     PMK.toast(t('error.catalog', '无法加载该仓库的插件清单，请检查仓库状态或稍后重试。'), 'error');
                 }).then(function () {
+                    if (token !== state.catalogToken) return;
                     state.loadingMore = false; paint();
                 });
             }

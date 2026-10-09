@@ -36,8 +36,9 @@ class PluginAcquisitionControllerTest {
         var snapshot = new PluginAcquisitionOperations.Snapshot("operation", "official", "sample", "1.0.0", "sample",
                 ExternalPluginOperation.FAILED, "original-transaction", Instant.EPOCH, Instant.EPOCH, true, true, null,
                 new PluginAcquisitionOperations.Failure(PluginCatalogErrorCode.DOWNLOAD_FAILED, "sample", "1.0.0", List.of()));
-        when(operations.prepare("official", "sample", "1.0.0", "fingerprint", null)).thenReturn(snapshot);
+        when(operations.prepare("official", "sample", "1.0.0", "fingerprint", null, null)).thenReturn(snapshot);
         when(operations.execute("operation")).thenReturn(snapshot);
+        when(operations.discard("operation")).thenReturn(snapshot);
         when(operations.get("operation")).thenReturn(snapshot);
         when(operations.list()).thenReturn(List.of(snapshot));
         mvc.perform(post("/api/plugin-market/operations").contentType("application/json").content("""
@@ -56,5 +57,8 @@ class PluginAcquisitionControllerTest {
         mvc.perform(get("/api/plugins/acquisitions/expired"))
                 .andExpect(status().isGone()).andExpect(jsonPath("$.code").value("OPERATION_NOT_FOUND"));
         verify(operations, times(1)).execute(anyString());
+        mvc.perform(post("/api/plugin-market/operations/operation/discard"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.id").value("operation"));
+        verify(operations).discard("operation");
     }
 }

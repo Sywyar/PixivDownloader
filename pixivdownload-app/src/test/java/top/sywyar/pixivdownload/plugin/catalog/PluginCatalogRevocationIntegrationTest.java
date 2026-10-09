@@ -74,9 +74,9 @@ class PluginCatalogRevocationIntegrationTest {
         revocations = new PluginCatalogRevocationService(ignored -> http, store, registry);
         market = new PluginMarketService(registry, catalog, mock(PluginCatalogAcquisitionService.class), installed, revocations);
         entry = new PluginCatalogEntry("demo", "demo", "name", null, null, List.of(pkg("2.0.0", "ab"), pkg("1.0.0", "cd")));
-        when(catalog.loadPage(eq(repository.repositoryId()), any())).thenAnswer(ignored ->
+        when(catalog.loadPage(eq(repository), any())).thenAnswer(ignored ->
                 new PluginCatalogPage("catalog", List.of(entry), null, 1L, Map.of("utility", 1L), false));
-        when(catalog.loadEntryPage(repository.repositoryId(), "demo", null, 24)).thenAnswer(ignored ->
+        when(catalog.loadEntryPage(repository, "demo", null, 24)).thenAnswer(ignored ->
                 new PluginCatalogDetailPage(entry, "catalog", null, (long) entry.packages().size(), false));
     }
 

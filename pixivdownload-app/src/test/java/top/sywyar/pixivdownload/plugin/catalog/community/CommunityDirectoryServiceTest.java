@@ -39,6 +39,22 @@ class CommunityDirectoryServiceTest {
     }
 
     @Test
+    @DisplayName("发现指针未变时复用已验签根和分片，代次变化仍读取并认证新内容")
+    void reusesContentBoundToFreshPointer() throws Exception {
+        var f = new Fixture(temp);
+        f.publish(2, DirectoryEntry.Status.IDENTITY_VERIFIED);
+        f.service().lookup("alpha");
+        f.requests.clear();
+        var unchanged = f.service().lookup("alpha");
+        assertThat(unchanged.cached()).isFalse();
+        assertThat(f.requests).containsExactly(Fixture.BASE.resolve("generated/current.json").toString());
+        f.publish(3, DirectoryEntry.Status.SUSPENDED);
+        f.requests.clear();
+        assertThat(f.service().lookup("alpha").entry().status()).isEqualTo(DirectoryEntry.Status.SUSPENDED);
+        assertThat(f.requests).hasSize(3);
+    }
+
+    @Test
     @DisplayName("重启后离线保留已认证桶，回滚与坏分片不覆盖原代，损坏状态不重置水位")
     void durableLastKnownGood() throws Exception {
         var f = new Fixture(temp);

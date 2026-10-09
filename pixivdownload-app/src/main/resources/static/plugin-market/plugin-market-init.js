@@ -86,4 +86,8 @@
     } else {
         init();
     }
+    global.addEventListener('pagehide', function () { PMK.api.cancelCatalog(); });
+    global.addEventListener('pageshow', function (event) {
+        if (event.persisted && PMK.state.activeView) PMK.state.activeView.reload();
+    });
 })(window);

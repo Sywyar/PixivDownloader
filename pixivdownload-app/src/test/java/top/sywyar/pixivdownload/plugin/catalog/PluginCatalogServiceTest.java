@@ -171,12 +171,12 @@ class PluginCatalogServiceTest {
         var page = new top.sywyar.pixivdownload.plugin.catalog.page.PluginCatalogDetailPage(
                 entry, "g1", "again", null, false);
         org.mockito.Mockito.doReturn(page).when(service).loadEntryPage(
-                eq("paged"), eq("demo"), org.mockito.ArgumentMatchers.nullable(String.class),
+                org.mockito.ArgumentMatchers.any(PluginRepository.class), eq("demo"), org.mockito.ArgumentMatchers.nullable(String.class),
                 org.mockito.ArgumentMatchers.anyInt());
         assertThatThrownBy(() -> service.loadEntrySnapshot("paged", "demo"))
                 .isInstanceOf(PluginCatalogException.class).hasMessageContaining("page limit");
         org.mockito.Mockito.verify(service, org.mockito.Mockito.atMost(10)).loadEntryPage(
-                eq("paged"), eq("demo"), org.mockito.ArgumentMatchers.nullable(String.class),
+                org.mockito.ArgumentMatchers.any(PluginRepository.class), eq("demo"), org.mockito.ArgumentMatchers.nullable(String.class),
                 org.mockito.ArgumentMatchers.anyInt());
     }
 

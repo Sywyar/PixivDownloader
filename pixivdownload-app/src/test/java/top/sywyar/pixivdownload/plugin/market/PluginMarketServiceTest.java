@@ -144,7 +144,7 @@ class PluginMarketServiceTest {
                 new PluginCatalogEntry("b", "b", "plugin.name", null, downloadTypeMeta, List.of()),
                 new PluginCatalogEntry("c", "c", "plugin.name", null, dependencyMeta, List.of()),
                 new PluginCatalogEntry("d", "d", "plugin.name", null, null, List.of()))); // null market → utility 回退
-        when(catalogService.loadPage(org.mockito.ArgumentMatchers.eq(PluginRepository.OFFICIAL_ID), any()))
+        when(catalogService.loadPage(org.mockito.ArgumentMatchers.argThat((PluginRepository r) -> r.official()), any()))
                 .thenReturn(new PluginCatalogPage("manifest-v1", manifest.entries(), null,
                         (long) manifest.entries().size(), Map.of(), false));
 
@@ -218,7 +218,8 @@ class PluginMarketServiceTest {
     @Test
     @DisplayName("pluginDetail：未知插件 id → UNKNOWN_PLUGIN")
     void pluginDetailUnknown() {
-        when(catalogService.loadEntryPage(PluginRepository.OFFICIAL_ID, "ghost", null, 24))
+        when(catalogService.loadEntryPage(org.mockito.ArgumentMatchers.any(PluginRepository.class),
+                org.mockito.ArgumentMatchers.eq("ghost"), org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.eq(24)))
                 .thenThrow(new PluginCatalogException(PluginCatalogErrorCode.UNKNOWN_PLUGIN, "ghost", null,
                         "plugin not found"));
         PluginCatalogProperties props = new PluginCatalogProperties();

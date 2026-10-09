@@ -355,6 +355,9 @@ eq('市场 recoveryBlocked toast 保留后端 message', blockedFeedback.message,
     eq('首次请求只携带当前预览', JSON.parse(installs[0].opts.body).confirmTrust, null);
     eq('首次信任只携带后端返回的精确摘要', JSON.parse(installs[1].opts.body).confirmTrust, firstSha);
     eq('依赖确认不能复用顶层制品摘要', JSON.parse(installs[2].opts.body).confirmTrust, dependencySha);
+    ok('信任确认把待确认下载转交给下一次显式操作', /^operation-/.test(JSON.parse(installs[1].opts.body).previousOperationId));
+    ok('依赖信任确认使用本次操作身份', JSON.parse(installs[2].opts.body).previousOperationId
+        !== JSON.parse(installs[1].opts.body).previousOperationId);
     ok('每次安装都绑定预览指纹', installs.every(call => JSON.parse(call.opts.body).fingerprint === 'd'.repeat(64)));
 
     fetchCalls.length = 0;
@@ -452,6 +455,7 @@ eq('市场 recoveryBlocked toast 保留后端 message', blockedFeedback.message,
     const changedCancelled = await retryAfterTrust({status: 200, body: withDependency}, PMK.t('install.preview.title'));
     eq('取消新增依赖的计划返回中性终态', changedCancelled.body.code, 'CANCELLED');
     eq('取消变化后的计划不继续执行', fetchCalls.filter(call => call.url.endsWith('/execute')).length, 1);
+    eq('取消变化后的计划释放待确认下载', fetchCalls.filter(call => call.url.endsWith('/discard')).length, 1);
 
     const newConflict = await retryAfterTrust({status: 200, body: {...refreshedPlan,
         conflicts: [{code: 'SOURCE_CONFLICT', pluginId: 'sample', arguments: ['other', 'community']}]}});
@@ -460,6 +464,7 @@ eq('市场 recoveryBlocked toast 保留后端 message', blockedFeedback.message,
     const unavailable = await retryAfterTrust({status: 503, body: {code: 'CATALOG_UNAVAILABLE', message: 'Unavailable'}});
     eq('信任确认后预览失败保留原错误', unavailable.body.code, 'CATALOG_UNAVAILABLE');
     eq('预览失败不继续执行', fetchCalls.filter(call => call.url.endsWith('/execute')).length, 1);
+    eq('预览失败释放待确认下载', fetchCalls.filter(call => call.url.endsWith('/discard')).length, 1);
     const invalid = await retryAfterTrust({status: 200, body: {...refreshedPlan, fingerprint: 'invalid'}});
     eq('重复计划也不能使用非法指纹', invalid.body.code, 'REQUEST_FAILED');
     eq('非法指纹不继续执行', fetchCalls.filter(call => call.url.endsWith('/execute')).length, 1);
@@ -467,6 +472,7 @@ eq('市场 recoveryBlocked toast 保留后端 message', blockedFeedback.message,
     const trustCancelled = await retryAfterTrust({status: 200, body: refreshedPlan}, PMK.t('install.trust.title', '确认插件执行信任'));
     eq('取消执行信任不继续安装', trustCancelled.body.outcome, 'TRUST_CONFIRMATION_REQUIRED');
     eq('取消执行信任不重取计划', fetchCalls.filter(call => call.url.endsWith('/install-preview')).length, 1);
+    eq('取消执行信任释放待确认下载', fetchCalls.filter(call => call.url.endsWith('/discard')).length, 1);
     queuedPreviewResponses.length = 0;
     confirmationOptions.length = 0;
     previewResponse = {status: 200, body: initialPlan};

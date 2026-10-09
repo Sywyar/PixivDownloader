@@ -83,13 +83,13 @@ class PluginMarketInstallStatusTest {
         PluginCatalogProperties props = new PluginCatalogProperties();
         props.setEnabled(true);
         PluginCatalogManifest catalog = catalog();
-        when(catalogService.loadPage(eq(PluginRepository.OFFICIAL_ID), any(PluginCatalogPageQuery.class)))
+        when(catalogService.loadPage(any(PluginRepository.class), any(PluginCatalogPageQuery.class)))
                 .thenReturn(new PluginCatalogPage(
                         "manifest-v1", catalog.entries(), null, (long) catalog.entries().size(), Map.of(), false));
         PluginCatalogEntry detail = catalog.entries().stream()
                 .filter(entry -> entry.pluginId().equals("b"))
                 .findFirst().orElseThrow();
-        when(catalogService.loadEntryPage(eq(PluginRepository.OFFICIAL_ID), eq("b"), isNull(), eq(24)))
+        when(catalogService.loadEntryPage(any(PluginRepository.class), eq("b"), isNull(), eq(24)))
                 .thenReturn(new PluginCatalogDetailPage(
                         detail, "manifest-v1", null, (long) detail.packages().size(), false));
         when(statusService.report()).thenReturn(new PluginStatusReport(List.of(installed)));
@@ -186,11 +186,11 @@ class PluginMarketInstallStatusTest {
         var summary = entry("example", current);
         var complete = entry("example", current, oldest, older);
         when(statusService.report()).thenReturn(new PluginStatusReport(List.of()));
-        when(catalogService.loadPage(eq("official"), any())).thenReturn(
+        when(catalogService.loadPage(eq(repository), any())).thenReturn(
                 new PluginCatalogPage("g1", List.of(summary), null, 1L, Map.of(), false));
-        when(catalogService.loadEntrySnapshot(eq("official"), eq("example"), org.mockito.ArgumentMatchers.anyLong()))
+        when(catalogService.loadEntrySnapshot(eq(repository), eq("example"), org.mockito.ArgumentMatchers.anyLong()))
                 .thenReturn(new PluginCatalogDetailPage(complete, "g1", null, 3L, false));
-        when(catalogService.loadEntryPage("official", "example", null, 24))
+        when(catalogService.loadEntryPage(repository, "example", null, 24))
                 .thenReturn(new PluginCatalogDetailPage(summary, "g1", "older", 3L, false));
         var market = new PluginMarketService(registry, catalogService, acquisitionService, statusService);
         var card = entryOf(market.catalog("official"), "example");
@@ -202,7 +202,7 @@ class PluginMarketInstallStatusTest {
         assertThat(detail.nextVersionCursor()).isEqualTo("older");
         assertThat(detail.packages()).extracting(PluginMarketPackageView::version).containsExactly(current.version(), "6.0");
 
-        when(catalogService.loadEntrySnapshot(eq("official"), eq("example"), org.mockito.ArgumentMatchers.anyLong()))
+        when(catalogService.loadEntrySnapshot(eq(repository), eq("example"), org.mockito.ArgumentMatchers.anyLong()))
                 .thenReturn(new PluginCatalogDetailPage(complete, "g2", null, 3L, false),
                         new PluginCatalogDetailPage(complete, "g1", null, 3L, true))
                 .thenThrow(new top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException(
@@ -265,9 +265,9 @@ class PluginMarketInstallStatusTest {
         PluginMarketService market = service(installed("b", "7.3.0-rc.2"));
         PluginCatalogEntry entry = entry("b", Stream.of(versions.split(","))
                 .map(version -> pkg(version, "1.0")).toArray(PluginCatalogPackage[]::new));
-        when(catalogService.loadPage(eq(PluginRepository.OFFICIAL_ID), any(PluginCatalogPageQuery.class)))
+        when(catalogService.loadPage(any(PluginRepository.class), any(PluginCatalogPageQuery.class)))
                 .thenReturn(new PluginCatalogPage("manifest-v1", List.of(entry), null, 1L, Map.of(), false));
-        when(catalogService.loadEntryPage(eq(PluginRepository.OFFICIAL_ID), eq("b"), isNull(), eq(24)))
+        when(catalogService.loadEntryPage(any(PluginRepository.class), eq("b"), isNull(), eq(24)))
                 .thenReturn(new PluginCatalogDetailPage(entry, "manifest-v1", null, 3L, false));
 
         assertThat(List.of(entryOf(market.catalog(PluginRepository.OFFICIAL_ID), "b"),

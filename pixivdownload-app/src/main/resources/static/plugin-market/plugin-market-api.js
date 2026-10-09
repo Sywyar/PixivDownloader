@@ -6,6 +6,11 @@
 (function (global) {
     var PMK = global.PixivPluginMarket;
     var API = PMK.api = {};
+    var catalogRequest = null;
+    API.cancelCatalog = function () {
+        if (catalogRequest) catalogRequest.abort();
+        catalogRequest = null;
+    };
 
     function enc(v) { return encodeURIComponent(v); }
 
@@ -45,6 +50,9 @@
 
     // GET /api/plugin-market/catalog?repositoryId= → 指定仓库（空取默认）的分页摘要 + 分类计数 + 已安装数 + 安装状态。
     API.fetchCatalog = function (repositoryId, options) {
+        API.cancelCatalog();
+        var request = typeof AbortController === 'function' ? new AbortController() : null;
+        catalogRequest = request;
         var url = '/api/plugin-market/catalog';
         var params = [];
         if (repositoryId) params.push('repositoryId=' + enc(repositoryId));
@@ -54,7 +62,9 @@
         });
         if (options.limit) params.push('limit=' + enc(options.limit));
         if (params.length) url += '?' + params.join('&');
-        return getJson(url);
+        return getJson(url, request ? request.signal : options.signal).finally(function () {
+            if (catalogRequest === request) catalogRequest = null;
+        });
     };
 
     API.fetchPluginDetail = function (repositoryId, pluginId, options) {
@@ -94,9 +104,13 @@
 
     API.fetchOperations = function () { return getJson('/api/plugins/acquisitions'); };
     API.fetchOperation = function (id) { return getJson('/api/plugins/acquisitions/' + enc(id)); };
+    API.discardOperation = function (id) {
+        return postJson('/api/plugin-market/operations/' + enc(id) + '/discard', {});
+    };
 
     function operationResult(value) {
-        if (value.finished && value.result) return { kind: 'install', body: value.result, httpStatus: value.result.status };
+        if (value.finished && value.result) return { kind: 'install', body: value.result,
+            operationId: value.id, httpStatus: value.result.status };
         if (value.finished && value.failure) return { kind: 'error', body: value.failure, httpStatus: value.failure.status };
         return { kind: 'error', body: {code: 'OPERATION_RUNNING', operationId: value.id,
             message: PMK.t('operations.running', '', {id: value.id})} };
@@ -106,7 +120,8 @@
         if (onProgress) onProgress('PREPARING');
         var prepared = await postJson('/api/plugin-market/operations', {
             repositoryId: repositoryId, pluginId: pluginId, version: version,
-            fingerprint: confirmations.fingerprint, confirmTrust: confirmations.trustSha256
+            fingerprint: confirmations.fingerprint, confirmTrust: confirmations.trustSha256,
+            previousOperationId: confirmations.previousOperationId
         });
         if (!prepared || !prepared.id) throw new Error(PMK.t('operations.unknown'));
         if (PMK.operations) PMK.operations.watch(prepared.id, onProgress);

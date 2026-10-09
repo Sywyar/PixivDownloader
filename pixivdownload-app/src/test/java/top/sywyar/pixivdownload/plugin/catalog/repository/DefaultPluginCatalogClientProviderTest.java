@@ -69,4 +69,48 @@ class DefaultPluginCatalogClientProviderTest {
         assertThat(ex).isNotNull();
         assertThat(ex.code()).isEqualTo(PluginCatalogErrorCode.PROXY_POLICY_UNSUPPORTED);
     }
+
+    @Test
+    @DisplayName("相同网络策略复用连接，代理变更及不同策略不能复用旧客户端")
+    void reusesEffectiveSettingsAndInvalidatesProxyChanges() {
+        var proxy = new ProxyConfig();
+        proxy.setEnabled(true);
+        proxy.setHost("127.0.0.1");
+        proxy.setPort(7890);
+        var clients = new DefaultPluginCatalogClientProvider(proxy);
+        var official = PluginRepository.official(true, 3_000, 4_000, 1024, 2048);
+        var first = clients.clientFor(official);
+        assertThat(clients.clientFor(repo(RepositoryProxyPolicy.PROXY_TRUSTED, "proxy-trusted"))).isSameAs(first);
+        assertThat(clients.clientFor(repo(RepositoryProxyPolicy.DIRECT_STRICT, "direct-strict"))).isNotSameAs(first);
+        proxy.setPort(7891);
+        var changed = clients.clientFor(official);
+        assertThat(changed).isNotSameAs(first);
+        assertThat(clients.clientFor(official)).isSameAs(changed);
+        proxy.setEnabled(false);
+        assertThat(clients.clientFor(official)).isNotSameAs(changed);
+        assertThat(clients.clientFor(PluginRepository.official(true, 5_000, 4_000, 1024, 2048)))
+                .isNotSameAs(clients.clientFor(official));
+    }
+
+    @Test
+    @DisplayName("连续元数据读取实际复用同一条 HTTP 连接")
+    void reusesTcpConnection() throws Exception {
+        var server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        var peers = java.util.concurrent.ConcurrentHashMap.<Integer>newKeySet();
+        server.createContext("/metadata", exchange -> {
+            peers.add(exchange.getRemoteAddress().getPort());
+            exchange.sendResponseHeaders(200, 2);
+            try (var body = exchange.getResponseBody()) { body.write(new byte[] {1, 2}); }
+        });
+        server.start();
+        try {
+            String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/metadata";
+            var repository = new PluginRepository("test", "", url, true, false, false,
+                    RepositoryProxyPolicy.CUSTOM, "custom", false, false, true, false,
+                    3000, 4000, 1024, 2048, List.of());
+            for (int i = 0; i < 4; i++) assertThat(provider.clientFor(repository).fetchBytes(url, 16))
+                    .containsExactly(1, 2);
+            assertThat(peers).hasSize(1);
+        } finally { server.stop(0); }
+    }
 }

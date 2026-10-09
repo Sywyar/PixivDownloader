@@ -87,7 +87,9 @@ public final class CommunityDirectoryService {
             String path = reference.path("path").asText();
             if (!path.matches("generated/generations/[1-9][0-9]*/directory\\.json")) throw unavailable("invalid directory reference");
             URI url = base.resolve(path);
-            byte[] rootBytes = fetch.apply(url.toString(), (long) ROOT_BYTES);
+            byte[] rootBytes = previous != null && previous.url.equals(url)
+                    && previous.document.sha256().equals(reference.path("sha256").asText())
+                    ? previous.document.bytes() : fetch.apply(url.toString(), (long) ROOT_BYTES);
             CommunityValues.verifyBytes(rootBytes, reference.path("size").asLong(), reference.path("sha256").asText(), "/directory");
             var metadata = pointer.get("directorySignature");
             if (metadata == null) throw unavailable("missing directory signature");
@@ -109,7 +111,10 @@ public final class CommunityDirectoryService {
             if (previous != null && previous.prefix.equals(prefix)) return result(previous, repositoryId, true);
             throw unavailable("community directory unavailable: " + failure.getMessage());
         }
-        write(next);
+        if (previous == null || !previous.url.equals(next.url) || !previous.signature.equals(next.signature)
+                || !previous.prefix.equals(next.prefix) || !previous.document.sha256().equals(next.document.sha256())) {
+            write(next);
+        }
         return result(next, repositoryId, false);
     }
 

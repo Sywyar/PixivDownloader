@@ -9,6 +9,8 @@ import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException;
 import java.net.InetSocketAddress;
 import java.net.ProxySelector;
 import java.util.Set;
+import java.util.EnumMap;
+import java.util.Map;
 
 /**
  * 生产环境的 {@link PluginCatalogClientProvider}：按仓库的代理策略装配 SSRF 安全 HTTP 客户端。
@@ -39,13 +41,33 @@ public class DefaultPluginCatalogClientProvider implements PluginCatalogClientPr
     static final Set<String> TRUSTED_REDIRECT_HOSTS = Set.of("githubusercontent.com");
 
     private final ProxyConfig proxyConfig;
+    private final Map<RepositoryProxyPolicy, CachedClient> clients = new EnumMap<>(RepositoryProxyPolicy.class);
 
     public DefaultPluginCatalogClientProvider(ProxyConfig proxyConfig) {
         this.proxyConfig = proxyConfig;
     }
 
     @Override
-    public PluginCatalogHttpClient clientFor(PluginRepository repository) {
+    public synchronized PluginCatalogHttpClient clientFor(PluginRepository repository) {
+        var policy = repository.proxyPolicy();
+        if (policy == null) return create(repository, null);
+        boolean proxied = policy != RepositoryProxyPolicy.DIRECT_STRICT
+                && (policy != RepositoryProxyPolicy.CUSTOM || repository.useProxy()) && proxyConfig.isEnabled();
+        var settings = new Settings(repository.connectTimeoutMs(), repository.readTimeoutMs(),
+                policy == RepositoryProxyPolicy.CUSTOM && repository.allowRedirects(),
+                policy != RepositoryProxyPolicy.CUSTOM || repository.strictHttps(),
+                policy == RepositoryProxyPolicy.CUSTOM && repository.allowNonPublicAddresses(),
+                proxied ? proxyConfig.getHost() : null, proxied ? proxyConfig.getPort() : 0);
+        var cached = clients.get(policy);
+        if (cached != null && cached.settings().equals(settings)) return cached.client();
+        ProxySelector proxy = proxied ? ProxySelector.of(new InetSocketAddress(settings.host(), settings.port())) : null;
+        var client = create(repository, proxy);
+        // 每种策略只保留当前配置；仓库代次、签名与内容校验不属于连接池身份。
+        clients.put(policy, new CachedClient(settings, client));
+        return client;
+    }
+
+    private PluginCatalogHttpClient create(PluginRepository repository, ProxySelector proxy) {
         RepositoryProxyPolicy policy = repository.proxyPolicy();
         if (policy == RepositoryProxyPolicy.DIRECT_STRICT) {
             // 直连严格档：仅 https、拒非公网（严格 SSRF）、禁重定向、不走代理。
@@ -56,18 +78,18 @@ public class DefaultPluginCatalogClientProvider implements PluginCatalogClientPr
             // 受信档：经应用全局代理拉取（启用时）；仅 https；按内置白名单跟随有界重定向（GitHub release 资产 CDN）。
             return new PluginCatalogHttpClient(true, false,
                     (int) repository.connectTimeoutMs(), (int) repository.readTimeoutMs(),
-                    outboundProxySelector(), TRUSTED_REDIRECT_HOSTS);
+                    proxy, TRUSTED_REDIRECT_HOSTS);
         }
         if (policy == RepositoryProxyPolicy.GITHUB_RELEASES) {
             return new PluginCatalogHttpClient(true, false,
                     (int) repository.connectTimeoutMs(), (int) repository.readTimeoutMs(),
-                    outboundProxySelector(), true, TRUSTED_REDIRECT_HOSTS, false,
+                    proxy, true, TRUSTED_REDIRECT_HOSTS, false,
                     1, Set.of("github.com", "githubusercontent.com"));
         }
         if (policy == RepositoryProxyPolicy.CUSTOM) {
             return new PluginCatalogHttpClient(repository.strictHttps(), repository.allowNonPublicAddresses(),
                     (int) repository.connectTimeoutMs(), (int) repository.readTimeoutMs(),
-                    repository.useProxy() ? outboundProxySelector() : null,
+                    proxy,
                     repository.allowRedirects(), Set.of(), true);
         }
         // 无法识别的未知策略（policy == null）：稳定报错，绝不静默回落直连。
@@ -76,11 +98,7 @@ public class DefaultPluginCatalogClientProvider implements PluginCatalogClientPr
                         + repository.repositoryId());
     }
 
-    /** 全局出站代理选择器（{@code proxy.enabled} 时取 {@code proxy.host:port}）；未启用代理时返回 {@code null}=直连。 */
-    private ProxySelector outboundProxySelector() {
-        if (!proxyConfig.isEnabled()) {
-            return null;
-        }
-        return ProxySelector.of(new InetSocketAddress(proxyConfig.getHost(), proxyConfig.getPort()));
-    }
+    private record Settings(long connectTimeout, long readTimeout, boolean redirects, boolean https,
+                            boolean nonPublic, String host, int port) { }
+    private record CachedClient(Settings settings, PluginCatalogHttpClient client) { }
 }

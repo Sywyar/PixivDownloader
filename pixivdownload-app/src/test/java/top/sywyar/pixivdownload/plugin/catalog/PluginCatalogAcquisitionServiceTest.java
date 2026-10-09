@@ -89,9 +89,11 @@ class PluginCatalogAcquisitionServiceTest {
         installers.clear();
     }
 
-    @Test
-    @DisplayName("确认安装后仅在准备、执行和下载后读取目录，重复执行不再下载")
-    void confirmedOperationReusesSelectionWithoutRepeatingRequests() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"preconfirmed", "prompt", "tampered"})
+    @DisplayName("确认安装后仅在执行和下载后读取目录，创建记录与重复执行不联网")
+    void confirmedOperationReusesSelectionWithoutRepeatingRequests(String mode) throws Exception {
+        boolean confirmAfterDownload = !"preconfirmed".equals(mode);
         server = CatalogTestSupport.startServer();
         var signing = CatalogTestSupport.signingFixture();
         byte[] body = CatalogTestSupport.explodedPluginZip("sample", "7.3.2", null);
@@ -134,20 +136,49 @@ class PluginCatalogAcquisitionServiceTest {
         signatures.set(0);
 
         var prepared = operations.prepare("configured", "sample", "7.3.2", plan.fingerprint(),
-                CatalogTestSupport.sha256Hex(body));
+                confirmAfterDownload ? null : CatalogTestSupport.sha256Hex(body));
         var result = operations.execute(prepared.id());
+
+        if (confirmAfterDownload) {
+            assertThat(result.failure()).isNull();
+            assertThat(result.report().outcome()).isEqualTo(PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED);
+            assertThat(downloads.get()).isEqualTo(1);
+            assertThat(installer.listInstalled()).isEmpty();
+            var refreshed = acquisition.preview("configured", "sample", "7.3.2");
+            String pendingId = result.id();
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> operations.prepare("configured", "sample", "7.3.2",
+                    refreshed.fingerprint(), "f".repeat(64), pendingId)).isInstanceOf(PluginCatalogException.class);
+            prepared = operations.prepare("configured", "sample", "7.3.2", refreshed.fingerprint(),
+                    CatalogTestSupport.sha256Hex(body), result.id());
+            if ("tampered".equals(mode)) {
+                try (var files = Files.list(downloadTempDir)) {
+                    Files.write(files.findFirst().orElseThrow(), new byte[] {1, 2, 3});
+                }
+            }
+            result = operations.execute(prepared.id());
+        }
+
+        if ("tampered".equals(mode)) {
+            assertThat(result.report().accepted()).isFalse();
+            assertThat(result.report().trustRequirement()).isNull();
+            assertThat(installer.listInstalled()).isEmpty();
+            assertThat(downloads.get()).isEqualTo(1);
+            operations.close();
+            return;
+        }
 
         assertThat(result.finished()).isTrue();
         assertThat(result.failure()).isNull();
         assertThat(result.report().accepted()).isTrue();
-        assertThat(manifests.get()).isEqualTo(3);
-        assertThat(signatures.get()).isEqualTo(3);
+        assertThat(manifests.get()).isEqualTo(confirmAfterDownload ? 5 : 2);
+        assertThat(signatures.get()).isEqualTo(confirmAfterDownload ? 5 : 2);
         assertThat(downloads.get()).isEqualTo(1);
         operations.execute(prepared.id());
-        assertThat(manifests.get()).isEqualTo(3);
+        assertThat(manifests.get()).isEqualTo(confirmAfterDownload ? 5 : 2);
         assertThat(downloads.get()).isEqualTo(1);
         assertThat(downloadLeftovers()).isEmpty();
         assertThat(installer.listInstalled()).extracting(InstalledPlugin::id).containsExactly("sample");
+        operations.close();
     }
 
     @Test
