@@ -17,6 +17,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -70,8 +71,7 @@ class UgoiraServiceTest {
         assertThat(UgoiraService.MAX_ZIP_UNCOMPRESSED_BYTES).isEqualTo(200L * 1024 * 1024);
         assertThat(UgoiraService.MAX_FRAME_COUNT).isEqualTo(500);
         assertThat(UgoiraService.MAX_FRAME_PIXELS).isEqualTo(25_000_000L);
-        assertThat(UgoiraService.FFMPEG_TIMEOUT).isEqualTo(Duration.ofMinutes(10));
-        assertThat(UgoiraService.MAX_FFMPEG_OUTPUT_BYTES).isEqualTo(100L * 1024 * 1024);
+        assertThat(UgoiraService.MAX_OTHER_OUTPUT_BYTES).isEqualTo(100L * 1024 * 1024);
     }
 
     @Test
@@ -364,13 +364,17 @@ class UgoiraServiceTest {
     @DisplayName("宿主编码失败后清理实际格式的部分文件，保留诊断并报告失败")
     void runnerFailureCleansEveryFormat() throws Exception {
         for (String format : List.of("webp", "gif", "apng", "mp4")) {
+            var settings = new top.sywyar.pixivdownload.download.media.UgoiraEncoderSettings();
+            settings.setMaxOutputMib(3);
+            settings.setTimeoutMinutes(7);
             var progress = new ArrayList<UgoiraProgress>();
             ProgressRunner runner = (tool, args, cwd, output, max, timeout, cancelled, phases, lines) -> {
                 assertThat(tool).isEqualTo(FfmpegRunner.Tool.FFMPEG);
                 assertThat(args).contains("-progress", "pipe:1");
-                assertThat(output.getFileName().toString()).isEqualTo("failed." + format + ".part");
-                assertThat(max).isEqualTo(UgoiraService.MAX_FFMPEG_OUTPUT_BYTES);
-                assertThat(timeout).isEqualTo(UgoiraService.FFMPEG_TIMEOUT);
+                assertThat(output.getFileName().toString()).endsWith(".part");
+                assertThat(output.toAbsolutePath().normalize().startsWith(tempDir.toAbsolutePath().normalize())).isTrue();
+                assertThat(max).isEqualTo(format.equals("webp") ? 6L * 1024 * 1024 : UgoiraService.MAX_OTHER_OUTPUT_BYTES);
+                assertThat(timeout).isEqualTo(Duration.ofMinutes(7));
                 phases.accept(FfmpegRunner.Phase.WAITING);
                 phases.accept(FfmpegRunner.Phase.RUNNING);
                 lines.accept("out_time_ms=50000");
@@ -378,7 +382,7 @@ class UgoiraServiceTest {
                 throw new IOException("encoder diagnostic");
             };
             var service = new UgoiraService(archiveDownloader(zip("000000.jpg", jpegFrame())),
-                    runner, WorkbenchTestMessages.messages(), mediaStore);
+                    runner, WorkbenchTestMessages.messages(), mediaStore, settings);
             var request = ugoiraRequest("failed");
             request.setUgoiraFormats(format);
             assertThat(service.processUgoira(100L, request, tempDir, null, null, progress::add)).isZero();
@@ -395,6 +399,33 @@ class UgoiraServiceTest {
             FfmpegCommandResolver resolver
     ) {
         return new TestUgoiraService(downloader, resolver);
+    }
+
+    @Test
+    @DisplayName("后端输出超限保留源包、清理分片并允许后续任务继续")
+    void configuredOutputBudgetFailsWithoutPublishingOrLeaking() throws Exception {
+        var settings = new top.sywyar.pixivdownload.download.media.UgoiraEncoderSettings();
+        settings.setMaxOutputMib(1);
+        settings.setTemporaryBudgetGib(1);
+        byte[] archive = zip("000000.jpg", jpegFrame());
+        ProgressRunner runner = (tool, args, cwd, output, max, timeout, cancelled, phases, lines) -> {
+            phases.accept(FfmpegRunner.Phase.RUNNING);
+            try (var file = new java.io.RandomAccessFile(output.toFile(), "rw")) { file.setLength(3L * 1024 * 1024); }
+            return "";
+        };
+        var service = new UgoiraService(archiveDownloader(archive), runner, WorkbenchTestMessages.messages(), mediaStore, settings);
+        var request = ugoiraRequest("limited");
+        request.setUgoiraFormats("webp,zip");
+        for (int attempt = 0; attempt < 3; attempt++) {
+            assertThat(service.processUgoira(100L, request, tempDir, null, null)).isZero();
+            assertThat(Files.readAllBytes(tempDir.resolve("limited.zip"))).isEqualTo(archive);
+            assertThat(tempDir.resolve("limited.webp")).doesNotExist();
+            assertThat(tempDir.resolve("limited.webp.part")).doesNotExist();
+            assertThat(tempDir.resolve("_frames_tmp")).doesNotExist();
+            assertThat(mediaStore.find(100L, 0)).isEmpty();
+        }
+        request.setUgoiraFormats("zip");
+        assertThat(service.processUgoira(100L, request, tempDir, null, null)).isEqualTo(1);
     }
 
     @Test
@@ -458,7 +489,7 @@ class UgoiraServiceTest {
             }
             offset += 8 + size + (size & 1);
         }
-        assertThat(animationDuration).as("WebP timing").isBetween(230, 270);
+        assertThat(animationDuration).as("WebP timing").isEqualTo(250);
         byte[] existingGif = Files.readAllBytes(tempDir.resolve("animation.gif"));
         Files.delete(tempDir.resolve("animation.mp4"));
         var offline = service((source, referer, target, cookie, observer) -> {
@@ -516,6 +547,78 @@ class UgoiraServiceTest {
             observer.onBytesTransferred(archive.length);
             return true;
         };
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {1, 4, 6})
+    @DisplayName("真实 WebP 分片保持异尺寸透明帧、作品缩放和精确末帧时序")
+    void realWebpPartitionsPreservePixelsAndCanvas(int count) throws Exception {
+        try {
+            Process available = new ProcessBuilder("ffmpeg", "-version")
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
+            assertThat(available.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        } catch (IOException absent) {
+            org.junit.jupiter.api.Assumptions.assumeTrue(false, "FFmpeg required");
+        }
+        int[] colors = {0xffff0000, 0, 0xff00ff00, count == 6 ? 0x8000ff00 : 0xff0000ff, 0, 0xffffff00};
+        List<Integer> delays = List.of(1, 34, 83, 170, 5, 251).subList(0, count);
+        ByteArrayOutputStream zip = new ByteArrayOutputStream();
+        try (ZipOutputStream archive = new ZipOutputStream(zip)) {
+            for (int i = 0; i < count; i++) {
+                boolean resize = i == 2 || i == 5;
+                BufferedImage frame = new BufferedImage(resize ? 19 : 17, resize ? 11 : 13, BufferedImage.TYPE_INT_ARGB);
+                for (int y = 0; y < frame.getHeight(); y++) {
+                    for (int x = 0; x < frame.getWidth(); x++) frame.setRGB(x, y, colors[i]);
+                }
+                archive.putNextEntry(new ZipEntry("00000" + i + ".png"));
+                assertThat(ImageIO.write(frame, "png", archive)).isTrue();
+                archive.closeEntry();
+            }
+        }
+        var request = ugoiraRequest("transparent");
+        request.setUgoiraDelays(delays);
+        request.setMediaWebpLossless(true);
+        request.setMediaMaximumEdge(count == 6 ? 0 : 9);
+        var service = service(archiveDownloader(zip.toByteArray()), fallbackResolver());
+        assertThat(service.processUgoira(100L, request, tempDir, null, null)).isEqualTo(1);
+        byte[] bytes = Files.readAllBytes(tempDir.resolve("transparent.webp"));
+        int frameIndex = 0;
+        for (int offset = 12; offset + 8 <= bytes.length;) {
+            int size = ByteBuffer.wrap(bytes, offset + 4, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt();
+            if (new String(bytes, offset, 4, StandardCharsets.US_ASCII).equals("ANMF")) {
+                int delayOffset = offset + 20;
+                int delay = (bytes[delayOffset] & 255) | (bytes[delayOffset + 1] & 255) << 8
+                        | (bytes[delayOffset + 2] & 255) << 16;
+                assertThat(delay).isEqualTo(delays.get(frameIndex));
+                assertThat(bytes[offset + 23]).isEqualTo((byte) 2);
+                byte[] image = java.util.Arrays.copyOfRange(bytes, offset + 24, offset + 8 + size);
+                var still = ByteBuffer.allocate(12 + image.length).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+                still.put("RIFF".getBytes(StandardCharsets.US_ASCII)).putInt(4 + image.length)
+                        .put("WEBP".getBytes(StandardCharsets.US_ASCII)).put(image);
+                Path input = tempDir.resolve("still.webp"), decoded = tempDir.resolve("still.png");
+                Files.write(input, still.array());
+                Process decode = new ProcessBuilder("ffmpeg", "-y", "-v", "error", "-i", input.toString(), decoded.toString())
+                        .redirectError(ProcessBuilder.Redirect.INHERIT).redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
+                try {
+                    assertThat(decode.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                    assertThat(decode.exitValue()).isZero();
+                } finally { if (decode.isAlive()) decode.destroyForcibly(); }
+                BufferedImage actual = ImageIO.read(decoded.toFile());
+                assertThat(actual.getWidth()).isEqualTo(count == 6 ? 17 : 9);
+                assertThat(actual.getHeight()).isEqualTo(count == 6 ? 13 : 7);
+                for (int y = 0; y < actual.getHeight(); y++) {
+                    for (int x = 0; x < actual.getWidth(); x++) {
+                        int pixel = actual.getRGB(x, y);
+                        // 完全透明像素的隐藏 RGB 不影响呈现。
+                        if (colors[frameIndex] == 0) assertThat(pixel >>> 24).isZero();
+                        else assertThat(pixel).isEqualTo(colors[frameIndex]);
+                    }
+                }
+                frameIndex++;
+            }
+            offset += 8 + size + (size & 1);
+        }
+        assertThat(frameIndex).isEqualTo(count);
     }
 
     private static DownloadRequest.Other ugoiraRequest(String outputBaseName) {

@@ -64,12 +64,18 @@ class MediaOutputSettingsTest {
     }
 
     @Test
-    @DisplayName("Ugoira 编码参数使用该任务的质量无损和尺寸")
+    @DisplayName("动图画质来自作品参数，无损压缩力度独立使用后端配置")
     void animationUsesTaskEncodingOptions() throws Exception {
         var settings = mapper.readValue(OPTIONS, DownloadRequest.Other.class).resolveMediaOutputSettings();
         var args = UgoiraEncoding.arguments("webp", settings);
-        assertEquals("73", args.get(args.indexOf("-quality") + 1));
+        assertEquals(Integer.toString(UgoiraEncoderSettings.DEFAULT_LOSSLESS_EFFORT),
+                args.get(args.indexOf("-quality") + 1));
         assertEquals("1", args.get(args.indexOf("-lossless") + 1));
         assertTrue(args.get(args.indexOf("-vf") + 1).contains("1280"));
+        var custom = UgoiraEncoding.arguments("webp", settings, 100);
+        assertEquals("100", custom.get(custom.indexOf("-quality") + 1));
+        settings.setWebpLossless(false);
+        var lossy = UgoiraEncoding.arguments("webp", settings, 100);
+        assertEquals("73", lossy.get(lossy.indexOf("-quality") + 1));
     }
 }

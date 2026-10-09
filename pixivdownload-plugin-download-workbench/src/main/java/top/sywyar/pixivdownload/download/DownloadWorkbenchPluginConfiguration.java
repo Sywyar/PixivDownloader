@@ -181,11 +181,18 @@ public class DownloadWorkbenchPluginConfiguration {
     }
 
     @Bean
+    @ConfigurationProperties(prefix = top.sywyar.pixivdownload.download.media.UgoiraEncoderSettings.PREFIX)
+    public top.sywyar.pixivdownload.download.media.UgoiraEncoderSettings ugoiraEncoderSettings() {
+        return new top.sywyar.pixivdownload.download.media.UgoiraEncoderSettings();
+    }
+
+    @Bean
     public UgoiraService ugoiraService(PixivImageDownloader pixivImageDownloader,
                                        top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner ffmpegRunner,
                                        @Qualifier("downloadWorkbenchMessages") MessageResolver messages,
-                                       top.sywyar.pixivdownload.core.asset.ArtworkMediaStore mediaStore) {
-        return new UgoiraService(pixivImageDownloader, ffmpegRunner, messages, mediaStore);
+                                       top.sywyar.pixivdownload.core.asset.ArtworkMediaStore mediaStore,
+                                       top.sywyar.pixivdownload.download.media.UgoiraEncoderSettings settings) {
+        return new UgoiraService(pixivImageDownloader, ffmpegRunner, messages, mediaStore, settings);
     }
 
     @Bean

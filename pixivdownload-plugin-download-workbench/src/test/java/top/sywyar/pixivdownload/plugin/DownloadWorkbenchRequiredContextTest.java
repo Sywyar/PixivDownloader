@@ -73,7 +73,11 @@ class DownloadWorkbenchRequiredContextTest {
         assertRoute("/api/schedule/tasks", HttpMethod.GET, AccessPolicy.ADMIN);
         assertRoute("/api/batch/page", HttpMethod.POST, AccessPolicy.ADMIN);
         assertThat(plugin.routes()).noneMatch(route -> route.pathPattern().startsWith("/api/download/media/"));
-        assertThat(plugin.guiConfigContributions()).isEmpty();
+        assertThat(plugin.guiConfigContributions().stream().flatMap(config -> config.fields().stream()))
+                .extracting(field -> field.key())
+                .containsExactly("download-workbench.ugoira.parallelism", "download-workbench.ugoira.lossless-effort",
+                        "download-workbench.ugoira.max-output-mib", "download-workbench.ugoira.temporary-budget-gib",
+                        "download-workbench.ugoira.timeout-minutes");
         assertThat(plugin.routes()).noneMatch(route -> route.pathPattern().contains("pixiv-media"));
     }
 
