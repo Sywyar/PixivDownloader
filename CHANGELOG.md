@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 修复升级后 SMTP 测试邮件正常但计划任务通知无法发送的问题，以及 AI、推送、TTS 插件启动时无法读取已保存凭证的同类问题；保留原配置升级即可恢复。
 - 修复启用 HTTPS 或本机反向代理后桌面 GUI 无法连接后端的问题；内部通信始终使用独立本机入口，不受域名、系统代理或网页重定向影响。
 - 修复设置中切换 GUI 引擎后自动重启失败、误报无法显示 GUI 的问题。
 - 修复部分 WebP 动图及图片的画廊封面偏黄、偏绿的问题。

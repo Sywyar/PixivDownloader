@@ -2,8 +2,11 @@ package top.sywyar.pixivdownload.plugin.runtime.context;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
@@ -130,9 +133,10 @@ class PluginApplicationContextFactoryTest {
         }
     }
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
     @DisplayName("两个 owner 只读取自己的敏感属性且双向遮蔽另一方属性")
-    void ownerSensitivePropertiesAreMutuallyIsolated() {
+    void ownerSensitivePropertiesAreMutuallyIsolated(boolean bootParent) {
         Set<String> sensitiveKeys = Set.of("fixture.first.secret", "fixture.second.secret");
         PluginApplicationContextFactory scopedFactory = new PluginApplicationContextFactory(
                 owner -> switch (owner) {
@@ -146,6 +150,9 @@ class PluginApplicationContextFactoryTest {
                 taskRegistry);
         try (AnnotationConfigApplicationContext parent =
                      new AnnotationConfigApplicationContext(ParentCoreConfig.class)) {
+            if (bootParent) {
+                ConfigurationPropertySources.attach(parent.getEnvironment());
+            }
             ConfigurableApplicationContext first = scopedFactory.create(parent, new PluginContextModule(
                     "first", getClass().getClassLoader(), List.of(PluginConfig.class)));
             ConfigurableApplicationContext second = scopedFactory.create(parent, new PluginContextModule(
@@ -155,12 +162,16 @@ class PluginApplicationContextFactoryTest {
                         .isEqualTo("first-value");
                 assertThat(first.getEnvironment().getProperty("fixture.second.secret")).isEmpty();
                 assertThat(Binder.get(first.getEnvironment())
+                        .bind("fixture.second.secret", String.class).orElse("missing")).isEmpty();
+                assertThat(Binder.get(first.getEnvironment())
                         .bind("fixture.first.secret", String.class)
                         .orElse(null))
                         .isEqualTo("first-value");
                 assertThat(second.getEnvironment().getProperty("fixture.second.secret"))
                         .isEqualTo("second-value");
                 assertThat(second.getEnvironment().getProperty("fixture.first.secret")).isEmpty();
+                assertThat(Binder.get(second.getEnvironment())
+                        .bind("fixture.first.secret", String.class).orElse("missing")).isEmpty();
                 assertThat(Binder.get(second.getEnvironment())
                         .bind("fixture.second.secret", String.class)
                         .orElse(null))
@@ -172,9 +183,10 @@ class PluginApplicationContextFactoryTest {
         }
     }
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
     @DisplayName("owner 属性优先于系统与父遗留值且普通父属性仍然可见")
-    void ownerPropertiesOverrideSystemAndLegacyValuesWithoutHidingOrdinaryParentProperties() {
+    void ownerPropertiesOverrideSystemAndLegacyValuesWithoutHidingOrdinaryParentProperties(boolean bootParent) {
         String systemSecretKey = "fixture.owner.system-secret";
         String legacySecretKey = "fixture.owner.legacy-secret";
         String previousSystemValue = System.getProperty(systemSecretKey);
@@ -185,6 +197,9 @@ class PluginApplicationContextFactoryTest {
                     "legacyConfigYaml",
                     Map.of(legacySecretKey, "legacy-value",
                             "fixture.ordinary", "ordinary-value")));
+            if (bootParent) {
+                ConfigurationPropertySources.attach(parent.getEnvironment());
+            }
             PluginApplicationContextFactory scopedFactory = new PluginApplicationContextFactory(
                     owner -> new PluginContextPropertySnapshot(
                             Map.of(systemSecretKey, "owner-system-value",
@@ -204,6 +219,13 @@ class PluginApplicationContextFactoryTest {
                         .isEqualTo("owner-legacy-value");
                 assertThat(child.getEnvironment().getProperty("fixture.ordinary"))
                         .isEqualTo("ordinary-value");
+                Binder binder = Binder.get(child.getEnvironment());
+                assertThat(binder.bind(systemSecretKey, String.class).orElse(null))
+                        .isEqualTo("owner-system-value");
+                assertThat(binder.bind(legacySecretKey, String.class).orElse(null))
+                        .isEqualTo("owner-legacy-value");
+                assertThat(binder.bind("fixture.ordinary", String.class).orElse(null))
+                        .isEqualTo("ordinary-value");
             } finally {
                 child.close();
             }
@@ -212,9 +234,10 @@ class PluginApplicationContextFactoryTest {
         }
     }
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
     @DisplayName("owner 缺失的敏感属性由遮罩截断且不会回落父遗留或系统值")
-    void missingOwnerSensitivePropertyDoesNotFallBackToParentOrSystem() {
+    void missingOwnerSensitivePropertyDoesNotFallBackToParentOrSystem(boolean bootParent) {
         String systemSecretKey = "fixture.owner.missing-system-secret";
         String legacySecretKey = "fixture.owner.missing-legacy-secret";
         String previousSystemValue = System.getProperty(systemSecretKey);
@@ -223,6 +246,9 @@ class PluginApplicationContextFactoryTest {
                      new AnnotationConfigApplicationContext(ParentCoreConfig.class)) {
             parent.getEnvironment().getPropertySources().addFirst(new MapPropertySource(
                     "legacyConfigYaml", Map.of(legacySecretKey, "legacy-value")));
+            if (bootParent) {
+                ConfigurationPropertySources.attach(parent.getEnvironment());
+            }
             PluginApplicationContextFactory scopedFactory = new PluginApplicationContextFactory(
                     owner -> new PluginContextPropertySnapshot(
                             Map.of(), Set.of(systemSecretKey, legacySecretKey)),
@@ -252,9 +278,10 @@ class PluginApplicationContextFactoryTest {
         }
     }
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
     @DisplayName("替换快照会撤回旧 owner 值且敏感遮罩缩减或清空后仍不回显")
-    void replacingSnapshotWithdrawsOldOwnerValuesWithoutShrinkingSensitiveMask() {
+    void replacingSnapshotWithdrawsOldOwnerValuesWithoutShrinkingSensitiveMask(boolean bootParent) {
         String firstSecret = "fixture.snapshot.first-secret";
         String secondSecret = "fixture.snapshot.second-secret";
         Set<String> sensitiveKeys = Set.of(firstSecret, secondSecret);
@@ -270,9 +297,14 @@ class PluginApplicationContextFactoryTest {
                     Map.of(firstSecret, "legacy-first",
                             secondSecret, "legacy-second",
                             "fixture.ordinary", "ordinary-value")));
+            if (bootParent) {
+                ConfigurationPropertySources.attach(parent.getEnvironment());
+            }
             ConfigurableApplicationContext child = scopedFactory.create(parent, new PluginContextModule(
                     "first", getClass().getClassLoader(), List.of(PluginConfig.class)));
             try {
+                Binder binder = Binder.get(child.getEnvironment());
+                assertThat(binder.bind(firstSecret, String.class).orElse(null)).isEqualTo("first-value");
                 PluginApplicationContextFactory.replaceScopedPropertySources(
                         child.getEnvironment(),
                         "first",
@@ -281,6 +313,8 @@ class PluginApplicationContextFactoryTest {
 
                 assertThat(child.getEnvironment().getProperty(firstSecret)).isEmpty();
                 assertThat(child.getEnvironment().getProperty(secondSecret)).isEqualTo("second-value");
+                assertThat(binder.bind(firstSecret, String.class).orElse("missing")).isEmpty();
+                assertThat(binder.bind(secondSecret, String.class).orElse(null)).isEqualTo("second-value");
                 assertThat(child.getEnvironment().getProperty("fixture.ordinary"))
                         .isEqualTo("ordinary-value");
                 assertThat(StreamSupport.stream(
@@ -298,6 +332,8 @@ class PluginApplicationContextFactoryTest {
 
                 assertThat(child.getEnvironment().getProperty(firstSecret)).isEmpty();
                 assertThat(child.getEnvironment().getProperty(secondSecret)).isEmpty();
+                assertThat(binder.bind(firstSecret, String.class).orElse("missing")).isEmpty();
+                assertThat(binder.bind(secondSecret, String.class).orElse("missing")).isEmpty();
                 assertThat(child.getEnvironment().getProperty("fixture.ordinary"))
                         .isEqualTo("ordinary-value");
                 assertThat(StreamSupport.stream(
