@@ -8,6 +8,10 @@ public final class UgoiraEncoding {
     private UgoiraEncoding() {}
 
     public static List<String> arguments(String format, MediaOutputSettings settings) {
+        return arguments(format, settings, UgoiraEncoderSettings.DEFAULT_LOSSLESS_EFFORT);
+    }
+
+    public static List<String> arguments(String format, MediaOutputSettings settings, int losslessEffort) {
         List<String> args = new ArrayList<>(List.of("-an"));
         int edge = settings.getMaximumEdge();
         String scale = edge > 0
@@ -16,7 +20,9 @@ public final class UgoiraEncoding {
         switch (format) {
             case "webp" -> {
                 if (!scale.isEmpty()) args.addAll(List.of("-vf", scale));
-                args.addAll(List.of("-vcodec", "libwebp", "-quality", Integer.toString(settings.getQuality()),
+                args.addAll(List.of("-vcodec", "libwebp", "-quality",
+                        Integer.toString(settings.isWebpLossless() ? losslessEffort : settings.getQuality()),
+                        "-compression_level", "4",
                         "-lossless", settings.isWebpLossless() ? "1" : "0", "-loop", "0", "-f", "webp"));
             }
             case "gif" -> {

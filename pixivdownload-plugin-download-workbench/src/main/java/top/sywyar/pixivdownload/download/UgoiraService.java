@@ -8,6 +8,7 @@ import top.sywyar.pixivdownload.core.pixiv.PixivImageDownloader;
 import top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.download.media.UgoiraTemporaryBudget;
 
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
@@ -43,13 +44,16 @@ public class UgoiraService {
     static final long MAX_ZIP_ENTRY_BYTES = 32L * MIB;
     static final long MAX_ZIP_UNCOMPRESSED_BYTES = 2L * MAX_ZIP_BYTES;
     static final long MAX_FRAME_PIXELS = 25_000_000L;
-    static final Duration FFMPEG_TIMEOUT = Duration.ofMinutes(10);
-    static final long MAX_FFMPEG_OUTPUT_BYTES = MAX_ZIP_BYTES;
+    static final long MAX_OTHER_OUTPUT_BYTES = 100L * MIB;
+    // 下载包、保存源包时的副本、解压帧与小型时序 / 列表文件。
+    private static final long INPUT_TEMPORARY_BYTES = 2 * MAX_ZIP_BYTES + MAX_ZIP_UNCOMPRESSED_BYTES + MIB;
 
     private final PixivImageDownloader pixivImageDownloader;
     private final FfmpegRunner ffmpegRunner;
     private final MessageResolver messages;
     private final ArtworkMediaStore mediaStore;
+    private final top.sywyar.pixivdownload.download.media.UgoiraEncoderSettings encoderSettings;
+    private final UgoiraTemporaryBudget temporaryBudget;
     private final Map<Path, ProcessingLock> processingLocks = new HashMap<>();
 
     private static final class ProcessingLock {
@@ -61,10 +65,19 @@ public class UgoiraService {
                          FfmpegRunner ffmpegRunner,
                          MessageResolver messages,
                          ArtworkMediaStore mediaStore) {
+        this(pixivImageDownloader, ffmpegRunner, messages, mediaStore,
+                new top.sywyar.pixivdownload.download.media.UgoiraEncoderSettings());
+    }
+
+    public UgoiraService(PixivImageDownloader pixivImageDownloader, FfmpegRunner ffmpegRunner,
+                         MessageResolver messages, ArtworkMediaStore mediaStore,
+                         top.sywyar.pixivdownload.download.media.UgoiraEncoderSettings encoderSettings) {
         this.pixivImageDownloader = pixivImageDownloader;
         this.ffmpegRunner = ffmpegRunner;
         this.messages = messages;
         this.mediaStore = mediaStore;
+        this.encoderSettings = encoderSettings;
+        this.temporaryBudget = new UgoiraTemporaryBudget(encoderSettings.getTemporaryBudgetGib() * 1024L * MIB);
     }
 
     /**
@@ -186,8 +199,11 @@ public class UgoiraService {
         cleanup(zipPath, tempDir);
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            UgoiraTemporaryBudget.Lease workspace = null;
             try {
                 ensureNotCancelled(cancellationRequested);
+                try { workspace = temporaryBudget.open(INPUT_TEMPORARY_BYTES); }
+                catch (IOException exceeded) { throw resourceLimit("ugoira.log.limit.temporary", encoderSettings.getTemporaryBudgetGib()); }
                 log.info(message("ugoira.log.zip.download.started", id(artworkId), text(attempt), text(maxAttempts)));
                 publishProgress(progressListener, UgoiraProgress.builder()
                         .phase(UgoiraProgress.PHASE_ZIP)
@@ -249,7 +265,7 @@ public class UgoiraService {
                             progress.toBuilder().outputFormat(format).outputIndex(index).outputCount(outputCount).build());
                     if (!runFfmpeg(artworkId, orderedFrames, delays, tempDir, downloadPath,
                             outputBaseName, format, encodingSettings, attempt, maxAttempts,
-                            outputProgress, cancellationRequested)) {
+                            outputProgress, cancellationRequested, workspace)) {
                         complete = false;
                         break;
                     }
@@ -292,6 +308,7 @@ public class UgoiraService {
                 break; // 非ZIP格式异常不重试
             } finally {
                 cleanup(zipPath, tempDir);
+                if (workspace != null) workspace.close();
             }
 
             if (attempt < maxAttempts) {
@@ -442,23 +459,7 @@ public class UgoiraService {
                               top.sywyar.pixivdownload.download.media.MediaOutputSettings encodingSettings,
                               int attempt, int maxAttempts,
                               Consumer<UgoiraProgress> progressListener,
-                              BooleanSupplier cancellationRequested) throws Exception {
-        Path listFile = tempDir.resolve("frames.txt");
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < orderedFrames.size(); i++) {
-            String fp = orderedFrames.get(i).getValue().getFileName()
-                    .toString().replace("\\", "/");
-            sb.append("file '").append(fp).append("'\n");
-            sb.append("option framerate 1000\n");
-            sb.append("duration ").append(delays.get(i) / 1000.0).append("\n");
-        }
-        // ffmpeg concat 需要重复最后一帧才能正确应用末帧时长
-        sb.append("file '").append(
-                orderedFrames.get(orderedFrames.size() - 1).getValue()
-                        .getFileName().toString().replace("\\", "/"))
-                .append("'\noption framerate 1000\n");
-        Files.writeString(listFile, sb.toString(), StandardCharsets.UTF_8);
-
+                              BooleanSupplier cancellationRequested, UgoiraTemporaryBudget.Lease workspace) throws Exception {
         Path outputPath = downloadPath.resolve(outputBaseName + "." + format);
         Path partialOutput = downloadPath.resolve(outputBaseName + "." + format + ".part");
         long durationMs = Math.max(1L, delays.stream().mapToLong(Integer::longValue).sum());
@@ -475,43 +476,77 @@ public class UgoiraService {
                 .ffmpegProgress(0)
                 .build();
         ensureNotCancelled(cancellationRequested);
+        long outputLimit = format.equals("webp") ? encoderSettings.getMaxOutputMib() * MIB : MAX_OTHER_OUTPUT_BYTES;
+        Duration timeout = Duration.ofMinutes(encoderSettings.getTimeoutMinutes());
+        java.util.function.LongConsumer reserveOutput = bytes -> {
+            try { workspace.update(INPUT_TEMPORARY_BYTES + bytes); }
+            catch (IOException failure) { throw resourceLimit("ugoira.log.limit.temporary", encoderSettings.getTemporaryBudgetGib()); }
+        };
         try {
             Files.deleteIfExists(partialOutput);
             Path workingDirectory = ffmpegWorkingDirectory(downloadPath);
-            List<String> commandLine = new ArrayList<>(List.of(
-                    "-y", "-nostdin",
-                    "-nostats",
-                    "-stats_period", "0.5",
-                    "-progress", "pipe:1",
-                    "-f", "concat", "-safe", "0",
-                    "-i", workingDirectory.relativize(listFile.toAbsolutePath()).toString()));
-            commandLine.addAll(top.sywyar.pixivdownload.download.media.UgoiraEncoding.arguments(format, encodingSettings));
-            int lastDelay = delays.get(delays.size() - 1);
-            if (format.equals("gif")) commandLine.addAll(List.of("-final_delay", Integer.toString(Math.max(1, Math.round(lastDelay / 10f)))));
-            if (format.equals("apng")) commandLine.addAll(List.of("-final_delay", lastDelay + "/1000"));
-            commandLine.addAll(List.of("-fps_mode", "vfr"));
-            if (format.equals("gif") || format.equals("apng")) {
-                commandLine.addAll(List.of("-t", Double.toString(durationMs / 1000.0)));
+            if (format.equals("webp")) {
+                top.sywyar.pixivdownload.download.media.webp.UgoiraWebpEncoder.encode(
+                        ffmpegRunner, orderedFrames.stream().map(Map.Entry::getValue).toList(), delays,
+                        tempDir, workingDirectory, partialOutput, encodingSettings, encoderSettings,
+                        outputLimit, timeout, cancellationRequested,
+                        progress -> publishProgress(progressListener, encoding.toBuilder()
+                                .phase(progress.waiting() ? UgoiraProgress.PHASE_WAITING_FFMPEG : UgoiraProgress.PHASE_FFMPEG)
+                                .ffmpegOutTimeMs(progress.outTimeMs())
+                                .ffmpegProgress(progress.waiting() ? null
+                                        : Math.min(99, (int) (progress.outTimeMs() * 100 / durationMs)))
+                                .build()), reserveOutput);
+            } else {
+                Path listFile = tempDir.resolve("frames.txt");
+                StringBuilder concat = new StringBuilder();
+                for (int i = 0; i < orderedFrames.size(); i++) {
+                    concat.append("file '").append(orderedFrames.get(i).getValue().getFileName()).append("'\n")
+                            .append("option framerate 1000\n")
+                            .append("duration ").append(delays.get(i) / 1000.0).append('\n');
+                }
+                // 非 WebP 输出由 concat 的占位帧应用末帧时长。
+                concat.append("file '").append(orderedFrames.get(orderedFrames.size() - 1).getValue().getFileName())
+                        .append("'\noption framerate 1000\n");
+                Files.writeString(listFile, concat, StandardCharsets.UTF_8);
+                List<String> commandLine = new ArrayList<>(List.of(
+                        "-y", "-nostdin", "-nostats", "-stats_period", "0.5", "-progress", "pipe:1",
+                        "-f", "concat", "-safe", "0",
+                        "-i", workingDirectory.relativize(listFile.toAbsolutePath()).toString()));
+                commandLine.addAll(top.sywyar.pixivdownload.download.media.UgoiraEncoding.arguments(format, encodingSettings));
+                int lastDelay = delays.get(delays.size() - 1);
+                if (format.equals("gif")) commandLine.addAll(List.of("-final_delay", Integer.toString(Math.max(1, Math.round(lastDelay / 10f)))));
+                if (format.equals("apng")) commandLine.addAll(List.of("-final_delay", lastDelay + "/1000"));
+                commandLine.addAll(List.of("-fps_mode", "vfr"));
+                if (format.equals("gif") || format.equals("apng")) {
+                    commandLine.addAll(List.of("-t", Double.toString(durationMs / 1000.0)));
+                }
+                commandLine.add(workingDirectory.relativize(partialOutput.toAbsolutePath()).toString());
+                int[] lastProgress = {-1};
+                long[] lastAt = {0L};
+                ffmpegRunner.run(FfmpegRunner.Tool.FFMPEG, commandLine, workingDirectory, partialOutput,
+                        outputLimit, timeout, () -> {
+                            ensureNotCancelled(cancellationRequested);
+                            try { reserveOutput.accept(Files.exists(partialOutput) ? Files.size(partialOutput) : 0); }
+                            catch (IOException failure) { throw new UncheckedIOException(failure); }
+                            return false;
+                        },
+                        phase -> publishProgress(progressListener, phase == FfmpegRunner.Phase.WAITING
+                                ? encoding.toBuilder().phase(UgoiraProgress.PHASE_WAITING_FFMPEG).ffmpegProgress(null).build()
+                                : encoding),
+                        line -> {
+                            Long outTimeMs = parseFfmpegOutTimeMs(line);
+                            if (outTimeMs == null) return;
+                            int progress = Math.min(99, Math.max(0, (int) Math.round(outTimeMs * 100.0 / durationMs)));
+                            if (shouldEmitStepProgress(progress, lastProgress, lastAt)) {
+                                publishProgress(progressListener, encoding.toBuilder()
+                                        .ffmpegOutTimeMs(Math.min(outTimeMs, durationMs)).ffmpegProgress(progress).build());
+                            }
+                        });
             }
-            commandLine.add(workingDirectory.relativize(partialOutput.toAbsolutePath()).toString());
-            int[] lastProgress = {-1};
-            long[] lastAt = {0L};
-            ffmpegRunner.run(FfmpegRunner.Tool.FFMPEG, commandLine, workingDirectory, partialOutput,
-                    MAX_FFMPEG_OUTPUT_BYTES, FFMPEG_TIMEOUT, cancellationRequested,
-                    phase -> publishProgress(progressListener, phase == FfmpegRunner.Phase.WAITING
-                            ? encoding.toBuilder().phase(UgoiraProgress.PHASE_WAITING_FFMPEG).ffmpegProgress(null).build()
-                            : encoding),
-                    line -> {
-                        Long outTimeMs = parseFfmpegOutTimeMs(line);
-                        if (outTimeMs == null) return;
-                        int progress = Math.min(99, Math.max(0, (int) Math.round(outTimeMs * 100.0 / durationMs)));
-                        if (shouldEmitStepProgress(progress, lastProgress, lastAt)) {
-                            publishProgress(progressListener, encoding.toBuilder()
-                                    .ffmpegOutTimeMs(Math.min(outTimeMs, durationMs)).ffmpegProgress(progress).build());
-                        }
-                    });
             ensureNotCancelled(cancellationRequested);
             if (!Files.isRegularFile(partialOutput) || Files.size(partialOutput) == 0) return false;
+            if (Files.size(partialOutput) > outputLimit) throw new IOException("Media output byte limit exceeded");
+            reserveOutput.accept(Files.size(partialOutput));
             publishOutput(partialOutput, outputPath);
             publishProgress(progressListener, UgoiraProgress.builder()
                     .phase(UgoiraProgress.PHASE_FFMPEG)
@@ -532,6 +567,7 @@ public class UgoiraService {
             } catch (IOException cleanupFailure) {
                 log.debug("Could not remove FFmpeg temporary output", cleanupFailure);
             }
+            workspace.update(INPUT_TEMPORARY_BYTES);
         }
     }
 

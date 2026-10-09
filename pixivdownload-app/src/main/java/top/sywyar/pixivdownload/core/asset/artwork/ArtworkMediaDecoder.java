@@ -67,6 +67,17 @@ public final class ArtworkMediaDecoder {
 
     private BufferedImage read(Path source, int edge, boolean cover) throws IOException {
         if (source.getFileName().toString().toLowerCase(java.util.Locale.ROOT).endsWith(".zip")) return readZipFrame(source, edge, cover);
+        if (source.getFileName().toString().toLowerCase(java.util.Locale.ROOT).endsWith(".webp") && Files.size(source) > MAX_BYTES) {
+            Path cache = RuntimeFiles.galleryThumbnailDirectory();
+            Files.createDirectories(cache);
+            Path frame = Files.createTempFile(cache, "webp-frame-", ".webp");
+            try {
+                WebpPreviewFrame.copy(source, frame, MAX_BYTES);
+                BufferedImage image = decodeImage(frame, edge, cover);
+                if (image == null) throw new IOException("Invalid WebP first frame");
+                return image;
+            } finally { Files.deleteIfExists(frame); }
+        }
         try {
             BufferedImage image = decodeImage(source, edge, cover);
             if (image == null) throw new IOException("Native image decoder unavailable");

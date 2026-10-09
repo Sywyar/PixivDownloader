@@ -5,6 +5,12 @@ import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.notification.SurveyInboxMessage;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
+import top.sywyar.pixivdownload.download.media.UgoiraEncoderSettings;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
@@ -64,6 +70,42 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
     @Override
     public String id() {
         return ID;
+    }
+
+    private static final List<GuiConfigContribution> GUI_CONFIG = List.of(new GuiConfigContribution(List.of(
+            encoderField("parallelism", UgoiraEncoderSettings.DEFAULT_PARALLELISM, 1,
+                    UgoiraEncoderSettings.MAX_PARALLELISM, 120),
+            encoderField("lossless-effort", UgoiraEncoderSettings.DEFAULT_LOSSLESS_EFFORT, 0, 100, 130),
+            encoderField("max-output-mib", UgoiraEncoderSettings.DEFAULT_MAX_OUTPUT_MIB, 1,
+                    UgoiraEncoderSettings.MAX_OUTPUT_MIB, 140),
+            encoderField("temporary-budget-gib", UgoiraEncoderSettings.DEFAULT_TEMPORARY_BUDGET_GIB, 1,
+                    UgoiraEncoderSettings.MAX_TEMPORARY_BUDGET_GIB, 150),
+            encoderField("timeout-minutes", UgoiraEncoderSettings.DEFAULT_TIMEOUT_MINUTES, 1,
+                    UgoiraEncoderSettings.MAX_TIMEOUT_MINUTES, 160))));
+
+    @Override
+    public List<GuiConfigContribution> guiConfigContributions() {
+        return GUI_CONFIG;
+    }
+
+    private static GuiConfigFieldContribution encoderField(String name, int value, int min, int max, int order) {
+        return new GuiConfigFieldContribution(
+                UgoiraEncoderSettings.PREFIX + "." + name,
+                GuiConfigGroups.DOWNLOAD,
+                "gui.ugoira." + name + ".label",
+                "gui.ugoira." + name + ".help",
+                "batch",
+                GuiConfigFieldType.INT,
+                Integer.toString(value),
+                order,
+                false,
+                GuiConfigEffect.BACKEND_RESTART,
+                List.of(),
+                List.of(),
+                List.of(),
+                min,
+                max
+        );
     }
 
     // 展示名 / 简介为纯 i18n key；namespace 由 displayNamespace() 默认取本插件首个 namespace（batch）。下载工作台必选、
