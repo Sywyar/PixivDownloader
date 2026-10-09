@@ -43,6 +43,7 @@ function harness() {
     const writes = [];
     const context = vm.createContext({
         document, console, cookieHasPhpsessid: () => true,
+        altAcquisition: (_mode, _source, type) => ({type}),
         addEventListener: events.addEventListener.bind(events),
         removeEventListener: events.removeEventListener.bind(events),
         altQueueTypes: () => ({
@@ -54,7 +55,8 @@ function harness() {
     const load = path => vm.runInContext(readFileSync(resolve(repository, path), 'utf8'), context, {filename: path});
     const alt = 'pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch-alt/';
     load('pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/filename-template-presets.js');
-    ['alt-core.js', 'alt-state.js', 'alt-settings.js'].forEach(name => load(alt + name));
+    ['alt-core.js', '../pixiv-batch/batch-download-defaults.js', '../pixiv-batch/batch-pagination.js', 'alt-state.js', 'alt-settings.js'].forEach(name => load(alt + name));
+    context.PixivBatch.queueTypes = context.altQueueTypes();
     context.storeSet = (_, value) => writes.push(JSON.parse(value));
     vm.runInContext('isAdmin = true', context);
     const dispatchSlots = () => events.dispatchEvent({type: 'pixivbatch:slotsrendered'});
@@ -67,7 +69,9 @@ function harness() {
     const mountNovel = () => {
         const owner = activation();
         const shared = {context: owner};
-        context.PixivBatch.queueTypes = {registerSubmodule: initializer => initializer(shared)};
+        context.PixivBatch.queueTypes = {registerSubmodule: initializer => initializer(shared),
+            contributionsOf: () => [{type: 'illust', extraSelector: '.search-illust-only'},
+                {type: 'novel', extraSelector: '.search-novel-only'}]};
         load('pixivdownload-plugin-novel/src/main/resources/static/pixiv-novel-download/novel-queue-view.js');
         const slot = document.createElement('div');
         slot.innerHTML = shared.NOVEL_SLOTS['settings-card'];

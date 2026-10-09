@@ -211,6 +211,7 @@
     }
 
     function getInlineSearchBookmarkCount(item) {
+        if (item?.bookmarkCount == null || item.bookmarkCount === '') return null;
         const count = Number(item?.bookmarkCount);
         return Number.isFinite(count) && count >= 0 ? count : null;
     }

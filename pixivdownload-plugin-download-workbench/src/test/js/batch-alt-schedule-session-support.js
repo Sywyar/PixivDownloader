@@ -43,9 +43,9 @@ function setup(overrides={}) {
         'syncAllResultsQueueState','getCookie','getCookieFmt','getStoredCookie','setStoredCookie','removeStoredCookie',
         'parseCookieToHeaderString','getCookieHeaderStringFor','enterScheduleMode','loadScheduleTasks','startSchedulePolling',
         'stopSchedulePolling','renderScheduleMode','renderScheduleTaskList','scheduleStatusLight','openScheduleSnapshot',
-        'toggleDock','animateWorkspace'])context[name]=()=>{};
+        'toggleDock','animateWorkspace','enqueueItems','buildQueueMeta','pixivCancelWorkKey','refreshQuickCredentialGate'])context[name]=()=>{};
     const read=file=>readFileSync(resolve(__dirname,'../../main/resources/static/pixiv-batch-alt',file),'utf8');
-    for(const file of ['alt-core.js','alt-state.js','alt-filters.js','alt-settings.js','alt-modes.js','alt-mode-discovery.js',
+    for(const file of ['alt-core.js','../pixiv-batch/batch-download-defaults.js','alt-state.js','alt-filters.js','alt-settings.js','alt-modes.js','alt-mode-discovery.js','alt-mode-series.js',
         'alt-extensions.js','../pixiv-batch/pixiv-schedule-defaults.js','../pixiv-batch/media-settings.js','alt-schedule-presentation.js',
         'alt-schedule-pixiv.js','alt-schedule-session.js','alt-schedule-editor.js'])
         vm.runInContext(read(file),context);
@@ -55,6 +55,10 @@ function setup(overrides={}) {
         registerModule(url,init){init({descriptors:['search','user-new','user-request','series','my-bookmarks','follow-latest','collection']
             .map(sourceType=>({sourceType})),registerSource:(type,handler)=>handlers.set(type,handler)});},
         activationLease:lease,restoreTask:value=>handlers.get(value.sourceType).restore(value),
+        previewForMode(mode,ctx){
+            const entry=Array.from(handlers).find(([,value])=>value.matches(ctx));
+            return entry ? {...entry[1].preview(ctx), sourceType:entry[0]} : null;
+        },
         captureForMode(mode,ctx){
             const [sourceType,handler]=Array.from(handlers).find(([,value])=>value.matches(ctx)) || [];
             if(!handler)throw new Error('Unavailable');

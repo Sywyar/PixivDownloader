@@ -294,7 +294,6 @@ function buildSettingsDrawerBody() {
     const concurrentInput = el('input', 'ab-input ab-input--num');
     concurrentInput.type = 'number';
     concurrentInput.min = '1';
-    concurrentInput.max = '8';
     concurrentInput.value = s.concurrent;
     concurrentInput.addEventListener('change', () => {
         s.concurrent = Math.max(1, parseInt(concurrentInput.value, 10) || 1);

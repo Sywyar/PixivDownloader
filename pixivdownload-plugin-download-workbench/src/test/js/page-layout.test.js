@@ -76,7 +76,7 @@ for (const variant of ['classic', 'alternate']) {
         context.window = context;
         if (variant === 'classic') load(context, 'pixiv-batch/batch-storage.js');
         else {
-            load(context, 'pixiv-batch-alt/alt-state.js');
+            load(context, 'pixiv-batch/batch-download-defaults.js'); load(context, 'pixiv-batch-alt/alt-state.js');
             vm.runInContext("appMode = 'solo'", context);
         }
         context.storeSet('preference', 'older');

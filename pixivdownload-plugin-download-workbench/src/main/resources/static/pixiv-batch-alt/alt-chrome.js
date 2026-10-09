@@ -510,6 +510,10 @@ function toggleDock(force) {
         else downloadsScroll = window.scrollY;
     }
     dockState.open = open;
+    if (changed && state.mode === 'schedule') {
+        if (open) stopSchedulePolling();
+        else enterScheduleMode();
+    }
     syncWorkspaceNavigation();
     if (changed) {
         window.scrollTo({top: open ? downloadsScroll : acquisitionScroll, behavior: 'instant'});

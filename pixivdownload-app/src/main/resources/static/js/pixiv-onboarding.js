@@ -21,19 +21,19 @@
             return; // 仅 solo / 已登录管理员
         }
 
-        // 下载页常驻「操作指引」FAB（无论是否已完成都可随时重看）
+        // 下载页在自己的导航区域提供重看入口。
         if (cfg.page === 'batch') {
-            ctx.ensureFab();
+            ctx.bindRestartButton();
         }
 
         var s = ctx.loadState();
         if (s.status === 'completed') {
-            ctx.showFab(); // 已完成：仅保留 FAB 供重看，不自动弹
+            ctx.setRestartEnabled(true);
             return;
         }
 
         if (cfg.page === 'batch') {
-            ctx.hideFab(); // 自动运行期间隐藏 FAB
+            ctx.setRestartEnabled(false);
             bootBatch(s);
         } else if (cfg.page === 'gallery') {
             bootGallery(s);
@@ -92,7 +92,7 @@
 
     function refreshTranslations(client) {
         if (client) ctx.i18n = client;
-        ctx.refreshFabLabel();
+        ctx.refreshRestartLabel();
         ctx.overlay.refreshTranslations();
     }
 

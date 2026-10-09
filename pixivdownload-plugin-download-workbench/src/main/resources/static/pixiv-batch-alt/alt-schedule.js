@@ -6,20 +6,36 @@
 let schedulePollTimer = null;
 let scheduleQueuePollTimer = null;
 const scheduleView = {query: '', filter: 'all'};
+let scheduleListRequest = null;
+let scheduleVisibilityBound = false;
+
+function schedulePageVisible() {
+    return !document.hidden && state.mode === 'schedule' && !dockState.open;
+}
 
 function enterScheduleMode() {
-    loadScheduleTasks();
     startSchedulePolling();
+    if (schedulePageVisible()) loadScheduleTasks();
 }
 
 function startSchedulePolling() {
     stopSchedulePolling();
+    if (!scheduleVisibilityBound) {
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) stopSchedulePolling();
+            else if (schedulePageVisible()) enterScheduleMode();
+        });
+        scheduleVisibilityBound = true;
+    }
+    if (!schedulePageVisible()) return;
     schedulePollTimer = setInterval(() => {
-        if (state.mode === 'schedule') loadScheduleTasks(true);
-    }, 10000);
+        if (!scheduleListRequest && schedulePageVisible()) loadScheduleTasks(true);
+    }, 4000);
 }
 
 function stopSchedulePolling() {
+    scheduleListRequest?.abort();
+    scheduleListRequest = null;
     if (schedulePollTimer) {
         clearInterval(schedulePollTimer);
         schedulePollTimer = null;
@@ -32,19 +48,30 @@ function stopSchedulePolling() {
 }
 
 async function loadScheduleTasks(quiet) {
+    if (!schedulePageVisible()) return;
+    scheduleListRequest?.abort();
+    const request = new AbortController();
+    scheduleListRequest = request;
+    const current = () => scheduleListRequest === request && !request.signal.aborted
+        && schedulePageVisible();
     try { await altScheduleSources()?.refresh?.(false); } catch (e) { /* 保留持久化展示，来源动作仍由运行时校验。 */ }
+    if (!current()) return;
     try {
-        const res = await fetch(`${BASE}/api/schedule/tasks`, {credentials: 'same-origin'});
+        const res = await fetch(`${BASE}/api/schedule/tasks`, {credentials: 'same-origin', signal: request.signal});
         if (!res.ok) throw await scheduleHttpError(res);
         const data = await res.json();
+        if (!current()) return;
         scheduleState.tasks = Array.isArray(data) ? data : [];
         scheduleState.error = '';
     } catch (e) {
+        if (!current()) return;
         scheduleState.tasks = [];
         scheduleState.error = String(e && e.message || bt('common.request-failed', '请求失败'));
+    } finally {
+        if (scheduleListRequest === request) scheduleListRequest = null;
     }
     scheduleState.loaded = true;
-    if (!quiet || state.mode === 'schedule') renderScheduleTaskList();
+    renderScheduleTaskList();
 }
 
 /* ============================================================

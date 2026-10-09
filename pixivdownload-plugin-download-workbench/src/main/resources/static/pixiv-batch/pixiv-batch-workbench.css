@@ -610,7 +610,7 @@ html[data-theme="dark"] .pixiv-feedback-button--secondary {
 
     .app-nav-actions {
         width: 100%;
-        justify-content: space-between;
+        justify-content: flex-end;
     }
 
     #langSwitcherAnchor {

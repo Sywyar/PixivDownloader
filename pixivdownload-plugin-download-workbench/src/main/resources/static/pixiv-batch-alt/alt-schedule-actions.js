@@ -106,6 +106,9 @@ const altScheduleQueues = new Map();
 function releaseScheduleQueue(id) {
     const entry = altScheduleQueues.get(id);
     if (!entry) return;
+    entry.sequence++;
+    entry.request?.abort();
+    entry.request = null;
     for (const {workId, listener} of entry.listeners || []) removeSSEListener(workId, listener);
     entry.listeners = [];
     if (entry.frame != null) cancelAnimationFrame(entry.frame);
@@ -120,20 +123,22 @@ function startScheduleQueuePolling() {
     if (scheduleQueuePollTimer) clearInterval(scheduleQueuePollTimer);
     scheduleQueuePollTimer = null;
     altScheduleQueues.forEach((_entry, id) => {
-        if (state.mode !== 'schedule' || !scheduleState.expandedQueues.has(id)
+        if (!schedulePageVisible() || !scheduleState.expandedQueues.has(id)
                 || !document.getElementById('abScheduleQueue-' + id)) releaseScheduleQueue(id);
         if (!scheduleState.tasks.some(task => task.id === id)) {
             altScheduleQueues.delete(id);
             storeRemove('pixiv_schedule_queue_' + id);
         }
     });
-    if (state.mode !== 'schedule' || !scheduleState.expandedQueues.size) return;
-    scheduleQueuePollTimer = setInterval(() => {
+    if (!schedulePageVisible() || !scheduleState.expandedQueues.size) return;
+    const refresh = () => {
         scheduleState.expandedQueues.forEach(id => {
             const task = scheduleState.tasks.find(task => task.id === id);
             if (task) loadScheduleQueue(task, true);
         });
-    }, 4000);
+    };
+    refresh();
+    scheduleQueuePollTimer = setInterval(refresh, 4000);
 }
 
 function scheduleQueueVue() {
@@ -266,6 +271,7 @@ function subscribeScheduleQueue(task, entry) {
 }
 
 async function loadScheduleQueue(task, quiet) {
+    if (!schedulePageVisible()) return;
     const box = document.getElementById('abScheduleQueue-' + task.id);
     if (!box) return;
     let entry = altScheduleQueues.get(task.id);
@@ -275,9 +281,15 @@ async function loadScheduleQueue(task, quiet) {
         altScheduleQueues.set(task.id, entry);
     }
     if (!quiet && entry.data) refreshScheduleQueueView(task, entry);
+    if (quiet && entry.request) return;
+    entry.request?.abort();
+    const request = new AbortController();
+    entry.request = request;
     const sequence = ++entry.sequence;
     try {
-        const res = await fetch(`${BASE}/api/schedule/tasks/${task.id}/queue`, {credentials: 'same-origin'});
+        const res = await fetch(`${BASE}/api/schedule/tasks/${task.id}/queue`, {
+            credentials: 'same-origin', signal: request.signal
+        });
         if (!res.ok) throw await scheduleHttpError(res);
         const data = await res.json();
         if (sequence !== entry.sequence || altScheduleQueues.get(task.id) !== entry
@@ -310,6 +322,8 @@ async function loadScheduleQueue(task, quiet) {
         scheduleQueueVue()?.unmountScheduleQueue(task.id);
         box.replaceChildren(errorBox(String(error && error.message || bt('common.request-failed', '请求失败')),
             () => loadScheduleQueue(task, false)));
+    } finally {
+        if (entry.request === request) entry.request = null;
     }
 }
 

@@ -703,8 +703,9 @@
                 });
             };
             try {
-                let page = 1, hasNext = true, guard = 0;
-                while (hasNext && guard++ < 500) {
+                let page = 1, hasNext = true;
+                while (hasNext) {
+                    if (!isCurrent()) return;
                     setStatus({key: 'quick.status.fetching-follow-new', fallback: '正在抓取已关注的用户的新作（第 {page} 页，已收集 {count} 个）…', args: {page, count: ids.length}}, 'info');
                     const desc = currentQuickAction();
                     if (!desc || typeof desc.buildPageRequest !== 'function') {
@@ -712,8 +713,10 @@
                     }
                     const data = await quickFetchJson(
                         quickRequestUrl(desc.buildPageRequest({page})), desc.ownerType);
+                    if (!isCurrent()) return;
                     acc(data.items || []);
-                    hasNext = !!data.hasNext;
+                    hasNext = window.PixivBatch.pagination.continueScan(
+                        data, page, quickState.pageSize, (data.items || []).length);
                     page++;
                 }
                 const added = addItemsToQueue(ids, metas, QUICK_FETCH_MODE, '', null, '');

@@ -1,6 +1,7 @@
 
         /* ── App Navigation ── */
         .app-nav {
+            --batch-nav-control-size: max(2.25rem, var(--layout-control-height));
             background: var(--brand); /* 沿用 header 的绿色 */
             padding: 0 var(--layout-inset-right) 0 var(--layout-inset-left);
             display: flex;
@@ -65,6 +66,49 @@
             gap: 8px;
             margin-right: 12px;
             flex-shrink: 0;
+            flex-wrap: wrap;
+            max-width: 100%;
+        }
+
+        .app-nav-actions :is(button, .pixiv-lang-switcher--green),
+        .app-nav .app-nav-login,
+        .app-nav .app-nav-logout {
+            box-sizing: border-box;
+            height: var(--batch-nav-control-size);
+            min-height: var(--batch-nav-control-size);
+            min-width: var(--batch-nav-control-size);
+            padding-block: 0;
+            border-radius: 6px;
+            line-height: 1.2;
+        }
+
+        .app-nav-actions .pixiv-lang-switcher__select {
+            height: auto;
+            min-height: 0;
+        }
+
+        .app-nav-actions :is(#batchThemeAnchor, [data-qt-slot], [data-vue-slot]) button,
+        .app-nav-actions .batch-guide-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: var(--batch-nav-control-size);
+            padding: 0;
+        }
+
+        .batch-guide-button {
+            border: 1px solid var(--on-brand-muted);
+            background: transparent;
+            color: var(--fixed-white);
+            cursor: pointer;
+        }
+
+        .batch-guide-button:hover {
+            background: var(--on-brand-hover);
+        }
+
+        #batch-guide-button[hidden] {
+            display: none;
         }
 
         .batch-layout-toggle {

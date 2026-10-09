@@ -76,6 +76,11 @@
         </button>
         <span id="batchLangAnchor"></span>
         <span id="batchThemeAnchor"></span>
+        <button type="button" id="batch-guide-button" class="batch-guide-button" hidden
+                data-i18n-title="tour:common.help" data-i18n-aria-label="tour:common.help"
+                title="操作指引" aria-label="操作指引">
+            <i class="fa-regular fa-lightbulb" aria-hidden="true"></i>
+        </button>
         <!-- 顶栏右侧纯图标槽位：紧随主题按钮，可信插件入口随插件生命周期注入。 -->
         <template data-qt-slot="topbar-actions"></template>
     </div>
@@ -667,7 +672,7 @@
                         <div class="schedule-field-hint" data-i18n="schedule.field.cron.hint">使用 Spring 的 6 位格式「秒 分 时 日 月 周」（含秒，比常见的 5 位 Unix Cron 多出最前面的秒位）。示例：0 0 3 * * * = 每天 03:00:00；0 0 */6 * * * = 每 6 小时；0 30 8 * * 1 = 每周一 08:30:00。</div>
                     </div>
                     <div class="setting-item" id="sch-fetch-limit-row" style="display:none;">
-                        <label data-i18n="schedule.field.fetch-limit">首次抓取上限：</label>
+                        <label data-i18n="schedule.field.fetch-limit">抓取上限：</label>
                         <input type="number" id="sch-fetch-limit" min="0" step="1" value="0">
                         <div class="schedule-field-hint" id="sch-fetch-limit-hint-watermark" data-i18n="schedule.field.fetch-limit.hint.watermark">仅计划任务生效。首次运行最多把最新的这么多个作品纳入本轮队列；之后只增量追新，更早的历史不再补取。0 表示不设上限，大型来源可能产生较多请求，保存时会提示确认。</div>
                         <div class="schedule-field-hint" id="sch-fetch-limit-hint-per-run" style="display:none;" data-i18n="schedule.field.fetch-limit.hint.per-run">仅计划任务生效。该来源没有可靠的最新次序，因此每次运行最多纳入这么多个作品，并分多轮处理积压。0 表示不设上限，大型来源可能产生较多请求，保存时会提示确认。</div>
@@ -818,7 +823,10 @@
 <script src="/pixiv-batch/batch-schedule-sources-normalize.js"></script>
 <script src="/pixiv-batch/batch-schedule-sources-runtime.js"></script>
 <script src="/pixiv-batch/batch-schedule-sources.js"></script>
+<script src="/pixiv-batch/batch-download-defaults.js"></script>
 <script src="/pixiv-batch/batch-state.js"></script>
+<script src="/pixiv-batch/batch-pagination.js"></script>
+<script src="/pixiv-batch/batch-onboarding.js"></script>
 <script src="/pixiv-batch/batch-storage.js"></script>
 <script src="/pixiv-batch/batch-userscripts.js"></script>
 <script src="/pixiv-batch/batch-cookie.js"></script>

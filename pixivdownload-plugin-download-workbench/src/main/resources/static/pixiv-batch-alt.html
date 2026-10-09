@@ -54,6 +54,11 @@
                 <span data-i18n="workspace.more">更多</span>
             </button>
             <div class="ab-menu" id="abVersionMenu" hidden>
+                <button type="button" class="ab-menu-item button" id="batch-guide-button" hidden
+                        data-i18n-title="tour:common.help" data-i18n-aria-label="tour:common.help">
+                    <span class="ab-icon" data-icon="help" aria-hidden="true"></span>
+                    <span data-onboarding-label data-i18n="tour:common.help">操作指引</span>
+                </button>
                 <button type="button" class="ab-menu-item button" id="abScriptsBtn" data-i18n-title="scripts.entry" title="油猴脚本">
                     <span class="ab-icon" data-icon="puzzle" aria-hidden="true"></span><span data-i18n="scripts.entry">油猴脚本</span>
                 </button>
@@ -152,7 +157,10 @@
 <script src="/pixiv-batch-alt/alt-core.js"></script>
 <script src="/pixiv-batch/batch-fetch-json.js"></script>
 <script src="/pixiv-batch/userscript-detection.js"></script>
+<script src="/pixiv-batch/batch-download-defaults.js"></script>
 <script src="/pixiv-batch-alt/alt-state.js"></script>
+<script src="/pixiv-batch/batch-pagination.js"></script>
+<script src="/pixiv-batch/batch-onboarding.js"></script>
 <script src="/pixiv-batch-alt/alt-cookie.js"></script>
 <script src="/pixiv-batch-alt/alt-filters.js"></script>
 <script src="/pixiv-batch/pixiv-schedule-defaults.js"></script>

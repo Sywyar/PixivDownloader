@@ -560,6 +560,9 @@ async function runSearch(page) {
         return;
     }
     searchState.word = word;
+    const seq = searchState.requestSeq = (searchState.requestSeq || 0) + 1;
+    const isCurrent = () => searchState === requestState && searchState.requestSeq === seq;
+    searchState.filterSeq++;
     searchState.loading = true;
     searchState.error = '';
     searchState.batchInfo = null;
@@ -582,7 +585,7 @@ async function runSearch(page) {
         const spec = builder(context);
         const data = await altAcquisitionJson(acquisition.type, 'search', spec,
             range ? 'range' : 'search', context);
-        if (searchState !== requestState) return;
+        if (!isCurrent()) return;
         searchState.rawResults = normalizeAcquisitionItems(data.items || [], acquisition, context, 'search');
         searchState.total = Number(data.total || searchState.rawResults.length);
         if (searchState.submode === 'batch') {
@@ -596,7 +599,7 @@ async function runSearch(page) {
             searchState.page = Number(data.page || page);
         }
     } catch (e) {
-        if (searchState !== requestState) return;
+        if (!isCurrent()) return;
         searchState.rawResults = [];
         searchState.total = 0;
         searchState.page = page;
@@ -612,8 +615,8 @@ async function applySearchFilters() {
     const acquisition = altAcquisition('search', searchState.source, searchState.kind);
     const result = await computeFilteredItems(searchState.rawResults, extraFilters,
         acquisition ? acquisition.type : searchState.kind,
-        () => seq !== searchState.filterSeq);
-    if (!result || searchState !== requestState) return;
+        () => searchState !== requestState || seq !== searchState.filterSeq);
+    if (!result || searchState !== requestState || seq !== searchState.filterSeq) return;
     searchState.results = result.filtered;
     searchState.filterSummary = result.stats;
     renderSearchStage();

@@ -13,6 +13,7 @@
     var escapeHtml = ctx.escapeHtml;
 
     function Overlay() {
+        this.revision = 0;
         this.root = null;
         this.spot = null;
         this.pop = null;
@@ -66,6 +67,7 @@
      * @param opts {targetSelector, interactiveSelector, html, centered, scrollTarget}
      */
     Overlay.prototype.render = function (opts) {
+        this.revision++;
         this.ensure();
         this._clearInteractive();
         this.spot.style.pointerEvents = 'none';
@@ -74,6 +76,10 @@
         this.centered = !!opts.centered;
         this.root.classList.toggle('po-centered', this.centered);
         this.pop.classList.toggle('po-modal', this.centered);
+        if (this.centered) {
+            this.pop.style.top = '';
+            this.pop.style.left = '';
+        }
         this.pop.innerHTML = opts.html || '';
         this.pop.classList.remove('po-in');
         var el = this.targetSelector ? document.querySelector(this.targetSelector) : null;
@@ -170,6 +176,8 @@
     };
 
     Overlay.prototype.destroy = function () {
+        this.revision++;
+        if (ctx.download) ctx.download.stopMonitor();
         if (this._repositionTimer) {
             global.clearInterval(this._repositionTimer);
             this._repositionTimer = null;

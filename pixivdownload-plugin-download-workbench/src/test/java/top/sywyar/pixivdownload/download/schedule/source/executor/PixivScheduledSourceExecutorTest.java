@@ -82,6 +82,7 @@ class PixivScheduledSourceExecutorTest {
                     const {setup} = require(process.argv[1]);
                     (async () => {
                         const h = setup({paramsJson:require('node:fs').readFileSync(0, 'utf8')});
+                        h.confirm(true);
                         await h.context.openScheduleEditor(h.task);
                         h.options(); h.field('abScheduleField0').value = 'Renamed';
                         await h.drawer.beforeClose(); h.context.closeDrawer();
@@ -473,6 +474,38 @@ class PixivScheduledSourceExecutorTest {
         executor.discover(fullContext);
         assertThat(fullContext.sink.localKeys()).containsExactly("novel:5");
         assertThat(fullContext.sink.submittedKeys()).containsExactly("novel:4");
+    }
+
+    @Test
+    @DisplayName("固定页搜索每轮只提交限额内的未下载作品并支持零值不限量")
+    void limitsFixedPageSearchPerRun() throws Exception {
+        List<String> ids = java.util.stream.IntStream.range(0, 60)
+                .mapToObj(index -> Integer.toString(1000 - index)).toList();
+        for (String kind : List.of("illust", "novel")) {
+            for (int limit : List.of(10, 0)) {
+                completeLocally(kind + ":1000", kind + ":999");
+                String json = """
+                        {"kind":"%s","source":{"word":"fixture","order":"date_d",
+                         "mode":"all","sMode":"s_tag","maxPages":1},"fetchLimit":%d}
+                        """.formatted(kind, limit);
+                if ("illust".equals(kind)) {
+                    when(fetchService.discoverSearchArtworkIds(
+                            "fixture", "date_d", "all", "s_tag", 1, "PHPSESSID=8_secret"))
+                            .thenReturn(ids);
+                } else {
+                    when(fetchService.discoverSearchNovelIds(
+                            "fixture", "date_d", "all", "s_tag", 1, "PHPSESSID=8_secret"))
+                            .thenReturn(ids);
+                }
+                TestContext context = context(definition("search", json), null);
+                ScheduledDiscoveryResult result = support.discoverSearch(context);
+                assertThat(context.sink.localKeys()).containsExactly(kind + ":1000", kind + ":999");
+                assertThat(context.sink.submittedKeys()).containsExactlyElementsOf(
+                        ids.subList(2, limit == 0 ? 60 : 12).stream()
+                                .map(id -> kind + ":" + id).toList());
+                assertThat(result.candidateCheckpoint()).isNull();
+            }
+        }
     }
 
     @Test

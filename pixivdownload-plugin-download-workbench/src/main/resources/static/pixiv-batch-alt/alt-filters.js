@@ -1,9 +1,7 @@
 'use strict';
 /* ============================================================
    alt-filters — 附加筛选（各模式共用）
-   匹配语义逐字移植自 pixiv-batch/batch-filters.js（内容分级 / AI / 标签 /
-   类型 / 页数 / 字数 / 收藏数）；书签 meta 补齐直接走作品 meta 端点
-   （与内置插画 bookmarkCountFetch 同路径）；UI 为右侧抽屉。
+   类型专属筛选与收藏数查询由 queueTypes 的 filters 贡献提供。
    ============================================================ */
 function defaultSearchFilters() {
     return {
@@ -164,15 +162,11 @@ function matchContentRating(xRestrict, content) {
     }
 }
 
-// 类型专属字段：插画=作品类型(illust/manga/ugoira)+页数；小说=字数。
 function matchTypeExtraFilters(item, filters, kind) {
     const k = kind || item.kind || 'illust';
-    if (k === 'novel') {
-        const words = Number(item.wordCount ?? item.textLength ?? 0);
-        if (filters.wordsMin !== null && words < filters.wordsMin) return false;
-        if (filters.wordsMax !== null && words > filters.wordsMax) return false;
-        return true;
-    }
+    const contribution = window.PixivBatch.queueTypes.filtersFor(k);
+    if (typeof contribution?.matchExtra === 'function') return contribution.matchExtra(
+        item.__acquisitionId == null ? item : {...item, id: item.__acquisitionId}, filters);
     const illustType = Number(item.illustType ?? 0);
     if (filters.type === 'illust' && illustType !== 0) return false;
     if (filters.type === 'manga' && illustType !== 1) return false;
@@ -184,12 +178,13 @@ function matchTypeExtraFilters(item, filters, kind) {
 }
 
 function getInlineSearchBookmarkCount(item) {
+    if (item?.bookmarkCount == null || item.bookmarkCount === '') return null;
     const count = Number(item?.bookmarkCount);
     return Number.isFinite(count) && count >= 0 ? count : null;
 }
 
 function getSearchBookmarkCount(item, kind) {
-    const cached = searchState.metaCache[(kind || 'illust') + ':' + String(item.id)];
+    const cached = searchState.metaCache[(kind || 'illust') + ':' + String(item.__acquisitionId ?? item.id)];
     if (cached && cached.bookmarkResolved) {
         const count = Number(cached.bookmarkCount);
         if (Number.isFinite(count) && count >= 0) return count;
@@ -197,12 +192,13 @@ function getSearchBookmarkCount(item, kind) {
     return getInlineSearchBookmarkCount(item);
 }
 
-// 按需补齐逐作品收藏数 meta（收藏数筛选用）。与内置插画 bookmarkCountFetch 同路径。
+// 按需向作品类型 owner 补齐收藏数。
 async function ensureBookmarkMeta(items, kind, isStale) {
+    const contribution = window.PixivBatch.queueTypes.filtersFor(kind);
     const missingIds = [];
     const seen = new Set();
     for (const item of items) {
-        const id = String(item.id);
+        const id = String(item.__acquisitionId ?? item.id);
         if (seen.has(id)) continue;
         seen.add(id);
         if (getInlineSearchBookmarkCount(item) !== null) continue;
@@ -221,7 +217,8 @@ async function ensureBookmarkMeta(items, kind, isStale) {
                 const id = missingIds[cursor++];
                 const cacheKey = (kind || 'illust') + ':' + id;
                 try {
-                    const meta = await apiGet(`/api/pixiv/artwork/${encodeURIComponent(id)}/meta`);
+                    if (typeof contribution?.bookmarkCountFetch !== 'function') throw new Error('bookmark-meta-unavailable');
+                    const meta = await contribution.bookmarkCountFetch(id);
                     if (isStale()) return;
                     searchState.metaCache[cacheKey] = {
                         ...(searchState.metaCache[cacheKey] || {}),
@@ -318,12 +315,8 @@ function evaluateDownloadFilterSkip(meta, kind) {
 }
 
 function evaluateTypeExtraSkip(meta, filters, kind) {
-    if ((kind || 'illust') === 'novel') {
-        const words = Number(meta.wordCount ?? meta.textLength ?? 0);
-        if (filters.wordsMin !== null && words < filters.wordsMin) return bt('queue.message.skipped-filter-words', '跳过 — 字数不符附加筛选');
-        if (filters.wordsMax !== null && words > filters.wordsMax) return bt('queue.message.skipped-filter-words', '跳过 — 字数不符附加筛选');
-        return null;
-    }
+    const contribution = window.PixivBatch.queueTypes.filtersFor(kind || 'illust');
+    if (typeof contribution?.evaluateSkip === 'function') return contribution.evaluateSkip(meta, filters);
     const illustType = Number(meta.illustType ?? 0);
     if ((filters.type === 'illust' && illustType !== 0)
         || (filters.type === 'manga' && illustType !== 1)
@@ -446,17 +439,35 @@ function buildFiltersDrawerBody() {
         {value: 'only', label: bt('filters.ai.only', '仅 AI')}
     ], f.ai));
 
-    body.appendChild(el('div', 'ab-field-label', bt('filters.type.title', '作品类型')));
-    body.appendChild(filterSegment('type', [
+    const illustFields = el('div', 'search-illust-only');
+    illustFields.hidden = true;
+    illustFields.appendChild(el('div', 'ab-field-label', bt('filters.type.title', '作品类型')));
+    illustFields.appendChild(filterSegment('type', [
         {value: 'all', label: bt('filters.type.all', '全部')},
         {value: 'illust', label: bt('filters.type.illust', '插画')},
         {value: 'manga', label: bt('filters.type.manga', '漫画')},
         {value: 'ugoira', label: bt('filters.type.ugoira', '动图')}
     ], f.type));
 
-    body.appendChild(filterNumberField(bt('filters.pages', '页数'), 'pageMin', 'pageMax', f.pageMin, f.pageMax));
+    illustFields.appendChild(filterNumberField(bt('filters.pages', '页数'), 'pageMin', 'pageMax', f.pageMin, f.pageMax));
+    body.appendChild(illustFields);
     body.appendChild(filterNumberField(bt('filters.bookmarks', '收藏数'), 'bookmarkMin', 'bookmarkMax', f.bookmarkMin, f.bookmarkMax));
-    body.appendChild(filterNumberField(bt('filters.words', '字数（小说）'), 'wordsMin', 'wordsMax', f.wordsMin, f.wordsMax));
+    const novelFields = filterNumberField(bt('filters.words', '字数（小说）'), 'wordsMin', 'wordsMax', f.wordsMin, f.wordsMax);
+    novelFields.classList.add('search-novel-only');
+    novelFields.hidden = true;
+    body.appendChild(novelFields);
+    const source = state.mode === QUICK_FETCH_MODE ? quickState
+        : state.mode === 'search' ? searchState : state.mode === 'user' ? userState : seriesState;
+    const mode = state.mode === QUICK_FETCH_MODE ? 'quick' : state.mode;
+    const kind = state.mode === QUICK_FETCH_MODE ? quickState.drill?.kind || source.kind : source.kind;
+    const acquisition = altAcquisition(mode, source.source, kind);
+    const mixed = dockState.open || state.mode === SINGLE_IMPORT_MODE || (state.mode === QUICK_FETCH_MODE
+        && (quickState.drill?.type === 'collection' || quickState.kind === 'mixed'));
+    window.PixivBatch.queueTypes.contributionsOf('filters').forEach(contribution => {
+        if (contribution.extraSelector) body.querySelectorAll(contribution.extraSelector).forEach(node => {
+            node.hidden = !mixed && contribution.type !== acquisition?.type;
+        });
+    });
     body.appendChild(filterTextField(bt('filters.tags-exact', '标签精确匹配'), 'tagsExact', f.tagsExact,
         bt('filters.tags.placeholder', '逗号分隔，全部命中')));
     body.appendChild(filterTextField(bt('filters.tags-fuzzy', '标签模糊匹配'), 'tagsFuzzy', f.tagsFuzzy,

@@ -107,10 +107,22 @@
         if (sourceType === SOURCE.USER_NEW || sourceType === SOURCE.USER_REQUEST
             || sourceType === SOURCE.FOLLOW_LATEST) return 'watermark';
         if (sourceType === SOURCE.MY_BOOKMARKS || sourceType === SOURCE.COLLECTION) return 'per-run';
-        if (sourceType === SOURCE.SEARCH && source && source.maxPages === -1) {
-            return (source.order || defaults.source.order) === 'date_d' ? 'watermark' : 'per-run';
+        if (sourceType === SOURCE.SEARCH) {
+            return source && source.maxPages === -1
+                && (source.order || defaults.source.order) === 'date_d' ? 'watermark' : 'per-run';
         }
         return null;
+    }
+
+    function fetchLimitPresentation(sourceType, source) {
+        if (sourceType === SOURCE.SEARCH && source.maxPages === 1) {
+            return {
+                ...FETCH_LIMIT_PRESENTATION,
+                perRunHintKey: 'schedule.pixiv.fetch-limit.hint.first-page',
+                fullFetchConfirmRequired: false
+            };
+        }
+        return FETCH_LIMIT_PRESENTATION;
     }
 
     function currentSearchMaxPages() {
@@ -237,7 +249,7 @@
                 fetchLimit
             },
             fetchLimitMode: limitMode,
-            fetchLimitPresentation: FETCH_LIMIT_PRESENTATION,
+            fetchLimitPresentation: fetchLimitPresentation(sourceType, selected.source),
             quickLabel: selected.label,
             workType: selected.kind
         };
@@ -249,7 +261,7 @@
             return {
                 label: quick.label,
                 fetchLimitMode: fetchLimitMode(sourceType, quick.source),
-                fetchLimitPresentation: FETCH_LIMIT_PRESENTATION
+                fetchLimitPresentation: fetchLimitPresentation(sourceType, quick.source)
             };
         }
         let source = {};
@@ -262,7 +274,7 @@
         return {
             label: '',
             fetchLimitMode: fetchLimitMode(sourceType, source),
-            fetchLimitPresentation: FETCH_LIMIT_PRESENTATION
+            fetchLimitPresentation: fetchLimitPresentation(sourceType, source)
         };
     }
 
@@ -600,7 +612,7 @@
         const download = withDefaults(params.download, defaults.download);
         const rows = sourceRows(sourceType, source);
         if (fetchLimitMode(sourceType, source)) {
-            rows.push([bt('schedule.snapshot.field.fetch-limit', '首次抓取上限'),
+            rows.push([bt('schedule.snapshot.field.fetch-limit', '抓取上限'),
                 typeof params.fetchLimit === 'number' && params.fetchLimit > 0
                     ? bt('schedule.snapshot.value.fetch-limit', '{n} 个作品', {n: params.fetchLimit})
                     : bt('schedule.snapshot.value.fetch-limit-all', '全量（不限）')]);

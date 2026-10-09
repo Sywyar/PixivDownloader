@@ -134,7 +134,7 @@ for (const alt of [false, true]) {
         for (const name of ['sendDownload', 'ensureSharedSSE', 'closeAllSSE', 'openSSE', 'closeSSE',
             'initQuota', 'showArchiveCard', 'triggerAdminPack']) c[name] = () => {};
         if (alt) {
-            c.load('alt-state.js');
+            c.load('../pixiv-batch/batch-download-defaults.js'); c.load('alt-state.js');
             c.load('alt-queue.js');
             c.load('alt-engine-workers.js');
         } else {
@@ -177,7 +177,7 @@ test('新版工作台共享键回退既有 batch 词典，显式 namespace 和�
 
 test('下载区的筛选和设置按钮原位更新语言并保留交互节点', () => {
     const c = harness();
-    c.load('alt-state.js'); c.load('alt-modes.js');
+    c.load('../pixiv-batch/batch-download-defaults.js'); c.load('alt-state.js'); c.load('alt-modes.js');
     c.client = client('zh-CN'); c.run('pageI18n=client');
     c.abIconEl = () => new MiniElement('span');
     const root = new MiniElement('div');

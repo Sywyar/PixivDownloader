@@ -4,9 +4,28 @@ const assert = require('node:assert/strict');
 const {setup} = require('./batch-alt-schedule-session-support');
 const defaults = require('../../../../scripts/schedule/pixiv-defaults.json');
 
+test('固定页搜索创建和编辑均保留每轮抓取上限', async () => {
+    for (const maxPages of [1, 3]) {
+        const h = setup({paramsJson: JSON.stringify({kind: 'illust',
+            source: {word: 'limited', order: 'date_d', maxPages}, fetchLimit: 10})});
+        h.context.openScheduleEditor(h.task);
+        const captured = h.context.altCaptureScheduleSource(10);
+        assert.equal(captured.params.fetchLimit, 10);
+        assert.equal(captured.fetchLimitMode, 'per-run');
+        h.options();
+        assert.equal(h.field('abScheduleField3').value, '10');
+        await h.drawer.beforeClose(); h.context.closeDrawer();
+        await h.save();
+        const saved = JSON.parse(h.requests[0].body.definitionJson);
+        assert.equal(saved.source.maxPages, maxPages);
+        assert.equal(saved.fetchLimit, 10);
+    }
+});
+
 test('缺省任务只改名称时补齐同源下载参数，保留凭证降级与来源范围', async () => {
     for (const mode of [undefined, 'r18']) {
         const h = setup({paramsJson: JSON.stringify({source: {word: 'legacy', mode}})});
+        h.confirm(true);
         h.run('state.settings.concurrent=8;state.settings.interval=15;state.settings.novelTranslateLang="custom";');
         h.context.openScheduleEditor(h.task);
         assert.equal(h.run('searchState.endPage'), defaults.source.maxPages);
@@ -27,6 +46,7 @@ test('显式零值和用户设置不被默认值覆盖，改动筛选仍正常�
     const download = {...defaults.download, concurrent: 6, intervalMs: 0, imageDelayMs: 0,
         mediaQuality: 77, novelTranslateLanguage: 'custom', novelMerge: true};
     const h = setup({paramsJson: JSON.stringify({source: {word: 'configured', maxPages: -1}, download})});
+    h.confirm(true);
     h.context.openScheduleEditor(h.task);
     h.run('extraFilters.content="safe";');
     await h.save();
@@ -117,6 +137,7 @@ test('进入编辑后迟到的手动搜索结果不覆盖计划草稿',async()=>
 
 test('快捷编辑沿用所选类型贡献，收藏可切换小说而珍藏集保留混合类型',async()=>{
     const h=setup({sourceType:'my-bookmarks',paramsJson:JSON.stringify({kind:'illust',source:{rest:'hide'}})});
+    h.confirm(true);
     h.context.PixivBatch.queueTypes.acquisition=type=>({actions:{
         'my-illust-bookmarks-hide':{sourceType:'my-bookmarks',scheduleRest:'hide',
             scheduleSource:()=>({sourceType:'my-bookmarks',source:{rest:'hide'},kind:type})}
@@ -129,7 +150,76 @@ test('快捷编辑沿用所选类型贡献，收藏可切换小说而珍藏集�
     const saved=JSON.parse(h.requests[0].body.definitionJson);
     assert.equal(saved.kind,'novel');assert.equal(saved.source.rest,'hide');
     const c=setup({sourceType:'collection',paramsJson:JSON.stringify({kind:'mixed',source:{collectionId:'27'}})});
+    c.confirm(true);
     c.context.openScheduleEditor(c.task);c.run('quickState.kind="illust";');await c.save();
     const collection=JSON.parse(c.requests[0].body.definitionJson);
     assert.equal(collection.kind,'mixed');assert.equal(collection.source.collectionId,'27');
+});
+
+test('抓取提示跟随当前搜索范围，第一页零上限直接保存', async () => {
+    const h = setup();
+    const confirmations = [];
+    h.context.abConfirm = async key => { confirmations.push(key); return false; };
+    h.context.openScheduleEditor(h.task);
+    h.options();
+    assert.equal(h.field('abScheduleField3').hidden, false);
+    assert.match(h.drawer.body.querySelectorAll('.ab-field-note').map(node => node.textContent).join(' '),
+        /schedule.pixiv.fetch-limit.hint.watermark/);
+    await h.drawer.beforeClose(); h.context.closeDrawer();
+    h.run('searchState.endPage=1;searchState.submode="search";');
+    h.options();
+    assert.match(h.drawer.body.querySelectorAll('.ab-field-note').map(node => node.textContent).join(' '),
+        /schedule.pixiv.fetch-limit.hint.first-page/);
+    h.field('abScheduleField3').value = '0';
+    await h.drawer.beforeClose(); h.context.closeDrawer();
+    await h.save();
+    assert.deepEqual(confirmations, []);
+    assert.equal(h.requests.length, 1);
+    assert.equal(JSON.parse(h.requests[0].body.definitionJson).source.maxPages, 1);
+    assert.equal(JSON.parse(h.requests[0].body.definitionJson).fetchLimit, 0);
+
+    const series = setup({sourceType: 'series', paramsJson: JSON.stringify({kind: 'illust', source: {seriesId: '12'}})});
+    series.context.abConfirm = async () => { throw new Error('Bounded series must not prompt for an unused limit'); };
+    series.context.openScheduleEditor(series.task);
+    series.options();
+    assert.equal(series.field('abScheduleField3').hidden, true);
+    await series.drawer.beforeClose(); series.context.closeDrawer();
+    await series.save();
+    assert.equal(series.requests.length, 1);
+});
+
+test('插画和小说搜索创建与编辑仅在多页或不限页且零上限时确认', async () => {
+    for (const kind of ['illust', 'novel']) {
+        for (const editing of [false, true]) {
+            for (const maxPages of [1, 3, -1]) {
+                for (const order of ['date_d', 'date']) {
+                    const h = setup({paramsJson: JSON.stringify({
+                        kind, source: {word: 'bounded search', maxPages, order}, fetchLimit: 0
+                    })});
+                    const confirmations = [];
+                    h.context.abConfirm = async key => { confirmations.push(key); return false; };
+                    if (editing) {
+                        h.context.openScheduleEditor(h.task);
+                        await h.save();
+                    } else {
+                        h.run('state.mode="search";renderStage();');
+                        h.field('abSearchInput').value = 'bounded search';
+                        h.run(`searchState.endPage=${maxPages};searchState.submode="${maxPages === 1 ? 'search' : 'batch'}";
+                            searchState.order="${order}";searchState.kind="${kind}";`);
+                        h.context.openScheduleEditor();
+                        h.field('abScheduleField0').value = 'new search';
+                        await h.drawer.footer.querySelector('.ab-btn--primary').listeners.get('click')[0]();
+                    }
+                    assert.deepEqual(confirmations, maxPages === 1 ? [] : ['batch:schedule.pixiv.confirm.full-fetch']);
+                    assert.equal(h.requests.length, maxPages === 1 ? 1 : 0);
+                    if (maxPages === 1) {
+                        const saved = JSON.parse(h.requests[0].body.definitionJson);
+                        assert.equal(saved.source.maxPages, 1);
+                        assert.equal(saved.fetchLimit, 0);
+                        assert.equal(saved.kind, kind);
+                    }
+                }
+            }
+        }
+    }
 });

@@ -192,7 +192,8 @@ test('抓取上限展示只投影受控 i18n token 并拒绝嵌套 thenable', as
         namespace: 'example',
         watermarkHintKey: 'schedule.fetch.watermark',
         perRunHintKey: 'schedule.fetch.per-run',
-        fullFetchConfirmKey: 'schedule.fetch.confirm'
+        fullFetchConfirmKey: 'schedule.fetch.confirm',
+        fullFetchConfirmRequired: true
     });
     const captured = runtime.captureForMode('user', {});
     assert.equal(captured.fetchLimitMode, 'per-run');
@@ -200,7 +201,8 @@ test('抓取上限展示只投影受控 i18n token 并拒绝嵌套 thenable', as
         namespace: 'example',
         watermarkHintKey: 'schedule.fetch.watermark',
         perRunHintKey: 'schedule.fetch.per-run',
-        fullFetchConfirmKey: 'schedule.fetch.confirm'
+        fullFetchConfirmKey: 'schedule.fetch.confirm',
+        fullFetchConfirmRequired: true
     });
 
     const invalidInstallers = new Map([
@@ -236,6 +238,27 @@ test('抓取上限展示只投影受控 i18n token 并拒绝嵌套 thenable', as
     const mismatched = harness([manifest(1, [source()])], mismatchedInstallers);
     await mismatched.refresh(false);
     assert.equal(mismatched.previewForMode('user', {}).fetchLimitPresentation, null);
+});
+
+test('只有来源明确返回 false 才省略全量确认，预览与提交保持一致', async () => {
+    for (const value of [false, true, undefined, null, 'false', 0]) {
+        const presentation = {
+            namespace: 'example',
+            perRunHintKey: 'schedule.fetch.per-run',
+            fullFetchConfirmRequired: value
+        };
+        const installers = new Map([
+            ['/plugins/source-a.js', validInitializer('/plugins/source-a.js', {
+                preview: () => ({fetchLimitPresentation: presentation}),
+                capture: () => ({params: {}, fetchLimitPresentation: presentation})
+            })]
+        ]);
+        const runtime = harness([manifest(1, [source()])], installers);
+        await runtime.refresh(false);
+        for (const snapshot of [runtime.previewForMode('user', {}), runtime.captureForMode('user', {})]) {
+            assert.equal(snapshot.fetchLimitPresentation.fullFetchConfirmRequired, value !== false);
+        }
+    }
 });
 
 test('旧来源别名在描述、回灌、摘要、凭据与 activation lease 上统一归一化', async () => {

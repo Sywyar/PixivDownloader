@@ -1,5 +1,46 @@
 'use strict';
 
+function scheduleCredentialInput() {
+    const input = el('input', 'ab-input');
+    input.type = 'password';
+    input.autocomplete = 'new-password';
+    input.spellcheck = false;
+    let pasted = null;
+    let displayed = '';
+    input.setCredential = value => {
+        pasted = String(value);
+        input.value = pasted;
+        displayed = input.value;
+    };
+    input.readCredential = () => pasted !== null && input.value === displayed ? pasted : input.value;
+    input.addEventListener('input', () => { pasted = null; });
+    input.addEventListener('paste', event => {
+        const value = event.clipboardData?.getData('text');
+        // 密码输入框会删除换行，保留完整粘贴的多行凭证格式。
+        if (value && /[\r\n]/.test(value)) {
+            event.preventDefault();
+            input.setCredential(value);
+        }
+    });
+    return input;
+}
+
+function scheduleCredentialToggle(input) {
+    const button = el('button', 'ab-btn ab-btn--ghost ab-btn--sm');
+    button.type = 'button';
+    const update = () => {
+        button.textContent = input.type === 'password'
+            ? bt('cookie.toggle.show', '显示') : bt('cookie.toggle.hide', '隐藏');
+        button.setAttribute('aria-pressed', String(input.type === 'text'));
+    };
+    button.addEventListener('click', () => {
+        input.type = input.type === 'password' ? 'text' : 'password';
+        update();
+    });
+    update();
+    return button;
+}
+
 /* ============================================================
    专用代理 / 凭证覆写
    ============================================================ */
@@ -38,13 +79,12 @@ function openScheduleOverride(task) {
             ? bt('schedule.override.credential.bound', '已绑定凭证（不回显）')
             : bt('schedule.override.credential.none', '尚未绑定凭证，将以受限模式运行'));
     body.appendChild(credentialState);
-    const cookieInput = el('textarea', 'ab-input');
-    cookieInput.rows = 3;
-    cookieInput.spellcheck = false;
+    const cookieInput = scheduleCredentialInput();
     cookieInput.placeholder = task.cookieBound
         ? presentation.boundPlaceholder || bt('schedule.override.credential.bound-placeholder', '凭证已绑定且不回显；留空保持不变')
         : presentation.placeholder || bt('schedule.override.credential.placeholder', '粘贴该来源所需的凭证');
     body.appendChild(cookieInput);
+    body.appendChild(scheduleCredentialToggle(cookieInput));
     if (presentation.credentialHint) {
         body.appendChild(el('p', 'ab-field-note', presentation.credentialHint));
     }
@@ -55,7 +95,7 @@ function openScheduleOverride(task) {
         try {
             const credential = await scheduleCredentialValue(sourceType);
             if (!credential) throw new Error(bt('schedule.error.no-cookie', '当前来源没有可用的已保存凭证'));
-            cookieInput.value = String(credential);
+            cookieInput.setCredential(credential);
             status.textContent = '';
         } catch (e) {
             status.textContent = String(e && e.message || bt('schedule.error.no-cookie', '当前来源没有可用的已保存凭证'));
@@ -75,7 +115,7 @@ function openScheduleOverride(task) {
     saveBtn.appendChild(el('span', '', bt('common.save', '保存')));
     saveBtn.addEventListener('click', async () => {
         const proxy = proxyInput.value.trim();
-        const cookie = cookieInput.value.trim();
+        const cookie = cookieInput.readCredential().trim();
         if (proxy && !isValidProxyHostPort(proxy)) {
             status.textContent = bt('schedule.override.proxy.invalid', '代理格式无效（应为 host:port）');
             return;
@@ -306,15 +346,31 @@ function openScheduleEditor(task) {
     body.appendChild(intervalRow);
     body.appendChild(cronRow);
 
-    body.appendChild(el('label', 'ab-field-label', bt('schedule.editor.first-limit', '首次抓取上限')));
+    const limitLabel = el('label', 'ab-field-label', bt('batch:schedule.field.fetch-limit', '抓取上限：'));
+    body.appendChild(limitLabel);
     const limitInput = el('input', 'ab-input ab-input--num');
     limitInput.type = 'number';
     limitInput.min = '0';
     limitInput.value = editing && Number.isFinite(existingParams.fetchLimit)
         ? Math.max(0, existingParams.fetchLimit) : 0;
     body.appendChild(limitInput);
-    body.appendChild(el('p', 'ab-field-note',
-        bt('schedule.editor.first-limit.help', '0 = 不限。watermark 语义：首次运行纳入最新 N 个后增量追新；per-run 语义：每次运行最多 N 个并分多轮处理积压')));
+    const limitHint = el('p', 'ab-field-note');
+    body.appendChild(limitHint);
+    const limitKey = (snapshot, property, fallbackKey) => {
+        const presentation = snapshot?.fetchLimitPresentation;
+        return presentation?.namespace && presentation[property]
+            ? `${presentation.namespace}:${presentation[property]}` : `batch:${fallbackKey}`;
+    };
+    const refreshFetchLimit = () => {
+        const preview = () => altScheduleSources()?.previewForMode(state.mode, altScheduleSourceContext(limitInput.value));
+        const snapshot = session ? withScheduleEditSettings(preview) : preview();
+        const mode = snapshot?.fetchLimitMode;
+        for (const node of [limitLabel, limitInput, limitHint]) node.hidden = !mode;
+        limitHint.textContent = mode ? bt(limitKey(snapshot,
+            mode === 'watermark' ? 'watermarkHintKey' : 'perRunHintKey',
+            `schedule.field.fetch-limit.hint.${mode}`)) : '';
+    };
+    refreshFetchLimit();
 
     body.appendChild(el('label', 'ab-field-label', bt('schedule.override.proxy', '单独代理')));
     const proxyInput = el('input', 'ab-input');
@@ -324,18 +380,18 @@ function openScheduleEditor(task) {
     body.appendChild(proxyInput);
 
     body.appendChild(el('label', 'ab-field-label', bt('schedule.override.credential', '单独凭证')));
-    const credInput = el('textarea', 'ab-input');
-    credInput.rows = 2;
-    credInput.spellcheck = false;
+    const credInput = scheduleCredentialInput();
     credInput.placeholder = bt('schedule.override.credential.placeholder', '粘贴该来源所需的凭证（可留空）');
     body.appendChild(credInput);
+    const credentialToggle = scheduleCredentialToggle(credInput);
+    body.appendChild(credentialToggle);
 
     if (editing) {
         const overrides = el('details', 'ab-schedule-overrides');
         overrides.appendChild(el('summary', '', bt('schedule.override.title', '专用代理 / 凭证', {name: task.name})));
         const proxyLabel = proxyInput.previousElementSibling;
         const credentialLabel = credInput.previousElementSibling;
-        overrides.append(proxyLabel, proxyInput, credentialLabel, credInput);
+        overrides.append(proxyLabel, proxyInput, credentialLabel, credInput, credentialToggle);
         body.appendChild(overrides);
     }
 
@@ -371,10 +427,6 @@ function openScheduleEditor(task) {
             return;
         }
         const firstLimit = Math.max(0, parseInt(limitInput.value, 10) || 0);
-        if (firstLimit === 0 && !editing) {
-            if (!await abConfirm('schedule.editor.full-confirm',
-                '首次抓取上限为 0（全量不限），确认创建？首次运行可能抓取大量作品。')) return;
-        }
         const isCron = triggerSeg.querySelectorAll('.ab-seg-item')[1].classList.contains('is-active');
         saving = true;
         if (session) session.saving = true;
@@ -388,8 +440,13 @@ function openScheduleEditor(task) {
                 || snapshot.activationToken !== session.lease.activationToken)) {
                 throw new Error(bt('schedule.editor.source-changed'));
             }
-            const credential = credInput.value.trim();
+            const credential = credInput.readCredential().trim();
             if (credential) await validateScheduleCredential(snapshot.sourceType, credential, editing ? task : null);
+            if (snapshot.fetchLimitMode && !(snapshot.params.fetchLimit > 0)
+                    && snapshot.fetchLimitPresentation?.fullFetchConfirmRequired !== false) {
+                if (!await abConfirm(limitKey(snapshot, 'fullFetchConfirmKey',
+                    'schedule.confirm.full-fetch'))) return;
+            }
             snapshot.lease.assertCurrent();
             const requestBody = {
                 name,
@@ -472,6 +529,7 @@ function openScheduleEditor(task) {
         const settingsFooter = el('div', 'ab-drawer-actions');
         settingsFooter.appendChild(back);
         showSettings = () => {
+            refreshFetchLimit();
             body.prepend(status);
             openDrawer({
                 id: 'schedule-settings', icon: 'clock', title: bt('schedule.editor.settings'),

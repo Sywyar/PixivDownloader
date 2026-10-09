@@ -36,6 +36,22 @@ test('full-fetch confirm await 期间 A→B 后旧 submit 不继续请求', asyn
     assert.equal(h.fetchCount, 0);
 });
 
+test('有界来源无需全量确认时，创建与编辑均直接保存零上限', async () => {
+    for (const editing of [false, true]) {
+        const h = harness({
+            fetchLimitMode: 'per-run',
+            fetchLimitPresentation: {fullFetchConfirmRequired: false},
+            response: {ok: true, json: async () => ({id: 7})}
+        });
+        if (editing) h.setEditing(7, [{id: 7, sourceType: 'source-a'}]);
+        await h.submit();
+        assert.equal(h.confirmCount, 0);
+        const request = h.requests.find(value => value.init.method === (editing ? 'PUT' : 'POST'));
+        assert.ok(request);
+        assert.equal(JSON.parse(JSON.parse(request.init.body).definitionJson).fetchLimit, 0);
+    }
+});
+
 test('来源抓取提示使用受控 key 且未知来源保持中性文案', async () => {
     const generic = harness({
         sourcePreview: {fetchLimitMode: 'watermark', fetchLimitPresentation: null}

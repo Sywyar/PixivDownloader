@@ -28,13 +28,10 @@
         speedLastTime: 0,       // 上次采样时间戳（ms）
         speedTimer: null,       // 速度采样定时器句柄
         settings: {
-            interval: 2,
-            intervalUnit: 's',
+            ...window.PixivBatch.downloadDefaults,
             imageDelay: 0,
             imageDelayUnit: 'ms',
-            concurrent: 1,
             autoStartOnEnqueue: false,
-            skipHistory: false,
             verifyHistoryFiles: false,
             redownloadDeleted: false,   // 允许已删除（软删除标记）的作品被重新下载；默认不勾选 = 跳过
             bookmark: false,

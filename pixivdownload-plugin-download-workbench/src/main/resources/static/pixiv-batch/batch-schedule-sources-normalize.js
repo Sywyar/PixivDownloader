@@ -88,7 +88,8 @@
                 namespace,
                 watermarkHintKey,
                 perRunHintKey,
-                fullFetchConfirmKey
+                fullFetchConfirmKey,
+                fullFetchConfirmRequired: raw.fullFetchConfirmRequired !== false
             });
         } catch (e) {
             return null;

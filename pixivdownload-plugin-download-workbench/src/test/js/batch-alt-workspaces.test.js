@@ -17,7 +17,7 @@ test('Cupertino 控件使用原生开关状态并保留业务回调和禁用属�
             return node;
         },
     };
-    const context = vm.createContext({document});
+    const context = vm.createContext({AbortController, document});
     context.window = context;
     for (const name of ['alt-core.js', 'alt-settings.js']) {
         vm.runInContext(readFileSync(resolve(__dirname, '../../main/resources/static/pixiv-batch-alt', name), 'utf8'), context);
@@ -63,7 +63,7 @@ test('工作区保留各自滚动位置，草稿只保存非敏感输入与光�
     const password = element('input', 'credential', panel);
     password.type = 'password';
     password.value = 'test-only-secret';
-    const context = vm.createContext({
+    const context = vm.createContext({AbortController,
         document, console, QUICK_FETCH_MODE: 'quick-fetch', SINGLE_IMPORT_MODE: 'single-import',
         state: {mode: 'single-import'}, dockState: {open: false},
         scrollY: 320, addEventListener() {}, PixivBatchAlt: {chrome: {}},
@@ -104,7 +104,7 @@ test('Web 与 Compose 色板来自同一输入，文本及控件对比度通过'
 test('作品选择跨页保留，按查询和插件换代清理，批量入队保留作品元数据', () => {
     const handlers = {};
     const batches = [];
-    const context = vm.createContext({
+    const context = vm.createContext({AbortController,
         state: {mode: 'search'}, QUICK_FETCH_MODE: 'quick-fetch', extraFilters: {},
         searchState: {source: 'demo', kind: 'novel', word: 'cat', page: 1},
         document: {getElementById: () => null},
@@ -149,7 +149,7 @@ test('计划列表直接提供管理动作，并按名称、来源与状态筛�
             return node;
         },
     };
-    const context = vm.createContext({document, pageI18n: null,
+    const context = vm.createContext({AbortController, document, pageI18n: null,
         scheduleState: {expandedQueues: new Set()},
         altScheduleSources: () => ({isAvailable: () => true, descriptor: () => null}),
         summaryJoin: items => items.filter(Boolean).join(' · '),
@@ -208,7 +208,7 @@ test('计划队列的过期响应不得更新或卸载重新展开的容器', as
     let settle;
     const renders = [];
     const unmounts = [];
-    const context = vm.createContext({
+    const context = vm.createContext({AbortController, schedulePageVisible: () => true,
         BASE: '', document: {getElementById: () => box},
         storeGet: () => null, storeSet() {},
         state: {mode: 'schedule'}, scheduleState: {expandedQueues: new Set()},
@@ -235,7 +235,7 @@ test('计划队列的过期响应不得更新或卸载重新展开的容器', as
 });
 
 test('计划代理与凭证弹窗可打开，字段有标签且不回显已绑定凭证', () => {
-    const context = vm.createContext({
+    const context = vm.createContext({AbortController,
         document: {createElement: tag => new MiniElement(tag), addEventListener() {}},
         altScheduleSources: () => ({isAvailable: () => true,
             credentialActions: () => ({supportsCookie: true, supportsProxy: true, presentation: {}})}),
@@ -250,11 +250,24 @@ test('计划代理与凭证弹窗可打开，字段有标签且不回显已绑�
     context.openScheduleOverride({id: 7, sourceType: 'demo', proxy: 'localhost:8080', cookieBound: true});
     assert.equal(modal.id, 'schedule-override');
     const proxy = modal.body.querySelector('input');
-    const credential = modal.body.querySelector('textarea');
+    const credential = modal.body.querySelector('input[type="password"]');
     assert.equal(proxy.value, 'localhost:8080');
     assert.ok(proxy.getAttribute('aria-label'));
     assert.ok(credential.getAttribute('aria-label'));
     assert.equal(credential.value, '');
+    assert.equal(credential.type, 'password');
+    const toggle = modal.body.querySelectorAll('button').find(button => button.textContent === '显示');
+    toggle.dispatchEvent({type:'click'});
+    assert.equal(credential.type, 'text');
+    toggle.dispatchEvent({type:'click'});
+    assert.equal(credential.type, 'password');
+    let prevented = false;
+    credential.dispatchEvent({type:'paste',clipboardData:{getData:()=> 'line1\nline2'},
+        preventDefault(){prevented=true;}});
+    assert.equal(prevented,true);
+    assert.equal(credential.readCredential(),'line1\nline2');
+    credential.value='edited';credential.dispatchEvent({type:'input'});
+    assert.equal(credential.readCredential(),'edited');
 });
 
 test('侧栏关闭保护未保存内容，重新打开可打断关闭且保留新内容', async () => {
@@ -273,7 +286,7 @@ test('侧栏关闭保护未保存内容，重新打开可打断关闭且保留�
         createElement,
         addEventListener: () => {},
     };
-    const context = vm.createContext({document});
+    const context = vm.createContext({AbortController, document});
     context.window = context;
     vm.runInContext(readFileSync(resolve(__dirname,
         '../../main/resources/static/pixiv-batch-alt/alt-core.js'), 'utf8'), context);

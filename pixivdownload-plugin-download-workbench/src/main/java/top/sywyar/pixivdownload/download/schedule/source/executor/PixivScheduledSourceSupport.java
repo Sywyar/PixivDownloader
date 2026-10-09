@@ -214,7 +214,7 @@ public final class PixivScheduledSourceSupport {
                                     word, order, mode, searchMode, maxPages, cookie)
                             : fetchService.discoverSearchArtworkIds(
                                     word, order, mode, searchMode, maxPages, cookie);
-                    fullScan(context, definition, workType, ids, 0);
+                    fullScan(context, definition, workType, ids, definition.snapshot().fetchLimit());
                     yield ScheduledDiscoveryResult.withoutCheckpoint();
                 }
             };

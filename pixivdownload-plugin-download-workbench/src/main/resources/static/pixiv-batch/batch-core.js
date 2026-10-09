@@ -283,8 +283,9 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
         if (typeof PixivTour === 'undefined') {
             return;
         }
-        PixivTour.init({
+        const controller = PixivTour.init({
             pageKey: 'batch',
+            noHelpFab: true,
             i18n: pageI18n,
             auto: auto,
             steps: [
@@ -299,6 +300,7 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
                 }
             ]
         });
+        window.PixivBatch.onboarding.bindTourButton(controller);
     }
 
     function uiAlertKey(key, fallback, vars) {
