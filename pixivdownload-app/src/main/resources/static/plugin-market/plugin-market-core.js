@@ -90,6 +90,7 @@
             return global.PixivFeedback && typeof global.PixivFeedback.confirm === 'function';
         }
         var confirmedArtifacts = Object.create(null);
+        var confirmedPlan = null;
         var completedDependencies = Object.create(null);
         function rememberDependencies(response) {
             var body = response.body || {};
@@ -140,6 +141,10 @@
                         code: 'INSTALL_PREVIEW_BLOCKED', message: lines.join('\n\n')
                     }});
                 }
+                // 指纹还包含运行期代次；仅计划内容不变时沿用本次确认，执行仍绑定最新指纹。
+                var plan = JSON.stringify(Object.assign({}, preview, {fingerprint: undefined}));
+                confirmations.fingerprint = preview.fingerprint;
+                if (plan === confirmedPlan) return attempt(confirmations);
                 phase('confirm');
                 return global.PixivFeedback.confirm({
                     title: PMK.t('install.preview.title'), message: PMK.t('install.preview.summary'),
@@ -149,7 +154,7 @@
                     if (!confirmed) return rememberDependencies({ kind: 'error', body: {
                         code: 'CANCELLED', message: PMK.t('install.preview.cancelled')
                     } });
-                    confirmations.fingerprint = preview.fingerprint;
+                    confirmedPlan = plan;
                     return attempt(confirmations);
                 });
             });
