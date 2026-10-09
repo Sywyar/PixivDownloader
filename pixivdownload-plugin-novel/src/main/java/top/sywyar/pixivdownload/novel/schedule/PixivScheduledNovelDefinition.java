@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import static top.sywyar.pixivdownload.novel.schedule.PixivScheduleDefaults.*;
 
 /** 小说执行器对当前 Pixiv 计划任务定义的模块内只读投影。 */
 record PixivScheduledNovelDefinition(
@@ -34,7 +35,7 @@ record PixivScheduledNovelDefinition(
         if (root == null || !root.isObject()) {
             throw new IllegalArgumentException("Pixiv schedule definition must be a JSON object");
         }
-        String kind = root.path("kind").asText("illust");
+        String kind = root.path("kind").asText(KIND);
         boolean novelDefinition = "novel".equalsIgnoreCase(kind);
         boolean mixedCollectionDefinition = "mixed".equalsIgnoreCase(kind)
                 && "collection".equals(definition.sourceType());
@@ -54,8 +55,8 @@ record PixivScheduledNovelDefinition(
 
     private static Filters parseFilters(JsonNode filters) {
         return new Filters(
-                filters.path("content").asText("all"),
-                filters.path("aiFilter").asText("all"),
+                filters.path("content").asText(FILTERS_CONTENT),
+                filters.path("aiFilter").asText(FILTERS_AI_FILTER),
                 loweredList(filters.path("tagsExact")),
                 loweredList(filters.path("tagsFuzzy")),
                 intOrNull(filters.path("wordsMin")),
@@ -65,20 +66,20 @@ record PixivScheduledNovelDefinition(
     }
 
     private static Download parseDownload(JsonNode download) {
-        String template = download.path("fileNameTemplate").asText("");
+        String template = download.path("fileNameTemplate").asText(DOWNLOAD_FILE_NAME_TEMPLATE);
         return new Download(
                 template.isBlank() ? null : template,
-                download.path("bookmark").asBoolean(false),
+                download.path("bookmark").asBoolean(DOWNLOAD_BOOKMARK),
                 longOrNull(download.path("collectionId")),
-                download.path("redownloadDeleted").asBoolean(false),
-                download.path("novelFormat").asText("txt"),
-                download.path("novelMerge").asBoolean(false),
-                download.path("novelMergeFormat").asText("epub"),
-                download.path("novelAutoTranslate").asBoolean(false),
-                download.path("novelTranslateLanguage").asText(""),
+                download.path("redownloadDeleted").asBoolean(DOWNLOAD_REDOWNLOAD_DELETED),
+                download.path("novelFormat").asText(DOWNLOAD_NOVEL_FORMAT),
+                download.path("novelMerge").asBoolean(DOWNLOAD_NOVEL_MERGE),
+                download.path("novelMergeFormat").asText(DOWNLOAD_NOVEL_MERGE_FORMAT),
+                download.path("novelAutoTranslate").asBoolean(DOWNLOAD_NOVEL_AUTO_TRANSLATE),
+                download.path("novelTranslateLanguage").asText(DOWNLOAD_NOVEL_TRANSLATE_LANGUAGE),
                 intOrNull(download.path("novelTranslateSegmentSize")),
                 top.sywyar.pixivdownload.core.work.service.DownloadPathAction.parse(
-                        download.path("pathOverflowAction").asText(null)));
+                        download.path("pathOverflowAction").asText(DOWNLOAD_PATH_OVERFLOW_ACTION)));
     }
 
     private static List<String> loweredList(JsonNode node) {

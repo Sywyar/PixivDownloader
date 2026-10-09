@@ -303,7 +303,6 @@ assert.strictEqual(sandbox.scheduleStatusLabel(suspendedTask), '风控原因详�
         '旧版每个插件槽位都必须在新版有直接宿主或声明过的语义适配');
     assert(source.includes('runtime.dataSourcesForMode(mode)')
         && source.includes('runtime.typesForDataSource(mode, sourceId)')
-        && source.includes("runtime.acquisitionList('quick')")
         && filtersSource.includes('let extraFilters = defaultSearchFilters();'));
     assert(classicPageSource.includes('/js/pixiv-vue.js')
         && classicPageSource.includes('/pixiv-batch/batch-queue-types-normalize.js')

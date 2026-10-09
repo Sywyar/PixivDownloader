@@ -273,7 +273,10 @@
         state.settings.verifyHistoryFiles = document.getElementById('s-verify-files').checked;
         state.settings.redownloadDeleted = document.getElementById('s-redownload-deleted').checked;
         state.settings.bookmark = document.getElementById('s-bookmark').checked;
-        state.settings.fileNameTemplate = normalizeFileNameTemplate(document.getElementById('s-file-name-template').value);
+        const template = document.getElementById('s-file-name-template').value;
+        state.settings.fileNameTemplate = typeof scheduleEditingToken !== 'undefined' && scheduleEditingToken
+                && !template.trim() ? window.PixivBatch.pixivScheduleDefaults.download.fileNameTemplate
+            : normalizeFileNameTemplate(template);
         state.settings.pathOverflowAction = (document.getElementById('s-path-overflow-action') || {}).value || 'ASK';
         const sel = document.getElementById('s-collection');
         state.settings.collectionId = sel.value ? Number(sel.value) : null;

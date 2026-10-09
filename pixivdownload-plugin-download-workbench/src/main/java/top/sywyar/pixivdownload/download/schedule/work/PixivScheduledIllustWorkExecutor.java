@@ -234,7 +234,7 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
         other.setBookmark(download.bookmark());
         other.setCollectionId(download.collectionId());
         other.setDelayMs(download.imageDelayMs() == null
-                ? 0
+                ? top.sywyar.pixivdownload.download.schedule.snapshot.PixivScheduleDefaults.DOWNLOAD_IMAGE_DELAY_MS
                 : Math.max(0, download.imageDelayMs()));
         if (seriesTitle != null) {
             other.setSeriesTitle(seriesTitle);

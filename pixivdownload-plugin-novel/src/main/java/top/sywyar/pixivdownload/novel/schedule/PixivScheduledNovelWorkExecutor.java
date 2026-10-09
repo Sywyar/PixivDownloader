@@ -335,7 +335,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
                     metadata.seriesId(),
                     download.novelTranslateLanguage(),
                     download.novelTranslateSegmentSize() == null
-                            ? 0
+                            ? PixivScheduleDefaults.DOWNLOAD_NOVEL_TRANSLATE_SEGMENT_SIZE
                             : download.novelTranslateSegmentSize(),
                     download.novelMerge(),
                     download.novelMergeFormat());

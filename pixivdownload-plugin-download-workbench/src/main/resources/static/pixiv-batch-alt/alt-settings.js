@@ -16,6 +16,7 @@ function getImageDelayMs() {
 }
 
 function saveSettings() {
+    if (scheduleState.editing) return;
     // 「收藏到」（收藏夹选择）不持久化：每次加载都默认为「不加入收藏夹」，仅在当前会话内生效。
     const {collectionId, ...persisted} = state.settings;
     storeSet('pixiv_batch_settings', JSON.stringify(persisted));
@@ -250,9 +251,12 @@ function numberWithUnit(value, unit, onValue, onUnit) {
 }
 
 function buildSettingsDrawerBody() {
-    const s = state.settings;
+    const s = scheduleState.editing?.settings || state.settings;
     const body = el('div', 'ab-settings');
-    body.appendChild(el('p', 'ab-field-note', bt('settings.scope', '更改供后续下载使用。单人模式保存在服务端工作台状态，多人模式保存在此浏览器。')));
+    if (scheduleState.editing) body.dataset.scheduleSettings = '1';
+    body.appendChild(el('p', 'ab-field-note', scheduleState.editing
+        ? bt('batch:schedule.save.editing', '', {name: scheduleState.editing.task.name})
+        : bt('settings.scope', '更改供后续下载使用。单人模式保存在服务端工作台状态，多人模式保存在此浏览器。')));
 
     // —— 节奏 ——
     body.appendChild(el('h4', 'ab-settings-group', bt('settings.group.pace', '下载节奏')));
@@ -399,7 +403,9 @@ function buildSettingsDrawerBody() {
     body.appendChild(typeSettings);
     const runtime = altQueueTypes();
     if (runtime) runtime.contributionsOf('settings').forEach(setting => {
-        if (typeof setting.mount === 'function') setting.mount(typeSettings);
+        if (typeof setting.mount !== 'function') return;
+        if (scheduleState.editing) withScheduleEditSettings(() => setting.mount(typeSettings));
+        else setting.mount(typeSettings);
     });
 
     if (isAdmin) {
@@ -469,13 +475,14 @@ function openDownloadOptionsDrawer(section) {
 // 字段语义与可见性由贡献方提供；宿主只负责共享草稿和持久化。
 function bindContributedSettings(root, bindings, isActive, refresh) {
     const cleanups = [];
+    const settings = scheduleState.editing?.settings || state.settings;
     Object.entries(bindings).forEach(([id, binding]) => {
         const input = root.querySelector('#' + id);
         if (!input) return;
-        binding.write(input, state.settings[binding.key]);
+        binding.write(input, settings[binding.key]);
         const changed = () => {
             if (!root.isConnected || !isActive()) return;
-            state.settings[binding.key] = binding.read(input);
+            settings[binding.key] = binding.read(input);
             saveSettings();
             refresh();
         };

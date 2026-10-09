@@ -4,6 +4,14 @@
     if (!runtime) return;
 
     const MODULE_URL = '/pixiv-batch/pixiv-schedule-sources.js';
+    const defaults = window.PixivBatch.pixivScheduleDefaults;
+    function withDefaults(value, fallback) {
+        const result = {...value};
+        Object.entries(fallback).forEach(([key, initial]) => {
+            if (result[key] == null) result[key] = Array.isArray(initial) ? [...initial] : initial;
+        });
+        return result;
+    }
     const SOURCE = Object.freeze({
         USER_NEW: 'user-new',
         USER_REQUEST: 'user-request',
@@ -68,7 +76,7 @@
         return {
             sourceType,
             source: value.source && typeof value.source === 'object' ? value.source : {},
-            kind: value.kind || 'illust',
+            kind: value.kind || defaults.kind,
             label: value.label || ''
         };
     }
@@ -100,7 +108,7 @@
             || sourceType === SOURCE.FOLLOW_LATEST) return 'watermark';
         if (sourceType === SOURCE.MY_BOOKMARKS || sourceType === SOURCE.COLLECTION) return 'per-run';
         if (sourceType === SOURCE.SEARCH && source && source.maxPages === -1) {
-            return (source.order || 'date_d') === 'date_d' ? 'watermark' : 'per-run';
+            return (source.order || defaults.source.order) === 'date_d' ? 'watermark' : 'per-run';
         }
         return null;
     }
@@ -110,7 +118,7 @@
             || ((document.querySelector('input[name="search-submode"]:checked') || {}).value === 'batch');
         if (!batchSubmode) return 1;
         const raw = parseInt((document.getElementById('batch-end-page') || {}).value, 10);
-        return (isAdmin && raw === -1) ? -1 : Math.max(1, Number.isFinite(raw) ? raw : 3);
+        return (isAdmin && raw === -1) ? -1 : Math.max(1, Number.isFinite(raw) ? raw : defaults.source.maxPages);
     }
 
     function sourceFromUi(sourceType, context) {
@@ -134,9 +142,9 @@
         if (sourceType === SOURCE.SEARCH) {
             const word = ((document.getElementById('search-word') || {}).value || '').trim();
             if (!word) throw new Error(bt('schedule.error.word', '请填写搜索关键词'));
-            const uiMode = (document.getElementById('search-content-filter') || {}).value || 'all';
-            const sMode = (document.querySelector('input[name="search-smode"]:checked') || {}).value || 's_tag';
-            const order = (document.querySelector('input[name="search-order"]:checked') || {}).value || 'date_d';
+            const uiMode = (document.getElementById('search-content-filter') || {}).value || defaults.filters.content;
+            const sMode = (document.querySelector('input[name="search-smode"]:checked') || {}).value || defaults.source.sMode;
+            const order = (document.querySelector('input[name="search-order"]:checked') || {}).value || defaults.source.order;
             const pixivMode = ['r18', 'r18g', 'r18plus'].includes(uiMode) ? 'r18' : uiMode;
             return {
                 source: {word, order, mode: pixivMode, sMode, maxPages: currentSearchMaxPages()},
@@ -178,38 +186,54 @@
         return {
             fileNameTemplate: state.settings.fileNameTemplate,
             ...window.PixivMediaSettings.snapshot(state.settings),
-            pathOverflowAction: state.settings.pathOverflowAction || 'ASK',
+            pathOverflowAction: state.settings.pathOverflowAction || defaults.download.pathOverflowAction,
             bookmark: !!state.settings.bookmark,
             collectionId: state.settings.collectionId,
-            concurrent: Math.max(1, parseInt(state.settings.concurrent, 10) || 1),
+            concurrent: Math.max(1, parseInt(state.settings.concurrent, 10) || defaults.download.concurrent),
             intervalMs: getIntervalMs(),
             imageDelayMs: getImageDelayMs(),
             verifyFiles: !!state.settings.verifyHistoryFiles,
             redownloadDeleted: !!state.settings.redownloadDeleted,
-            novelFormat: state.settings.novelFormat || 'txt',
+            novelFormat: state.settings.novelFormat || defaults.download.novelFormat,
             novelMerge: !!state.settings.mergeNovelSeries,
-            novelMergeFormat: state.settings.mergeNovelFormat || 'epub',
+            novelMergeFormat: state.settings.mergeNovelFormat || defaults.download.novelMergeFormat,
             novelAutoTranslate: !!state.settings.novelAutoTranslate,
-            novelTranslateLanguage: state.settings.novelTranslateLang || defaultNovelTranslateLang(),
-            novelTranslateSegmentSize: Math.max(0, parseInt(state.settings.novelTranslateSeg, 10) || 0)
+            novelTranslateLanguage: state.settings.novelTranslateLang ?? defaults.download.novelTranslateLanguage,
+            novelTranslateSegmentSize: Math.max(0, parseInt(state.settings.novelTranslateSeg, 10)
+                || defaults.download.novelTranslateSegmentSize)
         };
     }
 
     function capture(sourceType, context) {
+        if (typeof window.PixivBatch.pixivScheduleCapture === 'function') {
+            context = window.PixivBatch.pixivScheduleCapture(context);
+        }
         const selected = sourceFromUi(sourceType, context);
         syncSettings();
         const limitMode = fetchLimitMode(sourceType, selected.source);
-        let fetchLimit = 0;
+        let fetchLimit = defaults.fetchLimit;
         if (limitMode) {
             const raw = parseInt((document.getElementById('sch-fetch-limit') || {}).value, 10);
-            fetchLimit = Number.isFinite(raw) && raw > 0 ? raw : 0;
+            fetchLimit = Number.isFinite(raw) && raw > 0 ? raw : defaults.fetchLimit;
+        }
+        const existing = context.editingTask ? parseParams(context.editingTask) || {} : {};
+        const filters = {...existing.filters, ...snapshotFilters()};
+        // 缺省内容范围另有凭证降级语义；未改动该筛选时保留字段缺席。
+        if (context.editingTask && filters.content === (existing.filters?.content
+            ?? existing.source?.mode ?? defaults.filters.content)) {
+            if (existing.filters?.content == null) delete filters.content;
+            if (sourceType === SOURCE.SEARCH) {
+                if (existing.source?.mode == null) delete selected.source.mode;
+                else selected.source.mode = existing.source.mode;
+            }
         }
         return {
             params: {
+                ...existing,
                 kind: selected.kind,
-                source: selected.source,
-                filters: snapshotFilters(),
-                download: snapshotDownload(),
+                source: {...existing.source, ...selected.source},
+                filters,
+                download: {...existing.download, ...snapshotDownload()},
                 fetchLimit
             },
             fetchLimitMode: limitMode,
@@ -232,7 +256,7 @@
         if (sourceType === SOURCE.SEARCH) {
             source = {
                 maxPages: currentSearchMaxPages(),
-                order: (document.querySelector('input[name="search-order"]:checked') || {}).value || 'date_d'
+                order: (document.querySelector('input[name="search-order"]:checked') || {}).value || defaults.source.order
             };
         }
         return {
@@ -274,16 +298,36 @@
         }
     }
 
-    function applyDownload(value) {
-        const download = value || {};
+    function applyDownload(value, controls = true) {
+        const download = withDefaults(value, defaults.download);
         Object.assign(state.settings, window.PixivMediaSettings.snapshot(download));
+        Object.assign(state.settings, {
+            fileNameTemplate: download.fileNameTemplate,
+            pathOverflowAction: download.pathOverflowAction,
+            bookmark: !!download.bookmark,
+            collectionId: download.collectionId ?? null,
+            concurrent: download.concurrent,
+            interval: download.intervalMs,
+            intervalUnit: 'ms',
+            imageDelay: download.imageDelayMs,
+            imageDelayUnit: 'ms',
+            verifyHistoryFiles: !!download.verifyFiles,
+            redownloadDeleted: !!download.redownloadDeleted,
+            novelFormat: download.novelFormat,
+            mergeNovelSeries: !!download.novelMerge,
+            mergeNovelFormat: download.novelMergeFormat,
+            novelAutoTranslate: !!download.novelAutoTranslate,
+            novelTranslateLang: download.novelTranslateLanguage,
+            novelTranslateSeg: download.novelTranslateSegmentSize
+        });
+        if (!controls) return;
         window.PixivBatch.queueTypes.contributionsOf('settings').forEach(setting => {
             if (typeof setting.mount === 'function') setting.mount(document.getElementById('type-output-settings'));
         });
-        state.settings.pathOverflowAction = download.pathOverflowAction || 'ASK';
+        state.settings.pathOverflowAction = download.pathOverflowAction;
         const pathAction = document.getElementById('s-path-overflow-action');
-        if (pathAction) pathAction.value = download.pathOverflowAction || 'ASK';
-        if (typeof download.fileNameTemplate === 'string' && download.fileNameTemplate) {
+        if (pathAction) pathAction.value = download.pathOverflowAction;
+        if (typeof download.fileNameTemplate === 'string') {
             const field = document.getElementById('s-file-name-template');
             if (field) field.value = download.fileNameTemplate;
         }
@@ -303,8 +347,7 @@
             state.settings.novelAutoTranslate = !!download.novelAutoTranslate;
         }
         const language = document.getElementById('s-novel-translate-lang');
-        if (language && typeof download.novelTranslateLanguage === 'string'
-            && download.novelTranslateLanguage) {
+        if (language && typeof download.novelTranslateLanguage === 'string') {
             language.value = download.novelTranslateLanguage;
             state.settings.novelTranslateLang = download.novelTranslateLanguage;
         }
@@ -354,10 +397,33 @@
     function restore(sourceType, task) {
         const params = parseParams(task);
         if (!params) throw new Error(bt('schedule.snapshot.error.parse', '任务快照解析失败'));
-        const kind = params.kind === 'novel' ? 'novel' : (params.kind === 'mixed' ? 'mixed' : 'illust');
-        const source = params.source || {};
-        const filters = params.filters || {};
+        const kind = params.kind === 'novel' ? 'novel' : (params.kind === 'mixed' ? 'mixed' : defaults.kind);
+        const source = sourceType === SOURCE.SEARCH
+            ? withDefaults(params.source, defaults.source)
+            : sourceType === SOURCE.MY_BOOKMARKS
+                ? withDefaults(params.source, {rest: defaults.source.rest}) : params.source || {};
+        const filters = withDefaults(params.filters, defaults.filters);
         const targetMode = modeFor(sourceType);
+        const restored = {
+            mode: targetMode, params: {...params, source}, kind,
+            filters: normalizeSearchFilters({
+                content: params.filters?.content ?? source.mode ?? defaults.filters.content,
+                ai: filters.aiFilter, type: filters.typeFilter,
+                pageMin: filters.pagesMin, pageMax: filters.pagesMax,
+                bookmarkMin: filters.bookmarksMin, bookmarkMax: filters.bookmarksMax,
+                wordsMin: filters.wordsMin, wordsMax: filters.wordsMax,
+                tagsExact: filters.tagsExact, tagsFuzzy: filters.tagsFuzzy
+            }),
+            quickSource: targetMode === QUICK_FETCH_MODE ? {
+                sourceType, type: sourceType, source, kind,
+                label: quickSourceLabel(sourceType, source, kind)
+            } : null
+        };
+        if (typeof window.PixivBatch.pixivScheduleRestore === 'function') {
+            applyDownload(params.download, false);
+            window.PixivBatch.pixivScheduleRestore(restored, sourceType);
+            return restored;
+        }
         switchMode(targetMode);
         let quickSource = null;
         if (sourceType === SOURCE.USER_NEW) {
@@ -372,8 +438,8 @@
             applyKind('search', kind);
             const input = document.getElementById('search-word');
             if (input) input.value = source.word || '';
-            setRadio('search-order', source.order || 'date_d');
-            setRadio('search-smode', source.sMode || 's_tag');
+            setRadio('search-order', source.order);
+            setRadio('search-smode', source.sMode);
             const maxPages = source.maxPages;
             const batch = maxPages === -1 || (typeof maxPages === 'number' && maxPages >= 2);
             applySubmodeUI(batch ? 'batch' : 'search', {clear: false});
@@ -401,19 +467,7 @@
             };
         }
         applyDownload(params.download || {});
-        setSearchFiltersUI(normalizeSearchFilters({
-            content: filters.content,
-            ai: filters.aiFilter,
-            type: filters.typeFilter,
-            pageMin: filters.pagesMin,
-            pageMax: filters.pagesMax,
-            bookmarkMin: filters.bookmarksMin,
-            bookmarkMax: filters.bookmarksMax,
-            wordsMin: filters.wordsMin,
-            wordsMax: filters.wordsMax,
-            tagsExact: filters.tagsExact,
-            tagsFuzzy: filters.tagsFuzzy
-        }));
+        setSearchFiltersUI(restored.filters);
         syncSettings();
         applyNovelSettingsVisibility();
         updateExtraFiltersCardVisibility();
@@ -496,19 +550,19 @@
             const pageValue = maxPages === -1
                 ? bt('schedule.snapshot.value.until-downloaded', '直到遇到已下载作品为止')
                 : bt('schedule.snapshot.value.pages-count', '{count} 页',
-                    {count: Number.isFinite(maxPages) && maxPages > 0 ? maxPages : 1});
+                    {count: Number.isFinite(maxPages) && maxPages > 0 ? maxPages : defaults.source.maxPages});
             return [
                 [bt('schedule.snapshot.field.keyword', '搜索关键词'), valueOrUnset(source.word)],
-                [bt('schedule.snapshot.field.search-order', '排序'), mapped(source.order, 'date_d', {
+                [bt('schedule.snapshot.field.search-order', '排序'), mapped(source.order, defaults.source.order, {
                     date_d: bt('search.order.latest', '最新'),
                     date: bt('search.order.oldest', '最旧'),
                     popular_d: bt('search.order.popular', '热门 ⚠')
                 })],
-                [bt('schedule.snapshot.field.search-mode', '搜索方式'), mapped(source.sMode, 's_tag', {
+                [bt('schedule.snapshot.field.search-mode', '搜索方式'), mapped(source.sMode, defaults.source.sMode, {
                     s_tag: bt('search.mode.tag', '标签'),
                     s_tc: bt('search.mode.title-desc', '标题/描述')
                 })],
-                [bt('schedule.snapshot.field.pixiv-mode', 'Pixiv 内容范围'), mapped(source.mode, 'all', {
+                [bt('schedule.snapshot.field.pixiv-mode', 'Pixiv 内容范围'), mapped(source.mode, defaults.source.mode, {
                     all: bt('search.content.all', '全部'),
                     safe: bt('search.content.safe', '全年龄'),
                     r18: bt('search.content.r18', 'R-18')
@@ -537,10 +591,13 @@
     function summary(sourceType, task) {
         const params = parseParams(task);
         if (!params) throw new Error('invalid Pixiv schedule definition');
-        const kind = params.kind === 'novel' ? 'novel' : (params.kind === 'mixed' ? 'mixed' : 'illust');
-        const source = params.source || {};
-        const filters = params.filters || {};
-        const download = params.download || {};
+        const kind = params.kind === 'novel' ? 'novel' : (params.kind === 'mixed' ? 'mixed' : defaults.kind);
+        const source = sourceType === SOURCE.SEARCH
+            ? withDefaults(params.source, defaults.source)
+            : sourceType === SOURCE.MY_BOOKMARKS
+                ? withDefaults(params.source, {rest: defaults.source.rest}) : params.source || {};
+        const filters = withDefaults(params.filters, defaults.filters);
+        const download = withDefaults(params.download, defaults.download);
         const rows = sourceRows(sourceType, source);
         if (fetchLimitMode(sourceType, source)) {
             rows.push([bt('schedule.snapshot.field.fetch-limit', '首次抓取上限'),
@@ -548,7 +605,7 @@
                     ? bt('schedule.snapshot.value.fetch-limit', '{n} 个作品', {n: params.fetchLimit})
                     : bt('schedule.snapshot.value.fetch-limit-all', '全量（不限）')]);
         }
-        const format = value => mapped(value, 'txt', {
+        const format = value => mapped(value, defaults.download.novelFormat, {
             txt: bt('novel:format.txt', '纯文本（TXT）'),
             html: bt('novel:format.html', '网页（HTML）'),
             epub: bt('novel:format.epub', '电子书（EPUB）')
@@ -562,7 +619,7 @@
             [bt('label.settings.skip', '跳过已下载作品'), bt('schedule.snapshot.value.always-on', '始终开启')],
             [bt('label.settings.redownload-deleted', '允许已删除的作品被重新下载'), boolLabel(!!download.redownloadDeleted)],
             [bt('label.settings.filename-template', '文件名格式:'), valueOrUnset(download.fileNameTemplate)],
-            [bt('batch:path.overflow.label', null), mapped(download.pathOverflowAction, 'ASK', {
+            [bt('batch:path.overflow.label', null), mapped(download.pathOverflowAction, defaults.download.pathOverflowAction, {
                 ASK: bt('batch:path.overflow.ask', null), TRUNCATE: bt('batch:path.overflow.truncate', null),
                 DEFAULT_NAME: bt('batch:path.overflow.default', null), CANCEL: bt('batch:path.overflow.cancel', null)
             })],
@@ -577,7 +634,7 @@
         }
         downloadRows.push([bt('novel:batch.format-label', '小说格式'), format(download.novelFormat)]);
         downloadRows.push([bt('novel:batch.merge-label', '系列下载完成后生成合订本'), boolLabel(!!download.novelMerge)]);
-        downloadRows.push([bt('novel:batch.merge-format-label', '合订本格式'), format(download.novelMergeFormat || 'epub')]);
+        downloadRows.push([bt('novel:batch.merge-format-label', '合订本格式'), format(download.novelMergeFormat)]);
         downloadRows.push([bt('ai:batch.auto-translate-label', '新下载小说自动翻译'), boolLabel(!!download.novelAutoTranslate)]);
         if (download.novelAutoTranslate) {
             downloadRows.push([bt('ai:batch.translate-lang-label', '目标语言:'),
@@ -594,21 +651,21 @@
             sections: [
                 {title: bt('schedule.snapshot.section.source', '来源快照'), rows},
                 {title: bt('schedule.snapshot.section.filters', '筛选快照'), rows: [
-                    [bt('label.search-content-rating', '内容分级'), mapped(filters.content, 'all', {
+                    [bt('label.search-content-rating', '内容分级'), mapped(filters.content, defaults.filters.content, {
                         all: bt('search.content.all', '全部'),
                         safe: bt('search.content.safe', '全年龄'),
                         r18plus: bt('search.content.r18plus', 'R18+(R-18 + R-18G)'),
                         r18: bt('search.content.r18', 'R-18'),
                         r18g: bt('search.content.r18g', 'R-18G')
                     })],
-                    [bt('label.search-ai', 'AI 作品'), mapped(filters.aiFilter, 'all', {
+                    [bt('label.search-ai', 'AI 作品'), mapped(filters.aiFilter, defaults.filters.aiFilter, {
                         all: bt('search.filter.all', '全部'),
                         exclude: bt('search.filter.exclude-ai', '排除 AI'),
                         only: bt('search.filter.only-ai', '仅 AI')
                     })],
                     [bt('label.search-tags-exact', '标签(精确匹配)'), listValue(filters.tagsExact)],
                     [bt('label.search-tags-fuzzy', '标签(模糊匹配)'), listValue(filters.tagsFuzzy)],
-                    [bt('label.search-type', '作品类型'), mapped(filters.typeFilter, 'all', {
+                    [bt('label.search-type', '作品类型'), mapped(filters.typeFilter, defaults.filters.typeFilter, {
                         all: bt('search.filter.all', '全部'),
                         illust: bt('search.type.illust', '插画'),
                         manga: bt('search.type.manga', '漫画'),

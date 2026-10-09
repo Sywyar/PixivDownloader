@@ -98,6 +98,14 @@ window.PixivBatch.scheduleSources = (function () {
             mode: text(raw.mode),
             quickSource: quickSourceSnapshot(raw.quickSource)
         };
+        const task = raw.editingTask;
+        // 原定义只交给同一来源，保留未知字段和字段缺席语义。
+        if (task && handler(task.sourceType || task.type) === entry) {
+            out.editingTask = Object.freeze({
+                sourceType: entry.descriptor.sourceType,
+                paramsJson: text(task.paramsJson)
+            });
+        }
         const acquisitionMode = value => {
             assertEntryCurrent(entry);
             const mode = normalizeAcquisitionMode(text(value) || text(raw.mode));

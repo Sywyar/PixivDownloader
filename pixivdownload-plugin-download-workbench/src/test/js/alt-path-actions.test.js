@@ -39,7 +39,7 @@ function harness(choice) {
                 } : action === 'CANCEL' ? {code: 'DOWNLOAD_PATH_CANCELLED'} : {alreadyDownloaded: true}};
         }
     });
-    for (const file of ['pixiv-batch/media-settings.js', 'pixiv-batch-alt/alt-state.js', 'pixiv-batch-alt/alt-settings.js',
+    for (const file of ['pixiv-batch/pixiv-schedule-defaults.js', 'pixiv-batch/media-settings.js', 'pixiv-batch-alt/alt-state.js', 'pixiv-batch-alt/alt-settings.js',
         'pixiv-batch-alt/alt-engine.js', 'pixiv-batch-alt/alt-engine-workers.js', 'pixiv-batch/batch-path-actions.js']) {
         vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), context, {filename: file});
     }

@@ -109,6 +109,7 @@
             mode: state.mode,
             quickSource: quickSource || null,
             editingSourceType: scheduleEditingToken ? scheduleEditingToken.sourceType : null,
+            editingTask: scheduleEditingToken ? scheduleTaskById(scheduleEditingToken.taskId) : null,
             workType: firstType,
             workTypes: Object.freeze(workTypes),
             __scheduleAcquisitionHost: Object.freeze({

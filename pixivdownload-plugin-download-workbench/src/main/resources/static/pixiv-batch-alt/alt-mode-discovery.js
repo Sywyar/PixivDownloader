@@ -55,7 +55,7 @@ function renderUserMode(panel) {
             userState.kind = value;
             kindSeg.querySelectorAll('.ab-seg-item').forEach(b => b.classList.remove('is-active'));
             btn.classList.add('is-active');
-            if (userState.userId) loadUserWorks(1);
+            if (userState.userId && !scheduleState.editing) loadUserWorks(1);
         });
         kindSeg.appendChild(btn);
     });
@@ -86,12 +86,13 @@ function parseUserInput(raw) {
 }
 
 async function loadUserWorks(page) {
+    const requestState = userState;
     const input = document.getElementById('abUserInput');
     const raw = input ? input.value : userState.input;
     const acquisition = altAcquisition('user', userState.source, userState.kind);
     const userId = acquisition && acquisition.parseInput ? acquisition.parseInput(raw) : parseUserInput(raw);
     userState.input = raw;
-    storeSet('pixiv_user_input', raw || '');   // 输入草稿持久化（刷新后恢复）
+    if (!scheduleState.editing) storeSet('pixiv_user_input', raw || '');   // 输入草稿持久化（刷新后恢复）
     if (!userId) {
         userState.error = bt('user.error.invalid', '请输入有效的用户 ID 或画师主页链接');
         renderUserStage();
@@ -108,6 +109,7 @@ async function loadUserWorks(page) {
             ? acquisition.detectVariant(raw, userState.kind) || userState.kind : userState.kind;
         const name = typeof acquisition.fetchMeta === 'function'
             ? await acquisition.fetchMeta(userId, {signal: lease.signal}) : null;
+        if (userState !== requestState) return;
         lease.assertCurrent();
         userState.username = typeof name === 'string' && name ? name : String(userId);
         userState.pageSize = Math.max(1, Number(acquisition.pageSize) || 30);
@@ -124,6 +126,7 @@ async function loadUserWorks(page) {
                 offset: (page - 1) * userState.pageSize,
                 limit: userState.pageSize, cursor
             });
+            if (userState !== requestState) return;
             lease.assertCurrent();
             rawItems = Array.isArray(data && data.items) ? data.items : [];
             userState.total = Math.max(Number(data && data.total) || 0,
@@ -133,6 +136,7 @@ async function loadUserWorks(page) {
             }
         } else {
             const ids = await acquisition.fetchIds(userId, {variant, signal: lease.signal});
+            if (userState !== requestState) return;
             lease.assertCurrent();
             userState.ids = (ids || []).map(String);
             userState.total = userState.ids.length;
@@ -140,11 +144,13 @@ async function loadUserWorks(page) {
             const data = pageIds.length ? await altAcquisitionJson(acquisition.type, 'user', {
                 endpoint: acquisition.cardsEndpoint(userId), params: {ids: pageIds}
             }, 'cards', {userId, ids: pageIds}) : {items: []};
+            if (userState !== requestState) return;
             rawItems = data.items || [];
         }
         userState.rawItems = normalizeAcquisitionItems(rawItems, acquisition, context, 'user');
         userState.page = page;
     } catch (e) {
+        if (userState !== requestState) return;
         userState.ids = [];
         userState.total = 0;
         userState.rawItems = [];
@@ -156,12 +162,13 @@ async function loadUserWorks(page) {
 }
 
 async function applyUserFilters() {
+    const requestState = userState;
     const seq = ++searchState.filterSeq;
     const acquisition = altAcquisition('user', userState.source, userState.kind);
     const result = await computeFilteredItems(userState.rawItems, extraFilters,
         acquisition ? acquisition.type : userState.kind,
         () => seq !== searchState.filterSeq);
-    if (!result) return;
+    if (!result || userState !== requestState) return;
     userState.items = result.filtered;
     userState.filterSummary = result.stats;
     renderUserStage();
@@ -373,7 +380,7 @@ function renderSearchMode(panel) {
     if (typeOptions.length > 1) {
         panel.appendChild(smallSeg(typeOptions, searchState.kind, kind => {
             searchState.kind = kind;
-            if (searchState.word) runSearch(1);
+            if (searchState.word && !scheduleState.editing) runSearch(1);
         }));
     }
 
@@ -418,7 +425,7 @@ function renderSearchMode(panel) {
         controls.appendChild(smallSeg([
             ['s_tag', bt('search.mode.tag', '标签')],
             ['s_tc', bt('search.mode.tc', '标题/描述')]
-        ], searchState.sMode, v => { searchState.sMode = v; if (searchState.word) runSearch(1); }));
+        ], searchState.sMode, v => { searchState.sMode = v; if (searchState.word && !scheduleState.editing) runSearch(1); }));
     }
     if (contributionControls.order !== false) {
         controls.appendChild(el('span', 'ab-control-label', bt('search.order.label', '排序')));
@@ -431,7 +438,7 @@ function renderSearchMode(panel) {
             if (v === 'popular_d') {
                 abToast('info', bt('search.order.premium-note', '热门排序需要 Pixiv Premium，未购买时将自动按最新排序'));
             }
-            if (searchState.word) runSearch(1);
+            if (searchState.word && !scheduleState.editing) runSearch(1);
         }));
     }
     controls.appendChild(el('span', 'ab-control-label', bt('search.sub.label', '子模式')));
@@ -439,7 +446,7 @@ function renderSearchMode(panel) {
     if (supportsBatchRange) submodes.push(['batch', bt('search.sub.batch', '批量获取')]);
     controls.appendChild(smallSeg(submodes, searchState.submode, v => {
         searchState.submode = v;
-        storeSet('pixiv_search_submode', v);
+        if (!scheduleState.editing) storeSet('pixiv_search_submode', v);
         renderStage();
     }));
     const blurLabel = el('label', 'ab-check');
@@ -544,6 +551,7 @@ function searchApiMode() {
 }
 
 async function runSearch(page) {
+    const requestState = searchState;
     if (searchState.submode === 'batch') normalizeAltBatchRange();
     const input = document.getElementById('abSearchInput');
     const word = (input ? input.value : searchState.word || '').trim();
@@ -574,6 +582,7 @@ async function runSearch(page) {
         const spec = builder(context);
         const data = await altAcquisitionJson(acquisition.type, 'search', spec,
             range ? 'range' : 'search', context);
+        if (searchState !== requestState) return;
         searchState.rawResults = normalizeAcquisitionItems(data.items || [], acquisition, context, 'search');
         searchState.total = Number(data.total || searchState.rawResults.length);
         if (searchState.submode === 'batch') {
@@ -587,6 +596,7 @@ async function runSearch(page) {
             searchState.page = Number(data.page || page);
         }
     } catch (e) {
+        if (searchState !== requestState) return;
         searchState.rawResults = [];
         searchState.total = 0;
         searchState.page = page;
@@ -597,12 +607,13 @@ async function runSearch(page) {
 }
 
 async function applySearchFilters() {
+    const requestState = searchState;
     const seq = ++searchState.filterSeq;
     const acquisition = altAcquisition('search', searchState.source, searchState.kind);
     const result = await computeFilteredItems(searchState.rawResults, extraFilters,
         acquisition ? acquisition.type : searchState.kind,
         () => seq !== searchState.filterSeq);
-    if (!result) return;
+    if (!result || searchState !== requestState) return;
     searchState.results = result.filtered;
     searchState.filterSummary = result.stats;
     renderSearchStage();

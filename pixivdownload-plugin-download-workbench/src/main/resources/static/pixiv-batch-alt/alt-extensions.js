@@ -208,9 +208,8 @@ function altCompatibilityRadio(name, value) {
 function altQuickScheduleSource() {
     const runtime = altQueueTypes();
     if (!runtime || !quickState.action) return null;
-    const acquisition = runtime.acquisitionList('quick').find(item =>
-        item.actions && item.actions[quickState.action]);
-    const action = acquisition && acquisition.actions[quickState.action];
+    const acquisition = altAcquisition('quick', quickState.source, quickState.kind);
+    const action = acquisition?.actions?.[quickState.action];
     if (!action || typeof action.scheduleSource !== 'function') return null;
     const inner = quickState.drill && quickState.drill.type === 'user'
         ? {type: 'following-user', userId: quickState.drill.id, name: quickState.drill.name, kind: quickState.drill.kind}
@@ -233,7 +232,8 @@ function altScheduleSourceContext(fetchLimit) {
     if (seriesState.info && seriesState.info.seriesId != null) {
         seriesState.seriesId = seriesState.info.seriesId;
     }
-    altCompatibilityInput('user-id-input', userState.input || userState.userId);
+    const userInput = document.getElementById('abUserInput');
+    altCompatibilityInput('user-id-input', userInput ? userInput.value : userState.input || userState.userId);
     const searchInput = document.getElementById('abSearchInput');
     altCompatibilityInput('search-word', searchInput ? searchInput.value : searchState.word);
     altCompatibilityInput('search-content-filter', searchApiMode());
@@ -241,11 +241,14 @@ function altScheduleSourceContext(fetchLimit) {
     altCompatibilityRadio('search-order', searchState.order);
     altCompatibilityRadio('search-submode', searchState.submode);
     altCompatibilityInput('batch-end-page', searchState.endPage);
-    altCompatibilityInput('series-input-url', seriesState.url);
+    const seriesInput = document.getElementById('abSeriesInput');
+    const seriesUrl = seriesInput ? seriesInput.value : seriesState.url;
+    altCompatibilityInput('series-input-url', seriesUrl);
     altCompatibilityInput('sch-fetch-limit', fetchLimit || 0);
 
     const mode = state.mode;
-    const quickSource = mode === QUICK_FETCH_MODE ? altQuickScheduleSource() : null;
+    const quickSource = mode === QUICK_FETCH_MODE
+        ? altQuickScheduleSource() || scheduleState.editing?.quickSource : null;
     let workType = null;
     if (mode === 'user') {
         const acquisition = altAcquisition('user', userState.source, userState.kind);
@@ -262,6 +265,7 @@ function altScheduleSourceContext(fetchLimit) {
         : workType ? [workType] : [];
     return Object.freeze({
         mode,
+        editingTask: scheduleState.editing?.task || null,
         quickSource,
         workType: workTypes[0] || null,
         workTypes: Object.freeze(workTypes)
@@ -271,7 +275,8 @@ function altScheduleSourceContext(fetchLimit) {
 function altCaptureScheduleSource(fetchLimit) {
     const runtime = altScheduleSources();
     if (!runtime) throw new Error(bt('schedule.error.source-editor-unavailable', '计划任务来源编辑器当前不可用'));
-    const captured = runtime.captureForMode(state.mode, altScheduleSourceContext(fetchLimit));
+    const capture = () => runtime.captureForMode(state.mode, altScheduleSourceContext(fetchLimit));
+    const captured = scheduleState.editing ? withScheduleEditSettings(capture) : capture();
     const lease = runtime.activationLease(captured.sourceType);
     if (lease.activationToken !== captured.activationToken) {
         throw new Error(bt('schedule.error.concurrent-change', '来源状态已变化，请重试'));

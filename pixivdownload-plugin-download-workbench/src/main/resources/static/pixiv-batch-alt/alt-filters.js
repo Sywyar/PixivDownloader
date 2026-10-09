@@ -75,6 +75,7 @@ function normalizeSearchFilters(filters) {
 let extraFilters = defaultSearchFilters();
 
 function saveSearchFilterPrefs(filters) {
+    if (scheduleState.editing) return;
     storeSet('pixiv_search_filters', JSON.stringify({
         content: filters.content,
         ai: filters.ai,

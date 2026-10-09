@@ -49,6 +49,7 @@ function renderQuickMode(panel) {
     if (!sources.some(source => source.id === quickState.source)) quickState.source = sources[0] && sources[0].id;
     if (sources.length > 1) {
         panel.appendChild(sourceChips(sources, quickState.source, source => {
+            if (scheduleState.editing) scheduleState.editing.quickSource = null;
             quickState.source = source;
             quickState.uid = null;
             quickState.drill = null;
@@ -77,7 +78,7 @@ function renderQuickMode(panel) {
     const credentialOk = !(acquisition && acquisition.account
         && typeof acquisition.account.credentialMissing === 'function'
         && acquisition.account.credentialMissing());
-    if (!credentialOk) {
+    if (!credentialOk && !scheduleState.editing) {
         const gate = el('div', 'ab-credential-gate');
         gate.appendChild(abIconEl('user', 'ab-gate-icon'));
         gate.appendChild(el('h2', '', bt('quick.connect.title', '连接你的 Pixiv')));
@@ -120,7 +121,7 @@ function renderQuickMode(panel) {
     panel.appendChild(stage);
     renderQuickStage();
 
-    if (credentialOk && !quickState.uid) loadQuickUid();
+    if (credentialOk && !quickState.uid && !scheduleState.editing) loadQuickUid();
 }
 
 async function loadQuickUid() {
@@ -158,6 +159,7 @@ function runQuickAction(action, page) {
     quickState.allIds = [];
     quickState.pageCursors = new Map();
     quickState.loadSeq++;
+    if (scheduleState.editing) scheduleState.editing.quickSource = null;
     quickState.action = action.id;
     const selector = document.getElementById('abQuickAction');
     if (selector) selector.value = action.id;
