@@ -77,8 +77,23 @@ function brokenHtml(value) {
 
 function urls(value) {
     const list = [];
-    for (const match of String(value).matchAll(/https?:\/\/[^\s"'<>）)\]】]+/g)) {
-        list.push(match[0]);
+    const text = String(value);
+    for (const match of text.matchAll(/(["'`])(https?:\/\/[^\s<>]+?)\1|https?:\/\/[^\s"'<>`]+/g)) {
+        // 引号中的地址和独立 URL 值保留原文；散文中的标点不属于地址。
+        let url = match[2] || match[0];
+        if (!match[2] && url !== text) {
+            url = url.split(/[，。；：！？（）【】「」『』《》、]/u)[0];
+            url = url.replace(/[.,;:!?]+$/u, '');
+            for (const [open, close] of [['(', ')'], ['[', ']']]) {
+                while (url.endsWith(close) && url.split(close).length > url.split(open).length) {
+                    url = url.slice(0, -1);
+                }
+            }
+            url = url.replace(/[.,;:!?]+$/u, '');
+        }
+        if (!/^https?:\/\/$/.test(url)) {
+            list.push(url);
+        }
     }
     return list.sort();
 }
