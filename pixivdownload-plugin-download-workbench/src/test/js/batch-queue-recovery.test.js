@@ -118,7 +118,7 @@ function loadQueue(context, layout) {
 function loadStart(context, layout) {
     const file = source(layout === 'classic'
         ? 'pixiv-batch/batch-download-workers.js' : 'pixiv-batch-alt/alt-engine-workers.js');
-    vm.runInContext(file.slice(file.indexOf('async function start()'),
+    vm.runInContext(file.slice(file.indexOf('async function start('),
         file.indexOf('function desiredConcurrency()')), context);
 }
 

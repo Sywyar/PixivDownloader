@@ -274,6 +274,8 @@
             gap: 6px;
         }
 
+        .setting-item[hidden] { display: none; }
+
         .setting-item label {
             font-size: 0.75rem;
             color: var(--heading);

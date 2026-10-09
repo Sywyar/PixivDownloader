@@ -282,6 +282,8 @@
     // 「存为计划任务」卡片显隐：非快捷模式沿用「管理员 + 可创建模式」；快捷获取下对管理员**常驻**，
     // 但仅当能解析出来源（已展开的收藏/我的作品/关注新作，或点进的画师/珍藏集；编辑时为锁定来源）才启用「创建」。
     function updateSaveScheduleCardVisibility() {
+        const autoStart = document.getElementById('s-auto-start-wrap');
+        if (autoStart) autoStart.hidden = !isAdmin || scheduleEditingId != null;
         const card = document.getElementById('save-as-schedule-card');
         if (!card) return;
         const inQuick = state.mode === QUICK_FETCH_MODE;

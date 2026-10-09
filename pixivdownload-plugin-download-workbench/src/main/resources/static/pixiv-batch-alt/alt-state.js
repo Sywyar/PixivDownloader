@@ -40,6 +40,7 @@ let state = {
         imageDelay: 0,
         imageDelayUnit: 'ms',
         concurrent: 3,
+        autoStartOnEnqueue: false,
         skipHistory: true,
         verifyHistoryFiles: false,
         redownloadDeleted: false,

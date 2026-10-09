@@ -567,6 +567,12 @@
                         <label data-i18n="label.settings.concurrent">最大并发数:</label>
                         <input type="number" id="s-concurrent" min="1" value="1" style="border-radius:4px;">
                     </div>
+                    <div class="setting-item" id="s-auto-start-wrap" hidden>
+                        <input type="checkbox" id="s-auto-start" aria-describedby="s-auto-start-help">
+                        <label for="s-auto-start" data-i18n="label.settings.auto-start"></label>
+                        <span class="setting-help-icon" aria-hidden="true" data-i18n-title="label.settings.auto-start.help">?</span>
+                        <span class="sr-only" id="s-auto-start-help" data-i18n="label.settings.auto-start.help"></span>
+                    </div>
                     <div class="setting-item">
                         <input type="checkbox" id="s-skip">
                         <label for="s-skip" style="cursor:pointer;" data-i18n="label.settings.skip">跳过已下载作品</label>

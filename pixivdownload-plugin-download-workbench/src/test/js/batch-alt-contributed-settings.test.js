@@ -109,7 +109,7 @@ test('获取与下载列表共用筛选及设置抽屉，切换分区保留草�
     assert.equal(drawer.open, true);
     assert.equal(drawer.querySelector('.ab-settings').hidden, false);
     assert.equal(drawer.querySelector('.ab-filters').hidden, true);
-    const interval = drawer.querySelector('.ab-settings').querySelector('input');
+    const interval = drawer.querySelector('.ab-settings').querySelectorAll('input').find(input => input.type === 'number');
     interval.value = '7';
     interval.dispatchEvent({type: 'change'});
     assert.equal(h.writes.at(-1).interval, 7);
@@ -132,7 +132,7 @@ test('获取与下载列表共用筛选及设置抽屉，切换分区保留草�
     vm.runInContext('dockState.open = false', context);
     click(context.filterButton());
     assert.equal(drawer.querySelector('[data-filter-field="tagsExact"]').value, 'cat');
-    assert.equal(drawer.querySelector('.ab-settings').querySelector('input').value, '7');
+    assert.equal(drawer.querySelector('.ab-settings').querySelectorAll('input').find(input => input.type === 'number').value, '7');
     const card = document.createElement('div');
     card.id = 'novel-settings-card';
     document.body.appendChild(card);
@@ -141,6 +141,26 @@ test('获取与下载列表共用筛选及设置抽屉，切换分区保留草�
     vm.runInContext('dockState.open = true', context);
     context.refreshContributedSettingsVisibility();
     assert.equal(card.style.display, '', '下载列表可设置所有活动作品类型，不受上次获取方式限制');
+});
+
+test('自动开始下载开关默认关闭，保存后重开恢复，计划编辑和非管理员不显示', () => {
+    const h = harness();
+    let body = h.context.buildSettingsDrawerBody();
+    let input = body.querySelector('#s-auto-start');
+    assert.equal(input.checked, false);
+    input.checked = true;
+    input.dispatchEvent({type: 'change'});
+    assert.equal(h.writes.at(-1).autoStartOnEnqueue, true);
+    h.context.storeGet = () => JSON.stringify(h.writes.at(-1));
+    vm.runInContext('state.settings.autoStartOnEnqueue = false', h.context);
+    h.context.loadSettings();
+    body = h.context.buildSettingsDrawerBody();
+    assert.equal(body.querySelector('#s-auto-start').checked, true);
+    vm.runInContext('isAdmin = false', h.context);
+    assert.equal(h.context.buildSettingsDrawerBody().querySelector('#s-auto-start'), null);
+    vm.runInContext('isAdmin = true; scheduleState.editing = {task: {name: "demo"}, settings: {...state.settings}}', h.context);
+    h.context.withScheduleEditSettings = action => action();
+    assert.equal(h.context.buildSettingsDrawerBody().querySelector('#s-auto-start'), null);
 });
 
 test('设置抽屉仅保留贡献锚点，缺席小说与 AI 时不伪造设置', () => {

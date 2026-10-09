@@ -161,6 +161,8 @@ function addItemsToQueue(idList, metaList, source, username, defaultAuthorId, de
     renderQueue();
     if (state.isRunning && added > 0) {
         ensureWorkers();
+    } else if (added > 0 && state.settings?.autoStartOnEnqueue === true && isAdmin && !state.isPaused) {
+        start(true);
     }
     syncAllResultsQueueState();
     return added;

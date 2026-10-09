@@ -183,13 +183,18 @@ let settingsLabelSequence = 0;
 function settingsRow(labelText, control, helpText) {
     const row = el('div', 'ab-setting-row');
     const head = el('div', 'ab-setting-head');
-    const label = el('span', 'ab-setting-label', labelText);
+    const label = el('label', 'ab-setting-label', labelText);
     label.id = 'ab-setting-label-' + (++settingsLabelSequence);
     head.appendChild(label);
     row.appendChild(head);
     if (control) {
         const selector = 'input, select, textarea, button';
         const controls = control.matches(selector) ? [control] : Array.from(control.querySelectorAll(selector));
+        if (controls.length === 1) {
+            const input = controls[0];
+            if (!input.id) input.id = label.id + '-control';
+            label.htmlFor = input.id;
+        }
         controls.forEach(input => {
             if (!input.hasAttribute('aria-label') && !input.hasAttribute('aria-labelledby')) {
                 if (input.classList.contains('ab-unit-toggle')) {
@@ -260,6 +265,20 @@ function buildSettingsDrawerBody() {
 
     // —— 节奏 ——
     body.appendChild(el('h4', 'ab-settings-group', bt('settings.group.pace', '下载节奏')));
+    if (isAdmin && !scheduleState.editing) {
+        const control = switchControl(s.autoStartOnEnqueue, value => {
+            s.autoStartOnEnqueue = value;
+            saveSettings();
+        });
+        const input = control.querySelector('input');
+        input.id = 's-auto-start';
+        const row = settingsRow(
+            bt('batch:label.settings.auto-start', null),
+            control,
+            bt('batch:label.settings.auto-start.help', null)
+        );
+        body.appendChild(row);
+    }
     body.appendChild(settingsRow(
         bt('settings.work-interval', '作品间隔'),
         numberWithUnit(s.interval, s.intervalUnit,
