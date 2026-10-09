@@ -6,6 +6,13 @@ import java.util.List;
 
 /**
  * 管理员作品归档请求。manifest 等附加内容由调用方作为普通字节条目提供。
+ *
+ * @param entries 条目列表
+ * @param exportType 导出类型
+ * @param workCount 作品数量
+ * @param fileCount 文件数量
+ * @param format 格式
+ * @param deleteAfterReady 归档就绪后执行的作品删除请求；null 表示保留作品
  */
 public record ArchiveExportRequest(
         List<ArchiveExportEntry> entries,

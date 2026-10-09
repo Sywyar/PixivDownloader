@@ -5,6 +5,9 @@ import top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository;
 /**
  * 列表查询命中的作品标识行。只携带 {@code (workType, workId)}，排序由查询结果的
  * 顺序表达；完整内容经 {@link WorkMetadataRepository#findAll} 按 id 顺序批量取得。
+ *
+ * @param workType 作品所属媒体类型
+ * @param workId 该媒体类型内的作品标识
  */
 public record WorkSummary(WorkType workType, long workId) {
 }

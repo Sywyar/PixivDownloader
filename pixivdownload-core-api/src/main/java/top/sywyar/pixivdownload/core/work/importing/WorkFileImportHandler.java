@@ -9,7 +9,9 @@ import top.sywyar.pixivdownload.core.work.model.WorkType;
  * 实现必须在调用线程使用宿主共享作品库事务，不另开事务或异步登记。
  */
 public interface WorkFileImportHandler {
-    /** @return 本实现负责的作品类型 */
+    /**
+     * {@return 本实现负责的作品类型}
+     */
     WorkType workType();
     /**
      * 在宿主事务内登记完整作品。不得修改源文件，已有记录不得覆盖。

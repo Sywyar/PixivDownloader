@@ -6,6 +6,13 @@ import java.util.List;
 /**
  * 可跨 pending、重启与插件 reload 的中性作品信封。载荷只能保存长期可重建信息，禁止 Cookie、Authorization、
  * 临时媒体 URL、一次性 token、客户端对象、异常或插件实例。
+ *
+ * @param key 作品类型与来源标识组成的作品键
+ * @param payloadSchema 作品载荷的格式标识
+ * @param payloadVersion 载荷版本
+ * @param payloadJson 作品载荷 JSON
+ * @param presentation 展示信息
+ * @param relations 关系列表
  */
 public record ScheduledWork(
         ScheduledWorkKey key,

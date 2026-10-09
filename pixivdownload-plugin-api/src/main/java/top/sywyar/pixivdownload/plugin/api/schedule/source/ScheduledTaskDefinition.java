@@ -2,7 +2,16 @@ package top.sywyar.pixivdownload.plugin.api.schedule.source;
 
 import java.nio.charset.StandardCharsets;
 
-/** 宿主保存并交给来源插件解释的不透明任务定义。 */
+/**
+ * 宿主保存并交给来源插件解释的不透明任务定义。
+ *
+ * @param taskId 任务标识
+ * @param sourceType 来源类型
+ * @param definitionSchema 任务定义的格式标识
+ * @param definitionVersion 定义版本
+ * @param definitionJson 来源拥有的任务定义 JSON
+ * @param presentation 展示信息
+ */
 public record ScheduledTaskDefinition(
         long taskId,
         String sourceType,

@@ -15,6 +15,10 @@ import java.util.regex.Pattern;
 /**
  * 作品进入异步通知时的安全展示投影。展示名称保持 namespace 与 i18n key 分离；引用地址只能是
  * 不携带凭证材料的 HTTPS 绝对地址。插件不提供展示信息时使用 {@link #empty()}。
+ *
+ * @param displayNamespace 显示命名空间
+ * @param displayNameKey 显示名称键
+ * @param referenceUrl 引用地址
  */
 public record ScheduledWorkNotificationPresentation(
         String displayNamespace,

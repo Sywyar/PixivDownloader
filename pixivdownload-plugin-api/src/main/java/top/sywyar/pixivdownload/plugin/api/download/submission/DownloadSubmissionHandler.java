@@ -8,7 +8,9 @@ import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadAttempt;
  * 解析、选项白名单和输入校验归类型 owner；不能调用其它插件的私有接口。
  */
 public interface DownloadSubmissionHandler {
-    /** @return 本实现接收的稳定作品类型 */
+    /**
+     * {@return 本实现接收的稳定作品类型}
+     */
     String workType();
     /**
      * 同步准备并接纳下载；抛错表示未成功接纳。异步任务必须参与所属插件的 quiesce/drain。

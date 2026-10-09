@@ -8,6 +8,8 @@ import top.sywyar.pixivdownload.core.work.model.WorkType;
 public interface WorkCollectionMembership {
 
     /**
+     * 将作品加入指定收藏夹，已有关系时保持不变。
+     *
      * @return 新增了作品与收藏夹关系时为 {@code true}；关系已存在时为 {@code false}
      * @param workType 工作类型
      * @param collectionId 合集标识

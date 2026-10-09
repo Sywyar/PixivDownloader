@@ -13,12 +13,16 @@ import java.util.function.Consumer;
  * 桌面界面可消费的稳定、工具包无关宿主业务契约。
  */
 public interface DesktopUiHost extends DesktopUiToolHost {
-    /** @return 活动媒体维护能力的纯值快照；缺席时不显示工具入口 */
+    /**
+     * {@return 活动媒体维护能力的纯值快照；缺席时不显示工具入口}
+     */
     default List<top.sywyar.pixivdownload.plugin.api.gui.media.DesktopMediaTool> mediaTools() {
         return List.of();
     }
 
     /**
+     * 取得绑定到精确媒体工具发布身份的可撤回代理。
+     *
      * @param identity 发现期的精确 publication
      * @return 可撤回的业务代理；撤回或后端停止时拒绝命令，不改投替代来源
      */
@@ -29,70 +33,76 @@ public interface DesktopUiHost extends DesktopUiToolHost {
     }
 
     /**
-     * @return 桌面界面显示的产品名称
+     * {@return 桌面界面显示的产品名称}
      */
     String applicationName();
 
     /**
-     * @return 公开项目 URL
+     * {@return 公开项目 URL}
      */
     String projectUrl();
 
     /**
-     * @return 公开发布页 URL
+     * {@return 公开发布页 URL}
      */
     String releasesUrl();
 
     /**
-     * @return 默认稳定版更新清单 URL
+     * {@return 默认稳定版更新清单 URL}
      */
     String defaultUpdateManifestUrl();
 
     /**
-     * @return 默认 Nightly 更新清单 URL
+     * {@return 默认 Nightly 更新清单 URL}
      */
     String defaultNightlyUpdateManifestUrl();
 
     /**
-     * @return 宿主拥有的应用配置端口
+     * {@return 宿主拥有的应用配置端口}
      */
     ConfigFile applicationConfig();
 
     /**
-     * @return 宿主拥有的核心配置分组语义
+     * {@return 宿主拥有的核心配置分组语义}
      */
     List<GuiConfigGroupContribution> coreConfigGroups();
 
     /**
-     * @return 宿主拥有的核心配置字段语义
+     * {@return 宿主拥有的核心配置字段语义}
      */
     List<GuiConfigFieldContribution> coreConfigFields();
 
     /**
+     * 取得指定插件的配置读写端口。
+     *
      * @param pluginId 已验证的插件 id
      * @return 宿主拥有的插件 properties 配置端口
      */
     ConfigFile pluginConfig(String pluginId);
 
     /**
-     * @return 桌面语言选择器中可见的 locale
+     * {@return 桌面语言选择器中可见的 locale}
      */
     java.util.List<UiLocale> visibleLocales();
 
     /**
+     * 将已保存的语言标签或别名匹配到可见语言。
+     *
      * @param tag 已持久化的 locale 标签或别名
      * @return 匹配的可见 locale；没有时为空
      */
     java.util.Optional<UiLocale> matchLocale(String tag);
 
     /**
+     * 按宿主语言策略解析目标语言及其回退顺序。
+     *
      * @param requested 请求的 locale
      * @return 解析后的 locale 及从目标语言到源语言的有序回退链
      */
     UiLocaleResolution resolveLocale(java.util.Locale requested);
 
     /**
-     * @return 应用宿主策略后检测到的系统 locale
+     * {@return 应用宿主策略后检测到的系统 locale}
      */
     java.util.Locale detectSystemLocale();
 
@@ -105,42 +115,46 @@ public interface DesktopUiHost extends DesktopUiToolHost {
     String stripTrailingPathSeparators(String value);
 
     /**
-     * @return 默认代理主机
+     * {@return 默认代理主机}
      */
     String defaultProxyHost();
 
     /**
-     * @return 默认代理端口
+     * {@return 默认代理端口}
      */
     int defaultProxyPort();
 
     /**
-     * @return setup 接受的最小密码长度
+     * {@return setup 接受的最小密码长度}
      */
     int minimumPasswordLength();
 
     /**
-     * @return setup 建议的密码长度
+     * {@return setup 建议的密码长度}
      */
     int recommendedPasswordLength();
 
     /**
-     * @return 默认维护时间
+     * {@return 默认维护时间}
      */
     String defaultMaintenanceTime();
 
     /**
+     * 检查维护时间是否符合宿主接受的格式。
+     *
      * @param value 维护时间值
      * @return 该值是否有效
      */
     boolean validMaintenanceTime(String value);
 
     /**
-     * @return 宿主保留的仓库 id
+     * {@return 宿主保留的仓库 id}
      */
     java.util.Set<String> reservedPluginRepositoryIds();
 
     /**
+     * 批量校验并规范化待访问的配置键。
+     *
      * @param keys 配置键
      * @return 已验证并规范化的键
      * @throws IOException 无法完成验证时抛出
@@ -149,6 +163,8 @@ public interface DesktopUiHost extends DesktopUiToolHost {
             java.io.IOException;
 
     /**
+     * 批量校验并规范化待保存的配置值。
+     *
      * @param values 配置值
      * @return 已验证并规范化的值
      * @throws IOException 无法完成验证时抛出
@@ -157,6 +173,8 @@ public interface DesktopUiHost extends DesktopUiToolHost {
             java.io.IOException;
 
     /**
+     * 校验并规范化单个配置键。
+     *
      * @param key 配置键
      * @return 已验证并规范化的键
      * @throws IOException 键无效时抛出
@@ -164,6 +182,8 @@ public interface DesktopUiHost extends DesktopUiToolHost {
     String requireSafeConfigKey(String key) throws java.io.IOException;
 
     /**
+     * 校验并规范化单个配置值。
+     *
      * @param value 配置值
      * @return 已验证并规范化的值
      * @throws IOException 值无效时抛出
@@ -236,7 +256,7 @@ public interface DesktopUiHost extends DesktopUiToolHost {
     }
 
     /**
-     * @return 以纯配置值表示的内置官方仓库信任根
+     * {@return 以纯配置值表示的内置官方仓库信任根}
      */
     default TrustedKeyConfigEntry officialPluginRepositoryKey() {
         throw new UnsupportedOperationException(
@@ -248,6 +268,8 @@ public interface DesktopUiHost extends DesktopUiToolHost {
      */
     interface ConfigFile {
         /**
+         * 读取一个配置键对应的值。
+         *
          * @param key 配置键
          * @return 已配置的值；不存在时为 {@code null}
          * @throws IOException 无法读取文件时抛出
@@ -257,6 +279,8 @@ public interface DesktopUiHost extends DesktopUiToolHost {
         }
 
         /**
+         * 批量读取指定配置键对应的值。
+         *
          * @param keys 配置键
          * @return 按名称索引的已配置值
          * @throws IOException 无法读取文件时抛出
@@ -265,6 +289,8 @@ public interface DesktopUiHost extends DesktopUiToolHost {
                 java.io.IOException;
 
         /**
+         * 写入一个配置值，null 按空字符串保存。
+         *
          * @param key   配置键
          * @param value 配置值
          * @throws IOException 无法写入文件时抛出
@@ -274,24 +300,32 @@ public interface DesktopUiHost extends DesktopUiToolHost {
         }
 
         /**
+         * 批量写入配置值。
+         *
          * @param values 配置值
          * @throws IOException 无法写入文件时抛出
          */
         void writeAll(java.util.Map<String, String> values) throws java.io.IOException;
 
         /**
+         * 从配置文件中移除指定的键。
+         *
          * @param keys 配置键
          * @throws IOException 无法写入文件时抛出
          */
         void removeAll(java.util.Collection<String> keys) throws java.io.IOException;
 
         /**
+         * 捕获配置文件的精确状态，供写入失败后回滚。
+         *
          * @return 用于回滚的精确文件状态
          * @throws IOException 无法读取文件时抛出
          */
         ConfigSnapshot snapshot() throws java.io.IOException;
 
         /**
+         * 恢复先前捕获的配置文件状态。
+         *
          * @param snapshot 要恢复的精确文件状态
          * @throws IOException 无法恢复文件时抛出
          */
@@ -300,6 +334,9 @@ public interface DesktopUiHost extends DesktopUiToolHost {
 
     /**
      * 宿主拥有的配置文件的精确逐行快照。
+     *
+     * @param existed 文件是否存在
+     * @param lines 精确文件行
      */
     record ConfigSnapshot(boolean existed, java.util.List<String> lines) {
         /**
@@ -315,10 +352,14 @@ public interface DesktopUiHost extends DesktopUiToolHost {
 
     /**
      * 桌面 locale 描述符。
+     *
+     * @param tag BCP 47 语言标签
+     * @param nativeName 语言自身的显示名称
+     * @param resourceSuffix 对应翻译资源的文件名后缀
      */
     record UiLocale(String tag, String nativeName, String resourceSuffix) {
         /**
-         * @return 此描述符对应的 JDK locale
+         * {@return 此描述符对应的 JDK locale}
          */
         public java.util.Locale toLocale() {
             return java.util.Locale.forLanguageTag(tag);
@@ -327,6 +368,9 @@ public interface DesktopUiHost extends DesktopUiToolHost {
 
     /**
      * 已解析的桌面 locale 与回退链。
+     *
+     * @param target 已解析的目标 locale
+     * @param fallbackChain 有序回退链
      */
     record UiLocaleResolution(
             UiLocale target,
@@ -370,13 +414,15 @@ public interface DesktopUiHost extends DesktopUiToolHost {
         }
 
         /**
-         * @return 持久化的策略 id
+         * {@return 持久化的策略 id}
          */
         public String configId() {
             return configId;
         }
 
         /**
+         * 按持久化标识解析仓库代理策略，未知值使用默认策略。
+         *
          * @param raw 持久化的策略 id
          * @return 匹配的策略；没有时返回默认值
          */
@@ -739,7 +785,7 @@ public interface DesktopUiHost extends DesktopUiToolHost {
     }
 
     /**
-     * @return 当前受保护的本机控制中心快照响应
+     * {@return 当前受保护的本机控制中心快照响应}
      */
     default GuiResponse controlCenterSnapshot() {
         return guiGet("control-center", 2_000);
@@ -845,6 +891,8 @@ public interface DesktopUiHost extends DesktopUiToolHost {
     }
 
     /**
+     * 持久化当前引导页进度。
+     *
      * @param step 当前引导页索引
      * @return 状态是否已持久化
      */
@@ -853,6 +901,8 @@ public interface DesktopUiHost extends DesktopUiToolHost {
     }
 
     /**
+     * 持久化已查看引导的状态。
+     *
      * @return 状态是否已持久化
      */
     default boolean markOnboardingSeen() {
@@ -860,6 +910,8 @@ public interface DesktopUiHost extends DesktopUiToolHost {
     }
 
     /**
+     * 持久化已完成引导代理配置的状态。
+     *
      * @return 状态是否已持久化
      */
     default boolean markOnboardingProxyConfigured() {
@@ -867,6 +919,8 @@ public interface DesktopUiHost extends DesktopUiToolHost {
     }
 
     /**
+     * 持久化引导已完成的状态。
+     *
      * @return 状态是否已持久化
      */
     default boolean markOnboardingFinished() {
@@ -874,6 +928,8 @@ public interface DesktopUiHost extends DesktopUiToolHost {
     }
 
     /**
+     * 清除宿主保存的引导状态。
+     *
      * @return 状态是否已清除
      */
     default boolean clearOnboardingState() {
@@ -900,6 +956,15 @@ public interface DesktopUiHost extends DesktopUiToolHost {
 
     /**
      * 工具包中立的本地 GUI 请求。
+     *
+     * @param method HTTP 方法
+     * @param path 相对或绝对的本地 GUI 路径
+     * @param body 请求正文
+     * @param bodyFormat 请求正文格式
+     * @param readTimeoutMillis 读取超时毫秒数
+     * @param maxResponseBytes 接受的最大响应大小
+     * @param ownerPluginId 发现期绑定的 owner 插件 id；没有时为空
+     * @param languageTag 请求的响应语言
      */
     record GuiRequest(
             String method,
@@ -947,6 +1012,8 @@ public interface DesktopUiHost extends DesktopUiToolHost {
         }
 
         /**
+         * 构造限制响应大小的本地 GUI GET 请求。
+         *
          * @param path    相对或绝对的本地 GUI 路径
          * @param timeout 读取超时毫秒数
          * @return 有界 GET 请求
@@ -965,6 +1032,8 @@ public interface DesktopUiHost extends DesktopUiToolHost {
         }
 
         /**
+         * 构造限制响应大小的本地 GUI JSON POST 请求。
+         *
          * @param path          相对或绝对的本地 GUI 路径
          * @param body          与 JSON 兼容的 JDK 值
          * @param timeout       读取超时毫秒数
@@ -990,6 +1059,8 @@ public interface DesktopUiHost extends DesktopUiToolHost {
         }
 
         /**
+         * 构造限制响应大小的本地 GUI 表单请求。
+         *
          * @param method  HTTP 方法
          * @param path    相对或绝对的本地 GUI 路径
          * @param body    表单编码正文；没有时为 {@code null}
@@ -1017,6 +1088,12 @@ public interface DesktopUiHost extends DesktopUiToolHost {
 
     /**
      * 一次本地 GUI 请求的可达性、HTTP 状态与解析后响应。
+     *
+     * @param reachable 是否已到达本地端点
+     * @param status HTTP 状态；不可达时为零
+     * @param body 可用时的解析后响应正文
+     * @param rawBody 原始响应正文
+     * @param bodyLimitExceeded 响应是否超过大小上限
      */
     record GuiResponse(
             boolean reachable,
@@ -1039,28 +1116,28 @@ public interface DesktopUiHost extends DesktopUiToolHost {
         }
 
         /**
-         * @return 响应是否为 2xx 状态
+         * {@return 响应是否为 2xx 状态}
          */
         public boolean is2xx() {
             return status >= 200 && status < 300;
         }
 
         /**
-         * @return 响应状态是否为 200
+         * {@return 响应状态是否为 200}
          */
         public boolean successful() {
             return status == 200;
         }
 
         /**
-         * @return 是否已解析响应正文
+         * {@return 是否已解析响应正文}
          */
         public boolean responseParsed() {
             return body != null;
         }
 
         /**
-         * @return 表示本地端点不可达的响应
+         * {@return 表示本地端点不可达的响应}
          */
         public static GuiResponse unreachable() {
             return new GuiResponse(
@@ -1086,6 +1163,8 @@ public interface DesktopUiHost extends DesktopUiToolHost {
         }
 
         /**
+         * 将 JDK 值包装为只读的 GUI 响应值。
+         *
          * @param value JDK map、list、标量或 {@code null}
          * @return 只读 GUI 值
          */
@@ -1094,6 +1173,8 @@ public interface DesktopUiHost extends DesktopUiToolHost {
         }
 
         /**
+         * 读取子值，路径不可用时保留缺失哨兵以便继续访问。
+         *
          * @param field 对象字段名
          * @return 字段值或缺失哨兵
          */
@@ -1103,6 +1184,8 @@ public interface DesktopUiHost extends DesktopUiToolHost {
         }
 
         /**
+         * 读取子值，路径不可用时保留缺失哨兵以便继续访问。
+         *
          * @param index 数组索引
          * @return 索引值或缺失哨兵
          */
@@ -1113,6 +1196,8 @@ public interface DesktopUiHost extends DesktopUiToolHost {
         }
 
         /**
+         * 读取对象字段，字段不存在时返回 null。
+         *
          * @param field 对象字段名
          * @return 字段值；缺失时为 {@code null}
          */
@@ -1121,6 +1206,8 @@ public interface DesktopUiHost extends DesktopUiToolHost {
         }
 
         /**
+         * 检查对象中是否存在指定字段且值不为 JSON null。
+         *
          * @param field 对象字段名
          * @return 是否存在非 null 字段
          */
@@ -1130,63 +1217,63 @@ public interface DesktopUiHost extends DesktopUiToolHost {
         }
 
         /**
-         * @return 此值是否为缺失哨兵
+         * {@return 此值是否为缺失哨兵}
          */
         public boolean isMissingNode() {
             return value == MISSING;
         }
 
         /**
-         * @return 此值是否为 JSON null
+         * {@return 此值是否为 JSON null}
          */
         public boolean isNull() {
             return value == null;
         }
 
         /**
-         * @return 此值是否为数组
+         * {@return 此值是否为数组}
          */
         public boolean isArray() {
             return value instanceof List<?>;
         }
 
         /**
-         * @return 此值是否为对象
+         * {@return 此值是否为对象}
          */
         public boolean isObject() {
             return value instanceof Map<?, ?>;
         }
 
         /**
-         * @return 此值是否为布尔值
+         * {@return 此值是否为布尔值}
          */
         public boolean isBoolean() {
             return value instanceof Boolean;
         }
 
         /**
-         * @return 此值是否为数值
+         * {@return 此值是否为数值}
          */
         public boolean isNumber() {
             return value instanceof Number;
         }
 
         /**
-         * @return 此值是否为文本
+         * {@return 此值是否为文本}
          */
         public boolean isTextual() {
             return value instanceof String;
         }
 
         /**
-         * @return 此值是否为标量或 JSON null
+         * {@return 此值是否为标量或 JSON null}
          */
         public boolean isValueNode() {
             return value == null || value instanceof String || value instanceof Number || value instanceof Boolean;
         }
 
         /**
-         * @return 此集合或文本值是否为空
+         * {@return 此集合或文本值是否为空}
          */
         public boolean isEmpty() {
             if (value instanceof List<?> list) return list.isEmpty();
@@ -1196,13 +1283,15 @@ public interface DesktopUiHost extends DesktopUiToolHost {
         }
 
         /**
-         * @return 文本形式的标量值；非标量时为空字符串
+         * {@return 文本形式的标量值；非标量时为空字符串}
          */
         public String asText() {
             return asText("");
         }
 
         /**
+         * 将标量转换为文本，无法转换时使用指定的回退值。
+         *
          * @param fallback 非标量或 null 值的回退值
          * @return 文本形式的标量值；不可用时返回回退值
          */
@@ -1211,13 +1300,15 @@ public interface DesktopUiHost extends DesktopUiToolHost {
         }
 
         /**
-         * @return 布尔形式的值；不可用时为 {@code false}
+         * {@return 布尔形式的值；不可用时为 {@code false}}
          */
         public boolean asBoolean() {
             return asBoolean(false);
         }
 
         /**
+         * 读取布尔值或解析布尔文本，无法转换时使用指定的回退值。
+         *
          * @param fallback 非布尔值的回退值
          * @return 布尔形式的值；不可用时返回回退值
          */
@@ -1231,13 +1322,15 @@ public interface DesktopUiHost extends DesktopUiToolHost {
         }
 
         /**
-         * @return 整数形式的值；不可用时为零
+         * {@return 整数形式的值；不可用时为零}
          */
         public int asInt() {
             return asInt(0);
         }
 
         /**
+         * 转换数值或解析整数文本，无法转换时使用指定的回退值。
+         *
          * @param fallback 非整数值的回退值
          * @return 整数形式的值；不可用时返回回退值
          */
@@ -1251,13 +1344,15 @@ public interface DesktopUiHost extends DesktopUiToolHost {
         }
 
         /**
-         * @return long 整数形式的值；不可用时为零
+         * {@return long 整数形式的值；不可用时为零}
          */
         public long asLong() {
             return asLong(0L);
         }
 
         /**
+         * 转换数值或解析长整数文本，无法转换时使用指定的回退值。
+         *
          * @param fallback 非整数值的回退值
          * @return long 整数形式的值；不可用时返回回退值
          */
@@ -1282,6 +1377,12 @@ public interface DesktopUiHost extends DesktopUiToolHost {
 
     /**
      * 已持久化的引导状态及 setup 完成状态。
+     *
+     * @param seen 是否已查看引导
+     * @param proxyConfigured 是否已完成引导中的代理配置
+     * @param progress 已保存的引导页索引
+     * @param finished 是否已完成引导
+     * @param setupComplete 是否已完成 setup
      */
     record OnboardingSnapshot(
             boolean seen,
@@ -1291,7 +1392,7 @@ public interface DesktopUiHost extends DesktopUiToolHost {
             boolean setupComplete
     ) {
         /**
-         * @return 引导与 setup 是否均已完成
+         * {@return 引导与 setup 是否均已完成}
          */
         public boolean complete() {
             return finished && setupComplete;

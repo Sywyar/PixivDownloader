@@ -11,6 +11,8 @@ import top.sywyar.pixivdownload.plugin.api.schedule.security.ScheduledSensitiveF
 /**
  * Guard 决定附带的受控、安全证据属性，例如上游事件时间与已裁剪摘要。宿主只把它作为挂起详情或观测数据，
  * 并在持久化、通知或日志边界再次执行凭证材料检查；插件不得放入 Cookie、Authorization、token 或签名。
+ *
+ * @param attributes 属性
  */
 public record ScheduledGuardEvidence(Map<String, String> attributes) {
 

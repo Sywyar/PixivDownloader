@@ -1,6 +1,13 @@
 package top.sywyar.pixivdownload.plugin.api.schedule.credential;
 
-/** 凭证格式检查与主动探活的安全结果；账号键与机器码不得包含原始凭据或可逆派生材料。 */
+/**
+ * 凭证格式检查与主动探活的安全结果；账号键与机器码不得包含原始凭据或可逆派生材料。
+ *
+ * @param status 探活状态
+ * @param accountKey 非敏感账号键
+ * @param code 结果机器码
+ * @param retryAfterMillis 建议重试延迟毫秒数
+ */
 public record ScheduledCredentialProbeResult(
         Status status,
         String accountKey,

@@ -70,14 +70,14 @@ public record DesktopUiPluginSnapshot(
     }
 
     /**
-     * @return 用于比较同一插件 publication 身份的稳定指纹
+     * {@return 用于比较同一插件 publication 身份的稳定指纹}
      */
     public Fingerprint fingerprint() {
         return new Fingerprint(id, builtIn, packageId, generation);
     }
 
     /**
-     * @return 保留 owner 与回退值的显示名称文本语义
+     * {@return 保留 owner 与回退值的显示名称文本语义}
      */
     public DesktopUiText displayName() {
         String fallback = id;

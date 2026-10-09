@@ -4,6 +4,20 @@ package top.sywyar.pixivdownload.core.schedule;
  * 可跨重启和插件 reload 重试的中性作品 envelope。
  *
  * <p>{@code workId} 始终按 TEXT 保真；作品身份由 {@code workType + workId} 共同构成。
+ *
+ * @param taskId 任务标识
+ * @param workType 作品类型
+ * @param workId 作品标识
+ * @param payloadSchema 作品载荷的格式标识
+ * @param payloadVersion 载荷版本
+ * @param payloadJson 作品载荷 JSON
+ * @param relationsJson 作品关系 JSON
+ * @param presentationJson 安全展示快照 JSON
+ * @param reasonCode 待重试原因机器码
+ * @param reasonDetailJson 安全失败详情 JSON
+ * @param attempts 尝试次数
+ * @param firstSeenTime 首次登记为待处理作品的时间
+ * @param lastAttemptTime 最近一次尝试的时间
  */
 public record ScheduledPendingWork(
         long taskId,

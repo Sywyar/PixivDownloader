@@ -2,7 +2,14 @@ package top.sywyar.pixivdownload.plugin.api.download.control;
 
 import java.util.List;
 
-/** 当前下载扩展的不可变宿主投影。 */
+/**
+ * 当前下载扩展的不可变宿主投影。
+ *
+ * @param epoch 宿主下载扩展注册表的纪元标识
+ * @param revision 同一纪元内的非负修订号
+ * @param downloadTypes 下载类型集合
+ * @param uiSlots 界面槽位列表
+ */
 public record DownloadExtensionSnapshot(
         String epoch,
         long revision,

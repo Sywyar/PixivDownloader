@@ -5,6 +5,10 @@ package top.sywyar.pixivdownload.core.schedule.state;
  *
  * <p>调用方必须把本对象携带的 {@code claimToken + stateVersion} 原样带入下一次转换；不得在更新后
  * 另行读取版本来拼接一次运行。
+ *
+ * @param claimToken 认领令牌
+ * @param stateVersion 状态版本
+ * @param runState 运行状态
  */
 public record ScheduleRunToken(
         String claimToken,

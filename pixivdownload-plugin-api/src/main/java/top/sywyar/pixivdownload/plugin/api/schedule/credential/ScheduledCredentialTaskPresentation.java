@@ -1,6 +1,11 @@
 package top.sywyar.pixivdownload.plugin.api.schedule.credential;
 
-/** 凭证策略对单个任务的安全机器态展示投影；未提供投影时使用 {@link #empty()}。 */
+/**
+ * 凭证策略对单个任务的安全机器态展示投影；未提供投影时使用 {@link #empty()}。
+ *
+ * @param statusCode 状态码
+ * @param acknowledgedEventTime 已确认事件时间
+ */
 public record ScheduledCredentialTaskPresentation(
         String statusCode,
         Long acknowledgedEventTime

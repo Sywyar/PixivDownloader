@@ -3,6 +3,8 @@ package top.sywyar.pixivdownload.plugin.api.schedule.source;
 /**
  * 来源发现完成后返回的候选检查点；真正提交时机由宿主在作品排空与末尾 Guard 通过后决定。候选检查点不得包含
  * 原始凭据或可逆派生材料。
+ *
+ * @param candidateCheckpoint 等待宿主确认提交的候选检查点；没有检查点时为 null
  */
 public record ScheduledDiscoveryResult(ScheduledCheckpoint candidateCheckpoint) {
 

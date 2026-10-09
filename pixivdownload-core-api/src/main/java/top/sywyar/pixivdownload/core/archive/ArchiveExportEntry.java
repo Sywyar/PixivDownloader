@@ -5,6 +5,11 @@ import java.util.Arrays;
 
 /**
  * 一个待写入归档的文件或内存字节条目。
+ *
+ * @param sourcePath 归档条目的来源文件路径
+ * @param entryName 归档内的相对条目名
+ * @param bytes 直接写入归档的字节内容
+ * @param workId 条目所属作品的标识
  */
 public record ArchiveExportEntry(Path sourcePath, String entryName, byte[] bytes, Long workId) {
 

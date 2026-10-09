@@ -7,6 +7,11 @@ package top.sywyar.pixivdownload.plugin.api.schedule.network;
  * 重定向和媒体客户端。
  *
  * <p>{@code proxyCredentialReference} 只是宿主凭证存储中的不透明引用，不是代理密码；代理密钥不得进入本记录。
+ *
+ * @param mode 路由模式
+ * @param proxyHost 代理主机
+ * @param proxyPort 代理端口
+ * @param proxyCredentialReference 代理凭证的不透明引用
  */
 public record ScheduledNetworkRoute(
         Mode mode,

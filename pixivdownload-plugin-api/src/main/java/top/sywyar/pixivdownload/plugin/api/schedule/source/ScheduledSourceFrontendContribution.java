@@ -5,6 +5,9 @@ import java.net.URI;
 /**
  * 来源定义编辑、回灌、摘要与校验提示的同源前端模块。模块只通过宿主提供的受控上下文注册行为，
  * 不携带内联脚本、原始 HTML 或外部 URL。
+ *
+ * @param contractVersion 契约版本
+ * @param moduleUrl 模块地址
  */
 public record ScheduledSourceFrontendContribution(
         int contractVersion,

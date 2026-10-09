@@ -5,6 +5,12 @@ import java.nio.charset.StandardCharsets;
 /**
  * 一件作品由哪个作者、搜索、合集、音乐或账号列表发现的插件中性关系。宿主可在重复发现时按
  * {@code relationType + relationId} 合并，目标作品执行器负责幂等写入插件历史。
+ *
+ * @param relationType 关系类型
+ * @param relationId 关系标识
+ * @param payloadSchema 关系载荷的格式标识
+ * @param payloadVersion 载荷版本
+ * @param payloadJson 关系载荷 JSON
  */
 public record ScheduledWorkRelation(
         String relationType,

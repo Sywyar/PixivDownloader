@@ -8,6 +8,10 @@ import java.util.Map;
 /**
  * 账号策略事件的安全通知投影。普通值与 epoch 毫秒时间值分离，宿主只按 key 执行通用 i18n 格式化，
  * 不解释来源插件的 evidence 或策略状态。
+ *
+ * @param scenarioId 场景标识
+ * @param scalarAttributes 标量属性
+ * @param timeAttributes 时间属性
  */
 public record ScheduledCredentialIncidentPresentation(
         String scenarioId,

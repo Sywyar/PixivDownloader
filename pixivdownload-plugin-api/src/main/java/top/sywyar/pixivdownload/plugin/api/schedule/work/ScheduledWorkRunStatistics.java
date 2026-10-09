@@ -3,6 +3,12 @@ package top.sywyar.pixivdownload.plugin.api.schedule.work;
 /**
  * 单个作品类型在一轮执行中的最终记账统计。每次实际调用作品执行器的尝试都必须归入成功结果之一，
  * 或在失败信息耐久写入 pending 后归入 pending。
+ *
+ * @param attemptedWorkCount 已尝试作品数量
+ * @param completedWorkCount 已完成作品数量
+ * @param alreadyCompletedWorkCount 执行前已完成的作品数量
+ * @param skippedWorkCount 已跳过作品数量
+ * @param pendingWorkCount 失败后已耐久登记为 pending 的作品数量
  */
 public record ScheduledWorkRunStatistics(
         long attemptedWorkCount,

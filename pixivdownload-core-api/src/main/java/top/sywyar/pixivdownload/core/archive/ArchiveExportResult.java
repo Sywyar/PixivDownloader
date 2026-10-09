@@ -2,6 +2,11 @@ package top.sywyar.pixivdownload.core.archive;
 
 /**
  * 已受理的作品归档任务投影。
+ *
+ * @param archiveToken 查询或下载归档使用的不透明令牌；空归档时为 null
+ * @param archiveExpireSeconds 归档令牌的有效期秒数
+ * @param workCount 请求涉及的作品数量
+ * @param fileCount 归档包含的文件数量
  */
 public record ArchiveExportResult(
         String archiveToken,

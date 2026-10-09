@@ -28,6 +28,12 @@ public final class LegacyLocaleBundlePolicy implements LocaleBundlePolicy {
      */
     public static final LocaleBundlePolicy INSTANCE = new LegacyLocaleBundlePolicy();
 
+    /**
+     * 创建遵循旧插件语言资源约定的兼容策略。
+     */
+    public LegacyLocaleBundlePolicy() {
+    }
+
     @Override
     public Locale normalize(Locale requested) {
         return requested == null ? Locale.getDefault() : requested;

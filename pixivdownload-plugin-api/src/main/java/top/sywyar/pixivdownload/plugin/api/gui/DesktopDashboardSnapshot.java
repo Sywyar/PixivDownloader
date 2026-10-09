@@ -9,6 +9,10 @@ import java.util.Objects;
  *
  * <p>快照不携带可信 owner；宿主从当前 publication 盖章、校验并复制。缺席或撤回不会删除任何
  * 持久化事实，也不得被解释为业务空结果之外的写入结论。
+ *
+ * @param cards 独立指标卡列表
+ * @param runningTasks 运行任务列表
+ * @param observedAt 快照观测时间
  */
 public record DesktopDashboardSnapshot(
         List<DesktopDashboardCardContribution> cards,

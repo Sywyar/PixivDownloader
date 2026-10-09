@@ -2,6 +2,10 @@ package top.sywyar.pixivdownload.plugin.api.schedule.execution;
 
 /**
  * 跨插件边界传递的安全失败投影。它不携带 {@link Throwable}、请求头、凭证或上游响应正文。
+ *
+ * @param category 失败类别
+ * @param code 失败机器码
+ * @param retryAfterMillis 建议重试延迟毫秒数
  */
 public record ScheduledFailure(
         Category category,

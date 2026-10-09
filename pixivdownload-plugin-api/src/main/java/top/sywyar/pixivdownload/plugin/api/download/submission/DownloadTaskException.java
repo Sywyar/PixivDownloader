@@ -12,11 +12,17 @@ public final class DownloadTaskException extends RuntimeException {
     }
     /** 可序列化的稳定失败原因，不保存原始插件异常。 */
     private final Code code;
-    /** @param code 失败原因 */
+    /**
+     * 使用稳定失败码创建下载任务异常。
+     *
+     * @param code 失败原因
+     */
     public DownloadTaskException(Code code) {
         super(code.name());
         this.code = java.util.Objects.requireNonNull(code, "code");
     }
-    /** @return 失败原因 */
+    /**
+     * {@return 失败原因}
+     */
     public Code code() { return code; }
 }

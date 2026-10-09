@@ -10,6 +10,8 @@ package top.sywyar.pixivdownload.plugin.api.gui;
  */
 @FunctionalInterface
 public interface DesktopAutomationSource {
-    /** @return 当前 owner 的自动化只读快照 */
+    /**
+     * {@return 当前 owner 的自动化只读快照}
+     */
     DesktopAutomationSnapshot snapshot();
 }

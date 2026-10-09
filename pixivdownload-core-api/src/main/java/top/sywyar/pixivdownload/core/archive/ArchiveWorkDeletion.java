@@ -9,6 +9,9 @@ import java.util.List;
  *
  * <p>{@code workType} 使用调用方稳定作品类型的机器 token；宿主适配器必须在创建后台任务前
  * 完成解析并对未知 token fail-closed，不能把插件回调对象交给异步归档队列。
+ *
+ * @param workType 作品类型的稳定机器标识
+ * @param workIds 作品标识集合
  */
 public record ArchiveWorkDeletion(String workType, List<Long> workIds) {
 

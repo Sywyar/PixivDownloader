@@ -43,6 +43,8 @@ public interface ArtworkHashIndexMaintenance {
     void clearAllHashes();
 
     /**
+     * 重建指定作品的逐页哈希索引。
+     *
      * @return 作品存在时为写入的哈希页数；作品不存在时为空
      * @param artworkId 插画作品标识
      */

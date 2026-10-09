@@ -8,6 +8,10 @@ import java.util.Objects;
  * <p>非受限调用方不携带查询限制；受邀访客同时携带插画与小说两套限制。显式的
  * {@code enforceVisibility} 不能由 {@link WorkRestriction#fullyOpen()} 替代：即使访客的标签与作者
  * 维度均开放，单作品访问仍须校验作品存在性和年龄分级。
+ *
+ * @param enforceVisibility 是否对查询结果应用访客可见性限制
+ * @param artworkRestriction 插画作品访问限制
+ * @param novelRestriction 小说访问限制
  */
 public record WorkVisibilityScope(
         boolean enforceVisibility,

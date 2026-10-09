@@ -144,56 +144,56 @@ public final class DesktopUiContext {
     }
 
     /**
-     * @return 是否由应用启动流程打开桌面界面
+     * {@return 是否由应用启动流程打开桌面界面}
      */
     public boolean startupLaunch() {
         return startupLaunch;
     }
 
     /**
-     * @return 本地服务端口
+     * {@return 本地服务端口}
      */
     public int serverPort() {
         return serverPort;
     }
 
     /**
-     * @return 下载根目录
+     * {@return 下载根目录}
      */
     public String rootFolder() {
         return rootFolder;
     }
 
     /**
-     * @return 主配置文件路径
+     * {@return 主配置文件路径}
      */
     public Path configPath() {
         return configPath;
     }
 
     /**
-     * @return 本次启动实际选中的桌面 UI 提供者 id
+     * {@return 本次启动实际选中的桌面 UI 提供者 id}
      */
     public String selectedProviderId() {
         return selectedProviderId;
     }
 
     /**
-     * @return 工具包无关的宿主业务能力
+     * {@return 工具包无关的宿主业务能力}
      */
     public DesktopUiHost host() {
         return host;
     }
 
     /**
-     * @return 启动时已经冻结的活动插件快照
+     * {@return 启动时已经冻结的活动插件快照}
      */
     public List<DesktopUiPluginSnapshot> startupPluginSnapshots() {
         return startupPlugins;
     }
 
     /**
-     * @return 当前活动插件的不可变快照
+     * {@return 当前活动插件的不可变快照}
      */
     public List<DesktopUiPluginSnapshot> currentPluginSnapshots() {
         List<DesktopUiPluginSnapshot> snapshots = currentPlugins.get();
@@ -219,7 +219,7 @@ public final class DesktopUiContext {
     }
 
     /**
-     * @return 规范化后的共享主题偏好；缺失时为 {@code system}
+     * {@return 规范化后的共享主题偏好；缺失时为 {@code system}}
      */
     public String themePreference() {
         String value = themePreference.get();
