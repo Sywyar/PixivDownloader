@@ -9,6 +9,15 @@ import java.util.Objects;
  *
  * <p>可信 owner 由宿主盖章；能力缺席、quiesce、替换或撤回时该投影自然缺席。该值只用于
  * best-effort 观察，不含写动作、定义正文、凭据、持久化行为或安全判断。
+ *
+ * @param taskId owner 内稳定任务 id
+ * @param order owner 内排序值
+ * @param title 任务标题
+ * @param triggerSummary 受控触发摘要
+ * @param status 当前机器状态
+ * @param lastResult 最近运行结果
+ * @param nextRuns 接下来 24 小时内的运行时间点
+ * @param observedAt 事实观测时间
  */
 public record DesktopAutomationTaskContribution(
         String taskId,

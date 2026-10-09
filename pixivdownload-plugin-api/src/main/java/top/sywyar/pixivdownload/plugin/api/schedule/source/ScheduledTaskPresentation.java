@@ -10,6 +10,10 @@ import java.util.regex.Pattern;
 
 /**
  * 插件缺席时仍可安全回显的任务实例快照。字段保存原始文本或受控 token，不保存已本地化文案与凭证。
+ *
+ * @param title 标题
+ * @param summary 摘要
+ * @param attributes 属性
  */
 public record ScheduledTaskPresentation(
         String title,

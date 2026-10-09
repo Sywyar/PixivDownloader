@@ -2,6 +2,9 @@ package top.sywyar.pixivdownload.config;
 
 /**
  * 仅依赖 JDK 的出站 HTTP 代理端点。
+ *
+ * @param hostName 主机名称
+ * @param port 端口
  */
 public record OutboundProxyEndpoint(String hostName, int port) {
 

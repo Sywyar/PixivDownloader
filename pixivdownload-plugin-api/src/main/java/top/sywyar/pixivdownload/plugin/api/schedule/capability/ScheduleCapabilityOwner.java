@@ -2,7 +2,13 @@ package top.sywyar.pixivdownload.plugin.api.schedule.capability;
 
 import java.util.regex.Pattern;
 
-/** 宿主盖章的计划能力归属；功能 owner、物理包与插件代际不可互换。 */
+/**
+ * 宿主盖章的计划能力归属；功能 owner、物理包与插件代际不可互换。
+ *
+ * @param featurePluginId 功能插件标识
+ * @param packageId 物理插件包标识
+ * @param pluginGeneration 非负的插件代次
+ */
 public record ScheduleCapabilityOwner(
         String featurePluginId,
         String packageId,

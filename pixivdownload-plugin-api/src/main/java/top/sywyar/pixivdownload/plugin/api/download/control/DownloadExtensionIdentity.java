@@ -5,6 +5,11 @@ package top.sywyar.pixivdownload.plugin.api.download.control;
  *
  * <p>{@code publicationId} 只属于下载 descriptor / UI 槽位 publication 计数域，不得与队列 capability
  * publication id 比较或互换。
+ *
+ * @param pluginId 功能插件标识，不能为空白
+ * @param packageId 物理插件包标识，不能为空白
+ * @param generation 非负的插件代次
+ * @param publicationId 正数的下载扩展发布标识
  */
 public record DownloadExtensionIdentity(
         String pluginId,

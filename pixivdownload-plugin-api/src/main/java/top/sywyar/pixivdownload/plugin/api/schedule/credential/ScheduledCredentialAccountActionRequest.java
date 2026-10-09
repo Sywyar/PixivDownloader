@@ -9,7 +9,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** 宿主交给当前凭证策略规划账号级恢复动作的安全纯值请求。 */
+/**
+ * 宿主交给当前凭证策略规划账号级恢复动作的安全纯值请求。
+ *
+ * @param accountKey 不含凭证材料的账号键
+ * @param actionId 操作标识
+ * @param parameters 通过安全校验的动作参数
+ * @param requestedAt 动作请求时间，不能为负数
+ * @param tasks 受影响任务的非空快照列表，任务标识不能重复
+ */
 public record ScheduledCredentialAccountActionRequest(
         String accountKey,
         String actionId,

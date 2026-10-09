@@ -4,6 +4,13 @@ import java.nio.charset.StandardCharsets;
 
 /**
  * 宿主盖章后交给来源插件规范化的未持久化任务定义。草稿只包含纯数据，不得携带凭证或宿主服务引用。
+ *
+ * @param taskId 任务标识
+ * @param sourceType 来源类型
+ * @param definitionSchema 任务定义的格式标识
+ * @param definitionVersion 定义版本
+ * @param definitionJson 来源拥有的任务定义 JSON
+ * @param presentation 展示信息
  */
 public record ScheduledTaskDraft(
         long taskId,

@@ -6,6 +6,7 @@ import java.util.List;
  * 分页查询结果。分页数学（总数统计、{@code totalPages} 计算）只在查询侧完成，
  * 内容补全（hydrate）一侧不得改变总数与顺序。
  *
+ * @param <T> 当前页条目的类型
  * @param content       当前页内容（防御性拷贝，不可变）
  * @param totalElements 过滤条件命中的总行数（跨全部页）
  * @param page          当前页号（0 起）

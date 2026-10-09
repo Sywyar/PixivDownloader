@@ -1,6 +1,12 @@
 package top.sywyar.pixivdownload.plugin.api.schedule.guard;
 
-/** Guard 返回给宿主的稳定动作；插件不得借此直接修改核心持久化。 */
+/**
+ * Guard 返回给宿主的稳定动作；插件不得借此直接修改核心持久化。
+ *
+ * @param action 宿主动作
+ * @param reasonCode 原因机器码
+ * @param retryAfterMillis 建议重试延迟毫秒数
+ */
 public record ScheduledGuardDecision(
         Action action,
         String reasonCode,

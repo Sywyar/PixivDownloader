@@ -24,6 +24,27 @@ import java.util.List;
  *
  * <p>各 id 列表为 {@code null} 表示该维度不限；列表语义（必须 AND / 可选 OR / 排除）
  * 与画廊查询一致。{@code restriction} 为访客限制投影，{@code null} 表示无限制。
+ *
+ * @param workType 作品所属媒体类型
+ * @param page 从零开始的页码
+ * @param size 每页数量，至少为一
+ * @param sort 排序字段
+ * @param order 排序方向，取 {@code asc} 或 {@code desc}
+ * @param search 搜索文本
+ * @param searchType 搜索匹配的字段范围
+ * @param r18 年龄分级筛选条件
+ * @param ai AI 生成标记的筛选条件
+ * @param formats 插画文件扩展名筛选列表
+ * @param collectionIds 收藏夹筛选标识
+ * @param tagIds 必须匹配的标签标识
+ * @param excludedTagIds 必须排除的标签标识
+ * @param optionalTagIds 可选匹配的标签标识
+ * @param authorIds 必须匹配的作者标识
+ * @param excludedAuthorIds 必须排除的作者标识
+ * @param optionalAuthorIds 可选匹配的作者标识
+ * @param seriesIds 必须匹配的系列标识
+ * @param excludedSeriesIds 必须排除的系列标识
+ * @param restriction 访客可见性限制；null 表示无限制
  */
 public record WorkQuery(
         WorkType workType,

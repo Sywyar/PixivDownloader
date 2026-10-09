@@ -37,6 +37,12 @@ public class PushFormatConverter {
     private static final String ITALIC = "([*_])(?=\\S)(.+?)(?<=\\S)\\1";
 
     /**
+     * 创建用于推送格式协商与正文转换的无状态转换器。
+     */
+    public PushFormatConverter() {
+    }
+
+    /**
      * 按通道<b>优先级顺序</b>选出第一个可从 {@code source} 转换到的目标格式。
      * {@code supported} 为空或都不可达时返回 {@link PushFormat#PLAIN_TEXT}（恒可达的兜底）。
      *

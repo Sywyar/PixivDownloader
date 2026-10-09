@@ -10,6 +10,8 @@ package top.sywyar.pixivdownload.plugin.api.gui;
  */
 @FunctionalInterface
 public interface DesktopDashboardSource {
-    /** @return 当前 owner 的卡片与运行任务只读快照 */
+    /**
+     * {@return 当前 owner 的卡片与运行任务只读快照}
+     */
     DesktopDashboardSnapshot snapshot();
 }

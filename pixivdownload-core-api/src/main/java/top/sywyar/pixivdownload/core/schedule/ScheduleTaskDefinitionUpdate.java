@@ -1,6 +1,20 @@
 package top.sywyar.pixivdownload.core.schedule;
 
-/** 经来源能力校验后的任务定义编辑命令。 */
+/**
+ * 经来源能力校验后的任务定义编辑命令。
+ *
+ * @param name 名称
+ * @param sourceType 来源类型
+ * @param sourceOwnerPluginId 来源所有者插件标识
+ * @param definitionSchema 任务定义的格式标识
+ * @param definitionVersion 定义版本
+ * @param definitionJson 更新后的任务定义 JSON
+ * @param presentationJson 更新后的安全展示快照 JSON
+ * @param triggerKind 触发方式类别
+ * @param intervalMinutes 间隔分钟数
+ * @param cronExpr Cron 触发表达式
+ * @param nextRunTime 更新后的下次计划运行时间
+ */
 public record ScheduleTaskDefinitionUpdate(
         String name,
         String sourceType,

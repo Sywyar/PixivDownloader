@@ -6,7 +6,19 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
-/** 不含插件 Bean 的单个计划能力 owner 观测值。 */
+/**
+ * 不含插件 Bean 的单个计划能力 owner 观测值。
+ *
+ * @param owner 宿主确认的计划能力归属
+ * @param publicationId 正数的能力发布标识
+ * @param activationToken 本次激活的非空身份令牌
+ * @param sourceTypes 来源类型集合
+ * @param sourceAliases 该 owner 发布的来源历史别名集合
+ * @param workTypes 作品类型集合
+ * @param credentialPolicyIds 凭证策略标识集合
+ * @param guardIds 守卫标识集合
+ * @param sourceDescriptors 该 owner 发布的来源描述符列表
+ */
 public record ScheduleCapabilityOwnerSnapshot(
         ScheduleCapabilityOwner owner,
         long publicationId,

@@ -5,6 +5,19 @@ package top.sywyar.pixivdownload.core.schedule;
  *
  * <p>本命令只表达首次创建的业务字段；自增 id、运行认领、结果、挂起、checkpoint、凭证和 CAS 版本
  * 均由核心持久化实现初始化或经 {@link ScheduledTaskStore} 的专用方法变更。
+ *
+ * @param name 名称
+ * @param sourceType 来源类型
+ * @param sourceOwnerPluginId 来源所有者插件标识
+ * @param definitionSchema 任务定义的格式标识
+ * @param definitionVersion 定义版本
+ * @param definitionJson 来源拥有的任务定义 JSON
+ * @param presentationJson 安全展示快照 JSON
+ * @param triggerKind 触发方式类别
+ * @param intervalMinutes 间隔分钟数
+ * @param cronExpr Cron 触发表达式
+ * @param nextRunTime 首次计划运行时间
+ * @param createdTime 创建时间
  */
 public record ScheduledTaskCreate(
         String name,

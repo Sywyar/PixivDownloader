@@ -5,6 +5,15 @@ package top.sywyar.pixivdownload.core.schedule.state;
  *
  * <p>checkpoint 与 outcome 在同一条 CAS 更新中提交；三个 checkpoint 字段必须同时为空或同时有值。
  * 全部为空表示保留既有 checkpoint，失败路径因此不会把上次安全断点清掉。
+ *
+ * @param finishedTime 完成时间
+ * @param outcome 执行结果
+ * @param outcomeCode 执行结果机器码
+ * @param outcomeMessage 执行结果的安全说明
+ * @param nextRunTime 下次计划运行时间
+ * @param checkpointSchema 待提交检查点的格式标识
+ * @param checkpointVersion 检查点版本
+ * @param checkpointJson 待提交检查点的载荷 JSON
  */
 public record ScheduleRunCompletion(
         long finishedTime,

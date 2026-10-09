@@ -15,7 +15,9 @@ import java.time.Instant;
  */
 public record DownloadTaskSnapshot(DownloadAttempt attempt, String queueType, String title,
                                    DownloadEvent.Phase phase, Instant updatedAt, long revision) {
-    /** @return 是否已经终结 */
+    /**
+     * {@return 是否已经终结}
+     */
     public boolean terminal() {
         return phase == DownloadEvent.Phase.COMPLETED || phase == DownloadEvent.Phase.FAILED
                 || phase == DownloadEvent.Phase.CANCELLED;

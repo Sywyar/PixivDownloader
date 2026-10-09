@@ -8,6 +8,8 @@ import java.nio.file.Path;
 public interface DownloadPathGuard {
 
     /**
+     * 校验候选目录段是否符合宿主路径安全规则。
+     *
      * @throws DownloadPathRejectedException 候选目录段不符合宿主安全策略
      * @param value 值
      * @return 方法返回的字符串
@@ -15,6 +17,8 @@ public interface DownloadPathGuard {
     String requireSafeDirectoryName(String value);
 
     /**
+     * 校验候选路径是否位于指定下载根目录内。
+     *
      * @throws DownloadPathRejectedException 候选路径不位于下载根目录内
      * @param root 根目录
      * @param candidate 候选项

@@ -6,6 +6,8 @@ import java.util.Optional;
 /** 按作品和页号保存媒体事实；不暴露数据库连接、表名或文件布局。 */
 public interface ArtworkMediaStore {
     /**
+     * 读取指定作品页已经登记的媒体产物事实。
+     *
      * @param artworkId 作品 ID
      * @param page 页码
      * @return 已保存的逐页媒体事实；未记录时为空

@@ -6,6 +6,9 @@ package top.sywyar.pixivdownload.plugin.api.web;
  * <p>管理员作用域可跨 owner 读写，因此 {@link #ownerUuid()} 固定为 {@code null}；
  * 非管理员作用域必须携带非空的 owner UUID。插件控制器应使用宿主提供的
  * {@link RequestOwnerIdentityResolver}，不得从请求 body 或查询参数信任 owner 身份。
+ *
+ * @param ownerUuid 请求所属用户的 UUID
+ * @param admin 请求是否具有管理员身份
  */
 public record RequestOwnerIdentity(String ownerUuid, boolean admin) {
 

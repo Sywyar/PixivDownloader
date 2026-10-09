@@ -16,7 +16,13 @@ public record SeriesNeighbors(
         Neighbor prev,
         Neighbor next) {
 
-    /** 相邻作品行。 */
+    /**
+     * 相邻作品行。
+     *
+     * @param workId 相邻作品标识
+     * @param title 相邻作品标题
+     * @param seriesOrder 相邻作品在系列内的序号
+     */
     public record Neighbor(long workId, String title, long seriesOrder) {
     }
 }

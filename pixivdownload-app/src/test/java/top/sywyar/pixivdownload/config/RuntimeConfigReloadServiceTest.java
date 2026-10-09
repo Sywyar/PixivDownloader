@@ -7,6 +7,8 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Configuration;
@@ -267,30 +269,40 @@ class RuntimeConfigReloadServiceTest {
     }
 
     @Test
-    @DisplayName("热重载只向所属插件子 context 注入专用凭证")
+    @DisplayName("Boot 父环境下凭证在首次绑定、热重载和子上下文重建后保持 owner 隔离")
     void reloadsCredentialIntoOwnerChildContextOnly() throws IOException {
         Path configDir = useTempConfigDir();
         Files.createDirectories(configDir);
         Files.writeString(configDir.resolve(RuntimeFiles.CONFIG_YAML),
                 "download.user-flat-folder: false\n", StandardCharsets.UTF_8);
-        new PluginCredentialStore().update("fixture", Map.of("fixture.api-key", FAKE_CREDENTIAL));
-        FixturePluginConfig pluginConfig = new FixturePluginConfig();
-        AnnotationConfigApplicationContext child = new AnnotationConfigApplicationContext();
-        child.registerBean(FixturePluginConfig.class, () -> pluginConfig);
-        child.refresh();
-        try {
-            PluginLifecycleService lifecycleService = mock(PluginLifecycleService.class);
-            serveContext(lifecycleService, "fixture", child);
-            StandardEnvironment parentEnvironment = new StandardEnvironment();
-            RuntimeConfigReloadService service = newService(provider(lifecycleService), parentEnvironment);
+        PluginCredentialStore store = new PluginCredentialStore();
+        store.update("fixture", Map.of("fixture.api-key", "initial-credential"));
+        try (AnnotationConfigApplicationContext parent = new AnnotationConfigApplicationContext()) {
+            ConfigurationPropertySources.attach(parent.getEnvironment());
+            parent.refresh();
+            PluginApplicationContextFactory factory = new PluginApplicationContextFactory(
+                    credentialPropertySourceProvider()::snapshotFor,
+                    new PluginStreamRegistry(), new PluginRuntimeTaskRegistry());
+            PluginContextModule module = new PluginContextModule(
+                    "fixture", getClass().getClassLoader(), List.of(FixturePluginConfiguration.class));
+            try (ConfigurableApplicationContext child = factory.create(parent, module)) {
+                FixturePluginConfig pluginConfig = child.getBean(FixturePluginConfig.class);
+                assertThat(pluginConfig.getApiKey()).isEqualTo("initial-credential");
+                PluginLifecycleService lifecycleService = mock(PluginLifecycleService.class);
+                serveContext(lifecycleService, "fixture", child);
+                RuntimeConfigReloadService service = newService(provider(lifecycleService), parent.getEnvironment());
 
-            service.reloadHotConfig(List.of("fixture.api-key"));
+                store.update("fixture", Map.of("fixture.api-key", FAKE_CREDENTIAL));
+                service.reloadHotConfig(List.of("fixture.api-key"));
 
-            assertThat(pluginConfig.getApiKey()).isEqualTo(FAKE_CREDENTIAL);
-            assertThat(child.getEnvironment().getProperty("fixture.api-key")).isEqualTo(FAKE_CREDENTIAL);
-            assertThat(parentEnvironment.getProperty("fixture.api-key")).isNull();
-        } finally {
-            child.close();
+                assertThat(pluginConfig.getApiKey()).isEqualTo(FAKE_CREDENTIAL);
+                assertThat(Binder.get(child.getEnvironment()).bind("fixture.api-key", String.class).orElse(null))
+                        .isEqualTo(FAKE_CREDENTIAL);
+                assertThat(parent.getEnvironment().getProperty("fixture.api-key")).isNull();
+            }
+            try (ConfigurableApplicationContext restarted = factory.create(parent, module)) {
+                assertThat(restarted.getBean(FixturePluginConfig.class).getApiKey()).isEqualTo(FAKE_CREDENTIAL);
+            }
         }
     }
 

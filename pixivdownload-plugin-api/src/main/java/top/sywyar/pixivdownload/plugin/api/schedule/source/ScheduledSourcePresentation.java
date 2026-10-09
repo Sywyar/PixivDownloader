@@ -5,6 +5,12 @@ import java.util.regex.Pattern;
 /**
  * 来源类型的声明式展示元数据；namespace、i18n key 与图标 / 颜色均为有界受控 token，
  * 不接受路径、样式片段或其它自由文本。
+ *
+ * @param displayNamespace 显示命名空间
+ * @param displayNameKey 显示名称键
+ * @param descriptionKey 描述键
+ * @param iconKey 图标键
+ * @param colorToken 颜色令牌
  */
 public record ScheduledSourcePresentation(
         String displayNamespace,

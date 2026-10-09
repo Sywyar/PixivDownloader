@@ -2,7 +2,13 @@ package top.sywyar.pixivdownload.plugin.api.schedule.source;
 
 import java.nio.charset.StandardCharsets;
 
-/** 来源插件拥有 schema/version 的不透明可恢复检查点。宿主不解释其中的作品顺序。 */
+/**
+ * 来源插件拥有 schema/version 的不透明可恢复检查点。宿主不解释其中的作品顺序。
+ *
+ * @param schema 检查点载荷的格式标识
+ * @param version 检查点格式版本
+ * @param payloadJson 来源拥有的检查点载荷 JSON
+ */
 public record ScheduledCheckpoint(
         String schema,
         int version,

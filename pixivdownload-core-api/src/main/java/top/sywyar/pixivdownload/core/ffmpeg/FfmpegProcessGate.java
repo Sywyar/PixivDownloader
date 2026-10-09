@@ -8,6 +8,8 @@ import java.util.function.BooleanSupplier;
 @FunctionalInterface
 public interface FfmpegProcessGate {
     /**
+     * 等待并取得 FFmpeg 进程额度，等待期间响应取消请求。
+     *
      * @param cancellationRequested 等待期间检查的取消信号
      * @return 当前任务取得的进程额度，进程退出后必须关闭
      */

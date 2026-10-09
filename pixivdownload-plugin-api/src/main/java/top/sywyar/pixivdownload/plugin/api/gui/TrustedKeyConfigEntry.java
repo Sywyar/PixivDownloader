@@ -4,7 +4,17 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 
-/** 单个插件仓库的工具包无关公开信任密钥配置。 */
+/**
+ * 单个插件仓库的工具包无关公开信任密钥配置。
+ *
+ * @param keyId 稳定密钥 id
+ * @param algorithm 签名算法
+ * @param publicKey 编码后的公钥
+ * @param state 信任密钥状态
+ * @param publisher 发布者身份
+ * @param trustLabel 用户可见的信任标签
+ * @param extraFields 往返时保留的未知字段
+ */
 public record TrustedKeyConfigEntry(String keyId, String algorithm, String publicKey, String state,
                                     String publisher, String trustLabel, Map<String, Object> extraFields) {
     /**

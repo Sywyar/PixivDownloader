@@ -9,6 +9,10 @@ import java.util.Objects;
  *
  * <p>快照不携带可信 owner；宿主从当前 publication 盖章、校验并复制。缺席或撤回不删除任务、
  * checkpoint、凭据或其它持久化事实，也不代表任何自动化写操作成功。
+ *
+ * @param tasks 自动化任务列表
+ * @param availability 调度器整体可用性
+ * @param observedAt 快照观测时间
  */
 public record DesktopAutomationSnapshot(
         List<DesktopAutomationTaskContribution> tasks,

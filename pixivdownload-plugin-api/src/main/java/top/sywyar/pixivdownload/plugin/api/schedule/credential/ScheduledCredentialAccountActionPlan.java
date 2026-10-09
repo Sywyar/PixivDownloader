@@ -7,6 +7,10 @@ import java.util.Set;
 /**
  * 凭证策略给宿主的账号级恢复计划。宿主仍拥有事务、逐任务 CAS 与按账号精确恢复；策略只解释自己的
  * 挂起机器码、下一运行时间和策略状态变换。
+ *
+ * @param expectedSuspendCode 恢复前必须匹配的挂起机器码
+ * @param nextRunTime 恢复后的下次运行时间
+ * @param stateUpdates 按任务标识去重的策略状态 CAS 更新；null 视为空列表
  */
 public record ScheduledCredentialAccountActionPlan(
         String expectedSuspendCode,

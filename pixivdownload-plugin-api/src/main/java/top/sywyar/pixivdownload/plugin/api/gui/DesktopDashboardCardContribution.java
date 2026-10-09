@@ -8,6 +8,16 @@ import java.util.Objects;
  *
  * <p>可信 owner 由宿主盖章；能力缺席、quiesce、替换或撤回时该卡片自然缺席。卡片只参与
  * best-effort 展示，不携带持久化行为、安全判断或跨 owner 聚合能力。
+ *
+ * @param cardId owner 内稳定卡片 id
+ * @param order owner 内排序值
+ * @param title 卡片标题
+ * @param primaryValue 主值
+ * @param supportingText 辅助说明
+ * @param tone 语义色调
+ * @param icon 受控图标
+ * @param availability 可用性
+ * @param observedAt 事实观测时间
  */
 public record DesktopDashboardCardContribution(
         String cardId,

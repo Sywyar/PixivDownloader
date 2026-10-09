@@ -9,6 +9,15 @@ import java.util.regex.Pattern;
 /**
  * 凭证策略纯函数回调使用的最小任务快照。快照只携带宿主盖章的并发身份、机器态和策略自有安全状态，
  * 不包含凭证 secret、宿主持久化类型或插件实现对象。
+ *
+ * @param taskId 正数的任务标识
+ * @param stateVersion 用于并发校验的非负状态版本
+ * @param credentialSuspended 是否因凭证失效挂起，与策略挂起互斥
+ * @param policySuspended 是否因凭证策略挂起，与凭证失效挂起互斥
+ * @param busy 忙碌状态
+ * @param suspendCode 挂起原因机器码；空值表示没有原因码
+ * @param suspendDetailJson 不含凭证材料的挂起详情 JSON
+ * @param policyStateJson 凭证策略拥有的安全状态 JSON
  */
 public record ScheduledCredentialTaskSnapshot(
         long taskId,

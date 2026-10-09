@@ -2,7 +2,13 @@ package top.sywyar.pixivdownload.plugin.api.schedule.guard;
 
 import java.util.Set;
 
-/** 一个执行计划对 Guard 的调用声明。 */
+/**
+ * 一个执行计划对 Guard 的调用声明。
+ *
+ * @param guardId 守卫标识
+ * @param points 点位集合
+ * @param workBatchSize 作品批次大小
+ */
 public record ScheduledGuardBinding(
         String guardId,
         Set<ScheduledGuardPoint> points,

@@ -1,6 +1,13 @@
 package top.sywyar.pixivdownload.plugin.api.schedule.credential;
 
-/** 账号级动作计划中的单任务策略状态 CAS 更新。 */
+/**
+ * 账号级动作计划中的单任务策略状态 CAS 更新。
+ *
+ * @param taskId 任务标识
+ * @param expectedStateVersion CAS 更新要求匹配的非负任务状态版本
+ * @param expectedPolicyStateJson CAS 更新要求匹配的原策略状态 JSON
+ * @param nextPolicyStateJson 更新后的安全策略状态 JSON，不能为空白
+ */
 public record ScheduledCredentialTaskStateUpdate(
         long taskId,
         long expectedStateVersion,

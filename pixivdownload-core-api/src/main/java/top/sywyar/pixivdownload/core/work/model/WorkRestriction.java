@@ -11,6 +11,13 @@ import java.util.Set;
  * {@code tagIds} <b>或</b> 作者命中 {@code authorIds} 即可见。{@code tagUnrestricted} /
  * {@code authorUnrestricted} 为 {@code true} 表示该维度不参与排除并直接满足 OR。
  *
+ * @param tagUnrestricted 标签是否不限
+ * @param tagIds 可见标签
+ * @param authorUnrestricted 作者是否不限
+ * @param authorIds 可见作者
+ * @param collectionUnrestricted 收藏夹入口是否不受限
+ * @param collectionIds 可见收藏夹标识集合
+ * @param collectionRestrictsWorks 是否同时排除属于任一不可见收藏夹的作品；未收藏作品不受影响
  * @param allowedXRestricts 允许的年龄分级集合（0 = SFW，1 = R-18，2 = R-18G）
  */
 public record WorkRestriction(

@@ -11,6 +11,11 @@ import java.util.regex.Pattern;
  *
  * <p>{@code liveStatusAvailable} 只声明当前结果允许宿主在展示队列时向同一作品执行器查询安全实时状态；
  * 它不携带状态内容，也不允许宿主据此解释某个插件的私有阶段或属性。
+ *
+ * @param outcome 单作品执行结果类别
+ * @param resultCode 结果机器码
+ * @param attributes 执行结果的安全属性
+ * @param liveStatusAvailable 是否允许向同一作品执行器查询安全实时状态
  */
 public record ScheduledWorkResult(
         Outcome outcome,

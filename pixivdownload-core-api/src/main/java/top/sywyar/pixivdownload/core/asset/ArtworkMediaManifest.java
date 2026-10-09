@@ -14,6 +14,8 @@ public record ArtworkMediaManifest(String originalExtension, List<String> extens
     private static final Set<String> FORMATS = Set.of("png", "jpg", "jpeg", "webp", "gif", "apng", "mp4", "zip");
 
     /**
+     * 校验原始格式、产物格式与保留状态的一致性，并复制产物格式列表。
+     *
      * @param originalExtension 原始文件扩展名
      * @param extensions 复制为不可变列表的产物扩展名
      * @param originalRetained 原始文件是否保留

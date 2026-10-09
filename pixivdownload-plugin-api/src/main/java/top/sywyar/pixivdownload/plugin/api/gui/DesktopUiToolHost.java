@@ -145,7 +145,7 @@ public interface DesktopUiToolHost {
     ToolLogSession openToolLog(String stem) throws Exception;
 
     /**
-     * @return 宿主持久化的桌面工具终态历史
+     * {@return 宿主持久化的桌面工具终态历史}
      */
     List<ToolHistoryEntry> toolHistory();
 

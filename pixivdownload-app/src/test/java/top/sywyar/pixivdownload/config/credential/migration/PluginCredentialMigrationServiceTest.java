@@ -6,11 +6,14 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.PropertyAccessorFactory;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Configuration;
@@ -287,9 +290,10 @@ class PluginCredentialMigrationServiceTest {
         }
     }
 
-    @Test
-    @DisplayName("真实官方插件子上下文绑定自己的全部凭证并遮蔽其它 owner 与宿主凭证")
-    void realOfficialPluginContextsBindOnlyTheirOwnCredentials() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("真实官方插件在旧配置迁移及重启后绑定自己的凭证并遮蔽其它 owner 与宿主凭证")
+    void realOfficialPluginContextsBindOnlyTheirOwnCredentials(boolean historicalFixture) throws Exception {
         try (LoadedOfficialCredentialPlugins loaded =
                      loadOfficialCredentialPlugins()) {
             PluginRegistry registry = new PluginRegistry(loaded.features());
@@ -305,9 +309,13 @@ class PluginCredentialMigrationServiceTest {
                     .containsExactlyInAnyOrderElementsOf(
                             resolution.validDefinitions().keySet());
 
-            Map<String, Map<String, String>> credentialsByOwner =
-                    currentOfficialCredentialValues(
-                            resolution.validDefinitions());
+            Map<String, Map<String, String>> credentialsByOwner;
+            if (historicalFixture) {
+                copyHistoricalFixture("v1.13.1");
+                credentialsByOwner = readHistoricalCredentialValues(historicalOracle("v1.13.1"));
+            } else {
+                credentialsByOwner = currentOfficialCredentialValues(resolution.validDefinitions());
+            }
             Map<String, String> allCredentials =
                     flattenCredentialValues(credentialsByOwner);
             LinkedHashMap<String, String> legacyYaml =
@@ -323,6 +331,7 @@ class PluginCredentialMigrationServiceTest {
                     new MapPropertySource(
                             "real-official-legacy-yaml",
                             legacyEnvironmentValues));
+            ConfigurationPropertySources.attach(environment);
             PluginCredentialStore store = new PluginCredentialStore();
             PluginCredentialEnvironmentMask mask =
                     new PluginCredentialEnvironmentMask(environment);
@@ -375,6 +384,35 @@ class PluginCredentialMigrationServiceTest {
                         child.close();
                     }
                 }
+            }
+
+            // 重建存储服务与父子上下文，确认已清理的旧明文不再是恢复凭证的前提。
+            StandardEnvironment restartedEnvironment = new StandardEnvironment();
+            restartedEnvironment.getPropertySources().addLast(new MapPropertySource(
+                    "restarted-host", Map.of(HOST_SSL_KEY, HOST_SSL_VALUE)));
+            ConfigurationPropertySources.attach(restartedEnvironment);
+            PluginCredentialStore restartedStore = new PluginCredentialStore();
+            PluginCredentialEnvironmentMask restartedMask =
+                    new PluginCredentialEnvironmentMask(restartedEnvironment);
+            PluginCredentialMigrationService restartedMigration =
+                    new PluginCredentialMigrationService(resolver, restartedStore, restartedMask);
+            PluginCredentialPropertySourceService restartedPropertySources =
+                    new PluginCredentialPropertySourceService(
+                            restartedStore, resolver, restartedMigration, restartedMask);
+            PluginApplicationContextFactory restartedFactory = new PluginApplicationContextFactory(
+                    restartedPropertySources::snapshotFor,
+                    new PluginStreamRegistry(), new PluginRuntimeTaskRegistry(),
+                    this::officialPluginRuntimePaths, null);
+            restartedMigration.migrateAll();
+            try (AnnotationConfigApplicationContext parent = officialPluginParent(restartedEnvironment)) {
+                for (Map.Entry<String, PluginContextModule> entry : loaded.modules().entrySet()) {
+                    try (ConfigurableApplicationContext child = restartedFactory.create(parent, entry.getValue())) {
+                        assertRealCredentialBindings(child, entry.getKey(), credentialsByOwner.get(entry.getKey()),
+                                allCredentials, entry.getValue().classLoader());
+                    }
+                }
+                assertThat(Binder.get(parent.getEnvironment()).bind(HOST_SSL_KEY, String.class).orElse(null))
+                        .isEqualTo(HOST_SSL_VALUE);
             }
         }
     }

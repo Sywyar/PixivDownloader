@@ -6,6 +6,13 @@ import java.util.Objects;
  * 宿主已物化的油猴脚本快照。
  *
  * <p>脚本文本与元数据来自同一次宿主刷新；本值不携带文件路径、资源句柄、ClassLoader 或 contribution owner。
+ *
+ * @param id 脚本的稳定标识
+ * @param displayName 显示名称
+ * @param description 描述
+ * @param version 版本
+ * @param content 已经物化的脚本文本
+ * @param i18nNamespace 脚本所属翻译命名空间，空字符串表示仅使用既有翻译及元数据
  */
 public record UserscriptArtifact(
         String id,

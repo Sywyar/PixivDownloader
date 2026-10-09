@@ -4,7 +4,12 @@ import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 
 import java.util.Objects;
 
-/** 宿主盖章的当前下载页 UI 槽位。 */
+/**
+ * 宿主盖章的当前下载页 UI 槽位。
+ *
+ * @param owner 宿主确认的下载扩展发布身份
+ * @param slot 该身份发布的下载页 UI 槽位
+ */
 public record DownloadUiSlotPublication(
         DownloadExtensionIdentity owner,
         WebUiSlotContribution slot

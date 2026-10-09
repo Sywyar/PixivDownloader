@@ -4,7 +4,25 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** 单个自定义插件仓库的工具包无关配置。 */
+/**
+ * 单个自定义插件仓库的工具包无关配置。
+ *
+ * @param id 稳定仓库 id
+ * @param displayNameKey 本地化展示名 key
+ * @param manifestUrl 仓库清单 URL
+ * @param enabled 是否启用仓库
+ * @param proxyPolicy 持久化的代理策略 id
+ * @param allowRedirects 是否允许重定向
+ * @param strictHttps 是否要求 HTTPS
+ * @param allowNonPublicAddresses 是否允许非公网地址
+ * @param useProxy 是否使用已配置代理
+ * @param connectTimeoutMs 连接超时毫秒数
+ * @param readTimeoutMs 读取超时毫秒数
+ * @param maxManifestBytes 清单最大字节数
+ * @param maxPackageBytes 插件包最大字节数
+ * @param trustedKeys 仓库信任根
+ * @param extraFields 往返时保留的未知字段
+ */
 public record RepositoryConfigEntry(
         String id, String displayNameKey, String manifestUrl, boolean enabled, String proxyPolicy,
         boolean allowRedirects, boolean strictHttps, boolean allowNonPublicAddresses, boolean useProxy,

@@ -48,6 +48,11 @@ public final class StatsAggregates {
      */
     public record TagStat(long tagId, String name, String translatedName, long count) {}
 
-    /** {@code month} 形如 {@code "YYYY-MM"}（本地时区）。 */
+    /**
+     * {@code month} 形如 {@code "YYYY-MM"}（本地时区）。
+     *
+     * @param month 本地时区的月份，格式为 {@code YYYY-MM}
+     * @param count 该月的统计数量
+     */
     public record MonthlyStat(String month, long count) {}
 }

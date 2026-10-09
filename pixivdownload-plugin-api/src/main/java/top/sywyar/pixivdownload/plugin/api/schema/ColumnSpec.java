@@ -3,6 +3,10 @@ package top.sywyar.pixivdownload.plugin.api.schema;
 /**
  * 表列的纯数据声明。宿主 schema registry 负责规范化、合法性检查与 DDL 落地。
  *
+ * @param name 列名
+ * @param type 列的 SQL 类型
+ * @param notNull 是否要求列值非空
+ * @param defaultValue 列的默认值声明
  * @param primaryKeyPosition 主键序号，0 表示非主键列
  * @param autoIncrement      是否为 {@code AUTOINCREMENT} 主键。仅用于 DDL 生成
  *                           （禁止 rowid 复用的行为语义）；{@code PRAGMA table_info}

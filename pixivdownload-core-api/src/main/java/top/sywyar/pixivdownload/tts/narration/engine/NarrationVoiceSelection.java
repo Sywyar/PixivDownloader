@@ -6,6 +6,9 @@ import java.util.Objects;
  * 宿主已经按当前配置选中的朗读引擎快照。
  *
  * <p>{@code id} 由宿主在能力发布时捕获，消费者不得为了日志或路由重新调用可能已撤回的引擎代理。
+ *
+ * @param id 宿主在能力发布时捕获的朗读引擎标识
+ * @param engine 当前选中的朗读引擎
  */
 public record NarrationVoiceSelection(String id, NarrationVoiceEngine engine) {
 

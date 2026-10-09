@@ -11,6 +11,8 @@ import java.util.Optional;
  */
 @FunctionalInterface
 public interface DesktopDirectorySuggestionSource {
-    /** @return 当前候选目录；已有配置或尚未观察到候选目录时为空 */
+    /**
+     * {@return 当前候选目录；已有配置或尚未观察到候选目录时为空}
+     */
     Optional<DesktopDirectorySuggestion> directorySuggestion();
 }

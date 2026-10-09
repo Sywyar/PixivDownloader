@@ -8,7 +8,14 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.regex.Pattern;
 
-/** 插件缺席时可读的安全作品展示快照；只保存原始文本、引用或受控 token。 */
+/**
+ * 插件缺席时可读的安全作品展示快照；只保存原始文本、引用或受控 token。
+ *
+ * @param title 标题
+ * @param author 作者
+ * @param thumbnailReference 缩略图的安全引用；空值表示没有缩略图
+ * @param attributes 通过敏感字段和大小校验的展示属性
+ */
 public record ScheduledWorkPresentation(
         String title,
         String author,

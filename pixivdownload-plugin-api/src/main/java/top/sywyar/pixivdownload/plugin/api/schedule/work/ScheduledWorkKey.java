@@ -2,7 +2,12 @@ package top.sywyar.pixivdownload.plugin.api.schedule.work;
 
 import java.nio.charset.StandardCharsets;
 
-/** 计划作品身份。只有 {@code workType + id} 共同构成全局去重键，id 始终按不透明 UTF-8 字符串处理。 */
+/**
+ * 计划作品身份。只有 {@code workType + id} 共同构成全局去重键，id 始终按不透明 UTF-8 字符串处理。
+ *
+ * @param workType 作品类型的稳定机器标识
+ * @param id 来源拥有的不透明作品标识
+ */
 public record ScheduledWorkKey(String workType, String id) {
 
     /**

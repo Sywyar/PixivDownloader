@@ -8,6 +8,15 @@ import java.util.Objects;
  *
  * <p>可信 owner 由宿主盖章；能力缺席、quiesce、替换或撤回时该任务自然缺席。该值只用于
  * best-effort 展示，不是可执行任务句柄，不允许写入、取消或承担安全判断。
+ *
+ * @param taskId owner 内稳定任务 id
+ * @param order owner 内排序值
+ * @param title 任务标题
+ * @param supportingText 辅助说明
+ * @param status 稳定机器状态
+ * @param progress 可选进度，范围为 0 到 1
+ * @param availability 可用性
+ * @param observedAt 事实观测时间
  */
 public record DesktopRunningTaskContribution(
         String taskId,

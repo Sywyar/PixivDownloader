@@ -6,6 +6,8 @@ package top.sywyar.pixivdownload.core.artwork.download;
 public interface ArtworkSeriesObserver {
 
     /**
+     * 接收系列观察结果，并按需使用短期凭证补齐系列或封面信息。
+     *
      * @param credential 补齐系列或封面所需的不透明凭证；不得持久化或写入诊断，可为 {@code null}
      * @param observation 观察结果
      */

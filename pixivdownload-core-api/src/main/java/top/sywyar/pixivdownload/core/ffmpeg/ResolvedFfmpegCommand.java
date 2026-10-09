@@ -4,6 +4,9 @@ import java.util.Objects;
 
 /**
  * 宿主解析出的 FFmpeg 命令及其来源。
+ *
+ * @param command 命令
+ * @param source 数据来源
  */
 public record ResolvedFfmpegCommand(String command, Source source) {
 

@@ -9,6 +9,17 @@ import java.util.Set;
 
 /**
  * 来源执行器在任何凭证读取或网络访问前返回的纯数据执行计划。宿主据此一次解析并租用全部所需能力。
+ *
+ * @param requiredWorkTypes 本次执行需要的非空作品类型集合
+ * @param credentialPolicyId 本次使用的凭证策略标识；无凭证需求时为空
+ * @param credentialRequirement 本次执行的凭证需求
+ * @param anonymousFallbackAllowed 存在凭证需求时是否允许匿名回退
+ * @param guards 本次执行绑定的守卫；null 视为空列表
+ * @param checkpointSchema 检查点格式标识；不使用检查点时为空
+ * @param checkpointVersion 检查点格式版本；不使用检查点时为零
+ * @param maxInFlight 允许同时在途的作品数量，必须为正数
+ * @param politeDelayMillis 礼貌访问间隔毫秒数，不能为负数
+ * @param sourceDefaultRoute 来源默认网络路由；null 表示继承宿主路由
  */
 public record ScheduledExecutionPlan(
         Set<String> requiredWorkTypes,

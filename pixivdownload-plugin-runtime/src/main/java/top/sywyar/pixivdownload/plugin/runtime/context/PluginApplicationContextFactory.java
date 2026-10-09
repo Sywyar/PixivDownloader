@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.plugin.runtime.context;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
@@ -106,6 +107,8 @@ public final class PluginApplicationContextFactory {
         // 先挂父 context：合并父环境属性源（供条件 / 属性解析）+ 让子 context 找不到的依赖向父解析SDK/服务 Bean。
         // 须早于 register（@Configuration 条件评估在注册与刷新期进行）。
         child.setParent(parent);
+        // 父环境的 Boot 绑定适配器仍引用父属性源，必须在子环境重新附加，才能读取 owner 值与敏感遮罩。
+        ConfigurationPropertySources.attach(child.getEnvironment());
         replaceScopedPropertySources(child.getEnvironment(), module.sourcePluginId(),
                 propertySourceProvider.snapshotFor(module.sourcePluginId()));
         // owner 由宿主固化：插件只得到当前 child context 本地的 owner-scoped registrar，父 context 不暴露它。

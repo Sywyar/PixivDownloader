@@ -24,12 +24,16 @@ public interface DownloadTasks {
      */
     Receipt submit(DownloadSubmission submission, String credential, RequestOwnerIdentity owner);
     /**
+     * 按任务身份查询调用者可见的执行状态。
+     *
      * @param taskId 执行身份
      * @param owner 可信请求身份
      * @return 身份可见的任务；未知或过期为空
      */
     Optional<DownloadTaskSnapshot> find(UUID taskId, RequestOwnerIdentity owner);
     /**
+     * 捕获调用者可见的任务集合，供断线后恢复状态。
+     *
      * @param owner 可信请求身份
      * @return 同一时点的任务快照，用于断线后重新同步
      */
