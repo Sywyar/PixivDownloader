@@ -222,6 +222,7 @@ public final class ReleaseProbeAgent {
     }
 
     private static void bootstrapText(Component component, int[] counts) {
+        if (!component.isShowing()) return;
         if (component instanceof java.awt.Label || component instanceof java.awt.Button) {
             counts[0]++;
             String text = component.getAccessibleContext().getAccessibleName();

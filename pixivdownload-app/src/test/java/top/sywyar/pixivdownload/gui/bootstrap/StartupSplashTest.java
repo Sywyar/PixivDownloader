@@ -93,6 +93,57 @@ class StartupSplashTest {
                 (pixel & 0xffffff) != (image.getRGB(30, 30) & 0xffffff))).isTrue();
     }
 
+    @ParameterizedTest
+    @ValueSource(doubles = {1, 1.25, 1.5, 2})
+    @DisplayName("细密图标缩小时融合明暗，透明像素不产生色边")
+    void downsamplingFiltersFineDetailAndPreservesTransparency(double scale) {
+        for (boolean transparent : List.of(false, true)) {
+            var icon = new BufferedImage(1024, 1024, BufferedImage.TYPE_INT_ARGB);
+            for (int y = 0; y < icon.getHeight(); y++) {
+                for (int x = 0; x < icon.getWidth(); x++) {
+                    icon.setRGB(x, y, x % 2 == 0 ? 0xffffffff : transparent ? 0x00ff0000 : 0xff000000);
+                }
+            }
+            for (boolean dark : List.of(false, true)) {
+                var appearance = new StartupAppearance(dark, false, true, 1);
+                var view = new StartupSplashView(icon, appearance, "Loading");
+                var layout = view.arrange(new Dimension(440, 280));
+                var image = render(view, scale);
+                int centerX = (int) (layout.width() * scale / 2);
+                int centerY = (int) ((layout.padding() + layout.iconSize() / 2) * scale);
+                int surface = StartupSplashColors.forAppearance(appearance).surface();
+                for (int y = centerY - 8; y < centerY + 8; y++) {
+                    for (int x = centerX - 8; x < centerX + 8; x++) {
+                        int pixel = image.getRGB(x, y);
+                        for (int shift : List.of(0, 8, 16)) {
+                            int expected = transparent ? (255 + ((surface >> shift) & 255)) / 2 : 128;
+                            assertThat((pixel >> shift) & 255).isBetween(expected - 3, expected + 3);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("切换 DPI 与图标布局后重绘匹配新视图，不复用旧尺寸图像")
+    void iconCacheTracksDeviceScaleAndLayout() throws Exception {
+        BufferedImage icon;
+        try (var input = StartupSplash.class.getResourceAsStream("/bootstrap/icon.png")) {
+            icon = ImageIO.read(input);
+        }
+        var appearance = new StartupAppearance(true, false, true, 1);
+        var reused = new StartupSplashView(icon, appearance, "Loading");
+        for (Dimension space : List.of(new Dimension(440, 280), new Dimension(260, 180), new Dimension(440, 280))) {
+            reused.arrange(space);
+            for (double scale : List.of(1d, 1.25d, 2d, 1d)) {
+                var fresh = new StartupSplashView(icon, appearance, "Loading");
+                fresh.arrange(space);
+                assertThat(pixels(render(reused, scale))).isEqualTo(pixels(render(fresh, scale)));
+            }
+        }
+    }
+
     @Test
     @DisplayName("负坐标副屏、任务栏和过小工作区都限制窗口边界")
     void fitsTheUsableMonitorArea() {
@@ -134,9 +185,14 @@ class StartupSplashTest {
     static BufferedImage render(StartupAppearance appearance, int frame, double scale) {
         String status = MessageBundles.get(Locale.ENGLISH, "gui.launcher.splash.plugins");
         var view = new StartupSplashView(null, appearance, status);
-        var layout = view.arrange(new Dimension(440, 280));
+        view.arrange(new Dimension(440, 280));
         view.update(appearance, status, frame);
-        var image = new BufferedImage((int) Math.ceil(layout.width() * scale), (int) Math.ceil(layout.height() * scale), BufferedImage.TYPE_INT_ARGB);
+        return render(view, scale);
+    }
+
+    private static BufferedImage render(StartupSplashView view, double scale) {
+        var size = view.getPreferredSize();
+        var image = new BufferedImage((int) Math.ceil(size.width * scale), (int) Math.ceil(size.height * scale), BufferedImage.TYPE_INT_ARGB);
         var graphics = image.createGraphics();
         graphics.scale(scale, scale);
         try { view.paint(graphics); }

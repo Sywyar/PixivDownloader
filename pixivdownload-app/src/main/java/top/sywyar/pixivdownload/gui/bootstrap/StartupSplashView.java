@@ -32,6 +32,7 @@ final class StartupSplashView extends Canvas {
     private String status;
     private Layout layout;
     private BufferedImage buffer;
+    private BufferedImage scaledIcon;
     private int frame;
 
     StartupSplashView(BufferedImage icon, StartupAppearance appearance, String status) {
@@ -76,10 +77,37 @@ final class StartupSplashView extends Canvas {
             Graphics2D buffered = buffer.createGraphics();
             try {
                 buffered.scale(scaleX, scaleY);
-                draw(buffered, layout, icon, appearance, frame);
+                draw(buffered, layout, iconAtScale(scaleX, scaleY), appearance, frame);
             } finally { buffered.dispose(); }
             g.drawImage(buffer, 0, 0, layout.width(), layout.height(), null);
         } finally { g.dispose(); }
+    }
+
+    private BufferedImage iconAtScale(double scaleX, double scaleY) {
+        if (icon == null || layout.iconSize() == 0) {
+            scaledIcon = null;
+            return null;
+        }
+        int width = Math.max(1, (int) Math.ceil(layout.iconSize() * scaleX));
+        int height = Math.max(1, (int) Math.ceil(layout.iconSize() * scaleY));
+        if (scaledIcon != null && scaledIcon.getWidth() == width && scaledIcon.getHeight() == height) {
+            return scaledIcon;
+        }
+        // 大幅缩小时逐级滤除细碎纹理，预乘透明度避免透明像素的颜色污染边缘。
+        BufferedImage current = icon;
+        while (current.getWidth() != width || current.getHeight() != height) {
+            int nextWidth = Math.max(width, current.getWidth() / 2);
+            int nextHeight = Math.max(height, current.getHeight() / 2);
+            var next = new BufferedImage(nextWidth, nextHeight, BufferedImage.TYPE_INT_ARGB_PRE);
+            Graphics2D graphics = next.createGraphics();
+            try {
+                graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+                graphics.drawImage(current, 0, 0, nextWidth, nextHeight, null);
+            } finally { graphics.dispose(); }
+            current = next;
+        }
+        scaledIcon = current;
+        return scaledIcon;
     }
 
     private void updateAccessibleText() {

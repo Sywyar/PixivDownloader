@@ -240,7 +240,7 @@ runs:
       run: |
         set -euo pipefail
         sdk_modules="$(node scripts/ci/sdk-version.mjs --modules)"
-        mvn -B -ntp -P sdk-central -pl "$sdk_modules" deploy \
+        ./mvnw -B -ntp -V -P sdk-central -pl "$sdk_modules" deploy \
           -DskipTests -Dexec.skip=true -Dpixivdownload.source.sha="$GITHUB_SHA"
 
     - name: Download and verify public Maven artifacts
