@@ -135,6 +135,76 @@ test('进入编辑后迟到的手动搜索结果不覆盖计划草稿',async()=>
     assert.equal(h.run('scheduleState.editing.original.search.loading'),false);
 });
 
+test('计划编辑期间手动下载继续使用原筛选，取消编辑后仍保留原筛选', async () => {
+    for (const manualContent of ['all', 'r18']) {
+        const h = setup({paramsJson: JSON.stringify({source: {word: 'draft', maxPages: 1},
+            filters: {content: manualContent === 'all' ? 'r18' : 'all'}})});
+        for (const name of ['renderCurrent', 'setDockStatus', 'saveQueue', 'updateButtonsState',
+            'ensureSharedSSE', 'closeAllSSE', 'openSSE', 'closeSSE']) h.context[name] = () => {};
+        h.load('alt-engine.js', 'alt-engine-workers.js');
+        h.context.PixivBatch.queueTypes.filtersFor = () => null;
+        h.context.handlePathActionError = () => false;
+        h.context.mergeUgoiraProgress = () => null;
+        h.context.getArtworkPages = async () => ['https://i.pximg.net/example.jpg'];
+        h.context.waitForFinalStatusBySSE = async () => ({completed: true, downloadedCount: 1});
+        const submitted = [];
+        h.context.sendDownload = async id => { submitted.push(id); return {}; };
+        let resolveMeta;
+        h.context.getArtworkMeta = () => new Promise(resolve => { resolveMeta = resolve; });
+        h.run(`extraFilters.content=${JSON.stringify(manualContent)};state.settings.skipHistory=false;state.isRunning=true;`);
+        const item = {id: '123', kind: 'illust', status: 'downloading'};
+        const running = h.context.processIllustItem(item);
+        h.context.openScheduleEditor(h.task);
+        assert.equal(h.run('state.isRunning'), true);
+        assert.equal(h.context.altCaptureScheduleSource(0).params.filters.content,
+            manualContent === 'all' ? 'r18' : 'all');
+        resolveMeta({xRestrict: 0, illustType: 0, pageCount: 1, tags: []});
+        await running;
+        assert.equal(item.status, manualContent === 'all' ? 'completed' : 'skipped');
+        assert.deepEqual(submitted, manualContent === 'all' ? ['123'] : []);
+        h.confirm(true);
+        await h.context.cancelScheduleEdit();
+        assert.equal(h.run('extraFilters.content'), manualContent);
+    }
+});
+
+test('作品链接解析出的系列可保存计划，修改输入后不得复用旧系列', async () => {
+    for (const [kind, url] of [
+        ['illust', 'https://www.pixiv.net/artworks/12345'],
+        ['novel', 'https://www.pixiv.net/novel/show.php?id=12345']
+    ]) {
+        const h = setup();
+        h.run(`state.mode='series';seriesState.kind=${JSON.stringify(kind)};renderStage();`);
+        const input = h.field('abSeriesInput');
+        input.value = url;
+        const acquisition = {type: kind, parseUrl: () => ({resolveWorkId: '12345'}),
+            resolveSeriesId: async () => '999', apiPath: () => '/series-fixture'};
+        h.context.PixivBatch.queueTypes.acquisitionList = () => [acquisition];
+        h.context.PixivBatch.queueTypes.acquisitionLease = () => ({assertCurrent() {}});
+        h.context.PixivBatch.queueTypes.filtersFor = () => null;
+        h.context.altAcquisitionJson = async () => ({series: {}, items: []});
+        await h.context.loadSeries(1);
+        assert.equal(h.context.altCaptureScheduleSource(0).params.source.seriesId, '999');
+        h.run(`seriesState.kind=${JSON.stringify(kind === 'illust' ? 'novel' : 'illust')};`);
+        assert.throws(() => h.context.altCaptureScheduleSource(0));
+        h.run(`seriesState.kind=${JSON.stringify(kind)};`);
+        let resolveSeries;
+        acquisition.resolveSeriesId = () => new Promise(resolve => { resolveSeries = resolve; });
+        const pending = h.context.loadSeries(1);
+        input.value = url.replace('12345', '67890');
+        resolveSeries('999');
+        await pending;
+        assert.throws(() => h.context.altCaptureScheduleSource(0));
+        input.value = 'not a series';
+        assert.throws(() => h.context.altCaptureScheduleSource(0));
+        input.value = kind === 'novel' ? 'https://www.pixiv.net/novel/series/777'
+            : 'https://www.pixiv.net/user/23/series/777';
+        const direct = h.context.altCaptureScheduleSource(0).params;
+        assert.equal(direct.source.seriesId, '777');
+        assert.equal(direct.kind, kind);
+    }
+});
+
 test('快捷编辑沿用所选类型贡献，收藏可切换小说而珍藏集保留混合类型',async()=>{
     const h=setup({sourceType:'my-bookmarks',paramsJson:JSON.stringify({kind:'illust',source:{rest:'hide'}})});
     h.confirm(true);

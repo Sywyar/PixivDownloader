@@ -220,6 +220,7 @@ async function loadSeries(page) {
             title: info.title || context.seriesTitle || String(seriesId),
             total: Number(info.total ?? data.total ?? 0)
         });
+        seriesState.resolvedInput = {value: String(raw).trim(), kind: acquisition.type, seriesId};
         const queueContext = {
             seriesId, seriesTitle: seriesState.info.title,
             orderOffset: (page - 1) * context.limit,

@@ -257,6 +257,192 @@ test('卡片与详情默认安装兼容旧版，兼容筛选保留条目且仍�
     assert.deepEqual(page.errors, []);
 });
 
+test('覆盖安装后刷新打开详情的本机摘要与按钮，并保留选中的历史版本', async () => {
+    const page = await mountMarket();
+    const plugin = entry('visible');
+    plugin.versionsGeneration = 'fixture-generation';
+    plugin.installedVersion = '1.0.0';
+    plugin.installation = {state: 'PRESENT', version: '1.0.0', sha256: 'b'.repeat(64),
+        runtimeStatus: 'STARTED', installedArtifactsEnabled: true};
+    plugin.packages[1].sha256 = 'a'.repeat(64);
+    plugin.packages[1].installationMatch = 'DIFFERENT_ARTIFACT';
+    let current = plugin;
+    page.market.api.fetchPluginDetail = async () => structuredClone(current);
+    page.market.api.fetchCatalog = async () => ({repositoryId: 'repo', entries: [structuredClone(current)], categories: []});
+    elements(page.root, 'pmk-card-name')[0].props.onClick();
+    await page.flush();
+    const select = () => elements(page.root, 'pmk-version-select')[0];
+    select().options.forEach(option => { option.selected = option.value === '1.0.0'; });
+    select().listeners.change();
+    await page.flush();
+    const button = () => elements(page.root, 'pmk-modal-actionbar-right')[0].children.find(n => n.tagName === 'BUTTON');
+    button().props.onClick();
+    await page.flush();
+    current = structuredClone(plugin);
+    current.installation.sha256 = 'a'.repeat(64);
+    current.packages = [current.packages[0]];
+    page.completeInstall({pluginId: 'visible', version: '1.0.0', outcome: 'INSTALLED', accepted: true, activated: true});
+    await page.flush();
+    await page.flush();
+    assert.equal(button().props.disabled, true);
+    assert.match(textOf(button()), /install.state.activated/);
+    const modalText = textOf(elements(page.root, 'pmk-modal')[0]);
+    assert.ok(modalText.includes('a'.repeat(64)));
+    assert.ok(!modalText.includes('b'.repeat(64)));
+    assert.equal(select().options[select().selectedIndex].value, '1.0.0');
+    current.installation.sha256 = 'b'.repeat(64);
+    current.packages = plugin.packages;
+    const modal = elements(page.root, 'pmk-modal')[0];
+    modal.props.onClick({target: modal, currentTarget: modal});
+    await page.flush();
+    elements(page.root, 'pmk-card-name')[0].props.onClick();
+    await page.flush();
+    select().options.forEach(option => { option.selected = option.value === '1.0.0'; });
+    select().listeners.change();
+    await page.flush();
+    assert.equal(!!button().props.disabled, false, '新的本机包差异不能被旧成功回执覆盖');
+    assert.match(textOf(button()), /install.action.selected-package/);
+    assert.deepEqual(page.errors, []);
+});
+
+test('恢复查询变化后，已打开详情的安装按钮跟随当前阻断状态双向更新', async () => {
+    for (const initial of [true, false]) {
+        const page = await mountMarket();
+        let blocked = initial;
+        page.market.api.fetchRecovery = async () => ({active: true, installationBlocked: blocked});
+        vm.runInNewContext(fs.readFileSync(path.join(staticRoot, 'plugin-market/plugin-market-recovery.js'), 'utf8'),
+            {window: {PixivPluginMarket: page.market}});
+        await page.market.recovery.refresh();
+        elements(page.root, 'pmk-card-name')[0].props.onClick();
+        await page.flush();
+        const button = () => elements(page.root, 'pmk-modal-actionbar-right')[0].children.find(n => n.tagName === 'BUTTON');
+        assert.equal(!!button().props.disabled, initial);
+        blocked = !initial;
+        await page.market.recovery.refresh();
+        await page.flush();
+        assert.equal(!!button().props.disabled, blocked);
+        assert.deepEqual(page.errors, []);
+    }
+});
+
+test('安装后的迟到详情不覆盖重新打开、切换插件或仓库后的对象', async () => {
+    for (const target of ['visible', 'bundled', 'other-repo']) {
+        const page = await mountMarket();
+        page.market.api.fetchRepositories = async () => ({enabled: true, defaultRepositoryId: 'repo',
+            repositories: ['repo', 'other-repo'].map(repositoryId => ({repositoryId, enabled: true}))});
+        await page.reload({});
+        elements(page.root, 'pmk-card-name')[0].props.onClick();
+        await page.flush();
+        elements(page.root, 'pmk-modal-actionbar-right')[0].children.find(n => n.tagName === 'BUTTON').props.onClick();
+        await page.flush();
+        const requests = [];
+        page.market.api.fetchPluginDetail = () => new Promise(resolve => requests.push(resolve));
+        page.completeInstall({pluginId: 'visible', version: '2.0.0', outcome: 'INSTALLED', accepted: true, activated: true});
+        await page.flush();
+        assert.equal(requests.length, 1);
+        const modal = elements(page.root, 'pmk-modal')[0];
+        modal.props.onClick({target: modal, currentTarget: modal});
+        await page.flush();
+        const pluginId = target === 'bundled' ? 'bundled' : 'visible';
+        if (target === 'bundled') {
+            elements(page.root, 'pmk-switch')[0].props.onClick();
+            await page.flush();
+        } else if (target === 'other-repo') {
+            page.market.api.fetchCatalog = async () => ({repositoryId: 'other-repo', entries: [entry(pluginId)], categories: []});
+            elements(page.root, 'pmk-repo-chip')[1].props.onClick();
+            await page.flush();
+        }
+        elements(page.root, 'pmk-card-name').find(item => textOf(item) === pluginId).props.onClick();
+        await page.flush();
+        assert.equal(requests.length, 2);
+        const fresh = entry(pluginId);
+        fresh.installation = {state: 'PRESENT', version: '2.0.0', sha256: 'c'.repeat(64)};
+        requests[1](fresh);
+        await page.flush();
+        const select = elements(page.root, 'pmk-version-select')[0];
+        select.options.forEach(option => { option.selected = option.value === '1.0.0'; });
+        select.listeners.change();
+        await page.flush();
+        const stale = entry('visible');
+        stale.installation = {state: 'PRESENT', version: '2.0.0', sha256: 'a'.repeat(64)};
+        requests[0](stale);
+        await page.flush();
+        const text = textOf(elements(page.root, 'pmk-modal')[0]);
+        assert.ok(text.includes('c'.repeat(64)));
+        assert.ok(!text.includes('a'.repeat(64)));
+        assert.equal(select.options[select.selectedIndex].value, '1.0.0');
+        assert.deepEqual(page.errors, []);
+    }
+});
+
+test('安装后的详情刷新保留等待期间选中的版本', async () => {
+    const page = await mountMarket();
+    const detail = {...entry('visible'), versionsGeneration: 'fixture-generation'};
+    page.market.api.fetchPluginDetail = async () => structuredClone(detail);
+    elements(page.root, 'pmk-card-name')[0].props.onClick();
+    await page.flush();
+    elements(page.root, 'pmk-modal-actionbar-right')[0].children.find(n => n.tagName === 'BUTTON').props.onClick();
+    await page.flush();
+    let finishDetail;
+    page.market.api.fetchPluginDetail = () => new Promise(resolve => { finishDetail = resolve; });
+    page.completeInstall({pluginId: 'visible', version: '2.0.0', outcome: 'INSTALLED', accepted: true, activated: true});
+    await page.flush();
+    const select = elements(page.root, 'pmk-version-select')[0];
+    select.options.forEach(option => { option.selected = option.value === '1.0.0'; });
+    select.listeners.change();
+    await page.flush();
+    detail.installation = {state: 'PRESENT', version: '2.0.0', sha256: 'a'.repeat(64)};
+    detail.packages = [detail.packages[0]];
+    finishDetail(detail);
+    await page.flush();
+    assert.equal(select.options[select.selectedIndex].value, '1.0.0');
+    assert.equal(page.factCalls.at(-1)[2], '1.0.0');
+    assert.match(textOf(elements(page.root, 'pmk-modal-actionbar-right')[0]), /install.action.install-version/);
+    assert.deepEqual(page.errors, []);
+});
+
+test('安装后详情刷新与版本分页交叉完成时保留同代次页面并拒绝旧代次页面', async () => {
+    for (const order of ['refresh-first', 'page-first', 'generation-changed']) {
+        const page = await mountMarket();
+        const detail = {...entry('visible'), versionsGeneration: 'same', nextVersionCursor: 'older'};
+        page.market.api.fetchPluginDetail = async () => structuredClone(detail);
+        elements(page.root, 'pmk-card-name')[0].props.onClick();
+        await page.flush();
+        elements(page.root, 'pmk-modal-actionbar-right')[0].children.find(n => n.tagName === 'BUTTON').props.onClick();
+        await page.flush();
+        const requests = [];
+        page.market.api.fetchPluginDetail = (repository, plugin, options) => new Promise(resolve => {
+            requests.push({cursor: options?.cursor, resolve});
+        });
+        page.completeInstall({pluginId: 'visible', version: '2.0.0', outcome: 'INSTALLED', accepted: true, activated: true});
+        await page.flush();
+        const more = () => elements(page.root, 'pmk-btn').find(button => textOf(button) === 'plugin-market:pagination.more-versions');
+        more().props.onClick();
+        await page.flush();
+        assert.deepEqual(requests.map(request => request.cursor), [undefined, 'older']);
+        const refreshed = {...detail, packages: [detail.packages[0]], nextVersionCursor: 'first-page'};
+        const older = {...detail, packages: [{...detail.packages[0], version: '0.5.0'}], nextVersionCursor: 'last-page'};
+        if (order === 'generation-changed') {
+            refreshed.versionsGeneration = 'changed';
+            refreshed.nextVersionCursor = 'older';
+        }
+        if (order === 'page-first') {
+            requests[1].resolve(older); await page.flush();
+            requests[0].resolve(refreshed); await page.flush();
+        } else {
+            requests[0].resolve(refreshed); await page.flush();
+            requests[1].resolve(older); await page.flush();
+        }
+        const versions = elements(page.root, 'pmk-version-select')[0]?.options.map(option => option.value) || [];
+        assert.equal(versions.includes('0.5.0'), order !== 'generation-changed', order);
+        assert.equal(requests.length, 2, '旧代次分页不能触发当前详情重载');
+        more().props.onClick();
+        await page.flush();
+        assert.equal(requests[2].cursor, order === 'generation-changed' ? 'older' : 'last-page');
+        assert.deepEqual(page.errors, []);
+    }
+});
+
 test('历史版本的隐藏、撤销、未知及过期状态禁用真实详情安装控件', async () => {
     for (const revocation of ['YANKED', 'REVOKED', 'NOT_CHECKED', 'STALE']) {
         const page = await mountMarket({ revocation });

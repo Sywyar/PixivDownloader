@@ -8,8 +8,11 @@ window.PixivBatch.pixivScheduleCapture = context => {
     }
     if (context.mode !== 'series') return context;
     const input = document.getElementById('abSeriesInput');
-    const parsed = parseSeriesUrl(input ? input.value : seriesState.url);
-    seriesState.seriesId = parsed && parsed.id || null;
+    const raw = String(input ? input.value : seriesState.url || '').trim();
+    const parsed = parseSeriesUrl(raw);
+    const resolved = seriesState.resolvedInput;
+    seriesState.seriesId = parsed?.id ?? (resolved?.value === raw && resolved.kind === seriesState.kind
+        ? resolved.seriesId : null);
     if (parsed && parsed.kind) seriesState.kind = parsed.kind;
     return context;
 };

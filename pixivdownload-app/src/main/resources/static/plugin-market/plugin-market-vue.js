@@ -429,7 +429,7 @@
                     }
                     return null;
                 },
-                modalMeta: function () { return PMK.installMeta(this.modalState()); },
+                modalMeta: function () { this.i18nRev; return PMK.installMeta(this.modalState()); },
                 modalLabel: function () { return this.installLabel(this.modalState(), this.selectedVersion); },
                 installResultFor: function () {
                     if (!this.selectedPluginId) return null;
@@ -549,24 +549,40 @@
                 },
                 setCategory: function (id) { this.category = id; },
                 openDetail: function (pluginId) {
-                    var self = this;
                     this.detailReturnFocus = document.activeElement;
-                    var token = ++this.detailToken;
-                    this.detailLoadingMore = false;
-                    var repository = this.activeCatalogRepositoryId;
                     this.selectedPluginId = pluginId;
                     var entry = this.selectedEntry;
                     this.selectedDetail = entry;
                     this.selectedVersion = PMK.data.defaultVersion(entry);
                     this.selectedFacts = null;
                     document.body.style.overflow = 'hidden';
+                    this.loadDetail();
+                },
+                loadDetail: function (preserveVersions) {
+                    var self = this;
+                    var token = ++this.detailToken;
+                    this.detailLoadingMore = false;
+                    var repository = this.activeCatalogRepositoryId;
+                    var pluginId = this.selectedPluginId;
+                    var previous = this.selectedDetail;
                     PMK.api.fetchPluginDetail(repository, pluginId).then(function (detail) {
-                        if (token !== self.detailToken || self.activeCatalogRepositoryId !== repository || self.selectedPluginId !== pluginId) return;
+                        if (token !== self.detailToken || self.activeCatalogRepositoryId !== repository
+                                || self.activeRepositoryId !== repository || self.selectedPluginId !== pluginId) return;
+                        if (preserveVersions && previous && detail.versionsGeneration === previous.versionsGeneration) {
+                            var fresh = new Set((detail.packages || []).map(function (pkg) { return pkg.version; }));
+                            detail.packages = (detail.packages || []).concat((previous.packages || [])
+                                .filter(function (pkg) { return !fresh.has(pkg.version); })
+                                .map(function (pkg) {
+                                    return Object.assign({}, pkg, {installationMatch: PMK.data.artifactMatch(detail, pkg)});
+                                }));
+                            detail.nextVersionCursor = previous.nextVersionCursor;
+                        }
                         self.selectedDetail = detail;
                         self.selectedVersion = PMK.data.resolveVersion(detail, self.selectedVersion);
                         self.loadPackageFacts();
                     }).catch(function () {
-                        if (token !== self.detailToken || self.activeCatalogRepositoryId !== repository) return;
+                        if (token !== self.detailToken || self.activeCatalogRepositoryId !== repository
+                                || self.activeRepositoryId !== repository) return;
                         PMK.toast(self.t('error.detail', '无法加载插件详情，请稍后重试。'), 'error');
                     });
                 },
@@ -601,20 +617,24 @@
                     if (!detail || !detail.nextVersionCursor || this.detailLoadingMore) return;
                     var token = this.detailToken;
                     var repository = this.activeCatalogRepositoryId;
+                    var cursor = detail.nextVersionCursor;
                     this.detailLoadingMore = true;
                     PMK.api.fetchPluginDetail(repository, detail.pluginId,
-                        { cursor: detail.nextVersionCursor }).then(function (page) {
+                        { cursor: cursor }).then(function (page) {
                         if (token !== self.detailToken || self.activeCatalogRepositoryId !== repository) return;
-                        if (!self.selectedDetail || page.versionsGeneration !== detail.versionsGeneration) {
+                        var current = self.selectedDetail;
+                        if (!current || current.versionsGeneration !== detail.versionsGeneration
+                                || current.nextVersionCursor !== cursor) return;
+                        if (page.versionsGeneration !== current.versionsGeneration) {
                             self.openDetail(detail.pluginId); return;
                         }
                         var seen = {};
-                        (detail.packages || []).forEach(function (pkg) { seen[pkg.version] = true; });
-                        detail.packages = (detail.packages || []).concat((page.packages || []).filter(function (pkg) {
+                        (current.packages || []).forEach(function (pkg) { seen[pkg.version] = true; });
+                        current.packages = (current.packages || []).concat((page.packages || []).filter(function (pkg) {
                             if (seen[pkg.version]) return false;
                             seen[pkg.version] = true; return true;
                         }));
-                        detail.nextVersionCursor = page.nextVersionCursor;
+                        current.nextVersionCursor = page.nextVersionCursor;
                     }).catch(function () {
                         if (token !== self.detailToken || self.activeCatalogRepositoryId !== repository) return;
                         PMK.toast(self.t('error.detail', '无法加载插件详情，请稍后重试。'), 'error');
@@ -710,8 +730,9 @@
                     });
                 },
                 refreshCatalogAfterInstall: function (repositoryId) {
-                    if (repositoryId && repositoryId === this.activeCatalogRepositoryId) {
+                    if (repositoryId && repositoryId === this.activeCatalogRepositoryId && repositoryId === this.activeRepositoryId) {
                         this.loadCatalog(repositoryId);
+                        if (this.selectedPluginId) this.loadDetail(true);
                     }
                 },
                 // 详情弹窗当前选中版本的安装状态（按所选版本制品兼容性 / 是否已是已安装版本派生）。

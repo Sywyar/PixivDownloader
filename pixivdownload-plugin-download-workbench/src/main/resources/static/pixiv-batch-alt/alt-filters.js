@@ -285,7 +285,7 @@ async function computeFilteredItems(items, filters, kind, isStale) {
 
 // 实际下载时的「附加筛选」判定：拉到作品 meta 后调用，返回 null=通过、否则返回本地化的跳过原因。
 function evaluateDownloadFilterSkip(meta, kind) {
-    const filters = normalizeSearchFilters(extraFilters);
+    const filters = normalizeSearchFilters(scheduleState.editing?.original.filters || extraFilters);
     const xr = Number(meta.xRestrict ?? meta.xrestrict ?? 0);
     if (!matchContentRating(xr, filters.content)) {
         return bt('queue.message.skipped-filter-content', '跳过 — 内容分级不符（要求 {label}）',

@@ -81,11 +81,12 @@ function setup(overrides={}) {
         renderStage=()=>{
             const panel=document.getElementById('abModePanel');panel.replaceChildren();panel.dataset.mode=state.mode;
             const composer=el('div','ab-composer');const input=el('input');
-            input.id=state.mode==='user'?'abUserInput':'abSearchInput';
-            input.value=state.mode==='user'?userState.input:searchState.word;
+            input.id=state.mode==='user'?'abUserInput':state.mode==='series'?'abSeriesInput':'abSearchInput';
+            input.value=state.mode==='user'?userState.input:state.mode==='series'?seriesState.url:searchState.word;
             composer.append(input);panel.append(composer);mountScheduleEdit(panel);
         };`);
     return {context,task,params,requests,toasts,run,panel,handlers,field:id=>document.getElementById(id),
+        load: (...files)=>files.forEach(file=>vm.runInContext(read(file),context,{filename:file})),
         get drawer(){return drawer;},stale(){current=false;},fail(){failure=true;},confirm(value){confirm=value;},
         options:()=>panel.querySelector('.ab-schedule-options').listeners.get('click')[0](),
         save:async()=>{const root=run('scheduleState.editing.element');
