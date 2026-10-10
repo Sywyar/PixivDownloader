@@ -35,11 +35,12 @@ class PluginMarketPageGuardTest {
     private static final String CORE = "static/plugin-market/plugin-market-core.js";
     private static final String DATA = "static/plugin-market/plugin-market-data.js";
     private static final String API = "static/plugin-market/plugin-market-api.js";
+    private static final String RECOVERY = "static/plugin-market/plugin-market-recovery.js";
     private static final String VUE = "static/plugin-market/plugin-market-vue.js";
     private static final String FALLBACK = "static/plugin-market/plugin-market-fallback.js";
     private static final String INIT = "static/plugin-market/plugin-market-init.js";
 
-    private static final List<String> ALL_STATIC = List.of(HTML, CORE, DATA, API, VUE, FALLBACK, INIT,
+    private static final List<String> ALL_STATIC = List.of(HTML, CORE, DATA, API, RECOVERY, VUE, FALLBACK, INIT,
             "static/plugin-market/plugin-market.css");
 
     private static String read(String resource) throws IOException {
@@ -68,16 +69,18 @@ class PluginMarketPageGuardTest {
         int core = html.indexOf("/plugin-market/plugin-market-core.js");
         int data = html.indexOf("/plugin-market/plugin-market-data.js");
         int api = html.indexOf("/plugin-market/plugin-market-api.js");
+        int recovery = html.indexOf("/plugin-market/plugin-market-recovery.js");
         int vue = html.indexOf("/plugin-market/plugin-market-vue.js");
         int fallback = html.indexOf("/plugin-market/plugin-market-fallback.js");
         int init = html.indexOf("/plugin-market/plugin-market-init.js");
         assertThat(vueHelper).as("应加载共享 Vue 助手 /js/pixiv-vue.js").isGreaterThanOrEqualTo(0);
-        assertThat(List.of(vueHelper, core, data, api, vue, fallback, init))
+        assertThat(List.of(vueHelper, core, data, api, recovery, vue, fallback, init))
                 .as("各模块脚本都应在页面声明").allSatisfy(idx -> assertThat(idx).isGreaterThanOrEqualTo(0));
         assertThat(vueHelper).isLessThan(core);
         assertThat(core).isLessThan(data);
         assertThat(data).isLessThan(api);
-        assertThat(api).isLessThan(vue);
+        assertThat(api).isLessThan(recovery);
+        assertThat(recovery).isLessThan(vue);
         assertThat(vue).isLessThan(fallback);
         assertThat(fallback).isLessThan(init);
     }
@@ -90,6 +93,7 @@ class PluginMarketPageGuardTest {
         assertThat(html).contains("id=\"langSwitcherAnchor\"");
         assertThat(html).contains("/plugin-market/plugin-market.css");
         assertThat(html).contains("id=\"pmk-app-root\"");
+        assertThat(html).contains("id=\"pmk-recovery\"");
         assertThat(html).doesNotContain("repository-import", "pmk-repository-url");
         assertThat(read(INIT)).doesNotContain("mountRepositoryImport");
         assertThat(read(API)).doesNotContain("/repositories/import/");
@@ -234,8 +238,8 @@ class PluginMarketPageGuardTest {
     }
 
     @Test
-    @DisplayName("恢复模式复用插件状态接口显示具体原因，并在 Vue / 基础回退中默认显示官方预装插件")
-    void recoveryBannerUsesPluginStatusAndShowsDefaultInstalledPlugins() throws IOException {
+    @DisplayName("恢复模式复用插件状态接口，并在 Vue / 基础回退中初始化默认安装筛选")
+    void recoveryStatusInitializesDefaultInstalledFilters() throws IOException {
         String core = read(CORE);
         String api = read(API);
         String vue = read(VUE);
@@ -244,9 +248,9 @@ class PluginMarketPageGuardTest {
         assertThat(api).contains("/api/plugins/status", "fetchPluginStatus");
         assertThat(core).contains("PMK.recoveryReasons", "report.recoveryReasons", "MISSING_REQUIRED", "FAILED",
                 "reason.pluginId", "reason.messages");
-        assertThat(vue).contains("recovery.banner.title", "recoveryReasons", "hasRecoveryReasons",
+        assertThat(vue).contains("recoveryReasons", "hasRecoveryReasons",
                 "self.hideDefaultInstalled = !self.recoveryMode");
-        assertThat(fallback).contains("recovery.banner.title", "state.recoveryReasons",
+        assertThat(fallback).contains("state.recoveryReasons",
                 "state.hideDefaultInstalled = !state.recoveryMode");
     }
 

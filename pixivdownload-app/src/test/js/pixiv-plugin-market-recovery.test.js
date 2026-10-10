@@ -26,7 +26,7 @@ test('恢复候选按 ID 和 GUI 分类置顶，默认隐藏不遮挡，退出�
     assert.deepEqual(Array.from(f.market.data.filterAndSort(entries, options), item => item.pluginId), ['ordinary']);
 });
 
-test('相同版本哈希差异与版本更新、未知摘要、开发加载和待重启分别呈现', async () => {
+test('内容差异只消费后端投影，并与开发加载及运行状态分别呈现', async () => {
     const f = fixture();
     f.setReport({active: false, installationBlocked: false});
     await f.market.recovery.refresh();
@@ -36,10 +36,14 @@ test('相同版本哈希差异与版本更新、未知摘要、开发加载和�
     assert.equal(f.market.data.cardModel(entry).artifactMismatch, true);
     assert.equal(f.market.data.installationState(entry, pkg), 'mismatch');
     entry.installation.sha256 = 'A'.repeat(64);
-    assert.equal(f.market.data.artifactMismatch(entry, pkg), false);
+    assert.equal(f.market.data.artifactMismatch(entry, pkg), true, '展示摘要不能覆盖后端比较结论');
     entry.installation.sha256 = 'unknown';
-    assert.equal(f.market.data.artifactMismatch(entry, pkg), false);
+    assert.equal(f.market.data.artifactMismatch(entry, pkg), true);
     entry.installation.sha256 = 'b'.repeat(64);
+    for (const match of ['SAME_ARTIFACT', 'UNKNOWN', 'DIFFERENT_VERSION', 'NOT_INSTALLED', undefined]) {
+        pkg.installationMatch = match;
+        assert.equal(f.market.data.artifactMismatch(entry, pkg), false, String(match));
+    }
     entry.installation.version = '1.0';
     assert.equal(f.market.data.artifactMismatch(entry, pkg), false);
     entry.installation.runtimeVersion = '0.9';
@@ -163,6 +167,19 @@ test('正常模式和无法确认状态时，前端按钮与动作都禁用', as
     assert.ok(f.market.recovery.installationBlocked());
     assert.ok(f.buttons().every(button => button.disabled));
     assert.deepEqual(f.calls, []);
+});
+
+test('共享恢复面板显示恢复标题和后端错误摘要，恢复正常后撤下提示', async () => {
+    const f = fixture();
+    f.setReport({active: true, recoveryMode: true, actionsAllowed: true, errors: ['fixture failure']});
+    await f.market.recovery.refresh();
+    assert.match(f.root.children[0].textContent, /recovery.banner.title/);
+    const details = f.root.children.find(child => child.tag === 'details');
+    assert.equal(details.children.find(child => child.tag === 'ul').children[0].textContent, 'fixture failure');
+    f.setReport({active: false});
+    await f.market.recovery.refresh();
+    assert.ok(!f.root.children.some(child => child.tag === 'h2'));
+    assert.ok(f.buttons().every(button => button.disabled));
 });
 
 test('无 GUI 允许操作，但确认后状态已恢复或远端不获准时不能提交', async () => {

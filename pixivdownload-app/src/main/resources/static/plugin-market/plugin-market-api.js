@@ -143,6 +143,30 @@
         return getJson('/api/plugin-market/plugins/' + enc(repositoryId) + '/' + enc(pluginId) + '/' + enc(version) + '/facts');
     };
 
+    // 已展开的历史页也重新读取安装投影，不从展示摘要重算包状态。
+    API.refreshPluginDetail = async function (repositoryId, pluginId, previous, current) {
+        var detail = await PMK.api.fetchPluginDetail(repositoryId, pluginId);
+        if (!current()) return null;
+        if (!previous || detail.versionsGeneration !== previous.versionsGeneration) return detail;
+        var cursors = new Set();
+        while (detail.nextVersionCursor && (detail.packages || []).length < (previous.packages || []).length) {
+            var cursor = detail.nextVersionCursor;
+            if (cursors.has(cursor)) throw new Error('Repeated version cursor');
+            cursors.add(cursor);
+            var page = await PMK.api.fetchPluginDetail(repositoryId, pluginId, {cursor: cursor});
+            if (!current()) return null;
+            if (page.versionsGeneration !== detail.versionsGeneration)
+                return PMK.api.fetchPluginDetail(repositoryId, pluginId);
+            var seen = new Set((detail.packages || []).map(function (pkg) { return pkg.version; }));
+            detail.packages = (detail.packages || []).concat((page.packages || []).filter(function (pkg) {
+                if (seen.has(pkg.version)) return false;
+                seen.add(pkg.version); return true;
+            }));
+            detail.nextVersionCursor = page.nextVersionCursor;
+        }
+        return detail;
+    };
+
     function postJson(url, body) {
         return fetch(url, {
             method: 'POST', credentials: 'same-origin',

@@ -24,19 +24,8 @@
         return (focus.categories || []).indexOf(D.entryCategory(entry)) !== -1 ? 'gui' : '';
     };
 
-    D.artifactMatch = function (entry, pkg) {
-        var local = entry && entry.installation;
-        if (!local || !pkg) return 'UNKNOWN';
-        if (local.state === 'ABSENT') return 'NOT_INSTALLED';
-        if (local.state !== 'PRESENT' || !local.version) return 'UNKNOWN';
-        if (local.version !== pkg.version) return 'DIFFERENT_VERSION';
-        if (!/^[a-f0-9]{64}$/i.test(local.sha256 || '') || !/^[a-f0-9]{64}$/i.test(pkg.sha256 || ''))
-            return 'UNKNOWN';
-        return local.sha256.toLowerCase() === pkg.sha256.toLowerCase() ? 'SAME_ARTIFACT' : 'DIFFERENT_ARTIFACT';
-    };
-
     D.artifactMismatch = function (entry, pkg) {
-        return D.artifactMatch(entry, pkg) === 'DIFFERENT_ARTIFACT';
+        return !!pkg && pkg.installationMatch === 'DIFFERENT_ARTIFACT';
     };
 
     D.developmentLoaded = function (entry) {

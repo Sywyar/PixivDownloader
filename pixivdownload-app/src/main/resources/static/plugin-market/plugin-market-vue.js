@@ -565,24 +565,17 @@
                     var repository = this.activeCatalogRepositoryId;
                     var pluginId = this.selectedPluginId;
                     var previous = this.selectedDetail;
-                    PMK.api.fetchPluginDetail(repository, pluginId).then(function (detail) {
-                        if (token !== self.detailToken || self.activeCatalogRepositoryId !== repository
-                                || self.activeRepositoryId !== repository || self.selectedPluginId !== pluginId) return;
-                        if (preserveVersions && previous && detail.versionsGeneration === previous.versionsGeneration) {
-                            var fresh = new Set((detail.packages || []).map(function (pkg) { return pkg.version; }));
-                            detail.packages = (detail.packages || []).concat((previous.packages || [])
-                                .filter(function (pkg) { return !fresh.has(pkg.version); })
-                                .map(function (pkg) {
-                                    return Object.assign({}, pkg, {installationMatch: PMK.data.artifactMatch(detail, pkg)});
-                                }));
-                            detail.nextVersionCursor = previous.nextVersionCursor;
-                        }
+                    function current() {
+                        return token === self.detailToken && self.activeCatalogRepositoryId === repository
+                            && self.activeRepositoryId === repository && self.selectedPluginId === pluginId;
+                    }
+                    PMK.api.refreshPluginDetail(repository, pluginId, preserveVersions ? previous : null, current).then(function (detail) {
+                        if (!current() || !detail) return;
                         self.selectedDetail = detail;
                         self.selectedVersion = PMK.data.resolveVersion(detail, self.selectedVersion);
                         self.loadPackageFacts();
                     }).catch(function () {
-                        if (token !== self.detailToken || self.activeCatalogRepositoryId !== repository
-                                || self.activeRepositoryId !== repository) return;
+                        if (!current()) return;
                         PMK.toast(self.t('error.detail', '无法加载插件详情，请稍后重试。'), 'error');
                     });
                 },

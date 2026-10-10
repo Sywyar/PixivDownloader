@@ -376,10 +376,23 @@
         var select = dialog.querySelector('select');
         var version = PMK.data.defaultVersion(entry);
         var alive = true;
+        var detailToken = 0;
         var loadingMore = false;
         var more = dialog.querySelector('.pmk-more-versions');
         var install = dialog.querySelector('.pmk-detail-install');
         var installing = false;
+        function refreshDetail(preserveVersions) {
+            var token = ++detailToken;
+            loadingMore = false;
+            function current() {
+                return alive && token === detailToken && state.activeRepositoryId === catalog.repositoryId;
+            }
+            return PMK.api.refreshPluginDetail(catalog.repositoryId, pluginId, preserveVersions ? entry : null, current)
+                .then(function (fresh) {
+                    if (!current() || !fresh) return;
+                    Object.assign(entry, fresh); update();
+                }).catch(function () { if (current()) PMK.toast(t('error.detail'), 'error'); });
+        }
         function update() {
             version = PMK.data.resolveVersion(entry, version);
             dialog.querySelector('h2').textContent = PMK.data.entryName(entry);
@@ -420,23 +433,22 @@
             if (installing || install.disabled) return;
             installing = true; update();
             doInstall(catalog.repositoryId, pluginId, version).then(function () {
-                return PMK.api.fetchPluginDetail(catalog.repositoryId, pluginId);
-            }).then(function (fresh) {
-                if (alive) Object.assign(entry, fresh);
+                if (alive) return refreshDetail(true);
             }).catch(function () {
                 if (alive) PMK.toast(t('error.detail'), 'error');
             }).finally(function () { installing = false; if (alive) update(); });
         });
         more.addEventListener('click', function () {
             if (loadingMore || !entry.nextVersionCursor) return;
+            var token = detailToken;
+            var cursor = entry.nextVersionCursor;
+            var generation = entry.versionsGeneration;
             loadingMore = true; update();
-            PMK.api.fetchPluginDetail(catalog.repositoryId, pluginId, { cursor: entry.nextVersionCursor }).then(function (page) {
-                if (!alive || state.activeRepositoryId !== catalog.repositoryId) return;
-                if (page.versionsGeneration !== entry.versionsGeneration) {
-                    return PMK.api.fetchPluginDetail(catalog.repositoryId, pluginId).then(function (fresh) {
-                        if (!alive || state.activeRepositoryId !== catalog.repositoryId) return;
-                        Object.assign(entry, fresh);
-                    });
+            PMK.api.fetchPluginDetail(catalog.repositoryId, pluginId, { cursor: cursor }).then(function (page) {
+                if (!alive || token !== detailToken || state.activeRepositoryId !== catalog.repositoryId
+                        || entry.versionsGeneration !== generation || entry.nextVersionCursor !== cursor) return;
+                if (page.versionsGeneration !== generation) {
+                    return refreshDetail();
                 }
                 else {
                     entry.packages = (entry.packages || []).concat((page.packages || []).filter(function (pkg) {
@@ -444,8 +456,8 @@
                     }));
                     entry.nextVersionCursor = page.nextVersionCursor;
                 }
-            }).catch(function () { if (alive) PMK.toast(t('error.detail'), 'error'); })
-                .finally(function () { loadingMore = false; if (alive) update(); });
+            }).catch(function () { if (alive && token === detailToken) PMK.toast(t('error.detail'), 'error'); })
+                .finally(function () { if (alive && token === detailToken) { loadingMore = false; update(); } });
         });
         select.addEventListener('change', function () { version = select.value; update(); });
         dialog.addEventListener('click', handleClick);
@@ -467,10 +479,7 @@
             }
         };
         document.body.appendChild(dialog); update(); dialog.showModal();
-        PMK.api.fetchPluginDetail(catalog.repositoryId, pluginId).then(function (detail) {
-            if (!alive || state.activeRepositoryId !== catalog.repositoryId) return;
-            Object.assign(entry, detail); update();
-        }).catch(function () { if (alive) PMK.toast(t('error.detail'), 'error'); });
+        refreshDetail();
     }
 
     function handleClick(e) {

@@ -32,3 +32,37 @@ test('切换仓库终止旧请求，旧请求结束不能清掉新请求的取�
     market.api.cancelCatalog();
     assert.equal(requests[2].options.signal.aborted, false);
 });
+
+test('历史投影刷新在上下文失效时停止，目录换代时重取首页，重复游标时失败', async () => {
+    for (const scenario of ['stale', 'generation', 'cycle', 'failure']) {
+        const market = {};
+        vm.runInNewContext(fs.readFileSync(path.join(__dirname,
+            '../../main/resources/static/plugin-market/plugin-market-api.js'), 'utf8'),
+        {window: {PixivPluginMarket: market}});
+        const first = {versionsGeneration: 'old', packages: [{version: '2.0'}], nextVersionCursor: 'older'};
+        const previous = {...first, packages: [{version: '2.0'}, {version: '1.0'}]};
+        let current = true;
+        const cursors = [];
+        market.api.fetchPluginDetail = async (repository, plugin, options) => {
+            cursors.push(options?.cursor);
+            if (cursors.length === 1) return structuredClone(first);
+            if (scenario === 'stale') current = false;
+            if (scenario === 'failure') throw new Error('Network unavailable');
+            if (scenario === 'generation') return {versionsGeneration: 'new', packages: [{version: '3.0'}]};
+            return {versionsGeneration: 'old', packages: [], nextVersionCursor: 'older'};
+        };
+        const pending = market.api.refreshPluginDetail('repo', 'sample', previous, () => current);
+        if (scenario === 'cycle' || scenario === 'failure') {
+            await assert.rejects(pending);
+        } else {
+            const refreshed = await pending;
+            if (scenario === 'stale') assert.equal(refreshed, null);
+            else {
+                assert.equal(refreshed.versionsGeneration, 'new');
+                assert.deepEqual(refreshed.packages.map(pkg => pkg.version), ['3.0']);
+            }
+        }
+        assert.deepEqual(cursors, scenario === 'generation' ? [undefined, 'older', undefined] : [undefined, 'older']);
+        assert.equal(previous.packages.length, 2, '失败或过期响应不能修改原详情');
+    }
+});

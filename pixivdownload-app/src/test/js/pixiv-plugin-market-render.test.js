@@ -48,7 +48,7 @@ function entry(id, { category = 'utility', defaultInstalled = false } = {}) {
     };
 }
 
-async function mountMarket({ community = false, revocation = null, compatibleOlder = false, dependencies = [], failed = false } = {}) {
+async function mountMarket({ community = false, revocation = null, compatibleOlder = false, dependencies = [], failed = false, recoveryMode = false } = {}) {
     const errors = [];
     const document = { documentElement: node('html'), createElement: tag => node(tag), addEventListener() {}, removeEventListener() {}, body: { style: {} } };
     const sandbox = { document, URL, addEventListener() {}, removeEventListener() {}, console: { warn: (...args) => errors.push(args), error: (...args) => errors.push(args) } };
@@ -107,7 +107,7 @@ async function mountMarket({ community = false, revocation = null, compatibleOld
         entries[0].packages[1].verification.revocationStatus = revocation;
         entries[0].packages[1].installable = false;
     }
-    let status = { recoveryMode: false };
+    let status = { recoveryMode };
     let enabled = true;
     let failCatalog = false;
     let finishInstall;
@@ -267,7 +267,12 @@ test('覆盖安装后刷新打开详情的本机摘要与按钮，并保留选�
     plugin.packages[1].sha256 = 'a'.repeat(64);
     plugin.packages[1].installationMatch = 'DIFFERENT_ARTIFACT';
     let current = plugin;
-    page.market.api.fetchPluginDetail = async () => structuredClone(current);
+    let history;
+    const cursors = [];
+    page.market.api.fetchPluginDetail = async (repository, pluginId, options) => {
+        cursors.push(options?.cursor);
+        return structuredClone(options?.cursor ? history : current);
+    };
     page.market.api.fetchCatalog = async () => ({repositoryId: 'repo', entries: [structuredClone(current)], categories: []});
     elements(page.root, 'pmk-card-name')[0].props.onClick();
     await page.flush();
@@ -280,7 +285,10 @@ test('覆盖安装后刷新打开详情的本机摘要与按钮，并保留选�
     await page.flush();
     current = structuredClone(plugin);
     current.installation.sha256 = 'a'.repeat(64);
+    history = {...structuredClone(current), packages: [current.packages[1]], nextVersionCursor: null};
+    history.packages[0].installationMatch = 'SAME_ARTIFACT';
     current.packages = [current.packages[0]];
+    current.nextVersionCursor = 'history';
     page.completeInstall({pluginId: 'visible', version: '1.0.0', outcome: 'INSTALLED', accepted: true, activated: true});
     await page.flush();
     await page.flush();
@@ -290,6 +298,7 @@ test('覆盖安装后刷新打开详情的本机摘要与按钮，并保留选�
     assert.ok(modalText.includes('a'.repeat(64)));
     assert.ok(!modalText.includes('b'.repeat(64)));
     assert.equal(select().options[select().selectedIndex].value, '1.0.0');
+    assert.deepEqual(cursors, [undefined, undefined, 'history'], '历史版本的比较结论重新读取后端');
     current.installation.sha256 = 'b'.repeat(64);
     current.packages = plugin.packages;
     const modal = elements(page.root, 'pmk-modal')[0];
@@ -384,7 +393,11 @@ test('安装后的详情刷新保留等待期间选中的版本', async () => {
     elements(page.root, 'pmk-modal-actionbar-right')[0].children.find(n => n.tagName === 'BUTTON').props.onClick();
     await page.flush();
     let finishDetail;
-    page.market.api.fetchPluginDetail = () => new Promise(resolve => { finishDetail = resolve; });
+    const cursors = [];
+    page.market.api.fetchPluginDetail = (repository, plugin, options) => {
+        cursors.push(options?.cursor);
+        return new Promise(resolve => { finishDetail = resolve; });
+    };
     page.completeInstall({pluginId: 'visible', version: '2.0.0', outcome: 'INSTALLED', accepted: true, activated: true});
     await page.flush();
     const select = elements(page.root, 'pmk-version-select')[0];
@@ -392,8 +405,13 @@ test('安装后的详情刷新保留等待期间选中的版本', async () => {
     select.listeners.change();
     await page.flush();
     detail.installation = {state: 'PRESENT', version: '2.0.0', sha256: 'a'.repeat(64)};
+    const older = {...detail, packages: [detail.packages[1]], nextVersionCursor: null};
     detail.packages = [detail.packages[0]];
+    detail.nextVersionCursor = 'older';
     finishDetail(detail);
+    await page.flush();
+    assert.deepEqual(cursors, [undefined, 'older']);
+    finishDetail(older);
     await page.flush();
     assert.equal(select.options[select.selectedIndex].value, '1.0.0');
     assert.equal(page.factCalls.at(-1)[2], '1.0.0');
@@ -420,25 +438,29 @@ test('安装后详情刷新与版本分页交叉完成时保留同代次页面�
         more().props.onClick();
         await page.flush();
         assert.deepEqual(requests.map(request => request.cursor), [undefined, 'older']);
-        const refreshed = {...detail, packages: [detail.packages[0]], nextVersionCursor: 'first-page'};
+        const refreshed = structuredClone(detail);
         const older = {...detail, packages: [{...detail.packages[0], version: '0.5.0'}], nextVersionCursor: 'last-page'};
         if (order === 'generation-changed') {
             refreshed.versionsGeneration = 'changed';
+            refreshed.packages = [detail.packages[0]];
             refreshed.nextVersionCursor = 'older';
         }
         if (order === 'page-first') {
             requests[1].resolve(older); await page.flush();
             requests[0].resolve(refreshed); await page.flush();
+            assert.equal(requests[2].cursor, 'older');
+            requests[2].resolve(older); await page.flush();
         } else {
             requests[0].resolve(refreshed); await page.flush();
             requests[1].resolve(older); await page.flush();
         }
         const versions = elements(page.root, 'pmk-version-select')[0]?.options.map(option => option.value) || [];
         assert.equal(versions.includes('0.5.0'), order !== 'generation-changed', order);
-        assert.equal(requests.length, 2, '旧代次分页不能触发当前详情重载');
+        const expectedRequests = order === 'page-first' ? 3 : 2;
+        assert.equal(requests.length, expectedRequests, '只刷新已展开的同代次历史页');
         more().props.onClick();
         await page.flush();
-        assert.equal(requests[2].cursor, order === 'generation-changed' ? 'older' : 'last-page');
+        assert.equal(requests[expectedRequests].cursor, order === 'generation-changed' ? 'older' : 'last-page');
         assert.deepEqual(page.errors, []);
     }
 });
@@ -490,6 +512,12 @@ test('Vue 中明确故障插件优先显示并标记，即使默认安装筛选�
     assert.match(textOf(cards[0]), /bundled/);
     assert.match(textOf(cards[0]), /recovery.focus.failed/);
     assert.doesNotMatch(cards[1].props.class, /pmk-card--suspected/);
+});
+
+test('恢复模式首次加载显示默认安装插件', async () => {
+    const page = await mountMarket({recoveryMode: true});
+    assert.ok(elements(page.root, 'pmk-card').some(card => textOf(card).includes('bundled')));
+    assert.deepEqual(page.errors, []);
 });
 
 test('无动态编译时仍能显示市场禁用状态和目录错误', async () => {
@@ -557,7 +585,8 @@ test('基础详情刷新后统一版本选择、文档与来源查询，并保�
         sandbox.window = sandbox;
         vm.createContext(sandbox, { codeGeneration: { strings: false, wasm: false } });
         for (const resource of ['js/pixiv-plugin-presentation-tokens.js', 'plugin-market/plugin-market-core.js',
-            'plugin-market/plugin-market-data.js', 'plugin-market/plugin-market-content.js', 'plugin-market/plugin-market-fallback.js']) {
+            'plugin-market/plugin-market-data.js', 'plugin-market/plugin-market-api.js',
+            'plugin-market/plugin-market-content.js', 'plugin-market/plugin-market-fallback.js']) {
             vm.runInContext(fs.readFileSync(path.join(staticRoot, resource), 'utf8'), sandbox, { filename: resource });
         }
         const market = sandbox.PixivPluginMarket;
@@ -566,6 +595,7 @@ test('基础详情刷新后统一版本选择、文档与来源查询，并保�
         let resolveDetail;
         market.content.mount = () => ({ update: model => models.push(model), dispose() {} });
         market.api = {
+            ...market.api,
             fetchRepositories: async () => ({ enabled: true, defaultRepositoryId: 'repo',
                 repositories: [{ repositoryId: 'repo', enabled: true }] }),
             fetchPluginStatus: async () => ({ recoveryMode: false }),
@@ -582,7 +612,7 @@ test('基础详情刷新后统一版本选择、文档与来源查询，并保�
             getAttribute: () => 'visible', isConnected: true, focus() {}
         } : null } });
         resolveDetail({ ...plugin, recommendedVersion: recommended, latestVersion: versions[0],
-            packages: versions.map(version => ({ ...plugin.packages[0], version })) });
+            packages: versions.map(version => ({ ...plugin.packages[0], version })), nextVersionCursor: 'previous-history' });
         await new Promise(resolve => setImmediate(resolve));
         assert.equal(nodes.select.value, expected);
         assert.ok(nodes.select.children.some(option => option.value === expected));
@@ -593,19 +623,35 @@ test('基础详情刷新后统一版本选择、文档与来源查询，并保�
         await new Promise(resolve => setImmediate(resolve));
         assert.deepEqual(requests, [['repo', 'visible', expected]]);
         assert.deepEqual(errors, []);
+        nodes['.pmk-more-versions'].listeners.click();
+        const finishOldPage = resolveDetail;
         const installs = [];
         market.installPluginWithConfirmation = async (...args) => {
             installs.push(args.slice(0, 3));
             return {kind: 'install', body: {pluginId: 'visible', version: expected, outcome: 'INSTALLED',
                 accepted: true, activated: false, effectiveAfterRestart: false, activationBlockedByDevelopmentMode: true}};
         };
-        market.api.fetchPluginDetail = async () => ({...plugin, packages: [{...plugin.packages[0], version: expected,
-            installationMatch: 'SAME_ARTIFACT'}], installedVersion: expected});
+        const refreshed = {...plugin, packages: versions.map(version => ({...plugin.packages[0], version,
+            installationMatch: version === expected ? 'SAME_ARTIFACT' : 'DIFFERENT_VERSION'})),
+            installedVersion: expected};
+        const cursors = [];
+        market.api.fetchPluginDetail = async (repository, pluginId, options) => {
+            cursors.push(options?.cursor);
+            return {...refreshed, packages: refreshed.packages.slice(options?.cursor ? 1 : 0, options?.cursor ? 2 : 1),
+                nextVersionCursor: options?.cursor ? null : 'history'};
+        };
         nodes['.pmk-detail-install'].listeners.click();
         await new Promise(resolve => setImmediate(resolve));
         assert.deepEqual(installs, [['repo', 'visible', expected]]);
+        assert.deepEqual(cursors, [undefined, 'history']);
+        assert.equal(nodes.select.value, expected);
+        assert.equal(models.at(-1).version, expected);
         assert.match(nodes['.pmk-detail-install'].textContent, /stored-development/);
         assert.equal(nodes['.pmk-detail-install'].disabled, true);
+        finishOldPage({...plugin, packages: [{...plugin.packages[0], version: '0.5.0'}], nextVersionCursor: 'stale'});
+        await new Promise(resolve => setImmediate(resolve));
+        assert.deepEqual(nodes.select.children.map(option => option.value), versions);
+        assert.equal(nodes['.pmk-more-versions'].hidden, true);
     }
 });
 
