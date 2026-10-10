@@ -4,8 +4,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.task.ThreadPoolTaskExecutorBuilder;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
@@ -60,8 +62,9 @@ public class ScheduleHostPluginConfiguration {
 
     @Bean
     @ConfigurationProperties(prefix = "schedule")
-    public ScheduleConfig scheduleConfig() {
-        return new ScheduleConfig();
+    public ScheduleConfig scheduleConfig(Environment environment) {
+        return Binder.get(environment).bind("schedule", ScheduleConfig.class)
+                .orElseGet(ScheduleConfig::new);
     }
 
     @Bean

@@ -3,9 +3,11 @@ package top.sywyar.pixivdownload.download;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 import org.springframework.scheduling.TaskScheduler;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
@@ -46,6 +48,7 @@ import top.sywyar.pixivdownload.download.controller.LayoutFeedbackStateControlle
 import top.sywyar.pixivdownload.download.controller.PixivProxyController;
 import top.sywyar.pixivdownload.download.controller.SSEController;
 import top.sywyar.pixivdownload.download.schedule.work.PixivScheduledIllustWorkExecutor;
+import top.sywyar.pixivdownload.download.media.UgoiraEncoderSettings;
 import top.sywyar.pixivdownload.download.schedule.PixivScheduleSettings;
 import top.sywyar.pixivdownload.download.schedule.credential.OveruseWarningService;
 import top.sywyar.pixivdownload.download.schedule.credential.PixivScheduledCredentialPolicy;
@@ -181,9 +184,10 @@ public class DownloadWorkbenchPluginConfiguration {
     }
 
     @Bean
-    @ConfigurationProperties(prefix = top.sywyar.pixivdownload.download.media.UgoiraEncoderSettings.PREFIX)
-    public top.sywyar.pixivdownload.download.media.UgoiraEncoderSettings ugoiraEncoderSettings() {
-        return new top.sywyar.pixivdownload.download.media.UgoiraEncoderSettings();
+    @ConfigurationProperties(prefix = UgoiraEncoderSettings.PREFIX)
+    public UgoiraEncoderSettings ugoiraEncoderSettings(Environment environment) {
+        return Binder.get(environment).bind(UgoiraEncoderSettings.PREFIX, UgoiraEncoderSettings.class)
+                .orElseGet(UgoiraEncoderSettings::new);
     }
 
     @Bean
@@ -204,8 +208,9 @@ public class DownloadWorkbenchPluginConfiguration {
 
     @Bean
     @ConfigurationProperties(prefix = "schedule")
-    public PixivScheduleSettings pixivScheduleSettings() {
-        return new PixivScheduleSettings();
+    public PixivScheduleSettings pixivScheduleSettings(Environment environment) {
+        return Binder.get(environment).bind("schedule", PixivScheduleSettings.class)
+                .orElseGet(PixivScheduleSettings::new);
     }
 
     @Bean
