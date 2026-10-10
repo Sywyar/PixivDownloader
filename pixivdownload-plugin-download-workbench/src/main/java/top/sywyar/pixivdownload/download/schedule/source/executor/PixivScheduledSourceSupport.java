@@ -34,6 +34,7 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.IntSupplier;
+import static top.sywyar.pixivdownload.download.schedule.snapshot.PixivScheduleDefaults.*;
 
 /** 七类 Pixiv 来源适配器共享的纯计划解析与有背压发现驱动。 */
 @PluginManagedBean
@@ -186,10 +187,10 @@ public final class PixivScheduledSourceSupport {
         return discoverScoped(context, cookie -> {
             JsonNode source = definition.source();
             String word = text(source, "word");
-            String order = source.path("order").asText("date_d");
-            String mode = source.path("mode").asText("all");
-            String searchMode = source.path("sMode").asText("s_tag");
-            int maxPages = source.path("maxPages").asInt(3);
+            String order = source.path("order").asText(SOURCE_ORDER);
+            String mode = source.path("mode").asText(SOURCE_MODE);
+            String searchMode = source.path("sMode").asText(SOURCE_S_MODE);
+            int maxPages = source.path("maxPages").asInt(SOURCE_MAX_PAGES);
             String workType = workType(definition);
             return switch (discoveryMode) {
                 case WATERMARK -> watermarkScan(
@@ -213,7 +214,7 @@ public final class PixivScheduledSourceSupport {
                                     word, order, mode, searchMode, maxPages, cookie)
                             : fetchService.discoverSearchArtworkIds(
                                     word, order, mode, searchMode, maxPages, cookie);
-                    fullScan(context, definition, workType, ids, 0);
+                    fullScan(context, definition, workType, ids, definition.snapshot().fetchLimit());
                     yield ScheduledDiscoveryResult.withoutCheckpoint();
                 }
             };
@@ -237,7 +238,7 @@ public final class PixivScheduledSourceSupport {
             throws ScheduledExecutionException {
         ParsedDefinition definition = parseSingleKind(task(context), MY_BOOKMARKS, false);
         return discoverScoped(context, cookie -> {
-            String rest = definition.source().path("rest").asText("show");
+            String rest = definition.source().path("rest").asText(SOURCE_REST);
             List<String> ids = definition.snapshot().novel()
                     ? fetchService.discoverMyNovelBookmarkIds(rest, cookie)
                     : fetchService.discoverMyIllustBookmarkIds(rest, cookie);
@@ -304,7 +305,7 @@ public final class PixivScheduledSourceSupport {
                 ? ScheduledCredentialRequirement.REQUIRED
                 : ScheduledCredentialRequirement.OPTIONAL;
         Long interval = definition.snapshot().download().intervalMs();
-        long politeDelay = interval == null ? 0L : Math.max(0L, interval);
+        long politeDelay = interval == null ? DOWNLOAD_INTERVAL_MS : Math.max(0L, interval);
         return new ScheduledExecutionPlan(
                 workTypes,
                 PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID,
@@ -614,17 +615,17 @@ public final class PixivScheduledSourceSupport {
         }
         PixivScheduledDefinitionValidator.validate(root, expectedSourceType);
         ScheduleTaskSnapshot snapshot = ScheduleTaskSnapshot.from(root);
-        String kind = root.path("kind").asText("illust").toLowerCase(Locale.ROOT);
+        String kind = root.path("kind").asText(KIND).toLowerCase(Locale.ROOT);
         if (kind.isEmpty()) {
-            kind = "illust";
+            kind = KIND;
         }
         return new ParsedDefinition(snapshot, snapshot.source(), kind);
     }
 
     private SearchMode searchMode(ParsedDefinition definition) {
-        int maxPages = definition.source().path("maxPages").asInt(3);
+        int maxPages = definition.source().path("maxPages").asInt(SOURCE_MAX_PAGES);
         boolean dateDescending = "date_d".equals(
-                definition.source().path("order").asText("date_d"));
+                definition.source().path("order").asText(SOURCE_ORDER));
         if (maxPages == -1 && dateDescending) {
             return SearchMode.WATERMARK;
         }

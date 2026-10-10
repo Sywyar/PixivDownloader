@@ -59,8 +59,8 @@ class PluginAcquisitionOperationsTest {
         assertThat(prepared.repositoryId()).isEqualTo("official");
         assertThat(prepared.pluginId()).isEqualTo("sample");
         assertThat(prepared.version()).isEqualTo("1.0.0");
-        verify(acquisition).preview("official", "sample", "1.0.0");
-        verify(acquisition, never()).installPreviewed(anyString(), anyString(), anyString(), any(), anyString(), any());
+        verify(acquisition, never()).preview(anyString(), anyString(), anyString());
+        verify(acquisition, never()).installPreviewed(anyString(), anyString(), anyString(), any(), anyString(), any(), any());
         var download = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         doAnswer(call -> {
@@ -75,7 +75,7 @@ class PluginAcquisitionOperationsTest {
             assertThat(during.transactionId()).isEqualTo("existing-transaction");
             assertThat(during.operation()).isEqualTo(ExternalPluginOperation.ROLLING_BACK);
             return report();
-        }).when(acquisition).installPreviewed(eq("official"), eq("sample"), eq("1.0.0"), isNull(), eq(fingerprint), any());
+        }).when(acquisition).installPreviewed(eq("official"), eq("sample"), eq("1.0.0"), isNull(), eq(fingerprint), any(), any());
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             var running = executor.submit(() -> service.execute(prepared.id()));
@@ -91,7 +91,7 @@ class PluginAcquisitionOperationsTest {
             release.countDown();
             assertThat(running.get(5, TimeUnit.SECONDS).report().transactionId()).isEqualTo("existing-transaction");
             assertThat(service.execute(prepared.id()).finished()).isTrue();
-            verify(acquisition, times(1)).installPreviewed(anyString(), anyString(), anyString(), any(), anyString(), any());
+            verify(acquisition, times(1)).installPreviewed(anyString(), anyString(), anyString(), any(), anyString(), any(), any());
         } finally {
             release.countDown();
             executor.shutdownNow();
@@ -103,7 +103,7 @@ class PluginAcquisitionOperationsTest {
     void retainsFailureAndPartialSuccess() {
         var prepared = prepareOperation();
         var dependency = top.sywyar.pixivdownload.plugin.install.PluginDependencyInstallResult.from(report());
-        when(acquisition.installPreviewed(anyString(), anyString(), anyString(), any(), anyString(), any()))
+        when(acquisition.installPreviewed(anyString(), anyString(), anyString(), any(), anyString(), any(), any()))
                 .thenThrow(new PluginCatalogException(PluginCatalogErrorCode.DOWNLOAD_FAILED, "download failed")
                         .withDependencyInstallResults(List.of(dependency)));
         var first = service.execute(prepared.id());
@@ -111,7 +111,7 @@ class PluginAcquisitionOperationsTest {
         assertThat(first.failure().dependencyInstallResults()).singleElement()
                 .satisfies(value -> assertThat(value.transactionId()).isEqualTo("existing-transaction"));
         assertThat(service.execute(prepared.id())).isEqualTo(first);
-        verify(acquisition, times(1)).installPreviewed(anyString(), anyString(), anyString(), any(), anyString(), any());
+        verify(acquisition, times(1)).installPreviewed(anyString(), anyString(), anyString(), any(), anyString(), any(), any());
     }
 
     @Test
@@ -124,7 +124,7 @@ class PluginAcquisitionOperationsTest {
         assertThat(service.list()).isEmpty();
         var anotherProcess = new PluginAcquisitionOperations(acquisition, coordinator);
         assertThatThrownBy(() -> anotherProcess.execute(expired.id())).isInstanceOf(PluginCatalogException.class);
-        verify(acquisition, never()).installPreviewed(anyString(), anyString(), anyString(), any(), anyString(), any());
+        verify(acquisition, never()).installPreviewed(anyString(), anyString(), anyString(), any(), anyString(), any(), any());
     }
 
     @Test
@@ -134,6 +134,42 @@ class PluginAcquisitionOperationsTest {
         for (int i = 0; i < PluginAcquisitionOperations.MAX_RECORDS; i++) prepareOperation();
         assertThat(service.list()).hasSize(PluginAcquisitionOperations.MAX_RECORDS);
         assertThatThrownBy(() -> service.execute(first.id())).isInstanceOf(PluginCatalogException.class);
-        verify(acquisition, never()).installPreviewed(anyString(), anyString(), anyString(), any(), anyString(), any());
+        verify(acquisition, never()).installPreviewed(anyString(), anyString(), anyString(), any(), anyString(), any(), any());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"cancel", "expire", "replace", "close"})
+    @DisplayName("取消、过期、另一项获取与服务关闭均释放待确认包")
+    void releasesPendingDownload(String action, @org.junit.jupiter.api.io.TempDir java.nio.file.Path temp) throws Exception {
+        var file = java.nio.file.Files.writeString(temp.resolve("pending.jar"), "test");
+        var requirement = new top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustRequirement(
+                "sample", "1.0.0", top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource.MARKET_CATALOG,
+                "official", false, false, null, null, "b".repeat(64),
+                top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode.HOST_PROCESS_FULL_TRUST);
+        var pending = new PluginInstallReport(PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED, false, false,
+                "sample", "1.0.0", null, List.of(), List.of(), List.of(), List.of(), null, false, false, null,
+                ExternalPluginOperation.FAILED, null, false, false, List.of(), requirement);
+        doAnswer(call -> {
+            top.sywyar.pixivdownload.plugin.catalog.download.PluginCatalogDownloadSession session = call.getArgument(6);
+            session.retain(file, PluginRepository.official(true, 3000, 4000, 1024, 2048),
+                    new PluginCatalogPackage("1.0.0", "https://example.org/p.jar", 4L, "b".repeat(64),
+                            null, null, null, List.of(), null, List.of(), "stable", false));
+            return pending;
+        }).when(acquisition).installPreviewed(anyString(), anyString(), anyString(), any(), anyString(), any(), any());
+        var first = service.execute(prepareOperation().id());
+        assertThat(file).exists();
+        try {
+            switch (action) {
+                case "cancel" -> service.discard(first.id());
+                case "expire" -> { now.set(now.get().plus(PluginAcquisitionOperations.DOWNLOAD_RETENTION)); service.list(); }
+                case "replace" -> {
+                    doReturn(report()).when(acquisition).installPreviewed(
+                            anyString(), anyString(), anyString(), any(), anyString(), any(), any());
+                    service.execute(prepareOperation().id());
+                }
+                case "close" -> service.close();
+            }
+            assertThat(file).doesNotExist();
+        } finally { service.close(); }
     }
 }

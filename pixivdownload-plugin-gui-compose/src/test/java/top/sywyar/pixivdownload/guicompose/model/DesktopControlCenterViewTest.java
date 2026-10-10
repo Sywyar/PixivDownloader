@@ -16,6 +16,82 @@ import static org.junit.jupiter.api.Assertions.*;
 @DisplayName("Compose 首页存储指标")
 class DesktopControlCenterViewTest {
     @Test
+    @DisplayName("恢复模式的首页快捷入口打开市场，恢复后仍打开贡献方原页面")
+    void recoveryNavigationUsesMarket() throws Exception {
+        var source = new DesktopUiPluginSnapshot("sample", false, "sample", 1, false, null, "",
+                List.of(), List.of(), List.of(), List.of(WebRouteContribution.admin("/sample.html")),
+                List.of(new NavigationContribution("entry", NavigationPlacements.DESKTOP_QUICK_START,
+                        "sample", "title", "/sample.html", "download", AccessPolicy.ADMIN, 0)));
+        var recovery = new java.util.concurrent.atomic.AtomicBoolean(true);
+        var opened = new java.util.concurrent.LinkedBlockingQueue<java.net.URI>();
+        try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), Map.of(
+                "backendSnapshot", args -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null),
+                "openExternalUri", args -> { opened.add((java.net.URI) args[0]); return null; },
+                "guiGet", args -> new DesktopUiHost.GuiResponse(true, 200, DesktopUiHost.GuiValue.of(
+                        "plugins/status".equals(args[0]) ? Map.of("recoveryMode", recovery.get(), "plugins", List.of()) : Map.of()),
+                        "", false)), () -> List.of(source))) {
+            for (boolean active : List.of(true, false)) {
+                recovery.set(active);
+                model.loadPluginStatus();
+                model.rebuild();
+                var button = home(model).shortcuts().get(0).button();
+                model.dispatch(model.snapshot(), new DesktopUiNode.Event(DesktopUiNode.EventType.ACTIVATE,
+                        button.id(), DesktopUiNode.Value.empty()));
+                var uri = opened.poll(5, java.util.concurrent.TimeUnit.SECONDS);
+                assertNotNull(uri);
+                assertEquals(active ? "/plugin-market.html" : "/sample.html", uri.getPath());
+                assertTimeoutPreemptively(java.time.Duration.ofSeconds(5), () -> {
+                    while (model.busy()) Thread.sleep(10);
+                });
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("首页从真实插件报告显示恢复警告，修复后恢复正常状态")
+    void homeReflectsRecoveryModeAndItsResolution() throws Exception {
+        var recovery = new java.util.concurrent.atomic.AtomicBoolean(true);
+        try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), Map.of(
+                "backendSnapshot", args -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null),
+                "guiGet", args -> new DesktopUiHost.GuiResponse(
+                        true, 200, DesktopUiHost.GuiValue.of(
+                                "plugins/status".equals(args[0])
+                                        ? Map.of("recoveryMode", recovery.get(), "plugins", List.of())
+                                        : Map.of()), "", false)))) {
+            model.loadPluginStatus();
+            model.rebuild();
+            assertTrue(home(model).backendRecoveryMode());
+            assertEquals(DesktopUiNode.TextStyle.WARNING, home(model).backend().style());
+            assertEquals("gui.compose.home.recovery", home(model).backend().text().key());
+            recovery.set(false);
+            model.loadPluginStatus();
+            model.rebuild();
+            assertFalse(home(model).backendRecoveryMode());
+            assertEquals(DesktopUiNode.TextStyle.SUCCESS, home(model).backend().style());
+            assertEquals("gui.backend.state.running", home(model).backend().text().fallback());
+        }
+    }
+
+    @Test
+    @DisplayName("后端断连或不在运行态时不以恢复提示覆盖实际状态")
+    void backendLifecycleAndConnectionTakePrecedenceOverRecovery() throws Exception {
+        for (var state : DesktopUiHost.BackendState.values()) {
+            try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), Map.of(
+                    "backendSnapshot", args -> new DesktopUiHost.BackendSnapshot(state, null),
+                    "guiGet", args -> "plugins/status".equals(args[0])
+                            ? new DesktopUiHost.GuiResponse(true, 200, DesktopUiHost.GuiValue.of(
+                                    Map.of("recoveryMode", true, "plugins", List.of())), "", false)
+                            : DesktopUiHost.GuiResponse.unreachable()))) {
+                assertFalse(home(model).backendRecoveryMode(), state.name());
+                assertEquals(state == DesktopUiHost.BackendState.FAILED
+                        ? DesktopUiNode.TextStyle.ERROR : DesktopUiNode.TextStyle.WARNING,
+                        home(model).backend().style(), state.name());
+                assertNotEquals("gui.compose.home.recovery", home(model).backend().text().key());
+            }
+        }
+    }
+
+    @Test
     @DisplayName("仅开发模式在首页显示本实例端口，网页入口不被配置端口覆盖")
     void developmentHomeAndWebUseLaunchPort() throws Exception {
         for (boolean development : List.of(true, false)) {

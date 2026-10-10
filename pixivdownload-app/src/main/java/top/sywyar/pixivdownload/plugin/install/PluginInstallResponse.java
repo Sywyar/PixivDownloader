@@ -59,7 +59,8 @@ public record PluginInstallResponse(
         boolean rolledBack,
         String rollbackVersion,
         List<PluginDependencyInstallResult> dependencyInstallResults,
-        PluginTrustRequirement trustRequirement) implements ApiErrorResponse {
+        PluginTrustRequirement trustRequirement,
+        boolean activationBlockedByDevelopmentMode) implements ApiErrorResponse {
 
     /** 非 2xx 安装结局统一暴露的稳定 API 错误码；成功结局同时保留该别名，便于客户端统一读取。 */
     @Override

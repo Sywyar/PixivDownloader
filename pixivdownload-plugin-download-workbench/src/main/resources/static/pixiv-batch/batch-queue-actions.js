@@ -67,6 +67,8 @@
         // 下载进行中追加新任务时补足 worker：worker 曾被抽干（全部退出）则重启，未满目标并发则补齐。
         if (state.isRunning && added > 0) {
             ensureWorkers();
+        } else if (added > 0 && state.settings?.autoStartOnEnqueue === true && isAdmin && !state.isPaused) {
+            start(true);
         }
         syncAllResultsQueueState();
         return added;

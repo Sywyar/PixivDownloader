@@ -32,7 +32,8 @@
     function cardStatus(card) {
         var key = installKey(card.repositoryId, card.pluginId);
         if (state.installing[key]) return 'INSTALLING';
-        return PMK.data.installResultStatus(state.installResults[key], card.installStatus);
+        var result = state.installResults[key];
+        return PMK.data.installResultStatus(result && result.version === card.targetVersion ? result : null, card.installStatus);
     }
 
     function installControl(card) {
@@ -68,6 +69,8 @@
             : '<span class="pmk-badge pmk-badge--community">' + esc(card.assuranceLabel) + '</span>';
         if (card.recommended) badges += '<span class="pmk-badge pmk-badge--recommended">' + esc(t('badge.recommended', '推荐')) + '</span>';
         badges += verificationBadgeHtml(card.verificationBadge);
+        if (card.focusReason) badges += '<span class="pmk-badge pmk-badge--suspected">' + esc(t('recovery.focus.' + card.focusReason)) + '</span>';
+        if (card.installationState) badges += '<span class="pmk-badge ' + (card.artifactMismatch ? 'pmk-badge--mismatch' : 'pmk-badge--state') + '">' + esc(t('installation.state.' + card.installationState)) + '</span>';
         var rating = '';
         if (card.ratingNum || card.downloadsLabel) {
             rating = '<div class="pmk-rating">' +
@@ -83,7 +86,7 @@
             ? '<div class="pmk-card-compat"><i class="fa-solid fa-triangle-exclamation"></i>' +
               esc(t('compat.needs', '需要SDK v{v}+（当前 v{cur}）', { v: card.compatibilityReason, cur: state.sdkVersion })) + '</div>'
             : '';
-        return '<article class="pmk-card ' + esc(card.colorClass) + '"><div class="pmk-card-body">' +
+        return '<article class="pmk-card ' + esc(card.colorClass) + (card.focusReason ? ' pmk-card--suspected' : '') + (card.artifactMismatch ? ' pmk-card--mismatch' : '') + '"><div class="pmk-card-body">' +
             '<div class="pmk-card-head"><span class="pmk-card-icon"><i class="' + esc(card.iconClass) + '"></i>' +
             (PMK.api.contentImageUrl(card.repositoryId, card.pluginId, card.icon, 'icon', 0)
                 ? '<img class="pmk-market-image" alt="" loading="lazy" src="' + esc(PMK.api.contentImageUrl(card.repositoryId, card.pluginId, card.icon, 'icon', 0)) + '">' : '') + '</span>' +
@@ -97,6 +100,7 @@
             (meta ? '<div class="pmk-card-meta">' + esc(meta) + '</div>' : '') +
             compat +
             (card.compatibilityNotice ? '<p class="pmk-card-compat pmk-card-compat--notice">' + esc(card.compatibilityNotice) + '</p>' : '') +
+            (card.installationNotice ? '<p class="pmk-card-compat pmk-card-compat--notice">' + esc(card.installationNotice) + '</p>' : '') +
             '<div class="pmk-card-actions"><div class="pmk-install-slot">' + installControl(card) + '</div>' +
             '<button type="button" class="pmk-btn pmk-btn--gray pmk-btn--sm" data-pmk-detail="' + esc(card.pluginId)
                 + '" data-pmk-version="' + esc(card.targetVersion) + '" aria-haspopup="dialog">'
@@ -180,14 +184,6 @@
         }
 
         var body = '';
-        if (state.recoveryMode) {
-            body += '<div class="pmk-banner pmk-banner--error"><i class="fa-solid fa-triangle-exclamation"></i><div class="pmk-banner-body">' +
-                '<div class="pmk-banner-title">' + esc(t('recovery.banner.title', '当前正处于恢复模式')) + '</div>' +
-                '<div>' + esc(t('recovery.banner.desc', '正常功能已暂停。请根据下列原因安装、修复或重新安装插件，完成后重启程序。')) + '</div>' +
-                (state.recoveryReasons.length ? '<ul>' + state.recoveryReasons.map(function (reason) {
-                    return '<li>' + esc(reason) + '</li>';
-                }).join('') + '</ul>' : '') + '</div></div>';
-        }
         if (!state.masterEnabled) {
             body += '<div class="pmk-banner pmk-banner--warn"><i class="fa-solid fa-circle-exclamation"></i><div class="pmk-banner-body">' +
                 '<div class="pmk-banner-title">' + esc(t('master.disabled.title', '插件市场未开启')) + '</div>' +
@@ -211,6 +207,7 @@
                 '<div class="pmk-banner-title">' + esc(t('error.catalog.title', '无法加载插件清单')) + '</div><div>' + esc(state.catalogError) + '</div></div></div>';
         }
         if (state.masterEnabled && state.catalog) {
+            if (state.catalog.focusIncomplete) body += '<p class="pmk-banner pmk-banner--warn">' + esc(t('recovery.focus-incomplete')) + '</p>';
             body += '<div class="pmk-repos">' + categoryChips() + '</div>' +
                 filterChips() +
                 '<div class="pmk-toolbar"><div class="pmk-toolbar-head"><div class="pmk-toolbar-title-row"><span class="pmk-toolbar-title">' +
@@ -253,15 +250,17 @@
         }
     }
 
-    function loadCatalog(repoId) {
-        if (detailView) detailView.close();
+    function loadCatalog(repoId, preserveDetail) {
+        if (detailView && !preserveDetail) detailView.close();
         var token = ++state.catalogToken;
+        state.loadingMore = false;
         state.catalogError = null;
         return PMK.api.fetchCatalog(repoId).then(function (cat) {
             if (token !== state.catalogToken) return;   // 仓库已切换，丢弃旧仓库的 catalog 响应
             state.catalog = cat;
-        }).catch(function () {
+        }).catch(function (failure) {
             if (token !== state.catalogToken) return;
+            if (failure.name === 'AbortError') return;
             state.catalog = null;
             state.catalogError = t('error.catalog', '无法加载该仓库的插件清单，请检查仓库状态或稍后重试。');
         });
@@ -270,6 +269,7 @@
     function load() {
         state.loading = true; state.error = null; state.catalogError = null;
         state.catalogToken++;   // 让在途的旧 catalog 拉取失效（其回调将被 token 守卫丢弃）
+        if (PMK.api.cancelCatalog) PMK.api.cancelCatalog();
         paint();
         Promise.all([PMK.api.fetchRepositories(), PMK.api.fetchPluginStatus()]).then(function (responses) {
             var repos = responses[0];
@@ -311,7 +311,7 @@
     function refreshCatalogAfterInstall(repositoryId) {
         updateGrid();
         if (state.masterEnabled && repositoryId && repositoryId === state.activeRepositoryId) {
-            return loadCatalog(repositoryId).then(paint);
+            return loadCatalog(repositoryId, true).then(paint);
         }
         return Promise.resolve();
     }
@@ -327,7 +327,7 @@
         state.installing[key] = 'preview';
         delete state.installResults[key];
         updateGrid();
-        PMK.installPluginWithConfirmation(repositoryId, pluginId, version, function (phase) { state.installing[key] = phase; updateGrid(); }, state.catalog && state.catalog.entries).then(function (res) {
+        return PMK.installPluginWithConfirmation(repositoryId, pluginId, version, function (phase) { state.installing[key] = phase; updateGrid(); }, state.catalog && state.catalog.entries).then(function (res) {
             var model = res.kind === 'install'
                 ? PMK.data.installResult(res.body)
                 : PMK.data.catalogError(res.body, res.httpStatus);
@@ -367,6 +367,8 @@
         dialog.innerHTML = '<div class="pmk-content-dialog-head"><h2></h2><button type="button" class="pmk-btn pmk-btn--gray">'
             + esc(t('modal.close', '关闭')) + '</button></div><div class="pmk-content-dialog-body"><p class="pmk-section-text"></p>'
             + '<label><span>' + esc(t('detail.version', '版本')) + '</span> <select class="pmk-version-select"></select></label>'
+            + '<p class="pmk-installation-notice"></p><button type="button" class="pmk-btn pmk-btn--primary pmk-detail-install"></button>'
+            + '<dl class="pmk-local-artifact"></dl><p class="pmk-market-facts"></p>'
             + '<button type="button" class="pmk-btn pmk-btn--gray pmk-more-versions"></button>'
             + '<div class="pmk-content"></div><div class="pmk-version-notes"></div>'
             + '<button type="button" class="pmk-btn pmk-btn--gray" data-pmk-facts="' + esc(pluginId) + '" aria-haspopup="dialog"></button></div>';
@@ -374,8 +376,23 @@
         var select = dialog.querySelector('select');
         var version = PMK.data.defaultVersion(entry);
         var alive = true;
+        var detailToken = 0;
         var loadingMore = false;
         var more = dialog.querySelector('.pmk-more-versions');
+        var install = dialog.querySelector('.pmk-detail-install');
+        var installing = false;
+        function refreshDetail(preserveVersions) {
+            var token = ++detailToken;
+            loadingMore = false;
+            function current() {
+                return alive && token === detailToken && state.activeRepositoryId === catalog.repositoryId;
+            }
+            return PMK.api.refreshPluginDetail(catalog.repositoryId, pluginId, preserveVersions ? entry : null, current)
+                .then(function (fresh) {
+                    if (!current() || !fresh) return;
+                    Object.assign(entry, fresh); update();
+                }).catch(function () { if (current()) PMK.toast(t('error.detail'), 'error'); });
+        }
         function update() {
             version = PMK.data.resolveVersion(entry, version);
             dialog.querySelector('h2').textContent = PMK.data.entryName(entry);
@@ -394,21 +411,44 @@
             facts.textContent = t('trust.facts');
             facts.setAttribute('data-pmk-version', version);
             var pkg = PMK.data.packageOf(entry, version);
+            var result = state.installResults[installKey(catalog.repositoryId, pluginId)];
+            var status = PMK.data.installResultStatus(result && result.version === version ? result : null,
+                PMK.data.selectedInstallStatus(entry, pkg, null, true));
+            var meta = PMK.installMeta(status);
+            install.disabled = installing || !!state.installing[installKey(catalog.repositoryId, pluginId)] || meta.disabled;
+            install.textContent = t(installing ? 'install.state.installing' : meta.labelKey);
+            select.disabled = installing;
+            dialog.querySelector('.pmk-installation-notice').textContent = PMK.data.installationNotice(entry, pkg);
+            dialog.querySelector('.pmk-market-facts').textContent = t('installation.market-facts');
+            dialog.querySelector('.pmk-local-artifact').innerHTML = '<dt>' + esc(t('installation.local-package')) + '</dt>'
+                + PMK.data.localArtifactFields(entry).map(function (field) {
+                    return '<dt>' + esc(field.label) + '</dt><dd>' + esc(field.value) + '</dd>';
+                }).join('');
             var model = PMK.content.model(catalog.repositoryId, entry, pkg);
             content.update(model);
             dialog.querySelector('.pmk-version-notes').textContent = model.documents.some(function (doc) { return doc.kind === 'releaseNotes'; })
                 ? '' : ((pkg && pkg.changeNotes) || []).join('\n');
         }
+        install.addEventListener('click', function () {
+            if (installing || install.disabled) return;
+            installing = true; update();
+            doInstall(catalog.repositoryId, pluginId, version).then(function () {
+                if (alive) return refreshDetail(true);
+            }).catch(function () {
+                if (alive) PMK.toast(t('error.detail'), 'error');
+            }).finally(function () { installing = false; if (alive) update(); });
+        });
         more.addEventListener('click', function () {
             if (loadingMore || !entry.nextVersionCursor) return;
+            var token = detailToken;
+            var cursor = entry.nextVersionCursor;
+            var generation = entry.versionsGeneration;
             loadingMore = true; update();
-            PMK.api.fetchPluginDetail(catalog.repositoryId, pluginId, { cursor: entry.nextVersionCursor }).then(function (page) {
-                if (!alive || state.catalog !== catalog) return;
-                if (page.versionsGeneration !== entry.versionsGeneration) {
-                    return PMK.api.fetchPluginDetail(catalog.repositoryId, pluginId).then(function (fresh) {
-                        if (!alive || state.catalog !== catalog) return;
-                        Object.assign(entry, fresh);
-                    });
+            PMK.api.fetchPluginDetail(catalog.repositoryId, pluginId, { cursor: cursor }).then(function (page) {
+                if (!alive || token !== detailToken || state.activeRepositoryId !== catalog.repositoryId
+                        || entry.versionsGeneration !== generation || entry.nextVersionCursor !== cursor) return;
+                if (page.versionsGeneration !== generation) {
+                    return refreshDetail();
                 }
                 else {
                     entry.packages = (entry.packages || []).concat((page.packages || []).filter(function (pkg) {
@@ -416,22 +456,30 @@
                     }));
                     entry.nextVersionCursor = page.nextVersionCursor;
                 }
-            }).catch(function () { if (alive) PMK.toast(t('error.detail'), 'error'); })
-                .finally(function () { loadingMore = false; if (alive) update(); });
+            }).catch(function () { if (alive && token === detailToken) PMK.toast(t('error.detail'), 'error'); })
+                .finally(function () { if (alive && token === detailToken) { loadingMore = false; update(); } });
         });
         select.addEventListener('change', function () { version = select.value; update(); });
         dialog.addEventListener('click', handleClick);
         dialog.querySelector('button').addEventListener('click', function () { dialog.close(); });
         dialog.addEventListener('close', function () {
             alive = false; content.dispose(); dialog.remove();
-            if (detailView === owner) { detailView = null; if (opener.isConnected) opener.focus(); }
+            if (detailView === owner) {
+                detailView = null;
+                var target = opener.isConnected ? opener : rootEl.querySelector('[data-pmk-refresh]');
+                if (target) target.focus();
+            }
         }, { once: true });
-        var owner = detailView = { close: function () { dialog.close(); }, update: update };
+        var owner = detailView = { close: function () { dialog.close(); }, update: update,
+            updateFacts: function (repositoryId, id, selectedVersion, data) {
+                if (repositoryId !== catalog.repositoryId || id !== pluginId) return;
+                var pkg = PMK.data.packageOf(entry, selectedVersion);
+                if (pkg) pkg.verification = data;
+                update();
+            }
+        };
         document.body.appendChild(dialog); update(); dialog.showModal();
-        PMK.api.fetchPluginDetail(catalog.repositoryId, pluginId).then(function (detail) {
-            if (!alive || state.catalog !== catalog) return;
-            Object.assign(entry, detail); update();
-        }).catch(function () { if (alive) PMK.toast(t('error.detail'), 'error'); });
+        refreshDetail();
     }
 
     function handleClick(e) {
@@ -455,6 +503,7 @@
                         var cardElement = facts.closest('.pmk-card');
                         if (cardElement) cardElement.querySelector('.pmk-install-slot').innerHTML = installControl(card);
                         else updateGrid();
+                        if (detailView) detailView.updateFacts(catalog.repositoryId, pluginId, version, data);
                     }
                     if (!entry) return;
                     facts.disabled = false;
@@ -462,7 +511,12 @@
                     return global.PixivFeedback.alert({
                         title: PMK.data.entryName(entry), message: PMK.data.entryDescription(entry),
                         confirmLabel: t('common:button.close'),
-                        sections: [{title: t('common:plugin-info.dependencies'), fields: [
+                        sections: [{title: t('installation.local-package'), fields: PMK.data.localArtifactFields(entry)},
+                            {title: t('installation.market-facts'), fields: [
+                                {label: t('detail.version'), value: version},
+                                {label: 'SHA-256', value: pkg && pkg.sha256 || t('common:plugin-info.unknown')},
+                                {label: t('installation.source'), value: catalog.repositoryId}
+                            ]}, {title: t('common:plugin-info.dependencies'), fields: [
                             {label: t('common:plugin-info.sdk'), value: pkg && pkg.requiredSdk || t('common:plugin-info.unknown')},
                             {label: t('common:plugin-info.dependency-plugins'), value: (pkg && pkg.dependencies || []).map(function (dep) {
                                 return PMK.data.dependencyLabel(dep, catalog.entries);
@@ -504,14 +558,18 @@
             if (e.target.closest('[data-pmk-refresh]')) { load(); }
             if (e.target.closest('[data-pmk-more]') && state.catalog && state.catalog.nextCursor && !state.loadingMore) {
                 var generation = state.catalog.generation;
+                var token = state.catalogToken;
                 state.loadingMore = true; paint();
                 PMK.api.fetchCatalog(state.activeRepositoryId, { cursor: state.catalog.nextCursor }).then(function (page) {
+                    if (token !== state.catalogToken) return;
                     if (!state.catalog || page.generation !== generation) return loadCatalog(state.activeRepositoryId).then(paint);
-                    state.catalog.entries = state.catalog.entries.concat(page.entries || []);
+                    state.catalog.entries = PMK.data.mergeEntries(state.catalog.entries, page.entries);
                     state.catalog.nextCursor = page.nextCursor; paint();
-                }).catch(function () {
+                }).catch(function (failure) {
+                    if (token !== state.catalogToken || failure.name === 'AbortError') return;
                     PMK.toast(t('error.catalog', '无法加载该仓库的插件清单，请检查仓库状态或稍后重试。'), 'error');
                 }).then(function () {
+                    if (token !== state.catalogToken) return;
                     state.loadingMore = false; paint();
                 });
             }

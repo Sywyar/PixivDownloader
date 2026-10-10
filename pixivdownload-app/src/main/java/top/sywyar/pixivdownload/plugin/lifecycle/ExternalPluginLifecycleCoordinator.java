@@ -268,7 +268,7 @@ public class ExternalPluginLifecycleCoordinator {
             if (stagedResult != null && stagedResult.descriptor() != null
                     && stagedResult.outcome().accepted()) {
                 List<PluginDependencyProblem> problems =
-                        dependencyResolver.activationProblems(stagedResult.descriptor());
+                        installDependencyProblems(stagedResult.descriptor());
                 if (!problems.isEmpty()) {
                     return dependencyRejected(prepared, problems);
                 }
@@ -276,8 +276,9 @@ public class ExternalPluginLifecycleCoordinator {
             String packageId = stagedResult != null ? stagedResult.pluginId() : null;
             PluginRuntimePhase phase = currentPhase(packageId);
             return new PluginActivationResult(prepared.transactionId(), stagedResult,
-                    stagedResult != null && stagedResult.outcome() == PluginInstallOutcome.DUPLICATE
-                            && phase == PluginRuntimePhase.STARTED,
+                    !ignoresInstalledArtifacts() && stagedResult != null && stagedResult.outcome() == PluginInstallOutcome.DUPLICATE
+                            && phase == PluginRuntimePhase.STARTED
+                            && runtimeController.loadedArtifactMatches(stagedResult),
                     false, null, ExternalPluginOperation.IDLE, phase);
         }
         String packageId = stagedResult.pluginId();
@@ -285,10 +286,10 @@ public class ExternalPluginLifecycleCoordinator {
                 ? ExternalPluginOperation.INSTALLING : ExternalPluginOperation.UPDATING;
         // 进程重启插件不能安全进入当前 PF4J generation，只提交文件等待下次启动；后端重启策略在安装时仍
         // 即时激活，其重启约束只应用于管理页启停，避免把已 activated 的安装结果误报为待重启生效。
-        if (stagedResult.descriptor().lifecyclePolicy().requiresProcessRestart()) {
+        if (ignoresInstalledArtifacts() || stagedResult.descriptor().lifecyclePolicy().requiresProcessRestart()) {
             return withLock(packageId, operation, prepared.transactionId(), () ->
                     withReplacementLocks(prepared, operation, () -> activatePreparedWithDependencies(
-                            prepared, () -> commitForProcessRestart(prepared))));
+                            prepared, () -> commitWithoutActivation(prepared))));
         }
         return withLock(packageId, operation, prepared.transactionId(), () ->
                 withReplacementLocks(prepared, operation, () -> activatePreparedWithDependencies(
@@ -298,21 +299,28 @@ public class ExternalPluginLifecycleCoordinator {
     private PluginActivationResult activatePreparedWithDependencies(
             PreparedPluginTransaction prepared, Operation<PluginActivationResult> action) {
         List<PluginDependencyProblem> problems =
-                dependencyResolver.activationProblems(prepared.result().descriptor());
+                installDependencyProblems(prepared.result().descriptor());
         if (!problems.isEmpty()) {
             return dependencyRejected(prepared, problems);
         }
         return action.run();
     }
 
-    private PluginActivationResult commitForProcessRestart(PreparedPluginTransaction prepared) {
+    private List<PluginDependencyProblem> installDependencyProblems(PluginDescriptor descriptor) {
+        return ignoresInstalledArtifacts() ? dependencyResolver.installedProblems(descriptor)
+                : dependencyResolver.activationProblems(descriptor);
+    }
+
+    private PluginActivationResult commitWithoutActivation(PreparedPluginTransaction prepared) {
         String packageId = prepared.result().pluginId();
         PluginRuntimePhase phaseBeforeCommit = currentPhase(packageId);
         CommittedPluginTransaction committed = null;
         List<RetiredRuntime> retired = List.of();
         try {
             installer.verifyCurrentArtifacts(prepared);
-            retired = retireReplacedPackages(prepared.result().descriptor().replaces());
+            if (!ignoresInstalledArtifacts()) {
+                retired = retireReplacedPackages(prepared.result().descriptor().replaces());
+            }
             committed = installer.commitTransaction(prepared);
             installer.verifyCommittedTarget(committed);
             installer.markActivated(committed);
@@ -335,7 +343,7 @@ public class ExternalPluginLifecycleCoordinator {
             failures.rethrowFatal();
             PluginInstallResult failed = new PluginInstallResult(PluginInstallOutcome.FAILED,
                     prepared.result().descriptor(), null, prepared.result().previousVersion(),
-                    List.of("process-restart commit failed: "
+                    List.of("deferred activation commit failed: "
                                     + PluginLifecycleFailureAccumulator.describe(failure),
                             rolledBack
                                     ? "previous version restored" : "previous version recovery failed"));
@@ -344,10 +352,16 @@ public class ExternalPluginLifecycleCoordinator {
                     rolledBack ? prepared.result().previousVersion() : null,
                     operationFor(prepared.result()), currentPhase(packageId), recoveryBlocked);
         }
-        refreshAfterDurableMutation(packageId, "plugin install committed for process restart");
+        refreshAfterDurableMutation(packageId, "plugin install committed without runtime activation");
         boolean recoveryBlocked = markRecoveryBlockedIfNeeded(packageId, prepared, committed);
         return new PluginActivationResult(prepared.transactionId(), prepared.result(), false, false, null,
                 operationFor(prepared.result()), phaseBeforeCommit, recoveryBlocked);
+    }
+
+    /** 与启动加载使用同一契约；多模块开发保存包但不替换正在调试的源码实例。 */
+    public boolean ignoresInstalledArtifacts() {
+        return !top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts
+                .usesInstalledArtifacts(installer.pluginsDirectory());
     }
 
     private PluginActivationResult dependencyRejected(PreparedPluginTransaction prepared,

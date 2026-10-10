@@ -6,6 +6,11 @@
 (function (global) {
     var PMK = global.PixivPluginMarket;
     var API = PMK.api = {};
+    var catalogRequest = null;
+    API.cancelCatalog = function () {
+        if (catalogRequest) catalogRequest.abort();
+        catalogRequest = null;
+    };
 
     function enc(v) { return encodeURIComponent(v); }
 
@@ -40,11 +45,21 @@
 
     // GET /api/plugins/status → 恢复模式 + 插件失败 / 必选缺失诊断（复用插件管理只读投影）。
     API.fetchPluginStatus = function () {
-        return getJson('/api/plugins/status');
+        return Promise.all([getJson('/api/plugins/status'), PMK.recovery ? PMK.recovery.refresh() : null])
+            .then(function (results) { return results[0]; });
+    };
+
+    API.fetchRecovery = function () { return getJson('/api/plugins/recovery'); };
+    API.recoveryAction = function (action) {
+        if (action !== 'restart' && action !== 'exit') return Promise.reject(new Error('Invalid recovery action'));
+        return postJson('/api/plugins/recovery/' + action, {});
     };
 
     // GET /api/plugin-market/catalog?repositoryId= → 指定仓库（空取默认）的分页摘要 + 分类计数 + 已安装数 + 安装状态。
     API.fetchCatalog = function (repositoryId, options) {
+        API.cancelCatalog();
+        var request = typeof AbortController === 'function' ? new AbortController() : null;
+        catalogRequest = request;
         var url = '/api/plugin-market/catalog';
         var params = [];
         if (repositoryId) params.push('repositoryId=' + enc(repositoryId));
@@ -54,8 +69,65 @@
         });
         if (options.limit) params.push('limit=' + enc(options.limit));
         if (params.length) url += '?' + params.join('&');
-        return getJson(url);
+        var signal = request ? request.signal : options.signal;
+        return getJson(url, signal).then(function (catalog) {
+            return options.cursor ? catalog : includeRecoveryEntries(catalog, signal);
+        }).finally(function () {
+            if (catalogRequest === request) catalogRequest = null;
+        });
     };
+
+    async function includeRecoveryEntries(catalog, signal) {
+        var focus = PMK.recovery && PMK.recovery.focus && PMK.recovery.focus();
+        if (!focus || !catalog.enabled || !catalog.repositoryId) return catalog;
+        var ids = Object.keys(focus.plugins || {});
+        var categories = (focus.categories || []).filter(function (category) { return category === 'ui'; });
+        if (!ids.length && !categories.length) return catalog;
+        // shortcut: 每次仓库加载最多补查 32 个 ID 和 100 个 GUI 候选；更大仓库通过分页继续查看。
+        var request = new AbortController();
+        var abort = function () { request.abort(); };
+        if (signal) {
+            if (signal.aborted) abort();
+            else signal.addEventListener('abort', abort, {once: true});
+        }
+        var timer = setTimeout(abort, 15000);
+        var additions = [];
+        catalog.focusIncomplete = false;
+        try {
+            if (categories.length) {
+                try {
+                    var gui = await getJson('/api/plugin-market/catalog?repositoryId=' + enc(catalog.repositoryId)
+                        + '&category=ui&limit=100', request.signal);
+                    if (gui.generation === catalog.generation) additions = gui.entries || [];
+                    else catalog.focusIncomplete = true;
+                    if (gui.nextCursor) catalog.focusIncomplete = true;
+                } catch (failure) { catalog.focusIncomplete = true; }
+            }
+            var known = new Set((catalog.entries || []).concat(additions).map(function (entry) { return entry.pluginId; }));
+            var missing = ids.filter(function (id) { return !known.has(id); });
+            if (missing.length > 32) catalog.focusIncomplete = true;
+            var jobs = missing.slice(0, 32);
+            var next = 0;
+            async function worker() {
+                while (next < jobs.length && !request.signal.aborted) {
+                    var id = jobs[next++];
+                    try {
+                        var entry = await API.fetchPluginDetail(catalog.repositoryId, id, {limit: 1, signal: request.signal});
+                        if (entry && entry.pluginId === id) additions.push(entry);
+                        else catalog.focusIncomplete = true;
+                    } catch (failure) { catalog.focusIncomplete = true; }
+                }
+            }
+            await Promise.all([worker(), worker(), worker()]);
+            if (signal && signal.aborted) throw new DOMException('Catalog request cancelled', 'AbortError');
+            if (request.signal.aborted) catalog.focusIncomplete = true;
+            catalog.entries = PMK.data.mergeEntries(catalog.entries, additions);
+            return catalog;
+        } finally {
+            clearTimeout(timer);
+            if (signal) signal.removeEventListener('abort', abort);
+        }
+    }
 
     API.fetchPluginDetail = function (repositoryId, pluginId, options) {
         var url = '/api/plugin-market/plugins/' + enc(repositoryId) + '/' + enc(pluginId);
@@ -64,11 +136,35 @@
         if (options.cursor) params.push('cursor=' + enc(options.cursor));
         if (options.limit) params.push('limit=' + enc(options.limit));
         if (params.length) url += '?' + params.join('&');
-        return getJson(url);
+        return getJson(url, options.signal);
     };
 
     API.fetchPackageFacts = function (repositoryId, pluginId, version) {
         return getJson('/api/plugin-market/plugins/' + enc(repositoryId) + '/' + enc(pluginId) + '/' + enc(version) + '/facts');
+    };
+
+    // 已展开的历史页也重新读取安装投影，不从展示摘要重算包状态。
+    API.refreshPluginDetail = async function (repositoryId, pluginId, previous, current) {
+        var detail = await PMK.api.fetchPluginDetail(repositoryId, pluginId);
+        if (!current()) return null;
+        if (!previous || detail.versionsGeneration !== previous.versionsGeneration) return detail;
+        var cursors = new Set();
+        while (detail.nextVersionCursor && (detail.packages || []).length < (previous.packages || []).length) {
+            var cursor = detail.nextVersionCursor;
+            if (cursors.has(cursor)) throw new Error('Repeated version cursor');
+            cursors.add(cursor);
+            var page = await PMK.api.fetchPluginDetail(repositoryId, pluginId, {cursor: cursor});
+            if (!current()) return null;
+            if (page.versionsGeneration !== detail.versionsGeneration)
+                return PMK.api.fetchPluginDetail(repositoryId, pluginId);
+            var seen = new Set((detail.packages || []).map(function (pkg) { return pkg.version; }));
+            detail.packages = (detail.packages || []).concat((page.packages || []).filter(function (pkg) {
+                if (seen.has(pkg.version)) return false;
+                seen.add(pkg.version); return true;
+            }));
+            detail.nextVersionCursor = page.nextVersionCursor;
+        }
+        return detail;
     };
 
     function postJson(url, body) {
@@ -94,9 +190,13 @@
 
     API.fetchOperations = function () { return getJson('/api/plugins/acquisitions'); };
     API.fetchOperation = function (id) { return getJson('/api/plugins/acquisitions/' + enc(id)); };
+    API.discardOperation = function (id) {
+        return postJson('/api/plugin-market/operations/' + enc(id) + '/discard', {});
+    };
 
     function operationResult(value) {
-        if (value.finished && value.result) return { kind: 'install', body: value.result, httpStatus: value.result.status };
+        if (value.finished && value.result) return { kind: 'install', body: value.result,
+            operationId: value.id, httpStatus: value.result.status };
         if (value.finished && value.failure) return { kind: 'error', body: value.failure, httpStatus: value.failure.status };
         return { kind: 'error', body: {code: 'OPERATION_RUNNING', operationId: value.id,
             message: PMK.t('operations.running', '', {id: value.id})} };
@@ -106,7 +206,8 @@
         if (onProgress) onProgress('PREPARING');
         var prepared = await postJson('/api/plugin-market/operations', {
             repositoryId: repositoryId, pluginId: pluginId, version: version,
-            fingerprint: confirmations.fingerprint, confirmTrust: confirmations.trustSha256
+            fingerprint: confirmations.fingerprint, confirmTrust: confirmations.trustSha256,
+            previousOperationId: confirmations.previousOperationId
         });
         if (!prepared || !prepared.id) throw new Error(PMK.t('operations.unknown'));
         if (PMK.operations) PMK.operations.watch(prepared.id, onProgress);

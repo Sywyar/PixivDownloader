@@ -151,6 +151,7 @@
     }
 
     function runNetworkCheck() {
+        var revision = overlay.revision;
         fetch('/api/onboarding/connectivity', {credentials: 'same-origin'})
             .then(function (r) {
                 if (!r.ok) {
@@ -159,6 +160,7 @@
                 return r.json();
             })
             .then(function (data) {
+                if (overlay.revision !== revision) return;
                 if (data && data.reachable) {
                     renderNetwork('ok', data);
                 } else {
@@ -166,6 +168,7 @@
                 }
             })
             .catch(function () {
+                if (overlay.revision !== revision) return;
                 renderNetwork('fail', null);
             });
     }
@@ -230,8 +233,10 @@
     // 认识下载页 ④：选择本次示例所用的下载方式（切到「批量导入单作品」）
     function stepChooseExample() {
         callHook('switchToSingleImport');
+        var revision = overlay.revision;
         // 切换 Tab 后单作品面板稍后才可见，延迟渲染让聚光定位到位
         global.setTimeout(function () {
+            if (!overlay.pop || overlay.revision !== revision) return;
             overlay.render({
                 targetSelector: ctx.config.sel.singleImportTab,
                 html:
@@ -324,8 +329,9 @@
         if (_pasteWatchTimer) {
             global.clearInterval(_pasteWatchTimer);
         }
+        var revision = overlay.revision;
         var check = function () {
-            if (!overlay.pop) {
+            if (!overlay.pop || overlay.revision !== revision) {
                 global.clearInterval(_pasteWatchTimer);
                 _pasteWatchTimer = null;
                 return;
@@ -453,11 +459,12 @@
         });
         bindFoot({skip: skip});
         waitFor(function () {
-            return !!callHook('isRunning');
+            var progress = callHook('exampleProgress', EXAMPLE_ID);
+            return !!callHook('isRunning') || (progress && progress.status !== 'idle');
         }, phaseMonitor);
     }
 
-    // 阶段：监听示例作品下载结果（轮询后端状态，解耦于页面 SSE）
+    // 页面队列拥有执行事实，包括未请求后端的跳过与移除。
     function phaseMonitor() {
         renderMonitor();
         pollDownloadStatus();
@@ -486,36 +493,39 @@
     var _monitorTimer = null;
 
     function pollDownloadStatus() {
-        if (_monitorTimer) {
-            global.clearInterval(_monitorTimer);
-        }
-        var attempts = 0;
-        _monitorTimer = global.setInterval(function () {
-            attempts++;
-            if (!overlay.pop) {
-                global.clearInterval(_monitorTimer);
-                _monitorTimer = null;
+        stopMonitor();
+        var revision = overlay.revision;
+        var deadline = Date.now() + 300000;
+        function check() {
+            if (!overlay.pop || overlay.revision !== revision) {
+                stopMonitor();
                 return;
             }
-            fetch('/api/download/status/' + EXAMPLE_ID, {credentials: 'same-origin'})
-                .then(function (r) { return r.ok ? r.json() : null; })
-                .then(function (data) {
-                    if (!data) {
-                        return;
-                    }
-                    if (data.completed) {
-                        stopMonitor();
-                        monitorSucceeded();
-                    } else if (data.failed) {
-                        stopMonitor();
-                        monitorFailed(data.message || '');
-                    }
-                })
-                .catch(function () { /* 网络抖动：下一轮再试 */ });
-            if (attempts > 150) { // ~5 分钟保护，避免无限轮询
+            var progress;
+            try { progress = callHook('exampleProgress', EXAMPLE_ID); } catch (e) { /* 下轮再检查 */ }
+            if (progress && progress.status === 'completed') {
                 stopMonitor();
+                monitorSucceeded();
+                return;
             }
-        }, 2000);
+            var status = progress && progress.status;
+            if (['failed', 'skipped', 'cancelled', 'removed', 'paused'].indexOf(status) !== -1) {
+                stopMonitor();
+                monitorFailed(progress.message || '', status);
+                return;
+            }
+            if (progress && (progress.paused || (!progress.running && ['idle', 'pending'].indexOf(status) !== -1))) {
+                stopMonitor();
+                monitorFailed(progress.message || '', 'paused');
+                return;
+            }
+            if (Date.now() >= deadline) {
+                stopMonitor();
+                monitorFailed('', 'timeout');
+            }
+        }
+        _monitorTimer = global.setInterval(check, 2000);
+        check();
     }
 
     function stopMonitor() {
@@ -579,7 +589,9 @@
     }
 
     function monitorSucceeded() {
+        var revision = overlay.revision;
         waitForFirstDownloadResultEntry(function (entry) {
+            if (overlay.revision !== revision) return;
             if (entry) {
                 renderFirstDownloadResultEntryPrompt();
             } else {
@@ -618,23 +630,35 @@
         bindFoot({done: finish});
     }
 
-    function monitorFailed(message) {
+    function monitorFailed(message, status) {
+        var explanation = status === 'skipped'
+            ? t('onboarding.monitor.skipped.body', '示例作品已被跳过，本次没有下载新文件。请查看队列中的原因，检查历史记录与筛选设置。')
+            : status === 'removed'
+                ? t('onboarding.monitor.removed.body', '示例作品已移出队列。可以重新导入，或结束指引继续使用。')
+                : status === 'cancelled' || status === 'paused'
+                    ? t('onboarding.monitor.stopped.body', '示例作品的下载已暂停或取消。返回下载页处理后，可以再次打开操作指引。')
+                    : status === 'timeout'
+                        ? t('onboarding.monitor.timeout.body', '暂未确认示例作品的下载结果。下载可能仍在进行，请查看队列和连接状态，或继续等待。结束指引不会中断下载。')
+                        : t('onboarding.monitor.fail.body', '示例作品下载失败了。请检查 Cookie 与网络 / 代理后重试。');
         overlay.render({
             centered: true,
             html:
                 '<h3 class="po-pop-title">' + escapeHtml(t('onboarding.monitor.fail.title', '下载未成功')) + '</h3>'
                 + '<div class="po-pop-body">'
-                + '<p>' + escapeHtml(t('onboarding.monitor.fail.body',
-                    '示例作品下载失败了。请检查 Cookie 与网络 / 代理后重试。')) + '</p>'
+                + '<p>' + escapeHtml(explanation) + '</p>'
                 + (message ? '<div class="po-hint po-hint-error">' + escapeHtml(message) + '</div>' : '')
                 + '</div>'
                 + footHtml([
-                    SKIP_BTN(),
-                    {act: 'retry', label: t('onboarding.monitor.fail.retry', '重新下载'), variant: 'primary'}
+                    {act: 'skip', label: t('onboarding.monitor.return', '返回下载页')},
+                    {act: 'retry', label: status === 'timeout'
+                        ? t('onboarding.monitor.wait', '继续等待')
+                        : t('onboarding.monitor.fail.retry', '重新下载'), variant: 'primary'}
                 ])
         });
-        // 重试只回到「粘贴示例链接」，无需重走认识下载页的几步
-        bindFoot({skip: skip, retry: stepPasteUrl});
+        bindFoot({skip: skip, retry: function () {
+            if (status === 'timeout' || callHook('retryExample', EXAMPLE_ID) === false) phaseMonitor();
+            else stepPasteUrl();
+        }});
     }
 
     // ════════════════════════════════════════════════════════════════════════════
@@ -644,6 +668,7 @@
     ctx.download = {
         phaseWelcome: phaseWelcome,
         phaseDownload: phaseDownload,
-        monitorSucceeded: monitorSucceeded
+        monitorSucceeded: monitorSucceeded,
+        stopMonitor: stopMonitor
     };
 })(window);

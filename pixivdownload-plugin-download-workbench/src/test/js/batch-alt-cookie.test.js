@@ -42,7 +42,7 @@ function setup() {
         fetch: async (url, options) => { requests.push(JSON.parse(options.body)); return {ok: true}; },
     });
     context.window = context;
-    for (const name of ['alt-core.js', 'alt-state.js', 'alt-cookie.js', 'alt-chrome.js', 'alt-mode-capture.js']) {
+    for (const name of ['alt-core.js', '../pixiv-batch/batch-download-defaults.js', '../pixiv-batch/batch-pagination.js', 'alt-state.js', 'alt-cookie.js', 'alt-chrome.js', 'alt-mode-capture.js']) {
         vm.runInContext(readFileSync(resolve(__dirname, '../../main/resources/static/pixiv-batch-alt', name), 'utf8'), context);
     }
     Object.assign(context, {

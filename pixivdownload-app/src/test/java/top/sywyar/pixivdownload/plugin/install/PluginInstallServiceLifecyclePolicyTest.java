@@ -35,6 +35,23 @@ import static org.mockito.Mockito.when;
 @DisplayName("插件安装报告生命周期策略语义")
 class PluginInstallServiceLifecyclePolicyTest {
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(PluginLifecyclePolicy.class)
+    @DisplayName("多模块开发保存所有生命周期类型的包，但不承诺重启生效")
+    void developmentStorageDoesNotPromiseActivation(PluginLifecyclePolicy policy) {
+        var descriptor = descriptor("stored-plugin", policy);
+        var file = Path.of("stored-plugin.jar");
+        var origin = PluginPackageOrigin.localUpload();
+        when(coordinator.installOrUpdate(file, false, origin)).thenReturn(activation(descriptor, false, null));
+        when(coordinator.ignoresInstalledArtifacts()).thenReturn(true);
+        var report = service().installTrustedFile(file, false, origin);
+        assertThat(report.accepted()).isTrue();
+        assertThat(report.activated()).isFalse();
+        assertThat(report.effectiveAfterRestart()).isFalse();
+        assertThat(report.activationBlockedByDevelopmentMode()).isTrue();
+        assertThat(PluginDependencyInstallResult.from(report).activationBlockedByDevelopmentMode()).isTrue();
+    }
+
     @Mock
     ExternalPluginLifecycleCoordinator coordinator;
     @Mock

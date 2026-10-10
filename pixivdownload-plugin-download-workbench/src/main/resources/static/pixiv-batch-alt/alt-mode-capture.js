@@ -49,6 +49,7 @@ function renderQuickMode(panel) {
     if (!sources.some(source => source.id === quickState.source)) quickState.source = sources[0] && sources[0].id;
     if (sources.length > 1) {
         panel.appendChild(sourceChips(sources, quickState.source, source => {
+            if (scheduleState.editing) scheduleState.editing.quickSource = null;
             quickState.source = source;
             quickState.uid = null;
             quickState.drill = null;
@@ -77,7 +78,7 @@ function renderQuickMode(panel) {
     const credentialOk = !(acquisition && acquisition.account
         && typeof acquisition.account.credentialMissing === 'function'
         && acquisition.account.credentialMissing());
-    if (!credentialOk) {
+    if (!credentialOk && !scheduleState.editing) {
         const gate = el('div', 'ab-credential-gate');
         gate.appendChild(abIconEl('user', 'ab-gate-icon'));
         gate.appendChild(el('h2', '', bt('quick.connect.title', '连接你的 Pixiv')));
@@ -120,7 +121,7 @@ function renderQuickMode(panel) {
     panel.appendChild(stage);
     renderQuickStage();
 
-    if (credentialOk && !quickState.uid) loadQuickUid();
+    if (credentialOk && !quickState.uid && !scheduleState.editing) loadQuickUid();
 }
 
 async function loadQuickUid() {
@@ -158,6 +159,7 @@ function runQuickAction(action, page) {
     quickState.allIds = [];
     quickState.pageCursors = new Map();
     quickState.loadSeq++;
+    if (scheduleState.editing) scheduleState.editing.quickSource = null;
     quickState.action = action.id;
     const selector = document.getElementById('abQuickAction');
     if (selector) selector.value = action.id;
@@ -417,16 +419,14 @@ async function enqueueQuickAll(action) {
                 return;
             }
             all.push(...normalizeAcquisitionItems(data.items || data.works || [], acquisition, context, 'quick'));
-            const hasMore = quickPageHasMore(data, page, limit, (data.items || data.works || []).length);
-            if (!hasMore) break;
-            // 已知总量按来源遍历；未知结束点沿用游标获取的累计保护。
-            const totalPages = Number(data.totalPages) > 0 ? Number(data.totalPages) : Math.ceil(Number(data.total) / limit);
-            const knownTotal = Number.isFinite(totalPages) && totalPages > 0;
-            if (knownTotal && page >= totalPages) break;
-            if (!knownTotal && page >= 1000) {
-                abToast('error', bt('pagination.error.page-limit', '分页数量超出安全上限，未加入不完整结果'));
+            let hasMore;
+            try {
+                hasMore = window.PixivBatch.pagination.continueScan(data, page, limit, (data.items || data.works || []).length);
+            } catch (error) {
+                abToast('error', error.message);
                 return;
             }
+            if (!hasMore) break;
             if (descriptor.cursorPaging) {
                 try { cursor = altNextCursor(data, cursor, hasMore); }
                 catch (error) {
@@ -524,10 +524,7 @@ function renderQuickFollowing(stage, action) {
 }
 
 function quickPageHasMore(data, page, limit, count) {
-    if (typeof data.hasMore === 'boolean') return data.hasMore;
-    if (typeof data.hasNext === 'boolean') return data.hasNext;
-    if (Number(data.totalPages) > 0) return page < Number(data.totalPages);
-    return page * limit < Number(data.total || 0) && count > 0;
+    return window.PixivBatch.pagination.hasMore(data, page, limit, count);
 }
 
 function quickUserAcquisitions() {

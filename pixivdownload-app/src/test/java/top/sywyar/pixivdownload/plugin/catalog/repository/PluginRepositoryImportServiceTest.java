@@ -27,6 +27,37 @@ class PluginRepositoryImportServiceTest {
     @TempDir Path temp;
 
     @Test
+    @DisplayName("社区描述符仅在认证摘要未变时复用，撤回认证立即拒绝")
+    void reusesCertifiedDescriptorWithoutCachingCertification() throws Exception {
+        var repository = PluginRepository.community(true, 3000, 4000, 1048576, 2048);
+        String url = repository.descriptorUrl();
+        String spki = Base64.getEncoder().encodeToString(
+                KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPublic().getEncoded());
+        byte[] bytes = CommunityJson.encode(Map.of("schemaVersion", 1, "repositoryId", repository.repositoryId(),
+                "displayName", "Sample", "publisher", Map.of("id", "sample", "displayName", "Sample"),
+                "catalog", Map.of("protocol", "manifest-v1", "endpoint", repository.manifestUrl()),
+                "revocationsUrl", repository.revocationsUrl(), "networkProfile", "GITHUB_RELEASES",
+                "trustedKeys", List.of(Map.of("keyId", "test", "algorithm", "Ed25519",
+                        "publicKeySpkiBase64", spki, "state", "ACTIVE", "publisher", "Sample", "trustLabel", "Community"))));
+        var parsed = new RepositoryDescriptorParser().parse(url, bytes, true);
+        var entry = new DirectoryEntry(repository.repositoryId(), url, parsed.descriptorSha256(), null, null, null,
+                List.of(new DirectoryEntry.CertifiedKey("test", parsed.trustedKeys().get(0).publicKeyFingerprint())),
+                DirectoryEntry.Status.IDENTITY_VERIFIED, null, null, 7, null, null);
+        var directory = mock(CommunityDirectoryService.class);
+        var client = mock(PluginCatalogHttpClient.class);
+        when(client.fetchBytes(eq(url), anyLong())).thenReturn(bytes);
+        when(directory.lookup(repository.repositoryId())).thenReturn(new CommunityDirectoryService.Lookup(7, entry, false));
+        var service = new PluginRepositoryImportService(new PluginRepositoryRegistry(new PluginCatalogProperties()),
+                ignored -> client, new PluginCatalogTrustStateStore(temp.resolve("trust.json")), directory);
+        assertThat(service.authenticateCommunity(repository).descriptorSha256()).isEqualTo(parsed.descriptorSha256());
+        assertThat(service.authenticateCommunity(repository).descriptorSha256()).isEqualTo(parsed.descriptorSha256());
+        verify(client, times(1)).fetchBytes(eq(url), anyLong());
+        verify(directory, times(2)).lookup(repository.repositoryId());
+        when(directory.lookup(repository.repositoryId())).thenReturn(new CommunityDirectoryService.Lookup(8, null, false));
+        assertThatThrownBy(() -> service.authenticateCommunity(repository)).isInstanceOf(RuntimeException.class);
+    }
+
+    @Test
     void confirmedDraftDefersWritesAndRechecksBytesBeforeSaving() throws Exception {
         String url = "https://repo.example/repository.json";
         String spki = Base64.getEncoder().encodeToString(

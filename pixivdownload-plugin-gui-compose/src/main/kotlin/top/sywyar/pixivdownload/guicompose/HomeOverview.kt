@@ -60,6 +60,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.robinpcrd.cupertino.*
+import io.github.robinpcrd.cupertino.theme.CupertinoColors
+import io.github.robinpcrd.cupertino.theme.systemYellow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.LocalTime
@@ -281,8 +283,10 @@ private fun BackendStatus(
         DesktopUiNode.TextToken("gui-compose", "gui.compose.home.$suffix", "", args.map(Any::toString)),
     )
     val slow = startedAt > 0L && elapsed >= 20L
+    val recovery = node.backendRecoveryMode()
+    val showHint = slow || recovery
     val palette = LocalExperiencePalette.current
-    val color = when (backend.style()) {
+    val color = if (recovery) CupertinoColors.systemYellow else when (backend.style()) {
         DesktopUiNode.TextStyle.SUCCESS -> palette.success
         DesktopUiNode.TextStyle.ERROR -> palette.error
         DesktopUiNode.TextStyle.WARNING -> palette.warning
@@ -297,7 +301,7 @@ private fun BackendStatus(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(7.dp),
         ) {
-            Box(Modifier.size(6.dp).background(color, CircleShape))
+            Box(Modifier.testTag("home.backend.indicator").size(6.dp).background(color, CircleShape))
             CupertinoText(
                 if (slow) label("starting", elapsed) else text(backend.text()),
                 Modifier.testTag("home.backend.state"),
@@ -308,10 +312,10 @@ private fun BackendStatus(
         }
         // 始终测量完整提示，为文字缩放和长译文预留空间，显隐不会推动首页。
         CupertinoText(
-            label("starting.slow"),
+            label(if (recovery) "recovery.hint" else "starting.slow"),
             Modifier.fillMaxWidth().testTag("home.backend.hint")
-                .graphicsLayer { alpha = if (slow) 1f else 0f }
-                .then(if (slow) Modifier else Modifier.clearAndSetSemantics {}),
+                .graphicsLayer { alpha = if (showHint) 1f else 0f }
+                .then(if (showHint) Modifier else Modifier.clearAndSetSemantics {}),
             fontSize = 12.sp,
             lineHeight = 18.sp,
             color = palette.secondaryText,

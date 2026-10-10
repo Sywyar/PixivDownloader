@@ -90,7 +90,9 @@
             return global.PixivFeedback && typeof global.PixivFeedback.confirm === 'function';
         }
         var confirmedArtifacts = Object.create(null);
+        var confirmedPlan = null;
         var completedDependencies = Object.create(null);
+        var pendingOperationId = null;
         function rememberDependencies(response) {
             var body = response.body || {};
             (body.dependencyInstallResults || []).forEach(function (item) {
@@ -140,6 +142,10 @@
                         code: 'INSTALL_PREVIEW_BLOCKED', message: lines.join('\n\n')
                     }});
                 }
+                // 指纹还包含运行期代次；仅计划内容不变时沿用本次确认，执行仍绑定最新指纹。
+                var plan = JSON.stringify(Object.assign({}, preview, {fingerprint: undefined}));
+                confirmations.fingerprint = preview.fingerprint;
+                if (plan === confirmedPlan) return attempt(confirmations);
                 phase('confirm');
                 return global.PixivFeedback.confirm({
                     title: PMK.t('install.preview.title'), message: PMK.t('install.preview.summary'),
@@ -149,7 +155,7 @@
                     if (!confirmed) return rememberDependencies({ kind: 'error', body: {
                         code: 'CANCELLED', message: PMK.t('install.preview.cancelled')
                     } });
-                    confirmations.fingerprint = preview.fingerprint;
+                    confirmedPlan = plan;
                     return attempt(confirmations);
                 });
             });
@@ -161,6 +167,7 @@
                 var body = response.body || {};
                 var trustRequired = body.outcome === PMK.TRUST_CONFIRMATION_REQUIRED
                     || body.code === PMK.TRUST_CONFIRMATION_REQUIRED;
+                pendingOperationId = trustRequired ? response.operationId || null : null;
                 if (trustRequired && body.trustRequirement && canConfirm()) {
                     var sha256 = String(body.trustRequirement.artifactSha256 || '').toLowerCase();
                     if (!/^[0-9a-f]{64}$/.test(sha256) || confirmedArtifacts[sha256]) return response;
@@ -169,7 +176,7 @@
                         .then(function (confirmed) {
                         if (!confirmed) return response;
                         confirmedArtifacts[sha256] = true;
-                        return previewAndAttempt({ trustSha256: sha256 });
+                        return previewAndAttempt({ trustSha256: sha256, previousOperationId: pendingOperationId });
                     });
                 }
                 return response;
@@ -180,6 +187,12 @@
                 code: failure.body && failure.body.code || 'REQUEST_FAILED',
                 message: failure.message || PMK.t('install.preview.unavailable')
             }});
+        }).finally(function () {
+            if (pendingOperationId && PMK.api.discardOperation) {
+                return PMK.api.discardOperation(pendingOperationId).catch(function () {
+                    PMK.toast(PMK.t('operations.unknown'), 'error');
+                });
+            }
         });
     };
 
@@ -316,8 +329,15 @@
 
     // —— 安装状态机机器码 → 控件渲染元数据（与后端 MarketInstallStatus 对齐；installing 是前端本地态）——
     PMK.INSTALL_META = {
+        REINSTALL: { labelKey: 'recovery.reinstall', icon: 'rotate', variant: 'amber' },
         NOT_INSTALLED:   { labelKey: 'install.action.install', icon: 'cloud-arrow-down', variant: 'primary' },
+        INSTALL_DISTRIBUTION: { labelKey: 'install.action.distribution', icon: 'cloud-arrow-down', variant: 'primary' },
         INSTALLED:       { labelKey: 'install.state.installed', icon: 'circle-check',      variant: 'success-outline', disabled: true },
+        INSTALLED_SAME: { labelKey: 'install.state.same-artifact', icon: 'circle-check', variant: 'success-outline', disabled: true },
+        INSTALL_DIFFERENT: { labelKey: 'install.action.selected-package', icon: 'cloud-arrow-down', variant: 'amber' },
+        INSTALL_UNVERIFIED: { labelKey: 'install.action.selected-package', icon: 'cloud-arrow-down', variant: 'amber' },
+        NO_RECOMMENDATION: { labelKey: 'install.state.no-recommendation', icon: 'circle-info', variant: 'gray', disabled: true },
+        STORED_DEVELOPMENT: { labelKey: 'install.state.stored-development', icon: 'box-archive', variant: 'gray', disabled: true },
         UPDATE_AVAILABLE:{ labelKey: 'install.action.update',  icon: 'arrow-up',          variant: 'amber' },
         INCOMPATIBLE:    { labelKey: 'install.state.incompatible', icon: 'ban',           variant: 'gray', disabled: true },
         SIGNATURE_REQUIRED: { labelKey: 'install.state.signature-required', icon: 'shield-halved', variant: 'gray', disabled: true },

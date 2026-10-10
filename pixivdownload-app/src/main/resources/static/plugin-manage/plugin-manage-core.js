@@ -489,6 +489,7 @@
             accepted: accepted,
             recoveryBlocked: recoveryBlocked,
             effectiveAfterRestart: r.effectiveAfterRestart === true,
+            activationBlockedByDevelopmentMode: r.activationBlockedByDevelopmentMode === true,
             status: typeof r.status === 'number' ? r.status : null,
             tone: installTone(outcome, accepted, recoveryBlocked),
             message: r.message || null,
@@ -522,6 +523,9 @@
         }
         if (m.activated) {
             return { message: t('install.activated-note', '插件已安装并在当前进程中激活。'), tone: 'ok' };
+        }
+        if (m.accepted && m.activationBlockedByDevelopmentMode) {
+            return {message: m.message, tone: 'info'};
         }
         if (m.rolledBack) {
             return { message: t('install.rollback-note', '新版本激活失败，已恢复原版本。'), tone: 'error' };

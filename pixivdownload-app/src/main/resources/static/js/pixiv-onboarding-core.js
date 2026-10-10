@@ -110,69 +110,66 @@
     function finish() {
         markCompleted();
         ctx.overlay.destroy();
-        showFab();
+        setRestartEnabled(true);
+        focusRestartEntry();
     }
 
     function skip() {
         markCompleted();
         ctx.overlay.destroy();
-        showFab();
+        setRestartEnabled(true);
+        focusRestartEntry();
     }
 
     var SKIP_BTN = function () {
         return {act: 'skip', label: message('onboarding.common.skip', '跳过指引'), variant: 'ghost'};
     };
 
-    // ── 右下角「操作指引」FAB（仅下载页注册；复用 pixiv-tour.css 的 .pt-help-fab 样式） ────────
-    // 点击此 FAB 重跑跨页新手向导；已保存称呼时直接跳到连通性检测。
-    var fabEl = null;
+    // 页面提供入口位置与外观，引导只绑定重看行为。
+    var restartEl = null;
 
-    function ensureFab() {
-        if (fabEl || !ctx.config || ctx.config.page !== 'batch') {
+    function bindRestartButton() {
+        if (restartEl || !ctx.config || ctx.config.page !== 'batch') {
             return;
         }
-        var fab = document.createElement('button');
-        fab.type = 'button';
-        fab.className = 'pt-help-fab po-help-fab';
-        fab.innerHTML = '<span aria-hidden="true">💡</span><span class="po-help-fab-label"></span>';
-        fab.addEventListener('click', restart);
-        document.body.appendChild(fab);
-        fabEl = fab;
-        refreshFabLabel();
+        var selector = ctx.config.sel.restartButton;
+        restartEl = selector ? document.querySelector(selector) : null;
+        if (!restartEl) return;
+        restartEl.addEventListener('click', restart);
+        restartEl.hidden = false;
+        refreshRestartLabel();
     }
 
-    function refreshFabLabel() {
-        if (!fabEl) {
+    function refreshRestartLabel() {
+        if (!restartEl) {
             return;
         }
         var label = t('common.help', '操作指引');
-        var labelEl = fabEl.querySelector('.po-help-fab-label');
+        var labelEl = restartEl.querySelector('[data-onboarding-label]');
         if (labelEl) {
             labelEl.textContent = label;
         }
-        fabEl.setAttribute('aria-label', label);
-        fabEl.title = label;
+        restartEl.setAttribute('aria-label', label);
+        restartEl.title = label;
     }
 
-    function showFab() {
-        if (fabEl) {
-            fabEl.hidden = false;
-        }
+    function setRestartEnabled(enabled) {
+        if (restartEl) restartEl.disabled = !enabled;
     }
 
-    function hideFab() {
-        if (fabEl) {
-            fabEl.hidden = true;
-        }
+    function focusRestartEntry() {
+        var selector = ctx.config && ctx.config.sel.restartFocusTarget;
+        var target = selector ? document.querySelector(selector) : restartEl;
+        if (target) target.focus({preventScroll: true});
     }
 
-    // 从 FAB 重跑向导：重置进度回欢迎阶段，再走一遍下载页流程（已保存称呼则跳过称呼步）。
+    // 重看时保留称呼，重新进入欢迎与下载流程。
     function restart() {
         if (!ctx.config || ctx.config.page !== 'batch') {
             return;
         }
         ctx.overlay.destroy();
-        hideFab();
+        setRestartEnabled(false);
         ctx.completionStepNotified = false;
         patchState({status: 'active', phase: 'welcome'});
         if (ctx.download && typeof ctx.download.phaseWelcome === 'function') {
@@ -212,8 +209,9 @@
     // ── 通用等待工具 ────────────────────────────────────────────────────────────
     // 轮询条件 cond()→true 时执行 done；overlay 关闭则自动停止
     function waitFor(cond, done) {
+        var revision = ctx.overlay.revision;
         var timer = global.setInterval(function () {
-            if (!ctx.overlay.pop) {
+            if (!ctx.overlay.pop || ctx.overlay.revision !== revision) {
                 global.clearInterval(timer);
                 return;
             }
@@ -274,10 +272,9 @@
     ctx.finish = finish;
     ctx.skip = skip;
     ctx.restart = restart;
-    ctx.ensureFab = ensureFab;
-    ctx.refreshFabLabel = refreshFabLabel;
-    ctx.showFab = showFab;
-    ctx.hideFab = hideFab;
+    ctx.bindRestartButton = bindRestartButton;
+    ctx.refreshRestartLabel = refreshRestartLabel;
+    ctx.setRestartEnabled = setRestartEnabled;
     ctx.notifyCompletionStepDone = notifyCompletionStepDone;
     ctx.hook = hook;
     ctx.callHook = callHook;

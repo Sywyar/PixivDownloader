@@ -756,6 +756,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
             boolean tasksKnown,
             Text backend,
             long backendStartingAt,
+            boolean backendRecoveryMode,
             HomeSystem system
     ) implements DesktopUiNode {
         public HomeOverview {

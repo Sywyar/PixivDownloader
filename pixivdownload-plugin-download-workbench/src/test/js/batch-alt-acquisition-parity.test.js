@@ -41,7 +41,7 @@ function harness(acquisitions, respond = () => ({})) {
         setTimeout, clearTimeout, addEventListener() {},
         PixivBatchAlt: {state: {}, modes: {}}, PixivBatch: {queueTypes: runtime}});
     c.window = c;
-    for (const name of ['alt-core.js', 'alt-state.js', 'alt-settings.js', 'alt-modes.js',
+    for (const name of ['alt-core.js', '../pixiv-batch/batch-download-defaults.js', '../pixiv-batch/batch-pagination.js', 'alt-state.js', 'alt-settings.js', 'alt-modes.js',
         'alt-mode-capture.js', 'alt-mode-discovery.js', 'alt-mode-series.js']) {
         vm.runInContext(readFileSync(resolve(staticRoot, name), 'utf8'), c, {filename: name});
     }
@@ -92,6 +92,54 @@ function quickType(type, extra = {}) {
         ...extra
     };
 }
+
+test('搜索仅接受最新请求的结果和错误，旧筛选结果不会覆盖新输入', async () => {
+    const pending = [];
+    const type = quickType('image', {buildRequest: ctx => ({word: ctx.word})});
+    const h = harness({search: {image: type}}, () => new Promise((resolve, reject) => pending.push({resolve, reject})));
+    h.c.run("Object.assign(searchState,{source:'fixture',kind:'image',word:'old'})");
+    const old = h.c.runSearch(1);
+    h.c.run("searchState.word='new'");
+    const latest = h.c.runSearch(2);
+    pending[1].resolve({items:[{id:'new'}],page:2});
+    await latest;
+    pending[0].resolve({items:[{id:'old'}],page:1});
+    await old;
+    assert.equal(h.c.run('searchState.rawResults[0].id'), 'image:new');
+    const failure = h.c.runSearch(3);
+    const success = h.c.runSearch(4);
+    pending[3].resolve({items:[{id:'current'}],page:4});
+    await success;
+    pending[2].reject(new Error('old failure'));
+    await failure;
+    assert.equal(h.c.run('searchState.page'), 4);
+    assert.equal(h.c.run('searchState.error'), '');
+    let finishFilter;
+    h.c.computeFilteredItems = () => new Promise(resolve => { finishFilter = resolve; });
+    const filtering = h.c.applySearchFilters();
+    const next = h.c.runSearch(5);
+    finishFilter({filtered:[{id:'stale'}],stats:{}});
+    await filtering;
+    assert.notEqual(h.c.run('searchState.results[0]?.id'), 'stale');
+    h.c.computeFilteredItems = async items => ({filtered:items,stats:{}});
+    pending[4].resolve({items:[{id:'last'}],page:5});
+    await next;
+    assert.equal(h.c.run('searchState.results[0].id'), 'image:last');
+});
+
+test('保存计划入口按来源能力显示，快捷入口缺少具体来源时说明原因', () => {
+    const h = harness({});
+    h.c.altScheduleSources = () => ({previewForMode:()=>null});
+    h.c.altScheduleSourceContext = () => ({});
+    h.c.run("isAdmin=true;state.mode='search'");
+    assert.equal(h.c.saveScheduleButton(),null);
+    h.c.run("state.mode='quick-fetch'");
+    const disabled = h.c.saveScheduleButton();
+    assert.equal(disabled.querySelector('button').disabled,true);
+    assert.ok(disabled.querySelector('p').textContent.includes('具体的作品列表'));
+    h.c.altScheduleSources = () => ({previewForMode:()=>({sourceType:'demo'})});
+    assert.equal(h.c.saveScheduleButton().disabled,false);
+});
 
 test('快捷获取空作品与越界空页不请求卡片，仍发布完整空结果', async () => {
     for (const [ids, page] of [[[], 1], [['1', '2'], 2]]) {

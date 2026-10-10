@@ -21,7 +21,7 @@ test('存为计划读取当前搜索输入，清空输入不回退到上次搜�
         acquisition: () => ({type: 'illust'})
     };
     const context = vm.createContext({document, window: {PixivBatch: {queueTypes: runtime}, PixivBatchAlt: {}},
-        state: {mode: 'search', settings: {}},
+        state: {mode: 'search', settings: {}}, scheduleState: {editing: null},
         userState: {}, seriesState: {}, searchState: {word: 'previous', source: 'pixiv', kind: 'illust'},
         QUICK_FETCH_MODE: 'quick-fetch', searchApiMode: () => 'all'});
     for (const name of ['commitQueueItemPatch', 'addItemsToQueue', 'removeFromQueue', 'renderQueue',

@@ -102,6 +102,9 @@ public class GuiLauncher {
     private static final String DEFAULT_ROOT = RuntimeFiles.DEFAULT_DOWNLOAD_ROOT;
     private static final AtomicReference<DesktopUiSession> ACTIVE_UI = new AtomicReference<>();
     private static volatile PluginRuntimeManager processPluginRuntime;
+    private static volatile DesktopUiFailure desktopRecoveryFailure;
+
+    public static DesktopUiFailure desktopRecoveryFailure() { return desktopRecoveryFailure; }
     private static volatile Runnable processShutdown = () -> {};
     private static final AtomicBoolean EXIT_REQUESTED = new AtomicBoolean();
     /** 进程退出时同步关闭 Spring backend context 的超时上限：足够正常拆卸，又不让卡死的拆卸挂死进程退出。 */
@@ -362,13 +365,20 @@ public class GuiLauncher {
                     },
                     session -> {
                         ACTIVE_UI.set(session);
+                        if (session != null) desktopRecoveryFailure = null;
                         if (singleInstanceManager != null) {
                             singleInstanceManager.setActivationHandler(session == null ? () -> {} : session::activate);
                         }
                     },
-                    () -> {
+                    failure -> {
                         splash.close();
-                        openPluginMarketWithoutDesktopProvider(desktopUiHost);
+                        desktopRecoveryFailure = failure;
+                        openPluginMarketWithoutDesktopProvider(
+                                desktopUiHost,
+                                pluginSession,
+                                startupPluginRegistry,
+                                singleInstanceManager
+                        );
                     },
                     (source, failure) -> pluginSession.manager().reportPluginFailure(
                             source.packageId(), source.generation(), failure)
@@ -457,13 +467,11 @@ public class GuiLauncher {
     }
 
     private static void openPluginMarketWithoutDesktopProvider(
-            AppDesktopUiHost desktopUiHost) {
-        boolean confirmed = DesktopUiDialogs.showBootstrapConfirmDialog(
-                message("gui.launcher.dialog.no-provider.title"),
-                message("gui.launcher.dialog.no-provider.message"),
-                message("gui.launcher.dialog.no-provider.confirm"));
-        if (!confirmed) return;
-
+            AppDesktopUiHost desktopUiHost,
+            PluginBootstrapSession pluginSession,
+            PluginRegistry startupPluginRegistry,
+            SingleInstanceManager singleInstanceManager
+    ) {
         Runnable openMarket = () -> {
             URI marketUri = desktopUiHost.backendUri("/plugin-market.html");
             try {
@@ -473,8 +481,61 @@ public class GuiLauncher {
                         marketUri, safeMessage(failure)), failure);
             }
         };
-        if (BackendLifecycleManager.isRunning()) openMarket.run();
-        else BackendLifecycleManager.startAsync(openMarket);
+        var gate = pluginSession.installer().recoveryGateSnapshot();
+        var errors = new java.util.ArrayList<>(pluginSession.diagnostics());
+        var status = pluginSession.manager().status().orElseGet(pluginSession::status);
+        status.failures().forEach(failure -> errors.add(failure.source() + ": " + failure.reason()));
+        var report = top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusReport.empty();
+        if (gate.safeToScan()) {
+            try {
+                report = new top.sywyar.pixivdownload.plugin.management.PluginStatusService(
+                        startupPluginRegistry, pluginSession.manager(), pluginSession.installer(),
+                        top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy.empty()).report();
+            } catch (RuntimeException failure) {
+                errors.add(failure.toString());
+            }
+        }
+        var guidance = top.sywyar.pixivdownload.plugin.recovery.RecoveryGuidance.from(
+                gate,
+                desktopRecoveryFailure,
+                report,
+                errors
+        );
+        var summaries = guidance.localizedErrors(GuiLauncher::message);
+        String body = message("recovery.explanation") + "\n\n"
+                + guidance.adviceKeys().stream().map(GuiLauncher::message)
+                        .collect(java.util.stream.Collectors.joining("\n\n"))
+                + "\n\n" + message("recovery.error-summary") + "\n"
+                + (summaries.isEmpty() ? message("recovery.no-error-details")
+                    : String.join("\n\n", summaries));
+        var application = ApplicationRestartService.forBootstrap();
+        DesktopUiDialogs.showBootstrapRecoveryDialog(
+                message("gui.launcher.dialog.no-provider.title"),
+                body,
+                message("recovery.open-market"),
+                message("recovery.restart"),
+                message("recovery.exit"),
+                message("recovery.open-logs"),
+                message("recovery.action.failed"),
+                () -> {
+                    if (BackendLifecycleManager.isRunning()) openMarket.run();
+                    else BackendLifecycleManager.startAsync(openMarket);
+                },
+                application::requestRestart,
+                application::requestExit,
+                () -> {
+                    try {
+                        desktopUiHost.openLocalPath(RuntimeFiles.logDirectory());
+                        return true;
+                    } catch (Exception failure) {
+                        log.error(logMessage("recovery.action.failed"), failure);
+                        return false;
+                    }
+                },
+                activate -> {
+                    if (singleInstanceManager != null) singleInstanceManager.setActivationHandler(activate);
+                }
+        );
     }
 
     static void installJulBridge() {

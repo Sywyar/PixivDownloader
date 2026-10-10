@@ -38,13 +38,12 @@ html[data-theme="dark"] {
 }
 
 .po-root {
-    position: fixed;
-    inset: 0;
-    z-index: 2147482900;
+    pointer-events: none;
     font-family: inherit;
 }
 
 .po-backdrop {
+    z-index: 2147482900;
     position: fixed;
     inset: 0;
     background: transparent;
@@ -53,6 +52,7 @@ html[data-theme="dark"] {
 
 /* 用大范围 box-shadow 制造“聚光”洞口，目标区域保持清晰 */
 .po-spot {
+    z-index: 2147482901;
     position: fixed;
     border-radius: 10px;
     box-shadow: 0 0 0 9999px var(--po-mask);
@@ -70,12 +70,13 @@ html[data-theme="dark"] {
 }
 
 .po-pop {
+    z-index: 2147483500;
     max-height: calc(100dvh - 2rem);
     overflow-y: auto;
     overflow-wrap: anywhere;
     position: fixed;
-    max-width: 380px;
-    min-width: 260px;
+    width: min(380px, calc(100vw - 28px));
+    min-width: 0;
     background: var(--po-pop-bg);
     color: var(--po-pop-text);
     border: 1px solid var(--po-pop-line);
@@ -220,9 +221,10 @@ html[data-theme="dark"] {
     line-height: 1.5;
 }
 
-.po-copy-btn {
+.po-root .po-copy-btn {
     flex: none;
-    align-self: stretch;
+    width: auto;
+    align-self: flex-start;
     white-space: nowrap;
 }
 

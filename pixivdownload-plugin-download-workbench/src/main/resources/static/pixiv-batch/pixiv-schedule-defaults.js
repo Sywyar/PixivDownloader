@@ -1,0 +1,50 @@
+// 由 scripts/schedule/generate-pixiv-defaults.mjs 生成。
+'use strict';
+window.PixivBatch = window.PixivBatch || {};
+window.PixivBatch.pixivScheduleDefaults = Object.freeze({
+    "kind": "illust",
+    "fetchLimit": 0,
+    "source": {
+        "order": "date_d",
+        "mode": "all",
+        "sMode": "s_tag",
+        "maxPages": 3,
+        "rest": "show"
+    },
+    "filters": {
+        "content": "all",
+        "aiFilter": "all",
+        "typeFilter": "all",
+        "tagsExact": [],
+        "tagsFuzzy": [],
+        "pagesMin": null,
+        "pagesMax": null,
+        "wordsMin": null,
+        "wordsMax": null,
+        "bookmarksMin": null,
+        "bookmarksMax": null
+    },
+    "download": {
+        "fileNameTemplate": "",
+        "pathOverflowAction": "ASK",
+        "bookmark": false,
+        "collectionId": null,
+        "concurrent": 1,
+        "intervalMs": 0,
+        "imageDelayMs": 0,
+        "verifyFiles": false,
+        "redownloadDeleted": false,
+        "novelFormat": "txt",
+        "novelMerge": false,
+        "novelMergeFormat": "epub",
+        "novelAutoTranslate": false,
+        "novelTranslateLanguage": "",
+        "novelTranslateSegmentSize": 0,
+        "imageFormats": "original",
+        "ugoiraFormats": "webp",
+        "mediaQuality": 90,
+        "mediaWebpLossless": false,
+        "mediaMaximumEdge": 0
+    },
+    "credentialContent": "safe"
+});

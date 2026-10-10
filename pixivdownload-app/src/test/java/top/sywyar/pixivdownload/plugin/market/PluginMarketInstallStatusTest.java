@@ -48,6 +48,60 @@ class PluginMarketInstallStatusTest {
     private final PluginCatalogAcquisitionService acquisitionService = mock(PluginCatalogAcquisitionService.class);
     private final PluginStatusService statusService = mock(PluginStatusService.class);
 
+    @Test
+    @DisplayName("市场使用磁盘版本和摘要，同时单独显示仍驻留的旧运行版本；事务变化丢弃内容判断")
+    void storedArtifactIsIndependentOfRunningVersion() {
+        service(installed("b", "1.0.0"));
+        var installer = mock(top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller.class);
+        var lifecycle = mock(top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginLifecycleCoordinator.class);
+        var descriptor = installed("b", "2.0.0").descriptor();
+        var artifact = new top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginSnapshot(
+                new top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin(descriptor,
+                        java.nio.file.Path.of("plugins/b.jar")), 100, "a".repeat(64),
+                top.sywyar.pixivdownload.plugin.runtime.install.provenance.ProvenanceSnapshotState.ABSENT, null, 0);
+        when(installer.snapshotInstalledWithProvenance(org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyLong())).thenReturn(
+                new top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginInventorySnapshot(List.of(artifact), false));
+        when(statusService.recoveryGateSnapshot()).thenReturn(
+                top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginRecoveryGateSnapshot.safe(
+                        top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransactionRecoveryReport.success()));
+        when(statusService.report(org.mockito.ArgumentMatchers.anyList()))
+                .thenReturn(new PluginStatusReport(List.of(installed("b", "1.0.0"))));
+        var props = new PluginCatalogProperties();
+        props.setEnabled(true);
+        var market = new PluginMarketService(new PluginRepositoryRegistry(props), catalogService,
+                acquisitionService, statusService, null, null, installer, lifecycle);
+        var card = entryOf(market.catalog(PluginRepository.OFFICIAL_ID), "b");
+        var detail = market.pluginDetail(PluginRepository.OFFICIAL_ID, "b");
+        assertThat(card.installation()).isEqualTo(detail.installation());
+        assertThat(card.installedVersion()).isEqualTo("2.0.0");
+        assertThat(card.installation().sha256()).isEqualTo("a".repeat(64));
+        assertThat(card.installation().runtimeVersion()).isEqualTo("1.0.0");
+        assertThat(card.installation().source()).isEqualTo("unknown");
+        when(statusService.report(org.mockito.ArgumentMatchers.anyList())).thenReturn(new PluginStatusReport(
+                List.of(new PluginDiagnostic("b", PluginStatus.FAILED, descriptor, false, List.of("startup failed")))));
+        var failed = entryOf(market.catalog(PluginRepository.OFFICIAL_ID), "b").installation();
+        assertThat(failed.state()).isEqualTo("PRESENT");
+        assertThat(failed.runtimeStatus()).isEqualTo("FAILED");
+        assertThat(failed.runtimeVersion()).isNull();
+        assertThat(failed.version()).isEqualTo("2.0.0");
+        when(lifecycle.lifecycleMutationEpoch()).thenReturn(0L, 2L);
+        assertThat(entryOf(market.catalog(PluginRepository.OFFICIAL_ID), "b").installation().state()).isEqualTo("UNKNOWN");
+        when(lifecycle.lifecycleMutationEpoch()).thenReturn(3L);
+        org.mockito.Mockito.clearInvocations(installer);
+        assertThat(market.pluginDetail(PluginRepository.OFFICIAL_ID, "b").installation().state()).isEqualTo("UNKNOWN");
+        org.mockito.Mockito.verify(installer, org.mockito.Mockito.never()).snapshotInstalledWithProvenance(
+                org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyLong());
+        when(statusService.recoveryGateSnapshot()).thenReturn(
+                top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginRecoveryGateSnapshot.unchecked());
+        when(statusService.report(org.mockito.ArgumentMatchers.anyList())).thenReturn(PluginStatusReport.empty());
+        var unknown = entryOf(market.catalog(PluginRepository.OFFICIAL_ID), "b").installation();
+        assertThat(unknown.state()).isEqualTo("UNKNOWN");
+        assertThat(unknown.runtimeStatus()).isNull();
+        org.mockito.Mockito.verify(installer, org.mockito.Mockito.never()).snapshotInstalledWithProvenance(
+                org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyLong());
+    }
+
     /**
      * catalog：a 最新 1.0.0（兼容）、b 最新 2.0.0（兼容）、c 最新 1.0.0 但要求SDK 2.0（不兼容）、
      * d 最新 1.2.0（兼容，用于语义等价版本判定）、e 最新 1.0.0（兼容，用于本机版本更高判定）、f 无任何可安装版本制品。
@@ -83,13 +137,13 @@ class PluginMarketInstallStatusTest {
         PluginCatalogProperties props = new PluginCatalogProperties();
         props.setEnabled(true);
         PluginCatalogManifest catalog = catalog();
-        when(catalogService.loadPage(eq(PluginRepository.OFFICIAL_ID), any(PluginCatalogPageQuery.class)))
+        when(catalogService.loadPage(any(PluginRepository.class), any(PluginCatalogPageQuery.class)))
                 .thenReturn(new PluginCatalogPage(
                         "manifest-v1", catalog.entries(), null, (long) catalog.entries().size(), Map.of(), false));
         PluginCatalogEntry detail = catalog.entries().stream()
                 .filter(entry -> entry.pluginId().equals("b"))
                 .findFirst().orElseThrow();
-        when(catalogService.loadEntryPage(eq(PluginRepository.OFFICIAL_ID), eq("b"), isNull(), eq(24)))
+        when(catalogService.loadEntryPage(any(PluginRepository.class), eq("b"), isNull(), eq(24)))
                 .thenReturn(new PluginCatalogDetailPage(
                         detail, "manifest-v1", null, (long) detail.packages().size(), false));
         when(statusService.report()).thenReturn(new PluginStatusReport(List.of(installed)));
@@ -131,6 +185,18 @@ class PluginMarketInstallStatusTest {
         assertThat(previewOnly.recommendedVersion()).isNull();
         assertThat(previewOnly.updateAvailable()).isFalse();
         assertThat(previewOnly.latestVersion()).isEqualTo("9.0.0-beta.2");
+        assertThat(previewOnly.installStatus()).isEqualTo(MarketInstallStatus.NO_RECOMMENDATION);
+        assertThat(previewOnly.assuranceLevel()).isEqualTo(versions.get(0).verification().assuranceLevel());
+    }
+
+    @Test
+    @DisplayName("只有不兼容预发布时保留真实 SDK 限制，不宣称存在可安装版本")
+    void incompatiblePrereleaseHasNoRecommendation() {
+        var view = PluginMarketEntryView.from(entry("example"), false, null,
+                List.of(projected("9.0.0-rc.1", false, "CLEAR")));
+        assertThat(view.recommendedVersion()).isNull();
+        assertThat(view.installStatus()).isEqualTo(MarketInstallStatus.INCOMPATIBLE);
+        assertThat(view.compatible()).isFalse();
     }
 
     @Test
@@ -186,11 +252,11 @@ class PluginMarketInstallStatusTest {
         var summary = entry("example", current);
         var complete = entry("example", current, oldest, older);
         when(statusService.report()).thenReturn(new PluginStatusReport(List.of()));
-        when(catalogService.loadPage(eq("official"), any())).thenReturn(
+        when(catalogService.loadPage(eq(repository), any())).thenReturn(
                 new PluginCatalogPage("g1", List.of(summary), null, 1L, Map.of(), false));
-        when(catalogService.loadEntrySnapshot(eq("official"), eq("example"), org.mockito.ArgumentMatchers.anyLong()))
+        when(catalogService.loadEntrySnapshot(eq(repository), eq("example"), org.mockito.ArgumentMatchers.anyLong()))
                 .thenReturn(new PluginCatalogDetailPage(complete, "g1", null, 3L, false));
-        when(catalogService.loadEntryPage("official", "example", null, 24))
+        when(catalogService.loadEntryPage(repository, "example", null, 24))
                 .thenReturn(new PluginCatalogDetailPage(summary, "g1", "older", 3L, false));
         var market = new PluginMarketService(registry, catalogService, acquisitionService, statusService);
         var card = entryOf(market.catalog("official"), "example");
@@ -202,7 +268,7 @@ class PluginMarketInstallStatusTest {
         assertThat(detail.nextVersionCursor()).isEqualTo("older");
         assertThat(detail.packages()).extracting(PluginMarketPackageView::version).containsExactly(current.version(), "6.0");
 
-        when(catalogService.loadEntrySnapshot(eq("official"), eq("example"), org.mockito.ArgumentMatchers.anyLong()))
+        when(catalogService.loadEntrySnapshot(eq(repository), eq("example"), org.mockito.ArgumentMatchers.anyLong()))
                 .thenReturn(new PluginCatalogDetailPage(complete, "g2", null, 3L, false),
                         new PluginCatalogDetailPage(complete, "g1", null, 3L, true))
                 .thenThrow(new top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException(
@@ -265,9 +331,9 @@ class PluginMarketInstallStatusTest {
         PluginMarketService market = service(installed("b", "7.3.0-rc.2"));
         PluginCatalogEntry entry = entry("b", Stream.of(versions.split(","))
                 .map(version -> pkg(version, "1.0")).toArray(PluginCatalogPackage[]::new));
-        when(catalogService.loadPage(eq(PluginRepository.OFFICIAL_ID), any(PluginCatalogPageQuery.class)))
+        when(catalogService.loadPage(any(PluginRepository.class), any(PluginCatalogPageQuery.class)))
                 .thenReturn(new PluginCatalogPage("manifest-v1", List.of(entry), null, 1L, Map.of(), false));
-        when(catalogService.loadEntryPage(eq(PluginRepository.OFFICIAL_ID), eq("b"), isNull(), eq(24)))
+        when(catalogService.loadEntryPage(any(PluginRepository.class), eq("b"), isNull(), eq(24)))
                 .thenReturn(new PluginCatalogDetailPage(entry, "manifest-v1", null, 3L, false));
 
         assertThat(List.of(entryOf(market.catalog(PluginRepository.OFFICIAL_ID), "b"),

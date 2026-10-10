@@ -101,7 +101,8 @@ let lastAcquisitionMode = SINGLE_IMPORT_MODE;
 function rememberModeDraft(panel) {
     if (!panel || !panel.dataset.mode) return;
     const fields = Array.from(panel.querySelectorAll('input[id], textarea[id]'))
-        .filter(field => !['password', 'file', 'checkbox', 'radio', 'hidden', 'button', 'submit'].includes(field.type))
+        .filter(field => !field.closest('[data-schedule-editor]')
+            && !['password', 'file', 'checkbox', 'radio', 'hidden', 'button', 'submit'].includes(field.type))
         .map(field => ({id: field.id, value: field.value, checked: field.checked,
             start: field.selectionStart, end: field.selectionEnd}));
     modeDrafts.set(panel.dataset.mode, {fields, scroll: dockState.open ? acquisitionScroll : window.scrollY,
@@ -130,6 +131,10 @@ function switchMode(mode) {
     let normalized = mode;
     if (normalized === 'schedule' && !isAdmin) normalized = QUICK_FETCH_MODE;
     if (!AB_MODES.some(item => item.id === normalized)) normalized = QUICK_FETCH_MODE;
+    if (scheduleState.editing?.mode && normalized !== scheduleState.editing.mode) {
+        cancelScheduleEdit(normalized);
+        return;
+    }
     if (normalized !== 'schedule') lastAcquisitionMode = normalized;
     const changed = state.mode !== normalized;
     if (changed) rememberModeDraft(document.getElementById('abModePanel'));
@@ -170,6 +175,7 @@ function renderStage() {
     else if (mode === 'search') renderSearchMode(panel);
     else if (mode === 'series') renderSeriesMode(panel);
     else if (mode === 'schedule') renderScheduleMode(panel);
+    mountScheduleEdit(panel);
     hydrateIcons(panel);
     if (pageI18n) pageI18n.apply(panel);
     // 舞台重建后槽位锚点（如 import-hint）随之重建，经共享 renderSlots 重挂插件贡献片段。
@@ -234,11 +240,23 @@ function settingsButton(id = 'abSettingsBtn') {
 }
 
 function saveScheduleButton() {
-    if (!isAdmin) return null;
+    if (!isAdmin || scheduleState.editing) return null;
+    let preview = null;
+    try { preview = altScheduleSources()?.previewForMode(state.mode, altScheduleSourceContext()); } catch { /* 来源不可用 */ }
+    if (!preview && state.mode !== QUICK_FETCH_MODE) return null;
     const btn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm');
     btn.type = 'button';
     btn.appendChild(abIconEl('clock'));
     btn.appendChild(el('span', '', bt('schedule.editor.save', '存为计划任务')));
+    btn.disabled = !preview;
+    if (!preview) {
+        const hint = bt('schedule.save.quick-hint',
+            '请先展开具体的作品列表（点开收藏 / 我的作品 / 关注新作，或点进某个画师 / 珍藏集）后再创建计划任务');
+        btn.title = hint;
+        const group = el('div', 'ab-field');
+        group.append(btn, el('p', 'ab-field-note', hint));
+        return group;
+    }
     btn.addEventListener('click', () => openScheduleEditor(null));
     return btn;
 }
@@ -411,6 +429,7 @@ function normalizeAcquisitionItems(items, acquisition, context, mode) {
             : {};
         return Object.assign({}, item, queueMeta || {}, {
             id: String(queueId),
+            __acquisitionId: String(item.id),
             kind: acquisition.type,
             __queueMeta: queueMeta || {}
         });

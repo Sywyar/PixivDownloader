@@ -490,9 +490,10 @@ textarea {
     color: var(--muted); background: var(--control-muted-bg); border-color: var(--border);
 }
 
-.pmk-install-slot { display: flex; flex: 1; min-width: 0; }
+.pmk-install-slot { display: flex; flex: 1 1 10rem; min-width: 0; }
 .pmk-card-footer { margin-top: auto; display: flex; flex-direction: column; gap: 9px; }
-.pmk-card-actions { display: flex; gap: 8px; align-items: center; }
+.pmk-card-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.pmk-card-actions .pmk-btn { white-space: normal; overflow-wrap: anywhere; padding-block: .5rem; }
 
 /* 安装控件（状态驱动） */
 .pmk-install { flex: 1; }
@@ -934,9 +935,26 @@ button.pmk-card-name:focus-visible { outline: 2px solid var(--brand); outline-of
 .pmk-modal .pmk-install:disabled { opacity: 1; }
 .pmk-modal .pmk-section-text { max-width: 70ch; }
 .pmk-about { margin: 0; }
+.pmk-local-artifact dd { margin: .25rem 0 .75rem; overflow-wrap: anywhere; }
+.pmk-content-dialog [hidden] { display: none !important; }
+.pmk-installation-notice, .pmk-market-facts { color: var(--text-secondary); line-height: 1.6; overflow-wrap: anywhere; }
 .pmk-detail-security .pmk-section-text { font-size: .75rem; margin: .5rem 0; }
 @media (max-width: 37.5em) {
     .pmk-hero { padding: 1.25rem 3.5rem 1rem 1rem; }
     .pmk-modal-actionbar { padding: 0 1rem 1rem; }
     .pmk-modal-actionbar-right { margin-left: 0; }
 }
+/* 恢复提示同时提供文字和边框，不能只依赖颜色辨认。 */
+.pmk-recovery { margin-bottom: 0; padding: 20px; overflow-wrap: anywhere; display: grid; gap: 12px; }
+.pmk-recovery p { margin: 0; }
+.pmk-recovery-advice { white-space: pre-line; }
+.pmk-recovery ul { padding-inline-start: 20px; }
+.pmk-recovery--active { border: 2px solid var(--status-yellow); border-radius: var(--radius-lg); }
+.pmk-recovery h2 { font-size: 1.1rem; }
+.pmk-recovery li { white-space: pre-wrap; }
+.pmk-recovery-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.pmk-card.pmk-card--suspected { border: 4px solid var(--status-green); }
+.pmk-badge.pmk-badge--suspected { background: color-mix(in srgb, var(--status-green) 12%, transparent); color: var(--status-green); }
+.pmk-card.pmk-card--mismatch { border: 4px solid var(--status-red); }
+.pmk-badge.pmk-badge--mismatch { background: color-mix(in srgb, var(--status-red) 12%, transparent); color: var(--status-red); }
+.pmk-badge.pmk-badge--state { background: var(--warning-bg); color: var(--warning-text); }

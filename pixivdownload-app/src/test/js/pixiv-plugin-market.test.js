@@ -25,6 +25,7 @@ sandbox.window = sandbox;
 const fetchCalls = [];
 let nextFetchResponse = { status: 200, body: {} };
 const queuedFetchResponses = [];
+const queuedPreviewResponses = [];
 let previewResponse = { status: 200, body: { fingerprint: 'd'.repeat(64), packages: [], conflicts: [] } };
 const operations = new Map();
 let operationSequence = 0;
@@ -32,7 +33,9 @@ let loseExecutionResponse = false;
 sandbox.fetch = function (url, opts) {
     fetchCalls.push({ url, opts });
     let response;
-    if (url.endsWith('/install-preview') && (!opts || opts.method !== 'POST')) response = previewResponse;
+    if (url.endsWith('/install-preview') && (!opts || opts.method !== 'POST')) {
+        response = queuedPreviewResponses.length ? queuedPreviewResponses.shift() : previewResponse;
+    }
     else if (url === '/api/plugin-market/operations') response = {status: 200, body: {id: 'operation-' + (++operationSequence)}};
     else if (url.startsWith('/api/plugins/acquisitions/')) response = {status: 200, body: operations.get(url.split('/').pop())};
     else {
@@ -60,6 +63,27 @@ vm.runInContext(DATA_SRC, sandbox);
 vm.runInContext(API_SRC, sandbox);
 
 const PMK = sandbox.window.PixivPluginMarket;
+for (const [match, expected] of [['SAME_ARTIFACT', 'INSTALLED_SAME'],
+    ['DIFFERENT_ARTIFACT', 'INSTALL_DIFFERENT'], ['UNKNOWN', 'INSTALL_UNVERIFIED']]) {
+    const pkg = {version: '7.0.0', installationMatch: match, compatible: true, installable: true,
+        verification: {status: 'VERIFIED_COMMUNITY', assuranceLevel: 'SOURCE_REVIEWED', revocationStatus: 'CLEAR'}};
+    const entry = {pluginId: 'sample', latestVersion: pkg.version, recommendedVersion: pkg.version,
+        installedVersion: pkg.version, installStatus: 'INSTALLED', packages: [pkg]};
+    eq('卡片按后端内容比较区分版本号相同的包', PMK.data.cardModel(entry).installStatus, expected);
+    eq('手动所选版本使用相同比较结果', PMK.data.selectedInstallStatus(entry, pkg, null, true), expected);
+    eq('撤销阻断不被本机相同包事实替代',
+        PMK.data.selectedInstallStatus(entry, pkg, {revocationStatus: 'REVOKED'}, true), 'REVOKED');
+}
+{
+    const pkg = {version: '7.0.0-rc.1', compatible: true, installable: true, installationMatch: 'NOT_INSTALLED',
+        verification: {status: 'VERIFIED_COMMUNITY', assuranceLevel: 'SOURCE_REVIEWED', revocationStatus: 'CLEAR'}};
+    const entry = {pluginId: 'sample', latestVersion: pkg.version, installStatus: 'NO_RECOMMENDATION', packages: [pkg]};
+    eq('无默认推荐保留卡片策略', PMK.data.cardModel(entry).installStatus, 'NO_RECOMMENDATION');
+    eq('无默认推荐不禁用手动 RC 安装', PMK.data.selectedInstallStatus(entry, pkg, null, true), 'NOT_INSTALLED');
+    const result = PMK.data.installResult({accepted: true, outcome: 'INSTALLED', activated: false,
+        effectiveAfterRestart: false, activationBlockedByDevelopmentMode: true});
+    eq('开发模式保存不显示已激活或待重启', PMK.data.installResultStatus(result, 'NOT_INSTALLED'), 'STORED_DEVELOPMENT');
+}
 for (const state of ['YANKED', 'REVOKED']) {
     const pkg = { installable: false, verification: { status: 'VERIFIED_COMMUNITY', revocationStatus: state } };
     const card = PMK.data.cardModel({ pluginId: 'sample', latestVersion: '2.0.0', installStatus: 'UPDATE_AVAILABLE',
@@ -340,18 +364,21 @@ eq('市场 recoveryBlocked toast 保留后端 message', blockedFeedback.message,
     previewResponse.body.packages = [];
     eq('签名与依赖信任确认后返回最终安装结果', confirmed.body.outcome, 'INSTALLED');
     eq('重新确认后仍显示此前成功安装的依赖', confirmed.body.dependencyInstallResults[0].pluginId, 'already-installed');
-    eq('每次执行都重新确认预览，两个安全挑战独立确认', confirmationOptions.length, 5);
+    eq('相同安装计划只确认一次，两个制品的执行信任仍独立确认', confirmationOptions.length, 3);
     ok('执行信任提示只使用后端核验的发布者事实', dialogText(confirmationOptions[1]).includes('Demo Publisher'));
     ok('执行信任提示显示精确制品摘要和完全访问模式', dialogText(confirmationOptions[1]).includes(firstSha)
         && dialogText(confirmationOptions[1]).includes('HOST_PROCESS_FULL_TRUST'));
     ok('市场在高权限宿主上提示 full-trust 插件继承同等权限',
         confirmationOptions[1].message.includes('将继承同等权限'));
-    ok('未签名依赖使用更强风险提示', confirmationOptions[3].message.includes('没有发布者签名')
-        && dialogText(confirmationOptions[3]).includes('demo dependency'));
+    ok('未签名依赖使用更强风险提示', confirmationOptions[2].message.includes('没有发布者签名')
+        && dialogText(confirmationOptions[2]).includes('demo dependency'));
     const installs = fetchCalls.filter(call => call.url === '/api/plugin-market/operations');
     eq('首次请求只携带当前预览', JSON.parse(installs[0].opts.body).confirmTrust, null);
     eq('首次信任只携带后端返回的精确摘要', JSON.parse(installs[1].opts.body).confirmTrust, firstSha);
     eq('依赖确认不能复用顶层制品摘要', JSON.parse(installs[2].opts.body).confirmTrust, dependencySha);
+    ok('信任确认把待确认下载转交给下一次显式操作', /^operation-/.test(JSON.parse(installs[1].opts.body).previousOperationId));
+    ok('依赖信任确认使用本次操作身份', JSON.parse(installs[2].opts.body).previousOperationId
+        !== JSON.parse(installs[1].opts.body).previousOperationId);
     ok('每次安装都绑定预览指纹', installs.every(call => JSON.parse(call.opts.body).fingerprint === 'd'.repeat(64)));
 
     fetchCalls.length = 0;
@@ -374,7 +401,7 @@ eq('市场 recoveryBlocked toast 保留后端 message', blockedFeedback.message,
     );
     const repeated = await PMK.installPluginWithConfirmation('custom repo', 'loop', '1.0.0');
     eq('后端重复同一摘要时停止确认循环', repeated.body.outcome, 'TRUST_CONFIRMATION_REQUIRED');
-    eq('同一摘要最多确认一次，两次执行分别确认预览', confirmationOptions.length, 3);
+    eq('同一摘要最多确认一次，相同安装计划不重复确认', confirmationOptions.length, 2);
     fetchCalls.length = 0;
     sandbox.PixivFeedback.confirm = () => Promise.resolve(false);
     const cancelled = await PMK.installPluginWithConfirmation('official', 'cancelled', '1.0.0');
@@ -401,6 +428,78 @@ eq('市场 recoveryBlocked toast 保留后端 message', blockedFeedback.message,
     eq('断网恢复不重新执行安装', fetchCalls.filter(call => call.url.endsWith('/execute')).length, 1);
     eq('响应丢失只追加一次只读操作查询', fetchCalls.filter(call => call.url.startsWith('/api/plugins/acquisitions/')).length, 1);
     loseExecutionResponse = false;
+
+    const initialPlan = {fingerprint: 'd'.repeat(64), packages: [{
+        pluginId: 'sample', version: '1.0.0', repositoryId: 'community', publisher: 'Sample Publisher',
+        sha256: firstSha, installedVersion: null, installedRepositoryId: null, action: 'INSTALL',
+        consumers: [], activeConsumers: [], restartImpact: 'HOT_RELOAD'
+    }], conflicts: []};
+    const refreshedPlan = {...initialPlan, fingerprint: 'e'.repeat(64)};
+    async function retryAfterTrust(nextPreview, cancelTitle) {
+        fetchCalls.length = 0;
+        confirmationOptions.length = 0;
+        queuedPreviewResponses.push({status: 200, body: initialPlan}, nextPreview);
+        queuedFetchResponses.push({status: 409, body: {
+            outcome: 'TRUST_CONFIRMATION_REQUIRED',
+            trustRequirement: {pluginId: 'sample', version: '1.0.0', repositoryId: 'community',
+                signed: true, artifactSha256: firstSha, publisherKeyFingerprint: 'c'.repeat(64),
+                executionMode: 'HOST_PROCESS_FULL_TRUST'}
+        }});
+        sandbox.PixivFeedback.confirm = options => {
+            confirmationOptions.push(options);
+            return Promise.resolve(!(confirmationOptions.length > 1 && options.title === cancelTitle));
+        };
+        return PMK.installPluginWithConfirmation('community', 'sample', '1.0.0');
+    }
+    const unchanged = await retryAfterTrust({status: 200, body: refreshedPlan});
+    eq('运行期指纹变化而计划内容未变时仍可安装', unchanged.body.outcome, 'INSTALLED');
+    eq('一次计划确认加一次执行信任即可安装', confirmationOptions.length, 2);
+    eq('信任确认后仍重新读取安装计划', fetchCalls.filter(call => call.url.endsWith('/install-preview')).length, 2);
+    const retried = fetchCalls.filter(call => call.url === '/api/plugin-market/operations');
+    eq('继续安装绑定最新运行期指纹', JSON.parse(retried[1].opts.body).fingerprint, refreshedPlan.fingerprint);
+    eq('继续安装只授予刚确认制品的执行信任', JSON.parse(retried[1].opts.body).confirmTrust, firstSha);
+
+    for (const [field, value] of Object.entries({
+        pluginId: 'replacement', version: '2.0.0', repositoryId: 'another-repository',
+        publisher: 'Another Publisher', sha256: dependencySha, installedVersion: '0.9.0',
+        installedRepositoryId: 'previous-repository', action: 'UPDATE', consumers: ['reader'],
+        activeConsumers: ['reader'], restartImpact: 'PROCESS_RESTART'
+    })) {
+        const changed = {...refreshedPlan, packages: [{...initialPlan.packages[0], [field]: value}]};
+        const result = await retryAfterTrust({status: 200, body: changed});
+        eq('计划事实变化仍需确认: ' + field, confirmationOptions.length, 3);
+        eq('确认变化后的计划可继续安装: ' + field, result.body.outcome, 'INSTALLED');
+    }
+    const withDependency = {...refreshedPlan, packages: [initialPlan.packages[0], {
+        ...initialPlan.packages[0], pluginId: 'dependency', sha256: dependencySha
+    }]};
+    const changedCancelled = await retryAfterTrust({status: 200, body: withDependency}, PMK.t('install.preview.title'));
+    eq('取消新增依赖的计划返回中性终态', changedCancelled.body.code, 'CANCELLED');
+    eq('取消变化后的计划不继续执行', fetchCalls.filter(call => call.url.endsWith('/execute')).length, 1);
+    eq('取消变化后的计划释放待确认下载', fetchCalls.filter(call => call.url.endsWith('/discard')).length, 1);
+
+    const newConflict = await retryAfterTrust({status: 200, body: {...refreshedPlan,
+        conflicts: [{code: 'SOURCE_CONFLICT', pluginId: 'sample', arguments: ['other', 'community']}]}});
+    eq('信任确认后出现冲突仍阻止安装', newConflict.body.code, 'INSTALL_PREVIEW_BLOCKED');
+    eq('冲突计划不继续执行', fetchCalls.filter(call => call.url.endsWith('/execute')).length, 1);
+    const unavailable = await retryAfterTrust({status: 503, body: {code: 'CATALOG_UNAVAILABLE', message: 'Unavailable'}});
+    eq('信任确认后预览失败保留原错误', unavailable.body.code, 'CATALOG_UNAVAILABLE');
+    eq('预览失败不继续执行', fetchCalls.filter(call => call.url.endsWith('/execute')).length, 1);
+    eq('预览失败释放待确认下载', fetchCalls.filter(call => call.url.endsWith('/discard')).length, 1);
+    const invalid = await retryAfterTrust({status: 200, body: {...refreshedPlan, fingerprint: 'invalid'}});
+    eq('重复计划也不能使用非法指纹', invalid.body.code, 'REQUEST_FAILED');
+    eq('非法指纹不继续执行', fetchCalls.filter(call => call.url.endsWith('/execute')).length, 1);
+
+    const trustCancelled = await retryAfterTrust({status: 200, body: refreshedPlan}, PMK.t('install.trust.title', '确认插件执行信任'));
+    eq('取消执行信任不继续安装', trustCancelled.body.outcome, 'TRUST_CONFIRMATION_REQUIRED');
+    eq('取消执行信任不重取计划', fetchCalls.filter(call => call.url.endsWith('/install-preview')).length, 1);
+    eq('取消执行信任释放待确认下载', fetchCalls.filter(call => call.url.endsWith('/discard')).length, 1);
+    queuedPreviewResponses.length = 0;
+    confirmationOptions.length = 0;
+    previewResponse = {status: 200, body: initialPlan};
+    sandbox.PixivFeedback.confirm = options => { confirmationOptions.push(options); return Promise.resolve(true); };
+    await PMK.installPluginWithConfirmation('community', 'sample', '1.0.0');
+    eq('新一次安装不复用前一次的计划确认', confirmationOptions.length, 1);
     PMK.state.hostElevated = false;
     console.log('pixiv-plugin-market.test.js: ' + passed + ' assertions passed');
 })().catch(err => {

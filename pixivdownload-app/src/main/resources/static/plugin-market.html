@@ -26,6 +26,7 @@
     <script src="/plugin-market/plugin-market-core.js"></script>
     <script src="/plugin-market/plugin-market-data.js"></script>
     <script src="/plugin-market/plugin-market-api.js"></script>
+    <script src="/plugin-market/plugin-market-recovery.js"></script>
     <script src="/plugin-market/plugin-market-operations.js"></script>
     <script src="/plugin-market/plugin-market-content.js"></script>
     <script src="/plugin-market/plugin-market-vue.js"></script>
@@ -52,6 +53,7 @@
 
 <!-- 市场页内容挂载点：主路径由 plugin-market-vue.js 用 Vue reactive 渲染；Vue 不可用时由 plugin-market-fallback.js
      命令式渲染（可诊断降级）。初始为加载占位，挂载后被替换。 -->
+<section id="pmk-recovery" class="pmk-recovery pmk-page" aria-live="polite"></section>
 <div id="pmk-app-root">
     <div class="pmk-page">
         <div class="pmk-state"><i class="fa-solid fa-spinner fa-spin"></i><span data-i18n="loading">正在加载…</span></div>

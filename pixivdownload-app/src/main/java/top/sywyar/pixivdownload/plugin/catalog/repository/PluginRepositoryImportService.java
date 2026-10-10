@@ -45,6 +45,7 @@ public final class PluginRepositoryImportService {
     private final CommunityDirectoryService directory;
     private final RepositoryDescriptorParser parser = new RepositoryDescriptorParser();
     private final ObjectMapper mapper = PluginCatalogStrictJson.mapper(true);
+    private volatile ParsedRepositoryDescriptor communityDescriptor;
 
     public PluginRepositoryImportService(PluginRepositoryRegistry registry,
                                          PluginCatalogClientProvider clients,
@@ -66,10 +67,16 @@ public final class PluginRepositoryImportService {
         if (!repository.community()) return repository;
         if (directory == null) throw updateInvalid("community directory verifier is unavailable");
         var lookup = directory.lookup(repository.repositoryId());
-        var parsed = parser.parse(repository.descriptorUrl(), clients.clientFor(repository)
-                .fetchBytes(repository.descriptorUrl(), RepositoryDescriptorParser.MAX_DESCRIPTOR_BYTES), true);
+        var parsed = communityDescriptor;
+        if (parsed == null || lookup.entry() == null
+                || !repository.descriptorUrl().equals(parsed.descriptorUrl())
+                || !lookup.entry().descriptorSha256().equals(parsed.descriptorSha256())) {
+            parsed = parser.parse(repository.descriptorUrl(), clients.clientFor(repository)
+                    .fetchBytes(repository.descriptorUrl(), RepositoryDescriptorParser.MAX_DESCRIPTOR_BYTES), true);
+        }
         if (!lookup.certifies(repository.repositoryId(), parsed.descriptorUrl(), parsed.descriptorSha256(), parsed.trustedKeys())
                 || parsed.descriptor().revocationsUrl() == null) throw updateInvalid("community descriptor is not certified");
+        communityDescriptor = parsed;
         var descriptor = parsed.descriptor();
         return new PluginRepository(repository.repositoryId(), repository.displayNameKey(), descriptor.catalog().endpoint(),
                 repository.enabled(), false, true, RepositoryProxyPolicy.fromConfig(parsed.effectiveProxyPolicy()),

@@ -2,7 +2,7 @@
     let batchCollectionsRefreshPromise = null;
     const scopedBatchCollectionsRefreshPromises = new WeakMap();
     const AUTO_SAVE_SETTING_IDS = new Set([
-        's-interval', 's-image-delay', 's-concurrent', 's-skip', 's-verify-files',
+        's-interval', 's-image-delay', 's-concurrent', 's-auto-start', 's-skip', 's-verify-files',
         's-redownload-deleted', 's-bookmark', 's-collection', 's-file-name-template', 's-path-overflow-action',
         's-novel-format', 's-novel-merge', 's-novel-merge-format',
         's-novel-auto-translate', 's-novel-translate-lang', 's-novel-translate-seg'
@@ -114,6 +114,11 @@
         }
         document.getElementById('s-interval').value = state.settings.interval;
         document.getElementById('s-concurrent').value = state.settings.concurrent;
+        const autoStart = document.getElementById('s-auto-start');
+        if (autoStart) {
+            autoStart.checked = state.settings.autoStartOnEnqueue === true;
+            document.getElementById('s-auto-start-wrap').hidden = !isAdmin;
+        }
         document.getElementById('s-skip').checked = state.settings.skipHistory;
         document.getElementById('s-verify-files').checked = state.settings.verifyHistoryFiles ?? false;
         document.getElementById('s-redownload-deleted').checked = state.settings.redownloadDeleted ?? false;
@@ -269,11 +274,16 @@
         state.settings.interval = Math.max(0, parseFloat(document.getElementById('s-interval').value) || 0);
         state.settings.imageDelay = Math.max(0, parseFloat(document.getElementById('s-image-delay').value) || 0);
         state.settings.concurrent = Math.max(1, parseInt(document.getElementById('s-concurrent').value) || 1);
+        const autoStart = document.getElementById('s-auto-start');
+        if (isAdmin && autoStart) state.settings.autoStartOnEnqueue = autoStart.checked;
         state.settings.skipHistory = document.getElementById('s-skip').checked;
         state.settings.verifyHistoryFiles = document.getElementById('s-verify-files').checked;
         state.settings.redownloadDeleted = document.getElementById('s-redownload-deleted').checked;
         state.settings.bookmark = document.getElementById('s-bookmark').checked;
-        state.settings.fileNameTemplate = normalizeFileNameTemplate(document.getElementById('s-file-name-template').value);
+        const template = document.getElementById('s-file-name-template').value;
+        state.settings.fileNameTemplate = typeof scheduleEditingToken !== 'undefined' && scheduleEditingToken
+                && !template.trim() ? window.PixivBatch.pixivScheduleDefaults.download.fileNameTemplate
+            : normalizeFileNameTemplate(template);
         state.settings.pathOverflowAction = (document.getElementById('s-path-overflow-action') || {}).value || 'ASK';
         const sel = document.getElementById('s-collection');
         state.settings.collectionId = sel.value ? Number(sel.value) : null;

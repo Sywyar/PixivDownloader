@@ -69,7 +69,8 @@
             var meta = vm.cardMeta(card);
             var badge = card.verificationBadge;
             function open() { vm.openDetail(card.pluginId); }
-            return h('article', { key: card.pluginId, class: ['pmk-card', card.colorClass] }, [
+            return h('article', { key: card.pluginId, class: ['pmk-card', card.colorClass,
+                card.focusReason ? 'pmk-card--suspected' : '', card.artifactMismatch ? 'pmk-card--mismatch' : ''] }, [
                 h('div', { class: 'pmk-card-banner', onClick: open }, [
                     icon(['pmk-card-banner-glyph', card.iconClass]), icon(['pmk-card-banner-bg', card.iconClass]),
                     h('span', { class: 'pmk-card-banner-cat' }, [icon(card.categoryIcon), card.categoryLabel])
@@ -80,6 +81,8 @@
                         h('div', { class: 'pmk-card-titleblock' }, [
                             h('div', { class: 'pmk-card-name-row' }, [
                                 h('button', { type: 'button', class: 'pmk-card-name', onClick: open }, card.name),
+                                card.focusReason ? h('span', { class: 'pmk-badge pmk-badge--suspected' }, t('recovery.focus.' + card.focusReason)) : null,
+                                card.installationState ? h('span', { class: ['pmk-badge', card.artifactMismatch ? 'pmk-badge--mismatch' : 'pmk-badge--state'] }, t('installation.state.' + card.installationState)) : null,
                                 h('span', { class: 'pmk-badge pmk-badge--' + (card.official ? 'official' : 'community') },
                                     card.official ? t('badge.official', '官方') : card.assuranceLabel),
                                 card.recommended ? h('span', { class: 'pmk-badge pmk-badge--recommended' }, t('badge.recommended', '推荐')) : null,
@@ -103,6 +106,7 @@
                         vm.showCardCompat(card) ? h('div', { class: 'pmk-card-compat' }, [icon('fa-solid fa-triangle-exclamation'),
                             t('compat.needs', '需要SDK v{v}+（当前 v{cur}）', { v: card.compatibilityReason, cur: vm.sdkVersion })]) : null,
                         card.compatibilityNotice ? h('p', { class: 'pmk-card-compat pmk-card-compat--notice' }, card.compatibilityNotice) : null,
+                        card.installationNotice ? h('p', {class: 'pmk-card-compat pmk-card-compat--notice'}, card.installationNotice) : null,
                         h('div', { class: 'pmk-card-actions' }, [
                             vm.cardStatus(card) === 'INSTALLING' ? progress(vm.installing[vm.installKey(card.repositoryId, card.pluginId)]) : h('button', {
                                 class: ['pmk-btn pmk-install', 'pmk-btn--' + meta.variant], disabled: meta.disabled,
@@ -154,6 +158,7 @@
                         Vue.withDirectives(h('select', { class: 'pmk-sort', 'onUpdate:modelValue': function (value) { vm.sort = value; } },
                             vm.sortOptions.map(function (opt) { return h('option', { key: opt, value: opt }, t('sort.' + opt, opt)); })), [[Vue.vModelSelect, vm.sort]])
                     ]),
+                    vm.catalog && vm.catalog.focusIncomplete ? h('p', {class: 'pmk-banner pmk-banner--warn'}, t('recovery.focus-incomplete')) : null,
                     vm.cards.length ? h('div', { class: 'pmk-grid' }, vm.cards.map(cardView)) : null,
                     vm.catalog && vm.catalog.nextCursor ? h('div', { class: 'pmk-load-more' }, [
                         h('button', { class: 'pmk-btn pmk-btn--gray', disabled: vm.loadingMore, onClick: vm.loadMore },
@@ -202,11 +207,14 @@
                             vm.modalStatus === 'INSTALLING' ? progress(vm.installing[vm.installKey(vm.activeCatalogRepositoryId, vm.selectedPluginId)]) : h('button', {
                                 class: ['pmk-btn pmk-install', 'pmk-btn--' + vm.modalMeta.variant], disabled: vm.modalMeta.disabled, onClick: vm.installModal
                             }, [icon('fa-solid fa-' + vm.modalMeta.icon), h('span', vm.modalLabel)]),
-                            ['INSTALLED', 'ACTIVATED', 'PENDING_RESTART'].includes(vm.modalState()) ? h('a', {class: 'pmk-btn pmk-btn--primary', href: '/plugin-manage.html'}, t('install.goto-manage')) : null
+                            ['INSTALLED', 'INSTALLED_SAME', 'INSTALL_DIFFERENT', 'INSTALL_UNVERIFIED', 'ACTIVATED', 'PENDING_RESTART', 'STORED_DEVELOPMENT'].includes(vm.modalState()) ? h('a', {class: 'pmk-btn pmk-btn--primary', href: '/plugin-manage.html'}, t('install.goto-manage')) : null
                         ])
                     ]),
                     h('div', { class: 'pmk-modal-body' }, [
                         detail.compatibilityNotice ? h('p', {class: 'pmk-card-compat pmk-card-compat--notice', role: 'status'}, detail.compatibilityNotice) : null,
+                        detail.installationNotice ? h('p', {class: 'pmk-card-compat pmk-card-compat--notice', role: 'status'}, detail.installationNotice) : null,
+                        factSection({title: t('installation.local-package'), fields: detail.localArtifactFields}),
+                        h('p', {class: 'pmk-section-text'}, t('installation.market-facts')),
                         h('section', {class: 'pmk-about'}, [h('h3', {class: 'pmk-section-label'}, t('detail.about')),
                             h('div', {class: 'pmk-section-text'}, detail.description || t('detail.no-description'))]),
                         h('dl', {class: 'pmk-detail-overview'}, detail.infoRows.filter(function (row) {
@@ -306,11 +314,6 @@
             PMK.operations ? h('div', { ref: PMK.operations.mountPanel }) : null,
             vm.loading ? loading() : vm.error ? h('div', { class: 'pmk-banner pmk-banner--error' },
                 [icon('fa-solid fa-triangle-exclamation'), h('div', { class: 'pmk-banner-body' }, vm.error)]) : [
-                vm.recoveryMode ? h('div', { class: 'pmk-banner pmk-banner--error' }, [icon('fa-solid fa-triangle-exclamation'), h('div', { class: 'pmk-banner-body' }, [
-                    h('div', { class: 'pmk-banner-title' }, t('recovery.banner.title', '当前正处于恢复模式')),
-                    h('div', t('recovery.banner.desc', '正常功能已暂停。请根据下列原因安装、修复或重新安装插件，完成后重启程序。')),
-                    vm.hasRecoveryReasons ? h('ul', vm.recoveryReasons.map(function (reason) { return h('li', { key: reason }, reason); })) : null
-                ])]) : null,
                 !vm.masterEnabled ? h('div', { class: 'pmk-banner pmk-banner--warn' }, [icon('fa-solid fa-circle-exclamation'), h('div', { class: 'pmk-banner-body' }, [
                     h('div', { class: 'pmk-banner-title' }, t('master.disabled.title', '插件市场未开启')),
                     h('div', t('master.disabled.desc', '请在配置中开启受信 catalog 后再浏览仓库与安装插件。'))
@@ -426,7 +429,7 @@
                     }
                     return null;
                 },
-                modalMeta: function () { return PMK.installMeta(this.modalState()); },
+                modalMeta: function () { this.i18nRev; return PMK.installMeta(this.modalState()); },
                 modalLabel: function () { return this.installLabel(this.modalState(), this.selectedVersion); },
                 installResultFor: function () {
                     if (!this.selectedPluginId) return null;
@@ -448,6 +451,8 @@
                 this.reload();
             },
             beforeUnmount: function () {
+                this.catalogToken++;
+                if (PMK.api.cancelCatalog) PMK.api.cancelCatalog();
                 document.removeEventListener('keydown', this.onKeydown);
                 document.body.style.overflow = '';
             },
@@ -466,6 +471,7 @@
                     var self = this;
                     // 让在途的旧仓库列表 / catalog 拉取全部失效（其回调将被 token 守卫丢弃）。
                     var token = ++this.reloadToken;
+                    if (PMK.api.cancelCatalog) PMK.api.cancelCatalog();
                     this.catalogToken++;
                     this.loading = true; this.error = null; this.catalogError = null;
                     Promise.all([PMK.api.fetchRepositories(), PMK.api.fetchPluginStatus()]).then(function (responses) {
@@ -503,13 +509,15 @@
                 loadCatalog: function (repoId) {
                     var self = this;
                     var token = ++this.catalogToken;
+                    this.loadingMore = false;
                     this.catalogLoading = true; this.catalogError = null;
                     PMK.api.fetchCatalog(repoId).then(function (cat) {
                         if (token !== self.catalogToken) return;   // 仓库已切换，丢弃旧仓库的 catalog 响应
                         self.catalog = cat;
                         self.catalogLoading = false;
-                    }).catch(function () {
+                    }).catch(function (failure) {
                         if (token !== self.catalogToken) return;
+                        if (failure.name === 'AbortError') return;
                         self.catalog = null;
                         self.catalogError = self.t('error.catalog', '无法加载该仓库的插件清单，请检查仓库状态或稍后重试。');
                         self.catalogLoading = false;
@@ -518,16 +526,20 @@
                 loadMore: function () {
                     var self = this;
                     if (!this.catalog || !this.catalog.nextCursor || this.loadingMore) return;
+                    var token = this.catalogToken;
+                    var repository = this.activeRepositoryId;
                     this.loadingMore = true;
                     PMK.api.fetchCatalog(this.activeRepositoryId, { cursor: this.catalog.nextCursor }).then(function (page) {
+                        if (token !== self.catalogToken || repository !== self.activeRepositoryId) return;
                         if (!self.catalog || page.generation !== self.catalog.generation) {
                             self.loadCatalog(self.activeRepositoryId); return;
                         }
-                        self.catalog.entries = self.catalog.entries.concat(page.entries || []);
+                        self.catalog.entries = PMK.data.mergeEntries(self.catalog.entries, page.entries);
                         self.catalog.nextCursor = page.nextCursor;
-                    }).catch(function () {
+                    }).catch(function (failure) {
+                        if (token !== self.catalogToken || failure.name === 'AbortError') return;
                         PMK.toast(self.t('error.catalog', '无法加载该仓库的插件清单，请检查仓库状态或稍后重试。'), 'error');
-                    }).finally(function () { self.loadingMore = false; });
+                    }).finally(function () { if (token === self.catalogToken) self.loadingMore = false; });
                 },
                 switchRepository: function (repo) {
                     if (!repo.enabled || repo.repositoryId === this.activeRepositoryId) return;
@@ -537,24 +549,33 @@
                 },
                 setCategory: function (id) { this.category = id; },
                 openDetail: function (pluginId) {
-                    var self = this;
                     this.detailReturnFocus = document.activeElement;
-                    var token = ++this.detailToken;
-                    this.detailLoadingMore = false;
-                    var repository = this.activeCatalogRepositoryId;
                     this.selectedPluginId = pluginId;
                     var entry = this.selectedEntry;
                     this.selectedDetail = entry;
                     this.selectedVersion = PMK.data.defaultVersion(entry);
                     this.selectedFacts = null;
                     document.body.style.overflow = 'hidden';
-                    PMK.api.fetchPluginDetail(repository, pluginId).then(function (detail) {
-                        if (token !== self.detailToken || self.activeCatalogRepositoryId !== repository || self.selectedPluginId !== pluginId) return;
+                    this.loadDetail();
+                },
+                loadDetail: function (preserveVersions) {
+                    var self = this;
+                    var token = ++this.detailToken;
+                    this.detailLoadingMore = false;
+                    var repository = this.activeCatalogRepositoryId;
+                    var pluginId = this.selectedPluginId;
+                    var previous = this.selectedDetail;
+                    function current() {
+                        return token === self.detailToken && self.activeCatalogRepositoryId === repository
+                            && self.activeRepositoryId === repository && self.selectedPluginId === pluginId;
+                    }
+                    PMK.api.refreshPluginDetail(repository, pluginId, preserveVersions ? previous : null, current).then(function (detail) {
+                        if (!current() || !detail) return;
                         self.selectedDetail = detail;
                         self.selectedVersion = PMK.data.resolveVersion(detail, self.selectedVersion);
                         self.loadPackageFacts();
                     }).catch(function () {
-                        if (token !== self.detailToken || self.activeCatalogRepositoryId !== repository) return;
+                        if (!current()) return;
                         PMK.toast(self.t('error.detail', '无法加载插件详情，请稍后重试。'), 'error');
                     });
                 },
@@ -589,20 +610,24 @@
                     if (!detail || !detail.nextVersionCursor || this.detailLoadingMore) return;
                     var token = this.detailToken;
                     var repository = this.activeCatalogRepositoryId;
+                    var cursor = detail.nextVersionCursor;
                     this.detailLoadingMore = true;
                     PMK.api.fetchPluginDetail(repository, detail.pluginId,
-                        { cursor: detail.nextVersionCursor }).then(function (page) {
+                        { cursor: cursor }).then(function (page) {
                         if (token !== self.detailToken || self.activeCatalogRepositoryId !== repository) return;
-                        if (!self.selectedDetail || page.versionsGeneration !== detail.versionsGeneration) {
+                        var current = self.selectedDetail;
+                        if (!current || current.versionsGeneration !== detail.versionsGeneration
+                                || current.nextVersionCursor !== cursor) return;
+                        if (page.versionsGeneration !== current.versionsGeneration) {
                             self.openDetail(detail.pluginId); return;
                         }
                         var seen = {};
-                        (detail.packages || []).forEach(function (pkg) { seen[pkg.version] = true; });
-                        detail.packages = (detail.packages || []).concat((page.packages || []).filter(function (pkg) {
+                        (current.packages || []).forEach(function (pkg) { seen[pkg.version] = true; });
+                        current.packages = (current.packages || []).concat((page.packages || []).filter(function (pkg) {
                             if (seen[pkg.version]) return false;
                             seen[pkg.version] = true; return true;
                         }));
-                        detail.nextVersionCursor = page.nextVersionCursor;
+                        current.nextVersionCursor = page.nextVersionCursor;
                     }).catch(function () {
                         if (token !== self.detailToken || self.activeCatalogRepositoryId !== repository) return;
                         PMK.toast(self.t('error.detail', '无法加载插件详情，请稍后重试。'), 'error');
@@ -631,7 +656,8 @@
                 cardStatus: function (card) {
                     var key = this.installKey(card.repositoryId, card.pluginId);
                     if (this.installing[key]) return 'INSTALLING';
-                    return PMK.data.installResultStatus(this.installResults[key], card.installStatus);
+                    var result = this.installResults[key];
+                    return PMK.data.installResultStatus(result && result.version === card.targetVersion ? result : null, card.installStatus);
                 },
                 cardMeta: function (card) { return PMK.installMeta(this.cardStatus(card)); },
                 showCardRating: function (card) { return !!(card.ratingStars || card.downloadsLabel); },
@@ -697,8 +723,9 @@
                     });
                 },
                 refreshCatalogAfterInstall: function (repositoryId) {
-                    if (repositoryId && repositoryId === this.activeCatalogRepositoryId) {
+                    if (repositoryId && repositoryId === this.activeCatalogRepositoryId && repositoryId === this.activeRepositoryId) {
                         this.loadCatalog(repositoryId);
+                        if (this.selectedPluginId) this.loadDetail(true);
                     }
                 },
                 // 详情弹窗当前选中版本的安装状态（按所选版本制品兼容性 / 是否已是已安装版本派生）。
@@ -708,15 +735,8 @@
                     var result = this.installResults[this.installKey(this.activeCatalogRepositoryId, entry.pluginId)];
                     var pkg = PMK.data.packageOf(entry, this.selectedVersion);
                     if (!pkg) return entry.installStatus;   // 无可安装版本制品 → 沿用后端状态（UNAVAILABLE / 已安装）
-                    var verificationStatus = PMK.data.packageInstallBlock(pkg, this.selectedFacts);
-                    if (verificationStatus) return verificationStatus;
-                    if (!pkg.compatible) return 'INCOMPATIBLE';
-                    var resultStatus = PMK.data.installResultStatus(result, null);
-                    if (resultStatus) return resultStatus;
-                    if (entry.installedVersion && entry.installedVersion === this.selectedVersion) return 'INSTALLED';
-                    if (entry.installedVersion && !entry.updateAvailable
-                            && this.selectedVersion === entry.recommendedVersion) return 'INSTALLED';
-                    return entry.installStatus === 'UPDATE_AVAILABLE' ? 'UPDATE_AVAILABLE' : 'NOT_INSTALLED';
+                    var status = PMK.data.selectedInstallStatus(entry, pkg, this.selectedFacts, true);
+                    return PMK.data.installResultStatus(result && result.version === pkg.version ? result : null, status);
                 },
                 installLabel: function (status, version) {
                     if (status === 'UPDATE_AVAILABLE') return this.t('install.action.update-to', '更新到 v{v}', { v: version });
@@ -786,6 +806,8 @@
                         description: PMK.data.entryDescription(entry), summary: card.desc, author: m.author, tags: card.tags,
                         installedVersion: entry.installedVersion, restartRequired: !!(pkg && pkg.effectiveAfterRestart === true),
                         compatibilityNotice: card.compatibilityNotice,
+                        installationNotice: PMK.data.installationNotice(entry, pkg),
+                        localArtifactFields: PMK.data.localArtifactFields(entry),
                         trustSections: global.PixivPluginPresentationTokens.trustSections(
                             this.selectedFacts || (pkg && pkg.verification), PMK.state.i18n.client),
                         artifactFields: [

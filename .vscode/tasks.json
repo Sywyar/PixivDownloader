@@ -38,6 +38,26 @@
         "cwd": "${workspaceFolder}"
       },
       "problemMatcher": []
+    },
+    {
+      "label": "Compile Recovery Runtime",
+      "type": "process",
+      "command": "${workspaceFolder}/mvnw",
+      "windows": {
+        "command": "${workspaceFolder}\\mvnw.cmd"
+      },
+      "args": [
+        "-pl",
+        "pixivdownload-app,pixivdownload-official-plugins",
+        "-am",
+        "-Precovery-mode",
+        "process-classes",
+        "-Dexec.skip=true"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
     }
   ]
 }

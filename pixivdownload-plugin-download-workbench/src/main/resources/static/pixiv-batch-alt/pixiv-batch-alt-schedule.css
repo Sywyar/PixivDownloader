@@ -152,6 +152,70 @@
     color: var(--brand-strong);
 }
 
+.ab-schedule-inline {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.5rem;
+    min-width: 0;
+    padding: 1rem 1.25rem;
+    margin-block: 0 1.5rem;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface-2);
+}
+
+.ab-schedule-edit-info {
+    flex: 1 1 18rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.ab-schedule-inline h2 {
+    font-size: 1rem;
+    line-height: 1.4;
+    margin: 0;
+}
+
+.ab-schedule-edit-summary {
+    margin: 0.25rem 0 0;
+    color: var(--muted);
+    font-size: 0.8125rem;
+}
+
+.ab-schedule-edit-scope,
+.ab-schedule-edit-status {
+    flex-basis: 100%;
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--muted);
+}
+
+.ab-schedule-edit-status:empty {
+    display: none;
+}
+
+.ab-schedule-overrides > summary {
+    cursor: pointer;
+    padding-block: 12px;
+}
+
+.ab-schedule-inline .ab-drawer-actions {
+    margin: 0;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 0.5rem;
+}
+
+@media (max-width: 640px) {
+    .ab-schedule-inline {
+        padding: 1rem;
+    }
+    .ab-schedule-inline .ab-drawer-actions {
+        width: 100%;
+    }
+}
+
 .ab-snapshot-dl {
     display: grid;
     grid-template-columns: 150px 1fr;

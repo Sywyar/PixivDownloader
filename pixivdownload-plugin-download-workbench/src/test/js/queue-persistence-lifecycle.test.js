@@ -32,7 +32,7 @@ function harness(variant) {
     const load = name => run(fs.readFileSync(path.resolve(__dirname, '../../main/resources/static', name), 'utf8'));
     run("const BASE = '';");
     if (variant === 'alt') {
-        load('pixiv-batch-alt/alt-state.js');
+        load('pixiv-batch/batch-download-defaults.js'); load('pixiv-batch-alt/alt-state.js');
         load('pixiv-batch-alt/alt-queue.js');
         load('pixiv-batch-alt/alt-engine-workers.js');
     } else {

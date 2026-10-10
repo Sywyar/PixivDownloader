@@ -159,6 +159,7 @@ async function openSeriesBrowser(acquisition) {
 }
 
 async function loadSeries(page) {
+    const requestState = seriesState;
     const input = document.getElementById('abSeriesInput');
     const raw = input ? input.value : seriesState.url;
     seriesState.url = raw;
@@ -192,6 +193,7 @@ async function loadSeries(page) {
         let seriesId = parsed.seriesId ?? parsed.id;
         if (seriesId == null && parsed.resolveWorkId != null && typeof acquisition.resolveSeriesId === 'function') {
             seriesId = await acquisition.resolveSeriesId(parsed.resolveWorkId, {signal: lease.signal});
+            if (seriesState !== requestState) return;
             lease.assertCurrent();
         }
         if (seriesId == null) throw new Error(bt('series.status.no-url', '请先粘贴有效的系列链接'));
@@ -210,6 +212,7 @@ async function loadSeries(page) {
         };
         const spec = acquisition.apiPath(seriesId, page, context);
         let data = await altAcquisitionJson(acquisition.type, 'series', spec, 'page', context);
+        if (seriesState !== requestState) return;
         if (typeof acquisition.normalizePage === 'function') data = acquisition.normalizePage(data, context);
         const info = data.series || {};
         seriesState.info = Object.assign({}, info, {
@@ -217,6 +220,7 @@ async function loadSeries(page) {
             title: info.title || context.seriesTitle || String(seriesId),
             total: Number(info.total ?? data.total ?? 0)
         });
+        seriesState.resolvedInput = {value: String(raw).trim(), kind: acquisition.type, seriesId};
         const queueContext = {
             seriesId, seriesTitle: seriesState.info.title,
             orderOffset: (page - 1) * context.limit,
@@ -228,6 +232,7 @@ async function loadSeries(page) {
         seriesState.isLastPage = data.isLastPage === true || data.hasMore === false;
         if (data.hasMore === true) seriesState.cursors.set(page + 1, altNextCursor(data, cursor, true));
     } catch (e) {
+        if (seriesState !== requestState) return;
         seriesState.info = null;
         seriesState.rawItems = [];
         seriesState.page = page;
@@ -239,10 +244,11 @@ async function loadSeries(page) {
 }
 
 async function applySeriesFilters() {
+    const requestState = seriesState;
     const seq = ++searchState.filterSeq;
     const result = await computeFilteredItems(seriesState.rawItems, extraFilters, seriesState.kind,
         () => seq !== searchState.filterSeq);
-    if (!result) return;
+    if (!result || seriesState !== requestState) return;
     seriesState.items = result.filtered;
     seriesState.filterSummary = result.stats;
     renderSeriesStage();

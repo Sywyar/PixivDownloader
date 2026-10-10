@@ -69,6 +69,67 @@ class PixivScheduledSourceExecutorTest {
     }
 
     @Test
+    @DisplayName("旧任务经真实前端改名保存后仍使用相同的执行计划和搜索请求")
+    void preservesExecutionAcrossFrontendEdit() throws Exception {
+        for (String json : List.of(
+                "{\"source\":{\"word\":\"fixture\"}}",
+                "{\"source\":{\"word\":\"fixture\",\"mode\":\"r18\"},\"download\":null,\"filters\":null}",
+                "{\"source\":{\"word\":\"fixture\",\"maxPages\":5},"
+                        + "\"download\":{\"concurrent\":4,\"intervalMs\":0,\"mediaQuality\":73}}")) {
+            var helper = java.nio.file.Path.of("src/test/js/batch-alt-schedule-session-support.js")
+                    .toAbsolutePath();
+            Process process = new ProcessBuilder("node", "-e", """
+                    const {setup} = require(process.argv[1]);
+                    (async () => {
+                        const h = setup({paramsJson:require('node:fs').readFileSync(0, 'utf8')});
+                        h.confirm(true);
+                        await h.context.openScheduleEditor(h.task);
+                        h.options(); h.field('abScheduleField0').value = 'Renamed';
+                        await h.drawer.beforeClose(); h.context.closeDrawer();
+                        await h.save();
+                        if (h.requests.length !== 1) throw new Error('Expected one saved task');
+                        process.stdout.write(h.requests[0].body.definitionJson);
+                    })().catch(error => { console.error(error); process.exitCode=1; });
+                    """, helper.toString())
+                    .redirectError(ProcessBuilder.Redirect.INHERIT).start();
+            try {
+                try (var input = process.getOutputStream()) {
+                    input.write(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                }
+                assertThat(process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                assertThat(process.exitValue()).isZero();
+                String saved = new String(process.getInputStream().readAllBytes(),
+                        java.nio.charset.StandardCharsets.UTF_8);
+                var before = definition("search", json);
+                var after = definition("search", saved);
+                assertThat(support.planSearch(after)).isEqualTo(support.planSearch(before));
+                var original = top.sywyar.pixivdownload.download.schedule.snapshot.ScheduleTaskSnapshot
+                        .parse(objectMapper, json);
+                var edited = top.sywyar.pixivdownload.download.schedule.snapshot.ScheduleTaskSnapshot
+                        .parse(objectMapper, saved);
+                assertThat(edited).usingRecursiveComparison()
+                        .ignoringFields("source", "download.intervalMs", "download.imageDelayMs",
+                                "download.novelTranslateSegmentSize").isEqualTo(original);
+                assertThat(edited.download().imageDelayMs()).isEqualTo(
+                        java.util.Objects.requireNonNullElse(original.download().imageDelayMs(),
+                                top.sywyar.pixivdownload.download.schedule.snapshot.PixivScheduleDefaults.DOWNLOAD_IMAGE_DELAY_MS));
+                assertThat(edited.download().novelTranslateSegmentSize()).isEqualTo(
+                        java.util.Objects.requireNonNullElse(original.download().novelTranslateSegmentSize(),
+                                top.sywyar.pixivdownload.download.schedule.snapshot.PixivScheduleDefaults.DOWNLOAD_NOVEL_TRANSLATE_SEGMENT_SIZE));
+                org.mockito.Mockito.clearInvocations(fetchService);
+                support.discoverSearch(context(before, null));
+                support.discoverSearch(context(after, null));
+                var calls = org.mockito.Mockito.mockingDetails(fetchService).getInvocations().stream()
+                        .map(org.mockito.invocation.Invocation::getArguments).toList();
+                assertThat(calls).hasSize(2);
+                assertThat(calls.get(1)).containsExactly(calls.get(0));
+            } finally {
+                process.destroyForcibly();
+            }
+        }
+    }
+
+    @Test
     @DisplayName("七类适配器暴露稳定来源身份且计划阶段不访问发现依赖")
     void exposesSevenSourceTypesAndPlansWithoutDiscoverySideEffects() throws Exception {
         PixivFetchService isolatedFetch = mock(PixivFetchService.class);
@@ -413,6 +474,38 @@ class PixivScheduledSourceExecutorTest {
         executor.discover(fullContext);
         assertThat(fullContext.sink.localKeys()).containsExactly("novel:5");
         assertThat(fullContext.sink.submittedKeys()).containsExactly("novel:4");
+    }
+
+    @Test
+    @DisplayName("固定页搜索每轮只提交限额内的未下载作品并支持零值不限量")
+    void limitsFixedPageSearchPerRun() throws Exception {
+        List<String> ids = java.util.stream.IntStream.range(0, 60)
+                .mapToObj(index -> Integer.toString(1000 - index)).toList();
+        for (String kind : List.of("illust", "novel")) {
+            for (int limit : List.of(10, 0)) {
+                completeLocally(kind + ":1000", kind + ":999");
+                String json = """
+                        {"kind":"%s","source":{"word":"fixture","order":"date_d",
+                         "mode":"all","sMode":"s_tag","maxPages":1},"fetchLimit":%d}
+                        """.formatted(kind, limit);
+                if ("illust".equals(kind)) {
+                    when(fetchService.discoverSearchArtworkIds(
+                            "fixture", "date_d", "all", "s_tag", 1, "PHPSESSID=8_secret"))
+                            .thenReturn(ids);
+                } else {
+                    when(fetchService.discoverSearchNovelIds(
+                            "fixture", "date_d", "all", "s_tag", 1, "PHPSESSID=8_secret"))
+                            .thenReturn(ids);
+                }
+                TestContext context = context(definition("search", json), null);
+                ScheduledDiscoveryResult result = support.discoverSearch(context);
+                assertThat(context.sink.localKeys()).containsExactly(kind + ":1000", kind + ":999");
+                assertThat(context.sink.submittedKeys()).containsExactlyElementsOf(
+                        ids.subList(2, limit == 0 ? 60 : 12).stream()
+                                .map(id -> kind + ":" + id).toList());
+                assertThat(result.candidateCheckpoint()).isNull();
+            }
+        }
     }
 
     @Test

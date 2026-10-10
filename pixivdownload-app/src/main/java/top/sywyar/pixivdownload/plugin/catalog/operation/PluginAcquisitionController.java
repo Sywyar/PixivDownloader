@@ -33,12 +33,17 @@ public class PluginAcquisitionController {
     @PostMapping("/api/plugin-market/operations")
     public View prepare(@RequestBody PrepareRequest body, HttpServletRequest request) {
         return view(operations.prepare(body.repositoryId(), body.pluginId(), body.version(),
-                body.fingerprint(), body.confirmTrust()), request);
+                body.fingerprint(), body.confirmTrust(), body.previousOperationId()), request);
     }
 
     @PostMapping("/api/plugin-market/operations/{id}/execute")
     public View execute(@PathVariable String id, HttpServletRequest request) {
         return view(operations.execute(id), request);
+    }
+
+    @PostMapping("/api/plugin-market/operations/{id}/discard")
+    public View discard(@PathVariable String id, HttpServletRequest request) {
+        return view(operations.discard(id), request);
     }
 
     @GetMapping("/api/plugins/acquisitions/{id}")
@@ -68,7 +73,8 @@ public class PluginAcquisitionController {
                 failure.status().value(), failure.pluginId(), failure.version(), failure.dependencyInstallResults()));
     }
 
-    public record PrepareRequest(String repositoryId, String pluginId, String version, String fingerprint, String confirmTrust) { }
+    public record PrepareRequest(String repositoryId, String pluginId, String version, String fingerprint,
+                                 String confirmTrust, String previousOperationId) { }
     public record View(String id, String repositoryId, String pluginId, String version, String currentPluginId,
             ExternalPluginOperation operation, String transactionId, Instant createdAt, Instant updatedAt,
             boolean started, boolean finished, PluginInstallResponse result, PluginCatalogErrorResponse failure) { }

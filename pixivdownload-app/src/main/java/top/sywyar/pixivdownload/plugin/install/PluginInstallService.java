@@ -163,8 +163,9 @@ public class PluginInstallService {
     private PluginInstallReport toReport(PluginActivationResult activation) {
         PluginInstallResult result = activation.installResult();
         PluginDescriptor descriptor = result.descriptor();
-        // 安装路径仅对进程重启策略延迟激活；BACKEND_RESTART 只约束管理页启停，安装仍会即时激活。
+        // 多模块开发不读取落盘包；其余模式下只有尚未激活的进程重启插件需要等待重启。
         boolean effectiveAfterRestart = result.accepted()
+                && !activation.activated() && !coordinator.ignoresInstalledArtifacts()
                 && descriptor != null
                 && descriptor.lifecyclePolicy().requiresProcessRestart();
         List<PluginDependencyProblem> problems = activation.dependencyProblems().isEmpty()
@@ -180,7 +181,7 @@ public class PluginInstallService {
                 activation.activated() && result.previousVersion() != null
                         && result.outcome() != PluginInstallOutcome.DUPLICATE,
                 List.of(),
-                result.trustRequirement());
+                result.trustRequirement(), result.accepted() && coordinator.ignoresInstalledArtifacts());
     }
 
     /** 描述符声明的插件间依赖投影（描述符不可读时为空列表）。 */

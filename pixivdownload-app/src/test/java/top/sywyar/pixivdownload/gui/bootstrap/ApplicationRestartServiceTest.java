@@ -31,6 +31,22 @@ class ApplicationRestartServiceTest {
     @TempDir Path directory;
 
     @Test
+    @DisplayName("退出与重启互斥，重复退出只安排一次正常关闭")
+    void exitAndRestartAreMutuallyExclusive() {
+        ProcessBuilder builder = mock(ProcessBuilder.class);
+        List<Runnable> scheduled = new ArrayList<>();
+        Runnable exit = mock(Runnable.class);
+        var service = new ApplicationRestartService(TestI18nBeans.appMessages(), () -> builder, scheduled::add, exit);
+        assertThat(service.requestExit()).isTrue();
+        assertThat(service.requestExit()).isTrue();
+        assertThat(service.requestRestart()).isFalse();
+        assertThat(scheduled).hasSize(1);
+        verifyNoInteractions(builder, exit);
+        scheduled.get(0).run();
+        verify(exit).run();
+    }
+
+    @Test
     @DisplayName("启动失败保留旧界面并允许重试，重复请求只拉起一个接替进程")
     void launchFailureDoesNotExitAndSuccessfulRequestsAreCoalesced() throws Exception {
         ProcessBuilder builder = mock(ProcessBuilder.class);

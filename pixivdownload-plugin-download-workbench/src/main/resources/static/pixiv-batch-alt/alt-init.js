@@ -65,8 +65,9 @@ async function initPageI18n() {
 
 function setupTour(auto) {
     if (typeof PixivTour === 'undefined') return;
-    PixivTour.init({
+    const controller = PixivTour.init({
         pageKey: 'batch',
+        noHelpFab: true,
         i18n: pageI18n,
         auto,
         steps: [
@@ -80,6 +81,7 @@ function setupTour(auto) {
             }
         ]
     });
+    window.PixivBatch.onboarding.bindTourButton(controller);
 }
 
 async function setupOnboardingOrTour() {
@@ -117,6 +119,8 @@ function buildOnboardingConfig(savedName) {
         eligible: true,
         savedName: savedName || '',
         sel: {
+            restartButton: '#batch-guide-button',
+            restartFocusTarget: '#abVersionBtn',
             cookieCard: '#abCookieChip',
             scriptsCard: '#abVersionBtn',
             tabs: '#abRail',
@@ -132,7 +136,9 @@ function buildOnboardingConfig(savedName) {
         hooks: {
             switchToSingleImport: () => switchMode(SINGLE_IMPORT_MODE),
             hasLoginCookie: () => cookieHasPhpsessid(),
-            isExampleQueued: id => state.queue.some(item => String(item.id) === String(id)),
+            isExampleQueued: id => !!window.PixivBatch.onboarding.exampleItem(id),
+            exampleProgress: id => window.PixivBatch.onboarding.exampleProgress(id),
+            retryExample: id => window.PixivBatch.onboarding.retryExample(id),
             beforeStart: () => openDock(),
             isRunning: () => state.isRunning,
             applyName: () => {}

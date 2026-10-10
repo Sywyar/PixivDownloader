@@ -60,12 +60,13 @@
             return;
         }
         // N=0（全量）风险确认：宿主使用中性默认，来源可用受控 i18n key 补充站点专属风险。
-        if (snap.fetchLimitMode && !(snap.params.fetchLimit > 0)) {
+        if (snap.fetchLimitMode && !(snap.params.fetchLimit > 0)
+                && snap.fetchLimitPresentation?.fullFetchConfirmRequired !== false) {
             const confirmed = await uiConfirmKey(scheduleFetchLimitI18nKey(
                 snap.fetchLimitPresentation,
                 'fullFetchConfirmKey',
                 'schedule.confirm.full-fetch'),
-            '「首次抓取上限」为 0 表示首次运行会尝试抓取该来源的全部历史作品，可能产生大量请求、耗时或触发来源站点的保护措施。确定要全量抓取吗？');
+            '抓取上限为 0，将在所选来源或页码范围内不限数量抓取。范围较大时可能产生大量请求、耗时或触发来源站点的保护措施。确定继续吗？');
             if (!scheduleSubmissionCurrent(sourceLease, editingToken)) return;
             if (!confirmed) return;
         }

@@ -175,7 +175,10 @@ function translatedClient(lang) {
 function makeDocument(hasResultEntry) {
     const body = new El('body');
     const resultEntry = hasResultEntry ? new El('a') : null;
-    const elements = {};
+    const restartButton = new El('button');
+    restartButton.hidden = true;
+    body.appendChild(restartButton);
+    const elements = {'#guide-entry': restartButton};
     return {
         body,
         resultEntry,
@@ -251,7 +254,7 @@ function loadScenario(hasResultEntry) {
         page: 'batch',
         eligible: true,
         i18n: { t: (key, fallback) => fallback },
-        sel: { firstDownloadResultEntry: RESULT_ENTRY_SELECTOR }
+        sel: { firstDownloadResultEntry: RESULT_ENTRY_SELECTOR, restartButton: '#guide-entry' }
     });
     return {
         storage,
@@ -268,7 +271,7 @@ function clickAction(pop, act) {
     button.click();
 }
 
-function loadMonitorScenario(hasResultEntry, holdAtStart) {
+function loadMonitorScenario(hasResultEntry, holdAtStart, options = {}) {
     const document = makeDocument(hasResultEntry);
     const startButton = new El('button');
     let startButtonClicks = 0;
@@ -278,6 +281,8 @@ function loadMonitorScenario(hasResultEntry, holdAtStart) {
     storage[STORAGE_KEY] = JSON.stringify({ status: 'active', phase: 'download' });
     let nextTimer = 1;
     let beforeStartCalls = 0;
+    let now = Date.now();
+    const timers = new Map();
     const sandbox = {
         document,
         location: { href: '/pixiv-batch.html' },
@@ -291,8 +296,9 @@ function loadMonitorScenario(hasResultEntry, holdAtStart) {
         requestAnimationFrame(fn) { fn(); },
         setTimeout(fn) { fn(); return nextTimer++; },
         clearTimeout() {},
-        setInterval(fn) { fn(); return nextTimer++; },
-        clearInterval() {},
+        setInterval(fn) { const id = nextTimer++; timers.set(id, fn); fn(); return id; },
+        clearInterval(id) { timers.delete(id); },
+        Date: class extends Date { static now() { return now; } },
         fetch() { return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve(null) }); },
         PixivNav: {
             ready() {
@@ -328,7 +334,9 @@ function loadMonitorScenario(hasResultEntry, holdAtStart) {
             switchToSingleImport() {},
             isExampleQueued: () => true,
             beforeStart: () => { beforeStartCalls++; },
-            isRunning: () => !holdAtStart
+            isRunning: () => !holdAtStart,
+            exampleProgress: () => options.progress,
+            retryExample: () => { options.retried = true; return true; }
         }
     });
 
@@ -354,11 +362,65 @@ function loadMonitorScenario(hasResultEntry, holdAtStart) {
         resultEntry: document.resultEntry,
         beforeStartCalls,
         startButtonClicks,
-        startButtonFocused: startButton.focused
+        startButtonFocused: startButton.focused,
+        sandbox, storage, timers,
+        advance(ms) { now += ms; Array.from(timers.values()).forEach(fn => fn()); }
     };
 }
 
 async function main() {
+    {
+        const h = loadScenario(true), ctx = h.sandbox.PixivOnboardingRuntime;
+        const entry = h.document.querySelector('#guide-entry');
+        assert.equal(entry.hidden, false);
+        assert.equal(entry.disabled, true);
+        assert.equal(findByClass(h.document.body, 'pt-help-fab'), null);
+        ctx.skip();
+        assert.equal(entry.disabled, false);
+        assert.equal(entry.focused, true);
+        h.onboarding.boot(ctx.config);
+        assert.equal(ctx.overlay.pop, null);
+        let restarts = 0;
+        ctx.download.phaseWelcome = () => { restarts++; };
+        entry.click();
+        assert.equal(restarts, 1);
+        assert.equal(entry.disabled, true);
+        h.onboarding.refreshFab(translatedClient('en-US'));
+        assert.equal(entry.getAttribute('aria-label'), translatedClient('en-US').t('tour:common.help'));
+        assert.equal(entry.title, entry.getAttribute('aria-label'));
+        passed++;
+    }
+    for (const status of ['skipped', 'failed', 'paused', 'cancelled', 'removed']) {
+        const options = {progress:{status, running:false, message:'<unsafe> reason'}};
+        const h = loadMonitorScenario(false, true, options);
+        assert.ok(h.pop.innerHTML.includes('下载未成功'), status);
+        assert.ok(!h.pop.innerHTML.includes('po-spinner'), status);
+        assert.equal(h.pop.style.top, '', status + ': centered result clears target coordinates');
+        assert.equal(h.pop.style.left, '', status + ': centered result clears target coordinates');
+        assert.ok(h.pop.innerHTML.includes('&lt;unsafe&gt;'), status);
+        assert.notEqual(JSON.parse(h.storage[STORAGE_KEY]).downloaded, true, status);
+        clickAction(h.pop, 'retry');
+        assert.equal(options.retried, true);
+        assert.ok(h.pop.innerHTML.includes('粘贴示例作品链接'));
+        passed++;
+    }
+    {
+        const h = loadMonitorScenario(false, true, {progress:{status:'completed', running:false}});
+        assert.ok(h.pop.innerHTML.includes('下载成功'));
+        assert.equal(JSON.parse(h.storage[STORAGE_KEY]).downloaded, true);
+        passed++;
+    }
+    {
+        const h = loadMonitorScenario(false, false, {progress:{status:'downloading', running:true}});
+        h.advance(300000);
+        assert.ok(h.pop.innerHTML.includes('暂未确认'));
+        clickAction(h.pop, 'retry');
+        assert.ok(h.pop.innerHTML.includes('po-spinner'));
+        clickAction(h.pop, 'skip');
+        h.advance(300000);
+        assert.equal(h.sandbox.PixivOnboardingRuntime.overlay.pop, null);
+        passed++;
+    }
     for (const pagePath of PAGE_PATHS) {
         const pageSource = fs.readFileSync(path.join(REPO_ROOT, pagePath), 'utf8');
         assert.deepStrictEqual(onboardingScriptUrls(pageSource), SCRIPT_URLS,

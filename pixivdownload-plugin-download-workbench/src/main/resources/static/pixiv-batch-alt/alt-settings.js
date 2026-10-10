@@ -16,6 +16,7 @@ function getImageDelayMs() {
 }
 
 function saveSettings() {
+    if (scheduleState.editing) return;
     // 「收藏到」（收藏夹选择）不持久化：每次加载都默认为「不加入收藏夹」，仅在当前会话内生效。
     const {collectionId, ...persisted} = state.settings;
     storeSet('pixiv_batch_settings', JSON.stringify(persisted));
@@ -182,13 +183,18 @@ let settingsLabelSequence = 0;
 function settingsRow(labelText, control, helpText) {
     const row = el('div', 'ab-setting-row');
     const head = el('div', 'ab-setting-head');
-    const label = el('span', 'ab-setting-label', labelText);
+    const label = el('label', 'ab-setting-label', labelText);
     label.id = 'ab-setting-label-' + (++settingsLabelSequence);
     head.appendChild(label);
     row.appendChild(head);
     if (control) {
         const selector = 'input, select, textarea, button';
         const controls = control.matches(selector) ? [control] : Array.from(control.querySelectorAll(selector));
+        if (controls.length === 1) {
+            const input = controls[0];
+            if (!input.id) input.id = label.id + '-control';
+            label.htmlFor = input.id;
+        }
         controls.forEach(input => {
             if (!input.hasAttribute('aria-label') && !input.hasAttribute('aria-labelledby')) {
                 if (input.classList.contains('ab-unit-toggle')) {
@@ -250,12 +256,29 @@ function numberWithUnit(value, unit, onValue, onUnit) {
 }
 
 function buildSettingsDrawerBody() {
-    const s = state.settings;
+    const s = scheduleState.editing?.settings || state.settings;
     const body = el('div', 'ab-settings');
-    body.appendChild(el('p', 'ab-field-note', bt('settings.scope', '更改供后续下载使用。单人模式保存在服务端工作台状态，多人模式保存在此浏览器。')));
+    if (scheduleState.editing) body.dataset.scheduleSettings = '1';
+    body.appendChild(el('p', 'ab-field-note', scheduleState.editing
+        ? bt('batch:schedule.save.editing', '', {name: scheduleState.editing.task.name})
+        : bt('settings.scope', '更改供后续下载使用。单人模式保存在服务端工作台状态，多人模式保存在此浏览器。')));
 
     // —— 节奏 ——
     body.appendChild(el('h4', 'ab-settings-group', bt('settings.group.pace', '下载节奏')));
+    if (isAdmin && !scheduleState.editing) {
+        const control = switchControl(s.autoStartOnEnqueue, value => {
+            s.autoStartOnEnqueue = value;
+            saveSettings();
+        });
+        const input = control.querySelector('input');
+        input.id = 's-auto-start';
+        const row = settingsRow(
+            bt('batch:label.settings.auto-start', null),
+            control,
+            bt('batch:label.settings.auto-start.help', null)
+        );
+        body.appendChild(row);
+    }
     body.appendChild(settingsRow(
         bt('settings.work-interval', '作品间隔'),
         numberWithUnit(s.interval, s.intervalUnit,
@@ -271,7 +294,6 @@ function buildSettingsDrawerBody() {
     const concurrentInput = el('input', 'ab-input ab-input--num');
     concurrentInput.type = 'number';
     concurrentInput.min = '1';
-    concurrentInput.max = '8';
     concurrentInput.value = s.concurrent;
     concurrentInput.addEventListener('change', () => {
         s.concurrent = Math.max(1, parseInt(concurrentInput.value, 10) || 1);
@@ -399,7 +421,9 @@ function buildSettingsDrawerBody() {
     body.appendChild(typeSettings);
     const runtime = altQueueTypes();
     if (runtime) runtime.contributionsOf('settings').forEach(setting => {
-        if (typeof setting.mount === 'function') setting.mount(typeSettings);
+        if (typeof setting.mount !== 'function') return;
+        if (scheduleState.editing) withScheduleEditSettings(() => setting.mount(typeSettings));
+        else setting.mount(typeSettings);
     });
 
     if (isAdmin) {
@@ -469,13 +493,14 @@ function openDownloadOptionsDrawer(section) {
 // 字段语义与可见性由贡献方提供；宿主只负责共享草稿和持久化。
 function bindContributedSettings(root, bindings, isActive, refresh) {
     const cleanups = [];
+    const settings = scheduleState.editing?.settings || state.settings;
     Object.entries(bindings).forEach(([id, binding]) => {
         const input = root.querySelector('#' + id);
         if (!input) return;
-        binding.write(input, state.settings[binding.key]);
+        binding.write(input, settings[binding.key]);
         const changed = () => {
             if (!root.isConnected || !isActive()) return;
-            state.settings[binding.key] = binding.read(input);
+            settings[binding.key] = binding.read(input);
             saveSettings();
             refresh();
         };

@@ -402,7 +402,9 @@ public class ExternalPluginInstaller implements AutoCloseable {
                     STAGING_DIR, stagingRoot, FailureKind.STAGING_ROOT_UNSAFE, e.getMessage())));
         }
         return new PluginTransactionRecoveryReport(List.of(recoveryFailure(
-                STAGING_DIR, stagingRoot, FailureKind.RECOVERY_FAILED,
+                STAGING_DIR, stagingRoot,
+                failure instanceof PluginDirectorySessionLock.DirectoryInUseException
+                        ? FailureKind.DIRECTORY_IN_USE : FailureKind.RECOVERY_FAILED,
                 "plugin directory session lock unavailable: " + describeRecoveryFailure(failure))));
     }
 

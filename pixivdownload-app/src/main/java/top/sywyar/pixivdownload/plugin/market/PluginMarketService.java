@@ -19,6 +19,11 @@ import top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationServ
 import top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogTrustStateStore.RevocationSnapshot;
 import org.springframework.beans.factory.annotation.Autowired;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginDiagnostic;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
+import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginInventorySnapshot;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginSnapshot;
+import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginLifecycleCoordinator;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -42,8 +47,8 @@ import java.util.Optional;
  * 经既有受信安装链路权威裁定。
  *
  * <h2>安装状态投影（只读、不混入运行期管理）</h2>
- * 市场条目的安装状态机（未安装 / 已安装 / 有更新 / 不兼容）由本服务把 catalog 与 {@link PluginStatusService} 的<b>只读</b>
- * 状态报告交叉引用推导（已安装 id + 版本来自运行时真实状态，而非前端臆测）。本服务<b>只读</b> {@code PluginStatusService}、
+ * 本机版本、内容摘要与来源取自安装器同一锁域的磁盘快照；运行版本由 {@link PluginStatusService} 单独提供。
+ * 恢复状态或生命周期代次变化时丢弃内容比较，不能让驻留旧实例或旧来源记录代替当前安装包。本服务<b>只读</b>运行状态、
  * <b>绝不</b>暴露 load / start / stop 等运行期动词——那属于插件管理职责，与市场浏览 / 安装正交。
  */
 public class PluginMarketService {
@@ -55,6 +60,8 @@ public class PluginMarketService {
     private final PluginStatusService pluginStatusService;
     private final PluginCatalogRevocationService revocations;
     private top.sywyar.pixivdownload.plugin.catalog.community.CommunityPackageService communityPackages;
+    private ExternalPluginInstaller installer;
+    private ExternalPluginLifecycleCoordinator lifecycle;
 
     @Autowired
     public PluginMarketService(PluginRepositoryRegistry repositoryRegistry,
@@ -135,8 +142,8 @@ public class PluginMarketService {
         PluginRepository repository = resolveRepository(repositoryId);
         query = query == null ? PluginCatalogPageQuery.first() : query;
         RevocationSnapshot snapshot = refreshRevocations(repository);
-        PluginCatalogPage page = catalogService.loadPage(repository.repositoryId(), query);
-        Map<String, String> installed = installedVersionsById();
+        PluginCatalogPage page = catalogService.loadPage(repository, query);
+        var installed = installedVersionsById();
         long compatibilityDeadline = System.nanoTime() + COMPATIBILITY_SEARCH_BUDGET_NANOS;
         List<PluginMarketEntryView> entries = page.items().stream()
                 .map(entry -> selectVersion(repository, entry, installed, snapshot, page.generation(),
@@ -147,8 +154,7 @@ public class PluginMarketService {
         List<PluginCatalogEntry> visible = page.items().stream()
                 .filter(entry -> visibleIds.contains(entry.pluginId())).toList();
         int installedCount = (int) entries.stream()
-                .filter(entry -> entry.installStatus() == MarketInstallStatus.INSTALLED
-                        || entry.installStatus() == MarketInstallStatus.UPDATE_AVAILABLE)
+                .filter(entry -> entry.installedVersion() != null)
                 .count();
         return new PluginMarketView(repository.repositoryId(), true, SdkVersion.VERSION,
                 installedCount, categoryCounts(visible), entries, page.generation(), page.nextCursor(),
@@ -169,10 +175,10 @@ public class PluginMarketService {
         PluginRepository repository = resolveRepository(repositoryId);
         RevocationSnapshot snapshot = refreshRevocations(repository);
         PluginCatalogDetailPage page = catalogService.loadEntryPage(
-                repository.repositoryId(), pluginId, cursor, limit);
+                repository, pluginId, cursor, limit);
         var installed = installedVersionsById();
         var first = cursor == null ? page
-                : catalogService.loadEntryPage(repository.repositoryId(), pluginId, null, limit);
+                : catalogService.loadEntryPage(repository, pluginId, null, limit);
         var selected = selectVersion(repository, first.item(), installed, snapshot, first.generation(),
                 first.nextCursor() != null, System.nanoTime() + COMPATIBILITY_SEARCH_BUDGET_NANOS);
         // 后续历史页只贡献该页版本，不覆盖默认选择；不同代次不混合。
@@ -189,12 +195,12 @@ public class PluginMarketService {
     }
 
     private PluginMarketEntryView selectVersion(PluginRepository repository, PluginCatalogEntry entry,
-            Map<String, String> installed, RevocationSnapshot snapshot, String generation, boolean incomplete,
+            InstalledState installed, RevocationSnapshot snapshot, String generation, boolean incomplete,
             long deadlineNanos) {
         var view = projectEntry(repository, entry, installed, snapshot);
         if (!incomplete || view.compatibilityReason() == null && view.recommendedVersion() != null) return view;
         try {
-            var complete = catalogService.loadEntrySnapshot(repository.repositoryId(), entry.pluginId(), deadlineNanos);
+            var complete = catalogService.loadEntrySnapshot(repository, entry.pluginId(), deadlineNanos);
             if (complete.stale() || !generation.equals(complete.generation())) {
                 return view.withPackages(view.packages(), true);
             }
@@ -211,32 +217,82 @@ public class PluginMarketService {
 
     /** 据已安装快照把一个 catalog 条目投影为市场视图条目（含安装状态机推导）。 */
     private PluginMarketEntryView projectEntry(PluginRepository repository, PluginCatalogEntry entry,
-                                               Map<String, String> installedVersions, RevocationSnapshot snapshot) {
-        boolean installed = installedVersions.containsKey(entry.pluginId());
+                                               InstalledState installedVersions, RevocationSnapshot snapshot) {
+        var local = installedVersions.entries().getOrDefault(entry.pluginId(), installedVersions.complete()
+                ? PluginMarketInstallationView.from(null, null, null, installedVersions.enabled())
+                : PluginMarketInstallationView.unknown(null, installedVersions.enabled()));
+        boolean installed = local.version() != null;
         var packages = entry.packages().stream().map(pkg -> revocations == null
                 ? PluginMarketPackageView.from(repository, pkg)
                 : PluginMarketPackageView.from(repository, pkg,
                     revocations.details(repository, entry.pluginId(), pkg, snapshot))).toList();
-        return PluginMarketEntryView.from(entry, installed, installedVersions.get(entry.pluginId()), packages);
+        return PluginMarketEntryView.from(entry, installed, local.version(), packages).withInstallation(local);
     }
 
-    /**
-     * 当前已安装插件（内置 + 外置）的 {@code id → 已安装版本} 只读快照，取自 {@link PluginStatusService} 的运行时状态报告
-     * （单次快照，避免半更新）。只计有描述符的诊断为「已安装」——必选但未安装的 pluginId 与包级加载失败均无描述符、视为未安装。
-     */
-    private Map<String, String> installedVersionsById() {
-        Map<String, String> versions = new HashMap<>();
-        for (PluginDiagnostic diagnostic : pluginStatusService.report().diagnostics()) {
-            if (diagnostic.descriptor() != null) {
-                versions.put(diagnostic.id(), diagnostic.descriptor().version());
+    /** 单次请求复用磁盘清点；来源、字节比较与运行版本各自保留事实归属。 */
+    private InstalledState installedVersionsById() {
+        long epoch = lifecycle == null ? 0 : lifecycle.lifecycleMutationEpoch();
+        var gate = pluginStatusService.recoveryGateSnapshot();
+        boolean enabled = installer == null || PluginDevelopmentArtifacts.usesInstalledArtifacts(installer.pluginsDirectory());
+        boolean readable = installer != null && gate != null && gate.safeToScan() && (epoch & 1L) == 0L;
+        InstalledPluginInventorySnapshot inventory = null;
+        if (readable) {
+            try {
+                inventory = installer.snapshotInstalledWithProvenance(
+                        InstalledPluginInventorySnapshot.MAX_RECORDS, InstalledPluginInventorySnapshot.MAX_PROVENANCE_BYTES);
+            } catch (IllegalStateException failure) {
+                if (gate.equals(pluginStatusService.recoveryGateSnapshot())) throw failure;
             }
         }
-        return versions;
+        Map<String, PluginMarketInstallationView> versions = new HashMap<>();
+        var diagnostics = (installer == null ? pluginStatusService.report() : pluginStatusService.report(
+                inventory == null ? List.of() : inventory.entries().stream().map(InstalledPluginSnapshot::plugin).toList())).diagnostics();
+        for (PluginDiagnostic diagnostic : diagnostics) {
+            if (diagnostic.descriptor() != null) {
+                versions.put(diagnostic.id(), PluginMarketInstallationView.unknown(
+                        installer == null ? diagnostic.descriptor().version() : null, enabled)
+                        .withRuntime(diagnostic.status() == top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus.STARTED
+                                ? diagnostic.descriptor().version() : null, diagnostic.status().name()));
+            }
+        }
+        if (inventory == null) return new InstalledState(versions, installer == null, enabled);
+        if (!gate.equals(pluginStatusService.recoveryGateSnapshot())
+                || lifecycle != null && epoch != lifecycle.lifecycleMutationEpoch()) return new InstalledState(versions, false, enabled);
+        Map<String, List<InstalledPluginSnapshot>> byId = inventory.entries().stream()
+                .collect(java.util.stream.Collectors.groupingBy(item -> item.plugin().id()));
+        var ids = new java.util.HashSet<>(versions.keySet());
+        ids.addAll(byId.keySet());
+        for (String id : ids) {
+            var packages = byId.getOrDefault(id, List.of());
+            if (packages.size() > 1) {
+                versions.put(id, PluginMarketInstallationView.unknown(null, enabled));
+                continue;
+            }
+            var runtime = diagnostics.stream().filter(item -> id.equals(item.id()) && item.descriptor() != null)
+                    .findFirst().orElse(null);
+            versions.put(id, PluginMarketInstallationView.from(packages.isEmpty() ? null : packages.get(0),
+                    runtime != null && runtime.status() == top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus.STARTED
+                            ? runtime.descriptor().version() : null,
+                    runtime != null ? runtime.status().name() : null, enabled));
+        }
+        return new InstalledState(versions, true, enabled);
+    }
+
+    private record InstalledState(Map<String, PluginMarketInstallationView> entries, boolean complete, boolean enabled) { }
+
+    public PluginMarketService(PluginRepositoryRegistry repositories, PluginCatalogService catalog,
+            PluginCatalogAcquisitionService acquisition, PluginStatusService status,
+            PluginCatalogRevocationService revocations,
+            top.sywyar.pixivdownload.plugin.catalog.community.CommunityPackageService communityPackages,
+            ExternalPluginInstaller installer, ExternalPluginLifecycleCoordinator lifecycle) {
+        this(repositories, catalog, acquisition, status, revocations, communityPackages);
+        this.installer = installer;
+        this.lifecycle = lifecycle;
     }
 
     /**
      * 按 {@code repositoryId} + {@code pluginId} + {@code version} 从受信仓库安装。下载地址只来自该仓库清单里选出的包；
-     * 安装先下载并校验，再由统一事务编排器替换并即时激活。下载 / 校验 / 安装结局由 {@link PluginInstallReport} 承载，
+     * 安装先下载并校验，再由统一事务编排器替换，是否激活取决于运行模式和生命周期策略。结局由 {@link PluginInstallReport} 承载，
      * catalog 层失败（未知仓库 / 禁用 / 不可用 / 未知插件 / 版本缺失 / 不安全地址等）抛 {@link PluginCatalogException}。
      */
     public PluginInstallReport install(String repositoryId, String pluginId, String version) {

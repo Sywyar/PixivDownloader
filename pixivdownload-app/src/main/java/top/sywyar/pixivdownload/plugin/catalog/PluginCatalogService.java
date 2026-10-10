@@ -156,7 +156,12 @@ public class PluginCatalogService {
 
     /** 按仓库协议返回一页；manifest-v1 在已验签清单内存分页，paged-v2 发有界条件请求。 */
     public PluginCatalogPage loadPage(String repositoryId, PluginCatalogPageQuery query) {
-        PluginRepository repository = resolveRepository(repositoryId);
+        return loadPage(resolveRepository(repositoryId), query);
+    }
+
+    /** 同一次查询复用已完成来源认证的仓库；不跨请求保留认证结论。 */
+    public PluginCatalogPage loadPage(PluginRepository repository, PluginCatalogPageQuery query) {
+        requireFeatureEnabled();
         PluginCatalogPageQuery effective = query != null ? query : PluginCatalogPageQuery.first();
         return repository.pagedCatalog() ? loadPaged(repository, effective) : pageManifest(loadRepository(repository), effective);
     }
@@ -172,7 +177,11 @@ public class PluginCatalogService {
 
     /** deadlineNanos 为调用方共享的单调截止时间；0 表示只使用页数及单次网络限制。 */
     public PluginCatalogDetailPage loadEntrySnapshot(String repositoryId, String pluginId, long deadlineNanos) {
-        PluginRepository repository = resolveRepository(repositoryId);
+        return loadEntrySnapshot(resolveRepository(repositoryId), pluginId, deadlineNanos);
+    }
+
+    public PluginCatalogDetailPage loadEntrySnapshot(PluginRepository repository, String pluginId, long deadlineNanos) {
+        requireFeatureEnabled();
         if (!repository.pagedCatalog()) {
             PluginCatalogManifest manifest = loadRepository(repository);
             PluginCatalogEntry entry = manifest.findEntry(pluginId).orElseThrow(() -> unknownPlugin(pluginId));
@@ -194,7 +203,7 @@ public class PluginCatalogService {
                 throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE,
                         "catalog compatibility search exceeded its time budget");
             }
-            PluginCatalogDetailPage page = loadEntryPage(repositoryId, pluginId, cursor, ENTRY_PAGE_SIZE);
+            PluginCatalogDetailPage page = loadEntryPage(repository, pluginId, cursor, ENTRY_PAGE_SIZE);
             if (generation != null && !generation.equals(page.generation())) {
                 packages.clear();
                 entry = null;
@@ -217,7 +226,11 @@ public class PluginCatalogService {
 
     /** 返回单个插件的一页版本摘要；paged-v2 cursor 保持不透明，manifest-v1 保持既有完整详情。 */
     public PluginCatalogDetailPage loadEntryPage(String repositoryId, String pluginId, String cursor, int limit) {
-        PluginRepository repository = resolveRepository(repositoryId);
+        return loadEntryPage(resolveRepository(repositoryId), pluginId, cursor, limit);
+    }
+
+    public PluginCatalogDetailPage loadEntryPage(PluginRepository repository, String pluginId, String cursor, int limit) {
+        requireFeatureEnabled();
         if (!repository.pagedCatalog()) {
             PluginCatalogManifest manifest = loadRepository(repository);
             PluginCatalogEntry entry = manifest.findEntry(pluginId)
@@ -277,7 +290,7 @@ public class PluginCatalogService {
             if (query.cursor() != null && previousGeneration != null
                     && !previousGeneration.equals(document.generation())) {
                 generations.put(repository.repositoryId(), document.generation());
-                return loadEntryPage(repositoryId, pluginId, null, query.limit());
+                return loadEntryPage(repository, pluginId, null, query.limit());
             }
             rememberGeneration(repository, document.generation());
             PluginCatalogDetailPage loaded = new PluginCatalogDetailPage(document.item(), document.generation(),

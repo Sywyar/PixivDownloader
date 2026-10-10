@@ -38,6 +38,7 @@ public record PluginTransactionRecoveryReport(List<Failure> failures) {
 
     /** 恢复失败的稳定分类，供 bootstrap 诊断和测试断言使用。 */
     public enum FailureKind {
+        DIRECTORY_IN_USE,
         STAGING_ROOT_UNSAFE,
         STAGING_ENUMERATION_FAILED,
         INVALID_TRANSACTION_ENTRY,

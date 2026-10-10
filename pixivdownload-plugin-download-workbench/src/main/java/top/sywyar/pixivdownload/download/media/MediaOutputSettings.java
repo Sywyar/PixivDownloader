@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.download.media;
 
 import java.util.List;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
+import static top.sywyar.pixivdownload.download.schedule.snapshot.PixivScheduleDefaults.*;
 
 /** 单次作品下载或维护操作的输出参数，不绑定全局配置。 */
 public class MediaOutputSettings {
@@ -41,11 +42,12 @@ public class MediaOutputSettings {
     }
     public static MediaOutputSettings fromJson(com.fasterxml.jackson.databind.JsonNode node) {
         var settings = new MediaOutputSettings();
-        if (node.hasNonNull("imageFormats")) settings.setImageFormats(node.path("imageFormats").asText());
-        if (node.hasNonNull("ugoiraFormats")) settings.setUgoiraFormats(node.path("ugoiraFormats").asText());
-        settings.setQuality(readInteger(node.path("mediaQuality"), DEFAULT_QUALITY));
-        settings.setMaximumEdge(readInteger(node.path("mediaMaximumEdge"), 0));
-        settings.setWebpLossless(readBoolean(node.path("mediaWebpLossless")));
+        settings.setImageFormats(node.path("imageFormats").asText(DOWNLOAD_IMAGE_FORMATS));
+        settings.setUgoiraFormats(node.path("ugoiraFormats").asText(DOWNLOAD_UGOIRA_FORMATS));
+        settings.setQuality(readInteger(node.path("mediaQuality"), DOWNLOAD_MEDIA_QUALITY));
+        settings.setMaximumEdge(readInteger(node.path("mediaMaximumEdge"), DOWNLOAD_MEDIA_MAXIMUM_EDGE));
+        settings.setWebpLossless(node.hasNonNull("mediaWebpLossless")
+                ? readBoolean(node.path("mediaWebpLossless")) : DOWNLOAD_MEDIA_WEBP_LOSSLESS);
         return settings;
     }
 

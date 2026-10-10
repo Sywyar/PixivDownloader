@@ -43,7 +43,23 @@ public record PluginMarketPackageView(
         boolean deprecated,
         PluginVerificationView verification,
         boolean installable,
-        top.sywyar.pixivdownload.sdk.community.content.MarketContent content) {
+        top.sywyar.pixivdownload.sdk.community.content.MarketContent content,
+        String installationMatch) {
+
+    public PluginMarketPackageView(String version, long expectedSizeBytes, String sha256, boolean signaturePresent,
+            String requiredSdk, boolean compatible, boolean effectiveAfterRestart, List<String> dependencies,
+            String releasedTime, List<String> changeNotes, String channel, boolean deprecated,
+            PluginVerificationView verification, boolean installable,
+            top.sywyar.pixivdownload.sdk.community.content.MarketContent content) {
+        this(version, expectedSizeBytes, sha256, signaturePresent, requiredSdk, compatible, effectiveAfterRestart,
+                dependencies, releasedTime, changeNotes, channel, deprecated, verification, installable, content, "UNKNOWN");
+    }
+
+    PluginMarketPackageView withInstallation(PluginMarketInstallationView installation) {
+        return new PluginMarketPackageView(version, expectedSizeBytes, sha256, signaturePresent, requiredSdk,
+                compatible, effectiveAfterRestart, dependencies, releasedTime, changeNotes, channel, deprecated,
+                verification, installable, content, installation.comparison(version, sha256));
+    }
 
     public PluginMarketPackageView(String version, long expectedSizeBytes, String sha256, boolean signaturePresent,
             String requiredSdk, boolean compatible, boolean effectiveAfterRestart, List<String> dependencies,

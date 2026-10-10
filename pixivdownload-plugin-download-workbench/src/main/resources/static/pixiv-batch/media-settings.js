@@ -35,7 +35,7 @@ window.PixivMediaSettings = (() => {
         if (!admin) return;
         const classic = !!container.closest('#download-settings-card');
         const rowClass = classic ? 'setting-item' : 'media-format-row';
-        if (!classic) {
+        if (!classic && !container.closest('[data-schedule-settings]')) {
             const scope = document.createElement('p');
             scope.className = 'media-settings-scope';
             scope.textContent = translate('media.settings.scope');

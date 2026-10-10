@@ -209,6 +209,7 @@ class RecoveryModeGateTest {
             "/actuator/health", "/actuator/health/readiness", "/actuator/info",
             "/api/plugins/status", "/api/gui/plugins", "/api/i18n/web",
             "/plugin-market.html", "/plugin-market/plugin-market.css", "/api/plugin-market/repositories",
+            "/plugin-manage.html", "/plugin-manage/plugin-manage.js", "/api/plugins/recovery",
             "/api/navigation",
             "/error/404.html", "/error/error.css", "/error/error.js",
             "/js/pixiv-theme.js", "/css/app.css", "/vendor/fonts/fonts.css",

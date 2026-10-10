@@ -24,7 +24,7 @@ final class DesktopUiFailover implements DesktopUiSession {
     private final Set<String> providerIds;
     private final BiFunction<String, Consumer<Throwable>, DesktopUiContext> contexts;
     private final Consumer<DesktopUiSession> activeChanged;
-    private final Runnable unavailable;
+    private final Consumer<DesktopUiFailure> unavailable;
     private final BiConsumer<DesktopUiPluginSource, Throwable> failedPlugin;
     private final Set<String> failed = ConcurrentHashMap.newKeySet();
     private volatile DesktopUiPluginSource activeSource;
@@ -37,7 +37,7 @@ final class DesktopUiFailover implements DesktopUiSession {
             List<DesktopUiPluginSource> sources,
             BiFunction<String, Consumer<Throwable>, DesktopUiContext> contexts,
             Consumer<DesktopUiSession> activeChanged,
-            Runnable unavailable,
+            Consumer<DesktopUiFailure> unavailable,
             BiConsumer<DesktopUiPluginSource, Throwable> failedPlugin
     ) {
         candidates = new ArrayList<>(sources.stream()
@@ -77,7 +77,8 @@ final class DesktopUiFailover implements DesktopUiSession {
             } catch (Throwable failure) {
                 rethrowFatal(failure);
                 log.error(MessageBundles.getForLog("gui.launcher.log.provider-selection-failed"), failure);
-                if (failed.isEmpty()) showUnavailable();
+                if (failed.isEmpty()) showUnavailable(new DesktopUiFailure(
+                        DesktopUiFailure.Reason.SELECTION_FAILED, failure.toString()));
                 else launchNext(configuredId == null ? "" : configuredId.trim());
                 return;
             }
@@ -155,11 +156,17 @@ final class DesktopUiFailover implements DesktopUiSession {
     }
 
     private void showUnavailable() {
+        showUnavailable(new DesktopUiFailure(candidates.isEmpty()
+                ? DesktopUiFailure.Reason.NO_PROVIDER : DesktopUiFailure.Reason.ALL_FAILED,
+                candidates.isEmpty() ? null : candidates.stream().map(DesktopUiPluginSource::id).toList().toString()));
+    }
+
+    private void showUnavailable(DesktopUiFailure failure) {
         activeSource = null;
         activeChanged.accept(null);
         if (!unavailableShown) {
             unavailableShown = true;
-            unavailable.run();
+            unavailable.accept(failure);
         }
     }
 

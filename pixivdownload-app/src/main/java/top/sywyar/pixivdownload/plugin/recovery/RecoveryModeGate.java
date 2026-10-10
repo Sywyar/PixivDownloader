@@ -56,16 +56,17 @@ public class RecoveryModeGate extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
             throws ServletException, IOException {
-        if (!recoveryModeService.isActive()) {
-            chain.doFilter(req, res);
-            return;
-        }
         Optional<String> path = SafeRequestPath.resolve(req);
         if ("OPTIONS".equalsIgnoreCase(req.getMethod())) {
             chain.doFilter(req, res);
             return;
         }
         if (path.isPresent() && isAllowedInRecoveryMode(path.get())) {
+            // 诊断本身失败也不能阻断修复入口；后续身份与 CSRF 过滤仍照常执行。
+            chain.doFilter(req, res);
+            return;
+        }
+        if (!recoveryModeService.isActive()) {
             chain.doFilter(req, res);
             return;
         }
@@ -101,6 +102,8 @@ public class RecoveryModeGate extends OncePerRequestFilter {
 
     private static boolean isPluginMarketEntry(String path) {
         return path.equals(PLUGIN_MARKET_PATH)
+                || path.equals("/plugin-manage.html")
+                || path.startsWith("/plugin-manage/")
                 || path.startsWith("/plugin-market/")
                 || path.equals("/api/plugin-market")
                 || path.startsWith("/api/plugin-market/");

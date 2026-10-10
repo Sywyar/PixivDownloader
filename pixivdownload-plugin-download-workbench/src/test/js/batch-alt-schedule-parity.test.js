@@ -48,14 +48,14 @@ function setup() {
             ? {label: 'Owner phase', message: item.liveStatus.phase, tone: 'info'} : null,
         manifestDescriptor: () => ({i18nNamespace: 'fixture'})
     };
-    const c = vm.createContext({console, document, Map, Set, Promise, URLSearchParams,
+    const c = vm.createContext({AbortController, console, document, Map, Set, Promise, URLSearchParams,
         setTimeout, clearTimeout, setInterval: () => 1, clearInterval() {},
         requestAnimationFrame: fn => { const id = ++frameId; frames.set(id, fn); return id; },
         cancelAnimationFrame: id => frames.delete(id)});
     c.window = c;
     c.PixivBatchAlt = {queue: {}, schedule: {}};
     c.PixivBatch = {queueTypes: runtime};
-    for (const file of ['alt-core.js', 'alt-state.js', 'alt-queue.js', 'alt-schedule.js', 'alt-schedule-actions.js', 'alt-schedule-editor.js']) {
+    for (const file of ['alt-core.js', '../pixiv-batch/batch-download-defaults.js', '../pixiv-batch/batch-pagination.js', 'alt-state.js', 'alt-queue.js', 'alt-schedule.js', 'alt-schedule-actions.js', 'alt-schedule-editor.js']) {
         vm.runInContext(readFileSync(resolve(rootPath, file), 'utf8'), c, {filename: file});
     }
     vm.runInContext(readFileSync(resolve(rootPath, '../pixiv-batch/batch-media-progress.js'), 'utf8'), c);

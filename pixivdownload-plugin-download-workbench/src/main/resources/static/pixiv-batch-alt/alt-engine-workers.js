@@ -3,7 +3,20 @@
 /* ============================================================
    下载管理器（worker 池）
    ============================================================ */
-async function start() {
+async function start(automatic = false) {
+    if (state.isRunning || state.isStarting) return;
+    state.isStarting = true;
+    try {
+        await startQueue(automatic === true);
+    } catch (error) {
+        if (automatic !== true) throw error;
+        setDockStatus({key: 'batch:status.auto-start-failed', args: {message: error.message || String(error)}}, 'error');
+    } finally {
+        state.isStarting = false;
+    }
+}
+
+async function startQueue(automatic) {
     if (state.isRunning) return;
     if (state.queue.some(item => !item.taskObserved && item.recoveryState)) {
         await reconcileRestoredQueue();
@@ -25,8 +38,11 @@ async function start() {
     // 后端检查 / 收藏夹刷新期间可能发生重复点击；较早的调用已经启动时，后续调用不得重置 worker 状态。
     if (state.isRunning) return;
 
+    if (automatic && (!isAdmin || state.settings.autoStartOnEnqueue !== true || state.isPaused
+            || !state.queue.some(q => !q.taskObserved && ['idle', 'pending'].includes(q.status)))) return;
+
     state.queue.forEach(q => {
-        if (!q.taskObserved && ['idle', 'failed', 'paused'].includes(q.status)) {
+        if (!q.taskObserved && (automatic ? q.status === 'idle' : ['idle', 'failed', 'paused'].includes(q.status))) {
             q.status = 'pending';
         }
     });
