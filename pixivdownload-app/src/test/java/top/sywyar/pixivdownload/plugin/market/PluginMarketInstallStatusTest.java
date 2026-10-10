@@ -78,11 +78,26 @@ class PluginMarketInstallStatusTest {
         assertThat(card.installation().sha256()).isEqualTo("a".repeat(64));
         assertThat(card.installation().runtimeVersion()).isEqualTo("1.0.0");
         assertThat(card.installation().source()).isEqualTo("unknown");
+        when(statusService.report(org.mockito.ArgumentMatchers.anyList())).thenReturn(new PluginStatusReport(
+                List.of(new PluginDiagnostic("b", PluginStatus.FAILED, descriptor, false, List.of("startup failed")))));
+        var failed = entryOf(market.catalog(PluginRepository.OFFICIAL_ID), "b").installation();
+        assertThat(failed.state()).isEqualTo("PRESENT");
+        assertThat(failed.runtimeStatus()).isEqualTo("FAILED");
+        assertThat(failed.runtimeVersion()).isNull();
+        assertThat(failed.version()).isEqualTo("2.0.0");
         when(lifecycle.lifecycleMutationEpoch()).thenReturn(0L, 2L);
         assertThat(entryOf(market.catalog(PluginRepository.OFFICIAL_ID), "b").installation().state()).isEqualTo("UNKNOWN");
         when(lifecycle.lifecycleMutationEpoch()).thenReturn(3L);
         org.mockito.Mockito.clearInvocations(installer);
         assertThat(market.pluginDetail(PluginRepository.OFFICIAL_ID, "b").installation().state()).isEqualTo("UNKNOWN");
+        org.mockito.Mockito.verify(installer, org.mockito.Mockito.never()).snapshotInstalledWithProvenance(
+                org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyLong());
+        when(statusService.recoveryGateSnapshot()).thenReturn(
+                top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginRecoveryGateSnapshot.unchecked());
+        when(statusService.report(org.mockito.ArgumentMatchers.anyList())).thenReturn(PluginStatusReport.empty());
+        var unknown = entryOf(market.catalog(PluginRepository.OFFICIAL_ID), "b").installation();
+        assertThat(unknown.state()).isEqualTo("UNKNOWN");
+        assertThat(unknown.runtimeStatus()).isNull();
         org.mockito.Mockito.verify(installer, org.mockito.Mockito.never()).snapshotInstalledWithProvenance(
                 org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyLong());
     }

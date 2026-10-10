@@ -17,6 +17,11 @@ public record PluginMarketInstallationView(
                 null, null, enabled);
     }
 
+    PluginMarketInstallationView withRuntime(String runtimeVersion, String runtimeStatus) {
+        return new PluginMarketInstallationView(state, version, sha256, source, repositoryId,
+                runtimeVersion, runtimeStatus, installedArtifactsEnabled);
+    }
+
     static PluginMarketInstallationView from(InstalledPluginSnapshot installed,
             String runtimeVersion, String runtimeStatus, boolean installedArtifactsEnabled) {
         if (installed == null) {

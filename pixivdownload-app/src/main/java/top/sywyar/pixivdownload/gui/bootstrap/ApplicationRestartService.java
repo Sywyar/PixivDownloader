@@ -17,7 +17,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -27,8 +27,9 @@ public final class ApplicationRestartService {
     static final String PREVIOUS_PID_ENV = "PIXIVDOWNLOAD_RESTART_PREVIOUS_PID";
     private static final Duration PREVIOUS_EXIT_TIMEOUT = Duration.ofMinutes(2);
     private static volatile List<String> applicationArguments;
+    private static final AtomicReference<String> PROCESS_REQUEST = new AtomicReference<>();
 
-    private final AtomicBoolean requested = new AtomicBoolean();
+    private final AtomicReference<String> requested;
     private final AppMessages messages;
     private final Supplier<ProcessBuilder> processFactory;
     private final Consumer<Runnable> exitScheduler;
@@ -37,7 +38,12 @@ public final class ApplicationRestartService {
     @Autowired
     public ApplicationRestartService(AppMessages messages) {
         this(messages, ApplicationRestartService::restartProcess,
-                ApplicationRestartService::scheduleExit, GuiLauncher::requestApplicationExit);
+                ApplicationRestartService::scheduleExit, GuiLauncher::requestApplicationExit, PROCESS_REQUEST);
+    }
+
+    /** Spring 尚未启动时复用相同的进程交接和请求合并状态。 */
+    public static ApplicationRestartService forBootstrap() {
+        return new ApplicationRestartService(null);
     }
 
     ApplicationRestartService(
@@ -46,6 +52,17 @@ public final class ApplicationRestartService {
             Consumer<Runnable> exitScheduler,
             Runnable exitRequest
     ) {
+        this(messages, processFactory, exitScheduler, exitRequest, new AtomicReference<>());
+    }
+
+    private ApplicationRestartService(
+            AppMessages messages,
+            Supplier<ProcessBuilder> processFactory,
+            Consumer<Runnable> exitScheduler,
+            Runnable exitRequest,
+            AtomicReference<String> requested
+    ) {
+        this.requested = requested;
         this.messages = messages;
         this.processFactory = processFactory;
         this.exitScheduler = exitScheduler;
@@ -74,7 +91,7 @@ public final class ApplicationRestartService {
     }
 
     public boolean requestRestart() {
-        if (!requested.compareAndSet(false, true)) return true;
+        if (!requested.compareAndSet(null, "restart")) return "restart".equals(requested.get());
         Process replacement = null;
         try {
             ProcessBuilder builder = processFactory.get();
@@ -84,9 +101,25 @@ public final class ApplicationRestartService {
             return true;
         } catch (IOException | RuntimeException failure) {
             if (replacement != null) replacement.destroy();
-            requested.set(false);
+            requested.set(null);
             LoggerFactory.getLogger(ApplicationRestartService.class).warn(
-                    messages.getForLog("gui.controller.log.restart.command-failed", failure.getMessage()), failure);
+                    messages != null ? messages.getForLog("gui.controller.log.restart.command-failed", failure.getMessage())
+                            : top.sywyar.pixivdownload.i18n.MessageBundles.getForLog(
+                                    "gui.controller.log.restart.command-failed", failure.getMessage()), failure);
+            return false;
+        }
+    }
+
+    public boolean requestExit() {
+        if (!requested.compareAndSet(null, "exit")) return "exit".equals(requested.get());
+        try {
+            exitScheduler.accept(exitRequest);
+            return true;
+        } catch (RuntimeException failure) {
+            requested.set(null);
+            LoggerFactory.getLogger(ApplicationRestartService.class).warn(
+                    top.sywyar.pixivdownload.i18n.MessageBundles.getForLog(
+                            "recovery.action.failed"), failure);
             return false;
         }
     }

@@ -2,10 +2,11 @@
   <configuration default="false" name="Missing Required Plugin" type="Application" factoryName="Application">
     <option name="MAIN_CLASS_NAME" value="top.sywyar.pixivdownload.gui.GuiLauncher" />
     <module name="PixivDownload" />
+    <option name="VM_PARAMETERS" value="-Dpixivdownload.plugin-dev.enabled=true -Dpixivdownload.plugin-dev.root=&quot;$PROJECT_DIR$&quot;" />
     <option name="PROGRAM_PARAMETERS" value="--pixivdownload.recovery-sentinel.required=true" />
     <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
     <method v="2">
-      <option name="Maven.BeforeRunTask" enabled="true" file="$PROJECT_DIR$/pom.xml" goal="-pl pixivdownload-app -am process-classes -Dexec.skip=true" />
+      <option name="Maven.BeforeRunTask" enabled="true" file="$PROJECT_DIR$/pom.xml" goal="-pl pixivdownload-app,pixivdownload-official-plugins -am -Precovery-mode process-classes -Dexec.skip=true" />
       <option name="Make" enabled="true" />
     </method>
   </configuration>

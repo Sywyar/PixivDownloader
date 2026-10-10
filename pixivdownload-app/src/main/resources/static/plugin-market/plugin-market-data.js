@@ -10,6 +10,56 @@
     // —— 条目字段读取（市场元数据缺失时稳定降级，不破坏渲染）——
     function market(entry) { return entry && entry.market; }
 
+    D.suspectedProblem = function (entry) {
+        return !!entry && !!entry.installation
+            && ['FAILED', 'CRASHED'].indexOf(entry.installation.runtimeStatus) !== -1;
+    };
+
+    D.focusReason = function (entry) {
+        if (D.suspectedProblem(entry)) return 'failed';
+        var focus = PMK.recovery && PMK.recovery.focus && PMK.recovery.focus();
+        if (!focus || !entry) return '';
+        if (focus.plugins && Object.prototype.hasOwnProperty.call(focus.plugins, entry.pluginId))
+            return focus.plugins[entry.pluginId];
+        return (focus.categories || []).indexOf(D.entryCategory(entry)) !== -1 ? 'gui' : '';
+    };
+
+    D.artifactMismatch = function (entry, pkg) {
+        var local = entry && entry.installation;
+        return !!local && local.state === 'PRESENT' && !!pkg && local.version === pkg.version
+            && /^[a-f0-9]{64}$/i.test(local.sha256 || '') && /^[a-f0-9]{64}$/i.test(pkg.sha256 || '')
+            && local.sha256.toLowerCase() !== pkg.sha256.toLowerCase();
+    };
+
+    D.developmentLoaded = function (entry) {
+        var local = entry && entry.installation;
+        return !!local && local.installedArtifactsEnabled === false && local.runtimeStatus === 'STARTED';
+    };
+
+    D.installationState = function (entry, pkg) {
+        var local = entry && entry.installation;
+        if (!local) return '';
+        if (D.artifactMismatch(entry, pkg)) return 'mismatch';
+        if (D.developmentLoaded(entry)) return 'development';
+        if (local.state === 'UNKNOWN') return 'unknown';
+        if (local.installedArtifactsEnabled === false && local.state === 'PRESENT') return 'stored-development';
+        if (local.runtimeVersion && local.version && local.runtimeVersion !== local.version) return 'runtime-different';
+        if (local.state === 'ABSENT' && local.runtimeStatus === 'STARTED') return 'runtime-only';
+        if (local.runtimeStatus === 'DISABLED') return 'disabled';
+        if (local.runtimeStatus === 'STOPPED') return 'stopped';
+        if (['INCOMPATIBLE', 'INCOMPATIBLE_REQUIRED'].indexOf(local.runtimeStatus) !== -1) return 'incompatible';
+        if (local.runtimeStatus === 'MISSING_REQUIRED') return 'dependency';
+        if (['INSTALLED', 'RESOLVED', 'LOADED'].indexOf(local.runtimeStatus) !== -1) return 'not-started';
+        if (local.state === 'PRESENT' && !local.runtimeStatus) return 'not-loaded';
+        return '';
+    };
+
+    D.mergeEntries = function (entries, additions) {
+        var byId = new Map();
+        (entries || []).concat(additions || []).forEach(function (entry) { byId.set(entry.pluginId, entry); });
+        return Array.from(byId.values());
+    };
+
     D.entryName = function (entry) {
         var m = market(entry);
         return PMK.localeText(m && m.displayName, entry.pluginId, m && m.defaultLocale) || entry.pluginId;
@@ -149,6 +199,11 @@
         var category = D.entryCategory(entry);
         return {
             pluginId: entry.pluginId,
+            suspectedProblem: D.suspectedProblem(entry),
+            focusReason: D.focusReason(entry),
+            artifactMismatch: D.artifactMismatch(entry, D.packageOf(entry, D.defaultVersion(entry))),
+            developmentLoaded: D.developmentLoaded(entry),
+            installationState: D.installationState(entry, D.packageOf(entry, D.defaultVersion(entry))),
             name: D.entryName(entry),
             publisher: verification && verification.publisher ? verification.publisher : author,
             sub: [entry.pluginId, author].filter(Boolean).join(' · '),
@@ -208,13 +263,15 @@
     }
 
     D.selectedInstallStatus = function (entry, pkg, facts, manual) {
+        if (PMK.recovery && PMK.recovery.installationBlocked()) return 'RECOVERY_BLOCKED';
         var blocked = D.packageInstallBlock(pkg, facts);
         if (blocked) return blocked;
         if (!pkg) return entry.installStatus;
         if (pkg.compatible === false) return 'INCOMPATIBLE';
-        if (pkg.installationMatch === 'SAME_ARTIFACT') return 'INSTALLED_SAME';
+        if (pkg.installationMatch === 'SAME_ARTIFACT') return D.suspectedProblem(entry) ? 'REINSTALL' : 'INSTALLED_SAME';
         if (pkg.installationMatch === 'DIFFERENT_ARTIFACT') return 'INSTALL_DIFFERENT';
         if (pkg.installationMatch === 'UNKNOWN') return 'INSTALL_UNVERIFIED';
+        if (D.developmentLoaded(entry) && (manual || entry.installStatus === 'NOT_INSTALLED')) return 'INSTALL_DISTRIBUTION';
         return manual ? 'NOT_INSTALLED' : entry.installStatus;
     };
 
@@ -222,6 +279,10 @@
         var match = pkg && pkg.installationMatch;
         var notice = ['SAME_ARTIFACT', 'DIFFERENT_ARTIFACT', 'UNKNOWN'].indexOf(match) !== -1
             ? PMK.t('installation.match.' + match) : '';
+        if (D.artifactMismatch(entry, pkg)) notice = PMK.t('installation.same-version-mismatch');
+        var state = D.installationState(entry, pkg);
+        if (state && ['mismatch', 'development', 'stored-development'].indexOf(state) === -1)
+            notice += (notice ? ' ' : '') + PMK.t('installation.advice.' + state);
         if (entry.installation && entry.installation.installedArtifactsEnabled === false)
             notice += (notice ? ' ' : '') + PMK.t('installation.development');
         return notice;
@@ -246,18 +307,19 @@
         var verification = facts || (pkg && pkg.verification);
         var revocation = verification && verification.revocationStatus;
         if (revocation === 'REVOKED' || revocation === 'YANKED') return revocation;
+        if (verification && verification.status && ['VERIFIED_OFFICIAL', 'VERIFIED_CUSTOM', 'VERIFIED_COMMUNITY',
+                'UNVERIFIED_LOCAL', 'UNSIGNED_ALLOWED'].indexOf(verification.status) === -1)
+            return PMK.INSTALL_META[verification.status] ? verification.status : 'UNAVAILABLE';
         if (pkg && pkg.installable === false || revocation === 'NOT_CHECKED') return 'UNAVAILABLE';
-        if (!verification || !verification.status) return null;
-        if (['VERIFIED_OFFICIAL', 'VERIFIED_CUSTOM', 'VERIFIED_COMMUNITY', 'UNVERIFIED_LOCAL', 'UNSIGNED_ALLOWED']
-                .indexOf(verification.status) !== -1) return null;
-        return PMK.INSTALL_META[verification.status] ? verification.status : 'UNAVAILABLE';
+        return null;
     };
 
     // —— 筛选 + 搜索 + 排序 ——
     function matches(entry, opts) {
         if (opts.category && opts.category !== 'all' && D.entryCategory(entry) !== opts.category) return false;
-        if (opts.hideDefaultInstalled && D.entryDefaultInstalled(entry)) return false;
-        if (opts.hideDependencies && D.entryDependency(entry)) return false;
+        var attention = D.focusReason(entry) || D.artifactMismatch(entry, D.packageOf(entry, D.defaultVersion(entry)));
+        if (opts.hideDefaultInstalled && D.entryDefaultInstalled(entry) && !attention) return false;
+        if (opts.hideDependencies && D.entryDependency(entry) && !attention) return false;
         if (opts.onlyOfficial && !D.entryOfficial(entry)) return false;
         // 后端按推荐版本投影兼容性；查询未完成的条目保留明确提示，不能当作没有兼容版本。
         if (opts.onlyCompatible && entry.compatible === false && !entry.compatibilitySearchIncomplete) return false;
@@ -288,7 +350,13 @@
     // 过滤 + 排序（不改入参；JS sort 稳定）。
     D.filterAndSort = function (entries, opts) {
         var list = (entries || []).filter(function (e) { return matches(e, opts); });
-        list.sort(comparator(opts.sort || 'recommended'));
+        var compare = comparator(opts.sort || 'recommended');
+        list.sort(function (a, b) {
+            return Number(!!D.focusReason(b)) - Number(!!D.focusReason(a))
+                || Number(D.artifactMismatch(b, D.packageOf(b, D.defaultVersion(b))))
+                    - Number(D.artifactMismatch(a, D.packageOf(a, D.defaultVersion(a))))
+                || compare(a, b);
+        });
         return list;
     };
 
@@ -379,7 +447,7 @@
         var r = result || {};
         if (r.recoveryBlocked) return 'RECOVERY_BLOCKED';
         // 当前限制优先于此前安装回执；回执仍保留在结果区供查看。
-        if (fallbackStatus && ['NOT_INSTALLED', 'UPDATE_AVAILABLE', 'INSTALLED', 'INSTALLED_SAME', 'NO_RECOMMENDATION'].indexOf(fallbackStatus) === -1)
+        if (fallbackStatus && ['NOT_INSTALLED', 'INSTALL_DISTRIBUTION', 'UPDATE_AVAILABLE', 'INSTALLED', 'INSTALLED_SAME', 'REINSTALL', 'NO_RECOMMENDATION'].indexOf(fallbackStatus) === -1)
             return fallbackStatus;
         if (r.accepted && r.activationBlockedByDevelopmentMode) return 'STORED_DEVELOPMENT';
         if (r.activated) return 'ACTIVATED';

@@ -952,10 +952,17 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         statusController.checkConnectivity();
     }
 
+    boolean backendRecoveryMode() {
+        return backend.state() == DesktopUiHost.BackendState.RUNNING
+                && statusController.connected() && pluginStatus.recoveryMode()
+                && !host.maintenanceSnapshot().active();
+    }
+
     TextStyle backendTextStyle() {
         if (host.maintenanceSnapshot().active()) return TextStyle.WARNING;
         return switch (backend.state()) {
-            case RUNNING -> statusController.connected() ? TextStyle.SUCCESS : TextStyle.WARNING;
+            case RUNNING -> statusController.connected() && !pluginStatus.recoveryMode()
+                    ? TextStyle.SUCCESS : TextStyle.WARNING;
             case FAILED -> TextStyle.ERROR;
             default -> TextStyle.WARNING;
         };

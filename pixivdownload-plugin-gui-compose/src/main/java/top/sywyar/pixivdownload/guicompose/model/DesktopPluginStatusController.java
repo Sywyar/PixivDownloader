@@ -32,7 +32,8 @@ final class DesktopPluginStatusController {
                 button("plugins.refresh", "plugins.refresh", "gui.plugins.action.refresh",
                         !owner.busy(), nextActions, () -> owner.runBusy(this::load)),
                 button("plugins.manage", "plugins.manage", "gui.plugins.action.open-web",
-                        !owner.busy(), nextActions, () -> owner.openWeb("/plugin-manage.html")));
+                        !owner.busy(), nextActions, () -> owner.openWeb(
+                                owner.backendRecoveryMode() ? "/plugin-market.html" : "/plugin-manage.html")));
     }
 
     String localizedCode(String prefix, String code) {
@@ -86,6 +87,8 @@ final class DesktopPluginStatusController {
     }
 
     DesktopUiHost.GuiValue buildInfo() { return buildInfo; }
+
+    boolean recoveryMode() { return recoveryMode; }
 
     String noticeKey() { return noticeKey; }
 

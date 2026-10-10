@@ -4,5 +4,6 @@
   <stringAttribute key="org.eclipse.jdt.launching.MAIN_TYPE" value="top.sywyar.pixivdownload.gui.GuiLauncher" />
   <stringAttribute key="org.eclipse.jdt.launching.PROGRAM_ARGUMENTS" value="--pixivdownload.recovery-sentinel.required=true" />
   <stringAttribute key="org.eclipse.jdt.launching.PROJECT_ATTR" value="PixivDownload" />
+  <stringAttribute key="org.eclipse.jdt.launching.VM_ARGUMENTS" value="-Dpixivdownload.plugin-dev.enabled=true -Dpixivdownload.plugin-dev.root=&quot;${workspace_loc:/PixivDownload}/..&quot;" />
   <stringAttribute key="org.eclipse.jdt.launching.WORKING_DIRECTORY" value="${workspace_loc:/PixivDownload}/.." />
 </launchConfiguration>

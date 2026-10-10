@@ -21,6 +21,24 @@ class PluginDirectorySessionLockTest {
     Path temporaryDirectory;
 
     @Test
+    @DisplayName("锁竞争产生明确诊断且当前会话保持阻断，新会话可在释放后恢复")
+    void installerReportsContentionWithoutBypassingRecoveryGate() throws Exception {
+        Path plugins = temporaryDirectory.resolve("contended-plugins");
+        try (var owner = new PluginDirectorySessionLock(plugins);
+             var blocked = new top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller(plugins)) {
+            owner.acquireForMutation();
+            var report = blocked.recoverPendingTransactions();
+            assertThat(report.failures()).extracting(PluginTransactionRecoveryReport.Failure::kind)
+                    .containsExactly(PluginTransactionRecoveryReport.FailureKind.DIRECTORY_IN_USE);
+            owner.close();
+            assertThat(blocked.recoverPendingTransactions().safeToScan()).isFalse();
+            try (var next = new top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller(plugins)) {
+                assertThat(next.recoverPendingTransactions().safeToScan()).isTrue();
+            }
+        }
+    }
+
+    @Test
     @DisplayName("同一 JVM 的第二会话必须等第一会话关闭后才能取得同一目录")
     void serializesSessionsInTheSameProcess() throws Exception {
         Path plugins = temporaryDirectory.resolve("plugins");
@@ -30,7 +48,7 @@ class PluginDirectorySessionLockTest {
             first.acquireForMutation();
 
             assertThatThrownBy(second::acquireIfRootExists)
-                    .isInstanceOf(IOException.class)
+                    .isInstanceOf(PluginDirectorySessionLock.DirectoryInUseException.class)
                     .hasMessageContaining("already owned");
 
             first.close();

@@ -27,6 +27,7 @@ class DesktopUiFailoverTest {
     private final AtomicInteger failures = new AtomicInteger();
     private final AtomicReference<DesktopUiSession> active = new AtomicReference<>();
     private RuntimeException notificationFailure;
+    private final AtomicReference<DesktopUiFailure> lastFailure = new AtomicReference<>();
 
     @Test
     @DisplayName("默认 GUI 初始化错误后启动其它 GUI 并提示实际回退")
@@ -56,6 +57,7 @@ class DesktopUiFailoverTest {
             ui.start("");
         }
         assertThat(unavailable.get()).isEqualTo(1);
+        assertThat(lastFailure.get().reason()).isEqualTo(DesktopUiFailure.Reason.NO_PROVIDER);
         unavailable.set(0);
         DesktopUiPluginSource first = source("first", true);
         DesktopUiPluginSource second = source("second", false);
@@ -67,6 +69,7 @@ class DesktopUiFailoverTest {
             assertThat(active.get()).isNull();
         }
         assertThat(unavailable.get()).isEqualTo(1);
+        assertThat(lastFailure.get().reason()).isEqualTo(DesktopUiFailure.Reason.ALL_FAILED);
         verify(provider(first), times(1)).launch(any());
         verify(provider(second), times(1)).launch(any());
     }
@@ -163,10 +166,25 @@ class DesktopUiFailoverTest {
         }
     }
 
+    @Test
+    @DisplayName("默认 GUI 冲突保留选择诊断，不把健康插件标记为启动失败")
+    void ambiguousProvidersKeepSelectionReason() throws Exception {
+        var first = source("first", true);
+        var second = source("second", true);
+        try (DesktopUiFailover ui = controller(List.of(first, second))) {
+            ui.start("");
+            assertThat(lastFailure.get().reason()).isEqualTo(DesktopUiFailure.Reason.SELECTION_FAILED);
+            assertThat(lastFailure.get().detail()).contains("first", "second");
+            assertThat(failures).hasValue(0);
+            verify(provider(first), never()).launch(any());
+            verify(provider(second), never()).launch(any());
+        }
+    }
+
     private DesktopUiFailover controller(List<DesktopUiPluginSource> sources) {
         return new DesktopUiFailover(sources, (id, failure) -> new DesktopUiContext(false, 6999, "download",
                 Path.of("config.yaml"), id, mock(DesktopUiHost.class), List.of(), List::of,
-                token -> token.key(), () -> "system", failure), active::set, unavailable::incrementAndGet,
+                token -> token.key(), () -> "system", failure), active::set, failure -> { lastFailure.set(failure); unavailable.incrementAndGet(); },
                 (source, failure) -> {
                     failures.incrementAndGet();
                     if (notificationFailure != null) throw notificationFailure;

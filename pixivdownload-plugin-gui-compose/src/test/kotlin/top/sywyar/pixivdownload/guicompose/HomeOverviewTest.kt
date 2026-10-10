@@ -7,6 +7,9 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toAwtImage
+import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.WindowInfo
@@ -16,6 +19,8 @@ import androidx.compose.ui.test.v2.runComposeUiTest
 import androidx.compose.ui.unit.dp
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
+import io.github.robinpcrd.cupertino.theme.CupertinoColors
+import io.github.robinpcrd.cupertino.theme.systemYellow
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode
 import java.io.File
 import java.io.StringReader
@@ -31,6 +36,43 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 @DisplayName("Compose 首页概览")
 class HomeOverviewTest {
+    @Test
+    @DisplayName("恢复模式在浅深色和窄窗口显示黄灯及完整提示，恢复正常后提示消失")
+    fun recoveryIndicatorAndHintFollowCurrentState() {
+        for ((theme, width) in listOf("light" to 1000, "dark" to 1000, "light" to 440, "dark" to 440)) {
+            runComposeUiTest {
+                var recovery by mutableStateOf(true)
+                val palette = experiencePalette(theme == "dark")
+                setContent {
+                    PixivDownloaderTheme(theme) {
+                        CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 1.3f)) {
+                            Box(Modifier.size(width.dp, 800.dp).background(palette.surface)) {
+                                HomeOverview(home(empty = true, recovery = recovery), ::resolve, {})
+                            }
+                        }
+                    }
+                }
+                onNodeWithTag("home.backend.state").assertTextEquals(resolveKey("recovery"))
+                onNodeWithTag("home.backend.hint").assertIsDisplayed().assertTextEquals(resolveKey("recovery.hint"))
+                val statusBounds = onNodeWithTag("home.backend").fetchSemanticsNode().boundsInRoot
+                val hintBounds = onNodeWithTag("home.backend.hint").fetchSemanticsNode().boundsInRoot
+                assertTrue(hintBounds.left >= statusBounds.left && hintBounds.right <= statusBounds.right)
+                fun indicatorColor() = onNodeWithTag("home.backend.indicator").captureToImage().toPixelMap().let {
+                    it[it.width / 2, it.height / 2]
+                }
+                assertEquals(CupertinoColors.systemYellow(theme == "dark", false), indicatorColor())
+                System.getenv("PIXIV_HOME_SCREENSHOTS")?.let { directory ->
+                    val output = File(directory).apply { mkdirs() }
+                    ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", File(output, "recovery-$theme-$width.png"))
+                }
+                runOnIdle { recovery = false }
+                onNodeWithText(resolveKey("recovery.hint")).assertDoesNotExist()
+                onNodeWithTag("home.backend.state").assertTextEquals("Service running")
+                assertEquals(palette.success, indicatorColor())
+            }
+        }
+    }
+
     @Test
     @DisplayName("网络和插件状态显示本实例端口，普通模式不增加端口信息")
     fun systemStatusShowsPortOnlyWhenProvided() = runComposeUiTest {
@@ -423,7 +465,7 @@ class HomeOverviewTest {
         private fun resolveKey(suffix: String, vararg args: Any): String =
             MessageFormat.format(messages.getProperty("gui.compose.home.$suffix"), *args)
         private fun raw(value: String) = DesktopUiNode.TextToken.raw(value)
-        fun home(progress: Double = .42, empty: Boolean = false, known: Boolean = true, metricCount: Int = 4, startingAt: Long = 0L, port: Int? = null): DesktopUiNode.HomeOverview {
+        fun home(progress: Double = .42, empty: Boolean = false, known: Boolean = true, metricCount: Int = 4, startingAt: Long = 0L, port: Int? = null, recovery: Boolean = false): DesktopUiNode.HomeOverview {
             val shortcuts = listOf("download", "images", "book", "chart-bar").map { symbol ->
                 DesktopUiNode.HomeShortcut(
                     DesktopUiNode.Button("shortcut.$symbol", "open.$symbol", raw(when (symbol) {
@@ -443,9 +485,13 @@ class HomeOverviewTest {
                     DesktopUiNode.HomeMetric("metric.$it", raw("Metric $it"), raw((1250 + it * 123).toString()),
                         if (it == 3) raw("GB") else null, raw("From connected sources"), null)
                 }, known,
-                DesktopUiNode.Text("backend", raw(if (startingAt > 0L) "Starting..." else "Service running"),
-                    DesktopUiNode.TextStyle.SUCCESS, true, false),
+                DesktopUiNode.Text("backend", raw(when {
+                    startingAt > 0L -> "Starting..."
+                    recovery -> resolveKey("recovery")
+                    else -> "Service running"
+                }), if (recovery) DesktopUiNode.TextStyle.WARNING else DesktopUiNode.TextStyle.SUCCESS, true, false),
                 startingAt,
+                recovery,
                 DesktopUiNode.HomeSystem(raw("Configured"), raw("127.0.0.1:7890"), raw("8 running / 9 total"), port),
             )
         }

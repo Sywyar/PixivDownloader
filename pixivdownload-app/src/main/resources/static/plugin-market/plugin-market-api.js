@@ -45,7 +45,14 @@
 
     // GET /api/plugins/status → 恢复模式 + 插件失败 / 必选缺失诊断（复用插件管理只读投影）。
     API.fetchPluginStatus = function () {
-        return getJson('/api/plugins/status');
+        return Promise.all([getJson('/api/plugins/status'), PMK.recovery ? PMK.recovery.refresh() : null])
+            .then(function (results) { return results[0]; });
+    };
+
+    API.fetchRecovery = function () { return getJson('/api/plugins/recovery'); };
+    API.recoveryAction = function (action) {
+        if (action !== 'restart' && action !== 'exit') return Promise.reject(new Error('Invalid recovery action'));
+        return postJson('/api/plugins/recovery/' + action, {});
     };
 
     // GET /api/plugin-market/catalog?repositoryId= → 指定仓库（空取默认）的分页摘要 + 分类计数 + 已安装数 + 安装状态。
@@ -62,10 +69,65 @@
         });
         if (options.limit) params.push('limit=' + enc(options.limit));
         if (params.length) url += '?' + params.join('&');
-        return getJson(url, request ? request.signal : options.signal).finally(function () {
+        var signal = request ? request.signal : options.signal;
+        return getJson(url, signal).then(function (catalog) {
+            return options.cursor ? catalog : includeRecoveryEntries(catalog, signal);
+        }).finally(function () {
             if (catalogRequest === request) catalogRequest = null;
         });
     };
+
+    async function includeRecoveryEntries(catalog, signal) {
+        var focus = PMK.recovery && PMK.recovery.focus && PMK.recovery.focus();
+        if (!focus || !catalog.enabled || !catalog.repositoryId) return catalog;
+        var ids = Object.keys(focus.plugins || {});
+        var categories = (focus.categories || []).filter(function (category) { return category === 'ui'; });
+        if (!ids.length && !categories.length) return catalog;
+        // shortcut: 每次仓库加载最多补查 32 个 ID 和 100 个 GUI 候选；更大仓库通过分页继续查看。
+        var request = new AbortController();
+        var abort = function () { request.abort(); };
+        if (signal) {
+            if (signal.aborted) abort();
+            else signal.addEventListener('abort', abort, {once: true});
+        }
+        var timer = setTimeout(abort, 15000);
+        var additions = [];
+        catalog.focusIncomplete = false;
+        try {
+            if (categories.length) {
+                try {
+                    var gui = await getJson('/api/plugin-market/catalog?repositoryId=' + enc(catalog.repositoryId)
+                        + '&category=ui&limit=100', request.signal);
+                    if (gui.generation === catalog.generation) additions = gui.entries || [];
+                    else catalog.focusIncomplete = true;
+                    if (gui.nextCursor) catalog.focusIncomplete = true;
+                } catch (failure) { catalog.focusIncomplete = true; }
+            }
+            var known = new Set((catalog.entries || []).concat(additions).map(function (entry) { return entry.pluginId; }));
+            var missing = ids.filter(function (id) { return !known.has(id); });
+            if (missing.length > 32) catalog.focusIncomplete = true;
+            var jobs = missing.slice(0, 32);
+            var next = 0;
+            async function worker() {
+                while (next < jobs.length && !request.signal.aborted) {
+                    var id = jobs[next++];
+                    try {
+                        var entry = await API.fetchPluginDetail(catalog.repositoryId, id, {limit: 1, signal: request.signal});
+                        if (entry && entry.pluginId === id) additions.push(entry);
+                        else catalog.focusIncomplete = true;
+                    } catch (failure) { catalog.focusIncomplete = true; }
+                }
+            }
+            await Promise.all([worker(), worker(), worker()]);
+            if (signal && signal.aborted) throw new DOMException('Catalog request cancelled', 'AbortError');
+            if (request.signal.aborted) catalog.focusIncomplete = true;
+            catalog.entries = PMK.data.mergeEntries(catalog.entries, additions);
+            return catalog;
+        } finally {
+            clearTimeout(timer);
+            if (signal) signal.removeEventListener('abort', abort);
+        }
+    }
 
     API.fetchPluginDetail = function (repositoryId, pluginId, options) {
         var url = '/api/plugin-market/plugins/' + enc(repositoryId) + '/' + enc(pluginId);
@@ -74,7 +136,7 @@
         if (options.cursor) params.push('cursor=' + enc(options.cursor));
         if (options.limit) params.push('limit=' + enc(options.limit));
         if (params.length) url += '?' + params.join('&');
-        return getJson(url);
+        return getJson(url, options.signal);
     };
 
     API.fetchPackageFacts = function (repositoryId, pluginId, version) {

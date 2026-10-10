@@ -69,6 +69,8 @@
             : '<span class="pmk-badge pmk-badge--community">' + esc(card.assuranceLabel) + '</span>';
         if (card.recommended) badges += '<span class="pmk-badge pmk-badge--recommended">' + esc(t('badge.recommended', '推荐')) + '</span>';
         badges += verificationBadgeHtml(card.verificationBadge);
+        if (card.focusReason) badges += '<span class="pmk-badge pmk-badge--suspected">' + esc(t('recovery.focus.' + card.focusReason)) + '</span>';
+        if (card.installationState) badges += '<span class="pmk-badge ' + (card.artifactMismatch ? 'pmk-badge--mismatch' : 'pmk-badge--state') + '">' + esc(t('installation.state.' + card.installationState)) + '</span>';
         var rating = '';
         if (card.ratingNum || card.downloadsLabel) {
             rating = '<div class="pmk-rating">' +
@@ -84,7 +86,7 @@
             ? '<div class="pmk-card-compat"><i class="fa-solid fa-triangle-exclamation"></i>' +
               esc(t('compat.needs', '需要SDK v{v}+（当前 v{cur}）', { v: card.compatibilityReason, cur: state.sdkVersion })) + '</div>'
             : '';
-        return '<article class="pmk-card ' + esc(card.colorClass) + '"><div class="pmk-card-body">' +
+        return '<article class="pmk-card ' + esc(card.colorClass) + (card.focusReason ? ' pmk-card--suspected' : '') + (card.artifactMismatch ? ' pmk-card--mismatch' : '') + '"><div class="pmk-card-body">' +
             '<div class="pmk-card-head"><span class="pmk-card-icon"><i class="' + esc(card.iconClass) + '"></i>' +
             (PMK.api.contentImageUrl(card.repositoryId, card.pluginId, card.icon, 'icon', 0)
                 ? '<img class="pmk-market-image" alt="" loading="lazy" src="' + esc(PMK.api.contentImageUrl(card.repositoryId, card.pluginId, card.icon, 'icon', 0)) + '">' : '') + '</span>' +
@@ -182,14 +184,6 @@
         }
 
         var body = '';
-        if (state.recoveryMode) {
-            body += '<div class="pmk-banner pmk-banner--error"><i class="fa-solid fa-triangle-exclamation"></i><div class="pmk-banner-body">' +
-                '<div class="pmk-banner-title">' + esc(t('recovery.banner.title', '当前正处于恢复模式')) + '</div>' +
-                '<div>' + esc(t('recovery.banner.desc', '正常功能已暂停。请根据下列原因安装、修复或重新安装插件，完成后重启程序。')) + '</div>' +
-                (state.recoveryReasons.length ? '<ul>' + state.recoveryReasons.map(function (reason) {
-                    return '<li>' + esc(reason) + '</li>';
-                }).join('') + '</ul>' : '') + '</div></div>';
-        }
         if (!state.masterEnabled) {
             body += '<div class="pmk-banner pmk-banner--warn"><i class="fa-solid fa-circle-exclamation"></i><div class="pmk-banner-body">' +
                 '<div class="pmk-banner-title">' + esc(t('master.disabled.title', '插件市场未开启')) + '</div>' +
@@ -213,6 +207,7 @@
                 '<div class="pmk-banner-title">' + esc(t('error.catalog.title', '无法加载插件清单')) + '</div><div>' + esc(state.catalogError) + '</div></div></div>';
         }
         if (state.masterEnabled && state.catalog) {
+            if (state.catalog.focusIncomplete) body += '<p class="pmk-banner pmk-banner--warn">' + esc(t('recovery.focus-incomplete')) + '</p>';
             body += '<div class="pmk-repos">' + categoryChips() + '</div>' +
                 filterChips() +
                 '<div class="pmk-toolbar"><div class="pmk-toolbar-head"><div class="pmk-toolbar-title-row"><span class="pmk-toolbar-title">' +
@@ -559,7 +554,7 @@
                 PMK.api.fetchCatalog(state.activeRepositoryId, { cursor: state.catalog.nextCursor }).then(function (page) {
                     if (token !== state.catalogToken) return;
                     if (!state.catalog || page.generation !== generation) return loadCatalog(state.activeRepositoryId).then(paint);
-                    state.catalog.entries = state.catalog.entries.concat(page.entries || []);
+                    state.catalog.entries = PMK.data.mergeEntries(state.catalog.entries, page.entries);
                     state.catalog.nextCursor = page.nextCursor; paint();
                 }).catch(function (failure) {
                     if (token !== state.catalogToken || failure.name === 'AbortError') return;

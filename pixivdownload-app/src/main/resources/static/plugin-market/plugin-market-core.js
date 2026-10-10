@@ -329,7 +329,9 @@
 
     // —— 安装状态机机器码 → 控件渲染元数据（与后端 MarketInstallStatus 对齐；installing 是前端本地态）——
     PMK.INSTALL_META = {
+        REINSTALL: { labelKey: 'recovery.reinstall', icon: 'rotate', variant: 'amber' },
         NOT_INSTALLED:   { labelKey: 'install.action.install', icon: 'cloud-arrow-down', variant: 'primary' },
+        INSTALL_DISTRIBUTION: { labelKey: 'install.action.distribution', icon: 'cloud-arrow-down', variant: 'primary' },
         INSTALLED:       { labelKey: 'install.state.installed', icon: 'circle-check',      variant: 'success-outline', disabled: true },
         INSTALLED_SAME: { labelKey: 'install.state.same-artifact', icon: 'circle-check', variant: 'success-outline', disabled: true },
         INSTALL_DIFFERENT: { labelKey: 'install.action.selected-package', icon: 'cloud-arrow-down', variant: 'amber' },

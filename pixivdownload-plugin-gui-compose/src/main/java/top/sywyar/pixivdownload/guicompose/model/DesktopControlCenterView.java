@@ -73,7 +73,8 @@ final class DesktopControlCenterView {
             String base = "home.quick-start." + safeId(entry.owner()) + "." + safeId(navigation.id());
             String action = base + ".open";
             nextActions.put(action, () -> {
-                if (quickStartEntries(owner.currentSources()).contains(entry)) owner.openWeb(navigation.href());
+                if (quickStartEntries(owner.currentSources()).contains(entry))
+                    owner.openWeb(owner.backendRecoveryMode() ? "/plugin-market.html" : navigation.href());
                 else owner.rebuild();
             });
             TextToken label = token(navigation.labelNamespace(), navigation.labelI18nKey(), navigation.id());
@@ -98,10 +99,24 @@ final class DesktopControlCenterView {
                             ? progress : null,
                     freshness(task)));
         }
-        DesktopUiNode content = new DesktopUiNode.HomeOverview("home.overview", shortcuts, tasks, metrics,
+        boolean recoveryMode = owner.backendRecoveryMode();
+        DesktopUiNode content = new DesktopUiNode.HomeOverview(
+                "home.overview",
+                shortcuts,
+                tasks,
+                metrics,
                 snapshot.path("runningTasks").isArray(),
-                new DesktopUiNode.Text("home.system.backend", TextToken.raw(owner.backendMessage()),
-                        owner.backendTextStyle(), true, false), owner.backendStartingAt(), systemStatus());
+                new DesktopUiNode.Text(
+                        "home.system.backend",
+                        recoveryMode ? composeToken("home.recovery") : TextToken.raw(owner.backendMessage()),
+                        owner.backendTextStyle(),
+                        true,
+                        false
+                ),
+                owner.backendStartingAt(),
+                recoveryMode,
+                systemStatus()
+        );
         return owner.page("home", DesktopUiIcon.HOME, content, new DesktopUiNode.Insets(0, 0, 0, 0), null);
     }
 

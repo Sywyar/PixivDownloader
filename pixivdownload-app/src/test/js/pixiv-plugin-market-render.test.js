@@ -48,7 +48,7 @@ function entry(id, { category = 'utility', defaultInstalled = false } = {}) {
     };
 }
 
-async function mountMarket({ community = false, revocation = null, compatibleOlder = false, dependencies = [] } = {}) {
+async function mountMarket({ community = false, revocation = null, compatibleOlder = false, dependencies = [], failed = false } = {}) {
     const errors = [];
     const document = { documentElement: node('html'), createElement: tag => node(tag), addEventListener() {}, removeEventListener() {}, body: { style: {} } };
     const sandbox = { document, URL, addEventListener() {}, removeEventListener() {}, console: { warn: (...args) => errors.push(args), error: (...args) => errors.push(args) } };
@@ -86,6 +86,7 @@ async function mountMarket({ community = false, revocation = null, compatibleOld
     const market = sandbox.PixivPluginMarket;
     market.state.i18n.client = { lang: 'en-US', t: (key, fallback, vars) => key + (vars ? JSON.stringify(vars) : '') };
     const entries = [entry('visible'), entry('bundled', { defaultInstalled: true }), entry('dependency', { category: 'dependency' })];
+    if (failed) entries[1].installation = {state: 'PRESENT', runtimeStatus: 'FAILED'};
     entries[0].packages.forEach(pkg => { pkg.dependencies = dependencies; });
     entries[2].market.displayName = {en: 'Notifications', 'zh-CN': '通知'};
     if (compatibleOlder) {
@@ -295,12 +296,20 @@ test('详情刷新移除旧版本时，展示、事实查询和安装使用同�
     assert.deepEqual(page.errors, []);
 });
 
-test('无动态编译时仍能显示恢复模式、禁用状态和目录错误', async () => {
+test('Vue 中明确故障插件优先显示并标记，即使默认安装筛选开启', async () => {
+    const page = await mountMarket({failed: true});
+    const cards = elements(page.root, 'pmk-card');
+    assert.equal(cards.length, 2);
+    assert.match(cards[0].props.class, /pmk-card--suspected/);
+    assert.match(textOf(cards[0]), /bundled/);
+    assert.match(textOf(cards[0]), /recovery.focus.failed/);
+    assert.doesNotMatch(cards[1].props.class, /pmk-card--suspected/);
+});
+
+test('无动态编译时仍能显示市场禁用状态和目录错误', async () => {
     const page = await mountMarket();
     await page.reload({ status: { recoveryMode: true, hostElevated: true,
         recoveryReasons: [{ pluginId: 'required', status: 'MISSING_REQUIRED', messages: [] }] }, enabled: false });
-    assert.match(textOf(page.root), /plugin-market:recovery.banner.title/);
-    assert.match(textOf(page.root), /required/);
     assert.match(textOf(page.root), /plugin-market:master.disabled.title/);
     assert.match(textOf(page.root), /plugin-market:host.elevated.notice/);
     assert.equal(elements(page.root, 'pmk-body').length, 0);
@@ -450,6 +459,7 @@ test('基础视图默认安装兼容旧版，更新撤销事实并丢弃换版�
     const market = sandbox.PixivPluginMarket;
     market.state.i18n.client = { lang: 'en-US', t: key => key };
     const plugin = entry('visible');
+    plugin.installation = {state: 'PRESENT', runtimeStatus: 'CRASHED'};
     plugin.recommendedVersion = '1.0.0';
     plugin.packages[0].compatible = false;
     plugin.compatibilityReason = '999.0';
@@ -472,6 +482,8 @@ test('基础视图默认安装兼容旧版，更新撤销事实并丢弃换版�
     await new Promise(resolve => setImmediate(resolve));
     assert.match(root.innerHTML, /data-pmk-install="visible"/);
     assert.match(root.innerHTML, /compat.fallback/);
+    assert.match(root.innerHTML, /pmk-card--suspected/);
+    assert.match(root.innerHTML, /recovery.focus.failed/);
     const installTag = root.innerHTML.match(/<button[^>]*data-pmk-install="visible"[^>]*>/)[0];
     assert.match(installTag, /data-pmk-version="1.0.0"/);
     handlers.click({target: {closest: selector => selector === '[data-pmk-install]' ? {

@@ -94,12 +94,6 @@
         </dependency>
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
-            <artifactId>pixivdownload-plugin-recovery-sentinel</artifactId>
-            <version>${project.version}</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-plugin-tts</artifactId>
             <version>${project.version}</version>
             <scope>test</scope>
@@ -130,6 +124,35 @@
     </build>
 
     <profiles>
+        <profile>
+            <id>recovery-sentinel-fixture</id>
+            <activation><activeByDefault>true</activeByDefault></activation>
+            <dependencies>
+                <dependency>
+                    <groupId>top.sywyar.lovepopup</groupId>
+                    <artifactId>pixivdownload-plugin-recovery-sentinel</artifactId>
+                    <version>${project.version}</version>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+        <!-- 恢复测试保留正常 GUI 与业务插件，只从开发清单中排除可选测试探针。 -->
+        <profile>
+            <id>recovery-mode</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.springframework.boot</groupId>
+                        <artifactId>spring-boot-maven-plugin</artifactId>
+                        <configuration>
+                            <arguments>
+                                <argument>--pixivdownload.recovery-sentinel.required=true</argument>
+                            </arguments>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
         <profile>
             <id>dev-mode</id>
             <dependencies>

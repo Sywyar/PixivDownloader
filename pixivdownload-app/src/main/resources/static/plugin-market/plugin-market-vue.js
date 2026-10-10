@@ -69,7 +69,8 @@
             var meta = vm.cardMeta(card);
             var badge = card.verificationBadge;
             function open() { vm.openDetail(card.pluginId); }
-            return h('article', { key: card.pluginId, class: ['pmk-card', card.colorClass] }, [
+            return h('article', { key: card.pluginId, class: ['pmk-card', card.colorClass,
+                card.focusReason ? 'pmk-card--suspected' : '', card.artifactMismatch ? 'pmk-card--mismatch' : ''] }, [
                 h('div', { class: 'pmk-card-banner', onClick: open }, [
                     icon(['pmk-card-banner-glyph', card.iconClass]), icon(['pmk-card-banner-bg', card.iconClass]),
                     h('span', { class: 'pmk-card-banner-cat' }, [icon(card.categoryIcon), card.categoryLabel])
@@ -80,6 +81,8 @@
                         h('div', { class: 'pmk-card-titleblock' }, [
                             h('div', { class: 'pmk-card-name-row' }, [
                                 h('button', { type: 'button', class: 'pmk-card-name', onClick: open }, card.name),
+                                card.focusReason ? h('span', { class: 'pmk-badge pmk-badge--suspected' }, t('recovery.focus.' + card.focusReason)) : null,
+                                card.installationState ? h('span', { class: ['pmk-badge', card.artifactMismatch ? 'pmk-badge--mismatch' : 'pmk-badge--state'] }, t('installation.state.' + card.installationState)) : null,
                                 h('span', { class: 'pmk-badge pmk-badge--' + (card.official ? 'official' : 'community') },
                                     card.official ? t('badge.official', '官方') : card.assuranceLabel),
                                 card.recommended ? h('span', { class: 'pmk-badge pmk-badge--recommended' }, t('badge.recommended', '推荐')) : null,
@@ -155,6 +158,7 @@
                         Vue.withDirectives(h('select', { class: 'pmk-sort', 'onUpdate:modelValue': function (value) { vm.sort = value; } },
                             vm.sortOptions.map(function (opt) { return h('option', { key: opt, value: opt }, t('sort.' + opt, opt)); })), [[Vue.vModelSelect, vm.sort]])
                     ]),
+                    vm.catalog && vm.catalog.focusIncomplete ? h('p', {class: 'pmk-banner pmk-banner--warn'}, t('recovery.focus-incomplete')) : null,
                     vm.cards.length ? h('div', { class: 'pmk-grid' }, vm.cards.map(cardView)) : null,
                     vm.catalog && vm.catalog.nextCursor ? h('div', { class: 'pmk-load-more' }, [
                         h('button', { class: 'pmk-btn pmk-btn--gray', disabled: vm.loadingMore, onClick: vm.loadMore },
@@ -310,11 +314,6 @@
             PMK.operations ? h('div', { ref: PMK.operations.mountPanel }) : null,
             vm.loading ? loading() : vm.error ? h('div', { class: 'pmk-banner pmk-banner--error' },
                 [icon('fa-solid fa-triangle-exclamation'), h('div', { class: 'pmk-banner-body' }, vm.error)]) : [
-                vm.recoveryMode ? h('div', { class: 'pmk-banner pmk-banner--error' }, [icon('fa-solid fa-triangle-exclamation'), h('div', { class: 'pmk-banner-body' }, [
-                    h('div', { class: 'pmk-banner-title' }, t('recovery.banner.title', '当前正处于恢复模式')),
-                    h('div', t('recovery.banner.desc', '正常功能已暂停。请根据下列原因安装、修复或重新安装插件，完成后重启程序。')),
-                    vm.hasRecoveryReasons ? h('ul', vm.recoveryReasons.map(function (reason) { return h('li', { key: reason }, reason); })) : null
-                ])]) : null,
                 !vm.masterEnabled ? h('div', { class: 'pmk-banner pmk-banner--warn' }, [icon('fa-solid fa-circle-exclamation'), h('div', { class: 'pmk-banner-body' }, [
                     h('div', { class: 'pmk-banner-title' }, t('master.disabled.title', '插件市场未开启')),
                     h('div', t('master.disabled.desc', '请在配置中开启受信 catalog 后再浏览仓库与安装插件。'))
@@ -535,7 +534,7 @@
                         if (!self.catalog || page.generation !== self.catalog.generation) {
                             self.loadCatalog(self.activeRepositoryId); return;
                         }
-                        self.catalog.entries = self.catalog.entries.concat(page.entries || []);
+                        self.catalog.entries = PMK.data.mergeEntries(self.catalog.entries, page.entries);
                         self.catalog.nextCursor = page.nextCursor;
                     }).catch(function (failure) {
                         if (token !== self.catalogToken || failure.name === 'AbortError') return;

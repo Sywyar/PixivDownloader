@@ -250,7 +250,9 @@ public class PluginMarketService {
         for (PluginDiagnostic diagnostic : diagnostics) {
             if (diagnostic.descriptor() != null) {
                 versions.put(diagnostic.id(), PluginMarketInstallationView.unknown(
-                        installer == null ? diagnostic.descriptor().version() : null, enabled));
+                        installer == null ? diagnostic.descriptor().version() : null, enabled)
+                        .withRuntime(diagnostic.status() == top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus.STARTED
+                                ? diagnostic.descriptor().version() : null, diagnostic.status().name()));
             }
         }
         if (inventory == null) return new InstalledState(versions, installer == null, enabled);
@@ -266,11 +268,11 @@ public class PluginMarketService {
                 versions.put(id, PluginMarketInstallationView.unknown(null, enabled));
                 continue;
             }
-            var runtime = diagnostics.stream().filter(item -> id.equals(item.id()) && item.descriptor() != null
-                    && item.status() == top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus.STARTED)
+            var runtime = diagnostics.stream().filter(item -> id.equals(item.id()) && item.descriptor() != null)
                     .findFirst().orElse(null);
             versions.put(id, PluginMarketInstallationView.from(packages.isEmpty() ? null : packages.get(0),
-                    runtime != null ? runtime.descriptor().version() : null,
+                    runtime != null && runtime.status() == top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus.STARTED
+                            ? runtime.descriptor().version() : null,
                     runtime != null ? runtime.status().name() : null, enabled));
         }
         return new InstalledState(versions, true, enabled);

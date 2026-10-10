@@ -30,6 +30,12 @@ public final class PluginDirectorySessionLock implements AutoCloseable {
 
     static final String LOCK_FILE_NAME = ".pixivdownload-runtime.lock";
 
+    /** 明确的锁竞争，与权限不足、路径不安全和一般 IO 故障分开诊断。 */
+    public static final class DirectoryInUseException extends IOException {
+        DirectoryInUseException(String message) { super(message); }
+        DirectoryInUseException(String message, Throwable cause) { super(message, cause); }
+    }
+
     private static final ConcurrentMap<Path, PluginDirectorySessionLock> JVM_OWNERS = new ConcurrentHashMap<>();
     private static final AtomicLong NEXT_IDENTITY_POSITION = new AtomicLong(1L);
 
@@ -100,7 +106,7 @@ public final class PluginDirectorySessionLock implements AutoCloseable {
 
         PluginDirectorySessionLock existingOwner = JVM_OWNERS.putIfAbsent(pluginsRoot, this);
         if (existingOwner != null && existingOwner != this) {
-            throw new IOException("plugins root is already owned by another session in this process: "
+            throw new DirectoryInUseException("plugins root is already owned by another session in this process: "
                     + pluginsRoot);
         }
 
@@ -129,18 +135,18 @@ public final class PluginDirectorySessionLock implements AutoCloseable {
             try {
                 candidateLock = candidateChannel.tryLock(0L, 1L, false);
             } catch (OverlappingFileLockException e) {
-                throw new IOException("plugins root is already owned by this process: " + pluginsRoot, e);
+                throw new DirectoryInUseException("plugins root is already owned by this process: " + pluginsRoot, e);
             }
             if (candidateLock == null) {
-                throw new IOException("plugins root is already owned by another process: " + pluginsRoot);
+                throw new DirectoryInUseException("plugins root is already owned by another process: " + pluginsRoot);
             }
             try {
                 candidateIdentityLock = candidateChannel.tryLock(identityPosition, 1L, false);
             } catch (OverlappingFileLockException e) {
-                throw new IOException("plugin directory identity range is already owned in this process", e);
+                throw new DirectoryInUseException("plugin directory identity range is already owned in this process", e);
             }
             if (candidateIdentityLock == null) {
-                throw new IOException("plugin directory identity range is already owned by another process");
+                throw new DirectoryInUseException("plugin directory identity range is already owned by another process");
             }
             if (!ensurePlainDirectoryChain(false)) {
                 throw new IOException("plugins root disappeared while acquiring its session lock");
