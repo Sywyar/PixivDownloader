@@ -15,6 +15,37 @@ const publication = YAML.parse(fs.readFileSync(path.join(ROOT,
     workflow.jobs.publish.steps.find(step => step.uses === './.github/actions/publish-sdk').uses, 'action.yml'), 'utf8'));
 const script = publication.runs.steps.find(step => step.name === 'Check immutable publication state').run;
 
+test('SDK 上传使用仓库 Maven Wrapper 并保留参数和失败退出码', () => {
+    const work = fs.mkdtempSync(path.join(os.tmpdir(), 'sdk-publication-wrapper-'));
+    try {
+        fs.writeFileSync(path.join(work, 'mvnw'), '#!/bin/sh\nprintf "%s\\n" "$@" > arguments.txt\nexit "$SDK_TEST_EXIT"\n',
+            { encoding: 'utf8', mode: 0o755 });
+        const entry = path.join(work, 'publish.sh');
+        fs.writeFileSync(entry, [
+            'mvn() { echo "Unexpected system Maven" >&2; return 99; }',
+            'node() { printf "%s" "$SDK_TEST_MODULES"; }',
+            publication.runs.steps.find(step => step.name === 'Publish SDK artifacts to Maven Central').run,
+        ].join('\n'), 'utf8');
+        const modules = SDK_ARTIFACTS.map(([artifact]) => artifact).join(',');
+        const source = 'b'.repeat(40);
+        for (const code of [0, 17]) {
+            const result = spawnSync('bash', [entry.replaceAll('\\', '/')], {
+                cwd: work, encoding: 'utf8',
+                env: { ...process.env, SDK_TEST_MODULES: modules, SDK_TEST_EXIT: String(code), GITHUB_SHA: source },
+            });
+            assert.equal(result.status, code, result.error ?? result.stderr);
+            const args = fs.readFileSync(path.join(work, 'arguments.txt'), 'utf8').trim().split('\n');
+            assert.equal(args[args.indexOf('-P') + 1], 'sdk-central');
+            assert.equal(args[args.indexOf('-pl') + 1], modules);
+            assert.ok(args.includes('deploy'));
+            assert.ok(args.includes('-Dpixivdownload.source.sha=' + source));
+            assert.ok(!args.some(arg => /-D(?:gpg\.skip|skipPublishing)(?:=|$)/u.test(arg)));
+        }
+    } finally {
+        fs.rmSync(work, { recursive: true, force: true });
+    }
+});
+
 test('发行调用复用完整的公共 SDK，首次发布与显式恢复继续进入门禁，查询失败不能当作尚未发布', () => {
     const work = fs.mkdtempSync(path.join(os.tmpdir(), 'sdk-publication-plan-'));
     try {

@@ -153,6 +153,21 @@ try {
     if ($elapsed.Elapsed.TotalSeconds -lt 5) { throw 'Recovery did not exercise a queued EDT timeout.' }
     if ($desktop.bootstrapPrompts -ne 1) { throw 'Expired dismissal ran after EDT recovery.' }
 
+    foreach ($visible in @($true, $false)) {
+        $request = Join-Path $startupProbe $(if ($visible) { 'show-feedback' } else { 'hide-feedback' })
+        New-Item -ItemType File -Path $request | Out-Null
+        $deadline = [DateTime]::UtcNow.AddSeconds(15)
+        while (Test-Path -LiteralPath $request) {
+            Assert-ArtifactAlive $child 'Feedback visibility fixture'
+            if ([DateTime]::UtcNow -ge $deadline) { throw 'Feedback visibility did not change.' }
+            Start-Sleep -Milliseconds 50
+        }
+        $desktop = Invoke-ReleaseProbe $child $startupProbe 'desktop'
+        if ((Test-ReleaseDesktopReady $desktop '' -BootstrapPrompt) -eq $visible) {
+            throw 'Hidden text was required or visible unpainted text was accepted.'
+        }
+    }
+
     Start-BlockedDesktop
     $elapsed.Restart()
     Assert-Rejected { Wait-ReleaseDesktop $child $startupProbe '' -BootstrapPrompt -TimeoutSeconds 7 } 'did not answer desktop'

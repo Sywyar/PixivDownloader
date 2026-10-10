@@ -7,6 +7,7 @@ import java.awt.Font;
 import java.awt.Frame;
 import java.awt.Graphics;
 import java.awt.Label;
+import java.awt.Panel;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.awt.image.BufferedImage;
@@ -17,12 +18,23 @@ import java.util.concurrent.atomic.AtomicReference;
 /** 用文件握手控制入口类加载，让真实观测器稳定遇到启动中的应用。 */
 public final class DelayedLauncher {
     private static Dialog dialog;
+    private static Label feedback;
 
     public static void main(String[] args) throws Exception {
         Path directory = Path.of(args[0]);
         while (!Files.exists(directory.resolve("load"))) Thread.sleep(20);
         Class.forName("top.sywyar.pixivdownload.gui.GuiLauncher");
         while (!Files.exists(directory.resolve("exit"))) {
+            for (boolean visible : new boolean[]{true, false}) {
+                Path request = directory.resolve(visible ? "show-feedback" : "hide-feedback");
+                if (Files.exists(request)) {
+                    EventQueue.invokeAndWait(() -> {
+                        feedback.setVisible(visible);
+                        dialog.validate();
+                    });
+                    Files.delete(request);
+                }
+            }
             if (Files.deleteIfExists(directory.resolve("block"))) {
                 EventQueue.invokeLater(() -> blockEventThread(directory));
             }
@@ -63,10 +75,19 @@ public final class DelayedLauncher {
                         }
                     });
                 }
+                // 隐藏反馈及隐藏容器中的原生 Label 都不参与当前窗口的可读性判断。
+                feedback = new Label("Unpainted feedback");
+                feedback.setVisible(false);
+                dialog.add(feedback);
+                Panel hidden = new Panel();
+                hidden.add(new Label("Hidden container text"));
+                hidden.setVisible(false);
+                dialog.add(hidden);
                 dialog.setSize(300, 160);
                 dialog.setVisible(true);
                 // 先完成夹具的首次字体绘制，再注入 EDT 阻塞；恢复检查只测队列与取消行为。
                 for (var component : dialog.getComponents()) {
+                    if (!component.isShowing()) continue;
                     var graphics = new BufferedImage(component.getWidth(), component.getHeight(),
                             BufferedImage.TYPE_INT_ARGB).createGraphics();
                     try { component.paint(graphics); } finally { graphics.dispose(); }
