@@ -1,15 +1,14 @@
 package top.sywyar.pixivdownload.plugin.market;
 
-import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
-
 /**
  * 市场条目的安装状态（稳定机器码，与界面语言无关；前端按机器语义分支、文案另走 i18n）。由后端把受信 catalog 条目与
- * <b>真实运行时安装状态</b>（{@link top.sywyar.pixivdownload.plugin.management.PluginStatusService} 只读投影）交叉引用推导，<b>不</b>用
+ * 磁盘安装状态交叉引用推导，<b>不</b>用
  * 前端假状态掩盖后端事实。
  *
  * <ul>
  *   <li>{@link #NOT_INSTALLED} —— 本机未安装该插件，且其最新可安装版本兼容当前SDK（可安装）。</li>
- *   <li>{@link #INSTALLED} —— 本机已安装，无<b>严格更高</b>的兼容更新。</li>
+ *   <li>{@link #INSTALLED} —— 本机有安装包，无<b>严格更高</b>的兼容更新；内容一致性另由包级比较事实说明。</li>
+ *   <li>{@link #NO_RECOMMENDATION} —— 当前渠道没有默认推荐，详情仍有可手动选择的兼容包。</li>
  *   <li>{@link #UPDATE_AVAILABLE} —— 本机已安装、市场存在<b>严格更高且兼容</b>的版本（更新走事务化替换并即时激活，
  *       <b>非</b>热升级）。版本高低按 {@link top.sywyar.pixivdownload.common.SemanticVersion} 语义比较，语义等价
  *       （如 {@code 1.2} 与 {@code 1.2.0}）不算更新，本机版本更高时保持已安装。</li>
@@ -19,8 +18,8 @@ import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
  * </ul>
  *
  * <p>「安装中」是<b>前端本地请求态</b>（安装 POST 在途），不在本枚举——安装结果一律以后端响应为准。安装经统一事务编排
- * 下载、校验、卸下旧代、原子替换并按生命周期策略激活：除 {@code process-restart} 外均在当前进程立即激活；前端依据后端
- * 返回的 {@code activated} / {@code effectiveAfterRestart} 投影终态，不伪造安装结果。
+ * 下载、校验、原子替换并按运行模式及生命周期策略激活；前端依据后端返回的 {@code activated}、
+ * {@code effectiveAfterRestart} 与 {@code activationBlockedByDevelopmentMode} 投影终态。
  */
 public enum MarketInstallStatus {
 
@@ -28,6 +27,7 @@ public enum MarketInstallStatus {
     INSTALLED,
     UPDATE_AVAILABLE,
     INCOMPATIBLE,
+    NO_RECOMMENDATION,
     UNAVAILABLE;
 
     /**

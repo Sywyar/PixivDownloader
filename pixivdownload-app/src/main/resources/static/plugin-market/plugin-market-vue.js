@@ -103,6 +103,7 @@
                         vm.showCardCompat(card) ? h('div', { class: 'pmk-card-compat' }, [icon('fa-solid fa-triangle-exclamation'),
                             t('compat.needs', '需要SDK v{v}+（当前 v{cur}）', { v: card.compatibilityReason, cur: vm.sdkVersion })]) : null,
                         card.compatibilityNotice ? h('p', { class: 'pmk-card-compat pmk-card-compat--notice' }, card.compatibilityNotice) : null,
+                        card.installationNotice ? h('p', {class: 'pmk-card-compat pmk-card-compat--notice'}, card.installationNotice) : null,
                         h('div', { class: 'pmk-card-actions' }, [
                             vm.cardStatus(card) === 'INSTALLING' ? progress(vm.installing[vm.installKey(card.repositoryId, card.pluginId)]) : h('button', {
                                 class: ['pmk-btn pmk-install', 'pmk-btn--' + meta.variant], disabled: meta.disabled,
@@ -202,11 +203,14 @@
                             vm.modalStatus === 'INSTALLING' ? progress(vm.installing[vm.installKey(vm.activeCatalogRepositoryId, vm.selectedPluginId)]) : h('button', {
                                 class: ['pmk-btn pmk-install', 'pmk-btn--' + vm.modalMeta.variant], disabled: vm.modalMeta.disabled, onClick: vm.installModal
                             }, [icon('fa-solid fa-' + vm.modalMeta.icon), h('span', vm.modalLabel)]),
-                            ['INSTALLED', 'ACTIVATED', 'PENDING_RESTART'].includes(vm.modalState()) ? h('a', {class: 'pmk-btn pmk-btn--primary', href: '/plugin-manage.html'}, t('install.goto-manage')) : null
+                            ['INSTALLED', 'INSTALLED_SAME', 'INSTALL_DIFFERENT', 'INSTALL_UNVERIFIED', 'ACTIVATED', 'PENDING_RESTART', 'STORED_DEVELOPMENT'].includes(vm.modalState()) ? h('a', {class: 'pmk-btn pmk-btn--primary', href: '/plugin-manage.html'}, t('install.goto-manage')) : null
                         ])
                     ]),
                     h('div', { class: 'pmk-modal-body' }, [
                         detail.compatibilityNotice ? h('p', {class: 'pmk-card-compat pmk-card-compat--notice', role: 'status'}, detail.compatibilityNotice) : null,
+                        detail.installationNotice ? h('p', {class: 'pmk-card-compat pmk-card-compat--notice', role: 'status'}, detail.installationNotice) : null,
+                        factSection({title: t('installation.local-package'), fields: detail.localArtifactFields}),
+                        h('p', {class: 'pmk-section-text'}, t('installation.market-facts')),
                         h('section', {class: 'pmk-about'}, [h('h3', {class: 'pmk-section-label'}, t('detail.about')),
                             h('div', {class: 'pmk-section-text'}, detail.description || t('detail.no-description'))]),
                         h('dl', {class: 'pmk-detail-overview'}, detail.infoRows.filter(function (row) {
@@ -640,7 +644,8 @@
                 cardStatus: function (card) {
                     var key = this.installKey(card.repositoryId, card.pluginId);
                     if (this.installing[key]) return 'INSTALLING';
-                    return PMK.data.installResultStatus(this.installResults[key], card.installStatus);
+                    var result = this.installResults[key];
+                    return PMK.data.installResultStatus(result && result.version === card.targetVersion ? result : null, card.installStatus);
                 },
                 cardMeta: function (card) { return PMK.installMeta(this.cardStatus(card)); },
                 showCardRating: function (card) { return !!(card.ratingStars || card.downloadsLabel); },
@@ -717,15 +722,8 @@
                     var result = this.installResults[this.installKey(this.activeCatalogRepositoryId, entry.pluginId)];
                     var pkg = PMK.data.packageOf(entry, this.selectedVersion);
                     if (!pkg) return entry.installStatus;   // 无可安装版本制品 → 沿用后端状态（UNAVAILABLE / 已安装）
-                    var verificationStatus = PMK.data.packageInstallBlock(pkg, this.selectedFacts);
-                    if (verificationStatus) return verificationStatus;
-                    if (!pkg.compatible) return 'INCOMPATIBLE';
-                    var resultStatus = PMK.data.installResultStatus(result, null);
-                    if (resultStatus) return resultStatus;
-                    if (entry.installedVersion && entry.installedVersion === this.selectedVersion) return 'INSTALLED';
-                    if (entry.installedVersion && !entry.updateAvailable
-                            && this.selectedVersion === entry.recommendedVersion) return 'INSTALLED';
-                    return entry.installStatus === 'UPDATE_AVAILABLE' ? 'UPDATE_AVAILABLE' : 'NOT_INSTALLED';
+                    var status = PMK.data.selectedInstallStatus(entry, pkg, this.selectedFacts, true);
+                    return PMK.data.installResultStatus(result && result.version === pkg.version ? result : null, status);
                 },
                 installLabel: function (status, version) {
                     if (status === 'UPDATE_AVAILABLE') return this.t('install.action.update-to', '更新到 v{v}', { v: version });
@@ -795,6 +793,8 @@
                         description: PMK.data.entryDescription(entry), summary: card.desc, author: m.author, tags: card.tags,
                         installedVersion: entry.installedVersion, restartRequired: !!(pkg && pkg.effectiveAfterRestart === true),
                         compatibilityNotice: card.compatibilityNotice,
+                        installationNotice: PMK.data.installationNotice(entry, pkg),
+                        localArtifactFields: PMK.data.localArtifactFields(entry),
                         trustSections: global.PixivPluginPresentationTokens.trustSections(
                             this.selectedFacts || (pkg && pkg.verification), PMK.state.i18n.client),
                         artifactFields: [

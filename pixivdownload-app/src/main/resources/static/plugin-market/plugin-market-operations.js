@@ -27,6 +27,7 @@
         if (result.recoveryBlocked) return 'recovery-blocked';
         if (result.rolledBack) return 'rolled-back';
         if (record.failure) return 'FAILED';
+        if (result.accepted && result.activationBlockedByDevelopmentMode) return 'stored-development';
         if (result.activated) return 'activated';
         if (result.accepted && result.effectiveAfterRestart) return 'pending-restart';
         if (result.accepted) return 'accepted';

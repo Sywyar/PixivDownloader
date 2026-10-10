@@ -345,7 +345,7 @@ class PluginMarketPageGuardTest {
         assertThat(vue).as("Vue 安装完成后应重拉当前 catalog，不清掉 installResults 覆盖层")
                 .contains("refreshCatalogAfterInstall", "this.loadCatalog(repositoryId)");
         assertThat(fallback).as("回退安装完成后应重拉当前 catalog，不清掉 installResults 覆盖层")
-                .contains("refreshCatalogAfterInstall", "loadCatalog(repositoryId).then(paint)");
+                .contains("refreshCatalogAfterInstall", "loadCatalog(repositoryId, true).then(paint)");
     }
 
     @Test
@@ -384,8 +384,10 @@ class PluginMarketPageGuardTest {
                         ".pmk-verification-badge--danger", ".pmk-detail-verification--danger");
         assertThat(core).as("安装按钮状态覆盖验签失败状态")
                 .contains("SIGNATURE_REQUIRED", "UNKNOWN_KEY", "INVALID_SIGNATURE", "HASH_MISMATCH");
-        assertThat(data).as("卡片数据模型不得由摘要硬推断可信状态")
-                .doesNotContain("sha256");
+        assertThat(data).as("本机摘要可展示，但内容比较只消费后端机器码")
+                .contains("local.sha256 || unknown", "pkg.installationMatch")
+                .doesNotContainPattern("sha256\\s*[!=]==")
+                .doesNotContainPattern("[!=]==\\s*[^;\\n]*sha256");
         assertThat(data + core).as("可信状态不得由 key 名称 / 仓库名硬推断")
                 .doesNotContain("keyId")
                 .doesNotContain("repositoryId === 'official'");

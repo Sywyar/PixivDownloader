@@ -331,6 +331,11 @@
     PMK.INSTALL_META = {
         NOT_INSTALLED:   { labelKey: 'install.action.install', icon: 'cloud-arrow-down', variant: 'primary' },
         INSTALLED:       { labelKey: 'install.state.installed', icon: 'circle-check',      variant: 'success-outline', disabled: true },
+        INSTALLED_SAME: { labelKey: 'install.state.same-artifact', icon: 'circle-check', variant: 'success-outline', disabled: true },
+        INSTALL_DIFFERENT: { labelKey: 'install.action.selected-package', icon: 'cloud-arrow-down', variant: 'amber' },
+        INSTALL_UNVERIFIED: { labelKey: 'install.action.selected-package', icon: 'cloud-arrow-down', variant: 'amber' },
+        NO_RECOMMENDATION: { labelKey: 'install.state.no-recommendation', icon: 'circle-info', variant: 'gray', disabled: true },
+        STORED_DEVELOPMENT: { labelKey: 'install.state.stored-development', icon: 'box-archive', variant: 'gray', disabled: true },
         UPDATE_AVAILABLE:{ labelKey: 'install.action.update',  icon: 'arrow-up',          variant: 'amber' },
         INCOMPATIBLE:    { labelKey: 'install.state.incompatible', icon: 'ban',           variant: 'gray', disabled: true },
         SIGNATURE_REQUIRED: { labelKey: 'install.state.signature-required', icon: 'shield-halved', variant: 'gray', disabled: true },

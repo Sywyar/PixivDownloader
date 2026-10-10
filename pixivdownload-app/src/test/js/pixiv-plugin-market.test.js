@@ -63,6 +63,27 @@ vm.runInContext(DATA_SRC, sandbox);
 vm.runInContext(API_SRC, sandbox);
 
 const PMK = sandbox.window.PixivPluginMarket;
+for (const [match, expected] of [['SAME_ARTIFACT', 'INSTALLED_SAME'],
+    ['DIFFERENT_ARTIFACT', 'INSTALL_DIFFERENT'], ['UNKNOWN', 'INSTALL_UNVERIFIED']]) {
+    const pkg = {version: '7.0.0', installationMatch: match, compatible: true, installable: true,
+        verification: {status: 'VERIFIED_COMMUNITY', assuranceLevel: 'SOURCE_REVIEWED', revocationStatus: 'CLEAR'}};
+    const entry = {pluginId: 'sample', latestVersion: pkg.version, recommendedVersion: pkg.version,
+        installedVersion: pkg.version, installStatus: 'INSTALLED', packages: [pkg]};
+    eq('卡片按后端内容比较区分版本号相同的包', PMK.data.cardModel(entry).installStatus, expected);
+    eq('手动所选版本使用相同比较结果', PMK.data.selectedInstallStatus(entry, pkg, null, true), expected);
+    eq('撤销阻断不被本机相同包事实替代',
+        PMK.data.selectedInstallStatus(entry, pkg, {revocationStatus: 'REVOKED'}, true), 'REVOKED');
+}
+{
+    const pkg = {version: '7.0.0-rc.1', compatible: true, installable: true, installationMatch: 'NOT_INSTALLED',
+        verification: {status: 'VERIFIED_COMMUNITY', assuranceLevel: 'SOURCE_REVIEWED', revocationStatus: 'CLEAR'}};
+    const entry = {pluginId: 'sample', latestVersion: pkg.version, installStatus: 'NO_RECOMMENDATION', packages: [pkg]};
+    eq('无默认推荐保留卡片策略', PMK.data.cardModel(entry).installStatus, 'NO_RECOMMENDATION');
+    eq('无默认推荐不禁用手动 RC 安装', PMK.data.selectedInstallStatus(entry, pkg, null, true), 'NOT_INSTALLED');
+    const result = PMK.data.installResult({accepted: true, outcome: 'INSTALLED', activated: false,
+        effectiveAfterRestart: false, activationBlockedByDevelopmentMode: true});
+    eq('开发模式保存不显示已激活或待重启', PMK.data.installResultStatus(result, 'NOT_INSTALLED'), 'STORED_DEVELOPMENT');
+}
 for (const state of ['YANKED', 'REVOKED']) {
     const pkg = { installable: false, verification: { status: 'VERIFIED_COMMUNITY', revocationStatus: state } };
     const card = PMK.data.cardModel({ pluginId: 'sample', latestVersion: '2.0.0', installStatus: 'UPDATE_AVAILABLE',

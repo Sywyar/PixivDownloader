@@ -46,6 +46,21 @@ final class ExternalPluginRuntimeController {
                 .filter(descriptor -> descriptor.lifecyclePolicy().requiresProcessRestart());
     }
 
+    boolean loadedArtifactMatches(top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallResult installed) {
+        if (installed.installedPath() == null || runtimeManager.loadedDescriptor(installed.pluginId())
+                .filter(descriptor -> descriptor.version().equals(installed.version())).isEmpty()) return false;
+        try {
+            long size = java.nio.file.Files.size(installed.installedPath());
+            String sha256 = top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity
+                    .sha256Hex(installed.installedPath());
+            return runtimeManager.status().stream().flatMap(status -> status.verifications().stream())
+                    .anyMatch(proof -> proof.result().accepted() && proof.binds(installed.installedPath(),
+                            installed.pluginId(), installed.version(), size, sha256));
+        } catch (java.io.IOException unavailable) {
+            return false;
+        }
+    }
+
     void requireNoActiveDependents(String packageId) {
         List<String> blockers = runtimeManager.activeDependents(packageId);
         if (!blockers.isEmpty()) {

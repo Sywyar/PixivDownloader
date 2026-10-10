@@ -42,7 +42,8 @@
         return (m && m.category) || 'utility';
     };
     D.entryOfficial = function (entry) {
-        return !!entry && entry.assuranceLevel === 'OFFICIAL';
+        var verification = entry && packageVerification(entry);
+        return !!entry && (verification ? verification.assuranceLevel : entry.assuranceLevel) === 'OFFICIAL';
     };
     D.entryRecommended = function (entry) {
         var m = market(entry);
@@ -97,6 +98,7 @@
 
     D.compatibilityNotice = function (entry) {
         if (entry.compatibilitySearchIncomplete) return PMK.t('compat.search-incomplete');
+        if (entry.installStatus === 'NO_RECOMMENDATION') return PMK.t('compat.no-recommendation');
         if (entry.recommendedVersion && entry.recommendedVersion !== entry.latestVersion) {
             return PMK.t('compat.fallback', '', {latest: entry.latestVersion, selected: entry.recommendedVersion});
         }
@@ -157,8 +159,8 @@
             categoryLabel: PMK.categoryLabel(category),
             categoryIcon: PMK.iconClass(PMK.CATEGORY_ICON[category] || 'screwdriver-wrench'),
             official: D.entryOfficial(entry),
-            assuranceLevel: entry.assuranceLevel || 'UNVERIFIED',
-            assuranceLabel: D.assuranceLabel(entry.assuranceLevel),
+            assuranceLevel: verification && verification.assuranceLevel || 'UNVERIFIED',
+            assuranceLabel: D.assuranceLabel(verification && verification.assuranceLevel),
             recommended: D.entryRecommended(entry),
             ratingStars: ratingVal != null ? PMK.stars(ratingVal) : null,
             ratingNum: ratingVal != null ? ratingVal.toFixed(1) : null,
@@ -169,6 +171,7 @@
             targetVersion: D.defaultVersion(entry),
             versionLabel: D.defaultVersion(entry) ? ('v' + D.defaultVersion(entry)) : null,
             compatibilityNotice: D.compatibilityNotice(entry),
+            installationNotice: D.installationNotice(entry, D.packageOf(entry, D.defaultVersion(entry))),
             sizeLabel: PMK.formatSize(latestSize(entry)),
             dateLabel: m.updatedTime ? PMK.formatDate(m.updatedTime) : '',
             installStatus: installStatusWithVerification(entry),
@@ -199,8 +202,44 @@
 
     function installStatusWithVerification(entry) {
         if (entry.compatibilitySearchIncomplete) return 'UNAVAILABLE';
-        return D.packageInstallBlock(D.packageOf(entry, D.defaultVersion(entry))) || entry.installStatus;
+        var pkg = D.packageOf(entry, D.defaultVersion(entry));
+        return D.packageInstallBlock(pkg) || (entry.installStatus === 'NO_RECOMMENDATION'
+            ? 'NO_RECOMMENDATION' : D.selectedInstallStatus(entry, pkg, null, false));
     }
+
+    D.selectedInstallStatus = function (entry, pkg, facts, manual) {
+        var blocked = D.packageInstallBlock(pkg, facts);
+        if (blocked) return blocked;
+        if (!pkg) return entry.installStatus;
+        if (pkg.compatible === false) return 'INCOMPATIBLE';
+        if (pkg.installationMatch === 'SAME_ARTIFACT') return 'INSTALLED_SAME';
+        if (pkg.installationMatch === 'DIFFERENT_ARTIFACT') return 'INSTALL_DIFFERENT';
+        if (pkg.installationMatch === 'UNKNOWN') return 'INSTALL_UNVERIFIED';
+        return manual ? 'NOT_INSTALLED' : entry.installStatus;
+    };
+
+    D.installationNotice = function (entry, pkg) {
+        var match = pkg && pkg.installationMatch;
+        var notice = ['SAME_ARTIFACT', 'DIFFERENT_ARTIFACT', 'UNKNOWN'].indexOf(match) !== -1
+            ? PMK.t('installation.match.' + match) : '';
+        if (entry.installation && entry.installation.installedArtifactsEnabled === false)
+            notice += (notice ? ' ' : '') + PMK.t('installation.development');
+        return notice;
+    };
+
+    D.localArtifactFields = function (entry) {
+        var local = entry.installation || {};
+        var unknown = PMK.t('common:plugin-info.unknown');
+        var source = ['LOCAL_UPLOAD', 'MARKET_CATALOG'].indexOf(local.source) !== -1
+            ? PMK.t('installation.source.' + local.source) : unknown;
+        return [
+            {label: PMK.t('detail.installed-version'), value: local.version || entry.installedVersion
+                || (local.state === 'ABSENT' ? PMK.t('common:plugin-info.not-installed') : unknown)},
+            {label: 'SHA-256', value: local.sha256 || unknown},
+            {label: PMK.t('installation.source'), value: source + (local.repositoryId ? ' · ' + local.repositoryId : '')},
+            {label: PMK.t('installation.runtime-version'), value: local.runtimeVersion || unknown}
+        ];
+    };
 
     // 卡片、所选历史版本和新取回的事实共用后端禁用原因，不从签名有效推断未被撤销。
     D.packageInstallBlock = function (pkg, facts) {
@@ -314,6 +353,7 @@
             accepted: accepted,
             recoveryBlocked: recoveryBlocked,
             effectiveAfterRestart: r.effectiveAfterRestart === true,
+            activationBlockedByDevelopmentMode: r.activationBlockedByDevelopmentMode === true,
             activated: r.activated === true,
             rolledBack: r.rolledBack === true,
             rollbackVersion: r.rollbackVersion || null,
@@ -339,8 +379,9 @@
         var r = result || {};
         if (r.recoveryBlocked) return 'RECOVERY_BLOCKED';
         // 当前限制优先于此前安装回执；回执仍保留在结果区供查看。
-        if (fallbackStatus && ['NOT_INSTALLED', 'UPDATE_AVAILABLE', 'INSTALLED'].indexOf(fallbackStatus) === -1)
+        if (fallbackStatus && ['NOT_INSTALLED', 'UPDATE_AVAILABLE', 'INSTALLED', 'INSTALLED_SAME', 'NO_RECOMMENDATION'].indexOf(fallbackStatus) === -1)
             return fallbackStatus;
+        if (r.accepted && r.activationBlockedByDevelopmentMode) return 'STORED_DEVELOPMENT';
         if (r.activated) return 'ACTIVATED';
         if (r.accepted && r.effectiveAfterRestart) return 'PENDING_RESTART';
         return fallbackStatus;
@@ -358,6 +399,9 @@
         }
         if (r.activated) {
             return { message: PMK.t('install.toast.activated', '已安装并激活。'), tone: 'ok' };
+        }
+        if (r.accepted && r.activationBlockedByDevelopmentMode) {
+            return {message: PMK.t('installation.development'), tone: 'info'};
         }
         if (r.rolledBack) {
             return { message: PMK.t('install.toast.rolled-back', '激活失败，已恢复原版本。'), tone: 'error' };

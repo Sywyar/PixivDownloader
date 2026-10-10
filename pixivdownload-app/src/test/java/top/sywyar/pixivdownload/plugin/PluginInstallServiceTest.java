@@ -83,7 +83,7 @@ class PluginInstallServiceTest {
     }
 
     @Test
-    @DisplayName("上传合法解压目录形态 .zip：INSTALLED，accepted 且当前 generation 已激活，规范落盘")
+    @DisplayName("开发模式上传合法解压目录形态 .zip：规范落盘，但当前模式不激活")
     void installsExplodedZip() {
         PluginInstallReport report = service.install(explodedUpload("upload.zip", "ext-demo", "1.0.0", null, null), false);
 
@@ -91,10 +91,36 @@ class PluginInstallServiceTest {
                 .isEqualTo(PluginInstallOutcome.INSTALLED);
         assertThat(report.accepted()).isTrue();
         assertThat(report.effectiveAfterRestart()).isFalse();
-        assertThat(report.activated()).isTrue();
+        assertThat(report.activated()).isFalse();
+        assertThat(report.activationBlockedByDevelopmentMode()).isTrue();
         assertThat(report.pluginId()).isEqualTo("ext-demo");
         assertThat(report.version()).isEqualTo("1.0.0");
         assertThat(pluginFiles()).containsExactly("ext-demo-1.0.0.zip");
+    }
+
+    @Test
+    @DisplayName("开发模式保存插件及其依赖时检查落盘依赖，不要求启动模式忽略的依赖已激活")
+    void storesDependenciesWithoutRequiringActivationInDevelopmentMode() {
+        service.install(explodedUpload("dep.zip", "stored-dep", "1.0.0", null, null), false);
+        var lifecycle = mock(PluginLifecycleService.class);
+        var resolver = new PluginDependencyResolver(installer,
+                mock(top.sywyar.pixivdownload.plugin.registry.PluginRegistry.class), lifecycle);
+        var coordinator = new ExternalPluginLifecycleCoordinator(mock(PluginRuntimeManager.class), lifecycle,
+                installer, mock(RecoveryModeService.class), resolver);
+        var descriptor = new top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor(
+                "dependent", "dependent", "1.0.0",
+                top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement.unspecified(),
+                top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef.parseList("stored-dep@1.0"),
+                null, null, "dependent", null, null, null,
+                top.sywyar.pixivdownload.plugin.api.plugin.PluginKind.FEATURE);
+        assertThat(resolver.activationProblems(descriptor)).isNotEmpty();
+        assertThat(resolver.installedProblems(descriptor)).isEmpty();
+        // 服务仍经过同一真实协调器与安装器。
+        var storedService = new PluginInstallService(coordinator, resolver);
+        var report = storedService.install(explodedUpload("dependent.zip", "dependent", "1.0.0", null, "stored-dep@1.0"), false);
+        assertThat(report.accepted()).isTrue();
+        assertThat(report.activated()).isFalse();
+        assertThat(report.activationBlockedByDevelopmentMode()).isTrue();
     }
 
     @Test

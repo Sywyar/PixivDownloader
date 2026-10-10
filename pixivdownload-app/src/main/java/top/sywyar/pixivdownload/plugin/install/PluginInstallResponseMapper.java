@@ -33,6 +33,7 @@ public class PluginInstallResponseMapper {
                 : PluginInstallOutcomeMapping.httpStatus(outcome);
         String messageKey = report.recoveryBlocked()
                 ? "plugin.install.recovery-blocked"
+                : report.activationBlockedByDevelopmentMode() ? "plugin.install.stored-development"
                 : PluginInstallOutcomeMapping.messageKey(outcome);
         String fallback = report.diagnostics().isEmpty() ? outcome.name() : report.diagnostics().get(0);
         String message = messages.getOrDefault(localeResolver.resolveLocale(request),
@@ -61,7 +62,7 @@ public class PluginInstallResponseMapper {
                 report.rolledBack(),
                 report.rollbackVersion(),
                 report.dependencyInstallResults(),
-                report.trustRequirement());
+                report.trustRequirement(), report.activationBlockedByDevelopmentMode());
         return ResponseEntity.status(httpStatus).body(body);
     }
 }

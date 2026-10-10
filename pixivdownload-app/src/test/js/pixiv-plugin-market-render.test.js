@@ -205,7 +205,7 @@ test('市场在禁止动态代码编译时挂载，筛选、详情、安装结�
     }
     assert.equal(elements(root, 'pmk-progress-bar').length, 0);
     assert.equal(one('pmk-modal').open, true);
-    page.completeInstall({ outcome: 'INSTALLED', accepted: true, effectiveAfterRestart: true, message: 'Restart needed' });
+    page.completeInstall({ pluginId: 'visible', version: '1.0.0', outcome: 'INSTALLED', accepted: true, effectiveAfterRestart: true, message: 'Restart needed' });
     await flush();
     assert.equal(elements(root, 'pmk-install-progress').length, 0);
     assert.equal(textOf(one('pmk-install-result-msg')), 'plugin-market:install.toast.accepted');
@@ -351,7 +351,8 @@ test('基础详情刷新后统一版本选择、文档与来源查询，并保�
             replaceChildren() { this.children = []; }, appendChild(child) { this.children.push(child); },
             closest() { return null; }, focus() {}, showModal() {} });
         const nodes = Object.fromEntries(['h2', 'p', 'button', 'label span', 'select', '.pmk-more-versions',
-            '.pmk-content', '.pmk-version-notes', '[data-pmk-facts]'].map(selector => [selector, element()]));
+            '.pmk-content', '.pmk-version-notes', '[data-pmk-facts]', '.pmk-detail-install',
+            '.pmk-installation-notice', '.pmk-local-artifact', '.pmk-market-facts'].map(selector => [selector, element()]));
         nodes['[data-pmk-facts]'].attrs['data-pmk-facts'] = 'visible';
         const dialog = { ...element(), querySelector: selector => nodes[selector] };
         const root = { addEventListener: (name, callback) => { handlers[name] = callback; },
@@ -397,6 +398,19 @@ test('基础详情刷新后统一版本选择、文档与来源查询，并保�
         await new Promise(resolve => setImmediate(resolve));
         assert.deepEqual(requests, [['repo', 'visible', expected]]);
         assert.deepEqual(errors, []);
+        const installs = [];
+        market.installPluginWithConfirmation = async (...args) => {
+            installs.push(args.slice(0, 3));
+            return {kind: 'install', body: {pluginId: 'visible', version: expected, outcome: 'INSTALLED',
+                accepted: true, activated: false, effectiveAfterRestart: false, activationBlockedByDevelopmentMode: true}};
+        };
+        market.api.fetchPluginDetail = async () => ({...plugin, packages: [{...plugin.packages[0], version: expected,
+            installationMatch: 'SAME_ARTIFACT'}], installedVersion: expected});
+        nodes['.pmk-detail-install'].listeners.click();
+        await new Promise(resolve => setImmediate(resolve));
+        assert.deepEqual(installs, [['repo', 'visible', expected]]);
+        assert.match(nodes['.pmk-detail-install'].textContent, /stored-development/);
+        assert.equal(nodes['.pmk-detail-install'].disabled, true);
     }
 });
 

@@ -48,6 +48,45 @@ class PluginMarketInstallStatusTest {
     private final PluginCatalogAcquisitionService acquisitionService = mock(PluginCatalogAcquisitionService.class);
     private final PluginStatusService statusService = mock(PluginStatusService.class);
 
+    @Test
+    @DisplayName("市场使用磁盘版本和摘要，同时单独显示仍驻留的旧运行版本；事务变化丢弃内容判断")
+    void storedArtifactIsIndependentOfRunningVersion() {
+        service(installed("b", "1.0.0"));
+        var installer = mock(top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller.class);
+        var lifecycle = mock(top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginLifecycleCoordinator.class);
+        var descriptor = installed("b", "2.0.0").descriptor();
+        var artifact = new top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginSnapshot(
+                new top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin(descriptor,
+                        java.nio.file.Path.of("plugins/b.jar")), 100, "a".repeat(64),
+                top.sywyar.pixivdownload.plugin.runtime.install.provenance.ProvenanceSnapshotState.ABSENT, null, 0);
+        when(installer.snapshotInstalledWithProvenance(org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyLong())).thenReturn(
+                new top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginInventorySnapshot(List.of(artifact), false));
+        when(statusService.recoveryGateSnapshot()).thenReturn(
+                top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginRecoveryGateSnapshot.safe(
+                        top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransactionRecoveryReport.success()));
+        when(statusService.report(org.mockito.ArgumentMatchers.anyList()))
+                .thenReturn(new PluginStatusReport(List.of(installed("b", "1.0.0"))));
+        var props = new PluginCatalogProperties();
+        props.setEnabled(true);
+        var market = new PluginMarketService(new PluginRepositoryRegistry(props), catalogService,
+                acquisitionService, statusService, null, null, installer, lifecycle);
+        var card = entryOf(market.catalog(PluginRepository.OFFICIAL_ID), "b");
+        var detail = market.pluginDetail(PluginRepository.OFFICIAL_ID, "b");
+        assertThat(card.installation()).isEqualTo(detail.installation());
+        assertThat(card.installedVersion()).isEqualTo("2.0.0");
+        assertThat(card.installation().sha256()).isEqualTo("a".repeat(64));
+        assertThat(card.installation().runtimeVersion()).isEqualTo("1.0.0");
+        assertThat(card.installation().source()).isEqualTo("unknown");
+        when(lifecycle.lifecycleMutationEpoch()).thenReturn(0L, 2L);
+        assertThat(entryOf(market.catalog(PluginRepository.OFFICIAL_ID), "b").installation().state()).isEqualTo("UNKNOWN");
+        when(lifecycle.lifecycleMutationEpoch()).thenReturn(3L);
+        org.mockito.Mockito.clearInvocations(installer);
+        assertThat(market.pluginDetail(PluginRepository.OFFICIAL_ID, "b").installation().state()).isEqualTo("UNKNOWN");
+        org.mockito.Mockito.verify(installer, org.mockito.Mockito.never()).snapshotInstalledWithProvenance(
+                org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyLong());
+    }
+
     /**
      * catalog：a 最新 1.0.0（兼容）、b 最新 2.0.0（兼容）、c 最新 1.0.0 但要求SDK 2.0（不兼容）、
      * d 最新 1.2.0（兼容，用于语义等价版本判定）、e 最新 1.0.0（兼容，用于本机版本更高判定）、f 无任何可安装版本制品。
@@ -131,6 +170,18 @@ class PluginMarketInstallStatusTest {
         assertThat(previewOnly.recommendedVersion()).isNull();
         assertThat(previewOnly.updateAvailable()).isFalse();
         assertThat(previewOnly.latestVersion()).isEqualTo("9.0.0-beta.2");
+        assertThat(previewOnly.installStatus()).isEqualTo(MarketInstallStatus.NO_RECOMMENDATION);
+        assertThat(previewOnly.assuranceLevel()).isEqualTo(versions.get(0).verification().assuranceLevel());
+    }
+
+    @Test
+    @DisplayName("只有不兼容预发布时保留真实 SDK 限制，不宣称存在可安装版本")
+    void incompatiblePrereleaseHasNoRecommendation() {
+        var view = PluginMarketEntryView.from(entry("example"), false, null,
+                List.of(projected("9.0.0-rc.1", false, "CLEAR")));
+        assertThat(view.recommendedVersion()).isNull();
+        assertThat(view.installStatus()).isEqualTo(MarketInstallStatus.INCOMPATIBLE);
+        assertThat(view.compatible()).isFalse();
     }
 
     @Test

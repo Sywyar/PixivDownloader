@@ -20,7 +20,17 @@ public record PluginDependencyInstallResult(
         String runtimePhase,
         boolean recoveryBlocked,
         boolean updated,
-        String transactionId) {
+        String transactionId,
+        boolean activationBlockedByDevelopmentMode) {
+
+    public PluginDependencyInstallResult(String pluginId, String version, String previousVersion,
+            String packageId, String targetVersion, String outcome, boolean accepted, boolean effectiveAfterRestart,
+            boolean activated, boolean rolledBack, String rollbackVersion, String operation, String runtimePhase,
+            boolean recoveryBlocked, boolean updated, String transactionId) {
+        this(pluginId, version, previousVersion, packageId, targetVersion, outcome, accepted, effectiveAfterRestart,
+                activated, rolledBack, rollbackVersion, operation, runtimePhase, recoveryBlocked, updated,
+                transactionId, false);
+    }
 
     public PluginDependencyInstallResult(String pluginId, String version, String previousVersion,
                                          String packageId, String targetVersion, String outcome,
@@ -48,6 +58,6 @@ public record PluginDependencyInstallResult(
                 report.operation() != null ? report.operation().name() : null,
                 report.runtimePhase() != null ? report.runtimePhase().name() : null,
                 report.recoveryBlocked(),
-                report.updated(), report.transactionId());
+                report.updated(), report.transactionId(), report.activationBlockedByDevelopmentMode());
     }
 }

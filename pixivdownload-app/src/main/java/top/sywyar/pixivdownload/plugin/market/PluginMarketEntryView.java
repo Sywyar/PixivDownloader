@@ -13,10 +13,10 @@ import java.util.List;
  * 为可安装版本列表（含版本历史 / 兼容标记）。
  *
  * <p><b>安装状态投影</b>（{@code installStatus} / {@code installedVersion} / {@code updateAvailable} / {@code compatible}
- * / {@code compatibilityReason}）由后端把本条目与<b>真实运行时安装状态</b>交叉引用推导，供市场页直接渲染未安装 / 已安装 /
+ * / {@code compatibilityReason}）由后端把本条目与磁盘安装快照交叉引用推导，供市场页直接渲染未安装 / 已安装 /
  * 有更新 / 不兼容控件、而<b>不</b>由前端臆测：{@code installStatus} 见 {@link MarketInstallStatus}；{@code compatible} =
  * 推荐安装版本是否被当前 SDK 满足，{@code compatibilityReason} 保留最新版不兼容时的 SDK 要求；安装只
- * 通过统一事务编排器落盘并即时激活。
+ * 通过统一事务编排器落盘；内容是否一致由各包的 {@code installationMatch} 表达，运行版本独立展示。
  *
  * @param pluginId             插件 id
  * @param displayNamespace     展示名 / 简介 i18n namespace（可空）
@@ -52,7 +52,20 @@ public record PluginMarketEntryView(
         Long totalVersionsApproximate,
         boolean versionsStale,
         String recommendedVersion,
-        boolean compatibilitySearchIncomplete) {
+        boolean compatibilitySearchIncomplete,
+        PluginMarketInstallationView installation) {
+
+    public PluginMarketEntryView(String pluginId, String displayNamespace, String displayNameKey,
+            String descriptionKey, String latestVersion, PluginMarketMetaView market,
+            List<PluginMarketPackageView> packages, MarketInstallStatus installStatus, String installedVersion,
+            boolean updateAvailable, boolean compatible, String compatibilityReason, String assuranceLevel,
+            String versionsGeneration, String nextVersionCursor, Long totalVersionsApproximate,
+            boolean versionsStale, String recommendedVersion, boolean compatibilitySearchIncomplete) {
+        this(pluginId, displayNamespace, displayNameKey, descriptionKey, latestVersion, market, packages,
+                installStatus, installedVersion, updateAvailable, compatible, compatibilityReason, assuranceLevel,
+                versionsGeneration, nextVersionCursor, totalVersionsApproximate, versionsStale,
+                recommendedVersion, compatibilitySearchIncomplete, PluginMarketInstallationView.unknown(installedVersion));
+    }
 
     public PluginMarketEntryView {
         packages = packages != null ? List.copyOf(packages) : List.of();
@@ -114,6 +127,17 @@ public record PluginMarketEntryView(
         MarketInstallStatus status = MarketInstallStatus.resolve(installed, installable, updateAvailable, compatible);
         // 其它渠道仍可在详情中手动选择，但不成为默认安装或更新目标。
         String displayedLatest = latestVersion == null ? resolveLatestVersion(market, offered) : latestVersion;
+        PluginMarketPackageView displayed = target != null ? target : installTarget(offered, displayedLatest);
+        if (target == null && displayed != null && !displayed.compatible()) {
+            compatible = false;
+            compatibilityReason = displayed.requiredSdk();
+            status = MarketInstallStatus.INCOMPATIBLE;
+        }
+        if (target == null && offered.stream().anyMatch(pkg -> pkg.compatible() && pkg.installable()
+                && hasUsableSignature(pkg))) {
+            status = MarketInstallStatus.NO_RECOMMENDATION;
+            compatible = true;
+        }
         return new PluginMarketEntryView(
                 entry.pluginId(),
                 entry.displayNamespace(),
@@ -127,7 +151,7 @@ public record PluginMarketEntryView(
                 updateAvailable,
                 compatible,
                 compatibilityReason,
-                target != null ? target.verification().assuranceLevel() : "UNVERIFIED",
+                displayed != null ? displayed.verification().assuranceLevel() : "UNVERIFIED",
                 null, null, null, false, recommendedVersion, false);
     }
 
@@ -136,7 +160,7 @@ public record PluginMarketEntryView(
         return new PluginMarketEntryView(pluginId, displayNamespace, displayNameKey, descriptionKey,
                 latestVersion, market, packages, installStatus, installedVersion, updateAvailable, compatible,
                 compatibilityReason, assuranceLevel, generation, nextCursor, totalApproximate, stale,
-                recommendedVersion, compatibilitySearchIncomplete);
+                recommendedVersion, compatibilitySearchIncomplete, installation);
     }
 
     PluginMarketEntryView withPackages(List<PluginMarketPackageView> visiblePackages, boolean incomplete) {
@@ -144,7 +168,15 @@ public record PluginMarketEntryView(
                 latestVersion, market, visiblePackages, incomplete ? MarketInstallStatus.UNAVAILABLE : installStatus,
                 installedVersion, !incomplete && updateAvailable, !incomplete && compatible,
                 compatibilityReason, assuranceLevel, versionsGeneration, nextVersionCursor,
-                totalVersionsApproximate, versionsStale, incomplete ? null : recommendedVersion, incomplete);
+                totalVersionsApproximate, versionsStale, incomplete ? null : recommendedVersion, incomplete, installation);
+    }
+
+    PluginMarketEntryView withInstallation(PluginMarketInstallationView local) {
+        return new PluginMarketEntryView(pluginId, displayNamespace, displayNameKey, descriptionKey,
+                latestVersion, market, packages.stream().map(pkg -> pkg.withInstallation(local)).toList(),
+                installStatus, installedVersion, updateAvailable, compatible, compatibilityReason, assuranceLevel,
+                versionsGeneration, nextVersionCursor, totalVersionsApproximate, versionsStale,
+                recommendedVersion, compatibilitySearchIncomplete, local);
     }
 
     private static boolean acceptsUpdateChannel(PluginMarketPackageView pkg, String installedVersion) {

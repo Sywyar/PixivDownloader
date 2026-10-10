@@ -934,6 +934,9 @@ button.pmk-card-name:focus-visible { outline: 2px solid var(--brand); outline-of
 .pmk-modal .pmk-install:disabled { opacity: 1; }
 .pmk-modal .pmk-section-text { max-width: 70ch; }
 .pmk-about { margin: 0; }
+.pmk-local-artifact dd { margin: .25rem 0 .75rem; overflow-wrap: anywhere; }
+.pmk-content-dialog [hidden] { display: none !important; }
+.pmk-installation-notice, .pmk-market-facts { color: var(--text-secondary); line-height: 1.6; overflow-wrap: anywhere; }
 .pmk-detail-security .pmk-section-text { font-size: .75rem; margin: .5rem 0; }
 @media (max-width: 37.5em) {
     .pmk-hero { padding: 1.25rem 3.5rem 1rem 1rem; }
