@@ -95,6 +95,21 @@ sh run.sh
 
 首次启动后按引导完成配置，即可访问 `http://localhost:6999/pixiv-batch.html` 开始下载。
 
+### 主数据库
+
+默认主库仍为 SQLite，原有 `data/pixiv_download.db` 与旧目录自动定位规则保留。也可连接 PostgreSQL 17（UTF8；已验证 17.11）。插件私有的 `data/{pluginId}/plugin.db` 始终独立使用 SQLite。
+
+在 `config/config.yaml` 中使用扁平键配置 PostgreSQL，并重启应用：
+
+```yaml
+database.engine: postgresql
+database.jdbc-url: "jdbc:postgresql://db.example.com:5432/pixiv?currentSchema=pixiv&sslmode=verify-full"
+database.username: pixiv_app
+database.password: "替换为数据库密码"
+```
+
+请先创建专用数据库和 schema，并授予该账号建表、索引、序列、函数与触发器及数据读写权限。`currentSchema` 只能指定一个小写字母、数字或下划线组成的名称（首字符不能是数字，最多 63 字符）；省略时使用 `public`。远程连接建议使用 `sslmode=verify-full`，需要自定义 CA 时添加 `sslrootcert`。JDBC 直接连接管理员指定的服务器，不使用 Pixiv HTTP 代理。密码放在独立配置项或 `DATABASE_PASSWORD` 环境变量中，不能写入 JDBC URL。连接、版本或 schema 校验失败会报错，不会回落到空 SQLite。
+
 ### 让网页版 Pixiv 走后端配置的代理（无需开启系统代理）
 
 后端访问 Pixiv 走配置里指定的代理（默认 `127.0.0.1:7890`），不依赖系统代理。如果你还希望在浏览器里直接打开 `pixiv.net`（例如配合油猴脚本），又不想为此开启 Clash 的「系统代理 / system proxy」，可以使用内置的代理自动配置（PAC）：

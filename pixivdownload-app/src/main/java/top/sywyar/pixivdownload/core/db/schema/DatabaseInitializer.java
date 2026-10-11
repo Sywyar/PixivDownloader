@@ -7,6 +7,9 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import top.sywyar.pixivdownload.core.db.DatabaseEngine;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
@@ -36,6 +39,26 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class DatabaseInitializer {
 
+    /** 停机维护复用宿主声明，在同一连接的事务内补齐并验证核心表。 */
+    public static void prepareOffline(java.sql.Connection connection) {
+        var source = new org.springframework.jdbc.datasource.SingleConnectionDataSource(connection, true);
+        var registry = top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry.forBuiltInPlugins();
+        var initializer = offline(connection, registry.contributions(), registry.mergedSchema());
+        new TransactionTemplate(new DataSourceTransactionManager(source)).executeWithoutResult(status ->
+                initializer.applyRuntimeOwnerSchema(registry.contributions(), registry.mergedSchema(),
+                        registry.mergedSchema().tables().keySet()));
+    }
+
+    public static DatabaseInitializer offline(java.sql.Connection connection,
+            List<SchemaContribution> contributions, ManagedDatabaseSchema.DatabaseSchema schema) {
+        var source = new org.springframework.jdbc.datasource.SingleConnectionDataSource(connection, true);
+        var bundle = new org.springframework.context.support.ResourceBundleMessageSource();
+        bundle.setBasename("i18n/messages");
+        bundle.setDefaultEncoding("UTF-8");
+        return new DatabaseInitializer(new JdbcTemplate(source), contributions,
+                schema, new AppMessages(bundle), event -> {});
+    }
+
     private final JdbcTemplate jdbcTemplate;
     private final List<SchemaContribution> contributions;
     private final ManagedDatabaseSchema.DatabaseSchema mergedSchema;
@@ -44,7 +67,24 @@ public class DatabaseInitializer {
 
     @PostConstruct
     public void initialize() {
-        applySchema(contributions, mergedSchema);
+        boolean postgres = jdbcTemplate.execute((ConnectionCallback<DatabaseEngine>) DatabaseEngine::detect)
+                == DatabaseEngine.POSTGRESQL;
+        if (postgres) {
+            var transaction = new TransactionTemplate(
+                    new DataSourceTransactionManager(Objects.requireNonNull(jdbcTemplate.getDataSource())));
+            transaction.executeWithoutResult(status -> {
+                applySchema(contributions, mergedSchema);
+                var comparison = jdbcTemplate.execute(
+                        (ConnectionCallback<DatabaseSchemaInspector.SchemaComparison>) connection ->
+                                DatabaseSchemaInspector.compare(connection, mergedSchema));
+                if (comparison == null || !comparison.matches()) {
+                    throw new IllegalStateException(messages.getForLog("core.db.schema-mismatch",
+                            comparison == null ? "" : comparison.summary(12)));
+                }
+            });
+        } else {
+            applySchema(contributions, mergedSchema);
+        }
         eventPublisher.publishEvent(new DatabaseReadyEvent());
     }
 
@@ -80,23 +120,33 @@ public class DatabaseInitializer {
         Objects.requireNonNull(schemaContributions, "schema contributions");
         Objects.requireNonNull(schema, "schema");
         Objects.requireNonNull(ownerTableNames, "owner table names");
-        Set<String> existingTables = SqliteSchema.existingTableNames(jdbcTemplate);
+        boolean postgres = jdbcTemplate.execute((ConnectionCallback<DatabaseEngine>) DatabaseEngine::detect)
+                == DatabaseEngine.POSTGRESQL;
+        if (postgres) PostgresSchema.validate(schemaContributions, schema);
+        Set<String> existingTables = postgres ? PostgresSchema.existingTableNames(jdbcTemplate)
+                : SqliteSchema.existingTableNames(jdbcTemplate);
         int createdTables = 0;
         for (SchemaContribution contribution : schemaContributions) {
             for (TableSpec table : contribution.tables()) {
                 String normalizedName = ManagedDatabaseSchema.normalizeIdentifier(table.name());
-                jdbcTemplate.execute(SqliteSchema.renderCreateTable(table));
+                jdbcTemplate.execute(postgres ? PostgresSchema.renderCreateTable(table) : SqliteSchema.renderCreateTable(table));
                 if (existingTables.add(normalizedName)) {
                     createdTables++;
                 }
             }
         }
-        ColumnApplyResult columnResult = addMissingColumns(schema);
+        ColumnApplyResult columnResult = addMissingColumns(schema, postgres);
         if (strictRuntimeValidation && !columnResult.skippedColumns().isEmpty()) {
-            throw new IllegalStateException("runtime owner schema contains missing columns that SQLite cannot "
+            throw new IllegalStateException("runtime owner schema contains missing columns that the database cannot "
                     + "append safely: " + String.join(", ", columnResult.skippedColumns()));
         }
-        int createdIndexes = createIndexes(schema);
+        int createdIndexes = createIndexes(schema, postgres);
+        if (postgres) {
+            jdbcTemplate.execute((ConnectionCallback<Void>) connection -> {
+                PostgresSchema.validateConstraints(connection, schemaContributions);
+                return null;
+            });
+        }
         if (strictRuntimeValidation) {
             DatabaseSchemaInspector.SchemaComparison comparison = jdbcTemplate.execute(
                     (ConnectionCallback<DatabaseSchemaInspector.SchemaComparison>) connection ->
@@ -113,11 +163,12 @@ public class DatabaseInitializer {
     }
 
     /** 旧库安全补列：受管列在磁盘上缺失且可安全追加（非主键、非「NOT NULL 无默认值」）时 ALTER 补齐。 */
-    private ColumnApplyResult addMissingColumns(ManagedDatabaseSchema.DatabaseSchema schema) {
+    private ColumnApplyResult addMissingColumns(ManagedDatabaseSchema.DatabaseSchema schema, boolean postgres) {
         int added = 0;
         List<String> skipped = new ArrayList<>();
         for (ManagedDatabaseSchema.TableSpec table : schema.tables().values()) {
-            Set<String> actualColumns = SqliteSchema.existingColumnNames(jdbcTemplate, table.name());
+            Set<String> actualColumns = postgres ? PostgresSchema.existingColumnNames(jdbcTemplate, table.name())
+                    : SqliteSchema.existingColumnNames(jdbcTemplate, table.name());
             for (ManagedDatabaseSchema.ColumnSpec column : table.columns()) {
                 if (actualColumns.contains(column.name())) {
                     continue;
@@ -130,7 +181,8 @@ public class DatabaseInitializer {
                     skipped.add(table.name() + "." + column.name());
                     continue;
                 }
-                jdbcTemplate.execute(SqliteSchema.renderAddColumn(table.name(), column));
+                jdbcTemplate.execute(postgres ? PostgresSchema.renderAddColumn(table.name(), column)
+                        : SqliteSchema.renderAddColumn(table.name(), column));
                 added++;
             }
         }
@@ -138,8 +190,9 @@ public class DatabaseInitializer {
     }
 
     /** 显式索引幂等创建；UNIQUE 约束的自动索引随建表语句生成，旧表无法追加、不在此处理。 */
-    private int createIndexes(ManagedDatabaseSchema.DatabaseSchema schema) {
-        Set<String> existingIndexes = SqliteSchema.existingIndexNames(jdbcTemplate);
+    private int createIndexes(ManagedDatabaseSchema.DatabaseSchema schema, boolean postgres) {
+        Set<String> existingIndexes = postgres ? PostgresSchema.existingIndexNames(jdbcTemplate)
+                : SqliteSchema.existingIndexNames(jdbcTemplate);
         int created = 0;
         for (ManagedDatabaseSchema.TableSpec table : schema.tables().values()) {
             for (ManagedDatabaseSchema.IndexSpec index : table.indexes()) {

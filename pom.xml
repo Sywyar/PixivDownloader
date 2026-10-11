@@ -115,6 +115,7 @@
         <jacoco.version>0.8.12</jacoco.version>
         <jna.version>5.17.0</jna.version>
         <pf4j.version>3.12.0</pf4j.version>
+        <postgresql.version>42.7.13</postgresql.version>
         <proguard.version>7.10.0</proguard.version>
         <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
         <pixivdownload.proguard.skip>true</pixivdownload.proguard.skip>

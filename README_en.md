@@ -102,6 +102,21 @@ sh run.sh
 After first startup, follow the wizard to complete setup, then visit `http://localhost:6999/pixiv-batch.html` to start
 downloading.
 
+### Main database
+
+SQLite remains the default main database, including `data/pixiv_download.db` and automatic discovery of its legacy location. PostgreSQL 17 with UTF8 is also supported (validated on 17.11). Private plugin databases at `data/{pluginId}/plugin.db` continue to use independent SQLite databases.
+
+Set these flat keys in `config/config.yaml`, then restart the application:
+
+```yaml
+database.engine: postgresql
+database.jdbc-url: "jdbc:postgresql://db.example.com:5432/pixiv?currentSchema=pixiv&sslmode=verify-full"
+database.username: pixiv_app
+database.password: "replace-with-database-password"
+```
+
+Create a dedicated database and schema first. The account needs access to data and permission to create tables, indexes, sequences, functions and triggers. `currentSchema` accepts one name of at most 63 lowercase ASCII letters, digits or underscores, starting with a letter or underscore; it defaults to `public`. Use `sslmode=verify-full` for remote connections and `sslrootcert` when a custom CA is required. JDBC connects directly to the administrator's chosen server and does not use the Pixiv HTTP proxy. Keep the password in its separate configuration field or the `DATABASE_PASSWORD` environment variable, never in the JDBC URL. Connection, version and schema errors stop startup without falling back to an empty SQLite database.
+
 ### Route web Pixiv through the backend-configured proxy (no system proxy needed)
 
 The backend reaches Pixiv through the proxy in your config (default `127.0.0.1:7890`) and does not rely on a system

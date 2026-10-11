@@ -8,15 +8,12 @@ import org.springframework.jdbc.support.JdbcTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.sqlite.SQLiteConfig;
 import org.sqlite.SQLiteConnection;
-import top.sywyar.pixivdownload.config.RuntimeFiles;
+import org.apache.ibatis.mapping.DatabaseIdProvider;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
-import top.sywyar.pixivdownload.core.db.sqlite.SqliteDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import javax.sql.DataSource;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.SQLException;
 
@@ -31,12 +28,23 @@ public class DatabaseConfig {
 
     @Bean
     public DataSource dataSource() throws IOException {
-        Path databasePath = RuntimeFiles.resolveDatabasePath(downloadConfig.getRootFolder());
-        Files.createDirectories(databasePath.getParent());
-        String url = SqliteDatabase.jdbcUrl(databasePath);
-        log.info(messages.getForLog("download.db.log.path", url));
+        DatabaseTarget target = databaseTarget();
+        log.info(messages.getForLog("core.db.log.engine", target.engine().databaseId()));
+        return target.openPool(databasePoolProperties.getMaximumPoolSize());
+    }
 
-        return SqliteDatabase.openPool(databasePath, databasePoolProperties.getMaximumPoolSize());
+    @Bean
+    public DatabaseTarget databaseTarget() throws IOException {
+        return DatabaseTarget.resolve(databasePoolProperties, downloadConfig.getRootFolder());
+    }
+
+    @Bean
+    public DatabaseIdProvider databaseIdProvider() {
+        return dataSource -> {
+            try (var connection = dataSource.getConnection()) {
+                return DatabaseEngine.detect(connection).databaseId();
+            }
+        };
     }
 
     @Bean
@@ -46,7 +54,7 @@ public class DatabaseConfig {
             protected void prepareTransactionalConnection(Connection connection, TransactionDefinition definition)
                     throws SQLException {
                 super.prepareTransactionalConnection(connection, definition);
-                if (definition.isReadOnly()) return;
+                if (definition.isReadOnly() || DatabaseEngine.detect(connection) != DatabaseEngine.SQLITE) return;
                 var config = connection.unwrap(SQLiteConnection.class).getConnectionConfig();
                 var previousMode = config.getTransactionMode();
                 try {

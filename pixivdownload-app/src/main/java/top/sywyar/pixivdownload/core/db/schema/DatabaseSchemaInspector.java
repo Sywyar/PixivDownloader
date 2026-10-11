@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.core.db.schema;
 
 import top.sywyar.pixivdownload.core.db.sqlite.SqliteDatabase;
+import top.sywyar.pixivdownload.core.db.DatabaseEngine;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import java.nio.file.Path;
@@ -33,7 +34,10 @@ public final class DatabaseSchemaInspector {
 
     public static SchemaComparison compare(Connection connection,
                                            ManagedDatabaseSchema.DatabaseSchema expectedSchema) throws SQLException {
-        Map<String, ManagedDatabaseSchema.TableSpec> actualTables = SqliteSchema.readActualTables(connection);
+        boolean postgres = DatabaseEngine.detect(connection) == DatabaseEngine.POSTGRESQL;
+        if (postgres) expectedSchema = PostgresSchema.physicalSchema(expectedSchema);
+        Map<String, ManagedDatabaseSchema.TableSpec> actualTables = postgres
+                ? PostgresSchema.readActualTables(connection) : SqliteSchema.readActualTables(connection);
         return compareTables(expectedSchema, actualTables, expectedSchema.tables().keySet(), true);
     }
 
@@ -56,7 +60,10 @@ public final class DatabaseSchemaInspector {
                 throw new IllegalArgumentException("owner table is absent from expected schema: " + tableName);
             }
         }
-        return compareTables(expectedSchema, SqliteSchema.readActualTables(connection), normalizedTableNames, false);
+        boolean postgres = DatabaseEngine.detect(connection) == DatabaseEngine.POSTGRESQL;
+        return compareTables(postgres ? PostgresSchema.physicalSchema(expectedSchema) : expectedSchema,
+                postgres ? PostgresSchema.readActualTables(connection) : SqliteSchema.readActualTables(connection),
+                normalizedTableNames, false);
     }
 
     private static SchemaComparison compareTables(
