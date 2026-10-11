@@ -10,7 +10,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Features
 
-- 主数据库支持 PostgreSQL 17，保留 SQLite 默认配置。
+- 主数据库支持 PostgreSQL 17，保留 SQLite 默认配置；提供停机 SQLite 历史迁移工具，包含一致备份、空目标保护、数据核验和失败回滚。
 
 ## [v1.14.1] - 2026.10.10
 

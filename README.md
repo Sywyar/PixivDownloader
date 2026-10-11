@@ -95,7 +95,7 @@ sh run.sh
 
 首次启动后按引导完成配置，即可访问 `http://localhost:6999/pixiv-batch.html` 开始下载。
 
-### 主数据库
+### 主数据库与历史迁移
 
 默认主库仍为 SQLite，原有 `data/pixiv_download.db` 与旧目录自动定位规则保留。也可连接 PostgreSQL 17（UTF8；已验证 17.11）。插件私有的 `data/{pluginId}/plugin.db` 始终独立使用 SQLite。
 
@@ -109,6 +109,20 @@ database.password: "替换为数据库密码"
 ```
 
 请先创建专用数据库和 schema，并授予该账号建表、索引、序列、函数与触发器及数据读写权限。`currentSchema` 只能指定一个小写字母、数字或下划线组成的名称（首字符不能是数字，最多 63 字符）；省略时使用 `public`。远程连接建议使用 `sslmode=verify-full`，需要自定义 CA 时添加 `sslrootcert`。JDBC 直接连接管理员指定的服务器，不使用 Pixiv HTTP 代理。密码放在独立配置项或 `DATABASE_PASSWORD` 环境变量中，不能写入 JDBC URL。连接、版本或 schema 校验失败会报错，不会回落到空 SQLite。
+
+切换配置不会复制历史。迁移已有数据前，停止所有使用源库的应用、插件和离线写入工具；保持作品文件、插件私有库、参考音、配置及凭据文件可用。先把目标的上述四项配置写到单独的 `postgres.yaml`，保持当前生效配置不变。在完整解压目录运行下列命令，将 `<boot.jar>` 替换为实际应用 boot JAR 文件名：
+
+```powershell
+java '-Dloader.main=top.sywyar.pixivdownload.migration.DatabaseMigration' -cp '<boot.jar>' org.springframework.boot.loader.launch.PropertiesLauncher --source data/pixiv_download.db --target-config postgres.yaml --backup migration/source.db --report migration/report.json
+```
+
+工具取得实例锁与源库写锁，制作包含已提交 WAL 的一致备份，在临时副本上升级旧结构，再向空 PostgreSQL schema 分批导入全部受管主库表。它保留 ID、毫秒时间、NULL、软删除、元数据、媒体和文件引用，并核对每表行数与摘要、引用警告及生成键序列。备份可能含计划凭据，应作为敏感文件保管。目标非空、源表没有所属声明或类型不兼容时会停止，不会清空目标或略过未知表。
+
+小说的可再生 SQLite 对象需显式确认：源库存在时添加 `--rebuild-objects novels_fts,novel_soft_delete_cleanup`，列表中只填实际存在的对象。PostgreSQL 启动后由小说插件恢复软删除触发器，正文搜索直接读取迁移后的正文。其它插件的辅助对象须先确认其 PostgreSQL 重建能力；普通历史表不能用此参数排除。
+
+已安装但禁用的插件仍提供主库声明。准备卸载保留主库数据的插件前，可用同一入口的 `--export-schema schema.json` 保存声明；迁移时用 `--retained-schema schema.json` 补入缺席 owner，文件必须匹配当前 SDK。缺少声明时先恢复相应插件或补齐经核对的声明，不要删除历史表。owner 私有 SQLite 与作品文件不会由本工具搬移。
+
+只有报告为 `DATA_VERIFIED` 才表示数据库复制核验完成。检查报告中的引用警告和待重建对象后，再修改生效配置并启动应用，核验画廊、小说搜索、通知、计划及文件访问。`IN_PROGRESS` 或 `FAILED_TARGET_NOT_VERIFIED` 都不能视为迁移成功；保留备份、核对目标事务结果，重试使用新备份和经确认的空目标，工具不提供断点续传。切换后尚无新写入时可以停机恢复旧配置与原 SQLite；目标已接受新写入时不能直接回切，否则会丢失增量。
 
 ### 让网页版 Pixiv 走后端配置的代理（无需开启系统代理）
 

@@ -16,6 +16,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
+import top.sywyar.pixivdownload.core.db.schema.SqliteToPostgresMigration;
 import top.sywyar.pixivdownload.core.db.sqlite.SqliteDatabase;
 import top.sywyar.pixivdownload.core.schedule.db.ScheduledTaskMapper;
 import top.sywyar.pixivdownload.core.work.service.WorkTagCatalog;
@@ -87,6 +88,95 @@ class PluginDatabaseIntegrationTest {
         configuration.addMapper(loader.loadClass("top.sywyar.pixivdownload.notificationbase.NotificationInboxMapper"));
         configuration.addMapper(ScheduledTaskMapper.class);
         sessions = new SqlSessionTemplate(new SqlSessionFactoryBuilder().build(configuration));
+    }
+
+    @Test
+    @DisplayName("全部宿主业务表迁移后保留历史、文件引用和私有库，搜索与后续条件写入正常")
+    void migratesEveryManagedBusinessTableAndContinuesUsingProductionMappers() throws Exception {
+        initialize("sqlite");
+        try (var connection = source.getConnection()) {
+            org.springframework.jdbc.datasource.init.ScriptUtils.executeSqlScript(connection,
+                    new org.springframework.core.io.support.EncodedResource(
+                            new org.springframework.core.io.ClassPathResource("db/migration-business.sql"),
+                            java.nio.charset.StandardCharsets.UTF_8));
+        }
+        Object oldNovel = novelDatabase(mapper());
+        call(oldNovel, "init");
+        assertThat((Set<Long>) call(oldNovel, "searchNovelContentIds", "冒险旅程")).containsExactly(5000000001L);
+        java.util.Map<String, Long> sourceCounts = new java.util.TreeMap<>();
+        for (String table : registry.mergedSchema().tables().keySet()) {
+            long count = jdbc.queryForObject("SELECT count(*) FROM " + table, Long.class);
+            assertThat(count).as("夹具必须覆盖受管表 %s", table).isPositive();
+            sourceCounts.put(table, count);
+        }
+        Path privateDb = directory.resolve("owner/plugin.db");
+        Files.createDirectories(privateDb.getParent());
+        try (var connection = SqliteDatabase.openConnection(privateDb); var statement = connection.createStatement()) {
+            statement.execute("CREATE TABLE private_history(value TEXT)");
+            statement.execute("INSERT INTO private_history VALUES('owner 私有记录')");
+        }
+        byte[] privateBefore = Files.readAllBytes(privateDb);
+        Path media = directory.resolve("原始文件名 🌸.png");
+        Files.write(media, new byte[]{0, 1, 2, (byte) 255});
+        byte[] mediaBefore = Files.readAllBytes(media);
+        sqlite.close();
+        postgres = new PostgresTestDatabase();
+        var result = SqliteToPostgresMigration.migrate(directory.resolve("fixture.db"), directory.resolve("backup.db"),
+                DatabaseTarget.resolve(postgres.properties(), "unused"), registry.contributions(), registry.mergedSchema(),
+                Set.of("novels_fts", "novel_soft_delete_cleanup"));
+        assertThat(result.tables().keySet()).containsExactlyInAnyOrderElementsOf(sourceCounts.keySet());
+        result.tables().forEach((table, value) -> assertThat(value.rows()).as(table).isEqualTo(sourceCounts.get(table)));
+        assertThat(result.referenceWarnings()).isEmpty();
+        assertThat(Files.readAllBytes(privateDb)).isEqualTo(privateBefore);
+        assertThat(Files.readAllBytes(media)).isEqualTo(mediaBefore);
+        source = postgres.pool();
+        jdbc = new JdbcTemplate(source);
+        assertThat(jdbc.queryForObject("SELECT collection_unrestricted FROM guest_invites WHERE id=104", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT collection_restricts_works FROM guest_invites WHERE id=104", Integer.class)).isOne();
+        assertThat(jdbc.queryForList("SELECT collection_id FROM guest_invite_collections WHERE invite_id=104", Long.class))
+                .containsExactly(103L);
+        initializer = new DatabaseInitializer(jdbc, registry.contributions(), registry.mergedSchema(),
+                TestI18nBeans.appMessages(), event -> {});
+        initializer.initialize();
+        createSessions();
+        Object novel = novelDatabase(mapper());
+        call(novel, "init");
+        for (String term : List.of("冒险旅程", "école", "%", "_")) {
+            assertThat((Set<Long>) call(novel, "searchNovelContentIds", term)).containsExactly(5000000001L);
+        }
+        var schedule = sessions.getMapper(ScheduledTaskMapper.class);
+        assertThat(schedule.updateEnabled(108, 7, false)).isEqualTo(8L);
+        assertThat(schedule.updateEnabled(108, 7, true)).isNull();
+        assertThat(jdbc.queryForObject("SELECT checkpoint_json FROM scheduled_tasks", String.class))
+                .isEqualTo("{\"after\":\"5000000001\"}");
+        Object notifications = sessions.getMapper(loader.loadClass(
+                "top.sywyar.pixivdownload.notificationbase.NotificationInboxMapper"));
+        assertThat(call(notifications, "blocksRemoteAnnouncementImport", "deleted-fixture")).isEqualTo(true);
+        assertThat(call(notifications, "acceptRemoteAnnouncementIndex", 122L, "b".repeat(64),
+                1700000000123L, 1701000000123L)).isEqualTo(0);
+        assertThat(call(notifications, "acceptRemoteAnnouncementIndex", 124L, "b".repeat(64),
+                1700000000123L, 1701000000123L)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT etag FROM notification_remote_index_state", String.class)).isNull();
+        assertThat(jdbc.queryForObject("SELECT read_time FROM notification_messages WHERE id='announcement-fixture'", Long.class))
+                .isEqualTo(1700000000124L);
+        assertThat(jdbc.queryForObject("SELECT metadata_json FROM artworks WHERE artwork_id=5000000001", String.class))
+                .isEqualTo("{\"title\":\"作品 🌸\"}");
+        assertThat(jdbc.queryForObject("SELECT file_path FROM external_work_files", String.class))
+                .isEqualTo("{77}/插画/原始文件名 🌸.png");
+        var transaction = new TransactionTemplate(postgres.transactionManager());
+        transaction.executeWithoutResult(status -> jdbc.update("UPDATE novels SET deleted=1 WHERE novel_id=5000000001"));
+        assertThat((Set<Long>) call(novel, "searchNovelContentIds", "冒险旅程")).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM novel_translations", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM novel_narration_scripts", Long.class)).isZero();
+        jdbc.update("INSERT INTO tags(name) VALUES('迁移后')");
+        assertThat(jdbc.queryForObject("SELECT tag_id FROM tags WHERE name='迁移后'", Long.class)).isGreaterThan(101L);
+        insert(novel, 5000000003L, 1700000000125L, null, "迁移后新增正文");
+        assertThat((Set<Long>) call(novel, "searchNovelContentIds", "新增正文")).containsExactly(5000000003L);
+        try (var connection = SqliteDatabase.openExisting(result.backup()); var statement = connection.createStatement();
+             var rows = statement.executeQuery("SELECT deleted FROM novels WHERE novel_id=5000000001")) {
+            assertThat(rows.next()).isTrue();
+            assertThat(rows.getInt(1)).isZero();
+        }
     }
 
     @AfterEach

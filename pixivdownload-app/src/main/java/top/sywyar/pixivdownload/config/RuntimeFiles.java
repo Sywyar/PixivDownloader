@@ -161,6 +161,10 @@ public final class RuntimeFiles {
         return target.normalize();
     }
 
+    public static Path databaseMigrationDirectory() {
+        return dataDirectory().resolve("database-migrations");
+    }
+
     public static Path resolveBackfillUnreachablePath() {
         return backfillDirectory().resolve(BACKFILL_UNREACHABLE_FILE).normalize();
     }

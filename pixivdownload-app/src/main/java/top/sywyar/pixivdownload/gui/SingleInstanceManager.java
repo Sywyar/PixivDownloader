@@ -29,7 +29,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-final class SingleInstanceManager implements AutoCloseable {
+public final class SingleInstanceManager implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(SingleInstanceManager.class);
 
@@ -59,7 +59,7 @@ final class SingleInstanceManager implements AutoCloseable {
         this.activationToken = activationToken;
     }
 
-    static SingleInstanceManager acquire() throws IOException {
+    public static SingleInstanceManager acquire() throws IOException {
         Path instanceDir = RuntimeFiles.singleInstanceDirectory();
         Files.createDirectories(instanceDir);
 

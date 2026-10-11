@@ -102,7 +102,7 @@ sh run.sh
 After first startup, follow the wizard to complete setup, then visit `http://localhost:6999/pixiv-batch.html` to start
 downloading.
 
-### Main database
+### Main database and existing data
 
 SQLite remains the default main database, including `data/pixiv_download.db` and automatic discovery of its legacy location. PostgreSQL 17 with UTF8 is also supported (validated on 17.11). Private plugin databases at `data/{pluginId}/plugin.db` continue to use independent SQLite databases.
 
@@ -116,6 +116,20 @@ database.password: "replace-with-database-password"
 ```
 
 Create a dedicated database and schema first. The account needs access to data and permission to create tables, indexes, sequences, functions and triggers. `currentSchema` accepts one name of at most 63 lowercase ASCII letters, digits or underscores, starting with a letter or underscore; it defaults to `public`. Use `sslmode=verify-full` for remote connections and `sslrootcert` when a custom CA is required. JDBC connects directly to the administrator's chosen server and does not use the Pixiv HTTP proxy. Keep the password in its separate configuration field or the `DATABASE_PASSWORD` environment variable, never in the JDBC URL. Connection, version and schema errors stop startup without falling back to an empty SQLite database.
+
+Changing the configuration does not copy existing data. Stop every application, plugin and offline writer using the source database. Keep artwork files, private plugin databases, reference audio, configuration and credential files available. Save the four destination settings above in a separate `postgres.yaml`, leaving the active configuration unchanged. From the fully extracted application directory, replace `<boot.jar>` with the actual application boot JAR filename and run:
+
+```powershell
+java '-Dloader.main=top.sywyar.pixivdownload.migration.DatabaseMigration' -cp '<boot.jar>' org.springframework.boot.loader.launch.PropertiesLauncher --source data/pixiv_download.db --target-config postgres.yaml --backup migration/source.db --report migration/report.json
+```
+
+The tool acquires the instance and source write locks, creates a consistent backup including committed WAL data, upgrades a temporary copy of the old schema, and copies every managed main database table into an empty PostgreSQL schema. It preserves IDs, millisecond timestamps, NULLs, soft deletion, metadata, media and file references, and checks table counts, digests, reference warnings and generated key sequences. Backups can contain schedule credentials and must be protected as sensitive files. A nonempty destination, an undeclared source table or an incompatible value stops migration; the tool never clears the destination or silently skips unknown tables.
+
+Explicitly acknowledge regenerable SQLite novel objects with `--rebuild-objects novels_fts,novel_soft_delete_cleanup`, listing only objects that actually exist in the source. On PostgreSQL startup, the novel plugin recreates its soft deletion trigger, and content search reads the migrated text directly. Before acknowledging other plugin objects, confirm that their owner can rebuild them on PostgreSQL. This option cannot exclude ordinary history tables.
+
+Installed but disabled plugins still supply their main database declarations. Before uninstalling a plugin whose main database data must be retained, use this entry point with `--export-schema schema.json` to save its declarations. Add `--retained-schema schema.json` during migration to restore declarations for absent owners; the manifest must match the current SDK. Restore the plugin or provide verified declarations when they are missing, rather than deleting historical tables. The tool does not move private plugin SQLite databases or artwork files.
+
+`DATA_VERIFIED` means the database copy passed verification. Review reference warnings and objects awaiting recreation, then change the active configuration, start the application and check the gallery, novel search, notifications, schedules and file access. Neither `IN_PROGRESS` nor `FAILED_TARGET_NOT_VERIFIED` indicates success. Keep the backup, verify the destination transaction outcome, and retry with a new backup and a confirmed empty destination; migration has no resume mode. Before any new destination writes, you can stop the application and restore the old configuration and SQLite database. After new writes, switching straight back would lose those changes.
 
 ### Route web Pixiv through the backend-configured proxy (no system proxy needed)
 

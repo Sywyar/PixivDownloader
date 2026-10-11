@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.core.db.sqlite;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.sqlite.SQLiteConfig;
+import org.sqlite.SQLiteOpenMode;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -30,6 +31,17 @@ public final class SqliteDatabase {
     /** 既有按路径访问的启动检查、桌面及迁移工具使用；运行期业务使用宿主连接池。 */
     public static Connection openConnection(Path databasePath) throws SQLException {
         return DriverManager.getConnection(jdbcUrl(databasePath), connectionProperties());
+    }
+
+    /** 迁移源必须已经存在；不创建文件，也不改变源库 journal mode。 */
+    public static Connection openExisting(Path databasePath) throws SQLException {
+        if (!java.nio.file.Files.isRegularFile(databasePath, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            throw new SQLException("SQLite source is not a regular existing database", "08001");
+        }
+        SQLiteConfig configuration = new SQLiteConfig();
+        configuration.resetOpenMode(SQLiteOpenMode.CREATE);
+        configuration.setBusyTimeout(5000);
+        return DriverManager.getConnection(jdbcUrl(databasePath), configuration.toProperties());
     }
 
     public static HikariDataSource openPool(Path databasePath, int maximumPoolSize) {
