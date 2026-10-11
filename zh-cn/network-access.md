@@ -204,6 +204,12 @@ GUI 预览和确认描述符时会联网；保存包含新描述符快照的设�
 
 它们的页面仍会调用当前 PixivDownloader 实例的同源 API，但这不是访问第三方公网。
 
+## PostgreSQL 主数据库
+
+主库默认使用本机 SQLite，不发起数据库网络连接。管理员显式配置 `database.engine: postgresql` 后，应用宿主、GUI 启动检查和离线工具通过 PostgreSQL JDBC 连接 `database.jdbc-url` 指定的主机、端口、数据库和单一 schema；默认 PostgreSQL 端口为 5432，实际地址由管理员决定。连接用于建表、自省、维护和全部主库读写，会发送数据库账号认证材料、SQL 与主库数据，包括作品元数据、通知、计划状态及计划凭据。owner 私有 `PluginDataSource` 仍使用本地 SQLite。
+
+这些 TCP / TLS 连接直接由 JDBC 驱动建立，不经过 Pixiv HTTP 代理；TLS 行为由 `sslmode` 和可选 `sslrootcert` 控制，远程连接建议使用 `verify-full`。数据库密码通过独立配置项或 `DATABASE_PASSWORD` 环境变量提供，URL 不接受凭据。连接失败会停止操作，不改连 SQLite。停用远程连接须在停止写入后恢复 SQLite 配置；切换配置不会复制历史数据，已有数据应先按[配置参考](configuration.md)完成停机迁移。
+
 ## 本机、同源及管理员配置的目标地址
 
 - 桌面 GUI 由应用宿主通过 `http://127.0.0.1:{临时端口}/api/gui/**` 轮询状态和提交操作，携带当前后端的 GUI token、语言、操作参数，以及声明式动作的插件 owner。桌面模式默认创建此入口，端口由系统分配并随每次后端启动重新取得，不写入配置。连接明确绕过系统与宿主代理，不跟随重定向，不自动重发写操作，也不使用 `ssl.domain` 或公开 HTTPS 端口。入口仅绑定本机，拒绝非 GUI 路径和转发头，仍校验本机来源、Host / Origin 与 token。使用 `--no-gui` 或无头模式时不创建该入口；没有远端替换选项。
@@ -225,6 +231,8 @@ GUI 预览和确认描述符时会联网；保存包含新描述符快照的设�
 - 如果启用 HTTP/SOCKS 代理，程序首先连接管理员配置的代理主机和端口，再由代理访问最终服务。
 
 ## 开发、构建和发布流程的网络访问
+
+PostgreSQL 支持的工程依赖由 Maven 获取：坐标 `org.postgresql:postgresql`，路径为 `org/postgresql/postgresql/<版本>/`，默认来源为 Maven Central，仓库 / 镜像和代理沿用 Maven 的配置。只在源码构建或依赖预取缺少缓存时下载，不发送应用数据库凭据。真实数据库验收由操作者显式提供隔离服务；使用 Docker `postgres:17` 时，Docker 按自身镜像源、代理和认证设置访问 Docker Hub registry / token 服务及其重定向的镜像层 CDN。测试只连接 `PIXIV_TEST_POSTGRES_URL` 指定的隔离服务并使用测试账号；停止测试和容器可停止这些访问，默认应用运行不会下载数据库镜像。
 
 插件版本检查通过 GitHub CLI 分页读取 `api.github.com/repos/Sywyar/PixivDownloader-plugins/releases`，取得已公开版本；请求使用 CI 的 GitHub 认证或本地 CLI 登录态及其代理设置。产物检查使用 Maven 下载插件声明的最低 SDK 对应的固定坐标，仓库与代理由 Maven settings 决定；声明当前源码 SDK 时直接使用本轮构建产物。这些请求由 Quality Gate 或显式检查命令触发，失败会阻止验证通过，停止命令或取消 workflow 可结束后续请求。
 

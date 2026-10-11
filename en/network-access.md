@@ -203,6 +203,12 @@ The following plugins do not add a fixed third-party network destination:
 
 Their pages may still call same-origin APIs on the current PixivDownloader instance, which is not a third-party public connection.
 
+## PostgreSQL main database
+
+The default main database is local SQLite and makes no database network connections. After an administrator explicitly sets `database.engine: postgresql`, the host, GUI startup check, and offline tools connect through PostgreSQL JDBC to the host, port, database, and single schema in `database.jdbc-url`. PostgreSQL uses port 5432 by default; the actual destination is administrator-defined. Connections perform schema creation, inspection, maintenance, and all main-database reads and writes. They send database authentication material, SQL, and main-database data, including work metadata, notifications, schedule state, and schedule credentials. Owner-private `PluginDataSource` databases remain local SQLite.
+
+The JDBC driver opens these TCP / TLS connections directly, outside the Pixiv HTTP proxy. `sslmode` and optional `sslrootcert` control TLS; use `verify-full` for remote connections. Supply the password separately in configuration or `DATABASE_PASSWORD`; credentials are rejected in the URL. Connection failure stops the operation without switching to SQLite. To stop remote database access, stop writes and restore SQLite configuration. Changing configuration does not copy history; follow the stopped migration procedure in the [configuration reference](configuration.md) first.
+
 ## Local, same-origin, and administrator-defined destinations
 
 - The application host sends desktop GUI status requests and actions to `http://127.0.0.1:{ephemeral-port}/api/gui/**`, carrying the current backend's GUI token, language, action parameters, and the plugin owner for declared actions. Desktop mode creates this listener by default. The OS assigns its port, which is read again after each backend start and never saved to configuration. Connections bypass system and host proxies, reject redirects, and do not automatically replay writes. They do not use `ssl.domain` or the public HTTPS port. The listener binds only to loopback, rejects non-GUI paths and forwarding headers, and retains local-source, Host / Origin, and token checks. `--no-gui` and headless mode omit it; there is no remote replacement setting.
@@ -224,6 +230,8 @@ Configuring the host proxy does not mean that all network traffic uses it:
 - When an HTTP/SOCKS proxy is enabled, the application first connects to the configured proxy host and port, and that proxy contacts the final service.
 
 ## Network access during development, build, and release
+
+Maven resolves the PostgreSQL engineering dependency at `org.postgresql:postgresql`, under `org/postgresql/postgresql/<version>/`. Maven Central is the default source; Maven repository, mirror, and proxy settings determine the actual route. Download occurs during source builds or dependency preparation when the dependency is not cached, and does not send application database credentials. Real database acceptance uses an explicitly supplied isolated service. When an operator uses Docker `postgres:17`, Docker contacts Docker Hub registry / token services and redirected image-layer CDNs according to its own registry, proxy, and authentication settings. Tests connect only to the isolated service in `PIXIV_TEST_POSTGRES_URL` with test credentials. Stopping the tests and container stops these accesses; normal application startup does not download database images.
 
 Plugin version checks use GitHub CLI to page through `api.github.com/repos/Sywyar/PixivDownloader-plugins/releases` for published versions, using the CI GitHub credential or local CLI login and proxy settings. Artifact checks use Maven to fetch the fixed coordinates for the plugin's declared minimum SDK, with repositories and proxies from Maven settings. A requirement matching the current source SDK uses the current build artifacts. Quality Gate or explicit check commands trigger these requests; failures block validation. Stop the command or cancel the workflow to stop further requests.
 
