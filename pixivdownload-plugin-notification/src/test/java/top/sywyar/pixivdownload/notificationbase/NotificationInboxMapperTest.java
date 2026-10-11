@@ -6,28 +6,61 @@ import org.apache.ibatis.session.SqlSessionFactory;
 import org.apache.ibatis.session.SqlSessionFactoryBuilder;
 import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.io.TempDir;
 import org.sqlite.SQLiteDataSource;
 
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.Statement;
+import java.sql.DriverManager;
+import javax.sql.DataSource;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DisplayName("站内信 SQLite Mapper")
+@DisplayName("站内信数据库 Mapper")
 class NotificationInboxMapperTest {
 
     @TempDir
     Path tempDir;
+    private Connection postgres;
+    private String schema;
 
-    @Test
+    private DataSource dataSource(String engine) throws Exception {
+        if ("sqlite".equals(engine)) {
+            var result = new SQLiteDataSource();
+            result.setUrl("jdbc:sqlite:" + tempDir.resolve("notifications.db"));
+            return result;
+        }
+        String url = System.getenv("PIXIV_TEST_POSTGRES_URL");
+        org.junit.jupiter.api.Assumptions.assumeTrue(url != null && !url.isBlank(),
+                "需要隔离 PostgreSQL 测试服务");
+        postgres = DriverManager.getConnection(url, System.getenv("PIXIV_TEST_POSTGRES_USER"),
+                System.getenv("PIXIV_TEST_POSTGRES_PASSWORD"));
+        schema = "notification_test_" + java.util.UUID.randomUUID().toString().replace("-", "");
+        try (var statement = postgres.createStatement()) {
+            statement.execute("CREATE SCHEMA " + schema);
+            statement.execute("SET search_path TO " + schema);
+        }
+        return new org.springframework.jdbc.datasource.SingleConnectionDataSource(postgres, true);
+    }
+
+    @AfterEach
+    void close() throws Exception {
+        if (postgres == null) return;
+        try (var connection = postgres; var statement = connection.createStatement()) {
+            statement.execute("DROP SCHEMA " + schema + " CASCADE");
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"sqlite", "postgresql"})
     @DisplayName("按分类和未读状态查询、计数及批量已读真实可执行")
-    void persistsQueriesAndMarksRead() throws Exception {
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl("jdbc:sqlite:" + tempDir.resolve("notifications.db"));
+    void persistsQueriesAndMarksRead(String engine) throws Exception {
+        DataSource dataSource = dataSource(engine);
         createSchema(dataSource);
 
         org.apache.ibatis.session.Configuration configuration = new org.apache.ibatis.session.Configuration(
@@ -130,11 +163,11 @@ class NotificationInboxMapperTest {
         }
     }
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(strings = {"sqlite", "postgresql"})
     @DisplayName("下载通知与系统共用保留池且公告删除后不会因重复入库复活")
-    void prunesSharedRetentionPoolAndKeepsAnnouncementTombstones() throws Exception {
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl("jdbc:sqlite:" + tempDir.resolve("retention.db"));
+    void prunesSharedRetentionPoolAndKeepsAnnouncementTombstones(String engine) throws Exception {
+        DataSource dataSource = dataSource(engine);
         createSchema(dataSource);
 
         org.apache.ibatis.session.Configuration configuration = new org.apache.ibatis.session.Configuration(
@@ -185,7 +218,7 @@ class NotificationInboxMapperTest {
                 "<!doctype html><p>" + id + "</p>", null, createdTime, null);
     }
 
-    private static void createSchema(SQLiteDataSource dataSource) throws Exception {
+    private static void createSchema(DataSource dataSource) throws Exception {
         try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
             statement.execute("""
                     CREATE TABLE notification_messages (

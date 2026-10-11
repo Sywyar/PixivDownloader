@@ -31,20 +31,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("ScheduledTaskMapper 中性持久化")
 class ScheduledTaskMapperTest {
 
-    private SingleConnectionDataSource dataSource;
+    private javax.sql.DataSource dataSource;
     private SqlSession session;
     private ScheduledTaskMapper mapper;
     private JdbcTemplate jdbc;
 
     @BeforeEach
-    void setUp() {
-        dataSource = new SingleConnectionDataSource();
-        dataSource.setDriverClassName("org.sqlite.JDBC");
-        dataSource.setUrl("jdbc:sqlite::memory:");
-        dataSource.setSuppressClose(true);
+    void setUp() throws Exception {
+        dataSource = createDataSource();
 
         Environment environment = new Environment("test", new JdbcTransactionFactory(), dataSource);
         Configuration configuration = new Configuration(environment);
+        try (var connection = dataSource.getConnection()) {
+            configuration.setDatabaseId(top.sywyar.pixivdownload.core.db.DatabaseEngine.detect(connection).databaseId());
+        }
         configuration.setMapUnderscoreToCamelCase(true);
         configuration.addMapper(ScheduledTaskMapper.class);
         SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(configuration);
@@ -58,9 +58,17 @@ class ScheduledTaskMapperTest {
     }
 
     @AfterEach
-    void tearDown() {
-        session.close();
-        dataSource.destroy();
+    void tearDown() throws Exception {
+        if (session != null) session.close();
+        if (dataSource instanceof SingleConnectionDataSource single) single.destroy();
+    }
+
+    javax.sql.DataSource createDataSource() throws Exception {
+        var source = new SingleConnectionDataSource();
+        source.setDriverClassName("org.sqlite.JDBC");
+        source.setUrl("jdbc:sqlite::memory:");
+        source.setSuppressClose(true);
+        return source;
     }
 
     @Test

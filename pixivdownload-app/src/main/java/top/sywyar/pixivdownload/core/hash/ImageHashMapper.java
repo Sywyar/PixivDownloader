@@ -49,7 +49,7 @@ public interface ImageHashMapper {
     @Select("SELECT h.artwork_id AS artworkId, h.page AS page, h.ext AS ext,"
             + " h.dhash AS dHash, h.ahash AS aHash, h.created_time AS createdTime,"
             + " a.title AS title, a.author_id AS authorId, au.name AS authorName,"
-            + " a.\"R18\" AS xRestrict"
+            + " a.r18 AS xRestrict"
             + " FROM artwork_image_hashes h"
             + " JOIN artworks a ON a.artwork_id = h.artwork_id"
             + " LEFT JOIN authors au ON au.author_id = a.author_id"

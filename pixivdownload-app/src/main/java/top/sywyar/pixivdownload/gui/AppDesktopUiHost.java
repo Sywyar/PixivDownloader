@@ -4,6 +4,8 @@ import top.sywyar.pixivdownload.common.AppInfo;
 import top.sywyar.pixivdownload.common.AppVersion;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.config.http.ServerAddressProvider;
+import top.sywyar.pixivdownload.core.db.DatabaseEngine;
+import top.sywyar.pixivdownload.core.db.DatabaseTarget;
 import top.sywyar.pixivdownload.config.credential.PluginCredentialStore;
 import top.sywyar.pixivdownload.ffmpeg.FfmpegInstaller;
 import top.sywyar.pixivdownload.ffmpeg.FfmpegLocator;
@@ -49,12 +51,18 @@ final class AppDesktopUiHost implements DesktopUiHost {
     private final ConfigFile applicationConfig;
     private final int startupPort;
     private final Supplier<DataSource> backfillDataSource;
+    private String[] startupArguments = new String[0];
     private final DesktopUiOnboardingState onboardingState = new DesktopUiOnboardingState();
     private final DesktopToolHistory toolHistory = new DesktopToolHistory(RuntimeFiles.guiStateDirectory());
     private final DesktopWindowStateStore windowState = new DesktopWindowStateStore(RuntimeFiles.guiStateDirectory());
 
     AppDesktopUiHost(int serverPort) {
         this(serverPort, yamlConfig(RuntimeFiles.resolveConfigYamlPath()));
+    }
+
+    AppDesktopUiHost(int serverPort, String[] startupArguments) {
+        this(serverPort);
+        this.startupArguments = startupArguments.clone();
     }
 
     AppDesktopUiHost(int serverPort, ConfigFile applicationConfig) {
@@ -318,7 +326,32 @@ final class AppDesktopUiHost implements DesktopUiHost {
         return new MaintenanceSnapshot(value.active(), value.trigger(), value.index(), value.total(), value.taskName(),
                 value.taskStartedAt(), value.unitsDone(), value.unitsTotal());
     }
-    @Override public BackfillOptions defaultBackfillOptions() { return map(ArtworksBackFill.Options.defaults()); }
+    @Override public BackfillOptions defaultBackfillOptions() {
+        return map(ArtworksBackFill.Options.defaults().withTarget(configuredDatabaseTarget()));
+    }
+    @Override public boolean supportsDatabaseFileSelection() {
+        return configuredDatabaseTarget().engine() == DatabaseEngine.SQLITE;
+    }
+
+    private DatabaseTarget configuredDatabaseTarget() {
+        if (BackendLifecycleManager.isRunning()) {
+            return BackendLifecycleManager.requiredBean(DatabaseTarget.class);
+        }
+        try {
+            return DatabaseTarget.fromConfiguration(startupArguments);
+        } catch (IOException failure) {
+            throw new IllegalStateException(failure.getMessage(), failure);
+        }
+    }
+
+    private DatabaseTarget toolDatabaseTarget(String selected) {
+        DatabaseTarget configured = configuredDatabaseTarget();
+        if (configured.engine() == DatabaseEngine.SQLITE) return DatabaseTarget.sqlite(Path.of(selected));
+        if (!configured.displayName().equals(selected)) {
+            throw new IllegalArgumentException(MessageBundles.get("core.db.invalid-config", "database target"));
+        }
+        return configured;
+    }
     @Override public boolean supportsBackfillColumn(DatabaseColumn column) {
         return ArtworksBackFill.supportsDatabaseColumn(column.tableName(), column.columnName());
     }
@@ -344,7 +377,9 @@ final class AppDesktopUiHost implements DesktopUiHost {
         return JsonToSqliteMigration.countCandidates(new JsonToSqliteMigration.Options(options.dbPath(), options.rootFolder()));
     }
     @Override public MigrationSummary runMigration(MigrationOptions options, Consumer<String> reporter) throws Exception {
-        var value = JsonToSqliteMigration.run(new JsonToSqliteMigration.Options(options.dbPath(), options.rootFolder()), reporter);
+        var value = JsonToSqliteMigration.run(new JsonToSqliteMigration.Options(options.dbPath(), options.rootFolder(),
+                toolDatabaseTarget(options.dbPath())), reporter,
+                BackendLifecycleManager.isRunning() ? requireBackfillDataSource() : null);
         return new MigrationSummary(value.totalCandidates(), value.migrated(), value.skipped(), value.historyFileMissing(), value.message());
     }
     @Override public ToolLogSession openToolLog(String stem) throws Exception {
@@ -393,10 +428,24 @@ final class AppDesktopUiHost implements DesktopUiHost {
     private final DesktopUiTools desktopUiTools = new DesktopUiTools(() -> backendUri("").toASCIIString());
 
     @Override public FolderCheckResult checkArtworkFolders(Path databasePath) throws Exception {
-        return desktopUiTools.checkArtworkFolders(databasePath, folderCheckRoot());
+        try (var connection = toolConnection(toolDatabaseTarget(databasePath.toString()))) {
+            return desktopUiTools.checkArtworkFolders(connection, folderCheckRoot());
+        }
     }
     @Override public void updateArtworkFolder(Path databasePath, long artworkId, boolean moved, String newPath) throws Exception {
-        desktopUiTools.updateArtworkFolder(databasePath, folderCheckRoot(), artworkId, moved, newPath);
+        try (var connection = toolConnection(toolDatabaseTarget(databasePath.toString()))) {
+            desktopUiTools.updateArtworkFolder(connection, folderCheckRoot(), artworkId, moved, newPath);
+        }
+    }
+
+    private java.sql.Connection toolConnection(DatabaseTarget target) throws Exception {
+        if (!BackendLifecycleManager.isRunning()) return target.openConnection();
+        DatabaseTarget active = configuredDatabaseTarget();
+        if (target.engine() != active.engine() || target.engine() == DatabaseEngine.SQLITE
+                && !target.sqlitePath().equals(active.sqlitePath())) {
+            throw new IllegalArgumentException(MessageBundles.get("core.db.invalid-config", "database target"));
+        }
+        return requireBackfillDataSource().getConnection();
     }
 
     private String folderCheckRoot() throws IOException {
@@ -440,7 +489,8 @@ final class AppDesktopUiHost implements DesktopUiHost {
     private static BackfillOptions map(ArtworksBackFill.Options value) {
         return new BackfillOptions(value.dbPath(), value.proxyHost(), value.proxyPort(), value.useProxy(), value.delayMs(), value.limit(), value.dryRun());
     }
-    private static ArtworksBackFill.Options map(BackfillOptions value) {
-        return new ArtworksBackFill.Options(value.dbPath(), value.proxyHost(), value.proxyPort(), value.useProxy(), value.delayMs(), value.limit(), value.dryRun());
+    private ArtworksBackFill.Options map(BackfillOptions value) {
+        return new ArtworksBackFill.Options(value.dbPath(), value.proxyHost(), value.proxyPort(), value.useProxy(), value.delayMs(), value.limit(), value.dryRun())
+                .withTarget(toolDatabaseTarget(value.dbPath()));
     }
 }

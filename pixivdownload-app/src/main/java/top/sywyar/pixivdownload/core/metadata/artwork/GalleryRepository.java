@@ -29,9 +29,14 @@ import java.util.Set;
 public class GalleryRepository {
 
     private final NamedParameterJdbcTemplate jdbc;
+    private final boolean postgres;
 
     public GalleryRepository(DataSource dataSource) {
         this.jdbc = new NamedParameterJdbcTemplate(dataSource);
+        postgres = jdbc.getJdbcTemplate().execute(
+                (org.springframework.jdbc.core.ConnectionCallback<top.sywyar.pixivdownload.core.db.DatabaseEngine>)
+                        top.sywyar.pixivdownload.core.db.DatabaseEngine::detect)
+                == top.sywyar.pixivdownload.core.db.DatabaseEngine.POSTGRESQL;
     }
 
     public QueryResult findArtworkIds(GalleryQuery q) {
@@ -66,15 +71,15 @@ public class GalleryRepository {
             String type = q.getSearchType() == null ? "all" : q.getSearchType();
             switch (type) {
                 case "title" -> {
-                    where.append(" AND a.title LIKE :search");
+                    where.append(" AND ").append(like("a.title", "search"));
                     params.addValue("search", "%" + q.getSearch() + "%");
                 }
                 case "author" -> {
-                    where.append(" AND au.name LIKE :search");
+                    where.append(" AND ").append(like("au.name", "search"));
                     params.addValue("search", "%" + q.getSearch() + "%");
                 }
                 case "desc" -> {
-                    where.append(" AND a.description LIKE :search");
+                    where.append(" AND ").append(like("a.description", "search"));
                     params.addValue("search", "%" + q.getSearch() + "%");
                 }
                 case "id" -> {
@@ -90,7 +95,8 @@ public class GalleryRepository {
                 case "tag" -> {
                     where.append(" AND a.artwork_id IN (SELECT at.artwork_id FROM artwork_tags at"
                             + " JOIN tags t ON t.tag_id = at.tag_id"
-                            + " WHERE t.name LIKE :search OR COALESCE(t.translated_name, '') LIKE :search)");
+                            + " WHERE " + like("t.name", "search") + " OR "
+                            + like("COALESCE(t.translated_name, '')", "search") + ")");
                     params.addValue("search", "%" + q.getSearch() + "%");
                 }
                 case "tagExact" -> {
@@ -101,20 +107,21 @@ public class GalleryRepository {
                     params.addValue("searchExact", q.getSearch().toLowerCase(java.util.Locale.ROOT));
                 }
                 default -> {
-                    where.append(" AND (a.title LIKE :search OR au.name LIKE :search)");
+                    where.append(" AND (").append(like("a.title", "search"))
+                            .append(" OR ").append(like("au.name", "search")).append(")");
                     params.addValue("search", "%" + q.getSearch() + "%");
                 }
             }
         }
 
         if ("r18g".equals(q.getR18())) {
-            where.append(" AND a.\"R18\" = 2");
+            where.append(" AND a.r18 = 2");
         } else if ("r18".equals(q.getR18()) || "yes".equals(q.getR18())) {
-            where.append(" AND a.\"R18\" = 1");
+            where.append(" AND a.r18 = 1");
         } else if ("r18plus".equals(q.getR18())) {
-            where.append(" AND a.\"R18\" >= 1");
+            where.append(" AND a.r18 >= 1");
         } else if ("no".equals(q.getR18())) {
-            where.append(" AND (a.\"R18\" = 0 OR a.\"R18\" IS NULL)");
+            where.append(" AND (a.r18 = 0 OR a.r18 IS NULL)");
         }
 
         if ("yes".equals(q.getAi())) {
@@ -128,7 +135,7 @@ public class GalleryRepository {
             List<String> clauses = new ArrayList<>();
             for (int i = 0; i < formats.size(); i++) {
                 String key = "fmt" + i;
-                clauses.add("a.extensions LIKE :" + key);
+                clauses.add(like("a.extensions", key));
                 params.addValue(key, "%" + formats.get(i) + "%");
             }
             where.append(" AND (").append(String.join(" OR ", clauses)).append(")");
@@ -164,6 +171,10 @@ public class GalleryRepository {
                 + where
                 + " ORDER BY " + orderBy;
         return new QueryParts(countSql, pageSql, allSql, params);
+    }
+
+    private String like(String expression, String parameter) {
+        return expression + (postgres ? " ILIKE :" : " LIKE :") + parameter + (postgres ? " ESCAPE ''" : "");
     }
 
     private record QueryParts(String countSql, String pageSql, String allSql, MapSqlParameterSource params) {}
@@ -433,9 +444,9 @@ public class GalleryRepository {
             return;
         }
         List<String> ratingClauses = new ArrayList<>();
-        if (allowed.contains(0)) ratingClauses.add("a.\"R18\" = 0 OR a.\"R18\" IS NULL");
-        if (allowed.contains(1)) ratingClauses.add("a.\"R18\" = 1");
-        if (allowed.contains(2)) ratingClauses.add("a.\"R18\" = 2");
+        if (allowed.contains(0)) ratingClauses.add("a.r18 = 0 OR a.r18 IS NULL");
+        if (allowed.contains(1)) ratingClauses.add("a.r18 = 1");
+        if (allowed.contains(2)) ratingClauses.add("a.r18 = 2");
         sql.append(" AND (").append(String.join(" OR ", ratingClauses)).append(")");
 
         if (r.collectionRestrictsWorks() && !r.collectionUnrestricted()) {
@@ -631,11 +642,12 @@ public class GalleryRepository {
                         + " LEFT JOIN artwork_tags at ON at.tag_id = t.tag_id");
         MapSqlParameterSource params = new MapSqlParameterSource();
         if (search != null && !search.isBlank()) {
-            sql.append(" WHERE LOWER(t.name) LIKE :kw OR LOWER(COALESCE(t.translated_name, '')) LIKE :kw");
+            sql.append(" WHERE ").append(like("LOWER(t.name)", "kw")).append(" OR ")
+                    .append(like("LOWER(COALESCE(t.translated_name, ''))", "kw"));
             params.addValue("kw", "%" + search.trim().toLowerCase(Locale.ROOT) + "%");
         }
         sql.append(" GROUP BY t.tag_id, t.name, t.translated_name")
-                .append(" HAVING artwork_count > 0")
+                .append(" HAVING COUNT(at.artwork_id) > 0")
                 .append(" ORDER BY artwork_count DESC, t.tag_id ASC");
         if (limit > 0) {
             sql.append(" LIMIT :limit");
@@ -675,7 +687,7 @@ public class GalleryRepository {
                 + " LEFT JOIN artwork_tags at ON at.tag_id = t.tag_id"
                 + " WHERE " + String.join(" OR ", clauses)
                 + " GROUP BY t.tag_id, t.name, t.translated_name"
-                + " HAVING artwork_count > 0"
+                + " HAVING COUNT(at.artwork_id) > 0"
                 + " ORDER BY " + String.join(", ", orderBy) + ", artwork_count DESC, t.tag_id ASC"
                 + " LIMIT 1";
         List<TagOption> items = jdbc.query(sql, params, (rs, rowNum) -> new TagOption(

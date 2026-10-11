@@ -73,6 +73,16 @@ public interface DesktopUiToolHost {
     BackfillOptions defaultBackfillOptions();
 
     /**
+     * 当前主库是否允许通过维护工具选择本地数据库文件。
+     * 远程主库返回 false；此时默认回填选项的 dbPath 仅作无凭据的目标标签，
+     * provider 应原样传回，并禁用文件编辑与选择。
+     * @return 是否允许选择数据库文件
+     */
+    default boolean supportsDatabaseFileSelection() {
+        return true;
+    }
+
+    /**
      * 返回数据库是否支持请求的回填列。
      *
      * @param column 请求的列

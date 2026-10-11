@@ -29,12 +29,20 @@ public interface GuestInviteMapper {
             + " SELECT it.invite_id, it.tag_id FROM guest_invite_tags it"
             + " JOIN guest_invites gi ON gi.id = it.invite_id"
             + " WHERE gi.novel_tag_unrestricted IS NULL")
+    @Insert(value = "INSERT INTO guest_invite_novel_tags(invite_id, tag_id)"
+            + " SELECT it.invite_id, it.tag_id FROM guest_invite_tags it"
+            + " JOIN guest_invites gi ON gi.id = it.invite_id"
+            + " WHERE gi.novel_tag_unrestricted IS NULL ON CONFLICT DO NOTHING", databaseId = "postgresql")
     int copyTagsToNovelSide();
 
     @Insert("INSERT OR IGNORE INTO guest_invite_novel_authors(invite_id, author_id)"
             + " SELECT ia.invite_id, ia.author_id FROM guest_invite_authors ia"
             + " JOIN guest_invites gi ON gi.id = ia.invite_id"
             + " WHERE gi.novel_author_unrestricted IS NULL")
+    @Insert(value = "INSERT INTO guest_invite_novel_authors(invite_id, author_id)"
+            + " SELECT ia.invite_id, ia.author_id FROM guest_invite_authors ia"
+            + " JOIN guest_invites gi ON gi.id = ia.invite_id"
+            + " WHERE gi.novel_author_unrestricted IS NULL ON CONFLICT DO NOTHING", databaseId = "postgresql")
     int copyAuthorsToNovelSide();
 
     @Update("UPDATE guest_invites SET novel_tag_unrestricted = tag_unrestricted"
@@ -53,10 +61,10 @@ public interface GuestInviteMapper {
             + "  novel_tag_unrestricted, novel_author_unrestricted,"
             + "  collection_unrestricted, collection_restricts_works,"
             + "  created_time, paused, revoked, total_request_count)"
-            + " VALUES (#{code}, #{name}, #{expireTime}, #{allowSfw}, #{allowR18}, #{allowR18g},"
-            + "  #{tagUnrestricted}, #{authorUnrestricted},"
-            + "  #{novelTagUnrestricted}, #{novelAuthorUnrestricted},"
-            + "  #{collectionUnrestricted}, #{collectionRestrictsWorks},"
+            + " VALUES (#{code}, #{name}, #{expireTime}, CAST(#{allowSfw} AS INTEGER), CAST(#{allowR18} AS INTEGER), CAST(#{allowR18g} AS INTEGER),"
+            + "  CAST(#{tagUnrestricted} AS INTEGER), CAST(#{authorUnrestricted} AS INTEGER),"
+            + "  CAST(#{novelTagUnrestricted} AS INTEGER), CAST(#{novelAuthorUnrestricted} AS INTEGER),"
+            + "  CAST(#{collectionUnrestricted} AS INTEGER), CAST(#{collectionRestrictsWorks} AS INTEGER),"
             + "  #{createdTime}, 0, 0, 0)")
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
     void insertInvite(GuestInviteRow row);
@@ -71,16 +79,16 @@ public interface GuestInviteMapper {
     List<GuestInviteRow> findAll();
 
     @Update("UPDATE guest_invites SET name = #{name}, expire_time = #{expireTime},"
-            + " allow_sfw = #{allowSfw}, allow_r18 = #{allowR18}, allow_r18g = #{allowR18g},"
-            + " tag_unrestricted = #{tagUnrestricted}, author_unrestricted = #{authorUnrestricted},"
-            + " novel_tag_unrestricted = #{novelTagUnrestricted},"
-            + " novel_author_unrestricted = #{novelAuthorUnrestricted},"
-            + " collection_unrestricted = #{collectionUnrestricted},"
-            + " collection_restricts_works = #{collectionRestrictsWorks}"
+            + " allow_sfw = CAST(#{allowSfw} AS INTEGER), allow_r18 = CAST(#{allowR18} AS INTEGER), allow_r18g = CAST(#{allowR18g} AS INTEGER),"
+            + " tag_unrestricted = CAST(#{tagUnrestricted} AS INTEGER), author_unrestricted = CAST(#{authorUnrestricted} AS INTEGER),"
+            + " novel_tag_unrestricted = CAST(#{novelTagUnrestricted} AS INTEGER),"
+            + " novel_author_unrestricted = CAST(#{novelAuthorUnrestricted} AS INTEGER),"
+            + " collection_unrestricted = CAST(#{collectionUnrestricted} AS INTEGER),"
+            + " collection_restricts_works = CAST(#{collectionRestrictsWorks} AS INTEGER)"
             + " WHERE id = #{id}")
     void updateInviteCore(GuestInviteRow row);
 
-    @Update("UPDATE guest_invites SET paused = #{paused} WHERE id = #{id}")
+    @Update("UPDATE guest_invites SET paused = CAST(#{paused} AS INTEGER) WHERE id = #{id}")
     void updatePaused(@Param("id") long id, @Param("paused") boolean paused);
 
     @Update("UPDATE guest_invites SET revoked = 1 WHERE id = #{id}")
@@ -109,6 +117,7 @@ public interface GuestInviteMapper {
     // ── invite_tags / invite_authors (插画 / 漫画侧) ─────────────────────────
 
     @Insert("INSERT OR IGNORE INTO guest_invite_tags(invite_id, tag_id) VALUES(#{inviteId}, #{tagId})")
+    @Insert(value = "INSERT INTO guest_invite_tags(invite_id, tag_id) VALUES(#{inviteId}, #{tagId}) ON CONFLICT DO NOTHING", databaseId = "postgresql")
     void insertInviteTag(@Param("inviteId") long inviteId, @Param("tagId") long tagId);
 
     @Delete("DELETE FROM guest_invite_tags WHERE invite_id = #{inviteId}")
@@ -123,6 +132,7 @@ public interface GuestInviteMapper {
     List<TagRow> findInviteTags(@Param("inviteId") long inviteId);
 
     @Insert("INSERT OR IGNORE INTO guest_invite_authors(invite_id, author_id) VALUES(#{inviteId}, #{authorId})")
+    @Insert(value = "INSERT INTO guest_invite_authors(invite_id, author_id) VALUES(#{inviteId}, #{authorId}) ON CONFLICT DO NOTHING", databaseId = "postgresql")
     void insertInviteAuthor(@Param("inviteId") long inviteId, @Param("authorId") long authorId);
 
     @Delete("DELETE FROM guest_invite_authors WHERE invite_id = #{inviteId}")
@@ -139,6 +149,7 @@ public interface GuestInviteMapper {
     // ── invite_novel_tags / invite_novel_authors (小说侧) ────────────────────
 
     @Insert("INSERT OR IGNORE INTO guest_invite_novel_tags(invite_id, tag_id) VALUES(#{inviteId}, #{tagId})")
+    @Insert(value = "INSERT INTO guest_invite_novel_tags(invite_id, tag_id) VALUES(#{inviteId}, #{tagId}) ON CONFLICT DO NOTHING", databaseId = "postgresql")
     void insertInviteNovelTag(@Param("inviteId") long inviteId, @Param("tagId") long tagId);
 
     @Delete("DELETE FROM guest_invite_novel_tags WHERE invite_id = #{inviteId}")
@@ -153,6 +164,7 @@ public interface GuestInviteMapper {
     List<TagRow> findInviteNovelTags(@Param("inviteId") long inviteId);
 
     @Insert("INSERT OR IGNORE INTO guest_invite_novel_authors(invite_id, author_id) VALUES(#{inviteId}, #{authorId})")
+    @Insert(value = "INSERT INTO guest_invite_novel_authors(invite_id, author_id) VALUES(#{inviteId}, #{authorId}) ON CONFLICT DO NOTHING", databaseId = "postgresql")
     void insertInviteNovelAuthor(@Param("inviteId") long inviteId, @Param("authorId") long authorId);
 
     @Delete("DELETE FROM guest_invite_novel_authors WHERE invite_id = #{inviteId}")
@@ -188,7 +200,7 @@ public interface GuestInviteMapper {
     @Insert("INSERT INTO guest_invite_access_stats (invite_id, bucket_hour, request_count)"
             + " VALUES (#{inviteId}, #{bucketHour}, 1)"
             + " ON CONFLICT(invite_id, bucket_hour)"
-            + " DO UPDATE SET request_count = request_count + 1")
+            + " DO UPDATE SET request_count = guest_invite_access_stats.request_count + 1")
     void upsertAccessStat(@Param("inviteId") long inviteId, @Param("bucketHour") long bucketHour);
 
     @Select("SELECT bucket_hour AS bucketHour, request_count AS requestCount"

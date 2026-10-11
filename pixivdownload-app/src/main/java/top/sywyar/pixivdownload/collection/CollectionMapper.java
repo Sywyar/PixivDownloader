@@ -55,6 +55,8 @@ public interface CollectionMapper {
 
     @Insert("INSERT OR IGNORE INTO artwork_collections(collection_id, artwork_id, added_time)"
             + " VALUES(#{collectionId}, #{artworkId}, #{addedTime})")
+    @Insert(value = "INSERT INTO artwork_collections(collection_id, artwork_id, added_time)"
+            + " VALUES(#{collectionId}, #{artworkId}, #{addedTime}) ON CONFLICT DO NOTHING", databaseId = "postgresql")
     int addArtwork(@Param("collectionId") long collectionId,
                    @Param("artworkId") long artworkId,
                    @Param("addedTime") long addedTime);
@@ -72,7 +74,7 @@ public interface CollectionMapper {
 
     @Select({
             "<script>",
-            "SELECT artwork_id AS artworkId, collection_id AS collectionId FROM artwork_collections",
+            "SELECT artwork_id AS \"artworkId\", collection_id AS \"collectionId\" FROM artwork_collections",
             "WHERE artwork_id IN",
             "<foreach item='id' collection='ids' open='(' separator=',' close=')'>#{id}</foreach>",
             "</script>"

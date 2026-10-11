@@ -293,7 +293,7 @@ public class GuiLauncher {
             }
         }
 
-        RuntimeFiles.prepareRuntimeFiles(rootFolder);
+        RuntimeFiles.prepareRuntimeFiles(rootFolder, false);
 
         // ── 2a. 进程级插件 bootstrap 会话（PROCESS 拥有，复用于后端 restart，进程退出时关闭）────────
         //    必须早于首个 Swing 窗口 / 主题安装：外置主题插件的发现要先于主题管理完成。会话 start 收敛插件目录
@@ -332,7 +332,7 @@ public class GuiLauncher {
         // ── 3. 选择并启动外置桌面 UI ─────────────────────────────────────────
         splash.showStatus(message("gui.launcher.splash.interface"));
         try {
-            AppDesktopUiHost desktopUiHost = new AppDesktopUiHost(port);
+            AppDesktopUiHost desktopUiHost = new AppDesktopUiHost(port, backendArgs);
             desktopUiHost.resetIncompleteOnboardingState(root);
             Supplier<List<DesktopUiPluginSource>> currentDesktopSources = memoizedDesktopUiSources(
                     () -> pluginSession.manager().discoverFeaturePlugins(),
@@ -391,7 +391,7 @@ public class GuiLauncher {
             ui.start(readConfigScalar(configPath, "app.gui-provider"));
             pluginSession.releaseStartupSnapshot();
             if (ACTIVE_UI.get() != null) {
-                maybeScheduleStartupBackfillFlow(ui, configPath, root, startupManagedSchema);
+                maybeScheduleStartupBackfillFlow(ui, configPath, root, startupManagedSchema, backendArgs);
             }
         } catch (Throwable failure) {
             splash.close();
@@ -544,13 +544,14 @@ public class GuiLauncher {
     }
 
     private static void maybeScheduleStartupBackfillFlow(DesktopUiSession frame, Path configPath, String rootFolder,
-                                                         ManagedDatabaseSchema.DatabaseSchema expectedSchema) {
-        ArtworksBackFill.Options options = buildStartupBackfillOptions(configPath, rootFolder);
-        Path databasePath = Path.of(options.dbPath());
+                                                         ManagedDatabaseSchema.DatabaseSchema expectedSchema,
+                                                         String[] backendArgs) {
 
         Thread worker = new Thread(() -> {
             try {
-                runStartupSchemaBackfill(frame, databasePath, options, expectedSchema);
+                var target = top.sywyar.pixivdownload.core.db.DatabaseTarget.fromConfiguration(backendArgs);
+                ArtworksBackFill.Options options = buildStartupBackfillOptions(configPath, rootFolder).withTarget(target);
+                runStartupSchemaBackfill(frame, options, expectedSchema);
             } catch (Throwable fatal) {
                 log.error(logMessage("gui.launcher.log.startup.schema-backfill-flow.unexpected"), fatal);
                 BackendLifecycleManager.startAsync();
@@ -560,18 +561,19 @@ public class GuiLauncher {
         worker.start();
     }
 
-    private static void runStartupSchemaBackfill(DesktopUiSession frame, Path databasePath,
-                                                 ArtworksBackFill.Options options,
+    private static void runStartupSchemaBackfill(DesktopUiSession frame, ArtworksBackFill.Options options,
                                                  ManagedDatabaseSchema.DatabaseSchema expectedSchema) {
-        if (!hasInspectableDatabase(databasePath)) {
-            log.info(logMessage("gui.launcher.log.startup.schema-check.skipped", databasePath.toAbsolutePath()));
+        var target = options.target();
+        if (target.engine() == top.sywyar.pixivdownload.core.db.DatabaseEngine.SQLITE
+                && !hasInspectableDatabase(target.sqlitePath())) {
+            log.info(logMessage("gui.launcher.log.startup.schema-check.skipped", target.displayName()));
             BackendLifecycleManager.startAsync();
             return;
         }
 
         DatabaseSchemaInspector.SchemaComparison comparison;
-        try {
-            comparison = DatabaseSchemaInspector.compare(databasePath, expectedSchema);
+        try (var connection = target.openConnection()) {
+            comparison = DatabaseSchemaInspector.compare(connection, expectedSchema);
         } catch (Throwable error) {
             log.warn(logMessage("gui.launcher.log.startup.schema-check.compare-failed"), error);
             DesktopUiDialogs.invokeLater(() -> DesktopUiDialogs.showMessageDialog(
@@ -584,7 +586,7 @@ public class GuiLauncher {
         }
 
         if (comparison.matches()) {
-            log.info(logMessage("gui.launcher.log.startup.schema-check.passed", databasePath.toAbsolutePath()));
+            log.info(logMessage("gui.launcher.log.startup.schema-check.passed", target.displayName()));
             BackendLifecycleManager.startAsync();
             return;
         }
@@ -750,7 +752,7 @@ public class GuiLauncher {
         }//"
 
         return new ArtworksBackFill.Options(
-                RuntimeFiles.resolveDatabasePath(rootFolder).toString(),
+                defaults.dbPath(),
                 proxyHost,
                 proxyPort,
                 proxyEnabled,

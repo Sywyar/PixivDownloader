@@ -14,6 +14,8 @@ public interface AuthorMapper {
 
     @Insert("INSERT OR IGNORE INTO authors(author_id, name, updated_time)"
             + " VALUES(#{id}, #{name}, #{updatedTime})")
+    @Insert(value = "INSERT INTO authors(author_id, name, updated_time)"
+            + " VALUES(#{id}, #{name}, #{updatedTime}) ON CONFLICT DO NOTHING", databaseId = "postgresql")
     int insertIfAbsent(@Param("id") long id,
                        @Param("name") String name,
                        @Param("updatedTime") long updatedTime);

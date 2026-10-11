@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.core.db.DatabaseTarget;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import javax.sql.DataSource;
@@ -64,13 +65,13 @@ public class ArtworksBackFill {
     }
 
     public static int countCandidates(Options options) throws Exception {
-        try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(options.dbPath())) {
+        try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(options.target())) {
             return countCandidates(options, database);
         }
     }
 
     public static int countCandidates(Options options, DataSource dataSource) throws Exception {
-        try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(dataSource, options.dbPath())) {
+        try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(dataSource, options.target())) {
             return countCandidates(options, database);
         }
     }
@@ -84,7 +85,7 @@ public class ArtworksBackFill {
     }
 
     public static Summary run(Options options) throws Exception {
-        try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(options.dbPath())) {
+        try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(options.target())) {
             return run(options, database, true, (processed, total) -> {});
         }
     }
@@ -96,7 +97,7 @@ public class ArtworksBackFill {
     public static Summary run(Options options, DataSource dataSource,
             java.util.function.BiConsumer<Integer, Integer> progress) throws Exception {
         java.util.Objects.requireNonNull(progress, "progress");
-        try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(dataSource, options.dbPath())) {
+        try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(dataSource, options.target())) {
             return run(options, database, false, progress);
         }
     }
@@ -364,7 +365,19 @@ public class ArtworksBackFill {
                           boolean useProxy,
                           long delayMs,
                           int limit,
-                          boolean dryRun) {
+                          boolean dryRun,
+                          DatabaseTarget target) {
+
+        public Options(String dbPath, String proxyHost, int proxyPort, boolean useProxy,
+                       long delayMs, int limit, boolean dryRun) {
+            this(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun,
+                    DatabaseTarget.sqlite(Path.of(dbPath)));
+        }
+
+        public Options withTarget(DatabaseTarget databaseTarget) {
+            return new Options(databaseTarget.displayName(), proxyHost, proxyPort, useProxy,
+                    delayMs, limit, dryRun, databaseTarget);
+        }
 
         public static Options defaults() {
             return new Options(
@@ -405,7 +418,13 @@ public class ArtworksBackFill {
                     default -> throw new IllegalArgumentException(message("artworks-backfill.cli.error.unknown-option", args[i]));
                 }
             }
-            return new Options(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun);
+            Options options = new Options(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun);
+            if (java.util.Arrays.asList(args).contains("--db")) return options;
+            try {
+                return options.withTarget(DatabaseTarget.fromConfiguration());
+            } catch (IOException failure) {
+                throw new IllegalArgumentException(failure.getMessage(), failure);
+            }
         }
 
         private static String requireValue(String[] args, int index, String option) {

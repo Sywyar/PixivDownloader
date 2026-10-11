@@ -35,7 +35,7 @@ public class NovelMetadataRepository {
 
     private static final String SELECT_NOVEL_METADATA =
             "SELECT novel_id AS novelId, title, folder, count, extensions, time,"
-                    + " \"R18\" AS xRestrict, is_ai AS isAi, author_id AS authorId, description,"
+                    + " r18 AS xRestrict, is_ai AS isAi, author_id AS authorId, description,"
                     + " file_name AS fileName, file_author_name_id AS fileAuthorNameId,"
                     + " series_id AS seriesId, series_order AS seriesOrder,"
                     + " is_original AS isOriginal, cover_ext AS coverExt,"
@@ -100,7 +100,7 @@ public class NovelMetadataRepository {
     public List<NovelMetadataRow> getNovelsBySeriesId(long seriesId) {
         return jdbc.query(SELECT_NOVEL_METADATA
                         + " WHERE series_id = :seriesId AND series_id > 0 AND deleted = 0"
-                        + " ORDER BY series_order ASC, time ASC",
+                        + " ORDER BY series_order ASC NULLS FIRST, time ASC",
                 new MapSqlParameterSource("seriesId", seriesId), this::mapNovelMetadata);
     }
 
@@ -177,8 +177,8 @@ public class NovelMetadataRepository {
 
     public boolean addToCollection(long collectionId, long novelId) {
         int rows = jdbc.update(
-                "INSERT OR IGNORE INTO novel_collections(collection_id, novel_id, added_time)"
-                        + " VALUES(:collectionId, :novelId, :addedTime)",
+                "INSERT INTO novel_collections(collection_id, novel_id, added_time)"
+                        + " VALUES(:collectionId, :novelId, :addedTime) ON CONFLICT DO NOTHING",
                 new MapSqlParameterSource()
                         .addValue("collectionId", collectionId)
                         .addValue("novelId", novelId)

@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 该格式基于 [Keep a Changelog ZH-cn](https://keepachangelog.com/zh-CN/1.1.0/).
 
+## [Unreleased]
+
+### Features
+
+- 主数据库支持 PostgreSQL 17，保留 SQLite 默认配置。
+
 ## [v1.14.1] - 2026.10.10
 
 ### Features

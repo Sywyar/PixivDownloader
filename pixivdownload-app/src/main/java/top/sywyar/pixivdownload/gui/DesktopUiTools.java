@@ -13,7 +13,7 @@ import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefix;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
-import top.sywyar.pixivdownload.core.db.sqlite.SqliteDatabase;
+import top.sywyar.pixivdownload.core.db.DatabaseTarget;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarFiles;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
@@ -51,8 +51,19 @@ final class DesktopUiTools {
     }
 
     DesktopUiHost.FolderCheckResult checkArtworkFolders(Path databasePath, String rootFolder) throws SQLException {
+        return checkArtworkFolders(DatabaseTarget.sqlite(databasePath), rootFolder);
+    }
+
+    DesktopUiHost.FolderCheckResult checkArtworkFolders(DatabaseTarget target,
+                                                       String rootFolder) throws SQLException {
+        try (Connection connection = target.openConnection()) {
+            return checkArtworkFolders(connection, rootFolder);
+        }
+    }
+
+    DesktopUiHost.FolderCheckResult checkArtworkFolders(Connection connection, String rootFolder) throws SQLException {
         List<DesktopUiHost.FolderArtwork> all;
-        try (Connection connection = openDatabase(databasePath)) {
+        try {
             all = loadArtworks(connection, loadPathCodec(connection, rootFolder),
                     "SELECT artwork_id, title, folder, moved, move_folder FROM artworks"
                             + " WHERE deleted = 0 ORDER BY time DESC");
@@ -60,10 +71,8 @@ final class DesktopUiTools {
             if (!String.valueOf(exception.getMessage()).contains("no such column")) {
                 throw exception;
             }
-            try (Connection connection = openDatabase(databasePath)) {
-                all = loadArtworks(connection, loadPathCodec(connection, rootFolder),
-                        "SELECT artwork_id, title, folder, moved, move_folder FROM artworks ORDER BY time DESC");
-            }
+            all = loadArtworks(connection, loadPathCodec(connection, rootFolder),
+                    "SELECT artwork_id, title, folder, moved, move_folder FROM artworks ORDER BY time DESC");
         }
 
         List<DesktopUiHost.FolderArtwork> inaccessible = all.stream()
@@ -73,9 +82,20 @@ final class DesktopUiTools {
     }
 
     void updateArtworkFolder(Path databasePath, String rootFolder, long artworkId, boolean moved, String newPath) throws SQLException {
+        updateArtworkFolder(DatabaseTarget.sqlite(databasePath), rootFolder, artworkId, moved, newPath);
+    }
+
+    void updateArtworkFolder(DatabaseTarget target, String rootFolder,
+                             long artworkId, boolean moved, String newPath) throws SQLException {
+        try (Connection connection = target.openConnection()) {
+            updateArtworkFolder(connection, rootFolder, artworkId, moved, newPath);
+        }
+    }
+
+    void updateArtworkFolder(Connection connection, String rootFolder,
+                             long artworkId, boolean moved, String newPath) throws SQLException {
         String column = moved ? "move_folder" : "folder";
-        try (Connection connection = openDatabase(databasePath);
-             PreparedStatement statement = connection.prepareStatement(
+        try (PreparedStatement statement = connection.prepareStatement(
                      "UPDATE artworks SET " + column + " = ? WHERE artwork_id = ?")) {
             statement.setString(1, loadPathCodec(connection, rootFolder).encode(newPath));
             statement.setLong(2, artworkId);
@@ -296,13 +316,14 @@ final class DesktopUiTools {
         return destination;
     }
 
-    private static Connection openDatabase(Path databasePath) throws SQLException {
-        return SqliteDatabase.openConnection(databasePath);
-    }
-
     private static StoredPathCodec loadPathCodec(Connection connection, String rootFolder) throws SQLException {
         List<PathPrefix> prefixes = new ArrayList<>();
-        try (ResultSet tables = connection.getMetaData().getTables(null, null, "path_prefixes", null)) {
+        var metadata = connection.getMetaData();
+        String escape = metadata.getSearchStringEscape();
+        String schema = connection.getSchema();
+        try (ResultSet tables = metadata.getTables(connection.getCatalog(),
+                schema == null ? null : schema.replace("_", escape + "_"),
+                "path" + escape + "_prefixes", new String[]{"TABLE"})) {
             if (tables.next()) {
                 try (Statement statement = connection.createStatement();
                      ResultSet rows = statement.executeQuery("SELECT id, path FROM path_prefixes")) {

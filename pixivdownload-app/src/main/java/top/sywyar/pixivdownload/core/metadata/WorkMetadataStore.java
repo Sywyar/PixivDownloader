@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.core.metadata;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.metadata.sidecar.CuratedWorkMeta;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
@@ -17,13 +19,16 @@ public class WorkMetadataStore {
         jdbc = new JdbcTemplate(dataSource);
     }
 
+    // 辅助快照失败只回滚保存点，不能让 PostgreSQL 上的下载主事务失效。
+    @Transactional(propagation = Propagation.NESTED)
     public void save(WorkType type, long id, CuratedWorkMeta meta, boolean replaceSnapshot) {
         if (type == null || id <= 0) throw new IllegalArgumentException("Invalid work identity");
         String document = meta.hasDocument() ? meta.document().toString() : null;
         if (type == WorkType.ARTWORK) {
             jdbc.update("UPDATE artworks SET upload_time = ?, is_original = ?, metadata_json = COALESCE(?, metadata_json)"
-                            + " WHERE artwork_id = ? AND deleted = 0 AND (? IS NULL OR ? OR metadata_json IS NULL)",
-                    meta.uploadTime(), meta.isOriginal(), document, id, document, replaceSnapshot);
+                            + " WHERE artwork_id = ? AND deleted = 0 AND (CAST(? AS TEXT) IS NULL OR ? = 1 OR metadata_json IS NULL)",
+                    meta.uploadTime(), meta.isOriginal() == null ? null : meta.isOriginal() ? 1 : 0,
+                    document, id, document, replaceSnapshot ? 1 : 0);
         } else {
             jdbc.update("UPDATE novels SET upload_time = ?,"
                             + " metadata_json = COALESCE(?, metadata_json) WHERE novel_id = ? AND deleted = 0",

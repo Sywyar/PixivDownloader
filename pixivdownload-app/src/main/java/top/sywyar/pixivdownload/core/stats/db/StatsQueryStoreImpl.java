@@ -109,14 +109,20 @@ public class StatsQueryStoreImpl implements StatsQueryStore {
 
     @Override
     public List<StatsAggregates.MonthlyStat> monthlyArtworkCounts() {
-        String sql = "SELECT strftime('%Y-%m', time / 1000, 'unixepoch', 'localtime') AS ym, COUNT(*) AS cnt"
+        boolean postgres = jdbc.getJdbcTemplate().execute(
+                (org.springframework.jdbc.core.ConnectionCallback<top.sywyar.pixivdownload.core.db.DatabaseEngine>)
+                        top.sywyar.pixivdownload.core.db.DatabaseEngine::detect)
+                == top.sywyar.pixivdownload.core.db.DatabaseEngine.POSTGRESQL;
+        String month = postgres ? "to_char(to_timestamp(time / 1000.0) AT TIME ZONE :zone, 'YYYY-MM')"
+                : "strftime('%Y-%m', time / 1000, 'unixepoch', 'localtime')";
+        String sql = "SELECT " + month + " AS ym, COUNT(*) AS cnt"
                 + " FROM ("
                 + " SELECT time FROM artworks WHERE time > 0 AND deleted = 0"
                 + " UNION ALL"
                 + " SELECT time FROM novels WHERE time > 0 AND deleted = 0"
                 + " )"
                 + " GROUP BY ym ORDER BY ym ASC";
-        return jdbc.getJdbcTemplate().query(sql, (rs, rowNum) ->
+        return jdbc.query(sql, new MapSqlParameterSource("zone", java.time.ZoneId.systemDefault().getId()), (rs, rowNum) ->
                 new StatsAggregates.MonthlyStat(rs.getString("ym"), rs.getLong("cnt")));
     }
 }

@@ -1,6 +1,9 @@
 package top.sywyar.pixivdownload.tools;
 
 import top.sywyar.pixivdownload.core.db.sqlite.SqliteDatabase;
+import top.sywyar.pixivdownload.core.db.DatabaseEngine;
+import top.sywyar.pixivdownload.core.db.DatabaseTarget;
+import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import javax.sql.DataSource;
@@ -13,7 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 管理作品回填工具的 SQLite 连接、候选查询与元数据写入。
+ * 管理作品回填工具的主库连接、候选查询与元数据写入。
  */
 final class ArtworksBackFillDatabase implements AutoCloseable {
 
@@ -28,22 +31,18 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
         return prepare(connection);
     }
 
+    static ArtworksBackFillDatabase open(DatabaseTarget target) throws SQLException {
+        return prepare(target.openConnection());
+    }
+
     static ArtworksBackFillDatabase open(DataSource dataSource, String expectedDbPath) throws SQLException {
+        return open(dataSource, DatabaseTarget.sqlite(Path.of(expectedDbPath)));
+    }
+
+    static ArtworksBackFillDatabase open(DataSource dataSource, DatabaseTarget target) throws SQLException {
         Connection connection = dataSource.getConnection();
         try {
-            String prefix = "jdbc:sqlite:";
-            String url = connection.getMetaData().getURL();
-            Path expected = Path.of(expectedDbPath).toAbsolutePath().normalize();
-            Path actual = url != null && url.startsWith(prefix)
-                    ? Path.of(url.substring(prefix.length())).toAbsolutePath().normalize()
-                    : null;
-            if (!expected.equals(actual)) {
-                throw new SQLException(MessageBundles.get(
-                        "artworks-backfill.database.active-path-mismatch",
-                        expected,
-                        actual == null ? url : actual
-                ));
-            }
+            target.requireConnectionTarget(connection);
         } catch (SQLException | RuntimeException e) {
             try {
                 connection.close();
@@ -79,12 +78,12 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
             ArtworksBackFillUnreachableStore unreachable
     ) throws SQLException {
         // 在内存中过滤已知不可达 ID，避免 SQL IN 受 SQLite 参数上限约束；为了在 limit 截断前剔除它们，这里不再下推 LIMIT。
-        String sql = "SELECT a.artwork_id, a.author_id, a.\"R18\", a.is_ai, a.description,"
+        String sql = "SELECT a.artwork_id, a.author_id, a.r18, a.is_ai, a.description,"
                 + " a.series_id,"
                 + " (SELECT 1 FROM artwork_tags t WHERE t.artwork_id = a.artwork_id LIMIT 1) AS has_tags"
                 + " FROM artworks a"
                 + " WHERE a.deleted = 0"
-                + " AND (a.author_id IS NULL OR a.\"R18\" IS NULL OR a.is_ai IS NULL OR a.description IS NULL"
+                + " AND (a.author_id IS NULL OR a.r18 IS NULL OR a.is_ai IS NULL OR a.description IS NULL"
                 + " OR a.series_id IS NULL"
                 + " OR NOT EXISTS (SELECT 1 FROM artwork_tags t WHERE t.artwork_id = a.artwork_id))"
                 + " ORDER BY a.artwork_id";
@@ -126,9 +125,29 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
             boolean updateTags,
             boolean updateSeries
     ) throws SQLException {
+        boolean autoCommit = connection.getAutoCommit();
+        if (autoCommit) connection.setAutoCommit(false);
+        var savepoint = autoCommit ? null : connection.setSavepoint();
+        try {
+            applyUpdatesInTransaction(candidate, result, updateAuthor, updateR18, updateAi,
+                    updateDescription, updateTags, updateSeries);
+            if (autoCommit) connection.commit();
+            else connection.releaseSavepoint(savepoint);
+        } catch (SQLException | RuntimeException failure) {
+            if (autoCommit) connection.rollback();
+            else connection.rollback(savepoint);
+            throw failure;
+        } finally {
+            if (autoCommit) connection.setAutoCommit(true);
+        }
+    }
+
+    private void applyUpdatesInTransaction(Candidate candidate, ArtworksBackFillPixivClient.LookupResult result,
+            boolean updateAuthor, boolean updateR18, boolean updateAi, boolean updateDescription,
+            boolean updateTags, boolean updateSeries) throws SQLException {
         List<String> sets = new ArrayList<>(6);
         if (updateAuthor) sets.add("author_id = ?");
-        if (updateR18) sets.add("\"R18\" = ?");
+        if (updateR18) sets.add("r18 = ?");
         if (updateAi) sets.add("is_ai = ?");
         if (updateDescription) sets.add("description = ?");
         if (updateSeries) {
@@ -170,13 +189,19 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
 
     void applyR18Only(long artworkId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                "UPDATE artworks SET \"R18\" = 1 WHERE artwork_id = ?")) {
+                "UPDATE artworks SET r18 = 1 WHERE artwork_id = ?")) {
             statement.setLong(1, artworkId);
             statement.executeUpdate();
         }
     }
 
     private void ensureSchema() throws SQLException {
+        if (DatabaseEngine.detect(connection) == DatabaseEngine.POSTGRESQL) {
+            // 独立工具只维护已有主库，错误目标不能变成另一个空库。
+            execute("SELECT 1 FROM artworks LIMIT 0");
+            DatabaseInitializer.prepareOffline(connection);
+            return;
+        }
         execute("CREATE TABLE IF NOT EXISTS authors ("
                 + "author_id INTEGER PRIMARY KEY,"
                 + "name TEXT NOT NULL,"
@@ -196,7 +221,7 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
                 + "author_id INTEGER,"
                 + "updated_time INTEGER NOT NULL)");
         addColumnIfMissing("ALTER TABLE artworks ADD COLUMN author_id INTEGER DEFAULT NULL");
-        addColumnIfMissing("ALTER TABLE artworks ADD COLUMN \"R18\" INTEGER DEFAULT NULL");
+        addColumnIfMissing("ALTER TABLE artworks ADD COLUMN r18 INTEGER DEFAULT NULL");
         addColumnIfMissing("ALTER TABLE artworks ADD COLUMN is_ai INTEGER DEFAULT NULL");
         addColumnIfMissing("ALTER TABLE artworks ADD COLUMN description TEXT DEFAULT NULL");
         addColumnIfMissing("ALTER TABLE artworks ADD COLUMN series_id INTEGER DEFAULT NULL");
@@ -206,7 +231,7 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
 
     private void execute(String sql) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.executeUpdate();
+            statement.execute();
         }
     }
 
@@ -229,7 +254,7 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
              PreparedStatement selectTag = connection.prepareStatement(
                      "SELECT tag_id FROM tags WHERE name = ?");
              PreparedStatement linkTag = connection.prepareStatement(
-                     "INSERT OR IGNORE INTO artwork_tags(artwork_id, tag_id) VALUES(?, ?)")) {
+                     "INSERT INTO artwork_tags(artwork_id, tag_id) VALUES(?, ?) ON CONFLICT DO NOTHING")) {
             for (ArtworksBackFillPixivClient.TagEntry tag : tags) {
                 upsertTag.setString(1, tag.name());
                 if (tag.translatedName() == null) {
@@ -256,7 +281,7 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
         long nowMillis = System.currentTimeMillis();
         // 与 MangaSeriesService.observe 对齐：title 或 author 任一变化都触发 update。
         try (PreparedStatement insertSeries = connection.prepareStatement(
-                "INSERT OR IGNORE INTO manga_series(series_id, title, author_id, updated_time) VALUES(?, ?, ?, ?)");
+                "INSERT INTO manga_series(series_id, title, author_id, updated_time) VALUES(?, ?, ?, ?) ON CONFLICT DO NOTHING");
              PreparedStatement updateSeries = connection.prepareStatement(
                      "UPDATE manga_series SET title = ?, author_id = COALESCE(?, author_id),"
                              + " updated_time = ? WHERE series_id = ?"
@@ -291,7 +316,7 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
     private void upsertAuthor(long authorId, String authorName) throws SQLException {
         long nowMillis = System.currentTimeMillis();
         try (PreparedStatement insertAuthor = connection.prepareStatement(
-                "INSERT OR IGNORE INTO authors(author_id, name, updated_time) VALUES(?, ?, ?)");
+                "INSERT INTO authors(author_id, name, updated_time) VALUES(?, ?, ?) ON CONFLICT DO NOTHING");
              PreparedStatement updateAuthor = connection.prepareStatement(
                      "UPDATE authors SET name = ?, updated_time = ? WHERE author_id = ? AND name <> ?")) {
             insertAuthor.setLong(1, authorId);

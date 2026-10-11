@@ -20,9 +20,11 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.*;
 
 class MediaToolsPanelTest {
-    @Test
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
     @DisplayName("原生工具页预览不启动，修改范围须重新预览，开始和取消调用当前能力")
-    void nativeMediaWorkflow() throws Exception {
+    void nativeMediaWorkflow(boolean fileSelection) throws Exception {
+        String databaseTarget = fileSelection ? "data/test.db" : "postgresql:configured-database";
         var locale = new DesktopUiHost.UiLocale("en-US", "English", "en");
         var identity = new DesktopMediaTool.Identity("sample", "sample", 1, 1);
         var description = new DesktopMediaTool.Description(DesktopUiText.raw("Media tool"), "sample", "original", "webp");
@@ -60,7 +62,8 @@ class MediaToolsPanelTest {
                     case "resolveLocale" -> new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));
                     case "readDownloadRootFromConfig" -> ".";
                     case "resolveDatabasePath" -> Path.of("data", "test.db");
-                    case "defaultBackfillOptions" -> new DesktopUiHost.BackfillOptions("data/test.db", "localhost", 8080, false, 1000, 0, false);
+                    case "defaultBackfillOptions" -> new DesktopUiHost.BackfillOptions(databaseTarget, "localhost", 8080, false, 1000, 0, false);
+                    case "supportsDatabaseFileSelection" -> fileSelection;
                     case "backendSnapshot" -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.STOPPED, null);
                     case "subscribeBackend" -> (AutoCloseable) () -> {};
                     default -> throw new AssertionError(method.getName());
@@ -81,6 +84,10 @@ class MediaToolsPanelTest {
         ToolsPanel panel = reference.get();
         try {
             SwingUtilities.invokeAndWait(() -> {
+                var databaseFields = descendants(panel).filter(JTextField.class::isInstance)
+                        .map(JTextField.class::cast).filter(field -> databaseTarget.equals(field.getText())).toList();
+                assertEquals(2, databaseFields.size());
+                databaseFields.forEach(field -> assertEquals(fileSelection, field.isEnabled()));
                 assertFalse(button(panel, "start").isEnabled());
                 button(panel, "preview").doClick();
             });

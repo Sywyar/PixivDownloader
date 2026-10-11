@@ -32,9 +32,14 @@ import java.util.Set;
 public class NovelGalleryRepository {
 
     private final NamedParameterJdbcTemplate jdbc;
+    private final String likeEscape;
 
     public NovelGalleryRepository(DataSource dataSource) {
         this.jdbc = new NamedParameterJdbcTemplate(dataSource);
+        likeEscape = jdbc.getJdbcTemplate().execute(
+                (org.springframework.jdbc.core.ConnectionCallback<top.sywyar.pixivdownload.core.db.DatabaseEngine>)
+                        top.sywyar.pixivdownload.core.db.DatabaseEngine::detect)
+                == top.sywyar.pixivdownload.core.db.DatabaseEngine.POSTGRESQL ? " ESCAPE ''" : "";
     }
 
     /** 按当前作品可见范围聚合收藏夹计数，排除软删除作品。 */
@@ -118,8 +123,9 @@ public class NovelGalleryRepository {
         MapSqlParameterSource params = new MapSqlParameterSource();
         appendVisibilityClauses(sql, params, r, "Tag");
         if (search != null && !search.isBlank()) {
-            sql.append(" AND (LOWER(t.name) LIKE :tagSearch"
-                    + " OR LOWER(COALESCE(t.translated_name, '')) LIKE :tagSearch)");
+            sql.append(" AND (LOWER(t.name) LIKE :tagSearch").append(likeEscape)
+                    .append(" OR LOWER(COALESCE(t.translated_name, '')) LIKE :tagSearch")
+                    .append(likeEscape).append(")");
             params.addValue("tagSearch", "%" + search.trim().toLowerCase() + "%");
         }
         sql.append(" GROUP BY t.tag_id, t.name, t.translated_name");
@@ -146,9 +152,9 @@ public class NovelGalleryRepository {
             return;
         }
         List<String> ratingClauses = new ArrayList<>();
-        if (allowed.contains(0)) ratingClauses.add("n.\"R18\" = 0 OR n.\"R18\" IS NULL");
-        if (allowed.contains(1)) ratingClauses.add("n.\"R18\" = 1");
-        if (allowed.contains(2)) ratingClauses.add("n.\"R18\" = 2");
+        if (allowed.contains(0)) ratingClauses.add("n.r18 = 0 OR n.r18 IS NULL");
+        if (allowed.contains(1)) ratingClauses.add("n.r18 = 1");
+        if (allowed.contains(2)) ratingClauses.add("n.r18 = 2");
         sql.append(" AND (").append(String.join(" OR ", ratingClauses)).append(")");
 
         if (r.collectionRestrictsWorks() && !r.collectionUnrestricted()) {
@@ -235,7 +241,7 @@ public class NovelGalleryRepository {
     public List<Long> findNovelIdsBySeries(long seriesId, long excludeNovelId, int limit) {
         String sql = "SELECT novel_id FROM novels"
                 + " WHERE series_id = :seriesId AND series_id > 0 AND novel_id <> :excludeId AND deleted = 0"
-                + " ORDER BY series_order ASC, time ASC LIMIT :limit";
+                + " ORDER BY series_order ASC NULLS FIRST, time ASC LIMIT :limit";
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("seriesId", seriesId)
                 .addValue("excludeId", excludeNovelId)
@@ -292,7 +298,7 @@ public class NovelGalleryRepository {
                 + " LEFT JOIN novel_tags nt ON nt.tag_id = t.tag_id"
                 + " WHERE " + String.join(" OR ", clauses)
                 + " GROUP BY t.tag_id, t.name, t.translated_name"
-                + " HAVING novel_count > 0"
+                + " HAVING COUNT(nt.novel_id) > 0"
                 + " ORDER BY " + String.join(", ", orderBy) + ", novel_count DESC, t.tag_id ASC"
                 + " LIMIT 1";
         List<TagOption> items = jdbc.query(sql, params, (rs, rowNum) -> new TagOption(

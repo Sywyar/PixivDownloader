@@ -10,7 +10,10 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
-import top.sywyar.pixivdownload.core.db.sqlite.SqliteDatabase;
+import top.sywyar.pixivdownload.core.db.DatabaseTarget;
+import top.sywyar.pixivdownload.core.db.DatabaseEngine;
+import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
+import javax.sql.DataSource;
 import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 import top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
@@ -26,7 +29,7 @@ import java.util.Map;
 import java.util.function.Consumer;
 
 /**
- * 将旧版 JSON 文件数据迁移到 SQLite 数据库。
+ * 将旧版 JSON 文件数据迁移到选定的宿主主库。
  * <p>
  * 支持迁移的文件：
  * <ul>
@@ -41,7 +44,7 @@ import java.util.function.Consumer;
  *   <li>Spring 注入版本：{@link #migrate()} / {@link #migrateAsync(SseEmitter)}，
  *       由 {@link MigrationController} 通过 REST 触发。</li>
  *   <li>独立运行版本：静态 {@link #run(Options, Consumer)} 和 {@link #countCandidates(Options)}，
- *       供 GUI 工具面板在停掉后端后通过 JDBC 直接操作 SQLite。</li>
+ *       供 GUI 工具面板在停掉后端后通过 JDBC 操作配置中的目标。</li>
  * </ul>
  */
 @Slf4j
@@ -53,14 +56,16 @@ public class JsonToSqliteMigration {
     public static final String STATISTICS_FILE = "statistics.json";
 
     private final DownloadConfig downloadConfig;
+    private final DatabaseTarget databaseTarget;
+    private final DataSource dataSource;
 
     public MigrationResponse migrate() throws Exception {
         return migrate(null);
     }
 
     public MigrationResponse migrate(Consumer<String> progressReporter) throws Exception {
-        Options options = Options.fromRootFolder(downloadConfig.getRootFolder());
-        Summary summary = run(options, progressReporter);
+        Options options = new Options(databaseTarget.displayName(), downloadConfig.getRootFolder(), databaseTarget);
+        Summary summary = run(options, progressReporter, dataSource);
         return new MigrationResponse(summary.migrated(), summary.skipped(), summary.message());
     }
 
@@ -97,9 +102,13 @@ public class JsonToSqliteMigration {
     }
 
     /**
-     * 不依赖 Spring 上下文的迁移入口：直接通过 JDBC 操作 SQLite，幂等执行。
+     * 不依赖 Spring 上下文的迁移入口，按指定目标幂等执行。
      */
     public static Summary run(Options options, Consumer<String> reporter) throws Exception {
+        return run(options, reporter, null);
+    }
+
+    public static Summary run(Options options, Consumer<String> reporter, DataSource dataSource) throws Exception {
         File historyFile = Paths.get(options.rootFolder(), DOWNLOAD_HISTORY_FILE).toFile();
         File statisticsFile = Paths.get(options.rootFolder(), STATISTICS_FILE).toFile();
 
@@ -122,90 +131,105 @@ public class JsonToSqliteMigration {
         int migrated = 0;
         int skipped = 0;
 
-        try (Connection conn = SqliteDatabase.openConnection(Paths.get(options.dbPath()))) {
-
+        try (Connection conn = dataSource == null ? options.target().openConnection() : dataSource.getConnection()) {
+            options.target().requireConnectionTarget(conn);
             ensureSchema(conn);
+            boolean autoCommit = conn.getAutoCommit();
+            if (autoCommit) conn.setAutoCommit(false);
+            java.sql.Savepoint savepoint = autoCommit ? null : conn.setSavepoint();
+            try {
+                try (PreparedStatement countStmt = conn.prepareStatement(
+                        "SELECT COUNT(*) FROM artworks WHERE artwork_id = ?");
+                     PreparedStatement countTimeStmt = conn.prepareStatement(
+                             "SELECT COUNT(*) FROM artworks WHERE time = ?");
+                     PreparedStatement insertStmt = conn.prepareStatement(
+                             "INSERT INTO artworks(artwork_id, title, folder, count, extensions, time)"
+                                     + " VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING");
+                     PreparedStatement updateMoveStmt = conn.prepareStatement(
+                             "UPDATE artworks SET moved = 1, move_folder = ?, move_time = ? WHERE artwork_id = ?")) {
 
-            try (PreparedStatement countStmt = conn.prepareStatement(
-                    "SELECT COUNT(*) FROM artworks WHERE artwork_id = ?");
-                 PreparedStatement countTimeStmt = conn.prepareStatement(
-                         "SELECT COUNT(*) FROM artworks WHERE time = ?");
-                 PreparedStatement insertStmt = conn.prepareStatement(
-                         "INSERT OR IGNORE INTO artworks(artwork_id, title, folder, count, extensions, time)"
-                                 + " VALUES(?, ?, ?, ?, ?, ?)");
-                 PreparedStatement updateMoveStmt = conn.prepareStatement(
-                         "UPDATE artworks SET moved = 1, move_folder = ?, move_time = ? WHERE artwork_id = ?")) {
-
-                for (Map.Entry<String, JsonNode> entry : downloaded.properties()) {
-                    long artworkId;
-                    try {
-                        artworkId = Long.parseLong(entry.getKey());
-                    } catch (NumberFormatException e) {
-                        log.warn(logMessage("migration.log.invalid-artwork-id", entry.getKey()));
-                        skipped++;
-                        continue;
-                    }
-
-                    if (hasArtwork(countStmt, artworkId)) {
-                        skipped++;
-                    } else {
-                        JsonNode artwork = entry.getValue();
-                        String title = artwork.path("title").asText(null);
-                        String folder = stripTrailingSlash(artwork.path("folder").asText(null));
-                        int count = artwork.path("count").asInt();
-                        String extensions = artwork.path("extensions").asText(null);
-                        long time = artwork.has("time")
-                                ? EpochMillisNormalizer.normalize(artwork.path("time").asLong())
-                                : nextUniqueTime(countTimeStmt);
-
-                        insertStmt.setLong(1, artworkId);
-                        insertStmt.setString(2, title);
-                        insertStmt.setString(3, folder);
-                        insertStmt.setInt(4, count);
-                        insertStmt.setString(5, extensions);
-                        insertStmt.setLong(6, time);
-                        insertStmt.executeUpdate();
-
-                        if (artwork.has("moved") && artwork.path("moved").asBoolean()) {
-                            String moveFolder = stripTrailingSlash(artwork.path("moveFolder").asText(null));
-                            long moveTime = EpochMillisNormalizer.normalize(artwork.path("moveTime").asLong());
-                            updateMoveStmt.setString(1, moveFolder);
-                            updateMoveStmt.setLong(2, moveTime);
-                            updateMoveStmt.setLong(3, artworkId);
-                            updateMoveStmt.executeUpdate();
+                    for (Map.Entry<String, JsonNode> entry : downloaded.properties()) {
+                        long artworkId;
+                        try {
+                            artworkId = Long.parseLong(entry.getKey());
+                        } catch (NumberFormatException e) {
+                            log.warn(logMessage("migration.log.invalid-artwork-id", entry.getKey()));
+                            skipped++;
+                            continue;
                         }
 
-                        migrated++;
-                    }
+                        if (hasArtwork(countStmt, artworkId)) {
+                            skipped++;
+                        } else {
+                            JsonNode artwork = entry.getValue();
+                            String title = artwork.path("title").asText(null);
+                            String folder = stripTrailingSlash(artwork.path("folder").asText(null));
+                            int count = artwork.path("count").asInt();
+                            String extensions = artwork.path("extensions").asText(null);
+                            long time = artwork.has("time")
+                                    ? EpochMillisNormalizer.normalize(artwork.path("time").asLong())
+                                    : nextUniqueTime(countTimeStmt);
 
-                    int done = migrated + skipped;
-                    if (total > 0 && done % 100 == 0) {
-                        int percent = done * 100 / total;
-                        report(reporter, message(
-                                "migration.log.progress", done, total, percent, migrated, skipped));
+                            insertStmt.setLong(1, artworkId);
+                            insertStmt.setString(2, title);
+                            insertStmt.setString(3, folder);
+                            insertStmt.setInt(4, count);
+                            insertStmt.setString(5, extensions);
+                            insertStmt.setLong(6, time);
+                            if (insertStmt.executeUpdate() == 0) {
+                                skipped++;
+                                continue;
+                            }
+
+                            if (artwork.has("moved") && artwork.path("moved").asBoolean()) {
+                                String moveFolder = stripTrailingSlash(artwork.path("moveFolder").asText(null));
+                                long moveTime = EpochMillisNormalizer.normalize(artwork.path("moveTime").asLong());
+                                updateMoveStmt.setString(1, moveFolder);
+                                updateMoveStmt.setLong(2, moveTime);
+                                updateMoveStmt.setLong(3, artworkId);
+                                updateMoveStmt.executeUpdate();
+                            }
+
+                            migrated++;
+                        }
+
+                        int done = migrated + skipped;
+                        if (total > 0 && done % 100 == 0) {
+                            int percent = done * 100 / total;
+                            report(reporter, message(
+                                    "migration.log.progress", done, total, percent, migrated, skipped));
+                        }
                     }
                 }
-            }
 
-            // 迁移统计数据（仅在数据库统计全为 0 时写入，避免覆盖新数据）
-            if (statisticsFile.exists()) {
-                int[] currentStats = readStats(conn);
-                if (currentStats[0] == 0 && currentStats[1] == 0 && currentStats[2] == 0) {
-                    JsonNode stats = mapper.readTree(statisticsFile);
-                    int totalArtworks = stats.has("totalArtworks") ? stats.path("totalArtworks").asInt() : 0;
-                    int totalImages = stats.has("totalImages") ? stats.path("totalImages").asInt() : 0;
-                    int totalMoved = stats.has("totalMoved") ? stats.path("totalMoved").asInt() : 0;
-                    writeStats(conn, totalArtworks, totalImages, totalMoved);
-                    String statsMsg = message(
-                            "migration.log.statistics-migrated", totalArtworks, totalImages, totalMoved);
-                    log.info(logMessage(
-                            "migration.log.statistics-migrated", totalArtworks, totalImages, totalMoved));
-                    report(reporter, statsMsg);
-                } else {
-                    String statsMsg = message("migration.log.statistics-skipped");
-                    log.info(logMessage("migration.log.statistics-skipped"));
-                    report(reporter, statsMsg);
+                // 迁移统计数据（仅在数据库统计全为 0 时写入，避免覆盖新数据）
+                if (statisticsFile.exists()) {
+                    int[] currentStats = readStats(conn);
+                    if (currentStats[0] == 0 && currentStats[1] == 0 && currentStats[2] == 0) {
+                        JsonNode stats = mapper.readTree(statisticsFile);
+                        int totalArtworks = stats.has("totalArtworks") ? stats.path("totalArtworks").asInt() : 0;
+                        int totalImages = stats.has("totalImages") ? stats.path("totalImages").asInt() : 0;
+                        int totalMoved = stats.has("totalMoved") ? stats.path("totalMoved").asInt() : 0;
+                        writeStats(conn, totalArtworks, totalImages, totalMoved);
+                        String statsMsg = message(
+                                "migration.log.statistics-migrated", totalArtworks, totalImages, totalMoved);
+                        log.info(logMessage(
+                                "migration.log.statistics-migrated", totalArtworks, totalImages, totalMoved));
+                        report(reporter, statsMsg);
+                    } else {
+                        String statsMsg = message("migration.log.statistics-skipped");
+                        log.info(logMessage("migration.log.statistics-skipped"));
+                        report(reporter, statsMsg);
+                    }
                 }
+                if (autoCommit) conn.commit();
+                else conn.releaseSavepoint(savepoint);
+            } catch (Exception failure) {
+                if (autoCommit) conn.rollback();
+                else conn.rollback(savepoint);
+                throw failure;
+            } finally {
+                if (autoCommit) conn.setAutoCommit(true);
             }
         }
 
@@ -262,10 +286,20 @@ public class JsonToSqliteMigration {
     }
 
     /**
-     * 保证脱机运行时也能拿到一份和后端启动后等价的最小 schema。
-     * 仅创建本工具实际写入的两张表，其它列由 PixivDatabase.init 在后端启动时维护。
+     * 脱机导入沿用 SQLite 历史最小结构；PostgreSQL 使用宿主受管 schema 及默认文件名模板。
      */
     private static void ensureSchema(Connection conn) throws SQLException {
+        if (DatabaseEngine.detect(conn) == DatabaseEngine.POSTGRESQL) {
+            DatabaseInitializer.prepareOffline(conn);
+            try (var statement = conn.prepareStatement(
+                    "WITH reserved AS (SELECT nextval(pg_get_serial_sequence('file_name_templates', 'id')) AS id)"
+                            + " INSERT INTO file_name_templates(id, template) SELECT 1, ?"
+                            + " FROM reserved WHERE id IS NOT NULL ON CONFLICT DO NOTHING")) {
+                statement.setString(1, PixivWorkFileNameFormatter.DEFAULT_TEMPLATE);
+                statement.executeUpdate();
+            }
+            return;
+        }
         try (PreparedStatement createArtworks = conn.prepareStatement(
                 "CREATE TABLE IF NOT EXISTS artworks ("
                         + "artwork_id INTEGER PRIMARY KEY,"
@@ -326,7 +360,11 @@ public class JsonToSqliteMigration {
         return MessageBundles.getForLog(code, args);
     }
 
-    public record Options(String dbPath, String rootFolder) {
+    public record Options(String dbPath, String rootFolder, DatabaseTarget target) {
+
+        public Options(String dbPath, String rootFolder) {
+            this(dbPath, rootFolder, DatabaseTarget.sqlite(Paths.get(dbPath)));
+        }
 
         public static Options fromRootFolder(String rootFolder) {
             String normalized = RuntimeFiles.normalizeRootFolder(rootFolder);

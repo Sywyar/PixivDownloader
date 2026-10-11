@@ -269,10 +269,16 @@ public final class RuntimeFiles {
     }
 
     public static void prepareRuntimeFiles(String rootFolder) {
+        prepareRuntimeFiles(rootFolder, true);
+    }
+
+    public static void prepareRuntimeFiles(String rootFolder, boolean prepareSqliteDatabase) {
         resolveConfigYamlPath();
         resolveImageClassifierPath(rootFolder);
         resolveSetupConfigPath(rootFolder);
-        resolveDatabasePath(rootFolder);
+        if (prepareSqliteDatabase) {
+            resolveDatabasePath(rootFolder);
+        }
         collectionIconsDirectory();
         guiStateDirectory();
         recoverDeleteStagingLeftovers(rootFolder);

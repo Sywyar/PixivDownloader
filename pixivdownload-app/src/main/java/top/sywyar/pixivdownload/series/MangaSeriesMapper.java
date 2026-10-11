@@ -14,6 +14,8 @@ public interface MangaSeriesMapper {
 
     @Insert("INSERT OR IGNORE INTO manga_series(series_id, title, author_id, updated_time)"
             + " VALUES(#{id}, #{title}, #{authorId}, #{updatedTime})")
+    @Insert(value = "INSERT INTO manga_series(series_id, title, author_id, updated_time)"
+            + " VALUES(#{id}, #{title}, #{authorId}, #{updatedTime}) ON CONFLICT DO NOTHING", databaseId = "postgresql")
     int insertIfAbsent(@Param("id") long id,
                        @Param("title") String title,
                        @Param("authorId") Long authorId,

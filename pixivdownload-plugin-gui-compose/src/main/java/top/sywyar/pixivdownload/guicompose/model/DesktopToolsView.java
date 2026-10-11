@@ -303,9 +303,9 @@ final class DesktopToolsView {
                         InputKind.FILE,
                         model.form(
                                 "tools.folder.db",
-                                model.host.resolveDatabasePath(model.rootFolder).toString()
+                                model.host.defaultBackfillOptions().dbPath()
                         ),
-                        !model.owner.busy()
+                        !model.owner.busy() && model.host.supportsDatabaseFileSelection()
                 ),
                 button(
                         "tools.folder.check",
@@ -468,9 +468,9 @@ final class DesktopToolsView {
                                                         InputKind.FILE,
                                                         model.form(
                                                                 "tools.backfill.db",
-                                                                model.host.resolveDatabasePath(model.rootFolder).toString()
+                                                                model.host.defaultBackfillOptions().dbPath()
                                                         ),
-                                                        !model.owner.busy()
+                                                        !model.owner.busy() && model.host.supportsDatabaseFileSelection()
                                                 ),
                                                 null
                                         ),
@@ -621,9 +621,9 @@ final class DesktopToolsView {
                                                         InputKind.FILE,
                                                         model.form(
                                                                 "tools.migration.db",
-                                                                model.host.resolveDatabasePath(model.rootFolder).toString()
+                                                                model.host.defaultBackfillOptions().dbPath()
                                                         ),
-                                                        !model.owner.busy()
+                                                        !model.owner.busy() && model.host.supportsDatabaseFileSelection()
                                                 ),
                                                 null
                                         ),

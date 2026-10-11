@@ -48,7 +48,7 @@ public final class PathPrefixColumns {
                 sql.append("EXISTS(SELECT 1 FROM ").append(tc.table())
                         .append(" WHERE ").append(column).append(" = '{0}'")
                         .append(" OR ").append(column).append(" LIKE '{0}/%'")
-                        .append(" OR ").append(column).append(" LIKE '{0}\\%')");
+                        .append(" OR ").append(column).append(" LIKE '{0}\\%' ESCAPE '!')");
             }
         }
         Boolean exists = jdbc.queryForObject(sql.toString(), new MapSqlParameterSource(), Boolean.class);
@@ -65,7 +65,7 @@ public final class PathPrefixColumns {
         String sql = "UPDATE " + table + " SET " + column + " = :to || SUBSTR(" + column + ", :cut)"
                 + " WHERE " + column + " = :from"
                 + " OR " + column + " LIKE :fromSlash"
-                + " OR " + column + " LIKE :fromBackslash";
+                + " OR " + column + " LIKE :fromBackslash ESCAPE '!'";
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("to", toToken)
                 .addValue("cut", fromToken.length() + 1)

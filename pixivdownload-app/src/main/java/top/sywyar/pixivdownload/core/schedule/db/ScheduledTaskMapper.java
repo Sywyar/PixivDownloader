@@ -54,7 +54,7 @@ public interface ScheduledTaskMapper {
             + " next_run_time, last_run_time, checkpoint_schema, checkpoint_version, checkpoint_json,"
             + " storage_version, run_state, run_claim_token, last_outcome, outcome_code, outcome_message,"
             + " suspend_reason, suspend_code, suspend_detail_json, state_version, created_time)"
-            + " VALUES(#{name}, #{enabled}, #{sourceType}, #{definitionJson},"
+            + " VALUES(#{name}, CAST(#{enabled} AS INTEGER), #{sourceType}, #{definitionJson},"
             + " #{sourceOwnerPluginId}, #{definitionSchema}, #{definitionVersion}, #{presentationJson},"
             + " #{triggerKind}, #{intervalMinutes}, #{cronExpr}, 'restricted', #{proxySnapshot},"
             + " #{nextRunTime}, #{lastRunTime}, #{checkpointSchema}, #{checkpointVersion}, #{checkpointJson},"
@@ -127,11 +127,11 @@ public interface ScheduledTaskMapper {
             + " last_run_time = #{completion.finishedTime}, last_outcome = #{completion.outcome},"
             + " outcome_code = #{completion.outcomeCode}, outcome_message = #{completion.outcomeMessage},"
             + " next_run_time = #{completion.nextRunTime},"
-            + " checkpoint_schema = CASE WHEN #{completion.checkpointSchema} IS NULL"
+            + " checkpoint_schema = CASE WHEN CAST(#{completion.checkpointSchema} AS TEXT) IS NULL"
             + "                          THEN checkpoint_schema ELSE #{completion.checkpointSchema} END,"
-            + " checkpoint_version = CASE WHEN #{completion.checkpointSchema} IS NULL"
+            + " checkpoint_version = CASE WHEN CAST(#{completion.checkpointSchema} AS TEXT) IS NULL"
             + "                           THEN checkpoint_version ELSE #{completion.checkpointVersion} END,"
-            + " checkpoint_json = CASE WHEN #{completion.checkpointSchema} IS NULL"
+            + " checkpoint_json = CASE WHEN CAST(#{completion.checkpointSchema} AS TEXT) IS NULL"
             + "                        THEN checkpoint_json ELSE #{completion.checkpointJson} END,"
             + " state_version = state_version + 1"
             + " WHERE id = #{id} AND storage_version = 1"
@@ -212,7 +212,7 @@ public interface ScheduledTaskMapper {
             + " state_version = state_version + 1"
             + " WHERE id = #{id} AND storage_version = 1 AND state_version = #{expectedStateVersion}"
             + " AND run_state IS NULL AND suspend_reason = #{expectedReason}"
-            + " AND (suspend_code = #{expectedCode} OR (suspend_code IS NULL AND #{expectedCode} IS NULL))"
+            + " AND (suspend_code = #{expectedCode} OR (suspend_code IS NULL AND CAST(#{expectedCode} AS TEXT) IS NULL))"
             + " RETURNING state_version",
             affectData = true)
     @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
@@ -248,7 +248,7 @@ public interface ScheduledTaskMapper {
                           @Param("expectedStateVersion") long expectedStateVersion,
                           @Param("update") ScheduleTaskDefinitionUpdate update);
 
-    @Select(value = "UPDATE scheduled_tasks SET enabled = #{enabled}, state_version = state_version + 1"
+    @Select(value = "UPDATE scheduled_tasks SET enabled = CAST(#{enabled} AS INTEGER), state_version = state_version + 1"
             + " WHERE id = #{id} AND storage_version = 1 AND state_version = #{expectedStateVersion}"
             + " AND run_state IS NULL RETURNING state_version",
             affectData = true)
@@ -357,7 +357,7 @@ public interface ScheduledTaskMapper {
             + " payload_json = excluded.payload_json, relations_json = excluded.relations_json,"
             + " presentation_json = excluded.presentation_json, reason_code = excluded.reason_code,"
             + " reason_detail_json = excluded.reason_detail_json,"
-            + " attempts = MAX(attempts, excluded.attempts),"
+            + " attempts = CASE WHEN scheduled_task_pending_work.attempts >= excluded.attempts THEN scheduled_task_pending_work.attempts ELSE excluded.attempts END,"
             + " last_attempt_time = excluded.last_attempt_time")
     int upsertPendingWork(ScheduledPendingWork pendingWork);
 

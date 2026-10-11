@@ -147,13 +147,13 @@ public interface NotificationInboxMapper {
     })
     long countUnread(@Param("category") String category);
 
-    @Update("UPDATE notification_messages SET read_time = MAX(created_time, #{readTime})"
+    @Update("UPDATE notification_messages SET read_time = CASE WHEN created_time > #{readTime} THEN created_time ELSE #{readTime} END"
             + " WHERE id = #{id} AND deleted_time IS NULL AND active = 1 AND read_time IS NULL")
     int markRead(@Param("id") String id, @Param("readTime") long readTime);
 
     @Update({
             "<script>",
-            "UPDATE notification_messages SET read_time = MAX(created_time, #{readTime})",
+            "UPDATE notification_messages SET read_time = CASE WHEN created_time > #{readTime} THEN created_time ELSE #{readTime} END",
             "WHERE deleted_time IS NULL AND active = 1 AND read_time IS NULL",
             "<if test='category != null'>AND category = #{category}</if>",
             "</script>"
@@ -161,13 +161,13 @@ public interface NotificationInboxMapper {
     int markAllRead(@Param("category") String category, @Param("readTime") long readTime);
 
     @Update("UPDATE notification_messages"
-            + " SET deleted_time = MAX(created_time, #{deletedTime}),"
+            + " SET deleted_time = CASE WHEN created_time > #{deletedTime} THEN created_time ELSE #{deletedTime} END,"
             + " content_url = NULL, content_html = NULL, action_url = NULL"
             + " WHERE id = #{id} AND category = 'announcement' AND deleted_time IS NULL AND active = 1")
     int dismissAnnouncement(@Param("id") String id, @Param("deletedTime") long deletedTime);
 
     @Update("UPDATE notification_messages"
-            + " SET deleted_time = MAX(created_time, #{deletedTime}),"
+            + " SET deleted_time = CASE WHEN created_time > #{deletedTime} THEN created_time ELSE #{deletedTime} END,"
             + " content_url = NULL, content_html = NULL, action_url = NULL"
             + " WHERE id = #{id} AND category = 'survey'"
             + " AND id LIKE 'persistent-survey:%' AND deleted_time IS NULL AND active = 1")

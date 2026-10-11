@@ -23,7 +23,7 @@ public interface NovelMapper {
     void updateFileNameMaxLength(@Param("id") long id, @Param("length") int length);
 
     String SELECT_NOVEL = "SELECT novel_id AS novelId, title, folder, count, extensions, time,"
-            + " \"R18\" AS xRestrict, is_ai AS isAi, author_id AS authorId, description,"
+            + " r18 AS xRestrict, is_ai AS isAi, author_id AS authorId, description,"
             + " file_name AS fileName, file_author_name_id AS fileAuthorNameId,"
             + " series_id AS seriesId, series_order AS seriesOrder,"
             + " word_count AS wordCount, text_length AS textLength,"
@@ -194,6 +194,9 @@ public interface NovelMapper {
     /** 手动编辑写入：同 (原文, 语言) 直接覆盖译名。 */
     @Insert("INSERT OR REPLACE INTO novel_glossary_entries(glossary_id, source, lang_code, target, created_time)"
             + " VALUES(#{glossaryId}, #{source}, #{langCode}, #{target}, #{createdTime})")
+    @Insert(value = "INSERT INTO novel_glossary_entries(glossary_id, source, lang_code, target, created_time)"
+            + " VALUES(#{glossaryId}, #{source}, #{langCode}, #{target}, #{createdTime})"
+            + " ON CONFLICT(glossary_id, source, lang_code) DO UPDATE SET target = excluded.target, created_time = excluded.created_time", databaseId = "postgresql")
     void upsertGlossaryEntry(@Param("glossaryId") long glossaryId,
                              @Param("source") String source,
                              @Param("langCode") String langCode,
@@ -203,6 +206,9 @@ public interface NovelMapper {
     /** AI 自动并入：已存在的 (原文, 语言) 以已有译名为准、不覆盖。 */
     @Insert("INSERT OR IGNORE INTO novel_glossary_entries(glossary_id, source, lang_code, target, created_time)"
             + " VALUES(#{glossaryId}, #{source}, #{langCode}, #{target}, #{createdTime})")
+    @Insert(value = "INSERT INTO novel_glossary_entries(glossary_id, source, lang_code, target, created_time)"
+            + " VALUES(#{glossaryId}, #{source}, #{langCode}, #{target}, #{createdTime})"
+            + " ON CONFLICT DO NOTHING", databaseId = "postgresql")
     void insertGlossaryEntryIfAbsent(@Param("glossaryId") long glossaryId,
                                      @Param("source") String source,
                                      @Param("langCode") String langCode,
@@ -262,7 +268,11 @@ public interface NovelMapper {
     /** AI 自动并入：已存在的 (cast_id, character_id) 不覆盖。{@code editedByUser} 应为 {@code false}（AI 生成）。 */
     @Insert("INSERT OR IGNORE INTO novel_narration_voices"
             + "(cast_id, character_id, name, gender, age, control_instruction, edited_by_user, created_time)"
-            + " VALUES(#{castId}, #{characterId}, #{name}, #{gender}, #{age}, #{controlInstruction}, #{editedByUser}, #{createdTime})")
+            + " VALUES(#{castId}, #{characterId}, #{name}, #{gender}, #{age}, #{controlInstruction}, CAST(#{editedByUser} AS INTEGER), #{createdTime})")
+    @Insert(value = "INSERT INTO novel_narration_voices"
+            + "(cast_id, character_id, name, gender, age, control_instruction, edited_by_user, created_time)"
+            + " VALUES(#{castId}, #{characterId}, #{name}, #{gender}, #{age}, #{controlInstruction}, CAST(#{editedByUser} AS INTEGER), #{createdTime})"
+            + " ON CONFLICT DO NOTHING", databaseId = "postgresql")
     void insertNarrationVoiceIfAbsent(@Param("castId") long castId, @Param("characterId") int characterId,
                                       @Param("name") String name, @Param("gender") String gender,
                                       @Param("age") String age,
@@ -278,7 +288,7 @@ public interface NovelMapper {
      */
     @Insert("INSERT INTO novel_narration_voices"
             + "(cast_id, character_id, name, gender, age, control_instruction, edited_by_user, created_time)"
-            + " VALUES(#{castId}, #{characterId}, #{name}, #{gender}, #{age}, #{controlInstruction}, #{editedByUser}, #{createdTime})"
+            + " VALUES(#{castId}, #{characterId}, #{name}, #{gender}, #{age}, #{controlInstruction}, CAST(#{editedByUser} AS INTEGER), #{createdTime})"
             + " ON CONFLICT(cast_id, character_id) DO UPDATE SET"
             + " name = excluded.name, gender = excluded.gender, age = excluded.age,"
             + " control_instruction = excluded.control_instruction, edited_by_user = excluded.edited_by_user")
@@ -294,7 +304,7 @@ public interface NovelMapper {
      * 对 AI 生成角色自动应用冲突建议（均传 {@code editedByUser=false}），以及用户解决冲突后写回（{@code true}）。
      */
     @Update("UPDATE novel_narration_voices SET control_instruction = #{controlInstruction},"
-            + " edited_by_user = #{editedByUser}"
+            + " edited_by_user = CAST(#{editedByUser} AS INTEGER)"
             + " WHERE cast_id = #{castId} AND character_id = #{characterId}")
     int updateNarrationVoiceInstruction(@Param("castId") long castId, @Param("characterId") int characterId,
                                         @Param("controlInstruction") String controlInstruction,
@@ -375,12 +385,16 @@ public interface NovelMapper {
     // novels_fts 是对 novels.raw_content 的辅助全文索引（同库虚拟表，不落到 rootFolder）。
     // trigram 分词器对中日英混排正文都按 3-gram 子串匹配，rowid 复用 novel_id。
 
+    @Select("SELECT 0")
+    @Select(value = "SELECT 1", databaseId = "postgresql")
+    boolean usesContentScan();
+
     @Update("CREATE VIRTUAL TABLE IF NOT EXISTS novels_fts USING fts5(content, tokenize='trigram')")
     void createNovelFtsTable();
 
     /**
      * 小说私有普通关系表的软删除触发器。宿主只更新 {@code novels.deleted}；标签关系、收藏关系、
-     * 内嵌图、译文与朗读脚本由小说插件定义，并与主行标记在同一 SQLite 语句内提交。
+     * 内嵌图、译文与朗读脚本由小说插件定义，并与主行标记在同一数据库语句内提交。
      * FTS 是可再生辅助数据，不能放进触发器，否则虚拟表缺失或损坏会回滚主行软删除。
      */
     @Update("CREATE TRIGGER IF NOT EXISTS novel_soft_delete_cleanup"
@@ -393,6 +407,22 @@ public interface NovelMapper {
             + " DELETE FROM novel_translations WHERE novel_id = NEW.novel_id;"
             + " DELETE FROM novel_narration_scripts WHERE novel_id = NEW.novel_id;"
             + " END")
+    @Update(value = """
+            CREATE OR REPLACE FUNCTION novel_soft_delete_cleanup() RETURNS trigger
+            LANGUAGE plpgsql SET search_path FROM CURRENT AS $body$
+            BEGIN
+              DELETE FROM novel_tags WHERE novel_id = NEW.novel_id;
+              DELETE FROM novel_collections WHERE novel_id = NEW.novel_id;
+              DELETE FROM novel_images WHERE novel_id = NEW.novel_id;
+              DELETE FROM novel_translations WHERE novel_id = NEW.novel_id;
+              DELETE FROM novel_narration_scripts WHERE novel_id = NEW.novel_id;
+              RETURN NEW;
+            END
+            $body$;
+            CREATE OR REPLACE TRIGGER novel_soft_delete_cleanup
+            AFTER UPDATE OF deleted ON novels FOR EACH ROW WHEN (NEW.deleted = 1)
+            EXECUTE FUNCTION novel_soft_delete_cleanup()
+            """, databaseId = "postgresql")
     void createNovelSoftDeleteCleanupTrigger();
 
     /** 让触发器接管升级前已软删除行的遗留派生状态；重复执行幂等。 */
@@ -419,10 +449,18 @@ public interface NovelMapper {
     @Select("SELECT novels_fts.rowid FROM novels_fts"
             + " JOIN novels ON novels.novel_id = novels_fts.rowid"
             + " WHERE novels.deleted = 0 AND novels_fts MATCH #{query}")
+    @Select(value = """
+            SELECT novel_id FROM novels WHERE deleted = 0
+            AND strpos(lower(raw_content COLLATE "pg_c_utf8"),
+                lower(replace(substring(#{query}, 2, char_length(#{query}) - 2),
+                    '""', '"') COLLATE "pg_c_utf8")) > 0
+            """, databaseId = "postgresql")
     List<Long> searchNovelFtsIds(@Param("query") String query);
 
     /** 短关键词（trigram 无法索引）回退：直接对 raw_content 做 LIKE 子串扫描。 */
     @Select("SELECT novel_id FROM novels WHERE deleted = 0 AND raw_content LIKE #{like} ESCAPE '\\'")
+    @Select(value = "SELECT novel_id FROM novels WHERE deleted = 0 AND raw_content ILIKE #{like} ESCAPE '\\'",
+            databaseId = "postgresql")
     List<Long> findNovelIdsByContentLike(@Param("like") String like);
 
     @Update("UPDATE novel_series SET updated_time = updated_time * 1000"
@@ -431,6 +469,9 @@ public interface NovelMapper {
 
     @Insert("INSERT OR REPLACE INTO novel_images(novel_id, image_id, ext)"
             + " VALUES(#{novelId}, #{imageId}, #{ext})")
+    @Insert(value = "INSERT INTO novel_images(novel_id, image_id, ext)"
+            + " VALUES(#{novelId}, #{imageId}, #{ext})"
+            + " ON CONFLICT(novel_id, image_id) DO UPDATE SET ext = excluded.ext", databaseId = "postgresql")
     void insertNovelImage(@Param("novelId") long novelId,
                           @Param("imageId") String imageId,
                           @Param("ext") String ext);
@@ -491,7 +532,7 @@ public interface NovelMapper {
 
     @Select(SELECT_NOVEL
             + " WHERE series_id = #{seriesId} AND series_id > 0 AND deleted = 0"
-            + " ORDER BY series_order ASC, time ASC")
+            + " ORDER BY series_order ASC NULLS FIRST, time ASC")
     List<NovelRecord> findBySeriesId(@Param("seriesId") long seriesId);
 
     @Select("SELECT COUNT(*) FROM novels WHERE novel_id = #{novelId} AND deleted = 0")
@@ -507,13 +548,45 @@ public interface NovelMapper {
     long countAll();
 
     @Insert("INSERT OR REPLACE INTO novels"
-            + " (novel_id, title, folder, count, extensions, time, \"R18\", is_ai, author_id, description,"
+            + " (novel_id, title, folder, count, extensions, time, r18, is_ai, author_id, description,"
             + " file_name, file_author_name_id, series_id, series_order,"
             + " word_count, text_length, reading_time_seconds, page_count, is_original, x_language, raw_content, cover_ext)"
             + " VALUES (#{novelId}, #{title}, #{folder}, #{count}, #{extensions}, #{time},"
-            + " #{xRestrict}, #{isAi}, #{authorId}, #{description},"
+            + " #{xRestrict}, CAST(#{isAi} AS INTEGER), #{authorId}, #{description},"
             + " #{fileName}, #{fileAuthorNameId}, #{seriesId}, #{seriesOrder},"
-            + " #{wordCount}, #{textLength}, #{readingTimeSeconds}, #{pageCount}, #{isOriginal}, #{xLanguage}, #{rawContent}, #{coverExt})")
+            + " #{wordCount}, #{textLength}, #{readingTimeSeconds}, #{pageCount}, CAST(#{isOriginal} AS INTEGER), #{xLanguage}, #{rawContent}, #{coverExt})")
+    @Insert(value = "WITH replaced_time AS (DELETE FROM novels WHERE time = #{time} AND novel_id <> #{novelId} RETURNING novel_id) "
+            + "INSERT INTO novels"
+            + " (novel_id, title, folder, count, extensions, time, r18, is_ai, author_id, description,"
+            + " file_name, file_author_name_id, series_id, series_order,"
+            + " word_count, text_length, reading_time_seconds, page_count, is_original, x_language, raw_content, cover_ext)"
+            + " SELECT #{novelId}, #{title}, #{folder}, #{count}, #{extensions}, #{time},"
+            + " #{xRestrict}, CAST(#{isAi} AS INTEGER), #{authorId}, #{description},"
+            + " #{fileName}, #{fileAuthorNameId}, #{seriesId}, #{seriesOrder},"
+            + " #{wordCount}, #{textLength}, #{readingTimeSeconds}, #{pageCount}, CAST(#{isOriginal} AS INTEGER), #{xLanguage}, #{rawContent}, #{coverExt} FROM (SELECT count(*) FROM replaced_time) removed"
+            + " ON CONFLICT(novel_id) DO UPDATE SET "
+            + "title = excluded.title, "
+            + "folder = excluded.folder, "
+            + "count = excluded.count, "
+            + "extensions = excluded.extensions, "
+            + "time = excluded.time, "
+            + "r18 = excluded.r18, "
+            + "is_ai = excluded.is_ai, "
+            + "author_id = excluded.author_id, "
+            + "description = excluded.description, "
+            + "file_name = excluded.file_name, "
+            + "file_author_name_id = excluded.file_author_name_id, "
+            + "series_id = excluded.series_id, "
+            + "series_order = excluded.series_order, "
+            + "word_count = excluded.word_count, "
+            + "text_length = excluded.text_length, "
+            + "reading_time_seconds = excluded.reading_time_seconds, "
+            + "page_count = excluded.page_count, "
+            + "is_original = excluded.is_original, "
+            + "x_language = excluded.x_language, "
+            + "raw_content = excluded.raw_content, "
+            + "cover_ext = excluded.cover_ext, "
+            + "deleted = DEFAULT, upload_time = DEFAULT, file_base_name = DEFAULT, file_name_max_length = DEFAULT, metadata_json = DEFAULT", databaseId = "postgresql")
     void insertOrReplace(@Param("novelId") long novelId,
                          @Param("title") String title,
                          @Param("folder") String folder,
@@ -566,6 +639,9 @@ public interface NovelMapper {
 
     @Insert("INSERT OR IGNORE INTO novel_series(series_id, title, author_id, updated_time)"
             + " VALUES(#{id}, #{title}, #{authorId}, #{updatedTime})")
+    @Insert(value = "INSERT INTO novel_series(series_id, title, author_id, updated_time)"
+            + " VALUES(#{id}, #{title}, #{authorId}, #{updatedTime})"
+            + " ON CONFLICT DO NOTHING", databaseId = "postgresql")
     int insertSeriesIfAbsent(@Param("id") long id,
                              @Param("title") String title,
                              @Param("authorId") Long authorId,
@@ -597,13 +673,15 @@ public interface NovelMapper {
             + " s.author_id AS authorId, COUNT(*) AS novelCount, s.cover_ext AS coverExt"
             + " FROM novels n LEFT JOIN novel_series s ON s.series_id = n.series_id"
             + " WHERE n.deleted = 0 AND n.series_id IS NOT NULL AND n.series_id > 0"
-            + " GROUP BY n.series_id, s.title, s.author_id, s.cover_ext"
+            + " GROUP BY n.series_id, s.series_id, s.title, s.author_id, s.cover_ext"
             + " ORDER BY n.series_id")
     List<NovelSeriesCatalogRow> findNovelSeriesCatalog();
 
     // ── Tags ────────────────────────────────────────────────────────────────────
 
     @Insert("INSERT OR IGNORE INTO novel_tags(novel_id, tag_id) VALUES(#{novelId}, #{tagId})")
+    @Insert(value = "INSERT INTO novel_tags(novel_id, tag_id) VALUES(#{novelId}, #{tagId})"
+            + " ON CONFLICT DO NOTHING", databaseId = "postgresql")
     void insertNovelTag(@Param("novelId") long novelId, @Param("tagId") long tagId);
 
     @Delete("DELETE FROM novel_tags WHERE novel_id = #{novelId}")
@@ -615,6 +693,8 @@ public interface NovelMapper {
     // ── Novel series tags ───────────────────────────────────────────────────────
 
     @Insert("INSERT OR IGNORE INTO novel_series_tags(series_id, tag_id) VALUES(#{seriesId}, #{tagId})")
+    @Insert(value = "INSERT INTO novel_series_tags(series_id, tag_id) VALUES(#{seriesId}, #{tagId})"
+            + " ON CONFLICT DO NOTHING", databaseId = "postgresql")
     void insertNovelSeriesTag(@Param("seriesId") long seriesId, @Param("tagId") long tagId);
 
     @Delete("DELETE FROM novel_series_tags WHERE series_id = #{seriesId}")

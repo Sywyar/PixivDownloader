@@ -32,6 +32,7 @@ public class NovelDatabase {
      * {@code INSERT OR REPLACE} 互相覆盖导致已写入的行丢失。
      */
     private final AtomicLong lastIssuedTime = new AtomicLong(0);
+    private boolean contentScan;
 
     /**
      * 非 DDL 初始化：宿主受管 schema 在外置插件 child context 创建前已经就绪，这里只保留
@@ -39,18 +40,21 @@ public class NovelDatabase {
      */
     @PostConstruct
     public void init() {
+        contentScan = novelMapper.usesContentScan();
         novelMapper.createNovelSoftDeleteCleanupTrigger();
         novelMapper.cleanupExistingDeletedNovelState();
-        // FTS 是可再生辅助数据，其 DDL、陈旧行回收或回填失败都不能阻断插件启动或主表软删除。
-        try { novelMapper.createNovelFtsTable(); } catch (Exception e) {
-            log.warn("Failed to initialize novel full-text index: {}", e.getMessage());
-        }
-        try { novelMapper.deleteDeletedNovelFts(); } catch (Exception e) {
-            log.warn("Failed to remove deleted novels from full-text index: {}", e.getMessage());
-        }
-        // 回填尚未建索引的正文（辅助数据，失败不应阻断启动）
-        try { novelMapper.backfillNovelFts(); } catch (Exception e) {
-            log.warn("Failed to backfill novel full-text index: {}", e.getMessage());
+        if (!contentScan) {
+            // FTS 是可再生辅助数据，其 DDL、陈旧行回收或回填失败都不能阻断插件启动或主表软删除。
+            try { novelMapper.createNovelFtsTable(); } catch (Exception e) {
+                log.warn("Failed to initialize novel full-text index: {}", e.getMessage());
+            }
+            try { novelMapper.deleteDeletedNovelFts(); } catch (Exception e) {
+                log.warn("Failed to remove deleted novels from full-text index: {}", e.getMessage());
+            }
+            // 回填尚未建索引的正文（辅助数据，失败不应阻断启动）
+            try { novelMapper.backfillNovelFts(); } catch (Exception e) {
+                log.warn("Failed to backfill novel full-text index: {}", e.getMessage());
+            }
         }
         novelMapper.migrateNovelTimestampsToMillis();
         novelMapper.migrateNovelCollectionTimestampsToMillis();
@@ -121,6 +125,7 @@ public class NovelDatabase {
 
     /** 重建单本小说的全文索引行；正文索引是辅助数据，失败仅记日志、不影响下载落库。 */
     private void syncNovelFts(long novelId, String rawContent) {
+        if (contentScan) return;
         try {
             novelMapper.deleteNovelFts(novelId);
             novelMapper.insertNovelFts(novelId, rawContent == null ? "" : rawContent);
@@ -143,8 +148,8 @@ public class NovelDatabase {
     }
 
     /**
-     * 正文全文检索，返回命中的小说 ID。trigram 索引要求查询串至少 3 个字符；更短关键词回退到
-     * {@code raw_content} 的 LIKE 子串扫描。正文读取与 FTS 查询均保持在小说插件持久化层。
+     * 正文子串检索：SQLite 对至少三个字符的关键词使用 trigram 索引；短关键词及 PostgreSQL
+     * 直接扫描正文。通配符始终作为字面量，软删除记录不参与结果。
      */
     public Set<Long> searchNovelContentIds(String term) {
         if (term == null) return Collections.emptySet();

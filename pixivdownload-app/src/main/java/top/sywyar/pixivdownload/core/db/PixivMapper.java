@@ -35,16 +35,21 @@ public interface PixivMapper {
     Integer findNovelFileNameMaxLength(long id);
 
     String SELECT_ARTWORK = "SELECT artwork_id, title, folder, count, extensions, time, moved,"
-            + " move_folder, move_time, \"R18\" AS x_restrict, is_ai, author_id, description, file_name, file_author_name_id,"
+            + " move_folder, move_time, r18 AS x_restrict, is_ai, author_id, description, file_name, file_author_name_id,"
             + " series_id, series_order, deleted, upload_time, is_original FROM artworks";
 
     // ── 种子数据与幂等数据迁移（建表 / 补列 / 索引 DDL 统一由 DatabaseInitializer 执行）──
 
     @Insert("INSERT OR IGNORE INTO file_name_templates(id, template) VALUES(1, #{template})")
+    @Insert(value = "WITH reserved AS (SELECT nextval(pg_get_serial_sequence('file_name_templates', 'id')) AS id)"
+            + " INSERT INTO file_name_templates(id, template) SELECT 1, #{template}"
+            + " FROM reserved WHERE id IS NOT NULL ON CONFLICT DO NOTHING", databaseId = "postgresql")
     void ensureDefaultFileNameTemplate(@Param("template") String template);
 
     @Insert("INSERT OR IGNORE INTO statistics (id, total_artworks, total_images, total_moved)"
             + " VALUES (1, 0, 0, 0)")
+    @Insert(value = "INSERT INTO statistics (id, total_artworks, total_images, total_moved)"
+            + " VALUES (1, 0, 0, 0) ON CONFLICT DO NOTHING", databaseId = "postgresql")
     void initStatistics();
 
     @Update("UPDATE artworks SET time = time * 1000"
@@ -56,6 +61,7 @@ public interface PixivMapper {
     int migrateArtworkMoveTimestampsToMillis();
 
     @Insert("INSERT OR IGNORE INTO file_name_templates(template) VALUES(#{template})")
+    @Insert(value = "INSERT INTO file_name_templates(template) VALUES(#{template}) ON CONFLICT DO NOTHING", databaseId = "postgresql")
     void insertFileNameTemplateIfAbsent(@Param("template") String template);
 
     @Select("SELECT id FROM file_name_templates WHERE template = #{template}")
@@ -78,6 +84,7 @@ public interface PixivMapper {
     // ── Author names ────────────────────────────────────────────────────────────
 
     @Insert("INSERT OR IGNORE INTO file_author_names(name) VALUES(#{name})")
+    @Insert(value = "INSERT INTO file_author_names(name) VALUES(#{name}) ON CONFLICT DO NOTHING", databaseId = "postgresql")
     void insertFileAuthorNameIfAbsent(@Param("name") String name);
 
     @Select("SELECT id FROM file_author_names WHERE name = #{name}")
@@ -103,10 +110,15 @@ public interface PixivMapper {
     List<ArtworkRecord> findByIds(@Param("ids") Collection<Long> ids);
 
     @Insert("INSERT OR IGNORE INTO artworks"
-            + " (artwork_id, title, folder, count, extensions, time, \"R18\", is_ai, author_id, description, file_name, file_author_name_id,"
+            + " (artwork_id, title, folder, count, extensions, time, r18, is_ai, author_id, description, file_name, file_author_name_id,"
             + " series_id, series_order)"
-            + " VALUES (#{artworkId}, #{title}, #{folder}, #{count}, #{extensions}, #{time}, #{xRestrict}, #{isAi}, #{authorId}, #{description},"
+            + " VALUES (#{artworkId}, #{title}, #{folder}, #{count}, #{extensions}, #{time}, #{xRestrict}, CAST(#{isAi} AS INTEGER), #{authorId}, #{description},"
             + " #{fileName}, #{fileAuthorNameId}, #{seriesId}, #{seriesOrder})")
+    @Insert(value = "INSERT INTO artworks"
+            + " (artwork_id, title, folder, count, extensions, time, r18, is_ai, author_id, description, file_name, file_author_name_id,"
+            + " series_id, series_order)"
+            + " VALUES (#{artworkId}, #{title}, #{folder}, #{count}, #{extensions}, #{time}, #{xRestrict}, CAST(#{isAi} AS INTEGER), #{authorId}, #{description},"
+            + " #{fileName}, #{fileAuthorNameId}, #{seriesId}, #{seriesOrder}) ON CONFLICT DO NOTHING", databaseId = "postgresql")
     void insertOrIgnore(@Param("artworkId") long artworkId,
                         @Param("title") String title,
                         @Param("folder") String folder,
@@ -143,8 +155,8 @@ public interface PixivMapper {
     // 其余字段仅在当前为 NULL 时覆盖。用于 pixiv-batch 两阶段恢复的 metadata 回填。
     @Update("UPDATE artworks SET"
             + "  title = CASE WHEN title IS NULL OR title = '' THEN #{title} ELSE title END,"
-            + "  \"R18\" = COALESCE(\"R18\", #{xRestrict}),"
-            + "  is_ai = COALESCE(is_ai, #{isAi}),"
+            + "  r18 = COALESCE(r18, #{xRestrict}),"
+            + "  is_ai = COALESCE(is_ai, CAST(#{isAi} AS INTEGER)),"
             + "  author_id = COALESCE(author_id, #{authorId}),"
             + "  description = CASE WHEN description IS NULL OR description = '' THEN #{description} ELSE description END"
             + " WHERE artwork_id = #{artworkId}")
@@ -158,8 +170,8 @@ public interface PixivMapper {
     /** 成功重下后刷新有效元数据；null 表示保留已有字段。 */
     @Update("UPDATE artworks SET"
             + " title = COALESCE(#{title}, title),"
-            + " \"R18\" = COALESCE(#{xRestrict}, \"R18\"),"
-            + " is_ai = COALESCE(#{isAi}, is_ai),"
+            + " r18 = COALESCE(#{xRestrict}, r18),"
+            + " is_ai = COALESCE(CAST(#{isAi} AS INTEGER), is_ai),"
             + " author_id = COALESCE(#{authorId}, author_id),"
             + " description = COALESCE(#{description}, description),"
             + " file_name = #{fileName},"
@@ -279,6 +291,7 @@ public interface PixivMapper {
     Long findTagIdByName(@Param("name") String name);
 
     @Insert("INSERT OR IGNORE INTO artwork_tags(artwork_id, tag_id) VALUES(#{artworkId}, #{tagId})")
+    @Insert(value = "INSERT INTO artwork_tags(artwork_id, tag_id) VALUES(#{artworkId}, #{tagId}) ON CONFLICT DO NOTHING", databaseId = "postgresql")
     void insertArtworkTag(@Param("artworkId") long artworkId,
                           @Param("tagId") long tagId);
 

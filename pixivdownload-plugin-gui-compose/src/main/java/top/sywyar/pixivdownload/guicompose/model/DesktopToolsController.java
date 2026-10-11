@@ -1057,7 +1057,7 @@ final class DesktopToolsController {
     }
 
     private void loadDefaults() {
-        String databasePath = host.resolveDatabasePath(rootFolder).toString();
+        String databasePath = host.defaultBackfillOptions().dbPath();
         formValues.putIfAbsent("tools.folder.db", databasePath);
         formValues.putIfAbsent("tools.migration.db", databasePath);
         formValues.putIfAbsent("tools.migration.root", rootFolder);
