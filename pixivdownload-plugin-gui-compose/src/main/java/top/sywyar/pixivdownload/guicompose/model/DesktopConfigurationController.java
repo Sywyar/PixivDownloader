@@ -72,6 +72,7 @@ final class DesktopConfigurationController {
     volatile Map<String, ConfigField> fieldBindings = Map.of();
     volatile String configNotice = "";
     volatile TextToken configNoticeToken;
+    volatile TextStyle configNoticeStyle = TextStyle.BODY;
     volatile ActionChoices actionChoices;
     private volatile long actionRevision;
     volatile boolean autoStartSupported;
@@ -172,6 +173,7 @@ final class DesktopConfigurationController {
     void unlockDebug() {
         if (debugUnlocked) return;
         debugUnlocked = true;
+        configNoticeStyle = TextStyle.BODY;
         configNotice = "";
         configNoticeToken = key("gui.config.notice.debug-unlocked");
         owner.rebuild();
@@ -189,6 +191,7 @@ final class DesktopConfigurationController {
     }
 
     void runConfigAction(ConfigAction action) {
+        configNoticeStyle = TextStyle.BODY;
         clearActionChoices();
         long revision = actionRevision;
         var source = actionSource(action);
@@ -207,6 +210,7 @@ final class DesktopConfigurationController {
                         action.owner()
                 );
                 configNoticeToken = actionNotice(action, response);
+                configNoticeStyle = response.is2xx() ? TextStyle.BODY : TextStyle.ERROR;
                 List<String> options = ActionResult.from(response, action.spec().resultSummary())
                         .selectionValues(action.spec().resultSummary());
                 if (!options.isEmpty() && revision == actionRevision && source != null
@@ -214,6 +218,7 @@ final class DesktopConfigurationController {
                     actionChoices = new ActionChoices(action, source, revision, options);
                 }
             } catch (Exception failure) {
+                configNoticeStyle = TextStyle.ERROR;
                 configNoticeToken = appToken(
                         "gui.config.action.notice.failed",
                         action.spec().actionId(),
@@ -248,6 +253,7 @@ final class DesktopConfigurationController {
             host.requireSafeConfigValue(value);
         } catch (java.io.IOException failure) {
             clearActionChoices();
+            configNoticeStyle = TextStyle.ERROR;
             configNoticeToken = appToken("gui.config.action.notice.failed", choices.action().spec().actionId(), "");
             owner.rebuild();
             return;
@@ -402,7 +408,7 @@ final class DesktopConfigurationController {
             setConfigNotice(host.message(
                     "gui.config.market.repo.read-failed",
                     repositories.loadFailure()
-            ));
+            ), TextStyle.ERROR);
             return;
         }
         try {
@@ -465,19 +471,20 @@ final class DesktopConfigurationController {
                     5_000
             ).is2xx();
             if (processRestart) {
-                setConfigNotice(host.message("gui.config.notice.saved-process"));
+                setConfigNotice(host.message("gui.config.notice.saved-process"), TextStyle.SUCCESS);
                 showConfigurationRestartDialog(true);
             } else if (backendRestart) {
-                setConfigNotice(host.message("gui.config.notice.saved"));
+                setConfigNotice(host.message("gui.config.notice.saved"), TextStyle.SUCCESS);
                 showConfigurationRestartDialog(false);
             } else {
-                setConfigNotice(host.message(hotReloaded ? "gui.config.notice.saved-hot" : "gui.config.notice.saved-hot-failed"));
+                setConfigNotice(host.message(hotReloaded ? "gui.config.notice.saved-hot" : "gui.config.notice.saved-hot-failed"),
+                        hotReloaded ? TextStyle.SUCCESS : TextStyle.WARNING);
             }
         } catch (Exception failure) {
             setConfigNotice(host.message(
                     "gui.config.dialog.save-failed.message",
                     safeMessage(failure)
-            ));
+            ), TextStyle.ERROR);
         }
     }
 
@@ -706,20 +713,25 @@ final class DesktopConfigurationController {
 
     private void restartApplicationAfterConfigSave() {
         owner.closeDialog();
-        owner.runBusy(() -> setConfigNotice(host.message(host.restartApplication() ? "gui.config.notice.process-restarting" : "desktop.ui.action.failed")));
+        owner.runBusy(() -> {
+            boolean accepted = host.restartApplication();
+            setConfigNotice(host.message(accepted ? "gui.config.notice.process-restarting" : "desktop.ui.action.failed"),
+                    accepted ? TextStyle.BODY : TextStyle.ERROR);
+        });
     }
 
     private void restartBackendAfterConfigSave() {
         owner.closeDialog();
         try {
             boolean accepted = host.restartBackend(owner::rebuild);
-            setConfigNotice(host.message(accepted ? "gui.config.notice.restarting" : "gui.message.backend-busy"));
+            setConfigNotice(host.message(accepted ? "gui.config.notice.restarting" : "gui.message.backend-busy"),
+                    accepted ? TextStyle.BODY : TextStyle.WARNING);
         } catch (RuntimeException failure) {
             LOG.warn(
                     host.message("gui.status.log.restart-request.failed", safeMessage(failure)),
                     failure
             );
-            setConfigNotice(host.message("gui.message.backend-busy"));
+            setConfigNotice(host.message("gui.message.backend-busy"), TextStyle.ERROR);
         }
         owner.rebuild();
     }
@@ -879,12 +891,12 @@ final class DesktopConfigurationController {
                 Set<FieldKey> stored = new LinkedHashSet<>(storedCredentialFields);
                 stored.remove(field.key());
                 storedCredentialFields = Set.copyOf(stored);
-                setConfigNotice(host.message("desktop.ui.config.secret-cleared"));
+                setConfigNotice(host.message("desktop.ui.config.secret-cleared"), TextStyle.SUCCESS);
             } catch (Exception failure) {
                 setConfigNotice(host.message(
                         "gui.config.dialog.save-failed.message",
                         safeMessage(failure)
-                ));
+                ), TextStyle.ERROR);
             }
         });
     }
@@ -895,7 +907,8 @@ final class DesktopConfigurationController {
             try {
                 host.setAutoStartEnabled(enabled);
                 autoStartEnabled = enabled;
-                setConfigNotice(host.message(enabled ? "gui.config.autostart.notice.enabled" : "gui.config.autostart.notice.disabled"));
+                setConfigNotice(host.message(enabled ? "gui.config.autostart.notice.enabled" : "gui.config.autostart.notice.disabled"),
+                        TextStyle.SUCCESS);
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
                 LOG.warn(
@@ -906,7 +919,7 @@ final class DesktopConfigurationController {
                         ),
                         interrupted
                 );
-                setConfigNotice(host.message("desktop.ui.tools.operation-failed"));
+                setConfigNotice(host.message("desktop.ui.tools.operation-failed"), TextStyle.ERROR);
             } catch (Exception failure) {
                 LOG.warn(
                         host.message(
@@ -916,7 +929,7 @@ final class DesktopConfigurationController {
                         ),
                         failure
                 );
-                setConfigNotice(host.message("desktop.ui.tools.operation-failed"));
+                setConfigNotice(host.message("desktop.ui.tools.operation-failed"), TextStyle.ERROR);
             }
         });
     }
@@ -1160,6 +1173,11 @@ final class DesktopConfigurationController {
     }
 
     private void setConfigNotice(String value) {
+        setConfigNotice(value, TextStyle.BODY);
+    }
+
+    private void setConfigNotice(String value, TextStyle style) {
+        configNoticeStyle = style;
         configNotice = nullToEmpty(value);
         configNoticeToken = null;
     }

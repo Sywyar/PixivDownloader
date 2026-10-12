@@ -8,6 +8,8 @@ import top.sywyar.pixivdownload.bootstrapprobe.BackendRestartProbePlugin;
 import top.sywyar.pixivdownload.plugin.install.PluginDependencyResolver;
 import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
+import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession;
+import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginEnabledSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
@@ -32,7 +34,7 @@ class ProcessRestartRemovalIntegrationTest {
 
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(strings = {"hot-reload", "backend-restart", "process-restart"})
-    @DisplayName("多模块开发安装真实包后仅保存，相同模式重启不加载，正常模式经信任校验后加载")
+    @DisplayName("多模块开发安装真实包按生命周期激活，重启后继续校验并加载")
     void developmentStorageAndRestartMatchLoadingContract(String policy) throws Exception {
         var enabled = top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts.ENABLED_PROPERTY;
         var root = top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts.ROOT_PROPERTY;
@@ -41,38 +43,86 @@ class ProcessRestartRemovalIntegrationTest {
         System.setProperty(root, home.toString());
         String id = new BackendRestartProbeFeaturePlugin().id();
         Path plugins = home.resolve("plugins");
-        try (var installer = new ExternalPluginInstaller(plugins)) {
-            installer.recoverPendingTransactions();
+        try {
             Path source = packageFile(id, "7.2.0", policy);
-            var runtime = new PluginRuntimeManager(plugins);
-            try {
-                var coordinator = coordinator(runtime, installer);
+            try (var session = PluginBootstrapSession.createContext(plugins, PluginEnabledSnapshot.empty()).start()) {
+                var installer = session.installer();
+                var runtime = session.manager();
+                var footprint = mock(PluginLifecycleService.class);
+                when(footprint.phase(id)).thenAnswer(ignored -> runtime.packagePhases().containsKey(id)
+                        ? java.util.Optional.of(PluginRuntimePhase.valueOf(runtime.packagePhases().get(id).name()))
+                        : java.util.Optional.empty());
+                var coordinator = new ExternalPluginLifecycleCoordinator(runtime, footprint, installer,
+                        mock(RecoveryModeService.class), new PluginDependencyResolver(installer));
                 var result = coordinator.installOrUpdate(source, false,
                         PluginPackageOrigin.localUnsignedUpload(PluginPackageIntegrity.sha256Hex(source)));
                 assertThat(result.installResult().accepted()).as("%s", result).isTrue();
-                assertThat(result.activated()).isFalse();
+                assertThat(result.activated()).isEqualTo(!"process-restart".equals(policy));
                 assertThat(installer.listInstalled()).hasSize(1);
                 assertThat(PluginPackageIntegrity.sha256Hex(installer.listInstalled().get(0).path()))
                         .isEqualTo(PluginPackageIntegrity.sha256Hex(source));
-                runtime.start();
-                assertThat(runtime.loadedDescriptors()).isEmpty();
-            } finally { runtime.shutdown(); }
-            var restarted = new PluginRuntimeManager(plugins);
-            try {
-                restarted.start();
-                assertThat(restarted.loadedDescriptors()).isEmpty();
-            } finally { restarted.shutdown(); }
-            Path standalone = home.resolve("standalone/src/main/resources/plugin.properties");
-            Files.createDirectories(standalone.getParent());
-            Files.writeString(standalone, "plugin.id=source-project", StandardCharsets.UTF_8);
-            System.setProperty(root, home.resolve("standalone").toString());
-            assertThat(coordinator(new PluginRuntimeManager(plugins), installer).ignoresInstalledArtifacts()).isFalse();
+                assertThat(runtime.loadedDescriptor(id).isPresent()).isEqualTo(!"process-restart".equals(policy));
+            }
+            try (var session = PluginBootstrapSession.createContext(plugins, PluginEnabledSnapshot.empty()).start()) {
+                assertThat(session.manager().loadedDescriptor(id)).isPresent();
+                assertThat(session.status().failures()).isEmpty();
+            }
             System.setProperty(enabled, "false");
-            var normal = new PluginRuntimeManager(plugins);
-            try {
-                normal.start();
-                assertThat(normal.loadedDescriptor(id).orElseThrow().version()).isEqualTo("7.2.0");
-            } finally { normal.shutdown(); }
+            try (var session = PluginBootstrapSession.createContext(plugins, PluginEnabledSnapshot.empty()).start()) {
+                assertThat(session.manager().loadedDescriptor(id).orElseThrow().version()).isEqualTo("7.2.0");
+            }
+        } finally {
+            if (oldEnabled == null) System.clearProperty(enabled); else System.setProperty(enabled, oldEnabled);
+            if (oldRoot == null) System.clearProperty(root); else System.setProperty(root, oldRoot);
+        }
+    }
+
+    @Test
+    @DisplayName("安装同名包保留调试源码的代次，重启后按来源冲突拒绝加载")
+    void installationPreservesSourceGenerationAndRestartReportsConflict() throws Exception {
+        var enabled = top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts.ENABLED_PROPERTY;
+        var root = top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts.ROOT_PROPERTY;
+        String oldEnabled = System.getProperty(enabled), oldRoot = System.getProperty(root);
+        System.setProperty(enabled, "true");
+        System.setProperty(root, home.toString());
+        String id = new BackendRestartProbeFeaturePlugin().id();
+        Path plugins = home.resolve("plugins");
+        Path source = packageFile(id, "7.2.0", "hot-reload");
+        Path module = home.resolve("source-module");
+        Path classes = module.resolve("target/classes");
+        try {
+            try (var zip = new java.util.zip.ZipFile(source.toFile())) {
+                for (var entry : java.util.Collections.list(zip.entries())) {
+                    Path target = classes.resolve(entry.getName());
+                    Files.createDirectories(target.getParent());
+                    try (var input = zip.getInputStream(entry)) { Files.copy(input, target); }
+                }
+            }
+            Path descriptor = module.resolve("src/main/resources/plugin.properties");
+            Files.createDirectories(descriptor.getParent());
+            Files.copy(classes.resolve("plugin.properties"), descriptor);
+            try (var installer = new ExternalPluginInstaller(plugins)) {
+                installer.recoverPendingTransactions();
+                var runtime = new PluginRuntimeManager(plugins);
+                try {
+                    assertThat(runtime.start().failures()).isEmpty();
+                    long generation = runtime.generation(id).orElseThrow();
+                    var result = coordinator(runtime, installer).installOrUpdate(source, false,
+                            PluginPackageOrigin.localUnsignedUpload(PluginPackageIntegrity.sha256Hex(source)));
+                    assertThat(result.installResult().accepted()).isTrue();
+                    assertThat(result.activated()).isFalse();
+                    assertThat(runtime.isDevelopmentArtifact(id)).isTrue();
+                    assertThat(runtime.generation(id)).contains(generation);
+                    assertThat(runtime.artifactPath(id)).contains(classes.toAbsolutePath());
+                } finally { runtime.shutdown(); }
+                var restarted = new PluginRuntimeManager(plugins);
+                try {
+                    var status = restarted.start();
+                    assertThat(status.loadedPluginIds()).isEmpty();
+                    assertThat(status.failures()).hasSize(2)
+                            .allSatisfy(failure -> assertThat(failure.phase()).isEqualTo("plugin-conflict"));
+                } finally { restarted.shutdown(); }
+            }
         } finally {
             if (oldEnabled == null) System.clearProperty(enabled); else System.setProperty(enabled, oldEnabled);
             if (oldRoot == null) System.clearProperty(root); else System.setProperty(root, oldRoot);

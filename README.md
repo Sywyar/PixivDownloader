@@ -134,6 +134,10 @@ java '-Dloader.main=top.sywyar.pixivdownload.migration.DatabaseMigration' -cp '<
 
 ---
 
+## 插件开发模式
+
+显式启用 `dev-mode` 时，程序同时加载当前开发构建的源码输出与 `plugins/` 中通过校验的安装包。两种来源共同检查依赖；同一插件 ID 来自多个位置时，冲突的副本均不会加载，恢复界面会列出来源及处理建议。调试源码时移出同名安装包；使用安装包时从开发构建中排除同名源码模块，处理后重启。
+
 ## 在线文档
 
 详细的安装步骤、使用指南、配置参考、开发指南等请查阅[在线文档](https://sywyar.github.io/PixivDownloader/#/zh-cn/)，也可切换到[繁體中文文檔](https://sywyar.github.io/PixivDownloader/#/zh-hant/)。各章节快速跳转：

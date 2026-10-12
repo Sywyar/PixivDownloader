@@ -19,7 +19,6 @@ import top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationServ
 import top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogTrustStateStore.RevocationSnapshot;
 import org.springframework.beans.factory.annotation.Autowired;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginDiagnostic;
-import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginInventorySnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginSnapshot;
@@ -233,7 +232,7 @@ public class PluginMarketService {
     private InstalledState installedVersionsById() {
         long epoch = lifecycle == null ? 0 : lifecycle.lifecycleMutationEpoch();
         var gate = pluginStatusService.recoveryGateSnapshot();
-        boolean enabled = installer == null || PluginDevelopmentArtifacts.usesInstalledArtifacts(installer.pluginsDirectory());
+        boolean enabled = true;
         boolean readable = installer != null && gate != null && gate.safeToScan() && (epoch & 1L) == 0L;
         InstalledPluginInventorySnapshot inventory = null;
         if (readable) {

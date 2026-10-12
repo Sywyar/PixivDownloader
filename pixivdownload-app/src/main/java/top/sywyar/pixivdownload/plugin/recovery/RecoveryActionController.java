@@ -75,7 +75,7 @@ public class RecoveryActionController {
                 errors.add(failure.toString());
             }
         }
-        var guidance = RecoveryGuidance.from(gate, guiFailure, report, errors);
+        var guidance = RecoveryGuidance.from(gate, guiFailure, report, errors, plugins.runtimeLoadFailures());
         return ResponseEntity.ok(new RecoveryView(active, recoveryMode, noGui,
                 active && NetworkUtils.isTrustedLocalRequest(request),
                 !gate.safeToScan(),

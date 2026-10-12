@@ -148,6 +148,10 @@ proxy](https://sywyar.github.io/PixivDownloader/#/en/configuration).
 
 ---
 
+## Plugin development mode
+
+With `dev-mode` explicitly enabled, the application loads source outputs from the current development build alongside verified packages in `plugins/`. Dependencies are checked across both sources. If multiple locations provide the same plugin ID, none of the conflicting copies are loaded; the recovery interface lists the sources and suggested actions. Move the duplicate installed package out when debugging source, or exclude the matching source module from the development build when using the package, then restart.
+
 ## Online Documentation
 
 For detailed installation steps, usage guides, configuration reference, and development guides, see the

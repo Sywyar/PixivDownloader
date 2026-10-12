@@ -163,9 +163,9 @@ public class PluginInstallService {
     private PluginInstallReport toReport(PluginActivationResult activation) {
         PluginInstallResult result = activation.installResult();
         PluginDescriptor descriptor = result.descriptor();
-        // 多模块开发不读取落盘包；其余模式下只有尚未激活的进程重启插件需要等待重启。
+        // 源码冲突需先处理；其余尚未激活的进程重启插件可在下次启动加载。
         boolean effectiveAfterRestart = result.accepted()
-                && !activation.activated() && !coordinator.ignoresInstalledArtifacts()
+                && !activation.activated() && !coordinator.activationBlockedByDevelopment(descriptor)
                 && descriptor != null
                 && descriptor.lifecyclePolicy().requiresProcessRestart();
         List<PluginDependencyProblem> problems = activation.dependencyProblems().isEmpty()
@@ -181,7 +181,7 @@ public class PluginInstallService {
                 activation.activated() && result.previousVersion() != null
                         && result.outcome() != PluginInstallOutcome.DUPLICATE,
                 List.of(),
-                result.trustRequirement(), result.accepted() && coordinator.ignoresInstalledArtifacts());
+                result.trustRequirement(), result.accepted() && coordinator.activationBlockedByDevelopment(descriptor));
     }
 
     /** 描述符声明的插件间依赖投影（描述符不可读时为空列表）。 */

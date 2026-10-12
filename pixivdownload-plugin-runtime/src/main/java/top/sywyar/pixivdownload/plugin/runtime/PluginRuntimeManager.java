@@ -250,38 +250,27 @@ public class PluginRuntimeManager {
         Path directory = pluginsRoot.toAbsolutePath().normalize();
         resetPluginManager();
 
-        boolean usesInstalledArtifacts = PluginDevelopmentArtifacts.usesInstalledArtifacts(directory);
-        boolean standaloneDevelopment = PluginDevelopmentArtifacts.enabled() && usesInstalledArtifacts;
-        if (!usesInstalledArtifacts) {
-            try {
-                beforeProductionScan(directory);
-            } catch (IOException | RuntimeException e) {
-                return cache(new PluginRuntimeStatus(directory, PluginDirectoryState.EMPTY,
-                        List.of(), List.of(), List.of(new PluginLoadFailure(directory.toString(), describe(e)))));
-            }
-            return startDevelopmentMode(directory, new ArrayList<>(), List.of());
-        }
-
+        boolean development = PluginDevelopmentArtifacts.enabled();
         PluginArtifactScanner.ScanResult scan;
         try {
             BasicFileAttributes rootAttributes = attributesIfPresent(directory);
-            if (rootAttributes == null) {
+            if (rootAttributes == null && !development) {
                 return cache(new PluginRuntimeStatus(directory, PluginDirectoryState.ABSENT,
                         List.of(), List.of(), List.of()));
             }
-            if (!rootAttributes.isDirectory()
+            if (rootAttributes != null && !rootAttributes.isDirectory()
                     && !rootAttributes.isSymbolicLink() && !rootAttributes.isOther()) {
                 return cache(new PluginRuntimeStatus(directory, PluginDirectoryState.ABSENT,
                         List.of(), List.of(), List.of()));
             }
-            if (rootAttributes.isSymbolicLink() || rootAttributes.isOther()) {
+            if (rootAttributes != null && (rootAttributes.isSymbolicLink() || rootAttributes.isOther())) {
                 throw new IOException("plugins root must be a plain directory: " + directory);
             }
-            prepareProductionScan(directory);
-            if (standaloneDevelopment) {
-                ensureDevelopmentCacheSession(PluginDevelopmentArtifacts.discover(directory).cacheRoot());
+            beforeProductionScan(directory);
+            if (attributesIfPresent(directory) != null) {
+                workspaceOwner.secureLoadingRoots();
+                workspaceOwner.cleanupAbandoned(packageIndex.isEmpty());
             }
-            workspaceOwner.cleanupAbandoned(packageIndex.isEmpty());
             scan = PluginArtifactScanner.scan(directory);
         } catch (IOException | RuntimeException e) {
             return cache(new PluginRuntimeStatus(directory, PluginDirectoryState.EMPTY,
@@ -295,7 +284,7 @@ public class PluginRuntimeManager {
             failures.add(failure);
             log.error("Rejected plugin package candidate {}: {}", failure.source(), failure.reason());
         }
-        if (candidates.isEmpty() && !standaloneDevelopment) {
+        if (candidates.isEmpty() && !development) {
             return cache(new PluginRuntimeStatus(directory, PluginDirectoryState.EMPTY,
                     List.of(), List.of(), failures));
         }
@@ -356,9 +345,22 @@ public class PluginRuntimeManager {
                     log.error("Failed to prepare plugin package {}: {}", candidate.getFileName(), failure.reason());
                 }
             }
-            PluginArtifactLoadPlan loadPlan = PluginArtifactLoadPlan.createInspected(preparedCandidates.stream()
-                    .map(PreparedPluginArtifact::loadPlanEntry)
-                    .toList());
+            List<PluginArtifactLoadPlan.Entry> entries = new ArrayList<>(preparedCandidates.stream()
+                    .map(PreparedPluginArtifact::loadPlanEntry).toList());
+            Map<Path, PluginDevelopmentArtifacts.MaterializedDevelopmentPlugin> developmentByPath =
+                    new LinkedHashMap<>();
+            if (development) {
+                for (var materialized : prepareDevelopmentArtifacts(directory, failures)) {
+                    developmentByPath.put(materialized.classesDirectory(), materialized);
+                    entries.add(new PluginArtifactLoadPlan.Entry(
+                            materialized.classesDirectory(), materialized.descriptor()));
+                }
+            }
+            PluginArtifactLoadPlan loadPlan = PluginArtifactLoadPlan.createInspected(entries);
+            if (entries.isEmpty() && development) {
+                return cache(new PluginRuntimeStatus(directory, PluginDirectoryState.EMPTY,
+                        List.of(), List.of(), failures, verifications));
+            }
             failures.addAll(loadPlan.failures());
             for (PluginLoadFailure failure : loadPlan.failures()) {
                 log.error("Failed to prepare plugin package {}: {}", failure.source(), failure.reason());
@@ -380,12 +382,19 @@ public class PluginRuntimeManager {
                 }
                 PreparedPluginArtifact prepared = preparedByPath.get(
                         candidate.artifactPath().toAbsolutePath().normalize());
-                if (prepared == null) {
-                    throw new IllegalStateException("prepared plugin artifact disappeared from load plan: "
-                            + candidate.artifactPath());
-                }
                 try {
-                    LoadedPluginPackage loaded = loadPreparedProductionArtifact(prepared);
+                    LoadedPluginPackage loaded;
+                    if (prepared != null) {
+                        loaded = loadPreparedProductionArtifact(prepared);
+                    } else {
+                        var materialized = developmentByPath.get(candidate.artifactPath().toAbsolutePath().normalize());
+                        if (materialized == null) {
+                            throw new IllegalStateException("prepared plugin artifact disappeared from load plan: "
+                                    + candidate.artifactPath());
+                        }
+                        loaded = loadPreparedPlugin(materialized.classesDirectory(), materialized.pf4jLoadPath(),
+                                developmentCacheSession.sessionRoot(), materialized.descriptor(), null);
+                    }
                     initializePlugin(loaded.packageId());
                 } catch (RuntimeException e) {
                     discardFailedInitialization(candidate.pluginId(), e);
@@ -398,9 +407,6 @@ public class PluginRuntimeManager {
             }
         } finally {
             preparedCandidates.forEach(PreparedPluginArtifact::close);
-        }
-        if (standaloneDevelopment) {
-            return startDevelopmentMode(directory, failures, verifications);
         }
         return startLoadedPlugins(directory, failures, verifications);
     }
@@ -469,29 +475,19 @@ public class PluginRuntimeManager {
                 session.sessionRoot(), materialized.descriptor(), null);
     }
 
-    private PluginRuntimeStatus startDevelopmentMode(Path productionDirectory, List<PluginLoadFailure> failures,
-                                                     List<PluginRuntimeVerificationSnapshot> verifications) {
+    private List<PluginDevelopmentArtifacts.MaterializedDevelopmentPlugin> prepareDevelopmentArtifacts(
+            Path productionDirectory, List<PluginLoadFailure> failures) {
         PluginDevelopmentArtifacts.DevelopmentDiscovery discovery;
         try {
             discovery = PluginDevelopmentArtifacts.discover(pluginsRoot);
         } catch (RuntimeException e) {
-            return cache(new PluginRuntimeStatus(productionDirectory, PluginDirectoryState.ABSENT,
-                    List.of(), List.of(), List.of(new PluginLoadFailure(
-                    PluginDevelopmentArtifacts.ROOT_PROPERTY, describe(e)))));
+            failures.add(new PluginLoadFailure(PluginDevelopmentArtifacts.ROOT_PROPERTY, describe(e)));
+            return List.of();
         }
         PluginDevelopmentDiagnostics.printBanner(productionDirectory, discovery);
-        Path developmentRoot = discovery.developmentRoot();
-        if (!Files.isDirectory(developmentRoot)) {
-            return cache(new PluginRuntimeStatus(developmentRoot, PluginDirectoryState.ABSENT,
-                    List.of(), List.of(), List.of()));
-        }
         failures.addAll(PluginDevelopmentDiagnostics.sourceFailures(discovery));
         if (discovery.artifacts().isEmpty()) {
-            if (packageIndex.isEmpty()) {
-                return cache(new PluginRuntimeStatus(developmentRoot, PluginDirectoryState.EMPTY,
-                        List.of(), List.of(), failures, verifications));
-            }
-            return startLoadedPlugins(developmentRoot, failures, verifications);
+            return List.of();
         }
 
         PluginDevelopmentArtifacts.DevelopmentCacheSession session;
@@ -500,7 +496,7 @@ public class PluginRuntimeManager {
         } catch (RuntimeException e) {
             failures.add(new PluginLoadFailure(discovery.cacheRoot().toString(), describe(e)));
             log.error("Failed to open plugin development cache session {}", discovery.cacheRoot(), e);
-            return startLoadedPlugins(developmentRoot, failures, verifications);
+            return List.of();
         }
         List<PluginDevelopmentArtifacts.MaterializedDevelopmentPlugin> materializedPlugins = new ArrayList<>();
         for (PluginDevelopmentArtifacts.DevelopmentPluginArtifact artifact : discovery.artifacts()) {
@@ -512,25 +508,7 @@ public class PluginRuntimeManager {
                         artifact.moduleRoot().getFileName(), e);
             }
         }
-        for (PluginDevelopmentArtifacts.MaterializedDevelopmentPlugin materialized
-                : PluginDevelopmentArtifacts.dependencyOrder(materializedPlugins)) {
-            if (packageIndex.contains(materialized.descriptor().id())) {
-                failures.add(new PluginLoadFailure(materialized.descriptor().id(),
-                        "plugin package already loaded: " + materialized.descriptor().id()));
-                continue;
-            }
-            try {
-                LoadedPluginPackage loaded = loadPreparedPlugin(materialized.classesDirectory(),
-                        materialized.pf4jLoadPath(), session.sessionRoot(), materialized.descriptor(), null);
-                initializePlugin(loaded.packageId());
-            } catch (RuntimeException e) {
-                discardFailedInitialization(materialized.descriptor().id(), e);
-                failures.add(new PluginLoadFailure(materialized.descriptor().id(), describe(e)));
-                log.error("Failed to load development plugin module {}",
-                        materialized.moduleRoot().getFileName(), e);
-            }
-        }
-        return startLoadedPlugins(developmentRoot, failures, verifications);
+        return materializedPlugins;
     }
 
     private void discardFailedInitialization(String packageId, RuntimeException failure) {
@@ -1104,11 +1082,6 @@ public class PluginRuntimeManager {
     /** bootstrap 子类可在扫描或任意单包加载（含开发目录）触碰 entry 前取得并复核跨进程目录租约。 */
     protected void beforeProductionScan(Path directory) throws IOException {
         // 默认 manager 没有 bootstrap 会话所有权；生产会话子类覆写。
-    }
-
-    private void prepareProductionScan(Path directory) throws IOException {
-        beforeProductionScan(directory);
-        workspaceOwner.secureLoadingRoots();
     }
 
     /**

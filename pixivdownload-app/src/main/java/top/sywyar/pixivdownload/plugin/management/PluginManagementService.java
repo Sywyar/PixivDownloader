@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.plugin.management;
 
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
-import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
@@ -446,7 +445,7 @@ public class PluginManagementService {
     }
 
     private Map<String, List<InstalledPluginSnapshot>> installedArtifactsById() {
-        if (installer == null || !PluginDevelopmentArtifacts.usesInstalledArtifacts(installer.pluginsDirectory())) {
+        if (installer == null) {
             return Map.of();
         }
         InstalledPluginInventorySnapshot inventory =

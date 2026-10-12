@@ -221,9 +221,11 @@ internal fun SettingsWorkspace(
                         exit = fadeOut(tween(120)) + shrinkVertically(spring(dampingRatio = 1f))) {
                         Column(Modifier.fillMaxWidth().testTag("settings.savebar")) {
                             Box(Modifier.fillMaxWidth().height(1.dp).background(palette.separator.copy(alpha = .45f)))
-                            if (notice != null) CupertinoText(text(notice.text()), fontSize = 12.sp,
-                                color = if (node.invalidRow().isNotEmpty()) palette.error else palette.secondaryText,
-                                modifier = Modifier.padding(top = 12.dp).semantics { liveRegion = LiveRegionMode.Polite })
+                            if (notice != null) DesktopNotice(
+                                message = text(notice.text()),
+                                style = notice.style(),
+                                modifier = Modifier.padding(top = 12.dp).testTag(notice.id()),
+                            )
                             if (node.changes().isNotEmpty()) {
                                 FlowRow(Modifier.fillMaxWidth().padding(vertical = 16.dp),
                                     horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),

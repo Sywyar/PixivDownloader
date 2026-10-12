@@ -37,13 +37,13 @@ class PluginInstallServiceLifecyclePolicyTest {
 
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.EnumSource(PluginLifecyclePolicy.class)
-    @DisplayName("多模块开发保存所有生命周期类型的包，但不承诺重启生效")
+    @DisplayName("源码冲突时保存所有生命周期类型的包，但不承诺重启生效")
     void developmentStorageDoesNotPromiseActivation(PluginLifecyclePolicy policy) {
         var descriptor = descriptor("stored-plugin", policy);
         var file = Path.of("stored-plugin.jar");
         var origin = PluginPackageOrigin.localUpload();
         when(coordinator.installOrUpdate(file, false, origin)).thenReturn(activation(descriptor, false, null));
-        when(coordinator.ignoresInstalledArtifacts()).thenReturn(true);
+        when(coordinator.activationBlockedByDevelopment(descriptor)).thenReturn(true);
         var report = service().installTrustedFile(file, false, origin);
         assertThat(report.accepted()).isTrue();
         assertThat(report.activated()).isFalse();

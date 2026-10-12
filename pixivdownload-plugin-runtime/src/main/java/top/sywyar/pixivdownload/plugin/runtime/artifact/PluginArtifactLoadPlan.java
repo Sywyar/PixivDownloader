@@ -82,14 +82,16 @@ public final class PluginArtifactLoadPlan {
         for (Map.Entry<String, List<Entry>> group : candidatesById.entrySet()) {
             if (group.getValue().size() > 1) {
                 String sources = group.getValue().stream()
-                        .map(entry -> entry.artifactPath().getFileName().toString())
+                        .map(entry -> entry.artifactPath().toString())
                         .sorted()
                         .collect(java.util.stream.Collectors.joining(", "));
                 String reason = "duplicate plugin id " + group.getKey() + " provided by: " + sources;
                 blockedIds.add(group.getKey());
                 blockReasons.put(group.getKey(), reason);
                 for (Entry duplicate : group.getValue()) {
-                    failures.add(failure(duplicate.artifactPath(), reason));
+                    failures.add(new PluginLoadFailure(duplicate.pluginId(), reason,
+                            top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus.FAILED,
+                            "plugin-conflict", 0L, duplicate.descriptor().version(), 1, null));
                 }
                 continue;
             }

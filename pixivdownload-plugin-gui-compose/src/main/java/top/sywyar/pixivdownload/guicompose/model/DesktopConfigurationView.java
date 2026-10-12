@@ -252,12 +252,13 @@ final class DesktopConfigurationView {
             bottom.add(new DesktopUiNode.Text(
                     "config.notice.plugin",
                     model.configNoticeToken,
-                    TextStyle.CAPTION,
+                    model.configNoticeStyle,
                     true,
                     true
             ));
         } else if (!model.configNotice.isBlank()) {
-            bottom.add(status("config.notice", model.configNotice));
+            bottom.add(new DesktopUiNode.Text("config.notice", DesktopUiNode.TextToken.raw(model.configNotice),
+                    model.configNoticeStyle, true, true));
         }
         return List.copyOf(bottom);
     }

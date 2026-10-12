@@ -37,6 +37,10 @@ final class ExternalPluginRuntimeController {
         return runtimeManager.packagePhases().containsKey(packageId);
     }
 
+    boolean isDevelopmentArtifact(String packageId) {
+        return runtimeManager.isDevelopmentArtifact(packageId);
+    }
+
     boolean requiresProcessRestart(String packageId) {
         return processRestartDescriptor(packageId).isPresent();
     }

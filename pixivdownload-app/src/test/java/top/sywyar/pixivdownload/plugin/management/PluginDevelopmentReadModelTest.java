@@ -42,8 +42,8 @@ class PluginDevelopmentReadModelTest {
     Path root;
 
     @ParameterizedTest
-    @CsvSource({"false,false,true", "true,false,false", "true,true,true"})
-    @DisplayName("状态和 i18n 查询只在正式运行或独立 SDK 工程中扫描已安装包")
+    @CsvSource({"false,false,true", "true,false,true", "true,true,true"})
+    @DisplayName("正式与开发模式的状态、管理和 i18n 查询均包含已安装包")
     void readModelsFollowRuntimeSource(boolean development, boolean standalone, boolean scanInstalled)
             throws Exception {
         String oldEnabled = System.getProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY);

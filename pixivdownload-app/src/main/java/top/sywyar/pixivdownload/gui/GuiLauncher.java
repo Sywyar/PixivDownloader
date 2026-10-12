@@ -499,7 +499,8 @@ public class GuiLauncher {
                 gate,
                 desktopRecoveryFailure,
                 report,
-                errors
+                errors,
+                status.failures()
         );
         var summaries = guidance.localizedErrors(GuiLauncher::message);
         String body = message("recovery.explanation") + "\n\n"
