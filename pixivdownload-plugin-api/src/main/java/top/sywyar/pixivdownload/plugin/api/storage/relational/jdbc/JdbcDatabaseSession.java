@@ -484,14 +484,18 @@ public abstract class JdbcDatabaseSession implements DatabaseSession {
      */
     protected abstract String arithmetic(Expression.Operator operator, String left, String right, boolean integral);
     /**
+     * 生成仅含小写十六进制字符的文本谓词；未实现时在写入前明确拒绝。
+     * @param value 待检查文本的 SQL 表达式
+     * @return 提供者生成的布尔 SQL 表达式
+     */
+    protected String lowerHex(String value) { throw new IllegalArgumentException("STORAGE_OPERATION_UNSUPPORTED"); }
+    /**
      * 将 epoch 毫秒按指定 IANA 时区投影为 yyyy-MM；不使用数据库服务进程的默认时区。
      * @param epochMillis 毫秒时间戳的 SQL 表达式
      * @param fixedOffset 时区参数是否为固定偏移
      * @param zone IANA 时区或固定偏移的 SQL 表达式
      * @return 由提供者生成的 SQL，保留原有参数占位符顺序
      */
-    /** 未实现的文本谓词在写入前明确拒绝。 */
-    protected String lowerHex(String value) { throw new IllegalArgumentException("STORAGE_OPERATION_UNSUPPORTED"); }
     protected abstract String epochMonth(String epochMillis, String zone, boolean fixedOffset);
     private String expression(Expression e, Scope scope, String incomingTable) {
         String resultType = type(e, scope, incomingTable);

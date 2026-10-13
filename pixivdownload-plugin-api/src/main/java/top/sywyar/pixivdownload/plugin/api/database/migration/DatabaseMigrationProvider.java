@@ -65,7 +65,11 @@ public interface DatabaseMigrationProvider {
      * @param rebuildObjects 源端需明确确认重建的辅助对象名
      */
     record Inspection(boolean empty, Set<String> rebuildObjects) {
-        /** 复制辅助对象集合，拒绝 SQL 片段。 */
+        /**
+         * 复制辅助对象集合，拒绝 SQL 片段。
+         * @param empty 端点是否没有业务对象
+         * @param rebuildObjects 源端需明确确认重建的辅助对象名
+         */
         public Inspection {
             rebuildObjects = Set.copyOf(rebuildObjects);
             rebuildObjects.forEach(MigrationSchema::identifier);
